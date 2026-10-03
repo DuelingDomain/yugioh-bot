@@ -15,6 +15,7 @@ export interface AnnounceHandlers {
   onMatchReportPending(payload: OmitKind<Extract<AnnouncePayload, { kind: "match-report-pending" }>>): Promise<void>;
   onMatchResolved(payload: OmitKind<Extract<AnnouncePayload, { kind: "match-resolved" }>>): Promise<void>;
   onTournamentCompleted(payload: OmitKind<Extract<AnnouncePayload, { kind: "tournament-completed" }>>): Promise<void>;
+  onDuelInvite(payload: OmitKind<Extract<AnnouncePayload, { kind: "duel-invite" }>>): Promise<void>;
 }
 
 export function createAnnounceServer(opts: {
@@ -30,6 +31,7 @@ export function createAnnounceServer(opts: {
     "/internal/announce/match-report-pending": (d) => opts.handlers.onMatchReportPending(d),
     "/internal/announce/match-resolved": (d) => opts.handlers.onMatchResolved(d),
     "/internal/announce/tournament-completed": (d) => opts.handlers.onTournamentCompleted(d),
+    "/internal/announce/duel-invite": (d) => opts.handlers.onDuelInvite(d),
   };
 
   async function handle(req: Request): Promise<Response> {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDraftStore } from "../../src/lib/stores/draft-store";
 
@@ -38,17 +38,16 @@ vi.mock("../../src/components/draft/draft-manage-view", () => ({
 vi.mock("../../src/components/draft/draft-summary-view", () => ({
   DraftSummaryView: () => <div data-testid="draft-summary-view">Summary</div>,
 }));
-vi.mock("../../src/components/draft/card-grid", () => ({
-  CardGrid: () => <div data-testid="card-grid">CardGrid</div>,
+vi.mock("../../src/components/draft/room/draft-room", () => ({
+  DraftRoom: () => <div data-testid="draft-room">Room</div>,
 }));
-vi.mock("../../src/components/draft/timer-bar", () => ({
-  TimerBar: () => <div data-testid="timer-bar" />,
-}));
-vi.mock("../../src/components/draft/seat-list", () => ({
-  SeatList: () => <div data-testid="seat-list" />,
-}));
-vi.mock("../../src/components/draft/pool-panel", () => ({
-  PoolPanel: () => <div data-testid="pool-panel" />,
+vi.mock("../../src/components/draft/room/finale", () => ({
+  DraftFinale: ({ onClose, pool }: { onClose: () => void; pool: Array<{ id: number; name: string }> }) => (
+    <button data-testid="draft-finale" onClick={onClose}>
+      Finale
+      {pool.map((card) => <span key={card.id}>{card.name}</span>)}
+    </button>
+  ),
 }));
 
 // ---------------------------------------------------------------------------
@@ -135,39 +134,67 @@ describe("DraftDetailPage — completion transition", () => {
     render(<DraftDetailPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("card-grid")).toBeTruthy();
+      expect(screen.getByTestId("draft-room")).toBeTruthy();
     });
 
     expect(screen.queryByTestId("draft-summary-view")).toBeNull();
     expect(screen.queryByTestId("draft-manage-view")).toBeNull();
   });
 
-  it("keeps the active draft lane anchored while the right pool pane can grow outward", async () => {
+  it("hands the active draft its config and shows the finale, then the summary, when you finish in the room", async () => {
+    let calls = 0;
     global.fetch = vi.fn().mockImplementation((url: string) => {
       if (url === "/api/auth/session") {
         return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
       }
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve(activeDraftResponse),
-      } as Response);
+      calls += 1;
+      const body = calls === 1 ? activeDraftResponse : completedDraftResponse;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(body) } as Response);
     });
-
-    const { container } = render(<DraftDetailPage />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId("card-grid")).toBeTruthy();
+    render(<DraftDetailPage />);
+    await waitFor(() => expect(screen.getByTestId("draft-room")).toBeTruthy());
+    // a pick made in the room lands in the store before the draft completes
+    act(() => {
+      useDraftStore.setState({
+        myPool: [
+          { id: 1, passcode: 100001, name: "A", type: "Effect Monster", frameType: "effect", effectText: "", imageUrl: "", imageUrlSmall: "" },
+        ],
+      });
     });
+    act(() => {
+      useDraftStore.getState().setFromServer({ completed: true });
+    });
+    await waitFor(() => expect(screen.getByTestId("draft-finale")).toBeTruthy());
+    expect(screen.getByTestId("draft-finale").textContent).toContain("A");
+    expect(screen.getByTestId("draft-summary-view")).toBeTruthy();
+    act(() => screen.getByTestId("draft-finale").click());
+    expect(screen.queryByTestId("draft-finale")).toBeNull();
+  });
 
-    const desktopContainers = container.querySelectorAll(".mx-auto");
-    const timerContainer = desktopContainers[0] as HTMLElement | undefined;
-    const pageContainer = desktopContainers[1] as HTMLElement | undefined;
-    const desktopGrid = container.querySelector(".grid.gap-8") as HTMLElement | null;
+  it("uses the completed response pool including the final timer pick", async () => {
+    const firstCard = { id: 1, passcode: 100001, name: "First card", type: "Effect Monster", frameType: "effect", effectText: "", imageUrl: "", imageUrlSmall: "" };
+    const finalCard = { ...firstCard, id: 2, passcode: 100002, name: "Final timer card" };
+    let completed = false;
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      const body = url === "/api/auth/session"
+        ? { user: { id: "user-1" } }
+        : url === "/api/drafts/test-draft/pool"
+          ? { cards: [] }
+          : completed
+            ? { ...completedDraftResponse, myPool: [firstCard, finalCard] }
+            : { ...activeDraftResponse, myPool: [firstCard] };
+      return Promise.resolve({ ok: true, json: async () => body } as Response);
+    });
+    render(<DraftDetailPage />);
+    await waitFor(() => expect(screen.getByTestId("draft-room")).toBeTruthy());
 
-    expect(timerContainer).toHaveClass("max-w-[1800px]");
-    expect(pageContainer).toHaveClass("max-w-[1800px]");
-    expect(desktopGrid).not.toBeNull();
-    expect(desktopGrid).toHaveClass("xl:grid-cols-[15rem_minmax(0,1fr)_clamp(22rem,18rem+12vw,32rem)]");
+    completed = true;
+    const options = vi.mocked(useDraftWebsocket).mock.calls.at(-1)?.[1];
+    act(() => options?.onResync?.());
+
+    await waitFor(() => expect(screen.getByTestId("draft-finale").textContent).toContain("Final timer card"));
+    expect(screen.getByTestId("draft-finale").textContent).toContain("First card");
+    expect(useDraftStore.getState().myPool.map((card) => card.id)).toEqual([1]);
   });
 
   it("transitions to DraftSummaryView when storeCompleted becomes true while draft.status is active", async () => {
@@ -209,11 +236,11 @@ describe("DraftDetailPage — completion transition", () => {
 
     // Wait for initial active view to render
     await waitFor(() => {
-      expect(screen.getByTestId("card-grid")).toBeTruthy();
+      expect(screen.getByTestId("draft-room")).toBeTruthy();
     });
 
     // Simulate pick API response setting completed: true in the store,
-    // as CardGrid.fetchPick would via setFromServer(data).
+    // as the room's pick would via setFromServer(data).
     act(() => {
       useDraftStore.getState().setFromServer({ completed: true });
     });
@@ -224,7 +251,7 @@ describe("DraftDetailPage — completion transition", () => {
       expect(screen.getByTestId("draft-summary-view")).toBeTruthy();
     });
 
-    expect(screen.queryByTestId("card-grid")).toBeNull();
+    expect(screen.queryByTestId("draft-room")).toBeNull();
     expect(draftApiCallCount).toBe(2);
   });
 
@@ -299,7 +326,7 @@ describe("DraftDetailPage — completion transition", () => {
       expect(screen.getByTestId("draft-manage-view")).toBeTruthy();
     });
 
-    expect(screen.queryByTestId("card-grid")).toBeNull();
+    expect(screen.queryByTestId("draft-room")).toBeNull();
     expect(screen.queryByTestId("draft-summary-view")).toBeNull();
   });
 
@@ -322,7 +349,7 @@ describe("DraftDetailPage — completion transition", () => {
     render(<DraftDetailPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("card-grid")).toBeTruthy();
+      expect(screen.getByTestId("draft-room")).toBeTruthy();
     });
 
     const options = vi.mocked(useDraftWebsocket).mock.calls.at(-1)?.[1];
@@ -355,7 +382,7 @@ describe("DraftDetailPage — completion transition", () => {
     render(<DraftDetailPage />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("card-grid")).toBeTruthy();
+      expect(screen.getByTestId("draft-room")).toBeTruthy();
     });
 
     const options = vi.mocked(useDraftWebsocket).mock.calls.at(-1)?.[1];
@@ -367,5 +394,95 @@ describe("DraftDetailPage — completion transition", () => {
     await waitFor(() => {
       expect(draftApiCallCount).toBe(2);
     });
+  });
+});
+
+describe("DraftDetailPage — load failures", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useDraftStore.setState(baseStoreState);
+  });
+
+  const respondWith = (status: number, body: unknown) =>
+    vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/auth/session") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-2" } }) } as Response);
+      }
+      return Promise.resolve({ ok: false, status, json: () => Promise.resolve(body) } as Response);
+    });
+
+  it("shows a private-draft sheet on 403, not a load failure", async () => {
+    global.fetch = respondWith(403, { error: "This draft is only open to its players." });
+
+    render(<DraftDetailPage />);
+
+    expect(await screen.findByRole("heading", { name: "This draft is only open to its players" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "All drafts" }).getAttribute("href")).toBe("/drafts");
+    expect(screen.getByRole("link", { name: "Dashboard" }).getAttribute("href")).toBe("/dashboard");
+    expect(screen.queryByText(/Failed to load draft/)).toBeNull();
+  });
+
+  it("shows a not-found sheet on 404 with the slug in the code element", async () => {
+    global.fetch = respondWith(404, { error: "Draft not found" });
+
+    render(<DraftDetailPage />);
+
+    expect(await screen.findByRole("heading", { name: "No draft at this address" })).toBeTruthy();
+    expect(document.querySelector("code")?.textContent).toBe("/draft/test-draft");
+    expect(screen.getByRole("link", { name: "All drafts" })).toBeTruthy();
+  });
+
+  it("shows a retry sheet on 500 and refetches when Try again is clicked", async () => {
+    const fetchMock = respondWith(500, { error: "boom" });
+    global.fetch = fetchMock;
+    const draftCalls = () => fetchMock.mock.calls.filter(([url]) => url === "/api/drafts/test-draft").length;
+
+    render(<DraftDetailPage />);
+
+    expect(await screen.findByRole("heading", { name: "This draft didn't load" })).toBeTruthy();
+    const before = draftCalls();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
+    });
+
+    await waitFor(() => expect(draftCalls()).toBe(before + 1));
+  });
+
+  it("offers the drafts list next to Try again when the load fails", async () => {
+    global.fetch = respondWith(500, { error: "boom" });
+
+    render(<DraftDetailPage />);
+
+    expect(await screen.findByRole("heading", { name: "This draft didn't load" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Try again/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Drafts" }).getAttribute("href")).toBe("/drafts");
+    expect(screen.queryByText(/tell whoever runs the bot/)).toBeNull();
+  });
+
+  it("keeps the room on screen when a later refresh fails with a server error", async () => {
+    let draftCalls = 0;
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/auth/session") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+      }
+      draftCalls += 1;
+      if (draftCalls === 1) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(activeDraftResponse) } as Response);
+      }
+      return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: "boom" }) } as Response);
+    });
+
+    render(<DraftDetailPage />);
+    await waitFor(() => expect(screen.getByTestId("draft-room")).toBeTruthy());
+
+    // The pick that completes the draft makes the page refresh; that refresh fails.
+    act(() => {
+      useDraftStore.getState().setFromServer({ completed: true });
+    });
+    await waitFor(() => expect(draftCalls).toBeGreaterThanOrEqual(2));
+
+    expect(screen.getByTestId("draft-room")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "This draft didn't load" })).toBeNull();
   });
 });

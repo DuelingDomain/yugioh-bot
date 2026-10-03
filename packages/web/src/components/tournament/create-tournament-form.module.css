@@ -1,0 +1,22 @@
+/* The new tournament form. The foundation sheet draws the ruled sections; this adds the
+   pieces it lacks and moves the summary onto the drawn field. */
+.fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.fieldset legend { padding: 0; }
+.opt:has(input:focus-visible) { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+.hours { display: flex; align-items: center; gap: 10px; color: var(--ink-3); }
+.unnamed { color: var(--ink-3); }
+/* The sheet's narrow rule keys off the whole sheet, so a form in the 300px rail would keep two columns. Fit to our own width. */
+:global(.ms) .fields.fields { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+
+:global(.ms) .sec :global(.mk-side) h2 { font-size: 18px; }
+.draw { display: flex; gap: 6px; margin-top: 4px; }
+
+/* Summary: the drawn field, a plain list, no card. */
+.field { min-width: 0; }
+.sumBody { display: grid; gap: 18px; padding: 22px; min-width: 0; }
+:global(.ms) .sumBody :global(.sum-name) { margin-top: -10px; font: 600 22px/1.25 var(--f-display); }
+:global(.ms) .sumBody :global(.card-kind) { color: var(--ink-3); font-size: 14px; }
+:global(.ms) .sumBody :global(.rows) { gap: 10px; }
+:global(.ms) .sumBody :global(.rows) > div { font-size: 14.5px; }
+:global(.ms) .sumBody :global(.next) li { font-size: 14px; }
+:global(.ms) .sumBody :global(.next) li::before { color: var(--ink-3); }

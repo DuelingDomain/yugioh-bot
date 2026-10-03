@@ -52,8 +52,8 @@ describe("duel format rooms", () => {
     const { duels, ids } = setup();
     const session = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "A", mode: "normal" });
     expect(session.format).toBe("1v1");
-    duels.join(session.slug, "g1", ids[1]!);
-    expect(() => duels.join(session.slug, "g1", ids[2]!)).toThrow(/full/);
+    duels.takeSeat(session.slug, "g1", ids[1]!);
+    expect(() => duels.takeSeat(session.slug, "g1", ids[2]!)).toThrow(/already taken/);
     expect(duels.room(session.slug, "g1", ids[0]!).session.format).toBe("1v1");
   });
 
@@ -78,10 +78,10 @@ describe("duel format rooms", () => {
   it("fills three seats in ffa3 and starts only when all are ready", () => {
     const { duels, ids } = setup();
     const s = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "A", mode: "normal", format: "ffa3" });
-    duels.join(s.slug, "g1", ids[1]!);
+    duels.takeSeat(s.slug, "g1", ids[1]!);
     expect(() => duels.activate(s.slug, "g1", ids[0]!, ["1"], "b", null)).toThrow(/3 ready players/);
-    duels.join(s.slug, "g1", ids[2]!);
-    expect(() => duels.join(s.slug, "g1", ids[3]!)).toThrow(/full/);
+    duels.takeSeat(s.slug, "g1", ids[2]!);
+    expect(() => duels.takeSeat(s.slug, "g1", ids[3]!)).toThrow(/already taken/);
     for (let i = 0; i < 3; i += 1) duels.setDeck(s.slug, "g1", ids[i]!, deck(i * 100 + 1));
     const active = duels.activate(s.slug, "g1", ids[0]!, ["1"], "b", {
       turn: 1,
@@ -100,10 +100,10 @@ describe("duel format rooms", () => {
     duels.setDeck(s.slug, "g1", ids[0]!, deck(1));
     duels.addPracticeBot(s.slug, "g1", ids[0]!, deck(200));
     duels.addPracticeBot(s.slug, "g1", ids[0]!, deck(300));
-    const joined = duels.join(s.slug, "g1", ids[1]!);
+    const joined = duels.takeSeat(s.slug, "g1", ids[1]!);
     expect(joined.seats.filter((x) => x.isBot)).toHaveLength(2);
     expect(() => duels.addPracticeBot(s.slug, "g1", ids[0]!, deck(400))).toThrow(/empty opponent seat/);
-    expect(() => duels.join(s.slug, "g1", ids[2]!)).toThrow(/full/);
+    expect(() => duels.takeSeat(s.slug, "g1", ids[2]!)).toThrow(/already taken/);
     duels.setDeck(s.slug, "g1", ids[1]!, deck(500));
     expect(duels.activate(s.slug, "g1", ids[0]!, ["1"], "b", null).status).toBe("active");
   });
@@ -126,7 +126,7 @@ describe("duel format rooms", () => {
     const s = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "A", mode: "normal", format: "tag" });
     duels.addPracticeBot(s.slug, "g1", ids[0]!, deck(200), 1);
     duels.addPracticeBot(s.slug, "g1", ids[0]!, deck(300), 2);
-    duels.join(s.slug, "g1", ids[1]!);
+    duels.takeSeat(s.slug, "g1", ids[1]!);
     duels.setDeck(s.slug, "g1", ids[0]!, deck(1));
     duels.setDeck(s.slug, "g1", ids[1]!, deck(500));
     duels.activate(s.slug, "g1", ids[0]!, ["1"], "b", null);
@@ -140,7 +140,7 @@ describe("duel format rooms", () => {
   it("checks clocks against the seat count", () => {
     const { duels, ids } = setup();
     const s = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "A", mode: "normal" });
-    duels.join(s.slug, "g1", ids[1]!);
+    duels.takeSeat(s.slug, "g1", ids[1]!);
     duels.setDeck(s.slug, "g1", ids[0]!, deck(1));
     duels.setDeck(s.slug, "g1", ids[1]!, deck(101));
     expect(() =>
@@ -151,8 +151,8 @@ describe("duel format rooms", () => {
   it("finds due clocks for seats beyond 1", () => {
     const { duels, ids } = setup();
     const s = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "A", mode: "normal", format: "ffa3" });
-    duels.join(s.slug, "g1", ids[1]!);
-    duels.join(s.slug, "g1", ids[2]!);
+    duels.takeSeat(s.slug, "g1", ids[1]!);
+    duels.takeSeat(s.slug, "g1", ids[2]!);
     for (let i = 0; i < 3; i += 1) duels.setDeck(s.slug, "g1", ids[i]!, deck(i * 100 + 1));
     duels.activate(s.slug, "g1", ids[0]!, ["1"], "b", { turn: 1, remainingMs: [900, 900, 50], activeSeat: 2, startedAt: 100 });
     expect(duels.dueClocks(149, 10)).toEqual([]);
@@ -164,7 +164,7 @@ describe("duel format rooms", () => {
     const { duels, ids } = setup();
     const s = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "A", mode: "normal" });
     expect(duels.privateState(s.slug, "g1").setup).toBeUndefined();
-    duels.join(s.slug, "g1", ids[1]!);
+    duels.takeSeat(s.slug, "g1", ids[1]!);
     duels.setDeck(s.slug, "g1", ids[0]!, deck(1));
     duels.setDeck(s.slug, "g1", ids[1]!, deck(101));
     const setupValue = { startupScripts: ["Debug.ReloadFieldEnd()"], scenarioId: "raigeki" };
@@ -176,14 +176,27 @@ describe("duel format rooms", () => {
     duels.setSetup(s.slug, "g1", null);
     expect(duels.privateState(s.slug, "g1").setup).toBeUndefined();
   });
+
+  it("keeps the engine a duel started on, and refuses an unknown engine", () => {
+    const { duels, ids } = setup();
+    const s = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "A", mode: "normal" });
+    duels.takeSeat(s.slug, "g1", ids[1]!);
+    duels.setDeck(s.slug, "g1", ids[0]!, deck(1));
+    duels.setDeck(s.slug, "g1", ids[1]!, deck(101));
+    duels.activate(s.slug, "g1", ids[0]!, ["1"], "b", null, { engine: "pinned" });
+    expect(duels.privateState(s.slug, "g1").setup).toEqual({ engine: "pinned" });
+    duels.setSetup(s.slug, "g1", { engine: "legacy", surrenderedSeats: [1] });
+    expect(duels.privateState(s.slug, "g1").setup).toEqual({ engine: "legacy", surrenderedSeats: [1] });
+    expect(() => duels.setSetup(s.slug, "g1", { engine: "multi" } as never)).toThrow(/engine must be/);
+  });
 });
 
 describe("final snapshots per seat", () => {
   function finishedFfa() {
     const { duels, ids } = setup();
     const s = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "A", mode: "normal", format: "ffa3" });
-    duels.join(s.slug, "g1", ids[1]!);
-    duels.join(s.slug, "g1", ids[2]!);
+    duels.takeSeat(s.slug, "g1", ids[1]!);
+    duels.takeSeat(s.slug, "g1", ids[2]!);
     for (let i = 0; i < 3; i += 1) duels.setDeck(s.slug, "g1", ids[i]!, deck(i * 100 + 1));
     duels.activate(s.slug, "g1", ids[0]!, ["1"], "b", null);
     duels.complete(s.slug, "g1", 2, "last left", {
@@ -207,7 +220,7 @@ describe("final snapshots per seat", () => {
   it("still accepts the old two-seat snapshot shape", () => {
     const { duels, ids } = setup();
     const s = duels.create({ guildId: "g1", organizerPlayerId: ids[0]!, name: "A", mode: "normal" });
-    duels.join(s.slug, "g1", ids[1]!);
+    duels.takeSeat(s.slug, "g1", ids[1]!);
     duels.setDeck(s.slug, "g1", ids[0]!, deck(1));
     duels.setDeck(s.slug, "g1", ids[1]!, deck(101));
     duels.activate(s.slug, "g1", ids[0]!, ["1"], "b", null);

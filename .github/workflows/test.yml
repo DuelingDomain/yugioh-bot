@@ -5,6 +5,8 @@ name: Test
 #   cores        build or restore the engine bundle (standard, domain and multi cores). Shared by the next jobs.
 #   unit         typecheck and the tests that need no core (shared, bot, web, duel-server unit, e2e unit).
 #   engine       real-engine tests with DUEL_REQUIRE_CORES=1: a missing core is a failure, never a silent skip.
+#   engine-legacy  the same suite with DUEL_1V1_ENGINE=legacy (the production default for 1v1), plus main's own engine tests
+#                run against the legacy engine (tests/legacy-main). The engine job runs the merged engine ("pinned").
 #   native       ASan/UBSan build of the multi core and the committed native checks (npm run test:native).
 #   rule-coverage  every rule of ADR-0002 has a covering test (--strict).
 #   nduel-nightly  scheduled: the nduel fuzz (n2, n3, n4, tag) with --check-future, and the golden hash check.
@@ -56,7 +58,7 @@ jobs:
       # The emsdk image comes from pins.json (a pins.json change also changes the key).
       - name: Compute bundle cache key
         id: key
-        run: echo "key=duel-engine-ci-v3-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
+        run: echo "key=duel-engine-ci-v3-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
 
       - name: Read the emsdk image from pins.json
         run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
@@ -88,6 +90,8 @@ jobs:
           docker pull "$EMSDK_IMAGE"
           npx tsx packages/duel-server/scripts/build-domain-core.ts
           npx tsx packages/duel-server/scripts/build-domain-core.ts standard
+          # The Domain core of the legacy 1v1 engine (main's build), next to the merged one. 1v1 duels start on it by default.
+          npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
 
       # All multi cores use LUA_FIXED_SEED=1 so that the one binary serves the engine tests and the
       # differential tests. The deploy build must use the same flags to ship the tested binary.
@@ -147,6 +151,8 @@ jobs:
             test -s "packages/duel-server/domain-core/dist/$f" || { echo "differential core missing or empty: $f" >&2; exit 1; }
           done
           DUEL_DATA_DIR="$PWD/$BUNDLE_DIR" sh packages/duel-server/scripts/install-engine-bundle.sh
+          # The legacy 1v1 files must be main's files (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
+          sh packages/duel-server/scripts/check-legacy-pin.sh "$PWD/$BUNDLE_DIR"
 
   unit:
     name: Unit tests (no core)
@@ -233,9 +239,70 @@ jobs:
       - name: Engine tests
         run: npm run test:engine
 
+      # Web tests that run a real stock-core duel. The unit job has no engine bundle, so they skip there.
+      # DUEL_REQUIRE_CORES=1 (from the job env) makes a missing bundle a failure here.
+      # The step finds the files itself: every web test that imports the shared cores helper
+      # (describeWithCores / itWithCores) runs here, so a new engine test needs no edit of this file.
+      # Only direct imports of the cores helper are found. A web test that gets the helper through another module is not run here.
+      # The full web suite (about 400 files) already runs in the unit job, so only the matching files run again.
+      - name: Web tests with the engine
+        run: |
+          set -o pipefail
+          # Lines that start with // or * are comments: a comment that names the helper does not count.
+          files=$({ grep -rE "duel-server/tests/support/cores(\.js)?[\"']" packages/web/tests --include='*.test.ts' --include='*.test.tsx' || true; } | { grep -vE '^[^:]*:[[:space:]]*(//|\*)' || true; } | cut -d: -f1 | sed 's#^packages/web/##' | sort -u)
+          if [ -z "$files" ]; then echo "No web test imports the cores helper. Fix this step."; exit 1; fi
+          echo "$files"
+          npm exec --workspace=packages/web -- vitest run $files
+
       # tests/*.smoke.ts are plain assert scripts (vitest does not match them); one failing script fails the step.
       - name: Engine smoke scripts
         run: npm run test:smoke --workspace=packages/duel-server
+
+  engine-legacy:
+    name: Engine tests, legacy 1v1 engine (cores required)
+    if: github.event_name != 'schedule'
+    needs: cores
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DUEL_REQUIRE_CORES: "1"
+      DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
+      MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+      DOMAIN_MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
+      NSEAT_LIVE: "1"
+      TABLE_TRAP_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-trap.sync.wasm
+      TABLE_TRAP_DOMAIN_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain-trap.sync.wasm
+      # Production starts 1v1 duels on the legacy engine. This job runs the whole suite that way. The setup file
+      # (tests/support/setup.ts) keeps a value that is already set. tests/legacy-main is main's engine tests, unchanged
+      # except for the import paths, and they always use the legacy engine.
+      DUEL_1V1_ENGINE: legacy
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore engine bundle
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/duel-engine-next
+            packages/duel-server/domain-core/dist
+          key: ${{ needs.cores.outputs.key }}
+          fail-on-cache-miss: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build shared
+        run: npm run build --workspace=@yugidraft/shared
+
+      - name: Engine tests, legacy 1v1 engine
+        run: npm run test:engine
 
   native:
     name: Native checks (ASan and UBSan)
@@ -299,6 +366,10 @@ jobs:
 
       - name: Install
         run: npm ci --ignore-scripts
+
+      # The script imports @yugidraft/shared/dist/duels, which only exists after the build.
+      - name: Build shared
+        run: npm run build --workspace=@yugidraft/shared
 
       # --check prints the table and writes no file. --strict fails when a rule of ADR-0002 has no covering test.
       - name: Rule coverage

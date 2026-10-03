@@ -4,7 +4,7 @@
 .layer {
   position: absolute;
   inset: 0;
-  z-index: 6;
+  z-index: var(--duel-z-fx);
   overflow: hidden;
   pointer-events: none;
   contain: layout style;
@@ -65,4 +65,27 @@
 .back[data-sleeve="extra"] {
   background: #140e1c url("/duel/card-back-extra-hd.webp") center / cover no-repeat;
   border-color: #8a6bb0;
+}
+
+/* The pieces of a destroyed card: the card art cut by clip polygons, each one moves on its own. */
+.pieces {
+  position: absolute;
+  inset: 0;
+}
+
+.piece {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background-color: #10131c;
+  border-radius: var(--fx-r, 4px);
+  will-change: transform, opacity;
+}
+
+.pieceArt {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  border-radius: inherit;
 }

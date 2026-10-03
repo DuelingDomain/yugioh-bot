@@ -1,10 +1,28 @@
+import { StageLine } from "@/components/sheet";
+import { PageFrame } from "@/components/dashboard/page-frame";
 import { CreateTournamentForm } from "@/components/tournament/create-tournament-form";
+import styles from "../tournaments.module.css";
 
 export default function NewTournamentPage() {
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
-      <h1 className="mb-6 font-heading text-2xl text-text-primary">Create New Tournament</h1>
+    <PageFrame
+      back={{ href: "/tournaments", label: "All tournaments" }}
+      title="New tournament"
+      sub="You get a lobby and an invite link. Nothing starts until you press Start."
+    >
+      <div className={styles.steps}>
+        <StageLine
+          label="Where creating leads"
+          steps={[
+            { label: "Create", state: "now" },
+            { label: "Lobby", state: "next" },
+            { label: "Play", state: "next" },
+            { label: "Final", state: "next" },
+          ]}
+        />
+        <p className={styles.stepsNote}>After you create it, you get a lobby with an invite link.</p>
+      </div>
       <CreateTournamentForm />
-    </div>
+    </PageFrame>
   );
 }

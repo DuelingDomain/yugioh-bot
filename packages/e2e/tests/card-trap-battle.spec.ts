@@ -1,5 +1,5 @@
 import { test, expect } from "../helpers/fixtures";
-import { attackWithFirstMonster, endTurn, handCard, pickLegalZone, pile, pileCards, respondPanel, startDuel, useCard } from "../helpers/board";
+import { attackWithFirstMonster, endTurn, handCard, pickLegalZone, pile, pileCards, activateSingleResponse, startDuel, useCard } from "../helpers/board";
 import { FILLER, withFiller } from "../helpers/decks";
 
 // Trap in battle: Bob sets Mirror Force, Alice attacks, Bob activates it, both attackers go to the GY.
@@ -33,9 +33,7 @@ test("Mirror Force destroys the attackers and both screens show them in the grav
   await attackWithFirstMonster(alice.page);
 
   // Bob may respond to the attack with the Set trap.
-  const respond = respondPanel(bob.page);
-  await expect(respond).toBeVisible();
-  await respond.getByText("Activate", { exact: true }).click();
+  await activateSingleResponse(bob.page);
 
   // Both attackers are destroyed. Both screens show the same graveyards.
   for (const { page, mine, theirs } of [

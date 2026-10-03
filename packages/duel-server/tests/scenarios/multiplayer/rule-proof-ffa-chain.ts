@@ -1,5 +1,4 @@
-import { type Scenario, type Step } from "../../support/dsl.js";
-import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
+import { defineScenario, type Scenario, type Step } from "../../support/dsl.js";
 import { domainVariant } from "./domain-variants.js";
 import { FFA_SCENARIOS } from "./nseat-ffa.js";
 import { everySeat, SEATS } from "./seat-kit.js";

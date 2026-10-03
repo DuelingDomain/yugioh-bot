@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const tempDirs: string[] = [];
+// The room asks the duel host for card types; these tests have no host.
+vi.mock("@/lib/duel-host", () => ({ callDuelHost: async () => ({ ok: false, response: { status: 503 } }) }));
 
 describe("theme draft GET response (buildDraftResponse)", () => {
   beforeEach(() => vi.resetModules());
@@ -46,12 +48,12 @@ describe("theme draft GET response (buildDraftResponse)", () => {
     const p1 = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1','u1','P1')").run().lastInsertRowid);
     const p2 = Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('guild-1','u2','P2')").run().lastInsertRowid);
 
-    const drafts = createDraftService(db);
+    const drafts = createDraftService(db, { random: () => 0 });
     const draft = drafts.create(
       "guild-1",
       "c",
       "Theme Night",
-      { mode: "theme", allowedCubeIds: cubeIds, themeSelection: "random", extraDeckEnabled: false, cardsPerPlayer: 40, themePackSize: 3 },
+      { mode: "theme", allowedCubeIds: cubeIds, themeSelection: "random", extraDeckEnabled: false, cardsPerPlayer: 40, themePackSize: 3, randomizeSeats: true },
       "u1",
       p1,
     );
@@ -68,5 +70,9 @@ describe("theme draft GET response (buildDraftResponse)", () => {
     expect(res.allowedCubes).toHaveLength(2);
     expect(res.allowedCubes[0].mainCount).toBe(42);
     expect(res.currentPack).toHaveLength(3);
+    expect(res.seats).toEqual([
+      { playerId: p2, displayName: "P2", seatIndex: 0, hasPicked: false, isCurrentPlayer: false },
+      { playerId: p1, displayName: "P1", seatIndex: 1, hasPicked: false, isCurrentPlayer: true },
+    ]);
   }, 30000);
 });

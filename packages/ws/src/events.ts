@@ -1,10 +1,13 @@
 import type { Server, Socket } from "socket.io";
 import type { DraftRoomManager } from "./rooms.js";
+import { verifyDraftRoomToken, type DraftRoomTokenClaims, type TalkLineId } from "@yugidraft/shared/ws";
 
 export type DraftStatus = "active" | "cancelled" | "completed";
 
 export interface DraftJoinPayload {
   slug: string;
+  token: string;
+  userId: string;
 }
 
 export type DuelJoinAck =
@@ -21,6 +24,8 @@ export interface ServerToClientEvents {
   "draft:resync": (data: { packRound: number; pickStep: number }) => void;
   "draft:complete": (data: Record<string, never>) => void;
   "draft:seats": (data: Record<string, never>) => void;
+  "draft:talk": (data: { playerId: number; line: TalkLineId }) => void;
+  "draft:subscription-expired": (data: { slug: string }) => void;
   "tournament:participant-joined": (data: { playerId: number; displayName: string }) => void;
   "tournament:participant-left": (data: { playerId: number }) => void;
   "tournament:started": (data: Record<string, never>) => void;
@@ -79,9 +84,29 @@ export type TypedSocket = Socket<
 export function registerEventHandlers(
   io: TypedServer,
   roomManager: DraftRoomManager,
+  opts: { secret: string; canReadDraft: (claims: DraftRoomTokenClaims) => boolean },
 ) {
+  const subscriptions = new Map<TypedSocket, Map<string, { claims: DraftRoomTokenClaims }>>();
+
+  function hasAccess(claims: DraftRoomTokenClaims): boolean {
+    try {
+      return opts.canReadDraft(claims);
+    } catch (error) {
+      console.error("[ws] draft access check failed", error);
+      return false;
+    }
+  }
+
+  function leaveDraft(socket: TypedSocket, slug: string, expired: boolean) {
+    subscriptions.get(socket)?.delete(slug);
+    const room = roomManager.getRoom(slug);
+    if (room) roomManager.leaveRoom(room, socket);
+    if (expired) socket.emit("draft:subscription-expired", { slug });
+  }
+
   io.on("connection", (socket: TypedSocket) => {
     console.log(`[ws] client connected: ${socket.id}`);
+    subscriptions.set(socket, new Map());
 
     socket.on("draft:join", (payload, ack) => {
       try {
@@ -90,12 +115,21 @@ export function registerEventHandlers(
           ack?.({ error: "slug required" });
           return;
         }
+        const userId = payload?.userId;
+        const claims = typeof userId === "string"
+          ? verifyDraftRoomToken(payload?.token, opts.secret, { slug, userId })
+          : null;
+        if (!claims || !hasAccess(claims)) {
+          ack?.({ error: "This draft is only open to its players." });
+          return;
+        }
         const room = roomManager.getOrCreateRoom(slug, slug);
         roomManager.joinRoom(room, socket);
+        subscriptions.get(socket)?.set(slug, { claims });
         ack?.();
       } catch (err) {
         console.error(`[ws] draft:join error for ${socket.id}`, err);
-        ack?.({ error: err instanceof Error ? err.message : String(err) });
+        ack?.({ error: "This draft is only open to its players." });
       }
     });
 
@@ -115,15 +149,23 @@ export function registerEventHandlers(
     });
 
     socket.on("disconnecting", () => {
-      for (const roomName of socket.rooms) {
-        if (roomName === socket.id || !roomName.startsWith("draft:")) continue;
-        const slug = roomName.slice("draft:".length);
-        if (!slug) continue;
-        const draftRoom = roomManager.getRoom(slug);
-        if (draftRoom) {
-          roomManager.leaveRoom(draftRoom, socket);
-        }
-      }
+      for (const slug of subscriptions.get(socket)?.keys() ?? []) leaveDraft(socket, slug, false);
+      subscriptions.delete(socket);
     });
   });
+
+  return {
+    /** Check current permissions before every broadcast, including lobby-to-active transitions. */
+    pruneDraftRoom(slug: string) {
+      const room = roomManager.getRoom(slug);
+      if (!room) return;
+      for (const member of room.sockets) {
+        const socket = member as TypedSocket;
+        const subscription = subscriptions.get(socket)?.get(slug);
+        if (!subscription || !hasAccess(subscription.claims)) {
+          leaveDraft(socket, slug, true);
+        }
+      }
+    },
+  };
 }

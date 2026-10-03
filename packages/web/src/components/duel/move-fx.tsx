@@ -6,7 +6,8 @@
  * A ghost of the card leaves where it was (a hand slot, a zone, the deck) and travels to where it
  * landed, at the pace of a person playing it: a small lift, an arc with ease-in-out, a soft settle
  * with a shadow bounce. Cards sent to the Graveyard, banished or returned to a deck are tossed: a
- * quicker arc with a little spin that fades into the pile. Draws slide from the deck into the hand.
+ * quicker arc with a little spin that fades into the pile. Draws slide from the deck into the hand. A card
+ * that an effect adds to a hand is shown first (add-fx.tsx).
  *
  * While the ghost is on its way the real card at the destination stays invisible (visibility) and
  * appears when the ghost lands, so the card is never seen twice. The timing of every flight comes
@@ -14,26 +15,32 @@
  *
  * The hand slides too: when a card joins or leaves a hand the others glide (FLIP, the individual
  * `translate` property so the fan rotation and the hover lift are left alone) to their new places,
- * and a card that appears without a flight fades up into its slot. A flight ends by checking that
- * its destination did not move while it flew (the hand may have re-centred) and glides the last
- * few pixels, then the real card takes over under a short cross-fade so nothing snaps or flickers.
+ * and a card that appears without a flight fades up into its slot. Flights continuously retarget
+ * the live engine slot during travel, then the real card takes over under a short cross-fade.
  *
  * Reduced motion: no travel, a 150 ms fade at the destination.
  */
+import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import type { DuelEvent } from "@yugidraft/shared/duels";
-import { cardArtUrl, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED } from "./constants";
-import { collectFreshEvents, findZoneElement, maxEventId } from "./event-queue";
+import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
+import { cardArtUrl, isDefenseAt, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED } from "./constants";
+import { collectFreshEvents, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation } from "./event-queue";
 import {
   getMovePlan,
   planMoves,
   resetMoveSchedule,
+  resolveSource,
   startZoneSnapshots,
   type MovePlan,
   type MoveStyle,
 } from "./move-plan";
 import styles from "./move-fx.module.css";
-import { Track } from "./summon-fx";
+import { beginDestroyHide, beginPileHold, startDestroyHideGuard } from "./destroy-hide";
+import { SHARDS, Track } from "./summon-fx";
+import { CARD_FX } from "./duel-timing";
+import { ShowcaseGhost } from "./add-fx";
+import { retargetFlight } from "./live-flight";
+import { ConfirmGhost, CONFIRM_MS } from "./confirm-fx";
 
 export type MoveFxProps = {
   /** engine.events (a rolling window; ids only grow). Play only events newer than the first render. */
@@ -41,6 +48,13 @@ export type MoveFxProps = {
   /** Changes when the room changes; reset the cursor on change. */
   duelKey: string;
   reducedMotion: boolean;
+  /**
+   * Where the first render starts playing: events with a larger id are played instead of dropped as
+   * history. 0 plays the opening of a duel (both hands dealt from the decks). Missing or null: no replay.
+   */
+  replayFrom?: number | null;
+  /** Ignore already presented opening events even if this layer's cursor was set by an empty snapshot. */
+  skipThrough?: number | null;
 };
 
 const CARD_ASPECT = 0.686;
@@ -48,9 +62,7 @@ const SAMPLES = 18;
 const HIDE_FAILSAFE_MS = 1500;
 const MAX_GHOSTS = 12;
 /** The ghost dissolves over the real card this long after landing. */
-export const LAND_FADE_MS = 140;
-/** A destination that moved during the flight is followed for this long, at the end. */
-const GLIDE_MS = 140;
+export const LAND_FADE_MS = CARD_FX.landFadeMs;
 /** Moves smaller than this many px are not chased. */
 const GLIDE_MIN_PX = 2;
 
@@ -86,25 +98,14 @@ export type Flight = {
   flip: [number, number];
 };
 
-const easeSearch = (t: number) => {
-  // Lifts out of the pile, holds face-up for a beat, then glides to the hand.
-  if (t < 0.3) return 0.22 * easeOutCubic(t / 0.3);
-  if (t < 0.5) return 0.22 + 0.03 * ((t - 0.3) / 0.2);
-  return 0.25 + 0.75 * easeInOutCubic((t - 0.5) / 0.5);
-};
-
 type Tuning = { lift: number; settle: number; arc: number; ease: (t: number) => number; liftPx: number; peak: number; landScale: number };
 
 function tuningFor(style: MoveStyle, cardH: number, dist: number): Tuning {
   switch (style) {
     case "toss":
       return { lift: 0.1, settle: 0, arc: clamp(dist * 0.22, 16, 96), ease: easeInOutSine, liftPx: cardH * 0.04, peak: 1.05, landScale: 1 };
-    case "search":
-      return { lift: 0.1, settle: 0.14, arc: clamp(dist * 0.06, 4, 22), ease: easeSearch, liftPx: cardH * 0.1, peak: 1.14, landScale: 1 };
     case "draw":
       return { lift: 0.06, settle: 0.16, arc: clamp(dist * 0.08, 6, 30), ease: easeOutCubic, liftPx: cardH * 0.03, peak: 1.05, landScale: 1 };
-    case "return":
-      return { lift: 0.12, settle: 0.16, arc: clamp(dist * 0.1, 8, 34), ease: easeInOutCubic, liftPx: cardH * 0.05, peak: 1.06, landScale: 1 };
     default:
       return { lift: 0.16, settle: 0.16, arc: clamp(dist * 0.1, 8, 36), ease: easeInOutCubic, liftPx: cardH * 0.07, peak: 1.08, landScale: 1 };
   }
@@ -174,7 +175,7 @@ export function buildFlight(params: FlightParams): Flight {
   last.opacity = 1;
   shade[shade.length - 1].opacity = 0;
   const flip: [number, number] =
-    style === "search" ? [0.06, 0.34] : toss ? [0.08, 0.6] : style === "draw" ? [0.12, 0.7] : [liftEnd, Math.max(liftEnd + 0.1, settleStart - 0.12)];
+    toss ? [0.08, 0.6] : style === "draw" ? [0.12, 0.7] : [liftEnd, Math.max(liftEnd + 0.1, settleStart - 0.12)];
   return { card, shade, flip };
 }
 
@@ -198,6 +199,10 @@ function hideElement(el: HTMLElement): () => void {
 /** The part of the destination that shows the arriving card: the whole card frame, or a pile's top card. */
 function hideTargetOf(dest: HTMLElement, plan: MovePlan): HTMLElement | null {
   const location = plan.event.zone?.location ?? 0;
+  // A card added to a hand shows only when its showcase lands: the whole hand slot waits (a sleeve too).
+  if (plan.style === "add" && location === LOCATION_HAND) return dest;
+  // A drawn card, sleeve or face, shows only when it lands (the deal at the start of a duel is a row of these).
+  if (plan.style === "draw" && location === LOCATION_HAND) return dest;
   if (location === LOCATION_GRAVE || location === LOCATION_REMOVED) {
     return dest.querySelector<HTMLElement>('[data-fi="0"]');
   }
@@ -220,11 +225,74 @@ type GhostProps = {
 /** How far the destination centre moved (in overlay space) since the flight was aimed, or null when it stayed put. */
 export function destinationShift(overlay: HTMLElement, dest: HTMLElement, cx: number, cy: number): { dx: number; dy: number } | null {
   const o = overlay.getBoundingClientRect();
-  const z = dest.getBoundingClientRect();
+  const z = moveDestinationRect(dest);
   if (z.width < 4 || z.height < 4) return null;
   const dx = z.left - o.left + z.width / 2 - cx;
   const dy = z.top - o.top + z.height / 2 - cy;
   return Math.hypot(dx, dy) < GLIDE_MIN_PX ? null : { dx, dy };
+}
+
+/**
+ * Turn of a card as it rests on the board, in degrees: a quarter for Defense Position, plus a half turn
+ * on the opponent's side of the table (field.module.css turns their cards the same way).
+ */
+export function cardTurn(side: "you" | "opp", defense: boolean): number {
+  return (side === "opp" ? 180 : 0) + (defense ? 90 : 0);
+}
+
+/* ---------- the pieces of a destroyed card ---------- */
+
+export type PieceMotion = { dx: number; dy: number; spin: number };
+
+function seeded(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * How far one piece springs from the middle of the card (px, relative to the flying card) and how
+ * much it turns. `cx`/`cy` are the centre of the piece in percent of the card.
+ */
+export function pieceMotion(piece: { cx: number; cy: number }, id: number, index: number, w: number, h: number): PieceMotion {
+  const rand = seeded(id * 40503 + index * 977 + 7);
+  const ox = (piece.cx - 50) / 50;
+  const oy = (piece.cy - 50) / 50;
+  return {
+    dx: ox * w * (0.22 + rand() * 0.18),
+    dy: oy * h * (0.16 + rand() * 0.12) - h * 0.03,
+    spin: (rand() - 0.5) * 60 + ox * 20,
+  };
+}
+
+/**
+ * Keyframes for one piece over the whole flight. "burst": the piece starts where it was in the card,
+ * springs apart in the first fifth, then shrinks and fades as it lands. "scattered": it starts already
+ * apart (the slice was seen) and fades in. Both end at nothing, which is when the pile shows the card.
+ */
+export function pieceFrames(motion: PieceMotion, mode: "burst" | "scattered"): Keyframe[] {
+  const apart = `translate(${motion.dx.toFixed(1)}px, ${motion.dy.toFixed(1)}px) rotate(${(motion.spin * 0.6).toFixed(1)}deg) scale(1.02)`;
+  const home = "translate(0px, 0px) rotate(0deg) scale(1)";
+  const gone = `translate(${(motion.dx * 0.5).toFixed(1)}px, ${(motion.dy * 0.5).toFixed(1)}px) rotate(${motion.spin.toFixed(1)}deg) scale(0.35)`;
+  if (mode === "scattered") {
+    return [
+      { opacity: 0, transform: apart, offset: 0 },
+      { opacity: 1, transform: apart, offset: 0.16, easing: "ease-in-out" },
+      { opacity: 0.95, transform: apart, offset: 0.7 },
+      { opacity: 0, transform: gone, offset: 1 },
+    ];
+  }
+  return [
+    { opacity: 1, transform: home, offset: 0, easing: "cubic-bezier(0.1, 0.7, 0.3, 1)" },
+    { opacity: 1, transform: apart, offset: 0.2 },
+    { opacity: 0.95, transform: apart, offset: 0.7 },
+    { opacity: 0, transform: gone, offset: 1 },
+  ];
 }
 
 function seededSign(id: number): number {
@@ -235,6 +303,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   const root = useRef<HTMLDivElement>(null);
   const flipper = useRef<HTMLDivElement>(null);
   const shade = useRef<HTMLSpanElement>(null);
+  const pieceEls = useRef<Array<HTMLSpanElement | null>>([]);
   const landedRef = useRef(landed);
   landedRef.current = landed;
   const doneRef = useRef(done);
@@ -246,26 +315,34 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   const source = plan.source;
   const startUp = card != null && (source ? source.faceUp || (source.side === "you" && plan.event.from?.location === LOCATION_HAND) : true);
   const endUp = card != null && plan.event.faceDown !== true;
+  // A destroyed card leaves as the pieces it broke into, never as the intact card.
+  const pieces = card != null && source != null ? plan.pieces : null;
   const startAngle = card == null ? 0 : startUp ? 0 : 180;
   const endAngle = card == null ? 0 : endUp ? 0 : 180;
 
   useLayoutEffect(() => {
-    const dest = findZoneElement(plan.event.zone);
+    const predecessor = plan.handoffFrom ? getMovePlan(plan.handoffFrom.id)?.event ?? plan.handoffFrom : null;
+    const predecessorTarget = predecessor ? handArrivalTarget(predecessor) : null;
+    // Staggered draws can launch after a seat/perspective change or a board resize.
+    const deckSource = plan.event.from?.location === LOCATION_DECK ? resolveSource(plan.event.from) : plan.source;
+    const source = predecessorTarget ? { ...predecessorTarget, faceUp: (predecessor?.card?.code ?? 0) > 0, defense: false } : deckSource;
+    const dest = findMoveDestination(plan.event);
     const el = root.current;
-    if (!dest || !el) {
+    const target = handArrivalTarget(plan.event);
+    if (!target || !el) {
       landedRef.current();
       doneRef.current();
       return undefined;
     }
     const o = overlay.getBoundingClientRect();
-    const z = dest.getBoundingClientRect();
+    const z = target.rect;
     if (z.width < 4 || z.height < 4 || o.width < 4) {
       landedRef.current();
       doneRef.current();
       return undefined;
     }
-    const h = z.height;
-    const w = Math.min(z.width, h * CARD_ASPECT);
+    const h = dest?.offsetHeight || z.height;
+    const w = plan.event.zone?.location === LOCATION_HAND ? dest?.offsetWidth || z.width : Math.min(z.width, h * CARD_ASPECT);
     const cx = z.left - o.left + z.width / 2;
     const cy = z.top - o.top + z.height / 2;
     el.style.left = `${cx - w / 2}px`;
@@ -276,7 +353,9 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
 
     const track = new Track();
     let alive = true;
-    const endDefense = dest.dataset.defense === "true";
+    const endDefense = dest?.dataset.defense === "true";
+    const endTurn = dest ? moveDestinationRotation(dest) : cardTurn(target.side, endDefense);
+    let liveFlight: ReturnType<typeof retargetFlight> | undefined;
 
     if (plan.style === "fade" || !source) {
       track.play(el, [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }], {
@@ -284,7 +363,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         easing: "ease-out",
       });
       if (flipper.current) flipper.current.style.transform = `rotateY(${endAngle}deg)`;
-      el.style.transform = endDefense ? "rotate(90deg)" : "none";
+      el.style.transform = endTurn !== 0 ? `rotate(${endTurn}deg)` : "none";
     } else {
       const sx = source.rect.left - o.left + source.rect.width / 2;
       const sy = source.rect.top - o.top + source.rect.height / 2;
@@ -293,15 +372,27 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         dx: sx - cx,
         dy: sy - cy,
         startScale: clamp(source.rect.height / h, 0.35, 2.4),
-        startRot: source.defense ? 90 : 0,
-        endRot: endDefense ? 90 : 0,
+        startRot: cardTurn(source.side, plan.event.fromPosition == null ? source.defense : isDefenseAt(plan.event.from?.location, plan.event.fromPosition)),
+        endRot: endTurn,
         cardH: h,
         spin: seededSign(plan.id) * (14 + (plan.id % 5) * 3),
       });
       const options: KeyframeAnimationOptions = { duration: plan.durationMs, easing: "linear", fill: "both" };
       track.play(el, flight.card, options);
-      track.play(shade.current, flight.shade, options);
-      if (startAngle !== endAngle && flipper.current) {
+      liveFlight = retargetFlight({ event: plan.event, el, overlay, cx, cy, duration: plan.durationMs, endRot: endTurn,
+        fallback: () => handArrivalTarget(plan.event)?.rect });
+      track.onDispose(liveFlight.stop);
+      if (pieces) {
+        // No shadow of a whole card under the pieces: each one springs, drifts and fades on its own.
+        pieceEls.current.forEach((piece, index) => {
+          const shard = SHARDS[index];
+          if (!piece || !shard) return;
+          track.play(piece, pieceFrames(pieceMotion(shard, plan.id, index, w, h), pieces), { duration: plan.durationMs, easing: "linear", fill: "both" });
+        });
+      } else {
+        track.play(shade.current, flight.shade, options);
+      }
+      if (!pieces && startAngle !== endAngle && flipper.current) {
         const [a, b] = flight.flip;
         track.play(
           flipper.current,
@@ -318,12 +409,27 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
 
     void track.settled().then(() => {
       if (!alive) return;
+      liveFlight?.finish();
       const finish = () => {
         if (!alive) return;
+        if (plan.handoff) { el.style.visibility = "hidden"; landedRef.current(); doneRef.current(); return; }
         // The real card takes over under the ghost, which dissolves: no pop, no gap between the two.
         landedRef.current();
         const tail = plan.style === "fade" || !source ? plan.holdMs : Math.max(plan.holdMs, LAND_FADE_MS);
         if (tail > 0) {
+          if (plan.event.zone?.location === LOCATION_HAND) {
+            track.onDispose(followMoveDestination(plan.event, (destination) => ({ destination,
+              visible: destination?.getBoundingClientRect(), layer: overlay.getBoundingClientRect(),
+              rotation: moveDestinationRotation(destination, true),
+            }), ({ destination, visible, layer, rotation }) => {
+              if (!destination) { el.style.visibility = "hidden"; return; }
+              if (!visible) return;
+              el.style.translate = "0px 0px";
+              el.style.rotate = `${rotation - endTurn}deg`;
+              el.style.left = `${visible.left - layer.left + visible.width / 2 - w / 2}px`;
+              el.style.top = `${visible.top - layer.top + visible.height / 2 - h / 2}px`;
+            }));
+          }
           // A heavy summon's hologram rises out of the landed card: it dissolves as that starts.
           const fade = new Track();
           fade.play(el, [{ opacity: 1 }, { opacity: 0 }], { duration: tail, easing: "ease-out", fill: "both" });
@@ -335,24 +441,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
           doneRef.current();
         }
       };
-      // The destination may have moved while the card flew (a hand re-centres): glide the last pixels.
-      const shift = plan.style === "fade" || !source ? null : destinationShift(overlay, dest, cx, cy);
-      if (shift) {
-        const rest = `translate3d(0px, 0px, 0) rotate(${endDefense ? 90 : 0}deg) scale(1)`;
-        const glide = new Track();
-        glide.play(
-          el,
-          [
-            { transform: rest },
-            { transform: `translate3d(${shift.dx.toFixed(2)}px, ${shift.dy.toFixed(2)}px, 0) rotate(${endDefense ? 90 : 0}deg) scale(1)` },
-          ],
-          { duration: GLIDE_MS, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "both" },
-        );
-        track.anims.push(...glide.anims);
-        void glide.settled().then(finish);
-      } else {
-        finish();
-      }
+      finish();
     });
     return () => {
       alive = false;
@@ -365,7 +454,23 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   return (
     <div ref={root} className={styles.ghost} data-style={plan.style} style={{ opacity: 0 } as CSSProperties}>
       <span ref={shade} className={styles.shade} />
-      <div ref={flipper} className={styles.flipper} style={{ transform: `rotateY(${startAngle}deg)` }}>
+      {pieces && card ? (
+        <div className={styles.pieces}>
+          {SHARDS.map((shard, index) => (
+            <span
+              key={index}
+              ref={(el) => {
+                pieceEls.current[index] = el;
+              }}
+              className={styles.piece}
+              style={{ clipPath: shard.clip, transformOrigin: `${shard.cx}% ${shard.cy}%` } as CSSProperties}
+            >
+              <i className={styles.pieceArt} style={{ backgroundImage: `url(${cardArtUrl(card.code, "small")})` }} />
+            </span>
+          ))}
+        </div>
+      ) : null}
+      <div ref={flipper} className={styles.flipper} style={{ transform: `rotateY(${startAngle}deg)`, display: pieces ? "none" : undefined }}>
         {card ? (
           <div className={styles.face}>
             <img className={styles.art} src={cardArtUrl(card.code, "small")} alt="" draggable={false} />
@@ -379,8 +484,8 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
 
 /* ---------- the hand slides (FLIP) ---------- */
 
-export const HAND_FLIP_MS = 320;
-export const HAND_ENTER_MS = 320;
+export const HAND_FLIP_MS = CARD_FX.handFlipMs;
+export const HAND_ENTER_MS = CARD_FX.handEnterMs;
 const HAND_FLIP_ID = "duel-hand-flip";
 const HAND_FLIP_EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
 
@@ -441,7 +546,7 @@ function isFlipAnimation(anim: Animation): boolean {
 
 /** Where an animated hand card is right now, relative to its resting place: what is left of its slide. */
 function residualOf(el: Element, applied: { dx: number; dy: number }): { dx: number; dy: number } {
-  for (const anim of el.getAnimations()) {
+  for (const anim of el.getAnimations?.() ?? []) {
     if (!isFlipAnimation(anim)) continue;
     const progress = anim.effect?.getComputedTiming().progress;
     const left = typeof progress === "number" ? 1 - clamp(progress, 0, 1) : 1;
@@ -461,6 +566,20 @@ export function flipHands(root: ParentNode, states: Map<string, HandState>, redu
     let state = states.get(seat);
     if (state && state.hand !== hand) state = undefined;
 
+    const fallbackKeys = handCardKeys(cards.map((card) => card.querySelector("img")?.getAttribute("src") ?? null));
+    const keys = cards.map((card, index) => card.dataset.handId ?? fallbackKeys[index]);
+    const layout = new Map<string, FlipPoint>();
+    cards.forEach((card, index) => {
+      const r = moveDestinationRect(card);
+      layout.set(keys[index], { left: r.left, top: r.top });
+    });
+    // A reveal or an arrival's hide/release changes attributes, but not the layout. Let an
+    // existing slide keep its easing and deadline instead of starting another full slide.
+    if (state && !reduced && layout.size === state.layout.size && [...layout].every(([key, at]) => {
+      const before = state.layout.get(key);
+      return before && Math.hypot(before.left - at.left, before.top - at.top) < 0.01;
+    })) return;
+
     // Where each card is on screen right now, before its old slide is cancelled.
     const visual = new Map<string, FlipPoint>();
     if (state) {
@@ -475,15 +594,9 @@ export function flipHands(root: ParentNode, states: Map<string, HandState>, redu
       }
     }
     for (const card of cards) {
-      for (const anim of card.getAnimations()) if (isFlipAnimation(anim)) anim.cancel();
+      for (const anim of card.getAnimations?.() ?? []) if (isFlipAnimation(anim)) anim.cancel();
     }
 
-    const keys = handCardKeys(cards.map((card) => card.querySelector("img")?.getAttribute("src") ?? null));
-    const layout = new Map<string, FlipPoint>();
-    cards.forEach((card, index) => {
-      const r = card.getBoundingClientRect();
-      layout.set(keys[index], { left: r.left, top: r.top });
-    });
     const applied = new Map<Element, { key: string; dx: number; dy: number }>();
     const next: HandState = { hand, layout, applied };
     states.set(seat, next);
@@ -494,9 +607,10 @@ export function flipHands(root: ParentNode, states: Map<string, HandState>, redu
     if (!reduced) {
       for (const move of moves) {
         const card = byKey.get(move.key);
-        if (!card || typeof card.animate !== "function") continue;
+        // The ghost brings an invisible arrival straight to its new engine slot. Only neighbours slide.
+        if (!card || typeof card.animate !== "function" || card.querySelector('[style*="visibility: hidden"]')) continue;
         applied.set(card, { key: move.key, dx: move.dx, dy: move.dy });
-        card.animate(
+        duelFxClock.animate(card,
           [{ translate: `${move.dx}px ${move.dy}px` }, { translate: "0px 0px" }],
           { duration: HAND_FLIP_MS, easing: HAND_FLIP_EASE, id: HAND_FLIP_ID },
         );
@@ -509,7 +623,7 @@ export function flipHands(root: ParentNode, states: Map<string, HandState>, redu
         if (!card || typeof card.animate !== "function") continue;
         if (card.querySelector('[style*="visibility"]')) continue; // a flight is bringing it
         const rise = reduced ? "0px 0px" : `0px ${Math.round(card.getBoundingClientRect().height * 0.22)}px`;
-        card.animate(
+        duelFxClock.animate(card,
           [{ opacity: 0, translate: rise }, { opacity: 1, translate: "0px 0px" }],
           { duration: reduced ? 150 : HAND_ENTER_MS, easing: HAND_FLIP_EASE },
         );
@@ -529,15 +643,19 @@ function useHandFlip(boardOf: () => HTMLElement | null, reducedRef: { current: b
       const inHand = records.some((record) => {
         const target = record.target;
         const el = target instanceof Element ? target : target.parentElement;
+        if (record.type === "attributes" && record.attributeName === "style" && el instanceof HTMLElement) {
+          const layoutStyle = (style: string) => style.replace(/\bvisibility\s*:[^;]*;?/gi, "").trim();
+          if (layoutStyle(record.oldValue ?? "") === layoutStyle(el.getAttribute("style") ?? "")) return false;
+        }
         return el?.closest("[data-hand-seat]") != null;
       });
       if (inHand) flipHands(board, states, reducedRef.current);
     });
-    observer.observe(board, { childList: true, subtree: true, attributes: true, attributeFilter: ["src", "style", "data-many"] });
+    observer.observe(board, { childList: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["src", "style", "data-many"] });
     return () => {
       observer.disconnect();
       board.querySelectorAll<HTMLElement>("[data-hand-seat] > *").forEach((card) => {
-        for (const anim of card.getAnimations()) if (isFlipAnimation(anim)) anim.cancel();
+        for (const anim of card.getAnimations?.() ?? []) if (isFlipAnimation(anim)) anim.cancel();
       });
     };
     // The board element and the ref are stable for the layer's life.
@@ -547,9 +665,13 @@ function useHandFlip(boardOf: () => HTMLElement | null, reducedRef: { current: b
 
 /* ---------- layer ---------- */
 
-export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
+export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skipThrough = null }: MoveFxProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const [items, setItems] = useState<MovePlan[]>([]);
+  const [confirmations, setConfirmations] = useState<DuelEvent[]>([]);
+  const [confirmedCards, setConfirmedCards] = useState<Map<number, DuelCardInfo>>(new Map());
+  const confirmUntilRef = useRef(0);
+  const shownConfirmationsRef = useRef<Set<number>>(new Set());
   const [overlay, setOverlay] = useState<HTMLDivElement | null>(null);
   const cursorRef = useRef<number | null>(null);
   const keyRef = useRef(duelKey);
@@ -557,6 +679,8 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
   const releasesRef = useRef<Map<number, () => void>>(new Map());
   const reducedRef = useRef(reducedMotion);
   reducedRef.current = reducedMotion;
+  const replayRef = useRef(replayFrom);
+  replayRef.current = replayFrom;
 
   useLayoutEffect(() => {
     setOverlay(overlayRef.current);
@@ -565,17 +689,36 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
   // Where cards were, kept fresh so a flight can start from a hand slot that has already closed up.
   useEffect(() => startZoneSnapshots(), []);
 
+  // A hidden destroyed card stays hidden when React redraws its zone, and a held pile count stays held.
+  useEffect(() => startDestroyHideGuard(overlayRef.current?.parentElement ?? null), []);
+
   // The hands close up and make room with a slide instead of a jump.
   useHandFlip(() => overlayRef.current?.parentElement ?? null, reducedRef);
 
+  // A plan is shown once, even when a remount replays the same events.
+  const addItems = (list: MovePlan[]) =>
+    setItems((current) => {
+      const have = new Set(current.map((item) => item.id));
+      const starting = new Set(list.map((item) => item.id));
+      return [...current.filter((item) => !item.handoff || !starting.has(item.handoff)), ...list.filter((item) => !have.has(item.id))].slice(-MAX_GHOSTS);
+    });
+
   const clearAll = () => {
-    for (const timer of timersRef.current) window.clearTimeout(timer);
+    for (const timer of timersRef.current) duelFxClock.clearTimeout(timer);
     timersRef.current.clear();
     for (const release of releasesRef.current.values()) release();
     releasesRef.current.clear();
   };
 
-  useEffect(() => () => clearAll(), []);
+  useEffect(
+    () => () => {
+      clearAll();
+      // A remount (React strict mode) reads the first events again, so a replayed opening is not lost.
+      cursorRef.current = null;
+      confirmUntilRef.current = 0;
+    },
+    [],
+  );
 
   useLayoutEffect(() => {
     if (keyRef.current !== duelKey) {
@@ -584,44 +727,124 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
       clearAll();
       resetMoveSchedule(duelKey);
       setItems([]);
+      setConfirmations([]);
+      setConfirmedCards(new Map());
+      confirmUntilRef.current = 0;
+      shownConfirmationsRef.current.clear();
     }
+    if (skipThrough != null) cursorRef.current = Math.max(cursorRef.current ?? skipThrough, skipThrough);
     if (cursorRef.current == null) {
-      cursorRef.current = maxEventId(events) ?? 0;
-      return;
+      cursorRef.current = replayRef.current ?? maxEventId(events) ?? 0;
+      if (replayRef.current == null) return;
+    }
+    // Historical events are reprojected too: a private shuffle can retire a sleeve's arrival ID.
+    // Keep the event object used by running geometry/reveal followers current, even with no new IDs.
+    for (const event of events) {
+      const plan = getMovePlan(event.id);
+      if (plan && event.kind === "move") Object.assign(plan.event, event, { handId: event.handId });
     }
     const { nextCursor, fresh } = collectFreshEvents(events, cursorRef.current);
     cursorRef.current = nextCursor;
     if (fresh.length === 0) return;
     if (typeof document !== "undefined" && document.hidden) return;
 
-    const now = performance.now();
+    const now = duelFxClock.now();
     planMoves(fresh, { now, reduced: reducedRef.current, duelKey });
+    const confirmedMoves = fresh.filter((event) => {
+      if (event.kind !== "confirm" || event.moveId == null || !event.card) return false;
+      const move = getMovePlan(event.moveId);
+      // After landing, the fading showcase retires while the standalone confirmation owns the face.
+      return move?.showcase != null && now < move.landAt;
+    });
+    if (confirmedMoves.length > 0) {
+      setConfirmedCards((current) => {
+        // Keep identities for queued showcases even after their events leave the rolling window.
+        const next = new Map([...current].filter(([id]) => getMovePlan(id) != null));
+        for (const event of confirmedMoves) next.set(event.moveId!, event.card!);
+        return next;
+      });
+    }
     const started: MovePlan[] = [];
     for (const event of fresh) {
+      if (event.kind === "confirm" && event.card?.code) {
+        const move = event.moveId != null ? getMovePlan(event.moveId) : null;
+        // An active addition uses this identity in its showcase, including later snapshots.
+        if (move?.showcase && now < move.landAt) continue;
+        const startAt = Math.max(now, move?.landAt ?? now, confirmUntilRef.current);
+        confirmUntilRef.current = startAt + CONFIRM_MS;
+        const show = () => {
+          // Record presentation, not scheduling: cleanup cancels queued timers, so those cards
+          // must still be eligible when Strict Mode rebuilds the queue from its replay cursor.
+          if (shownConfirmationsRef.current.has(event.id)) return;
+          shownConfirmationsRef.current.add(event.id);
+          setConfirmations((current) => [...current, event]);
+        };
+        if (startAt <= now) show();
+        else {
+          const timer = duelFxClock.setTimeout(() => {
+            timersRef.current.delete(timer);
+            show();
+          }, startAt - now);
+          timersRef.current.add(timer);
+        }
+        continue;
+      }
       const plan = event.kind === "move" ? getMovePlan(event.id) : null;
-      if (!plan) continue;
+      // A big summon draws its own arrival (SummonFx): no ghost, and it hides the real card itself.
+      if (!plan || plan.silent) continue;
       // The real card waits invisible at its destination until the ghost lands on it.
-      const dest = findZoneElement(plan.event.zone);
+      const dest = findMoveDestination(plan.event);
       const target = dest ? hideTargetOf(dest, plan) : null;
-      if (target) {
-        const release = hideElement(target);
+      const waitMs = Math.max(0, plan.landAt + plan.holdMs - now) + HIDE_FAILSAFE_MS;
+      const releases: Array<() => void> = [];
+      if (plan.event.zone?.location === LOCATION_HAND) {
+        let heldTarget = target;
+        let releaseTarget = target ? hideElement(target) : null;
+        const stop = followMoveDestination(plan.event,
+          (destination) => destination ? hideTargetOf(destination, plan) : null,
+          (nextTarget) => {
+            if (nextTarget === heldTarget) return;
+            releaseTarget?.();
+            heldTarget = nextTarget;
+            releaseTarget = nextTarget ? hideElement(nextTarget) : null;
+          },
+        );
+        releases.push(() => { stop(); releaseTarget?.(); });
+      } else if (target) releases.push(hideElement(target));
+      if (plan.destroy && plan.event.from && plan.event.zone) {
+        // The card is being destroyed: its zone shows empty from now (the ghost stands in until the break),
+        // and the pile counts it when the flight lands, not before.
+        releases.push(beginDestroyHide(`move:${plan.id}`, plan.event.from, plan.event.card?.code, waitMs));
+        releases.push(beginPileHold(`move:${plan.id}`, plan.event.zone, waitMs));
+      } else if (plan.takeover && plan.event.zone) {
+        // A wipe piece drew the card on the canvas (its own layer keeps the zone clear): the pile counts it
+        // when the streak arrives, not before.
+        releases.push(beginPileHold(`move:${plan.id}`, plan.event.zone, waitMs));
+      }
+      if (releases.length > 0) {
+        const release = () => {
+          duelFxClock.clearTimeout(failsafe);
+          timersRef.current.delete(failsafe);
+          releasesRef.current.delete(plan.id);
+          releases.forEach((fn) => fn());
+        };
         releasesRef.current.set(plan.id, release);
-        const failsafe = window.setTimeout(release, Math.max(0, plan.landAt + plan.holdMs - now) + HIDE_FAILSAFE_MS);
+        const failsafe = duelFxClock.setTimeout(release, waitMs);
         timersRef.current.add(failsafe);
       }
       const wait = plan.startAt - now;
       if (wait <= 16) {
         started.push(plan);
       } else {
-        const timer = window.setTimeout(() => {
+        const timer = duelFxClock.setTimeout(() => {
           timersRef.current.delete(timer);
-          setItems((current) => [...current, plan].slice(-MAX_GHOSTS));
+          addItems([plan]);
         }, wait);
         timersRef.current.add(timer);
       }
     }
-    if (started.length > 0) setItems((current) => [...current, ...started].slice(-MAX_GHOSTS));
-  }, [duelKey, events]);
+    if (started.length > 0) addItems(started);
+  }, [duelKey, events, skipThrough]);
 
   const release = (id: number) => {
     const fn = releasesRef.current.get(id);
@@ -633,15 +856,28 @@ export function MoveFx({ events, duelKey, reducedMotion }: MoveFxProps) {
   const finish = (id: number) => {
     release(id);
     setItems((current) => current.filter((item) => item.id !== id));
+    setConfirmedCards((current) => {
+      if (!current.has(id)) return current;
+      const next = new Map(current);
+      next.delete(id);
+      return next;
+    });
   };
 
   return (
     <div ref={overlayRef} className={styles.layer} aria-hidden="true">
       {overlay
         ? items.map((plan) => (
-            <Ghost key={plan.id} plan={plan} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
+            plan.style === "add" ? (
+              <ShowcaseGhost key={plan.id} plan={plan} confirmedCard={confirmedCards.get(plan.id)} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
+            ) : (
+              <Ghost key={plan.id} plan={plan} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
+            )
           ))
         : null}
+      {overlay ? confirmations.map((event) => (
+        <ConfirmGhost key={event.id} event={event} overlay={overlay} done={() => setConfirmations((current) => current.filter((item) => item.id !== event.id))} />
+      )) : null}
     </div>
   );
 }

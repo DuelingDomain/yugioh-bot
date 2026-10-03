@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
-import type { DuelCardInfo } from "@yugidraft/shared/duels";
+import type { DeckCardInfo, DuelCardInfo } from "@yugidraft/shared/duels";
 import type { ScriptOverlay } from "./multi-scripts.js";
 import {
   OcgType,
@@ -23,6 +23,12 @@ export interface CardTextEntry {
 export interface CardDatabase {
   search(query: string, matches?: (card: OcgCardData) => boolean): DuelCardInfo[];
   get(code: number): DuelCardInfo | undefined;
+  /** The deck editor's view of a card: duel info plus setcodes, scales, Link Arrows and card pool. */
+  deckCard(code: number): DeckCardInfo | undefined;
+  /** Every card in catalog order, alternate artworks and tokens included. */
+  all(): Iterable<DeckCardInfo>;
+  /** Archetype names from strings.conf, by setcode. */
+  setnames(): ReadonlyMap<number, string>;
   cardData(code: number): OcgCardData | null;
   resolveLabel(desc: bigint | number): string;
   system(id: number): string | undefined;
@@ -130,9 +136,12 @@ function loadFromDisk(root: string): CardDatabase {
   const datas = new Map<number, OcgCardData>();
   const texts = new Map<number, CardTextEntry>();
   const info = new Map<number, DuelCardInfo>();
+  const deckCards = new Map<number, DeckCardInfo>();
+  const pools = new Map<number, number>();
   try {
     const dataRows = sqlite.prepare("SELECT * FROM datas").all() as Array<{
       id: number | bigint;
+      ot: number | bigint;
       alias: number | bigint;
       setcode: number | bigint;
       type: number | bigint;
@@ -160,6 +169,7 @@ function loadFromDisk(root: string): CardDatabase {
         attribute: asNumber(row.attribute),
       };
       datas.set(card.code, card);
+      pools.set(card.code, asNumber(row.ot));
     }
     const textRows = sqlite.prepare("SELECT * FROM texts").all() as Array<Record<string, unknown>>;
     for (const row of textRows) {
@@ -177,7 +187,7 @@ function loadFromDisk(root: string): CardDatabase {
 
   for (const [code, card] of datas) {
     const text = texts.get(code);
-    info.set(code, {
+    const base: DuelCardInfo = {
       code,
       name: text?.name ?? `Card ${code}`,
       description: text?.description ?? "",
@@ -187,6 +197,16 @@ function loadFromDisk(root: string): CardDatabase {
       level: card.level,
       attribute: card.attribute as number,
       race: formatRace(card.race as bigint),
+    };
+    info.set(code, base);
+    deckCards.set(code, {
+      ...base,
+      alias: card.alias,
+      setcodes: card.setcodes,
+      lscale: card.lscale,
+      rscale: card.rscale,
+      arrows: card.link_marker,
+      ot: pools.get(code) ?? 0,
     });
   }
 
@@ -194,6 +214,7 @@ function loadFromDisk(root: string): CardDatabase {
   const system = parseConf(stringsFile, "system");
   const victory = parseConf(stringsFile, "victory");
   const counters = parseConf(stringsFile, "counter");
+  const setnames = parseConf(stringsFile, "setname");
   const scripts = indexScripts(scriptRoot);
 
   const database: CardDatabase = {
@@ -219,6 +240,15 @@ function loadFromDisk(root: string): CardDatabase {
     },
     get(code) {
       return info.get(code);
+    },
+    deckCard(code) {
+      return deckCards.get(code);
+    },
+    all() {
+      return deckCards.values();
+    },
+    setnames() {
+      return setnames;
     },
     cardData(code) {
       return datas.get(code) ?? null;

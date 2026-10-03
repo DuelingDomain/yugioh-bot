@@ -1,4 +1,5 @@
 import type { DuelClock, DuelFormat, DuelSettings } from "./settings.js";
+import type { DuelFirstChoice, DuelOpeningView } from "./opening.js";
 
 export type DuelMode = "normal" | "domain";
 export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "cancelled";
@@ -30,6 +31,7 @@ export {
   DUEL_CLOCK_INCREMENT_MS,
   DUEL_CLOCK_REGAIN_FRACTION,
   DUEL_CLOCK_REGAIN_MIN_MS,
+  DUEL_OPENING_GRACE_MS,
   defaultDuelSettings,
   duelClockBankMs,
   duelClockRegainMs,
@@ -40,9 +42,36 @@ export {
   NO_BANLIST_ID,
   PINNED_TCG_BANLIST_ID,
 } from "./settings.js";
-export { MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason, multiplayerTableBlockReason } from "./multi-domain.js";
+export { DEFAULT_DUEL_1V1_ENGINE, DUEL_1V1_ENGINE_ENV, duel1v1Engine, isDuelEngineChoice } from "./engine-switch.js";
+export type { DuelEngineChoice } from "./engine-switch.js";
+export {
+  MULTIPLAYER_TABLES_ENV,
+  MULTIPLAYER_TABLES_OFF_MESSAGE,
+  enabledDuelFormats,
+  multiplayerSeatsBlockReason,
+  multiplayerTablesBlockReason,
+  multiplayerTablesEnabled,
+} from "./multiplayer-tables.js";
+export { MULTI_CORE_UNAVAILABLE_MESSAGE, MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason } from "./multi-domain.js";
 export type { DuelTableCapabilities } from "./multi-domain.js";
 export type { DuelBanlistOption } from "./banlist-options.js";
+export type {
+  DuelFirstChoice,
+  DuelOpeningReveal,
+  DuelOpeningState,
+  DuelOpeningView,
+  DuelRpsMove,
+} from "./opening.js";
+export {
+  DUEL_OPENING_PICK_MS,
+  DUEL_OPENING_REVEAL_MS,
+  DUEL_RPS_MOVES,
+  isFirstChoice,
+  isRpsMove,
+  rpsWinner,
+} from "./opening.js";
+export type { DeckPoolIssue } from "./pool.js";
+export { checkDeckAgainstPool, deckCardCounts } from "./pool.js";
 export { DUEL_BANLIST_OPTIONS } from "./banlist-options.js";
 
 export interface DuelDeck {
@@ -59,6 +88,63 @@ export interface SavedDeck {
   deck: DuelDeck;
   createdAt: string;
   updatedAt: string;
+  /** Set when the deck was built from the owner's pool in this draft. */
+  draftId?: number | null;
+}
+
+export type DuelBestOf = 1 | 3;
+
+/**
+ * `active`: a game is in lobby or in progress. `between_games`: the side-deck
+ * window before the next game. `completed`: a player won the series.
+ * `cancelled`: stopped before a winner (lobby cancel or organizer result).
+ */
+export type DuelSeriesStatus = "active" | "between_games" | "completed" | "cancelled";
+
+/**
+ * Public state of a match of 1 or 3 games between two players. `playerIds`
+ * order is fixed when the series is made; it is not the seat order of a game
+ * (the loser of the last game takes seat 0 in the next one).
+ */
+export interface DuelSeriesSummary {
+  id: number;
+  bestOf: DuelBestOf;
+  ranked: boolean;
+  status: DuelSeriesStatus;
+  playerIds: [number, number];
+  displayNames: [string, string];
+  wins: [number, number];
+  /** Number of the latest game (1-based). */
+  gameNumber: number;
+  /** Slug of the latest game's duel; clients follow it to the next game. */
+  currentDuelSlug: string | null;
+  winnerPlayerId: number | null;
+  tournamentId: number | null;
+  tournamentSlug: string | null;
+  tournamentMatchId: number | null;
+  /** ISO time when the side-deck window ends; null when there is no deadline. */
+  nextGameAt: string | null;
+  /** Per playerIds index: the player clicked Ready (or has no side deck). */
+  sideReady: [boolean, boolean];
+  /** Per playerIds index: the player's deck has side deck cards. */
+  hasSide: [boolean, boolean];
+  /**
+   * Between games after a decided game: the playerIds index of the loser, who chooses to go first or
+   * second. Null before game 1, after a draw or an interrupt (the seats swap then), and while a game runs.
+   */
+  firstChooser: 0 | 1 | null;
+  /** What the chooser picked for the next game; null until they choose (the default is first). */
+  firstChoice: DuelFirstChoice | null;
+  /** One player plays the practice bot: `playerIds[1]` is 0 and the bot's name stands in `displayNames[1]`. */
+  vsBot: boolean;
+}
+
+/** The viewer's own decks in a series; only sent to that player. */
+export interface DuelSeriesSideState {
+  /** The registered deck (tournament) or the game 1 deck (casual). */
+  baseDeck: DuelDeck;
+  /** The deck for the next game, after side deck swaps. */
+  currentDeck: DuelDeck;
 }
 
 export interface DuelDeckCardRef {
@@ -95,6 +181,8 @@ export interface DuelCard {
   location: number;
   sequence: number;
   position: number;
+  /** Opaque animation identity; hand order and sequence always come from the engine query. */
+  handId?: string;
   code?: number;
   name?: string;
   description?: string;
@@ -109,6 +197,13 @@ export interface DuelCard {
   linkMarker?: number;
   counters?: Array<{ type: number; count: number }>;
   materials?: DuelCard[];
+  /**
+   * Set on a card that is equipped to a monster (an Equip Spell, a Union monster, or any card the
+   * engine attaches with an effect): the monster's zone. Read live from the core, so it follows the
+   * monster when it moves or changes control and is gone when either card leaves the field. A hidden
+   * card carries nothing, so a face-down card never shows what it is attached to.
+   */
+  equippedTo?: DuelZoneRef;
 }
 
 export interface DuelPromptOption {
@@ -119,6 +214,10 @@ export interface DuelPromptOption {
   location?: number;
   sequence?: number;
   values?: number[];
+  /** Current Level from this viewer's card projection; takes precedence over the printed Level. */
+  currentLevel?: number;
+  /** The card counts as another Level for a Synchro Summon (EFFECT_SYNCHRO_LEVEL), so its Level is not its contribution. */
+  synchroLevelVaries?: boolean;
   max?: number;
   selected?: boolean;
   /** Full printed text of the card this option is bound to (absent when the card is hidden from the viewer). */
@@ -163,6 +262,8 @@ export interface DuelPrompt {
   min?: number;
   max?: number;
   target?: number;
+  /** Sum requirement (also used for a Synchro toggle's Level target), independent of card-count bounds. */
+  sumMode?: "exact" | "at-least";
   mandatory?: string[];
   cancelable?: boolean;
   finishable?: boolean;
@@ -227,7 +328,7 @@ export interface DuelZoneRef {
 }
 
 export type DuelMoveReason =
-  | "summon" | "set" | "activate" | "destroy" | "send" | "return" | "banish" | "draw" | "discard" | "other";
+  | "summon" | "set" | "activate" | "destroy" | "send" | "return" | "banish" | "draw" | "add" | "discard" | "other";
 
 /**
  * How a monster arrived on the field. "tribute" is a Normal Summon that used Tributes. The Extra
@@ -247,21 +348,35 @@ export type DuelSummonKind =
  */
 export type DuelBattleStep = "start" | "battle" | "damage" | "damage-calculation" | "end";
 
+/** The core's actual stats at damage calculation, before temporary effects expire. */
+export interface DuelBattleStats {
+  attack: number;
+  defense: number;
+  position: number;
+}
+
 export interface DuelEvent {
   id: number;
   kind:
-    | "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
-    | "attack" | "phase" | "damage" | "destroy" | "move" | "position";
+    | "summon" | "set" | "activate" | "target" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
+    | "attack" | "battle" | "battle-end" | "phase" | "damage" | "destroy" | "move" | "position" | "equip" | "confirm";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
+  /** target: the link's complete current target list (including [] when cleared). Coordinates only;
+   * identities must come from the viewer's redacted board. Also accepted on activation events. */
+  targets?: DuelZoneRef[];
   text: string;
   description?: string;
+  /** confirm: the preceding move of this card, when known. Identity belongs to this confirmation only. */
+  moveId?: number;
   /**
    * summon / set / activate: the zone the card is in.
    * attack: the attacking monster's zone.
    * destroy: the zone the card left.
    * move: the destination zone (the card's controller after the move is `seat`).
+   * equip: the zone of the card that was equipped (it has no `card`; read it from the board).
+   * confirm: where the confirmed card was at confirmation time. Does not expose its live slot.
    */
   zone?: DuelZoneRef;
   /** move: the zone the card left. Board positions are public even when the card is hidden. */
@@ -274,8 +389,20 @@ export interface DuelEvent {
   reason?: DuelMoveReason;
   /** move: the card arrived face-down (Set, or banished/returned face-down). */
   faceDown?: boolean;
-  /** attack: the attacked monster's zone; absent for a direct attack. */
+  /**
+   * move: a card effect added the card to a hand (a search from the Deck, a salvage, a bounce); it was not
+   * drawn. Set on moves to a hand that did not come from a draw. Absent on older events (a search from the
+   * Deck then reads like a draw).
+   */
+  addedToHand?: true;
+  /** move into hand: animation destination in the current engine view. Hidden shuffles stay anonymous. */
+  handId?: string;
+  /** move into hand: a public shuffle occurred since this arrival; unknown departures cannot identify it. */
+  handShuffled?: true;
+  /** attack: the attacked monster's zone; absent for a direct attack. equip: the monster it was equipped to. */
   target?: DuelZoneRef;
+  /** battle: public MSG_BATTLE values; a direct attack has no target. These never replace live board stats. */
+  battle?: { attacker: DuelBattleStats; target?: DuelBattleStats };
   /** damage: LP lost by `seat` (positive number). */
   amount?: number;
   /**
@@ -298,6 +425,8 @@ export interface DuelEvent {
    * 0x1 face-up Attack, 0x2 face-down Attack, 0x4 face-up Defense, 0x8 face-down Defense).
    * `zone` is the card's zone; `card` follows the move-event rule (present when the card is
    * face-up before or after the change, or the viewer controls it).
+   * move / destroy: `fromPosition` is the Monster Zone position before departure, even when the
+   * destination snapshot already removed the card. A Graveyard position is not its battle pose.
    */
   fromPosition?: number;
   toPosition?: number;
@@ -311,6 +440,10 @@ export interface DuelChainLink {
   code?: number;
   name?: string;
   description?: string;
+  /** Where the source activated; retained when its activation leaves the event window. */
+  zone?: DuelZoneRef;
+  /** Current target coordinates, public to every viewer. No target names or passcodes. */
+  targets?: DuelZoneRef[];
 }
 
 export interface DuelEngineView {
@@ -326,6 +459,12 @@ export interface DuelEngineView {
   /** Earliest losses first. Seats reported together share a place. Absent on older views and 1v1. */
   eliminationOrder?: number[][];
   prompt: DuelPrompt | null;
+  /**
+   * Public seat the engine is waiting on, including when that viewer cannot see the prompt.
+   * null while processing or after the duel; absent in older clients' saved views/replays.
+   * This reveals ownership only, never the answering player's prompt or options.
+   */
+  prioritySeat?: number | null;
   chain: DuelChainLink[];
   events: DuelEvent[];
   log: Array<{ id: number; text: string }>;
@@ -364,6 +503,14 @@ export interface DuelSession {
   winnerPlayerId: number | null;
   winnerSeat: number | null;
   resultReason: string | null;
+  /** Match length chosen at create time (a series game copies its series). */
+  bestOf?: DuelBestOf;
+  /** Ranked: a finished series writes a match record (Elo). */
+  ranked?: boolean;
+  /** Series this game belongs to; null for a duel with no series (practice bot, or not started). */
+  seriesId?: number | null;
+  /** 1-based game number inside the series. */
+  gameNumber?: number | null;
 }
 
 export interface DuelRoom {
@@ -376,6 +523,14 @@ export interface DuelRoom {
   metadataOnly: boolean;
   error?: string;
   inviteCode?: string;
+  /** The series of this game, or null. */
+  series?: DuelSeriesSummary | null;
+  /** The viewer's series decks when the viewer is a series player; otherwise null. */
+  mySide?: DuelSeriesSideState | null;
+  /** True when the duel host was busy and answered with the last view it built for this seat. The client asks again soon. */
+  stale?: boolean;
+  /** Rock-paper-scissors before the game starts; null when there is none. */
+  opening?: DuelOpeningView | null;
 }
 
 /** A table row in the lobby list or match history, as seen by one viewer. */
@@ -384,6 +539,8 @@ export interface DuelListItem extends DuelSession {
   mySeat: number | null;
   /** Last start or accepted input; falls back to creation time. */
   lastActivityAt: string;
+  /** The series of this game, or null. */
+  series?: DuelSeriesSummary | null;
 }
 
 /** `mine` lists only duels the viewer played; `all` lists every duel the viewer may open. */
@@ -413,3 +570,47 @@ export interface DuelCommand {
   revision: number;
   answer: DuelAnswer;
 }
+
+export type {
+  CardArchetype,
+  CardFacets,
+  CardKindFilter,
+  CardLimitStatus,
+  CardMatch,
+  CardPoolFilter,
+  CardQuery,
+  CardQueryResult,
+  CardRange,
+  CardSearchScope,
+  CardSearchTerm,
+  CardSort,
+  DeckCardInfo,
+  MonsterTypeKey,
+  SortOrder,
+  SpellTypeKey,
+  TrapTypeKey,
+} from "./card-query.js";
+export {
+  CARD_ATTRIBUTES,
+  CARD_LIMIT_KEYS,
+  CARD_POOL_OCG,
+  CARD_POOL_TCG,
+  CARD_QUERY_PAGE_MAX,
+  CARD_QUERY_TEXT_MAX,
+  CARD_RACES,
+  CARD_TYPE_BITS,
+  CardQueryError,
+  LINK_ARROW_MASK,
+  LINK_ARROWS,
+  MONSTER_TYPE_BITS,
+  MONSTER_TYPE_KEYS,
+  SPELL_TYPE_KEYS,
+  TRAP_TYPE_KEYS,
+  cardLimit,
+  cardTypeRank,
+  emptyCardQuery,
+  foldCardText,
+  inArchetype,
+  parseCardQuery,
+  parseCardSearchTerms,
+} from "./card-query.js";

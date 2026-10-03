@@ -26,8 +26,8 @@ export async function POST(
     const db = getDb();
 
     const tournament = db
-      .prepare("select id, guild_id, name, format, status, created_by_user_id, web_slug from tournaments where web_slug = ?")
-      .get(slug) as
+      .prepare("select id, guild_id, name, format, status, created_by_user_id, web_slug from tournaments where web_slug = ? and guild_id = ?")
+      .get(slug, env.discordGuildId) as
       | { id: number; guild_id: string; name: string; format: string; status: string; created_by_user_id: string; web_slug: string }
       | undefined;
 

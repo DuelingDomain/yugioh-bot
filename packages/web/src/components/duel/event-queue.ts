@@ -1,10 +1,13 @@
+import { reportDuelClientError } from "./client-error";
 import type { SceneCueName } from "./fx3d/scene-plan";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import type { BattleSoundPlan } from "./attack-audio";
+import { BANNER_TIMING, PHASE_TIMING } from "./duel-timing";
 import {
-  isDefense,
+  isDefenseAt,
   isFacedown,
   LOCATION_EXTRA,
+  LOCATION_HAND,
   TYPE_FUSION,
   TYPE_LINK,
   TYPE_MONSTER,
@@ -152,8 +155,8 @@ export type PositionChange = {
 };
 
 export function positionChangeOf(event: PositionEvent): PositionChange {
-  const fromDefense = isDefense(event.fromPosition);
-  const toDefense = isDefense(event.toPosition);
+  const fromDefense = isDefenseAt(event.zone.location, event.fromPosition);
+  const toDefense = isDefenseAt(event.zone.location, event.toPosition);
   const fromDown = isFacedown(event.fromPosition);
   const toDown = isFacedown(event.toPosition);
   return {
@@ -196,6 +199,126 @@ export function findZoneElement(zone: DuelZoneRef | undefined | null): HTMLEleme
   );
 }
 
+/** Resolve the card's current engine slot; an arrival that left must not target its replacement. */
+export function findMoveDestination(event: DuelEvent): HTMLElement | null {
+  if (event.handId && typeof document !== "undefined") {
+    const hand = document.querySelector(`[data-hand-seat="${event.zone?.controller}"]`);
+    const card = Array.from(hand?.querySelectorAll<HTMLElement>("[data-hand-id]") ?? [])
+      .find((el) => el.dataset.handId === event.handId);
+    return card?.querySelector<HTMLElement>("[data-zones]") ?? null;
+  }
+  return findZoneElement(event.zone);
+}
+
+/**
+ * An effect's hand arrival must still be shown if the card left in the same engine batch. In that
+ * case use the message's engine slot as geometry only: never hide or read the replacement there.
+ * A missing end slot is extrapolated in engine sequence direction (leftward on the far hand).
+ */
+export function handArrivalTarget(event: DuelEvent): { rect: ReturnType<typeof moveDestinationRect>; side: "you" | "opp" } | null {
+  const dest = findMoveDestination(event);
+  if (dest) return { rect: moveDestinationRect(dest), side: dest.dataset.side === "opp" ? "opp" : "you" };
+  const zone = event.zone;
+  if (!zone || zone.location !== LOCATION_HAND || typeof document === "undefined") return null;
+  const hand = document.querySelector<HTMLElement>(`[data-hand-seat="${zone.controller}"]`);
+  if (!hand) return null;
+  const side = hand.dataset.side === "opp" ? "opp" : "you";
+  let sequence = zone.sequence;
+  let slot = findZoneElement(zone);
+  if (!slot) {
+    sequence = Math.max(0, hand.children.length - 1);
+    slot = findZoneElement({ ...zone, sequence });
+  }
+  if (slot) {
+    const rect = moveDestinationRect(slot);
+    const previous = findZoneElement({ ...zone, sequence: sequence - 1 });
+    const step = previous ? rect.left - moveDestinationRect(previous).left : rect.width * (side === "opp" ? -1 : 1);
+    return { rect: { ...rect, left: rect.left + (zone.sequence - sequence) * step }, side };
+  }
+  const rail = hand.getBoundingClientRect();
+  // The rail includes LP, lift reserves and spare board height. Its permanent sizing sibling
+  // resolves the distinct local/far card sizes without mutating DOM during animation-frame reads.
+  const size = hand.parentElement?.querySelector<HTMLElement>("[data-hand-size-probe]")?.getBoundingClientRect();
+  if (!size || size.width < 4 || size.height < 4) return null;
+  const padding = getComputedStyle(hand);
+  const top = side === "opp"
+    ? rail.top + (Number.parseFloat(padding.paddingTop) || 0)
+    : rail.top + rail.height - (Number.parseFloat(padding.paddingBottom) || 0) - size.height;
+  return { rect: { left: rail.left + (rail.width - size.width) / 2, top, width: size.width, height: size.height }, side };
+}
+
+/** Engine-slot geometry without a hand card's temporary FLIP/entry translation. */
+export function moveDestinationRect(dest: HTMLElement): { left: number; top: number; width: number; height: number } {
+  const rect = dest.getBoundingClientRect();
+  const card = dest.closest?.<HTMLElement>("[data-hand-card]");
+  const translate = card ? getComputedStyle(card).translate : undefined;
+  const [x, y] = translate?.split(/\s+/).map((value) => Number.parseFloat(value) || 0) ?? [0, 0];
+  return { left: rect.left - x, top: rect.top - (y ?? 0), width: rect.width, height: rect.height };
+}
+
+/** The card's board turn plus its fan angle; landing uses the engine's final angle. */
+export function moveDestinationRotation(dest: HTMLElement | null, visible = false): number {
+  if (!dest) return 0;
+  const turn = (dest.dataset.side === "opp" ? 180 : 0) + (dest.dataset.defense === "true" ? 90 : 0);
+  const card = dest.closest<HTMLElement>("[data-hand-card]");
+  const hand = card?.closest<HTMLElement>("[data-hand-seat]");
+  if (!card || !hand || hand.closest('[data-reduced-motion="true"]')) return turn;
+  if (visible) {
+    const transform = getComputedStyle(card).transform;
+    const matrix = transform.match(/^matrix\(([^)]+)\)$/)?.[1].split(",").map(Number);
+    if (matrix) return turn + Math.atan2(matrix[1], matrix[0]) * 180 / Math.PI;
+  }
+  if (hand.dataset.many !== "true") return turn;
+  const index = Number.parseFloat(card.style.getPropertyValue("--i")) || 0;
+  const count = Number.parseFloat(hand.style.getPropertyValue("--hn")) || hand.children.length;
+  return turn + (index - (count - 1) / 2) * 1.15;
+}
+
+type DestinationFollower = { read: () => unknown; write: (sample: unknown) => void };
+const destinationFollowers = new Set<DestinationFollower>();
+let destinationFrame: number | undefined;
+
+function queueDestinationFrame(): void {
+  if (destinationFrame != null || destinationFollowers.size === 0 || typeof window.requestAnimationFrame !== "function") return;
+  destinationFrame = window.requestAnimationFrame(() => {
+    destinationFrame = undefined;
+    // Every geometry read precedes every style write, however many flights/rings are active.
+    const samples: Array<{ follower: DestinationFollower; sample: unknown }> = [];
+    for (const follower of [...destinationFollowers]) {
+      try {
+        samples.push({ follower, sample: follower.read() });
+      } catch (error) {
+        destinationFollowers.delete(follower);
+        reportDuelClientError(error);
+      }
+    }
+    for (const { follower, sample } of samples) {
+      if (!destinationFollowers.has(follower)) continue;
+      try {
+        follower.write(sample);
+      } catch (error) {
+        destinationFollowers.delete(follower);
+        reportDuelClientError(error);
+      }
+    }
+    queueDestinationFrame();
+  });
+}
+
+/** Keep flights and landing overlays attached with one shared read-then-write animation frame. */
+export function followMoveDestination<T>(event: DuelEvent, read: (dest: HTMLElement | null) => T, write: (sample: T) => void): () => void {
+  const follower: DestinationFollower = { read: () => read(findMoveDestination(event)), write: (sample) => write(sample as T) };
+  destinationFollowers.add(follower);
+  queueDestinationFrame();
+  return () => {
+    destinationFollowers.delete(follower);
+    if (destinationFollowers.size === 0 && destinationFrame != null) {
+      window.cancelAnimationFrame(destinationFrame);
+      destinationFrame = undefined;
+    }
+  };
+}
+
 /**
  * True when SummonFx/PositionFx will show this event on the board, so the centre toast stays out of
  * its way. Reduced motion keeps the toast: the board effect is only a short glow.
@@ -226,15 +349,15 @@ export function emitDuelFxCue(detail: DuelFxCueDetail): void {
  * A backlog of cues is compressed, never dropped: each cue keeps at least MIN_CUE_FRACTION of its
  * length (and MIN_CUE_MS), so a long chain stays a row of distinct beats instead of a blur.
  */
-const CATCH_UP_BUDGET_MS = 3600;
-const MIN_CUE_MS = 400;
+const CATCH_UP_BUDGET_MS = BANNER_TIMING.catchUpBudgetMs;
+const MIN_CUE_MS = BANNER_TIMING.minCueMs;
 const MIN_CUE_FRACTION = 0.5;
 /**
  * Past this, a backlog would trail the board by more and more (the floor above times the queue
  * length), so the floor gives way and the whole queue fits in about this long, down to BLINK_CUE_MS.
  */
-const MAX_BACKLOG_MS = 7000;
-const BLINK_CUE_MS = 250;
+const MAX_BACKLOG_MS = BANNER_TIMING.maxBacklogMs;
+const BLINK_CUE_MS = BANNER_TIMING.blinkCueMs;
 
 export function maxEventId(events: readonly DuelEvent[]): number | null {
   let max: number | null = null;
@@ -268,29 +391,37 @@ export function collectFreshEvents(
   return { nextCursor, fresh };
 }
 
-/** How long a banner or toast stays: at least about 1.2 s for anything with words to read. */
+/**
+ * False for the chain events that are shown on the board only: a link resolving or resolved is the
+ * badge on its card (chain-fx.tsx, paced by chain-beats.ts), and the end of the chain clears the
+ * badges. They keep their sound cue and their log and screen reader entries, but get no banner.
+ * Target updates only refresh board markers and have no sound or history tile.
+ * Confirmations are presented by MoveFx and have no feedback sound.
+ * "activate" and "chain-negated" keep theirs.
+ */
+export function hasCentreBanner(kind: DuelEventKind): boolean {
+  // An equip is drawn on the board as a line between the two cards (EquipFx), so it has no banner.
+  return kind !== "target" && kind !== "confirm" && kind !== "chain-resolving" && kind !== "chain-resolved" && kind !== "chain-end" && kind !== "equip";
+}
+
+/** How long a banner or toast stays: at least about 1.3 s for anything with words to read (a phase ribbon is shorter). */
 export function cueDuration(kind: DuelEventKind, reducedMotion: boolean): number {
+  if (kind === "target" || kind === "confirm") return 0;
+  // A phase ribbon is one short beat: the phases of a turn start (Draw, Standby, Main 1) follow each other.
+  if (kind === "phase") return reducedMotion ? PHASE_TIMING.reducedBeatMs : PHASE_TIMING.beatMs;
   if (reducedMotion) {
-    return kind === "activate" ? 1200 : 900;
+    return kind === "activate" ? BANNER_TIMING.reducedActivateMs : BANNER_TIMING.reducedDefaultMs;
   }
   switch (kind) {
     case "activate":
-      return 1500;
+      return BANNER_TIMING.activateMs;
     case "summon":
     case "set":
     case "attack":
     case "destroy":
-    case "phase":
-      return 1200;
-    case "chain-resolving":
-      return 800;
-    case "chain-resolved":
-    case "chain-negated":
-      return 900;
-    case "chain-end":
-      return 600;
+      return BANNER_TIMING.eventMs;
     default:
-      return 900;
+      return BANNER_TIMING.defaultMs;
   }
 }
 

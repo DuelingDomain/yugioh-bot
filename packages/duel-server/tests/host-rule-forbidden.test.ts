@@ -49,7 +49,7 @@ describeWithCores("live host forbidden list (" + mode + ")",
     const service = createDuelService(db);
     const room = service.create({ guildId: "g1", organizerPlayerId: players[0]!, name: "Rule proof", mode, format,
       settings: { banlist: "none", validateDeck: true, shuffleDeck: false, turnSeconds: 0 } });
-    for (const player of players.slice(1)) service.join(room.slug, "g1", player);
+    for (const player of players.slice(1)) service.takeSeat(room.slug, "g1", player);
     let game: EngineGame | undefined;
     let creates = 0;
     const worker: DuelGameWorker = {

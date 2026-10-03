@@ -25,7 +25,7 @@ Playwright `webServer` runs `stack/start.mjs`. It starts three processes on non-
 | ws Socket.IO | 3302 public, 4302 internal | `NEXT_PUBLIC_WS_URL` is baked into the web build. |
 | duel host | 4303 | Uses `data/duel-engine-next` read-only. |
 
-- Database: a fresh SQLite file at `packages/e2e/.stack/e2e.sqlite`, seeded with one guild and 4 players. The live `data/bot.sqlite` is never used.
+- Database: a fresh SQLite file at `packages/e2e/.stack/e2e.sqlite`, seeded with one guild and 5 players (p1 to p4 take seats; p5 is the unseated watcher). The live `data/bot.sqlite` is never used.
 - The duel and web services set `MULTIPLAYER_TABLES=1` to permit FFA3, FFA4 and 2v2 Tag tables and presets.
 - Secrets: new random values for each run (`stack/env.mjs`). The stack sets every variable the three servers read, so a value in a `.env` file cannot change the run. The duel host still loads the repo `.env` by a fixed path (dotenv never overrides a variable that is set). The ws server loads no `.env`.
 - Memory: the duel host keeps each unfinished duel's engine worker for 5 minutes after its last request (`DUEL_IDLE_WORKER_MS`). A long `--repeat-each` run can use several GB. The memory goes down when the idle workers close.
@@ -77,7 +77,7 @@ After each run, `test-results/index.md` (and `index.json`) lists every failed te
 
 ### Stall detector
 
-A timer in the `player` fixture (`helpers/watch.ts`) reads the room JSON of every player every 0.5 to 2 seconds (the same `/api/duels/<slug>` read as the recorder). While a duel is `active` and its revision does not change for `E2E_STALL_MS` (default 20000), it writes `stall-<slug>-<iso time>.json` (with `kind: "stall"`) at once: who holds the open prompt, each player's prompt and last log lines, the last answers of each seat, the last 30 stack log lines, and a screenshot of every page of every player. Then it writes the normal evidence, closes the browser contexts (so the test's waits end at once) and fails the test with a message such as `Duel abc stalled: revision 12 did not change for 20 s. Open prompt held by p2 (seat 1) "Choose an action".` Tests contain no fixed sleeps for this. A test that waits on purpose (a clock test) turns it off with `test.use({ stallMs: 0 })`. `E2E_STALL_MS=0` turns it off for a run. To see it work, run a spec with `E2E_STALL_MS=1500`.
+A timer in the `player` fixture (`helpers/watch.ts`) reads the room JSON of every player every 0.5 to 2 seconds (the same `/api/duels/<slug>` read as the recorder). While a duel is `active` and its revision does not change for `E2E_STALL_MS` (default 60000), it writes `stall-<slug>-<iso time>.json` (with `kind: "stall"`) at once: who holds the open prompt, each player's prompt and last log lines, the last answers of each seat, the last 30 stack log lines, and a screenshot of every page of every player. Then it writes the normal evidence, closes the browser contexts (so the test's waits end at once) and fails the test with a message such as `Duel abc stalled: revision 12 did not change for 60 s. Open prompt held by p2 (seat 1) "Choose an action".` The 60-second default allows slower parallel runs to finish table setup and inspection without changing the duel revision, while still firing before the 120-second Playwright test timeout. Tests contain no fixed sleeps for this. A test that waits on purpose (a clock test) turns it off with `test.use({ stallMs: 0 })`. `E2E_STALL_MS=0` turns it off for a run. To see it work, run a spec with `E2E_STALL_MS=1500`.
 
 ### Leak scan
 
@@ -126,8 +126,10 @@ Limits: only duels with recorded answers replay (a duel that never started has n
 ## Scale to 4 players
 
 - `helpers/duel.ts` has `createTable(page, name, { format: "ffa4", ... })` (the "Table type" select) and `addBotToSeat(page, slug, seat)` (`POST /api/duels/<slug>/bot` with `{ seat }`).
-- `helpers/board.ts` has `startTable(humans, label, decks, { format, bots })`: the first human creates the table, bots fill the given 0-based seats, the others join, everyone imports a deck and readies, the host starts. `expectOpponentBoards(page, 3)` checks the multi-seat stage (`data-testid="multi-seat-stage"`, `section[data-relation="opponent"]`).
-- `tests/duel-4p-ffa.spec.ts` runs 4 browser players on one table (6 tests): 4-FFA start with 3 opponent boards for each seat, 1 human with 3 bots, no attack before every duelist had a turn, a spell that hits all 3 opponents (Raigeki), a card that picks one opponent (Mind Crush: the prompt lists each living opponent by name and only the picked one is hit), and a direct attack that asks which duelist, followed by three surrenders and the final result screens. A surrender shows "Leaving" until the turn or step ends. The attack prompt labels rows "Player N" (seat + 1), not display names.
+- `helpers/board.ts` has `startTable(humans, label, decks, { format, bots })`: the first human creates the table, bots fill the given 0-based seats, the others join, everyone imports a deck and readies, the host starts. `expectOpponentBoards(page, 3)` checks the live table (`[data-table-stage] [data-lp-seat]`) and the opponents in the seat strip.
+- `tests/duel-4p-ffa.spec.ts` runs 4 browser players on one table (6 tests): 4-FFA start with 3 opponent boards for each seat, 1 human with 3 bots, no attack before every duelist had a turn, a spell that hits all 3 opponents (Raigeki), a card that picks one opponent (Mind Crush: the prompt lists each living opponent by name and only the picked one is hit), and a direct attack that locks a named opponent in OpponentBar before confirmation, followed by three surrenders and the final standings. A surrender shows "Leaving" until the turn or step ends.
+- `tests/duel-3p-ffa.spec.ts` runs the live FFA3 table against the real engine (2 tests): Mind Crush picks an opponent through the seat strip; a direct attack locks and confirms exactly one `{ choice: "opt:1" }` action with the current prompt id/revision. It also checks elimination, final placings after reload, and a spectator sending no actions.
+- Card-menu helpers wait for `[data-table-shell][data-can-act="true"]`; a turn header can advance before the room finishes catching up. FFA4 startup also checks that hand buttons stay inside the stage at 1440×900 and 1280×720.
 - The stall detector, the timeline and the leak scan already work for any number of players.
 
 - The seed already has p3 and p4 (`stack/env.mjs`). Add more players there if needed.
@@ -167,7 +169,7 @@ What a test does for each preset:
 2. Opens the room page of seat 0 and a spectator page.
 3. Plays seat 0 over `POST /api/duels/<slug>/actions`: it picks the cards of the checklist (the `PLANS` table in `helpers/multi.ts`, else the checklist text) and passes at every other prompt. It stops when the checklist moves are done and the turn is `seats + 1` (or `E2E_MULTI_TURNS`), or when the duel ends.
 4. At every revision change it saves a snapshot: screenshots of seat 0 and of the spectator, both room JSON files, the prompt (kind, seat, options), LP of every seat and the eliminated flags.
-5. Stall rule: the revision does not change for `E2E_STALL_MS` (default 20000) while seat 0 has no prompt to answer. Then `stall.json` is written and the test fails with its path.
+5. Stall rule: the revision does not change for `E2E_STALL_MS` (default 60000) while seat 0 has no prompt to answer. Then `stall.json` is written and the test fails with its path.
 6. At the end (pass, fail or stall) it calls the host `report` op and copies the folder, then writes the normal evidence (console, page errors, failed requests, every WebSocket frame including binary, journal, stack log slice, merged timeline).
 
 Output: `.status/e2e-multi/<runId>/<presetId>/` (`.status/` is outside git):

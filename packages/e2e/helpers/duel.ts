@@ -39,17 +39,20 @@ export async function enterDuelRoom(page: Page): Promise<void> {
   await expect(board).toBeVisible();
 }
 
+/** Opens the Settings tab of the side panel (Surrender and the table options live there). Main replaced the old Options gear with tabs. */
 export async function openOptions(page: Page): Promise<void> {
-  const gear = page.getByRole("button", { name: "Options" });
-  if ((await gear.getAttribute("aria-pressed")) !== "true") await gear.click();
-  await expect(gear).toHaveAttribute("aria-pressed", "true");
+  const tab = page.getByRole("tab", { name: "Settings" });
+  if ((await tab.getAttribute("aria-selected")) !== "true") await tab.click();
+  await expect(tab).toHaveAttribute("aria-selected", "true");
 }
 
 export async function surrender(page: Page): Promise<void> {
   await openOptions(page);
   await page.getByRole("button", { name: "Surrender", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Surrender" });
+  const done = page.waitForResponse(response => response.url().endsWith("/surrender") && response.request().method() === "POST");
   await dialog.getByRole("button", { name: "Surrender", exact: true }).click();
+  expect((await done).ok()).toBe(true);
 }
 
 /** Picks one option of a segmented control. The radio input is visually hidden, so the visible label takes the click. */
@@ -60,6 +63,8 @@ async function chooseOption(page: Page, group: string, label: string): Promise<v
 }
 
 export type TableOptions = {
+  /** Public by default; private tables are visible only to invited players. */
+  visibility?: "public" | "private";
   /** Domain format (Deck Masters). Default is a Standard duel. */
   domain?: boolean;
   /** Keep the .ydk order: the first 5 main cards are the opening hand. */
@@ -81,9 +86,10 @@ export type TableOptions = {
 export async function createTable(page: Page, name: string, options: TableOptions = {}): Promise<string> {
   await page.goto("/duels/new");
   await page.getByLabel("Table name").fill(name);
+  if (options.visibility) await chooseOption(page, "Visibility", options.visibility === "private" ? "Private" : "Public");
   if (options.format && options.format !== "1v1") await page.getByLabel("Table type").selectOption(options.format);
   if (options.domain) await chooseOption(page, "Duel type", "Domain");
-  await page.getByLabel("Turn timer").selectOption({ label: "No turn timer" });
+  await page.getByLabel("Turn timer").selectOption({ label: "Unlimited" });
   if (options.noBanlist) await page.getByLabel("Forbidden & Limited list").selectOption({ index: 0 });
   if (options.ordered) await chooseOption(page, "Opening deck order", "Not shuffled");
   if (options.looseDecks) await chooseOption(page, "Deck validation", "Allow invalid decks");

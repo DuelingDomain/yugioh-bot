@@ -39,24 +39,24 @@ describe("verifyEngineBundle and integrity.multiScripts", () => {
   it("accepts a matching folder hash", () => {
     const source = makeOverlay([{ code: 1, text: "A" }]);
     const directory = bundle({ multiScripts: multiScriptsFolderHash(source) }, source);
-    expect(verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory) }).bundleVersion).toBe("v1");
+    expect(verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory), engine: "pinned" }).bundleVersion).toBe("v1");
   });
 
   it("accepts an older bundle without integrity.multiScripts", () => {
     const directory = bundle({});
-    expect(verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory) }).bundleVersion).toBe("v1");
+    expect(verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory), engine: "pinned" }).bundleVersion).toBe("v1");
   });
 
   it("rejects a folder that changed", () => {
     const source = makeOverlay([{ code: 1, text: "A" }]);
     const directory = bundle({ multiScripts: multiScriptsFolderHash(source) }, source);
     writeFileSync(join(directory, "multi-scripts", "c1.lua"), "changed");
-    expect(() => verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory) })).toThrow(/does not match manifest integrity\.multiScripts.*duel:prepare/);
+    expect(() => verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory), engine: "pinned" })).toThrow(/does not match manifest integrity\.multiScripts.*duel:prepare/);
   });
 
   it("rejects a missing folder when the manifest lists it", () => {
     const directory = bundle({ multiScripts: sha("x") });
-    expect(() => verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory) })).toThrow(/Multi-scripts folder is missing at .*multi-scripts.*duel:prepare/);
+    expect(() => verifyEngineBundle(directory, { wrapperPath: wrapperPath(directory), engine: "pinned" })).toThrow(/Multi-scripts folder is missing at .*multi-scripts.*duel:prepare/);
   });
 });
 
@@ -71,10 +71,12 @@ describe("install-engine-bundle.sh and integrity.multiScripts", () => {
     for (const [name, content] of Object.entries({ "ocgcore.standard.wasm": "s", "ocgcore.domain.wasm": "d", "cards.cdb": "c", "strings.conf": "t" })) writeFileSync(join(directory, name), content);
     mkdirSync(join(directory, "card-scripts"));
     writeFileSync(join(directory, "card-scripts", "domain.lua"), "-- domain");
+    writeFileSync(join(directory, "ocgcore.domain.legacy.wasm"), "legacy domain");
+    writeFileSync(join(directory, "card-scripts", "domain.legacy.lua"), "-- legacy domain");
     const overlay = makeOverlay([{ code: 1, text: "A" }, { code: 10, text: "B" }, { code: 2, text: "C" }], { files: { "sub/deep/x.lua": "D", "sub/a.lua": "E", "Z.txt": "F" } });
     if (options.folder !== false) installMultiScripts(directory, overlay);
     const hash = options.hash ?? multiScriptsFolderHash(overlay);
-    writeFileSync(join(directory, "manifest.json"), JSON.stringify({ bundleVersion: "v1", integrity: { multiScripts: hash } }, null, 2) + "\n");
+    writeFileSync(join(directory, "manifest.json"), JSON.stringify({ bundleVersion: "v1", integrity: { multiScripts: hash, domainLegacyWasm: sha("legacy domain"), domainLegacyLua: sha("-- legacy domain") } }, null, 2) + "\n");
     return directory;
   }
 
@@ -97,19 +99,19 @@ describe("install-engine-bundle.sh and integrity.multiScripts", () => {
     writeFileSync(join(source, "multi-scripts", "c10.lua"), "changed");
     const result = install(source);
     expect(result.status).toBe(1);
-    expect(result.output).toContain("bundle source is incomplete");
+    expect(result.output).toContain("multi-scripts hash does not match manifest integrity.multiScripts");
     expect(existsSync(result.destination)).toBe(false);
   });
 
   it("refuses a bundle whose manifest has the wrong overlay hash", () => {
     const result = install(sourceBundle({ hash: sha("x") }));
     expect(result.status).toBe(1);
-    expect(result.output).toContain("bundle source is incomplete");
+    expect(result.output).toContain("multi-scripts hash does not match manifest integrity.multiScripts");
   });
 
   it("refuses a bundle with no overlay folder", () => {
     const result = install(sourceBundle({ folder: false }));
     expect(result.status).toBe(1);
-    expect(result.output).toContain("bundle source is incomplete");
+    expect(result.output).toContain("multi-scripts folder is missing or incomplete");
   });
 });

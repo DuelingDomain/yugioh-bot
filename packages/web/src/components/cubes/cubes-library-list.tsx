@@ -4,24 +4,130 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { FloorList, FloorRow, StatusLine, SvButton, Zone } from "@/components/sheet";
+import { PageFrame } from "@/components/decks/page-frame";
+import { isDraftTemplate, nextCubeName, type AddTab, type CubeSummary } from "./library-model";
+import styles from "./cubes.module.css";
 
-interface CubeSummary {
-  id: number;
-  name: string;
-  archetype: string | null;
-  mainCount: number;
-  extraCount: number;
+const MAX_SET_NAMES = 4;
+
+function DeleteConfirm({
+  cube,
+  busy,
+  onDelete,
+  onKeep,
+}: {
+  cube: CubeSummary;
+  busy: boolean;
+  onDelete: () => void;
+  onKeep: () => void;
+}) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => ref.current?.querySelector<HTMLElement>("[data-keep]")?.focus(), []);
+  return (
+    <div ref={ref} className={styles.confirm} role="alertdialog" aria-label={`Delete ${cube.name}`}>
+      <span>Delete {cube.name} for everyone on the server?</span>
+      <span className={styles.confirmActs}>
+        <SvButton variant="danger" disabled={busy} onClick={onDelete}>
+          Delete
+        </SvButton>
+        <SvButton variant="ghost" disabled={busy} onClick={onKeep} data-keep="">
+          Keep
+        </SvButton>
+      </span>
+    </div>
+  );
+}
+
+function CubeRow({
+  cube,
+  confirming,
+  busy,
+  onAskDelete,
+  onDelete,
+  onKeep,
+}: {
+  cube: CubeSummary;
+  confirming: boolean;
+  busy: boolean;
+  onAskDelete: () => void;
+  onDelete: () => void;
+  onKeep: () => void;
+}) {
+  const template = isDraftTemplate(cube);
+  const sets = cube.setNames ?? [];
+
+  const actions = confirming ? (
+    <DeleteConfirm cube={cube} busy={busy} onDelete={onDelete} onKeep={onKeep} />
+  ) : (
+    <div className={styles.acts}>
+      {!template && (
+        <Link className={`sv-btn quiet ${styles.openBtn}`} href={`/cubes/${cube.id}`} aria-label={`Open ${cube.name}`}>
+          Open
+        </Link>
+      )}
+      <button className={styles.trash} type="button" aria-label={`Delete ${cube.name}`} disabled={busy} onClick={onAskDelete}>
+        <Trash2 size={18} aria-hidden="true" />
+      </button>
+    </div>
+  );
+
+  if (template) {
+    return (
+      <FloorRow className={styles.row}>
+        <div className={styles.main}>
+          <p className={styles.name}>{cube.name}</p>
+          <p className={styles.facts}>
+            <span>Draft template</span>
+            <span>{sets.length} {sets.length === 1 ? "set" : "sets"}</span>
+          </p>
+          <p className={`${styles.facts} ${styles.setNames}`}>
+            {sets.slice(0, MAX_SET_NAMES).map((set) => <span key={set}>{set}</span>)}
+            {sets.length > MAX_SET_NAMES ? <span>+{sets.length - MAX_SET_NAMES} more</span> : null}
+          </p>
+          <p className={styles.tmplNote}>
+            Used by <code>/draft</code>. Booster sets, not a pool, so there are no cards to edit.
+          </p>
+        </div>
+        {actions}
+      </FloorRow>
+    );
+  }
+
+  return (
+    <FloorRow className={styles.row}>
+      <div className={styles.main}>
+        <p className={styles.name}>
+          <Link className={styles.openLink} href={`/cubes/${cube.id}`}>
+            {cube.name}
+          </Link>
+        </p>
+        <p className={styles.facts}>
+          {cube.archetype ? <span>Seeded from <b>{cube.archetype}</b></span> : <span>Built by hand</span>}
+          {cube.banlist ? <span>{cube.banlist} banlist</span> : null}
+        </p>
+        <p className={styles.counts}>
+          <span>Main <b>{cube.mainCount}</b> cards</span>
+          <span>Extra <b>{cube.extraCount}</b> cards</span>
+        </p>
+      </div>
+      {actions}
+    </FloorRow>
+  );
 }
 
 export function CubesLibraryList() {
   const router = useRouter();
   const [cubes, setCubes] = React.useState<CubeSummary[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadFailed, setLoadFailed] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [confirmId, setConfirmId] = React.useState<number | null>(null);
 
   const load = React.useCallback(() => {
+    setLoading(true);
+    setLoadFailed(false);
     fetch("/api/cubes")
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error("load failed"))))
       .then((data: { cubes: CubeSummary[] }) => {
@@ -29,17 +135,14 @@ export function CubesLibraryList() {
         setLoading(false);
       })
       .catch(() => {
-        setError("Failed to load cubes.");
+        setLoadFailed(true);
         setLoading(false);
       });
   }, []);
 
   React.useEffect(() => load(), [load]);
 
-  const deleteCube = async (id: number, name: string) => {
-    if (typeof window !== "undefined" && !window.confirm(`Delete "${name}"? This can't be undone.`)) {
-      return;
-    }
+  const deleteCube = async (id: number) => {
     setBusy(true);
     setError(null);
     try {
@@ -50,12 +153,13 @@ export function CubesLibraryList() {
         return;
       }
       setCubes((cur) => cur.filter((c) => c.id !== id));
+      setConfirmId(null);
     } finally {
       setBusy(false);
     }
   };
 
-  const create = async (body: Record<string, unknown>) => {
+  const create = async (body: Record<string, unknown>, tab?: AddTab) => {
     setBusy(true);
     setError(null);
     try {
@@ -69,7 +173,7 @@ export function CubesLibraryList() {
         setError(data.error ?? "Failed to create cube.");
         return;
       }
-      router.push(`/cubes/${data.cube.id}`);
+      router.push(`/cubes/${data.cube.id}${tab ? `?add=${tab}` : ""}`);
     } finally {
       setBusy(false);
     }
@@ -77,56 +181,90 @@ export function CubesLibraryList() {
 
   // Create a fresh blank cube (auto-named to avoid collisions) and jump straight
   // into its editor, where the user names it and builds the pool.
-  const addCube = () => {
-    const existing = new Set(cubes.map((c) => c.name));
-    let name = "New cube";
-    let n = 2;
-    while (existing.has(name)) name = `New cube ${n++}`;
-    void create({ kind: "blank", name });
+  const addCube = (tab?: AddTab) => {
+    void create({ kind: "blank", name: nextCubeName(cubes.map((c) => c.name)) }, tab);
   };
 
   return (
-    <div className="space-y-6">
-      {error && <p className="rounded-lg border border-accent-cta/50 bg-accent-cta/10 px-4 py-3 text-sm text-accent-cta">{error}</p>}
+    <PageFrame
+      title="Cubes"
+      sub={!loading && !loadFailed && cubes.length > 0 ? `${cubes.length} ${cubes.length === 1 ? "cube" : "cubes"}` : undefined}
+      actions={
+        <SvButton variant="primary" disabled={busy || loading} onClick={() => addCube()}>
+          <Plus size={16} aria-hidden="true" />
+          New cube
+        </SvButton>
+      }
+    >
+      <p className={styles.lede}>
+        Reusable card pools for cube drafts and theme drafts. Anyone on the server can use them; only the creator or an admin can edit one.
+      </p>
 
-      <div className="flex items-center justify-end">
-        <Button type="button" variant="primary" disabled={busy} onClick={() => addCube()}>
-          <Plus className="h-4 w-4" /> Add cube
-        </Button>
-      </div>
-
-      {loading ? (
-        <p className="text-sm text-text-secondary">Loading cubes...</p>
-      ) : cubes.length === 0 ? (
-        <div className="rounded-lg border border-border bg-surface p-8 text-center">
-          <p className="text-lg text-text-secondary">No cubes yet</p>
-          <p className="mt-2 text-sm text-text-muted">Click &ldquo;Add cube&rdquo; to build your first one.</p>
-        </div>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {cubes.map((cube) => (
-            <div key={cube.id} className="relative">
-            <Link
-              href={`/cubes/${cube.id}`}
-              className="block rounded-lg border border-border bg-surface p-4 pr-10 hover:border-accent-primary"
-            >
-              <p className="font-display text-text-primary">{cube.name}</p>
-              {cube.archetype && <p className="mt-1 text-xs text-accent-primary">{cube.archetype}</p>}
-              <p className="mt-2 text-sm text-text-secondary">{cube.mainCount} main · {cube.extraCount} extra</p>
-            </Link>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void deleteCube(cube.id, cube.name)}
-              title={`Delete ${cube.name}`}
-              className="absolute right-2 top-2 rounded-lg border border-accent-cta/40 p-1.5 text-accent-cta hover:bg-accent-cta/10 disabled:opacity-50"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-            </div>
-          ))}
+      {error && (
+        <div role="alert">
+          <StatusLine tone="block">{error}</StatusLine>
         </div>
       )}
-    </div>
+
+      {loading ? (
+        <ul className={styles.skeleton} aria-busy="true" aria-label="Loading cubes">
+          {[46, 38].map((w) => (
+            <li key={w}>
+              <span className="sk" style={{ width: `${w}%`, height: 14 }} />
+              <span className="sk" style={{ width: `${w + 24}%` }} />
+            </li>
+          ))}
+        </ul>
+      ) : loadFailed ? (
+        <div role="alert" className={styles.alert}>
+          <StatusLine tone="block">
+            <b>Couldn&apos;t load your cubes.</b> Check your connection and try again.
+          </StatusLine>
+          <SvButton variant="quiet" onClick={load}>
+            Retry
+          </SvButton>
+        </div>
+      ) : cubes.length === 0 ? (
+        <div className={styles.empty}>
+          <span className={styles.emptyZones} aria-hidden="true">
+            <Zone state="empty" size="md" />
+            <Zone state="empty" size="md" />
+            <Zone state="empty" size="md" />
+          </span>
+          <div>
+            <h2>No cubes yet</h2>
+            <p>
+              A cube is a pool you draft from. Start from an archetype, paste a list of passcodes, or pick cards one at a
+              time.
+            </p>
+            <div className={styles.emptyActs}>
+              <SvButton variant="ghost" disabled={busy} onClick={() => addCube("archetype")}>
+                From an archetype
+              </SvButton>
+              <SvButton variant="ghost" disabled={busy} onClick={() => addCube("passcodes")}>
+                From passcodes
+              </SvButton>
+              <SvButton variant="quiet" disabled={busy} onClick={() => addCube()}>
+                Blank cube
+              </SvButton>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <FloorList aria-label="Cubes">
+          {cubes.map((cube) => (
+            <CubeRow
+              key={cube.id}
+              cube={cube}
+              confirming={confirmId === cube.id}
+              busy={busy}
+              onAskDelete={() => setConfirmId(cube.id)}
+              onDelete={() => void deleteCube(cube.id)}
+              onKeep={() => setConfirmId(null)}
+            />
+          ))}
+        </FloorList>
+      )}
+    </PageFrame>
   );
 }

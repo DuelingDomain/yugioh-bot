@@ -1,16 +1,21 @@
+import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
-import Link from "next/link";
-import { Layers, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { DraftCard, type DraftCardProps } from "@/components/draft/draft-card";
-
-interface DraftsData {
-  active: DraftCardProps[];
-  pending: DraftCardProps[];
-  completed: DraftCardProps[];
-  cancelled: DraftCardProps[];
-}
+import { FloorList, SectionHead, SvButton } from "@/components/sheet";
+import { DraftFrame } from "@/components/draft/draft-frame";
+import { LiveDraftRow, WaitingDraftRow } from "@/components/draft/list/draft-rows";
+import { RejoinDraftBanner } from "@/components/draft/rejoin-draft";
+import { findRejoinDrafts } from "@/lib/rejoin-drafts";
+import { FinishedLedger } from "@/components/draft/list/finished-ledger";
+import styles from "@/components/draft/list/drafts-list.module.css";
+import {
+  groupDrafts,
+  listSummaryParts,
+  parseDraftConfig,
+  type DraftListItem,
+} from "@/components/draft/list/drafts-list-model";
 
 export default async function DraftsPage() {
   const session = await auth();
@@ -20,16 +25,16 @@ export default async function DraftsPage() {
   const db = getDb();
 
   const playerRows = db
-    .prepare("select id from players where discord_user_id = ?")
-    .all(discordUserId) as Array<{ id: number }>;
+    .prepare("select id from players where discord_user_id = ? and guild_id = ?")
+    .all(discordUserId, env.discordGuildId) as Array<{ id: number }>;
   const playerIds = playerRows.map((r) => r.id);
 
-  let data: DraftsData = { active: [], pending: [], completed: [], cancelled: [] };
+  let drafts: DraftListItem[] = [];
 
   if (playerIds.length > 0) {
     const ph = playerIds.map(() => "?").join(",");
 
-    const drafts = db
+    drafts = db
       .prepare(
         `select d.id, d.guild_id, d.name, d.status, d.web_slug, d.config_json,
                 d.current_wave_number, d.current_pick_step,
@@ -38,7 +43,7 @@ export default async function DraftsPage() {
          from drafts d
          inner join draft_players dp_me on dp_me.draft_id = d.id
          left join draft_players dp on dp.draft_id = d.id
-         where dp_me.player_id in (${ph})
+         where d.guild_id = ? and dp_me.player_id in (${ph})
          group by d.id
          order by
            case d.status
@@ -49,105 +54,77 @@ export default async function DraftsPage() {
            end,
            d.created_at desc`
       )
-      .all(...playerIds)
-      .map((row: any) => {
-        let mode: "booster" | "theme" = "booster";
-        try {
-          if ((JSON.parse(row.config_json ?? "{}") as { mode?: string }).mode === "theme") {
-            mode = "theme";
-          }
-        } catch {
-          // malformed config_json — default to booster
-        }
-        return {
-          id: row.id,
-          guildId: row.guild_id,
-          name: row.name,
-          status: row.status,
-          mode,
-          webSlug: row.web_slug ?? undefined,
-          currentPackRound: row.current_wave_number ?? 0,
-          currentPickStep: row.current_pick_step ?? 0,
-          playerCount: row.player_count,
-          createdAt: row.created_at,
-          endedAt: row.ended_at ?? undefined,
-        };
-      });
-
-    data = {
-      active: drafts.filter((d: any) => d.status === "active"),
-      pending: drafts.filter((d: any) => d.status === "pending"),
-      completed: drafts.filter((d: any) => d.status === "completed"),
-      cancelled: drafts.filter((d: any) => d.status === "cancelled"),
-    };
+      .all(env.discordGuildId, ...playerIds)
+      .map((row: any) => ({
+        id: row.id,
+        name: row.name,
+        status: row.status,
+        webSlug: row.web_slug ?? undefined,
+        wave: row.current_wave_number ?? 0,
+        pick: row.current_pick_step ?? 0,
+        playerCount: row.player_count,
+        createdAt: row.created_at ?? undefined,
+        endedAt: row.ended_at ?? undefined,
+        config: parseDraftConfig(row.config_json),
+      }));
   }
 
-  const totalDrafts =
-    data.active.length + data.pending.length + data.completed.length + data.cancelled.length;
+  const rejoin = findRejoinDrafts(db, env.discordGuildId, discordUserId);
+  const groups = groupDrafts(drafts);
+  const summary = listSummaryParts(groups);
+
+  const newDraft = (
+    <SvButton as="a" href="/drafts/new" variant="primary">
+      <Plus size={16} strokeWidth={2.2} aria-hidden="true" />
+      New draft
+    </SvButton>
+  );
 
   return (
-    <div>
-      <div className="mb-8 flex items-center justify-between">
-        <h1 className="font-display text-2xl text-text-primary sm:text-3xl">Drafts</h1>
-        <Link
-          href="/drafts/new"
-          className="inline-flex items-center gap-2 rounded-lg bg-accent-primary px-4 py-2 text-sm font-semibold text-white hover:bg-accent-secondary"
-        >
-          <Plus className="h-4 w-4" />
-          New Draft
-        </Link>
-      </div>
-
-      {totalDrafts === 0 ? (
-        <div className="rounded-lg border border-border bg-surface p-8 text-center">
-          <Layers className="mx-auto mb-4 h-12 w-12 text-text-muted" />
-          <p className="text-lg text-text-secondary">No drafts yet</p>
-          <p className="mt-2 text-sm text-text-muted">Drafts created in Discord will appear here</p>
+    <DraftFrame title="Drafts" sub={summary.length > 0 ? summary.join(", ") : undefined} actions={newDraft}>
+      <RejoinDraftBanner drafts={rejoin} />
+      {drafts.length === 0 ? (
+        <div className={styles.empty}>
+          <h2>No drafts yet</h2>
+          <p>
+            Start one here, or run <code className="cmd">/draft create</code> in Discord. Drafts you join show up on this
+            page.
+          </p>
+          <SvButton as="a" href="/drafts/new" variant="primary" className={styles.go}>
+            <Plus size={16} strokeWidth={2.2} aria-hidden="true" />
+            New draft
+          </SvButton>
         </div>
       ) : (
-        <div className="space-y-8">
-          {data.active.length > 0 && (
-            <section>
-              <h2 className="mb-4 font-body text-lg font-semibold text-accent-success">Active</h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {data.active.map((d) => (
-                  <DraftCard key={d.id} draft={d} />
+        <div className={styles.sections}>
+          {groups.live.length > 0 && (
+            <section aria-labelledby="dl-live">
+              <SectionHead id="dl-live" title="Live now" />
+              <FloorList aria-labelledby="dl-live">
+                {groups.live.map((d) => (
+                  <LiveDraftRow key={d.id} draft={d} />
                 ))}
-              </div>
+              </FloorList>
             </section>
           )}
-          {data.pending.length > 0 && (
-            <section>
-              <h2 className="mb-4 font-body text-lg font-semibold text-accent-gold">Pending</h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {data.pending.map((d) => (
-                  <DraftCard key={d.id} draft={d} />
+          {groups.waiting.length > 0 && (
+            <section aria-labelledby="dl-wait">
+              <SectionHead id="dl-wait" title="Waiting to start" note="Nothing is dealt until the host presses Start." />
+              <FloorList aria-labelledby="dl-wait">
+                {groups.waiting.map((d) => (
+                  <WaitingDraftRow key={d.id} draft={d} />
                 ))}
-              </div>
+              </FloorList>
             </section>
           )}
-          {data.completed.length > 0 && (
-            <section>
-              <h2 className="mb-4 font-body text-lg font-semibold text-text-secondary">Completed</h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {data.completed.map((d) => (
-                  <DraftCard key={d.id} draft={d} />
-                ))}
-              </div>
-            </section>
-          )}
-          {data.cancelled.length > 0 && (
-            <section>
-              <h2 className="mb-4 font-body text-lg font-semibold text-text-muted">Cancelled</h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {data.cancelled.map((d) => (
-                  <DraftCard key={d.id} draft={d} />
-                ))}
-              </div>
+          {groups.finished.length > 0 && (
+            <section aria-labelledby="dl-fin">
+              <SectionHead id="dl-fin" title="Finished" note="Newest first" />
+              <FinishedLedger items={groups.finished} labelledBy="dl-fin" />
             </section>
           )}
         </div>
       )}
-    </div>
+    </DraftFrame>
   );
 }

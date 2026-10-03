@@ -1,7 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Button } from "@/components/ui/button";
+import { Check } from "lucide-react";
+import { FloorList, FloorRow, SectionHead, StatusLine, SvButton } from "@/components/sheet";
+import { botPosts, type PostDestination } from "./announcement-posts";
+import styles from "./settings.module.css";
 
 type GuildSettings = {
   guildId: string;
@@ -18,161 +21,217 @@ type Channel = {
   name: string;
 };
 
-type ToggleProps = {
-  label: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-};
-
-function Toggle({ label, checked, onChange }: ToggleProps) {
-  return (
-    <label className="flex items-center justify-between gap-4 rounded-lg border border-border bg-surface px-4 py-3">
-      <span className="text-sm text-text-primary">{label}</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-          checked ? "bg-accent-primary" : "bg-bg-elevated"
-        }`}
-      >
-        <span
-          className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
-            checked ? "translate-x-5" : "translate-x-0"
-          }`}
-        />
-      </button>
-    </label>
-  );
+function Destination({ to }: { to: PostDestination }) {
+  switch (to.kind) {
+    case "channel":
+      return <span className={styles.dest}>#{to.name}</span>;
+    case "default":
+      return <span className={styles.dest}>{to.text}</span>;
+    case "none":
+      return <span className={styles.destOff}>Not posted</span>;
+    case "off":
+      return <span className={styles.destOff}>Not posted</span>;
+  }
 }
 
 export function AnnouncementToggles() {
+  // The last saved settings object. A save sends all of it back, so the stored
+  // announce* booleans are never touched.
   const [settings, setSettings] = React.useState<GuildSettings | null>(null);
   const [channels, setChannels] = React.useState<Channel[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadFailed, setLoadFailed] = React.useState(false);
+  const [channelId, setChannelId] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
+  const [saveFailed, setSaveFailed] = React.useState(false);
+  const [attempt, setAttempt] = React.useState(0);
 
   React.useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setLoadFailed(false);
     Promise.all([
-      fetch("/api/settings").then((r) => r.json()),
+      fetch("/api/settings").then((r) => {
+        if (!r.ok) throw new Error("settings");
+        return r.json() as Promise<GuildSettings>;
+      }),
       fetch("/api/discord/channels").then((r) => r.json()).catch(() => ({ channels: [] })),
     ])
       .then(([settingsData, channelsData]) => {
-        if (!cancelled) {
-          setSettings(settingsData);
-          setChannels(channelsData.channels ?? []);
-        }
+        if (cancelled) return;
+        setSettings(settingsData);
+        setChannelId(settingsData.announceChannelId ?? null);
+        setChannels(channelsData.channels ?? []);
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true);
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
-  const handleChange = (key: keyof GuildSettings, value: boolean | string | null) => {
-    if (!settings) return;
-    setSettings({ ...settings, [key]: value });
-    setSaved(false);
+  React.useEffect(() => {
+    if (!saved) return;
+    const timer = setTimeout(() => setSaved(false), 4000);
+    return () => clearTimeout(timer);
+  }, [saved]);
+
+  const nameFor = (id: string | null): string | null => {
+    if (!id) return null;
+    return channels.find((c) => c.id === id)?.name ?? null;
   };
 
   const handleSave = async () => {
-    if (!settings) return;
+    if (!settings || saving) return;
     setSaving(true);
+    setSaveFailed(false);
+    setSaved(false);
     try {
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
+        body: JSON.stringify({ ...settings, announceChannelId: channelId }),
       });
       if (res.ok) {
-        const updated = await res.json();
+        const updated = (await res.json()) as GuildSettings;
         setSettings(updated);
+        setChannelId(updated.announceChannelId ?? null);
         setSaved(true);
+      } else {
+        setSaveFailed(true);
       }
     } catch {
+      setSaveFailed(true);
     } finally {
       setSaving(false);
     }
   };
 
+  let body: React.ReactNode;
   if (loading) {
-    return <div className="py-8 text-center text-text-secondary">Loading settings...</div>;
-  }
+    body = (
+      <div className={styles.block} aria-busy="true" aria-label="Loading announcement settings">
+        <span className="sk" style={{ width: "30%" }} />
+        <span className="sk" style={{ width: "62%", height: 36 }} />
+        <span className="sk" style={{ width: "70%" }} />
+        <span className="sk" style={{ width: "56%" }} />
+        <span className="sk" style={{ width: "64%" }} />
+      </div>
+    );
+  } else if (loadFailed || !settings) {
+    body = (
+      <div className={styles.loadError}>
+        <div role="alert">
+          <StatusLine tone="block">
+            <b>Couldn&apos;t load announcement settings.</b> Try again in a moment.
+          </StatusLine>
+        </div>
+        <SvButton variant="quiet" onClick={() => setAttempt((n) => n + 1)}>
+          Retry
+        </SvButton>
+      </div>
+    );
+  } else {
+    const savedId = settings.announceChannelId ?? null;
+    const changed = channelId !== savedId;
+    const savedName = nameFor(savedId);
+    const shownName = nameFor(channelId);
+    const knownIds = new Set(channels.map((c) => c.id));
+    const posts = botPosts(channelId ? (shownName ?? "the chosen channel") : null);
+    body = (
+      <div className={styles.block}>
+        <SectionHead as="h3" title="Announcement channel" note="one per server" />
+        <div className={styles.channel}>
+          <label className="label" htmlFor="an-ch">Post to</label>
+          <div className={styles.inline}>
+            <select
+              className="input select"
+              id="an-ch"
+              value={channelId ?? ""}
+              aria-describedby={saveFailed ? "an-ch-err" : undefined}
+              onChange={(e) => {
+                setChannelId(e.target.value || null);
+                setSaved(false);
+                setSaveFailed(false);
+              }}
+            >
+              <option value="">None</option>
+              {channelId && !knownIds.has(channelId) && <option value={channelId}>Current channel</option>}
+              {channels.map((ch) => (
+                <option key={ch.id} value={ch.id}>
+                  #{ch.name}
+                </option>
+              ))}
+            </select>
+            <SvButton variant="primary" disabled={!changed || saving} aria-busy={saving || undefined} onClick={() => void handleSave()}>
+              Save
+            </SvButton>
+            {saved && (
+              <span className={styles.saved} role="status">
+                <Check size={15} aria-hidden="true" />
+                Saved
+              </span>
+            )}
+          </div>
+          {changed && !saveFailed && (
+            <p className={styles.rowNote}>
+              Was {savedId ? `#${savedName ?? "the current channel"}` : "none"}. Nothing moves until you save.
+            </p>
+          )}
+          {!changed && !saved && channelId && (
+            <p className={styles.rowNote}>
+              Results waiting for approval, finished tournaments and tournament announcements post here.
+            </p>
+          )}
+          {saveFailed && (
+            <div id="an-ch-err" role="alert">
+              <StatusLine tone="block">
+                Couldn&apos;t save. {savedId ? `Posts still go to #${savedName ?? "the current channel"}.` : "Nothing has changed."}
+              </StatusLine>
+            </div>
+          )}
+        </div>
 
-  if (!settings) {
-    return <div className="py-8 text-center text-text-secondary">Failed to load settings</div>;
+        {!channelId && (
+          <StatusLine tone="warn">
+            <b>Two kinds of post are skipped.</b>{" "}
+            Results waiting for approval and finished tournaments aren&apos;t posted anywhere until you choose a channel.
+          </StatusLine>
+        )}
+
+        <SectionHead as="h3" title="What the bot posts" note="and where" className={styles.postsHead} />
+        <FloorList>
+          {posts.map((post) => (
+            <FloorRow key={post.key} className={styles.postRow}>
+              <div className="sv-cell-grow">
+                <p className={styles.rowTitle}>{post.title}</p>
+                <p className={styles.rowNote}>{post.when}</p>
+              </div>
+              <span className={`sv-cell-end ${styles.destCell}`}>
+                <Destination to={post.to} />
+              </span>
+            </FloorRow>
+          ))}
+        </FloorList>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="mb-3 font-heading text-lg text-text-primary">Draft Announcements</h2>
-        <div className="space-y-2">
-          <Toggle
-            label="Draft Created"
-            checked={settings.announceDraftCreated}
-            onChange={(v) => handleChange("announceDraftCreated", v)}
-          />
-          <Toggle
-            label="Draft Started"
-            checked={settings.announceDraftStarted}
-            onChange={(v) => handleChange("announceDraftStarted", v)}
-          />
-          <Toggle
-            label="Draft Completed"
-            checked={settings.announceDraftCompleted}
-            onChange={(v) => handleChange("announceDraftCompleted", v)}
-          />
-        </div>
+    <section className="set-sec" aria-labelledby="set-ann">
+      <div className="set-intro">
+        <h2 id="set-ann">Announcements</h2>
+        <p>
+          Where the bot posts in Discord. The list is what it actually does today, so nothing here promises a post that
+          never comes.
+        </p>
       </div>
-
-      <div>
-        <h2 className="mb-3 font-heading text-lg text-text-primary">Tournament Announcements</h2>
-        <div className="space-y-2">
-          <Toggle
-            label="Tournament Created"
-            checked={settings.announceTournamentCreated}
-            onChange={(v) => handleChange("announceTournamentCreated", v)}
-          />
-          <Toggle
-            label="Tournament Completed"
-            checked={settings.announceTournamentCompleted}
-            onChange={(v) => handleChange("announceTournamentCompleted", v)}
-          />
-        </div>
-      </div>
-
-      <div>
-        <label htmlFor="announce-channel" className="mb-1 block text-sm font-medium text-text-primary">
-          Announcement Channel
-        </label>
-        <select
-          id="announce-channel"
-          value={settings.announceChannelId ?? ""}
-          onChange={(e) => handleChange("announceChannelId", e.target.value || null)}
-          className="native-select w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none"
-        >
-          <option value="">Default Channel</option>
-          {channels.map((ch) => (
-            <option key={ch.id} value={ch.id}>
-              #{ch.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <Button onClick={handleSave} loading={saving}>
-          Save Settings
-        </Button>
-        {saved && <span className="text-sm text-accent-success">Settings saved</span>}
-      </div>
-    </div>
+      {body}
+    </section>
   );
 }

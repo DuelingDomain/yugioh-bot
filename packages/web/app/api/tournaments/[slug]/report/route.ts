@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { env } from "@/lib/env";
 import { auth } from "@/lib/auth";
 import { broadcaster, announcer } from "@/lib/notify";
 
@@ -33,8 +34,8 @@ export async function POST(
 
     // Resolve tournament by slug
     const tournament = db
-      .prepare("select id, guild_id, status from tournaments where web_slug = ?")
-      .get(slug) as { id: number; guild_id: string; status: string } | undefined;
+      .prepare("select id, guild_id, status from tournaments where web_slug = ? and guild_id = ?")
+      .get(slug, env.discordGuildId) as { id: number; guild_id: string; status: string } | undefined;
 
     if (!tournament) {
       return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
@@ -62,6 +63,18 @@ export async function POST(
       return NextResponse.json(
         { error: "Match is not open for reporting" },
         { status: 400 }
+      );
+    }
+
+    const openSeries = db
+      .prepare(
+        "select 1 from duel_series where tournament_match_id = ? and status in ('active', 'between_games') limit 1",
+      )
+      .get(tournamentMatch.id);
+    if (openSeries) {
+      return NextResponse.json(
+        { error: "An online duel is in progress for this match. Finish it or ask the organizer to set the result." },
+        { status: 409 }
       );
     }
 

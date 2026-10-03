@@ -21,13 +21,13 @@ function insertPlayer(db: Database.Database, guildId: string, discordUserId: str
   };
 }
 
-function setup() {
+function setup(options: { random?: () => number; seedSource?: () => number | string } = {}) {
   const db = new Database(":memory:");
   migrate(db);
 
   return {
     db,
-    drafts: createDraftService(db),
+    drafts: createDraftService(db, options),
   };
 }
 
@@ -62,6 +62,62 @@ function seedCatalogCards(db: Database.Database, count: number) {
 }
 
 describe("shared draft service", () => {
+  it.each(["injected", "default crypto"])("persists different deals for identical drafts using %s seeds", (source) => {
+    const dealForSeed = (seed?: number | string) => {
+      const { db, drafts } = setup(seed === undefined ? {} : { seedSource: () => seed });
+      try {
+        const yugi = insertPlayer(db, "guild-1", "user-1", "Yugi");
+        const kaiba = insertPlayer(db, "guild-1", "user-2", "Kaiba");
+        seedCatalogCards(db, 80);
+        const draft = drafts.create(
+          "guild-1", "channel-1", "cube night",
+          { cubeCardIds: Array.from({ length: 80 }, (_, i) => i + 1) }, "user-1", yugi.id,
+        );
+        drafts.join(draft.id, kaiba.id);
+        drafts.start(draft.id);
+        return db.prepare("select catalog_card_id from draft_deal where draft_id = ? order by position").all(draft.id);
+      } finally {
+        db.close();
+      }
+    };
+
+    const firstSeed = source === "injected" ? "a".repeat(64) : undefined;
+    const secondSeed = source === "injected" ? "b".repeat(64) : undefined;
+    const first = dealForSeed(firstSeed);
+    expect(first).toHaveLength(80);
+    if (source === "injected") expect(dealForSeed(firstSeed)).toEqual(first);
+    expect(dealForSeed(secondSeed)).not.toEqual(first);
+  });
+
+  it("reads later waves from the stored deal without requesting another seed", () => {
+    const { db, drafts } = setup({ seedSource: () => 555 });
+    try {
+      const yugi = insertPlayer(db, "guild-1", "user-1", "Yugi");
+      const kaiba = insertPlayer(db, "guild-1", "user-2", "Kaiba");
+      seedCatalogCards(db, 8);
+      const draft = drafts.create(
+        "guild-1", "channel-1", "cube night",
+        { cubeCardIds: [1, 2, 3, 4, 5, 6, 7, 8], packsPerPlayer: 2, packSize: 2, cardsPerPlayer: 4 },
+        "user-1", yugi.id,
+      );
+      drafts.join(draft.id, kaiba.id);
+      drafts.start(draft.id);
+      const storedDeal = db.prepare("select catalog_card_id from draft_deal where draft_id = ? order by position")
+        .all(draft.id) as Array<{ catalog_card_id: number }>;
+      const resumed = createDraftService(db, { seedSource: () => { throw new Error("Deal must not be rebuilt"); } });
+      for (let step = 0; step < 2; step++) {
+        for (const playerId of [yugi.id, kaiba.id]) {
+          resumed.pickCard(draft.id, playerId, resumed.currentPackOptions(draft.id, playerId)[0].id, "manual");
+        }
+      }
+      expect(resumed.findById(draft.id).currentPackRound).toBe(2);
+      expect(resumed.currentPackOptions(draft.id, yugi.id).map((card) => card.catalogCardId))
+        .toEqual(storedDeal.slice(4, 6).map((row) => row.catalog_card_id));
+    } finally {
+      db.close();
+    }
+  });
+
   it("creates a pending draft, stores config, and auto-joins the creator", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
@@ -132,6 +188,111 @@ describe("shared draft service", () => {
     expect(app.drafts.currentPackOptions(draft.id, kaiba.id)).toHaveLength(8);
   });
 
+  it.each(["booster", "cube"])("randomizes %s draft seats using the injected RNG", (pool) => {
+    const randomValues = [0.5, 0, 0.5];
+    const app = setup({ random: () => randomValues.shift()! });
+    const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
+    const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
+    const joey = insertPlayer(app.db, "guild-1", "user-3", "Joey");
+    const mai = insertPlayer(app.db, "guild-1", "user-4", "Mai");
+    const draft = app.drafts.create(
+      "guild-1", "channel-1", "random seats",
+      {
+        ...(pool === "cube" ? { cubeCardIds: [1, 2, 3, 4, 5, 6, 7, 8] } : { setNames: ["Metal Raiders"] }),
+        packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2, randomizeSeats: true,
+      },
+      "user-1", yugi.id,
+    );
+    app.drafts.join(draft.id, kaiba.id);
+    app.drafts.join(draft.id, joey.id);
+    app.drafts.join(draft.id, mai.id);
+    seedCatalogCards(app.db, 8);
+
+    expect(app.drafts.players(draft.id).map((player) => player.playerId)).toEqual([
+      yugi.id, kaiba.id, joey.id, mai.id,
+    ]);
+
+    app.drafts.start(draft.id);
+
+    expect(app.db.prepare("select player_id, seat_index from draft_players where draft_id = ? order by seat_index").all(draft.id)).toEqual([
+      { player_id: mai.id, seat_index: 0 },
+      { player_id: kaiba.id, seat_index: 1 },
+      { player_id: yugi.id, seat_index: 2 },
+      { player_id: joey.id, seat_index: 3 },
+    ]);
+    expect(app.drafts.players(draft.id)).toEqual([
+      { playerId: mai.id, displayName: "Mai", seatIndex: 0 },
+      { playerId: kaiba.id, displayName: "Kaiba", seatIndex: 1 },
+      { playerId: yugi.id, displayName: "Yugi", seatIndex: 2 },
+      { playerId: joey.id, displayName: "Joey", seatIndex: 3 },
+    ]);
+  });
+
+  it.each([false, undefined])("keeps join order when randomizeSeats is %s", (randomizeSeats) => {
+    const app = setup({ random: () => { throw new Error("Seat randomization is disabled"); } });
+    const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
+    const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
+    const joey = insertPlayer(app.db, "guild-1", "user-3", "Joey");
+    const mai = insertPlayer(app.db, "guild-1", "user-4", "Mai");
+    const draft = app.drafts.create(
+      "guild-1", "channel-1", "join order",
+      { packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2, randomizeSeats }, "user-1", yugi.id,
+    );
+    app.drafts.join(draft.id, joey.id);
+    app.drafts.join(draft.id, mai.id);
+    app.drafts.join(draft.id, kaiba.id);
+    // Equal timestamps must retain the rowid tie-breaker, rather than player-id order.
+    app.db.prepare("update draft_players set joined_at = ? where draft_id = ?").run("2026-05-01 00:00:00", draft.id);
+    seedCatalogCards(app.db, 8);
+
+    app.drafts.start(draft.id);
+
+    expect(app.drafts.players(draft.id)).toEqual([
+      { playerId: yugi.id, displayName: "Yugi", seatIndex: 0 },
+      { playerId: joey.id, displayName: "Joey", seatIndex: 1 },
+      { playerId: mai.id, displayName: "Mai", seatIndex: 2 },
+      { playerId: kaiba.id, displayName: "Kaiba", seatIndex: 3 },
+    ]);
+  });
+
+  it("passes packs between persisted shuffled neighbours in both directions", () => {
+    const randomValues = [0.5, 0, 0.5];
+    const app = setup({ random: () => randomValues.shift()! });
+    const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
+    const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
+    const joey = insertPlayer(app.db, "guild-1", "user-3", "Joey");
+    const mai = insertPlayer(app.db, "guild-1", "user-4", "Mai");
+    const draft = app.drafts.create(
+      "guild-1", "channel-1", "passing order",
+      { packSize: 2, packsPerPlayer: 2, cardsPerPlayer: 4, alternatePassDirection: true, randomizeSeats: true },
+      "user-1", yugi.id,
+    );
+    const playerIds = [yugi.id, kaiba.id, joey.id, mai.id];
+    for (const playerId of playerIds.slice(1)) app.drafts.join(draft.id, playerId);
+    seedCatalogCards(app.db, 16);
+    app.drafts.start(draft.id);
+
+    // A new service instance must use the stored seats: Mai, Kaiba, Yugi, Joey.
+    const drafts = createDraftService(app.db);
+    const firstPacks = playerIds.map((playerId) => drafts.currentPackOptions(draft.id, playerId));
+    for (const [index, playerId] of playerIds.entries()) drafts.pickCard(draft.id, playerId, firstPacks[index][0].id);
+
+    expect(drafts.currentPackOptions(draft.id, mai.id)).toEqual(firstPacks[2].slice(1));
+    expect(drafts.currentPackOptions(draft.id, kaiba.id)).toEqual(firstPacks[3].slice(1));
+    expect(drafts.currentPackOptions(draft.id, yugi.id)).toEqual(firstPacks[1].slice(1));
+    expect(drafts.currentPackOptions(draft.id, joey.id)).toEqual(firstPacks[0].slice(1));
+
+    for (const playerId of playerIds) drafts.pickCard(draft.id, playerId, drafts.currentPackOptions(draft.id, playerId)[0].id);
+    expect(drafts.findById(draft.id).currentPackRound).toBe(2);
+    const secondPacks = playerIds.map((playerId) => drafts.currentPackOptions(draft.id, playerId));
+    for (const [index, playerId] of playerIds.entries()) drafts.pickCard(draft.id, playerId, secondPacks[index][0].id);
+
+    expect(drafts.currentPackOptions(draft.id, mai.id)).toEqual(secondPacks[1].slice(1));
+    expect(drafts.currentPackOptions(draft.id, kaiba.id)).toEqual(secondPacks[0].slice(1));
+    expect(drafts.currentPackOptions(draft.id, yugi.id)).toEqual(secondPacks[2].slice(1));
+    expect(drafts.currentPackOptions(draft.id, joey.id)).toEqual(secondPacks[3].slice(1));
+  });
+
   it("uses custom card ids as an explicit draft pool", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
@@ -141,7 +302,7 @@ describe("shared draft service", () => {
       "channel-1",
       "custom pool night",
       // 2 players × packSize 2 => 4 distinct needed for one wave.
-      { setNames: ["Missing Set"], customCardIds: [101, 102, 103, 104], packSize: 2, packsPerPlayer: 1 },
+      { setNames: ["Missing Set"], customCardIds: [101, 102, 103, 104], packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2 },
       "user-1",
       yugi.id,
     );
@@ -562,7 +723,7 @@ describe("shared draft service", () => {
       "guild-1",
       "channel-1",
       "multiplicity",
-      { customCardIds: [101, 101, 102, 103, 104, 105], packSize: 2, packsPerPlayer: 2 },
+      { customCardIds: [101, 101, 102, 103, 104, 105], packSize: 2, packsPerPlayer: 2, cardsPerPlayer: 4 },
       "user-1",
       yugi.id,
     );

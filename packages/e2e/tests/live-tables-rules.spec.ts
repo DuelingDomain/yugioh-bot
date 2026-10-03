@@ -1,17 +1,20 @@
 import { test, expect } from "../helpers/fixtures";
-import { createStandardTable, uniqueTableName } from "../helpers/duel";
+import { createTable, uniqueTableName } from "../helpers/duel";
 
-// Flow c: an open lobby is listed only for its own players; the organizer can close it.
-test("an open lobby shows only to its players and Close removes it", async ({ player }) => {
+// Flow c: a private lobby is hidden from other players; the organizer can close it.
+test("a private lobby stays hidden from other players and Close removes it", async ({ player }) => {
   const alice = await player("p1");
   const bob = await player("p2");
   const table = uniqueTableName("live");
 
-  await createStandardTable(alice.page, table);
+  await createTable(alice.page, table, { visibility: "private" });
 
+  const listed = bob.page.waitForResponse(response =>
+    new URL(response.url()).pathname === "/api/duels" && response.request().method() === "GET");
   await bob.page.goto("/duels");
+  expect((await listed).ok()).toBe(true);
   await expect(bob.page.getByRole("heading", { name: "Live tables" })).toBeVisible();
-  await expect(bob.page.getByText(/No live duels right now|Your open tables/).first()).toBeVisible();
+  await expect(bob.page.getByText("Loading tables…")).toHaveCount(0);
   await expect(bob.page.getByRole("listitem").filter({ hasText: table })).toHaveCount(0);
 
   await alice.page.goto("/duels");

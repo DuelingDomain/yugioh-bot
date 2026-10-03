@@ -1,0 +1,96 @@
+import type Database from "better-sqlite3";
+import { NextResponse } from "next/server";
+import { createDraftService } from "@yugidraft/shared/services";
+import { isExtraDeckMonster } from "@/lib/card-types";
+import { callDuelHost } from "@/lib/duel-host";
+
+/** A draft deck needs at least this many main deck cards (fewer only when the pool has fewer). */
+export const DRAFT_MIN_MAIN = 40;
+
+export type DraftPool =
+  | {
+      ok: true;
+      /** Engine passcode -> copies drafted. */
+      counts: Map<number, number>;
+      /** Drafted copies that belong in the main deck. */
+      mainPoolCount: number;
+      /** YGOPRODeck ids the duel engine does not know; they are not in `counts`. */
+      unresolved: number[];
+    }
+  | { ok: false; response: NextResponse };
+
+const NORMALIZE_CHUNK = 1000;
+
+/**
+ * The player's draft pool as engine passcodes, through the host `normalize-codes` op
+ * (in chunks, the host takes at most 1000 ids per call). The one loader for every
+ * draft-deck check. The Main/Extra split counts Fusion, Synchro, Xyz and Link
+ * Monsters, Pendulum variants included, as Extra Deck; a card missing from the
+ * catalog counts as Main.
+ */
+export async function loadDraftPool(input: {
+  db: Database.Database;
+  guildId: string;
+  playerId: number;
+  draftId: number;
+}): Promise<DraftPool> {
+  let picks: Array<{ catalogCardId: number }>;
+  try {
+    picks = createDraftService(input.db).pool(input.draftId, input.playerId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to load the draft pool";
+    const status = message === "Player has not joined this draft" ? 403 : 404;
+    return { ok: false, response: NextResponse.json({ error: message }, { status }) };
+  }
+
+  const ids = [...new Set(picks.map((pick) => pick.catalogCardId))];
+  const resolved: Record<string, number | null> = {};
+  for (let i = 0; i < ids.length; i += NORMALIZE_CHUNK) {
+    const result = await callDuelHost({
+      op: "normalize-codes",
+      guildId: input.guildId,
+      playerId: input.playerId,
+      codes: ids.slice(i, i + NORMALIZE_CHUNK),
+    });
+    if (!result.ok) return { ok: false, response: result.response };
+    const codes = (result.data as { codes?: Record<string, number | null> } | null)?.codes;
+    if (!codes || typeof codes !== "object") {
+      return { ok: false, response: NextResponse.json({ error: "Invalid engine response" }, { status: 502 }) };
+    }
+    Object.assign(resolved, codes);
+  }
+
+  const cards = ids.length
+    ? (input.db
+        .prepare(
+          "select ygoprodeck_id, type, frame_type from card_catalog where ygoprodeck_id in (select value from json_each(?))",
+        )
+        .all(JSON.stringify(ids)) as Array<{ ygoprodeck_id: number; type: string; frame_type: string }>)
+    : [];
+  const extraIds = new Set(
+    cards.filter((card) => isExtraDeckMonster({ type: card.type, frameType: card.frame_type })).map((card) => card.ygoprodeck_id),
+  );
+
+  const counts = new Map<number, number>();
+  const unresolved = new Set<number>();
+  let mainPoolCount = 0;
+  for (const pick of picks) {
+    const code = resolved[String(pick.catalogCardId)];
+    if (typeof code !== "number") {
+      unresolved.add(pick.catalogCardId);
+      continue;
+    }
+    counts.set(code, (counts.get(code) ?? 0) + 1);
+    if (!extraIds.has(pick.catalogCardId)) mainPoolCount += 1;
+  }
+  return { ok: true, counts, mainPoolCount, unresolved: [...unresolved].sort((a, b) => a - b) };
+}
+
+/** Null when the main deck size is fine for a draft deck, else the error text. */
+export function draftMainSizeError(mainCount: number, mainPoolCount: number): string | null {
+  const required = Math.min(DRAFT_MIN_MAIN, mainPoolCount);
+  if (mainCount >= required) return null;
+  return mainPoolCount < DRAFT_MIN_MAIN
+    ? `A draft deck must use all ${mainPoolCount} main deck cards you drafted (it has ${mainCount}).`
+    : `A draft deck needs at least ${DRAFT_MIN_MAIN} main deck cards (it has ${mainCount}).`;
+}

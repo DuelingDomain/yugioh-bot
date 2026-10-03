@@ -1,58 +1,179 @@
 "use client";
 
-import type { DuelCardInfo } from "@yugidraft/shared/duels";
-import { cardArtUrl } from "@/components/duel/constants";
-import { cx } from "@/components/duel/sheet-ui";
-import ui from "@/components/duel/sheet-ui.module.css";
-import { cardLabel, type DeckSection, type SelectedStack } from "./model";
+import { useRef, useState, type DragEvent, type ReactNode } from "react";
+import { Zone } from "@/components/sheet";
+import { cn } from "@/lib/utils";
+import { CardArt } from "./card-art";
+import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
+import { LimitBadge } from "./limit-badge";
+import {
+  cardLabel,
+  copyKey,
+  copyLimit,
+  type BanlistLimits,
+  type CardCatalog,
+  type CardSource,
+  type DeckSection,
+  type SelectedStack,
+} from "./model";
 import styles from "./editor.module.css";
+import { DeckSizeMeter, sizeState } from "./size-meter";
+
+export type CountTone = "ok" | "warn" | "bad";
+/** One deck copy under the pointer. */
+export type HoveredCopy = { section: DeckSection; index: number };
 
 export function DeckSectionGrid({
   title,
   section,
   codes,
   target,
+  minimum = 0,
+  maximum = 15,
+  unused = false,
   catalog,
   unknown,
+  limits,
+  over,
   selected,
+  actions,
+  emptyHint,
+  children,
   onSelect,
+  onHover,
+  onRemove,
+  onDrop,
 }: {
   title: string;
   section: DeckSection;
   codes: number[];
-  target?: string;
-  catalog: ReadonlyMap<number, DuelCardInfo>;
+  target: string;
+  minimum?: number;
+  maximum?: number;
+  unused?: boolean;
+  tone?: CountTone;
+  catalog: CardCatalog;
   unknown: ReadonlySet<number>;
+  limits: BanlistLimits | null;
+  /** Copy keys (see copyKey) that break the copy limit. */
+  over: ReadonlySet<string>;
   selected: SelectedStack | null;
-  onSelect: (stack: SelectedStack) => void;
+  actions?: ReactNode;
+  emptyHint: string;
+  children?: ReactNode;
+  onSelect: (stack: SelectedStack, openSheet?: boolean) => void;
+  onHover: (copy: HoveredCopy | null) => void;
+  onRemove: (source: CardSource) => void;
+  onDrop: (source: CardSource, section: DeckSection, at?: number) => void;
 }) {
+  const [dropping, setDropping] = useState(false);
+  const [insertAt, setInsertAt] = useState<number | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  const state = sizeState(codes.length, minimum, maximum);
+  const difference = state === "under" ? minimum - codes.length : codes.length - maximum;
+
+  /** Removes a copy from the keyboard and keeps focus on the card that takes its place. */
+  function removeFromKeyboard(code: number, index: number) {
+    onRemove({ code, from: section, index });
+    requestAnimationFrame(() => {
+      const items = listRef.current?.children;
+      if (!items || items.length === 0) return;
+      items[Math.min(index, items.length - 1)]?.querySelector("button")?.focus();
+    });
+  }
+
+  function allowDrop(event: DragEvent): boolean {
+    if (!hasCardDrag(event)) return false;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = event.dataTransfer.effectAllowed === "copy" ? "copy" : "move";
+    return true;
+  }
+
+  function finishDrop(event: DragEvent, at?: number) {
+    setDropping(false);
+    setInsertAt(null);
+    const drag = readCardDrag(event);
+    if (!drag) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onDrop(drag, section, at);
+  }
+
   return (
-    <section className={styles.list} aria-label={`${title} deck`}>
-      <h3 className={styles.listHead}>
-        <span className={styles.listTitle}>{title}</span>
-        <span className={cx(ui.num, styles.count)}>{codes.length}</span>
-        {target ? <span className={styles.target}>{target}</span> : null}
-      </h3>
+    <section
+      className={styles["de-sec-b"]}
+      aria-label={`${title} Deck`}
+      data-dropping={dropping ? "true" : undefined}
+      onDragOver={(event) => { if (allowDrop(event)) setDropping(true); }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        setDropping(false);
+        setInsertAt(null);
+      }}
+      onDrop={(event) => finishDrop(event)}
+    >
+      <header className={styles["de-sh"]} data-off={unused ? "" : undefined}>
+        <h2 className={styles["de-st"]}>{title}</h2>
+        <span className={cn("num", styles["de-n"])} data-s={state} data-zero={codes.length === 0 ? "" : undefined}>{codes.length}</span>
+        {unused ? null : <DeckSizeMeter title={title} count={codes.length} minimum={minimum} maximum={maximum} />}
+        <span className={styles["de-tg"]}>{target}</span>
+        {state !== "ok" ? <span className={styles["de-off"]} data-s={state}>{difference} {state === "under" ? "short" : "over"}</span> : null}
+        {actions ? <div className={styles["de-clear"]}>{actions}</div> : null}
+      </header>
+
+      {children}
+
       {codes.length === 0 ? (
-        <p className={styles.empty}>Empty</p>
+        <div className={styles["de-empty"]}>
+          <span className={styles["de-empty-zones"]} aria-hidden="true">
+            <Zone state="empty" size="md" />
+            <Zone state="empty" size="md" />
+            <Zone state="empty" size="md" />
+          </span>
+          <p><span className={styles["de-empty-wide"]}>{emptyHint}</span><span className={styles["de-empty-phone"]}>Add cards from the Cards tab.</span></p>
+        </div>
       ) : (
-        <ul className={styles.cards}>
+        <ul ref={listRef} className={styles["de-grid"]}>
           {codes.map((code, index) => {
             const name = cardLabel(code, catalog);
             const missing = unknown.has(code);
             const isSelected = selected?.section === section && selected.code === code;
+            const isOver = over.has(copyKey(code, catalog));
             return (
-              <li key={`${section}-${index}-${code}`}>
+              <li
+                key={`${section}-${index}`}
+                data-insert={insertAt === index ? "true" : undefined}
+                onDragOver={(event) => { if (allowDrop(event)) { setDropping(true); setInsertAt(index); } }}
+                onDrop={(event) => finishDrop(event, index)}
+              >
                 <button
                   type="button"
-                  className={styles.card}
+                  className={styles["de-c"]}
                   aria-pressed={isSelected}
-                  aria-label={`${name} in ${title}, card ${index + 1}${missing ? ", unavailable in catalog" : ""}`}
+                  aria-label={`${name}, ${title} Deck card ${index + 1}${missing ? ", not in the card database" : ""}${isOver ? ", too many copies" : ""}`}
+                  title={name}
                   data-unknown={missing ? "true" : undefined}
-                  onClick={() => onSelect({ section, code })}
+                  data-over={isOver ? "true" : undefined}
+                  draggable
+                  onDragStart={(event) => {
+                    onSelect({ section, code }, false);
+                    writeCardDrag(event, { code, from: section, index });
+                  }}
+                  onClick={(event) => { event.currentTarget.focus(); onSelect({ section, code }); }}
+                  onPointerEnter={(event) => { if (event.pointerType !== "touch") onHover({ section, index }); }}
+                  onPointerLeave={() => onHover(null)}
+                  onContextMenu={(event) => { event.preventDefault(); onRemove({ code, from: section, index }); }}
+                  onKeyDown={(event) => {
+                    if (event.ctrlKey || event.metaKey || event.altKey) return;
+                    if (event.key === "Delete" || event.key === "Backspace" || event.key === "-") {
+                      event.preventDefault();
+                      removeFromKeyboard(code, index);
+                    }
+                  }}
                 >
-                  <img src={cardArtUrl(code, "small")} alt="" loading="lazy" />
-                  {missing ? <span className={styles.unknownTag}>Unknown</span> : null}
+                  <CardArt code={code} name={name} />
+                  <LimitBadge limit={copyLimit(code, catalog, limits)} />
+                  {missing ? <span className={cn("num", styles.unknownTag)}>{code}</span> : null}
                 </button>
               </li>
             );

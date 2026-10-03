@@ -1,8 +1,11 @@
+import { duelFxClock } from "./fx-clock";
 import { scheduleBattleSound, shatter, type BattleSoundPlan, type BurstOpts, type Synth, type ToneOpts } from "./attack-audio";
 import { sceneSound, SCENE_CUES } from "./scene-audio";
+import { battleSeekMs } from "./battle-clock";
 import type { DuelEventKind, DuelFxCue } from "./event-queue";
 
 type Voice = {
+  releasePace?: () => void;
   osc: AudioScheduledSourceNode;
   gain: GainNode;
   /** Every node the voice made (filters, sends, the vibrato LFO): disconnected when it ends. */
@@ -69,6 +72,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     voices.push(voice);
     collecting?.push(voice);
     voice.osc.onended = () => {
+      voice.releasePace?.();
       const index = voices.indexOf(voice);
       if (index >= 0) voices.splice(index, 1);
       // Nothing holds a finished voice in the graph (the send buses and the LFO stay connected otherwise).
@@ -85,6 +89,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
   function fadeOut(list: readonly Voice[]): void {
     const now = ctx?.currentTime ?? 0;
     for (const voice of list) {
+      voice.releasePace?.();
       try {
         const gain = voice.gain.gain;
         // Hold the level where it is, then glide to silence; a bare cancel would jump the envelope.
@@ -173,6 +178,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     audio: AudioContext,
     dest: GainNode,
     opts: ToneOpts,
+    releasePace?: () => void,
   ): void {
     const osc = audio.createOscillator();
     const gain = audio.createGain();
@@ -211,7 +217,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
       lfo.stop(t + opts.duration + 0.02);
       nodes.push(lfo, depth);
     }
-    addVoice({ osc, gain, nodes });
+    addVoice({ osc, gain, nodes, releasePace });
     osc.start(t);
     osc.stop(t + opts.duration + 0.02);
   }
@@ -233,6 +239,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     audio: AudioContext,
     dest: GainNode,
     opts: BurstOpts,
+    releasePace?: () => void,
   ): void {
     if (!noise) {
       noise = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.5), audio.sampleRate);
@@ -241,6 +248,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     }
     const src = audio.createBufferSource();
     src.buffer = noise;
+    src.loop = true;
     const filter = audio.createBiquadFilter();
     filter.type = opts.filter;
     if (opts.q != null) filter.Q.setValueAtTime(opts.q, opts.start);
@@ -258,7 +266,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     const nodes: AudioNode[] = [src, filter, gain];
     const send = sendTo(audio, gain, opts.send);
     if (send) nodes.push(send);
-    addVoice({ osc: src, gain, nodes });
+    addVoice({ osc: src, gain, nodes, releasePace });
     src.start(opts.start);
     src.stop(opts.start + opts.duration + 0.02);
   }
@@ -269,6 +277,7 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     const dest = master;
     if (!audio || !dest || audio.state !== "running") return;
     const t = audio.currentTime;
+    const synth = synthFor(audio, dest, t);
 
     if ((SCENE_CUES as readonly string[]).includes(kind)) {
       sceneSound(synthFor(audio, dest), kind as (typeof SCENE_CUES)[number], t, strength, Math.random);
@@ -276,25 +285,25 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     }
     switch (kind) {
       case "summon":
-        tone(audio, dest, { freq: 392, type: "triangle", start: t, duration: 0.14, peak: 0.045 });
-        tone(audio, dest, { freq: 523.25, type: "sine", start: t + 0.05, duration: 0.16, peak: 0.035 });
+        synth.tone({ freq: 392, type: "triangle", start: t, duration: 0.14, peak: 0.045 });
+        synth.tone({ freq: 523.25, type: "sine", start: t + 0.05, duration: 0.16, peak: 0.035 });
         break;
       case "set":
-        tone(audio, dest, { freq: 196, type: "triangle", start: t, duration: 0.1, peak: 0.028 });
+        synth.tone({ freq: 196, type: "triangle", start: t, duration: 0.1, peak: 0.028 });
         break;
       case "activate":
-        tone(audio, dest, { freq: 659.25, type: "sine", start: t, duration: 0.18, peak: 0.04 });
-        tone(audio, dest, { freq: 987.77, type: "sine", start: t + 0.04, duration: 0.14, peak: 0.022 });
+        synth.tone({ freq: 659.25, type: "sine", start: t, duration: 0.18, peak: 0.04 });
+        synth.tone({ freq: 987.77, type: "sine", start: t + 0.04, duration: 0.14, peak: 0.022 });
         break;
       case "chain-resolving":
-        tone(audio, dest, { freq: 784, type: "triangle", start: t, duration: 0.07, peak: 0.03, attack: 0.006 });
+        synth.tone({ freq: 784, type: "triangle", start: t, duration: 0.07, peak: 0.03, attack: 0.006 });
         break;
       case "chain-resolved":
-        tone(audio, dest, { freq: 523.25, type: "sine", start: t, duration: 0.1, peak: 0.032 });
-        tone(audio, dest, { freq: 659.25, type: "sine", start: t + 0.06, duration: 0.14, peak: 0.028 });
+        synth.tone({ freq: 523.25, type: "sine", start: t, duration: 0.1, peak: 0.032 });
+        synth.tone({ freq: 659.25, type: "sine", start: t + 0.06, duration: 0.14, peak: 0.028 });
         break;
       case "chain-negated":
-        tone(audio, dest, {
+        synth.tone({
           freq: 415,
           freqEnd: 233,
           type: "sine",
@@ -304,25 +313,25 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
         });
         break;
       case "chain-end":
-        tone(audio, dest, { freq: 174.61, type: "sine", start: t, duration: 0.16, peak: 0.026 });
+        synth.tone({ freq: 174.61, type: "sine", start: t, duration: 0.16, peak: 0.026 });
         break;
       case "attack":
-        tone(audio, dest, { freq: 98, type: "sine", start: t, duration: 0.12, peak: 0.05, attack: 0.004 });
-        tone(audio, dest, { freq: 196, type: "triangle", start: t + 0.02, duration: 0.08, peak: 0.02 });
+        synth.tone({ freq: 98, type: "sine", start: t, duration: 0.12, peak: 0.05, attack: 0.004 });
+        synth.tone({ freq: 196, type: "triangle", start: t + 0.02, duration: 0.08, peak: 0.02 });
         break;
       case "phase":
-        tone(audio, dest, { freq: 329.63, type: "sine", start: t, duration: 0.16, peak: 0.03 });
-        tone(audio, dest, { freq: 493.88, type: "triangle", start: t + 0.06, duration: 0.18, peak: 0.018 });
+        synth.tone({ freq: 329.63, type: "sine", start: t, duration: 0.16, peak: 0.03 });
+        synth.tone({ freq: 493.88, type: "triangle", start: t + 0.06, duration: 0.18, peak: 0.018 });
         break;
       case "holo":
         // A soft rising shimmer while the projection lifts.
-        tone(audio, dest, { freq: 220, freqEnd: 740, type: "sine", start: t, duration: 0.34, peak: 0.02, attack: 0.05 });
-        tone(audio, dest, { freq: 1318.5, freqEnd: 1760, type: "triangle", start: t + 0.12, duration: 0.24, peak: 0.008, attack: 0.06 });
+        synth.tone({ freq: 220, freqEnd: 740, type: "sine", start: t, duration: 0.34, peak: 0.02, attack: 0.05 });
+        synth.tone({ freq: 1318.5, freqEnd: 1760, type: "triangle", start: t + 0.12, duration: 0.24, peak: 0.008, attack: 0.06 });
         break;
       case "slam":
         // Weight: a low drop plus a short muffled knock.
-        tone(audio, dest, { freq: 118, freqEnd: 36, type: "sine", start: t, duration: 0.34, peak: 0.16 * strength, attack: 0.004 });
-        burst(audio, dest, { start: t, duration: 0.14, peak: 0.07 * strength, filter: "lowpass", freq: 900, freqEnd: 180 });
+        synth.tone({ freq: 118, freqEnd: 36, type: "sine", start: t, duration: 0.34, peak: 0.16 * strength, attack: 0.004 });
+        synth.burst({ start: t, duration: 0.14, peak: 0.07 * strength, filter: "lowpass", freq: 900, freqEnd: 180 });
         break;
       case "shatter":
       case "destroy":
@@ -330,74 +339,85 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
         break;
       case "turn":
         // A card sliding a quarter turn on the mat: a short brush and a soft tap as it settles.
-        burst(audio, dest, { start: t, duration: 0.12, peak: 0.02, filter: "bandpass", freq: 1400, freqEnd: 700 });
-        tone(audio, dest, { freq: 220, type: "triangle", start: t + 0.2, duration: 0.07, peak: 0.02, attack: 0.004 });
+        synth.burst({ start: t, duration: 0.12, peak: 0.02, filter: "bandpass", freq: 1400, freqEnd: 700 });
+        synth.tone({ freq: 220, type: "triangle", start: t + 0.2, duration: 0.07, peak: 0.02, attack: 0.004 });
         break;
       case "flip":
         // The card turns over: a quick brush, then a small bright chime as the face shows.
-        burst(audio, dest, { start: t, duration: 0.1, peak: 0.024, filter: "bandpass", freq: 1800, freqEnd: 900 });
-        tone(audio, dest, { freq: 987.77, type: "sine", start: t + 0.16, duration: 0.16, peak: 0.028 });
-        tone(audio, dest, { freq: 1318.5, type: "sine", start: t + 0.2, duration: 0.18, peak: 0.018 });
+        synth.burst({ start: t, duration: 0.1, peak: 0.024, filter: "bandpass", freq: 1800, freqEnd: 900 });
+        synth.tone({ freq: 987.77, type: "sine", start: t + 0.16, duration: 0.16, peak: 0.028 });
+        synth.tone({ freq: 1318.5, type: "sine", start: t + 0.2, duration: 0.18, peak: 0.018 });
         break;
       case "fusion":
         // Two voices swirl toward each other and merge into one bright chord.
-        tone(audio, dest, { freq: 330, freqEnd: 494, type: "sine", start: t, duration: 0.5, peak: 0.028, attack: 0.08 });
-        tone(audio, dest, { freq: 660, freqEnd: 494, type: "triangle", start: t, duration: 0.5, peak: 0.016, attack: 0.08 });
-        tone(audio, dest, { freq: 494, type: "sine", start: t + 0.55, duration: 0.3, peak: 0.04, attack: 0.006 });
-        tone(audio, dest, { freq: 740, type: "sine", start: t + 0.56, duration: 0.26, peak: 0.024, attack: 0.006 });
-        burst(audio, dest, { start: t + 0.55, duration: 0.16, peak: 0.03, filter: "lowpass", freq: 1600, freqEnd: 300 });
+        synth.tone({ freq: 330, freqEnd: 494, type: "sine", start: t, duration: 0.5, peak: 0.028, attack: 0.08 });
+        synth.tone({ freq: 660, freqEnd: 494, type: "triangle", start: t, duration: 0.5, peak: 0.016, attack: 0.08 });
+        synth.tone({ freq: 494, type: "sine", start: t + 0.55, duration: 0.3, peak: 0.04, attack: 0.006 });
+        synth.tone({ freq: 740, type: "sine", start: t + 0.56, duration: 0.26, peak: 0.024, attack: 0.006 });
+        synth.burst({ start: t + 0.55, duration: 0.16, peak: 0.03, filter: "lowpass", freq: 1600, freqEnd: 300 });
         break;
       case "synchro":
         // Tuning rings: a rising ladder of clear tones, then a white flash of noise.
         for (let i = 0; i < 4; i += 1) {
-          tone(audio, dest, { freq: 880 * Math.pow(2, i / 4), type: "sine", start: t + i * 0.09, duration: 0.2, peak: 0.02, attack: 0.008 });
+          synth.tone({ freq: 880 * Math.pow(2, i / 4), type: "sine", start: t + i * 0.09, duration: 0.2, peak: 0.02, attack: 0.008 });
         }
-        tone(audio, dest, { freq: 1760, freqEnd: 2637, type: "sine", start: t + 0.4, duration: 0.3, peak: 0.02, attack: 0.03 });
-        burst(audio, dest, { start: t + 0.56, duration: 0.22, peak: 0.035, filter: "highpass", freq: 1200, freqEnd: 4000 });
-        tone(audio, dest, { freq: 1046.5, type: "sine", start: t + 0.58, duration: 0.3, peak: 0.03, attack: 0.005 });
+        synth.tone({ freq: 1760, freqEnd: 2637, type: "sine", start: t + 0.4, duration: 0.3, peak: 0.02, attack: 0.03 });
+        synth.burst({ start: t + 0.56, duration: 0.22, peak: 0.035, filter: "highpass", freq: 1200, freqEnd: 4000 });
+        synth.tone({ freq: 1046.5, type: "sine", start: t + 0.58, duration: 0.3, peak: 0.03, attack: 0.005 });
         break;
       case "xyz":
         // A dark swirl underneath, gold orbs circling, then a rising thump as the monster comes up.
-        tone(audio, dest, { freq: 70, freqEnd: 52, type: "sine", start: t, duration: 0.7, peak: 0.05, attack: 0.1 });
+        synth.tone({ freq: 70, freqEnd: 52, type: "sine", start: t, duration: 0.7, peak: 0.05, attack: 0.1 });
         for (let i = 0; i < 3; i += 1) {
-          tone(audio, dest, { freq: 1568 + i * 220, type: "sine", start: t + 0.15 + i * 0.16, duration: 0.12, peak: 0.014, attack: 0.004 });
+          synth.tone({ freq: 1568 + i * 220, type: "sine", start: t + 0.15 + i * 0.16, duration: 0.12, peak: 0.014, attack: 0.004 });
         }
-        tone(audio, dest, { freq: 90, freqEnd: 160, type: "sine", start: t + 0.72, duration: 0.24, peak: 0.08, attack: 0.006 });
-        tone(audio, dest, { freq: 1244.5, type: "triangle", start: t + 0.76, duration: 0.2, peak: 0.02, attack: 0.004 });
+        synth.tone({ freq: 90, freqEnd: 160, type: "sine", start: t + 0.72, duration: 0.24, peak: 0.08, attack: 0.006 });
+        synth.tone({ freq: 1244.5, type: "triangle", start: t + 0.76, duration: 0.2, peak: 0.02, attack: 0.004 });
         break;
       case "link":
         // Circuit: a run of short digital blips, then a data sweep and a lock-in tone.
         for (let i = 0; i < 6; i += 1) {
-          tone(audio, dest, { freq: 1200 + (i % 3) * 300, type: "square", start: t + 0.1 + i * 0.05, duration: 0.03, peak: 0.006, attack: 0.002 });
+          synth.tone({ freq: 1200 + (i % 3) * 300, type: "square", start: t + 0.1 + i * 0.05, duration: 0.03, peak: 0.006, attack: 0.002 });
         }
-        tone(audio, dest, { freq: 2400, freqEnd: 600, type: "sawtooth", start: t + 0.28, duration: 0.28, peak: 0.008, attack: 0.01 });
-        tone(audio, dest, { freq: 587.33, type: "sine", start: t + 0.58, duration: 0.24, peak: 0.032, attack: 0.005 });
-        tone(audio, dest, { freq: 880, type: "sine", start: t + 0.6, duration: 0.2, peak: 0.02, attack: 0.005 });
+        synth.tone({ freq: 2400, freqEnd: 600, type: "sawtooth", start: t + 0.28, duration: 0.28, peak: 0.008, attack: 0.01 });
+        synth.tone({ freq: 587.33, type: "sine", start: t + 0.58, duration: 0.24, peak: 0.032, attack: 0.005 });
+        synth.tone({ freq: 880, type: "sine", start: t + 0.6, duration: 0.2, peak: 0.02, attack: 0.005 });
         break;
       case "ritual":
         // A low swell like a held chord, blue flames hissing, then a bell as the monster rises.
-        tone(audio, dest, { freq: 110, type: "sine", start: t, duration: 0.8, peak: 0.04, attack: 0.2 });
-        tone(audio, dest, { freq: 164.81, type: "triangle", start: t + 0.05, duration: 0.75, peak: 0.018, attack: 0.22 });
-        burst(audio, dest, { start: t + 0.1, duration: 0.5, peak: 0.012, filter: "bandpass", freq: 600, freqEnd: 1800 });
-        tone(audio, dest, { freq: 659.25, type: "sine", start: t + 0.64, duration: 0.36, peak: 0.03, attack: 0.006 });
-        tone(audio, dest, { freq: 1318.5, type: "sine", start: t + 0.66, duration: 0.3, peak: 0.014, attack: 0.006 });
+        synth.tone({ freq: 110, type: "sine", start: t, duration: 0.8, peak: 0.04, attack: 0.2 });
+        synth.tone({ freq: 164.81, type: "triangle", start: t + 0.05, duration: 0.75, peak: 0.018, attack: 0.22 });
+        synth.burst({ start: t + 0.1, duration: 0.5, peak: 0.012, filter: "bandpass", freq: 600, freqEnd: 1800 });
+        synth.tone({ freq: 659.25, type: "sine", start: t + 0.64, duration: 0.36, peak: 0.03, attack: 0.006 });
+        synth.tone({ freq: 1318.5, type: "sine", start: t + 0.66, duration: 0.3, peak: 0.014, attack: 0.006 });
         break;
       case "pendulum":
         // The pendulum swings: a slow whoosh across, then a chime as the light drops.
-        burst(audio, dest, { start: t, duration: 0.5, peak: 0.016, filter: "bandpass", freq: 400, freqEnd: 1600 });
-        tone(audio, dest, { freq: 392, freqEnd: 587.33, type: "sine", start: t + 0.05, duration: 0.5, peak: 0.016, attack: 0.1 });
-        tone(audio, dest, { freq: 1567.98, type: "sine", start: t + 0.9, duration: 0.3, peak: 0.028, attack: 0.005 });
-        tone(audio, dest, { freq: 2093, type: "sine", start: t + 0.94, duration: 0.24, peak: 0.014, attack: 0.005 });
+        synth.burst({ start: t, duration: 0.5, peak: 0.016, filter: "bandpass", freq: 400, freqEnd: 1600 });
+        synth.tone({ freq: 392, freqEnd: 587.33, type: "sine", start: t + 0.05, duration: 0.5, peak: 0.016, attack: 0.1 });
+        synth.tone({ freq: 1567.98, type: "sine", start: t + 0.9, duration: 0.3, peak: 0.028, attack: 0.005 });
+        synth.tone({ freq: 2093, type: "sine", start: t + 0.94, duration: 0.24, peak: 0.014, attack: 0.005 });
         break;
       default:
         break;
     }
   }
 
-  function synthFor(audio: AudioContext, dest: GainNode): Synth {
+  function synthFor(audio: AudioContext, dest: GainNode, origin = audio.currentTime): Synth {
+    const rate = duelFxClock.factor();
+    const remaining = <T extends { start: number; duration: number }>(opts: T): T | null => {
+      // Convert FX-relative scheduling to the real AudioContext clock without changing pitch.
+      opts = { ...opts, start: origin + (opts.start - origin) / rate, duration: opts.duration / rate,
+        ...("attack" in opts && typeof opts.attack === "number" ? { attack: opts.attack / rate } : {}) };
+      // A restarted envelope or pitch sweep sounds like a new hit. Join only near onset.
+      if (audio.currentTime - opts.start > 0.03) return null;
+      const end = opts.start + opts.duration;
+      const start = Math.max(0, audio.currentTime, opts.start);
+      return end > start ? { ...opts, start, duration: end - start } : null;
+    };
     return {
-      tone: (opts) => tone(audio, dest, opts),
-      burst: (opts) => burst(audio, dest, opts),
+      tone: (opts) => { const live = remaining(opts); if (live) tone(audio, dest, { ...live, attack: Math.min(live.attack ?? 0.012, live.duration / 2) }, duelFxClock.retain((live.start + live.duration - audio.currentTime) * 1000 * rate)); },
+      burst: (opts) => { const live = remaining(opts); if (live) burst(audio, dest, live, duelFxClock.retain((live.start + live.duration - audio.currentTime) * 1000 * rate)); },
     };
   }
 
@@ -411,7 +431,9 @@ export function createDuelFeedbackAudio(): DuelFeedbackAudio {
     const mine: Voice[] = [];
     collecting = mine;
     try {
-      scheduleBattleSound(synthFor(audio, dest), plan, audio.currentTime + 0.01);
+      const elapsed = battleSeekMs(plan.startedAt) / 1000;
+      const origin = audio.currentTime + 0.01;
+      scheduleBattleSound(synthFor(audio, dest, origin), plan, origin - elapsed);
     } finally {
       collecting = null;
     }

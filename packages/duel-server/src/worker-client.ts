@@ -1,6 +1,9 @@
 import { Worker } from "node:worker_threads";
+import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
-import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+
+const PROMPT_LOG_LIMIT = 5_000;
 
 export interface GameOptions {
   mode: DuelMode;
@@ -15,6 +18,8 @@ export interface GameOptions {
   firstTurnDraw?: boolean;
   /** Lua chunks that run before the duel starts (hand scenarios). */
   startupScripts?: EngineStartupScript[];
+  /** Engine of a 1v1 table (see `DuelWorkerCreateOptions.engine`). Absent: the merged engine. */
+  engine?: DuelEngineChoice;
 }
 
 /** What the host knows about a worker without asking it (the worker may be stuck inside the core). */
@@ -43,6 +48,8 @@ export interface DuelGameWorker {
   diagnostics?(): Promise<EngineDiagnostic[]>;
   /** Worker state for debug-trace, reports and the stall watchdog. Optional so that test doubles may omit it. */
   debugState?(): WorkerDebugState;
+  /** Scenario-only snapshot of the last 5,000 prompts, oldest first, captured before any next answer. */
+  promptLog?(): readonly PromptTraceEntry[];
   close(): Promise<void>;
 }
 
@@ -55,6 +62,9 @@ export class GameWorker implements DuelGameWorker {
   private lastOp: string | null = null;
   private lastOpAt: number | null = null;
   private info: EngineCoreInfo | null = null;
+  private readonly prompts: PromptTraceEntry[] = [];
+  /** Index of the oldest prompt in the ring. Writes never shift the retained entries. */
+  private promptStart = 0;
 
   constructor() {
     const development = import.meta.url.endsWith(".ts");
@@ -62,8 +72,19 @@ export class GameWorker implements DuelGameWorker {
     this.worker = development
       ? new Worker(`import('tsx/esm/api').then(({ tsImport }) => tsImport(${JSON.stringify(module.href)}, ${JSON.stringify(import.meta.url)}))`, { eval: true })
       : new Worker(module);
-    this.worker.on("message", (message: { id: number; ok: boolean; value?: unknown; error?: string; info?: EngineCoreInfo }) => {
+    this.worker.on("message", (message: { id: number; ok: boolean; value?: unknown; error?: string; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry }) => {
+      if (this.stopped) return;
       if (message.info) this.info = message.info;
+      if (message.promptTrace) {
+        const latest = this.prompts[(this.promptStart + this.prompts.length - 1) % PROMPT_LOG_LIMIT];
+        if (latest?.promptId !== message.promptTrace.promptId) {
+          if (this.prompts.length < PROMPT_LOG_LIMIT) this.prompts.push(message.promptTrace);
+          else {
+            this.prompts[this.promptStart] = message.promptTrace;
+            this.promptStart = (this.promptStart + 1) % PROMPT_LOG_LIMIT;
+          }
+        }
+      }
       const request = this.pending.get(message.id);
       if (!request) return;
       this.pending.delete(message.id);
@@ -82,6 +103,10 @@ export class GameWorker implements DuelGameWorker {
 
   get running(): boolean {
     return !this.stopped;
+  }
+
+  promptLog(): readonly PromptTraceEntry[] {
+    return this.prompts.slice(this.promptStart).concat(this.prompts.slice(0, this.promptStart));
   }
 
   debugState(): WorkerDebugState {
@@ -133,6 +158,8 @@ export class GameWorker implements DuelGameWorker {
 
   async close(): Promise<void> {
     this.fail(new Error("Engine worker closed"));
+    this.prompts.length = 0;
+    this.promptStart = 0;
     await this.worker.terminate();
   }
 }

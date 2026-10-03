@@ -167,8 +167,10 @@ describe("E2E test login provider", () => {
   });
 
   it("adds no test login button to the login page", () => {
-    const page = readFileSync(new URL("../app/(auth)/login/page.tsx", import.meta.url), "utf8");
-    expect(page).not.toMatch(/e2e/i);
-    expect(page).toContain('signIn("discord"');
+    const read = (file: string) => readFileSync(new URL(`../app/(auth)/login/${file}`, import.meta.url), "utf8");
+    for (const file of ["page.tsx", "actions.ts", "login-button.tsx"]) expect(read(file)).not.toMatch(/e2e/i);
+    // The Discord sign-in call lives in the server action that the page form posts to.
+    expect(read("actions.ts")).toContain('signIn("discord"');
+    expect(read("page.tsx")).toContain("signInWithDiscord");
   });
 });

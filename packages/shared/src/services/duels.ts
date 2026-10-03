@@ -2,15 +2,18 @@ import type Database from "better-sqlite3";
 import { generateWebSlug } from "../util/web-slug.js";
 import type {
   DuelActorRole,
+  DuelBestOf,
   DuelClockState,
   DuelCommand,
   DuelDeck,
   DuelEngineView,
+  DuelFirstChoice,
   DuelHistoryScope,
   DuelListItem,
   DuelMasterRule,
   DuelMode,
   DuelRoom,
+  DuelRpsMove,
   DuelSeat,
   DuelSession,
   DuelSettings,
@@ -30,27 +33,42 @@ import {
   parseStoredDuelSettings,
 } from "../duels/settings.js";
 import { randomBytes, timingSafeEqual } from "node:crypto";
+// duel-series.ts imports this module too; see the note there about the cycle.
+import { createSeriesStore } from "./duel-series.js";
+import { isDuelEngineChoice, type DuelEngineChoice } from "../duels/engine-switch.js";
+import {
+  newOpening,
+  openingNeedsSwap,
+  openingView,
+  parseOpening,
+  settleOpening,
+  submitOpeningChoice,
+  submitOpeningPick,
+  swapOpeningSeats,
+  DuelOpeningError,
+  type DuelOpeningState,
+} from "../duels/opening.js";
 
 const MIN_MAIN = 40;
 const MAX_MAIN = 60;
 const MAX_EXTRA = 15;
 const MAX_SIDE = 15;
-const PRACTICE_BOT_NAME = "Practice Bot";
+export const PRACTICE_BOT_NAME = "Practice Bot";
 const ARCHIVE_DUE_CAP = 32;
 const CLOCK_DUE_CAP = 32;
 const HISTORY_LIMIT = 100;
-/** Other players' active duels stay in Live tables this long after their last accepted input. */
+/** Other players' lobbies and active duels stay in Live tables this long after their last activity. */
 export const DUEL_LIVE_IDLE_AFTER_MS = 15 * 60 * 1000;
 
 function isTerminalStatus(status: string): status is DuelStatus {
   return status === "completed" || status === "interrupted" || status === "cancelled";
 }
 
-function isDuelMasterRule(value: unknown): value is DuelMasterRule {
+export function isDuelMasterRule(value: unknown): value is DuelMasterRule {
   return value === 1 || value === 2 || value === 3 || value === 4 || value === 5;
 }
 
-function resolveMasterRule(_mode: DuelMode, value: unknown, format: DuelFormat): DuelMasterRule {
+export function resolveMasterRule(_mode: DuelMode, value: unknown, format: DuelFormat = DEFAULT_DUEL_FORMAT): DuelMasterRule {
   const rule = value === undefined ? 5 : value;
   if (!isDuelMasterRule(rule)) {
     throw new DuelServiceError("Master rule must be 1, 2, 3, 4, or 5", 400);
@@ -84,6 +102,11 @@ export interface DuelSetup {
   presetId?: string;
   /** Seat number (as text) to bot policy name, for example `{ "1": "scripted" }`. */
   botPolicies?: Record<string, string>;
+  /**
+   * The engine a one-against-one duel started on (`DUEL_1V1_ENGINE`). A recover and a replay use it, so a switch of the env
+   * value does not change a running duel. Absent means `legacy`: duels from before this field ran on that engine.
+   */
+  engine?: DuelEngineChoice;
 }
 
 export interface DuelPrivateState {
@@ -116,6 +139,9 @@ export interface DuelService {
     masterRule?: DuelMasterRule;
     settings?: unknown;
     format?: DuelFormat;
+    /** Open table match options; default Best of 1, unranked. CONTRACT: stored in duels.best_of / duels.ranked. */
+    bestOf?: DuelBestOf;
+    ranked?: boolean;
   }): DuelSession;
   list(
     guildId: string,
@@ -123,17 +149,33 @@ export interface DuelService {
     options?: { archived?: boolean; scope?: DuelHistoryScope; idleAfterMs?: number },
   ): DuelListItem[];
   get(slug: string, guildId: string): DuelSession;
-  join(slug: string, guildId: string, playerId: number): DuelSession;
+  /** Claims an open human seat before any opening or series has started. Defaults to the first open seat. */
+  takeSeat(slug: string, guildId: string, playerId: number, seat?: number): DuelSession;
   leave(slug: string, guildId: string, playerId: number): DuelSession;
   /** `seat` picks the empty seat (for example a Tag partner). Without it the lowest empty seat is used. */
   addPracticeBot(slug: string, guildId: string, organizerPlayerId: number, deck: DuelDeck, seat?: number): DuelSession;
+  /**
+   * Takes a practice bot out of its seat (organizer only, lobby only) so a human can sit there. `seat` names
+   * the bot's seat; without it every practice bot at the table goes (a 1v1 table has at most one).
+   */
+  removePracticeBot(slug: string, guildId: string, organizerPlayerId: number, seat?: number): DuelSession;
   setDeck(slug: string, guildId: string, playerId: number, deck: DuelDeck): DuelSession;
   room(slug: string, guildId: string, playerId: number): DuelRoom;
   privateState(slug: string, guildId: string): DuelPrivateState;
+  /**
+   * Marks a seated player ready with the deck already in the seat (a
+   * tournament game preloads the registered deck). CONTRACT: implemented by
+   * the series work; the stub throws.
+   */
+  markReady(slug: string, guildId: string, playerId: number): DuelSession;
+  /**
+   * `organizerPlayerId` null means a system start by the duel host. CONTRACT:
+   * null is allowed only for a series game (duels.series_id set).
+   */
   activate(
     slug: string,
     guildId: string,
-    organizerPlayerId: number,
+    organizerPlayerId: number | null,
     seed: string[],
     bundleVersion: string,
     clock: DuelClockState | null,
@@ -155,6 +197,27 @@ export interface DuelService {
   setSetup(slug: string, guildId: string, setup: DuelSetup | null): void;
   setClock(slug: string, guildId: string, clock: DuelClockState | null): void;
   dueClocks(now: number, limit: number): Array<{ slug: string; guildId: string }>;
+  /**
+   * Starts the rock-paper-scissors opening of a lobby duel with two ready seats. Idempotent while an
+   * opening exists. `actorPlayerId` is the player who pressed Start: the organizer of an open table, or a
+   * seated player of a match game.
+   */
+  startOpening(slug: string, guildId: string, actorPlayerId: number, at: number): DuelOpeningState;
+  /** The stored opening of a duel, or null. Private: it holds the hidden picks. */
+  openingState(slug: string, guildId: string): DuelOpeningState | null;
+  /** A pick of one seat (a player or the practice bot). Final once made. */
+  submitOpeningPick(slug: string, guildId: string, seat: number, move: DuelRpsMove, at: number): DuelOpeningState;
+  /** The winner's choice. When it ends the opening, the seats are in their final order. */
+  submitOpeningChoice(slug: string, guildId: string, seat: number, choice: DuelFirstChoice, at: number): DuelOpeningState;
+  /** Applies the timeouts: random picks, and "go first" for a winner who did not choose. */
+  settleOpening(slug: string, guildId: string, at: number, random?: () => number): DuelOpeningState | null;
+  /**
+   * Drops the opening of a lobby duel, so decks, seats and the bot can change again. The host uses it when the
+   * duel failed to start after the opening. Seats keep the order the opening gave them.
+   */
+  abortOpening(slug: string, guildId: string): void;
+  /** Duels whose opening phase has timed out, or whose settled opening still waits for the duel to start. */
+  dueOpenings(now: number, limit: number): Array<{ slug: string; guildId: string }>;
 }
 
 type DuelRow = {
@@ -184,6 +247,11 @@ type DuelRow = {
   settings_json: string | null;
   clock_json: string | null;
   invite_code: string | null;
+  series_id: number | null;
+  game_number: number | null;
+  best_of: number;
+  ranked: number;
+  opening_json: string | null;
 };
 
 
@@ -203,7 +271,7 @@ function isConstraintError(error: unknown) {
   return String(error.code).startsWith("SQLITE_CONSTRAINT");
 }
 
-function isDuelMode(value: string): value is DuelMode {
+export function isDuelMode(value: string): value is DuelMode {
   return value === "normal" || value === "domain";
 }
 
@@ -232,7 +300,7 @@ function assertCardCodes(codes: unknown, label: string, min: number, max: number
   return parsed;
 }
 
-function validateDuelDeckShape(deck: DuelDeck, competitive: boolean): DuelDeck {
+export function validateDuelDeckShape(deck: DuelDeck, competitive: boolean): DuelDeck {
   const mainMin = competitive ? MIN_MAIN : 0;
   const main = assertCardCodes(deck.main, "Main deck", mainMin, MAX_MAIN);
   const extra = assertCardCodes(deck.extra, "Extra deck", 0, MAX_EXTRA);
@@ -282,7 +350,7 @@ function parseEngineView(raw: string | null): DuelEngineView | null {
   try {
     const parsed = JSON.parse(raw) as DuelEngineView;
     if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.seats)) return null;
-    return { ...parsed, prompt: null };
+    return { ...parsed, prompt: null, prioritySeat: null };
   } catch {
     return null;
   }
@@ -292,7 +360,7 @@ function freezeSnapshot(
   view: DuelEngineView,
   result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string },
 ): string {
-  const frozen: DuelEngineView = { ...view, prompt: null, result };
+  const frozen: DuelEngineView = { ...view, prompt: null, prioritySeat: null, result };
   return JSON.stringify(frozen);
 }
 
@@ -303,7 +371,7 @@ function parseSeatSnapshots(raw: string | null | undefined): Array<DuelEngineVie
     if (!Array.isArray(parsed)) return [];
     return parsed.map((entry) => {
       if (!entry || typeof entry !== "object" || !Array.isArray((entry as DuelEngineView).seats)) return null;
-      return { ...(entry as DuelEngineView), prompt: null };
+      return { ...(entry as DuelEngineView), prompt: null, prioritySeat: null };
     });
   } catch {
     return [];
@@ -336,6 +404,7 @@ function parseSetup(raw: string | null | undefined): DuelSetup | undefined {
     }
     if (typeof input.presetId === "string" && input.presetId) setup.presetId = input.presetId;
     if (isPolicyMap(input.botPolicies)) setup.botPolicies = input.botPolicies;
+    if (isDuelEngineChoice(input.engine)) setup.engine = input.engine;
     return setup;
   } catch {
     return undefined;
@@ -347,7 +416,7 @@ function validateSetup(setup: unknown): DuelSetup {
     throw new DuelServiceError("Duel setup must be an object", 400);
   }
   const input = setup as Record<string, unknown>;
-  const extra = Object.keys(input).find((key) => key !== "firstTurnDraw" && key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "presetId" && key !== "botPolicies");
+  const extra = Object.keys(input).find((key) => key !== "firstTurnDraw" && key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "presetId" && key !== "botPolicies" && key !== "engine");
   if (extra) throw new DuelServiceError(`Unknown duel setup field: ${extra}`, 400);
   const out: DuelSetup = {};
   if (input.firstTurnDraw !== undefined) {
@@ -382,6 +451,10 @@ function validateSetup(setup: unknown): DuelSetup {
     if (!isPolicyMap(input.botPolicies)) throw new DuelServiceError("botPolicies must map seat numbers to policy names", 400);
     out.botPolicies = input.botPolicies;
   }
+  if (input.engine !== undefined) {
+    if (!isDuelEngineChoice(input.engine)) throw new DuelServiceError("engine must be legacy or pinned", 400);
+    out.engine = input.engine;
+  }
   return out;
 }
 
@@ -415,7 +488,7 @@ function mapSeat(row: SeatRow): DuelSeat {
   return seat;
 }
 
-function wrapSettingsError<T>(work: () => T, status = 400): T {
+export function wrapSettingsError<T>(work: () => T, status = 400): T {
   try {
     return work();
   } catch (error) {
@@ -424,7 +497,7 @@ function wrapSettingsError<T>(work: () => T, status = 400): T {
   }
 }
 
-function generateInviteCode(): string {
+export function generateInviteCode(): string {
   return randomBytes(32).toString("base64url");
 }
 
@@ -479,10 +552,11 @@ export function createDuelService(db: Database.Database): DuelService {
   const selectPlayerGuild = db.prepare<[number, string], { ok: number }>(
     "select 1 as ok from players where id = ? and guild_id = ?",
   );
-  const insertDuel = db.prepare<[string, string, string, number, DuelMode, DuelMasterRule, string, string | null, DuelFormat]>(
+  const series = createSeriesStore(db);
+  const insertDuel = db.prepare<[string, string, string, number, DuelMode, DuelMasterRule, string, string | null, DuelFormat, number, number]>(
     `
-      insert into duels (guild_id, web_slug, name, organizer_player_id, mode, master_rule, status, settings_json, invite_code, format)
-      values (?, ?, ?, ?, ?, ?, 'lobby', ?, ?, ?)
+      insert into duels (guild_id, web_slug, name, organizer_player_id, mode, master_rule, status, settings_json, invite_code, format, best_of, ranked)
+      values (?, ?, ?, ?, ?, ?, 'lobby', ?, ?, ?, ?, ?)
     `,
   );
   const insertSeat = db.prepare<[number, number, number]>(
@@ -494,6 +568,7 @@ export function createDuelService(db: Database.Database): DuelService {
   const updateDeck = db.prepare<[string, number, number]>(
     "update duel_seats set deck_json = ?, ready = 1 where duel_id = ? and player_id = ?",
   );
+  const updateReady = db.prepare<[number, number]>("update duel_seats set ready = 1 where duel_id = ? and player_id = ?");
   const nextCommandSeq = db.prepare<[number], { next_seq: number }>(
     "select coalesce(max(seq), 0) + 1 as next_seq from duel_commands where duel_id = ?",
   );
@@ -521,7 +596,7 @@ export function createDuelService(db: Database.Database): DuelService {
         and (
           organizer_player_id = @viewer
           or exists (select 1 from duel_seats s where s.duel_id = duels.id and s.player_id = @viewer)
-          or (status = 'active' and datetime(coalesce(last_activity_at, created_at)) >= datetime('now', @idle))
+          or datetime(coalesce(last_activity_at, created_at)) >= datetime('now', @idle)
         )
       order by
         case when organizer_player_id = @viewer
@@ -579,6 +654,18 @@ export function createDuelService(db: Database.Database): DuelService {
     return stored;
   };
 
+  const selectDueOpenings = db.prepare<[number, number], { slug: string; guildId: string }>(
+    `
+      select web_slug as slug, guild_id as guildId
+      from duels
+      where status = 'lobby'
+        and opening_json is not null
+        and json_extract(opening_json, '$.deadline') <= ?
+      order by id asc
+      limit ?
+    `,
+  );
+
   const assertPlayerGuild = (playerId: number, guildId: string) => {
     if (!selectPlayerGuild.get(playerId, guildId)) {
       throw new DuelServiceError("Player must belong to the same guild as the duel", 400);
@@ -615,6 +702,10 @@ export function createDuelService(db: Database.Database): DuelService {
       winnerPlayerId: row.winner_player_id,
       winnerSeat: row.winner_seat ?? null,
       resultReason: row.result_reason,
+      bestOf: row.best_of === 3 ? 3 : 1,
+      ranked: row.ranked === 1,
+      seriesId: row.series_id ?? null,
+      gameNumber: row.game_number ?? null,
     };
   };
 
@@ -636,6 +727,76 @@ export function createDuelService(db: Database.Database): DuelService {
     }
   };
 
+  /** Decks, seats and the bot are fixed once the rock-paper-scissors opening runs. */
+  const assertNoOpening = (row: DuelRow) => {
+    if (row.opening_json) throw new DuelServiceError("The duel is about to start. Seats and decks are fixed.", 409);
+  };
+
+  const requireOpening = (row: DuelRow): DuelOpeningState => {
+    const state = parseOpening(row.opening_json);
+    if (!state) throw new DuelServiceError("There is no rock-paper-scissors game for this duel", 409);
+    return state;
+  };
+
+  const storeOpening = (duelId: number, state: DuelOpeningState | null) => {
+    db.prepare<[string | null, number]>("update duels set opening_json = ? where id = ?")
+      .run(state ? JSON.stringify(state) : null, duelId);
+  };
+
+  /** The opening just settled the order: put the seats in their final order and flip the seat-indexed fields. */
+  const settleOrder = (duelId: number, before: DuelOpeningState, after: DuelOpeningState): DuelOpeningState => {
+    if (before.phase === "start" || after.phase !== "start" || !openingNeedsSwap(after)) return after;
+    // Two statements: the primary key (duel_id, seat) must stay unique after every row update.
+    db.prepare<[number]>("update duel_seats set seat = seat + 2 where duel_id = ?").run(duelId);
+    db.prepare<[number]>("update duel_seats set seat = 3 - seat where duel_id = ?").run(duelId);
+    return swapOpeningSeats(after);
+  };
+
+  const runOpening = <T>(work: () => T): T => {
+    try {
+      return work();
+    } catch (error) {
+      if (error instanceof DuelOpeningError) throw new DuelServiceError(error.message, error.status);
+      throw error;
+    }
+  };
+
+  const startOpeningTx = db.transaction((slug: string, guildId: string, actorPlayerId: number, at: number) => {
+    const row = loadDuelRow(slug, guildId);
+    assertPlayerGuild(actorPlayerId, guildId);
+    if (row.status !== "lobby") throw new DuelServiceError("Duel already started", 409);
+    if (rowFormat(row) !== "1v1") throw new DuelServiceError("Rock-paper-scissors is only available for 1v1 duels", 409);
+    const existing = parseOpening(row.opening_json);
+    if (existing) return existing;
+    const seats = seatRows(row.id);
+    if (seats.length !== 2 || seats.some((seat) => seat.ready !== 1)) {
+      throw new DuelServiceError("Duel needs exactly two ready players to start", 400);
+    }
+    if (row.series_id !== null) {
+      const linked = series.byId(row.series_id);
+      if (!linked || series.playerIndex(linked, actorPlayerId) === null) {
+        throw new DuelServiceError("Only a player in this match can start this duel", 403);
+      }
+    } else if (row.organizer_player_id !== actorPlayerId) {
+      throw new DuelServiceError("Only the organizer can start this duel", 403);
+    }
+    const state = newOpening(actorPlayerId, at);
+    storeOpening(row.id, state);
+    return state;
+  });
+
+  const openingStepTx = db.transaction(
+    (slug: string, guildId: string, step: (state: DuelOpeningState, seatCount: number) => DuelOpeningState) => {
+      const row = loadDuelRow(slug, guildId);
+      if (row.status !== "lobby") throw new DuelServiceError("The duel is not in its opening", 409);
+      const before = requireOpening(row);
+      const stepped = runOpening(() => step(before, seatRows(row.id).length));
+      const after = settleOrder(row.id, before, stepped);
+      if (after !== before) storeOpening(row.id, after);
+      return after;
+    },
+  );
+
   const createTx = db.transaction(
     (input: {
       guildId: string;
@@ -645,6 +806,8 @@ export function createDuelService(db: Database.Database): DuelService {
       masterRule?: DuelMasterRule;
       settings?: unknown;
       format?: DuelFormat;
+      bestOf?: DuelBestOf;
+      ranked?: boolean;
     }) => {
       const format = input.format ?? DEFAULT_DUEL_FORMAT;
       if (!isDuelFormat(format)) throw new DuelServiceError("Duel format must be 1v1, tag, ffa3, or ffa4", 400);
@@ -653,8 +816,15 @@ export function createDuelService(db: Database.Database): DuelService {
       if (!isDuelMode(input.mode)) throw new DuelServiceError("Duel mode must be normal or domain", 400);
       assertPlayerGuild(input.organizerPlayerId, input.guildId);
       const masterRule = resolveMasterRule(input.mode, input.masterRule, format);
-      const settings = wrapSettingsError(() => normalizeDuelSettings(input.mode, input.settings));
+      const settings = wrapSettingsError(() => normalizeDuelSettings(input.mode, input.settings, format));
       const inviteCode = settings.visibility === "private" ? generateInviteCode() : null;
+      const bestOf = input.bestOf === undefined ? 1 : input.bestOf;
+      if (bestOf !== 1 && bestOf !== 3) throw new DuelServiceError("Best of must be 1 or 3", 400);
+      const ranked = input.ranked === undefined ? false : input.ranked;
+      if (typeof ranked !== "boolean") throw new DuelServiceError("Ranked must be true or false", 400);
+      if (format !== DEFAULT_DUEL_FORMAT && (bestOf !== 1 || ranked)) {
+        throw new DuelServiceError("Only a 1v1 duel can be best of 3 or ranked", 400);
+      }
 
       const result = insertDuel.run(
         input.guildId,
@@ -666,6 +836,8 @@ export function createDuelService(db: Database.Database): DuelService {
         JSON.stringify(settings),
         inviteCode,
         format,
+        bestOf,
+        ranked ? 1 : 0,
       );
       const duelId = Number(result.lastInsertRowid);
       insertSeat.run(duelId, 0, input.organizerPlayerId);
@@ -675,32 +847,42 @@ export function createDuelService(db: Database.Database): DuelService {
     },
   );
 
-  const joinTx = db.transaction((slug: string, guildId: string, playerId: number) => {
+  const takeSeatTx = db.transaction((slug: string, guildId: string, playerId: number, requestedSeat?: number) => {
     const row = loadDuelRow(slug, guildId);
     assertPlayerGuild(playerId, guildId);
+    assertRoomAccess(row, playerId);
+    if (row.status !== "lobby") throw new DuelServiceError("Seats can only be taken before the duel starts", 409);
+    assertNoOpening(row);
+    if (row.series_id !== null) {
+      throw new DuelServiceError("This match is between two players; seats are fixed", 409);
+    }
+    const seatCount = seatCountFor(rowFormat(row));
+    if (requestedSeat !== undefined && (!Number.isInteger(requestedSeat) || requestedSeat < 0 || requestedSeat >= seatCount)) {
+      throw new DuelServiceError(seatCount === 2 ? "Seat must be 0 or 1" : `Seat must be between 0 and ${seatCount - 1}`, 400);
+    }
 
     const seats = seatRows(row.id);
-    if (seats.some((seat) => seat.player_id === playerId)) {
+    const mine = seats.find((seat) => seat.player_id === playerId);
+    if (mine) {
+      if (requestedSeat !== undefined && mine.seat !== requestedSeat) {
+        throw new DuelServiceError("You are already seated in this duel", 409);
+      }
       return mapSession(row);
-    }
-    assertRoomAccess(row, playerId);
-    if (row.status !== "lobby") throw new DuelServiceError("Duel is not open to join", 400);
-    const seatCount = seatCountFor(rowFormat(row));
-    if (seats.length >= seatCount) {
-      throw new DuelServiceError("Duel is full", 409);
     }
 
     const used = new Set(seats.map((seat) => seat.seat));
-    let seat = 0;
-    while (used.has(seat) && seat < seatCount) seat += 1;
-    if (seat >= seatCount) throw new DuelServiceError("Duel is full", 409);
+    const seat = requestedSeat ?? Array.from({ length: seatCount }, (_, index) => index).find((index) => !used.has(index));
+    if (seat === undefined || used.has(seat)) {
+      throw new DuelServiceError("That seat is already taken. You are still watching; choose another open seat.", 409);
+    }
 
     try {
       insertSeat.run(row.id, seat, playerId);
     } catch (error) {
-      if (isConstraintError(error)) throw new DuelServiceError("Duel is full", 409);
+      if (isConstraintError(error)) throw new DuelServiceError("That seat is already taken. You are still watching; choose another open seat.", 409);
       throw error;
     }
+    touchActivity.run(row.id);
     return mapSession(row);
   });
 
@@ -742,11 +924,30 @@ export function createDuelService(db: Database.Database): DuelService {
     return mapSession(row);
   });
 
+  const removePracticeBotTx = db.transaction((slug: string, guildId: string, organizerPlayerId: number, seat?: number) => {
+    const row = loadDuelRow(slug, guildId);
+    assertPlayerGuild(organizerPlayerId, guildId);
+    assertRoomAccess(row, organizerPlayerId);
+    if (row.status !== "lobby") throw new DuelServiceError("A practice bot can only be removed before the duel starts", 409);
+    assertNoOpening(row);
+    if (row.organizer_player_id !== organizerPlayerId) {
+      throw new DuelServiceError("Only the organizer can remove a practice bot", 403);
+    }
+    // The bot's seat row holds everything the add created (ready flag and deck), so deleting it clears it all.
+    const removed =
+      seat === undefined
+        ? db.prepare<[number]>("delete from duel_seats where duel_id = ? and is_bot = 1").run(row.id)
+        : db.prepare<[number, number]>("delete from duel_seats where duel_id = ? and is_bot = 1 and seat = ?").run(row.id, seat);
+    if (removed.changes === 0) throw new DuelServiceError("This table has no practice bot", 409);
+    return mapSession(row);
+  });
+
   const setDeckTx = db.transaction((slug: string, guildId: string, playerId: number, deck: DuelDeck) => {
     const row = loadDuelRow(slug, guildId);
     assertPlayerGuild(playerId, guildId);
     assertRoomAccess(row, playerId);
     if (row.status !== "lobby") throw new DuelServiceError("Decks can only be set before the duel starts", 400);
+    assertNoOpening(row);
 
     const seat = seatRows(row.id).find((entry) => entry.player_id === playerId);
     if (!seat) throw new DuelServiceError("You are not seated in this duel", 403);
@@ -761,21 +962,39 @@ export function createDuelService(db: Database.Database): DuelService {
     assertPlayerGuild(playerId, guildId);
     const seat = seatRows(row.id).find((entry) => entry.player_id === playerId);
     if (!seat) throw new DuelServiceError("You are not seated in this duel", 403);
+    if (row.series_id !== null) {
+      throw new DuelServiceError("Seats are fixed in a match between two players. Cancel the match instead.", 409);
+    }
     if (row.status !== "lobby") throw new DuelServiceError("You can only leave a table before the duel starts", 409);
+    assertNoOpening(row);
     if (row.organizer_player_id === playerId) {
       throw new DuelServiceError("The organizer cannot leave. Cancel the table instead.", 409);
     }
     db.prepare<[number, number]>("delete from duel_seats where duel_id = ? and player_id = ?").run(row.id, playerId);
+    touchActivity.run(row.id);
     const updated = selectDuelById.get(row.id);
     if (!updated) throw new DuelServiceError("Duel record is invalid", 500);
     return mapSession(updated);
+  });
+
+  const markReadyTx = db.transaction((slug: string, guildId: string, playerId: number) => {
+    const row = loadDuelRow(slug, guildId);
+    assertPlayerGuild(playerId, guildId);
+    assertRoomAccess(row, playerId);
+    if (row.status !== "lobby") throw new DuelServiceError("Duel is not in lobby", 400);
+    assertNoOpening(row);
+    const seat = seatRows(row.id).find((entry) => entry.player_id === playerId);
+    if (!seat) throw new DuelServiceError("You are not seated in this duel", 403);
+    if (!seat.deck_json) throw new DuelServiceError("Choose a deck before you ready up", 400);
+    updateReady.run(row.id, playerId);
+    return mapSession(row);
   });
 
   const activateTx = db.transaction(
     (
       slug: string,
       guildId: string,
-      organizerPlayerId: number,
+      organizerPlayerId: number | null,
       seed: string[],
       bundleVersion: string,
       clock: DuelClockState | null,
@@ -783,7 +1002,17 @@ export function createDuelService(db: Database.Database): DuelService {
     ) => {
       const row = loadDuelRow(slug, guildId);
       if (row.status !== "lobby") throw new DuelServiceError("Duel is not in lobby", 400);
-      if (row.organizer_player_id !== organizerPlayerId) {
+      if (row.series_id !== null) {
+        // A series game: the host starts it (null), or any player of the series.
+        if (organizerPlayerId !== null) {
+          const linked = series.byId(row.series_id);
+          if (!linked || series.playerIndex(linked, organizerPlayerId) === null) {
+            throw new DuelServiceError("Only a player in this match can start this duel", 403);
+          }
+        }
+      } else if (organizerPlayerId === null) {
+        throw new DuelServiceError("Only a match game can be started by the system", 403);
+      } else if (row.organizer_player_id !== organizerPlayerId) {
         throw new DuelServiceError("Only the organizer can start this duel", 403);
       }
       if (!Array.isArray(seed) || seed.some((value) => typeof value !== "string")) {
@@ -805,11 +1034,13 @@ export function createDuelService(db: Database.Database): DuelService {
       const storedClock = clock === null ? null : checkedClock(clock, seatCount);
       const storedSetup = setup === undefined ? null : JSON.stringify(validateSetup(setup));
       db.prepare<[string, string, string | null, string | null, number]>(
-        "update duels set status = 'active', seed_json = ?, bundle_version = ?, clock_json = ?, setup_json = coalesce(?, setup_json), last_activity_at = datetime('now') where id = ? and status = 'lobby'",
+        "update duels set status = 'active', seed_json = ?, bundle_version = ?, clock_json = ?, setup_json = coalesce(?, setup_json), opening_json = null, last_activity_at = datetime('now') where id = ? and status = 'lobby'",
       ).run(JSON.stringify(seed), bundleVersion, serializeClock(storedClock), storedSetup, row.id);
       const updated = selectDuelById.get(row.id);
       if (!updated || updated.status !== "active") throw new DuelServiceError("Duel is not in lobby", 400);
-      return mapSession(updated);
+      series.onActivate(updated, rowSettings(updated));
+      const attached = selectDuelById.get(row.id);
+      return mapSession(attached ?? updated);
     },
   );
 
@@ -847,11 +1078,13 @@ export function createDuelService(db: Database.Database): DuelService {
       const format = rowFormat(row);
       let winnerPlayerId: number | null = null;
       let winnerTeam: number | null = null;
+      let winnerIsBot = false;
       if (nextStatus === "completed" && winnerSeat !== null) {
         const rows = seatRows(row.id);
         const winner = rows.find((entry) => entry.seat === winnerSeat);
         if (!winner) throw new DuelServiceError("Winner seat is not occupied", 400);
         winnerPlayerId = winner.player_id;
+        winnerIsBot = winner.is_bot === 1;
         if (format === "tag") {
           // A team wins together. `winner_player_id` names the first human of the winning team, so a
           // bot partner in the lowest seat does not hide the human winner. Both partners won.
@@ -901,6 +1134,7 @@ export function createDuelService(db: Database.Database): DuelService {
       );
       const updated = selectDuelById.get(row.id);
       if (!updated) throw new DuelServiceError("Duel record is invalid", 500);
+      series.onGameFinished(updated, nextStatus, winnerPlayerId, winnerIsBot);
       return mapSession(updated);
     },
   );
@@ -909,6 +1143,29 @@ export function createDuelService(db: Database.Database): DuelService {
     const row = loadDuelRow(slug, guildId);
     assertPlayerGuild(organizerPlayerId, guildId);
     assertRoomAccess(row, organizerPlayerId);
+    const linked = row.series_id !== null ? series.byId(row.series_id) : undefined;
+    if (linked) {
+      // Either player of a match can cancel its lobby; that cancels the whole series.
+      if (series.playerIndex(linked, organizerPlayerId) === null) {
+        throw new DuelServiceError("Only a player in this match can cancel this duel", 403);
+      }
+      if (row.status === "cancelled") return mapSession(row);
+      if (row.status !== "lobby") throw new DuelServiceError("Only a lobby can be cancelled", 409);
+      // Cancelling a lobby cancels the whole series. That is only fine for game 1 of a casual
+      // series; later games and tournament matches already have wins to protect.
+      if (linked.tournament_match_id !== null || (row.game_number ?? 1) > 1) {
+        throw new DuelServiceError(
+          linked.tournament_match_id !== null
+            ? "A tournament match cannot be cancelled from its lobby. The tournament organizer cancels the series."
+            : "Game 2 or later cannot be cancelled from its lobby because it would erase the series wins. Cancel the series instead.",
+          403,
+        );
+      }
+      series.cancel(linked.id, guildId);
+      const cancelled = selectDuelById.get(row.id);
+      if (!cancelled) throw new DuelServiceError("Duel record is invalid", 500);
+      return mapSession(cancelled);
+    }
     if (row.organizer_player_id !== organizerPlayerId) {
       throw new DuelServiceError("Only the organizer can cancel this duel", 403);
     }
@@ -972,6 +1229,7 @@ export function createDuelService(db: Database.Database): DuelService {
         ...mapSession(row),
         mySeat: row.my_seat,
         lastActivityAt: row.last_activity_at ?? row.created_at,
+        series: row.series_id === null ? null : series.summaryById(row.series_id),
       });
       if (options?.archived) {
         const scope: DuelHistoryScope = options.scope ?? "mine";
@@ -988,8 +1246,9 @@ export function createDuelService(db: Database.Database): DuelService {
       return mapSession(loadDuelRow(slug, guildId));
     },
 
-    join(slug, guildId, playerId) {
-      return joinTx(slug, guildId, playerId);
+    takeSeat(slug, guildId, playerId, seat) {
+      // Reserve the writer lock before checking occupancy, including claims from another process.
+      return takeSeatTx.immediate(slug, guildId, playerId, seat);
     },
 
     leave(slug, guildId, playerId) {
@@ -998,6 +1257,10 @@ export function createDuelService(db: Database.Database): DuelService {
 
     addPracticeBot(slug, guildId, organizerPlayerId, deck, seat) {
       return addPracticeBotTx(slug, guildId, organizerPlayerId, deck, seat);
+    },
+
+    removePracticeBot(slug, guildId, organizerPlayerId, seat) {
+      return removePracticeBotTx(slug, guildId, organizerPlayerId, seat);
     },
 
     setDeck(slug, guildId, playerId, deck) {
@@ -1026,6 +1289,15 @@ export function createDuelService(db: Database.Database): DuelService {
       if (session.settings.visibility === "private" && playerId === session.organizerPlayerId && row.invite_code) {
         room.inviteCode = row.invite_code;
       }
+      const linked = row.series_id === null ? undefined : series.byId(row.series_id);
+      room.series = linked ? series.summarize(linked) : null;
+      const opening = row.status === "lobby" ? parseOpening(row.opening_json) : null;
+      room.opening = opening ? openingView(opening, mySeat) : null;
+      room.mySide = null;
+      if (linked && seated && series.playerIndex(linked, playerId) !== null) {
+        const own = ownDeck(row.id, playerId);
+        room.mySide = series.sideState(linked, playerId) ?? (own ? { baseDeck: own, currentDeck: own } : null);
+      }
       return room;
     },
 
@@ -1046,6 +1318,10 @@ export function createDuelService(db: Database.Database): DuelService {
       };
     },
 
+    markReady(slug, guildId, playerId) {
+      return markReadyTx(slug, guildId, playerId);
+    },
+
     activate(slug, guildId, organizerPlayerId, seed, bundleVersion, clock, setup) {
       return activateTx(slug, guildId, organizerPlayerId, seed, bundleVersion, clock, setup);
     },
@@ -1064,6 +1340,37 @@ export function createDuelService(db: Database.Database): DuelService {
 
     cancel(slug, guildId, organizerPlayerId) {
       return cancelTx(slug, guildId, organizerPlayerId);
+    },
+
+    startOpening(slug, guildId, actorPlayerId, at) {
+      return startOpeningTx(slug, guildId, actorPlayerId, at);
+    },
+
+    openingState(slug, guildId) {
+      return parseOpening(loadDuelRow(slug, guildId).opening_json);
+    },
+
+    submitOpeningPick(slug, guildId, seat, move, at) {
+      return openingStepTx(slug, guildId, (state) => submitOpeningPick(state, seat, move, at));
+    },
+
+    submitOpeningChoice(slug, guildId, seat, choice, at) {
+      return openingStepTx(slug, guildId, (state) => submitOpeningChoice(state, seat, choice, at));
+    },
+
+    settleOpening(slug, guildId, at, random) {
+      const row = loadDuelRow(slug, guildId);
+      if (row.status !== "lobby" || !parseOpening(row.opening_json)) return parseOpening(row.opening_json);
+      return openingStepTx(slug, guildId, (state) => settleOpening(state, at, random));
+    },
+
+    abortOpening(slug, guildId) {
+      const row = loadDuelRow(slug, guildId);
+      if (row.status === "lobby" && row.opening_json) storeOpening(row.id, null);
+    },
+
+    dueOpenings(now, limit) {
+      return selectDueOpenings.all(Math.floor(now), limit);
     },
 
     archive(slug, guildId, organizerPlayerId) {

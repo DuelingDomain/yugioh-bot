@@ -434,6 +434,7 @@ export const battleEffect: FxFactory = (env, request) => {
         rect: b.rect,
         code: b.code,
         defense: b.defense,
+        turned: b.turned,
         at: b.atMs / 1000,
         dir: b.dir,
         cut: cutOf(b.style as FxAttackStyle),

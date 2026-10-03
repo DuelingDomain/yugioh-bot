@@ -208,6 +208,11 @@ db.exec(`
 `);
 
 // ---------- CLEAN UP PREVIOUS SEED DATA FOR THIS GUILD ----------
+// The standalone seed schema predates passes, but an existing migrated database
+// may contain them. Clear them before removing draft_players or drafts.
+if (db.prepare("select 1 from sqlite_master where type = 'table' and name = 'draft_passes'").get()) {
+  db.prepare("delete from draft_passes where draft_id in (select id from drafts where guild_id = ?)").run(guildId);
+}
 db.exec(`
   delete from draft_picks where draft_id in (select id from drafts where guild_id = '${guildId}');
   delete from draft_cards where draft_id in (select id from drafts where guild_id = '${guildId}');
@@ -303,7 +308,7 @@ matchPairs.forEach(([p1, p2], idx) => {
       `insert into matches (guild_id, player_one_id, player_two_id, winner_id, reporter_id, status, source, tournament_id, resolved_at)
        values (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
     )
-    .run(guildId, p1, p2, p1, me.id, "completed", "tournament", t1Id);
+    .run(guildId, p1, p2, p1, me.id, "approved", "tournament", t1Id);
   const mId = Number(m.lastInsertRowid);
   db.prepare(
     `insert into tournament_matches (tournament_id, match_id, player_one_id, player_two_id, round_number, status, metadata_json)

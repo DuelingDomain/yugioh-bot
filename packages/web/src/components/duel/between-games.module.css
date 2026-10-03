@@ -1,0 +1,219 @@
+/* Readable deck cards in the duel room's dark style. Gold marks the timer and
+   cards coming in, purple the cards going out. The grid has its own sizing (not the
+   editor's column counts): a card is never narrower than --tile, and --tile grows
+   with the window so a wide screen shows about 12 cards a row. */
+.screen {
+  --b-gold: var(--duel-chain-ink, #f4d690);
+  --b-pen: var(--duel-pen-ink, #c6b6ff);
+  --b-rule: var(--duel-rule-lo, rgb(181 153 99 / 0.22));
+  --b-rule-hi: var(--duel-rule, rgb(181 153 99 / 0.4));
+  /* The opponent chips come from series.module.css, which reads these. */
+  --s-ink-2: var(--duel-ink-2);
+  --s-ink: var(--duel-ink);
+  --s-ink-3: var(--duel-ink-3);
+  --s-rule: var(--b-rule);
+  --s-rule-hi: var(--b-rule-hi);
+  --s-gold: var(--b-gold);
+  --s-pen: var(--b-pen);
+  position: fixed;
+  inset: 0;
+  z-index: var(--duel-z-modal, 150);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: linear-gradient(180deg, #0a1122 0%, #070b15 55%, #05080f 100%);
+  color: var(--duel-ink);
+  color-scheme: dark;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- header ---------- */
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 6px 16px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--b-rule);
+}
+.headMain { display: grid; gap: 2px; min-width: 0; }
+.eyebrow { color: var(--duel-ink-3); font-size: 10px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; }
+.title { color: var(--duel-ink); font-size: 22px; font-weight: 300; line-height: 1.15; letter-spacing: -0.01em; }
+.result { color: var(--duel-ink-2); font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px;
+  border: 1px solid var(--b-rule);
+  border-radius: 999px;
+  color: var(--duel-ink-2);
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.chip b { color: var(--duel-ink); font-weight: 500; }
+.chip[data-tone="gold"] { border-color: rgb(228 182 79 / 0.4); color: var(--b-gold); }
+.chip[data-tone="gold"] b { color: var(--b-gold); font-weight: 600; }
+
+/* ---------- body: the deck on the left, the siding panel on the right ---------- */
+.body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(290px, 22vw, 330px);
+  min-width: 0;
+  min-height: 0;
+}
+.deck {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(181 153 99 / 0.3) transparent;
+}
+.section { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--b-rule); border-radius: 8px; background: rgb(10 17 32 / 0.55); }
+.sectionHead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-height: 22px; }
+.sectionTitle { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; font-size: 14px; font-weight: 500; }
+.sectionCount { color: var(--duel-ink); font-size: 20px; line-height: 1; }
+.sectionCount[data-tone="bad"] { color: var(--duel-loss-ink); }
+.sectionTarget, .sectionHint { color: var(--duel-ink-3); font-size: 12px; font-weight: 400; }
+.empty { color: var(--duel-ink-2); font-size: 13px; }
+.cards {
+  /* Grows with the width (6vw) but is also capped by the height (8.5dvh), so on a 1920x1080 screen Main,
+     Extra and Side all fit beside the controls. 64 px at least (phones), 120 px at most. */
+  --tile: clamp(64px, min(6vw, 8.5dvh), 120px);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--tile), 1fr));
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+}
+.cards > li { position: relative; min-width: 0; }
+
+.panel {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto auto auto;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px 12px 12px;
+  border-left: 1px solid var(--b-rule);
+  background: rgb(6 10 19 / 0.6);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(181 153 99 / 0.3) transparent;
+}
+.preview { min-height: 0; overflow: hidden; }
+
+/* ---------- the out / in counter ---------- */
+.counter {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--b-rule);
+  border-radius: 9px;
+  font-size: 18px;
+  color: var(--duel-ink);
+}
+.counterNote { color: var(--duel-ink-3); font-size: 12.5px; }
+.counter[data-state="even"] { border-color: rgb(228 182 79 / 0.45); }
+.counter[data-state="even"] .counterNote { color: var(--b-gold); }
+.counter[data-state="uneven"] { border-color: rgb(228 90 77 / 0.55); background: var(--duel-loss-soft, rgb(228 90 77 / 0.1)); }
+.counter[data-state="uneven"] .counterNote { color: var(--duel-loss-ink, #ff9489); }
+.help { color: var(--duel-ink-2); font-size: 12.5px; line-height: 1.4; }
+
+.nextBlock { display: grid; gap: 6px; justify-items: start; }
+.first { color: var(--duel-ink-2); font-size: 13.5px; }
+.botNote { color: var(--duel-ink-3); font-size: 12.5px; }
+
+.actions { display: grid; gap: 8px; }
+.reason { color: var(--duel-ink-2); font-size: 13px; line-height: 1.4; }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.buttons > :first-child { flex: 1 1 100%; }
+.error { color: var(--duel-loss-ink, #ff9489); font-size: 13px; }
+
+/* ---------- tiles: the deck editor tile, with an OUT / IN mark ---------- */
+button.tile { cursor: pointer; }
+button.tile:active { cursor: pointer; }
+button.tile[data-locked="true"] { cursor: default; }
+button.tile[data-locked="true"]:hover { transform: none; }
+/* A marked card glows (the same soft halo as a pickable card on the field). The halo is the tile's own
+   shadow, because the editor tile clips its children; the art stays at full strength. Cards going out glow
+   purple, cards coming in gold. */
+button.tile[data-tag] { z-index: 1; }
+button.tile[data-tag="out"] {
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.55),
+    0 0 0 2px var(--b-pen),
+    0 0 8px 2px rgb(155 126 255 / 0.4);
+}
+button.tile[data-tag="in"] {
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.55),
+    0 0 0 2px var(--b-gold),
+    0 0 8px 2px rgb(228 182 79 / 0.4);
+}
+.tag, .exTag {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  padding: 1px 5px 2px;
+  border-radius: 0 0 4px 0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgb(7 11 21 / 0.88);
+}
+.tag[data-tag="out"] { color: var(--b-pen); }
+.tag[data-tag="in"] { color: var(--b-gold); }
+.exTag { color: var(--duel-ink-2); }
+
+/* ---------- starting the next game ---------- */
+.starting {
+  position: fixed;
+  inset: 0;
+  z-index: var(--duel-z-modal, 150);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  padding: 24px;
+  background: linear-gradient(180deg, #0a1122 0%, #070b15 55%, #05080f 100%);
+  color: var(--duel-ink);
+  text-align: center;
+}
+.startingTitle { font-size: clamp(22px, 4vw, 30px); font-weight: 300; letter-spacing: 0.01em; }
+.startingNote { color: var(--duel-ink-3); font-size: 14px; }
+
+/* ---------- narrow: one column, the panel under the deck ---------- */
+@media (max-width: 900px) {
+  .body { display: block; overflow-y: auto; overflow-x: hidden; }
+  .deck { overflow: visible; }
+  .panel { grid-template-rows: auto; border-left: 0; border-top: 1px solid var(--b-rule); overflow: visible; padding: 10px 14px 12px; }
+  .preview { height: 220px; }
+  .counter { font-size: 17px; padding: 6px 10px; }
+  .reason { min-height: 0; }
+  .buttons > :first-child { flex: 1 1 auto; }
+}
+@media (max-height: 600px) {
+  .head { padding-block: 8px; }
+  .eyebrow { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  button.tile { transition: none; }
+  button.tile:hover { transform: none; }
+}

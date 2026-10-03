@@ -1,0 +1,57 @@
+/* The attack line of a table. It sits on the stage canvas, over the seats and under the FX slot. */
+.line {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  width: 1100px;
+  height: 860px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.line[data-found="false"] > :not(defs) {
+  visibility: hidden;
+}
+
+.preview {
+  stroke-dasharray: 7 9;
+  animation: march 0.8s linear infinite;
+}
+
+.march {
+  stroke-dasharray: 14 6;
+  animation: march 0.8s linear infinite;
+}
+
+.solid {
+  stroke-dasharray: none;
+}
+
+.ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: spin 6s linear infinite;
+}
+
+@keyframes march {
+  from {
+    stroke-dashoffset: 40;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preview,
+  .march,
+  .ring {
+    animation: none;
+  }
+}

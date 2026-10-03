@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "@yugidraft/shared/db";
-import { httpTransport } from "@yugidraft/shared/notify";
+import { createBroadcaster, httpTransport } from "@yugidraft/shared/notify";
 import { loadCardDatabase } from "./cards.js";
 import { verifyEngineBundle } from "./engine-bundle.js";
 import { createDuelHost } from "./host.js";
@@ -20,6 +20,8 @@ const wsTransport = httpTransport({
   url: process.env.WS_INTERNAL_URL ?? "",
   secret: process.env.WS_INTERNAL_SECRET ?? "",
 });
+// The broadcaster logs a warning when the ws server rejects or cannot be reached; it never throws.
+const broadcaster = createBroadcaster(wsTransport);
 const archiveAfterMs = Number(process.env.DUEL_ARCHIVE_AFTER_MS);
 const idleWorkerMs = Number(process.env.DUEL_IDLE_WORKER_MS);
 const botStepMs = Number(process.env.DUEL_BOT_STEP_MS ?? 900);
@@ -34,10 +36,15 @@ const host = createDuelHost({
   onChange: async (slug, guildId) => {
     await wsTransport.post("/internal/duel/changed", JSON.stringify({ slug, guildId }));
   },
+  notifyTournament: async ({ kind, slug }) => {
+    await broadcaster.tournament({ kind, slug });
+  },
   archiveAfterMs: Number.isFinite(archiveAfterMs) ? archiveAfterMs : undefined,
   idleWorkerMs: Number.isFinite(idleWorkerMs) ? idleWorkerMs : undefined,
   // Base pause before a practice bot summon/set/activation; other actions scale from it. 0 answers instantly.
   botStepDelayMs: Number.isFinite(botStepMs) && botStepMs > 0 ? botStepMs : 0,
+  // Rock-paper-scissors decides who goes first in game 1. DUEL_RPS_OPENING=0 turns it off.
+  openingRps: process.env.DUEL_RPS_OPENING !== "0",
 });
 const server = createServer(async (request, response) => {
   try {

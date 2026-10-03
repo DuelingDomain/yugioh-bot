@@ -1,7 +1,20 @@
 import { create } from "zustand";
 import type { CardSummary } from "@/lib/card-types";
 
-export type DraftCardDetail = CardSummary;
+export type DraftCardDetail = CardSummary & {
+  /** Catalog (YGOPRODeck) id, distinct from the draft card instance id. */
+  passcode: number;
+  /** Archetype from the card catalog, when it has one. */
+  archetype?: string | null;
+  /** Monster type from the duel engine ("Dragon"). Absent when the engine could not be reached. */
+  race?: string | null;
+  /** Spell or trap kind from the duel engine ("Quick-Play", "Counter"). Absent when the engine could not be reached. */
+  spellTrapType?: string | null;
+  /** Copies of this card the viewer already holds in the draft (draft room only). */
+  held?: number;
+  /** The viewer holds the per-player maximum of this card, so it cannot be picked. */
+  blocked?: boolean;
+};
 
 export interface Seat {
   seatIndex: number;
@@ -20,6 +33,8 @@ export interface DraftState {
   seats: Seat[];
   timerSeconds: number;
   isMyTurn: boolean;
+  /** Nothing in the pack could be taken this step, so the pick was passed. */
+  passed: boolean;
   completed: boolean;
   pickSeconds: number;
   previewCardId: number | null;
@@ -45,6 +60,7 @@ const initialState: DraftState = {
   seats: [],
   timerSeconds: 0,
   isMyTurn: false,
+  passed: false,
   completed: false,
   pickSeconds: 60,
   previewCardId: null,
@@ -96,7 +112,7 @@ export const useDraftStore = create<DraftState & DraftActions>((set) => ({
   pickCard: (cardId) =>
     set((state) => {
       const card = state.currentPack.find((c) => c.id === cardId);
-      if (!card || !state.isMyTurn) return state;
+      if (!card || card.blocked || !state.isMyTurn) return state;
 
       return {
         ...state,

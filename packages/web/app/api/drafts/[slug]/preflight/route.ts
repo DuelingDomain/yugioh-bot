@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createCardCatalogService, createDraftService, createCubeService } from "@yugidraft/shared/services";
+import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
+import { draftReadAccess } from "@/lib/draft-access";
+import { analyzeCube, createCardCatalogService, createDraftService, createCubeService } from "@yugidraft/shared/services";
 
 export const runtime = "nodejs";
 
@@ -14,6 +16,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   const { slug } = await params;
   const db = getDb();
   const guildId = env.discordGuildId;
+  const denied = draftReadAccess(db, slug, guildId, session.user.id);
+  if (denied) return denied;
 
   const draftRow = db
     .prepare("select id from drafts where web_slug = ? and guild_id = ?")
@@ -22,8 +26,19 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     return NextResponse.json({ error: "Draft not found" }, { status: 404 });
   }
 
-  const draft = createDraftService(db).findById(draftRow.id);
+  const drafts = createDraftService(db);
+  const draft = drafts.findById(draftRow.id);
   if (draft.config.mode !== "theme") {
+    const analysis = analyzeCube(
+      drafts.resolveCubeCardIds(draft.config),
+      Math.max(2, drafts.players(draft.id).length),
+      draft.config.packsPerPlayer ?? 5,
+      draft.config.packSize ?? 8,
+      draft.config.cardsPerPlayer ?? 40,
+    );
+    return NextResponse.json({ errors: analysis.errors, warnings: analysis.warnings });
+  }
+  if (draft.config.themeSelection === "host_assigned" && draft.createdByUserId !== session.user.id) {
     return NextResponse.json({ errors: [], warnings: [] });
   }
 
@@ -36,12 +51,29 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     extraDeckEnabled: draft.config.extraDeckEnabled ?? true,
   };
 
-  // Check every allowed theme — any of them could be assigned at start.
+  const playerIds = drafts.players(draft.id).map((p) => p.playerId);
+  const assignmentError = hostThemeAssignmentError(db, draft.guildId, draft.config, playerIds);
+  if (assignmentError) return NextResponse.json({ errors: [assignmentError], warnings: [] });
+
+  // Host assignments are fixed; other modes can use any allowed theme at start.
+  const cubeIds = draft.config.themeSelection === "host_assigned"
+    ? [...new Set(playerIds.map((playerId) => draft.config.themeAssignments![String(playerId)]))]
+    : draft.config.allowedCubeIds ?? [];
   const errors: string[] = [];
   const warnings: string[] = [];
   for (const cubeId of draft.config.allowedCubeIds ?? []) {
+    const cube = db.prepare("select name, guild_id from cubes where id = ?")
+      .get(cubeId) as { name: string; guild_id: string } | undefined;
+    // Match assignThemes: deleted library cubes are dropped at start.
+    if (!cube) continue;
+    if (cube.guild_id !== draft.guildId) {
+      errors.push(`Cube ${cubeId}: Cube not found`);
+      continue;
+    }
+    // Scope every reference to this guild, but analyze only themes that can be assigned.
+    if (!cubeIds.includes(cubeId)) continue;
     const analysis = cubes.analyzeCubePools(cubeId, cfg);
-    const name = (db.prepare("select name from cubes where id = ?").get(cubeId) as { name: string } | undefined)?.name ?? `Cube ${cubeId}`;
+    const name = cube.name;
     for (const e of analysis.errors) errors.push(`${name}: ${e}`);
     for (const w of analysis.warnings) warnings.push(`${name}: ${w}`);
   }

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { useDraftStore } from "../../src/lib/stores/draft-store";
+import { useTalkStore } from "../../src/lib/stores/talk-store";
 import { useDraftWebsocket } from "../../src/lib/hooks/use-draft-websocket";
 
 // ---------------------------------------------------------------------------
@@ -13,8 +14,11 @@ type EventHandler = (...args: unknown[]) => void;
 const mockHandlers: Record<string, EventHandler> = {};
 const mockEmit = vi.fn();
 const mockDisconnect = vi.fn();
+const mockFetch = vi.fn();
 
 const mockSocket = {
+  connected: true,
+  id: "socket-1",
   on: vi.fn((event: string, handler: EventHandler) => {
     mockHandlers[event] = handler;
   }),
@@ -71,15 +75,21 @@ describe("useDraftWebsocket", () => {
   beforeEach(() => {
     // Reset all mock state before each test
     vi.clearAllMocks();
+    mockSocket.connected = true;
+    mockSocket.id = "socket-1";
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ token: "fresh-token", userId: "user-1" }) });
+    vi.stubGlobal("fetch", mockFetch);
     Object.keys(mockHandlers).forEach((k) => delete mockHandlers[k]);
     useDraftStore.setState(baseState);
   });
 
   afterEach(() => {
     useDraftStore.setState(baseState);
+    vi.unstubAllGlobals();
   });
 
-  it("emits draft:join with { slug } on connect", () => {
+  it("fetches an authorized token before joining on connect", async () => {
     render(<HookHarness slug="my-draft" />);
 
     // Trigger the connect event
@@ -87,7 +97,95 @@ describe("useDraftWebsocket", () => {
       simulateEvent("connect");
     });
 
-    expect(mockEmit).toHaveBeenCalledWith("draft:join", { slug: "my-draft" });
+    await waitFor(() => expect(mockEmit).toHaveBeenCalledWith("draft:join", {
+      slug: "my-draft", token: "fresh-token", userId: "user-1",
+    }, expect.any(Function)));
+    expect(mockFetch).toHaveBeenCalledWith("/api/drafts/my-draft/connection", expect.objectContaining({ cache: "no-store" }));
+  });
+
+  it("fetches a fresh token on reconnect", async () => {
+    render(<HookHarness slug="my-draft" />);
+    act(() => simulateEvent("connect"));
+    await waitFor(() => expect(mockEmit).toHaveBeenCalledTimes(1));
+    mockSocket.id = "socket-2";
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ token: "reconnected-token", userId: "user-1" }) });
+    act(() => simulateEvent("connect"));
+    await waitFor(() => expect(mockEmit).toHaveBeenLastCalledWith("draft:join", {
+      slug: "my-draft", token: "reconnected-token", userId: "user-1",
+    }, expect.any(Function)));
+  });
+
+  it("resyncs after a successful room join to catch events missed while reconnecting", async () => {
+    const onResync = vi.fn();
+    render(<HookHarness slug="my-draft" options={{ onResync }} />);
+    act(() => simulateEvent("connect"));
+    await waitFor(() => expect(mockEmit).toHaveBeenCalledTimes(1));
+    act(() => mockEmit.mock.calls[0][2]());
+    expect(onResync).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not resync when the room join is refused", async () => {
+    const onResync = vi.fn();
+    render(<HookHarness slug="my-draft" options={{ onResync }} />);
+    act(() => simulateEvent("connect"));
+    await waitFor(() => expect(mockEmit).toHaveBeenCalledTimes(1));
+    act(() => mockEmit.mock.calls[0][2]({ error: "Access denied" }));
+    expect(onResync).not.toHaveBeenCalled();
+  });
+
+  it("ignores a join acknowledgement after unmounting", async () => {
+    const onResync = vi.fn();
+    const { unmount } = render(<HookHarness slug="my-draft" options={{ onResync }} />);
+    act(() => simulateEvent("connect"));
+    await waitFor(() => expect(mockEmit).toHaveBeenCalledTimes(1));
+    unmount();
+    act(() => mockEmit.mock.calls[0][2]({ error: "Access denied" }));
+    expect(onResync).not.toHaveBeenCalled();
+  });
+
+  it("renews after its room subscription expires", async () => {
+    render(<HookHarness slug="my-draft" />);
+    act(() => simulateEvent("connect"));
+    await waitFor(() => expect(mockEmit).toHaveBeenCalledTimes(1));
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ token: "renewed-token", userId: "user-1" }) });
+    act(() => simulateEvent("draft:subscription-expired", { slug: "my-draft" }));
+    await waitFor(() => expect(mockEmit).toHaveBeenLastCalledWith("draft:join", {
+      slug: "my-draft", token: "renewed-token", userId: "user-1",
+    }, expect.any(Function)));
+  });
+
+  it("does not join when the token endpoint denies access", async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 403 });
+    render(<HookHarness slug="my-draft" />);
+    await act(async () => simulateEvent("connect"));
+    expect(mockEmit).not.toHaveBeenCalled();
+  });
+
+  it("does not join when token fetching fails", async () => {
+    mockFetch.mockRejectedValue(new Error("Network error"));
+    render(<HookHarness slug="my-draft" />);
+    await act(async () => simulateEvent("connect"));
+    expect(mockEmit).not.toHaveBeenCalled();
+  });
+
+  it("does not use a token request from before a disconnect", async () => {
+    let resolve!: (response: unknown) => void;
+    mockFetch.mockReturnValue(new Promise((r) => { resolve = r; }));
+    render(<HookHarness slug="my-draft" />);
+    act(() => simulateEvent("connect"));
+    act(() => { mockSocket.connected = false; simulateEvent("disconnect"); });
+    await act(async () => resolve({ ok: true, json: async () => ({ token: "old-token", userId: "user-1" }) }));
+    expect(mockEmit).not.toHaveBeenCalled();
+  });
+
+  it("does not join after unmounting while a token request is pending", async () => {
+    let resolve!: (response: unknown) => void;
+    mockFetch.mockReturnValue(new Promise((r) => { resolve = r; }));
+    const { unmount } = render(<HookHarness slug="my-draft" />);
+    act(() => simulateEvent("connect"));
+    unmount();
+    await act(async () => resolve({ ok: true, json: async () => ({ token: "old-token", userId: "user-1" }) }));
+    expect(mockEmit).not.toHaveBeenCalled();
   });
 
   it("calls onResync when draft:resync is received", () => {
@@ -175,5 +273,24 @@ describe("useDraftWebsocket", () => {
     unmount();
 
     expect(mockDisconnect).toHaveBeenCalledTimes(1);
+  });
+
+  describe("table talk", () => {
+    afterEach(() => useTalkStore.getState().clear());
+
+    it("keeps the line a seat said, by player", () => {
+      render(<HookHarness slug="my-draft" />);
+      act(() => simulateEvent("draft:talk", { playerId: 2, line: "gg" }));
+      expect(useTalkStore.getState().heard[2]?.line).toBe("gg");
+    });
+
+    it("drops a line that is not one of the fixed ids, and does not touch the picks", () => {
+      render(<HookHarness slug="my-draft" />);
+      const before = useDraftStore.getState().seats;
+      act(() => simulateEvent("draft:talk", { playerId: 2, line: "show me your pool" }));
+      act(() => simulateEvent("draft:talk", undefined));
+      expect(useTalkStore.getState().heard).toEqual({});
+      expect(useDraftStore.getState().seats).toBe(before);
+    });
   });
 });

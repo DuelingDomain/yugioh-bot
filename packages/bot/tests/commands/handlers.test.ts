@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { handleCommand, type CommandInteractionLike } from "../../src/commands/handlers.js";
 import { migrate } from "../../src/db/schema.js";
 import { createPlayerRepository } from "../../src/repositories/players.js";
@@ -7,7 +7,7 @@ import { createCardCatalogService } from "../../src/services/card-catalog.js";
 import { createDraftImageService } from "../../src/services/draft-images.js";
 import { createDraftService } from "../../src/services/drafts.js";
 import { createMatchService } from "@yugidraft/shared/services";
-import { createCubeService, createTournamentService } from "@yugidraft/shared/services";
+import { createCubeService, createDuelSeriesService, createTournamentService } from "@yugidraft/shared/services";
 import { recordingTransport, createBroadcaster } from "@yugidraft/shared/notify";
 
 const mockSetNames = ["Legend of Blue Eyes White Dragon", "Metal Raiders", "Pharaoh's Servant"];
@@ -404,6 +404,37 @@ describe("command handlers", () => {
 
     expect(draft.status).toBe("active");
     expect(app.db.prepare("select count(*) as count from draft_cards where draft_id = ?").get(draft.id)).toEqual({ count: 16 });
+  });
+
+  it.each(["foreign-guild", "duplicate"])("/draft start surfaces an error for %s host assignments and leaves the draft pending", async (invalidAssignment) => {
+    const app = setup();
+    const yugi = app.players.upsert("guild-1", "user-7", "Yugi");
+    const kaiba = app.players.upsert("guild-1", "user-9", "Kaiba");
+    seedDraftCatalog(app, 42);
+    const cubeIds = ["Theme 1", "Theme 2"].map((name) => {
+      const cubeId = Number(app.db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1', ?, 'user-7')").run(name).lastInsertRowid);
+      for (let cardId = 1; cardId <= 42; cardId++) {
+        app.db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?, ?, 'main', 1)").run(cubeId, cardId);
+      }
+      return cubeId;
+    });
+    const draft = app.drafts.create("guild-1", "channel-1", "theme night", {
+      mode: "theme", themeSelection: "host_assigned", allowedCubeIds: cubeIds, uniqueThemes: true, extraDeckEnabled: false,
+      themeAssignments: { [yugi.id]: cubeIds[0], [kaiba.id]: invalidAssignment === "duplicate" ? cubeIds[0] : cubeIds[1] },
+    }, "user-7", yugi.id);
+    app.drafts.join(draft.id, kaiba.id);
+    if (invalidAssignment === "foreign-guild") app.db.prepare("update cubes set guild_id = 'guild-2' where id = ?").run(cubeIds[1]);
+    const { interaction, replies } = fakeInteraction({
+      commandName: "draft", subcommand: "start", user: { id: "user-7", username: "Yugi" }, strings: { name: "theme night" },
+    });
+
+    await expect(handleCommand(interaction, app)).rejects.toThrow(
+      invalidAssignment === "foreign-guild" ? /exist.*draft.*guild/i : /distinct.*uniqueThemes/i,
+    );
+    expect(app.drafts.findById(draft.id).status).toBe("pending");
+    expect(app.db.prepare("select * from draft_player_cube where draft_id = ?").all(draft.id)).toEqual([]);
+    expect(replies).toEqual([]);
+    expect(app.postStatusCalls).toEqual([]);
   });
 
   it("/draft start rejects non-creators", async () => {
@@ -1232,6 +1263,45 @@ describe("command handlers", () => {
     expect(app.tournaments.findByName("guild-1", "locals")?.status).toBe("cancelled");
   });
 
+  it("/event report is refused while an online duel series is open", async () => {
+    const app = setup();
+    const yugi = { id: "user-1", username: "Yugi" };
+    const kaiba = { id: "user-2", username: "Kaiba" };
+    for (const [subcommand, user] of [["create", yugi], ["join", yugi], ["join", kaiba], ["start", yugi]] as const) {
+      await handleCommand(
+        fakeInteraction({
+          commandName: "event",
+          subcommand,
+          user,
+          strings: { name: "locals", format: "round_robin" },
+        }).interaction,
+        app,
+      );
+    }
+    const tournament = app.tournaments.findByName("guild-1", "locals")!;
+    const slot = app.tournaments.openMatches(tournament.id)[0]!;
+    const deck = JSON.stringify({ main: [1], extra: [], side: [] });
+    app.db.prepare("update tournament_participants set deck_json = ? where tournament_id = ?").run(deck, tournament.id);
+    createDuelSeriesService(app.db).startTournamentMatch({
+      guildId: "guild-1",
+      tournamentMatchId: slot.id,
+      actorPlayerId: app.players.upsert("guild-1", yugi.id, yugi.username).id,
+    });
+    const { interaction, replies } = fakeInteraction({
+      commandName: "event",
+      subcommand: "report",
+      user: yugi,
+      users: { player: kaiba },
+      strings: { name: "locals", result: "win" },
+    });
+
+    // The error reaches the interactionCreate catch, which replies with its message as an ephemeral reply.
+    await expect(handleCommand(interaction, app)).rejects.toThrow(/online duel series/);
+
+    expect(replies).toEqual([]);
+    expect(app.tournaments.openMatches(tournament.id)[0]!.status).toBe("open");
+  });
+
   it("/event create posts a public join button", async () => {
     const app = setup();
     const yugi = { id: "user-1", username: "Yugi" };
@@ -1334,6 +1404,30 @@ describe("command handlers", () => {
     expect(replies[0]).toMatchObject({
       content: expect.stringContaining("Signups are open for locals (round_robin). Click Join Tournament to enter."),
     });
+  });
+
+  it("/event cancel notifies each duel game closed with the event", async () => {
+    const app = setup();
+    const tournament = app.tournaments.create("guild-1", "locals", "round_robin", "user-1");
+    const real = app.tournaments.cancelWithChanges;
+    vi.spyOn(app.tournaments, "cancelWithChanges").mockImplementation((id) => ({
+      ...real(id),
+      changedDuelSlugs: ["duel-a", "duel-b"],
+    }));
+    const notifyDuelChange = vi.fn(async (_slug: string, _guildId: string) => {});
+
+    await handleCommand(
+      fakeInteraction({
+        commandName: "event",
+        subcommand: "cancel",
+        user: { id: "user-1", username: "Yugi" },
+        strings: { name: "locals" },
+      }).interaction,
+      { ...app, notifyDuelChange },
+    );
+
+    expect(app.tournaments.findById(tournament.id).status).toBe("cancelled");
+    expect(notifyDuelChange.mock.calls).toEqual([["duel-a", "guild-1"], ["duel-b", "guild-1"]]);
   });
 
   it("prevents non-creators from starting or cancelling events", async () => {

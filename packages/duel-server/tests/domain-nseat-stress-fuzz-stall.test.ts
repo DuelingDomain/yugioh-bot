@@ -42,6 +42,7 @@ describeWithCores("Domain fuzz can leave an optional chain loop", [liveNseat, ..
     Date.now = () => Date.UTC(2026, 0, 1);
     try {
       const result = await playDuel({ format: "tag", seed: 60, mode: "domain", masterRule: 5, maxSteps: 1000, eliminateRate: 0.5 }, {
+        firstTurnDraw: false,
         dataDirectory: engineDataDirectory,
         multiWasmBinary: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
       });

@@ -28,6 +28,8 @@ interface Parsers {
   Reader: new (view: DataView, offset?: number) => Reader;
   query: (reader: Reader) => Record<string, unknown> | null;
   message: (reader: Reader) => Record<string, unknown> | null;
+  /** The wrapper keeps "this core is the legacy core" in a module variable that duelGetMessage sets. The cut-out code has its own copy. */
+  setLegacy: (legacy: boolean) => void;
 }
 
 function loadParsers(): Parsers {
@@ -35,7 +37,7 @@ function loadParsers(): Parsers {
   const body = [classSource, cutBlock("function p(e){"), cutBlock("function G(e){"), cutBlock("function Q(e){"), cutBlock("function te(e){")].join("\n");
   const factory = new Function(
     "u", "L", "I",
-    `${body}\nreturn { Reader: F, query: Q, message: te };`,
+    `var __yl=false;\n${body}\nreturn { Reader: F, query: Q, message: te, setLegacy(value){ __yl=value; } };`,
   ) as (u: unknown, l: unknown, i: unknown) => Parsers;
   return factory(OcgQueryFlags, OcgLocation, OcgPosition);
 }
@@ -116,6 +118,29 @@ describe("patched ocgcore-wasm parsers", () => {
   });
 });
 
+// createCore({ legacyMessages: true }) (the legacy 1v1 engine) keeps the message layout of the wrapper that production ran before the
+// n-seat work. The two messages below are the ones whose layout differs, and a failed parse is not skipped: it throws.
+describe("patched ocgcore-wasm parsers, legacy message mode", () => {
+  const parsers = loadParsers();
+  parsers.setLegacy(true);
+
+  it("reads ANNOUNCE_ATTRIB available as an 8 bit value", () => {
+    const data = [...le(1, 141), ...le(1, 1), ...le(1, 2), ...le(1, 0x40)];
+    expect(parsers.message(readerOf(parsers, data))).toEqual({ type: 141, player: 1, count: 2, available: 0x40 });
+  });
+
+  it("reads SWAP_GRAVE_DECK as player, deck size, then bitmap bits up to the deck size", () => {
+    const data = [...le(1, 35), ...le(1, 0), ...le(4, 3), ...le(4, 2), 0b00000101, 0b00000010];
+    expect(parsers.message(readerOf(parsers, data))).toEqual({ type: 35, player: 0, deck_size: 3, returned_to_extra: [0, 2] });
+  });
+
+  it("reads MOVE with one location byte and a from/to pair per card", () => {
+    const place = [...le(4, 111), ...le(1, 0), ...le(1, 2), ...le(4, 0), ...le(4, 0)]; // code, controller, location, sequence, position
+    const data = [...le(1, 36), ...le(1, 4), ...le(4, 1), ...place, ...place];
+    expect((parsers.message(readerOf(parsers, data)) as { cards?: unknown[] }).cards).toHaveLength(1);
+  });
+});
+
 describe("ocgcore-wasm queries with the TYPE flag", () => {
   it("returns the card type and keeps later fields correct", async () => {
     const cards = loadCardDatabase(engineDataDirectory);
@@ -149,5 +174,52 @@ describe("ocgcore-wasm queries with the TYPE flag", () => {
     } finally {
       core.destroyDuel(handle);
     }
+  });
+});
+
+// Counters. The merged parser reads each counter as type then count. The old wrapper (main's, the legacy 1v1 engine) read them the
+// other way round and production shows that: legacy keeps it, for duelQuery AND for duelQueryLocation (a review found that the location
+// query always used the merged parser, so the card inspector showed "Counter 4098: 3" in legacy mode where main shows "Counter 3: 4098").
+describe("ocgcore-wasm counters query, both modes", () => {
+  const counterCard = 46986414; // any monster; the counter is added by a script
+
+  async function queryCounters(legacy: boolean) {
+    const cards = loadCardDatabase(engineDataDirectory);
+    const core = await createCore({ sync: true, ...(legacy ? { legacyMessages: true } : {}) } as { sync: true });
+    const errors: string[] = [];
+    const handle = core.createDuel({
+      flags: OcgDuelMode.MODE_MR5,
+      seed: [1n, 2n, 3n, 4n],
+      team1: { startingLP: 8000, startingDrawCount: 5, drawCountPerTurn: 1 },
+      team2: { startingLP: 8000, startingDrawCount: 5, drawCountPerTurn: 1 },
+      cardReader: cards.cardData,
+      scriptReader: cards.readScript,
+      errorHandler: (_type, text) => errors.push(text),
+    });
+    assert(handle);
+    try {
+      for (const name of ["constant.lua", "utility.lua"]) {
+        const script = cards.readScript(name);
+        assert(script);
+        assert(core.loadScript(handle, name, script));
+      }
+      core.duelNewCard(handle, { team: 0, duelist: 0, code: counterCard, controller: 0, location: OcgLocation.MZONE, sequence: 0, position: OcgPosition.FACEUP_ATTACK });
+      assert(core.loadScript(handle, "counter.lua", "Duel.GetFieldCard(0,LOCATION_MZONE,0):AddCounter(0x1002,3)"));
+      const flags = (OcgQueryFlags.CODE | OcgQueryFlags.COUNTERS) as OcgQueryFlags;
+      const single = core.duelQuery(handle, { controller: 0, location: OcgLocation.MZONE, sequence: 0, overlaySequence: 0, flags });
+      const location = core.duelQueryLocation(handle, { controller: 0, location: OcgLocation.MZONE, flags });
+      expect(errors).toEqual([]);
+      return { single: single?.counters, location: location[0]?.counters };
+    } finally {
+      core.destroyDuel(handle);
+    }
+  }
+
+  it("merged parser: counter type is the key, the count the value, in duelQuery and duelQueryLocation", async () => {
+    expect(await queryCounters(false)).toEqual({ single: { 0x1002: 3 }, location: { 0x1002: 3 } });
+  });
+
+  it("legacy parser: duelQuery and duelQueryLocation agree and keep main's layout (count is the key)", async () => {
+    expect(await queryCounters(true)).toEqual({ single: { 3: 0x1002 }, location: { 3: 0x1002 } });
   });
 });

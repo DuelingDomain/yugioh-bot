@@ -57,7 +57,7 @@ Authenticated **Standard 1v1** tables use selectable EDOPro Master Rule presets 
 
 **Turn clocks** are a time bank: the room's timer (e.g. 4 minutes) is the most a player can hold. Only the player with the pending prompt is charged. Each accepted decision gives that player 3 seconds back, and at the start of every turn each player regains a quarter of the bank (at least 30 seconds, so 1 minute on a 4-minute bank), never above the full bank. The web room shows a short "+3s" or "+1:00" next to a clock when time is added. Engine processing is excluded. Disconnects, reloads, worker eviction, and host recovery do not reset the saved deadline. Timeout either records a loss or continues at zero until the next turn, according to the room setting. No-timer rooms have no clock; legacy rooms keep their previous no-timer/no-banlist behavior.
 
-The canonical resource bundle is worktree-local `data/duel-engine` (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `ocgcore.standard.wasm`, `manifest.json`). Domain mode loads only `DUEL_DATA_DIR/ocgcore.domain.wasm` (default `./data/duel-engine`); Standard mode loads only `DUEL_DATA_DIR/ocgcore.standard.wasm`, the ygopro-core built from the same pins without the Domain patch (it has only the shared engine bug fixes in `packages/duel-server/domain-core/src/apply-core-fixes.mjs`, which both builds apply; the rules stay stock) (the npm `ocgcore-wasm` core is older than the pinned card scripts and is never used for duels). Neither falls back to `out/`, `packages/duel-server/domain-core/dist` or the npm core; a missing file is an error that names its build script. Shuffled openings use the core's pinned seed; unshuffled openings use the imported order. Both replay with the saved settings and accepted-input journal. A `manifest.json` `bundleVersion` change interrupts in-flight tables.
+The canonical resource bundle is worktree-local `data/duel-engine` (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `ocgcore.standard.wasm`, `manifest.json`, plus `ocgcore.domain.legacy.wasm` and `card-scripts/domain.legacy.lua` for the legacy 1v1 engine). Domain mode loads only `DUEL_DATA_DIR/ocgcore.domain.wasm` (default `./data/duel-engine`); Standard mode loads only `DUEL_DATA_DIR/ocgcore.standard.wasm`, the ygopro-core built from the same pins without the Domain patch (it has only the shared engine bug fixes in `packages/duel-server/domain-core/src/apply-core-fixes.mjs`, which both builds apply; the rules stay stock) (the npm `ocgcore-wasm` core is older than the pinned card scripts and is never used for duels). Neither falls back to `out/`, `packages/duel-server/domain-core/dist` or the npm core; a missing file is an error that names its build script. Shuffled openings use the core's pinned seed; unshuffled openings use the imported order. Both replay with the saved settings and accepted-input journal. A `manifest.json` `bundleVersion` change interrupts in-flight tables.
 
 With deck validation enabled, Domain submission requires a separate Deck Master, exactly 60 singleton Main Deck cards, at most 15 Extra Deck cards, and no Side Deck. Main Deck Pendulum Masters can be activated as scales or Pendulum Summoned from the Deck Master Zone; non-Pendulum Main Deck Masters can also be Pendulum Summoned when eligible. Extra Deck Pendulum Masters require their proper Extra Deck summon mechanic. Summon surcharges apply to subsequent departures, including effect-based summons, and recall eligibility resets on changes of location kind. Format rules: [Domain Format](https://www.domainformat.com/rules).
 
@@ -81,7 +81,7 @@ Life Points use the Oxanium face and roll like a slot machine: every changed dig
 
 Main Phase 1, Battle Phase, Main Phase 2, and End Phase announcements come from engine `NEW_PHASE` events, not button clicks. A non-blocking centered ribbon preserves intermediate phases when the engine advances immediately to the next turn. Events are deduplicated and initial/reconnected snapshots do not replay old announcements. Reduced motion keeps the text without the entrance animation.
 
-Card backs use the native 1394×2031 [HD card-back template from kooriookami/yugioh-card](https://github.com/kooriookami/yugioh-card/tree/master/src/assets/yugioh-card/yugioh-back), with its KONAMI and TCG logo layers composited at the template coordinates and encoded as WebP without upscaling. This replaces the textured physical scan; the Extra Deck variant is recolored violet. Main and Extra Deck piles show subtly angled card layers only when their counts exceed one; empty piles remain empty. Original artwork and trademarks belong to their respective owners. The background is an original seamless 1024×1024 matte slate texture stored losslessly to retain fine grain, not an enlarged concept-image crop.
+Card backs are an original design: a gold four-point star in a ring on a dark field with a wide gold frame and four corner diamonds, with no text and no official marks. The Extra Deck variant is violet. The SVG sources are `packages/web/public/duel/card-back-main.svg` and `card-back-extra.svg`. Run `node packages/web/scripts/render-card-backs.mjs` to render them to the 1394×2031 WebP files (`card-back-*-hd.webp`) that the duel UI uses. The 3D effects draw the same SVG. Main and Extra Deck piles show subtly angled card layers only when their counts exceed one; empty piles remain empty. The background is an original seamless 1024×1024 matte slate texture stored losslessly to retain fine grain, not an enlarged concept-image crop.
 
 The Match Sheet room pass played real practice duels against the bot at 1440×900, 1920×1080, and 390×844: zone placement, the Deck Master recall prompt, Battle Phase ember, a direct attack with the slot-machine LP roll, pile fans and **Open GY**, and the lose and spectator result screens.
 
@@ -162,9 +162,10 @@ Source attribution: [ocgcore-wasm](https://github.com/n1xx1/ocgcore-wasm), [EDOP
 | `DISCORD_REMINDER_CHANNEL_ID` | No | Channel for daily tournament reminders |
 | `DISCORD_DEFAULT_CHANNEL_ID` | No | Default channel for web-created drafts/tournaments |
 | `NEXTAUTH_SECRET` | Yes (web) | Generate with `openssl rand -base64 32` |
-| `NEXTAUTH_URL` | Yes (web) | `http://localhost:3000` for local, `http://<VM_IP>` or `https://yourdomain.com` for production |
+| `SITE_DOMAIN` | Yes (Compose) | Caddy hostname; see [production environment setup](docs/deployment/vm-runbook.md#create-env) |
+| `NEXTAUTH_URL` | Yes (web) | `http://localhost:3000` locally; see [production environment setup](docs/deployment/vm-runbook.md#create-env) |
 | `WEB_URL` | Yes (bot) | Public web URL used in bot announcement links. Same value as `NEXTAUTH_URL` in production |
-| `NEXT_PUBLIC_WS_URL` | Yes (web) | WebSocket URL: `http://localhost:3001` local, `http://<VM_IP>` or `https://yourdomain.com` for production. Baked into the browser bundle at build time — rebuild the web image when this changes |
+| `NEXT_PUBLIC_WS_URL` | No (dev only) | Separate WebSocket URL for local development, e.g. `http://localhost:3001` |
 | `WS_INTERNAL_SECRET` | Yes (web + bot + duel + ws) | Shared HMAC secret for internal broadcasts and short-lived duel subscription tokens. Generate with `openssl rand -hex 32` |
 | `WS_INTERNAL_URL` | Yes (web + bot + duel) | Internal URL of the ws server. In Docker Compose this is `http://ws:4002` |
 | `BOT_ANNOUNCE_SECRET` | Yes | Shared bearer secret for web → bot announce endpoint. Generate with `openssl rand -hex 32` |
@@ -172,6 +173,8 @@ Source attribution: [ocgcore-wasm](https://github.com/n1xx1/ocgcore-wasm), [EDOP
 | `DUEL_INTERNAL_SECRET` | Yes (web + duel) | Shared HMAC secret for web → private duel host (`x-announce-signature`). Generate with `openssl rand -hex 32`. Never expose port 4003 |
 | `DUEL_INTERNAL_URL` | Yes (web) | Internal URL of the duel host. Host: `http://127.0.0.1:4003`. Compose: `http://duel:4003` |
 | `DUEL_DATA_DIR` | No | Canonical engine bundle. Defaults to `./data/duel-engine`. Use an absolute path when the process cwd is not the worktree |
+| `DUEL_1V1_ENGINE` | No | Engine of new 1v1 duels: `legacy` (default, main's engine from before the n-seat work) or `pinned` (merged engine). See `docs/deployment/duel-engine-switch.md` |
+| `MULTIPLAYER_TABLES` | No | `1`, `true` or `on` opens Tag, 3-player and 4-player tables. Default off (1v1 only). Set it on `duel` and `web` |
 | `DUEL_INTERNAL_HOST` | No | Duel host bind address. Defaults to `127.0.0.1` (`0.0.0.0` in Compose) |
 | `DUEL_INTERNAL_PORT` | No | Duel host port. Defaults to `4003` |
 | `DUEL_ARCHIVE_AFTER_MS` | No | Delay before terminal tables are archived from live listings; default `600000` (10 minutes). Records remain in SQLite |
@@ -201,8 +204,11 @@ The seed uses the tracked offline catalog at `scripts/data/draft-catalog-legenda
 
 ### Production
 
+Use the `Deploy` workflow on `main` for image updates. It prepares and verifies the engine bundle
+and installs it before recreating containers. To start already built images:
+
 ```bash
-docker compose -f docker-compose.yml up -d --build
+docker compose -f docker-compose.yml up -d
 ```
 
 Production should always use the base file explicitly so local dev overrides are not loaded.
@@ -212,7 +218,7 @@ The stack runs 5 services:
 - **ws** — Socket.IO WebSocket server for real-time draft updates
 - **duel** — Private automated engine (`packages/duel-server/dist/server.js`, loopback 4003)
 - **web** — Next.js 16 dashboard (standalone `packages/web/server.js`)
-- **caddy** — Reverse proxy (HTTP on port 80, auto-HTTPS with a domain)
+- **caddy** — Reverse proxy ([HTTPS and redirects](docs/deployment/vm-runbook.md#deployment-pipeline))
 
 ## Deployment
 
@@ -220,10 +226,10 @@ The stack runs 5 services:
 
 The app runs on a VM via Docker Compose with Caddy as a reverse proxy. GitHub Actions deploys on every push to `main`.
 
-**SSH access:**
+**SSH access:** use the VM IP from the [runbook facts list](docs/deployment/vm-runbook.md#current-repository-state).
 
 ```bash
-ssh -i ~/.ssh/hetzner_deploy root@178.105.36.104
+ssh -i ~/.ssh/hetzner_deploy root@YOUR_VM_IP
 ```
 
 If you need to set or reset the root password after logging in:
@@ -236,30 +242,22 @@ passwd
 1. Create a VM (e.g., Hetzner CAX11, 4GB RAM, Ubuntu 24.04)
 2. Install Docker and Git on the VM
 3. Clone the repo to `/opt/yugioh-bot`
-4. Create `.env` on the VM (see Environment Variables above)
-5. Set Discord OAuth redirect URI: `http://<YOUR_IP>/api/auth/callback/discord`
-6. Run `docker compose -f docker-compose.yml up -d --build`
-7. Add GitHub Actions secrets (`VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`, `VM_PORT`)
+4. Configure [DNS, firewall](docs/deployment/vm-runbook.md#create-the-server), and the [production environment](docs/deployment/vm-runbook.md#create-env)
+5. Set Discord OAuth redirect URI: `https://<SITE_DOMAIN>/api/auth/callback/discord` (see [runbook](docs/deployment/vm-runbook.md#discord-oauth-redirect))
+6. Add GitHub Actions secrets (`VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`, `VM_PORT`)
+7. Follow the runbook's [first production start](docs/deployment/vm-runbook.md#build--run): run the
+   `Deploy` workflow on `main` to build images and install the engine bundle. Later starts of
+   already built images use `docker compose -f docker-compose.yml up -d` (without `--build`).
 
-See `docs/deployment/vm-runbook.md` for the full step-by-step guide.
+See the [VM runbook](docs/deployment/vm-runbook.md) for the full step-by-step guide.
 
 **SSH into the production VM:**
 
 ```bash
-ssh -i ~/.ssh/hetzner_deploy root@178.105.36.104
+ssh -i ~/.ssh/hetzner_deploy root@YOUR_VM_IP
 ```
 
-### Adding a Custom Domain (Optional)
-
-For HTTPS with a custom domain:
-
-1. Point your domain's A record to the VM IP
-2. Edit `Caddyfile` — replace `:80` with `yourdomain.com`
-3. Add `"443:443"` to the caddy ports in `docker-compose.yml`
-4. Update `.env`: `NEXTAUTH_URL=https://yourdomain.com` and `NEXT_PUBLIC_WS_URL=https://yourdomain.com`
-5. Update Discord redirect URI to `https://yourdomain.com/api/auth/callback/discord`
-6. Open firewall port 443
-7. `docker compose -f docker-compose.yml up -d` — Caddy auto-provisions HTTPS via Let's Encrypt
+Production uses HTTPS by default. Follow the [VM runbook](docs/deployment/vm-runbook.md#vm-setup-hetzner-cax11-or-similar) for domain setup and deployment.
 
 ## Quality Checks
 
@@ -273,7 +271,7 @@ For focused duel checks, run `npx vitest run tests/host.test.ts` from `packages/
 
 ## Backups
 
-Run `./scripts/backup-sqlite.sh` to create a timestamped SQLite backup in `./backups`.
+See the [runbook's Backups section](docs/deployment/vm-runbook.md#backups) for automatic backups and restore instructions.
 
 ## Project Structure
 

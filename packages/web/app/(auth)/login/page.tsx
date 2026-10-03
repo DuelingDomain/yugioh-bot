@@ -1,16 +1,17 @@
-import { signIn } from "@/lib/auth";
-import { Button } from "@/components/ui/button";
+import type { CSSProperties } from "react";
+import Image from "next/image";
+import { FieldOutline, LightRule, SheetRoot, StatusLine, Zone } from "@/components/sheet";
+import { signInWithDiscord } from "./actions";
+import { describeLoginError } from "./login-errors";
+import { LoginButton } from "./login-button";
+import { BrandMark } from "./login-marks";
+import styles from "./login.module.css";
 
-const errorMessages: Record<string, string> = {
-  OAuthSignin: "Error starting Discord sign-in. Please try again.",
-  OAuthCallback: "Discord authentication failed. Please try again.",
-  OAuthAccountNotLinked: "This Discord account is not linked.",
-  Callback: "Authentication callback error. Please try again.",
-  AccessDenied: "Access denied. You may not be authorized.",
-  Verification: "Verification failed. Please try again.",
-  Configuration: "Server authentication misconfiguration.",
-  Default: "An unexpected authentication error occurred. Please try again.",
-};
+/** One card in each half of the field, so the field reads as a duel set up for two. */
+const CARDS = [
+  { id: 46986418, alt: "Dark Magician", half: "top" },
+  { id: 89631146, alt: "Blue-Eyes White Dragon", half: "bottom" },
+] as const;
 
 interface LoginPageProps {
   searchParams: Promise<{ error?: string }>;
@@ -18,35 +19,56 @@ interface LoginPageProps {
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
-  const error = params.error;
-  const errorMessage = error ? (errorMessages[error] ?? errorMessages.Default) : null;
+  const message = describeLoginError(params.error);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-bg-deep px-4">
-      <div className="w-full max-w-sm rounded-2xl border border-border bg-bg-surface p-8 shadow-card">
-        <h1 className="text-center font-display text-2xl font-bold text-accent-primary">
-          Yu-Gi-Oh! Tournament Manager
-        </h1>
-        <p className="mt-2 text-center font-body text-text-secondary">
-          Sign in to manage your tournaments
-        </p>
-        {errorMessage && (
-          <p className="mt-4 rounded-lg bg-red-500/10 px-4 py-3 text-center text-sm text-red-400">
-            {errorMessage}
-          </p>
-        )}
-        <form
-          className="mt-6"
-          action={async () => {
-            "use server";
-            await signIn("discord", { redirectTo: "/dashboard" });
-          }}
-        >
-          <Button type="submit" variant="primary" size="lg" className="w-full">
-            Sign in with Discord
-          </Button>
-        </form>
-      </div>
-    </main>
+    <SheetRoot>
+      <main className={styles.page}>
+        <div className={styles.stack}>
+          <FieldOutline lit centreLine className={styles.field}>
+            <div className={styles.slots} aria-hidden="true">
+              {CARDS.map((card) => (
+                <span key={card.id} className={styles.slot} data-half={card.half}>
+                  <Zone state="dashed" className={styles.zone} style={{ "--zw": "84px" } as CSSProperties} />
+                  <Image
+                    className={styles.card}
+                    src={`https://images.ygoprodeck.com/images/cards_small/${card.id}.jpg`}
+                    alt=""
+                    width={84}
+                    height={123}
+                  />
+                </span>
+              ))}
+            </div>
+          </FieldOutline>
+          <div className={styles.copy}>
+            <h1 className={styles.brand}>
+              <BrandMark className={styles.mark} />
+              Duelists Kingdom
+            </h1>
+            <span className={styles.short}>
+              <LightRule beam />
+            </span>
+            <p className={styles.sub}>
+              Drafts, tournaments and duels for your Discord server. Sign in with the account you use there.
+            </p>
+            {message && (
+              <div className={styles.msg} role={message.tone === "bad" ? "alert" : "status"}>
+                <StatusLine tone={message.tone === "bad" ? "block" : "neutral"}>
+                  <b className={styles.msgTitle}>{message.title}</b>{" "}{message.body}
+                  {message.code && <span className={styles.code}>Error: {message.code}</span>}
+                </StatusLine>
+              </div>
+            )}
+            <form className={styles.form} action={signInWithDiscord}>
+              <LoginButton />
+            </form>
+            <p className={styles.fine}>
+              Discord shares your name, avatar and email. Duelists Kingdom can&apos;t read or send messages as you.
+            </p>
+          </div>
+        </div>
+      </main>
+    </SheetRoot>
   );
 }

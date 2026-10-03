@@ -1,0 +1,5 @@
+.row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; min-width: 0; }
+.label { flex: none; color: var(--ink-3); font-size: 14px; }
+.list { display: flex; flex: 1 1 160px; flex-wrap: wrap; gap: 6px; min-width: 0; margin: 0; padding: 0; list-style: none; }
+.list b { color: var(--ink); font: 600 14px/1 var(--f-num); }
+.dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }

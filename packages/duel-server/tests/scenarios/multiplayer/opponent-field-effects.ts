@@ -173,6 +173,6 @@ export function effectScenarios(spec: EffectSpec): Scenario[] {
       tags: ["multiplayer", "opponent-field-summon", format, `card:${spec.code}`],
       setup: setup as never,
       steps: [...steps, ...pick, ...then, everySeat(format, Object.fromEntries(Object.entries(seatSpec).map(([seat, zones]) => [seat, expectOf(zones)])))],
-    }, spec.slug === "ceruli" ? { card: ELF } : {});
+    });
   });
 }

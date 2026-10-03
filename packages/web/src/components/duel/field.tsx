@@ -1,19 +1,27 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useMemo, useRef, type CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardFace, cardFieldStats } from "./card-face";
+import { EquipChip, EquipLinksContext, useEquipRole } from "./equip-chip";
+import { EquipFx } from "./equip-fx";
+import { equipSentence, resolveEquipLinks } from "./equip-links";
 import { duelFontClasses } from "./fonts";
+import { deriveFieldActivity } from "./field-activity";
+import { useFieldPriorityReady } from "./field-priority";
+import { useFieldTurnSeat } from "./field-turn";
 import { LifePoints } from "./life-points";
+import { pileSummonTone } from "./summon-circle-model";
+import { SummonCircle, SummonGlow } from "./summon-circle";
 import {
   attributeLabel,
   cardArtUrl,
   cardDetailsText,
   cardStatsText,
   isBattlePhase,
-  isDefense,
+  isDefenseAt,
   LOCATION_DECK,
   LOCATION_DMZONE,
   LOCATION_EXTRA,
@@ -31,6 +39,9 @@ import {
 } from "./constants";
 import { disabledZones } from "./multi-seat";
 import type { InspectTarget } from "./inspector";
+import { RivalHand } from "./table/rival-hand";
+import { hexToRgbTriplet, isStraight, labelTurnDeg, normalizeDeg, textScale } from "./table/seat-angle";
+import { SEAT_TONE_HEX, type SeatFieldProps } from "./table/types";
 import styles from "./field.module.css";
 
 type CssVars = CSSProperties & Record<`--${string}`, string | number>;
@@ -67,7 +78,21 @@ function extraMonster(
   return slot(bottom?.monsters, 6) ?? slot(top?.monsters, 5);
 }
 
-function extraMonsterKeys(bottomSeat: number, topSeat: number, side: "left" | "right"): string[] {
+/**
+ * Zone keys of one Extra Monster Zone slot. `shared-bottom` (1v1, today): the slot is the bottom seat's
+ * zone 5 or 6 and the top seat's mirrored zone 6 or 5. `own` (3 or more seats): every seat has its own two
+ * slots, so a slot holds only its seat's zone 5 (left) or 6 (right). The seat is `bottomSeat`.
+ */
+export type ExtraMonsterMode = "shared-bottom" | "shared-top" | "own";
+
+export function extraMonsterKeys(
+  bottomSeat: number,
+  topSeat: number,
+  side: "left" | "right",
+  mode: ExtraMonsterMode = "shared-bottom",
+): string[] {
+  if (mode === "own") return [zoneKey(bottomSeat, LOCATION_MZONE, side === "left" ? 5 : 6)];
+  if (mode === "shared-top") side = side === "left" ? "right" : "left";
   if (side === "left") {
     return [zoneKey(bottomSeat, LOCATION_MZONE, 5), zoneKey(topSeat, LOCATION_MZONE, 6)];
   }
@@ -181,12 +206,26 @@ function NibIcon() {
   );
 }
 
-/** Legal or selected zones get a shape signal (dashed or solid outline plus a tag), never colour alone. */
-function ZoneMarks({ legal, selected }: { legal: boolean; selected: boolean }) {
+/**
+ * Legal or selected zones get a signal that is not colour alone: a glow on a card, in the hand too (soft and
+ * pulsing when it can be used or picked, steady and stronger when picked), on an empty zone too (never a dashed outline),
+ * plus a tag (a nib, or a check once picked).
+ * A legal pile with a summoning circle already shows that signal, so it skips the glow and tag until selected.
+ */
+function ZoneMarks({
+  legal,
+  selected,
+  circle = false,
+}: {
+  legal: boolean;
+  selected: boolean;
+  circle?: boolean;
+}) {
   if (!legal && !selected) return null;
+  if (circle && !selected) return null;
   return (
     <>
-      <span className={styles.ring} aria-hidden="true" />
+      <span className={styles.glow} data-state={selected ? "picked" : "usable"} aria-hidden="true" />
       <span className={styles.mark} aria-hidden="true">
         {selected ? <Check size={11} strokeWidth={2.4} /> : <NibIcon />}
       </span>
@@ -208,7 +247,7 @@ function PileLabel({ kind, count }: { kind: string; count: number }) {
     <span className={styles.pileLabel}>
       <span className={styles.plFull}>{full}</span>
       <span className={styles.plShort}>{short}</span>
-      <b className={styles.plCount}>{count}</b>
+      <b className={styles.plCount} data-pile-count={count}>{count}</b>
     </span>
   );
 }
@@ -251,7 +290,9 @@ function ZoneSlot({
   const selected = anySelected(keys, selectedKeys);
   const stats = cardFieldStats(card, showStats);
   const [atk, def] = stats ? stats.split(" / ") : [null, null];
-  const defense = card != null && card.location === LOCATION_MZONE && isDefense(card.position);
+  const defense = card != null && isDefenseAt(card.location, card.position);
+  const equipRole = useEquipRole(card);
+  const equipText = equipSentence(equipRole);
 
   return (
     <div
@@ -261,6 +302,7 @@ function ZoneSlot({
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
       data-occupied={card ? "true" : "false"}
+      data-equip={equipRole?.role}
       data-defense={defense ? "true" : "false"}
       data-side={flip ? "opp" : "you"}
       data-disabled={offId ? "true" : undefined}
@@ -269,7 +311,7 @@ function ZoneSlot({
       <button
         type="button"
         className={styles.zoneHit}
-        aria-label={label}
+        aria-label={equipText ? `${label}. ${equipText}` : label}
         aria-pressed={selected}
         onClick={(event) => onActivate(keys, card, event.currentTarget)}
         onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
@@ -292,6 +334,7 @@ function ZoneSlot({
               ) : null}
             </span>
           ) : null}
+          <EquipChip role={equipRole} flip={flip} />
           <ZoneMarks legal={legal} selected={selected} />
         </div>
         {pileCount != null ? <PileLabel kind={kind} count={pileCount} /> : null}
@@ -351,6 +394,7 @@ function PileSlot({
 }) {
   const legal = anyLegal(keys, legalKeys);
   const selected = anySelected(keys, selectedKeys);
+  const circleTone = pileSummonTone({ kind, side, count, keys, legalKeys });
   const fan = fanEntries(kind, cards, count);
   const chip = CHIP_TEXT[kind];
   const hoverTop = kind === "gy" || kind === "banish" ? (cards[cards.length - 1] ?? null) : null;
@@ -376,6 +420,7 @@ function PileSlot({
       data-legal={legal ? "true" : "false"}
       data-selected={selected ? "true" : "false"}
       data-occupied={count > 0 ? "true" : "false"}
+      data-summon={circleTone ?? undefined}
       data-side={side}
       data-col={column}
       data-fan={fan.length > 0 ? fan.length : undefined}
@@ -409,7 +454,13 @@ function PileSlot({
               </div>
             ))
           )}
-          <ZoneMarks legal={legal} selected={selected} />
+          {circleTone ? (
+            <>
+              <SummonGlow tone={circleTone} />
+              <SummonCircle tone={circleTone} />
+            </>
+          ) : null}
+          <ZoneMarks legal={legal} selected={selected} circle={circleTone != null} />
         </div>
         <PileLabel kind={kind} count={count} />
       </button>
@@ -434,6 +485,8 @@ function Tally({
   lp,
   seatKey,
   active,
+  priorityLabel,
+  spectator,
   reducedMotion,
 }: {
   side: "opp" | "you";
@@ -441,18 +494,28 @@ function Tally({
   lp: number | null;
   seatKey: number | undefined;
   active: boolean;
+  priorityLabel: string | null;
+  spectator: boolean;
   reducedMotion: boolean;
 }) {
+  const priority = priorityLabel ? (
+    <span className={styles.tPriority} title={priorityLabel}>
+      <span className={styles.visuallyHidden}>{priorityLabel}</span>
+      <span className={styles.tPriorityFull} data-priority-full aria-hidden="true">{spectator ? "to act" : priorityLabel}</span>
+      <span className={styles.tPriorityShort} aria-hidden="true">To act</span>
+    </span>
+  ) : null;
   return (
     <div className={styles.tally} data-side={side} data-lp-seat={seatKey} data-active={active ? "true" : "false"}>
       <div className={styles.tHead}>
-        <span className={styles.tWho}>{name}</span>
+        <span className={styles.tIdentity}>
+          <span className={styles.tWho} aria-hidden={spectator && priorityLabel ? true : undefined}>{name}</span>
+          {spectator ? priority : null}
+        </span>
         {active ? (
-          <span className={styles.tTurn}>
-            <NibIcon />
-            to play
-          </span>
+          <span className={styles.tTurn}>Turn</span>
         ) : null}
+        {!spectator ? priority : null}
       </div>
       <div className={styles.tLp}>
         <strong>
@@ -491,18 +554,21 @@ function HandStrip({
         role="group"
         aria-label={`${ownerLabel} hand`}
         data-hand-seat={seat}
+        data-side={mine ? "you" : "opp"}
         data-many={cards.length >= 7 ? "true" : "false"}
         style={vars}
       >
-        {cards.map((card, index) => {
+        {(mine ? cards : [...cards].reverse()).map((card, index) => {
           const keys = [zoneKey(seat, LOCATION_HAND, card.sequence ?? index)];
           const revealed = card.code != null;
           const label = !revealed ? `${ownerLabel} card ${index + 1}` : (card.name ?? `Card ${card.code}`);
           const cardVars: CssVars = { "--i": index };
           return (
             <div
-              key={`${seat}-hand-${card.sequence ?? index}`}
+              key={`${seat}-hand-${card.handId ?? card.sequence ?? index}`}
               className={styles.handCard}
+              data-hand-id={card.handId}
+              data-hand-card="true"
               data-revealed={!mine && revealed ? "true" : undefined}
               style={cardVars}
             >
@@ -522,6 +588,7 @@ function HandStrip({
           );
         })}
       </div>
+      <div className={styles.handSizeProbe} data-hand-size-probe="true" data-side={mine ? "you" : "opp"} aria-hidden="true" />
     </div>
   );
 }
@@ -530,10 +597,16 @@ function MonsterRow({
   view,
   reversed,
   callbacks,
+  flip,
+  owner,
 }: {
   view: DuelSeatView | undefined;
   reversed: boolean;
   callbacks: FieldCallbacks;
+  /** Turn the art half way. Default: the same as `reversed` (the 1v1 far side). */
+  flip?: boolean;
+  /** Owner name in the zone labels (multi-seat boards, so labels stay unique). */
+  owner?: string;
 }) {
   const seat = view?.seat ?? 0;
   const off = disabledZones(view);
@@ -546,14 +619,14 @@ function MonsterRow({
           <ZoneSlot
             key={`${seat}-mz-${sequence}`}
             card={card}
-            label={`Monster zone ${sequence + 1}`}
+            label={`${owner ? `${owner} m` : "M"}onster zone ${sequence + 1}`}
             kind="mz"
             offId={off.monsters[sequence] ? `${seat}-m-${sequence}` : undefined}
             keys={withExact(card, [zoneKey(seat, LOCATION_MZONE, sequence)])}
             legalKeys={callbacks.legalKeys}
             selectedKeys={callbacks.selectedKeys}
             showStats
-            flip={reversed}
+            flip={flip ?? reversed}
             onActivate={callbacks.onActivate}
             onHoverCard={callbacks.onHoverCard}
           />
@@ -568,11 +641,15 @@ function SpellRow({
   reversed,
   callbacks,
   masterRule,
+  flip,
+  owner,
 }: {
   view: DuelSeatView | undefined;
   reversed: boolean;
   callbacks: FieldCallbacks;
   masterRule: DuelMasterRule;
+  flip?: boolean;
+  owner?: string;
 }) {
   const seat = view?.seat ?? 0;
   const off = disabledZones(view);
@@ -586,14 +663,14 @@ function SpellRow({
           <ZoneSlot
             key={`${seat}-st-${sequence}`}
             card={card}
-            label={pendulum ? `Spell and Trap zone ${sequence + 1}, pendulum` : `Spell and Trap zone ${sequence + 1}`}
+            label={`${owner ? `${owner} s` : "S"}pell and Trap zone ${sequence + 1}${pendulum ? ", pendulum" : ""}`}
             kind="st"
             offId={off.spells[sequence] ? `${seat}-s-${sequence}` : undefined}
             keys={stKeys(seat, sequence, card, masterRule)}
             legalKeys={callbacks.legalKeys}
             selectedKeys={callbacks.selectedKeys}
             pendulum={pendulum}
-            flip={reversed}
+            flip={flip ?? reversed}
             onActivate={callbacks.onActivate}
             onHoverCard={callbacks.onHoverCard}
           />
@@ -610,6 +687,7 @@ function PileColumn({
   callbacks,
   ownerLabel,
   masterRule,
+  flip,
 }: {
   view: DuelSeatView | undefined;
   opponent: boolean;
@@ -617,6 +695,8 @@ function PileColumn({
   callbacks: FieldCallbacks;
   ownerLabel: string;
   masterRule: DuelMasterRule;
+  /** Turn the art half way. Default: the same as `opponent` (the 1v1 far side). */
+  flip?: boolean;
 }) {
   const seat = view?.seat ?? 0;
   const gy = view?.graveyard ?? [];
@@ -624,7 +704,8 @@ function PileColumn({
   const extra = view?.extra ?? [];
   const fieldSpell = slot(view?.spells, 5);
   const whose = ownerLabel;
-  const owner = opponent ? "opp" : "you";
+  const turned = flip ?? opponent;
+  const owner = turned ? "opp" : "you";
   const deck = (
     <PileSlot
       key="deck"
@@ -710,7 +791,7 @@ function PileColumn({
       legalKeys={callbacks.legalKeys}
       selectedKeys={callbacks.selectedKeys}
       pileCount={fieldSpell ? 1 : 0}
-      flip={opponent}
+      flip={turned}
       onActivate={callbacks.onActivate}
       onHoverCard={callbacks.onHoverCard}
     />
@@ -729,7 +810,7 @@ function PileColumn({
   return (
     <div className={styles.piles} data-side={side} data-opponent={opponent}>
       {masterRule === 3 ? (
-        <ZoneSlot card={pendulumCard} kind="st" pendulum flip={opponent}
+        <ZoneSlot card={pendulumCard} kind="st" pendulum flip={turned}
           label={`${whose} ${pendulumSequence === 6 ? "left" : "right"} Pendulum zone`}
           keys={stKeys(seat, pendulumSequence, pendulumCard, masterRule)}
           legalKeys={callbacks.legalKeys} selectedKeys={callbacks.selectedKeys}
@@ -737,6 +818,26 @@ function PileColumn({
       ) : null}
       {items}
     </div>
+  );
+}
+
+/** Outline follows the zone grid, including the third-row Banished pile on each side. */
+function HalfSignals({ side, masterRule }: { side: "top" | "bottom"; masterRule: DuelMasterRule }) {
+  // Grid units match --wk, --pile-col, --z and --gy in field.module.css; SVG scales with the fit.
+  const width = masterRule === 3 ? 8.344 : 6.822;
+  const pile = masterRule === 3 ? 1.447 : 0.686;
+  const turnPath = side === "top"
+    ? `M0 0 H${width} V2.04 H${pile} V3.08 H0 Z`
+    : `M0 5.16 H${width} V2.08 H${width - pile} V3.12 H0 Z`;
+  const priorityPath = side === "top"
+    ? `M0 0 V3.08 H${pile} V2.04 M${width} 0 V2.04`
+    : `M0 3.12 V5.16 M${width} 5.16 V2.08 H${width - pile} V3.12`;
+  return (
+    <svg className={styles.halfSignals} data-field-signals data-side={side} aria-hidden="true"
+      viewBox={`0 0 ${width} 5.16`} preserveAspectRatio="none">
+      <path className={styles.turnEdge} d={turnPath} vectorEffect="non-scaling-stroke" />
+      <path className={styles.priorityEdge} d={priorityPath} vectorEffect="non-scaling-stroke" />
+    </svg>
   );
 }
 
@@ -762,6 +863,7 @@ export function DuelField({
   topSeat,
   topLabel: topLabelOverride,
   showExtraZones = true,
+  priorityLive,
 }: {
   engine: DuelEngineView;
   mySeat: number | null;
@@ -780,6 +882,8 @@ export function DuelField({
   topLabel?: string;
   /** False when MultiSeatStage draws this seat's EMZ in an FFA4 shared row. */
   showExtraZones?: boolean;
+  /** Room action/reveal gate. Local priority follows this directly; previews can omit it. */
+  priorityLive?: boolean;
 }) {
   const bottomIndex = mySeat ?? 0;
   const topIndex = topSeat ?? (bottomIndex === 0 ? 1 : 0);
@@ -789,6 +893,22 @@ export function DuelField({
   const topLabel = topLabelOverride ?? (mySeat == null ? topName : "Opponent");
   const bottomLabel = mySeat == null ? bottomName : "Your";
   const battle = isBattlePhase(engine.phase);
+  const boardRef = useRef<HTMLElement | null>(null);
+  const pending = deriveFieldActivity(engine);
+  // The room owns local reveal. The parent also contains sibling board effects, which gate
+  // private opponent prompts and standalone previews.
+  const priorityReady = useFieldPriorityReady({
+    events: engine.events,
+    waiting: pending.prioritySeat != null,
+    revealed: priorityLive === true && pending.prioritySeat === mySeat,
+    board: boardRef,
+    reducedMotion,
+  });
+  const priorityShown = priorityLive !== false && priorityReady;
+  const turnSeat = useFieldTurnSeat(engine, pending.turnSeat);
+  const activity = { ...deriveFieldActivity(engine, !priorityShown), turnSeat };
+  const priorityLabel = (seat: number, name: string) => activity.prioritySeat !== seat ? null
+    : mySeat == null ? `${name} to act` : mySeat === seat ? "Your move" : "Opponent to act";
 
   const leftEmz = extraMonster(bottom, top, "left");
   const rightEmz = extraMonster(bottom, top, "right");
@@ -804,10 +924,13 @@ export function DuelField({
     if (topOff && (left ? topOff.monsters[6] : topOff.monsters[5])) return `${topIndex}-m-${left ? 6 : 5}`;
     return undefined;
   };
+  const equipLinks = useMemo(() => resolveEquipLinks(engine.seats), [engine.seats]);
 
   return (
+    <EquipLinksContext.Provider value={equipLinks}>
     <div
       className={cn(duelFontClasses, styles.felt)}
+      ref={(node) => { boardRef.current = node?.parentElement ?? null; }}
       data-duel-field="true"
       data-battle={battle ? "true" : "false"}
       data-reduced-motion={reducedMotion ? "true" : "false"}
@@ -822,7 +945,9 @@ export function DuelField({
             name={topName}
             lp={top?.lp ?? null}
             seatKey={top?.seat}
-            active={top != null && engine.turnSeat === top.seat}
+            active={activity.turnSeat === topIndex}
+            priorityLabel={priorityLabel(topIndex, topName)}
+            spectator={mySeat == null}
             reducedMotion={reducedMotion}
           />
           {top ? (
@@ -841,7 +966,10 @@ export function DuelField({
           )}
         </div>
         <div className={styles.arena}>
-          <div className={styles.half}>
+          <div className={styles.half} data-field-seat={topIndex} data-side="top"
+            data-turn={activity.turnSeat === topIndex ? "true" : "false"}
+            data-priority={activity.prioritySeat === topIndex ? "true" : "false"}>
+            <HalfSignals side="top" masterRule={masterRule} />
             <PileColumn view={top} opponent side="left" callbacks={callbacks} ownerLabel={topLabel} masterRule={masterRule} />
             <div className={styles.rows}>
               <SpellRow view={top} reversed callbacks={callbacks} masterRule={masterRule} />
@@ -862,6 +990,7 @@ export function DuelField({
                   legalKeys={legalKeys}
                   selectedKeys={selectedKeys}
                   showStats
+                  flip={leftEmz != null && leftEmz.controller === topIndex}
                   onActivate={onActivate}
                   onHoverCard={onHoverCard}
                 />
@@ -875,6 +1004,7 @@ export function DuelField({
                   legalKeys={legalKeys}
                   selectedKeys={selectedKeys}
                   showStats
+                  flip={rightEmz != null && rightEmz.controller === topIndex}
                   onActivate={onActivate}
                   onHoverCard={onHoverCard}
                 />
@@ -882,7 +1012,10 @@ export function DuelField({
               </div>
             ) : <div />}
           </div>
-          <div className={`${styles.half} ${styles.halfLocal}`}>
+          <div className={`${styles.half} ${styles.halfLocal}`} data-field-seat={bottomIndex} data-side="bottom"
+            data-turn={activity.turnSeat === bottomIndex ? "true" : "false"}
+            data-priority={activity.prioritySeat === bottomIndex ? "true" : "false"}>
+            <HalfSignals side="bottom" masterRule={masterRule} />
             <PileColumn view={bottom} opponent={false} side="left" callbacks={callbacks} ownerLabel={bottomLabel} masterRule={masterRule} />
             <div className={styles.rows}>
               <MonsterRow view={bottom} reversed={false} callbacks={callbacks} />
@@ -897,7 +1030,9 @@ export function DuelField({
             name={bottomName}
             lp={bottom?.lp ?? null}
             seatKey={bottom?.seat}
-            active={bottom != null && engine.turnSeat === bottom.seat}
+            active={activity.turnSeat === bottomIndex}
+            priorityLabel={priorityLabel(bottomIndex, bottomName)}
+            spectator={mySeat == null}
             reducedMotion={reducedMotion}
           />
           {bottom ? (
@@ -916,7 +1051,154 @@ export function DuelField({
           )}
         </div>
       </div>
+      <EquipFx links={equipLinks} events={engine.events} duelKey="field" reducedMotion={reducedMotion} />
     </div>
+    </EquipLinksContext.Provider>
+  );
+}
+
+/**
+ * One seat of a 3 or 4 seat table: its own five-column board (Extra Monster Zones, Monster Zones, Spell and
+ * Trap Zones, Field and Extra piles on the left, Banished, Graveyard and Deck on the right) with its hand.
+ * The board is drawn like the bottom half of the 1v1 field, turned by `angleDeg`. It is `5.83` zone sizes
+ * wide and `3.39` tall (`--z`, default 112px, set by `--sf-z`); the table stage places, scales and tilts it.
+ *
+ * DOM hooks for the effects: `data-zones` on every zone, `data-hand-seat` on the hand, `data-card-art` on art,
+ * `data-side` (`you` or `opp`), `data-seat-angle` (the effective angle). The LP tally only renders with
+ * `showTally`; a holo LP panel owns `data-lp-seat` otherwise.
+ */
+export function SeatField({
+  engine,
+  seat,
+  viewerSeat,
+  masterRule,
+  side,
+  dataSide,
+  angleDeg,
+  upright,
+  tone,
+  density,
+  hand,
+  emz,
+  showTally,
+  usable,
+  legalKeys,
+  selectedKeys,
+  reducedMotion,
+  onActivate,
+  onInspect,
+  onHoverCard,
+  name,
+  scale,
+}: SeatFieldProps) {
+  const view = engine.seats.find((entry) => entry.seat === seat);
+  const callbacks: FieldCallbacks = { legalKeys, selectedKeys, onActivate, onInspect, onHoverCard };
+  const angle = normalizeDeg(angleDeg);
+  const straight = isStraight(angle, upright);
+  const label = name ?? `Player ${seat + 1}`;
+  const owner = viewerSeat === seat ? "Your" : label;
+  const battle = isBattlePhase(engine.phase);
+  const eliminated = view?.eliminated === true;
+  const turn = engine.turnSeat === seat && !eliminated;
+  const off = disabledZones(view);
+  const equipLinks = useMemo(() => resolveEquipLinks(engine.seats), [engine.seats]);
+  const toneHex = SEAT_TONE_HEX[tone];
+  const vars: CssVars = {
+    "--t": hexToRgbTriplet(toneHex.main),
+    "--tink": toneHex.ink,
+    "--lab": `${labelTurnDeg(angle, upright)}deg`,
+    "--ts": textScale(scale ?? 1).toFixed(2),
+  };
+  const emzSlot = (column: "left" | "right") => {
+    const sequence = (column === "left") === (emz !== "shared-top") ? 5 : 6;
+    const card = slot(view?.monsters, sequence);
+    const keys = withExact(card, emz === "own" ? extraMonsterKeys(seat, seat, column, "own") : [zoneKey(seat, LOCATION_MZONE, sequence)]);
+    return (
+      <ZoneSlot
+        card={card}
+        label={`${owner} Extra monster zone, column ${column === "left" ? 2 : 4}`}
+        kind="emz"
+        offId={off.monsters[sequence] ? `${seat}-m-${sequence}` : undefined}
+        keys={keys}
+        legalKeys={legalKeys}
+        selectedKeys={selectedKeys}
+        showStats
+        flip={straight}
+        onActivate={onActivate}
+        onHoverCard={onHoverCard}
+      />
+    );
+  };
+
+  return (
+    <EquipLinksContext.Provider value={equipLinks}>
+      <div
+        className={cn(duelFontClasses, styles.seatField)}
+        data-seat-field={seat}
+        data-testid={`seat-field-${seat}`}
+        data-seat={seat}
+        data-side={dataSide ?? side}
+        data-seat-angle={Math.round(angle)}
+        data-tone={tone}
+        data-density={density}
+        data-upright={upright ? "true" : "false"}
+        data-straight={straight ? "true" : "false"}
+        data-quarter={Math.abs(Math.abs(labelTurnDeg(angle, upright)) - 90) < 15 ? "true" : undefined}
+        data-turn={turn ? "true" : undefined}
+        data-elim={eliminated ? "true" : undefined}
+        data-usable={usable ? "true" : "false"}
+        data-battle={battle ? "true" : "false"}
+        data-reduced-motion={reducedMotion ? "true" : "false"}
+        data-master-rule={masterRule}
+        style={vars}
+      >
+        <div className={styles.sfMat}>
+          <span className={styles.sfRule} aria-hidden="true" />
+          <div className={styles.sfGrid}>
+            <PileColumn view={view} opponent={false} flip={straight} side="left" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
+            <div className={styles.sfEmz}>
+              {masterRule >= 4 ? (
+                <div className={styles.emzRow}>
+                  <div />
+                  {emzSlot("left")}
+                  <div />
+                  {emzSlot("right")}
+                  <div />
+                </div>
+              ) : null}
+            </div>
+            <div className={styles.sfRows}>
+              <MonsterRow view={view} reversed={false} flip={straight} owner={owner} callbacks={callbacks} />
+              <SpellRow view={view} reversed={false} flip={straight} owner={owner} callbacks={callbacks} masterRule={masterRule} />
+            </div>
+            <PileColumn view={view} opponent={false} flip={straight} side="right" callbacks={callbacks} ownerLabel={owner} masterRule={masterRule} />
+          </div>
+        </div>
+        {density !== "compact" ? <span className={styles.sfName} data-seat-name>{label}</span> : null}
+        {showTally ? (
+          <div className={styles.sfTally}>
+            <Tally side={side} name={label} lp={view?.lp ?? null} seatKey={seat} active={turn}
+              priorityLabel={null} spectator={viewerSeat == null} reducedMotion={reducedMotion} />
+          </div>
+        ) : null}
+        {eliminated ? <span className={styles.sfOut} role="status">Eliminated</span> : null}
+        {hand === "face" && view ? (
+          <div className={styles.sfHand}>
+            <HandStrip
+              seat={seat}
+              cards={view.hand}
+              mine
+              ownerLabel={owner}
+              legalKeys={legalKeys}
+              selectedKeys={selectedKeys}
+              onActivate={onActivate}
+              onHoverCard={onHoverCard}
+            />
+          </div>
+        ) : null}
+        {hand === "backs" && view ? <RivalHand seat={seat} count={view.hand.length} name={label} /> : null}
+      </div>
+    </EquipLinksContext.Provider>
   );
 }
 
@@ -984,7 +1266,7 @@ function MasterDock({
             onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
             onBlur={() => onHoverCard?.(null, null)}
           >
-            <div className={styles.masterArt} data-away={status === "Elsewhere" ? "true" : "false"}>
+            <div className={styles.masterArt} data-master-dock={view.seat} data-away={status === "Elsewhere" ? "true" : "false"}>
               <img src={cardArtUrl(master.card.code, "full")} alt="" draggable={false} />
               <ZoneMarks legal={legal} selected={selected} />
             </div>
@@ -1050,6 +1332,8 @@ export function DeckMasterRail({
   onInspect,
   onHoverCard,
   topSeat,
+  rivals,
+  selfTitle,
 }: {
   engine: DuelEngineView;
   mySeat: number | null;
@@ -1063,28 +1347,42 @@ export function DeckMasterRail({
   onHoverCard?: DuelHoverHandler;
   /** 3 and 4 seat tables: the opponent whose master shows in the top dock. */
   topSeat?: number | null;
+  /**
+   * 3 and 4 seat tables: one dock per rival seat (small, read-only), in this order, above your own. Replaces the single
+   * top dock. `title` is the dock heading, for example "Ryo's Master".
+   */
+  rivals?: ReadonlyArray<{ seat: number; title: string }>;
+  /** The heading of the bottom dock, for example "Mika's Master" to a spectator of a table of 3. Default: "Your Master" / "Seat 1 Master". */
+  selfTitle?: string;
 }) {
   const bottomIndex = mySeat ?? 0;
   const topIndex = topSeat ?? (bottomIndex === 0 ? 1 : 0);
   const bottom = engine.seats.find((seat) => seat.seat === bottomIndex);
   const top = engine.seats.find((seat) => seat.seat === topIndex);
   return (
-    <div className={cn(duelFontClasses, styles.masterRail)} data-battle={isBattlePhase(engine.phase) ? "true" : "false"}>
+    <div
+      className={cn(duelFontClasses, styles.masterRail)}
+      data-battle={isBattlePhase(engine.phase) ? "true" : "false"}
+      data-docks={rivals ? rivals.length + 1 : undefined}
+    >
+      {(rivals ?? [{ seat: topIndex, title: mySeat == null ? "Seat 2 Master" : "Opponent Master" }]).map((rival) => (
+        <MasterDock
+          key={rival.seat}
+          title={rival.title}
+          view={rivals ? engine.seats.find((seat) => seat.seat === rival.seat) : top}
+          local={false}
+          legalKeys={legalKeys}
+          selectedKeys={selectedKeys}
+          canAct={false}
+          legalActionsFor={legalActionsFor}
+          onActivate={onActivate}
+          onChooseAction={onChooseAction}
+          onInspect={onInspect}
+          onHoverCard={onHoverCard}
+        />
+      ))}
       <MasterDock
-        title={mySeat == null ? "Seat 2 Master" : "Opponent Master"}
-        view={top}
-        local={false}
-        legalKeys={legalKeys}
-        selectedKeys={selectedKeys}
-        canAct={false}
-        legalActionsFor={legalActionsFor}
-        onActivate={onActivate}
-        onChooseAction={onChooseAction}
-        onInspect={onInspect}
-        onHoverCard={onHoverCard}
-      />
-      <MasterDock
-        title={mySeat == null ? "Seat 1 Master" : "Your Master"}
+        title={selfTitle ?? (mySeat == null ? "Seat 1 Master" : "Your Master")}
         view={bottom}
         local={mySeat != null}
         legalKeys={legalKeys}

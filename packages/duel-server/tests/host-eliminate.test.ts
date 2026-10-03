@@ -70,7 +70,7 @@ async function table(format: DuelFormat, humans: number) {
   const session = duels.create({ guildId: "g1", organizerPlayerId: players[0]!, name: "Duel", mode: "normal", format });
   const worker = new RealEngineWorker();
   const host = makeHost(db, worker);
-  for (const player of players.slice(1)) duels.join(session.slug, "g1", player);
+  for (const player of players.slice(1)) duels.takeSeat(session.slug, "g1", player);
   const deck = buildPracticeBotDeck("normal", DATA);
   for (const player of players) duels.setDeck(session.slug, "g1", player, deck);
   const organizer = { slug: session.slug, guildId: "g1", playerId: players[0]! };

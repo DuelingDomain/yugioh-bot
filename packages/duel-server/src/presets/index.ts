@@ -6,8 +6,16 @@ import { seatCountFor } from "@yugidraft/shared/duels";
 import { preset as dustTornado } from "./dust-tornado-chain.js";
 import { preset as ffa4ChainOrder } from "./ffa4-chain-order-heavy-storm.js";
 import { preset as ffa4Surrender } from "./ffa4-surrender-in-chain.js";
+import { presets as ffa3Elimination } from "./ffa3-elimination.js";
+import { presets as ffa3Table } from "./ffa3-table.js";
+import { presets as ffa3Rules } from "./ffa3-rules.js";
+import { preset as ffa4RulesExtraZones } from "./ffa4-rules-extra-zones.js";
+import { preset as ffa3Direct } from "./ffa3-table-direct.js";
+import { preset as turnPlayerLast } from "./ffa3-turn-player-last.js";
+import { preset as thirdResponse } from "./ffa3-third-response.js";
 import { preset as jinzo } from "./jinzo-stops-trap.js";
 import { preset as mindCrush } from "./mind-crush-ffa4-pick.js";
+import { preset as mindCrush3 } from "./ffa3-mind-crush-pick.js";
 import { presets as raigekiDarkHole } from "./raigeki-dark-hole.js";
 import { preset as solemn } from "./solemn-judgment-summon.js";
 import { preset as tagJinzo } from "./tag-jinzo-blocks-traps.js";
@@ -24,10 +32,18 @@ export const PRESETS: readonly Preset[] = [
   jinzo,
   ...raigekiDarkHole,
   mindCrush,
+  mindCrush3,
   tagSolemn,
   tagJinzo,
   ffa4ChainOrder,
   ffa4Surrender,
+  ...ffa3Table,
+  ...ffa3Rules,
+  ffa4RulesExtraZones,
+  ...ffa3Elimination,
+  ffa3Direct,
+  turnPlayerLast,
+  thirdResponse,
 ];
 
 export function getPreset(id: string): Preset | undefined {

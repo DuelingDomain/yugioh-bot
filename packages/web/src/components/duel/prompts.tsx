@@ -12,6 +12,8 @@ import type {
 import { Button } from "@/components/ui/button";
 import { searchDuelCards } from "./api";
 import { cardArtUrl, LOCATION_MZONE, zoneKey } from "./constants";
+import { backOutAnswer } from "./pick-backout";
+import { selectBarCopy, sumSelectionValues } from "./select-bar-copy";
 import styles from "./prompts.module.css";
 
 export interface PromptDraft {
@@ -233,7 +235,8 @@ export function canConfirm(prompt: DuelPrompt, draft: PromptDraft): boolean {
       return draft.cardCode != null;
     case "sum": {
       if (prompt.mandatory?.some((id) => !draft.selected.includes(id))) return false;
-      return draft.selected.length >= min && draft.selected.length <= max;
+      return draft.selected.length >= min && draft.selected.length <= max &&
+        (prompt.target == null || sumSelectionValues(prompt, draft.selected).sumMet === true);
     }
     default:
       return false;
@@ -267,6 +270,16 @@ export function toggleSelected(prompt: DuelPrompt, current: string[], optionId: 
     return current;
   }
   return [...current, optionId];
+}
+
+/** Why a click on a card changes nothing: the pick is full, or the card is a forced pick that cannot be undone. */
+export type PickRefusal = { reason: "full" | "mandatory"; text: string };
+
+/** Null when the click toggles the card; else the reason it cannot. Mirrors toggleSelected. */
+export function pickRefusal(prompt: DuelPrompt, current: string[], optionId: string): PickRefusal | null {
+  if (toggleSelected(prompt, current, optionId) !== current) return null;
+  if (current.includes(optionId)) return { reason: "mandatory", text: "This card must stay picked" };
+  return { reason: "full", text: `Already picked ${current.length}. Click a picked card to undo it` };
 }
 
 function OptionButton({
@@ -638,10 +651,14 @@ export function PromptTray({
         }
         return;
       }
-      if (event.key === "Escape" && current.cancelable) {
-        event.preventDefault();
-        submitAnswer({ cancel: true });
-        return;
+      if (event.key === "Escape") {
+        // A material pick backs out (cancel, or one card back once the engine drops Cancel).
+        const back = current.kind === "toggle" ? backOutAnswer(current) : current.cancelable ? { cancel: true } : null;
+        if (back) {
+          event.preventDefault();
+          submitAnswer(back);
+          return;
+        }
       }
       if ((event.key === "f" || event.key === "F") && current.finishable) {
         event.preventDefault();
@@ -895,16 +912,10 @@ export function PromptTray({
       <PromptHeader prompt={prompt} />
       {prompt.kind === "sum" ? (
         <p className={styles.status}>
-          {prompt.target != null ? `Target ${prompt.target}` : "Select materials"}
-          {draft.selected.length > 0
-            ? ` · ${draft.selected
-                .map((id) => {
-                  const option = prompt.options.find((item) => item.id === id);
-                  if (!option) return id;
-                  return option.values && option.values.length > 0 ? option.values.join("/") : option.label;
-                })
-                .join(", ")}`
-            : ""}
+          {selectBarCopy({
+            kind: prompt.kind, title: prompt.title, min, max, count: draft.selected.length,
+            target: prompt.target, sumMode: prompt.sumMode, ...sumSelectionValues(prompt, draft.selected),
+          }).progress}
         </p>
       ) : null}
       {prompt.kind === "tribute" ? (
@@ -998,6 +1009,7 @@ export function activatePromptFromField(
   card: DuelCard | null,
   draft: PromptDraft,
   onSubmit?: (answer: DuelAnswer) => void,
+  onRefuse?: (refusal: PickRefusal) => void,
 ): boolean {
   if (!prompt || !mine) return false;
   if (
@@ -1020,6 +1032,12 @@ export function activatePromptFromField(
   ) {
     draft.setSelected([option.id]);
     onSubmit?.({ selected: [option.id] });
+    return true;
+  }
+  const refusal = pickRefusal(prompt, draft.selected, option.id);
+  if (refusal) {
+    // Nothing changes: say why, instead of a click that looks ignored.
+    onRefuse?.(refusal);
     return true;
   }
   draft.setSelected((current) => toggleSelected(prompt, current, option.id));

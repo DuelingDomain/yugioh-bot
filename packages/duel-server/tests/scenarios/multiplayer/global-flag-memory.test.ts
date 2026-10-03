@@ -9,10 +9,11 @@ import { compileBoard } from "../../support/board.js";
 import { describeWithCores } from "../../support/cores.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { liveNseat } from "../../support/live-nseat.js";
+import { runScenarios } from "../../support/runner.js";
+import type { Scenario } from "../../support/dsl.js";
 import { domainNseatWasmBinary, nseatWasmBinary, Session } from "../../support/session.js";
 import { domainVariant } from "./domain-variants.js";
 import { GLOBAL_FLAG_MEMORY_SCENARIOS } from "./global-flag-memory.js";
-import { runScenarios } from "../../support/runner.js";
 
 // Panther only tests the existence of its flag. Observe its real engine count after each release as well,
 // so a second flag cannot hide behind an unchanged attack permission. This observer writes no game state.
@@ -62,21 +63,23 @@ describeWithCores("global flag memory after an LP loss", liveNseat, () => {
     setCatalogDirectory(undefined);
     if (fixture) rmSync(fixture, { recursive: true, force: true });
   });
-  runScenarios("multiplayer/global-flag-memory", [...GLOBAL_FLAG_MEMORY_SCENARIOS, ...GLOBAL_FLAG_MEMORY_SCENARIOS.map(domainVariant)], async (s) => {
-      const compiled = compileBoard(s.setup);
-      const game = await createEngineGame({
-        ...compiled.options, dataDirectory: fixture, seed: ["1", "2", "3", "4"],
-        multiWasmBinary: s.setup.mode === "domain" ? domainNseatWasmBinary() : nseatWasmBinary(),
-        startupScripts: [...(compiled.options.startupScripts ?? []), ...(s.tags.includes("card:77482666") ? [{ name: "panther-flag-observer.lua", content: observer }] : [])],
-      });
-      try {
-        const session = new Session(s, game);
-        session.reachMainPhase();
-        session.startRecording();
-        s.steps.forEach((step, index) => session.run(step, index + 1));
-        if (s.tags.includes("card:77482666")) {
-          expect(game.view(1).seats[1].monsters.filter((c) => c != null).map((c) => c!.code).sort()).toEqual([15025844, 15025844, 77482666]);
-        }
-      } finally { game.close(); }
-  });
+  async function runWithFixture(s: Scenario) {
+    const compiled = compileBoard(s.setup);
+    const game = await createEngineGame({
+      ...compiled.options, dataDirectory: fixture, seed: ["1", "2", "3", "4"],
+      multiWasmBinary: s.setup.mode === "domain" ? domainNseatWasmBinary() : nseatWasmBinary(),
+      startupScripts: [...(compiled.options.startupScripts ?? []), ...(s.tags.includes("card:77482666") ? [{ name: "panther-flag-observer.lua", content: observer }] : [])],
+    });
+    try {
+      const session = new Session(s, game);
+      session.reachMainPhase();
+      session.startRecording();
+      s.steps.forEach((step, index) => session.run(step, index + 1));
+      if (s.tags.includes("card:77482666")) {
+        expect(game.view(1).seats[1].monsters.filter((c) => c != null).map((c) => c!.code).sort()).toEqual([15025844, 15025844, 77482666]);
+      }
+    } finally { game.close(); }
+  }
+  runScenarios("multiplayer/global-flag-memory", GLOBAL_FLAG_MEMORY_SCENARIOS, runWithFixture);
+  runScenarios("multiplayer/global-flag-memory-domain", GLOBAL_FLAG_MEMORY_SCENARIOS.map(domainVariant), runWithFixture);
 });

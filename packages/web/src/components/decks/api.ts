@@ -1,14 +1,22 @@
-import type { DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
+import type { DraftDeckPool } from "./pool-model";
+import type { CardFacets, CardQuery, CardQueryResult, DeckCardInfo, DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
+import type { DeckRegistrationMark } from "@yugidraft/shared/services";
 
-export type { SavedDeck };
+export type { SavedDeck, DeckRegistrationMark };
+
+/** A saved deck as the decks API returns it: the stored deck plus the tournament it is registered for, if any. */
+export type SavedDeckView = SavedDeck & { registration?: DeckRegistrationMark | null };
 
 export class DeckRequestError extends Error {
   readonly status: number;
+  /** The caller's existing deck, when a 409 says a deck for this draft exists. */
+  readonly deckId?: number;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, deckId?: number) {
     super(message);
     this.name = "DeckRequestError";
     this.status = status;
+    this.deckId = deckId;
   }
 }
 
@@ -25,7 +33,8 @@ async function parseBody<T>(res: Response): Promise<T> {
   }
   const body: unknown = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new DeckRequestError(errorMessage(body, res.status), res.status);
+    const deckId = body && typeof body === "object" && "deckId" in body && typeof body.deckId === "number" ? body.deckId : undefined;
+    throw new DeckRequestError(errorMessage(body, res.status), res.status, deckId);
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new DeckRequestError("The server returned an invalid response.", 502);
@@ -33,22 +42,22 @@ async function parseBody<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-function readDeck(body: { deck?: SavedDeck }): SavedDeck {
+function readDeck(body: { deck?: SavedDeckView }): SavedDeckView {
   if (!body.deck || typeof body.deck !== "object") {
     throw new DeckRequestError("The server returned an invalid deck.", 502);
   }
   return body.deck;
 }
 
-export async function listSavedDecks(): Promise<SavedDeck[]> {
-  const body = await parseBody<{ decks?: SavedDeck[] }>(await fetch("/api/decks", { cache: "no-store" }));
+export async function listSavedDecks(): Promise<SavedDeckView[]> {
+  const body = await parseBody<{ decks?: SavedDeckView[] }>(await fetch("/api/decks", { cache: "no-store" }));
   if (!Array.isArray(body.decks)) {
     throw new DeckRequestError("The server returned an invalid deck list.", 502);
   }
   return body.decks;
 }
 
-export async function getSavedDeck(id: number): Promise<SavedDeck> {
+export async function getSavedDeck(id: number): Promise<SavedDeckView> {
   return readDeck(await parseBody(await fetch(`/api/decks/${id}`, { cache: "no-store" })));
 }
 
@@ -67,7 +76,7 @@ export async function createSavedDeck(input: {
 export async function updateSavedDeck(
   id: number,
   input: { name: string; mode: DuelMode; deck: DuelDeck },
-): Promise<SavedDeck> {
+): Promise<SavedDeckView> {
   return readDeck(await parseBody(await fetch(`/api/decks/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -75,6 +84,96 @@ export async function updateSavedDeck(
   })));
 }
 
+/** A saved draft deck and, when the tournament registration failed, why. */
+export type DraftDeckSave = { deck: SavedDeckView; warning?: string };
+
+function readDraftSave(body: { deck?: SavedDeckView; warning?: unknown }): DraftDeckSave {
+  const deck = readDeck(body);
+  return typeof body.warning === "string" && body.warning ? { deck, warning: body.warning } : { deck };
+}
+
+/**
+ * Saves the player's deck for a draft. One deck exists per draft, so a create that finds one
+ * (409 with its id) continues as an update of that deck.
+ */
+export async function saveDraftDeck(
+  existingId: number | null,
+  input: { name: string; mode: DuelMode; deck: DuelDeck; draftId: number },
+): Promise<DraftDeckSave> {
+  const send = async (id: number | null) => readDraftSave(await parseBody(await fetch(id == null ? "/api/decks" : `/api/decks/${id}`, {
+    method: id == null ? "POST" : "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })));
+  try {
+    return await send(existingId);
+  } catch (error) {
+    if (existingId == null && error instanceof DeckRequestError && error.status === 409 && error.deckId != null) {
+      return send(error.deckId);
+    }
+    throw error;
+  }
+}
+
+/** Reads the `registration` the API sends next to a deck; anything that is not a full mark counts as none. */
+export function readRegistration(value: unknown): DeckRegistrationMark | null {
+  if (!value || typeof value !== "object") return null;
+  const { tournament, locked } = value as { tournament?: unknown; locked?: unknown };
+  if (!tournament || typeof tournament !== "object") return null;
+  const t = tournament as Record<string, unknown>;
+  if (typeof t.id !== "number" || typeof t.name !== "string" || typeof t.status !== "string") return null;
+  return {
+    tournament: { id: t.id, slug: typeof t.slug === "string" ? t.slug : null, name: t.name, status: t.status },
+    locked: locked === true,
+  };
+}
+
+/** The caller's pool for a finished draft, as engine passcodes. */
+export async function getDraftDeckPool(slug: string): Promise<Omit<DraftDeckPool, "slug">> {
+  const body = await parseBody<Partial<Omit<DraftDeckPool, "slug">> & { unresolved?: number[] }>(
+    await fetch(`/api/drafts/${encodeURIComponent(slug)}/deck-pool`, { cache: "no-store" }),
+  );
+  if (typeof body.draftId !== "number" || !Array.isArray(body.cards) || typeof body.mainPoolCount !== "number") {
+    throw new DeckRequestError("The server returned an invalid draft pool.", 502);
+  }
+  return {
+    draftId: body.draftId,
+    draftName: typeof body.draftName === "string" ? body.draftName : "Draft",
+    cards: body.cards,
+    mainPoolCount: body.mainPoolCount,
+    unresolved: Array.isArray(body.unresolved) ? body.unresolved : [],
+    savedDeckId: typeof body.savedDeckId === "number" ? body.savedDeckId : null,
+    registration: readRegistration(body.registration),
+  };
+}
+
 export async function deleteSavedDeck(id: number): Promise<void> {
   await parseBody<{ ok?: boolean }>(await fetch(`/api/decks/${id}`, { method: "DELETE" }));
+}
+
+export async function queryDeckCards(query: CardQuery, signal?: AbortSignal): Promise<CardQueryResult> {
+  const body = await parseBody<Partial<CardQueryResult>>(await fetch("/api/decks/cards", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(query),
+    signal,
+  }));
+  if (!Array.isArray(body.cards) || typeof body.total !== "number") {
+    throw new DeckRequestError("The server returned an invalid card list.", 502);
+  }
+  return { cards: body.cards, total: body.total, offset: body.offset ?? query.offset };
+}
+
+export async function getDeckCardFacets(): Promise<CardFacets> {
+  const body = await parseBody<Partial<CardFacets>>(await fetch("/api/decks/cards/facets"));
+  return { archetypes: body.archetypes ?? [], banlists: body.banlists ?? {} };
+}
+
+export async function getDeckCards(codes: number[]): Promise<{ cards: DeckCardInfo[]; missing: number[] }> {
+  const body = await parseBody<{ cards?: DeckCardInfo[]; missing?: number[] }>(await fetch("/api/duels/cards", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ codes }),
+  }));
+  return { cards: body.cards ?? [], missing: body.missing ?? [] };
 }

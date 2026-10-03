@@ -22,11 +22,11 @@ function tableFlag(stack: Stack, service: "duel" | "web"): string | undefined {
   if (stack === "e2e") {
     const source = readFileSync(new URL("../../e2e/stack/start.mjs", import.meta.url), "utf8");
     const launch = source.split(`run("${service}",`)[1]?.split(/\nrun\(/)[0];
-    return launch?.match(/^\s+MULTIPLAYER_TABLES:\s*"([^"]+)"/m)?.[1];
+    return launch?.match(/^\s+MULTIPLAYER_TABLES:\s*process\.env\.E2E_MULTIPLAYER_TABLES \?\? "([^"]+)"/m)?.[1];
   }
   const source = readFileSync(new URL("../../../docker-compose.staging.yml", import.meta.url), "utf8");
   const launch = source.split(new RegExp(`^  ${service}:\\s*$`, "m"))[1]?.split(/^  \w+:\s*$/m)[0];
-  return launch?.match(/^\s+- MULTIPLAYER_TABLES=(.*)$/m)?.[1].trim();
+  return launch?.match(/^\s+- MULTIPLAYER_TABLES=\$\{STAGING_MULTIPLAYER_TABLES:-([^}]+)\}/m)?.[1];
 }
 
 function useStack(stack: Stack) {
@@ -71,7 +71,7 @@ for (const mode of ["normal", "domain"] as const) {
       try {
         const session = t.service.create({ guildId: "g", organizerPlayerId: t.players[0]!, name: "Test stack", mode, format,
           settings: { banlist: "none", turnSeconds: 0, shuffleDeck: false } });
-        for (const player of t.players.slice(1)) t.service.join(session.slug, "g", player);
+        for (const player of t.players.slice(1)) t.service.takeSeat(session.slug, "g", player);
         const deck = buildPracticeBotDeck(mode, DATA);
         for (let seat = 0; seat < count; seat++) {
           const submitted = await t.post("deck", { slug: session.slug, deck }, seat);

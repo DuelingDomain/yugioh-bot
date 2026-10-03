@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { CardBack } from "./card-face";
 import {
@@ -9,6 +10,7 @@ import {
   cardKindText,
   isHiddenCard,
 } from "./constants";
+import { equipSentence, roleOfCard, type EquipLinks } from "./equip-links";
 import styles from "./inspector.module.css";
 
 export type InspectTarget =
@@ -21,7 +23,7 @@ function InfoBody({ card }: { card: DuelCard | DuelCardInfo }) {
   if (isHiddenCard(card) || code == null) {
     return (
       <div className={styles.root}>
-        <div className={styles.art}>
+        <div className={`${styles.art} card-frame`}>
           <CardBack className={styles.artBack} />
         </div>
         <p className={styles.details}>Face-down card.</p>
@@ -36,7 +38,7 @@ function InfoBody({ card }: { card: DuelCard | DuelCardInfo }) {
 
   return (
     <div className={styles.root}>
-      <div className={styles.art}>
+      <div className={`${styles.art} card-frame`}>
         <img src={cardArtUrl(code, "full")} alt="" />
       </div>
       <div className={styles.body}>
@@ -54,14 +56,23 @@ function InfoBody({ card }: { card: DuelCard | DuelCardInfo }) {
   );
 }
 
+/** The seat that owns a card, for tables of 3 or more seats: the inspector adds an "Owner" line in the seat colour. */
+export type InspectorOwner = { name: string; tone: { main: string; ink: string } };
+
 export function CardInspector({
   target,
   onInspectCard,
   onActivateCard,
+  equipLinks,
+  ownerOf,
 }: {
   target: InspectTarget | null;
   onInspectCard?: (card: DuelCard) => void;
   onActivateCard?: (card: DuelCard, anchor: HTMLElement) => void;
+  /** The equip links of the live board: adds "Equipped to ..." / "Equipped with ..." for a card on the field. */
+  equipLinks?: EquipLinks;
+  /** 3 and 4 seat tables: who owns the card shown. Absent: no owner line (1v1). */
+  ownerOf?: (card: DuelCard) => InspectorOwner | null;
 }) {
   if (!target) {
     return <div className={styles.empty}>Select a card to inspect.</div>;
@@ -109,6 +120,8 @@ export function CardInspector({
   }
 
   const extras: string[] = [];
+  const equipText = equipLinks ? equipSentence(roleOfCard(equipLinks, target.card)) : null;
+  if (equipText) extras.push(equipText);
   if (target.card.counters?.length) {
     for (const counter of target.card.counters) {
       extras.push(`Counter ${counter.type}: ${counter.count}`);
@@ -122,9 +135,20 @@ export function CardInspector({
     );
   }
 
+  const owner = ownerOf?.(target.card) ?? null;
   return (
     <>
       <InfoBody card={target.card} />
+      {owner ? (
+        <p
+          className={styles.owner}
+          data-testid="inspector-owner"
+          style={{ "--seat-main": owner.tone.main, "--seat-ink": owner.tone.ink } as CSSProperties}
+        >
+          <i aria-hidden="true" />
+          Owner <b>{owner.name}</b>
+        </p>
+      ) : null}
       {extras.length > 0 ? (
         <ul className={styles.metaList}>
           {extras.map((line) => (

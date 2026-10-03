@@ -64,11 +64,13 @@ services:
     <<: *staging-service
     build:
       context: .
-      target: duel
+      target: duel-bundled
+      additional_contexts:
+        engine: ./.deploy-duel-engine
     user: "${STAGING_UID:-1000}:${STAGING_GID:-1000}"
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
-      # The staging engine directory. It holds the multi-duelist core (ocgcore.multi.wasm).
+      # Both multi cores and the Lua overlay are installed here from the CI bundle.
       - DUEL_DATA_DIR=/app/data/duel-engine
       - DUEL_INTERNAL_HOST=0.0.0.0
       - DUEL_INTERNAL_PORT=4003
@@ -82,8 +84,11 @@ services:
       # debug-trace route. The web needs the same flag (see the web service). The report folder is on the data
       # volume, because the container user cannot write in /app.
       - DUEL_SCENARIOS=1
-      - MULTIPLAYER_TABLES=1
       - DUEL_REPORT_DIR=/app/data/duel-reports
+      # Tag, 3-player and 4-player tables are on in staging. Production has them off. The web needs the same value.
+      - MULTIPLAYER_TABLES=${STAGING_MULTIPLAYER_TABLES:-1}
+      # Staging tests the 1v1 engine that production uses. Set STAGING_DUEL_1V1_ENGINE=pinned to test the merged engine.
+      - DUEL_1V1_ENGINE=${STAGING_DUEL_1V1_ENGINE:-legacy}
     volumes:
       - ${STAGING_DATA_DIR:-./data-staging}:/app/data
     mem_limit: ${STAGING_MEM_DUEL:-768m}
@@ -115,7 +120,7 @@ services:
       - DUEL_INTERNAL_URL=http://duel:4003
       # Shows the Report button and opens the scenario routes. Same flag as on the duel service.
       - DUEL_SCENARIOS=1
-      - MULTIPLAYER_TABLES=1
+      - MULTIPLAYER_TABLES=${STAGING_MULTIPLAYER_TABLES:-1}
       - DUEL_INTERNAL_SECRET=${DUEL_INTERNAL_SECRET:?DUEL_INTERNAL_SECRET is missing, run scripts/staging/make-staging-env.sh}
       # There is no bot here. An empty URL turns every announcement into a no-op.
       - BOT_ANNOUNCE_URL=

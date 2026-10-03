@@ -1,0 +1,5 @@
+/* Meta lines are flex rows in the foundation; a MetaLine is a clipped block holding one. */
+:global(.ms) .line.line { display: block; overflow: hidden; }
+.run { display: flex; flex-wrap: wrap; align-items: center; column-gap: 11px; row-gap: 4px; margin-left: -14px; }
+.item { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; }
+.item > :global(.dot) { flex: none; margin-right: 11px; }

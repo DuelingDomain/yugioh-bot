@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
 import { analyzeCube, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "./helpers";
 import { announcer, broadcaster } from "@/lib/notify";
+import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
+import { draftReadAccess } from "@/lib/draft-access";
 
 export const runtime = "nodejs";
 
@@ -18,13 +21,16 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  let slug = "unknown";
   try {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { slug } = await params;
+    slug = (await params).slug;
+    const denied = draftReadAccess(getDb(), slug, env.discordGuildId, session.user.id);
+    if (denied) return denied;
     const response = await buildDraftResponse(slug, session.user.id);
 
     if (!response) {
@@ -33,7 +39,7 @@ export async function GET(
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error("[api/drafts/[slug]] error:", error);
+    console.error(`[api/drafts/${slug}] load failed:`, error);
     return NextResponse.json(
       { error: "Failed to load draft" },
       { status: 500 }
@@ -69,6 +75,7 @@ export async function DELETE(
 
     if (draft.status === DRAFT_STATUS.completed || draft.status === DRAFT_STATUS.cancelled) {
       db.transaction(() => {
+        db.prepare("delete from draft_passes where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_picks where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_cards where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_packs where draft_id = ?").run(draft.id);
@@ -79,6 +86,7 @@ export async function DELETE(
         db.prepare("delete from draft_players where draft_id = ?").run(draft.id);
         db.prepare("delete from drafts where id = ?").run(draft.id);
       })();
+      void broadcaster.draft({ kind: "seats", slug });
       return NextResponse.json({ deleted: true });
     }
 
@@ -137,6 +145,17 @@ export async function PUT(
     const body = await request.json();
     const { name, config } = body as { name?: string; config?: unknown };
 
+    const drafts = createDraftService(db);
+    const existing = drafts.findById(draft.id);
+    const mergedConfig = { ...existing.config, ...(config as object) };
+    // Edits can retain library cubes deleted since attachment, including in the request body.
+    const denied = cubeReferenceAccess(db, mergedConfig.allowedCubeIds, { allowMissing: true });
+    if (denied) return denied;
+    const assignmentError = hostThemeAssignmentError(db, existing.guildId, mergedConfig, drafts.players(draft.id).map((p) => p.playerId));
+    if (assignmentError) {
+      return NextResponse.json({ error: assignmentError }, { status: 400 });
+    }
+
     if (name !== undefined) {
       if (!name.trim()) {
         return NextResponse.json({ error: "Name cannot be empty" }, { status: 400 });
@@ -146,22 +165,16 @@ export async function PUT(
         .prepare(
           "select id from drafts where guild_id = (select guild_id from drafts where id = ?) and name = ? and status in ('pending', 'active') and id != ?"
         )
-        .get(draft.id, name) as { id: number } | undefined;
+        .get(draft.id, name, draft.id) as { id: number } | undefined;
 
       if (existing) {
         return NextResponse.json({ error: "A draft with that name already exists" }, { status: 400 });
       }
-
-      db.prepare("update drafts set name = ? where id = ?").run(name, draft.id);
     }
 
     let analysisWarnings: ReturnType<typeof analyzeCube> | undefined;
 
-    if (config !== undefined) {
-      const drafts = createDraftService(db);
-      const existing = drafts.findById(draft.id);
-      const mergedConfig = { ...existing.config, ...(config as object) };
-
+    if (config !== undefined && mergedConfig.mode !== "theme") {
       // The submitted config redefines the pool (sets + custom passcodes), so
       // any previously materialized ids are stale. Drop them before resolving —
       // otherwise resolveCubeCardIds returns the old snapshot and edits like
@@ -205,17 +218,29 @@ export async function PUT(
         2,
         (mergedConfig as any).packsPerPlayer ?? 5,
         (mergedConfig as any).packSize ?? 8,
+        (mergedConfig as any).cardsPerPlayer ?? 40,
       );
 
       (mergedConfig as any).cubeCardIds = cubeCardIds;
-
-      db.prepare("update drafts set config_json = ? where id = ?").run(
-        JSON.stringify(mergedConfig),
-        draft.id,
-      );
     }
 
+    // Apply edits together after validation, so a rejected pool edit cannot silently rename the draft.
+    db.transaction(() => {
+      if (name !== undefined) {
+        db.prepare("update drafts set name = ? where id = ?").run(name, draft.id);
+      }
+      if (config !== undefined) {
+        db.prepare("update drafts set config_json = ? where id = ?").run(
+          JSON.stringify(mergedConfig),
+          draft.id,
+        );
+      }
+    })();
+
     const updated = db.prepare("select * from drafts where id = ?").get(draft.id) as any;
+    if (name !== undefined || config !== undefined) {
+      void broadcaster.draft({ kind: "seats", slug });
+    }
 
     return NextResponse.json({
       id: updated.id,
@@ -263,6 +288,19 @@ export async function POST(
 
     const drafts = createDraftService(db);
     const draftModel = drafts.findById(draft.id);
+    // The service drops deleted library cubes; surviving references must stay in this guild.
+    const denied = cubeReferenceAccess(db, draftModel.config.allowedCubeIds, { allowMissing: true });
+    if (denied) return denied;
+    if (draftModel.config.mode === "theme" && (draftModel.config.themeSelection ?? "player_pick") === "player_pick") {
+      const claims = db.prepare("select cube_id from draft_player_cube where draft_id = ?")
+        .all(draft.id) as Array<{ cube_id: number }>;
+      const claimedCubeIds = claims.map((claim) => claim.cube_id);
+      const deniedClaim = cubeReferenceAccess(db, claimedCubeIds);
+      if (deniedClaim) return deniedClaim;
+      if (claimedCubeIds.some((id) => !(draftModel.config.allowedCubeIds ?? []).includes(id))) {
+        return NextResponse.json({ error: "Claimed cube is not allowed in this draft" }, { status: 400 });
+      }
+    }
     const cards = createCardCatalogService(db);
 
     if (!draftModel.config.cubeCardIds?.length && !draftModel.config.poolCardIds?.length) {

@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { cubeReferenceAccess } from "@/lib/cube-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createDraftService } from "@yugidraft/shared/services";
+import { broadcaster } from "@/lib/notify";
 
 export const runtime = "nodejs";
 
@@ -37,11 +39,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     return NextResponse.json({ error: "Join the draft first" }, { status: 400 });
   }
 
+  const participant = db
+    .prepare("select 1 from draft_players where draft_id = ? and player_id = ?")
+    .get(draftRow.id, player.id);
+  if (!participant) {
+    return NextResponse.json({ error: "Join the draft first" }, { status: 403 });
+  }
+
   const body = (await request.json().catch(() => ({}))) as { cubeId?: number };
   const cubeId = body.cubeId;
   if (!Number.isInteger(cubeId) || !(draft.config.allowedCubeIds ?? []).includes(cubeId as number)) {
     return NextResponse.json({ error: "Cube is not allowed for this draft" }, { status: 400 });
   }
+
+  const denied = cubeReferenceAccess(db, [cubeId]);
+  if (denied) return denied;
 
   if (draft.config.uniqueThemes ?? true) {
     const taken = db
@@ -56,6 +68,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     `insert into draft_player_cube (draft_id, player_id, cube_id) values (?, ?, ?)
      on conflict (draft_id, player_id) do update set cube_id = excluded.cube_id`,
   ).run(draftRow.id, player.id, cubeId);
+  void broadcaster.draft({ kind: "seats", slug });
 
   return NextResponse.json({ ok: true, cubeId });
 }

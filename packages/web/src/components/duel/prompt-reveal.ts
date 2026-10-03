@@ -12,17 +12,19 @@
  *   4. never longer than capMs in all. Reduced motion: one short fixed pause (reducedMs).
  * While the panel is hidden nothing answers the prompt: not right-click, Esc nor Enter.
  */
+import { duelFxClock } from "./fx-clock";
 import { useEffect, useState, type RefObject } from "react";
+import { GATE_TIMING } from "./duel-timing";
 
 export const REVEAL_TIMING = {
   /** The beat before a panel may appear. */
-  beatMs: 450,
+  beatMs: GATE_TIMING.promptBeatMs,
   /** Quiet time after the last board effect ends. */
-  settleMs: 350,
+  settleMs: GATE_TIMING.promptSettleMs,
   /** The panel never stays hidden longer than this. */
-  capMs: 4000,
+  capMs: GATE_TIMING.promptCapMs,
   /** Reduced motion: one short pause instead. */
-  reducedMs: 150,
+  reducedMs: GATE_TIMING.promptReducedMs,
 };
 
 export type RevealTiming = typeof REVEAL_TIMING;
@@ -75,6 +77,10 @@ export type WaitForRevealOptions = {
   reducedMotion: boolean;
   timing?: Partial<RevealTiming>;
   signal?: AbortSignal;
+  /** Additional finite feedback to wait for (field priority also includes CSS banners). */
+  pendingAnimations?: (source: AnimationSource | null | undefined) => AnimationLike[];
+  /** Additional planned effects, measured as time remaining in ms. */
+  holdMs?: () => number;
   /** Clock in ms; Date.now by default (fake timers drive it in tests). */
   now?: () => number;
 };
@@ -85,12 +91,12 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       resolve();
       return;
     }
-    const timer = setTimeout(() => {
+    const timer = duelFxClock.setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
       resolve();
     }, ms);
     function onAbort() {
-      clearTimeout(timer);
+      duelFxClock.clearTimeout(timer);
       resolve();
     }
     signal?.addEventListener("abort", onAbort, { once: true });
@@ -106,11 +112,16 @@ let boardHoldUntil = 0;
  * such as the battle layer, which renders in a portal with CSS animations. The cap still applies.
  */
 export function holdPromptReveal(ms: number): void {
-  boardHoldUntil = Math.max(boardHoldUntil, Date.now() + ms);
+  boardHoldUntil = Math.max(boardHoldUntil, duelFxClock.dateNow() + ms);
 }
 
 export function clearPromptRevealHold(): void {
   boardHoldUntil = 0;
+}
+
+/** Time left on the FX hold (see holdPromptReveal); 0 when no FX layer holds the board. */
+export function promptRevealHoldMs(): number {
+  return Math.max(0, boardHoldUntil - duelFxClock.dateNow());
 }
 
 /**
@@ -119,7 +130,7 @@ export function clearPromptRevealHold(): void {
  */
 export async function waitForReveal(options: WaitForRevealOptions): Promise<boolean> {
   const timing = { ...REVEAL_TIMING, ...options.timing };
-  const now = options.now ?? (() => Date.now());
+  const now = options.now ?? (() => duelFxClock.dateNow());
   const { signal } = options;
   const aborted = () => signal?.aborted === true;
   const start = now();
@@ -138,12 +149,21 @@ export async function waitForReveal(options: WaitForRevealOptions): Promise<bool
   for (let round = 0; round < MAX_ROUNDS; round += 1) {
     const budget = timing.capMs - timing.settleMs - elapsed();
     if (budget <= 0) break;
-    const pending = pendingBoardAnimations(source());
-    const holdMs = boardHoldUntil - Date.now();
+    const pending = (options.pendingAnimations ?? pendingBoardAnimations)(source());
+    const holdMs = Math.max(boardHoldUntil - duelFxClock.dateNow(), options.holdMs?.() ?? 0);
     if (pending.length === 0 && holdMs <= 0) break;
-    const waits: Promise<unknown>[] = [sleep(holdMs > 0 ? Math.min(holdMs, budget) : budget, signal)];
-    if (pending.length > 0 && holdMs <= 0) waits.push(Promise.allSettled(pending.map((animation) => animation.finished)));
-    await Promise.race(waits);
+    const deadline = new AbortController();
+    const cancel = () => deadline.abort();
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      const waits: Promise<unknown>[] = [sleep(holdMs > 0 ? Math.min(holdMs, budget) : budget, deadline.signal)];
+      if (pending.length > 0 && holdMs <= 0) waits.push(Promise.allSettled(pending.map((animation) => animation.finished)));
+      await Promise.race(waits);
+    } finally {
+      // An animation winning the race must not leave a safety timer holding the old speed.
+      cancel();
+      signal?.removeEventListener("abort", cancel);
+    }
     if (aborted()) return false;
   }
 
@@ -157,17 +177,22 @@ export type UsePromptRevealOptions = {
   /** The board element whose animations must finish first. */
   board: RefObject<HTMLElement | null>;
   reducedMotion: boolean;
+  /**
+   * The prompt continues the player's own pick (see continuesPick): show it at once, no beat.
+   * Decided once per prompt id by the caller.
+   */
+  skip?: boolean;
 };
 
 /**
  * True when the centred panel for `promptId` may be shown. It turns false the moment a new prompt
- * arrives and true again once the board is quiet (see waitForReveal). With no prompt it is true.
+ * arrives and true again once the board is quiet (see waitForReveal). With no prompt, or with `skip`, it is true.
  */
-export function usePromptReveal({ promptId, board, reducedMotion }: UsePromptRevealOptions): boolean {
+export function usePromptReveal({ promptId, board, reducedMotion, skip = false }: UsePromptRevealOptions): boolean {
   const [revealedId, setRevealedId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!promptId) return undefined;
+    if (!promptId || skip) return undefined;
     const controller = new AbortController();
     const source = () => board.current;
     void waitForReveal({ source, reducedMotion, signal: controller.signal }).then((done) => {
@@ -178,5 +203,33 @@ export function usePromptReveal({ promptId, board, reducedMotion }: UsePromptRev
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [promptId]);
 
-  return !promptId || revealedId === promptId;
+  return !promptId || skip || revealedId === promptId;
+}
+
+/**
+ * The prompt id to remember as "answerable": the first time the room was settled (no answer in
+ * flight, no sync, no connection error) while this prompt was up. Pure so it can be tested.
+ */
+export function nextAnswerableId(
+  current: string | null,
+  promptId: string | null | undefined,
+  settled: boolean,
+): string | null {
+  return promptId && settled ? promptId : current;
+}
+
+/**
+ * True when the centred panel for `promptId` may be shown because it can be answered. A panel that
+ * appears while the previous answer is still in flight, or while the room re-syncs, shows every
+ * button disabled: it looks ready and is dead. This holds the panel back until the room is settled
+ * once for that prompt; a later short sync does not hide it again (it would flicker and lose state).
+ * With no prompt it is true. `skip` (a follow-up of the player's own pick) shows it at once: the buttons
+ * stay off while the room is busy, so nothing can be clicked early, and the bar does not blink out.
+ */
+export function usePromptAnswerable(promptId: string | null | undefined, settled: boolean, skip = false): boolean {
+  const [answerableId, setAnswerableId] = useState<string | null>(null);
+  useEffect(() => {
+    setAnswerableId((current) => nextAnswerableId(current, promptId, settled));
+  }, [promptId, settled]);
+  return !promptId || skip || answerableId === promptId;
 }

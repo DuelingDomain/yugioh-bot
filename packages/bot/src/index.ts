@@ -53,6 +53,7 @@ import { createAnnounceHandlers } from "./announce/handlers.js";
 import { createAnnounceServer } from "./announce/server.js";
 import { deleteNotifyMessage } from "./lib/notify-message.js";
 import { announceTournamentCompleted } from "./lib/announce-tournament-completed.js";
+import { createHttpNotifyDuelChange } from "./lib/notify-duel.js";
 import { createBroadcaster, httpTransport } from "@yugidraft/shared/notify";
 
 const token = process.env.DISCORD_TOKEN;
@@ -135,6 +136,11 @@ const broadcaster = createBroadcaster(
   httpTransport({ url: process.env.WS_INTERNAL_URL ?? "", secret: process.env.WS_INTERNAL_SECRET ?? "" }),
 );
 
+const notifyDuelChange = createHttpNotifyDuelChange({
+  url: process.env.WS_INTERNAL_URL ?? "",
+  secret: process.env.WS_INTERNAL_SECRET ?? "",
+});
+
 const deps = {
   db,
   matches: createMatchService(db),
@@ -149,6 +155,7 @@ const deps = {
   guildSettings,
   cleanup,
   broadcaster,
+  notifyDuelChange,
   messenger: {
     async postStatus(draft: Draft) {
       const channel = await client.channels.fetch(draft.channelId);
@@ -217,6 +224,7 @@ const draftTimer = createDraftTimerService({
 const tournamentTimer = createTournamentTimerService({
   tournaments: deps.tournaments,
   matches: deps.matches,
+  notifyDuelChange: deps.notifyDuelChange,
   onMatchAutoResolved: async (match) => {
     // Clean up the pending approval message (mirrors approve path).
     await deps.deleteNotifyMessage(match.id).catch((err) =>
@@ -237,6 +245,21 @@ const tournamentTimer = createTournamentTimerService({
         void broadcaster.tournament({ kind: "match-updated", slug: row.web_slug });
       }
     }
+  },
+  completedSweep: {
+    // Only recent completions: older tournaments were finished before the claim column existed.
+    findUnannounced: () =>
+      (
+        deps.db
+          .prepare(
+            `select id from tournaments
+             where status = 'completed' and completed_announced_at is null
+               and ended_at >= datetime('now', '-1 day')
+             order by id asc limit 20`,
+          )
+          .all() as Array<{ id: number }>
+      ).map((row) => row.id),
+    announce: (tournamentId) => deps.announceTournamentCompleted(tournamentId),
   },
   onTournamentClosed: async (tournament) => {
     if (deps.matches.claimTournamentCompletionAnnouncement(tournament.id)) {

@@ -76,7 +76,7 @@ async function table(format: DuelFormat, humans: number, botSeats: number[] = []
   const host = makeHost(db, worker, extra);
   const organizer = { slug: session.slug, guildId: "g1", playerId: players[0]! };
   for (const seat of botSeats) expect((await post(host, { op: "add-bot", ...organizer, seat })).status).toBe(200);
-  for (const player of players.slice(1)) duels.join(session.slug, "g1", player);
+  for (const player of players.slice(1)) duels.takeSeat(session.slug, "g1", player);
   const deck = buildPracticeBotDeck("normal", DATA);
   for (const player of players) duels.setDeck(session.slug, "g1", player, deck);
   const view = async (seat: number) => (await post(host, { op: "view", slug: session.slug, guildId: "g1", playerId: players[seat] ?? players[0] })).data.engine as DuelEngineView;

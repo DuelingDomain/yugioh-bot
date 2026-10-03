@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
-import { MULTI_DOMAIN_UNAVAILABLE_MESSAGE, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
+import { MULTIPLAYER_TABLES_OFF_MESSAGE, MULTI_CORE_UNAVAILABLE_MESSAGE, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
@@ -21,7 +21,7 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
-/** A lobby with one organizer in a Domain table. The data directory holds only the files named in `files`. */
+/** A lobby with one organizer in a table of `mode` (Domain by default). The data directory holds only the files named in `files`. */
 function lobby(format: DuelFormat, files: string[], mode: DuelMode = "domain") {
   const dataDirectory = mkdtempSync(join(tmpdir(), "host-multi-domain-"));
   dirs.push(dataDirectory);
@@ -83,16 +83,21 @@ describe("host start of a Domain table with 3 or more seats", () => {
     vi.stubEnv("MULTIPLAYER_TABLES", "0");
     const t = lobby(format, ["ocgcore.multi-domain.wasm"]);
     const started = await t.start();
-    expect(started.status).toBe(409);
-    expect(started.data.error).toMatch(/3 or more seats are disabled/);
+    expect(started.status).toBe(403);
+    expect(started.data.error).toBe(MULTIPLAYER_TABLES_OFF_MESSAGE);
     expect(t.workersCreated()).toBe(0);
   });
 
-  it.each([false, true])("reports the installed Domain multi core to the creator: %s", async (ready) => {
-    const t = lobby("ffa3", ready ? ["ocgcore.multi-domain.wasm"] : []);
+  it.each([
+    { multiCoreReady: false, multiDomainCoreReady: false, files: [] },
+    { multiCoreReady: true, multiDomainCoreReady: false, files: ["ocgcore.multi.wasm"] },
+    { multiCoreReady: false, multiDomainCoreReady: true, files: ["ocgcore.multi-domain.wasm"] },
+    { multiCoreReady: true, multiDomainCoreReady: true, files: ["ocgcore.multi.wasm", "ocgcore.multi-domain.wasm"] },
+  ])("reports installed cores to the creator: $multiCoreReady / $multiDomainCoreReady", async ({ files, multiCoreReady, multiDomainCoreReady }) => {
+    const t = lobby("ffa3", files);
     const result = await t.start("capabilities");
     expect(result.status).toBe(200);
-    expect(result.data).toEqual({ multiplayerTables: true, multiDomainCoreReady: ready });
+    expect(result.data).toEqual({ multiplayerTables: true, multiCoreReady, multiDomainCoreReady });
     expect(t.workersCreated()).toBe(0);
   });
 
@@ -101,8 +106,8 @@ describe("host start of a Domain table with 3 or more seats", () => {
     const t = lobby("ffa4", ["ocgcore.multi.wasm", "ocgcore.multi-domain.wasm"], mode);
     for (const op of ["add-bot", "start"]) {
       const result = await t.start(op);
-      expect(result.status).toBe(409);
-      expect(result.data.error).toMatch(/3 or more seats are disabled/);
+      expect(result.status).toBe(403);
+      expect(result.data.error).toBe(MULTIPLAYER_TABLES_OFF_MESSAGE);
     }
     expect(t.workersCreated()).toBe(0);
   });
@@ -112,8 +117,20 @@ describe("host start of a Domain table with 3 or more seats", () => {
     vi.stubEnv("DUEL_SCENARIOS", "1");
     const t = lobby("ffa4", ["ocgcore.multi.wasm"]);
     const result = await t.start("start-preset", { presetId: "ffa4-chain-order-heavy-storm" });
-    expect(result.status).toBe(409);
-    expect(result.data.error).toMatch(/3 or more seats are disabled/);
+    expect(result.status).toBe(403);
+    expect(result.data.error).toBe(MULTIPLAYER_TABLES_OFF_MESSAGE);
     expect(t.workersCreated()).toBe(0);
+  });
+});
+
+describe("host start of a table with 3 or more seats when the multi core is missing", () => {
+  it.each(["ffa3", "ffa4", "tag"] as const)("answers 409 with the clear message at %s, in Standard and in Domain, and opens no worker", async (format) => {
+    for (const mode of ["normal", "domain"] as const) {
+      const t = lobby(format, [], mode);
+      const started = await t.start();
+      expect(started.status).toBe(409);
+      expect(started.data.error).toBe(MULTI_CORE_UNAVAILABLE_MESSAGE);
+      expect(t.workersCreated()).toBe(0);
+    }
   });
 });

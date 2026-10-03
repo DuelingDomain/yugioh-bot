@@ -64,7 +64,7 @@ describe("verifyDiscordGuildMembership", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("fails closed on Discord 5xx without caching", async () => {
+  it("cools down Discord 5xx failures", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(500));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -74,12 +74,16 @@ describe("verifyDiscordGuildMembership", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200));
 
     await expect(
-      verifyDiscordGuildMembership({ guildId, userId, botToken, now: 1_001 }),
+      verifyDiscordGuildMembership({ guildId, userId, botToken, now: 10_999 }),
+    ).resolves.toEqual({ ok: false, status: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expect(
+      verifyDiscordGuildMembership({ guildId, userId, botToken, now: 11_000 }),
     ).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("fails closed on timeout or network errors without caching", async () => {
+  it("cools down timeout or network failures", async () => {
     const fetchMock = vi.fn().mockRejectedValue(Object.assign(new Error("aborted"), { name: "AbortError" }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -89,7 +93,11 @@ describe("verifyDiscordGuildMembership", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200));
 
     await expect(
-      verifyDiscordGuildMembership({ guildId, userId, botToken, now: 1_001 }),
+      verifyDiscordGuildMembership({ guildId, userId, botToken, now: 10_999 }),
+    ).resolves.toEqual({ ok: false, status: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expect(
+      verifyDiscordGuildMembership({ guildId, userId, botToken, now: 11_000 }),
     ).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
@@ -129,4 +137,50 @@ describe("verifyDiscordGuildMembership", () => {
     await expect(second).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+  it.each([
+    { body: { retry_after: 20 }, headers: {} as Record<string, string>, retryAt: 21_000 },
+    { body: {}, headers: { "Retry-After": "25" }, retryAt: 26_000 },
+    { body: { retry_after: 20 }, headers: { "Retry-After": "30" }, retryAt: 31_000 },
+    { body: {}, headers: { "Retry-After": "Thu, 01 Jan 1970 00:00:25 GMT" }, retryAt: 25_000 },
+  ])("honours Discord's retry window $retryAt", async ({ body, headers, retryAt }) => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json(body, { status: 429, headers }))
+      .mockResolvedValue(jsonResponse(200));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(verifyDiscordGuildMembership({ guildId, userId, botToken, now: 1_000 })).resolves.toEqual({ ok: false, status: 503 });
+    await expect(verifyDiscordGuildMembership({ guildId, userId, botToken, now: retryAt - 1 })).resolves.toEqual({ ok: false, status: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expect(verifyDiscordGuildMembership({ guildId, userId, botToken, now: retryAt })).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("deduplicates concurrent failures and then retains their cooldown", async () => {
+    const { promise, resolve } = Promise.withResolvers<Response>();
+    const fetchMock = vi.fn().mockReturnValueOnce(promise).mockResolvedValue(jsonResponse(200));
+    vi.stubGlobal("fetch", fetchMock);
+    const first = verifyDiscordGuildMembership({ guildId, userId, botToken, now: 1_000 });
+    const second = verifyDiscordGuildMembership({ guildId, userId, botToken, now: 1_000 });
+    resolve(jsonResponse(500));
+    expect(await Promise.all([first, second])).toEqual([{ ok: false, status: 503 }, { ok: false, status: 503 }]);
+    await expect(verifyDiscordGuildMembership({ guildId, userId, botToken, now: 2_000 })).resolves.toEqual({ ok: false, status: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await expect(verifyDiscordGuildMembership({ guildId, userId, botToken, now: 11_000 })).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts the failure cooldown when a slow lookup fails", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const fetchMock = vi.fn().mockImplementationOnce(async () => {
+      clock.mockReturnValue(15_000);
+      return jsonResponse(500);
+    }).mockResolvedValue(jsonResponse(200));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(verifyDiscordGuildMembership({ guildId, userId, botToken })).resolves.toEqual({ ok: false, status: 503 });
+    clock.mockReturnValue(24_999);
+    await expect(verifyDiscordGuildMembership({ guildId, userId, botToken })).resolves.toEqual({ ok: false, status: 503 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    clock.mockReturnValue(25_000);
+    await expect(verifyDiscordGuildMembership({ guildId, userId, botToken })).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
 });

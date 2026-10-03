@@ -31,8 +31,9 @@
  * for reduced motion, missing WebGL, context loss and the moments before the canvas has loaded.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { duelFxClock } from "./fx-clock";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
-import { cardArtUrl, LOCATION_GRAVE, LOCATION_PZONE, TYPE_LINK, TYPE_XYZ } from "./constants";
+import { cardArtUrl, isDefenseAt, LOCATION_GRAVE, LOCATION_PZONE, LOCATION_SZONE, TYPE_LINK, TYPE_XYZ } from "./constants";
 import {
   auraTintOf,
   collectFreshEvents,
@@ -48,7 +49,9 @@ import {
   type DuelFxCueDetail,
   type SummonStyle,
 } from "./event-queue";
-import { battleBreakIs3d, battleDestroyAt, HELD_CRACK_MS } from "./battle-hold";
+import { battleBreakIs3d, battleDestroyAt, battleTakeover, HELD_CRACK_MS } from "./battle-hold";
+import { chainEffectAt } from "./chain-beats";
+import { hiddenHoldMs } from "./big-summon";
 import { getSharedFx3d, setSharedFx3d } from "./fx3d/shared";
 import { parseRgbTriplet } from "./fx3d/coords";
 import { pickSummonRoute, summon3dKeyOf, summonEffectId } from "./fx3d/routing";
@@ -56,10 +59,12 @@ import { SUMMON3D_TIMELINE, shakeScaleOf, summon3dHitMs, summon3dLockMs, type Su
 import type { Fx3dApi, FxRequest, FxTint } from "./fx3d/types";
 import { useFx3d } from "./fx3d/use-fx3d";
 import { holdPromptReveal } from "./prompt-reveal";
-import { MOVE_TIMING, pairedMovePlan, planMoves, type MovePlan } from "./move-plan";
+import { getMovePlan, MOVE_TIMING, pairedMovePlan, planMoves, type MovePlan } from "./move-plan";
 import type { DuelShakePreference } from "./preferences";
 import styles from "./summon-fx.module.css";
-import { safeAnimate } from "./safe-animate";
+import { safeFxAnimate as safeAnimate } from "./safe-animate";
+import { FIELD_PLACEMENT_SCALE, fieldPlacementMs } from "./placement-timing";
+import { CARD_FX } from "./duel-timing";
 
 export type SummonFxProps = {
   /** engine.events (a rolling window; ids only grow). Play only events newer than the first render. */
@@ -71,18 +76,21 @@ export type SummonFxProps = {
 };
 
 /** Milliseconds from the start of a heavy summon. Everything else is derived from these. */
-export const HEAVY_TIMELINE = {
-  rise: 320,
-  hoverEnd: 520,
-  impact: 640,
-  handOver: 710,
-  shake: 320,
-  crackDraw: 150,
-  crackFadeFrom: 900,
+const HEAVY_AUTHORED = {
+  rise: CARD_FX.heavyTimeline.riseMs,
+  hoverEnd: CARD_FX.heavyTimeline.hoverEndMs,
+  impact: CARD_FX.heavyTimeline.impactMs,
+  handOver: CARD_FX.heavyTimeline.handOverMs,
+  shake: 400,
+  crackDraw: 190,
+  crackFadeFrom: 1130,
   /** Rays of light from the impact are gone by here. */
-  raysEnd: 1080,
-  total: 1300,
+  raysEnd: 1350,
+  total: CARD_FX.heavyTimeline.totalMs,
 } as const;
+export const HEAVY_TIMELINE = Object.fromEntries(
+  Object.entries(HEAVY_AUTHORED).map(([key, ms]) => [key, fieldPlacementMs(ms)]),
+) as Record<keyof typeof HEAVY_AUTHORED, number>;
 
 /**
  * Peak vertical field shake in px for a Level 8 monster on a 1100px-wide board (horizontal is 0.45x).
@@ -108,7 +116,7 @@ const TYPED_AUTHORED: Record<SummonStyle, { handOver: number; total: number }> =
   ritual: { handOver: 820, total: 1350 },
   pendulum: { handOver: 1080, total: 1500 },
 };
-export const TYPED_SCALE = 0.75;
+export const TYPED_SCALE = CARD_FX.typedScale * FIELD_PLACEMENT_SCALE;
 
 /** The same timeline as it plays: when the real card takes over, and when the effect is gone. */
 export const TYPED_TIMELINE = Object.fromEntries(
@@ -149,12 +157,13 @@ function applyTone(el: HTMLElement | SVGElement | null, tone: FxTone): void {
 
 const CARD_ASPECT = 0.686;
 /** Gap between queued board effects (a chain link, a second summon), so each one reads on its own. */
-const STAGGER_MS = 220;
+const STAGGER_MS = CARD_FX.summonStaggerMs;
 const MAX_STAGGER_STEPS = 5;
 /** A second slam waits this long after the first starts; the first one's aftermath overlaps it a little. */
-const HEAVY_LOCK_MS = 1150;
+const HEAVY_LOCK_MS = fieldPlacementMs(CARD_FX.heavyLockMs);
 const MAX_ITEMS = 10;
-const HIDE_FAILSAFE_MS = 4000;
+/** The WebGL summon holds the real card this much past its hand-over, in case the timer is late. */
+const HAND_OVER_MARGIN_MS = 400;
 const GY_LOCATION = LOCATION_GRAVE;
 
 type FxKind = "heavy" | "typed" | "light" | "set" | "activate" | "destroy" | "impact";
@@ -163,10 +172,10 @@ type FxKind = "heavy" | "typed" | "light" | "set" | "activate" | "destroy" | "im
 const SLAM_LOOK_MIN = 0.6;
 const SLAM_LOOK_MAX = 1.6;
 /** After the impact the field effects (cracks, aura, rings) last at most this long. */
-const IMPACT_LIFE_MAX = 700;
-const IMPACT_LIFE_MIN = 560;
+const IMPACT_LIFE_MAX = fieldPlacementMs(700);
+const IMPACT_LIFE_MIN = fieldPlacementMs(560);
 /** The whole slam (drop, impact and aftermath) stays under about this many ms from the start of the summon. */
-const SLAM_TOTAL_MS = 1300;
+const SLAM_TOTAL_MS = fieldPlacementMs(1300);
 
 type FxItem = {
   key: string;
@@ -186,6 +195,9 @@ type FxItem = {
   life: number;
   /** destroy: ms the card cracks in place before it breaks; set when a battle holds the destroy. */
   breakMs?: number;
+  /** A resolved source stays visible until cleanup; undefined awaits an open chain, zero finishes normally. */
+  activationHoldMs?: number;
+  activationAt?: number;
   /** The 3D layer draws the break of this card (shards and flash), so the DOM only holds the ghost. */
   claim3d?: boolean;
   /** Set when the WebGL layer draws this heavy or typed summon. */
@@ -275,6 +287,13 @@ function placeAnchor(anchor: HTMLElement, geo: Geo): void {
   anchor.style.setProperty("--fx-w", `${geo.w}px`);
   anchor.style.setProperty("--fx-h", `${geo.h}px`);
   anchor.style.setProperty("--fx-r", `${geo.radius}px`);
+  // The opponent's cards face the other way: the copies drawn here turn with them (see summon-fx.module.css).
+  anchor.dataset.side = geo.side;
+}
+
+/** The turn a card copy needs to match the real card: 180 degrees for the opponent, plus 90 in Defense Position. */
+function copyTurn(geo: Geo): number {
+  return (geo.side === "opp" ? 180 : 0) + (geo.defense ? 90 : 0);
 }
 
 function artOf(zone: HTMLElement): HTMLElement | null {
@@ -332,7 +351,7 @@ export class Track {
   }
 
   after(ms: number, fn: () => void): void {
-    this.timers.push(window.setTimeout(fn, Math.max(0, this.at(ms))));
+    this.timers.push(duelFxClock.setTimeout(fn, Math.max(0, this.at(ms))));
   }
 
   /** Runs `fn` when the track is disposed (an effect that lives outside the DOM stops with it). */
@@ -346,7 +365,7 @@ export class Track {
   }
 
   dispose(): void {
-    for (const timer of this.timers) window.clearTimeout(timer);
+    for (const timer of this.timers) duelFxClock.clearTimeout(timer);
     for (const cleanup of this.cleanups) cleanup();
     for (const anim of this.anims) {
       try {
@@ -358,10 +377,14 @@ export class Track {
   }
 }
 
-/** Keeps the real card invisible for `ms` (fill both), then lets it back on its own. */
+/**
+ * Keeps the real card (art and stat plate) invisible from now for `ms`, then lets it back on its own.
+ * That end is also the safety net: the hold is capped (see hiddenHoldMs), and cancelling the returned
+ * animation, or disposing the track, shows the card at once.
+ */
 function holdHidden(track: Track, zone: HTMLElement, ms: number): Animation | null {
   const body = cardBodyOf(zone);
-  return track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: Math.min(ms, HIDE_FAILSAFE_MS), fill: "backwards" });
+  return track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: hiddenHoldMs(ms, 0), fill: "backwards" });
 }
 
 function shakeFrames(amp: number, seed: number): Keyframe[] {
@@ -442,9 +465,10 @@ const SHARD_GRID: Array<Array<[number, number]>> = [
   [[0, 100], [35, 100], [66, 100], [100, 100]],
 ];
 
-type Shard = { clip: string; cx: number; cy: number };
+export type Shard = { clip: string; cx: number; cy: number };
 
-const SHARDS: Shard[] = (() => {
+/** The pieces of a broken card (clip polygons over the card art). MoveFx flies the same pieces to the pile. */
+export const SHARDS: Shard[] = (() => {
   const shards: Shard[] = [];
   for (let r = 0; r < 3; r += 1) {
     for (let c = 0; c < 3; c += 1) {
@@ -505,9 +529,9 @@ function useEffectSetup(
       alive = false;
       track.dispose();
     };
-    // The item is immutable for its whole life: set up once.
+    // An activation's hold can grow when resolution arrives in a subsequent snapshot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [item.activationHoldMs]);
 }
 
 function useAnchor() {
@@ -535,7 +559,7 @@ function GlowFx({ item, overlay, done, tone }: EffectProps & { tone: "gold" | "v
     if (anchor.current) placeAnchor(anchor.current, geo);
     if (tone === "typed") applyTone(anchor.current, item.style ?? "gold");
     track.play(glow.current, [{ opacity: 0 }, { opacity: 0.95, offset: 0.25 }, { opacity: 0 }], {
-      duration: 320,
+      duration: CARD_FX.reducedEffectMs,
       delay: item.delayMs,
       easing: "ease-out",
     });
@@ -552,6 +576,7 @@ function LightFx({ item, overlay, done }: EffectProps) {
   const anchor = useAnchor();
   const ring = useRef<HTMLSpanElement>(null);
   useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
+    track.pace(item.delayMs, FIELD_PLACEMENT_SCALE);
     if (anchor.current) placeAnchor(anchor.current, geo);
     const art = artOf(zone);
     const lift = geo.side === "opp" ? 1 : -1;
@@ -578,6 +603,7 @@ function SetFx({ item, overlay, done }: EffectProps) {
   const anchor = useAnchor();
   const shadow = useRef<HTMLSpanElement>(null);
   useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
+    track.pace(item.delayMs, FIELD_PLACEMENT_SCALE);
     if (anchor.current) placeAnchor(anchor.current, geo);
     const from = geo.side === "opp" ? -34 : 34;
     track.play(
@@ -608,39 +634,72 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
   const edge = useRef<HTMLSpanElement>(null);
   const ghost = useRef<HTMLDivElement>(null);
   const chain = item.event.chainIndex != null;
-  useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
+  useEffectSetup(overlay, item, item.activationHoldMs == null && item.event.zone?.location === LOCATION_SZONE ? () => {} : done, ({ track, zone, geo }) => {
     if (anchor.current) placeAnchor(anchor.current, geo);
     const art = artOf(zone);
     const flat = !geo.defense;
-    const frames: Keyframe[] = [
-      { filter: "brightness(0.55)", transform: flat ? "perspective(520px) rotateY(84deg)" : "none", opacity: 0.6 },
-      { filter: "brightness(1.6)", transform: flat ? "perspective(520px) rotateY(-6deg)" : "none", opacity: 1, offset: 0.55 },
-      { filter: "brightness(1)", transform: flat ? "perspective(520px) rotateY(0deg)" : "none", opacity: 1 },
-    ];
-    if (item.plan) {
-      // The flight already brought the card face-up onto the zone: only the ring marks the activation.
-    } else if (art) {
-      track.play(art, frames, { duration: 560, delay: item.delayMs, easing: "cubic-bezier(0.25, 0.8, 0.3, 1)" });
-    } else if (ghost.current) {
-      // The card already left the zone (it resolved): flip a copy in place so the activation still reads.
-      track.play(ghost.current, [{ opacity: 0, transform: "perspective(520px) rotateY(84deg)" }, { opacity: 1, transform: "perspective(520px) rotateY(0deg)", offset: 0.4 }, { opacity: 1, offset: 0.75 }, { opacity: 0 }], {
-        duration: 800,
-        delay: item.delayMs,
+    // Rebuilding an extended hold keeps the original origin; a negative WAAPI delay resumes
+    // the flip at its elapsed time instead of replaying it when the next snapshot arrives.
+    const d = item.activationAt != null ? item.activationAt - duelFxClock.now() : item.delayMs;
+    if (ghost.current) {
+      const activationMs = item.reduced ? CARD_FX.reducedEffectMs : CARD_FX.activationMs;
+      const total = Math.max(activationMs, item.activationHoldMs ?? 0);
+      const flips = flat && !item.plan && !item.reduced;
+      const initialTransform = flips ? "perspective(520px) rotateY(84deg)" : "none";
+      const finalTransform = flips ? "perspective(520px) rotateY(0deg)" : "none";
+      const frames: Keyframe[] = item.activationHoldMs ? [
+        { opacity: 0, transform: initialTransform },
+        { opacity: 1, transform: finalTransform, offset: activationMs * 0.4 / total },
+        { opacity: 1, offset: 0.9999 }, { opacity: 0 },
+      ] : [{ opacity: 0, transform: initialTransform }, { opacity: 1, transform: finalTransform, offset: 0.4 }, { opacity: 1, offset: 0.75 }, { opacity: 0 }];
+      track.play(ghost.current, frames, {
+        duration: total,
+        delay: d,
         easing: "cubic-bezier(0.25, 0.8, 0.3, 1)",
       });
+      // A copy survives the source node disappearing in a later response snapshot.
+      if (art?.querySelector(`img[src*="/cards/${item.card?.code}/image"]`)) holdHidden(track, zone, Math.max(0, d + total));
     }
-    pulseRing(track, edge.current, item.delayMs + 80, { grow: 1.16, duration: 700, peak: 1 });
+    if (item.reduced) track.play(edge.current, [{ opacity: 0 }, { opacity: 1, offset: 0.25 }, { opacity: 0 }], { duration: CARD_FX.reducedEffectMs, delay: d });
+    else pulseRing(track, edge.current, d + 80, { grow: 1.16, duration: 700, peak: 1 });
   });
   return (
     <div ref={anchor} className={styles.anchor}>
       <span ref={edge} className={styles.ring} data-tone={chain ? "gold" : "violet"} data-strong="true" />
-      {item.card && !item.plan ? (
+      {item.card ? (
         <div ref={ghost} className={styles.flipGhost}>
           <img className={styles.ghostArt} src={cardArtUrl(item.card.code, "small")} alt="" draggable={false} />
         </div>
       ) : null}
     </div>
   );
+}
+
+/**
+ * When a destroy that a fight holds shows its break: `breakMs` is the crack lead (at most HELD_CRACK_MS, less when
+ * the break is nearer), `delayMs` the wait before the cracks start. The whole card is gone at exactly `heldAt`
+ * (the moment the shards start), whatever the flight to the Graveyard is queued behind.
+ */
+export function heldDestroyTiming(heldAt: number, now: number): { breakMs: number; delayMs: number } {
+  const until = Math.max(0, heldAt - now);
+  const breakMs = Math.max(1, Math.min(HELD_CRACK_MS, until));
+  return { breakMs, delayMs: Math.max(0, until - breakMs) };
+}
+
+/**
+ * The stand-in of a destroyed card: whole and cracking until `breakAt`, then gone in one step. A fade here would
+ * show the whole card and the shards together, so the last whole frame and the first empty one share an offset.
+ */
+export function destroyWholeFrames(breakAt: number, total: number): Keyframe[] {
+  const at = Math.min(0.999, breakAt / total);
+  return [
+    { opacity: 1, filter: "brightness(1)", transform: "translate(0, 0)" },
+    { opacity: 1, filter: "brightness(1)", offset: Math.min(at, Math.max(0, breakAt - 200) / total) },
+    { opacity: 1, filter: "brightness(1.7) saturate(1.2)", transform: "translate(-1.5px, 0)", offset: Math.min(at, Math.max(0, breakAt - 110) / total) },
+    { opacity: 1, filter: "brightness(1.2)", transform: "translate(1.5px, 0)", offset: at },
+    { opacity: 0, offset: at },
+    { opacity: 0 },
+  ];
 }
 
 /** Destroy: hairline cracks flash red across the card, it bursts into shards that drift to the Graveyard. */
@@ -655,12 +714,17 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
   const handoff = item.plan != null;
   const claimed = item.claim3d === true;
   useEffectSetup(overlay, item, done, ({ track, geo }) => {
-    if (anchor.current) placeAnchor(anchor.current, geo);
+    const defense = item.event.fromPosition == null ? geo.defense : isDefenseAt(item.event.zone?.location, item.event.fromPosition);
+    if (anchor.current) {
+      placeAnchor(anchor.current, geo);
+      // The zone can already be empty. Keep the whole stand-in and every shard in its departure pose.
+      anchor.current.style.rotate = defense ? "90deg" : "";
+    }
     const d = item.delayMs;
     const breakAt = item.breakMs ?? (item.event.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs);
     // With a flight to the Graveyard the card ends here and MoveFx picks it up at the break. A break
     // the canvas claimed keeps the full length: if the canvas dies first, the DOM shards play instead.
-    const burst = handoff ? (claimed ? 300 : 60) : 560;
+    const burst = handoff ? (claimed ? 400 : 60) : 840;
     const total = breakAt + burst;
     track.after(d + breakAt, () => emitCue("shatter", 1));
 
@@ -670,30 +734,26 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
       sequence: 0,
     });
     const gyGeo = gy ? measure(overlay, gy) : null;
-    const dxGy = gyGeo ? gyGeo.cx - geo.cx : 0;
-    const dyGy = gyGeo ? gyGeo.cy - geo.cy : geo.side === "opp" ? -geo.h : geo.h;
+    const screenDx = gyGeo ? gyGeo.cx - geo.cx : 0;
+    const screenDy = gyGeo ? gyGeo.cy - geo.cy : geo.side === "opp" ? -geo.h : geo.h;
+    // Shard motion is local to the rotated anchor; its destination remains in screen space.
+    const dxGy = defense ? screenDy : screenDx;
+    const dyGy = defense ? -screenDx : screenDy;
 
     // The card stands as it was until the break, with a red rim and the fissures appearing.
     track.play(
       whole.current,
-      [
-        { opacity: 1, filter: "brightness(1)", transform: "translate(0, 0)" },
-        { opacity: 1, filter: "brightness(1)", offset: Math.max(0, breakAt - 130) / total },
-        { opacity: 1, filter: "brightness(1.7) saturate(1.2)", transform: "translate(-1.5px, 0)", offset: Math.max(0, breakAt - 70) / total },
-        { opacity: 1, filter: "brightness(1.2)", transform: "translate(1.5px, 0)", offset: Math.max(0, breakAt - 20) / total },
-        { opacity: 0, offset: Math.min(0.999, breakAt / total) },
-        { opacity: 0 },
-      ],
+      destroyWholeFrames(breakAt, total),
       { duration: total, delay: d, easing: "linear" },
     );
     track.play(
       crackSvg.current,
-      [{ opacity: 0 }, { opacity: 0, offset: Math.max(0, breakAt - 190) / total }, { opacity: 1, offset: Math.max(0, breakAt - 90) / total }, { opacity: 1, offset: Math.min(0.999, breakAt / total) }, { opacity: 0 }],
+      [{ opacity: 0 }, { opacity: 0, offset: Math.max(0, breakAt - 300) / total }, { opacity: 1, offset: Math.max(0, breakAt - 170) / total }, { opacity: 1, offset: Math.min(0.999, breakAt / total) }, { opacity: 0 }],
       { duration: total, delay: d, easing: "linear" },
     );
     const playFlash = (delay: number) =>
       track.play(flash.current, [{ opacity: 0 }, { opacity: 0.8, offset: 0.35 }, { opacity: 0 }], {
-        duration: 280,
+        duration: CARD_FX.destroyFlashMs,
         delay,
         easing: "ease-out",
       });
@@ -707,7 +767,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
       const burstX = ox * geo.w * (0.32 + rand() * 0.22);
       const burstY = oy * geo.h * (0.2 + rand() * 0.14) - geo.h * 0.05;
       const spin = (rand() - 0.5) * 70 + ox * 24;
-      const lag = rand() * 70;
+      const lag = rand() * 100;
       const flyX = dxGy * (0.7 + rand() * 0.25) + burstX * 0.3;
       const flyY = dyGy * (0.7 + rand() * 0.25) + burstY * 0.3;
       const anim = track.play(
@@ -716,7 +776,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
           { opacity: 0, transform: "translate(0, 0) rotate(0deg) scale(1)", offset: 0 },
           { opacity: 0, transform: "translate(0, 0) rotate(0deg) scale(1)", offset: Math.max(0, breakAt - 1) / (breakAt + burst + lag) },
           { opacity: 1, transform: "translate(0, 0) rotate(0deg) scale(1)", offset: breakAt / (breakAt + burst + lag), easing: "cubic-bezier(0.1, 0.7, 0.3, 1)" },
-          { opacity: 1, transform: `translate(${burstX}px, ${burstY}px) rotate(${spin * 0.6}deg) scale(1.02)`, offset: (breakAt + 150) / (breakAt + burst + lag), easing: "cubic-bezier(0.5, 0, 0.75, 0.4)" },
+          { opacity: 1, transform: `translate(${burstX}px, ${burstY}px) rotate(${spin * 0.6}deg) scale(1.02)`, offset: (breakAt + 220) / (breakAt + burst + lag), easing: "cubic-bezier(0.5, 0, 0.75, 0.4)" },
           { opacity: 0, transform: `translate(${flyX}px, ${flyY}px) rotate(${spin * 1.6}deg) scale(0.3)` },
         ],
         { duration: breakAt + burst + lag, delay, easing: "linear" },
@@ -776,14 +836,10 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
             shards.current[index] = el;
           }}
           className={styles.shard}
-          style={
-            {
-              clipPath: shard.clip,
-              transformOrigin: `${shard.cx}% ${shard.cy}%`,
-              backgroundImage: card ? `url(${cardArtUrl(card.code, "small")})` : undefined,
-            } as CSSProperties
-          }
-        />
+          style={{ clipPath: shard.clip, transformOrigin: `${shard.cx}% ${shard.cy}%` } as CSSProperties}
+        >
+          <i className={styles.shardArt} style={{ backgroundImage: card ? `url(${cardArtUrl(card.code, "small")})` : undefined }} />
+        </span>
       ))}
       <span ref={flash} className={styles.breakFlash} />
     </div>
@@ -813,7 +869,7 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
   const tribute = item.event.summonKind === "tribute";
   const cardInfo = item.card;
   const tone: FxTone = item.style ?? "gold";
-  const T = HEAVY_TIMELINE;
+  const T = HEAVY_AUTHORED;
 
   useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
     const d = item.delayMs;
@@ -850,7 +906,8 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
     }
 
     // The real card waits underneath until the projection has landed.
-    holdHidden(track, zone, d + T.handOver);
+    holdHidden(track, zone, d + HEAVY_TIMELINE.handOver);
+    track.pace(d, FIELD_PLACEMENT_SCALE);
 
     const tilt = up ? 1 : -1;
     const at = (ms: number) => ms / T.handOver;
@@ -875,8 +932,9 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
       { duration: T.handOver, delay: d, fill: "backwards", easing: "linear" },
     );
     if (geo.defense) {
-      // A monster summoned in Defense Position turns as it lands.
-      track.play(art.current, [{ rotate: "0deg", offset: 0 }, { rotate: "0deg", offset: at(T.hoverEnd) }, { rotate: "90deg", offset: at(T.impact) }, { rotate: "90deg" }], {
+      // A monster summoned in Defense Position turns as it lands (from the owner's upright turn).
+      const base = geo.side === "opp" ? 180 : 0;
+      track.play(art.current, [{ rotate: `${base}deg`, offset: 0 }, { rotate: `${base}deg`, offset: at(T.hoverEnd) }, { rotate: `${base + 90}deg`, offset: at(T.impact) }, { rotate: `${base + 90}deg` }], {
         duration: T.handOver,
         delay: d,
         fill: "backwards",
@@ -1313,7 +1371,7 @@ function useTypedSetup(
     const { handOver, total } = TYPED_AUTHORED[style];
     if (refs.anchor.current) placeAnchor(refs.anchor.current, geo);
     applyTone(refs.anchor.current, style);
-    if (refs.copyBody.current && geo.defense) refs.copyBody.current.style.rotate = "90deg";
+    if (refs.copyBody.current && copyTurn(geo) !== 0) refs.copyBody.current.style.rotate = `${copyTurn(geo)}deg`;
     holdHidden(track, zone, d + handOver * TYPED_SCALE);
     // Everything below is written on the authored timeline and plays at TYPED_SCALE of it.
     track.pace(d, TYPED_SCALE);
@@ -1619,6 +1677,7 @@ function LinkFx(props: EffectProps) {
       fill: "both",
       easing: "cubic-bezier(0.4, 0, 0.6, 1)",
     });
+    // The fill keeps its own turn to the Defense Position only: its wipe (a clip) must run down the screen for both sides.
     if (fill.current && geo.defense) fill.current.style.rotate = "90deg";
     track.play(copyArt, [{ filter: "brightness(1) saturate(1)" }, { filter: "brightness(0.35) saturate(0.4) sepia(1) hue-rotate(170deg)", offset: 0.35 }, { filter: "brightness(0.35) saturate(0.4) sepia(1) hue-rotate(170deg)" }], {
       duration: sweepStart,
@@ -1797,6 +1856,7 @@ function PendulumFx(props: EffectProps) {
     if (!arc || !g) return undefined;
     const track = new Track();
     const { p0, ctrl, p2, d } = g;
+    track.pace(d, TYPED_SCALE);
     const draw = (el: Element | null) =>
       track.play(el, [{ strokeDashoffset: 1, opacity: 0 }, { strokeDashoffset: 0.6, opacity: 1, offset: 0.2 }, { strokeDashoffset: 0, opacity: 1, offset: 0.62 }, { strokeDashoffset: 0, opacity: 0.9, offset: 0.78 }, { strokeDashoffset: 0, opacity: 0 }], {
         duration: 1180,
@@ -1898,7 +1958,8 @@ function Summon3dFx({ item, overlay, done }: EffectProps) {
     const d = item.delayMs;
     const tl = SUMMON3D_TIMELINE[three.key];
     const weight = heavyWeight(item.card, item.event.summonKind === "tribute");
-    const hidden = holdHidden(track, zone, d + tl.handOver);
+    // The hold outlasts the hand-over by a margin; the real card is shown exactly at the slam below.
+    const hidden = holdHidden(track, zone, d + tl.handOver + HAND_OVER_MARGIN_MS);
     // Keeps the item alive until the last light has faded.
     track.play(anchor.current, [{ opacity: 1 }, { opacity: 1 }], { duration: tl.total, delay: d });
     holdPromptReveal(d + tl.total);
@@ -1926,13 +1987,17 @@ function Summon3dFx({ item, overlay, done }: EffectProps) {
         hidden?.cancel();
         return;
       }
-      void three.api.play(summonEffectId(three.key), request, abort.signal);
+      // The portrait starts now: the real card shows when it lands, measured from this moment.
+      track.after(tl.handOver, () => hidden?.cancel());
+      // An effect that ends early (it failed to start, the canvas was lost) never leaves the zone empty.
+      void three.api.play(summonEffectId(three.key), request, abort.signal).then(() => hidden?.cancel());
     });
   });
   return <div ref={anchor} className={styles.anchor} data-fx="summon3d" />;
 }
 
 function FxView({ item, overlay, done }: EffectProps) {
+  if (item.reduced && item.kind === "activate") return <ActivateFx item={item} overlay={overlay} done={done} />;
   if (item.reduced) {
     const tone = item.kind === "destroy" ? "red" : item.kind === "activate" && item.event.chainIndex == null ? "violet" : item.style ? "typed" : "gold";
     return <GlowFx item={item} overlay={overlay} done={done} tone={tone} />;
@@ -2028,7 +2093,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
     if (fresh.length === 0) return;
     if (typeof document !== "undefined" && document.hidden) return;
 
-    const now = typeof performance !== "undefined" ? performance.now() : 0;
+    const now = typeof performance !== "undefined" ? duelFxClock.now() : 0;
     // Idempotent: MoveFx plans the same batch; whichever layer runs first fixes the timing.
     planMoves(fresh, { now, reduced: prefsRef.current.reducedMotion, duelKey });
     const planned: FxItem[] = [];
@@ -2037,15 +2102,20 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
       const planned_ = planKind(event, fresh);
       if (!planned_ || !findZoneElement(event.zone)) continue;
       const { kind, style } = planned_;
+      // A wipe piece (DestroyFx) keeps the card whole on its own ghost and draws it on the canvas: no ghost here.
+      if (kind === "destroy" && battleTakeover(event.zone, now)) continue;
       const plan = pairedMovePlan(event.id);
       // A light summon or a set is the landing of its flight: no second animation of the same move.
       if (plan && (kind === "light" || kind === "set")) continue;
-      let delayMs = Math.min(step, MAX_STAGGER_STEPS) * STAGGER_MS;
+      let delayMs = Math.min(step, MAX_STAGGER_STEPS) * fieldPlacementMs(STAGGER_MS, prefsRef.current.reducedMotion || kind === "activate" || kind === "destroy");
       if (plan) {
         // Effects that belong after the card has landed wait for it; a destroy leads the flight.
         const at = kind === "destroy" ? plan.startAt - plan.leadMs : plan.landAt;
         delayMs = Math.max(0, at - now);
       }
+      // The effect of a resolving chain link starts while its badge is lit, never before.
+      const chainAt = chainEffectAt(event.id);
+      if (chainAt > now) delayMs = Math.max(delayMs, chainAt - now);
       // The layer is picked here and stays: an effect never changes layer half-way.
       const api = fx3d.current;
       const threeKey =
@@ -2063,8 +2133,10 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         claim3d = battleBreakIs3d(event.zone, now);
         const heldAt = battleDestroyAt(event.zone, now);
         if (heldAt > 0) {
-          breakMs = HELD_CRACK_MS;
-          delayMs = Math.max(delayMs, heldAt - now - breakMs);
+          // The fight owns this moment: not the flight plan, not a queue (a tie breaks both cards at once).
+          const timing = heldDestroyTiming(heldAt, now);
+          breakMs = timing.breakMs;
+          delayMs = timing.delayMs;
         }
       }
       step += 1;
@@ -2085,6 +2157,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         breakMs,
         claim3d,
         three,
+        activationAt: kind === "activate" ? now + delayMs : undefined,
       };
       planned.push(base);
       if (strength > 0 && !base.reduced) {
@@ -2094,8 +2167,22 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         planned.push({ ...base, key: `${event.id}-${seqRef.current}`, kind: "impact", delayMs: delayMs + hit, life: impactLifeMs(hit) });
       }
     }
-    if (planned.length === 0) return;
-    setItems((current) => [...current, ...planned].slice(-MAX_ITEMS - 4));
+    setItems((current) => [...current, ...planned].map((item) => {
+      if (item.kind !== "activate" || item.activationAt == null) return item;
+      const chainEnd = events.reduce((end, other) => other.kind === "chain-end" && other.id > item.event.id ? Math.min(end, other.id) : end, Infinity);
+      const cleanup = events.find((other) => other.kind === "move" && other.id > item.event.id && other.id < chainEnd && other.from && item.event.zone &&
+        other.from.controller === item.event.zone.controller && other.from.location === item.event.zone.location &&
+        other.from.sequence === item.event.zone.sequence && other.card?.code === item.event.card?.code);
+      const departure = cleanup ? getMovePlan(cleanup.id) : null;
+      // A source destroyed by another link hands its copy to the break phase, just like any
+      // other victim. Keeping the activation copy until its flight would cover the shards.
+      const destroyed = departure && events.find((other) => other.kind === "destroy" && departure.pairedIds.includes(other.id));
+      const handoffAt = departure ? destroyed ? chainEffectAt(destroyed.id) || departure.startAt - departure.leadMs : departure.startAt : null;
+      // With the chain complete, a staying source (or an unplanned cleanup) has no
+      // handoff to wait for. Finish its normal activation instead of retaining a stale ghost.
+      const hold = handoffAt != null ? Math.max(0, handoffAt - item.activationAt) : Number.isFinite(chainEnd) ? 0 : undefined;
+      return hold === item.activationHoldMs ? item : { ...item, activationHoldMs: hold };
+    }).slice(-MAX_ITEMS - 4));
   }, [duelKey, events]);
 
   const finish = (key: string) => setItems((current) => current.filter((item) => item.key !== key));

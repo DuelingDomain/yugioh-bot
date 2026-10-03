@@ -4,22 +4,32 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
-import { Circle, Diamond, ExternalLink, Eye, Link2, Radio, Settings, Volume2, VolumeX } from "lucide-react";
-import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelChainLink, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
+import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "lucide-react";
+import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { SurrenderModal } from "./surrender-modal";
+import { BugReportHeaderButton } from "../bug-report/bug-report-header-button";
+import { BugReportMenuButton } from "../bug-report/bug-report-menu-button";
+import { useBugReportRoom } from "../bug-report/room-store";
+import { connectionLabel as labelForConnection } from "./connection-label";
 import { Sheet } from "@/components/ui/sheet";
 import { useDuelWebsocket } from "@/lib/hooks/use-duel-websocket";
+import { createEchoWindow } from "@/lib/duel-echo-window";
+import { applyAnswerResult } from "./answer-result";
 import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import {
   acceptDuelInvite,
   addPracticeBot,
+  chooseOpeningOrder,
+  pickOpeningMove,
+  removePracticeBot,
   archiveDuel,
   cancelDuel,
   duelRoomKey,
   getDuelRoom,
-  joinDuel,
+  takeDuelSeat,
   leaveDuel,
+  markDuelReady,
   sendDuelAction,
   setDuelDeck,
   startDuel,
@@ -27,18 +37,26 @@ import {
 } from "./api";
 import { RoomLobby } from "./room-lobby";
 import { ReportButton } from "./report-button";
+import { OpeningScreen } from "./opening";
 import { DeckMasterRail, DuelField } from "./field";
+import { TableShell, type TableShellProps } from "./table/table-shell";
+import { TagShell } from "./tag/tag-shell";
+import { defaultTeamNames } from "./tag/live-tag";
+import { useLiveTableController } from "./table/use-live-table-controller";
+import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { MultiSeatStage } from "./multi-seat-stage";
-import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, opponentPickOptions, seatNamer, type SeatPick } from "./multi-seat";
+import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, seatPickFor, seatNamer } from "./multi-seat";
+import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
-import { AttackConfirm, CardActionMenu, CardHoverInfo } from "./card-interactions";
+import { AttackConfirm, CardActionMenu, CardHoverInfo, PickRefusalHint, shakeRefusedCard, confirmSide, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
 import { DestroyFx } from "./destroy-fx";
-import { FxBoundary } from "./fx-boundary";
+import { FxBoundary, MoveSourceBoundary } from "./fx-boundary";
 import { BattleFx, type BattleAim } from "./battle-fx";
 import fxStyles from "./battle-fx.module.css";
 import { DuelFeedback } from "./feedback";
 import { duelFontClasses } from "./fonts";
-import { DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
+import { DUEL_SHAKE_LABEL, DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
+import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "./animation-speed-control";
 import { CardInspector, type InspectTarget } from "./inspector";
 import {
   activatePromptFromField,
@@ -52,198 +70,46 @@ import {
   usePromptDraft,
   type PromptAim,
 } from "./prompts";
-import { cardArtUrl, isBattlePhase, phaseLabel, zoneKey } from "./constants";
+import { isBattlePhase, phaseTitle, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
-import { exitDuelWindow, isDuelWindow, openDuelWindow } from "./duel-window";
+import { closeDuelWindow, duelWindowName, duelWindowPath, exitDuelWindow, isDuelWindow, liveDuelWindow, openDuelWindow, renameDuelWindow } from "./duel-window";
+import { ownWindowGateVisible } from "./start-flow";
+import { SeriesBanner, SeriesGameLabel } from "./series-banner";
+import { BetweenGamesScreen, isStartingNextGame, NextGameStarting } from "./between-games";
+import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from "./series-model";
 import { SheetButton } from "./sheet-ui";
 import { DuelClockDisplay, DuelSettingsSummary, DuelSoundControls, RoomInvite } from "./room-settings";
-import { battleStepLabel, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
+import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
+import { MasterReturnFx } from "./master-return-fx";
 import { MoveFx } from "./move-fx";
+import { useStartBeats } from "./use-start-beats";
 import { PositionFx } from "./position-fx";
+import { ChainFx } from "./chain-fx";
 import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
 import { centerKind, PromptCenter } from "./prompt-center";
-import { usePromptReveal } from "./prompt-reveal";
+import { skipsAnswerableWait, usePickContinuation } from "./pick-continuation";
+import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
+import { useResultGate } from "./result-reveal";
 import { PileViewer } from "./pile-viewer";
+import { livePileCards, shouldClosePileForPrompt, type PileView } from "./pile-focus";
+import { MatchSheetLog } from "./text-log";
+import {
+  CardTabEmpty, DEFAULT_SIDE_PANE, DESKTOP_PANES, desktopPane, mobilePanes, SidePanel, SideTabs, useIsNarrow, type SidePane,
+} from "./side-panel";
 
-
-type CardMenuState = {
-  anchor: HTMLElement;
-  title: string;
-  options: DuelPromptOption[];
-  promptId: string;
-  revision: number;
-  tone: "action" | "chain";
-};
-
-type Pane = "card" | "log" | "options" | "masters";
-
-/** A pile (Graveyard, Banished, Extra Deck…) opened in the centred viewer. `cards` is the snapshot at open time. */
-type PileView = { title: string; owner: "you" | "opp"; cards: DuelCard[]; open: boolean; seat?: number };
-
-/** The pile's live contents from the engine view, so the viewer follows moves while it is open. */
-function livePileCards(view: PileView, engine: DuelRoom["engine"], localSeat: number): DuelCard[] {
-  const seat = engine?.seats.find((entry) => view.seat != null ? entry.seat === view.seat
-    : view.owner === "you" ? entry.seat === localSeat : entry.seat !== localSeat);
-  if (!seat) return view.cards;
-  const title = view.title.toLowerCase();
-  if (/graveyard|\bgy\b/.test(title)) return seat.graveyard;
-  if (/banish/.test(title)) return seat.banished;
-  if (/extra/.test(title)) return seat.extra;
-  return view.cards;
-}
 
 /** The attack target the player pointed at; only the confirm submits it. */
 type AimLock = { promptId: string; optionId: string; key: string; anchor: HTMLElement; name: string };
 
-const SHAKE_LABEL = { off: "Off", low: "Low", medium: "Medium", high: "High" } as const;
 
-/** A face-down or unnamed target reads as "face-down monster" in the confirm. */
-function targetName(option: DuelPromptOption): string {
-  const name = option.card?.name?.trim();
-  if (name) return name;
-  return !option.label || /^Card \d+$/.test(option.label) ? "face-down monster" : option.label;
-}
-
-function zoneAnchor(key: string): HTMLElement | null {
-  const zone = document.querySelector<HTMLElement>(`[data-zones~="${key}"]`);
-  return zone?.querySelector<HTMLElement>("button") ?? zone;
-}
-
-/** Put the confirm on the side of the target away from the attacker, so it never covers the arrow. */
-function confirmSide(attackerKey: string | null, anchor: HTMLElement): "above" | "below" {
-  const from = attackerKey ? document.querySelector(`[data-zones~="${attackerKey}"]`) : null;
-  if (!from) return "above";
-  return from.getBoundingClientRect().top > anchor.getBoundingClientRect().top ? "above" : "below";
-}
-
-// Action ids the engine sends that never change the board: phase moves and a
-// hand shuffle. When the local action prompt offers nothing else, the player has
-// no legal play left and the station track lets "End Turn" glow.
-const PASSIVE_ACTION_IDS: ReadonlySet<string> = new Set(["to_bp", "to_m2", "to_ep", "shuffle"]);
-
-function hasNoLegalMoves(options: readonly DuelPromptOption[]): boolean {
-  return options.length > 0 && options.every((option) => PASSIVE_ACTION_IDS.has(option.id));
-}
-
-function phaseTitle(phase: string | null | undefined): string {
-  const label = phaseLabel(phase);
-  switch (label) {
-    case "Draw":
-    case "Standby":
-    case "Battle":
-    case "End":
-      return `${label} Phase`;
-    case "Main 1":
-      return "Main Phase 1";
-    case "Main 2":
-      return "Main Phase 2";
-    case "Damage":
-      return "Damage Step";
-    case "Damage calculation":
-      return "Damage Calculation";
-    default:
-      return label;
-  }
-}
-
-
-const LOG_PHASE_KEYS: ReadonlySet<string> = new Set([
-  "draw", "standby", "main1", "battle_start", "battle_step", "damage", "damage_cal", "battle", "main2", "end",
-]);
-
-type LogKind = "turn" | "phase" | "loss" | "gain" | "chain" | "result" | "line";
-
-function logKind(text: string): LogKind {
-  if (/^Turn \d+/.test(text)) return "turn";
-  if (LOG_PHASE_KEYS.has(text)) return "phase";
-  if (/ wins \(|^Draw \(/.test(text)) return "result";
-  if (/ takes \d+ damage| pays \d+ LP/.test(text)) return "loss";
-  if (/ gains \d+ LP/.test(text)) return "gain";
-  if (/ is activating$|^A chain link was negated$|^Chain ended$/.test(text)) return "chain";
-  return "line";
-}
-
-/** The engine log names seats "Player N"; show the table's display names instead. */
-function logText(text: string, kind: LogKind, playerName: (seat: number) => string): string {
-  if (kind === "phase") return phaseTitle(text);
-  return text.replace(/\bPlayer ([12])\b/g, (_match, seat: string) => playerName(Number(seat) - 1));
-}
-
-function MatchSheetLog({
-  entries,
-  playerName,
-  players,
-}: {
-  entries: ReadonlyArray<{ id: number; text: string }>;
-  playerName: (seat: number) => string;
-  players: string;
+export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage = false, spectate = false, actorPlayerId = null }: {
+  slug: string; inviteCode?: string; windowed?: boolean; legacyStage?: boolean; spectate?: boolean; actorPlayerId?: number | null;
 }) {
-  const listRef = useRef<HTMLOListElement>(null);
-  const count = entries.length;
-  // Follow the newest entry id: the engine caps the log at 400 lines, so the length stops changing.
-  const lastId = entries[count - 1]?.id;
-  useEffect(() => {
-    // Scroll only the sheet's own list; scrollIntoView would also scroll the side pane
-    // and push the history rail above it out of view.
-    const list = listRef.current;
-    if (list) list.scrollTop = list.scrollHeight;
-  }, [lastId, count]);
-  return (
-    <div className={styles.sheet}>
-      <div className={styles.sheetHead}>
-        <h2>Match sheet</h2>
-        <span>{players}</span>
-      </div>
-      <ol ref={listRef} className={styles.log} aria-label="Duel log">
-        {entries.map((entry) => {
-          const kind = logKind(entry.text);
-          return (
-            <li key={entry.id} data-kind={kind}>
-              {logText(entry.text, kind, playerName)}
-            </li>
-          );
-        })}
-      </ol>
-    </div>
-  );
-}
-
-function ChainBlock({
-  chain,
-  playerName,
-}: {
-  chain: readonly DuelChainLink[];
-  playerName: (seat: number) => string;
-}) {
-  return (
-    <section className={styles.chain} aria-label="Current chain">
-      <strong>
-        <Link2 size={14} strokeWidth={1.75} aria-hidden /> Chain<span className={styles.chainNote}> · resolves highest link first</span>
-      </strong>
-      <ol>
-        {chain.map((link) => (
-          <li key={link.index}>
-            <b>{link.index}</b>
-            {link.code != null && link.code > 0 ? (
-              <span className={styles.chainArt} aria-hidden style={{ backgroundImage: `url(${cardArtUrl(link.code)})` }} />
-            ) : null}
-            <span className={styles.chainText}>
-              {link.name ?? "Effect"}
-              <small>{playerName(link.seat)}{link.description ? ` · ${link.description}` : ""}</small>
-            </span>
-          </li>
-        ))}
-      </ol>
-    </section>
-  );
-}
-
-export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: string; inviteCode?: string; windowed?: boolean }) {
   const router = useRouter();
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
   const { data, error, isLoading, mutate } = useSWR(
-    slug ? duelRoomKey(slug) : null,
+    slug ? duelRoomKey(slug, spectate) : null,
     async () => {
       let admitError: unknown = null;
       if (inviteCode && (admitted.current?.slug !== slug || admitted.current.inviteCode !== inviteCode)) {
@@ -260,7 +126,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         }
       }
       try {
-        return await getDuelRoom(slug);
+        return await getDuelRoom(slug, spectate);
       } catch (err) {
         throw admitError ?? err;
       }
@@ -268,55 +134,166 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     { revalidateOnFocus: false, revalidateOnReconnect: false },
   );
   const refreshRoom = useCallback(
-    () => mutate(() => getDuelRoom(slug), { revalidate: false }),
-    [mutate, slug],
+    () => mutate(() => getDuelRoom(slug, spectate), { revalidate: false }),
+    [mutate, slug, spectate],
   );
-  const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom);
-  const catchingUp = realtime.syncing || realtime.recovering;
+  // The duel host answers with the last view it built when its queue is blocked (stale). Ask again until it is fresh.
+  const roomStale = data?.stale === true;
+  useEffect(() => {
+    if (!roomStale) return;
+    const timer = setInterval(() => void refreshRoom(), 2000);
+    return () => clearInterval(timer);
+  }, [roomStale, refreshRoom]);
+  // The change notice that an answer of this player causes is not a reason to shut the prompts (see duel-echo-window.ts).
+  const echo = useMemo(() => createEchoWindow(), []);
+  const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom, spectate, echo.quiet);
+  const syncing = realtime.syncing || realtime.recovering;
+  const liveFormat = engineFormat(data?.engine);
+  // Live tables: FFA mounts TableShell, Tag 2v2 mounts the Rooftop (TagShell). ?stage=legacy keeps MultiSeatStage for both.
+  const liveTagTable = isMultiSeat(data?.engine) && liveFormat === "tag" && !legacyStage;
+  const liveTable = (isMultiSeat(data?.engine) && (liveFormat === "ffa3" || liveFormat === "ffa4") && !legacyStage) || liveTagTable;
+  const playerName = seatNamer(data?.session.seats ?? []);
   useDuelLeaveGuard({
     slug,
-    active: data?.session.status === "active" && !data.engine?.result,
+    active: data?.session.status === "active" && !data.engine?.result &&
+      (!isMultiSeat(data?.engine) || !data.engine?.seats.some((seat) => seat.seat === data.mySeat && (seat.eliminated || seat.pendingElimination))),
     role: data?.mySeat == null ? "spectator" : "player",
   });
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
+  // Set when an answer is sent; the next prompt then decides whether an open pile viewer stays.
+  const pileAnswered = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
-  const [pane, setPane] = useState<Pane>("card");
+  const [pane, setPane] = useState<SidePane>(DEFAULT_SIDE_PANE);
+  // Log rows that arrived while the Log tab was out of view (the badge on the tab).
+  const [logUnread, setLogUnread] = useState(0);
+  const narrow = useIsNarrow();
   const [mobileInspect, setMobileInspect] = useState(false);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [hideResult, setHideResult] = useState(false);
+  // The next game of a series waits in its lobby for a moment; "Open the table" shows that lobby anyway.
+  const [showTable, setShowTable] = useState(false);
   // Read after mount: the server render cannot know whether this is the duel window.
   const [inDuelWindow, setInDuelWindow] = useState(windowed);
   const [playHere, setPlayHere] = useState(false);
-  const [windowBlocked, setWindowBlocked] = useState(false);
   const [windowOpened, setWindowOpened] = useState(false);
+  // Start duel was clicked and the server has not answered yet.
+  const [starting, setStarting] = useState(false);
+  const popup = useRef<Window | null>(null);
   const openWindow = () => {
-    const opened = openDuelWindow(slug) != null;
-    setWindowOpened(opened);
-    setWindowBlocked(!opened);
+    const opened = openDuelWindow(slug);
+    popup.current = opened;
+    setWindowOpened(opened != null);
+    return opened;
   };
-  useEffect(() => { if (isDuelWindow(slug)) setInDuelWindow(true); }, [slug]);
+  // Pop out: the board moves to the duel window, this tab shows where it went.
+  const [popBlocked, setPopBlocked] = useState(false);
+  const popOut = () => {
+    setPlayHere(false);
+    setPopBlocked(openWindow() == null);
+  };
+  useEffect(() => {
+    if (!popBlocked) return undefined;
+    const timer = window.setTimeout(() => setPopBlocked(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [popBlocked]);
+  // A remount (the next game of a series, or back from the tables list) must not show a second board
+  // for a seat whose duel window this page still has open.
+  useEffect(() => {
+    if (isDuelWindow(slug)) return;
+    const existing = liveDuelWindow(slug);
+    if (!existing) return;
+    popup.current = existing;
+    setWindowOpened(true);
+  }, [slug]);
+  useEffect(() => {
+    if (!isDuelWindow(slug)) return;
+    setInDuelWindow(true);
+    // The name lets a later open of this duel find this window and focus it.
+    try { window.name = duelWindowName(slug); } catch { /* a read-only name only costs the focus-reuse */ }
+  }, [slug]);
+  // The player closed the duel window: the duel continues in this tab.
+  useEffect(() => {
+    if (!windowOpened) return undefined;
+    const timer = window.setInterval(() => {
+      if (popup.current?.closed) {
+        popup.current = null;
+        setWindowOpened(false);
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [windowOpened]);
   const [menu, setMenu] = useState<CardMenuState | null>(null);
   const [hover, setHover] = useState<{ card: DuelCard; anchor: HTMLElement } | null>(null);
+  // A click the pick refused (full): a short note on the card, which also shakes.
+  const [pickHint, setPickHint] = useState<{ anchor: HTMLElement; text: string; promptId: string } | null>(null);
+  const clearPickHint = useCallback(() => setPickHint(null), []);
   const [pile, setPile] = useState<PileView | null>(null);
   // 3 and 4 seat tables: the opponent the player tapped to show large (null = follow the action).
   const [pinnedFocus, setPinnedFocus] = useState<number | null>(null);
   const preferences = useDuelPreferences();
-  const prompt = data?.engine?.prompt ?? null;
+  useDuelAnimationSpeed(preferences.reducedMotion);
+  const viewerOut = isMultiSeat(data?.engine) && data?.engine?.seats.some((seat) =>
+    seat.seat === data.mySeat && (seat.eliminated === true || seat.pendingElimination === true)) === true;
+  // The server flips to active before it answers Start duel; the pop-up already has the duel then.
+  const ownWindowGate = data && !viewerOut ? ownWindowGateVisible({
+    status: data.session.status, mySeat: data.mySeat, inDuelWindow, playHere,
+    hasResult: Boolean(data.engine?.result), starting, windowOpened,
+  }) : false;
+  // The turn-start phases (and the opening deal) play one beat at a time; nothing can be answered meanwhile.
+  const startBeats = useStartBeats({
+    engine: data?.engine ?? null,
+    clock: data?.clock,
+    duelKey: slug,
+    reducedMotion: preferences.reducedMotion,
+    ready: Boolean(data?.engine) && data?.session.status !== "lobby" && !ownWindowGate && !error && !realtime.recovering,
+  });
+  const catchingUp = syncing || startBeats.active;
+  // The engine drops its prompt when the duel ends; guard here too, so no answer path can open between the end and the result screen.
+  const prompt = data?.engine?.result ? null : (data?.engine?.prompt ?? null);
   const draft = usePromptDraft(prompt);
   const legalKeys = useMemo(() => promptLegalKeys(prompt), [prompt]);
   const selectedKeys = useMemo(() => promptSelectedKeys(prompt, draft.selected), [draft.selected, prompt]);
   const closeMenu = useCallback(() => setMenu(null), []);
+  const pickHintShown = pickHint != null && pickHint.promptId === prompt?.id && !menu && pickHint.anchor.isConnected;
   const boardRef = useRef<HTMLDivElement>(null);
-  const promptMine = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat && data.session.status === "active";
+  // The result screen waits for the last attack, LP roll and card flights to finish, then a short human pause.
+  const resultReady = useResultGate({
+    slug,
+    status: data?.session.status,
+    hasResult: data?.engine?.result != null,
+    reason: data?.engine?.result?.reason ?? data?.session.resultReason,
+    reducedMotion: preferences.reducedMotion,
+    board: boardRef,
+  });
+  const viewerSeat = data?.engine?.seats.find((seat) => seat.seat === data.mySeat);
+  const viewerLeaving = viewerOut && viewerSeat?.eliminated !== true && viewerSeat?.pendingElimination === true;
+  // Auto-spectate only watches the REMAINING duel; once it is over the eliminated seat keeps its own result screen.
+  const duelOver = data?.session.status !== "active" || data?.engine?.result != null;
+  const viewerEliminated = (liveFormat === "ffa3" || liveFormat === "ffa4") && viewerSeat?.eliminated === true && !duelOver;
+  useEffect(() => {
+    if (!viewerEliminated || spectate) return;
+    const query = new URLSearchParams(window.location.search);
+    query.set("spectate", "1");
+    if (inDuelWindow) query.set("window", "1");
+    router.replace(`/duels/${encodeURIComponent(slug)}?${query}`);
+  }, [viewerEliminated, spectate, inDuelWindow, router, slug]);
+  const promptMine = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat && data.session.status === "active" && !viewerOut;
   // Every prompt except your own action menu is answered in the middle of the board (PromptCenter):
   // a floating panel for responses, an instruction bar for picks on the field. The left dock keeps
   // only the action prompt's Cancel / Finish and the live region; unknown kinds fall back to the old tray.
   const centered = promptMine && centerKind(prompt) != null;
   // The centred panel waits a human beat and the board FX before it shows; until then nothing answers it.
-  const revealed = usePromptReveal({ promptId: centered ? prompt.id : null, board: boardRef, reducedMotion: preferences.reducedMotion });
-  const activeMenu = !busy && !error && !catchingUp && menu?.promptId === prompt?.id &&
+  // It also waits until the room can take an answer (the last answer finished, no re-sync): until then every button
+  // is disabled, so a panel shown early looks ready and is dead.
+  // A follow-up of the player's own material pick skips both waits and shows at once (its buttons stay off while busy).
+  // Between the click and that prompt the last bar stays up (pick.waiting), buttons off.
+  const pick = usePickContinuation(prompt, data?.engine?.revision);
+  const revealBeat = usePromptReveal({ promptId: centered ? prompt.id : null, board: boardRef, reducedMotion: preferences.reducedMotion, skip: pick.continuing });
+  const answerable = usePromptAnswerable(centered ? prompt.id : null, !busy && !error && !catchingUp, skipsAnswerableWait(pick.continuing, catchingUp));
+  const revealed = revealBeat && answerable;
+  const activeMenu = !viewerOut && !busy && !error && !catchingUp && menu?.promptId === prompt?.id &&
     menu?.revision === data?.engine?.revision ? menu : null;
 
   // Human attack flow: pick the attacker in the menu (preview arrow), aim at a target, confirm.
@@ -324,8 +301,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const [actionPreview, setActionPreview] = useState<{ from: string; direct: boolean } | null>(null);
   const [aimHoverKey, setAimHoverKey] = useState<string | null>(null);
   const [aimLock, setAimLock] = useState<AimLock | null>(null);
-  const myPrompt = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat &&
-    data.session.status === "active";
+  const myPrompt = promptMine;
   const attackTargetActive = myPrompt && isAttackTargetPrompt(prompt, pendingAttack != null);
   const directPromptActive = myPrompt && isDirectAttackPrompt(prompt);
   const attackTargets = useMemo(() => {
@@ -349,9 +325,31 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     if (!activeMenu) setActionPreview(null);
   }, [activeMenu]);
 
+  // A new prompt that wants cards outside the open pile (summon materials on the field) must not stay hidden
+  // behind the pile viewer's scrim. A prompt that wants cards inside the pile keeps it open.
+  useEffect(() => {
+    const engine = data?.engine;
+    if (!engine) return;
+    const answered = pileAnswered.current;
+    pileAnswered.current = false;
+    if (!prompt) {
+      // Answered and now waiting (no prompt for anyone yet): let the player watch the board, not the pile.
+      if (answered) setPile((current) => (current?.open ? { ...current, open: false } : current));
+      return;
+    }
+    const seat = data?.mySeat ?? 0;
+    setPile((current) => {
+      if (!current?.open) return current;
+      const cards = livePileCards(current, engine, seat);
+      return shouldClosePileForPrompt(cards, promptLegalKeys(prompt), promptMine, answered) ? { ...current, open: false } : current;
+    });
+    // Only a new prompt decides this; later revisions of the same prompt must not close a pile the player opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt?.id]);
+
   // Hovering or focusing a legal target on the board aims the arrow at it.
   useEffect(() => {
-    if (!attackTargetActive) {
+    if (liveTable || !attackTargetActive) {
       setAimHoverKey(null);
       return;
     }
@@ -377,14 +375,17 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       document.removeEventListener("focusin", enter);
       document.removeEventListener("focusout", leave);
     };
-  }, [attackTargetActive, attackTargets]);
+  }, [liveTable, attackTargetActive, attackTargets]);
 
   useEffect(() => {
     setInspect(null);
     setPile(null);
     setHideResult(false);
+    setShowTable(false);
     setMobileInspect(false);
+    setLogUnread(0);
     setActionError(null);
+    setStarting(false);
   }, [slug]);
 
   const run = useCallback(
@@ -392,30 +393,72 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       // React's busy state alone cannot reject two clicks within one render.
       if (inFlight.current) return;
       inFlight.current = true;
+      echo.begin();
       setBusy(true);
       setMenu(null);
       setHover(null);
       setActionError(null);
       try {
         const result = await work();
-        if (result && "engine" in result) await mutate(result, { revalidate: true });
-        else await mutate();
+        await applyAnswerResult(mutate, result);
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Action failed");
         await mutate();
       } finally {
         inFlight.current = false;
+        echo.end();
         setBusy(false);
       }
     },
-    [mutate],
+    [mutate, echo],
   );
+
+  // A series moves on to its next game by itself: follow it, keeping the duel window. Players always
+  // follow. A spectator follows once they have watched this game while it was the series' current
+  // game, so the end screen of game 1 hands them to game 2; one who opens an older game stays on it.
+  const [watchedLive, setWatchedLive] = useState<string | null>(null);
+  const watchingCurrent = data?.series != null && isSeriesOpen(data.series) && data.series.currentDuelSlug === slug;
+  useEffect(() => {
+    if (watchingCurrent) setWatchedLive(slug);
+  }, [watchingCurrent, slug]);
+  const nextTarget = data ? nextGameTarget(data, slug, { followAsSpectator: watchedLive === slug }) : null;
+  const goToGame = useCallback((next: string) => {
+    // The window this tab opened follows the series on its own; name it for the next game now, so the
+    // next room finds it before the window has finished moving.
+    if (!inDuelWindow && popup.current && !popup.current.closed) renameDuelWindow(popup.current, next);
+    const path = inDuelWindow ? duelWindowPath(next) : `/duels/${encodeURIComponent(next)}`;
+    router.replace(legacyStage ? `${path}${inDuelWindow ? "&" : "?"}stage=legacy` : path);
+  }, [router, inDuelWindow, legacyStage]);
+  useEffect(() => {
+    if (nextTarget) goToGame(nextTarget);
+  }, [nextTarget, goToGame]);
+
+  // The side deck window and the next game start on the server; poll in case the socket misses it.
+  const seriesWaiting = data?.series != null && isSeriesOpen(data.series) && data.session.status !== "active"
+    && data.session.status !== "lobby";
+  useEffect(() => {
+    if (!seriesWaiting) return undefined;
+    const timer = window.setInterval(() => void refreshRoom(), 2000);
+    return () => window.clearInterval(timer);
+  }, [seriesWaiting, refreshRoom]);
+
+  // The rock-paper-scissors opening runs on the server clock; poll in case the socket misses a step.
+  const openingRunning = data?.opening != null && data.session.status === "lobby";
+  useEffect(() => {
+    if (!openingRunning) return undefined;
+    const timer = window.setInterval(() => void refreshRoom(), 1500);
+    return () => window.clearInterval(timer);
+  }, [openingRunning, refreshRoom]);
 
   const onSubmitAnswer = useCallback(
     (answer: DuelAnswer) => {
       if (!data?.engine || !prompt || error || catchingUp || data.mySeat !== prompt.seat ||
-          data.session.status !== "active" || inFlight.current) return;
+          data.session.status !== "active" || viewerOut || inFlight.current) return;
       const command = { promptId: prompt.id, revision: data.engine.revision, answer };
+      // The answer is on its way (e.g. an Extra Deck summon picked in the pile viewer): the next prompt decides
+      // whether the viewer stays (it wants a card in the pile) or closes (materials on the field must not sit behind it).
+      pileAnswered.current = true;
+      pick.noteAnswer(prompt, answer);
       // Remember the declared attacker so the target step can draw the arrow from it.
       const attack = prompt.context?.type === "action" && answer.choice?.startsWith("attack:")
         ? prompt.options.find((option) => option.id === answer.choice) : undefined;
@@ -424,7 +467,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         : null);
       void run(() => sendDuelAction(slug, command));
     },
-    [data, prompt, error, catchingUp, run, slug],
+    [data, prompt, error, catchingUp, run, slug, pick.noteAnswer, viewerOut],
   );
 
   /** A prompt tile or response row under the pointer: show the card in the inspector, as board cards do. */
@@ -432,7 +475,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     if (pane === "card") setInspect({ type: "info", card });
   }
 
-  function showInspector(target: InspectTarget, mobile = false) {
+  function showInspector(target: InspectTarget, mobile = false, reveal = false) {
     if (target.type === "pile") {
       // Piles open in the centred viewer over the board, never in the inspector (whose state it does not share).
       const seat = data?.mySeat ?? 0;
@@ -447,8 +490,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       return;
     }
     setInspect(target);
-    setPane("card");
-    if (mobile && window.matchMedia("(max-width: 900px)").matches) setMobileInspect(true);
+    // A board click on the Log tab keeps the log (the hover card already shows it). A click on a log row (reveal),
+    // or any click from Settings or the narrow layout, goes to the Card tab. The log keeps its place.
+    if (reveal || pane !== "log" || narrow) setPane("card");
+    if (mobile && narrow) setMobileInspect(true);
   }
 
   function playerNameOf(seat: number): string {
@@ -497,6 +542,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   }
 
   function onFieldActivate(keys: string[], card: DuelCard | null, anchor: HTMLElement, preserveInspector = false) {
+    // TableShell owns card menus and field picks. Its adapter still routes every answer through onSubmitAnswer.
+    if (liveTable) return;
     setHover(null);
     if (card && !preserveInspector) showInspector({ type: "card", card });
     if (busy || error || catchingUp) return;
@@ -527,7 +574,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       }
     }
     closeMenu();
-    const handled = activatePromptFromField(prompt, Boolean(mine), keys, card, draft, onSubmitAnswer);
+    const handled = activatePromptFromField(prompt, Boolean(mine), keys, card, draft, onSubmitAnswer, (refusal) => {
+      if (!prompt) return;
+      shakeRefusedCard(anchor, preferences.reducedMotion);
+      setPickHint({ anchor, text: refusal.text, promptId: prompt.id });
+    });
     if (card && !handled) showInspector({ type: "card", card }, true);
   }
 
@@ -535,6 +586,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     onFieldActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor, true);
   }
 
+  const liveController = useLiveTableController({
+    room: data, nameOf: playerName, prompt, canAct: promptMine, busy, error, catchingUp, revealed,
+    draft, legalKeys, selectedKeys, aim: null, reducedMotion: preferences.reducedMotion,
+    onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onInspect: showInspector,
+  });
+
+  useBugReportRoom(data ?? null);
   if (isLoading && !data) return <div className="p-6 text-sm text-text-secondary">Loading table…</div>;
   if (error && !data) {
     const message = error instanceof Error ? error.message : "Could not load this table.";
@@ -547,23 +605,51 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     );
   }
   if (!data) return null;
-  if (data.session.status === "lobby") {
-    return (
-      <RoomLobby room={data} slug={slug} busy={busy} actionError={actionError}
-        onJoin={() => void run(() => joinDuel(slug))}
+  // The next game of a Best of 3 is made in a lobby that starts by itself: no table settings between games.
+  if (isStartingNextGame(data) && !showTable && !ownWindowGate) {
+    return <NextGameStarting room={data} onShowTable={() => setShowTable(true)} />;
+  }
+  if (data.session.status === "lobby" && !ownWindowGate) {
+    const opening = data.opening;
+    const lobby = (
+      <RoomLobby room={data} slug={slug} busy={busy} starting={starting} actionError={actionError}
+        onDeckLocked={() => void refreshRoom()}
+        onTakeSeat={(seat) => void run(() => takeDuelSeat(slug, seat))}
         onAddBot={(seat) => void run(() => addPracticeBot(slug, seat))}
+        onRemoveBot={(seat) => void run(() => removePracticeBot(slug, seat))}
         onReady={(deck) => void run(() => setDuelDeck(slug, deck))}
+        onMarkReady={() => void run(() => markDuelReady(slug))}
         onStart={() => {
           // Inside the click, so pop-up blockers allow it. Seated players on other devices get the prompt below.
-          if (!inDuelWindow) openWindow();
-          void run(() => startDuel(slug));
+          if (inFlight.current) return;
+          const opened = inDuelWindow ? null : openWindow();
+          setStarting(true);
+          void run(async () => {
+            try {
+              return await startDuel(slug);
+            } catch (err) {
+              // Back to the lobby with the error; the pop-up has nothing to show.
+              setStarting(false);
+              setWindowOpened(false);
+              popup.current = null;
+              try { opened?.close(); } catch { /* the browser keeps it open */ }
+              throw err;
+            }
+          });
         }}
         onCancel={() => void run(() => cancelDuel(slug))}
-        onLeave={() => void run(async () => {
-          await leaveDuel(slug);
-          router.replace("/duels");
-        })}
+        onLeave={() => void run(() => leaveDuel(slug))}
       />
+    );
+    if (!opening) return lobby;
+    const seatName = (seat: number) => data.session.seats.find((entry) => entry.seat === seat)?.displayName ?? `Player ${seat + 1}`;
+    return (
+      <>
+        {lobby}
+        <OpeningScreen opening={opening} mySeat={data.mySeat} names={[seatName(0), seatName(1)]} busy={busy} error={actionError}
+          onPick={(move) => void run(() => pickOpeningMove(slug, move))}
+          onChoose={(choice) => void run(() => chooseOpeningOrder(slug, choice))} />
+      </>
     );
   }
 
@@ -576,53 +662,113 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const top = multi ? engine?.seats.find((seat) => seat.seat === focusSeat)
     : engine?.seats.find((seat) => seat.seat !== localSeat);
   const mine = prompt != null && prompt.seat === data.mySeat;
-  const canAct = mine && !busy && !error && !catchingUp && data.session.status === "active";
+  const canAct = mine && !busy && !error && !catchingUp && data.session.status === "active" && !viewerOut;
   // An opponent pick also answers by tapping the offered seat on the table (after the same human beat as the panel).
-  const pickOptions = multi && canAct && revealed ? opponentPickOptions(prompt, engine) : null;
-  const seatPick: SeatPick | null = pickOptions && pickOptions.size > 0
-    ? { options: pickOptions, onPick: (seat) => { const id = pickOptions.get(seat); if (id) onSubmitAnswer({ choice: id }); } }
-    : null;
-  const canSurrender = data.session.status === "active" && data.mySeat != null && !engine?.result;
+  const seatPick = multi && canAct && revealed ? seatPickFor(prompt, engine, onSubmitAnswer) : null;
+  const canSurrender = data.session.status === "active" && data.mySeat != null && !engine?.result && !viewerOut;
   const terminal = data.session.status !== "active";
-  const isOrganizer = data.session.seats.some((seat) =>
+  const isOrganizer = actorPlayerId === data.session.organizerPlayerId || data.session.seats.some((seat) =>
     seat.seat === data.mySeat && seat.playerId === data.session.organizerPlayerId);
   const canArchive = terminal && isOrganizer && !data.session.archivedAt;
-  const showResult = !hideResult && (engine?.result != null || terminal);
+  const series = data.series ?? null;
+  const myIndex = series ? seriesPlayerIndex(data, series) : null;
   const hasResult = engine?.result != null || terminal;
+  // A series player sees the side deck screen, not the result screen, once the last game has played out.
+  const betweenGames = series != null && myIndex != null && isBetweenGames(data, slug);
+  const showBetweenGames = betweenGames && resultReady && hasResult;
+  const showResult = !hideResult && !showBetweenGames && resultReady && (engine?.result != null || terminal);
   const exitDuel = () => {
     if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
     else router.replace("/duels");
   };
-  if (data.session.status === "active" && data.mySeat != null && !inDuelWindow && !playHere && !engine?.result) {
+  const surrenderOpen = confirmSurrender && canSurrender;
+  const surrenderModal = <SurrenderModal open={surrenderOpen} busy={busy} multiplayer={multi && (format === "ffa3" || format === "ffa4")} tag={multi && format === "tag"}
+    onClose={() => setConfirmSurrender(false)} onConfirm={() => {
+      if (!canSurrender) return;
+      setConfirmSurrender(false);
+      void run(() => surrenderDuel(slug));
+    }} />;
+  if (showBetweenGames) {
+    return <BetweenGamesScreen room={data} slug={slug} onChanged={refreshRoom} onNavigate={goToGame} />;
+  }
+  const leavingNotice = viewerLeaving ? <p className={styles.leavingNotice} role="status" data-testid="self-leaving">
+    Leaving — you surrendered; you leave at the end of this turn
+  </p> : null;
+  const popOutControl = data.mySeat != null && !viewerOut && !inDuelWindow && data.session.status === "active" && !engine?.result ?
+    <>
+      <button type="button" className={styles.tool} onClick={popOut}>Pop out</button>
+      {popBlocked ? <span className={styles.tool} role="status">Your browser blocked the window.</span> : null}
+    </> : null;
+  const leaveControl = data.mySeat == null || viewerOut ?
+    <button type="button" className={styles.tool} onClick={exitDuel}>Leave room</button> : null;
+  if (ownWindowGate) {
     return (
       <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center gap-4 text-center"
         data-testid="duel-window-gate">
-        <h1 className="text-xl font-semibold text-text-primary">{windowOpened ? "Duel is open in its own window" : "Your duel is live"}</h1>
+        <h1 className="text-xl font-semibold text-text-primary">Duel is open in its own window</h1>
         <p className="text-sm text-text-secondary">
-          {windowOpened ? "" : "Open it in its own window. "}The duel runs in a separate window so Back and Forward cannot pull you out of it.
-          {windowBlocked ? " Your browser blocked the window. Click the button to open it." : ""}
+          The duel runs in a separate window so Back and Forward cannot pull you out of it. Closing that window brings the duel back here.
         </p>
         <div className="flex flex-wrap justify-center gap-2">
           <SheetButton kind="primary" size="lg" onClick={openWindow}>
-            <ExternalLink size={16} strokeWidth={1.6} aria-hidden />{windowOpened ? "Focus window" : "Open duel window"}
+            <ExternalLink size={16} strokeWidth={1.6} aria-hidden />Focus window
           </SheetButton>
-          <SheetButton kind="quiet" onClick={() => setPlayHere(true)}>Open here instead</SheetButton>
+          <SheetButton kind="quiet" onClick={() => {
+            // One board per seat: the duel window closes, the duel continues in this tab.
+            closeDuelWindow(popup.current);
+            popup.current = null;
+            setWindowOpened(false);
+            setPlayHere(true);
+          }}>Open here instead</SheetButton>
         </div>
       </div>
     );
   }
-  const connectionLabel = terminal ? "Finished" : realtime.syncing ? "Catching up…" :
-    error || realtime.recovering ? "Reconnecting" : realtime.connected ? "Live" : "Polling";
+  if (liveTable && liveController) {
+    // One seam set for both live shells, so the room stays one code path.
+    const shellProps: TableShellProps = {
+      controller: liveController, fillViewport: true, boardRef, pickContinuation: pick, preferences,
+      inputSuspended: surrenderOpen,
+      fxActive: !error && !realtime.recovering, busy: busy || Boolean(error) || catchingUp,
+      initialOutOrder: eliminationOrder(liveController.engine),
+      connection: { ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy },
+      actions: { onExit: exitDuel, onSeriesChanged: () => void refreshRoom(), onNavigate: goToGame },
+      headerTools: <>
+        <BugReportHeaderButton room={data} />
+        <ReportButton slug={slug} />
+        {popOutControl}
+        {leaveControl}
+        {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error)}
+          onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
+      </>,
+      settingsTools: canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
+        onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null,
+      notices: <>
+        {leavingNotice}
+        {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
+          <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
+        {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
+        {data.error ? <div className={styles.error} role="alert">{data.error}</div> : null}
+      </>,
+      modals: <>
+        {surrenderModal}
+      </>,
+    };
+    if (liveTagTable) return <TagShell key={slug} {...shellProps} teamNames={defaultTeamNames()} />;
+    return <TableShell key={slug} {...shellProps} />;
+  }
+  const connectionLabel = labelForConnection(terminal, { ...realtime, stale: roomStale, error });
   const domain = data.session.mode === "domain";
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
-  const playerName = seatNamer(data.session.seats);
   const spectator = data.mySeat == null;
+  // While the turn-start phases pass one by one, the bar and the header show the beat, not the engine's phase.
+  const shownPhase = startBeats.phase === undefined ? engine?.phase : startBeats.phase;
   const battle = isBattlePhase(engine?.phase);
   // engine.battleStep is a round-4 contract field; read it defensively until every shared build carries it.
   const engineStep = (engine as { battleStep?: BattleStep | null } | null)?.battleStep ?? null;
   const battleStep = battle ? resolveBattleStep(engine?.phase, engineStep) : null;
   const stepName = battleStepLabel(battleStep);
-  const headerPhase = battle ? `Battle Phase${stepName ? ` · ${stepName}` : ""}` : phaseTitle(engine?.phase);
+  const headerPhase = battle ? `Battle Phase${stepName ? ` · ${stepName}` : ""}` : shownPhase === null ? "Dealing hands" : phaseTitle(shownPhase);
   const turnSeat = engine?.turnSeat;
   const myTurn = !spectator && turnSeat === data.mySeat;
   const turnText = turnSeat == null ? null : myTurn ? "Your turn" : `${playerName(turnSeat)}'s turn`;
@@ -669,6 +815,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     <CardInspector target={inspect}
       onInspectCard={(card) => setInspect({ type: "card", card })}
       onActivateCard={onInspectorActivate}
+      equipLinks={engine ? resolveEquipLinks(engine.seats) : undefined}
     />
   );
   const masterRail = domain && engine ? (
@@ -686,24 +833,30 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       onActivate={onFieldActivate} topSeat={multi ? focusSeat : undefined}
       onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} />
   ) : null;
-  const sideContent = pane === "card" ? inspector : pane === "log" ? (
+  // The Log list stays mounted behind the other tabs (SidePanel keepMounted), so it keeps the rows it has built.
+  // Only the instance in the column counts unread rows; the narrow sheet gets its own, uncounted copy.
+  const logVisible = pane === "log" && (!narrow || mobileInspect);
+  const logPanel = (counted: boolean) => (
     <div className={styles.logPane}>
-      {engine ? <DuelHistoryRail events={engine.events} engine={engine} mySeat={data.mySeat} playerName={playerName}
-        onInspectCard={(card) => showInspector("location" in card ? { type: "card", card } : { type: "info", card })}
-        reducedMotion={preferences.reducedMotion} /> : null}
+      {engine ? <DuelHistoryRail key={slug} events={engine.events} engine={engine} mySeat={data.mySeat} playerName={playerName}
+        onInspectCard={(card) => showInspector("location" in card ? { type: "card", card } : { type: "info", card }, false, true)}
+        reducedMotion={preferences.reducedMotion}
+        active={counted ? logVisible : true} onUnread={counted ? setLogUnread : undefined} /> : null}
       <details className={styles.textLog}>
         <summary>Text log</summary>
         <MatchSheetLog entries={engine?.log ?? []} playerName={playerName}
           players={data.session.seats.map((seat) => seat.displayName).join(" v ")} />
       </details>
     </div>
-  ) : pane === "masters" ? (
-    <div className={styles.mastersSheet}>{masterRail}</div>
-  ) : (
+  );
+  const cardPanel = inspect ? inspector : <CardTabEmpty />;
+  const mastersPanel = <div className={styles.mastersSheet}>{masterRail}</div>;
+  const settingsPanel = (
     <div className={styles.options}>
       <DuelSettingsSummary session={data.session} />
       <RoomInvite room={data} slug={slug} />
       <h2>Presentation</h2>
+      <DuelAnimationSpeedControl />
       <DuelSoundControls enabled={preferences.soundEnabled} volume={preferences.soundVolume}
         onEnabledChange={preferences.setSoundEnabled} onVolumeChange={preferences.setSoundVolume} />
       <label className="flex flex-col gap-2">Motion
@@ -719,7 +872,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         <div className={fxStyles.segment} role="group" aria-label="Screen shake">
           {DUEL_SHAKE_LEVELS.map((level) => (
             <button key={level} type="button" aria-pressed={preferences.shake === level}
-              onClick={() => preferences.setShake(level)}>{SHAKE_LABEL[level]}</button>
+              onClick={() => preferences.setShake(level)}>{DUEL_SHAKE_LABEL[level]}</button>
           ))}
         </div>
         <p className={fxStyles.shakeNote}>How hard heavy summons rattle the field.</p>
@@ -746,6 +899,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
           ))}
         </div>
       ) : null}
+      <BugReportMenuButton room={data} />
       {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy}
         onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
       {canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
@@ -759,42 +913,28 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       <Link href="/duels">Back to tables</Link>
     </div>
   );
-  const tabs = (mobile = false) => {
-    const panes: readonly Pane[] = mobile
-      ? (domain ? ["card", "log", "options", "masters"] : ["card", "log", "options"])
-      : ["card", "log"];
-    return (
-      <div className={styles.tabs} role={mobile ? undefined : "tablist"} aria-label={mobile ? "Mobile duel panels" : "Duel panels"}
-        onKeyDown={(event) => {
-          if (mobile || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-          event.preventDefault();
-          const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
-          const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
-          const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
-            : (current + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
-          buttons[next]?.focus();
-          buttons[next]?.click();
-        }}>
-        {panes.map((tab) => (
-          <button key={tab} type="button" role={mobile ? undefined : "tab"}
-            aria-selected={mobile ? undefined : pane === tab} aria-haspopup={mobile ? "dialog" : undefined}
-            tabIndex={mobile || pane === tab || (!mobile && pane === "options" && tab === "card") ? 0 : -1}
-            onClick={() => { setPane(tab); if (mobile) setMobileInspect(true); }}>
-            {tab[0].toUpperCase() + tab.slice(1)}
-          </button>
-        ))}
-      </div>
-    );
-  };
+  const sidePanes = (inAside: boolean) => (
+    <>
+      <SidePanel pane="card" selected={inAside ? desktopPane(pane) : pane} semantic={inAside}>{cardPanel}</SidePanel>
+      <SidePanel pane="log" selected={inAside ? desktopPane(pane) : pane} semantic={inAside} keepMounted>{logPanel(inAside)}</SidePanel>
+      <SidePanel pane="settings" selected={inAside ? desktopPane(pane) : pane} semantic={inAside}>{settingsPanel}</SidePanel>
+      {inAside ? null : <SidePanel pane="masters" selected={pane} semantic={false}>{mastersPanel}</SidePanel>}
+    </>
+  );
+  const tabs = (mobile = false) => (
+    <SideTabs panes={mobile ? mobilePanes(domain) : DESKTOP_PANES} selected={mobile ? pane : desktopPane(pane)}
+      unread={logUnread} mobile={mobile}
+      onSelect={(tab) => { setPane(tab); if (mobile) setMobileInspect(true); }} />
+  );
 
   return (
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
-      data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
+      data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={preferences.reducedMotion ? "true" : "false"}>
       <header className={styles.header}>
         <div className={styles.identity}>
-          <Link href="/duels" replace={inDuelWindow}>Yugidraft</Link>
+          <Link href="/duels" replace={inDuelWindow}>Duelists Kingdom</Link>
           {spectator ? <strong className={styles.viewerRole} title="You are watching. Both players' hidden cards remain private.">
             <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
           </strong> : null}
@@ -812,17 +952,23 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
           ) : null}
         </div>
         <div className={styles.status}>
+          <SeriesGameLabel room={data} />
           <span className={styles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
             {connectionLabel === "Live" ? <i className={styles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
-            {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
+            <span className={styles.connectionText}>
+              {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
+            </span>
           </span>
+          <BugReportHeaderButton room={data} />
           <ReportButton slug={slug} />
+          {popOutControl}
+          {leaveControl}
           {hasResult && hideResult ? (
             <button type="button" className={styles.tool} onClick={() => setHideResult(false)}>
               <span>Show result</span>
             </button>
           ) : null}
-          {hasResult ? (
+          {hasResult && resultReady ? (
             <button type="button" className={styles.tool} onClick={exitDuel}>
               <span>Exit duel</span>
             </button>
@@ -833,30 +979,27 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
             {preferences.soundEnabled ? <Volume2 size={16} strokeWidth={1.75} aria-hidden /> : <VolumeX size={16} strokeWidth={1.75} aria-hidden />}
             <span>Sound <b>{soundLabel}</b></span>
           </button>
-          <button
-            type="button"
-            className={styles.gear}
-            aria-label="Options"
-            aria-pressed={pane === "options"}
-            onClick={() => {
-              setPane("options");
-              if (window.matchMedia("(max-width: 900px)").matches) setMobileInspect(true);
-            }}
-          >
-            <Settings size={20} strokeWidth={1.75} aria-hidden />
-          </button>
         </div>
       </header>
-      {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
-        <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
-      {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
-      {data.error ? <div className={styles.error} role="alert">{data.error}</div> : null}
+      {series && !showResult && !(betweenGames && myIndex != null) ? (
+        <SeriesBanner room={data} slug={slug} onChanged={() => void refreshRoom()} onNavigate={goToGame} />
+      ) : null}
       <div className={styles.layout}>
+        {/* Notices float over the top of the layout. In flow they would take height from the board
+            and shrink it for as long as the notice shows. */}
+        {error || actionError || data.error || viewerLeaving ? (
+          <div className={styles.notices}>
+            {leavingNotice}
+            {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
+              <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
+            {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
+            {data.error ? <div className={styles.error} role="alert">{data.error}</div> : null}
+          </div>
+        ) : null}
         <aside className={styles.inspector}>
           {tabs()}
-          <div className={styles.sideContent} role="tabpanel" aria-label={pane}>{sideContent}</div>
+          <div className={styles.sideContent}>{sidePanes(true)}</div>
         </aside>
-        {engine?.chain.length ? <ChainBlock chain={engine.chain} playerName={playerName} /> : null}
         <div
           className={styles.promptDock}
           data-mode={dockMode}
@@ -865,13 +1008,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         >
           <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
             draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu)}
-            active={data.session.status === "active"} aim={promptAim} headless={centered} suspended={centered && !revealed}
+            active={data.session.status === "active" && !viewerOut} aim={promptAim} headless={centered} suspended={centered && !revealed}
             waitingName={multi && prompt ? playerName(prompt.seat) : null} />
         </div>
         <section className={styles.boardColumn} aria-label="Duel field">
-          <div className={styles.board} ref={boardRef}>
+          <div className={styles.board} ref={boardRef} data-deal-wait={startBeats.waiting ? "true" : undefined}>
             {engine ? (
-              <>
+              <MoveSourceBoundary events={engine.events} duelKey={slug} root={boardRef}>
                 {multi ? (
                   <MultiSeatStage key={slug} engine={engine} mySeat={data.mySeat} masterRule={data.session.masterRule}
                     reducedMotion={preferences.reducedMotion}
@@ -882,25 +1025,31 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
                 ) : (
                 <DuelField key={slug} engine={engine} mySeat={data.mySeat} masterRule={data.session.masterRule}
                   reducedMotion={preferences.reducedMotion}
+                  priorityLive={!busy && !error && !realtime.recovering && !catchingUp &&
+                    (data.mySeat == null || (engine.prioritySeat ?? prompt?.seat) !== data.mySeat || revealed)}
                   legalKeys={legalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
                   onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
                   bottomName={playerName(localSeat)}
                   topName={playerName(top?.seat ?? 1 - localSeat)} />
                 )}
                 <FxBoundary>
-                {!error && !realtime.recovering ? <DuelFeedback events={engine.events} duelKey={slug}
+                {!error && !realtime.recovering ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
                   soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
                 {!error && !realtime.recovering ? <SummonFx events={engine.events} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
-                {!error && !realtime.recovering ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
+                {!error && !realtime.recovering ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
                 {!error && !realtime.recovering ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
+                {!error && !realtime.recovering ? <ChainFx events={engine.events} chain={engine.chain} duelKey={slug}
+                  reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} /> : null}
+                {!error && !realtime.recovering ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
+                  reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
                 <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}
-                  active={!error && !realtime.recovering} aim={battleAim} />
+                  active={!error && !realtime.recovering} aim={battleAim} result={engine.result} battleStep={battleStep} />
                 <DestroyFx key={`destroy-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
                   active={!error && !realtime.recovering} mySeat={localSeat} />
                 </FxBoundary>
-                <PromptCenter prompt={prompt} mySeat={data.mySeat} active={data.session.status === "active"} slug={slug}
-                  busy={busy || Boolean(error) || catchingUp} draft={draft} onSubmit={onSubmitAnswer}
+                <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}
+                  busy={busy || Boolean(error) || catchingUp || (prompt == null && pick.waiting != null)} draft={draft} onSubmit={onSubmitAnswer}
                   menuOpen={Boolean(activeMenu)} chain={engine.chain} aim={promptAim}
                   aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
                   reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
@@ -908,13 +1057,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
                 {pile ? (
                   <PileViewer title={pile.title} owner={pile.owner} open={pile.open}
                     cards={livePileCards(pile, engine, localSeat)} onClose={closePile}
-                    onInspectCard={(card) => { setInspect({ type: "card", card }); setPane("card"); }}
+                    onInspectCard={(card) => { setInspect({ type: "card", card }); if (pane !== "log") setPane("card"); }}
                     onHoverCard={(card) => { if (pane === "card") setInspect({ type: "card", card }); }}
                     onActivateCard={onInspectorActivate}
                     legalKeys={legalKeys} selectedKeys={selectedKeys}
                     reducedMotion={preferences.reducedMotion} />
                 ) : null}
-              </>
+              </MoveSourceBoundary>
             ) : <p className="p-4">{data.session.status === "active" ? "Waiting for engine view…" : "No saved final board is available for this record."}</p>}
           </div>
         </section>
@@ -922,7 +1071,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       </div>
       <div className={styles.track}>
         <StationTrack
-          phase={engine?.phase}
+          phase={shownPhase}
           battleStep={battleStep}
           turn={engine?.turn}
           turnSeat={engine?.turnSeat}
@@ -952,24 +1101,17 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
           prefer={confirmSide(attackerKey, aimLock.anchor)} onConfirm={confirmAim}
           onBack={() => setAimLock(null)} />
       ) : null}
-      {hover && !activeMenu && !mobileInspect && !pile?.open ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
+      {pickHintShown && pickHint ? <PickRefusalHint anchor={pickHint.anchor} text={pickHint.text} onDone={clearPickHint} /> : null}
+      {hover && !activeMenu && !pickHintShown && !mobileInspect && !pile?.open ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
       <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)}
-        title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Options"}>
-        {sideContent}
+        title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Settings"}>
+        {sidePanes(false)}
       </Sheet>
-      <Modal open={confirmSurrender} onClose={() => setConfirmSurrender(false)} title="Surrender">
-        <p className="text-sm text-text-secondary">This ends the duel. Confirm surrender?</p>
-        <div className="mt-4 flex gap-2">
-          <Button type="button" variant="danger" loading={busy} onClick={() => {
-            setConfirmSurrender(false);
-            void run(() => surrenderDuel(slug));
-          }}>Surrender</Button>
-          <Button type="button" variant="ghost" onClick={() => setConfirmSurrender(false)}>Keep playing</Button>
-        </div>
-      </Modal>
+      {surrenderModal}
       {showResult ? (
         <DuelResultScreen room={data} slug={slug} reducedMotion={preferences.reducedMotion}
-          soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} onExit={exitDuel} />
+          soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} onExit={exitDuel}
+          onSeriesChanged={() => void refreshRoom()} onNavigate={goToGame} />
       ) : null}
     </div>
   );

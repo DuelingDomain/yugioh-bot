@@ -28,6 +28,8 @@ afterEach(async () => {
 
 async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterRule = 5) {
   vi.stubEnv("MULTIPLAYER_TABLES", "1");
+  // These tests use the pinned engine to check its saved draw rule.
+  vi.stubEnv("DUEL_1V1_ENGINE", "pinned");
   const db = new Database(":memory:");
   migrate(db);
   const duels = createDuelService(db);
@@ -37,7 +39,7 @@ async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterR
   ).run("g", `u${seat}`, `P${seat}`).lastInsertRowid));
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Draw rule pin", mode, format, masterRule,
     settings: { validateDeck: false, shuffleDeck: false, turnSeconds: 0 } });
-  for (const player of players.slice(1)) duels.join(session.slug, "g", player);
+  for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
   const decks = Array.from({ length: count }, () => ({ main: Array(40).fill(15025844), extra: [], side: [],
     ...(mode === "domain" ? { deckMaster: 48305365 } : {}) }));
   for (let seat = 0; seat < count; seat++) duels.setDeck(session.slug, "g", players[seat]!, decks[seat]!);
@@ -78,6 +80,9 @@ const oldCases = [
 ] satisfies Array<{ mode: DuelMode; format: DuelFormat; firstTurnDraw: boolean }>;
 const newCases = (["normal", "domain"] as const).flatMap((mode) =>
   (["1v1", "tag", "ffa3", "ffa4"] as const).map((format) => ({ mode, format })));
+// A 1v1 record with no engine name came from main and runs on the legacy engine. These records were made on the merged engine.
+const mergedEngine = (format: DuelFormat) => (format === "1v1" ? { engine: "pinned" as const } : {});
+
 const stableCases = [
   ...([1, 2, 3, 4, 5] as const).map((masterRule) => ({ mode: "normal" as const, format: "1v1" as const, masterRule })),
   { mode: "normal", format: "tag", masterRule: 5 },
@@ -97,7 +102,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     const history: DuelEngineView[][] = [];
     const commands: Array<{ seat: number; command: { promptId: string; revision: number; answer: { choice: string } } }> = [];
     try {
-      t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null, saved ? { firstTurnDraw } : undefined);
+      t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null, { ...(saved ? { firstTurnDraw } : {}), ...mergedEngine(format) });
       if (saved) expect(t.duels.privateState(t.session.slug, "g").setup).toMatchObject({ firstTurnDraw });
       else expect(t.duels.privateState(t.session.slug, "g").setup?.firstTurnDraw).toBeUndefined();
       for (let actor = 0; actor < t.count; actor++) {
@@ -174,7 +179,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     try {
       initial = Array.from({ length: t.count }, (_, viewer) => game.view(viewer));
       for (const view of initial) checkDraws(view, firstTurnDraw, 0);
-      t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null);
+      t.duels.activate(t.session.slug, "g", t.players[0]!, seed, t.pin, null, mergedEngine(format));
       expect(t.duels.privateState(t.session.slug, "g").setup?.firstTurnDraw).toBeUndefined();
       const view = game.view(0);
       const command = { promptId: view.prompt!.id, revision: view.revision, answer: { choice: "to_ep" } };

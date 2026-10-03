@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import type { DuelCard } from "@yugidraft/shared/duels";
 import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -17,12 +17,16 @@ import {
 } from "./constants";
 import { duelFontClasses } from "./fonts";
 import styles from "./pile-viewer.module.css";
+import { UsableGlow } from "./usable-glow";
+import { usableGlowToneForPile } from "./usable-glow-model";
 
 export type PileViewerProps = {
   title: string;
   /** Pile contents in engine order (index 0 is the bottom, the last card is the top). Shown newest first. */
   cards: DuelCard[];
   owner: "you" | "opp";
+  /** 3 and 4 seat tables: whose pile this is. The header shows the name and the panel edge takes the seat colour. */
+  ownerTag?: { name: string; tone: { main: string; ink: string } } | null;
   open: boolean;
   onClose: () => void;
   /** A click on a card that is not legal right now: show it in the inspector. */
@@ -32,7 +36,7 @@ export type PileViewerProps = {
   /** Called instead of onInspectCard when the clicked card is legal in the current prompt. */
   onActivateCard?: (card: DuelCard, anchor: HTMLElement) => void;
   reducedMotion: boolean;
-  /** Zone keys legal in the current prompt: those cards get the purple ring and activate on click. */
+  /** Zone keys legal in the current prompt: those cards glow (in the pile's summoning-circle tone, with a "Use" tag) and activate on click. */
   legalKeys?: Set<string>;
   selectedKeys?: Set<string>;
 };
@@ -40,16 +44,6 @@ export type PileViewerProps = {
 type Entry = { card: DuelCard; key: string; index: number };
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-function NibIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M12 21.5 6.8 11 12 2.5 17.2 11Z" />
-      <path d="M12 21.5V13" />
-      <circle cx="12" cy="11" r="1.4" />
-    </svg>
-  );
-}
 
 function cardName(card: DuelCard): string {
   if (isHiddenCard(card) || card.code == null) return "Face-down card";
@@ -101,6 +95,7 @@ export function PileViewer({
   title,
   cards,
   owner,
+  ownerTag,
   open,
   onClose,
   onInspectCard,
@@ -126,6 +121,8 @@ export function PileViewer({
   }, [cards]);
 
   const preview = entries.find((entry) => entry.key === previewKey) ?? entries[0] ?? null;
+  const tone = usableGlowToneForPile(cards);
+  const anyLegal = entries.some((entry) => legalKeys?.has(zoneKey(entry.card.controller, entry.card.location, entry.card.sequence)));
 
   // Open: remember where focus was and move it inside. Close: give it back.
   useEffect(() => {
@@ -216,7 +213,9 @@ export function PileViewer({
   const text = previewCard && !previewHidden ? previewCard.description?.trim() ?? "" : "";
 
   return (
-    <div className={cn(duelFontClasses, styles.root)} data-reduced={reducedMotion ? "true" : "false"} data-owner={owner}>
+    <div className={cn(duelFontClasses, styles.root)} data-reduced={reducedMotion ? "true" : "false"} data-owner={owner} data-has-legal={anyLegal ? "true" : "false"}
+      data-toned={ownerTag ? "true" : undefined}
+      style={ownerTag ? ({ "--seat-main": ownerTag.tone.main, "--seat-ink": ownerTag.tone.ink } as CSSProperties) : undefined}>
       <div className={styles.scrim} onClick={onClose} aria-hidden="true" />
       <aside
         ref={panelRef}
@@ -230,6 +229,9 @@ export function PileViewer({
         <header className={styles.head}>
           <div className={styles.headText}>
             <h2 id={headingId} className={styles.title}>{title}</h2>
+            {ownerTag ? (
+              <span className={styles.ownerTag} data-testid="pile-owner"><i aria-hidden="true" />{ownerTag.name}</span>
+            ) : null}
             <span className={styles.count}>
               <b>{total}</b> {total === 1 ? "card" : "cards"}
               {total > 1 ? <span className={styles.order}> · newest first</span> : null}
@@ -243,7 +245,7 @@ export function PileViewer({
         <div className={styles.preview} aria-live="polite">
           {previewCard ? (
             <>
-              <div className={styles.previewArt}>
+              <div className={`${styles.previewArt} card-frame`}>
                 {previewHidden ? (
                   <CardBack kind={previewSleeve} className={styles.previewBack} />
                 ) : (
@@ -302,13 +304,15 @@ export function PileViewer({
                     ) : (
                       <img src={cardArtUrl(card.code as number, "small")} alt="" draggable={false} loading="lazy" />
                     )}
-                    {legal || selected ? (
+                    {selected ? (
                       <>
                         <span className={styles.ring} aria-hidden="true" />
                         <span className={styles.mark} aria-hidden="true">
-                          {selected ? <Check size={11} strokeWidth={2.4} /> : <NibIcon />}
+                          <Check size={11} strokeWidth={2.4} />
                         </span>
                       </>
+                    ) : legal ? (
+                      <UsableGlow tone={tone} label="Use" still={reducedMotion} />
                     ) : null}
                   </span>
                   <span className={styles.name}>{name}</span>

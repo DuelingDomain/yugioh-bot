@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Modal } from "@/components/ui/modal";
+import { SheetPortal } from "@/components/sheet";
 import { Search, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -91,7 +92,8 @@ export function SetBrowserModal({ open, onClose, selectedSets, onToggleSet }: Se
   }, [previewSet]);
 
   return (
-    <Modal open={open} onClose={onClose} title="Browse Sets">
+    <SheetPortal>
+    <Modal open={open} onClose={onClose} title="Browse sets">
       <div className="flex flex-col gap-4" style={{ minHeight: "400px", maxHeight: "70vh" }}>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-secondary" />
@@ -129,7 +131,7 @@ export function SetBrowserModal({ open, onClose, selectedSets, onToggleSet }: Se
                   >
                     <div className="font-medium">{set.setName}</div>
                     <div className="text-xs text-text-secondary">
-                      {set.setCode} &middot; {set.cardCount} cards
+                      {set.setCode}, {set.cardCount} cards
                     </div>
                   </button>
                   <Button
@@ -184,5 +186,6 @@ export function SetBrowserModal({ open, onClose, selectedSets, onToggleSet }: Se
         )}
       </div>
     </Modal>
+    </SheetPortal>
   );
 }

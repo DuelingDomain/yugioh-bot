@@ -1,4 +1,4 @@
-import { COUNTER_GAP_MS, COUNTER_SCALE, DESTROY_BEAT_MS, type AttackStyleId, type BattleKind, type BattleTiming, type Tint } from "../attack-styles";
+import { COUNTER_GAP_MS, COUNTER_SCALE, DESTROY_BEAT_MS, hasCounterStrike, type AttackStyleId, type BattleKind, type BattleTiming, type Tint } from "../attack-styles";
 import type { FxBattle, FxBreak, FxRect, FxStrike, FxTint, Rgb } from "./types";
 
 /**
@@ -35,6 +35,8 @@ export type PlanSide = {
   /** Passcode of a signature attack, else null. */
   signature: number | null;
   defense: boolean;
+  /** The far player's card: its picture is turned half a circle. */
+  turned?: boolean;
 };
 
 export type BattlePlanInput = {
@@ -63,6 +65,7 @@ function breakOf(target: PlanSide, source: PlanSide, atMs: number): FxBreak {
     rect: target.rect,
     code: target.code,
     defense: target.defense,
+    turned: target.turned,
     atMs,
     dir: unit(source.rect, target.rect),
     style: source.style,
@@ -86,7 +89,8 @@ export function planBattle(input: BattlePlanInput): FxBattle {
     },
   ];
   const breaks: FxBreak[] = [];
-  if (defender && kind === "lose") {
+  // The defender strikes back (a lost fight, a tie, a blow that bounced off) after a short pause.
+  if (defender && hasCounterStrike(kind)) {
     strikes.push({
       style: defender.style,
       signature: defender.signature,

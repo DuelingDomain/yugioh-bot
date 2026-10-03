@@ -1,0 +1,271 @@
+/* The board box of a multi-seat table. It fills its parent; the canvas inside is 1100 by 860 stage px, scaled to fit. */
+.board {
+  --sheet: rgb(181 153 99 / 0.34);
+  --sheet-hi: rgb(181 153 99 / 0.66);
+  --sheet-lo: rgb(181 153 99 / 0.17);
+  --ink: #efe7d5;
+  --ink-2: #c3bba8;
+  --ink-3: #958f81;
+  --pen: #9b7eff;
+  --pen-ink: #c6b6ff;
+  --chain: #e4b64f;
+  --loss: #e45a4d;
+  --ember: #d98d52;
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  overflow: clip;
+  color: var(--ink);
+  background:
+    radial-gradient(70% 60% at 52% 46%, rgb(22 34 62 / 0.55), transparent 72%),
+    radial-gradient(40% 50% at 12% 88%, rgb(46 34 84 / 0.22), transparent 70%),
+    linear-gradient(118deg, transparent 38%, rgb(140 160 210 / 0.035) 50%, transparent 62%),
+    #070b15;
+  font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+}
+
+.board[data-ready="false"] .canvas {
+  visibility: hidden;
+}
+
+/* A faint ember wash over the whole board in the Battle Phase. */
+.board::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(60% 55% at 50% 50%, rgb(217 141 82 / 0.15), transparent 75%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.6s;
+}
+
+.board[data-battle="true"]::after {
+  opacity: 1;
+}
+
+.canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+/*
+ * The 3D camera of a 3-way canvas, only while the world is tilted (data-fly on the board, or data-tilted while the
+ * world eases back to identity). A flat view has no perspective and no preserve-3d. Under a permanent perspective
+ * Chrome rasterized the stage at a low fixed density and the GPU stretched it, so every card and label was soft
+ * (measured: the sharpness score of the home pose dropped by a quarter at 1920 wide and by a third at 2560 wide).
+ * The perspective sits on its own zero-size box, so the flat holo panels and tethers beside it stay sharp too.
+ */
+.persp {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 0;
+}
+
+.board[data-fly="true"] .persp,
+.canvas[data-tilted] .persp {
+  perspective: 1500px;
+  perspective-origin: 550px 400px;
+}
+
+/* The world sits at the arena centre. Flat views leave it at identity; the fly-in turns, tilts and zooms it. */
+.world {
+  position: absolute;
+  left: 550px;
+  top: 410px;
+  width: 0;
+  height: 0;
+  will-change: transform;
+}
+
+.board[data-fly="true"] .world,
+.canvas[data-tilted] .world {
+  transform-style: preserve-3d;
+}
+
+/* The stage plane inside the world: stage px, flattened onto the floor. */
+.wstage {
+  position: absolute;
+  left: -550px;
+  top: -410px;
+  width: 1100px;
+  height: 860px;
+}
+
+/*
+ * A tilted plane is still rasterized at a low fixed density whatever the camera does. So the plane is laid out --ss
+ * times larger (zoom) and drawn --ss times smaller (scale about the world origin): the same picture with --ss
+ * squared times the texels. --ss follows the stage scale k (table-stage.tsx) and is capped at 2 on a phone or
+ * tablet, like --roof-ss of the Rooftop. Guarded by @supports: a browser without `zoom` keeps the 1x layout.
+ * MouseEvent.offsetX/Y of an event inside the plane are scaled by the zoom; use client coordinates or bounding rects.
+ */
+.board[data-fly="true"] .wstage,
+.canvas[data-tilted] .wstage {
+  transform: translateZ(1px);
+}
+
+@supports (zoom: 2) {
+  .board[data-fly="true"] .wstage,
+  .canvas[data-tilted] .wstage {
+    transform-origin: 550px 410px;
+    --ss-use: min(var(--ss, 1), var(--ss-cap, 4));
+    zoom: var(--ss-use);
+    scale: calc(1 / var(--ss-use)) calc(1 / var(--ss-use)) calc(1 / var(--ss-use));
+  }
+}
+
+@media (max-width: 899px), (pointer: coarse) {
+  .canvas { --ss-cap: 2; }
+}
+
+.sky,
+.fog {
+  position: absolute;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.sky {
+  inset: -200px -500px;
+  background:
+    radial-gradient(60% 34% at 50% 0%, rgb(70 48 128 / 0.34), transparent 70%),
+    radial-gradient(40% 30% at 14% 0%, rgb(30 60 110 / 0.26), transparent 70%),
+    linear-gradient(180deg, #03050b 0%, #070a16 34%, #05070e 100%);
+}
+
+.fog {
+  inset: 0;
+  z-index: 1;
+  background:
+    linear-gradient(180deg, rgb(4 6 12 / 0.5) 0%, rgb(4 6 12 / 0) 22%),
+    radial-gradient(120% 90% at 50% 62%, transparent 55%, rgb(2 3 8 / 0.6) 100%);
+}
+
+.board[data-fly="true"] .sky,
+.board[data-fly="true"] .fog {
+  opacity: 1;
+}
+
+.board[data-fly="true"] {
+  cursor: grab;
+}
+
+.board[data-dragging="true"] {
+  cursor: grabbing;
+}
+
+/* Dashed lines from a seat to its holo panel in the fly-in view. */
+.tethers {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 39;
+  width: 1100px;
+  height: 860px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+/* Slots over the whole box. A child turns pointer events back on for its own panels. */
+.slot {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+}
+
+/*
+ * A table of 3 or 4: the "Activate its effect?" bar leaves the middle (where it hid the turn ring and the rival
+ * fields) and sits in the lower-left lane, beside your own field. The chain stack moves up, off that lane, so the
+ * two never cross. Picks and card lists keep the middle: they are placed against the board, not this slot.
+ */
+.slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
+  top: auto;
+  left: 0.5%;
+  bottom: 12%;
+  translate: none;
+  width: 19%;
+  min-width: 142px;
+  max-width: 260px;
+  flex-wrap: wrap;
+}
+/* Seat choices sit beside your field so the attacker and every rival LP panel stay visible. */
+.slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {
+  inset: auto auto 12% 10px;
+  margin: 0;
+  width: clamp(220px, 27%, 320px);
+  max-height: 45%;
+}
+.board[data-format="ffa3"] .slot[data-slot="overlay"] :global([data-opponent-bar]) {
+  top: 18%;
+}
+.slot[data-slot="fx"] :global([data-chain-panel]) {
+  align-self: flex-start;
+  /* Percentage margins resolve against the narrow dock's width, not the board height. */
+  position: relative;
+  top: 23%;
+  margin-top: 0;
+  max-height: 46%;
+}
+.slot[data-slot="fx"] :global([data-chain-panel][data-priority="true"]) {
+  width: max-content;
+  max-width: min(420px, calc(100% - 24px));
+}
+/* The far seat's LP sits partway down a four-way table. Its chain lane ends above that panel. */
+.board[data-format="ffa4"] .slot[data-slot="fx"] :global([data-chain-panel]) {
+  top: 8px;
+  max-height: calc(30% - 24px);
+  overflow-y: auto;
+}
+/* Expanded responses fit between the side panels and below the far seat's LP. */
+.board[data-format="ffa4"] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) {
+  inset: 39% auto auto 50%;
+  translate: -50% 0;
+  margin: 0;
+  width: 42%;
+  min-width: 0;
+  max-width: 400px;
+  max-height: 57%;
+}
+.board[data-format="ffa4"] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) > * {
+  flex-shrink: 0;
+}
+.slot[data-slot="fx"] :global([data-chain-panel] [data-testid="priority-chips"]) {
+  flex-wrap: wrap;
+}
+.slot[data-slot="prompt"] :global([data-prompt-panel] [data-testid="priority-chips"]) {
+  flex-wrap: wrap;
+}
+/* Three rival choices grow down into the left lane, below its LP and beside your monsters. */
+.board[data-format="ffa4"] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {
+  inset: 58% auto auto 10px;
+  max-height: 30%;
+}
+
+/*
+ * A rival's hand backs hang off the owner's back edge. In a 1v1 they tuck half behind the field; on a table of 3 or
+ * 4 a rival field is read closely (focus, look), so the backs sit nearly outside the box and never cover its top row
+ * of zones. One `data-hand-seat` per seat stays: the effects aim at it.
+ */
+.board :global([data-hand-seat][data-side="opp"]) {
+  translate: -50% -8%;
+}
+.board :global([data-hand-seat][data-side="opp"]:hover) {
+  translate: -50% 4%;
+}
+
+/* Keep your field name in the empty lane beside the hand as more cards arrive. */
+.board :global([data-seat-field][data-side="you"] > [data-seat-name]) {
+  left: 0;
+  translate: 0 100%;
+}

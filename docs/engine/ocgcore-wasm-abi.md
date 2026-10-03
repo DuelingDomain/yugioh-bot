@@ -66,6 +66,10 @@ Message frame: `u32 length`, `u8 id`, payload. The wrapper parses each message f
 | Response SELECT_CARD_CODES | `playerop.cpp`: u32 type, u32 count, u32 **indices** | Field is called `codes` | Callers pass indices |
 | Duel mode constants | `ocgapi_constants.h` has newer DUEL_* flags | `OcgDuelMode` stops at 0x200000000 | Options are u64, layout matches. Use raw bigint literals for newer flags |
 
+## Legacy message mode
+
+The patch keeps main's old message layout behind `createCore({ legacyMessages: true })`. The 1v1 legacy engine (`DUEL_1V1_ENGINE=legacy`, see `docs/deployment/duel-engine-switch.md`) sets it. It changes ANNOUNCE_ATTRIB (u8 instead of u32), the SWAP_GRAVE_DECK bit limit, the MOVE message layout and whether a message parse error is rethrown. `tests/ocgcore-wrapper-abi.test.ts` covers both modes.
+
 ## Bundle check
 
-`src/engine-bundle.ts` `verifyEngineBundle(dataDirectory)` runs at startup in `src/server.ts`. It checks `manifest.json` (with `bundleVersion`), both wasm files, `cards.cdb` and `card-scripts/`. It checks `integrity.standardWasm`, `integrity.domainWasm` and `integrity.wrapper` (sha256 of the resolved `ocgcore-wasm/dist/index.js`) when they are present. After any change to the wrapper patch, refresh the manifest (`npm run duel:prepare`, or `scripts/build-standard-core.sh`, which re-records `integrity.wrapper` and `bundleVersion`).
+`src/engine-bundle.ts` `verifyEngineBundle(dataDirectory)` runs at startup in `src/server.ts`. It checks `manifest.json` (with `bundleVersion`), both wasm files, `cards.cdb` and `card-scripts/`. It also checks `integrity.domainLegacyWasm` and `integrity.domainLegacyLua` (the legacy 1v1 files; required only when `DUEL_1V1_ENGINE` is `legacy`). It checks `integrity.standardWasm`, `integrity.domainWasm` and `integrity.wrapper` (sha256 of the resolved `ocgcore-wasm/dist/index.js`) when they are present. After any change to the wrapper patch, refresh the manifest (`npm run duel:prepare`, or `scripts/build-standard-core.sh`, which re-records `integrity.wrapper` and `bundleVersion`).

@@ -41,10 +41,15 @@
 .group[data-team="true"] { padding: 12px; border: 1px solid var(--duel-rule-lo); border-radius: 12px; }
 .seatActions { grid-area: status; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .seats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.seat { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "avatar text" "status status"; gap: 12px 12px; align-items: center; padding: 14px; border: 1px solid var(--duel-rule-lo); border-radius: 10px; background: rgb(4 7 14 / 0.4); }
+.seat { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "avatar text" "status status"; gap: 12px 12px; align-items: center; padding: 14px; border: 1px solid var(--duel-rule-lo); border-radius: 10px; background: rgb(4 7 14 / 0.4); }
 .seat[data-ready="true"] { border-color: rgb(134 207 161 / 0.32); }
 .seat[data-mine="true"] { border-color: rgb(155 126 255 / 0.42); }
+.seatRemove { position: absolute; top: 8px; right: 8px; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: none; color: var(--duel-ink-4); cursor: pointer; transition: color 0.15s, background-color 0.15s; }
+.seatRemove:hover:not(:disabled) { background: var(--duel-panel-3); color: var(--duel-ink); }
+.seatRemove:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+.seatRemove:disabled { opacity: 0.5; cursor: default; }
 .seatOpen { border-style: dashed; border-color: var(--duel-rule-lo); background: none; }
+.seatAction { grid-area: status; justify-self: start; }
 .avatar { grid-area: avatar; display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--duel-rule); border-radius: 50%; background: var(--duel-panel-3); color: var(--duel-ink); font-size: 18px; font-weight: 400; }
 .seatOpen .avatar { border-style: dashed; background: none; color: var(--duel-ink-4); }
 .seat[data-mine="true"] .avatar { border-color: rgb(155 126 255 / 0.6); color: var(--duel-pen-ink); }

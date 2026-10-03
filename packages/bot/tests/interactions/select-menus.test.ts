@@ -56,6 +56,7 @@ function setup() {
 
   return {
     db,
+    broadcaster: { draft: vi.fn().mockResolvedValue(undefined), tournament: vi.fn().mockResolvedValue(undefined) },
     players: createPlayerRepository(db),
     tournaments: createTournamentService(db),
     drafts: createDraftService(db),
@@ -95,6 +96,32 @@ function fakeSelectMenu(input: Partial<SelectMenuInteractionLike> = {}) {
   return { interaction, modals, replies };
 }
 
+function cappedMenuDraft() {
+  const app = setup();
+  const player = app.players.upsert("guild-1", "user-7", "Yugi");
+  const other = app.players.upsert("guild-1", "user-9", "Kaiba");
+  seedDraftCatalog(app, 16);
+  const draft = app.drafts.create("guild-1", "c", "cap messages", {
+    packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8,
+  }, "user-7", player.id);
+  app.drafts.join(draft.id, other.id);
+  app.drafts.start(draft.id);
+  const pack = app.drafts.currentPackOptions(draft.id, player.id);
+  let step = -1;
+  const cap = (catalogId: number) => {
+    for (let copy = 0; copy < 3; copy += 1) {
+      const card = app.db.prepare("insert into draft_cards (draft_id, wave_number, catalog_card_id, position, picked_by_player_id) values (?, 0, ?, 0, ?)")
+        .run(draft.id, catalogId, player.id);
+      app.db.prepare("insert into draft_picks (draft_id, player_id, draft_card_id, wave_number, pick_step, pick_method, picked_at) values (?, ?, ?, 0, ?, 'manual', 't')")
+        .run(draft.id, player.id, Number(card.lastInsertRowid), step--);
+    }
+  };
+  const menu = () => fakeSelectMenu({
+    customId: `draft_pick_card:${draft.id}`, user: { id: "user-7", username: "Yugi" }, values: [String(pack[0].id)],
+  });
+  return { app, draft, player, pack, cap, menu };
+}
+
 describe("select menu interactions", () => {
   beforeEach(() => {
     let counter = 0;
@@ -107,6 +134,82 @@ describe("select menu interactions", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("explains a fully capped pack without claiming the player picked", async () => {
+    const { app, pack, cap, menu } = cappedMenuDraft();
+    for (const card of pack) cap(card.catalogCardId);
+    const { interaction, replies } = menu();
+    await handleSelectMenu(interaction, app);
+    expect(replies[0]).toEqual({ content: expect.stringMatching(/nothing.*3 of each/i), ephemeral: true });
+    expect(replies[0].content).not.toMatch(/already picked/i);
+    app.db.close();
+  });
+
+  it("explains a recorded pass without claiming the player picked", async () => {
+    const { app, draft, player, menu } = cappedMenuDraft();
+    app.db.prepare("insert into draft_passes (draft_id, player_id, wave_number, pick_step, passed_at) values (?, ?, 1, 1, 't')")
+      .run(draft.id, player.id);
+    const { interaction, replies } = menu();
+    await handleSelectMenu(interaction, app);
+    expect(replies[0]).toEqual({ content: expect.stringMatching(/passed.*nothing/i), ephemeral: true });
+    expect(replies[0].content).not.toMatch(/already picked/i);
+    app.db.close();
+  });
+
+  it("explains an empty pack without claiming the player picked", async () => {
+    const { app, draft, player, pack, menu } = cappedMenuDraft();
+    app.db.prepare("delete from draft_cards where draft_id = ? and id in (?,?,?,?)").run(draft.id, ...pack.map((c) => c.id));
+    const { interaction, replies } = menu();
+    await handleSelectMenu(interaction, app);
+    expect(replies[0].content).toMatch(/no card.*next pack/i);
+    expect(app.drafts.pool(draft.id, player.id)).toEqual([]);
+    app.db.close();
+  });
+
+  it.each([
+    { pickCount: 8, finishedAt: null },
+    { pickCount: 9, finishedAt: null },
+    { pickCount: 3, finishedAt: "t" },
+  ])("tells a finished player to wait for others ($pickCount picks, finishedAt=$finishedAt)", async ({ pickCount, finishedAt }) => {
+    const { app, draft, player, menu } = cappedMenuDraft();
+    app.db.prepare("update draft_players set pick_count = ?, finished_at = ? where draft_id = ? and player_id = ?")
+      .run(pickCount, finishedAt, draft.id, player.id);
+    const other = app.drafts.players(draft.id).find((p) => p.playerId !== player.id)!;
+    expect(app.drafts.findById(draft.id).status).toBe("active");
+    expect(app.drafts.pickOptions(draft.id, other.playerId).length).toBeGreaterThan(0);
+    const packOptions = vi.spyOn(app.drafts, "currentPackOptions");
+    const { interaction, replies } = menu();
+
+    await handleSelectMenu(interaction, app);
+
+    expect(replies).toEqual([{ content: "You have finished drafting. Waiting for other players.", ephemeral: true }]);
+    expect(packOptions).not.toHaveBeenCalled();
+    expect(app.drafts.pool(draft.id, player.id)).toEqual([]);
+    app.db.close();
+  });
+
+  it("reports a completed draft even when the player has finished", async () => {
+    const { app, draft, player, menu } = cappedMenuDraft();
+    app.db.prepare("update draft_players set pick_count = 8, finished_at = 't' where draft_id = ? and player_id = ?")
+      .run(draft.id, player.id);
+    app.db.prepare("update drafts set status = 'completed' where id = ?").run(draft.id);
+    const { interaction, replies } = menu();
+
+    await handleSelectMenu(interaction, app);
+
+    expect(replies).toEqual([{ content: "This draft has completed.", ephemeral: true }]);
+    app.db.close();
+  });
+
+  it("handles a stale capped selection while other cards remain takeable", async () => {
+    const { app, draft, player, pack, cap, menu } = cappedMenuDraft();
+    cap(pack[0].catalogCardId);
+    const { interaction, replies } = menu();
+    await expect(handleSelectMenu(interaction, app)).resolves.toBeUndefined();
+    expect(replies[0]).toEqual({ content: expect.stringMatching(/already have 3.*choose another/i), ephemeral: true });
+    expect(app.drafts.pool(draft.id, player.id)).toHaveLength(3);
+    app.db.close();
   });
   it("opens a name-only create event modal after choosing a format", async () => {
     const app = setup();

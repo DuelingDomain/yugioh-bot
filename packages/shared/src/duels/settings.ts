@@ -84,6 +84,7 @@ const SETTINGS_KEYS = [
   "timeout",
   "validateDeck",
   "shuffleDeck",
+  "stopAtEveryWindow",
 ] as const;
 
 /**
@@ -94,6 +95,9 @@ const SETTINGS_KEYS = [
 export const DUEL_CLOCK_INCREMENT_MS = 3_000;
 export const DUEL_CLOCK_REGAIN_FRACTION = 0.25;
 export const DUEL_CLOCK_REGAIN_MIN_MS = 30_000;
+
+/** Bounded presentation grace at game start: the hands and turn-one phase beats precede decisions. */
+export const DUEL_OPENING_GRACE_MS = 8_000;
 
 export function duelClockBankMs(turnSeconds: number): number | null {
   if (!Number.isFinite(turnSeconds) || turnSeconds <= 0) return null;
@@ -136,6 +140,13 @@ export interface DuelSettings {
   timeout: DuelTimeout;
   validateDeck: boolean;
   shuffleDeck: boolean;
+  /**
+   * true = the engine asks about every response window that lists a card (the pre-existing behaviour);
+   * false = it passes a window silently when no listed card fits its timing (what EDOPro does).
+   * It changes which prompts a duel has, so it is stored with the duel: rows saved without it read as
+   * true, and a replay of a saved duel therefore sees the same prompts it was played with.
+   */
+  stopAtEveryWindow?: boolean;
 }
 
 export interface DuelClockState {
@@ -232,10 +243,11 @@ function parseSettingsObject(value: Record<string, unknown>, fallback: DuelSetti
     timeout,
     validateDeck: readSetting(value, "validateDeck", fallback.validateDeck, (field) => asBoolean(field, "validateDeck")),
     shuffleDeck: readSetting(value, "shuffleDeck", fallback.shuffleDeck, (field) => asBoolean(field, "shuffleDeck")),
+    stopAtEveryWindow: readSetting(value, "stopAtEveryWindow", fallback.stopAtEveryWindow, (field) => asBoolean(field, "stopAtEveryWindow")),
   };
 }
 
-export function defaultDuelSettings(mode: DuelSettingsMode): DuelSettings {
+export function defaultDuelSettings(mode: DuelSettingsMode, format: DuelFormat = DEFAULT_DUEL_FORMAT): DuelSettings {
   return {
     visibility: "public",
     banlist: mode === "domain" ? NO_BANLIST_ID : PINNED_TCG_BANLIST_ID,
@@ -247,6 +259,7 @@ export function defaultDuelSettings(mode: DuelSettingsMode): DuelSettings {
     timeout: "loss",
     validateDeck: true,
     shuffleDeck: true,
+    stopAtEveryWindow: format !== "1v1",
   };
 }
 
@@ -263,16 +276,17 @@ export function legacyDuelSettings(): DuelSettings {
     timeout: "loss",
     validateDeck: true,
     shuffleDeck: true,
+    stopAtEveryWindow: true,
   };
 }
 
-export function normalizeDuelSettings(mode: DuelSettingsMode, input: unknown): DuelSettings {
+export function normalizeDuelSettings(mode: DuelSettingsMode, input: unknown, format: DuelFormat = DEFAULT_DUEL_FORMAT): DuelSettings {
   if (mode !== "normal" && mode !== "domain") fail("Duel mode must be normal or domain");
-  if (input === undefined || input === null) return defaultDuelSettings(mode);
+  if (input === undefined || input === null) return defaultDuelSettings(mode, format);
   if (!isObject(input)) fail("settings must be an object");
   const extra = firstUnknownKey(input, SETTINGS_KEYS);
   if (extra) fail(`Unknown duel setting: ${extra}`);
-  return parseSettingsObject(input, defaultDuelSettings(mode));
+  return parseSettingsObject(input, defaultDuelSettings(mode, format));
 }
 
 export function isCustomDomain(masterRule: DuelSettingsMasterRule, settings: DuelSettings): boolean {

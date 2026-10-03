@@ -5,6 +5,7 @@ import {
   sharedExtraSeatOf,
   teamOfSeat,
   type DuelEngineView,
+  type DuelAnswer,
   type DuelFormat,
   type DuelPrompt,
   type DuelSeatView,
@@ -74,10 +75,23 @@ export function opponentPickOptions(
   for (const option of prompt.options) {
     if (option.controller == null || picks.has(option.controller)) continue;
     const view = engine?.seats.find((seat) => seat.seat === option.controller);
-    if (view && (isEliminated(view) || view.pendingElimination === true)) continue;
+    if (isEliminated(view)) continue;
     picks.set(option.controller, option.id);
   }
   return picks;
+}
+
+export function seatPickFor(
+  prompt: DuelPrompt | null | undefined,
+  engine: Pick<DuelEngineView, "seats"> | null | undefined,
+  onAnswer: (answer: DuelAnswer) => void,
+): SeatPick | null {
+  const options = opponentPickOptions(prompt, engine);
+  if (!options.size) return null;
+  return { options, onPick: (seat) => {
+    const choice = options.get(seat);
+    if (choice != null) onAnswer({ choice });
+  } };
 }
 
 /** The option label shown for one seat of an opponent pick: the seat's display name. */

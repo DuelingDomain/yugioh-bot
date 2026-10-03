@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { duelReplayKey, getDuelReplay, getDuelRoom, leaveDuel, listDuels } from "../src/components/duel/api";
+import { DeckValidationSkippedError, duelReplayKey, getDuelReplay, getDuelRoom, leaveDuel, listDuels, takeDuelSeat, validateDuelDeck } from "../src/components/duel/api";
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("duel room authentication responses", () => {
+  it("reports a skipped lobby check as a typed room-refresh signal", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ skipped: true })));
+    await expect(validateDuelDeck("t", { main: [], extra: [], side: [] }, new AbortController().signal)).rejects.toBeInstanceOf(DeckValidationSkippedError);
+  });
   it("rejects a followed login redirect instead of caching it as a room", async () => {
     const response = new Response("<html>Sign in</html>", { headers: { "content-type": "text/html" } });
     Object.defineProperty(response, "redirected", { value: true });
@@ -18,6 +22,14 @@ describe("duel room authentication responses", () => {
 });
 
 describe("duel list, leave and replay helpers", () => {
+  it("takes a specific seat through the explicit seat endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ session: { slug: "t" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    await takeDuelSeat("t", 1);
+    expect(fetchMock).toHaveBeenCalledWith("/api/duels/t/seat", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seat: 1 }),
+    });
+  });
   it("lists live tables without query parameters", async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ duels: [] }));
     vi.stubGlobal("fetch", fetchMock);

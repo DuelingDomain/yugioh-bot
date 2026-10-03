@@ -1,4 +1,4 @@
-import { DUEL_CLOCK_INCREMENT_MS, duelClockBankMs, duelClockRegainMs } from "@yugidraft/shared/duels";
+import { DUEL_CLOCK_INCREMENT_MS, DUEL_OPENING_GRACE_MS, duelClockBankMs, duelClockRegainMs } from "@yugidraft/shared/duels";
 
 export type SeatIndex = number;
 
@@ -15,6 +15,8 @@ export interface DecisionClockView {
   promptSeat: number | null;
   /** Seats that no longer play (eliminated, or surrendered and on autopilot). Their clock does not run. */
   stoppedSeats?: readonly number[];
+  /** The first engine snapshot of a new game, before any command was accepted. */
+  opening?: boolean;
 }
 
 export interface PublicDecisionClock extends DecisionClockState {
@@ -72,7 +74,7 @@ export function startDecisionClock(
     turn: view.turn,
     remainingMs: Array.from({ length: seatCount }, () => budget),
     activeSeat,
-    startedAt: activeSeat === null ? null : now,
+    startedAt: activeSeat === null ? null : now + (view.opening ? DUEL_OPENING_GRACE_MS : 0),
   };
 }
 
@@ -128,11 +130,14 @@ export function syncDecisionClock(
     isSeatIndex(view.promptSeat) && view.promptSeat < remaining.length && !stopped.includes(view.promptSeat)
       ? view.promptSeat
       : null;
+  // Reduced motion or a bot may answer during the opening grace. Keep its original end,
+  // without granting another grace window on a prompt change or a reconnect.
+  const startAt = Math.max(resumeAt, previous.startedAt ?? resumeAt);
   return {
     turn: view.turn,
     remainingMs: remaining,
     activeSeat: nextSeat,
-    startedAt: nextSeat !== null && (remaining[nextSeat] ?? 0) > 0 ? resumeAt : null,
+    startedAt: nextSeat !== null && (remaining[nextSeat] ?? 0) > 0 ? startAt : null,
   };
 }
 

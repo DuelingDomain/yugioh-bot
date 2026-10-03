@@ -3,11 +3,42 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { ArrowRight, ArrowUpFromLine, Layers, RotateCw, Shuffle, Sparkles, Swords, Zap, type LucideIcon } from "lucide-react";
-import type { DuelCard, DuelPromptOption } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelCardInfo, DuelPromptOption } from "@yugidraft/shared/duels";
 import { cardDetailsText, cardStatsText } from "./constants";
 import { duelFontClasses } from "./fonts";
+import { safeAnimate } from "./safe-animate";
 import styles from "./room.module.css";
 import fx from "./battle-fx.module.css";
+
+/** The card action menu the room or the table shell has open: where it sits, what it offers, and which prompt it answers. */
+export type CardMenuState = {
+  anchor: HTMLElement;
+  title: string;
+  options: DuelPromptOption[];
+  promptId: string;
+  revision: number;
+  tone: "action" | "chain";
+};
+
+/** A face-down or unnamed target reads as "face-down monster" in the attack confirm. */
+export function targetName(option: { label?: string; card?: { name?: string | null } | null }): string {
+  const name = option.card?.name?.trim();
+  if (name) return name;
+  return !option.label || /^Card \d+$/.test(option.label) ? "face-down monster" : option.label;
+}
+
+/** The first element a zone key marks on the page (the card button when it has one). */
+export function zoneAnchor(key: string, scope: ParentNode = document): HTMLElement | null {
+  const zone = scope.querySelector<HTMLElement>(`[data-zones~="${key}"]`);
+  return zone?.querySelector<HTMLElement>("button") ?? zone;
+}
+
+/** Put the confirm on the side of the target away from the attacker, so it never covers the arrow. */
+export function confirmSide(attackerKey: string | null, anchor: HTMLElement, scope: ParentNode = document): "above" | "below" {
+  const from = attackerKey ? scope.querySelector(`[data-zones~="${attackerKey}"]`) : null;
+  if (!from) return "above";
+  return from.getBoundingClientRect().top > anchor.getBoundingClientRect().top ? "above" : "below";
+}
 
 /** Icon for an engine option id; the label always carries the meaning too. */
 function optionIcon(id: string): LucideIcon {
@@ -26,7 +57,7 @@ function optionIcon(id: string): LucideIcon {
  * an activation's effect text into a note line. The button keeps the full label
  * as its accessible name.
  */
-function optionParts(option: DuelPromptOption, title: string): { main: string; note: string | null } {
+export function optionParts(option: DuelPromptOption, title: string): { main: string; note: string | null } {
   let text = option.label;
   let note: string | null = null;
   // Engine format: "Activate <card name>: <effect>". Card names can contain ": "
@@ -41,7 +72,8 @@ function optionParts(option: DuelPromptOption, title: string): { main: string; n
     text = text.slice(0, colon);
   }
   if (title && title !== "Card" && text.includes(title)) {
-    const stripped = text.replace(title, "").replace(/\s{2,}/g, " ").replace(/\s+(of|with|to)$/i, "").trim();
+    // Trim before the dangling-word check: removing a trailing name leaves "Attack directly with ".
+    const stripped = text.replace(title, "").replace(/\s{2,}/g, " ").trim().replace(/\s+(of|with|to)$/i, "");
     if (stripped) text = stripped;
   }
   return { main: text, note };
@@ -254,7 +286,7 @@ export function CardActionMenu({
  * Passive card tooltip. It never covers an open prompt panel or pile viewer: it moves to a clear
  * side of the card, and hides when there is none.
  */
-export function CardHoverInfo({ card, anchor }: { card: DuelCard; anchor: HTMLElement }) {
+export function CardHoverInfo({ card, anchor }: { card: DuelCard | DuelCardInfo; anchor: HTMLElement }) {
   const { ref, style } = useAnchoredPosition(anchor, false, "above", true);
   const stats = cardStatsText(card);
   const details = cardDetailsText(card);
@@ -265,6 +297,37 @@ export function CardHoverInfo({ card, anchor }: { card: DuelCard; anchor: HTMLEl
       <strong>{card.name ?? `Card ${card.code}`}</strong>
       {stats ? <span className={styles.tooltipStats}>{stats}</span> : null}
       {details ? <span>{details}</span> : null}
+    </div>,
+    document.body,
+  );
+}
+
+/** A short left-right shake of the card button a pick refused. Skipped with reduced motion. */
+export function shakeRefusedCard(anchor: HTMLElement, reducedMotion: boolean): void {
+  if (reducedMotion) return;
+  safeAnimate(anchor, [
+    { transform: "translateX(0)" },
+    { transform: "translateX(-5px)" },
+    { transform: "translateX(5px)" },
+    { transform: "translateX(-3px)" },
+    { transform: "translateX(0)" },
+  ], { duration: 260, easing: "ease-out" });
+}
+
+/**
+ * A short note on a card whose click a pick refused (the pick is full, or the card must stay picked).
+ * It sits above the card like the hover tooltip and clears itself, so nothing is left to dismiss.
+ */
+export function PickRefusalHint({ anchor, text, onDone }: { anchor: HTMLElement; text: string; onDone: () => void }) {
+  const { ref, style } = useAnchoredPosition(anchor, false, "above");
+  useEffect(() => {
+    const timer = window.setTimeout(onDone, 2200);
+    return () => window.clearTimeout(timer);
+  }, [text, onDone]);
+
+  return createPortal(
+    <div ref={ref} className={`${styles.cardTooltip} ${duelFontClasses}`} style={style} role="status" data-pick-hint>
+      <span>{text}</span>
     </div>,
     document.body,
   );
@@ -308,13 +371,15 @@ export function AttackConfirm({
     function onKey(event: KeyboardEvent) {
       if (event.key !== "Enter" && event.key !== "Escape") return;
       if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target instanceof Element ? event.target : null;
+      // Keys inside another dialog (Report a bug) are not for this popover.
+      if (target?.closest("[role='dialog']:not([data-attack-confirm])")) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
         backRef.current();
         return;
       }
-      const target = event.target instanceof Element ? event.target : null;
       // Inside the popover a button activates natively; on a zone, Enter re-aims at that zone.
       if (target?.closest("[data-attack-confirm],[data-zones],input,textarea,select,[contenteditable='true']")) return;
       event.preventDefault();

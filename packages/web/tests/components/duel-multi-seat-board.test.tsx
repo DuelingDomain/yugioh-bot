@@ -155,7 +155,7 @@ describe("board fixtures", () => {
 
   it("the viewer eliminated: notice and the duel stays visible", () => {
     show(fixture("ffa3", 3, { 0: { eliminated: true, lp: 0 } }), 0, 1);
-    expect(screen.getByTestId("self-eliminated").textContent).toContain("eliminated");
+    expect(screen.getByTestId("self-eliminated").textContent).toBe("You are eliminated.");
     expect(screen.getByTestId("multi-seat-stage").getAttribute("data-self-eliminated")).toBe("true");
   });
 });

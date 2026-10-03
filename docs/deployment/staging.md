@@ -12,7 +12,7 @@ does not change.
 | Compose project | default | `yugidraft-staging` |
 | Services | bot, ws, duel, web, caddy | ws, duel, web, caddy (no bot) |
 | Database | `data/bot.sqlite` | a copy: `data-staging/bot.sqlite` |
-| Engine files | `data/duel-engine` | `data-staging/duel-engine` (with the multi core `ocgcore.multi.wasm`) |
+| Engine files | `data/duel-engine` | `data-staging/duel-engine` (with both multiplayer cores) |
 | Docker network | the default network of the project | `yugidraft-staging-net` |
 | Address | port 80 | port 8080, plain HTTP (never 80 or 443) |
 | Secrets | `.env` | `.env.staging` (new `NEXTAUTH_SECRET` and new internal secrets) |
@@ -77,7 +77,7 @@ sh scripts/staging/check-resources.sh now 1000 3000 /opt
 
 ## One-time steps for the owner
 
-1. **Push the branch** `feat/multiplayer-nseat-duels` to GitHub. (Nobody and nothing has pushed it for you.)
+1. **Push the branch** `n-player-ui-implementation` to GitHub. (Nobody and nothing has pushed it for you.)
 2. **Put the workflow on `main`.** GitHub lists a manual workflow in the Actions tab only when its file is on the default
    branch. Make a small pull request that adds only `.github/workflows/deploy-staging.yml`. The workflow uses the input
    `ref` to check out the feature branch, so the scripts and the code come from that branch. Note: a push to `main`
@@ -97,18 +97,136 @@ sh scripts/staging/check-resources.sh now 1000 3000 /opt
 5. **Optional repository variables.** They are read only the first time, when `.env.staging` does not exist yet.
    `STAGING_DOMAIN`, `STAGING_HOST` (default: the secret `VM_HOST`) and `STAGING_HTTP_PORT` (default `8080`).
    The secrets `VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY` and `VM_PORT` are the ones that production already uses.
-6. **Run the workflow.** GitHub, Actions, "Deploy Staging", Run workflow. Use `ref` = `feat/multiplayer-nseat-duels`,
-   `refresh_db` = off, `action` = `deploy`. The first run is slow (it builds three images and the multi core).
+6. **Run the workflow.** GitHub, Actions, "Deploy Staging", Run workflow. Choose the same branch for
+   "Use workflow from" and `ref` (default `n-player-ui-implementation`),
+   `refresh_db` = off, `action` = `deploy`. The first run is slow (it builds three images and both multi cores).
+   From the CLI, specify the branch twice: `gh workflow run deploy-staging.yml --ref <branch> -f ref=<branch>`.
+   For this branch: `gh workflow run deploy-staging.yml --ref n-player-ui-implementation -f ref=n-player-ui-implementation`.
    If the VM user is not `root`, make the folder first: `sudo mkdir /opt/yugioh-bot-staging && sudo chown $USER: /opt/yugioh-bot-staging`.
 
 When the run is green, the job log ends with the container list, the memory use and `staging is running`.
 Open the address and sign in with Discord.
+
+## Engine files and image build
+
+The duel server resolves `DUEL_DATA_DIR` from the application root; both Compose files set it to
+`/app/data/duel-engine`. Staging mounts `data-staging` at `/app/data`, so the VM files live at
+`/opt/yugioh-bot-staging/data-staging/duel-engine`. Production uses `/opt/yugioh-bot/data/duel-engine`.
+
+| Mode and layout | WASM loaded by the engine | Start guard |
+| --- | --- | --- |
+| Standard FFA3, FFA4, Tag | `ocgcore.multi.wasm` | Plain multi core must exist |
+| Domain FFA3, FFA4, Tag | `ocgcore.multi-domain.wasm` | Both multi core files must exist |
+| Standard 1v1, pinned engine | `ocgcore.standard.wasm` | Does not use multi cores |
+| Domain 1v1, pinned engine | `ocgcore.domain.wasm` | Does not use multi cores |
+| Legacy 1v1 (production default) | npm Standard core or `ocgcore.domain.legacy.wasm` | Does not use multi cores |
+
+The Domain guard needs the plain multi file as well, even though the Domain game loads only the Domain
+variant. The `capabilities` operation reports `multiDomainCoreReady` from the Domain file; preset
+availability (`multiCoreAvailable`) checks the plain file. Neither existence check validates the WASM;
+the deploy and image checks do that separately.
+
+Both multi modes also read `cards.cdb`, the pinned `card-scripts` directory and the `multi-scripts` Lua
+overlay (`mp-utility.lua`, `MANIFEST.json` and the card overrides). Domain loads `card-scripts/domain.lua`.
+The startup bundle check also requires the pinned Standard/Domain 1v1 cores, `manifest.json` and the
+legacy files/hashes. The installer requires `strings.conf` and verifies the overlay hash. Installing
+only two WASMs into an empty directory is insufficient.
+
+The staging and production workflows now compile both multiplayer cores on the GitHub runner using
+`packages/duel-server/scripts/build-deploy-multi-cores.sh`. Nothing compiles a core on the small VM.
+The build uses the same inputs as the engine session:
+
+- `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
+  `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
+  and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
+- All numbered patches in `domain-core/patches` (currently 0001–0068). No experimental patches or
+  `PATCH_LIMIT`. The current series hash is `441ed76499bd6a57fb6136c5c786c00fd7a2bd27c2925c9293baaf457a6b3096`.
+- Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
+  and `apply-domain-multi.mjs`. The current multi layer hash is
+  `cf5100707bce7701cb0be0ac4a8ff47308a13b278174f03c157f2f2e46dd849a`.
+
+Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
+build/packaging scripts, pins, patches and Domain sources. Each cache stores both WASMs and their
+build-info JSON files. `package-deploy-multi-cores.mjs` checks those records and rejects test-seeded or
+incomplete builds, then writes a `.sha256` and `.SOURCE` sidecar for **each** deployed core. Each build-info
+JSON stores `builderCommit`; the sidecars and packaging logs print `builtBy=` from that record and
+`deployedBy=` from the checked-out HEAD. A cache hit preserves the original builder, while a manual
+staging dispatch records the requested checkout as deployer. The VM fetches and checks out that exact CI commit, even if the requested branch
+advances during compilation. The workflows verify installation in a scratch directory before transfer.
+
+The VM prepares `.deploy-duel-engine` from that tarball and passes it as the named `engine` build
+context. `.dockerignore` excludes it from the application context. Both deploy Compose files use
+Docker target `duel-bundled`, which copies the complete bundle once to `/opt/duel-engine` with readable
+permissions and verifies it there with `verify-deploy-multi-cores.mjs`. No engine copy is baked into
+`/app/data`. Staging installs on the host before startup; its installer also checks the image source
+against the mounted bundle at startup. Production leaves `DUEL_BUNDLE_SRC` empty, so starts only
+verify the installed volume. The temporary build context and randomized transfer tarball are removed
+after deployment, including clone/fetch failures. The local dev override retains the bare `duel`
+target, clears the named context, and keeps its existing volume.
+
+The shared installer validates both checksums before writing, updates either multi core even under an
+identical base manifest, and refuses a changed multi core while a Tag/FFA duel is active. Staging's
+wrapper requires both WASMs and all four checksum/provenance sidecars. Production carries the same
+cores but still defaults `MULTIPLAYER_TABLES` to off; shipping them does not open multiplayer tables.
+
+### Local verification without starting services
+
+From a disposable checkout, prepare the bundle and build the deploy image:
+
+```sh
+npm ci
+mkdir -p .deploy-duel-engine
+export DUEL_DATA_DIR="$PWD/.deploy-duel-engine"
+npm run duel:prepare
+npx tsx packages/duel-server/scripts/build-domain-core.ts
+npx tsx packages/duel-server/scripts/build-domain-core.ts standard
+npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
+bash packages/duel-server/scripts/build-deploy-multi-cores.sh
+node packages/duel-server/scripts/package-deploy-multi-cores.mjs "$DUEL_DATA_DIR"
+docker build --target duel-bundled --build-context engine=./.deploy-duel-engine -t yugidraft-multicore-test .
+docker run --rm --network none --env DUEL_DATA_DIR=/opt/duel-engine --entrypoint node yugidraft-multicore-test \
+  packages/duel-server/scripts/verify-deploy-multi-cores.mjs --smoke
+```
+
+The check verifies the bundle, WASM syntax, both checksums, `multiCoreAvailable=true` and the real host
+response `multiDomainCoreReady=true`. `--smoke` starts all six Standard/Domain FFA3, FFA4 and Tag layouts
+from the deployed filenames and checks Domain Deck Masters. It opens no ports and uses an in-memory
+application database. Repeat with an empty writable bind mount to test the startup copy:
+
+```sh
+mkdir -p .status/multicore-check
+docker run --rm --network none --user "$(id -u):$(id -g)" \
+  -v "$PWD/.status/multicore-check:/app/data" --entrypoint sh yugidraft-multicore-test \
+  -c 'sh packages/duel-server/scripts/install-engine-bundle.sh && node packages/duel-server/scripts/verify-deploy-multi-cores.mjs --smoke'
+docker image rm yugidraft-multicore-test
+```
+
+Remove only this checkout's generated `.deploy-duel-engine`, test data and core build output afterward.
+Do not prune shared Docker images, volumes or build caches. No external release asset is required: all
+patches and Domain sources are tracked, and upstream repositories are pinned to commits.
+
+Earlier local verification of the original packaging on 2026-10-02 rebuilt both production cores with bytes identical to the engine
+snapshot: Standard multi SHA256 `896d6528b16227e1702088c42da8570a6c394be9c0dd93ad4f2aac9951e5c22e`,
+Domain multi SHA256 `f1f8adaeaff21328970ffe894bf70cd86cc3afa18731a8aae4a397206824e2cb`.
+The Docker build, baked-data check, fresh non-root bind-mount install, repeat install, and real staging
+tarball install passed. All six engine startups passed in the image and installed bundles; the
+installer/availability suites passed 47 tests. Packaging rejected a test seed, wrong core pin and wrong
+Domain layer before copying any file. Smoke checks prove loading and startup; the rule coverage limits
+below still apply. The workflows were checked locally, without deploying or pushing.
+
+The deployment-review changes were checked separately with a synthetic bundle: the named-context
+image build verified `/opt/duel-engine` in place, with no engine copy in `/app/data` or the application
+context. This check covered image packaging and capability reporting; it did not execute real duels.
 
 ## Normal use
 
 New duels save `setup.firstTurnDraw`, the resolved `DUEL_1ST_TURN_DRAW` flag, when they start.
 Worker recovery and all journal replay paths use this saved flag. The engine resource pin still checks the
 bundle and Lua overlay. A rule change alone does not change an existing duel's draw flag.
+
+The legacy 1v1 engine uses the stock Master Rule draw rule in Standard and Domain:
+MR1/MR2 draw on turn 1; MR3-MR5 do not. The pinned engine draws on turn 1 in every
+Domain seat layout. Standard on the pinned engine uses the stock Master Rule draw rule.
 
 Old records have no saved flag. Production ran `main`; after migration, all its old duels are 1v1
 and need no action. Staging ran this branch before and after `0fb46df`, but never `d4338a2` or a later commit.
@@ -165,9 +283,9 @@ WHERE web_slug = '<verified-local-duel-slug>'
 
 ## Limits for testers
 
-- **At 3 and 4 seats, only the Standard format works.** Domain duels at 3 seats, 4 seats and Tag are blocked on purpose.
-  The creator hides Domain for them, the web route refuses it, and the duel server refuses it, until the Domain multi core
-  (`ocgcore.multi-domain.wasm`) exists. This staging does not build or ship that file.
+- **Standard and Domain support FFA3, FFA4 and Tag once this bundle is deployed.** A missing core still
+  closes the corresponding start guard. Domain uses `ocgcore.multi-domain.wasm`; deploying an older
+  workflow that ships only the plain core leaves Domain blocked.
 - **Rules that are not proven by a test yet.** `docs/specs/multiplayer-rule-coverage.md` lists 19 rules that have no outcome
   test yet (8 are covered). In plain words, five groups. Cards that rely on them can behave wrongly:
   1. Cards that say "opponent", "each player" or "all" (separate fields, Extra Monster Zones, picking an opponent for hand
@@ -176,7 +294,8 @@ WHERE web_slug = '<verified-local-duel-slug>'
   3. Negation and lock cards (for example Solemn Judgment, Jinzo).
   4. Tag partners (sharing cards and costs, the partner is not an opponent, seeing the partner's hand).
   5. Tag loss and turn-count cards (a team loss from an empty Deck, Final Countdown).
-- The Standard core in npm is older than the card scripts. A Standard duel can throw on some cards.
+- The legacy Standard 1v1 engine uses the older npm core. Staging defaults to the legacy 1v1 engine, as production does (`STAGING_DUEL_1V1_ENGINE=pinned` tests the merged one);
+  multiplayer games load the separately built multi cores.
 - Staging has a copy of the production database. Testers sign in with their real Discord accounts, and the guild check applies.
 - Staging has its own `NEXTAUTH_SECRET`. A sign-in made in staging is not valid in production, and the other way round.
   Sign-in cookies are tied to the host name, not to the port. At the same IP address, a sign-in on staging replaces the
@@ -206,7 +325,7 @@ Lua random numbers repeatable). `test.yml` keeps the flag, because tests need re
 
 ## Tester notes
 
-- Use the Standard format at 3 or more players. Domain at 3 or more seats is blocked for now.
+- Standard and Domain are available at 3 or more players after deployment of both multi cores.
 - The special card rules for 3 or more players are not built yet. These cards can act wrong:
   - Kaiju, Lava Golem, Volcanic Queen, Ra (Sphere Mode).
   - Cards that summon to the field of an opponent (Ojama Trio, Jormungardr, Grinder Golem and about 100 more).

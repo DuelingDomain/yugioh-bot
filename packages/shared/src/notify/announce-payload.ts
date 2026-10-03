@@ -18,6 +18,20 @@ export type AnnouncePayload =
       opponentName: string;
       opponentLost: boolean;
     }
+  | {
+      kind: "duel-invite";
+      guildId: string;
+      /** The player the bot DMs. */
+      opponentDiscordUserId: string;
+      challengerName: string;
+      duelName: string;
+      bestOf: 1 | 3;
+      ranked: boolean;
+      /** Set for a tournament game; the DM shows it instead of Ranked/Unranked. */
+      tournamentName: string | null;
+      /** Public web link to the duel room. */
+      url: string;
+    }
   | { kind: "match-resolved"; matchId: number }
   | { kind: "tournament-completed"; tournamentId: number };
 

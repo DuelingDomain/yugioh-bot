@@ -22,16 +22,61 @@
   --font-body: var(--font-chakra-petch), ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Duel layer order, lowest to highest. One scale for every duel layer, so no file picks a number
+   on its own. Defined on :root because menus, the attack confirm and the result screen render in
+   portals outside the room shell.
+
+   Inside the board box (the "board" stacking context) the order is: field < board FX < prompts.
+   Board FX never go in a portal at the page root: a z-index there beats the whole board, prompts
+   included. Anything above prompts lives outside the board box (portals), so it also clears the
+   board FX. A new duel layer takes the first token that fits; it does not take a new number. */
+:root {
+  --duel-z-board: 1;            /* the board box: hand cards grow over the header and station track */
+  --duel-z-fx: 10;              /* board FX: aim arrow, equip links, chain badges, card flights, wipe canvas */
+  --duel-z-fx-front: 14;        /* FX that must clear the rest: attack play, Deck Master return, destroy ghosts */
+  --duel-z-prompt: 20;          /* what the player must read or click: prompt panel, card strip, bars, prompt dock */
+  --duel-z-prompt-front: 24;    /* the pile viewer, opened over a prompt */
+  --duel-z-tooltip: 90;         /* hover card info (portal) */
+  --duel-z-menu: 100;           /* anchored card action menu (portal) */
+  --duel-z-confirm: 110;        /* attack confirm (portal), over the menu layer */
+  --duel-z-modal: 150;          /* series and side-deck screens */
+  --duel-z-result: 200;         /* the result screen */
+}
+
 html {
   background-color: var(--color-bg-deep);
   color: var(--color-text-primary);
   color-scheme: dark;
 }
 
+/* The phone top bar in shell.module.css is sticky and 56px tall, so in-page jumps and focus
+   scrolling stop below it. Keep this breakpoint in step with shell.module.css. */
+@media (max-width: 820px) {
+  html { scroll-padding-top: 72px; }
+}
+
 body {
   font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Large card previews (deck lobby, deck editor, duel inspector, pile viewer, draft). One rule, so no
+   preview crops the printed card frame: the true card ratio, the whole image shown (contain), and a
+   hairline radius, far under the card's own corner. Nothing clips the image (no overflow: hidden, no
+   scale); any glow or shadow goes on the frame and falls outside the card. */
+.card-frame {
+  position: relative;
+  aspect-ratio: 421 / 614;
+  border-radius: 2px;
+}
+.card-frame > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: contain;
+  transform: none;
 }
 
 .native-select {
@@ -57,39 +102,6 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
-  }
-}
-
-@media (min-width: 768px) {
-  .app-shell-content {
-    margin-left: 14rem;
-    transition: margin-left 200ms ease-out;
-  }
-
-  [data-sidebar-collapsed="true"] .app-shell-content {
-    margin-left: 4rem;
-  }
-
-  [data-sidebar-collapsed="true"] .sidebar-label {
-    display: none;
-  }
-
-  .sidebar-logo-text {
-    display: inline;
-  }
-
-  [data-sidebar-collapsed="true"] .sidebar-logo-text {
-    display: none;
-  }
-
-  .sidebar-nav {
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
-  }
-
-  [data-sidebar-collapsed="true"] .sidebar-nav {
-    padding-left: 0.25rem;
-    padding-right: 0.25rem;
   }
 }
 

@@ -1,13 +1,19 @@
+import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Trophy, Layers, Swords, TrendingUp, ArrowRight, Target, Flame, Star, Coins } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { TournamentCard, type TournamentCardProps } from "@/components/tournament/tournament-card";
-import { DraftCard, type DraftCardProps } from "@/components/draft/draft-card";
+import { FloorList, SectionHead } from "@/components/sheet";
+import { PageFrame } from "@/components/dashboard/page-frame";
+import { loadTournamentRounds } from "@/components/dashboard/tournament-rounds";
+import { DraftRow, TournamentRow, type DashboardDraft, type DashboardTournament } from "@/components/dashboard/dashboard-rows";
+import { YourStanding, type StandingProfile } from "@/components/dashboard/your-standing";
+import { WelcomePanel } from "@/components/dashboard/welcome-panel";
+import { DashboardDate } from "@/components/dashboard/dashboard-date";
+import styles from "@/components/dashboard/dashboard.module.css";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { createScoringService } from "@yugidraft/shared/services";
-import { RankBadge } from "@/components/rank/rank-badge";
+import { RejoinDraftBanner } from "@/components/draft/rejoin-draft";
+import { findRejoinDrafts } from "@/lib/rejoin-drafts";
 
 interface Stats {
   wins: number;
@@ -22,18 +28,16 @@ export default async function DashboardPage() {
   const db = getDb();
 
   const playerRows = db
-    .prepare("select id, guild_id from players where discord_user_id = ?")
-    .all(discordUserId) as Array<{ id: number; guild_id: string }>;
+    .prepare("select id, guild_id from players where discord_user_id = ? and guild_id = ?")
+    .all(discordUserId, env.discordGuildId) as Array<{ id: number; guild_id: string }>;
   const playerIds = playerRows.map((r) => r.id);
 
-  let tournaments: TournamentCardProps[] = [];
-  let drafts: DraftCardProps[] = [];
+  let tournaments: DashboardTournament[] = [];
+  let drafts: DashboardDraft[] = [];
   let stats: Stats = { wins: 0, losses: 0 };
 
   // Profile stats (winnings / rank / streak) — only if this user has a player row
-  let seasonWinnings: number | null = null;
-  let rankName: string | null = null;
-  let currentStreak: number | null = null;
+  let profileData: StandingProfile | null = null;
 
   if (playerIds.length > 0) {
     // Use first player row (single-guild assumption on dashboard)
@@ -42,9 +46,12 @@ export default async function DashboardPage() {
       try {
         const scoring = createScoringService(db);
         const profile = scoring.getProfile(firstPlayer.guild_id, firstPlayer.id, "season");
-        seasonWinnings = profile.winnings;
-        rankName = profile.rank.name;
-        currentStreak = profile.currentStreak;
+        profileData = {
+          rating: profile.rating,
+          rank: profile.rank,
+          winnings: profile.winnings,
+          currentStreak: profile.currentStreak,
+        };
       } catch {
         // No player_ratings row yet — leave nulls, show dashes
       }
@@ -59,11 +66,11 @@ export default async function DashboardPage() {
          from tournaments t
          inner join tournament_participants tp on tp.tournament_id = t.id
          left join tournament_participants tp2 on tp2.tournament_id = t.id
-         where tp.player_id in (${ph}) and t.status in ('pending', 'active')
+         where t.guild_id = ? and tp.player_id in (${ph}) and t.status in ('pending', 'active')
          group by t.id
          order by case t.status when 'active' then 0 else 1 end, t.created_at desc`
       )
-      .all(...playerIds)
+      .all(env.discordGuildId, ...playerIds)
       .map((row: any) => ({
         id: row.id,
         guildId: row.guild_id,
@@ -82,11 +89,11 @@ export default async function DashboardPage() {
          from drafts d
          inner join draft_players dp on dp.draft_id = d.id
          left join draft_players dp2 on dp2.draft_id = d.id
-         where dp.player_id in (${ph}) and d.status in ('pending', 'active')
+         where d.guild_id = ? and dp.player_id in (${ph}) and d.status in ('pending', 'active')
          group by d.id
          order by case d.status when 'active' then 0 else 1 end, d.created_at desc`
       )
-      .all(...playerIds)
+      .all(env.discordGuildId, ...playerIds)
       .map((row: any) => ({
         id: row.id,
         guildId: row.guild_id,
@@ -108,7 +115,7 @@ export default async function DashboardPage() {
                and winner_id not in (${ph})
              then 1 else 0 end) as losses
          from matches
-         where status = 'completed'
+         where guild_id = ? and status = 'approved'
            and (player_one_id in (${ph}) or player_two_id in (${ph}))`
       )
       .get(
@@ -116,6 +123,7 @@ export default async function DashboardPage() {
         ...playerIds,
         ...playerIds,
         ...playerIds,
+        env.discordGuildId,
         ...playerIds,
         ...playerIds
       ) as { wins: number | null; losses: number | null } | undefined;
@@ -123,110 +131,67 @@ export default async function DashboardPage() {
     stats = { wins: statsRow?.wins ?? 0, losses: statsRow?.losses ?? 0 };
   }
 
-  const totalGames = stats.wins + stats.losses;
-  const winRate = totalGames > 0 ? Math.round((stats.wins / totalGames) * 100) : 0;
+  const hasPlayer = playerIds.length > 0;
+  const rounds = loadTournamentRounds(db, env.discordGuildId, tournaments);
+  const viewerId = playerIds[0] ?? null;
+  const rejoin = hasPlayer ? findRejoinDrafts(db, env.discordGuildId, discordUserId) : [];
 
   return (
-    <div>
-      <h1 className="mb-8 font-display text-2xl text-text-primary sm:text-3xl">Dashboard</h1>
-
-      <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard icon={<Trophy className="h-5 w-5 text-accent-gold" />} label="Wins" value={stats.wins} />
-        <StatCard icon={<Target className="h-5 w-5 text-accent-cta" />} label="Losses" value={stats.losses} />
-        <StatCard icon={<Swords className="h-5 w-5 text-accent-primary" />} label="Matches" value={totalGames} />
-        <StatCard icon={<TrendingUp className="h-5 w-5 text-accent-success" />} label="Win Rate" value={`${winRate}%`} />
-        <StatCard
-          icon={<Coins className="h-5 w-5 text-accent-gold" />}
-          label="Season Winnings"
-          value={seasonWinnings !== null ? seasonWinnings : "—"}
-        />
-        <StatCard
-          icon={<Star className="h-5 w-5 text-accent-primary" />}
-          label="Rank"
-          value={rankName !== null ? <RankBadge rank={rankName} /> : "—"}
-        />
-        <StatCard
-          icon={
-            currentStreak !== null && currentStreak > 0
-              ? <Flame className="h-5 w-5 text-accent-cta" />
-              : <TrendingUp className="h-5 w-5 text-text-muted" />
-          }
-          label="Win Streak"
-          value={currentStreak !== null ? currentStreak : "—"}
-        />
-      </div>
-
-      <section className="mb-8">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 font-body text-lg font-semibold text-text-primary">
-            <Trophy className="h-5 w-5 text-accent-gold" />
-            Your Tournaments
-          </h2>
-          <Link href="/tournaments">
-            <Button variant="ghost" size="sm">
-              View All
-              <ArrowRight className="ml-1 h-4 w-4" />
-            </Button>
-          </Link>
+    <PageFrame title="Dashboard" sub={hasPlayer ? <DashboardDate /> : undefined}>
+      <RejoinDraftBanner drafts={rejoin} />
+      {!hasPlayer ? (
+        <WelcomePanel />
+      ) : (
+        <div className={styles.cols}>
+          <section className={styles.tournaments} aria-labelledby="db-tournaments">
+            <SectionHead
+              title="Your tournaments"
+              id="db-tournaments"
+              action={
+                <Link className="link" href="/tournaments">
+                  All tournaments
+                </Link>
+              }
+            />
+            {tournaments.length === 0 ? (
+              <p className={styles.none}>
+                You&apos;re not in a tournament right now. <Link className="link" href="/tournaments">See what&apos;s open</Link> or use{" "}
+                <code className="cmd">/event join</code>.
+              </p>
+            ) : (
+              <FloorList aria-labelledby="db-tournaments">
+                {tournaments.map((t) => (
+                  <TournamentRow key={t.id} tournament={t} rounds={rounds.get(t.id)} viewerId={viewerId} />
+                ))}
+              </FloorList>
+            )}
+          </section>
+          <YourStanding className={styles.standing} profile={profileData} record={stats} />
+          <section className={styles.drafts} aria-labelledby="db-drafts">
+            <SectionHead
+              title="Your drafts"
+              id="db-drafts"
+              action={
+                <Link className="link" href="/drafts">
+                  All drafts
+                </Link>
+              }
+            />
+            {drafts.length === 0 ? (
+              <p className={styles.none}>
+                You&apos;re not in a draft right now. <Link className="link" href="/drafts">See what&apos;s open</Link> or use{" "}
+                <code className="cmd">/draft join</code>.
+              </p>
+            ) : (
+              <FloorList aria-labelledby="db-drafts">
+                {drafts.map((d) => (
+                  <DraftRow key={d.id} draft={d} />
+                ))}
+              </FloorList>
+            )}
+          </section>
         </div>
-        {tournaments.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface p-6 text-center">
-            <p className="text-text-secondary">No active tournaments. Join one from Discord!</p>
-          </div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {tournaments.map((t) => (
-              <TournamentCard key={t.id} tournament={t} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 font-body text-lg font-semibold text-text-primary">
-            <Layers className="h-5 w-5 text-accent-primary" />
-            Your Drafts
-          </h2>
-          <Link href="/drafts">
-            <Button variant="ghost" size="sm">
-              View All
-              <ArrowRight className="ml-1 h-4 w-4" />
-            </Button>
-          </Link>
-        </div>
-        {drafts.length === 0 ? (
-          <div className="rounded-lg border border-border bg-surface p-6 text-center">
-            <p className="text-text-secondary">No active drafts. Join one from Discord!</p>
-          </div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {drafts.map((d) => (
-              <DraftCard key={d.id} draft={d} />
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function StatCard({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-surface p-4">
-      <div className="mb-2 flex items-center gap-2">
-        {icon}
-        <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">{label}</span>
-      </div>
-      <div className="font-display text-2xl text-text-primary">{value}</div>
-    </div>
+      )}
+    </PageFrame>
   );
 }

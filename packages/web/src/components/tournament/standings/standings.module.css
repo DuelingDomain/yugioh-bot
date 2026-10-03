@@ -1,0 +1,30 @@
+.standings { padding: 28px 40px 0; position: relative; }
+.anchor { position: absolute; top: 0; left: 0; width: 1px; height: 1px; }
+.empty { margin: 0; color: var(--ink-3); }
+.rk { font: 700 24px/1 var(--f-display); color: var(--ink-2); text-align: center; }
+.rk[data-first] { color: var(--chain-ink); }
+.who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nm { display: flex; align-items: center; min-width: 0; font-size: 17px; font-weight: 600; }
+.nm a { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.nm a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.tier { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 14px; white-space: nowrap; }
+.tier em { font: 500 15px/1 var(--f-num); font-style: normal; color: var(--ink); }
+.strip { display: flex; align-items: center; }
+.recd { font: 600 28px/1 var(--f-num); color: var(--ink); text-align: right; white-space: nowrap; }
+
+@container (max-width: 620px) {
+  .rk { grid-area: rk; }
+  .mo { grid-area: mo; }
+  .who { grid-area: nm; }
+  .strip { grid-area: st; }
+  .recd { grid-area: rc; }
+  .standings { padding: 22px 16px 0; }
+  .rk { font-size: 18px; }
+  .nm { font-size: 15.5px; }
+  .recd { font-size: 22px; }
+  .strip :global(.sv-zone[data-size]) { --zw: 16px; }
+}
+
+.gridWho { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.gridWho a { color: inherit; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gridWho a:hover { text-decoration: underline; text-underline-offset: 3px; }

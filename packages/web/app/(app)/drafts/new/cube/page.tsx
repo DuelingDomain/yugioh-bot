@@ -1,10 +1,19 @@
+import { DraftFrame } from "@/components/draft/draft-frame";
+import { NewDraftLead } from "@/components/draft/create/new-lead";
 import { CreateDraftForm } from "@/components/draft/create-draft-form";
 
 export default function NewCubeDraftPage() {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 2xl:max-w-none 2xl:px-10">
-      <h1 className="mb-6 font-heading text-2xl text-text-primary">Create New Draft</h1>
+    <DraftFrame
+      back={{ href: "/drafts/new", label: "New draft" }}
+      title="New cube draft"
+      sub="You get a lobby and an invite link."
+    >
+      <NewDraftLead
+        pieces={["Create", "Then a lobby with an invite link"]}
+        note="Nothing is dealt until you press Start."
+      />
       <CreateDraftForm />
-    </div>
+    </DraftFrame>
   );
 }

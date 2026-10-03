@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import { httpTransport } from "@yugidraft/shared/notify";
-import { createDuelService, createPlayerService, DuelServiceError, type DuelService } from "@yugidraft/shared/services";
-import type { DuelCommand, DuelDeck } from "@yugidraft/shared/duels";
+import {
+  createDuelService,
+  createPlayerService,
+  DuelServiceError,
+  SavedDeckServiceError,
+  TournamentDuelError,
+  type DuelService,
+} from "@yugidraft/shared/services";
+import type { CardQuery, DuelCommand, DuelDeck, DuelFirstChoice, DuelMasterRule, DuelMode, DuelRpsMove } from "@yugidraft/shared/duels";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 
-export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "list-presets" | "start-preset" | "report" | "debug-trace";
+export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context";
 
 /** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
 export function scenariosEnabled(): boolean {
@@ -51,7 +58,11 @@ export async function requireDuelActor(): Promise<DuelActor> {
 }
 
 export function duelErrorResponse(error: unknown) {
-  if (error instanceof DuelServiceError) {
+  if (
+    error instanceof DuelServiceError ||
+    error instanceof TournamentDuelError ||
+    error instanceof SavedDeckServiceError
+  ) {
     return NextResponse.json({ error: error.message }, { status: error.status });
   }
   console.error("[api/duels]", error);
@@ -85,6 +96,8 @@ export async function callDuelHost(input: {
   slug?: string;
   guildId: string;
   playerId: number;
+  /** view only: an eliminated FFA player watches through the public view. */
+  spectate?: boolean;
   command?: DuelCommand;
   deck?: DuelDeck;
   query?: string;
@@ -97,6 +110,15 @@ export async function callDuelHost(input: {
   seed?: string[];
   /** report only: the tester's note. */
   note?: string;
+  cardQuery?: CardQuery;
+  /** Rules for `check-deck`. */
+  mode?: DuelMode;
+  masterRule?: DuelMasterRule;
+  settings?: unknown;
+  /** Rock-paper-scissors move for `opening-pick`. */
+  move?: DuelRpsMove;
+  /** First or second for `opening-choose` and `series-first`. */
+  choice?: DuelFirstChoice;
 }): Promise<{ ok: true; data: unknown } | { ok: false; response: NextResponse }> {
   const cfg = { url: env.duelInternalUrl, secret: env.duelInternalSecret };
   const configProblem = duelHostConfigProblem(cfg);
@@ -111,6 +133,7 @@ export async function callDuelHost(input: {
     playerId: input.playerId,
   };
   if (input.slug) payload.slug = input.slug;
+  if (input.op === "view" && input.spectate === true) payload.spectate = true;
   if (input.command) payload.command = input.command;
   if (input.deck) payload.deck = input.deck;
   if (input.query !== undefined) payload.query = input.query;
@@ -119,6 +142,12 @@ export async function callDuelHost(input: {
   if (input.presetId !== undefined) payload.presetId = input.presetId;
   if (input.seed !== undefined) payload.seed = input.seed;
   if (input.note !== undefined) payload.note = input.note;
+  if (input.cardQuery !== undefined) payload.cardQuery = input.cardQuery;
+  if (input.mode !== undefined) payload.mode = input.mode;
+  if (input.masterRule !== undefined) payload.masterRule = input.masterRule;
+  if (input.settings !== undefined) payload.settings = input.settings;
+  if (input.move !== undefined) payload.move = input.move;
+  if (input.choice !== undefined) payload.choice = input.choice;
 
   const result = await transport.post("/internal/duel", JSON.stringify(payload));
   if (!result.ok) {

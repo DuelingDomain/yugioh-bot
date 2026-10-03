@@ -2,15 +2,33 @@
 
 import * as React from "react";
 import Image from "next/image";
-import { Clock, Download, Layers, Package, Trash2, User, Users } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { ChevronDown, Layers } from "lucide-react";
+import {
+  Mono,
+  SectionHead,
+  StageLine,
+  StatusLine,
+  SvButton,
+  SheetPortal,
+  YouPill,
+  ringColour,
+  svButtonClass,
+  type StageStep,
+} from "@/components/sheet";
 import { CardHoverPopup } from "@/components/draft/card-hover-popup";
 import { PoolBreakdown } from "@/components/draft/pool-breakdown";
+import { formatPickSeconds } from "./pick-time";
 import { CardPoolPanel } from "@/components/cards/card-pool-panel";
 import type { CardSummary } from "@/lib/card-types";
 import type { DraftCardDetail } from "@/lib/stores/draft-store";
+import { buildLevelsModel } from "./summary/levels";
+import { groupPool, kindTally, type PoolGroup } from "./summary/groups";
+import { formatDuration, formatEnded, formatStamp, plural } from "./summary/format";
+import styles from "./summary/summary.module.css";
+import { getPopupPosition } from "@/lib/card-popup-position";
+import { DangerConfirm } from "./danger-confirm";
+import { DraftFrame, DraftLayout, DraftMain, DraftRail, Gem, Pieces, RailNote, RailSection, Rules } from "./draft-frame";
+import { useInlineConfirm } from "./use-inline-confirm";
 
 interface DraftSummaryViewProps {
   draft: {
@@ -22,10 +40,17 @@ interface DraftSummaryViewProps {
     startedAt?: string;
     endedAt?: string;
     config: {
+      mode?: "booster" | "theme";
       packSize?: number;
       packsPerPlayer?: number;
+      cardsPerPlayer?: number;
       pickSeconds?: number;
       setNames?: string[];
+      themePackSize?: number;
+      themeSelection?: string;
+      uniqueThemes?: boolean;
+      extraDeckEnabled?: boolean;
+      extraDeckSize?: number;
     };
     players: Array<{
       playerId: number;
@@ -35,9 +60,12 @@ interface DraftSummaryViewProps {
       finishedAt?: string;
       joinedAt: string;
     }>;
+    seats?: Array<{ playerId: number; isCurrentPlayer: boolean }>;
     playerCount: number;
     participantPickCount?: number;
     tournamentId?: number | null;
+    /** The viewer's saved draft deck, when they have built one. */
+    myDeckId?: number | null;
   };
   slug: string;
   isParticipant: boolean;
@@ -47,14 +75,77 @@ interface DraftSummaryViewProps {
   myPool?: DraftCardDetail[];
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+const GROUP_PREVIEW = 12;
+const GROUP_PHONE_PREVIEW = 7;
+
+function PoolGroupView({
+  group,
+  onHover,
+  onLeave,
+  onTap,
+  failed,
+  onFail,
+}: {
+  group: PoolGroup;
+  onHover: (card: CardSummary, rect: DOMRect) => void;
+  onLeave: () => void;
+  onTap: (card: CardSummary, rect: DOMRect) => void;
+  failed: Set<number>;
+  onFail: (id: number) => void;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+  const shown = expanded ? group.cards : group.cards.slice(0, GROUP_PREVIEW);
+  const hidden = group.cards.length - shown.length;
+  const phoneHidden = expanded ? 0 : Math.max(0, group.cards.length - GROUP_PHONE_PREVIEW);
+  return (
+    <div className={styles.group}>
+      <p className={styles.groupHead}>
+        {group.title} <b>{group.cards.length}</b>
+      </p>
+      <ul className={styles.cards}>
+        {shown.map((card, i) => (
+          <li key={`${card.id}-${i}`} className={!expanded && i >= GROUP_PHONE_PREVIEW ? styles.desktopCard : undefined}>
+            <button
+              type="button"
+              aria-label={card.name}
+              onClick={(e) => onTap(card, e.currentTarget.getBoundingClientRect())}
+              onMouseEnter={(e) => onHover(card, e.currentTarget.getBoundingClientRect())}
+              onMouseLeave={onLeave}
+              onFocus={(e) => onHover(card, e.currentTarget.getBoundingClientRect())}
+              onBlur={onLeave}
+            >
+              {failed.has(card.id) ? (
+                <span className={styles.missing}>{card.name}</span>
+              ) : (
+                <Image
+                  src={card.imageUrlSmall || card.imageUrl}
+                  alt=""
+                  width={421}
+                  height={614}
+                  sizes="96px"
+                  onError={() => onFail(card.id)}
+                />
+              )}
+            </button>
+          </li>
+        ))}
+        {hidden > 0 && (
+          <li className={`${styles.more} ${styles.desktopMore}`}>
+            <button type="button" aria-expanded={false} onClick={() => setExpanded(true)}>
+              {hidden} more
+            </button>
+          </li>
+        )}
+        {phoneHidden > 0 && (
+          <li className={`${styles.more} ${styles.phoneMore}`}>
+            <button type="button" aria-expanded={false} onClick={() => setExpanded(true)}>
+              {phoneHidden} more
+            </button>
+          </li>
+        )}
+      </ul>
+    </div>
+  );
 }
 
 export function DraftSummaryView({
@@ -68,12 +159,17 @@ export function DraftSummaryView({
 }: DraftSummaryViewProps) {
   const [exporting, setExporting] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
-  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const deleteConfirm = useInlineConfirm(deleting);
+  const confirmOpen = deleteConfirm.open;
+  const setConfirmOpen = deleteConfirm.setOpen;
   const [error, setError] = React.useState<string | null>(null);
-  const [hoveredCard, setHoveredCard] = React.useState<DraftCardDetail | null>(null);
+  const [hoveredCard, setHoveredCard] = React.useState<CardSummary | null>(null);
+  // A tapped card stays open until closed, so phones (no hover) can read it too.
+  const [tapped, setTapped] = React.useState<{ card: CardSummary; position: { left: number; top: number } } | null>(null);
   const [popupPosition, setPopupPosition] = React.useState<{ left: number; top: number } | null>(null);
   const [imageErrors, setImageErrors] = React.useState<Set<number>>(new Set());
   const [tournamentFormat, setTournamentFormat] = React.useState<"round_robin" | "single_elim">("round_robin");
+  const [tournamentBestOf, setTournamentBestOf] = React.useState<1 | 3>(3);
   const [creatingTournament, setCreatingTournament] = React.useState(false);
   const [tournamentError, setTournamentError] = React.useState<string | null>(null);
   const [linkedTournament, setLinkedTournament] = React.useState<{ id: number; name: string; webSlug: string | null } | null>(null);
@@ -98,22 +194,13 @@ export function DraftSummaryView({
     }
   }, [poolOpen, fullPool, slug]);
 
-  const handleCardHover = React.useCallback((card: DraftCardDetail, rect: DOMRect) => {
-    const POPUP_WIDTH = 288;
-    const POPUP_HEIGHT = 560;
-    const MARGIN = 16;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const rightLeft = rect.right + MARGIN;
-    const leftLeft = rect.left - POPUP_WIDTH - MARGIN;
-    const left =
-      rightLeft + POPUP_WIDTH + MARGIN <= vw ? rightLeft : Math.max(MARGIN, leftLeft);
-    const top = Math.min(
-      vh - POPUP_HEIGHT - MARGIN,
-      Math.max(MARGIN, rect.top + rect.height / 2 - POPUP_HEIGHT / 2),
-    );
+  const handleCardHover = React.useCallback((card: CardSummary, rect: DOMRect) => {
     setHoveredCard(card);
-    setPopupPosition({ left, top });
+    setPopupPosition(getPopupPosition(rect));
+  }, []);
+
+  const handleCardTap = React.useCallback((card: CardSummary, rect: DOMRect) => {
+    setTapped({ card, position: getPopupPosition(rect) });
   }, []);
 
   const handleCardLeave = React.useCallback(() => {
@@ -121,11 +208,18 @@ export function DraftSummaryView({
     setPopupPosition(null);
   }, []);
 
+  const markFailed = React.useCallback((id: number) => {
+    setImageErrors((prev) => new Set(prev).add(id));
+  }, []);
+
   const isCompleted = draft.status === "completed";
+  const isTheme = draft.config.mode === "theme";
   const participantPickCount = draft.participantPickCount ?? 0;
   const canExportYdk = isCompleted && isParticipant && participantPickCount >= 40;
-  const statusLabel = isCompleted ? "Completed" : "Cancelled";
-  const statusVariant = isCompleted ? ("success" as const) : ("danger" as const);
+  // The export writes the first 40 picks as the main deck and nothing else.
+  const ydkCards = participantPickCount > 40 ? "your first 40 picks" : "your picks";
+  const canBuildDeck = isCompleted && isParticipant && participantPickCount > 0;
+  const hasDeck = draft.myDeckId != null;
 
   const handleExport = async () => {
     setExporting(true);
@@ -166,7 +260,7 @@ export function DraftSummaryView({
       const res = await fetch(`/api/drafts/${slug}/tournament`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ format: tournamentFormat }),
+        body: JSON.stringify({ format: tournamentFormat, bestOf: tournamentBestOf }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -190,327 +284,355 @@ export function DraftSummaryView({
     }
     return 0;
   });
+  const myPlayerIds = new Set((draft.seats ?? []).filter((s) => s.isCurrentPlayer).map((s) => s.playerId));
+
+  // Everything before the last stop is done; building a deck is where you go next.
+  const cfg = draft.config;
+  const stages: StageStep[] = isTheme
+    ? [
+        { label: "Lobby", state: "done" },
+        { label: "Main deck", state: "done" },
+        ...(cfg.extraDeckEnabled ? [{ label: "Extra deck", state: "done" as const }] : []),
+        { label: "Build deck", state: "now" },
+      ]
+    : [
+        { label: "Lobby", state: "done" },
+        { label: "Draft", state: "done" },
+        { label: "Build deck", state: "now" },
+      ];
+
+  const duration = formatDuration(draft.startedAt, draft.endedAt);
+
+  const pool = isParticipant && myPool && myPool.length > 0 ? myPool : null;
+  const tally = pool ? kindTally(pool) : null;
+  const levels = pool ? buildLevelsModel(pool) : null;
+  const groups = pool ? groupPool(pool, isTheme ? "theme" : "cube") : [];
+
+  const selectionLabel =
+    cfg.themeSelection === "player_pick" ? "Players pick" : cfg.themeSelection === "random" ? "Random" : cfg.themeSelection === "host_assigned" ? "Host assigns" : null;
+
+  const setupRows: Array<[string, string]> = [];
+  if (isTheme) {
+    if (selectionLabel) setupRows.push(["Themes", cfg.uniqueThemes ? `${selectionLabel}, all different` : selectionLabel]);
+    if (cfg.cardsPerPlayer) setupRows.push(["Main deck", plural(cfg.cardsPerPlayer, "card")]);
+    if (cfg.extraDeckEnabled !== undefined) {
+      setupRows.push(["Extra deck", cfg.extraDeckEnabled && cfg.extraDeckSize ? plural(cfg.extraDeckSize, "card") : "Off"]);
+    }
+    if (cfg.themePackSize) setupRows.push(["Each pick", `1 of ${cfg.themePackSize}`]);
+  } else {
+    const each = cfg.cardsPerPlayer ?? (cfg.packSize && cfg.packsPerPlayer ? cfg.packSize * cfg.packsPerPlayer : undefined);
+    if (each) setupRows.push(["Each player", plural(each, "card")]);
+    if (cfg.packsPerPlayer && cfg.packSize) setupRows.push(["Packs", `${plural(cfg.packsPerPlayer, "pack")} of ${cfg.packSize}`]);
+  }
+  if (cfg.pickSeconds) setupRows.push(["Pick duration", formatPickSeconds(cfg.pickSeconds)]);
+  if (draft.startedAt) setupRows.push(["Started", formatStamp(draft.startedAt)]);
+  if (draft.endedAt) setupRows.push(["Ended", formatStamp(draft.endedAt)]);
+
+  const showMakeTournament = isCompleted && isCreator && !linkedTournament && !draft.tournamentId;
+  const showTournamentPanel = isCompleted && (linkedTournament != null || draft.tournamentId != null);
+
+
+  const kind = isTheme ? "Theme draft" : "Cube draft";
+  const hasActions = canBuildDeck || canExportYdk || Boolean(error);
+  const actions = (
+    <>
+      {error && (
+        <div role="alert">
+          <StatusLine tone="block">{error}</StatusLine>
+        </div>
+      )}
+      {canBuildDeck && (
+        <SvButton as="a" href={`/decks/draft/${slug}`} variant={hasDeck ? "ghost" : "primary"} big wide>
+          <Layers size={18} aria-hidden="true" />
+          {hasDeck ? "Edit your deck" : "Build your deck"}
+        </SvButton>
+      )}
+      {canExportYdk && (
+        <SvButton variant="ghost" wide disabled={exporting} aria-busy={exporting || undefined} onClick={handleExport}>
+          {exporting ? "Exporting…" : "Export YDK"}
+        </SvButton>
+      )}
+    </>
+  );
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
-      {error && (
-        <div className="rounded-lg border border-accent-cta/50 bg-accent-cta/10 px-4 py-2 text-sm text-accent-cta">
-          {error}
-        </div>
-      )}
-
-      <div className="rounded-xl border border-border bg-surface p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <h1 className="font-display text-xl text-text-primary sm:text-2xl">
-              {draft.name}
-            </h1>
-            <div className="mt-2 flex items-center gap-3">
-              <Badge variant={statusVariant}>{statusLabel}</Badge>
-              {draft.endedAt && (
-                <span className="flex items-center gap-1 text-sm text-text-secondary">
-                  <Clock className="h-3.5 w-3.5" />
-                  {formatDate(draft.endedAt)}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {canExportYdk && (
-              <Button
-                variant="primary"
-                size="sm"
-                loading={exporting}
-                onClick={handleExport}
-              >
-                <Download className="h-4 w-4" />
-                Export YDK
-              </Button>
-            )}
-            {isCreator && (
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={() => setConfirmOpen(true)}
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </Button>
-            )}
-          </div>
-        </div>
-        {isCompleted && isParticipant && !canExportYdk && (
-          <p className="mt-4 text-sm text-text-secondary">
-            YDK export requires 40 picks. This draft completed with {participantPickCount}.
-          </p>
-        )}
-      </div>
-
-      <div className="rounded-xl border border-border bg-surface p-6">
-        <h2 className="mb-4 font-display text-lg text-text-primary">
-          <Users className="mr-2 inline h-5 w-5 text-accent-primary" />
-          Players ({draft.playerCount})
-        </h2>
-        {draft.players.length === 0 ? (
-          <p className="text-sm text-text-secondary">No players were in this draft.</p>
-        ) : (
-          <ul className="flex flex-col gap-2" role="list">
-            {sortedPlayers.map((player) => (
-              <li
-                key={player.playerId}
-                className="flex items-center gap-3 rounded-lg border border-border bg-bg-elevated/50 p-3"
-              >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-bg-elevated text-text-secondary">
-                  <User className="h-4 w-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <span className="text-sm font-semibold text-text-primary">
-                    {player.displayName}
-                  </span>
-                  {player.seatIndex !== undefined && player.seatIndex !== null && (
-                    <span className="ml-2 text-xs text-text-muted">
-                      Seat {player.seatIndex + 1}
-                    </span>
-                  )}
-                </div>
-                <span className="shrink-0 rounded-full bg-accent-primary/10 px-2.5 py-0.5 text-xs font-semibold text-accent-primary">
-                  {player.pickCount} {player.pickCount === 1 ? "pick" : "picks"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {isParticipant && myPool && myPool.length > 0 && (
-        <div className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-4 font-display text-lg text-text-primary">
-            <Package className="mr-2 inline h-5 w-5 text-accent-primary" />
-            Your Pool ({myPool.length} cards)
-          </h2>
-          <PoolBreakdown cards={myPool} />
-          <ul className="flex flex-col gap-0.5" role="list">
-            {myPool.map((card) => {
-              const isMonster = card.type.toLowerCase().includes("monster");
-              return (
-                <li key={card.id}>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors duration-150 hover:border-border hover:bg-bg-elevated/50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent-primary"
-                    onMouseEnter={(e) =>
-                      handleCardHover(card, e.currentTarget.getBoundingClientRect())
-                    }
-                    onMouseLeave={handleCardLeave}
-                    onFocus={(e) =>
-                      handleCardHover(card, e.currentTarget.getBoundingClientRect())
-                    }
-                    onBlur={handleCardLeave}
-                  >
-                    {/* 36×48 thumbnail */}
-                    <div className="relative h-12 w-9 shrink-0 overflow-hidden rounded bg-bg-elevated">
-                      {imageErrors.has(card.id) ? (
-                        <div className="flex h-full w-full items-center justify-center text-xs text-text-muted">
-                          ?
-                        </div>
-                      ) : (
-                        <Image
-                          src={card.imageUrlSmall || card.imageUrl}
-                          alt=""
-                          fill
-                          className="object-cover"
-                          sizes="36px"
-                          onError={() =>
-                            setImageErrors((prev) => new Set(prev).add(card.id))
-                          }
-                        />
-                      )}
-                    </div>
-
-                    {/* Name + type + attribute + level */}
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-text-primary">
-                        {card.name}
-                      </p>
-                      <p className="truncate text-xs text-text-muted">
-                        {card.type}
-                        {card.attribute &&
-                          card.attribute !== "SPELL" &&
-                          card.attribute !== "TRAP" &&
-                          ` · ${card.attribute}`}
-                        {card.level !== undefined && ` · Lv ${card.level}`}
-                      </p>
-                    </div>
-
-                    {/* ATK/DEF for monsters */}
-                    {isMonster && card.atk !== undefined && (
-                      <span className="shrink-0 rounded bg-bg-elevated px-1.5 py-0.5 text-xs font-semibold tabular-nums text-text-secondary">
-                        {card.atk}/{card.def ?? "?"}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-
-          {/* Hover preview */}
-          {hoveredCard && popupPosition && (
-            <CardHoverPopup
-              card={hoveredCard}
-              position={popupPosition}
-              imageError={imageErrors.has(hoveredCard.id)}
-              onImageError={() =>
-                setImageErrors((prev) => new Set(prev).add(hoveredCard.id))
-              }
+    <DraftFrame title={draft.name} back={{ href: "/drafts", label: "All drafts" }}>
+      <DraftLayout>
+        <DraftMain>
+          <div className={styles.lead}>
+            {isCompleted && <StageLine steps={stages} label="Draft progress" />}
+            <Pieces
+              items={[
+                { content: <><Gem fill={isCompleted} tone={isCompleted ? undefined : "dim"} />{isCompleted ? "Finished" : "Cancelled"}</>, strong: true },
+                { content: kind },
+                { content: plural(draft.playerCount, "player") },
+                ...(draft.endedAt ? [{ content: `Ended ${formatEnded(draft.endedAt)}` }] : []),
+                ...(duration ? [{ content: `Took ${duration}` }] : []),
+              ]}
             />
-          )}
-        </div>
-      )}
-
-      <div className="rounded-xl border border-border bg-surface p-6">
-        <button
-          type="button"
-          onClick={toggleFullPool}
-          aria-expanded={poolOpen}
-          className="flex w-full items-center justify-between gap-2 text-left"
-        >
-          <span className="flex items-center gap-2 font-display text-lg text-text-primary">
-            <Layers className="h-5 w-5 text-accent-primary" aria-hidden="true" />
-            View full pool used{fullPool ? ` (${fullPool.length})` : ""}
-          </span>
-          <span className="text-sm text-text-muted">{poolOpen ? "Hide" : "Show"}</span>
-        </button>
-        {poolOpen && (
-          <div className="mt-4">
-            <CardPoolPanel
-              title="Full pool"
-              cards={fullPool ?? []}
-              loading={poolLoading}
-              countMode="copies"
-              showSummary
-              emptyMessage="No pool data."
-            />
-          </div>
-        )}
-      </div>
-
-      {isCompleted && isCreator && !linkedTournament && !draft.tournamentId && (
-        <div className="rounded-xl border border-border bg-surface p-6">
-          <h2 className="mb-4 font-display text-lg text-text-primary">Create Tournament</h2>
-          <p className="mb-4 text-sm text-text-secondary">
-            Create a tournament seeded with all {draft.playerCount} players from this draft.
-          </p>
-          {tournamentError && (
-            <div className="mb-4 rounded-lg border border-accent-cta/50 bg-accent-cta/10 px-4 py-2 text-sm text-accent-cta">
-              {tournamentError}
-            </div>
-          )}
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-            <div>
-              <label htmlFor="tournament-format" className="mb-1 block text-sm font-medium text-text-primary">
-                Format
-              </label>
-              <select
-                id="tournament-format"
-                value={tournamentFormat}
-                onChange={(e) => setTournamentFormat(e.target.value as "round_robin" | "single_elim")}
-                className="native-select rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none"
-              >
-                <option value="round_robin">Round Robin</option>
-                <option value="single_elim">Single Elimination</option>
-              </select>
-            </div>
-            <Button variant="primary" loading={creatingTournament} onClick={handleCreateTournament}>
-              Create Tournament
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {isCompleted && isCreator && (linkedTournament ?? draft.tournamentId) && (
-        <div className="rounded-xl border border-border bg-surface p-6">
-          <p className="text-sm text-text-secondary">
-            Tournament created.{" "}
-            {linkedTournament?.webSlug && (
-              <a
-                href={`/tournament/${linkedTournament.webSlug}`}
-                className="font-semibold text-accent-primary underline"
-              >
-                View tournament
-              </a>
+            {!isCompleted && (
+              <StatusLine tone="neutral">The host cancelled this draft before it finished.</StatusLine>
             )}
-          </p>
-        </div>
-      )}
+            {canBuildDeck && (
+              <div className={styles.next} role="group" aria-labelledby="df-next-t">
+                <h2 className={styles.nextT} id="df-next-t">
+                  {hasDeck ? "Your deck is ready" : `Your ${plural(participantPickCount, "card")} ${participantPickCount === 1 ? "is" : "are"} ready`}
+                </h2>
+                <p className={styles.nextP}>
+                  {canExportYdk
+                    ? hasDeck
+                      ? `It is saved in My decks. Editing it is optional. You can also export ${ydkCards} as a YDK file.`
+                      : `Build a deck from them on the web, or take ${ydkCards === "your picks" ? "them" : ydkCards} to another sim as a YDK file.`
+                    : hasDeck
+                      ? `It is saved in My decks. Editing it is optional. Export needs at least 40 picks. You made ${participantPickCount}.`
+                      : `Export needs at least 40 picks. You made ${participantPickCount}, so build your deck here instead.`}
+                </p>
+              </div>
+            )}
+          </div>
 
-      <div className="rounded-xl border border-border bg-surface p-6">
-        <h2 className="mb-4 font-display text-lg text-text-primary">
-          <Layers className="mr-2 inline h-5 w-5 text-accent-primary" />
-          Configuration
-        </h2>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="rounded-lg border border-border bg-bg-elevated/50 p-3">
-            <span className="block text-xs text-text-muted">
-              <Package className="mr-1 inline h-3.5 w-3.5" />
-              Pack Size
-            </span>
-            <span className="mt-1 block text-lg font-semibold text-text-primary">
-              {draft.config.packSize ?? "—"}
-            </span>
-          </div>
-          <div className="rounded-lg border border-border bg-bg-elevated/50 p-3">
-            <span className="block text-xs text-text-muted">
-              <Package className="mr-1 inline h-3.5 w-3.5" />
-              Packs/Player
-            </span>
-            <span className="mt-1 block text-lg font-semibold text-text-primary">
-              {draft.config.packsPerPlayer ?? "—"}
-            </span>
-          </div>
-          <div className="rounded-lg border border-border bg-bg-elevated/50 p-3">
-            <span className="block text-xs text-text-muted">
-              <Clock className="mr-1 inline h-3.5 w-3.5" />
-              Pick Timer
-            </span>
-            <span className="mt-1 block text-lg font-semibold text-text-primary">
-              {draft.config.pickSeconds ? `${draft.config.pickSeconds}s` : "—"}
-            </span>
-          </div>
-        </div>
-        {draft.config.setNames && draft.config.setNames.length > 0 && (
-          <div className="mt-4">
-            <span className="mb-2 block text-xs text-text-muted">Sets</span>
-            <div className="flex flex-wrap gap-2">
-              {draft.config.setNames.map((setName) => (
-                <span
-                  key={setName}
-                  className="rounded-lg border border-border bg-bg-elevated/50 px-2.5 py-1 text-sm text-text-secondary"
-                >
-                  {setName}
-                </span>
+          {pool && tally && levels && (
+            <section aria-labelledby="df-pool-t">
+              <SectionHead title="Your pool" id="df-pool-t" note={`${plural(pool.length, "card")}, tap a card to read it`} />
+              <div className={styles.poolHead}>
+                <p className={styles.tally}>
+                  <span data-k="monster"><b>{tally.monster}</b>Monsters</span>
+                  <span data-k="spell"><b>{tally.spell}</b>Spells</span>
+                  <span data-k="trap"><b>{tally.trap}</b>Traps</span>
+                  <span data-k="extra"><b>{tally.extra}</b>Extra deck</span>
+                </p>
+                <div className={styles.chipRow}>
+                  <PoolBreakdown cards={pool} variant="sheet" />
+                </div>
+                <div className={styles.lv} role="img" aria-label={levels.ariaLabel}>
+                  <p className={styles.lvHead}><span>Monster levels</span><small>Main deck, by stars</small></p>
+                  <div className={styles.lvChart}>
+                    {levels.bands.map((band) => (
+                      <div
+                        key={band.tributes}
+                        className={styles.band}
+                        data-t={band.tributes || undefined}
+                        style={{ "--cols": band.bars.length } as React.CSSProperties}
+                      >
+                        <span className={styles.bars}>
+                          {band.bars.map((bar) => (
+                            <span
+                              key={bar.label}
+                              data-zero={bar.count === 0 ? "" : undefined}
+                              style={{ "--h": bar.height } as React.CSSProperties}
+                            >
+                              <b>{bar.count}</b>
+                              <small>{bar.label}</small>
+                            </span>
+                          ))}
+                        </span>
+                        <span className={styles.bandTotal}>{band.label} <b>{band.total}</b></span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {groups.map((group) => (
+                <PoolGroupView
+                  key={group.key}
+                  group={group}
+                  onHover={handleCardHover}
+                  onLeave={handleCardLeave}
+                  onTap={handleCardTap}
+                  failed={imageErrors}
+                  onFail={markFailed}
+                />
               ))}
-            </div>
-          </div>
-        )}
-      </div>
+              {hoveredCard && popupPosition && !tapped && (
+                <SheetPortal>
+                  <CardHoverPopup
+                    card={hoveredCard}
+                    position={popupPosition}
+                    imageError={imageErrors.has(hoveredCard.id)}
+                    onImageError={() => markFailed(hoveredCard.id)}
+                  />
+                </SheetPortal>
+              )}
+              {tapped && (
+                <SheetPortal>
+                  <CardHoverPopup
+                    card={tapped.card}
+                    position={tapped.position}
+                    imageError={imageErrors.has(tapped.card.id)}
+                    onImageError={() => markFailed(tapped.card.id)}
+                    dismissible
+                    onDismiss={() => setTapped(null)}
+                  />
+                </SheetPortal>
+              )}
+            </section>
+          )}
 
-      <Modal
-        open={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
-        title="Delete draft?"
-      >
-        <p className="text-sm text-text-secondary">
-          This will permanently delete <span className="font-semibold text-text-primary">{draft.name}</span> and all pick history. This cannot be undone.
-        </p>
-        <div className="mt-6 flex justify-end gap-3">
-          <Button variant="secondary" size="sm" onClick={() => setConfirmOpen(false)}>
-            Cancel
-          </Button>
-          <Button variant="danger" size="sm" loading={deleting} onClick={handleDelete}>
-            Delete
-          </Button>
-        </div>
-      </Modal>
-    </div>
+          <section aria-labelledby="df-players-t">
+            <SectionHead title="Players" id="df-players-t" note="In seat order" />
+            {draft.players.length === 0 ? (
+              <p className={styles.empty}>No players were in this draft.</p>
+            ) : (
+              <ol className={styles.seats}>
+                {sortedPlayers.map((player, i) => {
+                  const mine = myPlayerIds.has(player.playerId);
+                  return (
+                    <li key={player.playerId} data-you={mine ? "true" : undefined}>
+                      <span className={styles.no}>{(player.seatIndex ?? i) + 1}</span>
+                      <Mono name={player.displayName} you={mine} ring={mine ? undefined : ringColour(player.playerId)} />
+                      <span className={styles.nm}>
+                        <span className={styles.nmText}>{player.displayName}</span>
+                        {mine && <YouPill />}
+                      </span>
+                      <span className={styles.pk}>
+                        <b>{player.pickCount}</b> {player.pickCount === 1 ? "pick" : "picks"}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </section>
+
+          {!isTheme && (
+            <details className={styles.full} open={poolOpen}>
+              <summary
+                onClick={(e) => {
+                  e.preventDefault();
+                  void toggleFullPool();
+                }}
+              >
+                <span>Every card in the pool</span>
+                <small>
+                  {fullPool ? `${fullPool.reduce((n, c) => n + (c.qty ?? 1), 0)} cards. ` : ""}What the packs were dealt from
+                </small>
+                <ChevronDown size={16} aria-hidden="true" />
+              </summary>
+              {poolOpen && (
+                <div className={styles.fullBody}>
+                  <CardPoolPanel
+                    title="Full pool"
+                    cards={fullPool ?? []}
+                    loading={poolLoading}
+                    countMode="copies"
+                    showSummary
+                    emptyMessage="No pool data."
+                    variant="sheet"
+                  />
+                </div>
+              )}
+            </details>
+          )}
+        </DraftMain>
+
+        <DraftRail aria-label="Draft details" actions={hasActions ? actions : undefined}>
+          {showMakeTournament && (
+            <RailSection title="Make it a tournament" id="df-tour-t">
+              <RailNote>The {draft.playerCount} drafters become its players, in seat order.</RailNote>
+              {tournamentError && (
+                <div role="alert" className={styles.tourErr}>
+                  <StatusLine tone="block">{tournamentError}</StatusLine>
+                </div>
+              )}
+              <div className={styles.tourFields}>
+                <div>
+                  <label className="label" htmlFor="tournament-format">Format</label>
+                  <select
+                    id="tournament-format"
+                    className="input select"
+                    value={tournamentFormat}
+                    onChange={(e) => setTournamentFormat(e.target.value as "round_robin" | "single_elim")}
+                  >
+                    <option value="round_robin">Round robin</option>
+                    <option value="single_elim">Single elimination</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label" htmlFor="tournament-best-of">Match length</label>
+                  <select
+                    id="tournament-best-of"
+                    className="input select"
+                    value={tournamentBestOf}
+                    onChange={(e) => setTournamentBestOf(e.target.value === "1" ? 1 : 3)}
+                  >
+                    <option value={3}>Best of 3</option>
+                    <option value={1}>Best of 1</option>
+                  </select>
+                </div>
+              </div>
+              <SvButton variant="ghost" wide className={styles.tourBtn} disabled={creatingTournament} aria-busy={creatingTournament || undefined} onClick={handleCreateTournament}>
+                Create tournament
+              </SvButton>
+            </RailSection>
+          )}
+
+          {showTournamentPanel && (
+            <RailSection title="Tournament" id="df-tour-t">
+              {linkedTournament?.webSlug ? (
+                <>
+                  <RailNote>Made from this draft.</RailNote>
+                  <SvButton as="a" href={`/tournament/${linkedTournament.webSlug}`} variant="ghost" wide className={styles.tourBtn}>
+                    Open {linkedTournament.name}
+                  </SvButton>
+                </>
+              ) : (
+                <>
+                  <RailNote>A tournament was made from this draft.</RailNote>
+                  <SvButton as="a" href="/tournaments" variant="quiet" className={styles.tourBtn}>
+                    Find it on Tournaments
+                  </SvButton>
+                </>
+              )}
+            </RailSection>
+          )}
+
+          <RailSection title="Setup" id="df-setup-t">
+            {setupRows.length > 0 && <Rules rows={setupRows.map(([label, value]) => ({ label, value }))} />}
+            {!isTheme && cfg.setNames && cfg.setNames.length > 0 && (
+              <div className={styles.sets}>
+                <p>Sets</p>
+                <ul>
+                  {cfg.setNames.map((setName) => (
+                    <li key={setName} className="chip">{setName}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </RailSection>
+
+          {isCreator && (
+            <RailSection>
+              {confirmOpen ? (
+                <div onKeyDown={deleteConfirm.onKeyDown}>
+                  <DangerConfirm
+                    title={`Delete ${draft.name}?`}
+                    confirmLabel="Yes, delete"
+                    busy={deleting}
+                    consequence={
+                      draft.playerCount > 1
+                        ? `Every pick is removed for all ${draft.playerCount} players. This can't be undone.`
+                        : "Every pick is removed. This can't be undone."
+                    }
+                    onBack={() => setConfirmOpen(false)}
+                    onConfirm={handleDelete}
+                  />
+                </div>
+              ) : (
+                <>
+                  <button ref={deleteConfirm.triggerRef} type="button" className={svButtonClass("danger", { wide: true })} onClick={() => setConfirmOpen(true)}>
+                    Delete draft
+                  </button>
+                  <RailNote>
+                    {draft.playerCount > 1
+                      ? `Removes it and every pick for all ${draft.playerCount} players.`
+                      : "Removes it and every pick."}
+                  </RailNote>
+                </>
+              )}
+            </RailSection>
+          )}
+        </DraftRail>
+      </DraftLayout>
+    </DraftFrame>
   );
 }

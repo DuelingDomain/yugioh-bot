@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
-import { createDraftTournamentService } from "@yugidraft/shared/services";
+import { createDraftTournamentService, TournamentDuelError } from "@yugidraft/shared/services";
+import { broadcaster } from "@/lib/notify";
 
 export const runtime = "nodejs";
 
@@ -46,10 +47,16 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { format } = body as { format?: string };
+    const { format, bestOf: rawBestOf } = body as { format?: string; bestOf?: unknown };
 
     if (!format || (format !== "round_robin" && format !== "single_elim")) {
       return NextResponse.json({ error: "format must be round_robin or single_elim" }, { status: 400 });
+    }
+
+    // Best of 3 unless the creator picks a single game.
+    const bestOf = rawBestOf === undefined ? 3 : rawBestOf;
+    if (bestOf !== 1 && bestOf !== 3) {
+      return NextResponse.json({ error: "bestOf must be 1 or 3" }, { status: 400 });
     }
 
     const service = createDraftTournamentService(db);
@@ -57,7 +64,9 @@ export async function POST(
       draftId: draft.id,
       format,
       createdByUserId: session.user.id,
+      bestOf,
     });
+    void broadcaster.draft({ kind: "seats", slug });
 
     const tournament = db
       .prepare("select id, name, web_slug, format from tournaments where id = ?")
@@ -68,6 +77,9 @@ export async function POST(
       { status: 201 },
     );
   } catch (error) {
+    if (error instanceof TournamentDuelError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     if (error instanceof Error) {
       if (
         error.message.includes("Only the draft creator") ||

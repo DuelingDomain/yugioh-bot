@@ -26,7 +26,8 @@
 }
 
 .felt,
-.masterRail {
+.masterRail,
+.seatField {
   --sheet: rgb(181 153 99 / 0.34);
   --sheet-hi: rgb(181 153 99 / 0.66);
   --sheet-lo: rgb(181 153 99 / 0.17);
@@ -55,7 +56,8 @@
 }
 
 .felt[data-battle="true"],
-.masterRail[data-battle="true"] {
+.masterRail[data-battle="true"],
+.seatField[data-battle="true"] {
   --sheet: rgb(217 141 82 / 0.44);
   --sheet-hi: rgb(217 141 82 / 0.82);
   --sheet-lo: rgb(217 141 82 / 0.22);
@@ -129,10 +131,10 @@
   --hk: 5.16;
   --lk: 0.58;
   --ohk: 0.6;
-  /* Breathing room above the opponent's hand and below yours (marks and rings sit outside the cards). */
+  /* Breathing room above the opponent's hand and below yours (marks and glows sit outside the cards). */
   --hpad: 4px;
   /* Lift reserve: the board-side edge of each hand strip keeps room for a lifted (legal 5%, selected 12%)
-     or fanned card, its dashed ring (5px) and, on your side, the nib tag above the card (8.5% of --z).
+     or fanned card, its glow and, on your side, the nib tag on the top edge of the card (at most 9px).
      So a hand card can never cross into the Spell/Trap row, whatever its state. */
   --lift-k: 0.12;
   --mark-k: 0.07;
@@ -290,6 +292,25 @@
   white-space: nowrap;
 }
 
+.tIdentity {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.tPriorityShort { display: none; }
+
 .tWho {
   min-width: 0;
   overflow: hidden;
@@ -304,8 +325,23 @@
   flex: none;
   align-items: center;
   gap: 4px;
-  color: var(--ink-2);
-  font-size: var(--fs-small);
+  padding: 0 4px;
+  border: 1px solid rgb(228 182 79 / 0.35);
+  border-radius: 3px;
+  color: var(--chain-ink);
+  background: rgb(228 182 79 / 0.08);
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.tPriority {
+  flex: none;
+  color: var(--pen-ink);
+  font-family: var(--f-ui);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: right;
 }
 
 .tClock {
@@ -362,6 +398,18 @@
   height: 100%;
 }
 
+.handSizeProbe {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  width: var(--ohcw);
+  aspect-ratio: 59 / 86;
+}
+
+.handSizeProbe[data-side="you"] {
+  width: var(--lhcw);
+}
+
 .hand {
   --cardw: var(--ohcw);
   --base: var(--ohg);
@@ -405,10 +453,21 @@
   position: relative;
   flex: 0 0 auto;
   width: var(--cardw);
+  transform-origin: 50% 170%;
+  transition: transform 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hand:not(.handLocal) .handCard {
+  transform-origin: 50% -70%;
+}
+
+.felt[data-reduced-motion="true"] .handCard,
+.handCard:has([style*="visibility: hidden"]) {
+  transition: none;
 }
 
 .handCard:hover,
-.handCard:focus-within {
+.handCard:has(:focus-visible) {
   z-index: 6;
 }
 
@@ -474,17 +533,17 @@
   }
 
   .hand:not(.handLocal) .handCard .zone:hover .frame,
-  .hand:not(.handLocal) .handCard .zone:focus-within .frame {
+  .hand:not(.handLocal) .handCard .zone:has(:focus-visible) .frame {
     transform: translateY(calc(var(--oh) * var(--top-hide))) scale(1.6);
   }
 
   .hand:not(.handLocal) .handCard .zone[data-legal="true"]:hover .frame,
-  .hand:not(.handLocal) .handCard .zone[data-legal="true"]:focus-within .frame {
+  .hand:not(.handLocal) .handCard .zone[data-legal="true"]:has(:focus-visible) .frame {
     transform: translateY(calc(var(--oh) * (var(--top-hide) + 0.05))) scale(1.6);
   }
 
   .hand:not(.handLocal) .handCard .zone[data-selected="true"]:hover .frame,
-  .hand:not(.handLocal) .handCard .zone[data-selected="true"]:focus-within .frame {
+  .hand:not(.handLocal) .handCard .zone[data-selected="true"]:has(:focus-visible) .frame {
     transform: translateY(calc(var(--oh) * (var(--top-hide) + 0.12))) scale(1.6);
   }
 
@@ -495,17 +554,17 @@
   }
 
   .handLocal .handCard .zone:hover .frame,
-  .handLocal .handCard .zone:focus-within .frame {
+  .handLocal .handCard .zone:has(:focus-visible) .frame {
     transform: translateY(calc(var(--lh) * -0.08)) scale(2);
   }
 
   .handLocal .handCard .zone[data-legal="true"]:hover .frame,
-  .handLocal .handCard .zone[data-legal="true"]:focus-within .frame {
+  .handLocal .handCard .zone[data-legal="true"]:has(:focus-visible) .frame {
     transform: translateY(calc(var(--lh) * -0.1)) scale(2);
   }
 
   .handLocal .handCard .zone[data-selected="true"]:hover .frame,
-  .handLocal .handCard .zone[data-selected="true"]:focus-within .frame {
+  .handLocal .handCard .zone[data-selected="true"]:has(:focus-visible) .frame {
     transform: translateY(calc(var(--lh) * -0.14)) scale(2);
   }
 }
@@ -527,23 +586,73 @@
 .arena::after {
   content: "";
   position: absolute;
-  right: calc(var(--g) * -1);
-  left: calc(var(--g) * -1);
+  right: calc(var(--pile-col) + var(--g));
+  left: calc(var(--pile-col) + var(--g));
   height: 0;
   border-top: 1px solid var(--sheet);
   pointer-events: none;
 }
 
 .arena::before {
-  top: calc(2 * var(--z) + 1.5 * var(--gy));
+  top: calc(2 * var(--z) + 1.5 * var(--gy) + 4px);
 }
 
 .arena::after {
-  top: calc(3 * var(--z) + 2.5 * var(--gy));
+  top: calc(3 * var(--z) + 2.5 * var(--gy) - 4px);
 }
 
 .half {
   display: contents;
+}
+
+/* The two outlines follow each player's zones and Banished pile, leaving the shared
+   Extra Monster Zone band clear. Non-scaling SVG strokes stay slim at every board size. */
+.halfSignals {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.turnEdge,
+.priorityEdge {
+  opacity: 0;
+  stroke-linejoin: round;
+}
+
+.turnEdge {
+  fill: rgb(228 182 79 / 0.025);
+  stroke: rgb(228 182 79 / 0.5);
+  stroke-width: 1px;
+}
+
+.half[data-turn="true"] .turnEdge { opacity: 1; }
+
+.priorityEdge {
+  fill: none;
+  stroke: var(--pen);
+  stroke-width: 2px;
+  filter: drop-shadow(0 0 3px rgb(155 126 255 / 0.25));
+}
+
+.half[data-priority="true"] .priorityEdge {
+  opacity: 1;
+  animation: priorityBreathe 2.8s ease-in-out infinite;
+}
+
+@keyframes priorityBreathe {
+  0%, 100% { opacity: 0.65; }
+  50% { opacity: 1; }
+}
+
+.felt[data-reduced-motion="true"] .priorityEdge {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .priorityEdge { animation: none !important; }
 }
 
 .emzBand {
@@ -643,7 +752,7 @@
 }
 
 .zone:hover,
-.zone:focus-within {
+.zone:has(:focus-visible) {
   z-index: 6;
 }
 
@@ -835,16 +944,29 @@
   transform-origin: center;
 }
 
+/* The sleeve is a layer of its own so it can turn (see "the far side of the table") while the box,
+   its border and the animations that move the box stay put. */
 .cardBack {
   position: relative;
   isolation: isolate;
-  background: #120e0c url("/duel/card-back-main-hd.webp") center / cover no-repeat;
+  background: #120e0c;
   border: 1px solid #b08a3e;
 }
 
+.cardBack::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("/duel/card-back-main-hd.webp") center / cover no-repeat;
+}
+
 .cardBackExtra {
-  background: #140e1c url("/duel/card-back-extra-hd.webp") center / cover no-repeat;
+  background: #140e1c;
   border-color: #8a6bb0;
+}
+
+.cardBackExtra::before {
+  background-image: url("/duel/card-back-extra-hd.webp");
 }
 
 .art {
@@ -853,6 +975,32 @@
   height: 100%;
   object-fit: cover;
   pointer-events: none;
+}
+
+/* ---------- the far side of the table ----------
+   Cards the top player controls (zones, hand, piles) face the bottom player: the picture turns half
+   way, like a card laid down by someone sitting across the table. Only the picture turns. The card
+   box keeps its Defense quarter turn (so Defense becomes 90deg + 180deg), its shadow, the stat plate,
+   counters and labels, and every effect that moves the box (lunge, shake, lift) still moves it in
+   screen directions. `data-turned` marks a clone made outside the zone (attack-fx fragments). */
+.zone[data-side="opp"] .art,
+.cardFace[data-turned="true"] .art,
+.zone[data-side="opp"] .cardBack::before,
+.cardBack[data-turned="true"]::before {
+  rotate: 180deg;
+}
+
+/* Their card's own bottom edge (printed ATK / DEF) is the top: the plate sits there, over the same
+   printed line it covers on your cards. Hand cards hang from the top edge and are clipped there, so
+   the plate stays at the bottom for them. Counters go to the bottom, away from the plate. */
+.zone[data-side="opp"]:not([data-kind="hand"]) .plate {
+  top: 3px;
+  bottom: auto;
+}
+
+.zone[data-side="opp"] .overlayBadge {
+  top: auto;
+  bottom: 3px;
 }
 
 .overlayBadge {
@@ -911,6 +1059,11 @@
 .frame[data-stack-size] {
   --stack-art: url("/duel/card-back-main-hd.webp");
   --stack-step: calc(var(--z) * 0.018);
+}
+
+/* The stack steps away from the owner: up and right for you, down and left for them. */
+.zone[data-side="opp"] .frame[data-stack-size] {
+  --stack-step: calc(var(--z) * -0.018);
 }
 
 .frame[data-stack-size="2"]::before,
@@ -975,17 +1128,17 @@
 }
 
 .felt:not([data-reduced-motion="true"]) .zone[data-fan]:hover .fanCard[data-fi="0"],
-.felt:not([data-reduced-motion="true"]) .zone[data-fan]:focus-within .fanCard[data-fi="0"] {
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:has(:focus-visible) .fanCard[data-fi="0"] {
   transform: translate(calc(var(--dir, 1) * 7%), -4%) rotate(calc(var(--dir, 1) * 8deg));
 }
 
 .felt:not([data-reduced-motion="true"]) .zone[data-fan]:hover .fanCard[data-fi="1"],
-.felt:not([data-reduced-motion="true"]) .zone[data-fan]:focus-within .fanCard[data-fi="1"] {
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:has(:focus-visible) .fanCard[data-fi="1"] {
   transform: translate(calc(var(--dir, 1) * -9%), -1%) rotate(calc(var(--dir, 1) * -6deg));
 }
 
 .felt:not([data-reduced-motion="true"]) .zone[data-fan]:hover .fanCard[data-fi="2"],
-.felt:not([data-reduced-motion="true"]) .zone[data-fan]:focus-within .fanCard[data-fi="2"] {
+.felt:not([data-reduced-motion="true"]) .zone[data-fan]:has(:focus-visible) .fanCard[data-fi="2"] {
   transform: translate(calc(var(--dir, 1) * -19%), 0) rotate(calc(var(--dir, 1) * -16deg));
 }
 
@@ -1021,7 +1174,7 @@
 }
 
 .zone:hover .openChip,
-.zone:focus-within .openChip {
+.zone:has(:focus-visible) .openChip {
   opacity: 1;
   pointer-events: auto;
   transform: translate(-50%, 0);
@@ -1042,27 +1195,107 @@
 
 /* ---------- legal and selected: an outline shape and a tag, never colour alone ---------- */
 
-.ring {
+/* A zone or a card you can use or pick: a glow around it, no outline line and no dashed cut-out. The box sits on the card edge and only its
+   shadow shows (an outer shadow is never drawn under the box), so the art stays clear on light or dark cards.
+   The felt and the zones do not clip (overflow: visible), so the halo is not cut. --gl scales the halo where
+   room is tight (Deck Master dock, hand).
+   - usable: a soft purple halo whose opacity breathes (the shadow itself is static, so it is cheap).
+   - picked: steady and stronger, with a warm gold edge, and the tag shows a check. */
+.glow {
+  --gl: 1;
   position: absolute;
-  inset: -4px;
+  inset: -1px;
   z-index: 4;
-  border: 1px dashed var(--pen);
-  border-radius: calc(var(--r) + 3px);
+  border-radius: var(--r, 4px);
+  box-shadow:
+    0 0 calc(8px * var(--gl)) calc(2px * var(--gl)) rgb(155 126 255 / 0.9),
+    0 0 calc(20px * var(--gl)) calc(5px * var(--gl)) rgb(155 126 255 / 0.5),
+    0 0 calc(34px * var(--gl)) calc(8px * var(--gl)) rgb(155 126 255 / 0.22);
+  animation: glow-breathe 2.6s ease-in-out infinite;
   pointer-events: none;
 }
 
-.zone[data-selected="true"] .ring {
-  inset: -5px;
-  border: 2px solid var(--pen);
+.glow[data-state="picked"] {
+  box-shadow:
+    0 0 calc(4px * var(--gl)) calc(2px * var(--gl)) rgb(244 214 144 / 0.95),
+    0 0 calc(14px * var(--gl)) calc(5px * var(--gl)) rgb(155 126 255 / 1),
+    0 0 calc(30px * var(--gl)) calc(10px * var(--gl)) rgb(155 126 255 / 0.6);
+  opacity: 1;
+  animation: none;
 }
 
-/* Rotated (defense) cards: outline the landscape shape, not the portrait guide. */
-.zone[data-defense="true"] .ring {
-  inset: calc((var(--z) - var(--cw)) / 2 - 4px) calc((var(--z) - var(--cw)) / -2 - 4px);
+/* Hover or focus: brighter, and still. */
+.zoneHit:hover .glow,
+.zoneHit:focus-visible .glow,
+.masterHit:hover .glow,
+.masterHit:focus-visible .glow {
+  opacity: 1;
+  filter: brightness(1.35) saturate(1.1);
+  animation: none;
 }
 
-.zone[data-defense="true"][data-selected="true"] .ring {
-  inset: calc((var(--z) - var(--cw)) / 2 - 5px) calc((var(--z) - var(--cw)) / -2 - 5px);
+/* Rotated (defense) cards: glow the landscape shape, not the portrait guide. */
+.zone[data-defense="true"] .glow {
+  inset: calc((var(--z) - var(--cw)) / 2 - 1px) calc((var(--z) - var(--cw)) / -2 - 1px);
+}
+
+.masterArt .glow {
+  --gl: 0.5;
+}
+
+/* Hand cards sit close together, so their glow is slim: a thin bright edge on the card rim (the 1px frame border,
+   so the art stays clear) and a tight 7px / 13px halo with no spread. It never reaches the next card. Hovering
+   scales the frame (2x yours, 1.6x theirs), so --gl drops to keep the halo about the same size on screen. */
+.handCard .glow {
+  --gl: 1;
+  box-shadow:
+    inset 0 0 0 1px rgb(214 200 255 / 0.7),
+    0 0 calc(7px * var(--gl)) rgb(155 126 255 / 0.85),
+    0 0 calc(13px * var(--gl)) rgb(155 126 255 / 0.32);
+}
+
+.handCard .glow[data-state="picked"] {
+  box-shadow:
+    inset 0 0 0 1px rgb(244 214 144 / 0.95),
+    0 0 calc(5px * var(--gl)) calc(1px * var(--gl)) rgb(244 214 144 / 0.85),
+    0 0 calc(10px * var(--gl)) calc(2px * var(--gl)) rgb(155 126 255 / 1),
+    0 0 calc(16px * var(--gl)) calc(3px * var(--gl)) rgb(155 126 255 / 0.5);
+}
+
+@media (hover: hover) {
+  .handLocal .handCard .zone:hover .glow,
+  .handLocal .handCard .zone:has(:focus-visible) .glow {
+    --gl: 0.5;
+  }
+
+  .hand:not(.handLocal) .handCard .zone:hover .glow,
+  .hand:not(.handLocal) .handCard .zone:has(:focus-visible) .glow {
+    --gl: 0.65;
+  }
+}
+
+@keyframes glow-breathe {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Reduced motion: the same glow, steady. The field sets data-reduced-motion on .felt. */
+:global([data-reduced-motion="true"]) .glow {
+  opacity: 1;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glow {
+    opacity: 1;
+    animation: none;
+  }
 }
 
 .mark {
@@ -1112,13 +1345,49 @@
   stroke-linejoin: round;
 }
 
+/* Hand tag: small, sitting on the top edge of the card (half above it), in the glow's colours: a soft violet
+   pill with a gold hairline and a gold icon. Once picked it keeps the filled violet and the white check
+   (see .zone[data-selected] .mark) and gets a gold edge. Their hand keeps the tag inside the card's top edge. */
+.handCard .mark {
+  --mk-h: clamp(13px, calc(var(--cardw) * 0.24), 18px);
+  min-width: calc(var(--mk-h) * 1.25);
+  height: var(--mk-h);
+  padding: 0 3px;
+  border-color: rgb(244 214 144 / 0.55);
+  background: linear-gradient(rgb(74 54 148 / 0.92), rgb(38 27 88 / 0.92));
+  box-shadow: 0 0 6px rgb(155 126 255 / 0.5);
+  color: #f4d690;
+}
+
+.handLocal .handCard .mark {
+  top: calc(var(--mk-h) * -0.5);
+}
+
+.handCard .nib {
+  width: calc(var(--mk-h) * 0.62);
+  height: calc(var(--mk-h) * 0.62);
+}
+
+.handCard .zone[data-selected="true"] .mark {
+  border-color: #f4d690;
+  color: #fff;
+}
+
+/* An empty zone you can pick keeps its own border and gets a soft purple fill; the glow (.glow) is the cue. */
 .zone[data-legal="true"][data-occupied="false"] .frame {
-  border: 1px dashed var(--pen);
   background: var(--pen-soft);
 }
 
-.zone[data-legal="true"][data-occupied="false"][data-selected="true"] .frame {
-  border: 2px solid var(--pen);
+/* A zone you can use lights up at once: the 0.3 s border and 0.2 s fill fades of a plain frame are cut to nothing. The
+   transform keeps its 0.18 s move (a legal hand card still shrinks back gently). Scoped so that the reduced-motion rules,
+   which switch every transition off, still win. */
+@media (prefers-reduced-motion: no-preference) {
+  .felt:not([data-reduced-motion="true"]) .zone[data-legal="true"]:not(:hover) .frame {
+    transition:
+      border-color 0s,
+      background-color 0s,
+      transform 0.18s var(--ease);
+  }
 }
 
 .zone[data-legal="true"][data-occupied="true"] .frame {
@@ -1235,11 +1504,6 @@
   border: 1px dashed var(--sheet-hi);
   border-radius: calc(5 * var(--k));
   pointer-events: none;
-}
-
-.masterDock[data-selected="true"] .ring {
-  inset: -5px;
-  border: 2px solid var(--pen);
 }
 
 .masterDock[data-selected="true"] .mark {
@@ -1491,6 +1755,10 @@
     height: 10px;
   }
 
+  .tHead { gap: 5px; }
+  .tPriorityFull { display: none; }
+  .tPriorityShort { display: inline; }
+
   .tTurn {
     font-size: 9.5px;
   }
@@ -1595,4 +1863,316 @@
     min-height: 32px;
     font-size: 12.5px;
   }
+}
+
+/* ---------- seat field: one seat of a 3 or 4 seat table ----------
+   A standalone board of 5.83 x 3.39 zone sizes. --z comes from --sf-z (default 112px, the 3-way prototype size);
+   everything else is a multiple of --z, so the table stage scales and turns the whole box. --t is the seat tone
+   (an rgb triplet) and --lab the turn of labels (the counter-rotation, so text reads level at any seat angle). */
+
+.seatField {
+  --z: var(--sf-z, 112px);
+  --cw: calc(var(--z) * 0.686);
+  --g: calc(var(--z) * 0.075);
+  --gy: calc(var(--z) * 0.071);
+  --r: calc(var(--z) * 0.035);
+  --pk: 0.86;
+  --pile-col: var(--cw);
+  --pad: calc(var(--z) * 0.125);
+  --ts: 1;
+  --lab: 0deg;
+  --fs-name: calc(var(--z) * 0.125 * var(--ts));
+  --fs-small: calc(var(--z) * 0.1 * var(--ts));
+  --n3: calc(var(--z) * 0.13 * var(--ts));
+  --n4: calc(var(--z) * 0.088 * var(--ts));
+  /* The viewer's hand: cards 0.76 zone sizes tall, below the board. */
+  --lh: calc(var(--z) * 0.76);
+  --lhcw: calc(var(--lh) * 0.686);
+  --lhg: calc(var(--z) * 0.07);
+  --hw-bot: calc(var(--z) * 5.4);
+  --hpad: 4px;
+  position: relative;
+  box-sizing: border-box;
+  width: calc(var(--z) * 5.83);
+  height: calc(var(--z) * 3.393);
+  font-size: 13px;
+  --seat-line: rgb(var(--t, 155 126 255) / 0.45);
+}
+
+.seatField[data-turn="true"] {
+  --seat-line: rgb(var(--t, 155 126 255) / 0.75);
+}
+
+.seatField[data-turn="false"],
+.seatField:not([data-turn]) {
+  --sheet: rgb(181 153 99 / 0.22);
+  --sheet-lo: rgb(181 153 99 / 0.1);
+}
+
+.sfMat {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--seat-line);
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgb(10 17 34 / 0.62), rgb(5 8 15 / 0.58));
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 30px 60px -30px rgb(0 0 0 / 0.8);
+  transition:
+    box-shadow 0.5s,
+    border-color 0.5s,
+    filter 0.5s;
+}
+
+.seatField[data-turn="true"] .sfMat {
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 0 34px -14px rgb(var(--t) / 0.7),
+    0 30px 60px -30px rgb(0 0 0 / 0.8);
+}
+
+.seatField[data-turn="true"][data-battle="true"] .sfMat {
+  box-shadow:
+    0 0 40px -12px rgb(217 141 82 / 0.3),
+    inset 0 0 60px -30px rgb(217 141 82 / 0.2),
+    0 0 0 1px rgb(217 141 82 / 0.4);
+}
+
+.sfMat::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1px solid var(--sheet-lo);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.sfRule {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 9px;
+  width: 3px;
+  border-right: 1px solid var(--sheet-lo);
+  border-left: 1px solid var(--sheet-lo);
+  pointer-events: none;
+}
+
+/* Nine columns: pile, gap, five zones, gap, pile. Three rows: Extra Monster band, Monster, Spell and Trap. */
+.sfGrid {
+  position: absolute;
+  top: var(--pad);
+  left: var(--pad);
+  display: grid;
+  grid-template-columns: var(--pile-col) calc(var(--z) * 0.0893) minmax(0, 1fr) calc(var(--z) * 0.0893) var(--pile-col);
+  grid-template-rows: repeat(3, var(--z));
+  gap: var(--gy) var(--g);
+  width: calc(var(--z) * 5.58);
+  height: calc(var(--z) * 3.143);
+}
+
+.seatField[data-master-rule="3"] {
+  --pile-col: calc(var(--cw) * 2 + var(--g));
+  width: calc(var(--z) * 7.35);
+}
+
+.seatField[data-master-rule="3"] .sfGrid {
+  width: calc(var(--z) * 7.1);
+}
+
+.seatField[data-master-rule="3"] .piles {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--g);
+}
+
+.seatField[data-master-rule="3"] .piles[data-side="left"] > .zone { grid-column: 2; }
+.seatField[data-master-rule="3"] .piles[data-side="right"] > .zone { grid-column: 1; }
+.seatField[data-master-rule="3"] .piles > .zone[data-kind="st"] { grid-row: 2; }
+.seatField[data-master-rule="3"] .piles[data-side="left"] > .zone[data-kind="st"] { grid-column: 1; grid-row: 1; }
+.seatField[data-master-rule="3"] .piles[data-side="right"] > .zone[data-kind="st"] { grid-column: 2; }
+
+.sfGrid .piles[data-side="left"] {
+  grid-row: 2 / span 2;
+  grid-column: 1;
+}
+
+.sfGrid .piles[data-side="right"] {
+  grid-row: 1 / span 3;
+  grid-column: 5;
+}
+
+.sfEmz {
+  position: relative;
+  grid-row: 1;
+  grid-column: 3;
+  min-width: 0;
+  min-height: 0;
+  margin: 0 -4px;
+  border-top: 1px solid var(--sheet);
+  border-bottom: 1px solid var(--sheet);
+  pointer-events: none;
+}
+
+.sfEmz > * {
+  padding: 0 4px;
+}
+
+.sfEmz .zone {
+  pointer-events: auto;
+}
+
+.sfRows {
+  display: grid;
+  grid-row: 2 / span 2;
+  grid-column: 3;
+  grid-template-rows: subgrid;
+  gap: var(--gy);
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Labels, stats, counters and marks turn against the field so they read level (--lab). */
+.seatField .pileLabel,
+.seatField .plate,
+.seatField .overlayBadge,
+.seatField .mark,
+.seatField .zoneName,
+.seatField .pendulumMark,
+.seatField .openChip {
+  rotate: var(--lab);
+}
+
+.seatField .plate {
+  font-size: calc(var(--z) * 0.116 * var(--ts));
+}
+
+/* A field turned a quarter: the level plate has only a card's width to sit in, so it shows one stat (ATK, or DEF in defense) and sizes to it. */
+.seatField[data-quarter="true"] .plate {
+  right: auto;
+  left: 50%;
+  width: max-content;
+  translate: -50% 0;
+}
+
+.seatField[data-quarter="true"] .plate .plateSep,
+.seatField[data-quarter="true"] .plate .plateDef {
+  display: none;
+}
+
+.seatField[data-quarter="true"] .zone[data-defense="true"] .plate b {
+  display: none;
+}
+
+.seatField[data-quarter="true"] .zone[data-defense="true"] .plate .plateDef {
+  display: inline;
+}
+
+.sfName {
+  position: absolute;
+  bottom: -2px;
+  left: 17%;
+  z-index: 6;
+  padding-top: 6px;
+  color: var(--tink);
+  font-family: var(--font-duel-display, var(--f-ui));
+  font-size: calc(var(--z) * 0.098 * var(--ts));
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  opacity: 0.8;
+  pointer-events: none;
+  text-shadow:
+    0 1px 2px #000,
+    0 0 8px rgb(0 0 0 / 0.85);
+  text-transform: uppercase;
+  translate: -50% 100%;
+  rotate: var(--lab);
+  white-space: nowrap;
+}
+
+.seatField[data-density="compact"] .pileLabel,
+.seatField[data-density="compact"] .zoneName {
+  display: none;
+}
+
+.sfTally {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  width: calc(var(--z) * 1.9);
+}
+
+/* A seat out of the duel: the board greys (a tone desaturate, never a card dim) and a label says why. */
+.seatField[data-elim="true"] .sfMat,
+.seatField[data-elim="true"] .sfGrid {
+  filter: grayscale(1);
+}
+
+.seatField[data-elim="true"] .sfMat {
+  border-color: rgb(95 92 87 / 0.5);
+}
+
+.sfOut {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 8;
+  padding: 5px 14px;
+  border: 1px solid rgb(228 90 77 / 0.6);
+  border-radius: 999px;
+  background: rgb(7 11 21 / 0.88);
+  color: #ff9489;
+  font-size: calc(var(--z) * 0.11);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  pointer-events: none;
+  text-transform: uppercase;
+  translate: -50% -50%;
+  rotate: var(--lab);
+}
+
+/* The viewer's hand sits right below the board and turns with it. */
+.sfHand {
+  position: absolute;
+  top: calc(100% - 2px);
+  left: 50%;
+  z-index: calc(var(--duel-z-fx) - 1);
+  width: calc(var(--z) * 5.4);
+  height: calc(var(--lh) * 1.2 + 6px);
+  translate: -50% 0;
+}
+
+/* Enlarged hand art can overlap the back row; clicks there belong to its zone button. */
+.sfHand .frame {
+  pointer-events: none;
+}
+
+/* A seat that cannot use cards for the viewer (a partner, a spectator's view): the legal ring only. */
+.seatField[data-usable="false"] .glow,
+.seatField[data-usable="false"] .mark {
+  display: none;
+}
+
+.seatField[data-usable="false"] .zone[data-legal="true"] .frame {
+  border-color: var(--pen);
+  box-shadow: 0 0 0 1px var(--pen);
+}
+
+/* Deck Masters of a 3 or 4 seat table: one small read-only dock per rival above your own. */
+.masterRail[data-docks="3"] .masterDock:not([data-local="true"]) {
+  flex: 0.8 1 0;
+  padding: calc(8 * var(--k));
+  gap: calc(6 * var(--k));
+}
+.masterRail[data-docks="3"] .masterDock:not([data-local="true"]) .masterHit {
+  --dm-w: calc(54 * var(--k));
+  gap: calc(9 * var(--k));
+}
+.masterRail[data-docks="3"] .masterDock:not([data-local="true"]) .masterTitle {
+  font-size: calc(13.5 * var(--k));
+}
+.masterRail[data-docks="3"] .masterDock:not([data-local="true"]) .masterDetails {
+  display: none;
+}
+.masterRail[data-docks="3"] .masterDock:not([data-local="true"]) .masterMeta > div:nth-child(n + 2) {
+  display: none;
 }

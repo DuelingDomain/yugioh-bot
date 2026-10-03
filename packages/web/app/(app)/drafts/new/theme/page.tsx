@@ -1,10 +1,19 @@
+import { DraftFrame } from "@/components/draft/draft-frame";
+import { NewDraftLead } from "@/components/draft/create/new-lead";
 import { CreateThemeDraftForm } from "@/components/draft/create-theme-draft-form";
 
 export default function NewThemeDraftPage() {
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
-      <h1 className="mb-6 font-heading text-2xl text-text-primary">Create Theme Draft</h1>
+    <DraftFrame
+      back={{ href: "/drafts/new", label: "New draft" }}
+      title="New theme draft"
+      sub="You add the themes in the lobby."
+    >
+      <NewDraftLead
+        pieces={["Create", "Then add themes in the lobby"]}
+        note="One cube per archetype."
+      />
       <CreateThemeDraftForm />
-    </div>
+    </DraftFrame>
   );
 }

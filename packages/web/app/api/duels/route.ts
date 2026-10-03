@@ -1,8 +1,11 @@
-import { isDuelFormat, multiDomainBlockReason, multiplayerTableBlockReason, type DuelTableCapabilities } from "@yugidraft/shared/duels";
+import { isDuelFormat, MULTI_CORE_UNAVAILABLE_MESSAGE, multiDomainBlockReason, multiplayerTablesBlockReason, multiplayerTablesEnabled, type DuelTableCapabilities } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
+import { createDuelSeriesService } from "@yugidraft/shared/services";
+import { sendDuelInvite } from "@/lib/announce-bot";
+import { getDb } from "@/lib/db";
 import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
-import { multiplayerTablesEnabled } from "@/lib/duel-table-capabilities";
 import { notifyDuelChange } from "@/lib/notify-duel";
+import { playerIdentity } from "@/lib/player-lookup";
 
 export const runtime = "nodejs";
 
@@ -28,9 +31,19 @@ export async function POST(request: NextRequest) {
   const actor = await requireDuelActor();
   if (!actor.ok) return actor.response;
 
-  let body: { name?: unknown; mode?: unknown; masterRule?: unknown; settings?: unknown; format?: unknown };
+  type CreateBody = {
+    name?: unknown;
+    mode?: unknown;
+    masterRule?: unknown;
+    settings?: unknown;
+    format?: unknown;
+    opponentPlayerId?: unknown;
+    bestOf?: unknown;
+    ranked?: unknown;
+  };
+  let body: CreateBody;
   try {
-    body = (await request.json()) as { name?: unknown; mode?: unknown; masterRule?: unknown; settings?: unknown; format?: unknown };
+    body = (await request.json()) as CreateBody;
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -47,18 +60,79 @@ export async function POST(request: NextRequest) {
   if (!isDuelFormat(format)) {
     return NextResponse.json({ error: "Duel format must be 1v1, tag, ffa3, or ffa4" }, { status: 400 });
   }
-  const tableBlocked = multiplayerTableBlockReason(format, multiplayerTablesEnabled());
-  if (tableBlocked) return NextResponse.json({ error: tableBlocked }, { status: 400 });
+  // Read the shared deployment flag on every request.
+  const tablesBlocked = multiplayerTablesBlockReason(format, multiplayerTablesEnabled());
+  if (tablesBlocked) return NextResponse.json({ error: tablesBlocked }, { status: 403 });
   if (format !== "1v1") {
     const result = await callDuelHost({ op: "capabilities", guildId: actor.guildId, playerId: actor.playerId });
     if (!result.ok) return result.response;
     const data = result.data as Partial<DuelTableCapabilities> | null;
-    const blocked = multiplayerTableBlockReason(format, data?.multiplayerTables === true)
-      ?? multiDomainBlockReason(mode, format, data?.multiDomainCoreReady === true);
-    if (blocked) return NextResponse.json({ error: blocked }, { status: 400 });
+    const hostBlocked = multiplayerTablesBlockReason(format, data?.multiplayerTables === true);
+    if (hostBlocked) return NextResponse.json({ error: hostBlocked }, { status: 403 });
+    if (data?.multiCoreReady !== true) return NextResponse.json({ error: MULTI_CORE_UNAVAILABLE_MESSAGE }, { status: 409 });
+    const domainBlocked = multiDomainBlockReason(mode, format, data?.multiDomainCoreReady === true);
+    if (domainBlocked) return NextResponse.json({ error: domainBlocked }, { status: 409 });
+  }
+  const bestOf = body.bestOf ?? 1;
+  if (bestOf !== 1 && bestOf !== 3) {
+    return NextResponse.json({ error: "Best of must be 1 or 3" }, { status: 400 });
+  }
+  const ranked = body.ranked ?? false;
+  if (typeof ranked !== "boolean") {
+    return NextResponse.json({ error: "Ranked must be true or false" }, { status: 400 });
+  }
+  const opponentPlayerId = body.opponentPlayerId ?? null;
+  if (opponentPlayerId !== null && (!Number.isInteger(opponentPlayerId) || (opponentPlayerId as number) < 1)) {
+    return NextResponse.json({ error: "opponentPlayerId must be a player id" }, { status: 400 });
+  }
+  if (opponentPlayerId === actor.playerId) {
+    return NextResponse.json({ error: "You cannot challenge yourself" }, { status: 400 });
+  }
+  if (opponentPlayerId !== null && format !== "1v1") {
+    return NextResponse.json({ error: "A challenge is a 1v1 duel" }, { status: 400 });
   }
 
   try {
+    if (opponentPlayerId !== null) {
+      const { series, duel } = createDuelSeriesService(getDb()).createChallenge({
+        guildId: actor.guildId,
+        challengerPlayerId: actor.playerId,
+        opponentPlayerId: opponentPlayerId as number,
+        bestOf,
+        ranked,
+        mode,
+        masterRule: body.masterRule as 1 | 2 | 3 | 4 | 5 | undefined,
+        settings: body.settings,
+        name: name || undefined,
+      });
+      await notifyDuelChange(duel.slug, actor.guildId).catch(() => undefined);
+      // True only when the bot accepted the invite; the challenger copies the link when it did not.
+      let notified = false;
+      try {
+        const db = getDb();
+        const opponent = playerIdentity(db, opponentPlayerId as number);
+        const challenger = playerIdentity(db, actor.playerId);
+        if (opponent) {
+          notified = await sendDuelInvite(
+            {
+              slug: duel.slug,
+              guildId: actor.guildId,
+              opponentDiscordUserId: opponent.discordUserId,
+              challengerName: challenger?.displayName ?? "A player",
+              duelName: duel.name,
+              bestOf: series.bestOf,
+              ranked: series.ranked,
+              tournamentName: null,
+            },
+            request,
+          );
+        }
+      } catch (error) {
+        console.warn("[api/duels] duel invite failed", error);
+      }
+      return NextResponse.json({ session: duel, series, notified }, { status: 201 });
+    }
+
     const session = actor.duels.create({
       guildId: actor.guildId,
       organizerPlayerId: actor.playerId,
@@ -67,6 +141,8 @@ export async function POST(request: NextRequest) {
       format,
       masterRule: body.masterRule as 1 | 2 | 3 | 4 | 5 | undefined,
       settings: body.settings,
+      bestOf,
+      ranked,
     });
     try {
       await notifyDuelChange(session.slug, actor.guildId);

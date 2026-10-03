@@ -2,10 +2,13 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { duel1v1Engine, type DuelEngineChoice } from "@yugidraft/shared/duels";
+import { LEGACY_DOMAIN_LUA_FILE, LEGACY_DOMAIN_WASM_FILE } from "./legacy/engine.js";
 import { MULTI_SCRIPTS_DIRECTORY_NAME, multiScriptsFolderHash } from "./multi-scripts.js";
 
 const standardHint = "Build it with docker.io/emscripten/emsdk:4.0.9 and packages/duel-server/scripts/build-standard-core.sh";
 const domainHint = "Build it with docker.io/emscripten/emsdk:4.0.9 and packages/duel-server/scripts/build-domain-core.sh";
+const legacyHint = "Build it with docker.io/emscripten/emsdk:4.0.9 and packages/duel-server/legacy-1v1/scripts/build-domain-core.sh (npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain)";
 const dataHint = "Run npm run duel:prepare";
 const multiScriptsHint = "Run npm run duel:prepare (it installs domain-core/multi-scripts into the data directory)";
 
@@ -26,7 +29,10 @@ function defaultWrapperPath() {
  * Fails fast at startup when the engine resource bundle is incomplete or does not match its manifest.
  * Throws one error that names the file and the command that builds it.
  */
-export function verifyEngineBundle(dataDirectory: string, options: { wrapperPath?: string } = {}) {
+export function verifyEngineBundle(dataDirectory: string, options: { wrapperPath?: string; engine?: DuelEngineChoice } = {}) {
+  // The files of the old 1v1 engine are required while 1v1 duels start on it (the default), so a bundle that lacks them stops the
+  // server at startup, not in the middle of the first duel. They are always checked when the manifest lists them.
+  const engine = options.engine ?? duel1v1Engine();
   const manifestPath = join(dataDirectory, "manifest.json");
   let manifest: Manifest;
   try {
@@ -48,15 +54,23 @@ export function verifyEngineBundle(dataDirectory: string, options: { wrapperPath
   if (!existsSync(scripts) || !statSync(scripts).isDirectory()) throw new Error(`Card scripts directory is missing at ${scripts}. ${dataHint}`);
 
   const integrity = manifest.integrity ?? {};
-  const checks: Array<{ key: string; path: () => string; hint: string }> = [
+  const legacyWasm = join(dataDirectory, LEGACY_DOMAIN_WASM_FILE);
+  const legacyLua = join(dataDirectory, "card-scripts", LEGACY_DOMAIN_LUA_FILE);
+  const checks: Array<{ key: string; path: () => string; hint: string; required?: boolean }> = [
     { key: "standardWasm", path: () => standardWasm, hint: standardHint },
     { key: "domainWasm", path: () => domainWasm, hint: domainHint },
+    { key: "domainLegacyWasm", path: () => legacyWasm, hint: legacyHint, required: engine === "legacy" },
+    { key: "domainLegacyLua", path: () => legacyLua, hint: legacyHint, required: engine === "legacy" },
     { key: "wrapper", path: () => options.wrapperPath ?? defaultWrapperPath(), hint: `Run npm install so patch-package re-applies patches/ocgcore-wasm+0.1.2.patch, then ${dataHint}` },
   ];
-  for (const { key, path, hint } of checks) {
+  for (const { key, path, hint, required } of checks) {
     const expected = integrity[key];
-    if (typeof expected !== "string" || !expected) continue;
+    if (typeof expected !== "string" || !expected) {
+      if (required) throw new Error(`Engine manifest has no integrity.${key}, and 1v1 duels start on the legacy engine (DUEL_1V1_ENGINE). ${hint}`);
+      continue;
+    }
     const file = path();
+    if (!existsSync(file)) throw new Error(`Engine file ${file} is missing. ${hint}`);
     const actual = sha256(file);
     if (actual !== expected) {
       throw new Error(`Engine file ${file} does not match manifest integrity.${key} (expected ${expected}, got ${actual}). ${hint}`);

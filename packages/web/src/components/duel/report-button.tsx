@@ -106,6 +106,7 @@ export function ReportButton({ slug }: { slug: string }) {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "m" && e.key !== "M") return;
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
+      if (e.target instanceof Element && e.target.closest("[role='dialog']")) return;
       addMark("mark");
       setMarkCount(marks.size);
     }

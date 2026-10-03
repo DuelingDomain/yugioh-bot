@@ -9,6 +9,8 @@ import { authFile, type PlayerKey } from "./players";
 import type { TimelineEntry } from "./timeline";
 import { checklistVerdicts, publicCodesOf, scanLeaks, type BoardSeat, type Leak, type StepRecord, type Verdict } from "./multi-verdict";
 import { stallMsFromEnv } from "./watch";
+import { expect } from "@playwright/test";
+import { expectRooftop } from "./tag";
 
 // Evidence runner for the multi-seat scenario presets. One `PresetRun` drives one preset in a real browser:
 // seat 0 (the test user) and one spectator page, the walk through the checklist over the room API, one snapshot for each
@@ -115,14 +117,22 @@ interface Plan {
 const PLANS: Record<string, Plan> = {
   "raigeki-dark-hole-ffa4": { wants: [{ verb: "activate", card: "Raigeki" }, { verb: "activate", card: "Dark Hole" }] },
   "raigeki-dark-hole-tag": { wants: [{ verb: "activate", card: "Raigeki" }, { verb: "activate", card: "Dark Hole" }] },
+  "ffa3-mind-crush-pick": { wants: [{ verb: "activate", card: "Mind Crush" }], opponent: 2, announce: "Sangan" },
+  "ffa3-rules-opponent-lp": { wants: [{ verb: "activate", card: "Hinotama" }], opponent: 2 },
+  "ffa3-rules-opponent-field": { wants: [{ verb: "activate", card: "Raigeki" }] },
+  "ffa3-rules-activated-lock": { wants: [{ verb: "activate", card: "Abyss Dweller" }, { verb: "activate", card: "Dark Hole" }] },
+  "ffa3-rules-resource-rotation": { wants: [{ verb: "activate", card: "Creature Swap" }] },
   "mind-crush-ffa4-pick": { wants: [{ verb: "activate", card: "Mind Crush" }], opponent: 1, announce: "Sangan" },
   "tag-lp-solemn-partner": { wants: [{ verb: "summon", card: "Celtic Guardian" }] },
   "tag-jinzo-blocks-traps": { wants: [{ verb: "summon", card: "Celtic Guardian" }] },
   "ffa4-chain-order-heavy-storm": { wants: [{ verb: "activate", card: "Heavy Storm" }] },
   "ffa4-surrender-in-chain": { wants: [{ verb: "activate", card: "Heavy Storm" }] },
+  "ffa3-table-battle": { wants: [{ verb: "activate", card: "Raigeki" }] },
+  "ffa3-turn-player-last": { wants: [{ verb: "activate", card: "Heavy Storm" }] },
+  "ffa3-table-chain": { wants: [{ verb: "activate", card: "Heavy Storm" }] },
 };
 
-function planFor(id: string, checklist: string[]): Plan {
+export function planFor(id: string, checklist: string[]): Plan {
   const known = PLANS[id];
   if (known) return { ...known, wants: [...known.wants] };
   const wants: Want[] = [];
@@ -273,7 +283,7 @@ async function hostCall(body: Record<string, unknown>, timeoutMs = 6000): Promis
   }
 }
 
-type AnyView = { revision?: number; seats?: Array<Record<string, unknown>>; chain?: Array<{ seat: number; name?: string }>; turn?: number; turnSeat?: number; phase?: string; result?: unknown; prompt?: Prompt | null };
+type AnyView = { revision?: number; seats?: Array<Record<string, unknown>>; chain?: Array<{ seat: number; name?: string }>; events?: StepRecord["events"]; turn?: number; turnSeat?: number; phase?: string; result?: unknown; prompt?: Prompt | null };
 
 function boardOf(view: AnyView | null | undefined): BoardSeat[] {
   const names = (list: unknown) => (Array.isArray(list) ? list : []).filter(Boolean).map((card) => String((card as { name?: string; code?: number }).name ?? (card as { code?: number }).code ?? "?"));
@@ -317,6 +327,8 @@ export class PresetRun {
   private records: StepRecord[] = [];
   private traceState: "unknown" | "used" | "absent" | "failed" = "unknown";
   private traceViews: Array<{ seats: unknown[]; spectator: unknown }> = [];
+  private observing = false;
+  private traceRevisions = new Set<number>();
   private leaks: Leak[] = [];
   private leakScans = 0;
   private publicCodes = new Set<number>();
@@ -397,9 +409,24 @@ export class PresetRun {
       this.note(`preset ${this.presetId} started as ${this.slug}${this.seed ? ` with seed ${this.seed.join(",")}` : ""}`);
 
       await this.openPages();
-      await this.playUntilDone(maxMs, stallMs);
+      this.observing = true;
+      const observer = this.observeEngine();
+      try {
+        await this.playUntilDone(maxMs, stallMs);
+      } finally {
+        this.observing = false;
+        await observer;
+      }
     } catch (error) {
       this.fail(`The run threw: ${String(error instanceof Error ? (error.stack ?? error.message) : error).slice(0, 1500)}`);
+    }
+  }
+
+  /** Screenshot rendering must not prevent us from seeing the bots' short chain windows. */
+  private async observeEngine(): Promise<void> {
+    while (this.observing) {
+      await this.trace("poll", false, true);
+      await this.sleep(80);
     }
   }
 
@@ -413,6 +440,15 @@ export class PresetRun {
       await gate.or(board).first().waitFor({ timeout: 30_000 });
       if (await gate.isVisible()) await this.seat0.page.getByRole("button", { name: "Open here instead" }).click();
       await board.waitFor({ timeout: 15_000 });
+      if (this.expectedFormat === "ffa3" || this.expectedFormat === "ffa4") {
+        await expect(this.seat0.page.locator(`[data-table-stage='${this.expectedFormat}']`)).toBeVisible();
+        await expect(this.seat0.page.locator("[data-table-shell]")).toBeVisible();
+        await expect(this.seat0.page.locator("[data-lp-seat]")).toHaveCount(this.expectedFormat === "ffa3" ? 3 : 4);
+      }
+      if (this.expectedFormat === "tag") {
+        await expectRooftop(this.seat0.page);
+        await expect(this.seat0.page.locator("[data-table-stage='tag'] [data-lp-seat]")).toHaveCount(4);
+      }
     } catch (error) {
       this.note(`seat 0 page did not show the duel field: ${String(error).slice(0, 200)}`, "error");
       this.fail(`Seat 0 room page did not show the duel field: ${String(error).split("\n")[0]}`);
@@ -476,8 +512,11 @@ export class PresetRun {
       const session = room.session;
       if (session.status !== "active") {
         this.note(`duel status is ${session.status}: ${session.resultReason ?? "no reason"}`);
-        // A finished duel is a pass. An engine error or a cancel is not.
-        if (session.status === "completed" || engine?.result) this.status = "pass";
+        // Completion proves the preset only after all intended moves were played.
+        if (session.status === "completed" || engine?.result) {
+          if (this.wantsLeft.length === 0) this.status = "pass";
+          else this.fail(`The duel completed before checklist moves were done: ${this.wantsLeft.map((want) => `${want.verb} ${want.card}`).join(", ")}`);
+        }
         else this.fail(`The duel ended with status ${session.status}: ${session.resultReason ?? (room.error ?? "no reason")}`);
         return;
       }
@@ -517,7 +556,7 @@ export class PresetRun {
   }
 
   /** One debug-trace call. Returns the trace, or null when the op is absent (404), failed or timed out. */
-  private async trace(tag: string, save: boolean): Promise<Record<string, unknown> | null> {
+  private async trace(tag: string, save: boolean, collect = false): Promise<Record<string, unknown> | null> {
     this.hostOpen = [];
     if (this.traceState === "absent") return null;
     try {
@@ -533,11 +572,24 @@ export class PresetRun {
         return null;
       }
       this.traceState = "used";
-      const body = response.body as { seats?: Array<{ seat: number; view: unknown; prompt?: Prompt }>; spectator?: unknown };
+      const body = response.body as { seats?: Array<{ seat: number; view: AnyView; prompt?: Prompt }>; spectator?: AnyView };
       if (save) this.write(`steps/${tag}-debug-trace.json`, body);
       this.hostOpen = (body.seats ?? []).filter((entry) => entry.prompt && entry.seat !== 0).map((entry) => ({ seat: entry.seat, kind: entry.prompt!.kind, title: entry.prompt!.title, options: entry.prompt!.options.map((option) => option.label) }));
-      if (body.spectator && (body.seats ?? []).length > 0 && (body.seats ?? []).every((entry) => entry.view)) {
-        this.traceViews.push({ seats: body.seats!.map((entry) => entry.view), spectator: body.spectator });
+      if (collect && body.spectator && (body.seats ?? []).length > 0 && (body.seats ?? []).every((entry) => entry.view)) {
+        const view = body.spectator;
+        if (typeof view.revision === "number" && !this.traceRevisions.has(view.revision)) {
+          this.traceRevisions.add(view.revision);
+          // Polls at the same revision are observations, not accepted engine steps. The fuzz
+          // progress invariant expects one view set per distinct revision.
+          this.traceViews.push({ seats: body.seats!.map((entry) => entry.view), spectator: view });
+          this.records.push({
+            step: this.records.length + 1, revision: view.revision, turn: view.turn ?? null,
+            turnSeat: view.turnSeat ?? null, phase: view.phase ?? null, status: "active", result: view.result,
+            board: boardOf(view), chain: (view.chain ?? []).map((link) => ({ seat: link.seat, name: link.name })),
+            events: view.events ?? [],
+            prompt: null, hostPrompts: this.hostOpen, traceSeen: true, screenshot: null,
+          });
+        }
       }
       return body as Record<string, unknown>;
     } catch (error) {
@@ -625,6 +677,7 @@ export class PresetRun {
       result: engine?.result ?? null,
       board: boardOf(engine as AnyView),
       chain: ((engine as AnyView | null)?.chain ?? []).map((link) => ({ seat: link.seat, name: link.name })),
+      events: (engine as AnyView | null)?.events ?? [],
       prompt: prompt && { seat: prompt.seat, kind: prompt.kind, title: prompt.title, options: prompt.options.map((option) => option.label) },
       hostPrompts,
       traceSeen: trace !== null,
@@ -684,6 +737,10 @@ export class PresetRun {
     this.write("driver-log.json", this.driverLog);
     this.unmet = this.wantsLeft.map((want) => `${want.verb} ${want.card}`);
     const listedChecklist = ((this.listed?.checklist as string[] | undefined) ?? []);
+    // Engine observations and slower screenshot snapshots can arrive at different times.
+    // Checklist steps describe engine order; screenshot filenames keep their own sequence.
+    this.records = this.records.sort((a, b) => (a.revision ?? -1) - (b.revision ?? -1))
+      .map((record, index) => ({ ...record, step: index + 1 }));
     this.checklistVerdicts = checklistVerdicts(this.presetId, listedChecklist, {
       steps: this.records,
       driver: this.driverLog.filter((entry) => entry.http === 200).map((entry) => ({ revision: Number(entry.revision), note: String(entry.note) })),

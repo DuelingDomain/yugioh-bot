@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { env } from "@/lib/env";
 import { auth } from "@/lib/auth";
 import { createPlayerService } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
+import { backfillDraftDecks, linkDraftDeck } from "@/lib/draft-decks";
 
 export const runtime = "nodejs";
 
@@ -20,8 +22,8 @@ export async function POST(
     const db = getDb();
 
     const tournament = db
-      .prepare("select id, guild_id, status from tournaments where web_slug = ?")
-      .get(slug) as { id: number; guild_id: string; status: string } | undefined;
+      .prepare("select id, guild_id, status from tournaments where web_slug = ? and guild_id = ?")
+      .get(slug, env.discordGuildId) as { id: number; guild_id: string; status: string } | undefined;
 
     if (!tournament) {
       return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
@@ -48,6 +50,10 @@ export async function POST(
     db.prepare(
       "insert into tournament_participants (tournament_id, player_id) values (?, ?)"
     ).run(tournamentId, player.id);
+
+    // A draft tournament entry takes the player's drafted deck at once (a no-op for any other tournament).
+    backfillDraftDecks(guildId, session.user.id, db);
+    linkDraftDeck(tournamentId, player.id, db);
 
     void broadcaster.tournament(
       {

@@ -30,8 +30,7 @@ container_ok() {
 }
 
 http_ok() {
-  # shellcheck disable=SC2086
-  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 $curl_extra "$1" 2>/dev/null || echo 000)
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$1" 2>/dev/null || echo 000)
   case "$code" in
     2??|3??) return 0 ;;
     *) return 1 ;;

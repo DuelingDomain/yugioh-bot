@@ -71,4 +71,15 @@ describe("callDuelHost error messages", () => {
     expect(result.response.status).toBe(409);
     expect(await result.response.json()).toEqual({ error: "Decks are locked after the duel starts" });
   });
+
+  it("transports the spectator view flag to the authenticated host", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => Response.json({ role: "spectator", mySeat: null }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { callDuelHost } = await loadHost();
+    await callDuelHost({ ...call, op: "view", spectate: true });
+    const request = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect(JSON.parse(request.body as string)).toMatchObject({ op: "view", spectate: true });
+    await callDuelHost({ ...call, op: "view" });
+    expect(JSON.parse((fetchMock.mock.calls[1]![1] as RequestInit).body as string)).not.toHaveProperty("spectate");
+  });
 });

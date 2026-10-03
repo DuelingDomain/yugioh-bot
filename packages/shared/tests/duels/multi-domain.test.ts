@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason, multiplayerTableBlockReason } from "../../src/duels/multi-domain.js";
+import { MULTIPLAYER_TABLES_OFF_MESSAGE, multiplayerTablesBlockReason } from "../../src/duels/multiplayer-tables.js";
+import { MULTI_CORE_UNAVAILABLE_MESSAGE, MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason } from "../../src/duels/multi-domain.js";
+
+describe("MULTI_CORE_UNAVAILABLE_MESSAGE", () => {
+  it("identifies the unavailable table formats and offers 1v1 without exposing a file path", () => {
+    expect(MULTI_CORE_UNAVAILABLE_MESSAGE).toMatch(/Tag, 3-player and 4-player/);
+    expect(MULTI_CORE_UNAVAILABLE_MESSAGE).toContain("Play a 1v1 table");
+    expect(MULTI_CORE_UNAVAILABLE_MESSAGE).not.toMatch(/[/\\]|\.wasm/);
+  });
+});
 
 describe("multiDomainBlockReason", () => {
   it("allows Standard at every table type", () => {
@@ -31,13 +40,13 @@ describe("multiDomainBlockReason", () => {
   });
 });
 
-describe("multiplayerTableBlockReason", () => {
+describe("multiplayerTablesBlockReason", () => {
   it("keeps 1v1 open when the flag is off", () => {
-    expect(multiplayerTableBlockReason("1v1", false)).toBeNull();
+    expect(multiplayerTablesBlockReason("1v1", false)).toBeNull();
   });
 
   it.each(["ffa3", "ffa4", "tag"] as const)("requires the flag for %s", (format) => {
-    expect(multiplayerTableBlockReason(format, false)).toContain("3 or more seats are disabled");
-    expect(multiplayerTableBlockReason(format, true)).toBeNull();
+    expect(multiplayerTablesBlockReason(format, false)).toBe(MULTIPLAYER_TABLES_OFF_MESSAGE);
+    expect(multiplayerTablesBlockReason(format, true)).toBeNull();
   });
 });

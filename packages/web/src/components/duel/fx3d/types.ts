@@ -1,3 +1,5 @@
+import type { BattleClock } from "../battle-clock";
+
 /**
  * Shared types of the Three.js effect layer. This file never imports `three`, so the rest of the
  * duel room can use these types without pulling the library into its bundle.
@@ -55,6 +57,8 @@ export type FxBreak = {
   /** Card passcode: the shards are cut from its picture. 0 = unknown (a flat colour). */
   code: number;
   defense: boolean;
+  /** The card is the far player's: it faces the other way, so its picture is turned half a circle. */
+  turned?: boolean;
   atMs: number;
   /** The way the blow came (unit vector, y down): shards fly away along it. */
   dir: { x: number; y: number };
@@ -79,11 +83,57 @@ export type FxScenePiece =
   | "raigeki"
   | "bottomless"
   | "trap-hole"
+  | "feather-duster"
+  | "heavy-storm"
+  | "banish-all"
+  | "mass-destroy"
   | "trap"
   | "spell"
   | "monster";
 
-export type FxVictim = { rect: FxRect; code: number; defense: boolean; atMs: number };
+/**
+ * How demo world units map to the canvas (see effects/wipes/common.ts). The demo scenes work in a
+ * world of 96 x 140 cards, y UP, origin in the middle of the board. In the app:
+ * `wx = (px - cx) / u` and `wy = (cy - py) / u` for a canvas point (px, py), y DOWN.
+ */
+export type FxWorld = {
+  /** Origin: centre of all card zones, canvas px, y down. */
+  cx: number;
+  cy: number;
+  /** Canvas px per world unit (card art width / 96). */
+  u: number;
+  /** Canvas size in CSS px. */
+  vw: number;
+  vh: number;
+};
+
+/** A row of card zones per seat, in canvas px (null when the board has none). */
+export type FxRows = { you: { m: FxRect | null; st: FxRect | null }; opp: { m: FxRect | null; st: FxRect | null } };
+
+/** The graveyard and banish pile of each seat, in canvas px. */
+export type FxPiles = { you: { gy: FxRect | null; banish: FxRect | null }; opp: { gy: FxRect | null; banish: FxRect | null } };
+
+export type FxVictim = {
+  rect: FxRect;
+  code: number;
+  defense: boolean;
+  turned?: boolean;
+  /** Old pieces: the card breaks here (ms from the start). Wipes: the card is gone from the field here. */
+  atMs: number;
+  /** Wipes: the canvas starts to draw this card (the page card hides here, about 40 ms earlier than any change). */
+  takeMs?: number;
+  /** Wipes: the landing streak of this card starts here (ms). */
+  landMs?: number;
+  /** Wipes: the landing streak arrives at the pile here (ms); the page pile takes the card then. */
+  endMs?: number;
+  /** Wipes: the pile this card ends in (canvas px), when known. */
+  pile?: FxRect | null;
+  /** Wipes: position in world units (see FxWorld). */
+  wx?: number;
+  wy?: number;
+  /** Wipes: the card is a Spell or Trap (it stands in a spell/trap zone). */
+  st?: boolean;
+};
 
 export type FxScene = {
   piece: FxScenePiece;
@@ -102,6 +152,12 @@ export type FxScene = {
   /** Mirror Force: the attack in the same snapshot is the one it stops (no projectile of its own). */
   incoming: boolean;
   totalMs: number;
+  /** Wipes only: world mapping, rows and piles. Absent on the older pieces. */
+  world?: FxWorld;
+  rows?: FxRows;
+  piles?: FxPiles;
+  /** Wipes only: how the demo times were laid out (key points in ms, for the sound and the lab). */
+  marks?: Partial<Record<"open" | "strike" | "close" | "land", number>>;
 };
 
 export type FxRequest = {
@@ -123,6 +179,10 @@ export type FxRequest = {
   seed?: number;
   /** The effect is already this many ms late (it was planned earlier than it started): it starts advanced by this much. */
   skipMs?: number;
+  /** Battle's shared performance.now() origin, with initial catch-up capped at 120 ms. */
+  startedAt?: number;
+  /** Lets the engine publish its capped origin to the DOM, audio and already-armed holds. */
+  clock?: BattleClock;
   /** id "battle": the fight. */
   battle?: FxBattle;
   /** id "scene": the trap or effect set piece. */
@@ -134,8 +194,8 @@ export interface Fx3dApi {
   readonly ready: boolean;
   /** Runs an effect. Resolves when it has finished or was cancelled (abort the signal); never rejects. */
   play(id: Fx3dEffectId, request: FxRequest, signal?: AbortSignal): Promise<void>;
-  /** Starts loading the art of a card so the embodiment finds it in the cache. */
-  prefetchArt(code: number): void;
+  /** Loads art; uploadEarly is reserved for the attacker and target of a pending battle. */
+  prefetchArt(code: number, uploadEarly?: boolean): void;
   /** Stops every running effect at once. */
   cancelAll(): void;
 }

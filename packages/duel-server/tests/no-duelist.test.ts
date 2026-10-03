@@ -23,6 +23,7 @@ const info = (code: number): DuelCardInfo => ({
 const cards: CardDatabase = {
   search: () => [], get: info, cardData: () => null, resolveLabel: () => "", system: () => undefined,
   victory: () => undefined, counter: () => undefined, readScript: () => null, close() {},
+  deckCard: () => undefined, all: () => [], setnames: () => new Map(),
 };
 // The wrapper types a controller as 0 | 1, but the multi core writes seats up to 3 and 0xFF.
 const place = (controller: number, location: OcgLocation, sequence: number, position: OcgPosition = OcgPosition.FACEUP_ATTACK): never =>
@@ -76,24 +77,42 @@ describe.each(multiFormats)("%s: 0xFF controller in event messages", (format) =>
     expect(ctx.handSize[2]).toBe(1);
   });
 
-  it("MSG_MOVE off the field with no duelist: the released count has no stray entry", () => {
+  it("MSG_MOVE off the field with no duelist: the hand sizes have no stray entry", () => {
     const ctx = createEventContext(format);
-    const length = ctx.released.length;
+    const length = ctx.handSize.length;
     const move: OcgMessage = { type: OcgMessageType.MOVE, card: 5, from: place(NONE, OcgLocation.MZONE, 1), to: place(0, OcgLocation.GRAVE, 0, OcgPosition.FACEUP) };
     expect(observeDuelEvent(move, cards, [], 1, ctx)).toBeNull();
-    expect(ctx.released).toHaveLength(length);
+    expect(ctx.handSize).toHaveLength(length);
     expect(ctx.pendingMoves).toHaveLength(1);
   });
 
   it.each([OcgMessageType.SUMMONING, OcgMessageType.SPSUMMONING, OcgMessageType.FLIPSUMMONING])("summon message %i", (type) => {
     const ctx = createEventContext(format);
-    const length = ctx.released.length;
+    const length = ctx.handSize.length;
     const stored = observeDuelEvent(summon(type, NONE), cards, [], 1, ctx)!;
     expect(stored.seat).toBeUndefined();
     expect(stored.zone).toBeUndefined();
     expect(stored.text).toContain("No duelist");
     expect(stored.text).not.toContain("256");
-    expect(ctx.released).toHaveLength(length);
+    expect(ctx.handSize).toHaveLength(length);
+  });
+
+  it("a Tribute material MOVE (MOVE reason) from no duelist marks the next Normal Summon as a Tribute Summon", () => {
+    const ctx = createEventContext(format);
+    const length = ctx.handSize.length;
+    // REASON_RELEASE | REASON_MATERIAL | REASON_SUMMON, parsed by patches/ocgcore-wasm+0.1.2.patch.
+    const release = { type: OcgMessageType.MOVE, card: 5, from: place(NONE, OcgLocation.MZONE, 1), to: place(NONE, OcgLocation.GRAVE, 0, OcgPosition.FACEUP), reason: 0x1a } as unknown as OcgMessage;
+    expect(() => observeMoveEvents(release, cards, ctx, 1)).not.toThrow();
+    expect(ctx.summonTribute).toBe(true);
+    expect(ctx.handSize).toHaveLength(length);
+    const stored = observeDuelEvent(summon(OcgMessageType.SUMMONING, NONE), cards, [], 2, ctx)!;
+    expect(stored.summonKind).toBe("tribute");
+    expect(stored.seat).toBeUndefined();
+    expect(stored.text).toContain("No duelist");
+    // A material reason without the summon bits is not a Tribute.
+    const other = createEventContext(format);
+    observeMoveEvents({ ...release, reason: 0x2 } as unknown as OcgMessage, cards, other, 1);
+    expect(other.summonTribute).toBe(false);
   });
 
   it("a face-down summon with no duelist is visible to nobody", () => {

@@ -7,7 +7,7 @@
 .layer {
   position: absolute;
   inset: 0;
-  z-index: 5;
+  z-index: var(--duel-z-fx);
   overflow: hidden;
   pointer-events: none;
   contain: layout style;
@@ -452,10 +452,26 @@
   inset: 0;
   opacity: 0;
   background-color: #10131c;
-  background-position: center;
-  background-size: cover;
   border-radius: var(--fx-r, 4px);
   will-change: transform, opacity;
+}
+
+/* The picture sits in its own layer so it can turn with the card without turning the shard's clip. */
+.shardArt {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  border-radius: inherit;
+}
+
+/* The opponent's cards face the other way: a copy of one turns its picture half a circle, like the real card.
+   (The typed-summon copy turns as a whole in JS, together with its Defense Position turn.) */
+.anchor[data-side="opp"] :is(.flipGhost, .destroyWhole) .ghostArt,
+.anchor[data-side="opp"] .holoArt,
+.anchor[data-side="opp"] .shardArt,
+.anchor[data-side="opp"] .linkFill .ghostArt {
+  rotate: 180deg;
 }
 
 .breakFlash {

@@ -37,7 +37,7 @@ describeWithCores("live Domain card restriction at every multiplayer seat", need
     const players = Array.from({ length: count }, (_, index) => Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run("g1", `u${index}`, `P${index}`).lastInsertRowid));
     const service = createDuelService(db);
     const room = service.create({ guildId: "g1", organizerPlayerId: players[0]!, name: "Domain restriction proof", mode: "domain", format, settings: { banlist: "none", validateDeck: true, shuffleDeck: false, turnSeconds: 0 } });
-    for (const player of players.slice(1)) service.join(room.slug, "g1", player);
+    for (const player of players.slice(1)) service.takeSeat(room.slug, "g1", player);
     let game: EngineGame | undefined;
     let creates = 0;
     const worker: DuelGameWorker = {

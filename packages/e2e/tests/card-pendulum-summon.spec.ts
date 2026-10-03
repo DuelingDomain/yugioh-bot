@@ -6,8 +6,12 @@ import { FILLER, withFiller } from "../helpers/decks";
 const LOW_SCALE = "Performapal Lebellman"; // Pendulum Scale 1
 const HIGH_SCALE = "Endymion, the Mighty Master of Magic"; // Pendulum Scale 8
 
+// The legacy 1v1 engine (E2E_1V1_ENGINE=legacy, the engine of production) is main's engine from before the n-seat work. Its history
+// labels this summon "Special Summon" (it only knows the Pendulum Zones 6 and 7, Master Rule 5 uses 0 and 4). The merged engine fixes that.
+const legacyEngine = process.env.E2E_1V1_ENGINE === "legacy";
+
 // Master Rule 5: two Pendulum Scales open the range of levels 2 to 7. Level 4 Warwolves from the hand fit.
-// The history must call the summon a Pendulum Summon, not a plain Special Summon.
+// The merged engine calls the summon a Pendulum Summon, the legacy engine a plain Special Summon.
 test("a Pendulum Summon is shown as a Pendulum Summon on every screen", async ({ player }) => {
   const alice = await player("p1");
   const bob = await player("p2");
@@ -36,7 +40,11 @@ test("a Pendulum Summon is shown as a Pendulum Summon on every screen", async ({
   await choice.getByRole("button", { name: "Cancel" }).click();
   await expect(choice).toHaveCount(0);
   await startPendulumSummon(alice.page);
-  await choice.getByRole("button", { name: new RegExp(FILLER) }).first().click();
+  // The cards of a hand pick are chosen on the board; the bar holds Finish and Cancel.
+  const warwolf = handCard(alice.page, FILLER);
+  await warwolf.click();
+  // Toggle picks round-trip through the engine. Wait for the chosen card before finishing the summon.
+  await expect(warwolf).toHaveAttribute("aria-pressed", "true");
   await choice.getByRole("button", { name: "Finish" }).click();
   await pickLegalZone(alice.page, "mz");
   await alice.page.getByRole("button", { name: /Face-up Defense/ }).click();
@@ -46,8 +54,12 @@ test("a Pendulum Summon is shown as a Pendulum Summon on every screen", async ({
 
   for (const page of [alice.page, bob.page, spectator.page]) {
     const log = await openLog(page);
-    await expect(log).toContainText("Pendulum Summon");
-    await expect(log).not.toContainText(/Special Summon/i);
+    if (legacyEngine) {
+      await expect(log).toContainText(/Special Summon/i);
+    } else {
+      await expect(log).toContainText("Pendulum Summon");
+      await expect(log).not.toContainText(/Special Summon/i);
+    }
   }
 });
 
@@ -56,4 +68,9 @@ async function startPendulumSummon(page: Page): Promise<void> {
   await expectReadyToAct(page);
   await page.locator('[data-kind="st"][data-side="you"][data-occupied="true"] button').first().click();
   await page.getByRole("menu").getByRole("menuitem", { name: /^Special Summon/ }).click();
+  // The menu click sends an asynchronous action. Hand cards still accept clicks while that action is busy,
+  // but those clicks do not select anything until the summon prompt is ready (including after Cancel).
+  const choice = page.getByRole("group", { name: "Select the card(s) to Special Summon" });
+  await expect(choice).toBeVisible();
+  await expect(choice.getByRole("button", { name: "Cancel" })).toBeEnabled();
 }

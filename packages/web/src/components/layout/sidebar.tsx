@@ -1,52 +1,58 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { navItems } from "@/lib/nav-items";
+import { PanelLeft } from "lucide-react";
+import { LightRule, SheetRoot, Tip } from "@/components/sheet";
+import { AccountMenu } from "./account-menu";
+import { BrandMark } from "./brand-mark";
+import { NavList, SettingsLink } from "./nav-list";
+import { activeNavHref, type LiveNow } from "./shell-model";
+import type { ShellAccount } from "./use-shell-account";
+import styles from "./shell.module.css";
 
 interface SidebarProps {
   collapsed: boolean;
+  onToggle: () => void;
+  account: ShellAccount;
+  live: LiveNow | null;
+  onReportBug?: () => void;
 }
 
-export function Sidebar({ collapsed }: SidebarProps) {
+/** Desktop sidebar. Hidden by the shell's CSS at phone width, where the top bar and menu take over. */
+export function Sidebar({ collapsed, onToggle, account, live, onReportBug }: SidebarProps) {
   const pathname = usePathname();
+  const activeHref = activeNavHref(pathname, account.playerId, account.profileSettled);
+  const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
+  const size = collapsed ? "rail" : "side";
+
+  const toggle = (
+    <button className={styles.toggle} type="button" aria-label={label} aria-expanded={!collapsed} title={collapsed ? undefined : label} onClick={onToggle}>
+      <PanelLeft className={styles.navIcon} aria-hidden="true" />
+    </button>
+  );
 
   return (
-    <aside
-      className={`hidden md:flex md:flex-col md:fixed md:top-14 md:bottom-0 md:left-0 md:border-r md:border-border md:bg-bg-surface md:z-30 motion-safe:transition-[width] duration-200 ${
-        collapsed ? "md:w-16" : "md:w-56"
-      }`}
-    >
-      <nav className="sidebar-nav flex-1 space-y-1 px-3 py-4" aria-label="Main navigation">
-        {navItems.map((item) => {
-          const isActive =
-            item.match === "exact"
-              ? pathname === item.href
-              : pathname.startsWith(item.href);
-          const Icon = item.icon;
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 font-body text-sm font-semibold motion-safe:transition-colors ${
-                collapsed ? "justify-center" : ""
-              } ${
-                isActive
-                  ? "bg-accent-primary/10 text-accent-primary"
-                  : "text-text-secondary hover:bg-bg-elevated hover:text-text-primary"
-              }`}
-              aria-current={isActive ? "page" : undefined}
-              title={collapsed ? item.label : undefined}
-            >
-              <Icon className="h-5 w-5 shrink-0" />
-              <span className={`sidebar-label ${collapsed ? "sr-only" : ""}`}>
-                {item.label}
-              </span>
-            </Link>
-          );
-        })}
-      </nav>
-    </aside>
+    <SheetRoot flow className={styles.side} data-collapsed={collapsed ? "true" : "false"}>
+      <aside className={styles.aside} aria-label="Sidebar" data-rail={collapsed ? "true" : undefined}>
+        <div className={styles.brand}>
+          <BrandMark className={styles.mark} />
+          {collapsed ? null : <span className={styles.word}>Duelists Kingdom</span>}
+          {collapsed ? null : toggle}
+        </div>
+        <LightRule />
+        {collapsed ? (
+          <div className={styles.railToggle}>
+            <Tip label={label} side="right" className={styles.railTip}>
+              {toggle}
+            </Tip>
+          </div>
+        ) : null}
+        <NavList activeHref={activeHref} label="Main navigation" size={size} live={live} />
+        <div className={styles.foot}>
+          <SettingsLink activeHref={activeHref} size={size} />
+          <AccountMenu account={account} pathname={pathname} variant="side" rail={collapsed} onReportBug={onReportBug} />
+        </div>
+      </aside>
+    </SheetRoot>
   );
 }

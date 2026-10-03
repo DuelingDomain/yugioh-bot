@@ -178,6 +178,19 @@ export function migrate(db: Database.Database) {
       unique (draft_card_id)
     );
 
+    -- A booster pick the player could not make (every card in the pack was capped for them, or
+    -- the pack was empty). It counts toward step completion but adds no card.
+    create table if not exists draft_passes (
+      id integer primary key autoincrement,
+      draft_id integer not null references drafts(id),
+      player_id integer not null,
+      wave_number integer not null,
+      pick_step integer not null,
+      passed_at text not null,
+      foreign key (draft_id, player_id) references draft_players(draft_id, player_id),
+      unique (draft_id, player_id, wave_number, pick_step)
+    );
+
     create table if not exists matches (
       id integer primary key autoincrement,
       guild_id text not null,
@@ -284,6 +297,8 @@ export function migrate(db: Database.Database) {
     }
   }
   addColumnIfMissing(db, "draft_players", "seat_index", "integer");
+  // Set when the player's draft deck was saved. A player who deletes that deck does not get it back.
+  addColumnIfMissing(db, "draft_players", "deck_saved_at", "text");
   addColumnIfMissing(db, "draft_cards", "draft_pack_id", "integer references draft_packs(id)");
   addColumnIfMissing(db, "draft_cards", "position", "integer");
   addColumnIfMissing(db, "draft_picks", "pick_method", "text not null default 'manual'");
@@ -566,4 +581,121 @@ export function migrate(db: Database.Database) {
     );
     create index if not exists saved_decks_owner_list_idx on saved_decks (guild_id, owner_user_id, updated_at);
   `);
+
+  // Duel series: a match of 1 or 3 games between two players. Every game is a
+  // duels row with series_id. When the series has a winner it writes one
+  // approved matches row (tournament or ranked casual) in the same transaction
+  // that finishes the last game.
+  db.exec(`
+    create table if not exists duel_series (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      best_of integer not null default 1,
+      ranked integer not null default 0,
+      player0_id integer not null references players(id),
+      player1_id integer not null references players(id),
+      wins0 integer not null default 0,
+      wins1 integer not null default 0,
+      status text not null default 'active',
+      winner_player_id integer references players(id),
+      tournament_match_id integer references tournament_matches(id),
+      match_id integer references matches(id),
+      mode text not null,
+      master_rule integer not null default 5,
+      settings_json text not null,
+      base_deck0_json text,
+      base_deck1_json text,
+      deck0_json text,
+      deck1_json text,
+      side_ready0 integer not null default 0,
+      side_ready1 integer not null default 0,
+      next_game_at text,
+      created_by_player_id integer not null references players(id),
+      created_at text not null default current_timestamp,
+      ended_at text,
+      check (best_of in (1, 3)),
+      check (status in ('active', 'between_games', 'completed', 'cancelled'))
+    );
+    create unique index if not exists duel_series_open_tournament_match_idx
+      on duel_series (tournament_match_id)
+      where tournament_match_id is not null and status in ('active', 'between_games');
+    create index if not exists duel_series_between_games_idx on duel_series (next_game_at) where status = 'between_games';
+  `);
+  addColumnIfMissing(db, "duels", "series_id", "integer references duel_series(id)");
+  addColumnIfMissing(db, "duels", "game_number", "integer");
+  // Match options chosen at create time. A series game copies its series.
+  addColumnIfMissing(db, "duels", "best_of", "integer not null default 1");
+  addColumnIfMissing(db, "duels", "ranked", "integer not null default 0");
+  db.exec("create index if not exists duels_series_idx on duels (series_id, game_number) where series_id is not null");
+  // Rock-paper-scissors before game 1: the opening state (JSON) while it runs, null otherwise.
+  addColumnIfMissing(db, "duels", "opening_json", "text");
+  // Between games the loser chooses to go first or second (index into the series players, and 'first' | 'second').
+  addColumnIfMissing(db, "duel_series", "first_chooser", "integer");
+  addColumnIfMissing(db, "duel_series", "first_choice", "text");
+  // A best of 3 against the practice bot: index 0 is the human, index 1 the bot (player1_id repeats the human).
+  addColumnIfMissing(db, "duel_series", "vs_bot", "integer not null default 0");
+
+  // Tournament duel rules and match length. duel_rules_json holds
+  // { mode, masterRule, settings }; null means the defaults for a normal duel.
+  addColumnIfMissing(db, "tournaments", "best_of", "integer not null default 3");
+  addColumnIfMissing(db, "tournaments", "duel_rules_json", "text");
+
+  // One registered deck per participant. deck_json is a copy taken at
+  // registration; deck_locked_at is set when the player's first tournament
+  // game starts.
+  addColumnIfMissing(db, "tournament_participants", "saved_deck_id", "integer references saved_decks(id) on delete set null");
+  addColumnIfMissing(db, "tournament_participants", "deck_json", "text");
+  addColumnIfMissing(db, "tournament_participants", "deck_registered_at", "text");
+  addColumnIfMissing(db, "tournament_participants", "deck_locked_at", "text");
+
+  // A deck built from a player's draft pool. One per owner per draft.
+  addColumnIfMissing(db, "saved_decks", "draft_id", "integer references drafts(id) on delete set null");
+  // Decks saved before deck_saved_at existed count as saved.
+  db.exec(`
+    update draft_players set deck_saved_at = current_timestamp
+    where deck_saved_at is null and exists (
+      select 1 from saved_decks s
+      inner join players p on p.id = draft_players.player_id
+      where s.draft_id = draft_players.draft_id and s.owner_user_id = p.discord_user_id and s.guild_id = p.guild_id
+    )
+  `);
+  // The backfill covers only drafts with a tournament made from them or finished in the last 14 days
+  // (see DRAFT_DECK_BACKFILL_DAYS in services/draft-decks.ts). Older finished drafts never backfill.
+  db.exec(`
+    update draft_players set deck_saved_at = current_timestamp
+    where deck_saved_at is null and draft_id in (
+      select d.id from drafts d
+      where d.status = 'completed' and d.tournament_id is null
+        and julianday(coalesce(d.ended_at, d.created_at)) < julianday('now') - 14
+    )
+  `);
+  db.exec(`
+    create unique index if not exists saved_decks_owner_draft_idx
+      on saved_decks (guild_id, owner_user_id, draft_id)
+      where draft_id is not null;
+  `);
+
+  // In-app bug reports. The full report (with the reporter's player id) stays here; the public GitHub issue
+  // carries only the report id and the public context. github_* hold the issue the web server opened, or the
+  // reason it could not (the report is kept either way).
+  db.exec(`
+    create table if not exists bug_reports (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      player_id integer not null references players(id),
+      created_at text not null,
+      path text not null,
+      duel_slug text,
+      description text not null,
+      expected text,
+      context_json text not null,
+      github_issue_number integer,
+      github_issue_url text,
+      github_error text,
+      -- The open from-app issue this report was added to instead of opening a new one (null for a report with its own issue).
+      duplicate_of integer
+    );
+    create index if not exists bug_reports_player_idx on bug_reports (guild_id, player_id, created_at);
+  `);
+  db.exec("create index if not exists bug_reports_duel_idx on bug_reports (guild_id, duel_slug, created_at)");
 }

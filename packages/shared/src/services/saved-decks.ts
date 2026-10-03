@@ -19,6 +19,13 @@ export interface SavedDeckWrite {
   name: unknown;
   mode: unknown;
   deck: unknown;
+  /**
+   * CONTRACT: a positive draft id marks a deck built from the owner's pool in
+   * that draft (stored in saved_decks.draft_id; one per owner per draft, a
+   * second create is 409). The caller checks the pool. On update, undefined
+   * keeps the stored value.
+   */
+  draftId?: unknown;
 }
 
 export interface SavedDeckService {
@@ -27,6 +34,8 @@ export interface SavedDeckService {
   create(guildId: string, ownerUserId: string, input: SavedDeckWrite): SavedDeck;
   update(id: number, guildId: string, ownerUserId: string, input: SavedDeckWrite): SavedDeck;
   delete(id: number, guildId: string, ownerUserId: string): void;
+  /** The owner's deck for a draft, or null. */
+  findByDraft(guildId: string, ownerUserId: string, draftId: number): SavedDeck | null;
 }
 
 type SavedDeckRow = {
@@ -36,6 +45,7 @@ type SavedDeckRow = {
   deck_json: string;
   created_at: string;
   updated_at: string;
+  draft_id: number | null;
 };
 
 function isDuelMode(value: unknown): value is DuelMode {
@@ -101,6 +111,27 @@ function normalizeDeck(deck: unknown): DuelDeck {
   return normalized;
 }
 
+/** undefined stays undefined (callers decide the default); null clears. */
+function normalizeDraftId(draftId: unknown): number | null | undefined {
+  if (draftId === undefined || draftId === null) return draftId;
+  if (typeof draftId !== "number" || !Number.isInteger(draftId) || draftId < 1) {
+    throw new SavedDeckServiceError("Draft id must be a positive integer", 400);
+  }
+  return draftId;
+}
+
+/** Maps a failed write on saved_decks.draft_id to an API status. */
+function rethrowDraftConstraint(error: unknown): never {
+  const code = (error as { code?: string } | null)?.code;
+  if (code === "SQLITE_CONSTRAINT_UNIQUE") {
+    throw new SavedDeckServiceError("You already have a deck for this draft", 409);
+  }
+  if (code === "SQLITE_CONSTRAINT_FOREIGNKEY") {
+    throw new SavedDeckServiceError("Draft not found", 404);
+  }
+  throw error;
+}
+
 function mapSavedDeck(row: SavedDeckRow): SavedDeck {
   let parsed: unknown;
   try {
@@ -127,29 +158,42 @@ function mapSavedDeck(row: SavedDeckRow): SavedDeck {
     deck: mapped,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    draftId: row.draft_id ?? null,
   };
 }
 
 export function createSavedDeckService(db: Database.Database): SavedDeckService {
   const selectOwned = db.prepare<[number, string, string], SavedDeckRow>(
-    `select id, name, mode, deck_json, created_at, updated_at
+    `select id, name, mode, deck_json, created_at, updated_at, draft_id
      from saved_decks
      where id = ? and guild_id = ? and owner_user_id = ?`,
   );
   const selectList = db.prepare<[string, string], SavedDeckRow>(
-    `select id, name, mode, deck_json, created_at, updated_at
+    `select id, name, mode, deck_json, created_at, updated_at, draft_id
      from saved_decks
      where guild_id = ? and owner_user_id = ?
      order by updated_at desc, id desc`,
   );
   const insertRow = db.prepare(
-    `insert into saved_decks (guild_id, owner_user_id, name, mode, deck_json)
-     values (?, ?, ?, ?, ?)`,
+    `insert into saved_decks (guild_id, owner_user_id, name, mode, deck_json, draft_id)
+     values (?, ?, ?, ?, ?, ?)`,
   );
   const updateRow = db.prepare(
     `update saved_decks
-     set name = ?, mode = ?, deck_json = ?, updated_at = current_timestamp
+     set name = ?, mode = ?, deck_json = ?, draft_id = ?, updated_at = current_timestamp
      where id = ? and guild_id = ? and owner_user_id = ?`,
+  );
+  const selectByDraft = db.prepare<[string, string, number], SavedDeckRow>(
+    `select id, name, mode, deck_json, created_at, updated_at, draft_id
+     from saved_decks
+     where guild_id = ? and owner_user_id = ? and draft_id = ?`,
+  );
+  // A deck linked to a draft counts as that player's draft deck: a later delete is not undone
+  // by the backfill (see draft_players.deck_saved_at).
+  const markDraftDeckSaved = db.prepare<[number, string, string]>(
+    `update draft_players set deck_saved_at = current_timestamp
+     where draft_id = ? and deck_saved_at is null
+       and player_id in (select id from players where guild_id = ? and discord_user_id = ?)`,
   );
   const deleteRow = db.prepare(
     `delete from saved_decks where id = ? and guild_id = ? and owner_user_id = ?`,
@@ -174,16 +218,38 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
       const name = normalizeName(input.name);
       const mode = normalizeMode(input.mode);
       const deck = normalizeDeck(input.deck);
-      const result = insertRow.run(guildId, ownerUserId, name, mode, JSON.stringify(deck));
+      const draftId = normalizeDraftId(input.draftId) ?? null;
+      let result;
+      try {
+        result = insertRow.run(guildId, ownerUserId, name, mode, JSON.stringify(deck), draftId);
+      } catch (error) {
+        rethrowDraftConstraint(error);
+      }
+      if (draftId !== null) markDraftDeckSaved.run(draftId, guildId, ownerUserId);
       return loadOwned(Number(result.lastInsertRowid), guildId, ownerUserId);
     },
 
     update(id: number, guildId: string, ownerUserId: string, input: SavedDeckWrite): SavedDeck {
-      loadOwned(id, guildId, ownerUserId);
+      const existing = loadOwned(id, guildId, ownerUserId);
       const name = normalizeName(input.name);
       const mode = normalizeMode(input.mode);
       const deck = normalizeDeck(input.deck);
-      updateRow.run(name, mode, JSON.stringify(deck), id, guildId, ownerUserId);
+      const draftId = normalizeDraftId(input.draftId);
+      try {
+        updateRow.run(
+          name,
+          mode,
+          JSON.stringify(deck),
+          draftId === undefined ? (existing.draftId ?? null) : draftId,
+          id,
+          guildId,
+          ownerUserId,
+        );
+      } catch (error) {
+        rethrowDraftConstraint(error);
+      }
+      const linkedDraftId = draftId === undefined ? (existing.draftId ?? null) : draftId;
+      if (linkedDraftId !== null) markDraftDeckSaved.run(linkedDraftId, guildId, ownerUserId);
       return loadOwned(id, guildId, ownerUserId);
     },
 
@@ -192,6 +258,11 @@ export function createSavedDeckService(db: Database.Database): SavedDeckService 
       if (result.changes === 0) {
         throw new SavedDeckServiceError("Deck not found", 404);
       }
+    },
+
+    findByDraft(guildId: string, ownerUserId: string, draftId: number): SavedDeck | null {
+      const row = selectByDraft.get(guildId, ownerUserId, draftId);
+      return row ? mapSavedDeck(row) : null;
     },
   };
 }

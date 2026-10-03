@@ -21,7 +21,7 @@ export async function startDuel(
   const slug = await createTable(alice.page, table, options);
   await bob.page.goto(`/duels/${slug}`);
   await expect(bob.page.getByRole("heading", { level: 1, name: table })).toBeVisible();
-  await bob.page.getByRole("button", { name: "Join table" }).click();
+  await bob.page.getByRole("button", { name: /^Take seat \d+$/ }).first().click();
   await importDeckUploadAndReady(bob.page, ydkUpload(bobDeck), bobDeck.main.length);
   await importDeckUploadAndReady(alice.page, ydkUpload(aliceDeck), aliceDeck.main.length);
   const start = alice.page.getByRole("button", { name: /^Start duel/ });
@@ -57,11 +57,17 @@ export async function useCard(page: Page, card: Locator, action: RegExp | string
 }
 
 /**
- * The card menu is built from the open question. Between two answers the page says "Waiting for a response."
- * and a click on a card would open no menu. Wait until that text is gone.
+ * A live table must own an answerable prompt before a card can open its action menu. The header can
+ * advance while its snapshot is still catching up. The two-seat phase control becomes enabled only
+ * when its action prompt is ready, after the Draw/Standby presentation holds finish.
  */
 export async function expectReadyToAct(page: Page): Promise<void> {
-  await expect(page.getByText("Waiting for a response.")).toHaveCount(0);
+  const table = page.locator("[data-table-shell]");
+  if (await table.count()) {
+    await expect(table).toHaveAttribute("data-can-act", "true");
+    return;
+  }
+  await expect(page.getByRole("navigation", { name: "Duel phases" }).getByRole("button").first()).toBeEnabled();
 }
 
 /**
@@ -77,7 +83,18 @@ export async function pickLegalZone(page: Page, kind: "mz" | "st"): Promise<void
 /** A chain response window. Returns the panel. */
 export const respondPanel = (page: Page, title: RegExp | string = /^You can respond/): Locator => page.getByRole("group", { name: title });
 
-export const chainList = (page: Page): Locator => page.getByRole("region", { name: "Current chain" });
+/**
+ * Activates the only card of a chain response window. A window with one card shows the compact "Activate? Yes / No" bar;
+ * a window with several cards shows the "You can respond" panel with an Activate button per card.
+ */
+export async function activateSingleResponse(page: Page): Promise<void> {
+  const yes = page.locator("[data-prompt-panel]").getByRole("button", { name: "Yes", exact: true });
+  const activate = respondPanel(page).getByText("Activate", { exact: true });
+  await expect(yes.or(activate)).toBeVisible();
+  await (await yes.isVisible() ? yes : activate).click();
+}
+
+export const chainList = (page: Page): Locator => page.getByRole("list", { name: "Current chain" });
 
 /** Count label on a pile button: "Your Graveyard (2)", "Opponent Main Deck (7)". */
 export const pile = (page: Page, owner: "Your" | "Opponent", name: "Graveyard" | "Banished" | "Main Deck" | "Extra Deck"): Locator =>
@@ -102,7 +119,7 @@ export async function openLog(page: Page): Promise<Locator> {
   const tab = page.getByRole("tab", { name: "Log" });
   if ((await tab.getAttribute("aria-selected")) !== "true") await tab.click();
   await expect(tab).toHaveAttribute("aria-selected", "true");
-  return page.getByRole("region", { name: "Duel history" });
+  return page.getByRole("region", { name: "Duel history", exact: true });
 }
 
 /** The "Turn N" counter in the room header. */
@@ -121,7 +138,11 @@ export async function endTurn(page: Page, nextTurn: number): Promise<void> {
 export async function attackWithFirstMonster(page: Page): Promise<void> {
   await page.getByRole("button", { name: /^To Battle/ }).click();
   await expect(page.getByText(/Battle Phase/).first()).toBeVisible();
-  await page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"] button').first().click();
+  await expectReadyToAct(page);
+  const ownField = page.locator('[data-table-stage] [data-seat-field][data-side="you"]');
+  const monsters = await ownField.count() ? ownField.locator('[data-kind="mz"][data-occupied="true"] button')
+    : page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"] button');
+  await monsters.first().click();
   await page.getByRole("menu").getByRole("menuitem", { name: /Attack/ }).first().click();
 }
 
@@ -143,13 +164,20 @@ export async function startTable(
 ): Promise<Table> {
   if (humans.length !== decks.length) throw new Error(`startTable: ${humans.length} players but ${decks.length} decks`);
   const [host, ...guests] = humans as [Seat, ...Seat[]];
+  // The host is seat 0 (the creator takes it) and a table has at most 4 seats; the seat labels below rely on both.
+  if (humans.length + (options.bots?.length ?? 0) > 4) throw new Error("startTable: a table has at most 4 seats");
+  for (const seat of options.bots ?? []) if (seat < 1 || seat > 3) throw new Error(`startTable: bot seat ${seat} is outside 1-3 (seat 0 is the host)`);
+  if (new Set(options.bots).size !== (options.bots?.length ?? 0)) throw new Error(`startTable: bot seats ${JSON.stringify(options.bots)} repeat a seat`);
   const table = uniqueTableName(label);
   const slug = await createTable(host.page, table, options);
   for (const seat of options.bots ?? []) await addBotToSeat(host.page, slug, seat);
-  for (const guest of guests) {
+  // Guests take the free seats in numeric order. The lobby lists Tag seats by team (1, 3, 2, 4), so "first open seat" would not be seat order.
+  const botSeats = new Set(options.bots ?? []);
+  const freeSeats = Array.from({ length: 4 }, (_, seat) => seat).filter((seat) => seat > 0 && !botSeats.has(seat));
+  for (const [index, guest] of guests.entries()) {
     await guest.page.goto(`/duels/${slug}`);
     await expect(guest.page.getByRole("heading", { level: 1, name: table })).toBeVisible();
-    await guest.page.getByRole("button", { name: "Join table" }).click();
+    await guest.page.getByRole("button", { name: `Take seat ${freeSeats[index]! + 1}`, exact: true }).click();
   }
   for (const [index, guest] of guests.entries()) {
     const deck = decks[index + 1]!;
@@ -163,15 +191,22 @@ export async function startTable(
   return { seats: humans, slug, table };
 }
 
-/** The opponent boards a player sees at a multi-seat table (`section[data-relation="opponent"]`). */
-export const opponentBoards = (page: Page): Locator => page.locator('[data-testid="multi-seat-stage"] section[data-relation="opponent"]');
-
 /**
- * Each seat sees every other seat, and no seat shows the viewer's own board as an opponent. The turn order strip lists
- * `count` opponents. The focused opponent fills the top field, so the rail holds one board fewer.
+ * The live table shows one LP panel per seat and lists every other seat as an opponent in turn order.
  */
 export async function expectOpponentBoards(page: Page, count: number): Promise<void> {
-  await expect(page.getByTestId("multi-seat-stage")).toBeVisible();
+  await expect(page.locator("[data-table-stage]")).toBeVisible();
+  await expect(page.locator("[data-table-stage] [data-lp-seat]")).toHaveCount(count + 1);
   await expect(page.getByTestId("seat-strip").locator('[data-relation="opponent"]')).toHaveCount(count);
-  await expect(opponentBoards(page)).toHaveCount(count - 1);
+  await expect.poll(async () => {
+    const shell = await page.locator("[data-table-shell]").boundingBox();
+    const viewport = page.viewportSize();
+    return Boolean(shell && viewport && shell.x >= 0 && shell.y >= 0 &&
+      shell.x + shell.width <= viewport.width + 1 && shell.y + shell.height <= viewport.height + 1);
+  }, { message: "The live table and station track must fit inside the viewport" }).toBe(true);
+  await expect.poll(async () => {
+    const board = await page.locator("[data-table-stage]").boundingBox();
+    const card = await page.locator("[data-table-stage] [data-hand-seat][data-side='you'] button").first().boundingBox();
+    return Boolean(board && card && card.y >= board.y && card.y + card.height <= board.y + board.height + 1);
+  }, { message: "The player's hand card must fit inside the clickable stage" }).toBe(true);
 }

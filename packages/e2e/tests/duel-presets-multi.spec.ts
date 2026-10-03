@@ -11,10 +11,10 @@ import type { TimelineEntry } from "../helpers/timeline";
 // Multi-seat scenario presets in a real browser (Layer 4). One test for each preset with more than 2 seats (FFA and Tag).
 // Seat 0 is the test user (p1); the other seats are scripted bots of the duel host. A spectator (p2) watches.
 // Every run leaves a full evidence folder: `.status/e2e-multi/<runId>/<presetId>/` (see README.md, "Multi-seat presets").
-// On the B2 core the duel stalls when seat 1 ends its turn: that is the evidence, not a spec bug.
+// FFA presets must mount TableShell; Tag presets must mount the Rooftop shell (helpers/tag.ts).
 //
 // Run one preset:  E2E_WORKERS=1 npx playwright test duel-presets-multi -g "raigeki-dark-hole-ffa4"
-// Env: E2E_STALL_MS (default 20000), E2E_MULTI_TURNS (turn to reach), E2E_MULTI_MAX_MS, E2E_MULTI_MAX_SHOTS.
+// Env: E2E_STALL_MS (default 60000), E2E_MULTI_TURNS (turn to reach), E2E_MULTI_MAX_MS, E2E_MULTI_MAX_SHOTS.
 
 // E2E_PRESET=<id>[,<id>] runs only those presets. E2E_SEED=<a,b,c,d | n> starts them with that seed (see README).
 const only = (process.env.E2E_PRESET ?? "").split(",").map((id) => id.trim()).filter(Boolean);
@@ -24,7 +24,8 @@ if (only.length > 0 && multi.length === 0) throw new Error(`E2E_PRESET matches n
 test.describe("multi-seat presets", () => {
   test.setTimeout(240_000);
   for (const preset of multi) {
-    test(`preset ${preset.id} (${preset.format})`, async ({ browser }, testInfo) => {
+    const current = ["raigeki-dark-hole-ffa4", "ffa3-table-battle", "ffa4-surrender-in-chain", "ffa3-third-response"].includes(preset.id);
+    test(`${current ? "current engine: " : ""}preset ${preset.id} (${preset.format})`, async ({ browser }, testInfo) => {
       const run = new PresetRun(browser, testInfo, preset.id, preset.format);
       await run.execute();
       await run.finish();
@@ -56,6 +57,12 @@ test.describe("visual set", () => {
         for (const key of set.keys) seats.push(await openSeat(browser, key, startedAt));
         const decks = seats.map(() => ({ main: withFiller([FILLER], 14) }));
         const table = await startTable(seats, `visual ${set.format}`, decks, { ordered: true, looseDecks: true, noBanlist: true, format: set.format });
+        if (set.format !== "tag") {
+          for (const seat of seats) {
+            await expect(seat.page.locator(`[data-table-stage='${set.format}'] [data-seat-field]`)).toHaveCount(set.keys.length);
+            await expect(seat.page.locator("[data-lp-seat]")).toHaveCount(set.keys.length);
+          }
+        }
         // First prompt: the room of seat 0 shows an open prompt.
         await expect
           .poll(async () => {

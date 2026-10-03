@@ -11,7 +11,9 @@ import { CardHoverInfo } from "./card-interactions";
 import { phaseLabel } from "./constants";
 import { DeckMasterRail, DuelField } from "./field";
 import { DuelFeedback } from "./feedback";
+import { MoveSourceBoundary } from "./fx-boundary";
 import { CardInspector, type InspectTarget } from "./inspector";
+import { DuelLogLine, useLogCategories } from "./log-line";
 import { useDuelPreferences } from "./preferences";
 import { buildReplayTimeline, type ReplayLogEntry } from "./replay-timeline";
 import styles from "./room.module.css";
@@ -32,12 +34,15 @@ const EMPTY_KEYS: Set<string> = new Set();
 const noActions = () => [];
 const noop = () => undefined;
 
-function LogList({ entries, freshIds, reducedMotion }: {
+/** The replay's Text log. Lines look like the live match sheet's (DuelLogLine); lines new at this step are lit. */
+export function LogList({ entries, freshIds, reducedMotion, playerName }: {
   entries: ReplayLogEntry[];
   freshIds: Set<number>;
   reducedMotion: boolean;
+  playerName: (seat: number) => string;
 }) {
   const endRef = useRef<HTMLLIElement>(null);
+  const categories = useLogCategories(entries);
   const count = entries.length;
   // Follow the newest entry id: the engine caps the log at 400 lines, so the length stops changing.
   const lastId = entries[count - 1]?.id;
@@ -47,10 +52,8 @@ function LogList({ entries, freshIds, reducedMotion }: {
   return (
     <ol className={styles.log} aria-label="Duel log">
       {entries.map((entry, i) => (
-        <li key={`${entry.id}-${i}`} ref={i === count - 1 ? endRef : undefined}
-          className={freshIds.has(entry.id) ? replayStyles.logNew : undefined}>
-          {entry.text}
-        </li>
+        <DuelLogLine key={`${entry.id}-${i}`} ref={i === count - 1 ? endRef : undefined} text={entry.text} category={categories[i]}
+          playerName={playerName} className={freshIds.has(entry.id) ? replayStyles.logNew : undefined} />
       ))}
     </ol>
   );
@@ -72,6 +75,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
   const [pane, setPane] = useState<"card" | "log">("card");
   const [mobileInspect, setMobileInspect] = useState(false);
   const [hover, setHover] = useState<{ card: DuelCard; anchor: HTMLElement } | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
 
   const timeline = useMemo(() => (data ? buildReplayTimeline(data.frames) : null), [data]);
   const last = Math.max((timeline?.length ?? 1) - 1, 0);
@@ -117,6 +121,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
       const target = event.target instanceof HTMLElement ? event.target : null;
       const tag = target?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+      if (target?.closest("[role='dialog']")) return;
       if (event.key === " " || event.key === "Spacebar") {
         if (tag === "BUTTON" || tag === "A") return;
         event.preventDefault();
@@ -201,7 +206,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
     <CardInspector target={inspect} onInspectCard={(card) => setInspect({ type: "card", card })} />
   );
   const sideContent = pane === "card" ? inspector : (
-    <LogList entries={engine.log} freshIds={freshIds} reducedMotion={preferences.reducedMotion} />
+    <LogList entries={engine.log} freshIds={freshIds} reducedMotion={preferences.reducedMotion} playerName={playerName} />
   );
   const tabs = (mobile: boolean) => (
     <div className={`${styles.tabs} ${replayStyles.tabs}`} role="group" aria-label={mobile ? "Mobile replay panels" : "Replay panels"}>
@@ -236,7 +241,8 @@ export function DuelReplayView({ slug }: { slug: string }) {
           <div className={styles.sideContent} role="region" aria-label={pane === "card" ? "Card" : "Duel log"}>{sideContent}</div>
         </aside>
         <section className={styles.boardColumn} aria-label="Replay field">
-          <div className={styles.board}>
+          <div className={styles.board} ref={boardRef}>
+            <MoveSourceBoundary events={engine.events} duelKey={`${slug}:replay:${epoch}`} root={boardRef}>
             <DuelField key={slug} engine={engine} mySeat={data.mySeat} masterRule={session.masterRule}
               reducedMotion={preferences.reducedMotion}
               legalKeys={EMPTY_KEYS} selectedKeys={EMPTY_KEYS} onActivate={onActivate}
@@ -245,6 +251,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
               topName={playerName(top?.seat ?? 1 - localSeat)} />
             <DuelFeedback events={engine.events} duelKey={`${slug}:replay:${epoch}`}
               soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} />
+            </MoveSourceBoundary>
           </div>
           <nav className={styles.phases} aria-label="Duel phases">
             {PHASES.map((phase) => (

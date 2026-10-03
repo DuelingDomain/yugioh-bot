@@ -1,0 +1,109 @@
+.root {
+  --ph-ground: #070b15;
+  --ph-panel: #0a1120;
+  --ph-ink: #efe7d5;
+  --ph-ink-2: #c3bba8;
+  --ph-ink-3: #958f81;
+  --ph-rule: rgb(181 153 99 / 0.34);
+  --ph-pen: #9b7eff;
+  --ph-pen-ink: #c6b6ff;
+
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+  background: var(--ph-ground);
+  color: var(--ph-ink);
+  font-family: var(--font-duel-ui), system-ui, sans-serif;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  height: 28px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--ph-rule);
+  background: var(--ph-panel);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+.title {
+  color: var(--ph-ink);
+  font-weight: 600;
+}
+.states {
+  display: flex;
+  gap: 2px;
+}
+.states a {
+  padding: 4px 7px;
+  border-radius: 4px;
+  color: var(--ph-ink-3);
+  text-decoration: none;
+}
+.states a:hover {
+  color: var(--ph-ink);
+}
+.states a[aria-current="page"] {
+  color: var(--ph-pen-ink);
+  background: rgb(155 126 255 / 0.13);
+}
+.hint {
+  margin-left: auto;
+  color: var(--ph-ink-3);
+}
+.size {
+  color: var(--ph-ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 100;
+  padding: 8px 12px;
+  border: 1px solid var(--ph-rule);
+  border-radius: 6px;
+  background: var(--ph-panel);
+  color: var(--ph-ink);
+  font-size: 13px;
+}
+
+/* The placeholder stage: what a mode shows until its real stage is built. */
+.placeholder {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+  max-width: 720px;
+  font-size: 14px;
+}
+.placeholder h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.placeholder p {
+  margin: 0;
+  color: var(--ph-ink-2);
+}
+.placeholder ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  color: var(--ph-ink-2);
+  font-variant-numeric: tabular-nums;
+}

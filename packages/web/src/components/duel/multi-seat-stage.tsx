@@ -64,7 +64,7 @@ export function MultiSeatStage({
       data-self-eliminated={selfOut ? "true" : "false"} data-picking={seatPick ? "true" : undefined}>
       <SeatStrip engine={engine} mySeat={mySeat} nameOf={nameOf} promptSeat={promptSeat}
         focusSeat={effectiveFocus} onFocusSeat={spectator ? undefined : onFocusSeat} pick={seatPick} />
-      {selfOut ? <p className={styles.selfOut} role="status" data-testid="self-eliminated">You are eliminated. You are watching the duel.</p> : null}
+      {selfOut ? <p className={styles.selfOut} role="status" data-testid="self-eliminated">You are eliminated.</p> : null}
       {groups.length > 0 ? (
         <div className={styles.rails} data-spectator={spectator ? "true" : "false"} data-testid="seat-rails">
           {groups.map((group) => (

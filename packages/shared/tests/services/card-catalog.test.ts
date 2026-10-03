@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
-import { createCardCatalogService } from "../../src/services/card-catalog.js";
+import { createCardCatalogService, isExtraDeckFrame } from "../../src/services/card-catalog.js";
 
 type YgoprodeckCard = {
   id: number;
@@ -224,5 +224,33 @@ describe("shared card catalog service", () => {
     expect(app.fetchCalls).toEqual(["https://db.ygoprodeck.com/api/v7/cardinfo.php?fname=blue-eyes"]);
     expect(result.map((c) => c.name)).toEqual(["Blue-Eyes White Dragon"]);
     expect(app.catalog.findByIds([89631139, 23995346, 46986414]).map((c) => c.name)).toEqual(["Blue-Eyes White Dragon"]);
+  });
+});
+
+describe("isExtraDeckFrame", () => {
+  it.each([
+    ["fusion", "Fusion Monster"],
+    ["synchro", "Synchro Monster"],
+    ["xyz", "XYZ Monster"],
+    ["link", "Link Monster"],
+    ["fusion_pendulum", "Pendulum Effect Fusion Monster"],
+    ["synchro_pendulum", "Synchro Pendulum Effect Monster"],
+    ["xyz_pendulum", "XYZ Pendulum Effect Monster"],
+    ["", "XYZ Pendulum Effect Monster"],
+    ["synchro_pendulum", ""],
+  ])("counts frame %s / type %s as Extra Deck", (frameType, type) => {
+    expect(isExtraDeckFrame({ frameType, type })).toBe(true);
+  });
+
+  it.each([
+    ["effect", "Effect Monster"],
+    ["normal", "Normal Monster"],
+    ["effect_pendulum", "Pendulum Effect Monster"],
+    ["ritual", "Ritual Effect Monster"],
+    ["spell", "Spell Card"],
+    ["trap", "Trap Card"],
+    ["token", "Token"],
+  ])("keeps frame %s / type %s in the Main Deck", (frameType, type) => {
+    expect(isExtraDeckFrame({ frameType, type })).toBe(false);
   });
 });

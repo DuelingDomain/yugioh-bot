@@ -1,7 +1,7 @@
 /* Pile viewer: a Match Sheet for the Graveyard, Banished and Extra Deck, centred over the board.
    Mounted inside the board box: the scrim dims the board, the panel sits in the middle (on phones too,
    fixed to the viewport). Newest card first, a compact preview of the hovered or focused card pinned
-   above the grid; the left inspector shows the full text. Purple = yours (legal ring and tag); gold hairlines. */
+   above the grid; the left inspector shows the full text. Purple = yours; gold hairlines. Usable cards glow. */
 
 .root {
   --pv-ink: var(--duel-ink, #efe7d5);
@@ -27,7 +27,7 @@
   --pv-pad: 12px;
   position: absolute;
   inset: 0;
-  z-index: 30;
+  z-index: var(--duel-z-prompt-front);
   display: grid;
   place-items: center;
   box-sizing: border-box;
@@ -185,29 +185,20 @@
   background: linear-gradient(180deg, rgb(9 15 29 / 0.6), transparent);
 }
 
+/* .previewArt also carries the global card-frame rule (app/globals.css): the whole card frame shows, no crop. */
 .previewArt {
-  position: relative;
   box-sizing: border-box;
   width: 100%;
   height: var(--pv-art-h);
-  overflow: hidden;
-  border-radius: 6px;
   background: #06080e;
   box-shadow: 0 10px 26px rgb(0 0 0 / 0.5);
 }
 
-.previewArt img,
 .previewBack {
   display: block;
   box-sizing: border-box;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-}
-
-/* Crop the printed card border, as the field and inspector do. */
-.previewArt img {
-  transform: scale(1.075);
 }
 
 .previewBody {
@@ -290,7 +281,7 @@
   align-content: start;
   min-height: 0;
   margin: 0;
-  padding: calc(12 * var(--pv-u)) calc(14 * var(--pv-u)) calc(16 * var(--pv-u)) calc(16 * var(--pv-u));
+  padding: calc(18 * var(--pv-u)) calc(18 * var(--pv-u)) calc(18 * var(--pv-u)) calc(18 * var(--pv-u));
   overflow-x: hidden;
   overflow-y: auto;
   list-style: none;
@@ -396,19 +387,21 @@
   color: var(--pv-ink);
 }
 
-/* Legal and selected: the field's outline shape and tag, never colour alone. */
-.ring {
-  position: absolute;
-  inset: -4px;
-  z-index: 2;
-  border: 1px dashed var(--pv-pen);
-  border-radius: 7px;
-  pointer-events: none;
+/* Usable cards: <UsableGlow> (usable-glow.module.css), a pulsing halo and a turning rim in the pile's tone,
+   with a "Use" tag as the cue that is not colour. --ug-r matches the art's corner radius. */
+.art {
+  --ug-r: 4px;
 }
 
-.card[data-selected="true"] .ring {
+/* Selected (a multi-pick prompt): a solid, thicker ring and a check on a filled tag. Not animated, so it
+   never reads as "usable". */
+.ring {
+  position: absolute;
   inset: -5px;
+  z-index: 2;
   border: 2px solid var(--pv-pen);
+  border-radius: 7px;
+  pointer-events: none;
 }
 
 .mark {
@@ -439,7 +432,7 @@
   stroke-linejoin: round;
 }
 
-.card[data-selected="true"] .mark {
+.mark {
   background: var(--pv-pen-fill);
   color: #fff;
 }
@@ -449,7 +442,7 @@
 @media (max-width: 900px) {
   .root {
     position: fixed;
-    z-index: 40;
+    z-index: var(--duel-z-prompt-front);
     padding: 12px;
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }
@@ -472,7 +465,7 @@
   .grid {
     grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
     gap: 8px 6px;
-    padding: 10px 14px 16px;
+    padding: 16px 16px 16px;
   }
 }
 
@@ -486,4 +479,29 @@
   .art::after {
     transition: none;
   }
+}
+
+/* Owner in the seat colour (tables of 3 or more seats). */
+.root[data-toned="true"] .panel,
+.root[data-toned="true"][data-owner="you"] .panel {
+  border-color: color-mix(in srgb, var(--seat-main) 60%, transparent);
+}
+.root[data-toned="true"] .head,
+.root[data-toned="true"][data-owner="you"] .head {
+  border-bottom-color: color-mix(in srgb, var(--seat-main) 55%, transparent);
+}
+.ownerTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--seat-ink);
+  font-size: var(--pv-t-sm);
+  line-height: 1.2;
+}
+.ownerTag i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--seat-main);
 }

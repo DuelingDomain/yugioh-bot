@@ -1,6 +1,8 @@
 import type Database from "better-sqlite3";
-import type { Tournament, TournamentMatch, TournamentPlayer } from "../types/index.js";
+import type { Tournament as BaseTournament, TournamentMatch, TournamentPlayer } from "../types/index.js";
+import type { DuelBestOf } from "../duels/index.js";
 import type { Match } from "./matches.js";
+import { createScoringService } from "./scoring.js";
 import {
   generateRoundRobin,
   generateSingleElimFirstRound,
@@ -8,11 +10,15 @@ import {
 } from "../tournaments/formats.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { MAX_REPORT_CONFIRM_HOURS, MIN_REPORT_CONFIRM_HOURS } from "./constants.js";
+import { createSeriesStore } from "./duel-series.js";
+import { serializeTournamentDuelRules, TournamentDuelError } from "./tournament-duels.js";
 
 export type TournamentFormat = "round_robin" | "single_elim";
 export type TournamentStatus = "pending" | "active" | "cancelled" | "completed";
 
-export type { Tournament, TournamentMatch } from "../types/index.js";
+export type { TournamentMatch } from "../types/index.js";
+/** A tournament with its match length (1 or 3 games per pairing). */
+export type Tournament = BaseTournament & { bestOf: DuelBestOf };
 export type TournamentParticipant = TournamentPlayer;
 
 export type TournamentMatchStatus = "open" | "pending_approval" | "completed";
@@ -36,6 +42,7 @@ function mapTournament(row: any): Tournament {
     webSlug: row.web_slug ?? undefined,
     deadlineAt: row.deadline_at ?? undefined,
     reportConfirmWindowHours: row.report_confirm_window_hours ?? undefined,
+    bestOf: row.best_of === 1 ? 1 : 3,
   };
 }
 
@@ -65,6 +72,12 @@ function mapTournamentMatch(row: any): TournamentMatch {
     status: row.status,
     metadata: JSON.parse(row.metadata_json),
   };
+}
+
+function assertBestOf(value: unknown): asserts value is DuelBestOf {
+  if (value !== 1 && value !== 3) {
+    throw new TournamentDuelError("Best of must be 1 or 3", 400);
+  }
 }
 
 function assertFormat(format: string): asserts format is TournamentFormat {
@@ -144,16 +157,216 @@ export function createTournamentService(db: Database.Database) {
     }
   };
 
+  const selectOpenSeriesForSlot = db.prepare<[number], { id: number }>(
+    "select id from duel_series where tournament_match_id = ? and status in ('active', 'between_games') limit 1",
+  );
+  const selectOpenSeriesOfTournament = db.prepare<[number], { id: number; guild_id: string }>(`
+    select s.id, s.guild_id
+    from duel_series s
+    inner join tournament_matches tm on tm.id = s.tournament_match_id
+    where tm.tournament_id = ? and s.status in ('active', 'between_games')
+    order by s.id
+  `);
+
+  /** A manual report would race the series result, so the slot refuses it while a series is open. */
+  const assertNoOpenSeries = (tournamentMatchId: number) => {
+    if (selectOpenSeriesForSlot.get(tournamentMatchId)) {
+      throw new TournamentDuelError(
+        "This match is being played as an online duel series. The result records itself.",
+        409,
+      );
+    }
+  };
+
+  /**
+   * Cancels every open series of the tournament's matches and their lobby
+   * games. Call inside the transaction that closes the tournament. A live game
+   * keeps running but its result no longer counts; its slug is returned too so
+   * the caller can notify. Returns the slugs of games that changed.
+   */
+  const cancelOpenSeries = (tournamentId: number): string[] => {
+    const open = selectOpenSeriesOfTournament.all(tournamentId);
+    if (open.length === 0) return [];
+    const store = createSeriesStore(db);
+    const slugs = new Set<string>();
+    for (const series of open) {
+      for (const slug of store.cancel(series.id, series.guild_id).changedSlugs) slugs.add(slug);
+      const latest = store.latestGame(series.id)?.slug;
+      if (latest) slugs.add(latest);
+    }
+    return [...slugs];
+  };
+
+  const insertPendingMatch = (
+    tournament: Tournament,
+    slotId: number,
+    reporterId: number,
+    opponentId: number,
+    winnerId: number,
+  ): Match => {
+    const result = db
+      .prepare(
+        `
+        insert into matches (
+          guild_id,
+          player_one_id,
+          player_two_id,
+          winner_id,
+          reporter_id,
+          status,
+          source,
+          tournament_id
+        )
+        values (?, ?, ?, ?, ?, 'pending', 'tournament', ?)
+      `,
+      )
+      .run(tournament.guildId, reporterId, opponentId, winnerId, reporterId, tournament.id);
+
+    const matchId = Number(result.lastInsertRowid);
+
+    db.prepare(
+      `
+      update tournament_matches
+      set match_id = ?, status = 'pending_approval'
+      where id = ?
+    `,
+    ).run(matchId, slotId);
+
+    return mapMatch(db.prepare("select * from matches where id = ?").get(matchId));
+  };
+
+  const reportTx = db.transaction(
+    (tournamentId: number, reporterId: number, opponentId: number, winnerId: number): Match => {
+      const tournament = findById(tournamentId);
+
+      if (tournament.status !== "active") {
+        throw new Error("Tournament is not active");
+      }
+
+      if (winnerId !== reporterId && winnerId !== opponentId) {
+        throw new Error("Winner must be one of the match players");
+      }
+
+      const tournamentMatch = db
+        .prepare(
+          `
+          select * from tournament_matches
+          where tournament_id = ?
+            and status = 'open'
+            and (
+              (player_one_id = ? and player_two_id = ?)
+              or (player_one_id = ? and player_two_id = ?)
+            )
+          order by round_number asc, id asc
+          limit 1
+        `,
+        )
+        .get(tournamentId, reporterId, opponentId, opponentId, reporterId);
+
+      if (!tournamentMatch) {
+        throw new Error("Open tournament match not found");
+      }
+
+      assertNoOpenSeries((tournamentMatch as any).id);
+
+      return insertPendingMatch(tournament, (tournamentMatch as any).id, reporterId, opponentId, winnerId);
+    },
+  );
+
+  const reportTournamentMatchTx = db.transaction(
+    (tournamentMatchId: number, reporterId: number, winnerId: number): Match => {
+      const tournamentMatch = findTournamentMatchById(tournamentMatchId);
+      const tournament = findById(tournamentMatch.tournamentId);
+
+      if (tournament.status !== "active") {
+        throw new Error("Tournament is not active");
+      }
+
+      if (tournamentMatch.status !== "open" || tournamentMatch.playerTwoId === null) {
+        throw new Error("Tournament match is not open");
+      }
+
+      const playerIds = [tournamentMatch.playerOneId, tournamentMatch.playerTwoId];
+
+      if (!playerIds.includes(reporterId)) {
+        throw new Error("You are not in this tournament match");
+      }
+
+      if (!playerIds.includes(winnerId)) {
+        throw new Error("Winner must be one of the match players");
+      }
+
+      assertNoOpenSeries(tournamentMatch.id);
+
+      const opponentId =
+        reporterId === tournamentMatch.playerOneId
+          ? tournamentMatch.playerTwoId
+          : tournamentMatch.playerOneId;
+
+      return insertPendingMatch(tournament, tournamentMatch.id, reporterId, opponentId, winnerId);
+    },
+  );
+
+  const cancelTx = db.transaction((tournamentId: number) => {
+    const tournament = findById(tournamentId);
+
+    if (tournament.status !== "pending" && tournament.status !== "active") {
+      throw new Error(`Tournament cannot be cancelled in status '${tournament.status}'`);
+    }
+
+    db.prepare(
+      "update tournaments set status = 'cancelled', ended_at = current_timestamp where id = ?",
+    ).run(tournamentId);
+    const changedDuelSlugs = cancelOpenSeries(tournamentId);
+
+    return { tournament: findById(tournamentId), changedDuelSlugs };
+  });
+
+  const completeTx = db.transaction((tournamentId: number) => {
+    const tournament = findById(tournamentId);
+
+    if (tournament.status !== "active") {
+      throw new Error(`Tournament cannot be completed in status '${tournament.status}'`);
+    }
+
+    db.prepare(
+      "update tournaments set status = 'completed', ended_at = current_timestamp where id = ?",
+    ).run(tournamentId);
+    const changedDuelSlugs = cancelOpenSeries(tournamentId);
+
+    return { tournament: findById(tournamentId), changedDuelSlugs };
+  });
+
+  const closeForDeadlineTx = db.transaction((tournamentId: number) => {
+    const closed = db
+      .prepare(
+        "update tournaments set status = 'completed', ended_at = current_timestamp where id = ? and status = 'active'",
+      )
+      .run(tournamentId);
+    const changedDuelSlugs = closed.changes > 0 ? cancelOpenSeries(tournamentId) : [];
+    return { tournament: findById(tournamentId), changedDuelSlugs };
+  });
+
   return {
     create(
       guildId: string,
       name: string,
       format: TournamentFormat,
       createdByUserId: string,
-      options?: { deadlineAt?: string | null; reportConfirmWindowHours?: number | null },
+      options?: {
+        deadlineAt?: string | null;
+        reportConfirmWindowHours?: number | null;
+        /** Games per pairing; default 3. */
+        bestOf?: DuelBestOf;
+        /** Online duel rules: { mode, masterRule, settings }. Default: a normal duel. */
+        duelRules?: { mode?: unknown; masterRule?: unknown; settings?: unknown } | null;
+      },
     ): Tournament {
       assertFormat(format);
       validateWindow(options?.reportConfirmWindowHours);
+      const bestOf = options?.bestOf ?? 3;
+      assertBestOf(bestOf);
+      const duelRulesJson = options?.duelRules ? serializeTournamentDuelRules(options.duelRules) : null;
 
       const existingCurrent = db
         .prepare(
@@ -173,8 +386,8 @@ export function createTournamentService(db: Database.Database) {
 
       const insert = db.prepare(
         `
-          insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, deadline_at, report_confirm_window_hours)
-          values (?, ?, ?, 'pending', ?, ?, ?, ?)
+          insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, deadline_at, report_confirm_window_hours, best_of, duel_rules_json)
+          values (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
         `,
       );
 
@@ -189,6 +402,8 @@ export function createTournamentService(db: Database.Database) {
             generateWebSlug(),
             options?.deadlineAt ?? null,
             options?.reportConfirmWindowHours ?? null,
+            bestOf,
+            duelRulesJson,
           );
           break;
         } catch (err: any) {
@@ -534,123 +749,17 @@ export function createTournamentService(db: Database.Database) {
       return { wins: wins.count, losses: losses.count };
     },
 
+    /**
+     * Records a pending manual report for the open slot of two players. Refused
+     * (409) while an online duel series is open for that slot.
+     */
     report(tournamentId: number, reporterId: number, opponentId: number, winnerId: number): Match {
-      const tournament = findById(tournamentId);
-
-      if (tournament.status !== "active") {
-        throw new Error("Tournament is not active");
-      }
-
-      if (winnerId !== reporterId && winnerId !== opponentId) {
-        throw new Error("Winner must be one of the match players");
-      }
-
-      const tournamentMatch = db
-        .prepare(
-          `
-          select * from tournament_matches
-          where tournament_id = ?
-            and status = 'open'
-            and (
-              (player_one_id = ? and player_two_id = ?)
-              or (player_one_id = ? and player_two_id = ?)
-            )
-          order by round_number asc, id asc
-          limit 1
-        `,
-        )
-        .get(tournamentId, reporterId, opponentId, opponentId, reporterId);
-
-      if (!tournamentMatch) {
-        throw new Error("Open tournament match not found");
-      }
-
-      const result = db
-        .prepare(
-          `
-          insert into matches (
-            guild_id,
-            player_one_id,
-            player_two_id,
-            winner_id,
-            reporter_id,
-            status,
-            source,
-            tournament_id
-          )
-          values (?, ?, ?, ?, ?, 'pending', 'tournament', ?)
-        `,
-        )
-        .run(tournament.guildId, reporterId, opponentId, winnerId, reporterId, tournamentId);
-
-      const matchId = Number(result.lastInsertRowid);
-
-      db.prepare(
-        `
-        update tournament_matches
-        set match_id = ?, status = 'pending_approval'
-        where id = ?
-      `,
-      ).run(matchId, (tournamentMatch as any).id);
-
-      return mapMatch(db.prepare("select * from matches where id = ?").get(matchId));
+      return reportTx(tournamentId, reporterId, opponentId, winnerId);
     },
 
+    /** Same as `report`, for a known slot. */
     reportTournamentMatch(tournamentMatchId: number, reporterId: number, winnerId: number): Match {
-      const tournamentMatch = findTournamentMatchById(tournamentMatchId);
-      const tournament = findById(tournamentMatch.tournamentId);
-
-      if (tournament.status !== "active") {
-        throw new Error("Tournament is not active");
-      }
-
-      if (tournamentMatch.status !== "open" || tournamentMatch.playerTwoId === null) {
-        throw new Error("Tournament match is not open");
-      }
-
-      const playerIds = [tournamentMatch.playerOneId, tournamentMatch.playerTwoId];
-
-      if (!playerIds.includes(reporterId)) {
-        throw new Error("You are not in this tournament match");
-      }
-
-      if (!playerIds.includes(winnerId)) {
-        throw new Error("Winner must be one of the match players");
-      }
-
-      const opponentId =
-        reporterId === tournamentMatch.playerOneId
-          ? tournamentMatch.playerTwoId
-          : tournamentMatch.playerOneId;
-      const result = db
-        .prepare(
-          `
-          insert into matches (
-            guild_id,
-            player_one_id,
-            player_two_id,
-            winner_id,
-            reporter_id,
-            status,
-            source,
-            tournament_id
-          )
-          values (?, ?, ?, ?, ?, 'pending', 'tournament', ?)
-        `,
-        )
-        .run(tournament.guildId, reporterId, opponentId, winnerId, reporterId, tournament.id);
-
-      const matchId = Number(result.lastInsertRowid);
-
-      db.prepare(
-        `
-        update tournament_matches
-        set match_id = ?, status = 'pending_approval'
-        where id = ?
-      `,
-      ).run(matchId, tournamentMatch.id);
-
-      return mapMatch(db.prepare("select * from matches where id = ?").get(matchId));
+      return reportTournamentMatchTx(tournamentMatchId, reporterId, winnerId);
     },
 
     reopenTournamentMatch(tournamentMatchId: number, requesterUserId: string): void {
@@ -674,50 +783,58 @@ export function createTournamentService(db: Database.Database) {
         throw new Error("Match is not completed");
       }
 
-      db.prepare(
-        "update matches set status = 'denied', resolved_at = current_timestamp where id = ?",
-      ).run(tm.match_id);
+      db.transaction(() => {
+        const result = db.prepare("select status from matches where id=?").get(tm.match_id) as { status: string };
+        const scored = db.prepare("select 1 from point_awards where match_id=? and kind='match_win'").get(tm.match_id);
+        db.prepare(
+          "update matches set status = 'denied', resolved_at = current_timestamp where id = ?",
+        ).run(tm.match_id);
 
-      db.prepare(
-        "update tournament_matches set status = 'open', match_id = null where id = ?",
-      ).run(tm.id);
+        db.prepare(
+          "update tournament_matches set status = 'open', match_id = null where id = ?",
+        ).run(tm.id);
 
-      db.prepare(
-        "update tournaments set status = 'active', ended_at = null where id = ? and status = 'completed'",
-      ).run(tm.tournament_id);
+        db.prepare(
+          "update tournaments set status = 'active', ended_at = null where id = ? and status = 'completed'",
+        ).run(tm.tournament_id);
+        if (result.status === "approved" || scored) {
+          createScoringService(db).rebuildStandings(tournament.guildId, { reopenedTournamentId: tm.tournament_id });
+        }
+      })();
     },
 
     cancel(tournamentId: number): Tournament {
-      const tournament = findById(tournamentId);
+      return cancelTx(tournamentId).tournament;
+    },
 
-      if (tournament.status !== "pending" && tournament.status !== "active") {
-        throw new Error(`Tournament cannot be cancelled in status '${tournament.status}'`);
-      }
-
-      db.prepare(
-        "update tournaments set status = 'cancelled', ended_at = current_timestamp where id = ?",
-      ).run(tournamentId);
-
-      return findById(tournamentId);
+    /**
+     * Cancels the tournament and, in the same transaction, every open duel
+     * series of its matches. `changedDuelSlugs` are the games to notify.
+     */
+    cancelWithChanges(tournamentId: number): { tournament: Tournament; changedDuelSlugs: string[] } {
+      return cancelTx(tournamentId);
     },
 
     complete(tournamentId: number): Tournament {
-      const tournament = findById(tournamentId);
-
-      if (tournament.status !== "active") {
-        throw new Error(`Tournament cannot be completed in status '${tournament.status}'`);
-      }
-
-      db.prepare(
-        "update tournaments set status = 'completed', ended_at = current_timestamp where id = ?",
-      ).run(tournamentId);
-
-      return findById(tournamentId);
+      return completeTx(tournamentId).tournament;
     },
 
+    /** Like `complete`; also cancels open duel series and returns the games to notify. */
+    completeWithChanges(tournamentId: number): { tournament: Tournament; changedDuelSlugs: string[] } {
+      return completeTx(tournamentId);
+    },
+
+    /**
+     * Deadline and report window only. Match length and duel rules change
+     * through the tournament duel service (`setRules`), which refuses them
+     * once a game has started.
+     */
     updateSettings(
       tournamentId: number,
-      patch: { deadlineAt?: string | null; reportConfirmWindowHours?: number | null },
+      patch: {
+        deadlineAt?: string | null;
+        reportConfirmWindowHours?: number | null;
+      },
     ): Tournament {
       const tournament = findById(tournamentId);
 
@@ -749,10 +866,12 @@ export function createTournamentService(db: Database.Database) {
     },
 
     closeForDeadline(tournamentId: number): Tournament {
-      db.prepare(
-        "update tournaments set status = 'completed', ended_at = current_timestamp where id = ? and status = 'active'",
-      ).run(tournamentId);
-      return findById(tournamentId);
+      return closeForDeadlineTx(tournamentId).tournament;
+    },
+
+    /** Like `closeForDeadline`; also returns the duel games to notify. */
+    closeForDeadlineWithChanges(tournamentId: number): { tournament: Tournament; changedDuelSlugs: string[] } {
+      return closeForDeadlineTx(tournamentId);
     },
 
     findOverdueActive(now: string): Tournament[] {

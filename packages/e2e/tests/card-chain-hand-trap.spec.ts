@@ -1,5 +1,5 @@
 import { test, expect } from "../helpers/fixtures";
-import { chainList, handCard, openLog, pickLegalZone, pile, pileCards, respondPanel, startDuel, useCard } from "../helpers/board";
+import { activateSingleResponse, chainList, handCard, openLog, pickLegalZone, pile, pileCards, startDuel, useCard } from "../helpers/board";
 import { withFiller } from "../helpers/decks";
 
 // Chain and hand trap: Alice activates a searcher, Bob chains Ash Blossom from his hand.
@@ -17,14 +17,13 @@ test("a hand trap chained to a searcher negates it and both players see the chai
   await useCard(alice.page, handCard(alice.page, "Reinforcement of the Army"), "Activate");
   await pickLegalZone(alice.page, "st");
 
-  // Bob is asked to respond. Both see link 1 in the chain.
-  const respond = respondPanel(bob.page, "You can respond to Reinforcement of the Army");
-  await expect(respond).toBeVisible();
-  await expect(chainList(bob.page).getByRole("listitem")).toHaveText([/1\s*Reinforcement of the Army\s*E2E Alice/]);
-  await expect(chainList(alice.page).getByRole("listitem")).toHaveText([/1\s*Reinforcement of the Army\s*E2E Alice/]);
+  // Bob is asked to respond: one card, so the compact "Activate?" bar. Both see link 1 in the chain.
+  await expect(bob.page.getByRole("group", { name: /^Activate its effect\? Ash Blossom & Joyous Spring/ })).toBeVisible();
+  await expect(chainList(bob.page).getByRole("listitem")).toHaveText([/^Chain Link 1: Reinforcement of the Army, (You|Opponent)$/]);
+  await expect(chainList(alice.page).getByRole("listitem")).toHaveText([/^Chain Link 1: Reinforcement of the Army, (You|Opponent)$/]);
   await expect(alice.page.getByRole("button", { name: "Waiting" })).toBeDisabled();
 
-  await respond.getByRole("button", { name: /^Ash Blossom & Joyous Spring: Negate that effect/ }).click();
+  await activateSingleResponse(bob.page);
 
   // The chain ends. The searcher is negated: the warrior stays in the deck, Ash and the spell are in the GY.
   await expect(chainList(alice.page)).toHaveCount(0);
@@ -45,7 +44,7 @@ test("a hand trap chained to a searcher negates it and both players see the chai
   // The history marks link 1 as negated on both screens.
   for (const { page } of [alice, bob]) {
     const history = await openLog(page);
-    await expect(history.getByRole("button", { name: /activated Reinforcement of the Army\. Chain link 1 of 2/ })).toHaveAttribute("data-status", "negated");
-    await expect(history.getByRole("button", { name: /activated Ash Blossom & Joyous Spring\. Chain link 2 of 2/ })).toHaveAttribute("data-status", "resolved");
+    await expect(history.getByRole("listitem").filter({ hasText: /activated Reinforcement of the Army\. Chain link 1 of 2\. Negated\./, hasNot: page.getByRole("listitem") })).toHaveCount(1);
+    await expect(history.getByRole("listitem").filter({ hasText: /activated Ash Blossom & Joyous Spring\. Chain link 2 of 2\. Resolved\./, hasNot: page.getByRole("listitem") })).toHaveCount(1);
   }
 });

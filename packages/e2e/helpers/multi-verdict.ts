@@ -23,6 +23,8 @@ export interface StepRecord {
   result: unknown;
   board: BoardSeat[];
   chain: Array<{ seat: number; name?: string }>;
+  /** Retained engine events survive chain windows between samples. */
+  events?: Array<{ kind: string; seat?: number; chainIndex?: number }>;
   prompt: { seat: number; kind: string; title: string; options: string[] } | null;
   /** Prompts of the bot seats and the partner, from debug-trace (empty without it). */
   hostPrompts: Array<{ seat: number; kind: string; title: string; options: string[] }>;
@@ -89,16 +91,35 @@ function always(ctx: Ctx, test: (step: StepRecord) => boolean, what: string): Hi
 const manual = (why: string): Check => () => ({ verdict: "unchecked", detail: `needs a human look: ${why}` });
 
 /** Uses debug-trace prompts when they exist; else unchecked. `bad` says which prompt breaks the rule. */
-function noHostPrompt(bad: (prompt: NonNullable<StepRecord["prompt"]>) => boolean, what: string): Check {
+function noHostPrompt(bad: (prompt: NonNullable<StepRecord["prompt"]>) => boolean, what: string, when: (step: StepRecord) => boolean = () => true): Check {
   return (ctx) => {
     if (!ctx.steps.some((step) => step.traceSeen)) return { verdict: "unchecked", detail: `needs debug-trace (host op) to see the prompts of the other seats: ${what}` };
-    const offender = ctx.steps.find((step) => step.hostPrompts.some(bad));
+    const offender = ctx.steps.find((step) => when(step) && step.hostPrompts.some(bad));
     return offender ? { verdict: "fail", step: offender, detail: `seen: ${what}` } : { verdict: "pass", step: ctx.steps.at(-1), detail: what };
   };
 }
 
 const monstersOf = (step: StepRecord, seat: number) => seatOf(step, seat)?.monsters ?? [];
 const allEmptyBut = (step: StepRecord, keep: number[]) => step.board.every((seat) => keep.includes(seat.seat) || seat.monsters.length === 0);
+
+const heavyStormResolution: Check = (ctx) => {
+  if (!did(ctx, "activate Heavy Storm")) return { verdict: "not-reached", detail: "Heavy Storm was not activated" };
+  let last: StepRecord | undefined;
+  let seen: number[] = [];
+  for (const step of ctx.steps) {
+    const resolving = (step.events ?? []).filter((event) => event.kind === "chain-resolving");
+    for (let start = 0; start < resolving.length; start += 1) {
+      const links = resolving.slice(start, start + 4);
+      if (links[0]?.chainIndex !== 4) continue;
+      last = step;
+      seen = links.map((link) => link.seat ?? -1);
+      if (links.length === 4 && links.every((link, index) => link.chainIndex === 4 - index && link.seat === 3 - index)) {
+        return { verdict: "pass", step, detail: "retained chain-resolving events show links 4,3,2,1 from seats 3,2,1,0" };
+      }
+    }
+  }
+  return { verdict: last ? "fail" : "not-reached", step: last, detail: `four-link resolution seats seen: ${seen.join(",") || "none"}; expected 3,2,1,0` };
+};
 
 const CHECKS: Record<string, Check[]> = {
   "raigeki-dark-hole-ffa4": [
@@ -110,7 +131,16 @@ const CHECKS: Record<string, Check[]> = {
     },
     (ctx) => expectState(ctx, ["activate Raigeki"], (step) => [1, 2, 3].every((seat) => monstersOf(step, seat).length === 0) && has(monstersOf(step, 0), "Celtic Guardian"), "bot monsters gone, Celtic Guardian stays"),
     (ctx) => expectState(ctx, ["activate Dark Hole"], (step) => allEmptyBut(step, []) && has(seatOf(step, 0)?.grave ?? [], "Celtic Guardian"), "no monster left, Celtic Guardian in the grave"),
-    noHostPrompt((prompt) => prompt.kind !== "choice" || !prompt.options.every((option) => /pass|no|cancel/i.test(option)), "a bot got a prompt that is not a plain pass"),
+    (ctx) => {
+      const darkHole = did(ctx, "activate Dark Hole");
+      const resolved = darkHole && ctx.steps.find((step) => step.revision !== null && step.revision > darkHole.revision && allEmptyBut(step, []));
+      if (!resolved) return { verdict: "not-reached", detail: "Dark Hole has not resolved" };
+      // Normal action prompts on the bots' subsequent turns are outside these spells' response
+      // windows. Only the captured interval through Dark Hole's resolution must be plain passes.
+      return noHostPrompt((prompt) => prompt.kind !== "choice" || !prompt.options.every((option) => /pass|no|cancel/i.test(option)), "a bot got a prompt that is not a plain pass")({
+        ...ctx, steps: ctx.steps.filter((step) => step.revision !== null && step.revision <= resolved.revision!),
+      });
+    },
   ],
   "raigeki-dark-hole-tag": [
     (ctx) => {
@@ -135,7 +165,8 @@ const CHECKS: Record<string, Check[]> = {
       return { verdict: first.board.every((seat) => seat.lp === 16000) ? "pass" : "fail", step: first, detail: `LP: ${first.board.map((seat) => seat.lp).join(",")}` };
     },
     (ctx) => (did(ctx, "summon Celtic Guardian") ? { verdict: "pass", step: ctx.steps.find((step) => step.revision === did(ctx, "summon Celtic Guardian")!.revision), detail: "summon answered" } : { verdict: "not-reached", detail: "summon was not played" }),
-    noHostPrompt((prompt) => prompt.seat === 2 && prompt.options.some((option) => /Solemn/i.test(option)), "the partner (seat 2) was offered Solemn Judgment"),
+    // Once the rival's Solemn Judgment is on the chain, the partner may answer it. Only an empty chain is the partner's own summon.
+    noHostPrompt((prompt) => prompt.seat === 2 && prompt.options.some((option) => /Solemn/i.test(option)), "the partner (seat 2) was offered Solemn Judgment on the summon", (step) => step.chain.length === 0),
     (ctx) => expectState(ctx, ["summon Celtic Guardian"], (step) => seatOf(step, 1)?.lp === 8000 && seatOf(step, 3)?.lp === 8000, "LP of seats 1 and 3 is 8000"),
     (ctx) => (ctx.steps.length === 0 ? { verdict: "not-reached", detail: "no revision was seen" } : always(ctx, (step) => seatOf(step, 0)?.lp === 16000 && seatOf(step, 2)?.lp === 16000, "own team LP stays 16000")),
   ],
@@ -158,15 +189,9 @@ const CHECKS: Record<string, Check[]> = {
       return { verdict: swords === 3 ? "pass" : "fail", step: first, detail: `Swords of Revealing Light on seat 0: ${swords}` };
     },
     (ctx) => (did(ctx, "activate Heavy Storm") ? { verdict: "pass", step: ctx.steps.find((step) => step.revision === did(ctx, "activate Heavy Storm")!.revision), detail: "Heavy Storm activated" } : { verdict: "not-reached", detail: "Heavy Storm was not activated" }),
-    (ctx) => {
-      if (!did(ctx, "activate Heavy Storm")) return { verdict: "not-reached", detail: "Heavy Storm was not activated" };
-      const hit = ctx.steps.find((step) => step.chain.map((link) => link.seat).join(",") === "0,1,2,3");
-      if (hit) return { verdict: "pass", step: hit, detail: "chain links came from seats 0,1,2,3 in that order" };
-      const longest = ctx.steps.reduce((best, step) => (step.chain.length > best.chain.length ? step : best), ctx.steps[0]!);
-      return { verdict: longest?.chain.length ? "fail" : "not-reached", step: longest, detail: `longest chain seen: ${longest?.chain.map((link) => link.seat).join(",") || "none"}` };
-    },
+    heavyStormResolution,
     manual("our pass after the bots is an answer in driver-log.json"),
-    manual("resolve order is shown by the log and the screenshots"),
+    heavyStormResolution,
   ],
   "ffa4-surrender-in-chain": [
     (ctx) => (did(ctx, "activate Heavy Storm") ? { verdict: "pass", step: ctx.steps.find((step) => step.revision === did(ctx, "activate Heavy Storm")!.revision), detail: "Heavy Storm activated" } : { verdict: "not-reached", detail: "Heavy Storm was not activated" }),

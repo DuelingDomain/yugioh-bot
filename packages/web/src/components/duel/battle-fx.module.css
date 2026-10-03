@@ -1,6 +1,7 @@
 /* Battle effects: the attack styles' host layer, the cut card, the aim layer,
-   the attack confirm and the screen-shake control. The layer and the confirm render
-   in portals outside the room shell, so they carry their own tokens.
+   the attack confirm and the screen-shake control. The confirm renders in a portal outside the
+   room shell, so the layer and the confirm carry their own tokens. Layer order: see the --duel-z-* scale in app/globals.css
+   (the layer is board FX, below the prompts; the confirm is a menu, above everything on the board).
 
    One attack lasts 1.15-1.25 s (up to about 1.55 s when the attacker loses and the defender
    strikes back). Each style lands between 440 and 560 ms; the LP roll starts then (attack-styles.ts). */
@@ -29,7 +30,7 @@
 .layer {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  z-index: var(--duel-z-fx-front);
   overflow: hidden;
   pointer-events: none;
 }
@@ -58,6 +59,30 @@
   inset: 0;
   pointer-events: none;
 }
+
+/* The calculation can finish between prompts; keep the core's actual values visible for this fight. */
+.calculationStat {
+  position: absolute;
+  transform: translateX(-50%);
+  padding: calc(3 * var(--fx-unit)) calc(8 * var(--fx-unit));
+  border: max(1px, var(--fx-unit)) solid var(--fx-ember-soft);
+  border-radius: calc(3 * var(--fx-unit));
+  background: rgb(7 11 21 / 0.94);
+  color: var(--fx-hot);
+  font-family: var(--fx-f-ui);
+  font-size: calc(15 * var(--fx-unit));
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  box-shadow: 0 calc(3 * var(--fx-unit)) calc(10 * var(--fx-unit)) rgb(0 0 0 / 0.5);
+}
+
+.calculationStat[data-edge="top"] {
+  transform: translate(-50%, -100%);
+}
+
+.calculationStat strong { font-size: calc(18 * var(--fx-unit)); }
+.calculationStat small { font-size: calc(10 * var(--fx-unit)); }
 
 @keyframes fx-life {
   0%,
@@ -228,7 +253,7 @@
 
 .confirm {
   position: fixed;
-  z-index: 110;
+  z-index: var(--duel-z-confirm);
   display: grid;
   gap: calc(6 * var(--fx-unit));
   width: max-content;

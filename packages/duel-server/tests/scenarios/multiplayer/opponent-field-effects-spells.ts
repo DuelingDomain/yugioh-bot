@@ -43,7 +43,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 11654067, name: "Fire Ejection", slug: "fire-ejection", does: "sends a Volcanic monster from the Deck and Special Summons a Bomb Token",
-    p0: { hand: ["Fire Ejection"], deck: [ELF, "Volcanic Rat"] },
+    p0: { hand: ["Fire Ejection"], deck: ["Volcanic Rat"] },
     steps: [activate("Fire Ejection", "p0")],
     then: [yes("p0"), choose("token", "p0")],
     p0End: { grave: ["Fire Ejection", "Volcanic Rat"] },

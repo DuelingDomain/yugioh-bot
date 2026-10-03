@@ -1,0 +1,213 @@
+/* Summoning circle on a pile that holds a legal move (Extra Deck, GY, Banished).
+   Lives inside the pile's .frame (position: relative, own stacking context). The glow sits under the
+   cards (z-index 0), the line art, sweep and motes over them (z-index 4, under the legal tag at 5).
+   Motion is transform and opacity only. Nothing here takes pointer input.
+   Tints are "r g b" triplets: --sc-a is the main light, --sc-b the accent. Extra Deck purple,
+   GY teal, Banished gold; every tint shares the same gold or violet accent so they read as one family. */
+
+.glow,
+.circle {
+  --sc-a: 155 126 255;
+  --sc-b: 244 214 144;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  /* Never taller than the pile frame (plus a sliver): the gap above a pile holds the neighbour's count
+     label and the gap below holds its own, and the circle must not cover either. The frame is
+     var(--z) * var(--pk) tall, so 1.04 overhangs by about 0.017 of --z on each side. */
+  width: calc(var(--z) * var(--pk, 1) * 1.04);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.glow[data-tone="gy"],
+.circle[data-tone="gy"] {
+  --sc-a: 96 214 196;
+}
+
+.glow[data-tone="banish"],
+.circle[data-tone="banish"] {
+  --sc-a: 228 182 79;
+  --sc-b: 198 182 255;
+}
+
+/* The glow fades to nothing at 70% of its radius, so a wider box still ends inside the pile frame
+   vertically (0.7 * 1.3 / 2 = 0.455 of the frame height) and only spills out to the sides. */
+.glow {
+  z-index: 0;
+  width: calc(var(--z) * var(--pk, 1) * 1.3);
+  background: radial-gradient(
+    circle,
+    rgb(var(--sc-a) / 0.42) 0,
+    rgb(var(--sc-a) / 0.2) 42%,
+    rgb(var(--sc-a) / 0) 70%
+  );
+  animation:
+    sc-in 0.5s var(--ease, ease-out) both,
+    sc-pulse 3.2s ease-in-out 0.5s infinite;
+}
+
+.circle {
+  z-index: 4;
+  animation: sc-in 0.5s var(--ease, ease-out) both;
+}
+
+/* One rotating layer per svg: the browser turns each on the compositor, no repaint per frame. */
+.layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: rgb(var(--sc-a) / 0.9);
+  stroke-width: 1.4px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  overflow: visible;
+}
+
+.layer * {
+  vector-effect: non-scaling-stroke;
+}
+
+.fine {
+  stroke-width: 0.8px;
+  stroke-opacity: 0.75;
+}
+
+.rune {
+  stroke: rgb(var(--sc-b) / 0.9);
+  stroke-width: 1.1px;
+}
+
+.dot {
+  fill: rgb(var(--sc-b) / 0.95);
+  stroke: none;
+}
+
+.outer {
+  animation: sc-turn 64s linear infinite;
+}
+
+.runes {
+  animation: sc-turn 44s linear infinite reverse;
+}
+
+.star {
+  animation: sc-turn 96s linear infinite;
+}
+
+/* A soft wedge of light that circles the rim. */
+.sweep {
+  position: absolute;
+  inset: 2%;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    rgb(var(--sc-b) / 0) 0 62%,
+    rgb(var(--sc-b) / 0.08) 78%,
+    rgb(var(--sc-b) / 0.5) 100%
+  );
+  mask-image: radial-gradient(circle, transparent 0 50%, #000 62% 100%);
+  animation: sc-turn 6.5s linear infinite;
+}
+
+/* A few motes of light drift up out of the circle and fade. */
+.mote {
+  position: absolute;
+  bottom: 26%;
+  width: 3px;
+  height: 3px;
+  margin-left: -1.5px;
+  border-radius: 50%;
+  background: rgb(var(--sc-b));
+  box-shadow: 0 0 5px 1px rgb(var(--sc-b) / 0.7);
+  opacity: 0;
+  animation: sc-rise 3.6s ease-out infinite;
+}
+
+@keyframes sc-in {
+  from {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes sc-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sc-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.94);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes sc-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.6);
+  }
+
+  18% {
+    opacity: 0.95;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(calc(var(--z) * -0.42)) scale(1);
+  }
+}
+
+/* Reduced motion: a still circle with its glow. The field sets data-reduced-motion on .felt. */
+:global([data-reduced-motion="true"]) .glow,
+:global([data-reduced-motion="true"]) .circle,
+:global([data-reduced-motion="true"]) .outer,
+:global([data-reduced-motion="true"]) .runes,
+:global([data-reduced-motion="true"]) .star {
+  animation: none;
+}
+
+:global([data-reduced-motion="true"]) .glow {
+  opacity: 0.85;
+}
+
+:global([data-reduced-motion="true"]) .sweep,
+:global([data-reduced-motion="true"]) .mote {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glow,
+  .circle,
+  .outer,
+  .runes,
+  .star {
+    animation: none;
+  }
+
+  .glow {
+    opacity: 0.85;
+  }
+
+  .sweep,
+  .mote {
+    display: none;
+  }
+}

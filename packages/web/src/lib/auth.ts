@@ -1,6 +1,12 @@
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Discord from "next-auth/providers/discord";
+import { fxLabEnabled, isFxLabPublicPath } from "./fx-lab";
+import { checkDiscordWebAccess, webAccessError } from "./discord-web-access";
+
+function accessErrorPage(status: 403 | 503) {
+  return `/login?error=${status === 403 ? "GuildMembershipRequired" : "GuildMembershipUnavailable"}`;
+}
 
 const requiredEnv = [
   "DISCORD_CLIENT_ID",
@@ -87,8 +93,15 @@ export const {
   trustHost: true,
   pages: {
     signIn: "/login",
+    error: "/login",
   },
   callbacks: {
+    async signIn({ user, profile }) {
+      const userId = typeof profile?.id === "string" ? profile.id : user.id;
+      if (!userId) return accessErrorPage(403);
+      const decision = await checkDiscordWebAccess(userId);
+      return decision.ok ? true : accessErrorPage(decision.status);
+    },
     async jwt({ token, account, profile, user }) {
       if (account?.provider === E2E_PROVIDER_ID && user?.id) {
         token.discordId = user.id;
@@ -103,17 +116,32 @@ export const {
       }
       return session;
     },
-    authorized({ auth, request: { nextUrl } }) {
-      const isLoggedIn = !!auth?.user;
+    async authorized({ auth, request: { nextUrl } }) {
+      if (nextUrl.pathname === "/dev/fx-lab" && !fxLabEnabled()) {
+        return new Response(null, { status: 404 });
+      }
       const isPublicRoute =
+        (fxLabEnabled() && isFxLabPublicPath(nextUrl.pathname)) ||
         nextUrl.pathname === "/login" ||
-        nextUrl.pathname.startsWith("/api/auth") ||
+        nextUrl.pathname === "/api/auth" ||
+        nextUrl.pathname.startsWith("/api/auth/") ||
         nextUrl.pathname.startsWith("/_next") ||
         nextUrl.pathname === "/favicon.ico" ||
         nextUrl.pathname.startsWith("/icons/");
 
-      if (!isLoggedIn && !isPublicRoute) {
-        return Response.redirect(new URL("/login", nextUrl));
+      if (isPublicRoute) return true;
+      const isApi = nextUrl.pathname.startsWith("/api/");
+      if (!auth?.user?.id) {
+        return isApi
+          ? Response.json({ error: "Unauthorized" }, { status: 401 })
+          : Response.redirect(new URL("/login", nextUrl));
+      }
+
+      const decision = await checkDiscordWebAccess(auth.user.id);
+      if (!decision.ok) {
+        return isApi
+          ? Response.json({ error: webAccessError(decision.status) }, { status: decision.status })
+          : Response.redirect(new URL(accessErrorPage(decision.status), nextUrl));
       }
 
       return true;

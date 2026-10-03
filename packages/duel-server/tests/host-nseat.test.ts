@@ -178,7 +178,7 @@ async function table(format: DuelFormat, humans: number, botSeats: number[], clo
   for (const seat of botSeats) {
     expect((await post(host, { op: "add-bot", ...organizer, seat })).status).toBe(200);
   }
-  for (const player of players.slice(1)) duels.join(session.slug, "g1", player);
+  for (const player of players.slice(1)) duels.takeSeat(session.slug, "g1", player);
   const base = buildPracticeBotDeck("normal", DATA);
   players.forEach((player, index) => duels.setDeck(session.slug, "g1", player, rotated(base, index + 1)));
   const respond = (playerId: number, answer: DuelAnswer = { choice: "to_ep" }) =>
@@ -723,6 +723,30 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
       expect(read.data.stale).toBe(true);
       expect(read.data.engine.revision).toBe(seen.data.engine.revision);
       expect(read.data.engine.prompt?.seat).toBe(0);
+    } finally {
+      t.worker.hang = false;
+      t.worker.unhang();
+      await stuck;
+    }
+  });
+
+  it("without DUEL_SCENARIOS at host creation a room read waits for the queue (no stale answer, as on main)", async () => {
+    delete process.env.DUEL_SCENARIOS;
+    const t = scenarioHost({ debugReadTimeoutMs: 50, stallMs: 0 });
+    process.env.DUEL_SCENARIOS = "1"; // only to start the preset: the host read the variable when it was created
+    const started = await post(t.host, { op: "start-preset", presetId: "dust-tornado-chain", ...t.who });
+    const slug = started.data.slug as string;
+    await post(t.host, { op: "view", slug, ...t.who });
+    t.worker.hangAnswer = true;
+    t.worker.hang = true;
+    const stuck = post(t.host, {
+      op: "respond", slug, ...t.who,
+      command: { promptId: `p${t.worker.revision}`, revision: t.worker.revision, answer: { choice: "to_ep" } },
+    });
+    try {
+      const pending = post(t.host, { op: "view", slug, ...t.who });
+      const early = await Promise.race([pending, new Promise((resolve) => setTimeout(() => resolve("waiting"), 3600))]);
+      expect(early).toBe("waiting");
     } finally {
       t.worker.hang = false;
       t.worker.unhang();

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { createDraftService, createPlayerService } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
+import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
 
 export const runtime = "nodejs";
 
@@ -38,7 +39,7 @@ export async function POST(
   _request: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
-  if (process.env.NODE_ENV === "production") {
+  if (!draftTestBotsEnabled()) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
@@ -53,11 +54,15 @@ export async function POST(
     const guildId = env.discordGuildId;
 
     const draft = db
-      .prepare("select id, guild_id, status from drafts where web_slug = ? and guild_id = ?")
-      .get(slug, guildId) as { id: number; guild_id: string; status: string } | undefined;
+      .prepare("select id, guild_id, status, created_by_user_id from drafts where web_slug = ? and guild_id = ?")
+      .get(slug, guildId) as { id: number; guild_id: string; status: string; created_by_user_id: string } | undefined;
 
     if (!draft) {
       return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+    }
+
+    if (draft.created_by_user_id !== session.user.id) {
+      return NextResponse.json({ error: "Only the draft host can add bots" }, { status: 403 });
     }
 
     if (draft.status !== "pending") {

@@ -1,0 +1,40 @@
+/* Rows on the floor. The rows themselves come from the kit (FloorRow); this only places the cells. */
+.row .id { min-width: 0; display: grid; gap: 5px; }
+.name { margin: 0; }
+.prog { min-width: 0; display: grid; gap: 2px; }
+.cap { margin: 0; color: var(--ink-3); font-size: 14px; line-height: 1.4; }
+.actCell { display: flex; justify-content: flex-end; }
+.act { pointer-events: none; }
+:global(.ms) .row:global(.sv-row[data-link]):hover .act:global(.sv-btn) { border-color: var(--rule-hi); }
+.joined { color: var(--ink-3); font-size: 14.5px; white-space: nowrap; display: inline-flex; align-items: baseline; gap: 6px; justify-self: end; }
+.joined b { color: var(--ink); }
+.chevron { width: 18px; height: 18px; color: var(--ink-3); justify-self: end; }
+.kind, .players { white-space: nowrap; }
+.end { color: var(--ink-2); font-size: 14.5px; white-space: nowrap; }
+.cancelled { color: var(--ink-3); font-style: italic; }
+.more { justify-self: start; margin-top: 12px; padding: 4px 0; background: none; border: 0; cursor: pointer; color: var(--ink-3); font: inherit; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
+.more:hover { color: var(--ink); }
+.more:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; border-radius: 3px; }
+
+/* Empty state: a heading, one sentence, the one button. */
+.empty { display: grid; gap: 10px; justify-items: start; max-width: 520px; padding-top: 8px; }
+.empty h2 { margin: 0; font: 600 21px/1.2 var(--f-display); color: var(--ink); }
+.empty p { margin: 0; color: var(--ink-2); font-size: 15.5px; line-height: 1.55; }
+.empty .go { margin-top: 6px; }
+
+.sections { display: grid; gap: clamp(28px, 4cqi, 44px); min-width: 0; }
+.sections > * { min-width: 0; }
+
+@container (max-width: 620px) {
+  /* The kit's phone grid names its areas; the cells take their place only here, so a desktop row reads in DOM order. */
+  .aId { grid-area: id; } .aProg { grid-area: prog; } .aAct { grid-area: act; } .aN { grid-area: n; }
+  .aNm { grid-area: nm; } .aEnd { grid-area: end; } .aKind { grid-area: kind; } .aPlayers { grid-area: players; }
+  .chevron { display: none; }
+  /* The phone row: name and room button on one line, the stage line under, the kind and count under that. */
+  :global(.ms) .act:global(.sv-btn) { height: 32px; padding: 0 12px; font-size: 14px; }
+  .row .prog { margin-top: 12px; }
+  .row .name { font-size: 16px; }
+  .row .kind { margin-top: 3px; }
+  .row .players { margin-top: 3px; justify-self: end; }
+  .joined { font-size: 13.5px; }
+}

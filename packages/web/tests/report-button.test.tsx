@@ -32,8 +32,11 @@ describe("ReportButton", () => {
   it("saves a mark on M and ignores M while typing", async () => {
     render(<div><input aria-label="field" /><ReportButton slug="s" /></div>);
     await screen.findByText(/Report/);
-    fireEvent.keyDown(window, { key: "m" });
-    expect(marks.size).toBe(1);
+    // The M listener is added in a passive effect after the button shows; on a slow runner the first key can come first.
+    await waitFor(() => {
+      if (marks.size === 0) fireEvent.keyDown(window, { key: "m" });
+      expect(marks.size).toBe(1);
+    });
     fireEvent.keyDown(screen.getByLabelText("field"), { key: "m" });
     expect(marks.size).toBe(1);
     fireEvent.keyDown(window, { key: "m", ctrlKey: true });

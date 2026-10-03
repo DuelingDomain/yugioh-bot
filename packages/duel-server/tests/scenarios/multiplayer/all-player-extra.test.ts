@@ -3,9 +3,9 @@ import { engineDataDirectory } from "../../engine-data-dir.js";
 import { compileBoard } from "../../support/board.js";
 import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
+import { runScenarios } from "../../support/runner.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
 import { ALL_PLAYER_EXTRA_SCENARIOS } from "./all-player-extra.js";
-import { runScenarios } from "../../support/runner.js";
 
 describeWithCores("live all-player Extra Deck and Deck top actions", liveNseat, () => {
   runScenarios("multiplayer/all-player-extra", ALL_PLAYER_EXTRA_SCENARIOS, async (scenario) => {

@@ -1,0 +1,70 @@
+/* The Deck Master zipping back to its dock. The layer covers the whole window (the dock sits beside
+   the board, outside the board's own effect layer). Nothing here takes pointer input. Only transform
+   and opacity are animated; the glow is a fixed box-shadow whose opacity moves. */
+
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--duel-z-fx-front);
+  overflow: hidden;
+  pointer-events: none;
+  contain: layout style;
+}
+
+/* Placed on the dock card outline (left, top, width, height set in JS); animations move it from there. */
+.ghost {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.shade {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--fx-r, 4px);
+  opacity: 0;
+  box-shadow:
+    0 0 18px rgb(var(--mr-a) / 0.75),
+    0 0 42px rgb(var(--mr-b) / 0.3),
+    0 12px 22px rgb(0 0 0 / 0.5);
+}
+
+.face {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: var(--fx-r, 4px);
+  background: #0c0a09;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.6);
+}
+
+.face img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+/* The motion trail: the same card, tinted with the master's accent, a beat behind. */
+.echo .face::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgb(var(--mr-a) / 0.55), rgb(var(--mr-b) / 0.35));
+  mix-blend-mode: screen;
+}
+
+/* The glow pulse on the dock as the card settles. */
+.pulse {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  border-radius: var(--fx-r, 4px);
+  box-shadow:
+    0 0 0 2px rgb(var(--mr-a) / 0.95),
+    0 0 20px 2px rgb(var(--mr-a) / 0.6),
+    0 0 44px 6px rgb(var(--mr-b) / 0.32);
+  will-change: transform, opacity;
+}

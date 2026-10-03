@@ -3,11 +3,15 @@ import type { DuelEvent } from "@yugidraft/shared/duels";
 import {
   collectFreshEvents,
   auraTintOf,
+  cueDuration,
+  hasCentreBanner,
   isHeavySummon,
   slamCrackCount,
   slamStrengthOf,
   slamTierOf,
   pacedCueDuration,
+  positionChangeOf,
+  type PositionEvent,
 } from "../../src/components/duel/event-queue";
 
 function event(
@@ -35,6 +39,22 @@ const threeLinkResolution: DuelEvent[] = [
 ];
 
 describe("collectFreshEvents", () => {
+  it("consumes confirmations without allocating a feedback banner", () => {
+    const confirm = event(18, "confirm");
+    expect(collectFreshEvents([confirm], 17)).toEqual({ nextCursor: 18, fresh: [confirm] });
+    expect(hasCentreBanner("confirm")).toBe(false);
+    expect(cueDuration("confirm", false)).toBe(0);
+    expect(cueDuration("confirm", true)).toBe(0);
+  });
+
+  it("consumes board-only target updates without allocating a banner duration", () => {
+    const target = { ...event(18, "target", 1), targets: [] };
+    expect(collectFreshEvents([target], 17)).toEqual({ nextCursor: 18, fresh: [target] });
+    expect(hasCentreBanner("target")).toBe(false);
+    expect(cueDuration("target", false)).toBe(0);
+    expect(cueDuration("target", true)).toBe(0);
+  });
+
   it("keeps a three-link resolution batch in engine id order", () => {
     const { nextCursor, fresh } = collectFreshEvents(threeLinkResolution, 10);
 
@@ -155,16 +175,61 @@ describe("auraTintOf", () => {
   });
 });
 
-describe("pacedCueDuration", () => {
-  it("keeps a short backlog at a readable pace", () => {
-    expect(pacedCueDuration("summon", false, 1)).toBe(1200);
-    expect(pacedCueDuration("summon", false, 6)).toBe(600);
+describe("chain banners", () => {
+  it("has no centre banner for a link resolving or resolved, nor for the chain end", () => {
+    expect(hasCentreBanner("chain-resolving")).toBe(false);
+    expect(hasCentreBanner("chain-resolved")).toBe(false);
+    expect(hasCentreBanner("chain-end")).toBe(false);
   });
 
-  it("never lets a long backlog trail the board by much more than about 7 s", () => {
+  it("keeps the Activate and Negated banners, at their own length", () => {
+    expect(hasCentreBanner("activate")).toBe(true);
+    expect(hasCentreBanner("chain-negated")).toBe(true);
+    expect(cueDuration("activate", false)).toBe(2000);
+    expect(cueDuration("chain-negated", false)).toBe(1300);
+    expect(cueDuration("activate", true)).toBe(1500);
+  });
+});
+
+describe("pacedCueDuration", () => {
+  it("keeps a short backlog at a readable pace", () => {
+    expect(pacedCueDuration("summon", false, 1)).toBe(1600);
+    expect(pacedCueDuration("summon", false, 6)).toBe(800);
+  });
+
+  it("never lets a long backlog trail the board by much more than about 9 s", () => {
     for (const count of [10, 20, 28]) {
-      expect(pacedCueDuration("summon", false, count) * count).toBeLessThanOrEqual(7000);
+      expect(pacedCueDuration("summon", false, count) * count).toBeLessThanOrEqual(9000);
     }
-    expect(pacedCueDuration("summon", false, 60)).toBe(250);
+    expect(pacedCueDuration("summon", false, 60)).toBe(300);
+  });
+});
+
+describe("positionChangeOf", () => {
+  function position(location: number, fromPosition: number, toPosition: number, flip = false): PositionEvent {
+    return {
+      id: 1,
+      kind: "position",
+      text: "position",
+      zone: { controller: 0, location, sequence: 2 },
+      fromPosition,
+      toPosition,
+      ...(flip ? { flip: true } : {}),
+    } as PositionEvent;
+  }
+
+  it("keeps an activated Set Spell/Trap upright (engine sends 0xA to 0x5)", () => {
+    // Both values carry a defense bit; only a monster zone may turn the card sideways.
+    const change = positionChangeOf(position(0x08, 0x0a, 0x05, true));
+    expect(change).toMatchObject({ reveal: true, turn: false, fromDefense: false, toDefense: false });
+  });
+
+  it("keeps a flipped face-down Defense monster sideways", () => {
+    const change = positionChangeOf(position(0x04, 0x08, 0x04, true));
+    expect(change).toMatchObject({ reveal: true, turn: false, fromDefense: true, toDefense: true });
+  });
+
+  it("turns a monster between Attack and Defense", () => {
+    expect(positionChangeOf(position(0x04, 0x01, 0x04))).toMatchObject({ turn: true, fromDefense: false, toDefense: true });
   });
 });

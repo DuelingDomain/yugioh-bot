@@ -16,6 +16,7 @@
  * case the reveal here is skipped. Reduced motion: the new state fades in over 150 ms.
  * Everything is a Web Animation on a pointer-transparent overlay.
  */
+import { duelFxClock } from "./fx-clock";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "./constants";
@@ -32,9 +33,12 @@ import {
   type PositionChange,
   type PositionEvent,
 } from "./event-queue";
+import { chainEffectAt } from "./chain-beats";
 import { getMovePlan, isMoveEvent } from "./move-plan";
 import styles from "./position-fx.module.css";
 import { Track } from "./summon-fx";
+import { FIELD_PLACEMENT_SCALE, isFlipSummonPlacement } from "./placement-timing";
+import { CARD_FX } from "./duel-timing";
 
 export type PositionFxProps = {
   /** engine.events (a rolling window; ids only grow). Play only events newer than the first render. */
@@ -45,16 +49,16 @@ export type PositionFxProps = {
 };
 
 /** A quarter turn between Attack and Defense Position. */
-export const TURN_MS = 400;
+export const TURN_MS = CARD_FX.turnMs;
 /** A face-down card turning face-up (or the reverse): whole flip including the glint. */
-export const FLIP_REVEAL_MS = 560;
-/** When the face is fully showing during a reveal. Under BattleFx's BATTLE_IMPACT_MS (490) on purpose. */
-export const FLIP_FACE_AT_MS = 380;
+export const FLIP_REVEAL_MS = CARD_FX.flipRevealMs;
+/** When the face is fully showing during a reveal. Under BattleFx's BATTLE_IMPACT_MS (about 650) on purpose. */
+export const FLIP_FACE_AT_MS = CARD_FX.flipFaceAtMs;
 /** Reduced motion: the new state fades in. */
 export const REDUCED_MS = 150;
 
 const CARD_ASPECT = 0.686;
-const STAGGER_MS = 200;
+const STAGGER_MS = CARD_FX.staggerMs;
 const MAX_STAGGER_STEPS = 5;
 const MAX_ITEMS = 8;
 
@@ -65,6 +69,7 @@ type Item = {
   card: DuelCardInfo | null;
   delayMs: number;
   reduced: boolean;
+  placement: boolean;
 };
 
 type Geo = { left: number; top: number; w: number; h: number; radius: number; side: "you" | "opp" };
@@ -126,6 +131,7 @@ function useSetup(
       return undefined;
     }
     const track = new Track();
+    if (!item.reduced && item.placement) track.pace(item.delayMs, FIELD_PLACEMENT_SCALE);
     let alive = true;
     setupRef.current({ track, zone, geo, d: item.delayMs });
     void track.settled().then(() => {
@@ -198,13 +204,15 @@ function FlipFx(props: EffectProps) {
   const reveal = change.reveal;
   useSetup(props, ({ track, zone, geo, d }) => {
     place(anchor.current, geo);
-    const from = change.fromDefense ? 90 : 0;
-    const to = change.toDefense ? 90 : 0;
+    // The copy sits on the opponent's card, which is turned half way (field.module.css).
+    const base = geo.side === "opp" ? 180 : 0;
+    const from = base + (change.fromDefense ? 90 : 0);
+    const to = base + (change.toDefense ? 90 : 0);
     const body = cardBodyOf(zone);
     const total = FLIP_REVEAL_MS;
     const faceAt = FLIP_FACE_AT_MS / total;
     // The real card is invisible for exactly as long as the copy is on top of it.
-    track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: d + total, fill: "backwards" });
+    track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: total, delay: d, fill: "backwards" });
     track.play(
       anchor.current,
       [
@@ -338,7 +346,7 @@ export function PositionFx({ events, duelKey, reducedMotion }: PositionFxProps) 
     if (fresh.length === 0) return;
     if (typeof document !== "undefined" && document.hidden) return;
 
-    const now = typeof performance !== "undefined" ? performance.now() : 0;
+    const now = typeof performance !== "undefined" ? duelFxClock.now() : 0;
     const planned: Item[] = [];
     let step = 0;
     for (const event of fresh) {
@@ -349,6 +357,9 @@ export function PositionFx({ events, duelKey, reducedMotion }: PositionFxProps) 
       let delayMs = Math.min(step, MAX_STAGGER_STEPS) * STAGGER_MS;
       const landAt = landingAt(fresh, event);
       if (landAt != null) delayMs = Math.max(delayMs, landAt - now);
+      // A flip that is the effect of a resolving chain link plays while its badge is lit.
+      const chainAt = chainEffectAt(event.id);
+      if (chainAt > now) delayMs = Math.max(delayMs, chainAt - now);
       step += 1;
       seqRef.current += 1;
       planned.push({
@@ -358,6 +369,7 @@ export function PositionFx({ events, duelKey, reducedMotion }: PositionFxProps) 
         card: visibleCard(event),
         delayMs,
         reduced: reducedRef.current,
+        placement: isFlipSummonPlacement(event, fresh),
       });
     }
     if (planned.length === 0) return;

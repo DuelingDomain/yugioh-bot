@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   ATTRIBUTE,
+  COUNTER_GAP_MS,
+  COUNTER_SCALE,
+  DESTROY_BEAT_MS,
+  DESTROY_TAIL_MS,
+  GRAVEYARD_AFTER_SLICE_MS,
+  MAX_BATTLE_MS,
   NAME_RULES,
   RACE_STYLES,
   SIGNATURES,
@@ -10,7 +16,10 @@ import {
   attackStyleFor,
   attributeName,
   battleKind,
+  battleTimeline,
   battleTiming,
+  type BattleBeatId,
+  type BattleKind,
 } from "@/components/duel/attack-styles";
 
 describe("attackStyleFor", () => {
@@ -89,26 +98,122 @@ describe("battle timing", () => {
     expect(battleKind(false, { attacker: true, target: false })).toBe("lose");
     expect(battleKind(false, { attacker: true, target: true })).toBe("tie");
     expect(battleKind(false, { attacker: false, target: false })).toBe("held");
+    // a Defense Position defender with higher DEF: nobody dies, the attacker's controller takes the damage
+    expect(battleKind(false, { attacker: false, target: false }, true)).toBe("bounce");
+    expect(battleKind(false, { attacker: true, target: false }, true)).toBe("lose");
+    expect(battleKind(true, { attacker: false, target: false }, true)).toBe("direct");
   });
 
-  it("keeps every single-strike attack at or under 1.6 s and the whole table sane", () => {
+  it("keeps every single-strike attack between 1.4 s and 2.4 s and the whole table sane", () => {
     for (const id of STYLE_IDS) {
       const t = battleTiming("win", id, "impact");
       expect(t.impactMs).toBe(STYLE_TIMING[id].impact);
-      expect(t.totalMs).toBeLessThanOrEqual(1600);
+      expect(t.totalMs).toBeLessThanOrEqual(2400);
+      expect(t.totalMs).toBeGreaterThanOrEqual(1400);
       expect(t.impactMs).toBeLessThan(t.totalMs);
     }
   });
 
-  it("keeps a counter-strike fight under the 2.2 s signature ceiling, and rolls the attacker's LP at the counter's impact", () => {
+  it("keeps a counter-strike fight under the battle ceiling, and rolls the attacker's LP at the counter's impact", () => {
     for (const a of STYLE_IDS) {
       for (const d of STYLE_IDS) {
         const t = battleTiming("lose", a, d);
-        expect(t.totalMs).toBeLessThanOrEqual(1850);
+        expect(t.totalMs).toBeLessThanOrEqual(MAX_BATTLE_MS);
         expect(t.attackerDamageMs).toBeGreaterThan(t.impactMs);
         expect(t.attackerDamageMs).toBeLessThan(t.totalMs);
       }
-      expect(battleTiming("tie", a, "slash").totalMs).toBeLessThanOrEqual(1850);
+      for (const d of STYLE_IDS) {
+        for (const kind of ["tie", "bounce"] as const) {
+          const t = battleTiming(kind, a, d);
+          expect(t.totalMs).toBeLessThanOrEqual(MAX_BATTLE_MS);
+          expect(t.attackerDamageMs).toBeGreaterThan(t.impactMs + COUNTER_GAP_MS);
+          expect(t.attackerDamageMs).toBeLessThan(t.totalMs);
+        }
+      }
+    }
+  });
+
+  it("keeps the slowest counter fight, including the fall of the shards, under 3.6 s", () => {
+    let slowest = 0;
+    for (const a of STYLE_IDS) {
+      for (const d of STYLE_IDS) {
+        for (const kind of ["lose", "tie", "bounce"] as const) {
+          const t = battleTiming(kind, a, d);
+          const lastBreak = Math.max(t.targetBreakMs ?? 0, t.attackerBreakMs ?? 0);
+          slowest = Math.max(slowest, t.totalMs, lastBreak + DESTROY_TAIL_MS);
+        }
+      }
+    }
+    expect(slowest).toBeLessThanOrEqual(3600);
+    expect(MAX_BATTLE_MS).toBeLessThanOrEqual(3600);
+  });
+});
+
+describe("battle timeline", () => {
+  const ids = (kind: BattleKind, a: (typeof STYLE_IDS)[number], d: (typeof STYLE_IDS)[number] | null): BattleBeatId[] =>
+    battleTimeline(kind, a, d).map((beat) => beat.id);
+  const at = (kind: BattleKind, a: (typeof STYLE_IDS)[number], d: (typeof STYLE_IDS)[number] | null, id: BattleBeatId): number => {
+    const beat = battleTimeline(kind, a, d).find((entry) => entry.id === id);
+    if (!beat) throw new Error(`no ${id} beat in ${kind}`);
+    return beat.atMs;
+  };
+
+  it("plays a lost attack as strike, pause, counter strike, counter impact, slice, Graveyard", () => {
+    for (const a of STYLE_IDS) {
+      for (const d of STYLE_IDS) {
+        expect(ids("lose", a, d)).toEqual(["strike-start", "strike-impact", "counter-start", "counter-impact", "slice-attacker", "graveyard-attacker"]);
+        const impact = at("lose", a, d, "strike-impact");
+        // a pause, so the first hit is read before the answer
+        expect(at("lose", a, d, "counter-start")).toBe(impact + COUNTER_GAP_MS);
+        expect(at("lose", a, d, "counter-impact")).toBe(Math.round(impact + COUNTER_GAP_MS + STYLE_TIMING[d].impact * COUNTER_SCALE));
+        // the slice waits for the counter, and the card leaves after the slice
+        expect(at("lose", a, d, "slice-attacker")).toBe(at("lose", a, d, "counter-impact") + DESTROY_BEAT_MS);
+        expect(at("lose", a, d, "graveyard-attacker")).toBe(at("lose", a, d, "slice-attacker") + GRAVEYARD_AFTER_SLICE_MS);
+      }
+    }
+  });
+
+  it("plays a won attack as strike, slice, Graveyard, with no counter", () => {
+    for (const a of STYLE_IDS) {
+      expect(ids("win", a, "impact")).toEqual(["strike-start", "strike-impact", "slice-target", "graveyard-target"]);
+      expect(at("win", a, "impact", "slice-target")).toBe(STYLE_TIMING[a].impact + DESTROY_BEAT_MS);
+    }
+  });
+
+  it("strikes back on a tie, then slices both cards together", () => {
+    for (const a of STYLE_IDS) {
+      for (const d of STYLE_IDS) {
+        const order = ids("tie", a, d);
+        expect(order.slice(0, 4)).toEqual(["strike-start", "strike-impact", "counter-start", "counter-impact"]);
+        expect(order).toContain("slice-target");
+        expect(order).toContain("slice-attacker");
+        expect(at("tie", a, d, "slice-target")).toBe(at("tie", a, d, "slice-attacker"));
+        expect(at("tie", a, d, "slice-target")).toBeGreaterThan(at("tie", a, d, "counter-impact"));
+      }
+    }
+  });
+
+  it("bounces a blow off a stronger defender: the counter lands on the attacker and nothing is sliced", () => {
+    for (const a of STYLE_IDS) {
+      for (const d of STYLE_IDS) {
+        expect(ids("bounce", a, d)).toEqual(["strike-start", "strike-impact", "counter-start", "counter-impact"]);
+      }
+    }
+  });
+
+  it("has only the strike for a held or direct attack", () => {
+    expect(ids("held", "beam", "impact")).toEqual(["strike-start", "strike-impact"]);
+    expect(ids("direct", "beam", null)).toEqual(["strike-start", "strike-impact"]);
+  });
+
+  it("is sorted by time and ends before the whole fight does", () => {
+    for (const kind of ["win", "lose", "tie", "held", "bounce"] as const) {
+      for (const a of STYLE_IDS) {
+        const beats = battleTimeline(kind, a, "claw");
+        for (let i = 1; i < beats.length; i += 1) expect(beats[i].atMs).toBeGreaterThanOrEqual(beats[i - 1].atMs);
+        const slices = beats.filter((beat) => beat.id.startsWith("slice"));
+        for (const slice of slices) expect(slice.atMs).toBeLessThan(battleTiming(kind, a, "claw").totalMs);
+      }
     }
   });
 });

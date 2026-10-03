@@ -1,9 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { Link as LinkIcon, Check, Play, UserPlus, X, LogOut, Megaphone } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { TournamentSettingsForm } from "./tournament-settings-form";
+import { CopyLinkRow, FloorList, FloorRow, Mono, SectionHead, Seat, StatusLine, SvButton, ringColour } from "@/components/sheet";
+import { generateSingleElimFirstRound } from "@yugidraft/shared/tournaments";
+import styles from "./tournament-lobby.module.css";
+import { MyDeckPanel } from "./my-deck-panel";
+import { DeckMarker } from "./deck-marker";
+import { RulesPanel } from "./sheet/rules-panel";
+import { formatLabel, rulesSummary } from "./sheet-rules";
+import rail from "./sheet/rail.module.css";
+import { UNRATED_ELO, type PlayerRatings } from "./sheet-contracts";
 import type { TournamentDetail } from "./types";
 
 interface TournamentLobbyProps {
@@ -12,397 +18,202 @@ interface TournamentLobbyProps {
   isCreator: boolean;
   currentUserId: string | null;
   onChanged: () => void;
+  ratings?: PlayerRatings;
 }
 
-export function TournamentLobby({
-  tournament,
-  tournamentSlug,
-  isCreator,
-  onChanged,
-}: TournamentLobbyProps) {
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
-  const [announced, setAnnounced] = useState(false);
+/** Matches a round robin makes: every pair once. Single elimination makes n - 1. */
+function matchCount(format: string, players: number) {
+  return format === "single_elim" ? Math.max(0, players - 1) : (players * (players - 1)) / 2;
+}
+
+function roundsOf(format: string, players: number) {
+  if (format === "single_elim") {
+    let r = 0;
+    for (let n = players; n > 1; n = Math.ceil(n / 2)) r += 1;
+    return r;
+  }
+  return players % 2 === 0 ? Math.max(0, players - 1) : players;
+}
+
+/** Seats are in join order, which is the order start() hands the engine, so seat numbers stand in for players. */
+export function firstRoundNote(players: number) {
+  if (players < 2) return "";
+  const { byes, pairings } = generateSingleElimFirstRound(Array.from({ length: players }, (_, i) => i + 1));
+  const shown = pairings.slice(0, 2).map((p) => `${p.playerOneId} with ${p.playerTwoId}`);
+  const list = pairings.length > 2 ? `${shown.join(", ")} and so on` : shown.join(" and ");
+  return `${byes.length ? `Seat ${byes[0]} gets a bye. ` : ""}Round 1 pairs ${list}.`;
+}
+
+export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChanged, ratings }: TournamentLobbyProps) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+    const [announced, setAnnounced] = useState(false);
 
   const isParticipant = tournament.isParticipant;
-  const participantCount = tournament.participants.length;
-  const canStart = participantCount >= 2;
+  const players = tournament.participants;
+  const count = players.length;
+  const canStart = count >= 2;
+  const single = tournament.format === "single_elim";
+  const rules = rulesSummary(tournament);
+  const base = `/api/tournaments/${tournamentSlug}`;
 
-  async function handleJoin() {
-    setActionLoading("join");
-    setActionError(null);
+  async function call(key: string, url: string, init: RequestInit, fallback: string, after?: () => void) {
+    setBusy(key);
+    setError(null);
     try {
-      const res = await fetch(`/api/tournaments/${tournamentSlug}/join`, { method: "POST" });
+      const res = await fetch(url, init);
       if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error ?? "Failed to join tournament");
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? fallback);
       }
+      after?.();
       onChanged();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to join tournament");
+      setError(err instanceof Error ? err.message : fallback);
     } finally {
-      setActionLoading(null);
+      setBusy(null);
     }
   }
 
-  async function handleStart() {
-    setActionLoading("start");
-    setActionError(null);
-    try {
-      const res = await fetch(`/api/tournaments/${tournamentSlug}`, { method: "POST" });
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error ?? "Failed to start");
-      }
-      onChanged();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to start");
-    } finally {
-      setActionLoading(null);
-    }
-  }
+  const post = (key: string, path: string, fallback: string, after?: () => void) => call(key, `${base}${path}`, { method: "POST" }, fallback, after);
+  const link = typeof window !== "undefined" ? `${window.location.origin}/tournament/${tournamentSlug}` : `/tournament/${tournamentSlug}`;
+  const needed = 2 - count;
 
-  async function handleAddBot() {
-    setActionLoading("add-bot");
-    setActionError(null);
-    try {
-      const res = await fetch(`/api/tournaments/${tournamentSlug}/join-bot`, { method: "POST" });
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error ?? "Failed to add bot");
-      }
-      onChanged();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to add bot");
-    } finally {
-      setActionLoading(null);
-    }
-  }
-
-  async function handleCancel() {
-    setActionLoading("cancel");
-    setActionError(null);
-    try {
-      const res = await fetch(`/api/tournaments/${tournamentSlug}`, { method: "DELETE" });
-      if (!res.ok) {
-        const body = await res.json();
-        throw new Error(body.error ?? "Failed to cancel");
-      }
-      setShowCancelConfirm(false);
-      onChanged();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to cancel");
-    } finally {
-      setActionLoading(null);
-    }
-  }
+  const rulesLine = rules ? `${formatLabel(tournament.format)}, best of ${rules.bestOf}` : formatLabel(tournament.format);
+  const extra = rules ? rules.line.split(", ").slice(2).join(", ") : "";
 
   return (
-    <>
-      {actionError && (
-        <div className="mb-4 rounded-lg border border-accent-cta/50 bg-accent-cta/10 px-4 py-2 text-sm text-accent-cta">
-          {actionError}
-        </div>
-      )}
+    <div className={styles.lobby}>
+      <div className={styles.main}>
+        {error && <div role="alert"><StatusLine tone="block">{error}</StatusLine></div>}
 
-      {/* Invite & share — visible to anyone on a pending tournament */}
-      <section className="mb-6 rounded-xl border border-border bg-surface p-5">
-        <div className="mb-3 flex items-center gap-2">
-          <LinkIcon className="h-4 w-4 text-accent-primary" />
-          <h2 className="font-body text-sm font-semibold uppercase tracking-wider text-text-secondary">
-            Invite link
-          </h2>
-        </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-stretch">
-          <code className="flex-1 truncate rounded-lg border border-border bg-bg-deep px-3 py-2 font-mono text-sm text-text-primary">
-            {typeof window !== "undefined"
-              ? `${window.location.origin}/tournament/${tournamentSlug}`
-              : `/tournament/${tournamentSlug}`}
-          </code>
-          <div className="flex gap-2">
-            <Button
-              variant={copiedLink ? "secondary" : "primary"}
-              size="md"
-              onClick={async () => {
-                const url = `${window.location.origin}/tournament/${tournamentSlug}`;
-                await navigator.clipboard.writeText(url);
-                setCopiedLink(true);
-                setTimeout(() => setCopiedLink(false), 1500);
-              }}
-            >
-              {copiedLink ? <Check className="h-4 w-4" /> : <LinkIcon className="h-4 w-4" />}
-              {copiedLink ? "Copied" : "Copy"}
-            </Button>
-            {isCreator && (
-              <Button
-                variant="secondary"
-                size="md"
-                loading={actionLoading === "announce"}
-                onClick={async () => {
-                  setActionLoading("announce");
-                  setActionError(null);
-                  try {
-                    const res = await fetch(`/api/tournaments/${tournamentSlug}/announce`, {
-                      method: "POST",
-                    });
-                    if (!res.ok) {
-                      const body = await res.json();
-                      throw new Error(body.error ?? "Failed to announce");
-                    }
-                    setAnnounced(true);
-                    setTimeout(() => setAnnounced(false), 2500);
-                  } catch (err) {
-                    setActionError(err instanceof Error ? err.message : "Failed to announce");
-                  } finally {
-                    setActionLoading(null);
-                  }
-                }}
-              >
-                {announced ? (
-                  <Check className="h-4 w-4 text-accent-success" />
-                ) : (
-                  <Megaphone className="h-4 w-4" />
-                )}
-                {announced ? "Announced" : "Announce"}
-              </Button>
-            )}
-          </div>
-        </div>
-        <p className="mt-2 text-xs text-text-secondary">
-          Share this link with players so they can join.
-        </p>
-      </section>
+        {!isParticipant && (
+          <section className={styles.join} aria-label={`Join ${tournament.name}`}>
+            <div>
+              <h2 className={styles.joinT}>Join {tournament.name}</h2>
+              <p className={styles.joinN}>{rulesLine}{extra ? `, ${extra}` : ""}. {count} {count === 1 ? "player" : "players"} so far.</p>
+              <p className={styles.note}>You register a deck after joining. You can leave any time before the start.</p>
+            </div>
+            <SvButton variant="primary" big disabled={busy === "join"} aria-busy={busy === "join"} onClick={() => post("join", "/join", "Failed to join tournament")}>Join tournament</SvButton>
+          </section>
+        )}
 
-      {/* Players — chips + empty seats + progress + hosting/leave row */}
-      <section className="mb-6 rounded-xl border border-border bg-surface p-5">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="font-body text-lg font-semibold text-text-primary">
-            Players
-            <span className="ml-2 text-text-secondary">({participantCount})</span>
-          </h2>
-          <span className="font-mono text-xs uppercase tracking-wider text-text-secondary">
-            {participantCount} / 2 minimum
-          </span>
-        </div>
+        {isParticipant && !isCreator && (
+          <section className={styles.joined}>
+            <p className={styles.joinN}>You&apos;re in. Waiting for the organizer to start.</p>
+            <SvButton variant="quiet" disabled={busy === "leave"} onClick={() => post("leave", "/leave", "Failed to leave")}>Leave tournament</SvButton>
+          </section>
+        )}
 
-        <div className="mb-4 h-1 w-full overflow-hidden rounded-full bg-bg-deep">
-          <div
-            className={`h-full motion-safe:transition-all motion-safe:duration-300 ${
-              canStart ? "bg-accent-success" : "bg-accent-primary"
-            }`}
-            style={{ width: `${Math.min(100, (participantCount / 2) * 100)}%` }}
-          />
-        </div>
+        <section aria-label={isCreator ? "Invite players" : "Invite link"} className={styles.invite}>
+          <SectionHead title={isCreator ? "Invite players" : "Invite link"} note={isCreator ? "Anyone in the server can join." : "Share it so others can join."} />
+          <CopyLinkRow value={link} label="Invite link" />
+          {isCreator && (
+            <p className={styles.note}>Players can also join from Discord with <code className={styles.cmd}>/event join</code>.</p>
+          )}
+        </section>
 
-        <div className="flex flex-wrap gap-2">
-          {tournament.participants.map((p) => {
-            const isYou = p.playerId === tournament.currentUserPlayerId;
-            const isHost = isCreator && isYou;
-            const canKick = isCreator && !isYou;
-            return (
-              <span
-                key={p.playerId}
-                className={`group inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm motion-safe:transition-colors ${
-                  isYou
-                    ? "border-accent-primary/40 bg-accent-primary/10 text-text-primary"
-                    : "border-border bg-bg-elevated text-text-secondary"
-                }`}
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${isYou ? "bg-accent-primary" : "bg-text-secondary"}`}
-                />
-                <span className="font-body font-medium">{p.displayName}</span>
-                {isHost && (
-                  <span className="rounded-sm bg-accent-gold/20 px-1 py-px font-mono text-[10px] uppercase tracking-wider text-accent-gold">
-                    Host
+        <section aria-labelledby="seats-t" className={styles.seats}>
+          <SectionHead title="Who's in" id="seats-t" note={`${count} joined. At least 2 to start. No seat limit.`} />
+          <FloorList>
+            {players.map((p, i) => {
+              const you = p.playerId === tournament.currentUserPlayerId;
+              const rating = ratings?.get(p.playerId);
+              const rated = rating && rating.rating !== UNRATED_ELO;
+              return (
+                <FloorRow key={p.playerId} you={you} cols={single ? "28px minmax(0, 1fr) auto auto" : "minmax(0, 1fr) auto auto"} phoneCols={undefined}>
+                  {single && <span className={styles.no}>{i + 1}</span>}
+                  <span className={styles.who}>
+                    <Seat
+                      name={p.displayName}
+                      href={`/player/${p.playerId}`}
+                      you={you}
+                      ring={ringColour(p.playerId)}
+                      tier={rating?.rank}
+                      elo={rated ? rating.rating : undefined}
+                      trailing={isCreator && you ? <span className={styles.host}>Host</span> : undefined}
+                    />
                   </span>
-                )}
-                {isYou && !isHost && (
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-text-secondary">
-                    You
-                  </span>
-                )}
-                {canKick && (
-                  <button
-                    type="button"
-                    aria-label={`Remove ${p.displayName}`}
-                    className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full text-text-secondary motion-safe:transition-colors hover:bg-accent-cta/20 hover:text-accent-cta"
-                    onClick={async () => {
-                      setActionLoading(`kick-${p.playerId}`);
-                      setActionError(null);
-                      try {
-                        const res = await fetch(`/api/tournaments/${tournamentSlug}/kick`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ playerId: p.playerId }),
-                        });
-                        if (!res.ok) {
-                          const body = await res.json();
-                          throw new Error(body.error ?? "Failed to remove");
-                        }
-                        onChanged();
-                      } catch (err) {
-                        setActionError(err instanceof Error ? err.message : "Failed to remove");
-                      } finally {
-                        setActionLoading(null);
-                      }
-                    }}
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-              </span>
-            );
-          })}
-          {Array.from({ length: Math.max(0, 2 - participantCount) }).map((_, i) => (
-            <span
-              key={`empty-${i}`}
-              className="inline-flex items-center gap-2 rounded-full border border-dashed border-border px-3 py-1.5 text-sm text-text-secondary"
-            >
-              <UserPlus className="h-3.5 w-3.5" />
-              <span className="font-mono text-xs uppercase tracking-wider">Open seat</span>
-            </span>
-          ))}
-        </div>
+                  {isCreator ? <DeckMarker participant={p} /> : <span />}
+                  {isCreator && !you ? (
+                    <SvButton
+                      variant="quiet"
+                      aria-label={`Remove ${p.displayName}`}
+                      disabled={busy === `kick-${p.playerId}`}
+                      onClick={() => call(`kick-${p.playerId}`, `${base}/kick`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ playerId: p.playerId }) }, "Failed to remove")}
+                    >
+                      Remove
+                    </SvButton>
+                  ) : <span />}
+                </FloorRow>
+              );
+            })}
+            {Array.from({ length: Math.max(0, needed) }).map((_, i) => (
+              <FloorRow key={`open-${i}`} cols="minmax(0, 1fr)">
+                <span className={styles.open}><Mono name="" dashed size="md" />Open seat. Needed to start.</span>
+              </FloorRow>
+            ))}
+          </FloorList>
+          {single && count > 1 && <p className={styles.note}>{firstRoundNote(count)}</p>}
+          {isParticipant && isCreator && (
+            <div className={styles.joined}>
+              <p className={styles.joinN}>Hosting and playing in this tournament.</p>
+              <SvButton variant="quiet" disabled={busy === "leave"} onClick={() => post("leave", "/leave", "Failed to leave")}>Leave as participant</SvButton>
+            </div>
+          )}
+        </section>
 
         {isParticipant && (
-          <div className="mt-4 flex items-center justify-between border-t border-border pt-4 text-sm">
-            <p className="text-text-secondary">
-              {isCreator
-                ? "Hosting and playing in this tournament."
-                : "You're in. Waiting for the organizer to start."}
-            </p>
-            <button
-              type="button"
-              disabled={actionLoading === "leave"}
-              className="inline-flex items-center gap-1.5 text-text-secondary motion-safe:transition-colors hover:text-text-primary disabled:opacity-50"
-              onClick={async () => {
-                setActionLoading("leave");
-                setActionError(null);
-                try {
-                  const res = await fetch(`/api/tournaments/${tournamentSlug}/leave`, {
-                    method: "POST",
-                  });
-                  if (!res.ok) {
-                    const body = await res.json();
-                    throw new Error(body.error ?? "Failed to leave");
-                  }
-                  onChanged();
-                } catch (err) {
-                  setActionError(err instanceof Error ? err.message : "Failed to leave");
-                } finally {
-                  setActionLoading(null);
-                }
-              }}
-            >
-              <LogOut className="h-3.5 w-3.5" />
-              {isCreator ? "Leave as participant" : "Leave tournament"}
-            </button>
-          </div>
+          <section id="my-deck" aria-label="Your deck" className={styles.deck}>
+            <MyDeckPanel tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
+          </section>
         )}
-      </section>
+      </div>
 
-      {/* Join — non-participant on a pending tournament */}
-      {!isParticipant && (
-        <div className="mb-6 flex flex-col items-center gap-2">
-          <Button
-            variant="primary"
-            size="lg"
-            loading={actionLoading === "join"}
-            onClick={handleJoin}
-            className="min-w-[240px]"
-          >
-            <UserPlus className="h-5 w-5" />
-            Join Tournament
-          </Button>
-        </div>
-      )}
-
-      {/* Timing settings — organizer only */}
-      {isCreator && (
-        <section className="mb-6">
-          <TournamentSettingsForm
-            tournamentSlug={tournamentSlug}
-            initialDeadlineAt={tournament.deadlineAt}
-            initialReportConfirmWindowHours={tournament.reportConfirmWindowHours}
-            onSaved={onChanged}
-          />
-        </section>
-      )}
-
-      {/* Primary action — Start / Add Bot (organizer pending), pinned below settings */}
-      {isCreator && (
-        <div className="mb-6 flex flex-col items-center gap-2">
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Button
-              variant="primary"
-              size="lg"
-              loading={actionLoading === "start"}
-              disabled={!canStart}
-              title={!canStart ? "Need at least 2 participants to start" : undefined}
-              onClick={handleStart}
-              className="min-w-[240px]"
-            >
-              <Play className="h-5 w-5" />
-              Start Tournament
-            </Button>
-            {process.env.NODE_ENV !== "production" && (
-              <Button
-                variant="secondary"
-                size="lg"
-                loading={actionLoading === "add-bot"}
-                onClick={handleAddBot}
-              >
-                <UserPlus className="h-5 w-5" />
-                Add Bot
-              </Button>
-            )}
-          </div>
-          {!canStart && (
-            <p className="font-mono text-xs uppercase tracking-wider text-text-secondary">
-              Need {2 - participantCount} more{" "}
-              {2 - participantCount === 1 ? "player" : "players"} to start
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Cancel — quiet destructive footer link, organizer only */}
-      {isCreator && (
-        <div className="mb-8 flex justify-center">
-          {showCancelConfirm ? (
-            <div className="flex items-center gap-3 rounded-lg border border-accent-cta/40 bg-accent-cta/5 px-4 py-2 text-sm">
-              <span className="text-text-secondary">Cancel this tournament?</span>
-              <Button
-                variant="danger"
-                size="sm"
-                loading={actionLoading === "cancel"}
-                onClick={handleCancel}
-              >
-                Yes, cancel
-              </Button>
-              <button
-                type="button"
-                className="text-text-secondary hover:text-text-primary"
-                onClick={() => setShowCancelConfirm(false)}
-              >
-                Go back
-              </button>
+      <aside className={`${rail.rail} ${styles.rail}`} aria-label="Tournament details">
+        {isCreator && (
+          <section className={rail.sec} aria-label="Start">
+            <h2 className={rail.h}>Start</h2>
+            <div className={styles.startActs}>
+              <SvButton variant="primary" big wide disabled={!canStart || busy === "start"} title={!canStart ? "Need at least 2 participants to start" : undefined} onClick={() => call("start", base, { method: "POST" }, "Failed to start")}>
+                Start the tournament
+              </SvButton>
+              {process.env.NODE_ENV !== "production" && (
+                <SvButton variant="quiet" disabled={busy === "add-bot"} onClick={() => post("add-bot", "/join-bot", "Failed to add bot")}>Add a bot</SvButton>
+              )}
+              <SvButton variant="quiet" disabled={busy === "announce"} onClick={() => post("announce", "/announce", "Failed to announce", () => { setAnnounced(true); setTimeout(() => setAnnounced(false), 2500); })}>
+                {announced ? "Announced" : "Announce in Discord"}
+              </SvButton>
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowCancelConfirm(true)}
-              className="inline-flex items-center gap-1.5 text-xs text-text-secondary motion-safe:transition-colors hover:text-accent-cta"
-            >
-              <X className="h-3.5 w-3.5" />
-              Cancel tournament
-            </button>
-          )}
-        </div>
-      )}
-    </>
+            <p className={styles.note}>
+              {canStart
+                ? `Starting draws the first round: ${matchCount(tournament.format, count)} matches over ${roundsOf(tournament.format, count)} rounds for the ${count} players here. Nobody can join after this. Players without a deck can still register one later.`
+                : `Starting needs 2 or more players. ${needed} more to go.`}
+            </p>
+          </section>
+        )}
+        <RulesPanel tournament={tournament} tournamentSlug={tournamentSlug} isHost={isCreator} onChanged={onChanged} />
+        {isCreator && (
+          <section className={rail.sec} aria-label="Cancel">
+            {confirmCancel ? (
+              <div className={rail.confirmBox}>
+                <StatusLine tone="warn"><strong>Cancel this tournament?</strong> It is removed for the {count} {count === 1 ? "player" : "players"} who joined. Nothing has been played yet.</StatusLine>
+                <div className={rail.endActs}>
+                  <SvButton variant="quiet" onClick={() => setConfirmCancel(false)}>Go back</SvButton>
+                  <SvButton variant="danger" disabled={busy === "cancel"} onClick={() => call("cancel", base, { method: "DELETE" }, "Failed to cancel", () => setConfirmCancel(false))}>Yes, cancel</SvButton>
+                </div>
+              </div>
+            ) : (
+              <div className={rail.endRow}>
+                <p className={rail.endT}>Cancel the tournament</p>
+                <p className={rail.endN}>Cancelling removes the tournament for everyone. Nothing has been played yet.</p>
+                <div className={rail.endActs}><SvButton variant="danger" onClick={() => setConfirmCancel(true)}>Cancel the tournament</SvButton></div>
+              </div>
+            )}
+          </section>
+        )}
+      </aside>
+    </div>
   );
 }

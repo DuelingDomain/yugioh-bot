@@ -13,6 +13,7 @@ COPY packages/ws/package*.json packages/ws/
 COPY packages/web/package*.json packages/web/
 COPY packages/shared/package*.json packages/shared/
 COPY packages/duel-server/package*.json packages/duel-server/
+COPY packages/e2e/package*.json packages/e2e/
 COPY patches/ patches/
 RUN npm ci
 
@@ -66,6 +67,9 @@ CMD ["node", "packages/ws/dist/server.js"]
 FROM node:22-bookworm-slim AS duel
 WORKDIR /app
 ENV NODE_ENV=production
+# The bundle installer reads the sibling SQLite database to protect active duels.
+RUN apt-get update && apt-get install -y --no-install-recommends python3 && \
+    rm -rf /var/lib/apt/lists/*
 COPY --from=build /app/package*.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared/package*.json packages/shared/
@@ -73,8 +77,18 @@ COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/duel-server/package*.json packages/duel-server/
 COPY --from=build /app/packages/duel-server/dist packages/duel-server/dist
 COPY --from=build /app/packages/duel-server/scripts/install-engine-bundle.sh packages/duel-server/scripts/install-engine-bundle.sh
+COPY --from=build /app/packages/duel-server/scripts/verify-deploy-multi-cores.mjs packages/duel-server/scripts/verify-deploy-multi-cores.mjs
 RUN mkdir -p /app/data
 CMD ["sh", "-c", "sh packages/duel-server/scripts/install-engine-bundle.sh && exec node packages/duel-server/dist/server.js"]
+
+# CI compiles the pinned engine bundle before it reaches the VM. The deploy
+# scripts pass the verified tarball contents as the named engine build context.
+# Keep a source outside /app/data: the Compose bind mount hides image data there.
+FROM duel AS duel-bundled
+ENV DUEL_BUNDLE_SRC=/opt/duel-engine
+ENV DUEL_DATA_DIR=/app/data/duel-engine
+COPY --from=engine --chmod=0755 . /opt/duel-engine/
+RUN DUEL_DATA_DIR=/opt/duel-engine node packages/duel-server/scripts/verify-deploy-multi-cores.mjs
 
 # ── web ──────────────────────────────────────────────────────────────────────
 # Production stage for the Next.js web dashboard.
@@ -107,6 +121,7 @@ COPY packages/ws/package*.json packages/ws/
 COPY packages/web/package*.json packages/web/
 COPY packages/shared/package*.json packages/shared/
 COPY packages/duel-server/package*.json packages/duel-server/
+COPY packages/e2e/package*.json packages/e2e/
 # Copy full source — bind mounts in docker-compose.override.yml overlay these at runtime
 COPY . .
 # Next dev regenerates next-env.d.ts and writes .next/.turbo at runtime, but

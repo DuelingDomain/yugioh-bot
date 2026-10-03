@@ -24,6 +24,8 @@ import type { CardDatabase } from "./cards.js";
 import { cardInfoLabel } from "./cards.js";
 import { attributeName, fillPlaceholders, locationLabel, positionLabel, raceName, type TemplateValue } from "./text.js";
 import { DOMAIN_LEAVE_TAX_STEP, DUELIST_NONE, LOCATION_DECKMASTER, type DomainSeatState } from "./views.js";
+import { sortCardResponse } from "./sort-response.js";
+export { sortCardResponse } from "./sort-response.js";
 
 export interface MapPromptExtras {
   recall?: { card: DuelCardInfo; returns: number; nextCost: number };
@@ -48,6 +50,8 @@ export interface MapPromptExtras {
    * left out of the prompt. When that would leave no option, the full list stays so that the duel cannot deadlock.
    */
   livingSeats?: readonly number[];
+  /** The Synchro monster explicitly chosen for an inherent summon, with its queried Level. */
+  synchroSummon?: DuelZoneRef & { code: number; level: number };
 }
 
 /** strings.conf: `Use the effect of "%ls" from [%ls]?` — the core's default for a SELECT_EFFECTYN without a description. */
@@ -319,6 +323,18 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
   const hint = selectHint ? fillPlaceholders(selectHint, [subjectName]).trim() : undefined;
   // Prompts raised while an effect resolves inherit that effect's card as their source.
   const hinted = (built: PendingPrompt): PendingPrompt => {
+    const summon = extras?.synchroSummon;
+    if (summon && summon.controller === built.seat && built.prompt.kind === "toggle" &&
+      /\bsynchro material\b/i.test(built.prompt.title)) {
+      built.prompt.target = summon.level;
+      built.prompt.sumMode = "exact";
+      built.prompt.source = sourceOf(cards, summon.code, built.seat, zoneRef(summon));
+      // A material with its own Synchro Level (Road Synchron) adds a value the core does not report.
+      for (const option of built.prompt.options) {
+        const code = option.card?.code;
+        if (code && cards.readScript(`c${code}.lua`)?.includes("EFFECT_SYNCHRO_LEVEL")) option.synchroLevelVaries = true;
+      }
+    }
     if (!built.prompt.source && extras?.hintCard) {
       const source = sourceOf(cards, extras.hintCard, built.seat);
       if (source) built.prompt.source = source;
@@ -620,11 +636,12 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           id,
           seat: message.player,
           kind: "sum",
-          title: hint || `Select cards totaling ${message.amount}`,
+          title: hint || `Select cards totaling ${message.select_max ? "at least " : ""}${message.amount}`,
           options: [...must, ...optional],
           min: must.length + message.min,
           max: must.length + (message.select_max ? message.selects.length : message.max),
           target: message.amount,
+          sumMode: message.select_max ? "at-least" : "exact",
           mandatory: must.map((option) => option.id),
         },
         message,
@@ -791,30 +808,45 @@ function uniqueIndices(ids: string[], prefix: string): number[] {
   return indices;
 }
 
-/**
- * ocgcore-wasm writes a SORT_CARD response as [length, ...indices]. The core reads the indices from
- * byte 0 (`returns.at<int8_t>(i)` for each of the m cards, or -1 for "keep the order"), so the length
- * byte makes every answer with an order fail with a RETRY. SELECT_PLACE is the one response type the
- * library writes as plain bytes, so the order goes out as fake places: each place is three bytes.
- * The core ignores the padding after the first m bytes.
- */
-export function sortCardResponse(order: number[] | null): OcgResponse {
-  if (!order || order.length <= 1) return { type: OcgResponseType.SORT_CARD, order: null };
-  const padded = [...order];
-  while (padded.length % 3 !== 0) padded.push(0);
-  const places: SelectFieldPlace[] = [];
-  for (let at = 0; at < padded.length; at += 3) {
-    places.push({ player: padded[at]!, location: padded[at + 1]!, sequence: padded[at + 2]! } as unknown as SelectFieldPlace);
-  }
-  return { type: OcgResponseType.SELECT_PLACE, places };
+export interface AutoResponseOptions {
+  /**
+   * Ask about every response window that lists a card, even when none fits the window's timing. Off, a
+   * window with spe_count 0 is passed silently. Undefined counts as on: engines without duel settings
+   * (and duels saved before the setting existed) must keep producing the prompts they were played with.
+   */
+  stopAtEveryWindow?: boolean;
+  /**
+   * The phase the window opens in (the engine's phase name, "draw", "standby", "main1"...). The Draw and
+   * Standby Phase are never skipped past a real option: a window that lists a card is offered there even
+   * when none fits its timing, so a player holding a Quick-Play Spell or a Trap gets to act. An empty
+   * window still passes by itself.
+   */
+  phase?: string;
 }
 
-export function autoResponse(pending: PendingPrompt): OcgResponse | null {
+function isDrawOrStandbyPhase(phase: string | undefined): boolean {
+  return phase === "draw" || phase === "standby";
+}
+
+export function autoResponse(pending: PendingPrompt, options: AutoResponseOptions = {}): OcgResponse | null {
   const { message, prompt } = pending;
   switch (message.type) {
     case OcgMessageType.SELECT_CHAIN:
       if (message.selects.length === 0) return { type: OcgResponseType.SELECT_CHAIN, index: null };
       if (message.forced && message.selects.length === 1) return { type: OcgResponseType.SELECT_CHAIN, index: 0 };
+      // spe_count is the core's count of listed effects that belong to this window: optional triggers, and
+      // free-chain or quick effects whose declared hint timing matches it (every listed card during an
+      // attack declaration or a chain). The EDOPro client passes a non-forced window at 0; a Battle Step or
+      // Damage Step with only off-timing cards is the case that stalled a direct attack. A card that can
+      // really act there (an ATK boost in the Damage Step) declares the timing, so its window stays.
+      if (
+        options.stopAtEveryWindow === false &&
+        !message.forced &&
+        message.spe_count === 0 &&
+        !isDrawOrStandbyPhase(options.phase)
+      ) {
+        return { type: OcgResponseType.SELECT_CHAIN, index: null };
+      }
       return null;
     case OcgMessageType.SELECT_CARD:
       if (message.min === message.max && message.max === message.selects.length && message.selects.length > 0) {

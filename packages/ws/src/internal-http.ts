@@ -2,6 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { TypedServer } from "./events.js";
 import { verifyBroadcastSignature } from "./auth.js";
 import { draftSocketRoom } from "./rooms.js";
+import { isTalkLine, type TalkLineId } from "@yugidraft/shared/ws";
 
 type StatusBody = { slug: string; status: "active" | "cancelled" | "completed" };
 type PickBody = { slug: string; playerId: number; packRound: number; pickStep: number };
@@ -50,6 +51,18 @@ function parseSeats(v: unknown): { slug: string } | null {
   return { slug: o.slug };
 }
 
+type TalkBody = { slug: string; playerId: number; line: TalkLineId };
+
+/** The line must be one of the fixed ids; anything else never reaches a browser. */
+function parseTalk(v: unknown): TalkBody | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (!isNonEmptyString(o.slug)) return null;
+  if (typeof o.playerId !== "number" || !Number.isInteger(o.playerId)) return null;
+  if (!isTalkLine(o.line)) return null;
+  return { slug: o.slug, playerId: o.playerId, line: o.line };
+}
+
 type TournamentJoinedBody = { slug: string; playerId: number; displayName: string };
 type TournamentLeftBody = { slug: string; playerId: number };
 type TournamentSlugOnlyBody = { slug: string };
@@ -85,7 +98,7 @@ function parseDuelChanged(v: unknown): { slug: string; guildId: string } | null 
   return { slug: o.slug, guildId: o.guildId };
 }
 
-export function createInternalHttpHandler(opts: { io: TypedServer; secret: string }) {
+export function createInternalHttpHandler(opts: { io: TypedServer; secret: string; beforeDraftBroadcast?: (slug: string) => void }) {
   return async function handle(req: Request): Promise<Response> {
     const url = new URL(req.url);
     if (req.method !== "POST") return new Response("Not found", { status: 404 });
@@ -101,12 +114,14 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
       case "/internal/draft/status": {
         const data = parseStatus(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeDraftBroadcast?.(data.slug);
         opts.io.to(draftSocketRoom(data.slug)).emit("draft:status", { status: data.status });
         return new Response(null, { status: 204 });
       }
       case "/internal/draft/pick": {
         const data = parsePick(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeDraftBroadcast?.(data.slug);
         opts.io.to(draftSocketRoom(data.slug)).emit("draft:pick", {
           playerId: data.playerId,
           packRound: data.packRound,
@@ -117,6 +132,7 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
       case "/internal/draft/resync": {
         const data = parseResync(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeDraftBroadcast?.(data.slug);
         opts.io.to(draftSocketRoom(data.slug)).emit("draft:resync", {
           packRound: data.packRound,
           pickStep: data.pickStep,
@@ -126,13 +142,22 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
       case "/internal/draft/complete": {
         const data = parseComplete(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeDraftBroadcast?.(data.slug);
         opts.io.to(draftSocketRoom(data.slug)).emit("draft:complete", {});
         return new Response(null, { status: 204 });
       }
       case "/internal/draft/seats": {
         const data = parseSeats(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeDraftBroadcast?.(data.slug);
         opts.io.to(draftSocketRoom(data.slug)).emit("draft:seats", {});
+        return new Response(null, { status: 204 });
+      }
+      case "/internal/draft/talk": {
+        const data = parseTalk(parsed);
+        if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeDraftBroadcast?.(data.slug);
+        opts.io.to(draftSocketRoom(data.slug)).emit("draft:talk", { playerId: data.playerId, line: data.line });
         return new Response(null, { status: 204 });
       }
       case "/internal/tournament/participant-joined": {
@@ -187,8 +212,8 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
   };
 }
 
-export function listenInternalHttp(opts: { io: TypedServer; secret: string; port: number }): Server {
-  const handle = createInternalHttpHandler({ io: opts.io, secret: opts.secret });
+export function listenInternalHttp(opts: { io: TypedServer; secret: string; port: number; beforeDraftBroadcast?: (slug: string) => void }): Server {
+  const handle = createInternalHttpHandler(opts);
   const server = createServer(async (nodeReq, nodeRes) => {
     const chunks: Buffer[] = [];
     for await (const chunk of nodeReq) chunks.push(chunk as Buffer);
