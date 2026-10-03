@@ -69,7 +69,7 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
     scenario(format, "first-turn-draw-and-battle-window", {
       setup: setup(format, {}, false),
       steps: [...SEATS[format].flatMap((seat, index): Step[] => [expectTurn(seat, index + 1),
-        expectPrompt({ by: seat, ...(format === "tag" && index === 3 ? { offers: ["to_bp"] } : { notOffers: ["to_bp"] }) }),
+        expectPrompt({ by: seat, ...(index === SEATS[format].length - 1 ? { offers: ["to_bp"] } : { notOffers: ["to_bp"] }) }),
         board(format, Object.fromEntries(SEATS[format].map((s, at) => [s, { hand: { count: at > 0 && at <= index ? 1 : 0 }, deckCount: at > 0 && at <= index ? 19 : 20 }]))), endTurn(seat)]),
         expectTurn("p0", SEATS[format].length + 1), expectPrompt({ by: "p0", offers: ["to_bp"] }),
         board(format, Object.fromEntries(SEATS[format].map((s) => [s, { hand: { count: 1 }, deckCount: 19 }])))],
