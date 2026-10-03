@@ -5,8 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultDuelSettings, type DuelRoom, type DuelListItem } from "@yugidraft/shared/duels";
 import { makeSeries, makeSeriesRoom } from "../helpers/duel-series";
 
-const { listSavedDecks, listData, takeDuelSeat, push } = vi.hoisted(() => ({
+const { listSavedDecks, listData, takeDuelSeat, push, requireDuelActor, roomView } = vi.hoisted(() => ({
   listSavedDecks: vi.fn(), listData: { duels: [] as DuelListItem[] }, takeDuelSeat: vi.fn(), push: vi.fn(),
+  requireDuelActor: vi.fn(), roomView: vi.fn(),
 }));
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
@@ -22,13 +23,22 @@ vi.mock("../../src/components/duel/api", async (importOriginal) => ({
   validateDuelDeck: vi.fn(async () => ({ issues: [] })),
   searchDuelCards: vi.fn(async () => ({ cards: [] })),
 }));
-vi.mock("@/components/duel/room", () => ({ DuelRoomView: () => <div>Room</div> }));
+vi.mock("@/lib/duel-host", () => ({ requireDuelActor }));
+vi.mock("@/components/duel/room", () => ({ DuelRoomView: (props: unknown) => {
+  roomView(props);
+  return <div>Room</div>;
+} }));
 
 import { RoomLobby } from "../../src/components/duel/room-lobby";
 import { DuelLobby } from "../../src/components/duel/lobby";
 import DuelRoomPage from "../../app/(app)/duels/[slug]/page";
 
-beforeEach(() => { takeDuelSeat.mockReset(); takeDuelSeat.mockResolvedValue({ session: room(1, true).session }); });
+beforeEach(() => {
+  takeDuelSeat.mockReset();
+  takeDuelSeat.mockResolvedValue({ session: room(1, true).session });
+  requireDuelActor.mockReset();
+  requireDuelActor.mockResolvedValue({ ok: true, playerId: 11 });
+});
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -194,6 +204,21 @@ describe("table list entry", () => {
     fireEvent.click(watch);
     expect(takeDuelSeat).not.toHaveBeenCalled();
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it("keeps the guild actor identity and failed-claim notice while spectating", async () => {
+    render(await DuelRoomPage({ params: Promise.resolve({ slug: "game-1" }),
+      searchParams: Promise.resolve({ join: "failed", spectate: "1", window: "1", stage: "legacy", invite: "code" }) }));
+    expect(requireDuelActor).toHaveBeenCalledTimes(1);
+    expect(roomView).toHaveBeenCalledWith({ slug: "game-1", inviteCode: "code", windowed: true,
+      legacyStage: true, spectate: true, actorPlayerId: 11 });
+    expect(screen.getByRole("status")).toHaveTextContent(/could not confirm the seat claim/i);
+  });
+
+  it("does not forward an actor identity when the guild guard denies access", async () => {
+    requireDuelActor.mockResolvedValue({ ok: false });
+    render(await DuelRoomPage({ params: Promise.resolve({ slug: "game-1" }), searchParams: Promise.resolve({ spectate: "1" }) }));
+    expect(roomView).toHaveBeenCalledWith(expect.objectContaining({ spectate: true, actorPlayerId: null }));
   });
 
   it("shows no failed-claim notice for ordinary room entry", async () => {
