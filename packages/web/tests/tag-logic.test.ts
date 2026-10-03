@@ -216,7 +216,7 @@ describe("responseWindow", () => {
 
 describe("rivalPickOptions", () => {
   const four = () => engine([seat(0, 1, true), seat(1, 1, true), seat(2, 1, true), seat(3, 1, false)]);
-  const choice = (options: Array<{ id: string; label: string; controller?: number }>, context?: unknown) =>
+  const choice = (options: Array<{ id: string; label: string; controller?: number; location?: number; sequence?: number }>, context?: unknown) =>
     ({ id: "p", seat: 0, kind: "choice", title: "t", options, context }) as unknown as DuelPrompt;
 
   it("is empty without a prompt", () => {
@@ -227,13 +227,19 @@ describe("rivalPickOptions", () => {
     expect([...rivalPickOptions(four(), p)]).toEqual([[1, "o1"], [3, "o3"]]);
   });
   it("reads a direct attack whose options name rivals", () => {
-    const p = choice([{ id: "direct-3", label: "x", controller: 3 }]);
+    const p = choice([{ id: "direct-3", label: "Attack Player 4 directly", controller: 3 }]);
     expect([...rivalPickOptions(four(), p)]).toEqual([[3, "direct-3"]]);
   });
   it("ignores a chain or action prompt and options of the own team", () => {
     expect(rivalPickOptions(four(), choice([{ id: "a", label: "a", controller: 1 }], { type: "chain" })).size).toBe(0);
     expect(rivalPickOptions(four(), choice([{ id: "a", label: "a", controller: 2 }])).size).toBe(0);
     expect(rivalPickOptions(four(), choice([{ id: "a", label: "a" }])).size).toBe(0);
+  });
+  it("does not read a choice among rival cards as a seat pick", () => {
+    const cards = choice([{ id: "c1", label: "Select a card", controller: 1, location: 4, sequence: 0 }, { id: "c3", label: "Select a card", controller: 3, location: 4, sequence: 1 }]);
+    expect(rivalPickOptions(four(), cards).size).toBe(0);
+    // Nor a plain option choice that happens to carry rival seats, without the direct attack wording.
+    expect(rivalPickOptions(four(), choice([{ id: "o1", label: "Option 1", controller: 1 }])).size).toBe(0);
   });
   it("leaves out an eliminated rival", () => {
     const e = engine([seat(0, 1, true), seat(1, 1, true), seat(2, 1, true), seat(3, 1, true, { eliminated: true })]);

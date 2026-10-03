@@ -34,14 +34,6 @@ const teamLp = (engine: DuelEngineView, team: number): number => engine.seats.fi
 const teamHits = (events: DuelEvent[], team: number): DuelEvent[] =>
   events.filter((event) => event.kind === "damage" && event.seat != null && teamOf(event.seat) === team && (event.amount ?? 0) > 0);
 
-/** One hit per core message: a second event right after the first, for a team mate with the same amount and cause, mirrors it. */
-function collapseMirrors(hits: DuelEvent[]): DuelEvent[] {
-  return hits.filter((hit, index) => {
-    const before = hits[index - 1];
-    return !(before && before.seat !== hit.seat && before.amount === hit.amount && before.cause === hit.cause);
-  });
-}
-
 /**
  * The attacker picks the rival to hit directly. The engine may ask for it (a choice that names rival seats), or may
  * attack at once. The pick goes through the rival chip of the team plate, then a confirm button if the table has one.
@@ -140,12 +132,9 @@ test.describe("Tag battle", () => {
     expect(room.engine!.seats.filter((seat) => teamOf(seat.seat) === 0).map((seat) => seat.lp)).toEqual([TEAM_LP - attack, TEAM_LP - attack]);
     expect(room.engine!.seats.filter((seat) => teamOf(seat.seat) === 1).map((seat) => seat.lp)).toEqual([TEAM_LP, TEAM_LP]);
 
-    // The retained event log holds exactly one damage effect for the team (a mirror event for the team mate counts as the same hit).
-    const raw = teamHits(room.engine!.events, 0);
-    await info.attach("team-0-damage-events", { body: JSON.stringify(raw, null, 2), contentType: "application/json" });
-    expect(raw.length).toBeGreaterThan(0);
-    expect(raw.length).toBeLessThanOrEqual(2);
-    const hits = collapseMirrors(raw);
+    // The retained event log holds exactly one raw damage event for the team: the engine takes team LP once per core message.
+    const hits = teamHits(room.engine!.events, 0);
+    await info.attach("team-0-damage-events", { body: JSON.stringify(hits, null, 2), contentType: "application/json" });
     expect(hits).toHaveLength(1);
     expect(hits[0]).toMatchObject({ amount: attack, cause: "battle" });
     expect(teamHits(room.engine!.events, 1)).toHaveLength(0);
