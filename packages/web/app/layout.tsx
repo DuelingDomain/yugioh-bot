@@ -18,7 +18,7 @@ const chakraPetch = Chakra_Petch({
 });
 
 export const metadata: Metadata = {
-  title: "Yu-Gi-Oh! Tournament Manager",
+  title: "Duelists Kingdom",
   description: "Manage your Yu-Gi-Oh! tournaments with ease",
 };
 

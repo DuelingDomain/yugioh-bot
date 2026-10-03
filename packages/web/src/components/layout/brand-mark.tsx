@@ -1,4 +1,4 @@
-/** The YugiDraft mark: two cards and a gold diamond (board sprite `i-mark`). */
+/** The Duelists Kingdom mark: two cards and a gold diamond (board sprite `i-mark`). */
 export function BrandMark({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 28 28" aria-hidden="true" focusable="false">
