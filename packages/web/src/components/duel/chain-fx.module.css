@@ -612,13 +612,16 @@
 .front[data-size="compact"] .dock {
   inset: var(--chain-dock-top, 4px) auto auto var(--chain-dock-left, 4px);
   width: max-content;
-  max-width: calc(100% - 8px);
+  /* The corner may be moved right (--chain-dock-left): the row ends 4 px before the board edge wherever it starts. */
+  max-width: calc(100% - var(--chain-dock-left, 4px) - 4px);
   align-items: flex-start;
 }
 .front[data-size="compact"] .panel,
 .front[data-size="compact"][data-table] .panel,
 .front[data-size="compact"][data-table="ffa4"] .panel {
   flex-direction: row;
+  /* A long chain wraps to a second line; it never clips a chip (Chain Link 1 is the last in the row). */
+  flex-wrap: wrap;
   align-items: center;
   align-self: auto;
   position: static;
@@ -627,7 +630,7 @@
   max-height: none;
   gap: 3px;
   padding: 3px 5px;
-  overflow: hidden;
+  overflow: visible;
   border-radius: 14px;
 }
 .front[data-size="compact"] .head { flex: none; gap: 6px; padding: 0 3px 0 2px; border: 0; }

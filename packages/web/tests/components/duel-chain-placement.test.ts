@@ -29,6 +29,11 @@ describe("chain stack placement", () => {
     expect(panel![1]).toMatch(/flex-direction:\s*row/);
     expect(panel![1]).toMatch(/max-height:\s*none/);
     expect(panel![1]).toMatch(/max-width:\s*100%/);
+    // A long chain wraps; nothing is clipped by overflow, so Chain Link 1 can never drop off the row.
+    expect(panel![1]).toMatch(/flex-wrap:\s*wrap/);
+    expect(panel![1]).toMatch(/overflow:\s*visible/);
+    // The row stops short of the board edge wherever the corner moved to.
+    expect(rule(chainCss, ".front[data-size=\"compact\"] .dock")).toMatch(/max-width:\s*calc\(100% - var\(--chain-dock-left, 4px\) - 4px\)/);
     // The text and the thumbnail go; the number, its state and the head count stay.
     expect(chainCss).toMatch(/\.front\[data-size="compact"\] \.thumb,\s*\n\.front\[data-size="compact"\] \.text \{ display: none; \}/);
     // No viewport media query decides it: the measured gutter does.
