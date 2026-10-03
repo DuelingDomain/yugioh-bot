@@ -1,0 +1,1853 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Mon, 7 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: fold the players that Lua sees at n > 2 (scope, player
+ param kind, fold.h)
+
+While Lua runs for duelist P at n > 2, Lua now sees only 0 and 1.
+0 is P (in Tag, the own team). 1 is the opponents.
+Before, seats 2 and 3 got 1-tp = -1 or -2 and many scripts ended with Lua errors.
+
+Scope: interpreter keeps a stack of Lua scopes (the duelist, the bound opponent,
+yieldable, probe, touched). Every Lua entry pushes and pops one.
+Each coroutine resume pushes it again. The trap build checks the depth after every entry.
+
+Player param kind: LuaParam gets PLAYER. 135 add_param sites that push a seat
+are changed from INT to PLAYER. 132 INT sites stay. 131 are not players.
+1 is a seat that stays INT because the Domain anchor in operations.cpp (PayLPCost) holds the line.
+PLAYER folds the value in a scope. Without a scope it is the old value.
+
+fold.h: new helpers for the library (unfold_action, query_list, field_list,
+field_side, for_each_other, for_each_target, matches, push_player).
+The trap build writes NFOLD lines for kinds a, b and d to stderr. It never aborts.
+
+Slice with the helpers: Duel.GetTurnPlayer, IsTurnPlayer, GetLP, Damage,
+GetLocationCount, GetDecktopGroup, Card.GetControler, Card.IsControler.
+The other library functions are for the next steps.
+
+With 2 duelists nothing changes. No scope folds and every helper is the identity.
+The n=2 message hashes stay the same.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ card.cpp        |  70 +++++++-------
+ effect.cpp      |  59 ++++++------
+ field.cpp       |  74 +++++++-------
+ fold.h          | 249 ++++++++++++++++++++++++++++++++++++++++++++++++
+ interpreter.cpp | 141 ++++++++++++++++++++++++---
+ interpreter.h   |  71 ++++++++++++--
+ libcard.cpp     |  10 +-
+ libduel.cpp     |  51 +++++++---
+ lua_obj.h       |   2 +
+ operations.cpp  |  64 ++++++-------
+ processor.cpp   |  36 +++----
+ 11 files changed, 643 insertions(+), 184 deletions(-)
+ create mode 100644 fold.h
+
+diff --git a/card.cpp b/card.cpp
+index cff4dc2..220d517 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -313,8 +313,8 @@ void card::get_summon_code(std::set<uint32_t>& codes, card* scard, uint64_t sumt
+ 			continue;
+ 		pduel->lua->add_param<LuaParam::CARD>(scard);
+ 		pduel->lua->add_param<LuaParam::INT>(sumtype);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
+-		if (!pduel->lua->check_condition(peffect->operation, 3))
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
++		if (!pduel->lua->check_condition(peffect->operation, 3, peffect))
+ 			continue;
+ 		if (peffect->code == EFFECT_ADD_CODE)
+ 			codes.insert(peffect->get_value(this));
+@@ -380,8 +380,8 @@ void card::get_summon_set_card(std::set<uint16_t>& setcodes, card* scard, uint64
+ 			continue;
+ 		pduel->lua->add_param<LuaParam::CARD>(scard);
+ 		pduel->lua->add_param<LuaParam::INT>(sumtype);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
+-		if (!pduel->lua->check_condition(peffect->operation, 3))
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
++		if (!pduel->lua->check_condition(peffect->operation, 3, peffect))
+ 			continue;
+ 		if (peffect->code == EFFECT_ADD_CODE)
+ 			codes.insert(peffect->get_value(this));
+@@ -408,8 +408,8 @@ void card::get_summon_set_card(std::set<uint16_t>& setcodes, card* scard, uint64
+ 			continue;
+ 		pduel->lua->add_param<LuaParam::CARD>(scard);
+ 		pduel->lua->add_param<LuaParam::INT>(sumtype);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
+-		if (!pduel->lua->check_condition(peffect->operation, 3))
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
++		if (!pduel->lua->check_condition(peffect->operation, 3, peffect))
+ 			continue;
+ 		uint32_t setcode = peffect->get_value(this);
+ 		if (peffect->code == EFFECT_CHANGE_SETCODE) {
+@@ -447,10 +447,10 @@ uint32_t card::get_type(card* scard, uint64_t sumtype, uint8_t playerid) {
+ 		if (peffect->operation) {
+ 			pduel->lua->add_param<LuaParam::CARD>(scard);
+ 			pduel->lua->add_param<LuaParam::INT>(sumtype);
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
+-			if (!pduel->lua->check_condition(peffect->operation, 3))
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
++			if (!pduel->lua->check_condition(peffect->operation, 3, peffect))
+ 				continue;
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 			if (peffect->code == EFFECT_ADD_TYPE)
+ 				alttype |= peffect->get_value(this,1);
+ 			else if (peffect->code == EFFECT_REMOVE_TYPE)
+@@ -460,7 +460,7 @@ uint32_t card::get_type(card* scard, uint64_t sumtype, uint8_t playerid) {
+ 				changed = true;
+ 			}
+ 		} else {
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 			if (peffect->code == EFFECT_ADD_TYPE)
+ 				type |= peffect->get_value(this,1);
+ 			else if (peffect->code == EFFECT_REMOVE_TYPE)
+@@ -1109,10 +1109,10 @@ uint32_t card::get_attribute(card* scard, uint64_t sumtype, uint8_t playerid) {
+ 		if (peffect->operation) {
+ 			pduel->lua->add_param<LuaParam::CARD>(scard);
+ 			pduel->lua->add_param<LuaParam::INT>(sumtype);
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
+-			if (!pduel->lua->check_condition(peffect->operation, 3))
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
++			if (!pduel->lua->check_condition(peffect->operation, 3, peffect))
+ 				continue;
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 			if (peffect->code == EFFECT_ADD_ATTRIBUTE)
+ 				altattribute |= peffect->get_value(this, 1);
+ 			else if (peffect->code == EFFECT_REMOVE_ATTRIBUTE)
+@@ -1122,7 +1122,7 @@ uint32_t card::get_attribute(card* scard, uint64_t sumtype, uint8_t playerid) {
+ 				changed = true;
+ 			}
+ 		} else {
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 			if (peffect->code == EFFECT_ADD_ATTRIBUTE)
+ 				attribute |= peffect->get_value(this, 1);
+ 			else if (peffect->code == EFFECT_REMOVE_ATTRIBUTE)
+@@ -1160,10 +1160,10 @@ uint64_t card::get_race(card* scard, uint64_t sumtype, uint8_t playerid) {
+ 		if (peffect->operation) {
+ 			pduel->lua->add_param<LuaParam::CARD>(scard);
+ 			pduel->lua->add_param<LuaParam::INT>(sumtype);
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
+-			if (!pduel->lua->check_condition(peffect->operation, 3))
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
++			if (!pduel->lua->check_condition(peffect->operation, 3, peffect))
+ 				continue;
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 			if (peffect->code == EFFECT_ADD_RACE)
+ 				altrace |= peffect->get_value(this,1);
+ 			else if (peffect->code == EFFECT_REMOVE_RACE)
+@@ -1173,7 +1173,7 @@ uint64_t card::get_race(card* scard, uint64_t sumtype, uint8_t playerid) {
+ 				changed = true;
+ 			}
+ 		} else {
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 			if (peffect->code == EFFECT_ADD_RACE)
+ 				race |= peffect->get_value(this,1);
+ 			else if (peffect->code == EFFECT_REMOVE_RACE)
+@@ -3164,7 +3164,7 @@ int32_t card::check_cost_condition(uint32_t ecode, uint8_t playerid) {
+ 	for(const auto& peffect : eset) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peffect);
+ 		pduel->lua->add_param<LuaParam::CARD>(this);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if(!pduel->lua->check_condition(peffect->cost, 3))
+ 			return FALSE;
+ 	}
+@@ -3177,7 +3177,7 @@ int32_t card::check_cost_condition(uint32_t ecode, uint8_t playerid, uint32_t su
+ 	for(const auto& peffect : eset) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peffect);
+ 		pduel->lua->add_param<LuaParam::CARD>(this);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::INT>(sumtype);
+ 		if(!pduel->lua->check_condition(peffect->cost, 4))
+ 			return FALSE;
+@@ -3200,7 +3200,7 @@ int32_t card::is_fusion_summonable_card(uint32_t summon_type) {
+ 	filter_effect(EFFECT_SPSUMMON_CONDITION, &eset);
+ 	for(const auto& peffect : eset) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(pduel->game_field->core.reason_effect);
+-		pduel->lua->add_param<LuaParam::INT>(pduel->game_field->core.reason_player);
++		pduel->lua->add_param<LuaParam::PLAYER>(pduel->game_field->core.reason_player);
+ 		pduel->lua->add_param<LuaParam::INT>(summon_type);
+ 		pduel->lua->add_param<LuaParam::INT>(0);
+ 		pduel->lua->add_param<LuaParam::INT>(0);
+@@ -3457,10 +3457,10 @@ int32_t card::is_can_be_special_summoned(effect* reason_effect, uint32_t sumtype
+ 		filter_effect(EFFECT_SPSUMMON_CONDITION, &eset);
+ 		for(const auto& peffect : eset) {
+ 			pduel->lua->add_param<LuaParam::EFFECT>(reason_effect);
+-			pduel->lua->add_param<LuaParam::INT>(sumplayer);
++			pduel->lua->add_param<LuaParam::PLAYER>(sumplayer);
+ 			pduel->lua->add_param<LuaParam::INT>(sumtype);
+ 			pduel->lua->add_param<LuaParam::INT>(sumpos);
+-			pduel->lua->add_param<LuaParam::INT>(toplayer);
++			pduel->lua->add_param<LuaParam::PLAYER>(toplayer);
+ 			if(!peffect->check_value_condition(5)) {
+ 				pduel->game_field->restore_lp_cost();
+ 				return FALSE;
+@@ -3568,7 +3568,7 @@ effect* card::check_indestructable_by_effect(effect* peffect, uint8_t playerid)
+ 	filter_effect(EFFECT_INDESTRUCTABLE_EFFECT, &eset);
+ 	for(const auto& peff : eset) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peffect);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::CARD>(this);
+ 		if(peff->check_value_condition(3))
+ 			return peff;
+@@ -3586,7 +3586,7 @@ int32_t card::is_destructable_by_effect(effect* peffect, uint8_t playerid) {
+ 	for(const auto& peff : eset) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peffect);
+ 		pduel->lua->add_param<LuaParam::INT>(REASON_EFFECT);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if(peff->check_value_condition(3)) {
+ 			return FALSE;
+ 		}
+@@ -3599,14 +3599,14 @@ int32_t card::is_destructable_by_effect(effect* peffect, uint8_t playerid) {
+ 				continue;
+ 			pduel->lua->add_param<LuaParam::EFFECT>(peffect);
+ 			pduel->lua->add_param<LuaParam::INT>(REASON_EFFECT);
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 			if(peff->check_value_condition(3)) {
+ 				return FALSE;
+ 			}
+ 		} else {
+ 			pduel->lua->add_param<LuaParam::EFFECT>(peffect);
+ 			pduel->lua->add_param<LuaParam::INT>(REASON_EFFECT);
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 			int32_t ct = peff->get_value(3);
+ 			if(ct) {
+ 				auto it = indestructable_effects.emplace(peff->id, 0);
+@@ -3692,7 +3692,7 @@ int32_t card::is_releasable_by_effect(uint8_t playerid, effect* peffect) {
+ 	filter_effect(EFFECT_UNRELEASABLE_EFFECT, &eset);
+ 	for(const auto& peff : eset) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peffect);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::CARD>(this);
+ 		if(peff->check_value_condition(3))
+ 			return FALSE;
+@@ -3949,7 +3949,7 @@ int32_t card::is_capable_be_effect_target(effect* peffect, uint8_t playerid) {
+ 	effect_set eset;
+ 	filter_effect(EFFECT_CANNOT_BE_EFFECT_TARGET, &eset);
+ 	for(const auto& peff : eset) {
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if(peff->get_value(peffect, 1))
+ 			return FALSE;
+ 	}
+@@ -3978,7 +3978,7 @@ int32_t card::is_can_be_fusion_material(card* fcard, uint64_t summon_type, uint8
+ 	filter_effect(EFFECT_CANNOT_BE_MATERIAL, &eset);
+ 	for(const auto& peffect : eset) {
+ 		pduel->lua->add_param<LuaParam::INT>(summon_type);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if(peffect->get_value(fcard, 2))
+ 			return FALSE;
+ 	}
+@@ -4019,7 +4019,7 @@ int32_t card::is_can_be_synchro_material(card* scard, uint8_t playerid, card* /*
+ 	filter_effect(EFFECT_CANNOT_BE_MATERIAL, &eset);
+ 	for(const auto& peffect : eset) {
+ 		pduel->lua->add_param<LuaParam::INT>(SUMMON_TYPE_SYNCHRO);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if(peffect->get_value(scard, 2))
+ 			return FALSE;
+ 	}
+@@ -4034,7 +4034,7 @@ int32_t card::is_can_be_ritual_material(card* scard, uint8_t playerid) {
+ 	filter_effect(EFFECT_CANNOT_BE_MATERIAL, &eset);
+ 	for(const auto& peffect : eset) {
+ 		pduel->lua->add_param<LuaParam::INT>(SUMMON_TYPE_RITUAL);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if(peffect->get_value(scard, 2))
+ 			return FALSE;
+ 	}
+@@ -4069,7 +4069,7 @@ int32_t card::is_can_be_xyz_material(card* scard, uint8_t playerid, uint32_t rea
+ 		filter_effect(EFFECT_CANNOT_BE_MATERIAL, &eset);
+ 		for(const auto& peffect : eset) {
+ 			pduel->lua->add_param<LuaParam::INT>(SUMMON_TYPE_XYZ);
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 			if(peffect->get_value(scard, 2))
+ 				return FALSE;
+ 		}
+@@ -4092,7 +4092,7 @@ int32_t card::is_can_be_link_material(card* scard, uint8_t playerid) {
+ 	filter_effect(EFFECT_CANNOT_BE_MATERIAL, &eset);
+ 	for(const auto& peffect : eset) {
+ 		pduel->lua->add_param<LuaParam::INT>(SUMMON_TYPE_LINK);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if(peffect->get_value(scard, 2))
+ 			return FALSE;
+ 	}
+@@ -4117,7 +4117,7 @@ int32_t card::is_can_be_material(card* scard, uint64_t sumtype, uint8_t playerid
+ 	filter_effect(EFFECT_CANNOT_BE_MATERIAL, &eset);
+ 	for(const auto& peffect : eset) {
+ 		pduel->lua->add_param<LuaParam::INT>(sumtype);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if(peffect->get_value(scard, 2))
+ 			return FALSE;
+ 	}
+diff --git a/effect.cpp b/effect.cpp
+index bb42794..9f8850a 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -151,6 +151,9 @@ int32_t effect::check_count_limit(uint8_t playerid) const {
+ int32_t effect::is_activateable(uint8_t playerid, const tevent& e, int32_t neglect_cond, int32_t neglect_cost, int32_t neglect_target, int32_t neglect_loc, int32_t neglect_faceup) {
+ 	if(!(type & EFFECT_TYPE_ACTIONS))
+ 		return FALSE;
++	// The scripts of this check run for the asking player (pinned: the effect itself keeps this scope)
++	interpreter::scope_guard scope(pduel->lua);
++	scope.push(playerid, nullptr, false, false, this, true);
+ 	if(!check_count_limit(playerid))
+ 		return FALSE;
+ 	if (!is_flag(EFFECT_FLAG_FIELD_ONLY)) {
+@@ -169,13 +172,13 @@ int32_t effect::is_activateable(uint8_t playerid, const tevent& e, int32_t negle
+ 			}
+ 			uint32_t zone = 0xff;
+ 			if(!(handler->data.type & (TYPE_FIELD | TYPE_PENDULUM)) && is_flag(EFFECT_FLAG_LIMIT_ZONE)) {
+-				pduel->lua->add_param<LuaParam::INT>(playerid);
++				pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 				pduel->lua->add_param<LuaParam::GROUP>(e.event_cards );
+-				pduel->lua->add_param<LuaParam::INT>(e.event_player);
++				pduel->lua->add_param<LuaParam::PLAYER>(e.event_player);
+ 				pduel->lua->add_param<LuaParam::INT>(e.event_value);
+ 				pduel->lua->add_param<LuaParam::EFFECT>(e.reason_effect );
+ 				pduel->lua->add_param<LuaParam::INT>(e.reason);
+-				pduel->lua->add_param<LuaParam::INT>(e.reason_player);
++				pduel->lua->add_param<LuaParam::PLAYER>(e.reason_player);
+ 				zone = get_value(7);
+ 				if(!zone)
+ 					return FALSE;
+@@ -325,7 +328,7 @@ int32_t effect::is_action_check(uint8_t playerid) {
+ 	pduel->game_field->filter_player_effect(playerid, EFFECT_CANNOT_ACTIVATE, &eset);
+ 	for(const auto& peff : eset) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(this);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if(peff->check_value_condition(2))
+ 			return FALSE;
+ 	}
+@@ -334,12 +337,12 @@ int32_t effect::is_action_check(uint8_t playerid) {
+ 	for(const auto& peff : eset) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peff);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(this);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if(!pduel->lua->check_condition(peff->target, 3))
+ 			continue;
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peff);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(this);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if(!pduel->lua->check_condition(peff->cost, 3))
+ 			return FALSE;
+ 	}
+@@ -352,42 +355,42 @@ int32_t effect::is_activate_ready(effect* reason_effect, uint8_t playerid, const
+ 	}
+ 	if(!neglect_cond && condition) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(reason_effect);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::GROUP>(e.event_cards);
+-		pduel->lua->add_param<LuaParam::INT>(e.event_player);
++		pduel->lua->add_param<LuaParam::PLAYER>(e.event_player);
+ 		pduel->lua->add_param<LuaParam::INT>(e.event_value);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(e.reason_effect);
+ 		pduel->lua->add_param<LuaParam::INT>(e.reason);
+-		pduel->lua->add_param<LuaParam::INT>(e.reason_player);
+-		if(!pduel->lua->check_condition(condition, 8)) {
++		pduel->lua->add_param<LuaParam::PLAYER>(e.reason_player);
++		if(!pduel->lua->check_condition(condition, 8, nullptr, playerid)) {
+ 			return FALSE;
+ 		}
+ 	}
+ 	if(!neglect_cost && cost && !(type & EFFECT_TYPE_CONTINUOUS)) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(reason_effect);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::GROUP>(e.event_cards);
+-		pduel->lua->add_param<LuaParam::INT>(e.event_player);
++		pduel->lua->add_param<LuaParam::PLAYER>(e.event_player);
+ 		pduel->lua->add_param<LuaParam::INT>(e.event_value);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(e.reason_effect);
+ 		pduel->lua->add_param<LuaParam::INT>(e.reason);
+-		pduel->lua->add_param<LuaParam::INT>(e.reason_player);
++		pduel->lua->add_param<LuaParam::PLAYER>(e.reason_player);
+ 		pduel->lua->add_param<LuaParam::INT>(0);
+-		if(!pduel->lua->check_condition(cost, 9)) {
++		if(!pduel->lua->check_condition(cost, 9, nullptr, playerid)) {
+ 			return FALSE;
+ 		}
+ 	}
+ 	if(!neglect_target && target) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(reason_effect);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::GROUP>(e.event_cards);
+-		pduel->lua->add_param<LuaParam::INT>(e.event_player);
++		pduel->lua->add_param<LuaParam::PLAYER>(e.event_player);
+ 		pduel->lua->add_param<LuaParam::INT>(e.event_value);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(e.reason_effect);
+ 		pduel->lua->add_param<LuaParam::INT>(e.reason);
+-		pduel->lua->add_param<LuaParam::INT>(e.reason_player);
++		pduel->lua->add_param<LuaParam::PLAYER>(e.reason_player);
+ 		pduel->lua->add_param<LuaParam::INT>(0);
+-		if(!pduel->lua->check_condition(target, 9)) {
++		if(!pduel->lua->check_condition(target, 9, nullptr, playerid)) {
+ 			return FALSE;
+ 		}
+ 	}
+@@ -411,14 +414,14 @@ int32_t effect::is_condition_check(uint8_t playerid, const tevent& e) {
+ 	pduel->game_field->core.reason_player = playerid;
+ 	pduel->game_field->save_lp_cost();
+ 	pduel->lua->add_param<LuaParam::EFFECT>(this);
+-	pduel->lua->add_param<LuaParam::INT>(playerid);
++	pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 	pduel->lua->add_param<LuaParam::GROUP>(e.event_cards );
+-	pduel->lua->add_param<LuaParam::INT>(e.event_player);
++	pduel->lua->add_param<LuaParam::PLAYER>(e.event_player);
+ 	pduel->lua->add_param<LuaParam::INT>(e.event_value);
+ 	pduel->lua->add_param<LuaParam::EFFECT>(e.reason_effect );
+ 	pduel->lua->add_param<LuaParam::INT>(e.reason);
+-	pduel->lua->add_param<LuaParam::INT>(e.reason_player);
+-	if(!pduel->lua->check_condition(condition, 8)) {
++	pduel->lua->add_param<LuaParam::PLAYER>(e.reason_player);
++	if(!pduel->lua->check_condition(condition, 8, nullptr, playerid)) {
+ 		pduel->game_field->restore_lp_cost();
+ 		pduel->game_field->core.reason_effect = oreason;
+ 		pduel->game_field->core.reason_player = op;
+@@ -574,16 +577,16 @@ int32_t effect::is_chainable(uint8_t tp) {
+ 	}
+ 	for(const auto& ch_lim : pduel->game_field->core.chain_limit) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(this);
+-		pduel->lua->add_param<LuaParam::INT>(ch_lim.player);
+-		pduel->lua->add_param<LuaParam::INT>(tp);
+-		if(!pduel->lua->check_condition(ch_lim.function, 3))
++		pduel->lua->add_param<LuaParam::PLAYER>(ch_lim.player);
++		pduel->lua->add_param<LuaParam::PLAYER>(tp);
++		if(!pduel->lua->check_condition(ch_lim.function, 3, nullptr, tp))
+ 			return FALSE;
+ 	}
+ 	for(const auto& ch_lim_p : pduel->game_field->core.chain_limit_p) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(this);
+-		pduel->lua->add_param<LuaParam::INT>(ch_lim_p.player);
+-		pduel->lua->add_param<LuaParam::INT>(tp);
+-		if(!pduel->lua->check_condition(ch_lim_p.function, 3))
++		pduel->lua->add_param<LuaParam::PLAYER>(ch_lim_p.player);
++		pduel->lua->add_param<LuaParam::PLAYER>(tp);
++		if(!pduel->lua->check_condition(ch_lim_p.function, 3, nullptr, tp))
+ 			return FALSE;
+ 	}
+ 	return TRUE;
+diff --git a/field.cpp b/field.cpp
+index c689ea8..b237a60 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -1071,8 +1071,8 @@ int32_t field::get_mzone_limit(uint8_t playerid, uint8_t uplayer, LOCATION_REASO
+ 	if(is_duelist(uplayer))
+ 		filter_player_effect(playerid, EFFECT_MAX_MZONE, &eset);
+ 	for(const auto& peff : eset) {
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
+-		pduel->lua->add_param<LuaParam::INT>(uplayer);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(uplayer);
+ 		pduel->lua->add_param<LuaParam::INT>(reason);
+ 		int32_t v = peff->get_value(3);
+ 		if(max > v)
+@@ -1089,8 +1089,8 @@ int32_t field::get_szone_limit(uint8_t playerid, uint8_t uplayer, LOCATION_REASO
+ 		filter_player_effect(playerid, EFFECT_MAX_SZONE, &eset);
+ 	int32_t max = 5;
+ 	for(const auto& peff : eset) {
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
+-		pduel->lua->add_param<LuaParam::INT>(uplayer);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(uplayer);
+ 		pduel->lua->add_param<LuaParam::INT>(reason);
+ 		int32_t v = peff->get_value(3);
+ 		if(max > v)
+@@ -1113,20 +1113,20 @@ int32_t field::get_forced_zones(card* pcard, uint8_t playerid, uint8_t location,
+ 			continue;
+ 		if(peff->operation) {
+ 			pduel->lua->add_param<LuaParam::EFFECT>(peff, true);
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
+-			pduel->lua->add_param<LuaParam::INT>(uplayer);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(uplayer);
+ 			pduel->lua->add_param<LuaParam::INT>(reason);
+ 			if(!pduel->lua->check_condition(peff->operation, 4))
+ 				continue;
+ 		}
+ 		if(peff->is_flag(EFFECT_FLAG_PLAYER_TARGET)) {
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
+-			pduel->lua->add_param<LuaParam::INT>(uplayer);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(uplayer);
+ 			pduel->lua->add_param<LuaParam::INT>(reason);
+ 			res &= peff->get_value(3);
+ 		} else {
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
+-			pduel->lua->add_param<LuaParam::INT>(uplayer);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(uplayer);
+ 			pduel->lua->add_param<LuaParam::INT>(reason);
+ 			res &= peff->get_value(pcard, 3);
+ 		}
+@@ -1834,7 +1834,9 @@ void field::build_range_list(range_list& rl, uint8_t self, uint32_t loc1, uint32
+ 		}
+ 	}
+ 	if(loc2 & individual) {
+-		const uint8_t bound = pduel->lua->scope_bound_opp();
++		// the bound opponent belongs to the scope of the duelist that Lua runs for
++		const auto* scope = pduel->lua->current_scope();
++		const uint8_t bound = (scope && is_duelist(scope->P) && same_team(scope->P, self)) ? pduel->lua->scope_bound_opp() : DUELIST_NONE;
+ 		if(is_alive(bound) && !same_team(self, bound)) {
+ 			add(bound, loc2 & individual);
+ 		} else {
+@@ -2213,7 +2215,7 @@ int32_t field::get_release_list(uint8_t playerid, card_set* release_list, card_s
+ 						continue;
+ 					pduel->lua->add_param<LuaParam::EFFECT>(core.reason_effect);
+ 					pduel->lua->add_param<LuaParam::INT>(reason);
+-					pduel->lua->add_param<LuaParam::INT>(core.reason_player);
++					pduel->lua->add_param<LuaParam::PLAYER>(core.reason_player);
+ 					if(!peffect->check_value_condition(3))
+ 						continue;
+ 					if(ex_list_oneof)
+@@ -2708,7 +2710,7 @@ chain::applied_chain_counter_t* field::check_chain_counter(effect* peffect, int3
+ 	for(auto& iter : core.chain_counter) {
+ 		auto& info = iter.second;
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peffect);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::INT>(chainid);
+ 		if(!pduel->lua->check_condition(info.check_function, 3)) {
+ 			if(ret == nullptr)
+@@ -2779,7 +2781,7 @@ int32_t field::check_lp_cost(uint8_t playerid, uint32_t lp) {
+ 	filter_player_effect(playerid, EFFECT_LPCOST_CHANGE, &eset);
+ 	for(const auto& peff : eset) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(core.reason_effect);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::INT>(val);
+ 		val = peff->get_value(3);
+ 	}
+@@ -3206,10 +3208,10 @@ int32_t field::is_player_can_summon(uint32_t sumtype, uint8_t playerid, card* pc
+ 			return FALSE;
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peff);
+ 		pduel->lua->add_param<LuaParam::CARD>(pcard);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::INT>(sumtype);
+ 		pduel->lua->add_param<LuaParam::INT>(POS_FACEUP);
+-		pduel->lua->add_param<LuaParam::INT>(toplayer);
++		pduel->lua->add_param<LuaParam::PLAYER>(toplayer);
+ 		if(pduel->lua->check_condition(peff->target, 6))
+ 			return FALSE;
+ 	}
+@@ -3225,10 +3227,10 @@ int32_t field::is_player_can_summon(uint32_t sumtype, uint8_t playerid, card* pc
+ 		if(eff->target) {
+ 			pduel->lua->add_param<LuaParam::EFFECT>(eff);
+ 			pduel->lua->add_param<LuaParam::CARD>(pcard);
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 			pduel->lua->add_param<LuaParam::INT>(sumtype);
+ 			pduel->lua->add_param<LuaParam::INT>(sumpos);
+-			pduel->lua->add_param<LuaParam::INT>(toplayer);
++			pduel->lua->add_param<LuaParam::PLAYER>(toplayer);
+ 			if(!pduel->lua->check_condition(eff->target, 6))
+ 				continue;
+ 		}
+@@ -3247,9 +3249,9 @@ int32_t field::is_player_can_mset(uint32_t sumtype, uint8_t playerid, card* pcar
+ 			return FALSE;
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peff);
+ 		pduel->lua->add_param<LuaParam::CARD>(pcard);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::INT>(sumtype);
+-		pduel->lua->add_param<LuaParam::INT>(toplayer);
++		pduel->lua->add_param<LuaParam::PLAYER>(toplayer);
+ 		pduel->lua->add_param<LuaParam::INT>(POS_FACEDOWN);
+ 		if (pduel->lua->check_condition(peff->target, 6))
+ 			return FALSE;
+@@ -3264,7 +3266,7 @@ int32_t field::is_player_can_sset(uint8_t playerid, card* pcard) {
+ 			return FALSE;
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peff);
+ 		pduel->lua->add_param<LuaParam::CARD>(pcard);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if (pduel->lua->check_condition(peff->target, 3))
+ 			return FALSE;
+ 	}
+@@ -3307,10 +3309,10 @@ int32_t field::is_player_can_spsummon(effect* peffect, uint32_t sumtype, uint8_t
+ 			return FALSE;
+ 		pduel->lua->add_param<LuaParam::EFFECT>(eff);
+ 		pduel->lua->add_param<LuaParam::CARD>(pcard);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::INT>(sumtype);
+ 		pduel->lua->add_param<LuaParam::INT>(sumpos);
+-		pduel->lua->add_param<LuaParam::INT>(toplayer);
++		pduel->lua->add_param<LuaParam::PLAYER>(toplayer);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peffect);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(proc_effect);
+ 		if(pduel->lua->check_condition(eff->target, 8))
+@@ -3322,10 +3324,10 @@ int32_t field::is_player_can_spsummon(effect* peffect, uint32_t sumtype, uint8_t
+ 		if(eff->target) {
+ 			pduel->lua->add_param<LuaParam::EFFECT>(eff);
+ 			pduel->lua->add_param<LuaParam::CARD>(pcard);
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 			pduel->lua->add_param<LuaParam::INT>(sumtype);
+ 			pduel->lua->add_param<LuaParam::INT>(sumpos);
+-			pduel->lua->add_param<LuaParam::INT>(toplayer);
++			pduel->lua->add_param<LuaParam::PLAYER>(toplayer);
+ 			pduel->lua->add_param<LuaParam::EFFECT>(peffect);
+ 			if(!pduel->lua->check_condition(eff->target, 7))
+ 				continue;
+@@ -3348,7 +3350,7 @@ int32_t field::is_player_can_flipsummon(uint8_t playerid, card* pcard) {
+ 			return FALSE;
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peff);
+ 		pduel->lua->add_param<LuaParam::CARD>(pcard);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if (pduel->lua->check_condition(peff->target, 3))
+ 			return FALSE;
+ 	}
+@@ -3368,7 +3370,7 @@ int32_t field::is_player_can_release(uint8_t playerid, card* pcard, uint32_t rea
+ 			return FALSE;
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peff);
+ 		pduel->lua->add_param<LuaParam::CARD>(pcard);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::INT>(reason);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(core.reason_effect);
+ 		if (pduel->lua->check_condition(peff->target, 5))
+@@ -3381,7 +3383,7 @@ int32_t field::is_player_can_spsummon_count(uint8_t playerid, uint32_t count) {
+ 	filter_player_effect(playerid, EFFECT_LEFT_SPSUMMON_COUNT, &eset);
+ 	for(const auto& peff : eset) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(core.reason_effect);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		int32_t v = peff->get_value(2);
+ 		if(v < (int32_t)count)
+ 			return FALSE;
+@@ -3396,7 +3398,7 @@ int32_t field::is_player_can_place_counter(uint8_t playerid, card* pcard, uint16
+ 			return FALSE;
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peff);
+ 		pduel->lua->add_param<LuaParam::CARD>(pcard);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::INT>(countertype);
+ 		pduel->lua->add_param<LuaParam::INT>(count);
+ 		if (pduel->lua->check_condition(peff->target, 5))
+@@ -3450,7 +3452,7 @@ int32_t field::is_player_can_send_to_grave(uint8_t playerid, card* pcard, uint32
+ 			return FALSE;
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peff);
+ 		pduel->lua->add_param<LuaParam::CARD>(pcard);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::INT>(reason);
+ 		if (pduel->lua->check_condition(peff->target, 4))
+ 			return FALSE;
+@@ -3465,7 +3467,7 @@ int32_t field::is_player_can_send_to_hand(uint8_t playerid, card* pcard) {
+ 			return FALSE;
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peff);
+ 		pduel->lua->add_param<LuaParam::CARD>(pcard);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(core.reason_effect);
+ 		if(pduel->lua->check_condition(peff->target, 4))
+ 			return FALSE;
+@@ -3482,7 +3484,7 @@ int32_t field::is_player_can_send_to_deck(uint8_t playerid, card* pcard) {
+ 			return FALSE;
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peff);
+ 		pduel->lua->add_param<LuaParam::CARD>(pcard);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if(pduel->lua->check_condition(peff->target, 3))
+ 			return FALSE;
+ 	}
+@@ -3496,7 +3498,7 @@ int32_t field::is_player_can_remove(uint8_t playerid, card* pcard, uint32_t reas
+ 			return FALSE;
+ 		pduel->lua->add_param<LuaParam::EFFECT>(peff);
+ 		pduel->lua->add_param<LuaParam::CARD>(pcard);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		pduel->lua->add_param<LuaParam::INT>(reason);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(core.reason_effect);
+ 		if(pduel->lua->check_condition(peff->target, 5))
+@@ -3578,13 +3580,13 @@ int32_t field::check_chain_target(uint8_t chaincount, card* pcard) {
+ 	if(!peffect->is_flag(EFFECT_FLAG_CARD_TARGET) || !peffect->target)
+ 		return FALSE;
+ 	pduel->lua->add_param<LuaParam::EFFECT>(peffect);
+-	pduel->lua->add_param<LuaParam::INT>(tp);
++	pduel->lua->add_param<LuaParam::PLAYER>(tp);
+ 	pduel->lua->add_param<LuaParam::GROUP>(pchain->evt.event_cards );
+-	pduel->lua->add_param<LuaParam::INT>(pchain->evt.event_player);
++	pduel->lua->add_param<LuaParam::PLAYER>(pchain->evt.event_player);
+ 	pduel->lua->add_param<LuaParam::INT>(pchain->evt.event_value);
+ 	pduel->lua->add_param<LuaParam::EFFECT>(pchain->evt.reason_effect );
+ 	pduel->lua->add_param<LuaParam::INT>(pchain->evt.reason);
+-	pduel->lua->add_param<LuaParam::INT>(pchain->evt.reason_player);
++	pduel->lua->add_param<LuaParam::PLAYER>(pchain->evt.reason_player);
+ 	pduel->lua->add_param<LuaParam::INT>(0);
+ 	pduel->lua->add_param<LuaParam::CARD>(pcard);
+ 	return pduel->lua->check_condition(peffect->target, 10);
+diff --git a/fold.h b/fold.h
+new file mode 100644
+index 0000000..8800613
+--- /dev/null
++++ b/fold.h
+@@ -0,0 +1,249 @@
++/*
++ * Phase 3 perspective fold: the helpers that the Lua library functions use.
++ *
++ * SPDX-License-Identifier: AGPL-3.0-or-later
++ *
++ * Contract (see also F1/fold-api.md):
++ *  - With 2 duelists, or when no scope is active (Lua outside every effect: duel start, domain.lua
++ *    setup), every helper here is the identity on core ids: the library function does what it did before.
++ *  - With more than 2 duelists and a scope for duelist P, Lua sees only 0 (P; in Tag P's team) and 1
++ *    (the opponents), plus PLAYER_NONE (2) and PLAYER_ALL (3). The helpers turn the Lua value v into core
++ *    seat ids, and core seat ids into the Lua value.
++ *  - v is the value that lua_get<uint8_t> gave (the same cast as before the fold).
++ *  - A value that is not 0, 1, 2 or 3 inside a scope is a kind (d) record: the helper gives the empty
++ *    result (INVALID, count 0, false). Never index player[] with it.
++ *  - A fold trap record is one stderr line in the YGO_N_TRAP build only. It never aborts.
++ */
++#ifndef FOLD_H_
++#define FOLD_H_
++
++#include <cstdint>
++#include "common.h"
++#include "duel.h"
++#include "field.h"
++#include "interpreter.h"
++#include "scriptlib.h"
++
++namespace fold {
++
++// Result of unfold_action when the Lua value cannot be turned into a duelist (kind d, or no living
++// opponent). It is not a duelist id, not none_id() and not all_id(): the function returns its empty result.
++constexpr uint8_t INVALID = 0xFD;
++
++// The scope that folds, or nullptr when the helpers are the identity (2 duelists, no scope, or a scope
++// whose P is not a duelist in play).
++inline const interpreter::lua_scope* active(duel* pduel) {
++	const auto& f = *pduel->game_field;
++	if(f.n_duelists <= 2)
++		return nullptr;
++	const auto* s = pduel->lua->current_scope();
++	return (s && f.is_duelist(s->P)) ? s : nullptr;
++}
++
++// True when the Lua value v (0 or 1) means the own side of the duelist P.
++inline bool is_own(const field& f, uint8_t P, uint8_t v) {
++	return v == (f.n_teams == f.n_duelists ? 0 : f.team_of(P));
++}
++
++// The next living opponent of P in turn order (P + 1, P + 2, ... mod n). DUELIST_NONE if none.
++inline uint8_t next_opponent(const field& f, uint8_t P) {
++	for(uint8_t i = 1; i < f.n_duelists; ++i) {
++		const auto q = static_cast<uint8_t>((P + i) % f.n_duelists);
++		if(f.is_alive(q) && !f.same_team(P, q))
++			return q;
++	}
++	return DUELIST_NONE;
++}
++
++// Class "individual action" (Draw, Damage, Recover, hand and Deck moves, a player that acts): the Lua value
++// names ONE duelist. 0 = P. 1 = the bound opponent; with nothing bound it is the next living opponent of P
++// in turn order and a kind (a) record is written (the fallback does not bind: the lazy prompt of F5 will).
++// PLAYER_NONE and PLAYER_ALL give none_id() and all_id(). Returns INVALID for kind (d) or when no opponent
++// lives. team_level = the function only changes the team LP (lp_ref): in Tag any seat of the other team
++// is right, so no record is written there.
++// Identity (returns v) when the fold is not active: the caller keeps its own is_duelist test.
++inline uint8_t unfold_action(duel* pduel, uint8_t v, const char* fn, bool team_level = false) {
++	const auto* s = active(pduel);
++	if(!s)
++		return v;
++	const auto& f = *pduel->game_field;
++	if(v == PLAYER_NONE)
++		return f.none_id();
++	if(v == PLAYER_ALL)
++		return f.all_id();
++	if(v > 1) {
++		pduel->lua->fold_trap('d', fn);
++		return INVALID;
++	}
++	const uint8_t P = s->P;
++	if(is_own(f, P, v))
++		return P;
++	const uint8_t bound = pduel->lua->scope_bound_opp();
++	if(f.is_alive(bound) && !f.same_team(P, bound))
++		return bound;
++	const uint8_t next = next_opponent(f, P);
++	if(next == DUELIST_NONE)
++		return INVALID;
++	if(!(team_level && f.n_teams != f.n_duelists))
++		pduel->lua->fold_trap('a', fn);
++	return next;
++}
++
++// Class "individual query" (hand and Deck contents, zone counts, draw checks, LP in FFA): the Lua value
++// names one duelist, or, for "1" with nothing bound, every living opponent. Writes the duelists to out and
++// returns the count (0 = empty result). With nothing bound the scope is marked `touched`, so that the
++// activation probe of F5 knows that the answer depends on the opponent. A function that has to return one
++// value for several opponents returns the best case ("errs to yes": the largest count, any match).
++// PLAYER_NONE, PLAYER_ALL give count 0 without a record (the stock result of an invalid player).
++// Identity when not active: {v} if v is a duelist, else count 0.
++inline uint8_t query_list(duel* pduel, uint8_t v, uint8_t (&out)[MAX_DUELISTS], const char* fn) {
++	const auto& f = *pduel->game_field;
++	const auto* s = active(pduel);
++	if(!s) {
++		if(!f.is_duelist(v))
++			return 0;
++		out[0] = v;
++		return 1;
++	}
++	if(v == PLAYER_NONE || v == PLAYER_ALL)
++		return 0;
++	if(v > 1) {
++		pduel->lua->fold_trap('d', fn);
++		return 0;
++	}
++	const uint8_t P = s->P;
++	if(is_own(f, P, v)) {
++		out[0] = P;
++		return 1;
++	}
++	const uint8_t bound = pduel->lua->scope_bound_opp();
++	if(f.is_alive(bound) && !f.same_team(P, bound)) {
++		out[0] = bound;
++		return 1;
++	}
++	pduel->lua->scope_mark_touched();
++	uint8_t count = 0;
++	for(uint8_t q = 0; q < f.n_duelists; ++q) {
++		if(f.is_alive(q) && !f.same_team(P, q))
++			out[count++] = q;
++	}
++	return count;
++}
++
++// Class "field": the side of the Lua value as a set of duelists, for cards that live on the field
++// (zones, Graveyard, banished, overlay, counters). 0 = every living duelist of P's team (P first).
++// 1 = every living opponent (the bound opponent is NOT used and the scope is not touched).
++// Same output convention as query_list. Identity when not active: {v} if v is a duelist.
++inline uint8_t field_list(duel* pduel, uint8_t v, uint8_t (&out)[MAX_DUELISTS], const char* fn) {
++	const auto& f = *pduel->game_field;
++	const auto* s = active(pduel);
++	if(!s) {
++		if(!f.is_duelist(v))
++			return 0;
++		out[0] = v;
++		return 1;
++	}
++	if(v == PLAYER_NONE || v == PLAYER_ALL)
++		return 0;
++	if(v > 1) {
++		pduel->lua->fold_trap('d', fn);
++		return 0;
++	}
++	const uint8_t P = s->P;
++	const bool own = is_own(f, P, v);
++	uint8_t count = 0;
++	if(own)
++		out[count++] = P;
++	for(uint8_t q = 0; q < f.n_duelists; ++q) {
++		if(q != P && f.is_alive(q) && f.same_team(P, q) == own)
++			out[count++] = q;
++	}
++	return count;
++}
++
++// Class "field reference": for the functions that take (player, location1, location2) or (player, self,
++// oppo), where location1 / self is the side of the player and location2 / oppo the other side, and that
++// end in filter_field_card, build_range_list, get_overlay_group, get_field_counter and the like.
++// Those core functions already treat a core seat as "its team against every opponent" (and the scope reads
++// the bound opponent for the individual locations of the other side). So the fold needs only the seat of P
++// and one flag:  Lua 0 -> {self = P, swap = false};  Lua 1 -> {self = P, swap = true}. When swap is set the
++// caller exchanges its two location arguments (or its self / oppo flags) before it calls the core function.
++// Then "1, MZONE, 0" reads every opponent's monster zones, and "1, 0, MZONE" reads the own team's.
++// ok = false: kind (d) value, PLAYER_NONE, PLAYER_ALL, or P is not in play: give the empty result.
++// Identity when not active: {ok = v is a duelist, self = v, swap = false}.
++struct field_view {
++	bool ok;
++	uint8_t self;
++	bool swap;
++};
++inline field_view field_side(duel* pduel, uint8_t v, const char* fn) {
++	const auto& f = *pduel->game_field;
++	const auto* s = active(pduel);
++	if(!s)
++		return { f.is_duelist(v), v, false };
++	if(v == PLAYER_NONE || v == PLAYER_ALL)
++		return { false, DUELIST_NONE, false };
++	if(v > 1) {
++		pduel->lua->fold_trap('d', fn);
++		return { false, DUELIST_NONE, false };
++	}
++	return { true, s->P, !is_own(f, s->P, v) };
++}
++
++// Class "broadcast": calls fn(q) for every living duelist q (a core id) except d, in ascending order.
++// Takes a core id: the caller unfolds the player first (unfold_action) or uses a core id directly.
++template<typename F>
++inline void for_each_other(duel* pduel, uint8_t d, F&& fn) {
++	const auto& f = *pduel->game_field;
++	for(uint8_t q = 0; q < f.n_duelists; ++q) {
++		if(q != d && f.is_alive(q))
++			fn(q);
++	}
++}
++
++// Class "PLAYER_ALL fan-out": calls fn(q) for every living duelist when v means PLAYER_ALL (3 in a
++// scope, all_id() outside), else once for unfold_action(v). Does not call fn for INVALID.
++template<typename F>
++inline void for_each_target(duel* pduel, uint8_t v, const char* name, F&& fn) {
++	const auto& f = *pduel->game_field;
++	const bool folding = active(pduel) != nullptr;
++	if(v == (folding ? PLAYER_ALL : f.all_id())) {
++		for(uint8_t q = 0; q < f.n_duelists; ++q) {
++			if(f.is_alive(q))
++				fn(q);
++		}
++		return;
++	}
++	const uint8_t d = unfold_action(pduel, v, name);
++	if(d != INVALID)
++		fn(d);
++}
++
++// Class "predicate": does the Lua value v name the core duelist d? Compares the folded value, so "1"
++// matches every opponent and 0 matches P (Tag: the partner too). A d that is not a duelist (none_id(),
++// all_id()) keeps its meaning (2 and 3). Identity (v == d) when not active.
++inline bool matches(duel* pduel, uint8_t v, uint8_t d) {
++	if(!active(pduel))
++		return v == d;
++	return pduel->lua->fold_out(d) == v;
++}
++
++// A player that a library function returns: pushes the folded value (identity when not active).
++// bind = true: "bind on read". In a scope with nothing bound, a returned living opponent becomes the
++// bound opponent of the scope (the chain link). A second different opponent is a kind (b) record
++// and the first one stays. Use bind = false for reads that run in filters (a filter sees every card,
++// so a read there says nothing about the one opponent of the link).
++inline void push_player(lua_State* L, duel* pduel, uint8_t d, bool bind = true) {
++	if(bind) {
++		if(const auto* s = active(pduel)) {
++			const auto& f = *pduel->game_field;
++			if(f.is_alive(d) && !f.same_team(s->P, d) && !pduel->lua->scope_bind(d))
++				pduel->lua->fold_trap('b', "push_player");
++		}
++	}
++	lua_pushinteger(L, pduel->lua->fold_out(d));
++}
++
++} // namespace fold
++
++#endif /* FOLD_H_ */
+diff --git a/interpreter.cpp b/interpreter.cpp
+index da4c890..140cbf1 100644
+--- a/interpreter.cpp
++++ b/interpreter.cpp
+@@ -4,7 +4,10 @@
+  *
+  * SPDX-License-Identifier: AGPL-3.0-or-later
+  */
++#include <cstdio> //std::fprintf
++#include <cstdlib> //std::abort
+ #include <cstring> //std::memcpy
++#include <tuple> //std::tie
+ #include <utility> //std::exchange
+ #include <vector>
+ #include "duel.h"
+@@ -297,6 +300,82 @@ bool interpreter::load_card_script(uint32_t code) {
+ 	}
+ 	return res;
+ }
++// The scope guard and the fold of a player parameter (Phase 3). With 2 duelists nothing is pushed.
++bool interpreter::scope_guard::push(uint8_t P, uint8_t* bound, bool yieldable, bool probe, effect* eff, bool pinned) {
++	const auto* gf = I->pduel->game_field;
++	if(!gf || gf->n_duelists <= 2 || !gf->is_duelist(P) || pushed)
++		return false;
++	I->push_scope(P, bound, yieldable, probe, eff, pinned);
++	pushed = true;
++	return true;
++}
++interpreter::scope_guard::~scope_guard() {
++#ifdef YGO_N_TRAP
++	const size_t expected = base + (pushed ? 1 : 0);
++	if(I->scopes.size() != expected) {
++		std::fprintf(stderr, "YGO_N_TRAP scope depth %zu expected %zu\n", I->scopes.size(), expected);
++		std::abort();
++	}
++#endif
++	if(pushed)
++		I->pop_scope();
++}
++void interpreter::fold_trap(char kind, const char* fn) {
++#ifdef YGO_N_TRAP
++	const auto* s = current_scope();
++	unsigned code = 0;
++	if(s && s->eff && s->eff->get_handler())
++		code = s->eff->get_handler()->data.code;
++	std::fprintf(stderr, "NFOLD %c card=%u P=%d fn=%s\n", kind, code, s ? static_cast<int>(s->P) : -1, fn);
++#else
++	(void)kind;
++	(void)fn;
++#endif
++}
++void interpreter::bind_param_opponent() {
++	const auto* gf = pduel->game_field;
++	const auto* s = current_scope();
++	if(!s || !gf || gf->n_duelists <= 2)
++		return;
++	const uint8_t P = s->P;
++	for(const auto& [param, type] : params) {
++		if(type != LuaParam::PLAYER)
++			continue;
++		const auto d = static_cast<uint8_t>(param.integer);
++		if(!gf->is_duelist(d) || gf->same_team(P, d))
++			continue;
++		if(!scope_bind(d))
++			fold_trap('b', "param");
++	}
++}
++lua_Integer interpreter::fold_out(uint8_t d) {
++	const auto* gf = pduel->game_field;
++	if(scopes.empty() || !gf || gf->n_duelists <= 2)
++		return d;
++	const uint8_t P = scopes.back().P;
++	if(d == DUELIST_NONE)
++		return PLAYER_NONE;
++	if(d == DUELIST_ALL)
++		return PLAYER_ALL;
++	return gf->fold_player(P, d);
++}
++// The index of the chain link that runs `peffect` (searched from the newest), or nullptr: summon
++// procedures and replace effects run outside every chain link and have no bound opponent.
++static uint8_t* chain_bound_of(duel* pduel, effect* peffect) {
++	auto& chains = pduel->game_field->core.current_chain;
++	for(auto it = chains.rbegin(); it != chains.rend(); ++it) {
++		if(it->triggering_effect == peffect)
++			return &it->bound_opp;
++	}
++	return nullptr;
++}
++// The handler player of an effect that can be asked for it, else DUELIST_NONE.
++static uint8_t scope_player_of(const field* gf, effect* peffect) {
++	if(!peffect || (!peffect->get_handler() && !peffect->is_flag(EFFECT_FLAG_FIELD_ONLY)))
++		return DUELIST_NONE;
++	const uint8_t P = peffect->get_handler_player();
++	return gf->is_duelist(P) ? P : DUELIST_NONE;
++}
+ void interpreter::push_param(lua_State* L, bool is_coroutine) {
+ 	int32_t pushed = 0;
+ 	luaL_checkstack(L, static_cast<uint32_t>(params.size()), nullptr);
+@@ -319,6 +398,9 @@ void interpreter::push_param(lua_State* L, bool is_coroutine) {
+ 		case LuaParam::FUNCTION:
+ 			pushobject(L, static_cast<int32_t>(param.integer));
+ 			break;
++		case LuaParam::PLAYER:
++			lua_pushinteger(L, fold_out(static_cast<uint8_t>(param.integer)));
++			break;
+ 		case LuaParam::INDEX: {
+ 			auto index = static_cast<int32_t>(param.integer);
+ 			if(index > 0)
+@@ -387,6 +469,27 @@ inline bool interpreter::ret_fail(const char* message, bool error) {
+ 	return false;
+ }
+ bool interpreter::call_function(int param_count, int ret_count) {
++	return call_function_scoped(param_count, ret_count, nullptr, DUELIST_NONE);
++}
++bool interpreter::call_function_scoped(int param_count, int ret_count, effect* scope_eff, uint8_t scope_P) {
++	scope_guard sg(this);
++	if(const auto* gf = pduel->game_field; gf && gf->n_duelists > 2) {
++		effect* eff = scope_eff;
++		if(!eff) {
++			for(const auto& [param, type] : params) {
++				if(type == LuaParam::EFFECT) {
++					eff = static_cast<effect*>(param.ptr);
++					break;
++				}
++			}
++		}
++		const uint8_t P = gf->is_duelist(scope_P) ? scope_P : scope_player_of(gf, eff);
++		const auto* cur = current_scope();
++		// A pinned scope (is_activateable) answers for the effect that it runs
++		const bool inherit = scope_P == DUELIST_NONE && cur && cur->pinned && cur->eff == eff;
++		if(!inherit && sg.push(P, nullptr, false, false, eff))
++			bind_param_opponent();
++	}
+ 	push_param(current_state);
+ 	auto ret = true;
+ 	if(call_lua(current_state, param_count, ret_count) != LUA_OK) {
+@@ -396,7 +499,7 @@ bool interpreter::call_function(int param_count, int ret_count) {
+ 	}
+ 	return ret;
+ }
+-bool interpreter::call_function(int32_t function, uint32_t param_count, int32_t ret_count) {
++bool interpreter::call_function(int32_t function, uint32_t param_count, int32_t ret_count, effect* scope_eff, uint8_t scope_P) {
+ 	if (!function)
+ 		return ret_fail(R"("CallFunction": attempt to call a null function.)");
+ 	if (param_count != params.size())
+@@ -405,7 +508,7 @@ bool interpreter::call_function(int32_t function, uint32_t param_count, int32_t
+ 	pushobject(current_state, function);
+ 	if (!lua_isfunction(current_state, -1))
+ 		return ret_fail(R"("CallFunction": attempt to call an error function)");
+-	return call_function(param_count, ret_count);
++	return call_function_scoped(param_count, ret_count, scope_eff, scope_P);
+ }
+ bool interpreter::call_card_function(card* pcard, const char* function_name, uint32_t param_count, int32_t ret_count, bool forced) {
+ 	if (param_count != params.size())
+@@ -418,7 +521,7 @@ bool interpreter::call_card_function(card* pcard, const char* function_name, uin
+ 		return ret_fail(format(R"("CallCardFunction"(c%u.%s): attempt to call an error function)", pcard->data.code, function_name), forced);
+ 	}
+ 	lua_remove(current_state, -2);
+-	return call_function(param_count, ret_count);
++	return call_function_scoped(param_count, ret_count, nullptr, pcard->owner);
+ }
+ bool interpreter::call_code_function(uint32_t code, const char* function_name, uint32_t param_count, int32_t ret_count) {
+ 	if (param_count != params.size())
+@@ -430,14 +533,22 @@ bool interpreter::call_code_function(uint32_t code, const char* function_name, u
+ 		return ret_fail(R"("CallCodeFunction": attempt to call an error function)");
+ 	}
+ 	lua_remove(current_state, -2);
+-	return call_function(param_count, ret_count);
++	// initial_effect(c): runs for the owner of the first card parameter
++	uint8_t P = DUELIST_NONE;
++	for(const auto& [param, type] : params) {
++		if(type == LuaParam::CARD && param.ptr) {
++			P = static_cast<card*>(param.ptr)->owner;
++			break;
++		}
++	}
++	return call_function_scoped(param_count, ret_count, nullptr, P);
+ }
+-bool interpreter::check_condition(int32_t function, uint32_t param_count) {
++bool interpreter::check_condition(int32_t function, uint32_t param_count, effect* scope_eff, uint8_t scope_P) {
+ 	if(!function) {
+ 		params.clear();
+ 		return true;
+ 	}
+-	if(!call_function(function, param_count, 1))
++	if(!call_function(function, param_count, 1, scope_eff, scope_P))
+ 		return false;
+ 	bool result = lua_toboolean(current_state, -1);
+ 	lua_pop(current_state, 1);
+@@ -568,7 +679,7 @@ auto resume_coroutine(lua_State* L, lua_State* from, int nargs) {
+ 	return std::make_pair(result, nresults);
+ }
+ }
+-int32_t interpreter::call_coroutine(int32_t function, uint32_t param_count, lua_Integer* yield_value, uint16_t step) {
++int32_t interpreter::call_coroutine(int32_t function, uint32_t param_count, lua_Integer* yield_value, uint16_t step, uint8_t scope_P, effect* scope_eff) {
+ 	auto ret_error = [&](const char* message) {
+ 		interpreter::print_stacktrace(current_state);
+ 		pduel->handle_message(message, OCG_LOG_TYPE_ERROR);
+@@ -607,10 +718,18 @@ int32_t interpreter::call_coroutine(int32_t function, uint32_t param_count, lua_
+ 		}
+ 		rthread = it->second.first;
+ 	}
+-	push_param(rthread, true);
+-	auto prev_state = std::exchange(current_state, rthread);
+-	auto [result, nresults] = resume_coroutine(current_state, prev_state, param_count);
+-	current_state = prev_state;
++	int result, nresults;
++	{
++		// Every resume pushes the scope again and pops it before the coroutine is left, so a script
++		// that waited in a prompt never sees the scope of what ran in between.
++		scope_guard sg(this);
++		if(sg.push(scope_P, scope_eff ? chain_bound_of(pduel, scope_eff) : nullptr, true, false, scope_eff))
++			bind_param_opponent();
++		push_param(rthread, true);
++		auto prev_state = std::exchange(current_state, rthread);
++		std::tie(result, nresults) = resume_coroutine(current_state, prev_state, param_count);
++		current_state = prev_state;
++	}
+ 	if(result == LUA_YIELD)
+ 		return COROUTINE_YIELD;
+ 	if(result != LUA_OK) {
+diff --git a/interpreter.h b/interpreter.h
+index 070a6dd..9694f07 100644
+--- a/interpreter.h
++++ b/interpreter.h
+@@ -60,22 +60,32 @@ public:
+ 	// Phase 3 perspective scope. While Lua runs for duelist P (n_duelists > 2), Lua sees only the
+ 	// folded ids 0 (P, or P's team in Tag) and 1 (the opponents). `bound` points at the bound
+ 	// opponent of the running chain link (DUELIST_NONE while none is bound). `touched` is set when a
+-	// query had to use "every living opponent" because nothing was bound. Nothing pushes a scope
+-	// yet except the field queries that read it; the Lua entry points push in a later task.
++	// query had to use "every living opponent" because nothing was bound. `eff` is the effect that
++	// runs (for the trap record, and to find a pinned scope again). A `pinned` scope is not replaced
++	// by the scope of a call that runs the same effect (is_activateable pins P = the asking player).
++	// Every Lua entry point of this class pushes through scope_guard; with 2 duelists nothing is
++	// ever pushed, so n == 2 is the stock core.
+ 	struct lua_scope {
+ 		uint8_t P{ DUELIST_NONE };
+ 		uint8_t* bound{ nullptr };
+ 		bool yieldable{ false };
+ 		bool probe{ false };
+ 		bool touched{ false };
++		bool pinned{ false };
++		effect* eff{ nullptr };
++		// The bound opponent of a scope that has no chain link (`bound` is nullptr then).
++		uint8_t own_bound{ DUELIST_NONE };
+ 	};
+ 	std::vector<lua_scope> scopes;
+-	void push_scope(uint8_t P, uint8_t* bound = nullptr, bool yieldable = false, bool probe = false) {
++	void push_scope(uint8_t P, uint8_t* bound = nullptr, bool yieldable = false, bool probe = false,
++					effect* eff = nullptr, bool pinned = false) {
+ 		lua_scope s;
+ 		s.P = P;
+ 		s.bound = bound;
+ 		s.yieldable = yieldable;
+ 		s.probe = probe;
++		s.eff = eff;
++		s.pinned = pinned;
+ 		scopes.push_back(s);
+ 	}
+ 	void pop_scope() {
+@@ -87,14 +97,50 @@ public:
+ 	}
+ 	// The bound opponent of the current scope, or DUELIST_NONE.
+ 	uint8_t scope_bound_opp() const {
+-		if(scopes.empty() || !scopes.back().bound)
++		if(scopes.empty())
+ 			return DUELIST_NONE;
+-		return *scopes.back().bound;
++		const auto& s = scopes.back();
++		return s.bound ? *s.bound : s.own_bound;
++	}
++	// Makes d the bound opponent of the current scope when nothing is bound. True when d is the bound
++	// opponent afterwards, false when another opponent was bound first (a binding conflict: first wins).
++	bool scope_bind(uint8_t d) {
++		if(scopes.empty())
++			return false;
++		auto& s = scopes.back();
++		uint8_t& slot = s.bound ? *s.bound : s.own_bound;
++		if(slot == DUELIST_NONE)
++			slot = d;
++		return slot == d;
+ 	}
+ 	void scope_mark_touched() {
+ 		if(!scopes.empty())
+ 			scopes.back().touched = true;
+ 	}
++	// RAII entry of one Lua call. push() does nothing with 2 duelists or when P is not a duelist in
++	// play (the call then inherits the scope around it, if any). The destructor pops what push() pushed.
++	// In the trap build (YGO_N_TRAP) it aborts when the depth after the call is not the depth that the
++	// entry set up: every inner entry must be balanced.
++	struct scope_guard {
++		interpreter* I;
++		size_t base;
++		bool pushed{ false };
++		explicit scope_guard(interpreter* i) : I(i), base(i->scopes.size()) {}
++		scope_guard(const scope_guard&) = delete;
++		scope_guard& operator=(const scope_guard&) = delete;
++		bool push(uint8_t P, uint8_t* bound = nullptr, bool yieldable = false, bool probe = false,
++				  effect* eff = nullptr, bool pinned = false);
++		~scope_guard();
++	};
++	// The Lua value of a core duelist id under the current scope (identity without a scope).
++	lua_Integer fold_out(uint8_t d);
++	// Binds the first opponent among the PLAYER parameters (the event opponent: Lua sees it as 1) to the
++	// current scope. A second different opponent is a binding conflict (trap record kind b).
++	void bind_param_opponent();
++	// Fold trap record. Trap build (YGO_N_TRAP) only: one stderr line
++	// "NFOLD <kind> card=<code> P=<seat> fn=<name>"; it never aborts. Other builds write nothing.
++	// kind: a unbound fallback, b binding conflict, c pick during the operation step, d bad player value.
++	void fold_trap(char kind, const char* fn);
+ 
+ 	interpreter(duel* pd, const OCG_DuelOptions& options, bool& valid_lua_lib);
+ 	~interpreter();
+@@ -113,7 +159,7 @@ public:
+ 	void add_param(T param, bool front = false) {
+ 		lua_param p;
+ 		if constexpr(std::is_integral_v<T>) {
+-			static_assert(type == LuaParam::INT || type == LuaParam::FUNCTION || type == LuaParam::BOOLEAN || type == LuaParam::INDEX,
++			static_assert(type == LuaParam::INT || type == LuaParam::FUNCTION || type == LuaParam::BOOLEAN || type == LuaParam::INDEX || type == LuaParam::PLAYER,
+ 						  "Passed parameter type doesn't match provided LuaParam");
+ 			p.integer = param;
+ 		} else if constexpr(std::is_enum_v<T>) {
+@@ -126,21 +172,28 @@ public:
+ 		add_param(p, type, front);
+ 	}
+ 	void push_param(lua_State* L, bool is_coroutine = false);
+-	bool call_function(int32_t f, uint32_t param_count, int32_t ret_count);
++	// scope_eff / scope_P (n_duelists > 2 only) say for which duelist the call runs when the first
++	// effect parameter is not the answer: P = scope_P, else the handler player of scope_eff, else of
++	// the first EFFECT parameter, else the scope around the call.
++	bool call_function(int32_t f, uint32_t param_count, int32_t ret_count, effect* scope_eff = nullptr, uint8_t scope_P = DUELIST_NONE);
+ 	bool call_card_function(card* pcard, const char* f, uint32_t param_count, int32_t ret_count, bool forced = true);
+ 	bool call_code_function(uint32_t code, const char* f, uint32_t param_count, int32_t ret_count);
+-	bool check_condition(int32_t f, uint32_t param_count);
++	bool check_condition(int32_t f, uint32_t param_count, effect* scope_eff = nullptr, uint8_t scope_P = DUELIST_NONE);
+ 	bool check_matching(card* pcard, int32_t findex, int32_t extraargs);
+ 	bool check_matching_table(card* pcard, int32_t findex, int32_t table_index);
+ 	lua_Integer get_operation_value(card* pcard, int32_t findex, int32_t extraargs);
+ 	bool get_operation_value(card* pcard, int32_t findex, int32_t extraargs, std::vector<lua_Integer>& result);
+ 	lua_Integer get_function_value(int32_t f, uint32_t param_count);
+ 	bool get_function_value(int32_t f, uint32_t param_count, std::vector<lua_Integer>& result);
+-	int32_t call_coroutine(int32_t f, uint32_t param_count, lua_Integer* yield_value, uint16_t step);
++	// scope_P / scope_eff: the duelist and the effect of a chain link. Every resume pushes the scope
++	// again (bound = the bound opponent of the matching chain link) and pops it before it returns.
++	int32_t call_coroutine(int32_t f, uint32_t param_count, lua_Integer* yield_value, uint16_t step,
++						   uint8_t scope_P = DUELIST_NONE, effect* scope_eff = nullptr);
+ 	int32_t clone_lua_ref(int32_t lua_ref);
+ 	int32_t strong_from_weak_ref(int32_t weak_lua_ref);
+ 	void push_weak_ref(lua_State* L, int32_t weak_lua_ref);
+ 	void* get_ref_object(int32_t ref_handler);
++	bool call_function_scoped(int param_count, int ret_count, effect* scope_eff, uint8_t scope_P);
+ 	bool call_function(int param_count, int ret_count);
+ 	inline bool ret_fail(const char* message);
+ 	inline bool ret_fail(const char* message, bool error);
+diff --git a/libcard.cpp b/libcard.cpp
+index 440ce98..1579dc8 100644
+--- a/libcard.cpp
++++ b/libcard.cpp
+@@ -11,6 +11,7 @@
+ #include "duel.h"
+ #include "effect.h"
+ #include "field.h"
++#include "fold.h"
+ #include "group.h"
+ #include "scriptlib.h"
+ 
+@@ -429,7 +430,8 @@ LUA_FUNCTION(GetOwner) {
+ 	return 1;
+ }
+ LUA_FUNCTION(GetControler) {
+-	lua_pushinteger(L, self->current.controler);
++	// no bind on read: filters call this on every card (see fold.h push_player)
++	fold::push_player(L, pduel, self->current.controler, false);
+ 	return 1;
+ }
+ LUA_FUNCTION(GetPreviousControler) {
+@@ -623,8 +625,8 @@ LUA_FUNCTION(IsSummonCode) {
+ 			continue;
+ 		pduel->lua->add_param<LuaParam::CARD>(scard);
+ 		pduel->lua->add_param<LuaParam::INT>(sumtype);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
+-		if (!pduel->lua->check_condition(peff->operation, 3))
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
++		if (!pduel->lua->check_condition(peff->operation, 3, peff))
+ 			continue;
+ 		if (peff->code == EFFECT_ADD_CODE)
+ 			codes.insert(peff->get_value(self));
+@@ -1608,7 +1610,7 @@ LUA_FUNCTION(IsPreviousPosition) {
+ LUA_FUNCTION(IsControler) {
+ 	check_param_count(L, 2);
+ 	auto con = lua_get<uint8_t>(L, 2);
+-	lua_pushboolean(L, self->current.controler == con);
++	lua_pushboolean(L, fold::matches(pduel, con, self->current.controler));
+ 	return 1;
+ }
+ LUA_FUNCTION(IsPreviousControler) {
+diff --git a/libduel.cpp b/libduel.cpp
+index 2ab7b1b..65ce893 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -12,6 +12,7 @@
+ #include "duel.h"
+ #include "effect.h"
+ #include "field.h"
++#include "fold.h"
+ #include "group.h"
+ #include "scriptlib.h"
+ 
+@@ -32,9 +33,15 @@ LUA_STATIC_FUNCTION(EnableGlobalFlag) {
+ LUA_STATIC_FUNCTION(GetLP) {
+ 	check_param_count(L, 1);
+ 	auto p = lua_get<int8_t>(L, 1);
+-	if(!pduel->game_field->is_duelist(p))
++	// individual query: "1" with no bound opponent gives the best case over the living opponents
++	uint8_t who[MAX_DUELISTS];
++	const auto count = fold::query_list(pduel, static_cast<uint8_t>(p), who, "GetLP");
++	if(count == 0)
+ 		return 0;
+-	lua_pushinteger(L, pduel->game_field->lp_ref(static_cast<uint8_t>(p)));
++	int32_t lp = pduel->game_field->lp_ref(who[0]);
++	for(uint8_t i = 1; i < count; ++i)
++		lp = std::max(lp, pduel->game_field->lp_ref(who[i]));
++	lua_pushinteger(L, lp);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(SetLP) {
+@@ -51,13 +58,13 @@ LUA_STATIC_FUNCTION(SetLP) {
+ 	return 0;
+ }
+ LUA_STATIC_FUNCTION(GetTurnPlayer) {
+-	lua_pushinteger(L, pduel->game_field->infos.turn_player);
++	fold::push_player(L, pduel, pduel->game_field->infos.turn_player);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(IsTurnPlayer) {
+ 	check_param_count(L, 1);
+ 	const auto playerid = lua_get<uint8_t>(L, 1);
+-	lua_pushboolean(L, pduel->game_field->infos.turn_player == playerid);
++	lua_pushboolean(L, fold::matches(pduel, playerid, pduel->game_field->infos.turn_player));
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(GetTurnCount) {
+@@ -1225,7 +1232,8 @@ LUA_STATIC_FUNCTION(Draw) {
+ LUA_STATIC_FUNCTION(Damage) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 3);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	// individual action; in Tag only the team LP changes, so no opponent has to be picked
++	auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "Damage", true);
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto amount = lua_get<int64_t>(L, 2);
+@@ -1235,6 +1243,8 @@ LUA_STATIC_FUNCTION(Damage) {
+ 	auto reason = lua_get<uint32_t>(L, 3);
+ 	bool is_step = lua_get<bool, false>(L, 4);
+ 	auto reason_player = lua_get<uint8_t>(L, 5, pduel->game_field->core.reason_player);
++	if(!lua_isnoneornil(L, 5))
++		reason_player = fold::unfold_action(pduel, reason_player, "Damage", true);
+ 	if (!pduel->game_field->is_duelist(reason_player) && reason_player != pduel->game_field->none_id())
+ 		reason_player = pduel->game_field->core.reason_player;
+ 	pduel->game_field->damage(pduel->game_field->core.reason_effect, reason, reason_player, nullptr, playerid, actual_amount, is_step);
+@@ -1835,14 +1845,31 @@ LUA_STATIC_FUNCTION(GetLocationCount) {
+ 	check_param_count(L, 2);
+ 	auto playerid = lua_get<uint8_t>(L, 1);
+ 	auto location = lua_get<uint8_t>(L, 2);
+-	if(!pduel->game_field->is_duelist(playerid))
++	// individual query (zone count): "1" with no bound opponent gives the best case (largest count)
++	uint8_t who[MAX_DUELISTS];
++	const auto who_count = fold::query_list(pduel, playerid, who, "GetLocationCount");
++	if(who_count == 0)
+ 		return 0;
+ 	auto uplayer = lua_get<uint8_t>(L, 3, pduel->game_field->core.reason_player);
++	if(!lua_isnoneornil(L, 3)) {
++		uplayer = fold::unfold_action(pduel, uplayer, "GetLocationCount");
++		if(uplayer == fold::INVALID)
++			uplayer = pduel->game_field->core.reason_player;
++	}
+ 	auto reason = lua_get<uint32_t, static_cast<uint32_t>(LOCATION_REASON::TOFIELD)>(L, 4);
+ 	auto zone = lua_get<uint32_t, 0xff>(L, 5);
+-	uint32_t list = 0;
+-	lua_pushinteger(L, pduel->game_field->get_useable_count(nullptr, playerid, location, uplayer, static_cast<LOCATION_REASON>(reason), zone, &list));
+-	lua_pushinteger(L, list);
++	int32_t best = 0;
++	uint32_t best_list = 0;
++	for(uint8_t i = 0; i < who_count; ++i) {
++		uint32_t list = 0;
++		const int32_t count = pduel->game_field->get_useable_count(nullptr, who[i], location, uplayer, static_cast<LOCATION_REASON>(reason), zone, &list);
++		if(i == 0 || count > best) {
++			best = count;
++			best_list = list;
++		}
++	}
++	lua_pushinteger(L, best);
++	lua_pushinteger(L, best_list);
+ 	return 2;
+ }
+ LUA_STATIC_FUNCTION(GetMZoneCount) {
+@@ -2386,7 +2413,9 @@ LUA_STATIC_FUNCTION(GetFieldGroupCount) {
+  */
+ LUA_STATIC_FUNCTION(GetDecktopGroup) {
+ 	check_param_count(L, 2);
+-	auto playerid = lua_get<uint8_t>(L, 1);
++	// individual action: "1" is the bound opponent, else the next living opponent. A value that is not a
++	// duelist gives the empty group (it never indexes player[]).
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "GetDecktopGroup");
+ 	if(pduel->game_field->n_duelists > 2 && !pduel->game_field->is_duelist(playerid)) {
+ 		interpreter::pushobject(L, pduel->new_group());
+ 		return 1;
+@@ -4084,7 +4113,7 @@ inline int32_t is_player_can_procedure_summon_group(lua_State* L, uint32_t summo
+ 		pduel->lua->add_param<LuaParam::CARD>(pcard);
+ 		pduel->lua->add_param<LuaParam::BOOLEAN>(TRUE);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(oreason);
+-		pduel->lua->add_param<LuaParam::INT>(playerid);
++		pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 		if(pduel->lua->check_condition(peff->condition, 5)) {
+ 			pduel->game_field->restore_lp_cost();
+ 			core.reason_effect = oreason;
+diff --git a/lua_obj.h b/lua_obj.h
+index 0b73e7e..57766d2 100644
+--- a/lua_obj.h
++++ b/lua_obj.h
+@@ -18,6 +18,8 @@ enum class LuaParam : uint8_t {
+ 	FUNCTION,
+ 	BOOLEAN,
+ 	INDEX,
++	// A core duelist id (or DUELIST_NONE / DUELIST_ALL). Pushed through the perspective fold.
++	PLAYER,
+ 	DELETED,
+ };
+ 
+diff --git a/operations.cpp b/operations.cpp
+index 1d576d1..8da0ff4 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -221,10 +221,10 @@ void field::special_summon(card_set target, uint32_t sumtype, uint8_t sumplayer,
+ 			if(eff->target) {
+ 				pduel->lua->add_param<LuaParam::EFFECT>(eff);
+ 				pduel->lua->add_param<LuaParam::CARD>(pcard);
+-				pduel->lua->add_param<LuaParam::INT>(core.reason_player);
++				pduel->lua->add_param<LuaParam::PLAYER>(core.reason_player);
+ 				pduel->lua->add_param<LuaParam::INT>(pcard->summon.type);
+ 				pduel->lua->add_param<LuaParam::INT>(pos);
+-				pduel->lua->add_param<LuaParam::INT>(playerid);
++				pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 				pduel->lua->add_param<LuaParam::EFFECT>(core.reason_effect);
+ 				if(!pduel->lua->check_condition(eff->target, 7))
+ 					continue;
+@@ -259,10 +259,10 @@ void field::special_summon_step(card* target, uint32_t sumtype, uint8_t sumplaye
+ 		if(eff->target) {
+ 			pduel->lua->add_param<LuaParam::EFFECT>(eff);
+ 			pduel->lua->add_param<LuaParam::CARD>(target);
+-			pduel->lua->add_param<LuaParam::INT>(core.reason_player);
++			pduel->lua->add_param<LuaParam::PLAYER>(core.reason_player);
+ 			pduel->lua->add_param<LuaParam::INT>((sumtype & 0xf00ffff) | SUMMON_TYPE_SPECIAL);
+ 			pduel->lua->add_param<LuaParam::INT>(positions);
+-			pduel->lua->add_param<LuaParam::INT>(playerid);
++			pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 			pduel->lua->add_param<LuaParam::EFFECT>(core.reason_effect);
+ 			if(!pduel->lua->check_condition(eff->target, 7))
+ 				continue;
+@@ -600,7 +600,7 @@ bool field::process(Processors::Damage& arg) {
+ 			for(const auto& peff : eset) {
+ 				pduel->lua->add_param<LuaParam::EFFECT>(reason_effect);
+ 				pduel->lua->add_param<LuaParam::INT>(reason);
+-				pduel->lua->add_param<LuaParam::INT>(reason_player);
++				pduel->lua->add_param<LuaParam::PLAYER>(reason_player);
+ 				pduel->lua->add_param<LuaParam::CARD>(reason_card);
+ 				if(peff->check_value_condition(4)) {
+ 					recover(reason_effect, (reason & REASON_RRECOVER) | REASON_RDAMAGE | REASON_EFFECT, reason_player, playerid, amount, is_step);
+@@ -615,7 +615,7 @@ bool field::process(Processors::Damage& arg) {
+ 			pduel->lua->add_param<LuaParam::EFFECT>(reason_effect);
+ 			pduel->lua->add_param<LuaParam::INT>(amount);
+ 			pduel->lua->add_param<LuaParam::INT>(reason);
+-			pduel->lua->add_param<LuaParam::INT>(reason_player);
++			pduel->lua->add_param<LuaParam::PLAYER>(reason_player);
+ 			pduel->lua->add_param<LuaParam::CARD>(reason_card);
+ 			if (peff->check_value_condition(5)) {
+ 				if(n_duelists == 2) {
+@@ -641,7 +641,7 @@ bool field::process(Processors::Damage& arg) {
+ 			pduel->lua->add_param<LuaParam::EFFECT>(reason_effect);
+ 			pduel->lua->add_param<LuaParam::INT>(val);
+ 			pduel->lua->add_param<LuaParam::INT>(reason);
+-			pduel->lua->add_param<LuaParam::INT>(reason_player);
++			pduel->lua->add_param<LuaParam::PLAYER>(reason_player);
+ 			pduel->lua->add_param<LuaParam::CARD>(reason_card);
+ 			val = static_cast<uint32_t>(peff->get_value(5));
+ 			returns.set<uint32_t>(0, val);
+@@ -718,7 +718,7 @@ bool field::process(Processors::Recover& arg) {
+ 			for(const auto& peff : eset) {
+ 				pduel->lua->add_param<LuaParam::EFFECT>(reason_effect);
+ 				pduel->lua->add_param<LuaParam::INT>(reason);
+-				pduel->lua->add_param<LuaParam::INT>(reason_player);
++				pduel->lua->add_param<LuaParam::PLAYER>(reason_player);
+ 				if(peff->check_value_condition(3)) {
+ 					damage(reason_effect, (reason & REASON_RDAMAGE) | REASON_RRECOVER | REASON_EFFECT, reason_player, nullptr, playerid, amount, is_step);
+ 					arg.step = 2;
+@@ -2333,10 +2333,10 @@ bool field::process(Processors::SummonRule& arg) {
+ 			if(eff->target) {
+ 				pduel->lua->add_param<LuaParam::EFFECT>(eff);
+ 				pduel->lua->add_param<LuaParam::CARD>(target);
+-				pduel->lua->add_param<LuaParam::INT>(sumplayer);
++				pduel->lua->add_param<LuaParam::PLAYER>(sumplayer);
+ 				pduel->lua->add_param<LuaParam::INT>(target->summon.type);
+ 				pduel->lua->add_param<LuaParam::INT>(positions);
+-				pduel->lua->add_param<LuaParam::INT>(targetplayer);
++				pduel->lua->add_param<LuaParam::PLAYER>(targetplayer);
+ 				if(!pduel->lua->check_condition(eff->target, 6))
+ 					continue;
+ 			}
+@@ -3284,10 +3284,10 @@ bool field::process(Processors::SpSummonRule& arg) {
+ 			if(eff->target) {
+ 				pduel->lua->add_param<LuaParam::EFFECT>(eff);
+ 				pduel->lua->add_param<LuaParam::CARD>(target);
+-				pduel->lua->add_param<LuaParam::INT>(sumplayer);
++				pduel->lua->add_param<LuaParam::PLAYER>(sumplayer);
+ 				pduel->lua->add_param<LuaParam::INT>(sumtype);
+ 				pduel->lua->add_param<LuaParam::INT>(positions);
+-				pduel->lua->add_param<LuaParam::INT>(targetplayer);
++				pduel->lua->add_param<LuaParam::PLAYER>(targetplayer);
+ 				pduel->lua->add_param<LuaParam::EFFECT>(proc);
+ 				if(!pduel->lua->check_condition(eff->target, 7))
+ 					continue;
+@@ -3501,10 +3501,10 @@ bool field::process(Processors::SpSummonRule& arg) {
+ 			if(eff->target) {
+ 				pduel->lua->add_param<LuaParam::EFFECT>(eff);
+ 				pduel->lua->add_param<LuaParam::CARD>(pcard);
+-				pduel->lua->add_param<LuaParam::INT>(sumplayer);
++				pduel->lua->add_param<LuaParam::PLAYER>(sumplayer);
+ 				pduel->lua->add_param<LuaParam::INT>(sumtype);
+ 				pduel->lua->add_param<LuaParam::INT>(positions);
+-				pduel->lua->add_param<LuaParam::INT>(sumplayer);
++				pduel->lua->add_param<LuaParam::PLAYER>(sumplayer);
+ 				pduel->lua->add_param<LuaParam::EFFECT>(proc);
+ 				if(!pduel->lua->check_condition(eff->target, 7))
+ 					continue;
+@@ -3684,7 +3684,7 @@ bool field::process(Processors::SpSummonRuleGroup& arg) {
+ 			pduel->lua->add_param<LuaParam::CARD>(pcard);
+ 			pduel->lua->add_param<LuaParam::BOOLEAN>(TRUE);
+ 			pduel->lua->add_param<LuaParam::EFFECT>(oreason);
+-			pduel->lua->add_param<LuaParam::INT>(sumplayer);
++			pduel->lua->add_param<LuaParam::PLAYER>(sumplayer);
+ 			if(pduel->lua->check_condition(peff->condition, 5)) {
+ 				core.select_effects.push_back(peff);
+ 				core.select_options.push_back(peff->description);
+@@ -3743,10 +3743,10 @@ bool field::process(Processors::SpSummonStep& arg) {
+ 			target->filter_effect(EFFECT_SPSUMMON_CONDITION, &eset);
+ 			for(const auto& peff : eset) {
+ 				pduel->lua->add_param<LuaParam::EFFECT>(core.reason_effect);
+-				pduel->lua->add_param<LuaParam::INT>(target->summon.player);
++				pduel->lua->add_param<LuaParam::PLAYER>(target->summon.player);
+ 				pduel->lua->add_param<LuaParam::INT>(target->summon.type & 0xff00ffff);
+ 				pduel->lua->add_param<LuaParam::INT>(positions);
+-				pduel->lua->add_param<LuaParam::INT>(playerid);
++				pduel->lua->add_param<LuaParam::PLAYER>(playerid);
+ 				if(!peff->check_value_condition(5)) {
+ 					arg.step = 4;
+ 					return FALSE;
+@@ -4041,7 +4041,7 @@ bool field::process(Processors::Destroy& arg) {
+ 				for(const auto& peff : eset) {
+ 					pduel->lua->add_param<LuaParam::EFFECT>(pcard->current.reason_effect);
+ 					pduel->lua->add_param<LuaParam::INT>(pcard->current.reason);
+-					pduel->lua->add_param<LuaParam::INT>(pcard->current.reason_player);
++					pduel->lua->add_param<LuaParam::PLAYER>(pcard->current.reason_player);
+ 					if(peff->check_value_condition(3)) {
+ 						if(reason_player != PLAYER_SELFDES)
+ 							indestructable_effect_set.insert(peff);
+@@ -4064,7 +4064,7 @@ bool field::process(Processors::Destroy& arg) {
+ 							continue;
+ 						pduel->lua->add_param<LuaParam::EFFECT>(pcard->current.reason_effect);
+ 						pduel->lua->add_param<LuaParam::INT>(pcard->current.reason);
+-						pduel->lua->add_param<LuaParam::INT>(pcard->current.reason_player);
++						pduel->lua->add_param<LuaParam::PLAYER>(pcard->current.reason_player);
+ 						if(peff->check_value_condition(3)) {
+ 							indestructable_effect_set.insert(peff);
+ 							is_destructable = false;
+@@ -4072,7 +4072,7 @@ bool field::process(Processors::Destroy& arg) {
+ 					} else {
+ 						pduel->lua->add_param<LuaParam::EFFECT>(pcard->current.reason_effect);
+ 						pduel->lua->add_param<LuaParam::INT>(pcard->current.reason);
+-						pduel->lua->add_param<LuaParam::INT>(pcard->current.reason_player);
++						pduel->lua->add_param<LuaParam::PLAYER>(pcard->current.reason_player);
+ 						int32_t ct = peff->get_value(3);
+ 						if(ct) {
+ 							auto it = pcard->indestructable_effects.emplace(peff->id, 0);
+@@ -4095,7 +4095,7 @@ bool field::process(Processors::Destroy& arg) {
+ 				for(const auto& peff : eset) {
+ 					pduel->lua->add_param<LuaParam::EFFECT>(pcard->current.reason_effect);
+ 					pduel->lua->add_param<LuaParam::INT>(pcard->current.reason);
+-					pduel->lua->add_param<LuaParam::INT>(pcard->current.reason_player);
++					pduel->lua->add_param<LuaParam::PLAYER>(pcard->current.reason_player);
+ 					if(peff->check_value_condition(3)) {
+ 						extra.insert(peff->handler);
+ 						sub = true;
+@@ -4228,7 +4228,7 @@ bool field::process(Processors::Destroy& arg) {
+ 				for(const auto& peff : eset) {
+ 					pduel->lua->add_param<LuaParam::EFFECT>(pcard->current.reason_effect);
+ 					pduel->lua->add_param<LuaParam::INT>(pcard->current.reason);
+-					pduel->lua->add_param<LuaParam::INT>(pcard->current.reason_player);
++					pduel->lua->add_param<LuaParam::PLAYER>(pcard->current.reason_player);
+ 					if(peff->check_value_condition(3)) {
+ 						auto message = pduel->new_message(MSG_HINT);
+ 						message->write<uint8_t>(HINT_CARD);
+@@ -4257,7 +4257,7 @@ bool field::process(Processors::Destroy& arg) {
+ 							continue;
+ 						pduel->lua->add_param<LuaParam::EFFECT>(pcard->current.reason_effect);
+ 						pduel->lua->add_param<LuaParam::INT>(pcard->current.reason);
+-						pduel->lua->add_param<LuaParam::INT>(pcard->current.reason_player);
++						pduel->lua->add_param<LuaParam::PLAYER>(pcard->current.reason_player);
+ 						if(peff->check_value_condition(3)) {
+ 							peff->dec_count();
+ 							auto message = pduel->new_message(MSG_HINT);
+@@ -4269,7 +4269,7 @@ bool field::process(Processors::Destroy& arg) {
+ 					} else {
+ 						pduel->lua->add_param<LuaParam::EFFECT>(pcard->current.reason_effect);
+ 						pduel->lua->add_param<LuaParam::INT>(pcard->current.reason);
+-						pduel->lua->add_param<LuaParam::INT>(pcard->current.reason_player);
++						pduel->lua->add_param<LuaParam::PLAYER>(pcard->current.reason_player);
+ 						int32_t ct = peff->get_value(3);
+ 						if(ct) {
+ 							auto it = pcard->indestructable_effects.emplace(peff->id, 0);
+@@ -4299,7 +4299,7 @@ bool field::process(Processors::Destroy& arg) {
+ 				for(const auto& peff : eset) {
+ 					pduel->lua->add_param<LuaParam::EFFECT>(pcard->current.reason_effect);
+ 					pduel->lua->add_param<LuaParam::INT>(pcard->current.reason);
+-					pduel->lua->add_param<LuaParam::INT>(pcard->current.reason_player);
++					pduel->lua->add_param<LuaParam::PLAYER>(pcard->current.reason_player);
+ 					if(peff->check_value_condition(3)) {
+ 						core.battle_destroy_rep.insert(peff->handler);
+ 						sub = true;
+@@ -5196,7 +5196,7 @@ bool field::process(Processors::MoveToField& arg) {
+ 					if(peff->operation) {
+ 						pduel->lua->add_param<LuaParam::EFFECT>(peff, true);
+ 						pduel->lua->add_param<LuaParam::CARD>(target);
+-						pduel->lua->add_param<LuaParam::INT>(move_player);
++						pduel->lua->add_param<LuaParam::PLAYER>(move_player);
+ 						pduel->lua->add_param<LuaParam::INT>(reason);
+ 						if(!pduel->lua->check_condition(peff->operation, 4))
+ 							continue;
+@@ -5330,21 +5330,21 @@ bool field::process(Processors::MoveToField& arg) {
+ 					continue;
+ 				if(peff->operation) {
+ 					pduel->lua->add_param<LuaParam::EFFECT>(peff, true);
+-					pduel->lua->add_param<LuaParam::INT>(target->current.controler);
+-					pduel->lua->add_param<LuaParam::INT>(move_player);
++					pduel->lua->add_param<LuaParam::PLAYER>(target->current.controler);
++					pduel->lua->add_param<LuaParam::PLAYER>(move_player);
+ 					pduel->lua->add_param<LuaParam::INT>(real_reason);
+ 					if(!pduel->lua->check_condition(peff->operation, 4))
+ 						continue;
+ 				}
+ 				uint32_t value = 0x1f;
+ 				if(peff->is_flag(EFFECT_FLAG_PLAYER_TARGET)) {
+-					pduel->lua->add_param<LuaParam::INT>(target->current.controler);
+-					pduel->lua->add_param<LuaParam::INT>(move_player);
++					pduel->lua->add_param<LuaParam::PLAYER>(target->current.controler);
++					pduel->lua->add_param<LuaParam::PLAYER>(move_player);
+ 					pduel->lua->add_param<LuaParam::INT>(real_reason);
+ 					value = peff->get_value(3);
+ 				} else {
+-					pduel->lua->add_param<LuaParam::INT>(target->current.controler);
+-					pduel->lua->add_param<LuaParam::INT>(move_player);
++					pduel->lua->add_param<LuaParam::PLAYER>(target->current.controler);
++					pduel->lua->add_param<LuaParam::PLAYER>(move_player);
+ 					pduel->lua->add_param<LuaParam::INT>(real_reason);
+ 					value = peff->get_value(target, 3);
+ 				}
+diff --git a/processor.cpp b/processor.cpp
+index 3872770..ba67de3 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -52,13 +52,13 @@ bool field::process(Processors::ExecuteCost& arg) {
+ 		core.solving_event.splice(core.solving_event.begin(), core.sub_solving_event);
+ 		const tevent& e = core.solving_event.front();
+ 		pduel->lua->add_param<LuaParam::INT>(1, true);
+-		pduel->lua->add_param<LuaParam::INT>(e.reason_player, true);
++		pduel->lua->add_param<LuaParam::PLAYER>(e.reason_player, true);
+ 		pduel->lua->add_param<LuaParam::INT>(e.reason, true);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(e.reason_effect , true);
+ 		pduel->lua->add_param<LuaParam::INT>(e.event_value, true);
+-		pduel->lua->add_param<LuaParam::INT>(e.event_player, true);
++		pduel->lua->add_param<LuaParam::PLAYER>(e.event_player, true);
+ 		pduel->lua->add_param<LuaParam::GROUP>(e.event_cards , true);
+-		pduel->lua->add_param<LuaParam::INT>(triggering_player, true);
++		pduel->lua->add_param<LuaParam::PLAYER>(triggering_player, true);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(triggering_effect, true);
+ 		if(core.check_level == 0) {
+ 			for(uint8_t p = 0; p < n_duelists; ++p)
+@@ -74,7 +74,7 @@ bool field::process(Processors::ExecuteCost& arg) {
+ 	core.reason_player = triggering_player;
+ 	uint32_t count = static_cast<uint32_t>(pduel->lua->params.size());
+ 	lua_Integer yield_value = 0;
+-	int32_t result = pduel->lua->call_coroutine(triggering_effect->cost, count, &yield_value, step);
++	int32_t result = pduel->lua->call_coroutine(triggering_effect->cost, count, &yield_value, step, triggering_player, triggering_effect);
+ 	returns.set<int32_t>(0, static_cast<int32_t>(yield_value));
+ 	if (result != COROUTINE_YIELD) {
+ 		core.reason_effect = nullptr;
+@@ -107,13 +107,13 @@ bool field::process(Processors::ExecuteOperation& arg) {
+ 	if (step == 0) {
+ 		core.solving_event.splice(core.solving_event.begin(), core.sub_solving_event);
+ 		const tevent& e = core.solving_event.front();
+-		pduel->lua->add_param<LuaParam::INT>(e.reason_player, true);
++		pduel->lua->add_param<LuaParam::PLAYER>(e.reason_player, true);
+ 		pduel->lua->add_param<LuaParam::INT>(e.reason, true);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(e.reason_effect , true);
+ 		pduel->lua->add_param<LuaParam::INT>(e.event_value, true);
+-		pduel->lua->add_param<LuaParam::INT>(e.event_player, true);
++		pduel->lua->add_param<LuaParam::PLAYER>(e.event_player, true);
+ 		pduel->lua->add_param<LuaParam::GROUP>(e.event_cards , true);
+-		pduel->lua->add_param<LuaParam::INT>(triggering_player, true);
++		pduel->lua->add_param<LuaParam::PLAYER>(triggering_player, true);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(triggering_effect, true);
+ 		if(core.check_level == 0) {
+ 			for(uint8_t p = 0; p < n_duelists; ++p)
+@@ -129,7 +129,7 @@ bool field::process(Processors::ExecuteOperation& arg) {
+ 	core.reason_player = triggering_player;
+ 	uint32_t count = static_cast<uint32_t>(pduel->lua->params.size());
+ 	lua_Integer yield_value = 0;
+-	int32_t result = pduel->lua->call_coroutine(triggering_effect->operation, count, &yield_value, step);
++	int32_t result = pduel->lua->call_coroutine(triggering_effect->operation, count, &yield_value, step, triggering_player, triggering_effect);
+ 	returns.set<int32_t>(0, static_cast<int32_t>(yield_value));
+ 	if (result != COROUTINE_YIELD) {
+ 		core.reason_effect = nullptr;
+@@ -167,13 +167,13 @@ bool field::process(Processors::ExecuteTarget& arg) {
+ 		core.solving_event.splice(core.solving_event.begin(), core.sub_solving_event);
+ 		const tevent& e = core.solving_event.front();
+ 		pduel->lua->add_param<LuaParam::INT>(1, true);
+-		pduel->lua->add_param<LuaParam::INT>(e.reason_player, true);
++		pduel->lua->add_param<LuaParam::PLAYER>(e.reason_player, true);
+ 		pduel->lua->add_param<LuaParam::INT>(e.reason, true);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(e.reason_effect , true);
+ 		pduel->lua->add_param<LuaParam::INT>(e.event_value, true);
+-		pduel->lua->add_param<LuaParam::INT>(e.event_player, true);
++		pduel->lua->add_param<LuaParam::PLAYER>(e.event_player, true);
+ 		pduel->lua->add_param<LuaParam::GROUP>(e.event_cards , true);
+-		pduel->lua->add_param<LuaParam::INT>(triggering_player, true);
++		pduel->lua->add_param<LuaParam::PLAYER>(triggering_player, true);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(triggering_effect, true);
+ 		if(core.check_level == 0) {
+ 			for(uint8_t p = 0; p < n_duelists; ++p)
+@@ -189,7 +189,7 @@ bool field::process(Processors::ExecuteTarget& arg) {
+ 	core.reason_player = triggering_player;
+ 	uint32_t count = static_cast<uint32_t>(pduel->lua->params.size());
+ 	lua_Integer yield_value = 0;
+-	int32_t result = pduel->lua->call_coroutine(triggering_effect->target, count, &yield_value, step);
++	int32_t result = pduel->lua->call_coroutine(triggering_effect->target, count, &yield_value, step, triggering_player, triggering_effect);
+ 	returns.set<int32_t>(0, static_cast<int32_t>(yield_value));
+ 	if (result != COROUTINE_YIELD) {
+ 		core.reason_effect = nullptr;
+@@ -3339,7 +3339,7 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, st
+ 						for(const auto& peff : eset) {
+ 							lua_Integer val = -1;
+ 							if(!peff->is_flag(EFFECT_FLAG_PLAYER_TARGET)) {
+-								pduel->lua->add_param<LuaParam::INT>(p);
++								pduel->lua->add_param<LuaParam::PLAYER>(p);
+ 								pduel->lua->add_param<LuaParam::CARD>(core.attacker);
+ 								val = peff->get_value(2);
+ 							} else if(peff->is_target_player(p)) {
+@@ -3465,7 +3465,7 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, st
+ 			for(const auto& peff : eset) {
+ 				lua_Integer val = -1;
+ 				if(!peff->is_flag(EFFECT_FLAG_PLAYER_TARGET)) {
+-					pduel->lua->add_param<LuaParam::INT>(p);
++					pduel->lua->add_param<LuaParam::PLAYER>(p);
+ 					pduel->lua->add_param<LuaParam::CARD>(reason_card);
+ 					val = peff->get_value(2);
+ 				} else if(peff->is_target_player(p)) {
+@@ -3924,7 +3924,7 @@ bool field::process(Processors::AddChain& arg) {
+ 		for(const auto& peff : eset) {
+ 			pduel->lua->add_param<LuaParam::EFFECT>(peff);
+ 			pduel->lua->add_param<LuaParam::EFFECT>(clit.triggering_effect);
+-			pduel->lua->add_param<LuaParam::INT>(clit.triggering_player);
++			pduel->lua->add_param<LuaParam::PLAYER>(clit.triggering_player);
+ 			if(!pduel->lua->check_condition(peff->target, 3))
+ 				continue;
+ 			if(peff->operation) {
+@@ -3942,13 +3942,13 @@ bool field::process(Processors::AddChain& arg) {
+ 		} else {
+ 			uint32_t zone = 0xff;
+ 			if(!(phandler->data.type & (TYPE_FIELD | TYPE_PENDULUM)) && peffect->is_flag(EFFECT_FLAG_LIMIT_ZONE)) {
+-				pduel->lua->add_param<LuaParam::INT>(clit.triggering_player);
++				pduel->lua->add_param<LuaParam::PLAYER>(clit.triggering_player);
+ 				pduel->lua->add_param<LuaParam::GROUP>(clit.evt.event_cards);
+-				pduel->lua->add_param<LuaParam::INT>(clit.evt.event_player);
++				pduel->lua->add_param<LuaParam::PLAYER>(clit.evt.event_player);
+ 				pduel->lua->add_param<LuaParam::INT>(clit.evt.event_value);
+ 				pduel->lua->add_param<LuaParam::EFFECT>(clit.evt.reason_effect);
+ 				pduel->lua->add_param<LuaParam::INT>(clit.evt.reason);
+-				pduel->lua->add_param<LuaParam::INT>(clit.evt.reason_player);
++				pduel->lua->add_param<LuaParam::PLAYER>(clit.evt.reason_player);
+ 				zone = peffect->get_value(7);
+ 				if(!zone)
+ 					return TRUE;

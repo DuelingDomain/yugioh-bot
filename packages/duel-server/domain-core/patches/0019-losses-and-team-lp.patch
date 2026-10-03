@@ -1,0 +1,433 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Wed, 19 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: losses, win and draw for n > 2, team LP,
+ Debug.EliminateDuelist
+
+Losses, win and draw for duels with more than 2 duelists (phase 2, T5A).
+
+LP sites: 10 reads and writes of player[p].lp now go through lp_ref(p)
+(RELOAD_FIELD, Duel.GetLP, Duel.SetLP, QueryField, Damage x4 with the
+match kill test, Recover, PayLPCost check). lp_ref(p) is
+player[team_of(p)].lp, and team == seat with 1, 2, 3 or 4 duelists that
+are not Tag, so the value is the same as before for every p. Left as
+they are because the Domain patch anchors their text: check_lp_cost
+(field.cpp) and PayLPCost step 1 `lp -= cost` (operations.cpp). Setup
+writes and the relay reset are not changed either.
+
+New field::check_losses_n(), called from Adjust step 1 only when
+n_duelists > 2. It waits while a chain resolves or a script runs. A team
+loses by LP (no living member has CANNOT_LOSE_LP), by deck (per member),
+by pending_loss or by Duel.Win of another team. No team left = MSG_WIN
+(DUELIST_NONE = 0xFF, reason). One team left = MSG_WIN(team, reason), and free for all
+sends MSG_DUELIST_ELIMINATED (200) for each loser first. More teams left
+= eliminate(p, reason) per loser in turn order from the turn player.
+Every duelist is marked eliminated at the end of a duel, so MSG_WIN is
+sent once.
+
+Stock blocks: break_effect win block gets n_duelists == 2 &&, Adjust
+step 1 is if(n_duelists > 2) check_losses_n(); else stock. The match
+kill message is only for n_duelists == 2.
+
+Duel.Win for n > 2: accepts a living seat, needs a living opponent
+without CANNOT_LOSE_EFFECT, the first call wins. The stock text is not
+changed for 2 duelists. Debug.EliminateDuelist(p, reason) sets
+player_info::pending_loss (new, 0x100 | reason), Lua error unless
+n > 2 and p is alive. Debug.SetupDuelists rejects DUEL_RELAY and
+DUEL_INVERTED_QUICK_PRIORITY when n > 2.
+
+before_first_attack_turn: 2 duelists and Tag keep the stock test. Free
+for all is true while a living duelist has had no turn and during the
+first turn of the turn player.
+
+field::eliminate(p, reason) is declared as T5B needs it. Here it is a
+stub that only sets eliminated. common.h gets the ids 200, 201, 202.
+
+Every duelist value that reaches lp_ref comes from a check with
+is_duelist (GetLP, SetLP, Damage, Recover, CheckLPCost, PayLPCost) or from
+a loop. Two duelists are unchanged: every changed stock statement is guarded by
+n_duelists == 2 or is the same value as before. Left for T5B: the body of
+eliminate. The wrapper and the TS side read message 200.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ field.cpp      |   5 +-
+ field.h        |  25 ++++++++--
+ libdebug.cpp   |  24 ++++++++++
+ libduel.cpp    |  23 ++++++++-
+ ocgapi.cpp     |   2 +-
+ operations.cpp |  12 ++---
+ processor.cpp  | 124 ++++++++++++++++++++++++++++++++++++++++++++++++-
+ 7 files changed, 198 insertions(+), 17 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index 4bcaaec..7140cb1 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -117,7 +117,8 @@ field::field(duel* _pduel, const OCG_DuelOptions& options) :pduel(_pduel), playe
+ 	nil_event.reason_effect = nullptr;
+ 	nil_event.reason_player = PLAYER_NONE;
+ }
+-void field::eliminate(uint8_t p) {
++void field::eliminate(uint8_t p, uint8_t reason) {
++	(void)reason;
+ 	if(!is_duelist(p))
+ 		return;
+ 	player[p].eliminated = true;
+@@ -197,7 +198,7 @@ void field::reload_field_info() {
+ 	auto message = pduel->new_message(MSG_RELOAD_FIELD);
+ 	message->write<uint32_t>(core.duel_options);
+ 	for(int32_t playerid = 0; playerid < n_duelists; ++playerid) {
+-		message->write<uint32_t>(player[playerid].lp);
++		message->write<uint32_t>(lp_ref(static_cast<uint8_t>(playerid)));
+ 		for(auto& pcard : player[playerid].list_mzone) {
+ 			if(pcard) {
+ 				message->write<uint8_t>(1);
+diff --git a/field.h b/field.h
+index 2b00cdc..bad211e 100644
+--- a/field.h
++++ b/field.h
+@@ -105,8 +105,10 @@ struct player_info {
+ 	std::vector<uint32_t> extra_extra_p_count;
+ 	// Team index of this duelist. Set by field::field: each duelist is its own team for now.
+ 	uint8_t team{ 0 };
+-	// A duelist that lost in a duel of more than 2 duelists. Never set yet.
++	// A duelist that lost in a duel of more than 2 duelists. Set by field::eliminate and by the end of the duel.
+ 	bool eliminated{ false };
++	// Set by Debug.EliminateDuelist (n > 2 only): 0x100 | reason. The next safe Adjust applies the loss.
++	uint16_t pending_loss{ 0 };
+ 	// Used for the unused entries of field::player (index >= field::n_duelists). Never read in play.
+ 	player_info() : player_info(OCG_Player{}) {}
+ 	player_info(const OCG_Player& team) :
+@@ -497,11 +499,26 @@ public:
+ 	}
+ 	// True while no duelist can enter the Battle Phase because it is too early in the duel.
+ 	// With first_attack_turn == 2 this is the stock test "turn_id == 1".
++	// With more than 2 duelists: Tag keeps the test turn_id < first_attack_turn (4). Free for all waits
++	// until every LIVING duelist has had a turn: it is true while a living duelist has had none, and
++	// during the first turn of the turn player (so with nobody eliminated this is turn_id <= n_duelists).
++	// A duelist who is eliminated before their first turn does not hold the attacks back.
+ 	bool before_first_attack_turn() const {
+-		return infos.turn_id >= 1 && infos.turn_id < first_attack_turn;
++		if(n_duelists == 2 || n_teams != n_duelists)
++			return infos.turn_id >= 1 && infos.turn_id < first_attack_turn;
++		if(infos.turn_id < 1)
++			return false;
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			if(is_alive(p) && infos.turn_id_by_player[p] < 1)
++				return true;
++		}
++		return infos.turn_id_by_player[infos.turn_player] <= 1;
+ 	}
+-	// Marks p as out of the duel. The elimination patch adds the rest (cards, chain, turn, win).
+-	void eliminate(uint8_t p);
++	// Marks p as out of the duel (n > 2). reason = the MSG_WIN reason code that applies.
++	// The body of the elimination patch adds the rest (message 200, cards, chain, turn).
++	void eliminate(uint8_t p, uint8_t reason);
++	// Applies the losses of a duel with more than 2 duelists (Adjust step 1). Sends MSG_WIN at the end.
++	void check_losses_n();
+ 	// Calls f(p) for p = 0 .. n_duelists - 1 in ascending order (the stock order: player 0, then 1).
+ 	template<typename F>
+ 	void for_each_duelist(F&& f) const {
+diff --git a/libdebug.cpp b/libdebug.cpp
+index 2e4f463..2c34cb7 100644
+--- a/libdebug.cpp
++++ b/libdebug.cpp
+@@ -265,6 +265,10 @@ LUA_STATIC_FUNCTION(SetupDuelists) {
+ 		if(team[i] == i)
+ 			++teams;
+ 	}
++	if(count > 2 && field->is_flag(DUEL_RELAY))
++		lua_error(L, "Debug.SetupDuelists: DUEL_RELAY is not supported with more than 2 duelists.");
++	if(count > 2 && field->is_flag(DUEL_INVERTED_QUICK_PRIORITY))
++		lua_error(L, "Debug.SetupDuelists: DUEL_INVERTED_QUICK_PRIORITY is not supported with more than 2 duelists.");
+ 	uint16_t first_attack_turn = 0;
+ 	if(count == 2 && teams == 2)
+ 		first_attack_turn = 2;
+@@ -304,6 +308,26 @@ LUA_STATIC_FUNCTION(SetupDuelists) {
+ 	return 0;
+ }
+ 
++// Debug.EliminateDuelist(p, reason)
++// The host calls it with OCG_LoadScript between OCG_DuelProcess calls (surrender, time loss). Only in a
++// duel of more than 2 duelists, for a duelist who is in the duel. The loss is applied at the next Adjust
++// like a loss of all LP (MSG_DUELIST_ELIMINATED, or MSG_WIN when one team is left). A Tag team loses
++// as a whole. reason = the MSG_WIN reason code (0 to 255).
++LUA_STATIC_FUNCTION(EliminateDuelist) {
++	check_param_count(L, 2);
++	auto& field = pduel->game_field;
++	const auto p = lua_get<int64_t>(L, 1);
++	const auto reason = lua_get<int64_t>(L, 2);
++	if(field->n_duelists <= 2)
++		lua_error(L, "Debug.EliminateDuelist: only in a duel of more than 2 duelists.");
++	if(!field->is_alive(p))
++		lua_error(L, "Debug.EliminateDuelist: the duelist is not in the duel.");
++	if(reason < 0 || reason > 255)
++		lua_error(L, "Debug.EliminateDuelist: the reason must be 0 to 255.");
++	field->player[p].pending_loss = static_cast<uint16_t>(0x100 | reason);
++	return 0;
++}
++
+ }
+ }
+ 
+diff --git a/libduel.cpp b/libduel.cpp
+index f1f6a48..5ff7a7f 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -34,7 +34,7 @@ LUA_STATIC_FUNCTION(GetLP) {
+ 	auto p = lua_get<int8_t>(L, 1);
+ 	if(!pduel->game_field->is_duelist(p))
+ 		return 0;
+-	lua_pushinteger(L, pduel->game_field->player[p].lp);
++	lua_pushinteger(L, pduel->game_field->lp_ref(static_cast<uint8_t>(p)));
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(SetLP) {
+@@ -44,7 +44,7 @@ LUA_STATIC_FUNCTION(SetLP) {
+ 	if(lp < 0) lp = 0;
+ 	if(!pduel->game_field->is_duelist(p))
+ 		return 0;
+-	pduel->game_field->player[p].lp = lp;
++	pduel->game_field->lp_ref(static_cast<uint8_t>(p)) = lp;
+ 	auto message = pduel->new_message(MSG_LPUPDATE);
+ 	message->write<uint8_t>(p);
+ 	message->write<uint32_t>(lp);
+@@ -1117,6 +1117,25 @@ LUA_STATIC_FUNCTION(Win) {
+ 	check_param_count(L, 2);
+ 	auto playerid = lua_get<uint8_t>(L, 1);
+ 	auto reason = lua_get<uint32_t>(L, 2);
++	if (pduel->game_field->n_duelists > 2) {
++		// The argument is a seat here (the Lua fold maps PLAYER_NONE to a draw before the core).
++		// The first call in an Adjust window wins. The loss is applied in field::check_losses_n.
++		auto& f = *pduel->game_field;
++		if (!f.is_alive(playerid))
++			return 0;
++		bool can_win = false;
++		for (uint8_t q = 0; q < f.n_duelists; ++q) {
++			if (f.is_alive(q) && !f.same_team(playerid, q) && !f.is_player_affected_by_effect(q, EFFECT_CANNOT_LOSE_EFFECT))
++				can_win = true;
++		}
++		if (!can_win)
++			return 0;
++		if (f.core.win_player == 5) {
++			f.core.win_player = playerid;
++			f.core.win_reason = reason;
++		}
++		return 0;
++	}
+ 	if (playerid != 0 && playerid != 1 && playerid != 2)
+ 		return 0;
+ 	if (playerid == 0) {
+diff --git a/ocgapi.cpp b/ocgapi.cpp
+index 9dd94ee..42bd1fb 100644
+--- a/ocgapi.cpp
++++ b/ocgapi.cpp
+@@ -257,7 +257,7 @@ void* OCG_DuelQueryField(OCG_Duel ocg_duel, uint32_t* length) {
+ 	insert_value<uint32_t>(query, pduel->game_field->core.duel_options);
+ 	for(int playerid = 0; playerid < pduel->game_field->n_duelists; ++playerid) {
+ 		auto& player = pduel->game_field->player[playerid];
+-		insert_value<uint32_t>(query, player.lp);
++		insert_value<uint32_t>(query, pduel->game_field->lp_ref(static_cast<uint8_t>(playerid)));
+ 		for(auto& pcard : player.list_mzone) {
+ 			if(pcard) {
+ 				insert_value<uint8_t>(query, 1);
+diff --git a/operations.cpp b/operations.cpp
+index f9a1554..860ba1b 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -599,13 +599,13 @@ bool field::process(Processors::Damage& arg) {
+ 		if(arg.is_reflected || (reason & REASON_RRECOVER))
+ 			arg.step = 2;
+ 		core.hint_timing[playerid] |= TIMING_DAMAGE;
+-		player[playerid].lp -= amount;
++		lp_ref(playerid) -= amount;
+ 		auto message = pduel->new_message(MSG_DAMAGE);
+ 		message->write<uint8_t>(playerid);
+ 		message->write<uint32_t>(amount);
+ 		raise_event(reason_card, EVENT_DAMAGE, reason_effect, reason, reason_player, playerid, amount);
+ 		if(reason == REASON_BATTLE && reason_card) {
+-			if((player[playerid].lp <= 0) && (core.attack_target == nullptr) && reason_card->is_affected_by_effect(EFFECT_MATCH_KILL) && !is_player_affected_by_effect(playerid, EFFECT_CANNOT_LOSE_LP)) {
++			if(n_duelists == 2 && (lp_ref(playerid) <= 0) && (core.attack_target == nullptr) && reason_card->is_affected_by_effect(EFFECT_MATCH_KILL) && !is_player_affected_by_effect(playerid, EFFECT_CANNOT_LOSE_LP)) {
+ 				message = pduel->new_message(MSG_MATCH_KILL);
+ 				message->write<uint32_t>(reason_card->data.code);
+ 			}
+@@ -613,8 +613,8 @@ bool field::process(Processors::Damage& arg) {
+ 			raise_event(reason_card, EVENT_BATTLE_DAMAGE, nullptr, 0, reason_player, playerid, amount);
+ 			process_single_event();
+ 		}
+-		if(is_player_affected_by_effect(playerid, EFFECT_CANNOT_LOSE_LP) && player[playerid].lp < 0)
+-			player[playerid].lp = 0;
++		if(is_player_affected_by_effect(playerid, EFFECT_CANNOT_LOSE_LP) && lp_ref(playerid) < 0)
++			lp_ref(playerid) = 0;
+ 		process_instant_event();
+ 		return FALSE;
+ 	}
+@@ -670,7 +670,7 @@ bool field::process(Processors::Recover& arg) {
+ 		if(reason & REASON_RDAMAGE)
+ 			arg.step = 2;
+ 		core.hint_timing[playerid] |= TIMING_RECOVER;
+-		player[playerid].lp += amount;
++		lp_ref(playerid) += amount;
+ 		auto message = pduel->new_message(MSG_RECOVER);
+ 		message->write<uint8_t>(playerid);
+ 		message->write<uint32_t>(amount);
+@@ -719,7 +719,7 @@ bool field::process(Processors::PayLPCost& arg) {
+ 		e.reason_player = playerid;
+ 		core.select_options.clear();
+ 		core.select_effects.clear();
+-		if(val <= player[playerid].lp) {
++		if(val <= lp_ref(playerid)) {
+ 			core.select_options.push_back(11);
+ 			core.select_effects.push_back(nullptr);
+ 		}
+diff --git a/processor.cpp b/processor.cpp
+index 25c44d5..c8d2de0 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -4629,7 +4629,7 @@ int32_t field::break_effect(bool clear_sent) {
+ 	}
+ 	core.used_event.splice(core.used_event.end(), core.instant_event);
+ 	adjust_instant();
+-	if(!is_flag(DUEL_RELAY) && !core.force_turn_end) {
++	if(n_duelists == 2 && !is_flag(DUEL_RELAY) && !core.force_turn_end) {
+ 		uint32_t winp = 5, rea = 1;
+ 		if(player[0].lp <= 0 && player[1].lp > 0 && !is_player_affected_by_effect(0, EFFECT_CANNOT_LOSE_LP)) {
+ 			winp = 1;
+@@ -4683,6 +4683,124 @@ int32_t field::break_effect(bool clear_sent) {
+ 	}
+ 	return 0;
+ }
++// Losses in a duel of more than 2 duelists (called from Adjust step 1 only).
++// A team loses by LP (LP of the team <= 0 and no living member has CANNOT_LOSE_LP), by deck (a member must
++// draw from an empty Deck and has no CANNOT_LOSE_DECK), by Debug.EliminateDuelist (pending_loss) or by
++// Duel.Win of another team (every living opponent without CANNOT_LOSE_EFFECT). Losses wait while a chain
++// resolves or a script runs. Then: no team is left = draw MSG_WIN(0xFF), one team is left = MSG_WIN(team),
++// else every loser is eliminated in turn order from the turn player.
++void field::check_losses_n() {
++	if(core.chain_solving || !pduel->lua->coroutines.empty())
++		return;
++	uint8_t order[MAX_DUELISTS];
++	uint8_t count = 0;
++	for(uint8_t i = 0; i < n_duelists; ++i) {
++		const auto p = static_cast<uint8_t>((infos.turn_player + i) % n_duelists);
++		if(is_alive(p))
++			order[count++] = p;
++	}
++	bool loses[MAX_DUELISTS] = {};
++	uint8_t reason_of[MAX_DUELISTS] = {};
++	auto mark = [&](uint8_t p, uint8_t rea) {
++		loses[p] = true;
++		reason_of[p] = rea;
++	};
++	for(uint8_t i = 0; i < count; ++i) {
++		const auto p = order[i];
++		if(lp_ref(p) <= 0) {
++			bool protect = false;
++			for(uint8_t q = 0; q < count; ++q) {
++				if(same_team(order[q], p) && is_player_affected_by_effect(order[q], EFFECT_CANNOT_LOSE_LP))
++					protect = true;
++			}
++			if(!protect)
++				mark(p, 1);
++		}
++		if(core.overdraw[p] && !is_player_affected_by_effect(p, EFFECT_CANNOT_LOSE_DECK))
++			mark(p, 2);
++		if(player[p].pending_loss)
++			mark(p, static_cast<uint8_t>(player[p].pending_loss & 0xFF));
++	}
++	// Duel.Win: only when the winner does not lose in the same window.
++	if(core.win_player != 5) {
++		const uint8_t w = core.win_player;
++		if(is_alive(w) && !loses[w]) {
++			for(uint8_t i = 0; i < count; ++i) {
++				const auto p = order[i];
++				if(!same_team(w, p) && !is_player_affected_by_effect(p, EFFECT_CANNOT_LOSE_EFFECT))
++					mark(p, core.win_reason);
++			}
++		}
++		core.win_player = 5;
++		core.win_reason = 0;
++	}
++	// A team loses as a whole: every member of a losing team loses with the reason of the member.
++	for(uint8_t i = 0; i < count; ++i) {
++		const auto p = order[i];
++		if(!loses[p])
++			continue;
++		for(uint8_t q = 0; q < count; ++q) {
++			if(!loses[order[q]] && same_team(order[q], p))
++				mark(order[q], reason_of[p]);
++		}
++	}
++	bool any_loser = false;
++	uint8_t first_reason = 0;
++	uint8_t stay_team = 0;
++	uint8_t stay_count = 0;
++	bool team_seen[MAX_DUELISTS] = {};
++	for(uint8_t i = 0; i < count; ++i) {
++		const auto p = order[i];
++		if(loses[p]) {
++			if(!any_loser)
++				first_reason = reason_of[p];
++			any_loser = true;
++		} else if(!team_seen[team_of(p)]) {
++			team_seen[team_of(p)] = true;
++			stay_team = team_of(p);
++			++stay_count;
++		}
++	}
++	if(!any_loser)
++		return;
++	const bool free_for_all = n_teams == n_duelists;
++	for(uint8_t i = 0; i < count; ++i) {
++		const auto p = order[i];
++		if(loses[p]) {
++			core.overdraw[p] = false;
++			player[p].pending_loss = 0;
++		}
++	}
++	if(stay_count >= 2) {
++		// The duel goes on. Only free for all has more than 2 teams.
++		for(uint8_t i = 0; i < count; ++i) {
++			if(loses[order[i]])
++				eliminate(order[i], reason_of[order[i]]);
++		}
++		return;
++	}
++	// The duel is over: no card leaves the game. Every duelist is marked so that MSG_WIN is sent once.
++	if(stay_count == 1 && free_for_all) {
++		for(uint8_t i = 0; i < count; ++i) {
++			const auto p = order[i];
++			if(!loses[p])
++				continue;
++			auto message = pduel->new_message(MSG_DUELIST_ELIMINATED);
++			message->write<uint8_t>(p);
++			message->write<uint8_t>(reason_of[p]);
++		}
++	}
++	auto message = pduel->new_message(MSG_WIN);
++	if(stay_count == 1) {
++		message->write<uint8_t>(stay_team);
++		message->write<uint8_t>(first_reason);
++	} else {
++		message->write<uint8_t>(DUELIST_NONE);
++		message->write<uint8_t>(first_reason);
++	}
++	for(uint8_t i = 0; i < count; ++i)
++		player[order[i]].eliminated = true;
++}
+ void field::adjust_instant() {
+ 	++infos.event_id;
+ 	adjust_disable_check_list();
+@@ -4903,7 +5021,9 @@ bool field::process(Processors::Adjust& arg) {
+ 	}
+ 	case 1: {
+ 		//win check(deck=0 or lp=0)
+-		if(!core.force_turn_end){
++		if(n_duelists > 2) {
++			check_losses_n();
++		} else if(!core.force_turn_end){
+ 			uint32_t winp = 5, rea = 1;
+ 			if (player[0].lp <= 0 && player[1].lp > 0 && !is_player_affected_by_effect(0, EFFECT_CANNOT_LOSE_LP)) {
+ 				winp = 1;

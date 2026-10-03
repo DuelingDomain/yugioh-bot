@@ -1,0 +1,333 @@
+/* The holo life-point panel. Stage px; the stage scales it. --t is the seat tone (rgb triplet), --tink its ink. */
+.holo {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 40;
+  width: 196px;
+  color: #efe7d5;
+  font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  --sheet: rgb(181 153 99 / 0.34);
+  --sheet-lo: rgb(181 153 99 / 0.17);
+  --pen: #9b7eff;
+  --loss: #e45a4d;
+  --loss-ink: #ff9489;
+  --ink-3: #958f81;
+  --ink-4: #6e6a62;
+  transition: opacity 0.35s, translate 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* The fly-in pump moves the panel every frame: no glide, and it fades when its seat is off screen. */
+.holo[data-floating="true"] {
+  transition: opacity 0.35s;
+}
+
+.holo[data-offcam="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.holo[data-me="true"] {
+  width: 212px;
+}
+
+.body {
+  position: relative;
+  padding: 7px 10px 7px 12px;
+  border: 1px solid rgb(var(--t) / 0.55);
+  border-radius: 6px 6px 6px 14px;
+  background:
+    repeating-linear-gradient(180deg, rgb(var(--t) / 0.05) 0 1px, transparent 1px 3px),
+    linear-gradient(160deg, rgb(var(--t) / 0.16), rgb(8 12 24 / 0.88) 55%);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.35),
+    0 0 26px -6px rgb(var(--t) / 0.55),
+    inset 0 1px 0 rgb(255 255 255 / 0.12);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  text-align: left;
+}
+
+.body::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 30%;
+  top: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgb(var(--t)), transparent);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.top i {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: rgb(var(--t));
+  box-shadow: 0 0 8px rgb(var(--t));
+}
+
+.top b {
+  overflow: hidden;
+  color: var(--tink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turnChip {
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgb(var(--t) / 0.3);
+  color: #efe7d5;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.main {
+  --lp-size: 34px;
+  display: flex;
+  align-items: baseline;
+  margin-top: 5px;
+  text-shadow: 0 0 14px rgb(var(--t) / 0.35);
+}
+
+.holo[data-me="true"] .main {
+  --lp-size: 38px;
+}
+
+/* Last damage: the LP before it, struck out, over a red chip. Sits beside the numerals. */
+.hit {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  margin-left: 8px;
+  align-self: center;
+  text-shadow: none;
+  font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.hit s {
+  color: var(--ink-4);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration-color: var(--loss);
+}
+
+.hit b {
+  padding: 1px 6px;
+  border: 1px solid rgb(228 90 77 / 0.55);
+  border-radius: 999px;
+  background: rgb(228 90 77 / 0.16);
+  color: var(--loss-ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 6px;
+  color: var(--ink-3);
+  font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.meta .clock {
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 1px solid var(--sheet-lo);
+  border-radius: 3px;
+}
+
+.holo[data-active="true"] .meta .clock {
+  border-color: rgb(var(--t) / 0.7);
+  background: rgb(var(--t) / 0.14);
+  color: #efe7d5;
+}
+
+.state {
+  margin-top: 5px;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.holo[data-leaving="true"] .state {
+  color: var(--loss-ink);
+  animation: blink 0.8s steps(2) infinite;
+}
+
+.think {
+  margin-top: 5px;
+  color: var(--tink);
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1;
+}
+
+.holo[data-elim="true"] .body {
+  border-color: rgb(95 92 87 / 0.6);
+  box-shadow: none;
+  filter: grayscale(1);
+  opacity: 0.75;
+}
+
+.holo[data-elim="true"] .main {
+  position: relative;
+  color: var(--ink-4);
+  text-shadow: none;
+}
+
+.holo[data-elim="true"] .main::after {
+  content: "";
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  top: 50%;
+  height: 2px;
+  background: var(--loss);
+  rotate: -8deg;
+}
+
+/* A panel the viewer can choose: the whole panel is one button, with a dashed ring and a key hint. */
+.pick {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: crosshair;
+  font: inherit;
+  text-align: left;
+}
+
+.ring {
+  position: absolute;
+  inset: -6px;
+  z-index: 2;
+  border: 2px dashed var(--pen);
+  border-radius: 10px 10px 10px 18px;
+  pointer-events: none;
+  animation: ring 1.4s ease-in-out infinite;
+}
+
+.pick:hover .ring,
+.pick:focus-visible .ring {
+  border-style: solid;
+  box-shadow: 0 0 16px rgb(155 126 255 / 0.6);
+}
+
+.key {
+  position: absolute;
+  left: -10px;
+  top: -10px;
+  z-index: 3;
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid var(--pen);
+  border-radius: 50%;
+  background: #5733d1;
+  font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* The projector beam from a rival panel toward its field. */
+.beam {
+  position: absolute;
+  left: 24px;
+  width: 90px;
+  height: 56px;
+  background: linear-gradient(var(--bdir, 180deg), rgb(var(--t) / 0.2), transparent);
+  clip-path: polygon(0 0, 100% 0, 58% 100%, 42% 100%);
+  filter: blur(1px);
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.holo[data-beam="down"] .beam {
+  top: 100%;
+}
+
+.holo[data-beam="up"] .beam {
+  --bdir: 0deg;
+  bottom: 100%;
+  clip-path: polygon(42% 0, 58% 0, 100% 100%, 0 100%);
+}
+
+.holo[data-beam="none"] .beam {
+  display: none;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes ring {
+  50% {
+    inset: -9px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring,
+  .holo[data-leaving="true"] .state {
+    animation: none;
+  }
+}
+
+/* A rival's Deck Master: small art at the top right corner of the panel, over its edge. */
+.master {
+  position: absolute;
+  z-index: 2;
+  right: 8px;
+  top: -12px;
+  width: 30px;
+  height: 44px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgb(var(--t) / 0.7);
+  border-radius: 3px;
+  background: rgb(8 12 24 / 0.9);
+  box-shadow: 0 2px 8px -2px rgb(0 0 0 / 0.8), 0 0 10px -3px rgb(var(--t) / 0.6);
+  cursor: pointer;
+}
+.master img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.master:hover, .master:focus-visible { border-color: var(--tink); outline: none; }
+.holo[data-elim="true"] .master { filter: grayscale(1); opacity: 0.6; }

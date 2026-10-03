@@ -5,6 +5,7 @@ import type {
   DuelDeck,
   DuelFirstChoice,
   DuelDeckValidation,
+  DuelFormat,
   DuelHistoryScope,
   DuelListItem,
   DuelReplay,
@@ -24,6 +25,14 @@ export class DuelRequestError extends Error {
     super(message);
     this.name = "DuelRequestError";
     this.status = status;
+  }
+}
+
+/** The room left the lobby while a deck check was pending. Refresh the room; no report applies. */
+export class DeckValidationSkippedError extends Error {
+  constructor() {
+    super("Deck validation is no longer needed outside the lobby.");
+    this.name = "DeckValidationSkippedError";
   }
 }
 
@@ -48,8 +57,8 @@ async function parseBody<T>(res: Response): Promise<T> {
 
 export const DUEL_LIST_KEY = "/api/duels";
 
-export function duelRoomKey(slug: string): string {
-  return `/api/duels/${slug}`;
+export function duelRoomKey(slug: string, spectate = false): string {
+  return `/api/duels/${slug}${spectate ? "?spectate=1" : ""}`;
 }
 
 export async function listDuels(
@@ -73,6 +82,8 @@ export interface CreateDuelOptions {
   opponentPlayerId?: number | null;
   bestOf?: DuelBestOf;
   ranked?: boolean;
+  /** Table format: 1v1 (default), Tag, or a 3 or 4 player free-for-all. */
+  format?: DuelFormat;
 }
 
 export async function createDuel(
@@ -82,13 +93,14 @@ export async function createDuel(
   settings: DuelSettings,
   options: CreateDuelOptions = {},
 ): Promise<{ session: DuelSession; series?: DuelSeriesSummary; notified?: boolean }> {
-  const { opponentPlayerId, bestOf, ranked } = options;
+  const { opponentPlayerId, bestOf, ranked, format } = options;
   return parseBody(
     await fetch("/api/duels", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name, mode, masterRule, settings,
+        ...(format != null ? { format } : {}),
         ...(opponentPlayerId != null ? { opponentPlayerId } : {}),
         ...(bestOf != null ? { bestOf } : {}),
         ...(ranked != null ? { ranked } : {}),
@@ -107,8 +119,8 @@ export async function searchPlayers(q: string, signal?: AbortSignal): Promise<{ 
   return parseBody(await fetch(`/api/players?${new URLSearchParams({ q }).toString()}`, { cache: "no-store", signal }));
 }
 
-export async function getDuelRoom(slug: string): Promise<DuelRoom> {
-  return parseBody(await fetch(duelRoomKey(slug), { cache: "no-store" }));
+export async function getDuelRoom(slug: string, spectate = false): Promise<DuelRoom> {
+  return parseBody(await fetch(duelRoomKey(slug, spectate), { cache: "no-store" }));
 }
 
 export async function acceptDuelInvite(slug: string, inviteCode: string): Promise<DuelRoom> {
@@ -127,15 +139,21 @@ export async function takeDuelSeat(slug: string, seat: number): Promise<{ sessio
   }));
 }
 
-export async function addPracticeBot(slug: string): Promise<{ session: DuelSession }> {
+/** `seat` is the 0-based empty seat to fill; leave it out to take the first empty seat. */
+export async function addPracticeBot(slug: string, seat?: number): Promise<{ session: DuelSession }> {
+  const url = `/api/duels/${encodeURIComponent(slug)}/bot`;
+  if (seat === undefined) return parseBody(await fetch(url, { method: "POST" }));
   return parseBody(
-    await fetch(`/api/duels/${encodeURIComponent(slug)}/bot`, { method: "POST" }),
+    await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seat }) }),
   );
 }
 
-export async function removePracticeBot(slug: string): Promise<{ session: DuelSession }> {
+/** `seat` is the bot's 0-based seat; leave it out to remove every practice bot at the table. */
+export async function removePracticeBot(slug: string, seat?: number): Promise<{ session: DuelSession }> {
+  const url = `/api/duels/${encodeURIComponent(slug)}/bot`;
+  if (seat === undefined) return parseBody(await fetch(url, { method: "DELETE" }));
   return parseBody(
-    await fetch(`/api/duels/${encodeURIComponent(slug)}/bot`, { method: "DELETE" }),
+    await fetch(url, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seat }) }),
   );
 }
 
@@ -157,7 +175,7 @@ export async function validateDuelDeck(
   deck: DuelDeck,
   signal: AbortSignal,
 ): Promise<DuelDeckValidation> {
-  return parseBody(
+  const report = await parseBody<DuelDeckValidation | { skipped: true }>(
     await fetch(`/api/duels/${encodeURIComponent(slug)}/deck/validate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -165,6 +183,8 @@ export async function validateDuelDeck(
       signal,
     }),
   );
+  if ("skipped" in report) throw new DeckValidationSkippedError();
+  return report;
 }
 
 /** A seated player clicks Ready in a series game lobby (tournament games use the registered deck). */
@@ -288,4 +308,59 @@ export async function getDuelCards(codes: number[]): Promise<{ cards: DuelCardIn
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ codes }),
   }));
+}
+
+export interface DuelPresetIssue {
+  sig: string;
+  title: string;
+  owner: string;
+}
+
+export interface DuelPreset {
+  id: string;
+  title: string;
+  format: string;
+  needsMultiCore: boolean;
+  checklist: string[];
+  /** Known problems for this scenario (may be missing on an older duel host). */
+  issues?: DuelPresetIssue[];
+  available?: boolean;
+  unavailableReason?: string | null;
+}
+
+/** The multi-duelist core installed on the duel host. */
+export interface DuelPresetCore {
+  tag: string | null;
+  sha: string | null;
+}
+
+/** Dev only. The server answers 404 when DUEL_SCENARIOS is off. */
+export async function listDuelPresets(): Promise<{ presets: DuelPreset[]; core?: DuelPresetCore }> {
+  return parseBody(await fetch("/api/duels/preset", { cache: "no-store" }));
+}
+
+export async function startDuelPreset(presetId: string): Promise<{ slug: string }> {
+  return parseBody(await fetch("/api/duels/preset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ presetId }),
+  }));
+}
+
+export async function reportDuel(slug: string, note: string): Promise<{ path: string }> {
+  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note }),
+  }));
+}
+
+/** True only when the server runs with DUEL_SCENARIOS=1. */
+export async function reportEnabled(slug: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/duels/${encodeURIComponent(slug)}/report`, { cache: "no-store" });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

@@ -16,11 +16,12 @@ interface MobileDrawerProps {
   onClose: () => void;
   account: ShellAccount;
   live: LiveNow | null;
+  onReportBug?: () => void;
 }
 
 const FOCUSABLE = 'a[href], button:not([disabled]), [role="menuitem"]:not([aria-disabled="true"]), [tabindex]:not([tabindex="-1"])';
 
-function DrawerDialog({ onClose, account, live }: Omit<MobileDrawerProps, "open">) {
+function DrawerDialog({ onClose, account, live, onReportBug }: Omit<MobileDrawerProps, "open">) {
   const pathname = usePathname();
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -76,7 +77,7 @@ function DrawerDialog({ onClose, account, live }: Omit<MobileDrawerProps, "open"
         <NavList activeHref={activeHref} label="Mobile navigation" size="phone" live={live} onNavigate={onClose} />
         <div className={styles.foot}>
           <SettingsLink activeHref={activeHref} size="phone" onNavigate={onClose} />
-          <AccountMenu account={account} pathname={pathname} variant="side" onNavigate={onClose} />
+          <AccountMenu account={account} pathname={pathname} variant="side" onNavigate={onClose} onReportBug={onReportBug} />
         </div>
       </div>
     </div>
@@ -84,7 +85,7 @@ function DrawerDialog({ onClose, account, live }: Omit<MobileDrawerProps, "open"
 }
 
 /** Phone menu: a real dialog, mounted only while open. */
-export function MobileDrawer({ open, onClose, account, live }: MobileDrawerProps) {
+export function MobileDrawer({ open, onClose, account, live, onReportBug }: MobileDrawerProps) {
   // Locks page scroll while open.
   useEffect(() => {
     if (!open) return;
@@ -98,7 +99,7 @@ export function MobileDrawer({ open, onClose, account, live }: MobileDrawerProps
   if (!open) return null;
   return (
     <SheetPortal>
-      <DrawerDialog onClose={onClose} account={account} live={live} />
+      <DrawerDialog onClose={onClose} account={account} live={live} onReportBug={onReportBug} />
     </SheetPortal>
   );
 }

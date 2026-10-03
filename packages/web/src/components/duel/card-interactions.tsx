@@ -10,6 +10,36 @@ import { safeAnimate } from "./safe-animate";
 import styles from "./room.module.css";
 import fx from "./battle-fx.module.css";
 
+/** The card action menu the room or the table shell has open: where it sits, what it offers, and which prompt it answers. */
+export type CardMenuState = {
+  anchor: HTMLElement;
+  title: string;
+  options: DuelPromptOption[];
+  promptId: string;
+  revision: number;
+  tone: "action" | "chain";
+};
+
+/** A face-down or unnamed target reads as "face-down monster" in the attack confirm. */
+export function targetName(option: { label?: string; card?: { name?: string | null } | null }): string {
+  const name = option.card?.name?.trim();
+  if (name) return name;
+  return !option.label || /^Card \d+$/.test(option.label) ? "face-down monster" : option.label;
+}
+
+/** The first element a zone key marks on the page (the card button when it has one). */
+export function zoneAnchor(key: string, scope: ParentNode = document): HTMLElement | null {
+  const zone = scope.querySelector<HTMLElement>(`[data-zones~="${key}"]`);
+  return zone?.querySelector<HTMLElement>("button") ?? zone;
+}
+
+/** Put the confirm on the side of the target away from the attacker, so it never covers the arrow. */
+export function confirmSide(attackerKey: string | null, anchor: HTMLElement, scope: ParentNode = document): "above" | "below" {
+  const from = attackerKey ? scope.querySelector(`[data-zones~="${attackerKey}"]`) : null;
+  if (!from) return "above";
+  return from.getBoundingClientRect().top > anchor.getBoundingClientRect().top ? "above" : "below";
+}
+
 /** Icon for an engine option id; the label always carries the meaning too. */
 function optionIcon(id: string): LucideIcon {
   if (id.startsWith("summon") || id.startsWith("spsummon")) return ArrowUpFromLine;
@@ -341,13 +371,15 @@ export function AttackConfirm({
     function onKey(event: KeyboardEvent) {
       if (event.key !== "Enter" && event.key !== "Escape") return;
       if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target instanceof Element ? event.target : null;
+      // Keys inside another dialog (Report a bug) are not for this popover.
+      if (target?.closest("[role='dialog']:not([data-attack-confirm])")) return;
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
         backRef.current();
         return;
       }
-      const target = event.target instanceof Element ? event.target : null;
       // Inside the popover a button activates natively; on a zone, Enter re-aims at that zone.
       if (target?.closest("[data-attack-confirm],[data-zones],input,textarea,select,[contenteditable='true']")) return;
       event.preventDefault();

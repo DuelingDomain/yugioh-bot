@@ -1,0 +1,140 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 16 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: add Debug.SetupDuelists and check the duelist of a new
+ card
+
+Debug.SetupDuelists(n, team0, team1[, team2[, team3]]) sets the number
+of duelists and the teams. A startup script calls it after
+OCG_CreateDuel and before any card is added. OCG_DuelOptions does not
+change.
+
+It is a Lua error, and nothing changes, when:
+- n is not in [2, MAX_DUELISTS], or there are fewer than n team values;
+- a team value is not in [0, n);
+- a team id is not the lowest seat of its team (team[i] > i or
+  team[team[i]] != team[i]);
+- the layout is not 2 duelists (0, 1), free for all with 3 or 4
+  duelists (all teams different), or Tag (0, 1, 0, 1);
+- a card other than the temp card exists;
+- the duel started (turn_id != 0, or the processor has units or
+  subunits).
+
+On success it sets n_duelists, n_teams (the number of distinct teams),
+player[i].team and first_attack_turn (2 for 2 duelists, n + 1 for free
+for all, 4 for Tag). Entries at and above n get team = index. No entry
+is eliminated. Entries 2 and 3 in play copy the starting values (lp,
+start_lp, start_count, draw_count): a Tag partner from its team leader,
+a free for all duelist from player 0. These are all the values that
+OCG_CreateDuel takes from team1 and team2. In Tag the team LP is the
+value of the leader entry.
+
+OCG_DuelNewCard: when info.duelist == 0, a card with a con or team that
+is not a duelist in play is not added. Before, such a value indexed
+player[] with no check. With 2 duelists the callers only send 0 and 1,
+so nothing changes. The relay branch (duelist != 0) already checks the
+team and does not change.
+
+Start of the duel: the Startup processor already loops to n_duelists
+for the shuffle checks, the opening hand and the relay hands. No other
+change is needed to start a duel with 3 or 4 duelists.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ libdebug.cpp | 68 ++++++++++++++++++++++++++++++++++++++++++++++++++++
+ ocgapi.cpp   |  2 ++
+ 2 files changed, 70 insertions(+)
+
+diff --git a/libdebug.cpp b/libdebug.cpp
+index 238c73d..2e4f463 100644
+--- a/libdebug.cpp
++++ b/libdebug.cpp
+@@ -236,6 +236,74 @@ LUA_STATIC_FUNCTION(CardToStringWrapper) {
+ 	return 1;
+ }
+ 
++// Debug.SetupDuelists(n, team0, team1[, team2[, team3]])
++// Sets the number of duelists and their teams. Call it from a startup script after
++// OCG_CreateDuel and before any card is added or the duel starts. A team id is the lowest seat
++// of the team. Accepted layouts: 2 duelists (0, 1), free for all with 3 or 4 duelists
++// (0, 1, 2[, 3]) and Tag (0, 1, 0, 1). Every other call is a Lua error and changes nothing.
++// Debug.ReloadFieldBegin makes a new field, which has 2 duelists again.
++LUA_STATIC_FUNCTION(SetupDuelists) {
++	check_param_count(L, 1);
++	auto& field = pduel->game_field;
++	const auto n = lua_get<int64_t>(L, 1);
++	if(n < 2 || n > MAX_DUELISTS)
++		lua_error(L, "Debug.SetupDuelists: the number of duelists must be 2 to %d.", static_cast<int>(MAX_DUELISTS));
++	const auto count = static_cast<int>(n);
++	if(lua_gettop(L) < 1 + count)
++		lua_error(L, "Debug.SetupDuelists: %d team values are needed.", count);
++	uint8_t team[MAX_DUELISTS] = {};
++	for(int i = 0; i < count; ++i) {
++		const auto t = lua_get<int64_t>(L, 2 + i);
++		if(t < 0 || t >= n)
++			lua_error(L, "Debug.SetupDuelists: the team of duelist %d is not in [0, %d).", i, count);
++		team[i] = static_cast<uint8_t>(t);
++	}
++	uint8_t teams = 0;
++	for(int i = 0; i < count; ++i) {
++		if(team[i] > i || team[team[i]] != team[i])
++			lua_error(L, "Debug.SetupDuelists: the team id of duelist %d is not the lowest seat of its team.", i);
++		if(team[i] == i)
++			++teams;
++	}
++	uint16_t first_attack_turn = 0;
++	if(count == 2 && teams == 2)
++		first_attack_turn = 2;
++	else if(count > 2 && teams == count)
++		first_attack_turn = static_cast<uint16_t>(count + 1);
++	else if(count == 4 && team[0] == 0 && team[1] == 1 && team[2] == 0 && team[3] == 1)
++		first_attack_turn = 4;
++	else
++		lua_error(L, "Debug.SetupDuelists: this team layout is not supported.");
++	for(auto* pcard : pduel->cards) {
++		if(pcard != field->temp_card)
++			lua_error(L, "Debug.SetupDuelists: cards were added already.");
++	}
++	if(field->infos.turn_id != 0 || !field->core.units.empty() || !field->core.subunits.empty())
++		lua_error(L, "Debug.SetupDuelists: the duel started already.");
++	field->n_duelists = static_cast<uint8_t>(count);
++	field->n_teams = teams;
++	field->first_attack_turn = first_attack_turn;
++	for(int i = 0; i < MAX_DUELISTS; ++i) {
++		auto& info = field->player[i];
++		info.eliminated = false;
++		if(i >= count) {
++			info.team = static_cast<uint8_t>(i);
++			continue;
++		}
++		info.team = team[i];
++		if(i < 2)
++			continue;
++		// A Tag partner copies its team leader (the values of its team). A free for all duelist
++		// copies player 0. Both came from OCG_DuelOptions (team1, team2) or Debug.SetPlayerInfo.
++		const auto& from = field->player[team[i] != i ? team[i] : 0];
++		info.lp = from.lp;
++		info.start_lp = from.start_lp;
++		info.start_count = from.start_count;
++		info.draw_count = from.draw_count;
++	}
++	return 0;
++}
++
+ }
+ }
+ 
+diff --git a/ocgapi.cpp b/ocgapi.cpp
+index 29eb9cb..9dd94ee 100644
+--- a/ocgapi.cpp
++++ b/ocgapi.cpp
+@@ -67,6 +67,8 @@ void OCG_DuelNewCard(OCG_Duel ocg_duel, const OCG_NewCardInfo* info_ptr) {
+ 		return;
+ 	auto duelist = info.duelist;
+ 	if(duelist == 0) {
++		if(!game_field.is_duelist(info.con) || !game_field.is_duelist(info.team))
++			return;
+ 		if(game_field.is_location_useable(info.con, info.loc, info.seq)) {
+ 			card* pcard = pduel->new_card(info.code);
+ 			pcard->owner = info.team;

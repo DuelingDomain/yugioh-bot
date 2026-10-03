@@ -1,6 +1,7 @@
-import type { DuelSummonKind } from "@yugidraft/shared/duels";
+import type { DuelFormat, DuelSummonKind } from "@yugidraft/shared/duels";
 import { OcgLocation, OcgMessageType, OcgPosition, type OcgMessage } from "ocgcore-wasm";
 import type { CardDatabase } from "./cards.js";
+import { isNoDuelist, playerLabel } from "./views.js";
 
 /**
  * Text log lines for summons and card moves. Pure: engine.ts appends what these return.
@@ -52,16 +53,16 @@ function nameOf(cards: CardDatabase, code: number): string {
  * how a face-up monster arrived is public. A face-down summon names neither the card nor the method: everyone
  * gets "a face-down monster", and only its controller gets the name, with the plain verb.
  */
-export function summonLogLines(message: SummonMessage, cards: CardDatabase, summonKind: DuelSummonKind | undefined): LogLine[] {
-  const player = `Player ${message.controller + 1}`;
+export function summonLogLines(message: SummonMessage, cards: CardDatabase, summonKind: DuelSummonKind | undefined, format?: DuelFormat): LogLine[] {
+  const player = playerLabel(format, message.controller);
   const plain = message.type === OcgMessageType.SUMMONING ? "Normal Summons"
     : message.type === OcgMessageType.SPSUMMONING ? "Special Summons" : "Flip Summons";
   const name = nameOf(cards, message.code);
   if (isFaceDown(message.position)) {
-    return [
-      { text: `${player} ${plain} a face-down monster`, audience: "all" },
-      { text: `${player} ${plain} ${name}`, audience: message.controller },
-    ];
+    const lines: LogLine[] = [{ text: `${player} ${plain} a face-down monster`, audience: "all" }];
+    // Nobody owns a monster of "no duelist"; no seat may see its name.
+    if (!isNoDuelist(format, message.controller)) lines.push({ text: `${player} ${plain} ${name}`, audience: message.controller });
+    return lines;
   }
   const verb = summonKind ? SUMMON_VERB[summonKind] : plain;
   return [{ text: `${player} ${verb} ${name}`, audience: "all" }];
@@ -106,7 +107,7 @@ export function destroyedAndBanishedLogText(cards: CardDatabase, code: number): 
  *                        Monster's line may become "X was destroyed"); hidden source: nothing
  * Tributes and materials are only known once the summon that used them arrives, so they read as Graveyard sends.
  */
-export function moveLogLines(message: MoveMessage, cards: CardDatabase): LogLine[] {
+export function moveLogLines(message: MoveMessage, cards: CardDatabase, format?: DuelFormat): LogLine[] {
   const { from, to } = message;
   if (!to.location) return [];
   if (from.controller === to.controller && from.location === to.location) return [];
@@ -127,18 +128,19 @@ export function moveLogLines(message: MoveMessage, cards: CardDatabase): LogLine
     case OcgLocation.HAND: {
       if (from.location === OcgLocation.HAND) return [];
       const owner = to.controller;
-      const hand = `Player ${owner + 1}'s hand`;
+      const who = playerLabel(format, owner);
+      const hand = `${who}'s hand`;
       if (leavesPublicly(from)) {
         return [{ text: fromField ? `${name()} returned to ${hand}` : `${name()} was added to ${hand}`, audience: "all" }];
       }
-      if (!message.card) return [{ text: fromField ? `A face-down card returned to ${hand}` : `Player ${owner + 1} added a card to their hand`, audience: "all" }];
+      if (!message.card) return [{ text: fromField ? `A face-down card returned to ${hand}` : `${who} added a card to their hand`, audience: "all" }];
       return fromField
         ? [
             { text: `A face-down card returned to ${hand}`, audience: "all" },
             { text: `${name()} returned to your hand`, audience: owner },
           ]
         : [
-            { text: `Player ${owner + 1} added a card to their hand`, audience: "all" },
+            { text: `${who} added a card to their hand`, audience: "all" },
             { text: `You added ${name()} to your hand`, audience: owner },
           ];
     }

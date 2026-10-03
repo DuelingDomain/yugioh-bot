@@ -1,12 +1,13 @@
 import { DuelRoomView } from "@/components/duel/room";
+import { requireDuelActor } from "@/lib/duel-host";
 
 export default async function DuelRoomPage({
   params, searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ invite?: string | string[]; window?: string | string[]; join?: string | string[] }>;
+  searchParams: Promise<{ invite?: string | string[]; window?: string | string[]; stage?: string | string[]; spectate?: string | string[]; join?: string | string[] }>;
 }) {
-  const [{ slug }, { invite, window: windowFlag, join }] = await Promise.all([params, searchParams]);
+  const [{ slug }, { invite, window: windowFlag, stage, spectate, join }, actor] = await Promise.all([params, searchParams, requireDuelActor()]);
   return (
     <>
       {join === "failed" ? (
@@ -15,7 +16,8 @@ export default async function DuelRoomPage({
         </p>
       ) : null}
       <DuelRoomView slug={slug} inviteCode={typeof invite === "string" ? invite : undefined}
-        windowed={windowFlag === "1"} />
+        windowed={windowFlag === "1"} legacyStage={stage === "legacy"} spectate={spectate === "1"}
+        actorPlayerId={actor.ok ? actor.playerId : null} />
     </>
   );
 }

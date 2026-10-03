@@ -1,0 +1,531 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sat, 22 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: add the fold primitives and fold the core range loops
+ for n > 2
+
+F0, primitives: field::fold_player and field::unfold_player (identity with 2
+duelists), chain::bound_opp, and a scope stack in the interpreter (P, bound
+pointer, yieldable, probe, touched) with push, pop and read helpers. Nothing
+pushes a scope yet. The Lua entry points do that in the next task.
+
+F2, core ranges: one helper, field::build_range_list, splits a two sided
+query into (duelist, locations) entries by location class. Field class
+(zones, Graveyard, banished, overlay, counters): self is the team of P,
+oppo is every living opponent. Individual class (hand, Deck, Extra Deck):
+self is P, oppo is the bound opponent of the scope, or every living
+opponent when nothing is bound (the scope is marked touched). Tag partners
+are never oppo. Eliminated duelists are skipped.
+
+Changed sites: 4 range loops (filter_affected_cards, filter_inrange_cards,
+filter_matching_card, filter_field_card), 3 release lists (get_release_list,
+get_summon_release_list, ritual material), 2 material lists (ritual xyz and
+fusion, partner cards allowed), 2 overlay loops, get_field_counter, 2 unique
+card lists, 2 player hint loops in add_effect and remove_effect, and in
+effect.cpp is_target, is_target_player and RESET_OPPO_TURN.
+
+With 2 duelists every site builds the same (self, oppo) pair that the stock
+loop visited, or keeps the stock text behind n_duelists == 2. So no message,
+Lua call or result changes. Sites left for other tasks are in
+unchanged-sites.md.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ effect.cpp    |  38 +++++++++++-
+ field.cpp     | 169 +++++++++++++++++++++++++++++++++++++++++---------
+ field.h       |  35 +++++++++++
+ interpreter.h |  39 ++++++++++++
+ 4 files changed, 250 insertions(+), 31 deletions(-)
+
+diff --git a/effect.cpp b/effect.cpp
+index 5f72b83..b5cc6bf 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -446,7 +446,25 @@ int32_t effect::is_target(card* pcard) {
+ 			return FALSE;
+ 		if(is_flag(EFFECT_FLAG_SPSUM_PARAM))
+ 			return FALSE;
+-		if(is_flag(EFFECT_FLAG_ABSOLUTE_TARGET)) {
++		const auto& gf = *pduel->game_field;
++		if(gf.n_duelists > 2) {
++			// Field class ranges: the own side is the team of the viewpoint, the other side every
++			// other duelist. ABSOLUTE_TARGET: FFA is relative to the duelist that registered the
++			// effect, Tag is absolute (team 0 is the own side, as in a 2 player duel).
++			const uint8_t con = pcard->current.controler;
++			bool own_side;
++			if(is_flag(EFFECT_FLAG_ABSOLUTE_TARGET)) {
++				if(gf.n_teams == gf.n_duelists)
++					own_side = con == effect_owner;
++				else
++					own_side = gf.is_duelist(con) && gf.team_of(con) == 0;
++			} else {
++				const uint8_t hp = get_handler_player();
++				own_side = gf.is_duelist(con) && gf.is_duelist(hp) && gf.same_team(con, hp);
++			}
++			if(!pcard->current.is_location(own_side ? s_range : o_range))
++				return FALSE;
++		} else if(is_flag(EFFECT_FLAG_ABSOLUTE_TARGET)) {
+ 			if(pcard->current.controler == 0) {
+ 				if(!pcard->current.is_location(s_range))
+ 					return FALSE;
+@@ -480,6 +498,20 @@ int32_t effect::is_target_player(uint8_t playerid) {
+ 	if(!is_flag(EFFECT_FLAG_PLAYER_TARGET))
+ 		return FALSE;
+ 	uint8_t self = get_handler_player();
++	const auto& gf = *pduel->game_field;
++	if(gf.n_duelists > 2) {
++		if(!gf.is_duelist(playerid))
++			return FALSE;
++		if(is_flag(EFFECT_FLAG_ABSOLUTE_TARGET)) {
++			const bool own_side = gf.n_teams == gf.n_duelists ? playerid == effect_owner : gf.team_of(playerid) == 0;
++			return (own_side ? s_range : o_range) ? TRUE : FALSE;
++		}
++		// s only: the viewpoint duelist. o only: every duelist of another team. Both: everyone
++		// (the partner of the viewpoint in Tag is hit only when both ranges are set).
++		if(gf.is_duelist(self) && gf.same_team(self, playerid))
++			return (self == playerid ? s_range != 0 : (s_range && o_range)) ? TRUE : FALSE;
++		return o_range ? TRUE : FALSE;
++	}
+ 	if(is_flag(EFFECT_FLAG_ABSOLUTE_TARGET)) {
+ 		if(s_range && playerid == 0)
+ 			return TRUE;
+@@ -566,7 +598,9 @@ int32_t effect::reset(uint32_t reset_level, uint32_t reset_type) {
+ 			return FALSE;
+ 		uint8_t pid = get_handler_player();
+ 		uint8_t tp = pduel->game_field->infos.turn_player;
+-		if((((reset_flag & RESET_SELF_TURN) && pid == tp) || ((reset_flag & RESET_OPPO_TURN) && pid != tp)) 
++		const auto& gf = *pduel->game_field;
++		const bool oppo_turn = gf.n_duelists == 2 ? pid != tp : (gf.is_duelist(pid) && !gf.same_team(pid, tp));
++		if((((reset_flag & RESET_SELF_TURN) && pid == tp) || ((reset_flag & RESET_OPPO_TURN) && oppo_turn))
+ 				&& (reset_level & 0x3ff & reset_flag))
+ 			--reset_count;
+ 		if(reset_count == 0)
+diff --git a/field.cpp b/field.cpp
+index 30a86ca..84cb9ed 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -1628,8 +1628,14 @@ void field::add_effect(effect* peffect, uint8_t owner_player) {
+ 			bool target_player[MAX_DUELISTS] = {};
+ 			if(peffect->s_range)
+ 				target_player[owner_player] = true;
+-			if(peffect->o_range)
+-				target_player[opponent_of(owner_player)] = true;
++			if(peffect->o_range) {
++				if(n_duelists == 2)
++					target_player[opponent_of(owner_player)] = true;
++				else
++					for(uint8_t q = 0; q < n_duelists; ++q)
++						if(!same_team(owner_player, q))
++							target_player[q] = true;
++			}
+ 			for(uint8_t p = 0; p < n_duelists; ++p) {
+ 				if(target_player[p]) {
+ 					auto message = pduel->new_message(MSG_PLAYER_HINT);
+@@ -1685,8 +1691,14 @@ void field::remove_effect(effect* peffect) {
+ 			bool target_player[MAX_DUELISTS] = {};
+ 			if(peffect->s_range)
+ 				target_player[peffect->effect_owner] = true;
+-			if(peffect->o_range)
+-				target_player[opponent_of(peffect->effect_owner)] = true;
++			if(peffect->o_range) {
++				if(n_duelists == 2)
++					target_player[opponent_of(peffect->effect_owner)] = true;
++				else
++					for(uint8_t q = 0; q < n_duelists; ++q)
++						if(!same_team(peffect->effect_owner, q))
++							target_player[q] = true;
++			}
+ 			for(uint8_t p = 0; p < n_duelists; ++p) {
+ 				if(target_player[p]) {
+ 					auto message = pduel->new_message(MSG_PLAYER_HINT);
+@@ -1783,16 +1795,72 @@ void field::filter_field_effect(uint32_t code, effect_set* eset, bool sort) {
+ 	if(sort)
+ 		std::sort(eset->begin(), eset->end(), effect_sort_id);
+ }
++void field::build_range_list(range_list& rl, uint8_t self, uint32_t loc1, uint32_t loc2) {
++	rl.count = 0;
++	auto add = [&rl](uint8_t who, uint32_t loc) {
++		rl.who[rl.count] = who;
++		rl.loc[rl.count] = loc;
++		++rl.count;
++	};
++	if(n_duelists == 2) {
++		add(self, loc1);
++		add(opponent_of(self), loc2);
++		return;
++	}
++	constexpr uint32_t individual = LOCATION_HAND | LOCATION_DECK | LOCATION_EXTRA;
++	// self side: P gets everything, the living partners of P only the field class
++	add(self, loc1);
++	if(loc1 & ~individual) {
++		for(uint8_t q = 0; q < n_duelists; ++q) {
++			if(q != self && is_alive(q) && same_team(self, q))
++				add(q, loc1 & ~individual);
++		}
++	}
++	// oppo side
++	if(loc2 & ~individual) {
++		for(uint8_t q = 0; q < n_duelists; ++q) {
++			if(is_alive(q) && !same_team(self, q))
++				add(q, loc2 & ~individual);
++		}
++	}
++	if(loc2 & individual) {
++		const uint8_t bound = pduel->lua->scope_bound_opp();
++		if(is_alive(bound) && !same_team(self, bound)) {
++			add(bound, loc2 & individual);
++		} else {
++			pduel->lua->scope_mark_touched();
++			for(uint8_t q = 0; q < n_duelists; ++q) {
++				if(is_alive(q) && !same_team(self, q))
++					add(q, loc2 & individual);
++			}
++		}
++	}
++}
++const card_vector& field::side_cards(uint8_t p, bool oppo, card_vector player_info::* list, card_vector& tmp) {
++	if(n_duelists == 2)
++		return player[oppo ? opponent_of(p) : p].*list;
++	tmp.clear();
++	for(uint8_t q = 0; q < n_duelists; ++q) {
++		if(!is_alive(q) || same_team(p, q) == oppo)
++			continue;
++		tmp.insert(tmp.end(), (player[q].*list).begin(), (player[q].*list).end());
++	}
++	return tmp;
++}
+ void field::filter_affected_cards(effect* peffect, card_set* cset) {
+ 	if((peffect->type & EFFECT_TYPE_ACTIONS) || !(peffect->type & EFFECT_TYPE_FIELD)
+ 		|| peffect->is_flag(EFFECT_FLAG_PLAYER_TARGET | EFFECT_FLAG_SPSUM_PARAM))
+ 		return;
+ 	uint8_t self = peffect->get_handler_player();
+-	if(self == PLAYER_NONE)
++	if(n_duelists == 2 ? self == PLAYER_NONE : !is_duelist(self))
+ 		return;
+ 	std::vector<card_vector*> cvec;
+ 	uint16_t range = peffect->s_range;
+-	for(uint32_t p = 0; p < 2; ++p) {
++	range_list rl;
++	build_range_list(rl, self, peffect->s_range, peffect->o_range);
++	for(uint32_t p = 0; p < rl.count; ++p) {
++		self = rl.who[p];
++		range = static_cast<uint16_t>(rl.loc[p]);
+ 		if(range & LOCATION_MZONE)
+ 			cvec.push_back(&player[self].list_mzone);
+ 		if(range & LOCATION_SZONE)
+@@ -1807,8 +1875,6 @@ void field::filter_affected_cards(effect* peffect, card_set* cset) {
+ 			cvec.push_back(&player[self].list_main);
+ 		if(range & LOCATION_EXTRA)
+ 			cvec.push_back(&player[self].list_extra);
+-		range = peffect->o_range;
+-		self = opponent_of(self);
+ 	}
+ 	for(auto& cvit : cvec) {
+ 		for(auto& pcard : *cvit) {
+@@ -1821,11 +1887,15 @@ void field::filter_inrange_cards(effect* peffect, card_set* cset) {
+ 	if(peffect->is_flag(EFFECT_FLAG_PLAYER_TARGET | EFFECT_FLAG_SPSUM_PARAM))
+ 		return;
+ 	uint8_t self = peffect->get_handler_player();
+-	if(self == PLAYER_NONE)
++	if(n_duelists == 2 ? self == PLAYER_NONE : !is_duelist(self))
+ 		return;
+ 	uint16_t range = peffect->s_range;
+ 	std::vector<card_vector*> cvec;
+-	for(uint32_t p = 0; p < 2; ++p) {
++	range_list rl;
++	build_range_list(rl, self, peffect->s_range, peffect->o_range);
++	for(uint32_t p = 0; p < rl.count; ++p) {
++		self = rl.who[p];
++		range = static_cast<uint16_t>(rl.loc[p]);
+ 		if(range & LOCATION_MZONE)
+ 			cvec.push_back(&player[self].list_mzone);
+ 		if(range & LOCATION_SZONE)
+@@ -1840,8 +1910,6 @@ void field::filter_inrange_cards(effect* peffect, card_set* cset) {
+ 			cvec.push_back(&player[self].list_main);
+ 		if(range & LOCATION_EXTRA)
+ 			cvec.push_back(&player[self].list_extra);
+-		range = peffect->o_range;
+-		self = opponent_of(self);
+ 	}
+ 	for(auto& cvit : cvec) {
+ 		for(auto& pcard : *cvit) {
+@@ -1893,7 +1961,11 @@ int32_t field::filter_matching_card(int32_t findex, uint8_t self, uint32_t locat
+ 	auto check_list = [](const auto& list, auto func)->bool {
+ 		return std::find_if(list.begin(), list.end(), func) != list.end();
+ 	};
+-	for(uint32_t p = 0, location = location1; p < 2; ++p, location = location2, self = opponent_of(self)) {
++	range_list rl;
++	build_range_list(rl, self, location1, location2);
++	for(uint32_t p = 0; p < rl.count; ++p) {
++		self = rl.who[p];
++		const uint32_t location = rl.loc[p];
+ 		if(location & LOCATION_MZONE) {
+ 			if(check_list(player[self].list_mzone, mzonechk))
+ 				return TRUE;
+@@ -1951,9 +2023,12 @@ int32_t field::filter_matching_card(int32_t findex, uint8_t self, uint32_t locat
+ int32_t field::filter_field_card(uint8_t self, uint32_t location1, uint32_t location2, group* pgroup) {
+ 	if(!is_duelist(self))
+ 		return 0;
+-	uint32_t location = location1;
+ 	size_t count = 0;
+-	for(uint32_t p = 0; p < 2; ++p, location = location2, self = opponent_of(self)) {
++	range_list rl;
++	build_range_list(rl, self, location1, location2);
++	for(uint32_t p = 0; p < rl.count; ++p) {
++		self = rl.who[p];
++		const uint32_t location = rl.loc[p];
+ 		if(location & LOCATION_MZONE) {
+ 			for(auto& pcard : player[self].list_mzone) {
+ 				if(pcard && !pcard->get_status(STATUS_SUMMONING | STATUS_SPSUMMON_STEP)) {
+@@ -2101,8 +2176,10 @@ int32_t field::get_release_list(uint8_t playerid, card_set* release_list, card_s
+ 		}
+ 	}
+ 	int32_t ex_oneof_max = 0;
++	card_vector oppo_mzone_tmp;
++	const card_vector& oppo_mzone = side_cards(playerid, true, &player_info::list_mzone, oppo_mzone_tmp);
+ 	if(use_oppo) {
+-		for(auto& pcard : player[opponent_of(playerid)].list_mzone) {
++		for(auto& pcard : oppo_mzone) {
+ 			if(pcard && pcard != exc && !(exg && exg->has_card(pcard)) && (pcard->is_position(POS_FACEUP) || !fun)
+ 			   && pcard->is_releasable_by_nonsummon(playerid, reason) && (!fun || pduel->lua->check_matching(pcard, fun, exarg))) {
+ 				if(release_list)
+@@ -2112,7 +2189,7 @@ int32_t field::get_release_list(uint8_t playerid, card_set* release_list, card_s
+ 			}
+ 		}
+ 	} else {
+-		for(auto& pcard : player[opponent_of(playerid)].list_mzone) {
++		for(auto& pcard : oppo_mzone) {
+ 			if(pcard && pcard != exc && !(exg && exg->has_card(pcard)) && (pcard->is_position(POS_FACEUP) || !fun)
+ 			   && pcard->is_releasable_by_nonsummon(playerid, reason) && (!fun || pduel->lua->check_matching(pcard, fun, exarg))) {
+ 				pcard->release_param = 1;
+@@ -2201,7 +2278,8 @@ int32_t field::get_summon_release_list(card* target, card_set* release_list, car
+ 		}
+ 	}
+ 	uint32_t ex_oneof_max = 0;
+-	for(auto& pcard : player[opponent_of(p)].list_mzone) {
++	card_vector oppo_mzone_tmp;
++	for(auto& pcard : side_cards(p, true, &player_info::list_mzone, oppo_mzone_tmp)) {
+ 		if(!pcard || !((releasable >> (pcard->current.sequence + 16)) & 1) || !pcard->is_releasable_by_summon(p, target))
+ 			continue;
+ 		if (mg && !mg->has_card(pcard))
+@@ -2277,11 +2355,12 @@ void field::get_ritual_material(uint8_t playerid, effect* peffect, card_set* mat
+ 		return  (!check_level || pcard->get_level() > 0) && pcard->is_affect_by_effect(peffect)
+ 			&& pcard->is_releasable_by_effect(playerid, peffect);
+ 	};
+-	for(auto& pcard : player[playerid].list_mzone) {
++	card_vector team_mzone_tmp, oppo_mzone_tmp;
++	for(auto& pcard : side_cards(playerid, false, &player_info::list_mzone, team_mzone_tmp)) {
+ 		if(pcard && mzonecheck(pcard) && pcard->is_releasable_by_nonsummon(playerid, REASON_EFFECT))
+ 			material->insert(pcard);
+ 	}
+-	for(auto& pcard : player[opponent_of(playerid)].list_mzone) {
++	for(auto& pcard : side_cards(playerid, true, &player_info::list_mzone, oppo_mzone_tmp)) {
+ 		if(pcard && pcard->is_position(POS_FACEUP) && mzonecheck(pcard) && pcard->is_releasable_by_nonsummon(playerid, REASON_EFFECT) && pcard->is_affected_by_effect(EFFECT_EXTRA_RELEASE))
+ 			material->insert(pcard);
+ 	}
+@@ -2299,7 +2378,7 @@ void field::get_ritual_material(uint8_t playerid, effect* peffect, card_set* mat
+ 		if(pcard->is_affected_by_effect(EFFECT_EXTRA_RITUAL_MATERIAL)
+ 		   && (!check_level || pcard->get_level() > 0))
+ 			material->insert(pcard);
+-	for(auto& pcard : player[playerid].list_mzone) {
++	for(auto& pcard : side_cards(playerid, false, &player_info::list_mzone, team_mzone_tmp)) {
+ 		if(!pcard)
+ 			continue;
+ 		for(auto& ppcard : pcard->xyz_materials)
+@@ -2308,11 +2387,12 @@ void field::get_ritual_material(uint8_t playerid, effect* peffect, card_set* mat
+ 	}
+ }
+ void field::get_fusion_material(uint8_t playerid, card_set* material) {
+-	for(auto& pcard : player[playerid].list_mzone) {
++	card_vector team_mzone_tmp, team_szone_tmp;
++	for(auto& pcard : side_cards(playerid, false, &player_info::list_mzone, team_mzone_tmp)) {
+ 		if(pcard)
+ 			material->insert(pcard);
+ 	}
+-	for(auto& pcard : player[playerid].list_szone) {
++	for(auto& pcard : side_cards(playerid, false, &player_info::list_szone, team_szone_tmp)) {
+ 		if(pcard && pcard->is_affected_by_effect(EFFECT_EXTRA_FUSION_MATERIAL))
+ 			material->insert(pcard);
+ 	}
+@@ -2349,7 +2429,8 @@ void field::get_overlay_group(uint8_t playerid, uint8_t self, uint8_t oppo, card
+ 		}
+ 	} else {
+ 		for(int i = 0; i < n_duelists; ++i) {
+-			if((i == playerid && self) || (i == opponent_of(playerid) && oppo)) {
++			if(n_duelists == 2 ? ((i == playerid && self) || (i == opponent_of(playerid) && oppo))
++			                  : (is_alive(i) && (same_team(playerid, i) ? self : oppo))) {
+ 				for(auto& pcard : player[i].list_mzone) {
+ 					if(pcard && !pcard->get_status(STATUS_SUMMONING | STATUS_SPSUMMON_STEP))
+ 						pset->insert(pcard->xyz_materials.begin(), pcard->xyz_materials.end());
+@@ -2368,7 +2449,8 @@ int32_t field::get_overlay_count(uint8_t playerid, uint8_t self, uint8_t oppo, g
+ 		return static_cast<int32_t>(count);
+ 	}
+ 	for(int i = 0; i < n_duelists; ++i) {
+-		if((i == playerid && self) || (i == opponent_of(playerid) && oppo)) {
++		if(n_duelists == 2 ? ((i == playerid && self) || (i == opponent_of(playerid) && oppo))
++		                  : (is_alive(i) && (same_team(playerid, i) ? self : oppo))) {
+ 			for(auto& pcard : player[i].list_mzone) {
+ 				if(pcard && !pcard->get_status(STATUS_SUMMONING | STATUS_SPSUMMON_STEP))
+ 					count += pcard->xyz_materials.size();
+@@ -2529,8 +2611,15 @@ void field::add_unique_card(card* pcard) {
+ 	uint8_t con = pcard->current.controler;
+ 	if(pcard->unique_pos[0])
+ 		core.unique_cards[con].insert(pcard);
+-	if(pcard->unique_pos[1])
+-		core.unique_cards[opponent_of(con)].insert(pcard);
++	if(pcard->unique_pos[1]) {
++		if(n_duelists == 2) {
++			core.unique_cards[opponent_of(con)].insert(pcard);
++		} else {
++			for(uint8_t q = 0; q < n_duelists; ++q)
++				if(!same_team(con, q))
++					core.unique_cards[q].insert(pcard);
++		}
++	}
+ 	pcard->unique_fieldid = 0;
+ }
+ void field::remove_unique_card(card* pcard) {
+@@ -2539,8 +2628,15 @@ void field::remove_unique_card(card* pcard) {
+ 		return;
+ 	if(pcard->unique_pos[0])
+ 		core.unique_cards[con].erase(pcard);
+-	if(pcard->unique_pos[1])
+-		core.unique_cards[opponent_of(con)].erase(pcard);
++	if(pcard->unique_pos[1]) {
++		if(n_duelists == 2) {
++			core.unique_cards[opponent_of(con)].erase(pcard);
++		} else {
++			for(uint8_t q = 0; q < n_duelists; ++q)
++				if(!same_team(con, q))
++					core.unique_cards[q].erase(pcard);
++		}
++	}
+ }
+ // return: pcard->unique_effect or 0
+ effect* field::check_unique_onfield(card* pcard, uint8_t controler, uint8_t location, card* icard) {
+@@ -2709,6 +2805,21 @@ void field::restore_lp_cost() {
+ uint32_t field::get_field_counter(uint8_t playerid, uint8_t self, uint8_t oppo, uint16_t countertype) {
+ 	uint8_t c = self;
+ 	uint32_t count = 0;
++	if(n_duelists > 2) {
++		for(uint8_t q = 0; q < n_duelists; ++q) {
++			if(!is_alive(q) || !(same_team(playerid, q) ? self : oppo))
++				continue;
++			for(auto& pcard : player[q].list_mzone) {
++				if(pcard)
++					count += pcard->get_counter(countertype);
++			}
++			for(auto& pcard : player[q].list_szone) {
++				if(pcard)
++					count += pcard->get_counter(countertype);
++			}
++		}
++		return count;
++	}
+ 	for(int32_t p = 0; p < 2; ++p, playerid = opponent_of(playerid), c = oppo) {
+ 		if(c) {
+ 			for(auto& pcard : player[playerid].list_mzone) {
+diff --git a/field.h b/field.h
+index 48b6c98..9075211 100644
+--- a/field.h
++++ b/field.h
+@@ -59,6 +59,8 @@ struct chain {
+ 	uint8_t triggering_position;
+ 	uint8_t target_player;
+ 	uint8_t disable_player;
++	// Phase 3: the opponent that Lua's "1" stands for in this link (n_duelists > 2), or DUELIST_NONE.
++	uint8_t bound_opp{ DUELIST_NONE };
+ 	uint8_t triggering_summon_location{};
+ 	bool triggering_summon_proc_complete{}; //properly summoned or not
+ 	bool was_just_sent{ false };
+@@ -560,6 +562,39 @@ public:
+ 				return order[i];
+ 		return DUELIST_NONE;
+ 	}
++	// Phase 3 perspective fold. Lua sees only 0 and 1 when n_duelists > 2. With 2 duelists both
++	// functions are the identity. A value that is not a duelist (PLAYER_NONE, PLAYER_ALL, ...) is
++	// never changed. FFA: fold_P(d) = d == P ? 0 : 1. Tag: fold_P(d) = team_of(d).
++	uint8_t fold_player(uint8_t P, uint8_t d) const {
++		if(n_duelists == 2 || !is_duelist(d) || !is_duelist(P))
++			return d;
++		if(n_teams == n_duelists)
++			return d == P ? 0 : 1;
++		return team_of(d);
++	}
++	// The core duelist that the Lua value v means for the viewpoint P: P for the own side, `bound`
++	// (may be DUELIST_NONE) for "1". v >= 2 and every value with 2 duelists is returned unchanged.
++	uint8_t unfold_player(uint8_t P, uint8_t v, uint8_t bound) const {
++		if(n_duelists == 2 || v > 1 || !is_duelist(P))
++			return v;
++		if(v == (n_teams == n_duelists ? 0 : team_of(P)))
++			return P;
++		return bound;
++	}
++	// The per location class ranges of a two sided query (self mask, oppo mask) with n_duelists > 2.
++	// Field class locations (zones, Graveyard, banished, overlay, counters): self = every living
++	// duelist of P's team, oppo = every living opponent. Individual class (hand, Deck, Extra
++	// Deck): self = P, oppo = the bound opponent of the Lua scope, else every living opponent
++	// (the scope is marked touched). With 2 duelists: (P, loc1), (opponent_of(P), loc2).
++	struct range_list {
++		uint8_t count{ 0 };
++		uint8_t who[2 * MAX_DUELISTS]{};
++		uint32_t loc[2 * MAX_DUELISTS]{};
++	};
++	void build_range_list(range_list& rl, uint8_t self, uint32_t loc1, uint32_t loc2);
++	// The cards of one list of the team of p (oppo = false) or of every living opponent of p
++	// (oppo = true). With 2 duelists this is the list of p or of opponent_of(p) itself, no copy.
++	const card_vector& side_cards(uint8_t p, bool oppo, card_vector player_info::* list, card_vector& tmp);
+ 	void reload_field_info();
+ 
+ 	void add_card(uint8_t playerid, card* pcard, uint8_t location, uint8_t sequence, bool pzone = false);
+diff --git a/interpreter.h b/interpreter.h
+index a360559..070a6dd 100644
+--- a/interpreter.h
++++ b/interpreter.h
+@@ -57,6 +57,45 @@ public:
+ 	int weak_lua_references;
+ 	int loaded_scripts_table;
+ 
++	// Phase 3 perspective scope. While Lua runs for duelist P (n_duelists > 2), Lua sees only the
++	// folded ids 0 (P, or P's team in Tag) and 1 (the opponents). `bound` points at the bound
++	// opponent of the running chain link (DUELIST_NONE while none is bound). `touched` is set when a
++	// query had to use "every living opponent" because nothing was bound. Nothing pushes a scope
++	// yet except the field queries that read it; the Lua entry points push in a later task.
++	struct lua_scope {
++		uint8_t P{ DUELIST_NONE };
++		uint8_t* bound{ nullptr };
++		bool yieldable{ false };
++		bool probe{ false };
++		bool touched{ false };
++	};
++	std::vector<lua_scope> scopes;
++	void push_scope(uint8_t P, uint8_t* bound = nullptr, bool yieldable = false, bool probe = false) {
++		lua_scope s;
++		s.P = P;
++		s.bound = bound;
++		s.yieldable = yieldable;
++		s.probe = probe;
++		scopes.push_back(s);
++	}
++	void pop_scope() {
++		if(!scopes.empty())
++			scopes.pop_back();
++	}
++	lua_scope* current_scope() {
++		return scopes.empty() ? nullptr : &scopes.back();
++	}
++	// The bound opponent of the current scope, or DUELIST_NONE.
++	uint8_t scope_bound_opp() const {
++		if(scopes.empty() || !scopes.back().bound)
++			return DUELIST_NONE;
++		return *scopes.back().bound;
++	}
++	void scope_mark_touched() {
++		if(!scopes.empty())
++			scopes.back().touched = true;
++	}
++
+ 	interpreter(duel* pd, const OCG_DuelOptions& options, bool& valid_lua_lib);
+ 	~interpreter();
+ 

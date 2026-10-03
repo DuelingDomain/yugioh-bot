@@ -133,6 +133,26 @@ describe("history model", () => {
     expect(list[1].hits).toEqual([{ seat: 0, amount: 500, cause: "effect" }]);
   });
 
+  it("keeps a negated link negated when its own resolving and resolved events follow", () => {
+    const state = ingestHistory(
+      emptyHistory(),
+      [
+        { id: 1, kind: "activate", seat: 0, card: info(5, "Searcher"), chainIndex: 1, text: "Searcher is activating" },
+        { id: 2, kind: "activate", seat: 1, card: info(6, "Hand trap"), chainIndex: 2, text: "Hand trap is activating" },
+        { id: 3, kind: "chain-resolving", seat: 1, chainIndex: 2, text: "" },
+        { id: 4, kind: "chain-negated", seat: 0, chainIndex: 1, text: "" },
+        { id: 5, kind: "chain-resolved", seat: 1, chainIndex: 2, text: "" },
+        { id: 6, kind: "chain-resolving", seat: 0, chainIndex: 1, text: "" },
+        { id: 7, kind: "chain-resolved", seat: 0, chainIndex: 1, text: "" },
+        { id: 8, kind: "chain-end", text: "Chain ended" },
+      ],
+      ctx(),
+    );
+    const list = tiles(state);
+    expect(list[0].chain?.status).toBe("negated");
+    expect(list[1].chain?.status).toBe("resolved");
+  });
+
   it("makes standalone tiles for damage and destroy that belong to nothing", () => {
     const state = ingestHistory(
       emptyHistory(),

@@ -1,0 +1,66 @@
+--- a/field.h
++++ b/field.h
+@@ -442,13 +442,39 @@
+ 	})();
+ 	explicit field(duel* pduel, const OCG_DuelOptions& options);
+ 	~field() = default;
++#ifdef YGO_N_TRAP_LOG
++	uint32_t census_effect_code() const; // card code of the current effect, 0 when unknown (census.patch)
++#endif
+ 	// Duelist helpers. With n_duelists == 2 they give exactly the stock two-player results.
+ 	// opponent_of is only defined for n_duelists == 2 (it replaces "1 - p"). Sites that can see
+ 	// more than two duelists must use same_team and for_each_duelist instead.
+ 	// Native test builds define YGO_N_TRAP: then a call with more than two duelists prints the
+ 	// caller's file and line and aborts. Without the define the extra arguments are not used.
+ 	uint8_t opponent_of(uint8_t p, const char* file = __builtin_FILE(), int line = __builtin_LINE()) const {
+-#ifdef YGO_N_TRAP
++#if defined(YGO_N_TRAP_LOG)
++		// Census build (scripts/native/census.patch, not part of the core series): log each site once per
++		// process and go on with a safe value instead of aborting.
++		if(n_duelists > 2) {
++			static const char* seen_file[4096];
++			static int seen_line[4096];
++			static int seen_count = 0;
++			bool seen = false;
++			for(int i = 0; i < seen_count && !seen; ++i)
++				seen = seen_line[i] == line && __builtin_strcmp(seen_file[i], file) == 0;
++			if(!seen) {
++				if(seen_count < 4096) { seen_file[seen_count] = file; seen_line[seen_count++] = line; }
++				std::fprintf(stderr, "YGO_N_TRAP opponent_of %s:%d p=%d code=%u\n", file, line, static_cast<int>(p), census_effect_code());
++			}
++			if(!is_duelist(p))
++				return 0;
++			for(int k = 1; k <= n_duelists; ++k) {
++				const int q = (p + k) % n_duelists;
++				if(is_alive(q))
++					return static_cast<uint8_t>(q);
++			}
++			return 0;
++		}
++#elif defined(YGO_N_TRAP)
+ 		if(n_duelists > 2) {
+ 			std::fprintf(stderr, "YGO_N_TRAP opponent_of %s:%d p=%d\n", file, line, static_cast<int>(p));
+ 			std::abort();
+--- a/field.cpp
++++ b/field.cpp
+@@ -3326,3 +3326,20 @@
+ 	        && infos.phase < PHASE_BATTLE_START
+ 	        && !is_player_affected_by_effect(infos.turn_player, EFFECT_CANNOT_BP);
+ }
++
++#ifdef YGO_N_TRAP_LOG
++// Census build only (scripts/native/census.patch): the card code of the effect the core is working on.
++uint32_t field::census_effect_code() const {
++	effect* pe = nullptr;
++	if(!core.current_chain.empty())
++		pe = core.current_chain.back().triggering_effect;
++	if(!pe)
++		pe = core.reason_effect;
++	if(pe) {
++		card* handler = pe->get_handler();
++		if(handler)
++			return handler->data.code;
++	}
++	return 0;
++}
++#endif

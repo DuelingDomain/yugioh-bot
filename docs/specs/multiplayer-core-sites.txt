@@ -1,0 +1,636 @@
+two-player sites in ygopro-core efc21aa (35 files), lines per pattern: array-size-2=89 one-minus=194 less-than-2=47 xor-1=0 and-1=15 player-none-all=180 range-for-player-array=0 range-for-player-member=92 player-size-begin-for_each=0
+
+## array-size-2 (89) regex: \[2\]
+RNG/Xoshiro256.hpp:32: s[2] ^= s[0];
+RNG/Xoshiro256.hpp:34: s[1] ^= s[2];
+RNG/Xoshiro256.hpp:37: s[2] ^= t;
+card.cpp:2589: if(retval[2] < 0)
+card.cpp:2590: releasable += static_cast<int32_t>(retval[2]);
+card.cpp:2592: releasable = static_cast<uint32_t>(retval[2]);
+card.cpp:2628: if(retval[2] < 0)
+card.cpp:2629: releasable += static_cast<int32_t>(retval[2]);
+card.cpp:2631: releasable = static_cast<uint32_t>(retval[2]);
+card.cpp:2686: if(retval[2] < 0)
+card.cpp:2687: releasable += static_cast<int32_t>(retval[2]);
+card.cpp:2689: releasable = static_cast<uint32_t>(retval[2]);
+card.cpp:2722: if(retval[2] < 0)
+card.cpp:2723: releasable += static_cast<int32_t>(retval[2]);
+card.cpp:2725: releasable = static_cast<uint32_t>(retval[2]);
+card.cpp:2767: bool ignore_zone_check = retval.size() > 2 ? static_cast<bool>(retval[2]) : false;
+card.h:148: uint8_t unique_pos[2]{};
+card.h:155: uint16_t spsummon_counter[2]{};
+card.h:156: uint16_t spsummon_counter_rst[2]{};
+duel.cpp:16: random({ options.seed[0], options.seed[1], options.seed[2], options.seed[3] }),
+effect.h:41: uint32_t flag[2]{};
+effect.h:46: uint32_t hint_timing[2]{};
+field.cpp:1329: bool target_player[2] = {false, false};
+field.cpp:1390: bool target_player[2] = {false, false};
+field.h:167: int16_t turn_id_by_player[2]{ 0,0 };
+field.h:171: uint8_t priorities[2]{ 0,0 };
+field.h:210: uint16_t player_amount[2];
+field.h:266: card_set control_adjust_set[2];
+field.h:270: card_set trap_monster_adjust_set[2];
+field.h:287: std::unordered_set<card*> unique_cards[2];
+field.h:291: std::unordered_map<uint32_t, uint32_t> spsummon_once_map[2];
+field.h:292: std::unordered_map<uint32_t, uint32_t> spsummon_once_map_rst[2];
+field.h:295: uint32_t pre_field[2];
+field.h:323: int32_t battle_damage[2];
+field.h:324: int32_t summon_count[2];
+field.h:325: uint8_t extra_summon[2];
+field.h:326: int32_t spe_effect[2];
+field.h:344: bool overdraw[2];
+field.h:347: bool shuffle_hand_check[2];
+field.h:348: bool shuffle_deck_check[2];
+field.h:354: uint8_t summon_state_count[2];
+field.h:355: uint8_t normalsummon_state_count[2];
+field.h:356: uint8_t flipsummon_state_count[2];
+field.h:357: uint8_t spsummon_state_count[2];
+field.h:358: uint8_t spsummon_state_count_rst[2];
+field.h:359: uint8_t spsummon_state_count_tmp[2];
+field.h:361: uint8_t attack_state_count[2];
+field.h:362: uint8_t battle_phase_count[2];
+field.h:363: uint8_t battled_count[2];
+field.h:365: uint32_t hint_timing[2];
+field.h:403: //lpcost cost[2];
+libduel.cpp:1706: uint32_t used_location[2] = { default_loc, default_loc };
+libduel.cpp:1707: card_vector list_mzone[2];
+libduel.cpp:1747: uint32_t used_location[2] = { default_loc, default_loc };
+libduel.cpp:1748: card_vector list_mzone[2];
+ocgapi.cpp:43: if(options.seed[0] == 0 && options.seed[1] == 0 && options.seed[2] == 0 && options.seed[3] == 0)
+operations.cpp:986: duel::duel_message* decktop[2] = { nullptr, nullptr };
+operations.cpp:987: const size_t s[2] = { player[0].list_main.size(), player[1].list_main.size() };
+operations.cpp:1867: if(retval[2] < 0)
+operations.cpp:1868: releasable += static_cast<int32_t>(retval[2]);
+operations.cpp:1870: releasable = static_cast<uint32_t>(retval[2]);
+operations.cpp:1915: if(retval[2] < 0)
+operations.cpp:1916: releasable += static_cast<int32_t>(retval[2]);
+operations.cpp:1918: releasable = static_cast<uint32_t>(retval[2]);
+operations.cpp:1985: if(retval[2] < 0)
+operations.cpp:1986: releasable += static_cast<int32_t>(retval[2]);
+operations.cpp:1988: releasable = static_cast<uint32_t>(retval[2]);
+operations.cpp:2118: if(retval[2] < 0)
+operations.cpp:2119: releasable += static_cast<int32_t>(retval[2]);
+operations.cpp:2121: releasable = static_cast<uint32_t>(retval[2]);
+operations.cpp:2496: if(retval[2] < 0)
+operations.cpp:2497: releasable += static_cast<int32_t>(retval[2]);
+operations.cpp:2499: releasable = static_cast<uint32_t>(retval[2]);
+operations.cpp:2544: if(retval[2] < 0)
+operations.cpp:2545: releasable += static_cast<int32_t>(retval[2]);
+operations.cpp:2547: releasable = static_cast<uint32_t>(retval[2]);
+operations.cpp:2653: if(retval[2] < 0)
+operations.cpp:2654: releasable += static_cast<int32_t>(retval[2]);
+operations.cpp:2656: releasable = static_cast<uint32_t>(retval[2]);
+operations.cpp:2686: if(retval[2] < 0)
+operations.cpp:2687: releasable += static_cast<int32_t>(retval[2]);
+operations.cpp:2689: releasable = static_cast<uint32_t>(retval[2]);
+operations.cpp:3695: std::set<uint32_t> spsummon_once_set[2];
+processor.cpp:2984: uint8_t dp[2] = {};
+processor.cpp:3024: effect* reflect[2] = {};
+processor.cpp:3029: bool also[2] = { false, false };
+processor.cpp:3147: effect* reflect[2] = {};
+processor.cpp:3152: bool also[2] = { false, false };
+processor_unit.h:332: bool check_decktop_visibility[2];
+
+## one-minus (194) regex: (^|[^0-9A-Za-z_.])1 ?- ?[A-Za-z_(]
+card.cpp:1370: if(!pduel->game_field->is_location_useable(1 - current.controler, LOCATION_MZONE, i)) {
+card.cpp:1375: if(!pduel->game_field->is_location_useable(1 - current.controler, LOCATION_SZONE, i)) {
+card.cpp:1389: pduel->game_field->get_cards_in_zone(cset, linked_zone >> 16, 1 - p, LOCATION_ONFIELD);
+card.cpp:1422: pduel->game_field->get_cards_in_zone(cset, mutual_linked_zone >> 16, 1 - p, LOCATION_ONFIELD);
+card.cpp:1459: const auto& list_mzone1 = pduel->game_field->player[1 - current.controler].list_mzone;
+card.cpp:1460: const auto& list_szone1 = pduel->game_field->player[1 - current.controler].list_szone;
+card.cpp:1533: pduel->game_field->get_cards_in_zone(cset, column_zone >> 16, 1 - p, LOCATION_ONFIELD);
+card.cpp:2610: toplayer = 1 - playerid;
+card.cpp:2707: toplayer = 1 - playerid;
+card.cpp:2751: toplayer = 1 - playerid;
+card.cpp:3813: if(!ignore_mzone && pduel->game_field->get_useable_count(this, 1 - current.controler, LOCATION_MZONE, current.controler, LOCATION_REASON::CONTROL, zone) <= 0)
+card.cpp:3816: && pduel->game_field->get_useable_count(this, 1 - current.controler, LOCATION_SZONE, current.controler, LOCATION_REASON::CONTROL) <= 0))
+field.cpp:639: uint32_t oppo = player[1 - playerid].disabled_location | player[1 - playerid].used_location;
+field.cpp:867: for(auto& pcard : player[1 - playerid].list_mzone) {
+field.cpp:871: for(auto& pcard : player[1 - playerid].list_szone) {
+field.cpp:891: get_cards_in_zone(cset, get_linked_zone(1 - self), 1 - self, location2);
+field.cpp:1120: tmp->current.sequence = static_cast<uint32_t>(count - 1 - i);
+field.cpp:1121: player[playerid].list_main[count - 1 - i]->current.sequence = static_cast<uint32_t>(i);
+field.cpp:1122: player[playerid].list_main[i] = player[playerid].list_main[count - 1 - i];
+field.cpp:1123: player[playerid].list_main[count - 1 - i] = tmp;
+field.cpp:1333: target_player[1 - owner_player] = true;
+field.cpp:1394: target_player[1 - peffect->effect_owner] = true;
+field.cpp:1520: self = 1 - self;
+field.cpp:1553: self = 1 - self;
+field.cpp:1605: for(uint32_t p = 0, location = location1; p < 2; ++p, location = location2, self = 1 - self) {
+field.cpp:1665: for(uint32_t p = 0; p < 2; ++p, location = location2, self = 1 - self) {
+field.cpp:1814: for(auto& pcard : player[1 - playerid].list_mzone) {
+field.cpp:1824: for(auto& pcard : player[1 - playerid].list_mzone) {
+field.cpp:1913: for(auto& pcard : player[1 - p].list_mzone) {
+field.cpp:1993: for(auto& pcard : player[1 - playerid].list_mzone) {
+field.cpp:2061: if((i == playerid && self) || (i == (1 - playerid) && oppo)) {
+field.cpp:2080: if((i == playerid && self) || (i == (1 - playerid) && oppo)) {
+field.cpp:2145: p = 1 - p;
+field.cpp:2237: core.unique_cards[1 - con].insert(pcard);
+field.cpp:2247: core.unique_cards[1 - con].erase(pcard);
+field.cpp:2416: for(int32_t p = 0; p < 2; ++p, playerid = 1 - playerid, c = oppo) {
+field.cpp:2444: for(auto& atarget : player[1 - p].list_mzone) {
+field.cpp:2476: for(auto& atarget : player[1 - p].list_mzone)
+field.cpp:2578: if(toplayer == 1 - sumplayer)
+field.cpp:2698: bool cant_remove_o = !is_player_can_action(1 - playerid, EFFECT_CANNOT_REMOVE);
+libcard.cpp:234: if(cp == 1 - self->current.controler)
+libcard.cpp:243: if(cp == 1 - self->current.controler)
+libcard.cpp:265: if(cp == 1 - self->current.controler)
+libcard.cpp:303: if(cp == 1 - self->current.controler)
+libduel.cpp:900: uint8_t revealingplayer = 1 - playerid;
+libduel.cpp:1487: for(auto& pcard : pduel->game_field->player[1 - turnp].list_mzone) {
+libduel.cpp:1498: pduel->game_field->raise_single_event(target, nullptr, EVENT_BE_BATTLE_TARGET, nullptr, REASON_REPLACE, 0, 1 - turnp, 0);
+libduel.cpp:1499: pduel->game_field->raise_event(target, EVENT_BE_BATTLE_TARGET, nullptr, REASON_REPLACE, 0, 1 - turnp, 0);
+libduel.cpp:2147: playerid = 1 - playerid;
+libduel.cpp:3062: playerid = 1 - playerid;
+libduel.cpp:3199: ct3 = pduel->game_field->get_useable_count(nullptr, 1 - playerid, LOCATION_MZONE, PLAYER_NONE, LOCATION_REASON::NONE, 0xff, &plist);
+libduel.cpp:3202: if (!pduel->game_field->is_location_useable(1 - playerid, LOCATION_MZONE, 5))
+libduel.cpp:3206: if (!pduel->game_field->is_location_useable(1 - playerid, LOCATION_MZONE, 6))
+libduel.cpp:3214: ct4 = pduel->game_field->get_useable_count(nullptr, 1 - playerid, LOCATION_SZONE, PLAYER_NONE, LOCATION_REASON::NONE, 0xff, &plist);
+libduel.cpp:3217: if (!pduel->game_field->is_location_useable(1 - playerid, LOCATION_SZONE, 5))
+libduel.cpp:3221: if (!pduel->game_field->is_location_useable(1 - playerid, LOCATION_SZONE, 6))
+libduel.cpp:3225: if (!pduel->game_field->is_location_useable(1 - playerid, LOCATION_SZONE, 7))
+libduel.cpp:3491: lua_pushinteger(L, 1 - pduel->game_field->returns.at<int32_t>(0));
+operations.cpp:491: message->write<uint8_t>(1 - playerid);
+operations.cpp:569: playerid = 1 - playerid;
+operations.cpp:598: playerid = 1 - playerid;
+operations.cpp:1431: move_to_field(pcard, 1 - pcard->current.controler, 1 - pcard->current.controler, LOCATION_MZONE, pcard->current.position);
+operations.cpp:1489: playerid = 1 - playerid;
+operations.cpp:1496: playerid = 1 - playerid;
+operations.cpp:1503: playerid = 1 - playerid;
+operations.cpp:1615: check_player = 1 - infos.turn_player;
+operations.cpp:1641: check_player = 1 - infos.turn_player;
+operations.cpp:1664: tp = 1 - tp;
+operations.cpp:2170: targetplayer = 1 - sumplayer;
+operations.cpp:2730: targetplayer = 1 - setplayer;
+operations.cpp:3088: targetplayer = 1 - sumplayer;
+operations.cpp:3676: core.hint_timing[1 - infos.turn_player] |= TIMING_SPSUMMON;
+operations.cpp:3707: set_spsummon_counter(1 - infos.turn_player);
+operations.cpp:4992: move_player = 1 - move_player;
+operations.cpp:5238: playerid = 1 - reason_player;
+operations.cpp:5655: emplace_process<Processors::QuickEffect>(false, 1 - playerid);
+operations.cpp:6152: message->write<uint8_t>(1 - playerid);
+operations.cpp:6179: mmessage->write<uint8_t>(1 - playerid);
+playerop.cpp:482: message->write<uint32_t>(core.hint_timing[1 - playerid]);
+playerop.cpp:732: fp = 1 - fp;
+processor.cpp:314: check_player = 1 - infos.turn_player;
+processor.cpp:482: check_player = 1 - infos.turn_player;
+processor.cpp:496: emplace_process<Processors::QuickEffect>(false, 1 - check_player);
+processor.cpp:665: core.current_player = 1 - infos.turn_player;
+processor.cpp:765: core.current_player = 1 - infos.turn_player;
+processor.cpp:844: emplace_process<Processors::QuickEffect>(skip_freechain, 1 - infos.turn_player);
+processor.cpp:849: emplace_process<Processors::QuickEffect>(skip_freechain, 1 - core.current_chain.back().triggering_player);
+processor.cpp:905: int32_t check_player = 1 - infos.turn_player;
+processor.cpp:950: check_player = 1 - infos.turn_player;
+processor.cpp:980: emplace_process<Processors::QuickEffect>(false, 1 - core.new_chains.back().triggering_player);
+processor.cpp:1147: emplace_process<Processors::QuickEffect>(false, 1 - priority);
+processor.cpp:1153: emplace_process<Processors::QuickEffect>(Step{ 1 }, skip_freechain, 1 - priority);
+processor.cpp:1616: emplace_process<Processors::QuickEffect>(false, 1 - infos.turn_player);
+processor.cpp:1645: message->write<uint8_t>(1 - infos.turn_player);
+processor.cpp:1649: emplace_process<Processors::QuickEffect>(false, 1 - infos.turn_player);
+processor.cpp:1651: infos.priorities[1 - infos.turn_player] = 0;
+processor.cpp:1884: message->write<uint8_t>(1 - infos.turn_player);
+processor.cpp:1888: emplace_process<Processors::QuickEffect>(false, 1 - infos.turn_player);
+processor.cpp:1890: infos.priorities[1 - infos.turn_player] = 0;
+processor.cpp:1918: emplace_process<Processors::QuickEffect>(false, 1 - infos.turn_player);
+processor.cpp:2007: emplace_process<Processors::SelectEffectYesNo>(1 - infos.turn_player, 31, core.attacker);
+processor.cpp:2036: message->write<uint8_t>(1 - infos.turn_player);
+processor.cpp:2038: emplace_process<Processors::SelectCard>(1 - infos.turn_player, false, 1, 1);
+processor.cpp:2061: const auto sel_player = opposel ? 1 - infos.turn_player : infos.turn_player;
+processor.cpp:2065: message->write<uint8_t>(opposel ? 1 - infos.turn_player : infos.turn_player);
+processor.cpp:2121: raise_single_event(core.attack_target, nullptr, EVENT_BE_BATTLE_TARGET, nullptr, 0, 0, 1 - infos.turn_player, 0);
+processor.cpp:2122: raise_event(core.attack_target, EVENT_BE_BATTLE_TARGET, nullptr, 0, 0, 1 - infos.turn_player, 0);
+processor.cpp:2129: for(auto& pcard : player[1 - infos.turn_player].list_mzone) {
+processor.cpp:2471: if(core.battle_damage[1 - infos.turn_player]) {
+processor.cpp:2472: raise_single_event(core.attacker, nullptr, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, 1 - infos.turn_player, core.battle_damage[1 - infos.turn_player]);
+processor.cpp:2474: raise_single_event(core.attack_target, nullptr, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, 1 - infos.turn_player, core.battle_damage[1 - infos.turn_player]);
+processor.cpp:2475: raise_event(reason_card, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, 1 - infos.turn_player, core.battle_damage[1 - infos.turn_player]);
+processor.cpp:2986: dp[1 - peff->get_handler_player()] = 1;
+processor.cpp:3020: core.battle_damage[1 - damp] = core.battle_damage[damp];
+processor.cpp:3027: if((reflect[1 - pd] = core.attacker->is_affected_by_effect(EFFECT_REFLECT_BATTLE_DAMAGE, core.attack_target)) == nullptr)
+processor.cpp:3028: reflect[1 - pd] = is_player_affected_by_effect(1 - pd, EFFECT_REFLECT_BATTLE_DAMAGE);
+processor.cpp:3036: || is_player_affected_by_effect(1 - pd, EFFECT_ALSO_BATTLE_DAMAGE)))
+processor.cpp:3037: also[1 - pd] = true;
+processor.cpp:3041: core.battle_damage[1 - pa] += core.battle_damage[pa];
+processor.cpp:3043: } else if(reflect[1 - pa] && reflect[1 - pa]->get_handler_player() == pa) {
+processor.cpp:3044: core.battle_damage[pa] += core.battle_damage[1 - pa];
+processor.cpp:3045: core.battle_damage[1 - pa] = 0;
+processor.cpp:3046: } else if(reflect[pa] && reflect[pa]->get_handler_player() == 1 - pa) {
+processor.cpp:3047: core.battle_damage[1 - pa] += core.battle_damage[pa];
+processor.cpp:3049: } else if(reflect[1 - pa] && reflect[1 - pa]->get_handler_player() == 1 - pa) {
+processor.cpp:3050: core.battle_damage[pa] += core.battle_damage[1 - pa];
+processor.cpp:3051: core.battle_damage[1 - pa] = 0;
+processor.cpp:3055: if(!also[1 - damp]) {
+processor.cpp:3056: core.battle_damage[1 - damp] += core.battle_damage[damp];
+processor.cpp:3059: core.battle_damage[1 - damp] += core.battle_damage[damp];
+processor.cpp:3060: core.battle_damage[damp] = core.battle_damage[1 - damp];
+processor.cpp:3063: if(!reflect[1 - damp]) {
+processor.cpp:3064: core.battle_damage[1 - damp] += core.battle_damage[damp];
+processor.cpp:3066: core.battle_damage[1 - damp] += core.battle_damage[damp];
+processor.cpp:3067: core.battle_damage[damp] += core.battle_damage[1 - damp];
+processor.cpp:3068: core.battle_damage[1 - damp] = 0;
+processor.cpp:3076: filter_player_effect(1 - pa, EFFECT_CHANGE_BATTLE_DAMAGE, &eset, false);
+processor.cpp:3120: || is_player_affected_by_effect(1 - pd, EFFECT_AVOID_BATTLE_DAMAGE))
+processor.cpp:3121: core.battle_damage[1 - pd] = 0;
+processor.cpp:3133: damp = 1 - pa;
+processor.cpp:3144: core.battle_damage[1 - damp] = core.battle_damage[damp];
+processor.cpp:3150: if((reflect[1 - damp] = reason_card->is_affected_by_effect(EFFECT_REFLECT_BATTLE_DAMAGE, dam_card)) == nullptr)
+processor.cpp:3151: reflect[1 - damp] = is_player_affected_by_effect(1 - damp, EFFECT_REFLECT_BATTLE_DAMAGE);
+processor.cpp:3159: || is_player_affected_by_effect(1 - damp, EFFECT_ALSO_BATTLE_DAMAGE)))
+processor.cpp:3160: also[1 - damp] = true;
+processor.cpp:3164: core.battle_damage[1 - pa] += core.battle_damage[pa];
+processor.cpp:3166: } else if(reflect[1 - pa] && reflect[1 - pa]->get_handler_player() == pa) {
+processor.cpp:3167: core.battle_damage[pa] += core.battle_damage[1 - pa];
+processor.cpp:3168: core.battle_damage[1 - pa] = 0;
+processor.cpp:3169: } else if(reflect[pa] && reflect[pa]->get_handler_player() == 1 - pa) {
+processor.cpp:3170: core.battle_damage[1 - pa] += core.battle_damage[pa];
+processor.cpp:3172: } else if(reflect[1 - pa] && reflect[1 - pa]->get_handler_player() == 1 - pa) {
+processor.cpp:3173: core.battle_damage[pa] += core.battle_damage[1 - pa];
+processor.cpp:3174: core.battle_damage[1 - pa] = 0;
+processor.cpp:3178: if(!also[1 - damp]) {
+processor.cpp:3179: core.battle_damage[1 - damp] += core.battle_damage[damp];
+processor.cpp:3182: core.battle_damage[1 - damp] += core.battle_damage[damp];
+processor.cpp:3183: core.battle_damage[damp] = core.battle_damage[1 - damp];
+processor.cpp:3186: if(!reflect[1 - damp]) {
+processor.cpp:3187: core.battle_damage[1 - damp] += core.battle_damage[damp];
+processor.cpp:3189: core.battle_damage[1 - damp] += core.battle_damage[damp];
+processor.cpp:3190: core.battle_damage[damp] += core.battle_damage[1 - damp];
+processor.cpp:3191: core.battle_damage[1 - damp] = 0;
+processor.cpp:3200: filter_player_effect(1 - damp, EFFECT_CHANGE_BATTLE_DAMAGE, &eset, false);
+processor.cpp:3244: || is_player_affected_by_effect(1 - damp, EFFECT_AVOID_BATTLE_DAMAGE))
+processor.cpp:3245: core.battle_damage[1 - damp] = 0;
+processor.cpp:3247: if(!core.battle_damage[damp] && !core.battle_damage[1 - damp])
+processor.cpp:3620: arg.turn_player = 1 - arg.turn_player;
+processor.cpp:3859: set_spsummon_counter(1 - clit.triggering_player, true, true);
+processor.cpp:3873: ++core.spsummon_once_map[1 - sumplayer][(*opit)->spsummon_code];
+processor.cpp:3874: ++core.spsummon_once_map_rst[1 - sumplayer][(*opit)->spsummon_code];
+processor.cpp:3882: sumplayer = 1 - sumplayer;
+processor.cpp:4072: core.conti_player = 1 - infos.turn_player;
+processor.cpp:4074: if(core.conti_player == 1 - infos.turn_player) {
+processor.cpp:4164: card* fscard = player[1 - pcard->current.controler].list_szone[5];
+processor.cpp:4221: if(cait->opinfos[0x200].op_player == PLAYER_ALL && core.spsummon_state_count_tmp[1 - cait->triggering_player] == core.spsummon_state_count[1 - cait->triggering_player])
+processor.cpp:4222: set_spsummon_counter(1 - cait->triggering_player);
+processor.cpp:4236: ++core.spsummon_once_map[1 - sumplayer][(*opit)->spsummon_code];
+processor.cpp:4241: check_card_counter(*opit, ACTIVITY_SPSUMMON, 1 - sumplayer);
+processor.cpp:4248: sumplayer = 1 - sumplayer;
+processor.cpp:4267: core.conti_player = 1 - infos.turn_player;
+processor.cpp:4297: card* fscard = player[1 - pcard->current.controler].list_szone[5];
+processor.cpp:4299: destroy(fscard, nullptr, REASON_RULE, 1 - pcard->current.controler);
+processor.cpp:4706: if (relay_check(1 - winp)) {
+processor.cpp:4741: tp = 1 - tp;
+processor.cpp:4784: get_control(core.control_adjust_set[1 - infos.turn_player], nullptr, PLAYER_NONE, infos.turn_player, 0, 0, 0xff);
+processor.cpp:4785: get_control(core.control_adjust_set[infos.turn_player], nullptr, PLAYER_NONE, 1 - infos.turn_player, 0, 0, 0xff);
+processor.cpp:4822: get_control(core.control_adjust_set[1 - infos.turn_player], nullptr, PLAYER_NONE, infos.turn_player, 0, 0, 0xff);
+processor.cpp:4823: get_control(core.control_adjust_set[infos.turn_player], nullptr, PLAYER_NONE, 1 - infos.turn_player, 0, 0, 0xff);
+processor.cpp:4853: tp = 1 - tp;
+processor.cpp:4886: tp = 1 - tp;
+processor.cpp:4913: if(core.shuffle_hand_check[1 - infos.turn_player])
+processor.cpp:4914: shuffle(1 - infos.turn_player, LOCATION_HAND);
+processor.cpp:4968: for(auto& pcard : player[1 - infos.turn_player].list_mzone) {
+
+## less-than-2 (47) regex: < ?2([^0-9A-Za-z_]|$)
+card.cpp:1317: zones |= 1u << 2;
+card.cpp:1327: zones |= 1u << 2;
+card.cpp:3046: for(uint8_t p = 0; p < 2; ++p) {
+field.cpp:80: for(int32_t playerid = 0; playerid < 2; ++playerid) {
+field.cpp:537: if(sequence < 2)
+field.cpp:560: if(sequence < 2) {
+field.cpp:614: return sequence < 2;
+field.cpp:777: if(uplayer < 2)
+field.cpp:794: if(uplayer < 2)
+field.cpp:813: if(uplayer < 2)
+field.cpp:1504: for(uint32_t p = 0; p < 2; ++p) {
+field.cpp:1537: for(uint32_t p = 0; p < 2; ++p) {
+field.cpp:1605: for(uint32_t p = 0, location = location1; p < 2; ++p, location = location2, self = 1 - self) {
+field.cpp:1665: for(uint32_t p = 0; p < 2; ++p, location = location2, self = 1 - self) {
+field.cpp:1736: for(int32_t i = 0; i < 2; ++i) {
+field.cpp:2060: for(int i = 0; i < 2; ++i) {
+field.cpp:2079: for(int i = 0; i < 2; ++i) {
+field.cpp:2124: for(int32_t p1 = 0; p1 < 2; ++p1) {
+field.cpp:2148: for(p = 0; p < 2; ++p) {
+field.cpp:2399: for(uint8_t playerid = 0; playerid < 2; ++playerid) {
+field.cpp:2406: for(uint8_t playerid = 0; playerid < 2; ++playerid) {
+field.cpp:2416: for(int32_t p = 0; p < 2; ++p, playerid = 1 - playerid, c = oppo) {
+libduel.cpp:1609: if(pduel->game_field->core.current_chain.size() < 2)
+libduel.cpp:1709: for(size_t p = 0; p < 2; ++p) {
+libduel.cpp:1750: for(size_t p = 0; p < 2; ++p) {
+libduel.cpp:2140: for(int32_t i = 0; i < 2; ++i) {
+ocgapi.cpp:256: for(int playerid = 0; playerid < 2; ++playerid) {
+operations.cpp:358: zone = (0x1 << 0) | (0x1 << 1) | (0x1 << 2) | (0x1 << 3) | (0x1 << 4);
+operations.cpp:362: zone = (0x1 << 0) | (0x1 << 1) | (0x1 << 2) | (0x1 << 3) | (0x1 << 4);
+operations.cpp:1657: for(uint8_t p = 0; p < 2; ++p) {
+playerop.cpp:717: for(int p = 0; p < 2; ++p) {
+playerop.cpp:1152: message->write<uint8_t>(hand0 + (hand1 << 2));
+processor.cpp:2256: if(std::distance(range.first, range.second) < 2) {
+processor.cpp:2808: for(uint8_t p = 0; p < 2; ++p) {
+processor.cpp:2844: for(uint8_t p = 0; p < 2; ++p) {
+processor.cpp:3078: for(uint8_t p = 0; p < 2; ++p) {
+processor.cpp:3202: for(uint8_t p = 0; p < 2; ++p) {
+processor.cpp:3268: for(uint8_t p = 0; p < 2; ++p) {
+processor.cpp:3514: for(uint8_t p = 0; p < 2; ++p) {
+processor.cpp:4104: for(int plr = 0; plr < 2; ++plr) {
+processor.cpp:4732: for(uint8_t p = 0; p < 2; ++p) {
+processor.cpp:4751: for(uint8_t p = 0; p < 2; ++p) {
+processor.cpp:4770: for(uint8_t p = 0; p < 2; ++p) {
+processor.cpp:4803: for(uint8_t p = 0; p < 2; ++p) {
+processor.cpp:4847: for(uint8_t p = 0; p < 2; ++p) {
+processor.cpp:4866: for(uint8_t p = 0; p < 2; ++p) {
+processor.cpp:5021: for(int p = 0; p < 2; p++) {
+
+## xor-1 (0) regex: \^ ?=? ?1([^0-9A-Za-z_]|$)
+
+## and-1 (15) regex: & ?=? ?1([^0-9A-Za-z_]|$)
+card.cpp:1434: if((linked_zone >> (current.sequence + is_szone)) & 1)
+card.cpp:1462: if(((linked_zone >> 5) | (linked_zone >> (16 + 6))) & ((linked_zone >> 6) | (linked_zone >> (16 + 5))) & 1)
+card.cpp:1471: if(rightmost & 1) {
+card.cpp:1481: if(rightmost & 1) {
+field.cpp:1864: if((pcard->current.location == LOCATION_MZONE && pcard->current.controler == playerid && ((zone >> pcard->current.sequence) & 1)))
+field.cpp:1898: if(pcard && ((releasable >> pcard->current.sequence) & 1) && pcard->is_releasable_by_summon(p, target)) {
+field.cpp:1914: if(!pcard || !((releasable >> (pcard->current.sequence + 16)) & 1) || !pcard->is_releasable_by_summon(p, target))
+field.cpp:2599: if((zone >> _pcard->current.sequence) & 1)
+operations.cpp:4922: if(is_location_useable(playerid, LOCATION_PZONE, 0) && zone & 1)
+operations.cpp:5690: if((pcard->current.location == LOCATION_MZONE && pcard->current.controler == toplayer && ((zone >> pcard->current.sequence) & 1)))
+operations.cpp:5870: if((pcard->current.location == LOCATION_MZONE && pcard->current.controler == toplayer && ((zone >> pcard->current.sequence) & 1)))
+processor.cpp:4472: player[0].disabled_location |= (((player[1].disabled_location >> 5) & 1) << 6) | (((player[1].disabled_location >> 6) & 1) << 5);
+processor.cpp:4473: player[1].disabled_location |= (((player[0].disabled_location >> 5) & 1) << 6) | (((player[0].disabled_location >> 6) & 1) << 5);
+processor.cpp:4637: player[0].disabled_location |= (((player[1].disabled_location >> 5) & 1) << 6) | (((player[1].disabled_location >> 6) & 1) << 5);
+processor.cpp:4638: player[1].disabled_location |= (((player[0].disabled_location >> 5) & 1) << 6) | (((player[0].disabled_location >> 6) & 1) << 5);
+
+## player-none-all (180) regex: PLAYER_NONE|PLAYER_ALL
+card.cpp:58: if(cp1 == PLAYER_NONE || cp2 == PLAYER_NONE)
+card.cpp:93: current.controler = PLAYER_NONE;
+card.cpp:1597: mat->current.controler = PLAYER_NONE;
+card.cpp:1616: mat->current.controler = PLAYER_NONE;
+card.cpp:1629: if (current.controler == PLAYER_NONE)
+card.cpp:1643: if (current.controler == PLAYER_NONE)
+card.cpp:1778: || (current.controler != PLAYER_NONE && ((peffect->range & LOCATION_HAND) && (peffect->type & EFFECT_TYPE_TRIGGER_O) && !(peffect->code & EVENT_PHASE))))
+card.cpp:1781: if (current.controler != PLAYER_NONE && !check_target.empty()) {
+card.cpp:1848: || (current.controler != PLAYER_NONE && ((peffect->range & LOCATION_HAND) && (peffect->type & EFFECT_TYPE_TRIGGER_O) && !(peffect->code & EVENT_PHASE))))
+card.cpp:1851: if ((current.controler != PLAYER_NONE) && !check_target.empty()) {
+card.cpp:3809: if(current.controler == PLAYER_NONE)
+card.h:120: uint8_t owner{ PLAYER_NONE };
+effect.cpp:50: if (phandler->current.controler == PLAYER_NONE && code != EFFECT_ADD_SETCODE && code != EFFECT_ADD_CODE && code != EFFECT_REVIVE_LIMIT)
+effect.cpp:70: if(handler->current.controler == PLAYER_NONE)
+effect.cpp:91: if(phandler->current.controler == PLAYER_NONE)
+effect.cpp:133: if(pduel->game_field->get_effect_code(get_handler()->fieldid, count_flag, count_hopt_index, PLAYER_NONE) >= count)
+effect.cpp:588: pduel->game_field->add_effect_code(get_handler()->fieldid, count_flag, count_hopt_index, PLAYER_NONE);
+effect.cpp:602: pduel->game_field->dec_effect_code(get_handler()->fieldid, count_flag, count_hopt_index, PLAYER_NONE);
+effect.cpp:770: if(effect_owner != PLAYER_NONE)
+effect.h:30: uint8_t effect_owner{ PLAYER_NONE };
+field.cpp:71: nil_event.event_player = PLAYER_NONE;
+field.cpp:75: nil_event.reason_player = PLAYER_NONE;
+field.cpp:209: if (pcard->current.controler == PLAYER_NONE || pcard->current.location == 0)
+field.cpp:256: pcard->current.controler = PLAYER_NONE;
+field.cpp:657: // uplayer: request player, PLAYER_NONE means ignoring EFFECT_MAX_MZONE, EFFECT_MAX_SZONE
+field.cpp:1500: if(self == PLAYER_NONE)
+field.cpp:1533: if(self == PLAYER_NONE)
+field.cpp:2049: send_to(std::move(tograve), core.reason_effect, REASON_RITUAL + REASON_EFFECT + REASON_MATERIAL, core.reason_player, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+field.cpp:2051: send_to(std::move(rem), core.reason_effect, REASON_RITUAL + REASON_EFFECT + REASON_MATERIAL, core.reason_player, PLAYER_NONE, LOCATION_REMOVED, 0, POS_FACEUP);
+field.cpp:2242: if(con == PLAYER_NONE)
+field.h:305: uint8_t reason_player{ PLAYER_NONE };
+field.h:367: uint8_t conti_player{ PLAYER_NONE };
+libcard.cpp:29: uint8_t playerid = PLAYER_NONE;
+libcard.cpp:90: uint8_t playerid = PLAYER_NONE;
+libcard.cpp:132: uint8_t playerid = PLAYER_NONE;
+libcard.cpp:315: uint8_t playerid = PLAYER_NONE;
+libcard.cpp:335: uint8_t playerid = PLAYER_NONE;
+libcard.cpp:465: if (rp <= (unsigned)PLAYER_ALL)
+libcard.cpp:602: auto playerid = lua_get<uint8_t, PLAYER_NONE>(L, 4);
+libcard.cpp:651: uint8_t playerid = PLAYER_NONE;
+libcard.cpp:655: playerid = lua_get<uint8_t, PLAYER_NONE>(L, 5);
+libcard.cpp:688: uint8_t playerid = PLAYER_NONE;
+libcard.cpp:703: uint8_t playerid = PLAYER_NONE;
+libcard.cpp:762: auto playerid = PLAYER_NONE;
+libcard.cpp:786: uint8_t playerid = PLAYER_NONE;
+libcard.cpp:1126: auto check_player = lua_get<uint8_t, PLAYER_NONE>(L, 3);
+libcard.cpp:1129: if(check_player == PLAYER_NONE || peff->check_count_limit(check_player))
+libcard.cpp:1934: auto chkf = lua_get<uint64_t, PLAYER_NONE>(L, 4);
+libduel.cpp:188: pduel->game_field->destroy(pcard, pduel->game_field->core.reason_effect, reason, reasonplayer, PLAYER_NONE, dest, 0);
+libduel.cpp:190: pduel->game_field->destroy(pgroup->container, pduel->game_field->core.reason_effect, reason, reasonplayer, PLAYER_NONE, dest, 0);
+libduel.cpp:201: auto playerid = lua_get<uint8_t, PLAYER_NONE>(L, 4);
+libduel.cpp:216: auto playerid = lua_get<uint8_t, PLAYER_NONE>(L, 3);
+libduel.cpp:393: if(playerid >= PLAYER_NONE) {
+libduel.cpp:410: if(sumplayer >= PLAYER_NONE)
+libduel.cpp:432: if(sumplayer >= PLAYER_NONE)
+libduel.cpp:462: auto playerid = lua_get<uint8_t, PLAYER_NONE>(L, 2);
+libduel.cpp:463: if(playerid > PLAYER_NONE)
+libduel.cpp:479: auto playerid = lua_get<uint8_t, PLAYER_NONE>(L, 2);
+libduel.cpp:480: if(playerid > PLAYER_NONE)
+libduel.cpp:498: auto playerid = lua_get<uint8_t, PLAYER_NONE>(L, 2);
+libduel.cpp:499: if(playerid > PLAYER_NONE)
+libduel.cpp:518: auto playerid = lua_get<uint8_t, PLAYER_NONE>(L, 5);
+libduel.cpp:519: if(playerid > PLAYER_NONE)
+libduel.cpp:1054: auto playerid = lua_get<uint8_t, PLAYER_ALL>(L, 2);
+libduel.cpp:1056: if(playerid != 0 && playerid != 1 && playerid != PLAYER_ALL)
+libduel.cpp:1064: if(playerid == player || playerid == PLAYER_ALL) {
+libduel.cpp:1072: if(playerid == player || playerid == PLAYER_ALL) {
+libduel.cpp:1081: if(playerid == player || playerid == PLAYER_ALL) {
+libduel.cpp:1109: if((playerid == PLAYER_ALL || playerid == peffect->get_handler_player()) && code == (uint32_t)peffect->get_value())
+libduel.cpp:1174: if (reason_player > PLAYER_NONE)
+libduel.cpp:1195: if (reason_player > PLAYER_NONE)
+libduel.cpp:1237: core.reason_effect, 0, core.reason_player, PLAYER_NONE, 0);
+libduel.cpp:1240: core.reason_effect, 0, core.reason_player, PLAYER_NONE, 0);
+libduel.cpp:1585: pduel->game_field->raise_event(nullptr, EVENT_BREAK_EFFECT, nullptr, 0, PLAYER_NONE, PLAYER_NONE, 0);
+libduel.cpp:1628: uint8_t sumplayer = PLAYER_NONE;
+libduel.cpp:2173: pduel->game_field->send_to(adjcard, nullptr, REASON_RULE, pduel->game_field->core.reason_player, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+libduel.cpp:2737: auto chkf = lua_get<uint64_t, PLAYER_NONE>(L, 5);
+libduel.cpp:2883: // spear creting and similar stuff, they set CATEGORY_SPECIAL_SUMMON with PLAYER_ALL to increase the summon counters
+libduel.cpp:2885: if(cate == 0x200 && playerid == PLAYER_ALL && opt.op_cards->container.size() != 2)
+libduel.cpp:2886: lua_error(L, "Called Duel.SetOperationInfo with CATEGORY_SPECIAL_SUMMON and PLAYER_ALL but the group size wasn't exactly 2.");
+libduel.cpp:3165: ct1 = pduel->game_field->get_useable_count(nullptr, playerid, LOCATION_MZONE, PLAYER_NONE, LOCATION_REASON::NONE, 0xff, &plist);
+libduel.cpp:3180: ct2 = pduel->game_field->get_useable_count(nullptr, playerid, LOCATION_SZONE, PLAYER_NONE, LOCATION_REASON::NONE, 0xff, &plist);
+libduel.cpp:3199: ct3 = pduel->game_field->get_useable_count(nullptr, 1 - playerid, LOCATION_MZONE, PLAYER_NONE, LOCATION_REASON::NONE, 0xff, &plist);
+libduel.cpp:3214: ct4 = pduel->game_field->get_useable_count(nullptr, 1 - playerid, LOCATION_SZONE, PLAYER_NONE, LOCATION_REASON::NONE, 0xff, &plist);
+libduel.cpp:4157: ceffect->effect_owner = PLAYER_NONE;
+ocgapi_constants.h:363: #define PLAYER_NONE 2
+ocgapi_constants.h:364: #define PLAYER_ALL  3
+operations.cpp:274: if(destination && p == PLAYER_NONE)
+operations.cpp:320: if(p == PLAYER_NONE && (destination & LOCATION_HAND) && (pcard->current.location & LOCATION_DECK) && pcard->current.controler == reason_player)
+operations.cpp:322: if(p == PLAYER_NONE)
+operations.cpp:449: pcard->current.controler = PLAYER_NONE;
+operations.cpp:941: send_to(card_set{ return_cards.list.begin(), return_cards.list.end() }, core.reason_effect, reason, rplayer, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+operations.cpp:967: send_to(std::move(to_grave), nullptr, REASON_RULE + REASON_LOST_TARGET, PLAYER_NONE, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+operations.cpp:1052: destroy(std::move(des), nullptr, REASON_LOST_TARGET + REASON_RULE, PLAYER_NONE);
+operations.cpp:1081: if(pcard->current.controler == PLAYER_NONE)
+operations.cpp:1135: move_to_field(pcard, (chose_player == PLAYER_NONE) ? playerid : chose_player, playerid, LOCATION_MZONE, pcard->current.position, FALSE, 0, zone);
+operations.cpp:1149: uint8_t reason_player = chose_player == PLAYER_NONE ? PLAYER_NONE : core.reason_player;
+operations.cpp:1171: destroy(std::move(arg.destroy_set), nullptr, REASON_RULE, PLAYER_NONE);
+operations.cpp:1205: if(p1 == p2 || p1 == PLAYER_NONE || p2 == PLAYER_NONE)
+operations.cpp:1460: destroy(std::move(destroy_set), nullptr, REASON_RULE, PLAYER_NONE);
+operations.cpp:1586: send_to(pcard, nullptr, REASON_EFFECT, PLAYER_NONE, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+operations.cpp:1667: send_to(std::move(to_grave_set), nullptr, REASON_RULE, PLAYER_NONE, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+operations.cpp:1699: send_to(equip_card, nullptr, REASON_RULE, PLAYER_NONE, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+operations.cpp:1752: raise_single_event(target, &cset, EVENT_EQUIP, core.reason_effect, 0, core.reason_player, PLAYER_NONE, 0);
+operations.cpp:1753: raise_event(std::move(cset), EVENT_EQUIP, core.reason_effect, 0, core.reason_player, PLAYER_NONE, 0);
+operations.cpp:3684: send_to(core.ss_tograve_set, nullptr, REASON_RULE, PLAYER_NONE, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+operations.cpp:3751: raise_event(targets->container, EVENT_SPSUMMON_SUCCESS, reason_effect, 0, reason_player, PLAYER_NONE, 0);
+operations.cpp:4734: destroy(std::move(equipings), nullptr, REASON_RULE + REASON_LOST_TARGET, PLAYER_NONE);
+operations.cpp:4736: send_to(std::move(overlays), nullptr, REASON_RULE + REASON_LOST_TARGET, PLAYER_NONE, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+operations.cpp:4821: pcard->current.controler = PLAYER_NONE;
+operations.cpp:4915: send_to(pcard, nullptr, REASON_RULE, pcard->current.controler, PLAYER_NONE, LOCATION_GRAVE, 0, 0);
+operations.cpp:4959: send_to(target, core.reason_effect, REASON_RULE, core.reason_player, PLAYER_NONE, LOCATION_GRAVE, 0, 0);
+operations.cpp:5089: destroy(target->equiping_cards, nullptr, REASON_LOST_TARGET + REASON_RULE, PLAYER_NONE);
+operations.cpp:5096: send_to(card_set{ target->xyz_materials.begin(), target->xyz_materials.end() }, nullptr, REASON_LOST_TARGET + REASON_RULE, PLAYER_NONE, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+operations.cpp:5171: send_to(target, nullptr, REASON_RULE, PLAYER_NONE, PLAYER_NONE, LOCATION_GRAVE, 0, 0);
+operations.cpp:5379: destroy(std::move(equipings), nullptr, REASON_LOST_TARGET + REASON_RULE, PLAYER_NONE);
+operations.cpp:5382: send_to(std::move(to_grave_set), nullptr, REASON_RULE, PLAYER_NONE, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+operations.cpp:5422: newchain.target_player = PLAYER_NONE;
+operations.cpp:5424: newchain.disable_player = PLAYER_NONE;
+operations.cpp:5479: newchain.target_player = PLAYER_NONE;
+operations.cpp:5481: newchain.disable_player = PLAYER_NONE;
+operations.cpp:5540: newchain.target_player = PLAYER_NONE;
+operations.cpp:5542: newchain.disable_player = PLAYER_NONE;
+operations.cpp:5583: newchain.target_player = PLAYER_NONE;
+operations.cpp:5585: newchain.disable_player = PLAYER_NONE;
+operations.cpp:5643: newchain.evt.event_player = PLAYER_NONE;
+operations.cpp:5648: newchain.evt.reason_player = PLAYER_NONE;
+playerop.cpp:1160: returns.set<int32_t>(0, PLAYER_NONE);
+processor.cpp:59: core.reason_player = PLAYER_NONE;
+processor.cpp:116: core.reason_player = PLAYER_NONE;
+processor.cpp:178: core.reason_player = PLAYER_NONE;
+processor.cpp:550: send_to(card_set{ return_cards.list.begin(), return_cards.list.end() }, nullptr, REASON_RULE + REASON_DISCARD + REASON_ADJUST, infos.turn_player, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+processor.cpp:814: newchain.evt.event_player = PLAYER_NONE;
+processor.cpp:817: newchain.evt.reason_player = PLAYER_NONE;
+processor.cpp:1211: newchain.target_player = PLAYER_NONE;
+processor.cpp:1213: newchain.disable_player = PLAYER_NONE;
+processor.cpp:1394: newchain.target_player = PLAYER_NONE;
+processor.cpp:1396: newchain.disable_player = PLAYER_NONE;
+processor.cpp:1603: newchain->evt.event_player = PLAYER_NONE;
+processor.cpp:1608: newchain->evt.reason_player = PLAYER_NONE;
+processor.cpp:1905: newchain->evt.event_player = PLAYER_NONE;
+processor.cpp:1910: newchain->evt.reason_player = PLAYER_NONE;
+processor.cpp:2330: change_position(core.attack_target, nullptr, PLAYER_NONE, core.attack_target->current.position >> 1, 0, TRUE);
+processor.cpp:2561: emplace_process<Processors::Destroy>(Step{ 10 }, ng, nullptr, REASON_BATTLE, PLAYER_NONE);
+processor.cpp:2568: destroy(core.battle_destroy_rep, nullptr, REASON_EFFECT | REASON_REPLACE, PLAYER_NONE);
+processor.cpp:2608: raise_single_event(core.attacker, nullptr, EVENT_BATTLED, nullptr, 0, PLAYER_NONE, 0, 0);
+processor.cpp:2612: raise_single_event(core.attack_target, nullptr, EVENT_BATTLED, nullptr, 0, PLAYER_NONE, 0, 1);
+processor.cpp:2614: raise_event(std::move(battled_cards), EVENT_BATTLED, nullptr, 0, PLAYER_NONE, 0, 0);
+processor.cpp:2650: emplace_process<Processors::Destroy>(Step{ 3 }, des, nullptr, REASON_BATTLE, PLAYER_NONE);
+processor.cpp:2900: change_position(core.attack_target, nullptr, PLAYER_NONE, core.attack_target->current.position >> 1, 0, TRUE);
+processor.cpp:3722: clit.target_player = PLAYER_NONE;
+processor.cpp:3725: clit.disable_player = PLAYER_NONE;
+processor.cpp:3858: if(clit.opinfos[0x200].op_player == PLAYER_ALL)
+processor.cpp:3864: if(optarget.op_player == PLAYER_ALL) {
+processor.cpp:4007: newchain.target_player = PLAYER_NONE;
+processor.cpp:4009: newchain.disable_player = PLAYER_NONE;
+processor.cpp:4065: if(core.conti_player == PLAYER_NONE)
+processor.cpp:4083: core.conti_player = PLAYER_NONE;
+processor.cpp:4221: if(cait->opinfos[0x200].op_player == PLAYER_ALL && core.spsummon_state_count_tmp[1 - cait->triggering_player] == core.spsummon_state_count[1 - cait->triggering_player])
+processor.cpp:4228: if(optarget.op_player == PLAYER_ALL) {
+processor.cpp:4271: core.conti_player = PLAYER_NONE;
+processor.cpp:4334: send_to(core.leave_confirmed, nullptr, REASON_RULE, PLAYER_NONE, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+processor.cpp:4407: winp = PLAYER_NONE;
+processor.cpp:4416: winp = PLAYER_NONE;
+processor.cpp:4681: winp = PLAYER_NONE;
+processor.cpp:4690: winp = PLAYER_NONE;
+processor.cpp:4694: if (winp == PLAYER_NONE) {
+processor.cpp:4705: } else if (winp < PLAYER_NONE)
+processor.cpp:4784: get_control(core.control_adjust_set[1 - infos.turn_player], nullptr, PLAYER_NONE, infos.turn_player, 0, 0, 0xff);
+processor.cpp:4785: get_control(core.control_adjust_set[infos.turn_player], nullptr, PLAYER_NONE, 1 - infos.turn_player, 0, 0, 0xff);
+processor.cpp:4789: destroy(rcard, nullptr, REASON_RULE, PLAYER_NONE);
+processor.cpp:4822: get_control(core.control_adjust_set[1 - infos.turn_player], nullptr, PLAYER_NONE, infos.turn_player, 0, 0, 0xff);
+processor.cpp:4823: get_control(core.control_adjust_set[infos.turn_player], nullptr, PLAYER_NONE, 1 - infos.turn_player, 0, 0, 0xff);
+processor.cpp:4857: destroy(std::move(destroy_set), nullptr, REASON_RULE, PLAYER_NONE);
+processor.cpp:4893: emplace_process<Processors::ChangePos>(ng, nullptr, PLAYER_NONE, true);
+processor.cpp:4986: raise_event(nullptr, EVENT_ADJUST, nullptr, 0, PLAYER_NONE, PLAYER_NONE, 0);
+processor.cpp:5025: draw(nullptr, REASON_RULE, PLAYER_NONE, p, player[p].start_count);
+processor.cpp:5130: send_to(card_set{ return_cards.list.begin(), return_cards.list.end() }, core.reason_effect, reason, core.reason_player, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+processor.cpp:5156: raise_event(attacker, EVENT_ATTACK_DISABLED, core.reason_effect, 0, core.reason_player, PLAYER_NONE, 0);
+processor_unit.h:248: previous_point_event_had_any_trigger_to_resolve(false), reason_player(PLAYER_NONE), damage_change_effect(nullptr),
+
+## range-for-player-array (0) regex: for ?\([^;)]*: *([A-Za-z_>.-]*[>.])?player ?\)
+
+## range-for-player-member (92) regex: for ?\([^;)]*: *[^)]*\bplayer\b[^)]
+card.cpp:3051: for(auto& pcard : player.list_mzone) {
+card.cpp:3058: for(auto& pcard : player.list_szone) {
+field.cpp:82: for(auto& pcard : player[playerid].list_mzone) {
+field.cpp:91: for(auto& pcard : player[playerid].list_szone) {
+field.cpp:858: for(auto& pcard : player[playerid].list_mzone) {
+field.cpp:862: for(auto& pcard : player[playerid].list_szone) {
+field.cpp:867: for(auto& pcard : player[1 - playerid].list_mzone) {
+field.cpp:871: for(auto& pcard : player[1 - playerid].list_szone) {
+field.cpp:920: for(auto& pcard : player[playerid].list_mzone) {
+field.cpp:930: for(auto& pcard : player[playerid].list_szone) {
+field.cpp:1011: for(auto& pcard : player[playerid].list_main)
+field.cpp:1015: for(auto& pcard : player[playerid].list_hand)
+field.cpp:1019: for(auto& pcard : player[playerid].list_extra)
+field.cpp:1023: for(auto& pcard : player[playerid].list_grave)
+field.cpp:1027: for(auto& pcard : player[playerid].list_remove)
+field.cpp:1134: for(auto& pcard : player[playerid].list_main) {
+field.cpp:1139: for(auto& pcard : player[playerid].list_main) {
+field.cpp:1144: for(auto& pcard : player[playerid].list_hand) {
+field.cpp:1149: for(auto& pcard : player[playerid].list_hand) {
+field.cpp:1154: for(auto& pcard : player[playerid].list_extra) {
+field.cpp:1160: for(auto& pcard : player[playerid].list_extra) {
+field.cpp:1174: for(auto& pcard : player[playerid].list_hand) {
+field.cpp:1178: for(auto& pcard : player[playerid].list_extra) {
+field.cpp:1194: for(auto& pcard : player[playerid].list_main) {
+field.cpp:1199: for(auto& pcard : player[playerid].list_main) {
+field.cpp:1204: for(auto& pcard : player[playerid].list_hand) {
+field.cpp:1209: for(auto& pcard : player[playerid].list_hand) {
+field.cpp:1214: for(auto& pcard : player[playerid].list_extra) {
+field.cpp:1220: for(auto& pcard : player[playerid].list_extra) {
+field.cpp:1234: for(auto& pcard : player[playerid].list_hand) {
+field.cpp:1238: for(auto& pcard : player[playerid].list_extra) {
+field.cpp:1667: for(auto& pcard : player[self].list_mzone) {
+field.cpp:1703: for(auto& pcard : player[self].list_szone) {
+field.cpp:1792: for(auto& pcard : player[playerid].list_mzone) {
+field.cpp:1802: for(auto& pcard : player[playerid].list_hand) {
+field.cpp:1814: for(auto& pcard : player[1 - playerid].list_mzone) {
+field.cpp:1824: for(auto& pcard : player[1 - playerid].list_mzone) {
+field.cpp:1897: for(auto& pcard : player[p].list_mzone) {
+field.cpp:1913: for(auto& pcard : player[1 - p].list_mzone) {
+field.cpp:1989: for(auto& pcard : player[playerid].list_mzone) {
+field.cpp:1993: for(auto& pcard : player[1 - playerid].list_mzone) {
+field.cpp:1997: for(auto& pcard : player[playerid].list_hand)
+field.cpp:2000: for(auto& pcard : player[playerid].list_grave)
+field.cpp:2003: for(auto& pcard : player[playerid].list_main)
+field.cpp:2007: for(auto& pcard : player[playerid].list_extra)
+field.cpp:2011: for(auto& pcard : player[playerid].list_mzone) {
+field.cpp:2020: for(auto& pcard : player[playerid].list_mzone) {
+field.cpp:2024: for(auto& pcard : player[playerid].list_szone) {
+field.cpp:2028: for(auto& pcard : player[playerid].list_hand)
+field.cpp:2031: for(auto& pcard : player[playerid].list_grave)
+field.cpp:2062: for(auto& pcard : player[i].list_mzone) {
+field.cpp:2081: for(auto& pcard : player[i].list_mzone) {
+field.cpp:2149: for(auto& pcard : player[p].list_mzone) {
+field.cpp:2153: for(auto& pcard : player[p].list_szone) {
+field.cpp:2418: for(auto& pcard : player[playerid].list_mzone) {
+field.cpp:2422: for(auto& pcard : player[playerid].list_szone) {
+field.cpp:2444: for(auto& atarget : player[1 - p].list_mzone) {
+field.cpp:2476: for(auto& atarget : player[1 - p].list_mzone)
+field.cpp:2480: for(auto& atarget : player[p].list_mzone)
+libduel.cpp:1073: for(auto& pcard : pduel->game_field->player[player].list_szone) {
+libduel.cpp:1082: for(auto& pcard : pduel->game_field->player[player].list_mzone) {
+libduel.cpp:1487: for(auto& pcard : pduel->game_field->player[1 - turnp].list_mzone) {
+libduel.cpp:1711: for(auto& pcard : pduel->game_field->player[p].list_mzone) {
+libduel.cpp:1752: for(auto& pcard : pduel->game_field->player[p].list_mzone) {
+ocgapi.cpp:159: for(auto& pcard : player.list_mzone)
+ocgapi.cpp:163: for(auto& pcard : player.list_szone)
+ocgapi.cpp:259: for(auto& pcard : player.list_mzone) {
+ocgapi.cpp:268: for(auto& pcard : player.list_szone) {
+playerop.cpp:719: for(auto& pcard : player[fp].list_mzone) {
+playerop.cpp:725: for(auto& pcard : player[fp].list_szone) {
+processor.cpp:538: for(auto& pcard : player[infos.turn_player].list_hand)
+processor.cpp:1466: for(auto& pcard : player[infos.turn_player].list_mzone) {
+processor.cpp:1532: for(auto& pcard : player[infos.turn_player].list_hand)
+processor.cpp:1535: for(auto& pcard : player[infos.turn_player].list_mzone) {
+processor.cpp:1571: for(auto& pcard : player[infos.turn_player].list_mzone) {
+processor.cpp:1578: for(auto& pcard : player[infos.turn_player].list_hand) {
+processor.cpp:1843: for(auto& pcard : player[infos.turn_player].list_mzone) {
+processor.cpp:2129: for(auto& pcard : player[1 - infos.turn_player].list_mzone) {
+processor.cpp:2809: for(auto& pcard : player[p].list_mzone) {
+processor.cpp:2845: for(auto& pcard : player[p].list_mzone) {
+processor.cpp:3269: for(auto& pcard : player[p].list_mzone) {
+processor.cpp:3286: for(auto& pcard : player[p].list_szone) {
+processor.cpp:3515: for(auto& pcard : player[p].list_mzone) {
+processor.cpp:4733: for(auto& pcard : player[tp].list_mzone) {
+processor.cpp:4737: for(auto& pcard : player[tp].list_szone) {
+processor.cpp:4752: for(auto& pcard : player[p].list_mzone) {
+processor.cpp:4771: for(auto& pcard : player[p].list_mzone) {
+processor.cpp:4804: for(auto& pcard : player[p].list_mzone) {
+processor.cpp:4867: for(auto& pcard : player[tp].list_mzone) {
+processor.cpp:4899: for(auto& pcard : player[0].list_hand) {
+processor.cpp:4905: for(auto& pcard : player[1].list_hand) {
+processor.cpp:4968: for(auto& pcard : player[1 - infos.turn_player].list_mzone) {
+
+## player-size-begin-for_each (0) regex: \bplayer\.(size|begin|end)\(|for_each[^;]*\bplayer\b

@@ -61,6 +61,19 @@ afterEach(() => {
 });
 
 describe("ChainFx", () => {
+  it("keeps table responder order visible when every chain link is on the board", () => {
+    placeZones("0:8:0", "1:8:0");
+    const events = [activate(1, 0, 11, z(0, SZONE, 0)), activate(2, 1, 22, z(1, SZONE, 0))];
+    const chain: DuelChainLink[] = [{ index: 1, seat: 0, code: 11 }, { index: 2, seat: 1, code: 22 }];
+    const priority = [{ seat: 0, choosing: true }, { seat: 1, choosing: false }, { seat: 2, choosing: false }];
+    const { container } = render(<ChainFx events={events} chain={chain} duelKey="t" reducedMotion mySeat={0} playerName={names} priority={priority} />);
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(rows(container)).toHaveLength(0);
+    const chips = [...container.querySelectorAll("[data-chain-panel] [data-testid='priority-chips'] [data-seat]")];
+    expect(chips.map((chip) => chip.getAttribute("data-seat"))).toEqual(["0", "1", "2"]);
+    expect(chips[0].getAttribute("data-now")).toBe("true");
+  });
+
   it("renders nothing for an empty chain", () => {
     const { container } = render(view([]));
     expect(container.querySelector("[data-chain-link]")).toBeNull();
@@ -75,6 +88,20 @@ describe("ChainFx", () => {
     expect(rows(container)).toHaveLength(1);
     expect(rows(container)[0].textContent).toContain("Card 11");
     expect(rows(container)[0].textContent).toContain("Opponent");
+  });
+
+  it("names the owner of each link and tones its row when the table gives seat tones", () => {
+    const events = [activate(1, 1, 11, z(1, SZONE, 2)), activate(2, 2, 12, z(2, SZONE, 0))];
+    const chain: DuelChainLink[] = [{ index: 1, seat: 1, code: 11, name: "Card 11" }, { index: 2, seat: 2, code: 12, name: "Card 12" }];
+    const tones = new Map([[0, { main: "#9b7eff", ink: "#c6b6ff" }], [1, { main: "#5cb8f5", ink: "#a9dcfb" }], [2, { main: "#8fd36b", ink: "#c4ecad" }]]);
+    const { container } = render(<ChainFx events={events} chain={chain} duelKey="t" reducedMotion mySeat={0} playerName={names} seatTones={tones} />);
+    const text = rows(container).map((row) => row.textContent ?? "");
+    expect(text.some((t) => t.includes("Player 2"))).toBe(true);
+    expect(text.some((t) => t.includes("Player 3"))).toBe(true);
+    expect(text.some((t) => t.includes("Opponent"))).toBe(false);
+    const row = rows(container).find((r) => r.textContent?.includes("Player 3")) as HTMLElement;
+    expect(row.style.getPropertyValue("--seat-main")).toBe("#8fd36b");
+    expect(row.getAttribute("data-toned")).toBe("true");
   });
 
   it("lists the off-board rows top of the chain first and labels you / opponent", () => {

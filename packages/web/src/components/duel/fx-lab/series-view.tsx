@@ -92,6 +92,7 @@ export function labSeriesRoom(board: LabBoard, spec: LabSeries): DuelRoom {
       guildId: "lab",
       organizerPlayerId: 1,
       mode: "normal",
+      format: "1v1",
       masterRule: 5,
       status: finished ? "completed" : "active",
       settings: { ...defaultDuelSettings("normal"), visibility: spec.visibility ?? "public" },

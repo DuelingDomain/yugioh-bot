@@ -9,12 +9,16 @@ import { resolve } from "node:path";
 // DUEL_DATA_DIR overrides the resource bundle output (default $DOMAIN_ROOT/data/duel-engine).
 
 const worktree = resolve(process.env.DOMAIN_ROOT ?? process.cwd());
-const pinsPath = resolve(worktree, "packages/duel-server/domain-core/pins.json");
+// `tsx build-domain-core.ts legacy-domain` builds the Domain core of the old 1v1 engine (inputs in packages/duel-server/legacy-1v1).
+const target = process.argv[2] ?? "domain";
+if (target !== "domain" && target !== "standard" && target !== "legacy-domain") throw new Error(`target must be "domain", "standard" or "legacy-domain"`);
+const pinsPath = resolve(worktree, target === "legacy-domain" ? "packages/duel-server/legacy-1v1/domain-core/pins.json" : "packages/duel-server/domain-core/pins.json");
 if (!existsSync(pinsPath)) throw new Error(`missing ${pinsPath}`);
 const pins = JSON.parse(readFileSync(pinsPath, "utf8")) as { emscripten?: { image?: string; digest?: string } };
 const imageName = pins.emscripten?.image ?? "docker.io/emscripten/emsdk:4.0.9";
 const image = pins.emscripten?.digest ? `${imageName}@${pins.emscripten.digest}` : imageName;
-const script = "packages/duel-server/scripts/build-domain-core.sh";
+// `tsx build-domain-core.ts standard` builds the Standard core (stock rules plus the shared core fixes) instead.
+const script = target === "legacy-domain" ? "packages/duel-server/legacy-1v1/scripts/build-domain-core.sh" : `packages/duel-server/scripts/build-${target}-core.sh`;
 const mode = process.env.DOMAIN_CORE_BUILD ?? "docker";
 const dataDir = process.env.DUEL_DATA_DIR ? resolve(process.env.DUEL_DATA_DIR) : undefined;
 

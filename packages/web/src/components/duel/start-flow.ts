@@ -9,15 +9,6 @@ export function shouldCheckDeck(sessionStatus: string): boolean {
 }
 
 /**
- * The server answers a deck check with 409 "Decks are locked after the duel starts" once the duel
- * began. That is a state change (refresh the room), not a deck problem.
- */
-export function isDeckLockedError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return (error as { status?: unknown }).status === 409 && /locked after the duel starts/i.test(error.message);
-}
-
-/**
  * True when the tab shows the "Duel is open in its own window" screen. That is any live duel for a
  * seated player outside the duel window, and also the lobby from the click on Start duel when the
  * pop-up opened (the request itself takes a moment; the pop-up already has the duel).

@@ -1,0 +1,95 @@
+# Owner map of the multi-duelist core sites: which phase 2 or phase 3 task owns which code.
+# Built from domain-core/.build/phase2/briefs/*.md, PLAN.md and P3-fold-design.md. Line numbers are B2 lines (they drift): prefer a function.
+# Columns (tab separated): file, function ("*" = any; else the exact name a census row shows), lines ("-" = any, else "a-b"), task tag, note.
+# A site matches a row when the file name is equal, the function matches, and the line is inside the range.
+# A site with no function matches a row only when the row has a line range that holds the line.
+# The first matching row is the owner. All matching rows are the candidates (owners.ts: ownersOf). No match = UNOWNED.
+# Narrow rows (a line range, one function) come before wide rows (a whole file).
+playerop.cpp	field::process(SelectChain)	-	T3	response cursor, playerop 481-482
+playerop.cpp	*	475-490	T3	SelectChain recipient
+playerop.cpp	*	725-740	T5B	loop over living duelists (~732)
+processor.cpp	field::process(PhaseEvent)	-	T3	phase-change windows, PhaseEvent cursor
+processor.cpp	*	295-500	T3	PhaseEvent (is_opponent / check_player)
+processor.cpp	field::process(QuickEffect)	-	T3	link added, pass, alive check
+processor.cpp	field::process(PointEvent)	-	T3	PointEvent step 9, 30-33
+processor.cpp	field::process(BattleCommand)	-	T4	battle: defender, direct-attack pick, damage player
+processor.cpp	field::process(Damage)	-	T4	battle damage
+processor.cpp	*	4385-4432	T5A	win and loss blocks
+processor.cpp	*	4659-4724	T5A	win and loss blocks
+processor.cpp	*	4449-4552	T6	disabled zones, EMZ mirror, MSG_FIELD_DISABLED
+processor.cpp	*	4750-4757	T5B	loop over living duelists (~4755)
+processor.cpp	*	4758-4830	T8	Adjust cases 3, 4, 5: trap monster, control, brainwashing
+processor.cpp	*	4860-4870	T5B	loop over living duelists (~4867)
+processor.cpp	*	4895-4930	T5B	loop over living duelists (~4900, ~4925)
+processor.cpp	*	4956-4966	T5B	Adjust step 14 rollback (T4 edits the union text there)
+processor.cpp	*	4967-4990	T4	Adjust step 14 opp_mzone union (~4974)
+processor.cpp	field::process(Adjust)	-	T5A	Adjust step 1: check_losses_n
+processor.cpp	field::process(SolveChain)	-	T5B	fizzle for an eliminated triggering player
+processor.cpp	*	55-180	T9	core.reason_player sentinels (~59, 114, 174)
+processor.cpp	*	3850-3870	T9	SetOperationInfo op_player (boundary, F1/F3 fold)
+processor.cpp	*	4060-4090	T9	conti_player (~4065, ~4083)
+processor.cpp	*	4265-4275	T9	conti_player (~4271)
+operations.cpp	field::process(ControlAdjust)	-	T8	SwapControl two-sided algorithm
+operations.cpp	field::process(TrapMonsterAdjust)	-	T8	oppo_selection passes
+operations.cpp	field::process(ChangePos)	-	T8	oppo_selection passes
+operations.cpp	*	1205-1205	T9	SwapControl PLAYER_NONE test
+operations.cpp	*	1190-1260	T8	SwapControl
+operations.cpp	*	1075-1155	T9	GetControl sentinels (~1081, 1135, 1149)
+operations.cpp	*	1339-1460	T8	ControlAdjust
+operations.cpp	*	1660-1670	T5B	loop over living duelists (~1664)
+operations.cpp	*	1600-1670	T8	TrapMonsterAdjust
+operations.cpp	*	5228-5280	T8	ChangePos case 1
+operations.cpp	*	5645-5655	T3	link-added site (5649-5650)
+operations.cpp	*	600-620	T5A	match-kill guard (~608)
+operations.cpp	field::process(Damage)	-	T5A	lp_ref
+operations.cpp	field::process(Recover)	-	T5A	lp_ref
+operations.cpp	field::process(PayLPCost)	-	T5A	lp_ref
+field.cpp	field::filter_affected_cards	-	F02	core range fold
+field.cpp	field::filter_inrange_cards	-	F02	core range fold
+field.cpp	field::filter_matching_card	-	F02	core range fold
+field.cpp	field::filter_field_card	-	F02	core range fold
+field.cpp	field::get_release_list	-	F02	core range fold
+field.cpp	field::get_summon_release_list	-	F02	core range fold
+field.cpp	field::check_release_list	-	F02	core range fold
+field.cpp	field::get_ritual_material	-	F02	ritual and fusion material
+field.cpp	field::get_fusion_material	-	F02	ritual and fusion material
+field.cpp	field::get_overlay_group	-	F02	overlay loops
+field.cpp	field::get_field_counter	-	F02	counters
+field.cpp	field::get_attack_target	-	T4	attack-target union
+field.cpp	field::eliminate	-	T5B	elimination body
+field.cpp	field::check_lp_cost	-	T5A	lp_ref
+field.cpp	*	250-265	T9	remove_card sentinel (~257)
+field.cpp	*	700-710	T9	get_useable_count sentinel (~705)
+field.cpp	*	1535-1580	T9	field effect sentinels (~1540, ~1573)
+field.cpp	*	1555-1730	F02	two-sided loops (filter_affected_cards and its neighbours)
+field.cpp	*	2170-2180	T5B	loop over living duelists (~2174)
+field.cpp	*	115-135	T3	response order helpers
+field.h	*	490-525	T3	response unit members and helpers (T5A, T5B, F02 also edit here: see the hunk matrix)
+field.h	*	-	T9	none_id and all_id helpers
+effect.cpp	effect::is_activateable	-	F6	partner negation (Tag)
+effect.cpp	effect::is_available	-	T9	PLAYER_NONE test (~56)
+effect.cpp	effect::is_target	-	F02	range fold
+effect.cpp	effect::is_target_player	-	F02	range fold
+effect.cpp	*	445-470	F02	is_target (same_team)
+card.cpp	*	50-65	T9	card sort sentinel (~58)
+card.cpp	*	1620-1650	T9	apply_field_effect sentinels (~1629, ~1645)
+card.h	*	-	T4	card::direct_attack_mask
+libdebug.cpp	*	-	T5A	SetupDuelists modes, Debug.EliminateDuelist (T0 wrote SetupDuelists)
+ocgapi.cpp	*	-	T5A	QueryField lp_ref
+libduel.cpp	lua:NegateActivation	-	F6	partner negation backstop
+libduel.cpp	lua:NegateEffect	-	F6	partner negation backstop
+libduel.cpp	lua:NegateSummon	-	F6	partner negation backstop
+libduel.cpp	lua:CheckTiming	-	T6	loop over living duelists
+libduel.cpp	lua:IsEnvironment	-	T6	loop over living duelists
+libduel.cpp	lua:ChangeAttackTarget	-	T4	+ MSG 201
+libduel.cpp	lua:GetBattleMonster	-	T4	battle
+libduel.cpp	lua:GetLP	-	T5A	lp_ref
+libduel.cpp	lua:SetLP	-	T5A	lp_ref
+libduel.cpp	lua:Win	-	T5A	Duel.Win n>2 branch
+libduel.cpp	*	1480-1490	T4	opp_mzone union (~1486)
+libduel.cpp	*	1020-1030	T6	CheckTiming (~1024)
+libduel.cpp	*	1048-1055	T6	IsEnvironment (~1051)
+libduel.cpp	*	-	F3	libduel fold (Lua-facing functions, broadcast, ConfirmCards)
+libcard.cpp	*	-	F4	libcard fold
+libeffect.cpp	*	-	F4	libeffect fold
+libgroup.cpp	*	-	F4	libgroup fold

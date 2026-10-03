@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Tue, 15 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: a Tag partner's turn counts as an own turn for
+ RESET_SELF_TURN at n > 2
+
+effect::reset(RESET_PHASE) took "own turn" as pid == turn player, but
+"opponent turn" already meant another team. In Tag an effect of the partner
+seat with RESET_SELF_TURN and RESET_OPPO_TURN (the default of RESET_PHASE
+without a turn flag, so "until the end of this turn") was not counted in the
+turn of the partner's own team when the turn player was the other seat of
+that team. It stayed one turn too long. A disable-field effect registered by
+the second seat of a team at the End Phase of the first seat's turn showed
+it: the zone stayed disabled during the next turn.
+
+At n > 2 own turn is now a turn of the own team (is_duelist and same_team).
+In FFA every seat is its own team, so nothing changes there. n == 2 keeps
+pid == turn player, the same bytes.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ effect.cpp | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/effect.cpp b/effect.cpp
+index 778d7a3..7859680 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -685,7 +685,9 @@ int32_t effect::reset(uint32_t reset_level, uint32_t reset_type) {
+ 		uint8_t tp = pduel->game_field->infos.turn_player;
+ 		const auto& gf = *pduel->game_field;
+ 		const bool oppo_turn = gf.n_duelists == 2 ? pid != tp : (gf.is_duelist(pid) && !gf.same_team(pid, tp));
+-		if((((reset_flag & RESET_SELF_TURN) && pid == tp) || ((reset_flag & RESET_OPPO_TURN) && oppo_turn))
++		// at n > 2 "own turn" is a turn of the own team (the Tag partner's turn counts), as "opponent turn" already is
++		const bool self_turn = gf.n_duelists == 2 ? pid == tp : (gf.is_duelist(pid) && gf.same_team(pid, tp));
++		if((((reset_flag & RESET_SELF_TURN) && self_turn) || ((reset_flag & RESET_OPPO_TURN) && oppo_turn))
+ 				&& (reset_level & 0x3ff & reset_flag))
+ 			--reset_count;
+ 		if(reset_count == 0)

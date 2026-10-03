@@ -217,10 +217,14 @@ export function anchorKey(anchor: ChainAnchor): string {
   return zoneKey(anchor.zone.controller, anchor.zone.location, anchor.zone.sequence);
 }
 
-/** "You" / "Opponent" for a seated player, the player name for a spectator. */
-export function chainSeatLabel(seat: number, mySeat: number | null, playerName: (seat: number) => string): string {
+/**
+ * "You" / "Opponent" for a seated player, the player name for a spectator. At a table of 3 or 4 seats "Opponent" says
+ * nothing (`named`): every rival reads by name.
+ */
+export function chainSeatLabel(seat: number, mySeat: number | null, playerName: (seat: number) => string, named = false): string {
   if (mySeat == null) return playerName(seat);
-  return seat === mySeat ? "You" : "Opponent";
+  if (seat === mySeat) return "You";
+  return named ? playerName(seat) : "Opponent";
 }
 
 /**
@@ -318,8 +322,9 @@ export function chainLinkLabel(
   mySeat: number | null,
   playerName: (seat: number) => string,
   detail = true,
+  named = false,
 ): string {
-  const parts = [`${link.name ?? "Effect"}`, chainSeatLabel(link.seat, mySeat, playerName)];
+  const parts = [`${link.name ?? "Effect"}`, chainSeatLabel(link.seat, mySeat, playerName, named)];
   if (detail) {
     if (link.status === "resolving") parts.push("resolving");
     if (link.negated) parts.push("negated");
@@ -360,12 +365,13 @@ export function chainAnnouncement(
   next: ChainState,
   mySeat: number | null,
   playerName: (seat: number) => string,
+  named = false,
 ): string | null {
   if (next.links.length === 0) return prev.links.length > 0 ? "Chain ended" : null;
   const top = next.links[next.links.length - 1];
   const prevTop = prev.links[prev.links.length - 1];
   if (!prevTop || prevTop.index !== top.index || prevTop.code !== top.code) {
-    return chainLinkLabel(top, mySeat, playerName, false);
+    return chainLinkLabel(top, mySeat, playerName, false, named);
   }
   const targeted = next.links.find((link) => JSON.stringify(link.targets) !== JSON.stringify(prev.links[link.index - 1]?.targets));
   if (targeted) return chainTargetLabel(targeted, mySeat, playerName) ?? `Chain Link ${targeted.index} has no current targets`;
@@ -373,7 +379,7 @@ export function chainAnnouncement(
   if (negated) return `Chain Link ${negated.index} was negated`;
   if (next.resolving != null && next.resolving !== prev.resolving) {
     const link = next.links[next.resolving - 1];
-    return `Chain Link ${link.index} resolving: ${link.name ?? "Effect"}, ${chainSeatLabel(link.seat, mySeat, playerName)}`;
+    return `Chain Link ${link.index} resolving: ${link.name ?? "Effect"}, ${chainSeatLabel(link.seat, mySeat, playerName, named)}`;
   }
   return null;
 }

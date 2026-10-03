@@ -1,31 +1,13 @@
 // One line of the Text log, shared by the live room's match sheet and the replay, so both colour and label
 // lines the same way. The line sits inside an <ol className={styles.log}> from room.module.css.
+// The 1v1 room and the table shell share the match sheet (text-log re-exports it).
+"use client";
+
 import { useEffect, useMemo, useRef, type Ref } from "react";
-import { phaseLabel } from "./constants";
+import { phaseTitle } from "./constants";
 import { categoriesForLog, categoryForLogText, summonMethodForLogText, type LogCategory } from "./log-category";
 import { LogCategoryGlyph } from "./log-category-glyph";
 import styles from "./room.module.css";
-
-export function phaseTitle(phase: string | null | undefined): string {
-  const label = phaseLabel(phase);
-  switch (label) {
-    case "Draw":
-    case "Standby":
-    case "Battle":
-    case "End":
-      return `${label} Phase`;
-    case "Main 1":
-      return "Main Phase 1";
-    case "Main 2":
-      return "Main Phase 2";
-    case "Damage":
-      return "Damage Step";
-    case "Damage calculation":
-      return "Damage Calculation";
-    default:
-      return label;
-  }
-}
 
 const LOG_PHASE_KEYS: ReadonlySet<string> = new Set([
   "draw", "standby", "main1", "battle_start", "battle_step", "damage", "damage_cal", "battle", "main2", "end",
@@ -43,10 +25,10 @@ export function logKind(text: string): LogKind {
   return "line";
 }
 
-/** The engine log names seats "Player N"; show the table's display names instead, and phase keys as titles. */
+/** The engine log names seats "Player N"; show the table's display names instead (a table has up to four seats), and phase keys as titles. */
 export function logText(text: string, kind: LogKind, playerName: (seat: number) => string): string {
   if (kind === "phase") return phaseTitle(text);
-  return text.replace(/\bPlayer ([12])\b/g, (_match, seat: string) => playerName(Number(seat) - 1));
+  return text.replace(/\bPlayer ([1-4])\b/g, (_match, seat: string) => playerName(Number(seat) - 1));
 }
 
 /** The categories of a whole log (see categoriesForLog), recomputed only when the entries change. */

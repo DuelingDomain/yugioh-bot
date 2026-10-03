@@ -9,8 +9,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!actor.ok) return actor.response;
   const { slug } = await params;
 
+  const inLobby = () => actor.duels.room(slug, actor.guildId, actor.playerId).session.status === "lobby";
+  const skipped = () => NextResponse.json({ skipped: true });
   try {
-    actor.duels.room(slug, actor.guildId, actor.playerId);
+    if (!inLobby()) return skipped();
   } catch (error) {
     return duelErrorResponse(error);
   }
@@ -22,6 +24,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  // Parsing the request yields to Start in another window. Recheck before asking the host.
+  try {
+    if (!inLobby()) return skipped();
+  } catch (error) {
+    return duelErrorResponse(error);
+  }
+
   const result = await callDuelHost({
     op: "validate-deck",
     slug,
@@ -29,6 +38,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     playerId: actor.playerId,
     deck,
   });
+  // A check can finish after the room moves on. Its result is then obsolete in every format.
+  try {
+    if (!inLobby()) return skipped();
+  } catch (error) {
+    return duelErrorResponse(error);
+  }
   if (!result.ok) return result.response;
   return NextResponse.json(result.data);
 }

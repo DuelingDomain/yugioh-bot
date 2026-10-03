@@ -517,6 +517,9 @@ export function migrate(db: Database.Database) {
   addColumnIfMissing(db, "duels", "settings_json", "text");
   addColumnIfMissing(db, "duels", "clock_json", "text");
   addColumnIfMissing(db, "duels", "invite_code", "text");
+  addColumnIfMissing(db, "duels", "format", "text not null default '1v1'");
+  addColumnIfMissing(db, "duels", "snapshot_seats_json", "text");
+  addColumnIfMissing(db, "duels", "setup_json", "text");
 
   db.transaction(() => {
     const seatInfo = db.prepare<[], { name: string; notnull: number }>("pragma table_info(duel_seats)").all();
@@ -650,4 +653,28 @@ export function migrate(db: Database.Database) {
       on saved_decks (guild_id, owner_user_id, draft_id)
       where draft_id is not null;
   `);
+
+  // In-app bug reports. The full report (with the reporter's player id) stays here; the public GitHub issue
+  // carries only the report id and the public context. github_* hold the issue the web server opened, or the
+  // reason it could not (the report is kept either way).
+  db.exec(`
+    create table if not exists bug_reports (
+      id integer primary key autoincrement,
+      guild_id text not null,
+      player_id integer not null references players(id),
+      created_at text not null,
+      path text not null,
+      duel_slug text,
+      description text not null,
+      expected text,
+      context_json text not null,
+      github_issue_number integer,
+      github_issue_url text,
+      github_error text,
+      -- The open from-app issue this report was added to instead of opening a new one (null for a report with its own issue).
+      duplicate_of integer
+    );
+    create index if not exists bug_reports_player_idx on bug_reports (guild_id, player_id, created_at);
+  `);
+  db.exec("create index if not exists bug_reports_duel_idx on bug_reports (guild_id, duel_slug, created_at)");
 }

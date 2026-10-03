@@ -1,0 +1,61 @@
+/* The turn medallion. Stage px; the stage scales it. It never takes pointer events. */
+.ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 20;
+  width: 124px;
+  height: 124px;
+  pointer-events: none;
+  transition: transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1), opacity 0.4s;
+}
+
+.ring > svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* In the fly-in view the world turns by --ry; the text turns back so it stays level. */
+.ring text {
+  transform-box: fill-box;
+  transform-origin: center;
+  rotate: var(--ry, 0deg);
+}
+
+.num,
+.initial {
+  font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font-weight: 700;
+}
+
+.phase,
+.tag {
+  font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.node {
+  transition: transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.lock {
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  display: none;
+  translate: -50% 6px;
+  padding: 3px 9px;
+  border: 1px solid rgb(181 153 99 / 0.34);
+  border-radius: 999px;
+  background: rgb(7 11 21 / 0.85);
+  color: #c3bba8;
+  font: 600 11px/1 var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.ring[data-lock="true"] .lock {
+  display: inline-flex;
+}

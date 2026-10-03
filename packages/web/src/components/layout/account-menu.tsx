@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { LogOut, User } from "lucide-react";
+import { Bug, LogOut, User } from "lucide-react";
 import { Mono, TierName } from "@/components/sheet";
 import type { ShellAccount } from "./use-shell-account";
 import { isOwnProfile } from "./shell-model";
@@ -18,6 +18,8 @@ interface AccountMenuProps {
   rail?: boolean;
   /** Called when a menu choice navigates, so a surrounding drawer can close. */
   onNavigate?: () => void;
+  /** Opens the Report bug dialog, which the shell owns so it outlives this menu and a surrounding drawer. */
+  onReportBug?: () => void;
 }
 
 /** You, as a seat: a violet ring with your initials. */
@@ -25,7 +27,7 @@ function Ring({ account, size }: { account: ShellAccount; size: "sm" | "md" }) {
   return <Mono name={account.name || "You"} you size={size} />;
 }
 
-export function AccountMenu({ account, pathname, variant, rail = false, onNavigate }: AccountMenuProps) {
+export function AccountMenu({ account, pathname, variant, rail = false, onNavigate, onReportBug }: AccountMenuProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -202,6 +204,22 @@ export function AccountMenu({ account, pathname, variant, rail = false, onNaviga
             </>
           )}
           <div className={styles.menuSep} role="separator" />
+          {onReportBug ? (
+            <button
+              className={styles.menuItem}
+              role="menuitem"
+              type="button"
+              onClick={() => {
+                // Focus goes back to the trigger first, so the dialog gives it back there when it closes.
+                closeToTrigger();
+                onReportBug();
+                onNavigate?.();
+              }}
+            >
+              <Bug className={styles.menuIcon} aria-hidden="true" />
+              Report bug
+            </button>
+          ) : null}
           <button
             className={styles.menuItem}
             role="menuitem"

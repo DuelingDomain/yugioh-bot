@@ -16,6 +16,7 @@ import Link from "next/link";
 import type { DuelRoom } from "@yugidraft/shared/duels";
 import { cardArtUrl, formatLp } from "./constants";
 import { duelFontClasses } from "./fonts";
+import { isMultiSeat, seatNamer, winnerLabel, winnerSeats } from "./multi-seat";
 import styles from "./duel-result.module.css";
 import seriesStyles from "./series.module.css";
 import { SeriesBadges } from "./series-banner";
@@ -41,6 +42,11 @@ export type DuelResultScreenProps = {
   onSeriesChanged?: () => void;
   /** Series only: go to the next game's room. */
   onNavigate?: (slug: string) => void;
+  /**
+   * Tables of 3 or more seats: the final standing. The scoreboard becomes a list in this order, each row with its
+   * place. `label` is the place in words ("1st"). Absent: the two-column scoreboard of a duel of two.
+   */
+  placings?: ReadonlyArray<{ seat: number; place: number; label: string }>;
 };
 
 // ---------------------------------------------------------------------------
@@ -90,6 +96,11 @@ export function classifyResultReason(raw: string | null | undefined): DuelResult
 }
 
 function seatName(room: DuelRoom, seat: number): string {
+  if (isMultiSeat(room.engine)) {
+    return seatNamer(room.session.seats.map((item) => ({
+      ...item, displayName: item.displayName?.trim() || `Seat ${item.seat + 1}`,
+    })))(seat);
+  }
   return room.session.seats.find((item) => item.seat === seat)?.displayName?.trim() || `Seat ${seat + 1}`;
 }
 
@@ -122,7 +133,10 @@ export function describeDuelResult(room: DuelRoom): DuelResultModel {
   const winnerSeat = result ? result.winnerSeat : session.winnerSeat;
   const raw = (result?.reason ?? session.resultReason ?? "").trim();
   const kind = classifyResultReason(raw);
-  const loserSeat = winnerSeat === 0 ? 1 : winnerSeat === 1 ? 0 : null;
+  // 3 and 4 seat tables: the winners are a set (both partners in Tag); no "other seat" math.
+  const multi = isMultiSeat(engine);
+  const winners = !multi ? [] : engine?.result ? winnerSeats(engine) : winnerSeat == null ? [] : [winnerSeat];
+  const loserSeat = multi ? null : winnerSeat === 0 ? 1 : winnerSeat === 1 ? 0 : null;
   const loser = loserSeat == null ? null : { name: seatName(room, loserSeat), isMe: loserSeat === mySeat };
 
   const scores: DuelResultScore[] = session.status === "cancelled"
@@ -134,7 +148,7 @@ export function describeDuelResult(room: DuelRoom): DuelResultModel {
           name: seatName(room, seat.seat),
           lp: seat.lp,
           isMe: seat.seat === mySeat,
-          isWinner: session.status !== "interrupted" && winnerSeat != null && seat.seat === winnerSeat,
+          isWinner: session.status !== "interrupted" && winnerSeat != null && (multi ? winners.includes(seat.seat) : seat.seat === winnerSeat),
           deckMaster: seat.deckMaster ? { code: seat.deckMaster.card.code, name: seat.deckMaster.card.name } : null,
         }));
 
@@ -155,7 +169,17 @@ export function describeDuelResult(room: DuelRoom): DuelResultModel {
       scores,
     };
   }
-  const reason = reasonLine(kind, raw, loser);
+  const reason = multi ? (raw ? reasonLine(kind === "life-points" ? "other" : kind, raw, null) : null) : reasonLine(kind, raw, loser);
+  if (multi) {
+    const won = mySeat != null && winners.includes(mySeat);
+    const names = engine ? winnerLabel(engine, (seat) => seatName(room, seat)) : null;
+    const who = names ?? seatName(room, winnerSeat);
+    const plural = winners.length > 1;
+    if (mySeat == null) return { outcome: "spectator", headline: `${who} ${plural ? "win" : "wins"}`, winnerSeat, reasonKind: kind, reason, scores };
+    return won
+      ? { outcome: "win", headline: "YOU WIN", winnerSeat, reasonKind: kind, reason, scores }
+      : { outcome: "lose", headline: "YOU LOSE", winnerSeat, reasonKind: kind, reason, scores };
+  }
   if (mySeat == null) {
     return { outcome: "spectator", headline: `${seatName(room, winnerSeat)} wins`, winnerSeat, reasonKind: kind, reason, scores };
   }
@@ -304,8 +328,15 @@ const subscribeNever = () => () => undefined;
 const readBody = () => document.body;
 const readNoBody = () => null;
 
-export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, onSeriesChanged, onNavigate }: DuelResultScreenProps) {
-  const model = useMemo(() => describeDuelResult(room), [room]);
+export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, onSeriesChanged, onNavigate, placings }: DuelResultScreenProps) {
+  const described = useMemo(() => describeDuelResult(room), [room]);
+  const model = useMemo(() => {
+    if (!placings || placings.length === 0) return described;
+    const order = new Map(placings.map((entry, index) => [entry.seat, index]));
+    const scores = [...described.scores].sort((a, b) => (order.get(a.seat) ?? 99) - (order.get(b.seat) ?? 99));
+    return { ...described, scores };
+  }, [described, placings]);
+  const placeOf = useMemo(() => new Map((placings ?? []).map((entry) => [entry.seat, entry])), [placings]);
   const { outcome } = model;
   // A spectator whose next game is already live gets "Watch game N" as the main button; leaving steps back.
   const watching = room.series ? spectatorSeriesStatus(room, slug) : null;
@@ -445,9 +476,12 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
           </div>
 
           {model.scores.length > 0 ? (
-            <ul className={styles.scoreboard} aria-label="Final Life Points">
+            <ul className={styles.scoreboard} aria-label={placings ? "Final standings" : "Final Life Points"} data-placings={placings ? "true" : undefined}>
               {model.scores.map((score) => (
-                <li key={score.seat} className={`${styles.card} ${styles.score}`} data-winner={score.isWinner ? "true" : "false"} data-out={score.lp <= 0 ? "true" : "false"}>
+                <li key={score.seat} className={`${styles.card} ${styles.score}`} data-winner={score.isWinner ? "true" : "false"} data-out={score.lp <= 0 ? "true" : "false"} data-seat={score.seat}>
+                   {placeOf.has(score.seat) ? (
+                     <span className={styles.place} data-place={placeOf.get(score.seat)?.place}>{placeOf.get(score.seat)?.label}</span>
+                   ) : null}
                   {score.deckMaster ? (
                     <img
                       className={styles.dmArt}

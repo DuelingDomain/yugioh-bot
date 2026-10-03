@@ -1,0 +1,162 @@
+# Staging stack: lets people test 3-player duels on the same VM as production, with no shared state.
+# Runbook: docs/deployment/staging.md
+#
+# Run it only through scripts/staging/compose.sh. The script names the project and the env file, so a
+# command can never reach the production stack:
+#   docker compose --env-file .env.staging -p yugidraft-staging -f docker-compose.staging.yml <command>
+#
+# What is different from docker-compose.yml:
+#   - Services are ws, duel, web and caddy only. There is NO bot: a second bot with the same Discord token
+#     would answer every command twice. Without a bot, announcements are off (BOT_ANNOUNCE_URL is empty).
+#   - Its own project name, its own Docker network, its own data directory and its own Caddy.
+#   - Memory, CPU and log limits on every service, so staging cannot starve production (4 GB VM).
+#   - The same Dockerfile targets (ws, duel, web). No dev override file.
+name: yugidraft-staging
+
+x-staging-service: &staging-service
+  # "no": staging never starts by itself, not after a crash and not after a VM reboot. (With on-failure the
+  # Docker daemon could restart a container at boot without any memory check, because Node exits with a
+  # non-zero code on SIGTERM.) Run the staging workflow to start it again.
+  restart: "no"
+  # Under CPU pressure staging gets a quarter of the weight of a default container (1024).
+  cpu_shares: 256
+  networks:
+    - staging
+  security_opt:
+    - no-new-privileges:true
+  # If the VM runs out of memory, the kernel stops a staging process before a production one.
+  oom_score_adj: 500
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  ws:
+    <<: *staging-service
+    build:
+      context: .
+      target: ws
+    user: "${STAGING_UID:-1000}:${STAGING_GID:-1000}"
+    environment:
+      - NODE_OPTIONS=--max-old-space-size=${STAGING_WS_HEAP_MB:-128}
+      - WEB_URL=${WEB_URL:?WEB_URL is missing, run scripts/staging/make-staging-env.sh}
+      - WS_PORT=3001
+      - WS_INTERNAL_PORT=4002
+      - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET:?WS_INTERNAL_SECRET is missing, run scripts/staging/make-staging-env.sh}
+      - DATABASE_PATH=/app/data/bot.sqlite
+    command: node packages/ws/dist/server.js
+    volumes:
+      - ${STAGING_DATA_DIR:-./data-staging}:/app/data
+    mem_limit: ${STAGING_MEM_WS:-192m}
+    memswap_limit: ${STAGING_MEM_WS:-192m}
+    cpus: 0.5
+    healthcheck:
+      # Socket.IO answers a polling handshake on its public port.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/socket.io/?EIO=4&transport=polling').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  duel:
+    <<: *staging-service
+    build:
+      context: .
+      target: duel-bundled
+      additional_contexts:
+        engine: ./.deploy-duel-engine
+    user: "${STAGING_UID:-1000}:${STAGING_GID:-1000}"
+    environment:
+      - DATABASE_PATH=/app/data/bot.sqlite
+      # Both multi cores and the Lua overlay are installed here from the CI bundle.
+      - DUEL_DATA_DIR=/app/data/duel-engine
+      - DUEL_INTERNAL_HOST=0.0.0.0
+      - DUEL_INTERNAL_PORT=4003
+      - DUEL_INTERNAL_SECRET=${DUEL_INTERNAL_SECRET:?DUEL_INTERNAL_SECRET is missing, run scripts/staging/make-staging-env.sh}
+      - WS_INTERNAL_URL=http://ws:4002
+      - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET:?WS_INTERNAL_SECRET is missing, run scripts/staging/make-staging-env.sh}
+      - DUEL_ARCHIVE_AFTER_MS=${DUEL_ARCHIVE_AFTER_MS:-600000}
+      # Free an idle engine worker sooner than production does: memory is tight.
+      - DUEL_IDLE_WORKER_MS=${STAGING_DUEL_IDLE_WORKER_MS:-120000}
+      # Test tools for the testers: the Report button, the stall watchdog reports, the scenario presets and the
+      # debug-trace route. The web needs the same flag (see the web service). The report folder is on the data
+      # volume, because the container user cannot write in /app.
+      - DUEL_SCENARIOS=1
+      - DUEL_REPORT_DIR=/app/data/duel-reports
+      # Tag, 3-player and 4-player tables are on in staging. Production has them off. The web needs the same value.
+      - MULTIPLAYER_TABLES=${STAGING_MULTIPLAYER_TABLES:-1}
+      # Staging tests the 1v1 engine that production uses. Set STAGING_DUEL_1V1_ENGINE=pinned to test the merged engine.
+      - DUEL_1V1_ENGINE=${STAGING_DUEL_1V1_ENGINE:-legacy}
+    volumes:
+      - ${STAGING_DATA_DIR:-./data-staging}:/app/data
+    mem_limit: ${STAGING_MEM_DUEL:-768m}
+    memswap_limit: ${STAGING_MEM_DUEL:-768m}
+    cpus: 1.0
+    healthcheck:
+      # The private port only has to accept a TCP connection.
+      test: ["CMD", "node", "-e", "require('net').connect(4003,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  web:
+    <<: *staging-service
+    build:
+      context: .
+      target: web
+    user: "${STAGING_UID:-1000}:${STAGING_GID:-1000}"
+    # DISCORD_TOKEN is in this file on purpose: the web uses it only as a REST credential to check that a
+    # user is in the guild. It does not open a gateway connection, so it cannot answer commands.
+    env_file:
+      - .env.staging
+    environment:
+      - NODE_OPTIONS=--max-old-space-size=${STAGING_WEB_HEAP_MB:-384}
+      - DATABASE_PATH=/app/data/bot.sqlite
+      - WS_INTERNAL_URL=http://ws:4002
+      - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET:?WS_INTERNAL_SECRET is missing, run scripts/staging/make-staging-env.sh}
+      - DUEL_INTERNAL_URL=http://duel:4003
+      # Shows the Report button and opens the scenario routes. Same flag as on the duel service.
+      - DUEL_SCENARIOS=1
+      - MULTIPLAYER_TABLES=${STAGING_MULTIPLAYER_TABLES:-1}
+      - DUEL_INTERNAL_SECRET=${DUEL_INTERNAL_SECRET:?DUEL_INTERNAL_SECRET is missing, run scripts/staging/make-staging-env.sh}
+      # There is no bot here. An empty URL turns every announcement into a no-op.
+      - BOT_ANNOUNCE_URL=
+      - BOT_ANNOUNCE_SECRET=
+    volumes:
+      - ${STAGING_DATA_DIR:-./data-staging}:/app/data
+    mem_limit: ${STAGING_MEM_WEB:-512m}
+    memswap_limit: ${STAGING_MEM_WEB:-512m}
+    cpus: 1.0
+    depends_on:
+      - ws
+      - duel
+
+  caddy:
+    <<: *staging-service
+    image: caddy:2-alpine
+    ports:
+      # Plain HTTP only: http://<VM address>:8080. Never publish host port 80 or 443: the production Caddy
+      # owns them (scripts/staging/compose.sh refuses a port below 1024).
+      - "${STAGING_BIND:-0.0.0.0}:${STAGING_HTTP_PORT:-8080}:80"
+    volumes:
+      - ./Caddyfile.staging:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: ${STAGING_MEM_CADDY:-64m}
+    memswap_limit: ${STAGING_MEM_CADDY:-64m}
+    cpus: 0.25
+    depends_on:
+      - web
+      - ws
+
+# A network of its own. The names web, ws and duel mean the staging services only here.
+networks:
+  staging:
+    name: yugidraft-staging-net
+
+volumes:
+  caddy_data:
+  caddy_config:

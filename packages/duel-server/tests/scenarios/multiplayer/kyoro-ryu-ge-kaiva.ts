@@ -1,0 +1,118 @@
+// Kyoro Ryu-Ge Kaiva (93509766): two destroyed cards enable its hand summon.
+// Dark Hole destroys cards at two different seats; a later holder uses the
+// global counter. One destruction must leave the holder's card in its hand.
+import { activate, endTurn, expectNotOffered, expectOffered, expectPrompt, expectTurn, faceDown, pass, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
+import { SOURCE } from "./nseat-scenarios.js";
+import { baseSetup, everySeat, label, SEATS, type Format, type Seat } from "./seat-kit.js";
+
+const CARD = "Kyoro Ryu-Ge Kaiva";
+const HOLE = "Dark Hole";
+const ELF = "Mystical Elf";
+const OX = "Battle Ox";
+
+function summon(format: Format, holder: Seat, count: 1 | 2): Scenario {
+  const spec: Partial<Record<Seat, DuelistExpect>> = {};
+  for (const seat of SEATS[format]) spec[seat] = { hand: [], deckCount: 20 };
+  spec.p0 = { ...spec.p0, grave: count === 2 ? [HOLE, OX] : [HOLE] };
+  spec.p1 = { ...spec.p1, grave: [ELF], ...(count === 1 ? { hand: [ELF], deckCount: 19 } : {}) };
+  spec[holder] = { ...spec[holder], ...(count === 2 ? { monsters: [CARD] } : { hand: [...(holder === "p1" ? [ELF] : []), CARD] }) };
+  return defineScenario({
+    id: `kyoro-ryu-ge-kaiva-${format}-${holder}-${count}-cards-destroyed-${count === 2 ? "summons" : "stays-in-hand"}`,
+    title: `${label(format)}: ${count} destroyed card(s) ${count === 2 ? "enable" : "do not enable"} the Kaiva of ${holder}`,
+    source: `${SOURCE} [R-COMMON-SEAT-STATE] the global destruction counter reaches every real seat and Tag team`,
+    rules: ["R-COMMON-SEAT-STATE"],
+    tags: ["multiplayer", "global-effect", "flag", format, "card:93509766"],
+    setup: baseSetup(format, {
+      p0: { hand: [HOLE], ...(count === 2 ? { monsters: [OX] } : {}) },
+      p1: { monsters: [ELF] }, [holder]: { hand: [CARD] },
+    }),
+    steps: [
+      activate(HOLE, "p0"),
+      ...(count === 2 ? [activate({ card: CARD, from: "hand" }, holder), expectPrompt({ by: "p0", context: "action" })] : [endTurn("p0"), expectTurn("p1", 2), expectPrompt({ by: "p1", context: "action" })]),
+      everySeat(format, spec),
+    ],
+  });
+}
+
+function reset(): Scenario {
+  const first = summon("ffa3", "p2", 2);
+  return defineScenario({
+    ...first, tags: first.tags.filter(tag => tag !== "ffa-first-draw-included"),
+    id: "kyoro-ryu-ge-kaiva-ffa3-p2-counter-clears-next-turn",
+    title: "FFA3: Kaiva is offered after two destructions and stays in hand in the next turn",
+    steps: [
+      activate(HOLE, "p0"), expectOffered("activate", { card: CARD, from: "hand" }, "p2"),
+      pass("p2"), endTurn("p0"), pass("p2"), expectPrompt({ by: "p1", context: "action" }),
+      everySeat("ffa3", {
+        p0: { hand: [], deckCount: 20, grave: [HOLE, OX] },
+        p1: { hand: [ELF], deckCount: 19, grave: [ELF] },
+        p2: { hand: [CARD], deckCount: 20 },
+      }),
+    ],
+  });
+}
+
+export const KYORO_RYU_GE_KAIVA_SCENARIOS: Scenario[] = [
+  summon("ffa3", "p2", 2), summon("ffa4", "p2", 2), summon("ffa4", "p3", 2),
+  summon("tag", "p2", 2), summon("tag", "p3", 2),
+  summon("ffa3", "p2", 1), summon("ffa4", "p3", 1), summon("tag", "p3", 1), reset(),
+];
+
+for (const format of ["ffa3", "ffa4", "tag"] as const) {
+  const holder: Seat = format === "ffa3" ? "p2" : "p3";
+  KYORO_RYU_GE_KAIVA_SCENARIOS.push(defineScenario({
+    id: `kyoro-ryu-ge-kaiva-${format}-one-then-two-destructions`,
+    title: `${format}: Kaiva is absent after one destruction and becomes available after the second`,
+    source: `${SOURCE} [R-COMMON-SEAT-STATE] the destruction counter has a two-card threshold`,
+    rules: ["R-COMMON-SEAT-STATE"], tags: ["multiplayer", format, "card:93509766"],
+    setup: baseSetup(format, {
+      p0: { hand: [HOLE, "De-Spell"] },
+      p1: { monsters: [ELF], spells: ["Ground Collapse"] },
+      [holder]: { hand: [CARD], spells: [faceDown("Jar of Greed")] },
+    }),
+    steps: [
+      activate(HOLE, "p0"), pass(holder),
+      expectPrompt({ by: holder, context: "chain" }), expectNotOffered("activate", CARD, holder),
+      activate("Jar of Greed", holder),
+      activate("De-Spell", "p0"),
+      expectOffered("activate", CARD, holder), activate(CARD, holder),
+      expectPrompt({ by: "p0", context: "action" }),
+      everySeat(format, {
+        p0: { hand: [], deckCount: 20, grave: [HOLE, "De-Spell"] },
+        p1: { hand: [], deckCount: 20, grave: [ELF, "Ground Collapse"] },
+        ...(format === "ffa3" ? {} : { p2: { hand: [], deckCount: 20 } }),
+        [holder]: { hand: [ELF], deckCount: 19, monsters: [CARD], grave: ["Jar of Greed"] },
+      }),
+    ],
+  }));
+}
+
+KYORO_RYU_GE_KAIVA_SCENARIOS.push(defineScenario({
+  id: "kyoro-ryu-ge-kaiva-ffa3-reset-in-real-main-phase-window",
+  title: "FFA3: Kaiva's counter is absent in p2's Main Phase response window on turn 2",
+  source: `${SOURCE} [R-COMMON-SEAT-STATE] the destruction counter resets at the End Phase`,
+  rules: ["R-COMMON-SEAT-STATE"], tags: ["multiplayer", "ffa3", "card:93509766"],
+  setup: baseSetup("ffa3", {
+    p0: { hand: [HOLE], monsters: [OX] },
+    p1: { hand: ["Pot of Greed"], monsters: [ELF] },
+    p2: { hand: [CARD], spells: [faceDown("Jar of Greed")] },
+  }),
+  steps: [
+    activate(HOLE, "p0"), pass("p2"), expectOffered("activate", CARD, "p2"), pass("p2"),
+    endTurn("p0"), pass("p2"), pass("p2"),
+    expectTurn("p1", 2),
+    expectNotOffered("activate", CARD, "p2"), pass("p2"),
+    expectNotOffered("activate", CARD, "p2"), pass("p2"),
+    expectNotOffered("activate", CARD, "p2"), pass("p2"),
+    activate("Pot of Greed", "p1"),
+    expectPrompt({ by: "p2", context: "chain" }), expectNotOffered("activate", CARD, "p2"), pass("p2"),
+    expectPrompt({ by: "p2", context: "chain" }), expectNotOffered("activate", CARD, "p2"), pass("p2"),
+    expectPrompt({ by: "p1", context: "action" }),
+    everySeat("ffa3", {
+      p0: { hand: [], deckCount: 20, grave: [HOLE, OX] },
+      p1: { hand: [ELF, ELF, ELF], deckCount: 17, grave: [ELF, "Pot of Greed"] },
+      p2: { hand: [CARD], deckCount: 20, spells: ["Jar of Greed"] },
+    }),
+  ],
+}));

@@ -1,0 +1,157 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Tue, 1 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: card reveal event players, option-selected hints and
+ card operation order at n > 2
+
+The stock code uses opponent_of at three more sites. With more than 2
+duelists that is seat 255 or the wrong seat. Every change is in an
+n_duelists > 2 branch. The n == 2 text is unchanged.
+
+Duel.ConfirmCards: EVENT_CONFIRM and EVENT_TOHAND_CONFIRM no longer use
+opponent_of(playerid) as the event player. Each single event uses the
+controller of its card (overlay: the controller of the overlay target). The
+group events are raised once per controller, turn player first and then
+clockwise, each with the cards of that controller and that controller as
+event player. The card scripts that listen to these events (Puppet King,
+Puppet Queen, Vanquish Soul Jiaolong) do not read ep, so no script needs a
+different meaning. MSG_CONFIRM_CARDS is not changed.
+Duel.Hint with HINT_OPSELECTED: one MSG_HINT (same type and desc) for each
+living duelist except the caller, the partner included. An eliminated duelist
+gets none.
+card::card_operation_sort: the controllers are ordered by rotation from the
+turn player, key = (controller - turn player + n) % n, smaller first. A card
+without a controller stays last. The n == 2 branch keeps the stock code.
+
+Left alone: the other HINT_OPSELECTED writes (SelectOption, AnnounceType,
+AnnounceCoin) write the id of the selecting duelist, which is always in
+range. The other hints that use opponent_of are already in n == 2 branches.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ card.cpp    | 14 +++++++++----
+ libduel.cpp | 60 +++++++++++++++++++++++++++++++++++++++++++----------
+ 2 files changed, 59 insertions(+), 15 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index 8f01550..f234259 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -57,10 +57,16 @@ bool card::card_operation_sort(card* c1, card* c2) {
+ 	if(cp1 != cp2) {
+ 		if(cp1 == pduel->game_field->none_id() || cp2 == pduel->game_field->none_id())
+ 			return cp1 < cp2;
+-		if(pduel->game_field->infos.turn_player == 0)
+-			return cp1 < cp2;
+-		else
+-			return cp1 > cp2;
++		if(pduel->game_field->n_duelists == 2) {
++			if(pduel->game_field->infos.turn_player == 0)
++				return cp1 < cp2;
++			else
++				return cp1 > cp2;
++		}
++		// n > 2: rotation from the turn player, smaller key first
++		const int32_t n = pduel->game_field->n_duelists;
++		const int32_t tp = pduel->game_field->infos.turn_player;
++		return (cp1 - tp + n) % n < (cp2 - tp + n) % n;
+ 	}
+ 	if(c1->current.location != c2->current.location)
+ 		return c1->current.location < c2->current.location;
+diff --git a/libduel.cpp b/libduel.cpp
+index f995a93..b8685fc 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -897,14 +897,38 @@ LUA_STATIC_FUNCTION(ConfirmCards) {
+ 	auto& field = *pduel->game_field;
+ 	auto reason = (field.core.chain_solving) ? REASON_EFFECT : REASON_COST;
+ 	auto trigeff = field.core.reason_effect;
+-	uint8_t revealingplayer = field.opponent_of(playerid);
++	// n == 2: the event player is the opponent of the player who sees the cards.
++	// n > 2: it is the controller of each card (overlay: the controller of the overlay target).
++	auto revealing_player_of = [&](card* target) -> uint8_t {
++		if(field.n_duelists == 2)
++			return field.opponent_of(playerid);
++		return target->overlay_target ? target->overlay_target->current.controler : target->current.controler;
++	};
++	// The group events: one event with the whole group at n == 2, one event per controller at n > 2
++	// (turn player first, then clockwise, as in card_operation_sort). A card without a duelist controller gets none.
++	auto raise_group_events = [&](const card_set& cards, uint32_t event_code) {
++		if(field.n_duelists == 2) {
++			field.raise_event(cards, event_code, trigeff, reason, field.core.reason_player, field.opponent_of(playerid), 0);
++			return;
++		}
++		for(uint8_t i = 0; i < field.n_duelists; ++i) {
++			const uint8_t p = (field.infos.turn_player + i) % field.n_duelists;
++			card_set part;
++			for(auto& _pcard : cards) {
++				if(revealing_player_of(_pcard) == p)
++					part.insert(_pcard);
++			}
++			if(!part.empty())
++				field.raise_event(std::move(part), event_code, trigeff, reason, field.core.reason_player, p, 0);
++		}
++	};
+ 	bool was_during_to_hand = field.check_event(EVENT_TO_HAND);
+ 	card_set handgroup;
+-	auto raise_confirm_event = [&](card* pcard) {
+-		field.raise_single_event(pcard, nullptr, EVENT_CONFIRM, trigeff, reason, field.core.reason_player, revealingplayer, 0);
+-		if(was_during_to_hand && (pcard->current.location == LOCATION_HAND)) {
+-			field.raise_single_event(pcard, nullptr, EVENT_TOHAND_CONFIRM, trigeff, reason, field.core.reason_player, revealingplayer, 0);
+-			handgroup.insert(pcard);
++	auto raise_confirm_event = [&](card* target) {
++		field.raise_single_event(target, nullptr, EVENT_CONFIRM, trigeff, reason, field.core.reason_player, revealing_player_of(target), 0);
++		if(was_during_to_hand && (target->current.location == LOCATION_HAND)) {
++			field.raise_single_event(target, nullptr, EVENT_TOHAND_CONFIRM, trigeff, reason, field.core.reason_player, revealing_player_of(target), 0);
++			handgroup.insert(target);
+ 		}
+ 	};
+ 
+@@ -915,7 +939,7 @@ LUA_STATIC_FUNCTION(ConfirmCards) {
+ 		message->write<uint8_t>(pcard->current.location);
+ 		message->write<uint32_t>(pcard->current.sequence);
+ 		raise_confirm_event(pcard);
+-		field.raise_event(pcard, EVENT_CONFIRM, trigeff, reason, field.core.reason_player, revealingplayer, 0);
++		field.raise_event(pcard, EVENT_CONFIRM, trigeff, reason, field.core.reason_player, revealing_player_of(pcard), 0);
+ 	} else {
+ 		message->write<uint32_t>(pgroup->container.size());
+ 		for(auto& _pcard : pgroup->container) {
+@@ -925,10 +949,10 @@ LUA_STATIC_FUNCTION(ConfirmCards) {
+ 			message->write<uint32_t>(_pcard->current.sequence);
+ 			raise_confirm_event(_pcard);
+ 		}
+-		field.raise_event(pgroup->container, EVENT_CONFIRM, trigeff, reason, field.core.reason_player, revealingplayer, 0);
++		raise_group_events(pgroup->container, EVENT_CONFIRM);
+ 	}
+ 	if(handgroup.size())
+-		field.raise_event(std::move(handgroup), EVENT_TOHAND_CONFIRM, trigeff, reason, field.core.reason_player, revealingplayer, 0);
++		raise_group_events(handgroup, EVENT_TOHAND_CONFIRM);
+ 	field.process_single_event();
+ 	field.process_instant_event();
+ 	return yield();
+@@ -3182,8 +3206,22 @@ LUA_STATIC_FUNCTION(Hint) {
+ 		return 0;
+ 	auto htype = lua_get<uint8_t>(L, 1);
+ 	auto desc = lua_get<uint64_t>(L, 3);
+-	if(htype == HINT_OPSELECTED)
+-		playerid = pduel->game_field->opponent_of(playerid);
++	if(htype == HINT_OPSELECTED) {
++		if(pduel->game_field->n_duelists == 2) {
++			playerid = pduel->game_field->opponent_of(playerid);
++		} else {
++			// one hint for each other living duelist (the partner included)
++			for(uint8_t q = 0; q < pduel->game_field->n_duelists; ++q) {
++				if(q == playerid || !pduel->game_field->is_alive(q))
++					continue;
++				auto message = pduel->new_message(MSG_HINT);
++				message->write<uint8_t>(htype);
++				message->write<uint8_t>(q);
++				message->write<uint64_t>(desc);
++			}
++			return 0;
++		}
++	}
+ 	auto message = pduel->new_message(MSG_HINT);
+ 	message->write<uint8_t>(htype);
+ 	message->write<uint8_t>(playerid);

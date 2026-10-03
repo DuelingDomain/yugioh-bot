@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { DuelPrompt } from "@yugidraft/shared/duels";
 import type { PromptDraft } from "@/components/duel/prompts";
 import { materialCountScenarios, runMaterialCountScenario } from "../../../duel-server/tests/material-count-fixture.js";
+import { describeWithCores, needs } from "../../../duel-server/tests/support/cores.js";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ className: "font", variable: "font-var", style: {} });
@@ -19,7 +20,9 @@ function draft(prompt: DuelPrompt, selected = prompt.mandatory ?? []): PromptDra
   };
 }
 
-describe("material-count: real summon prompts through the web pick counter", () => {
+// These run the real stock core on cards.cdb: skipped without the engine bundle, a failure with DUEL_REQUIRE_CORES=1
+// (the engine job of .github/workflows/test.yml runs them).
+describeWithCores("material-count: real summon prompts through the web pick counter", [needs.cards(), needs.standard()], () => {
   it.each(materialCountScenarios.filter((scenario) => ["xyz", "link"].includes(scenario.kind)))(
     "$kind does not advertise one material as the total requirement", async (scenario) => {
       const { prompts } = await runMaterialCountScenario(scenario);

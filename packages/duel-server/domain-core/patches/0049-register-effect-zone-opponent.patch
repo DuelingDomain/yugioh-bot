@@ -1,0 +1,237 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Fri, 18 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: Card.RegisterEffect keeps the zone opponent, an
+ eliminated one gets no fallback at n > 2
+
+Six official scripts (c40669071, c53244294, c73542331, c79569173, c92065772,
+c97466438) pick zones with Duel.SelectDisableField in the target and register
+the EFFECT_DISABLE_FIELD effect with Card.RegisterEffect, whose operation
+returns the label. Card.RegisterEffect did not record the opponent of the prompt,
+so the high half of the value went to the next living opponent.
+
+- fold::record_disfield_opp is used by Duel.RegisterEffect and Card.RegisterEffect.
+  The opponent is the one of the last zone prompt of the running link (a slot in
+  chain::zone_opp, found by the triggering effect, so another link cannot
+  overwrite it), else the bound opponent. A recorded opponent that is
+  eliminated later stays recorded.
+- add_disabled_zones_n: a recorded opponent that is not alive gives an empty
+  high half. The zones are not moved to another seat (F5: no fallback).
+- f8_place_target: a bound opponent that is dead closes the high half, so
+  SelectDisableField and SelectFieldZone give no prompt and no zone.
+- Duel.SSet at n > 2 toward a dead bound opponent returns 0 and sets no card
+  (it was set on the own field). n == 2 is unchanged.
+---
+ field.h       |  4 ++++
+ fold_lib.h    | 42 ++++++++++++++++++++++++++++++++++++++++++
+ libcard.cpp   |  5 ++++-
+ libduel.cpp   | 40 ++++++++++++++++++++++++----------------
+ processor.cpp | 15 +++++++++------
+ 5 files changed, 83 insertions(+), 23 deletions(-)
+
+diff --git a/field.h b/field.h
+index 6eeb9cd..5630b48 100644
+--- a/field.h
++++ b/field.h
+@@ -62,6 +62,10 @@ struct chain {
+ 	uint8_t disable_player;
+ 	// Phase 3: the opponent that Lua's "1" stands for in this link (n_duelists > 2), or DUELIST_NONE.
+ 	uint8_t bound_opp{ DUELIST_NONE };
++	// n_duelists > 2: the opponent whose zones the last Duel.SelectDisableField or Duel.SelectFieldZone of this link
++	// offered (DUELIST_NONE: none yet). The target and the operation of a link are two scopes; this keeps the seat
++	// between them, whatever other links prompt in between.
++	uint8_t zone_opp{ DUELIST_NONE };
+ 	// Phase 3 (F5): the opponents that passed the activation probe (bit q = seat q), the option list of the pick.
+ 	uint8_t legal_mask{ 0 };
+ 	uint8_t triggering_summon_location{};
+diff --git a/fold_lib.h b/fold_lib.h
+index add1983..d721be2 100644
+--- a/fold_lib.h
++++ b/fold_lib.h
+@@ -12,6 +12,7 @@
+ #include <utility> //std::swap
+ #include "common.h"
+ #include "duel.h"
++#include "effect.h"
+ #include "field.h"
+ #include "fold.h"
+ #include "scriptlib.h"
+@@ -69,6 +70,47 @@ inline uint8_t opt_seat(lua_State* L, duel* pduel, int idx, uint8_t dflt, const
+ 	return seat_arg(pduel, scriptlib::lua_get<uint8_t>(L, idx), fn, v_first, seat);
+ }
+ 
++// ---- zones
++
++// n > 2: where the opponent of the last zone prompt (Duel.SelectDisableField, Duel.SelectFieldZone) is kept for the
++// running scope: in the chain link that runs the scope effect (its target and its operation are two scopes of one
++// link, and the prompts of other links come in between), else in the field (a scope without a link).
++inline uint8_t& zone_prompt_slot(duel* pduel) {
++	auto& core = pduel->game_field->core;
++	if(const auto* s = active(pduel); s && s->eff) {
++		for(auto it = core.current_chain.rbegin(); it != core.current_chain.rend(); ++it) {
++			if(it->triggering_effect == s->eff)
++				return it->zone_opp;
++		}
++	}
++	return core.zone_prompt_opp;
++}
++
++// A zone prompt of `chooser` offered the zones of `opp`. Only a prompt of the scope duelist is kept: the zones of a
++// prompt that another duelist answers are the other duelist's.
++inline void note_zone_prompt(duel* pduel, uint8_t chooser, uint8_t opp) {
++	const auto* s = active(pduel);
++	if(!s || s->P == chooser)
++		zone_prompt_slot(pduel) = opp;
++}
++
++// n > 2: a zone-disabling effect keeps the opponent that its value names when it is registered by the handler
++// duelist inside a scope: the opponent of the last zone prompt of the running link (the zones that the duelist
++// saw), else the bound opponent of the link. The high half of the value binds to that opponent (add_disabled_zones_n).
++// An opponent that is eliminated later stays recorded, so its zones are not moved to another seat (F5: no fallback);
++// an opponent of the own team is not recorded.
++inline void record_disfield_opp(duel* pduel, effect* peffect, uint8_t handler_player) {
++	const auto* s = active(pduel);
++	if(!s || s->P != handler_player || peffect->code != EFFECT_DISABLE_FIELD)
++		return;
++	const auto& f = *pduel->game_field;
++	auto usable = [&](uint8_t q) { return f.is_duelist(q) && !f.same_team(handler_player, q); };
++	uint8_t opp = zone_prompt_slot(pduel);
++	if(!usable(opp))
++		opp = pduel->lua->scope_bound_opp();
++	peffect->disfield_opp = usable(opp) ? opp : DUELIST_NONE;
++}
++
+ // ---- prompts
+ 
+ // The player that chooses: unfold_action, and at n > 2 a chooser that is not a living duelist gives INVALID
+diff --git a/libcard.cpp b/libcard.cpp
+index 32f6772..e800422 100644
+--- a/libcard.cpp
++++ b/libcard.cpp
+@@ -1129,8 +1129,11 @@ LUA_FUNCTION(RegisterEffect) {
+ 		return 0;
+ 	}
+ 	int32_t id = -1;
+-	if (!peffect->handler)
++	if (!peffect->handler) {
++		// n_duelists > 2: a zone-disabling effect keeps the opponent of the zone prompt that made its value
++		fold::record_disfield_opp(pduel, peffect, self->current.controler);
+ 		id = self->add_effect(peffect);
++	}
+ 	lua_pushinteger(L, id);
+ 	return 1;
+ }
+diff --git a/libduel.cpp b/libduel.cpp
+index 6699301..7d9136a 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -102,13 +102,8 @@ LUA_STATIC_FUNCTION(RegisterEffect) {
+ 	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 2), "RegisterEffect");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+-	// n_duelists > 2: a zone-disabling effect keeps the opponent that the registering link is bound to (the opponent of
+-	// the zone prompt that made its value), so that the high half of its value names the same field as the prompt.
+-	if(const auto* s = fold::active(pduel); s && s->P == playerid && peffect->code == EFFECT_DISABLE_FIELD) {
+-		const uint8_t bound = pduel->lua->scope_bound_opp();
+-		const auto& f = *pduel->game_field;
+-		peffect->disfield_opp = (f.is_alive(bound) && !f.same_team(playerid, bound)) ? bound : DUELIST_NONE;
+-	}
++	// n_duelists > 2: a zone-disabling effect keeps the opponent of the zone prompt that made its value
++	fold::record_disfield_opp(pduel, peffect, playerid);
+ 	pduel->game_field->add_effect(peffect, playerid);
+ 	return 0;
+ }
+@@ -405,10 +400,22 @@ LUA_STATIC_FUNCTION(SSet) {
+ 	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "SSet");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+-	auto toplayer = fold::opt_player(L, pduel, 3, playerid, "SSet");
+-	// n_duelists > 2: a card is not set to the field of a duelist that is out of the duel
+-	if(pduel->game_field->n_duelists > 2 ? !pduel->game_field->is_alive(toplayer) : !pduel->game_field->is_duelist(toplayer))
+-		toplayer = playerid;
++	uint8_t toplayer;
++	if(pduel->game_field->n_duelists > 2) {
++		// the field of the target: a bound opponent that was eliminated (INVALID) gives the empty result (F5: no
++		// fallback to the own field or to another opponent); a duelist that is out of the duel gets no card either
++		toplayer = fold::opt_target(L, pduel, 3, playerid, "SSet");
++		if(toplayer == fold::INVALID && fold::active(pduel)) {
++			lua_pushinteger(L, 0);
++			return 1;
++		}
++		if(!pduel->game_field->is_alive(toplayer))
++			toplayer = playerid;
++	} else {
++		toplayer = fold::opt_player(L, pduel, 3, playerid, "SSet");
++		if(!pduel->game_field->is_duelist(toplayer))
++			toplayer = playerid;
++	}
+ 	bool confirm = lua_get<bool, true>(L, 4);
+ 	auto [pcard, pgroup] = lua_get_card_or_group(L, 2);
+ 	if(pcard) {
+@@ -3563,13 +3570,14 @@ LUA_STATIC_FUNCTION(SelectPosition) {
+ }
+ // n_duelists > 2: the one opponent whose zones a place prompt of `seat` offers (the high half of the mask).
+ // The bound opponent of the link when seat is the scope duelist, else the next living opponent in turn order
+-// (a kind (a) record when the scope duelist falls back). DUELIST_NONE when nobody else lives.
++// (a kind (a) record when the scope duelist falls back). DUELIST_NONE when nobody else lives, or when the bound
++// opponent was eliminated since the bind (F5: no fallback to another opponent, the high half stays closed).
+ static uint8_t f8_place_target(duel* pduel, uint8_t seat, const char* fn) {
+ 	const auto& f = *pduel->game_field;
+ 	if(const auto* s = fold::active(pduel); s && s->P == seat) {
+ 		const uint8_t bound = pduel->lua->scope_bound_opp();
+-		if(f.is_alive(bound) && !f.same_team(seat, bound))
+-			return bound;
++		if(bound != DUELIST_NONE)
++			return (f.is_alive(bound) && !f.same_team(seat, bound)) ? bound : DUELIST_NONE;
+ 		const uint8_t next = fold::next_opponent(f, seat);
+ 		if(next != DUELIST_NONE)
+ 			pduel->lua->fold_trap('a', fn);
+@@ -3603,7 +3611,7 @@ LUA_STATIC_FUNCTION(SelectDisableField) {
+ 	if(pduel->game_field->n_duelists > 2 && (location2 & (LOCATION_MZONE | LOCATION_SZONE)))
+ 		target = f8_place_target(pduel, playerid, "SelectDisableField");
+ 	if(pduel->game_field->n_duelists > 2)
+-		pduel->game_field->core.zone_prompt_opp = target;
++		fold::note_zone_prompt(pduel, playerid, target);
+ 	const uint8_t oppid = pduel->game_field->n_duelists == 2 ? pduel->game_field->opponent_of(playerid) : target;
+ 	if(location1 & LOCATION_MZONE) {
+ 		ct1 = pduel->game_field->get_useable_count(nullptr, playerid, LOCATION_MZONE, pduel->game_field->none_id(), LOCATION_REASON::NONE, 0xff, &plist);
+@@ -3726,7 +3734,7 @@ LUA_STATIC_FUNCTION(SelectFieldZone) {
+ 			flag |= 0xffff0000;
+ 	}
+ 	if(pduel->game_field->n_duelists > 2)
+-		pduel->game_field->core.zone_prompt_opp = target;
++		fold::note_zone_prompt(pduel, playerid, target);
+ 	if (flag == 0xffffffff)
+ 		return 0;
+ 	pduel->game_field->emplace_process<Processors::SelectDisField>(playerid, flag, count, target);
+diff --git a/processor.cpp b/processor.cpp
+index deccf3c..e3d4370 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -4935,17 +4935,20 @@ void field::adjust_all() {
+ // n_duelists > 2 only. An EFFECT_DISABLE_FIELD value is relative to the handler: the low 16 bits are the
+ // handler's own zones, the high 16 bits are the zones of the bound opponent (the next duelist in turn order).
+ // The Extra Monster Zones are not mirrored: every duelist has its own.
+-// The bound opponent is the one that the registering link had (effect::disfield_opp) or that the zone prompt of the
+-// operation used (Duel.SelectDisableField, Duel.SelectFieldZone). Without one, or when it is out of the duel, it is
+-// the next living opponent in turn order, as the zone prompts use without a binding.
++// The bound opponent is the one that the zone prompt of the registering link used (effect::disfield_opp, see
++// fold::record_disfield_opp) or that the zone prompt of the operation used (Duel.SelectDisableField,
++// Duel.SelectFieldZone). A recorded opponent that was eliminated since leaves the high half empty (F5: no fallback
++// to another opponent). Without a record it is the next living opponent in turn order, as the zone prompts use
++// without a binding.
+ static void add_disabled_zones_n(field* f, uint8_t handler, uint32_t value, uint8_t bound = DUELIST_NONE) {
+ 	if(!f->is_duelist(handler))
+ 		return;
+ 	f->player[handler].disabled_location |= value & 0xff7f;
+ 	uint8_t opp = DUELIST_NONE;
+-	if(f->is_alive(bound) && !f->same_team(handler, bound))
+-		opp = bound;
+-	else {
++	if(f->is_duelist(bound) && !f->same_team(handler, bound)) {
++		if(f->is_alive(bound))
++			opp = bound;
++	} else {
+ 		for(uint8_t i = 1; i < f->n_duelists && opp == DUELIST_NONE; ++i) {
+ 			const auto q = static_cast<uint8_t>((handler + i) % f->n_duelists);
+ 			if(f->is_alive(q) && !f->same_team(handler, q))

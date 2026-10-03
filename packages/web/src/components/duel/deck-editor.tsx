@@ -8,10 +8,9 @@ import { cx, SheetButton, SheetSelect } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./deck-editor.module.css";
 import { applyDomainMaster, parseDeckText, selectDomainMaster, serializeYdk, type DeckMasterSelection } from "./ydk";
-import { validateDuelDeck } from "./api";
+import { DeckValidationSkippedError, validateDuelDeck } from "./api";
 import { DeckMasterPicker } from "./deck-master-picker";
 import { SavedDeckPicker } from "./saved-deck-picker";
-import { isDeckLockedError } from "./start-flow";
 
 type CardProblem = { name?: string; messages: string[] };
 
@@ -169,7 +168,7 @@ export function DeckEditor({
         },
         (error: unknown) => {
           if (controller.signal.aborted) return;
-          if (isDeckLockedError(error)) {
+          if (error instanceof DeckValidationSkippedError) {
             setValidation({ slug, deck, locked: true });
             onLockedRef.current?.();
             return;

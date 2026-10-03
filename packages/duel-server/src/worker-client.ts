@@ -1,5 +1,9 @@
 import { Worker } from "node:worker_threads";
-import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import type { PromptTraceEntry } from "./prompt-trace.js";
+import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
+import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+
+const PROMPT_LOG_LIMIT = 5_000;
 
 export interface GameOptions {
   mode: DuelMode;
@@ -8,6 +12,28 @@ export interface GameOptions {
   dataDirectory: string;
   masterRule?: DuelMasterRule;
   settings?: DuelSettings;
+  /** Seat and team layout; `decks` holds one deck per seat. Default `1v1`. */
+  format?: DuelFormat;
+  /** Saved FIRST_TURN_DRAW flag. */
+  firstTurnDraw?: boolean;
+  /** Lua chunks that run before the duel starts (hand scenarios). */
+  startupScripts?: EngineStartupScript[];
+  /** Engine of a 1v1 table (see `DuelWorkerCreateOptions.engine`). Absent: the merged engine. */
+  engine?: DuelEngineChoice;
+}
+
+/** What the host knows about a worker without asking it (the worker may be stuck inside the core). */
+export interface WorkerDebugState {
+  /** A request is still waiting for its answer. */
+  busy: boolean;
+  lastOp: string | null;
+  /** When the last request was sent (ms since epoch), or null. */
+  lastOpAt: number | null;
+  /** The core identity and counters as of the last completed request. */
+  wasmSha: string | null;
+  wasmFile: string | null;
+  callsSinceLastPrompt: number;
+  messagesSinceLastPrompt: number;
 }
 
 export interface DuelGameWorker {
@@ -16,6 +42,14 @@ export interface DuelGameWorker {
   view(seat: number | null): Promise<DuelEngineView>;
   answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void>;
   search(query: string): Promise<DuelCardInfo[]>;
+  /** Remove a duelist from a duel with more than two seats. Rejects when the core has no `Debug.EliminateDuelist`. Optional so that test doubles may omit it (the host then uses autopilot). */
+  eliminate?(seat: number, reason: number): Promise<void>;
+  /** The engine's triage ring buffer (host report only). */
+  diagnostics?(): Promise<EngineDiagnostic[]>;
+  /** Worker state for debug-trace, reports and the stall watchdog. Optional so that test doubles may omit it. */
+  debugState?(): WorkerDebugState;
+  /** Scenario-only snapshot of the last 5,000 prompts, oldest first, captured before any next answer. */
+  promptLog?(): readonly PromptTraceEntry[];
   close(): Promise<void>;
 }
 
@@ -25,6 +59,12 @@ export class GameWorker implements DuelGameWorker {
   private sequence = 0;
   private stopped = false;
   private readonly pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
+  private lastOp: string | null = null;
+  private lastOpAt: number | null = null;
+  private info: EngineCoreInfo | null = null;
+  private readonly prompts: PromptTraceEntry[] = [];
+  /** Index of the oldest prompt in the ring. Writes never shift the retained entries. */
+  private promptStart = 0;
 
   constructor() {
     const development = import.meta.url.endsWith(".ts");
@@ -32,7 +72,19 @@ export class GameWorker implements DuelGameWorker {
     this.worker = development
       ? new Worker(`import('tsx/esm/api').then(({ tsImport }) => tsImport(${JSON.stringify(module.href)}, ${JSON.stringify(import.meta.url)}))`, { eval: true })
       : new Worker(module);
-    this.worker.on("message", (message: { id: number; ok: boolean; value?: unknown; error?: string }) => {
+    this.worker.on("message", (message: { id: number; ok: boolean; value?: unknown; error?: string; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry }) => {
+      if (this.stopped) return;
+      if (message.info) this.info = message.info;
+      if (message.promptTrace) {
+        const latest = this.prompts[(this.promptStart + this.prompts.length - 1) % PROMPT_LOG_LIMIT];
+        if (latest?.promptId !== message.promptTrace.promptId) {
+          if (this.prompts.length < PROMPT_LOG_LIMIT) this.prompts.push(message.promptTrace);
+          else {
+            this.prompts[this.promptStart] = message.promptTrace;
+            this.promptStart = (this.promptStart + 1) % PROMPT_LOG_LIMIT;
+          }
+        }
+      }
       const request = this.pending.get(message.id);
       if (!request) return;
       this.pending.delete(message.id);
@@ -53,9 +105,27 @@ export class GameWorker implements DuelGameWorker {
     return !this.stopped;
   }
 
+  promptLog(): readonly PromptTraceEntry[] {
+    return this.prompts.slice(this.promptStart).concat(this.prompts.slice(0, this.promptStart));
+  }
+
+  debugState(): WorkerDebugState {
+    return {
+      busy: this.pending.size > 0,
+      lastOp: this.lastOp,
+      lastOpAt: this.lastOpAt,
+      wasmSha: this.info?.wasmSha ?? null,
+      wasmFile: this.info?.wasmFile ?? null,
+      callsSinceLastPrompt: this.info?.callsSinceLastPrompt ?? 0,
+      messagesSinceLastPrompt: this.info?.messagesSinceLastPrompt ?? 0,
+    };
+  }
+
   private request<T>(message: Record<string, unknown>): Promise<T> {
     if (this.stopped) return Promise.reject(new Error("Engine worker is no longer running"));
     const id = ++this.sequence;
+    this.lastOp = String(message.op ?? "");
+    this.lastOpAt = Date.now();
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: (value) => resolve(value as T), reject });
       this.worker.postMessage({ ...message, id });
@@ -78,8 +148,18 @@ export class GameWorker implements DuelGameWorker {
     return this.request({ op: "search", query });
   }
 
+  eliminate(seat: number, reason: number): Promise<void> {
+    return this.request({ op: "eliminate", seat, reason });
+  }
+
+  diagnostics(): Promise<EngineDiagnostic[]> {
+    return this.request({ op: "diagnostics" });
+  }
+
   async close(): Promise<void> {
     this.fail(new Error("Engine worker closed"));
+    this.prompts.length = 0;
+    this.promptStart = 0;
     await this.worker.terminate();
   }
 }

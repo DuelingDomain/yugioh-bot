@@ -1,0 +1,109 @@
+/* The header of the live Rooftop. It reads the --duel-* tokens that tag-shell.module.css sets on the shell root. */
+
+.header {
+  flex: none;
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  height: 34px;
+  padding: 0 14px 0 16px;
+  border-bottom: 1px solid var(--duel-rule);
+  background: linear-gradient(180deg, rgb(12 19 36 / 0.95), rgb(8 13 25 / 0.95));
+}
+.identity { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; color: var(--duel-ink-3); font-size: var(--duel-t-sm); }
+.identity a { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; padding-block: 0.2em; margin-block: -0.2em; color: var(--duel-ink); font-weight: 600; text-decoration: none; }
+.identity a:focus-visible { outline: 2px solid var(--duel-pen-ink); outline-offset: 2px; border-radius: 3px; }
+.identity i { font-style: normal; color: var(--duel-ink-4); }
+.title { flex-shrink: 4; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--duel-ink-2); }
+.format {
+  flex: none;
+  font-style: normal;
+  padding: 1px 8px;
+  border: 1px solid var(--duel-rule);
+  border-radius: 999px;
+  color: var(--duel-ink-2);
+  font-size: var(--duel-t-xs);
+}
+.spectator {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border: 1px solid var(--duel-rule);
+  border-radius: 999px;
+  color: var(--duel-chain-ink);
+  font-size: var(--duel-t-xs);
+  font-weight: 400;
+}
+
+.turn { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.turn strong { font-size: var(--duel-t-head); font-weight: 500; letter-spacing: 0.01em; font-variant-numeric: tabular-nums; }
+.phase { color: var(--duel-ink-2); font-size: var(--duel-t-sm); }
+.turnPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 8px;
+  border: 1px solid rgb(var(--turn) / 0.5);
+  border-radius: 999px;
+  background: rgb(var(--turn) / 0.1);
+  color: var(--duel-ink);
+  font-size: var(--duel-t-sm);
+}
+.turnPill::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  rotate: 45deg;
+  background: rgb(var(--turn));
+  box-shadow: 0 0 8px rgb(var(--turn) / 0.7);
+}
+/* Your own turn is the one place the gold accent shows in the header. */
+.turnPill[data-mine="true"] { border-color: rgb(228 182 79 / 0.6); background: var(--duel-chain-soft); }
+.turnPill small { color: var(--duel-ink-3); font-size: var(--duel-t-xs); }
+
+.status { display: flex; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; color: var(--duel-ink-3); font-size: var(--duel-t-xs); }
+.tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--duel-ink-2);
+  font-size: var(--duel-t-xs);
+}
+.tool:hover { border-color: var(--duel-rule); color: var(--duel-ink); }
+.tool:focus-visible { outline: 2px solid var(--duel-pen-ink); outline-offset: 1px; }
+
+@media (max-width: 900px) {
+  .header { grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; gap: 8px; padding: 0 8px 0 12px; }
+  .title, .format, .phase, .turnPill small { display: none; }
+  /* The middle column is the one that gives: the turn pill clips instead of running under the header buttons. */
+  .turn { min-width: 0; overflow: hidden; gap: 8px; }
+  .turnPill { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+}
+
+/* The label is its own box, so a long name ends in an ellipsis instead of being cut mid-word. */
+.turnLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.turnPill { max-width: 100%; }
+
+/* A phone: the brand fills what the turn and the buttons leave, down to a small stub, and the turn column gives way
+   only after that. The turn pill keeps "Your turn" whole, or ends a long name in an ellipsis, while the red Report bug
+   button, a Surrender button, the live lamp and the sound switch stay in view. The brand has a zero flex basis so it
+   never takes a share of the shrink: an equal share would cut a fraction of a pixel from the label ("Your tu..."). */
+@media (max-width: 600px) {
+  .header { display: flex; gap: 8px; padding: 0 8px 0 10px; }
+  .identity { flex: 1 1 0; min-width: 44px; }
+  .turn { flex: 0 1 auto; min-width: 0; overflow: hidden; gap: 6px; }
+  .turn strong { flex: none; font-size: var(--duel-t-body); }
+  .turnPill { padding: 2px 7px; }
+  .turnPill::before { display: none; }
+  .status { flex: none; }
+}

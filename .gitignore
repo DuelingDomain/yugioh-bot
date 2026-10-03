@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 .env
 data/
 !scripts/data/
@@ -21,4 +21,11 @@ packages/duel-server/domain-core/.emsdk/
 packages/duel-server/domain-core/out/
 packages/duel-server/domain-core/.dist-root-owned.bak/
 packages/duel-server/domain-core/.build-root-owned.bak/
+packages/duel-server/tests/fuzz/failures/
+packages/duel-server/tests/fuzz-n/failures/
+
+.status/
+.env.staging
+data-staging/
+.deploy-duel-engine/
 __pycache__/

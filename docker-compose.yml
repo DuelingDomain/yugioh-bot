@@ -33,12 +33,16 @@ services:
   duel:
     build:
       context: .
-      target: duel
+      target: duel-bundled
+      additional_contexts:
+        engine: ./.deploy-duel-engine
     restart: unless-stopped
     user: *user
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
       - DUEL_DATA_DIR=/app/data/duel-engine
+      # The deploy installs on the host. Restarts verify the existing volume without replacing it.
+      - DUEL_BUNDLE_SRC=${DUEL_BUNDLE_SRC_ON_START:-}
       - DUEL_INTERNAL_HOST=0.0.0.0
       - DUEL_INTERNAL_PORT=4003
       - DUEL_INTERNAL_SECRET=${DUEL_INTERNAL_SECRET}
@@ -46,6 +50,13 @@ services:
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
       - DUEL_ARCHIVE_AFTER_MS=${DUEL_ARCHIVE_AFTER_MS:-600000}
       - DUEL_IDLE_WORKER_MS=${DUEL_IDLE_WORKER_MS:-300000}
+      # Tag, 3-player and 4-player tables. Off by default: only 1v1 tables start. The web service needs the same value.
+      - MULTIPLAYER_TABLES=${MULTIPLAYER_TABLES:-0}
+      # The engine that new 1v1 duels start on. legacy is the engine production ran before the n-seat work (the default).
+      # pinned is the merged engine. A duel keeps the engine it started on. Tables with 3 or 4 seats always use the multi core.
+      - DUEL_1V1_ENGINE=${DUEL_1V1_ENGINE:-legacy}
+    # The VM has 4 GB. The first game loads the card database and scripts (about 114 MB), each game adds a few MB.
+    mem_limit: ${DUEL_MEM_LIMIT:-1g}
     volumes:
       - ./data:/app/data
 
@@ -63,6 +74,11 @@ services:
       - WS_INTERNAL_SECRET=${WS_INTERNAL_SECRET}
       - DUEL_INTERNAL_URL=http://duel:4003
       - DUEL_INTERNAL_SECRET=${DUEL_INTERNAL_SECRET}
+      # Same flag as on the duel service. The web reads it on the server at run time, so a restart switches it.
+      - MULTIPLAYER_TABLES=${MULTIPLAYER_TABLES:-0}
+      # In-app Report bug button: the web server opens a GitHub issue per report. Without a token the report is only saved.
+      - BUG_REPORT_GITHUB_TOKEN=${BUG_REPORT_GITHUB_TOKEN:-}
+      - BUG_REPORT_GITHUB_REPO=${BUG_REPORT_GITHUB_REPO:-imran443/yugioh-bot}
     volumes:
       - ./data:/app/data
     depends_on:

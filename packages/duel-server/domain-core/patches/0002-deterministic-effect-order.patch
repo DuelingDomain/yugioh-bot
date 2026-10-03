@@ -1,0 +1,292 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 2 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: make effect and card iteration order independent of
+ addresses
+
+Stock ygopro-core keeps several containers keyed by pointer and then walks
+them in a way that sends messages, calls Lua or changes game state. The walk
+order is the hash or address order, so two binaries with the same source
+meaning (a different field size, a different allocator state) can play the
+same duel differently. The 200 seed differential run found 6 seeds where two
+hand cards lose a client hint (MSG_CARD_HINT / MSG_PLAYER_HINT, hint 7) in a
+different order.
+
+Registered effects get a unique initial_id once, in card::add_effect or
+field::add_effect, and it never changes afterwards. Cards get a unique
+cardid in interpreter::register_card. These ids are the new order key. A card enters unique_cards and
+the grant maps only when it is on the field, so its cardid is final then.
+
+Changed containers and why the order was observable:
+- effects.pheff, effects.cheff (unordered_set): field::reset_phase and
+  field::reset_chain call remove_effect, which sends the hint messages.
+  processor.cpp also builds select_chains from pheff (EFFECT_SET_CONTROL).
+- effects.spsummon_count_eff (unordered_set): effect::is_available runs the
+  Lua condition and can assign effect::id, so the walk order changes Lua
+  calls and later effect order.
+- effects.oath (unordered_map): field::remove_oath_effect removes effects in
+  walk order, which sends hint messages.
+- effects.grant_effect gain_effects (unordered_map<card*, effect*>):
+  field::erase_grant_effect removes the granted effects in walk order.
+- card::indexer and field_effect::indexer, type effect_indexer
+  (unordered_map): card::reset, card::replace_effect and the hand shuffle
+  hint loop in field::shuffle send hint messages in walk order.
+- core.quick_f_chain, type instant_f_list (map with the default pointer
+  compare): the QuickEffect step builds select_chains from it.
+- core.delayed_quick, core.delayed_quick_tmp (set of pair<effect*, tevent>,
+  pointer compare): the QuickEffect step builds select_chains and chain ids
+  from it. The new compare uses the effect initial_id, then the event
+  content (ids, codes, cardids, group content). It keeps the stock
+  tevent::operator< as the last tie break, so two events that are equal in
+  content stay distinct, as before.
+- core.unique_cards (unordered_set<card*>): check_unique_onfield returns the
+  unique_effect of the first match, and adjust_self_destroy_set calls
+  get_unique_target. It is now a card_set (cardid order).
+
+Comparator: effect_sort_by_initial_id_ptr orders by initial_id and uses the
+address only as a tie break. Verified for every insert site that initial_id is
+final and unique before the effect enters a container: card::add_effect sets
+it before any insert; field::add_effect sets it when the effect has no
+handler, and an effect with a handler already went through card::add_effect.
+clone() copies initial_id, but a clone has no handler, so it gets a new id at
+registration. Lookups of an unregistered effect (card::add_effect starts with
+indexer.find) need the address tie break, or a clone would match its source.
+Plain effect_sort_by_initial_id would be wrong there, so it is not used.
+No unregistered effect is ever inserted in a keyed container.
+
+Freed effects: the new compares read the effects in a container, and stock
+compared only addresses. The re-keyed field containers remove an effect
+before it goes into core.reseted_effects. The processor containers
+quick_f_chain, delayed_quick and delayed_quick_tmp are cleared at Turn step
+20 and at every phase start, and PointEvent step 10 clears delayed_quick. In
+turn 1 they can still hold entries from the Startup events when Turn step 0
+frees core.reseted_effects, and Turn step 1 can insert more entries before
+the first clear in step 2. Turn step 0 now drops each entry whose effect or
+event reason_effect is in core.reseted_effects, before the delete loop. No
+PointEvent reads these containers between Startup and Turn step 2, and in
+stock any read of such an entry was a use after free, so no defined
+behaviour changes.
+
+Sites checked and left unchanged:
+- effects.rechargeable: effect::recharge only sets count_limit.
+- core.reseted_effects (set<effect*>) and duel::uncopy: may hold
+  unregistered effects. The walk only calls duel::delete_effect, which
+  clears pointers and releases Lua registry references. It sends no message
+  and calls no Lua code. Only the heap layout depends on the order.
+- core.readjust_map, card::relations, card::relate_effect: lookup, insert
+  or erase only. card::reset erases relations without a side effect.
+- duel::cards, groups, effects, assumes: the destructor, duel::clear,
+  delete_effect (clears pointers), restore_assumes (clears maps) and
+  Duel.GetCardFromCardID (unique id) do not depend on the order.
+- effects.disable_check_set, card_set and group::container: ordered by
+  cardid (card_sort does not compare pointers).
+- grant_effect.sorted: already ordered by initial_id upstream.
+- card::reset_effect_count, card::filter_disable_related_cards,
+  card::get_own_effects: they only recharge, fill an ordered set, or sort by
+  effect::id.
+- std::sort with effect_sort_id and card::card_operation_sort compare ids,
+  locations and sequences, not addresses. effect::id is unique because every
+  assignment uses infos.field_id++.
+- Integer keyed unordered_maps (effect_count_map, spsummon_once_map,
+  action_counter_t, attacker_map, coroutine_map, data_cache): the hash of an
+  integer does not depend on an address.
+- processor SortChain sort_map (map keyed by chain address): it is only
+  looked up, never walked.
+- Lua pairs() over tables keyed by userdata hashes by address. That is in the
+  card scripts and in Lua, not in the core. The differential test removes it
+  with LUA_FIXED_SEED.
+---
+ containers_fwd.h | 11 +++++++++--
+ effect.cpp       |  6 ++++++
+ field.cpp        | 33 +++++++++++++++++++++++++++++++++
+ field.h          | 23 +++++++++++++++--------
+ processor.cpp    | 18 ++++++++++++++++++
+ 5 files changed, 81 insertions(+), 10 deletions(-)
+
+diff --git a/containers_fwd.h b/containers_fwd.h
+index 32fc094..17057d6 100644
+--- a/containers_fwd.h
++++ b/containers_fwd.h
+@@ -25,7 +25,6 @@ using card_set = std::set<card*, card_sort>;
+ class effect;
+ using effect_vector = std::vector<effect*>;
+ using effect_container = std::multimap<uint32_t, effect*>;
+-using effect_indexer = std::unordered_map<effect*, effect_container::iterator>;
+ using effect_set = std::vector<effect*>;
+ using effect_set_v = effect_set;
+ 
+@@ -36,12 +35,20 @@ struct effect_sort_by_id {
+ struct effect_sort_by_initial_id {
+ 	bool operator()(effect* e1, effect* e2) const;
+ };
++// Orders by registration (initial_id), and by address only when two effects have the same initial_id.
++// Registered effects have unique initial_ids, so their order never depends on an address.
++// The tie break makes a lookup of an unregistered effect (a clone keeps the initial_id of its source,
++// a new effect has 0) safe: it never matches another effect.
++struct effect_sort_by_initial_id_ptr {
++	bool operator()(const effect* e1, const effect* e2) const;
++};
++using effect_indexer = std::map<effect*, effect_container::iterator, effect_sort_by_initial_id_ptr>;
+ 
+ struct chain;
+ using chain_array = std::vector<chain>;
+ using chain_list = std::list<chain>;
+ 
+-using instant_f_list = std::map<effect*, chain>;
++using instant_f_list = std::map<effect*, chain, effect_sort_by_initial_id_ptr>;
+ 
+ struct tevent;
+ using event_list = std::list<tevent>;
+diff --git a/effect.cpp b/effect.cpp
+index 7b316c3..5f72b83 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -4,6 +4,7 @@
+  *
+  * SPDX-License-Identifier: AGPL-3.0-or-later
+  */
++#include <functional> //std::less
+ #include <vector>
+ #include "card.h"
+ #include "duel.h"
+@@ -20,6 +21,11 @@ bool effect_sort_by_id::operator()(effect* e1, effect* e2) const {
+ bool effect_sort_by_initial_id::operator()(effect* e1, effect* e2) const {
+ 	return e1->initial_id < e2->initial_id;
+ }
++bool effect_sort_by_initial_id_ptr::operator()(const effect* e1, const effect* e2) const {
++	if(e1->initial_id != e2->initial_id)
++		return e1->initial_id < e2->initial_id;
++	return std::less<const effect*>()(e1, e2);
++}
+ int32_t effect::is_disable_related() {
+ 	if (code == EFFECT_IMMUNE_EFFECT || code == EFFECT_DISABLE || code == EFFECT_CANNOT_DISABLE || code == EFFECT_FORBIDDEN)
+ 		return TRUE;
+diff --git a/field.cpp b/field.cpp
+index f0c4c66..5cf6590 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -64,6 +64,39 @@ bool tevent::operator< (const tevent& rhs) const {
+ 				 rhs.event_code, rhs.event_value, rhs.reason,
+ 				 rhs.event_player, rhs.reason_player, rhs.global_id);
+ }
++// Two delayed events with the same effect and the same content keep the order of the stock comparator
++// (tevent::operator<, which compares addresses). Everything before that is address free.
++bool processor::delayed_effect_sort::operator()(const std::pair<effect*, tevent>& lhs, const std::pair<effect*, tevent>& rhs) const {
++	if(lhs.first != rhs.first)
++		return effect_sort_by_initial_id_ptr()(lhs.first, rhs.first);
++	const tevent& a = lhs.second;
++	const tevent& b = rhs.second;
++	const auto ka = std::tie(a.global_id, a.event_code, a.event_value, a.reason, a.event_player, a.reason_player);
++	const auto kb = std::tie(b.global_id, b.event_code, b.event_value, b.reason, b.event_player, b.reason_player);
++	if(ka != kb)
++		return ka < kb;
++	const uint32_t ta = a.trigger_card ? a.trigger_card->cardid : 0;
++	const uint32_t tb = b.trigger_card ? b.trigger_card->cardid : 0;
++	if(ta != tb)
++		return ta < tb;
++	const uint32_t ra = a.reason_effect ? a.reason_effect->initial_id : 0;
++	const uint32_t rb = b.reason_effect ? b.reason_effect->initial_id : 0;
++	if(ra != rb)
++		return ra < rb;
++	group* ga = a.event_cards;
++	group* gb = b.event_cards;
++	if((ga != nullptr) != (gb != nullptr))
++		return gb != nullptr;
++	if(ga && gb && ga != gb) {
++		const auto& ca = ga->container;
++		const auto& cb = gb->container;
++		if(std::lexicographical_compare(ca.begin(), ca.end(), cb.begin(), cb.end(), card_sort()))
++			return true;
++		if(std::lexicographical_compare(cb.begin(), cb.end(), ca.begin(), ca.end(), card_sort()))
++			return false;
++	}
++	return a < b;
++}
+ field::field(duel* _pduel, const OCG_DuelOptions& options) :pduel(_pduel), player({ {options.team1, options.team2} }) {
+ 	core.duel_options = options.flags;
+ 	nil_event.event_code = 0;
+diff --git a/field.h b/field.h
+index 3a573c2..8151a2f 100644
+--- a/field.h
++++ b/field.h
+@@ -114,9 +114,12 @@ struct player_info {
+ 	}
+ };
+ struct field_effect {
+-	using oath_effects = std::unordered_map<effect*, effect*>;
+-	using effect_collection = std::unordered_set<effect*>;
+-	using gain_effects = std::unordered_map<card*, effect*>;
++	// Every container below that is walked in a way that sends messages, calls Lua or changes the game
++	// state is ordered by registration (or card id), never by address. See patches/README.md.
++	using oath_effects = std::map<effect*, effect*, effect_sort_by_initial_id_ptr>;
++	using effect_collection = std::unordered_set<effect*>; // only for rechargeable: recharge() has no side effect
++	using sorted_effect_collection = std::set<effect*, effect_sort_by_initial_id_ptr>;
++	using gain_effects = std::map<card*, effect*, card_sort>;
+ 	struct grant_effect_container {
+ 		std::unordered_map<effect*, gain_effects> unsorted;
+ 		std::map<effect*, gain_effects*, effect_sort_by_initial_id> sorted;
+@@ -150,10 +153,10 @@ struct field_effect {
+ 	effect_container continuous_effect;
+ 	effect_indexer indexer;
+ 	oath_effects oath;
+-	effect_collection pheff;
+-	effect_collection cheff;
++	sorted_effect_collection pheff;
++	sorted_effect_collection cheff;
+ 	effect_collection rechargeable;
+-	effect_collection spsummon_count_eff;
++	sorted_effect_collection spsummon_count_eff;
+ 
+ 	card_set disable_check_set;
+ 
+@@ -197,7 +200,11 @@ using return_card_code = return_card_generic<std::pair<uint32_t, uint32_t>>;
+ struct processor {
+ 	using option_vector = std::vector<uint64_t>;
+ 	using processor_list = std::list<processor_unit>;
+-	using delayed_effect_collection = std::set<std::pair<effect*, tevent>>;
++	// Ordered by effect registration and event content, never by address (see delayed_effect_sort in field.cpp).
++	struct delayed_effect_sort {
++		bool operator()(const std::pair<effect*, tevent>& lhs, const std::pair<effect*, tevent>& rhs) const;
++	};
++	using delayed_effect_collection = std::set<std::pair<effect*, tevent>, delayed_effect_sort>;
+ 	using effect_count_map = std::unordered_map<uint64_t, uint32_t>;
+ 	struct chain_limit_t {
+ 		chain_limit_t(int32_t f, int32_t p): function(f), player(p) {}
+@@ -284,7 +291,7 @@ struct processor {
+ 	effect_set_v extra_szone_effects;
+ 	std::set<effect*> reseted_effects;
+ 	std::unordered_map<card*, uint32_t> readjust_map;
+-	std::unordered_set<card*> unique_cards[2];
++	card_set unique_cards[2];
+ 	effect_count_map effect_count_code;
+ 	effect_count_map effect_count_code_duel;
+ 	effect_count_map effect_count_code_chain;
+diff --git a/processor.cpp b/processor.cpp
+index d2c6c09..d654000 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -3260,6 +3260,24 @@ bool field::process(Processors::Turn& arg) {
+ 	case 0: {
+ 		//Pre Draw
+ 		core.used_event.clear();
++		// These containers compare by effect ids, so an insert or erase reads the effects in
++		// them. In turn 1 they can still hold entries from the Startup events (the first clear
++		// is in step 2). Drop the entries that point to an effect freed below.
++		auto freed = [&](effect* peffect) { return peffect && core.reseted_effects.count(peffect); };
++		for(auto it = core.quick_f_chain.begin(); it != core.quick_f_chain.end();) {
++			if(freed(it->first) || freed(it->second.evt.reason_effect))
++				it = core.quick_f_chain.erase(it);
++			else
++				++it;
++		}
++		for(auto* delayed : { &core.delayed_quick, &core.delayed_quick_tmp }) {
++			for(auto it = delayed->begin(); it != delayed->end();) {
++				if(freed(it->first) || freed(it->second.reason_effect))
++					it = delayed->erase(it);
++				else
++					++it;
++			}
++		}
+ 		for(auto& peffect : core.reseted_effects) {
+ 			pduel->delete_effect(peffect);
+ 		}

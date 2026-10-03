@@ -1,4 +1,6 @@
-import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
+import type { PromptTraceEntry } from "./prompt-trace.js";
+import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 
 export interface DuelWorkerCreateOptions {
   mode: DuelMode;
@@ -7,6 +9,16 @@ export interface DuelWorkerCreateOptions {
   dataDirectory: string;
   masterRule?: DuelMasterRule;
   settings?: DuelSettings;
+  /** Seat and team layout; `decks` holds one deck per seat. Default `1v1`. */
+  format?: DuelFormat;
+  /** Lua chunks that run before the duel starts (hand scenarios). */
+  startupScripts?: EngineStartupScript[];
+  /**
+   * The engine for a 1v1 table: `legacy` (main's engine, the default of the host) or `pinned` (the merged engine).
+   * Absent means `pinned`, so existing callers (tests, scripts) keep the merged engine. Tables with more than
+   * two seats ignore it and always use the multi-duelist core.
+   */
+  engine?: DuelEngineChoice;
 }
 
 export type DuelWorkerRequest =
@@ -14,8 +26,10 @@ export type DuelWorkerRequest =
   | { id: number; op: "view"; seat: number | null }
   | { id: number; op: "answer"; seat: number; promptId: string; answer: DuelAnswer }
   | { id: number; op: "search"; query: string }
+  | { id: number; op: "eliminate"; seat: number; reason: number }
+  | { id: number; op: "diagnostics" }
   | { id: number; op: "close" };
 
 export type DuelWorkerResponse =
-  | { id: number; ok: true; value?: DuelEngineView | DuelCardInfo[] }
+  | { id: number; ok: true; value?: DuelEngineView | DuelCardInfo[] | EngineDiagnostic[]; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry }
   | { id: number; ok: false; error: string };

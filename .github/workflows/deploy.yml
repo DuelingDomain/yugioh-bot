@@ -13,8 +13,9 @@ concurrency:
 jobs:
   deploy:
     name: Deploy to Production VM
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 90
     env:
       VM_HOST: ${{ secrets.VM_HOST }}
       VM_USER: ${{ secrets.VM_USER }}
@@ -30,9 +31,13 @@ jobs:
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
         uses: actions/checkout@v4
 
+      - name: Record checked-out deploy commit
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        run: echo "DEPLOY_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
       - name: Compute bundle cache key
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
-        run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
+        run: echo "BUNDLE_CACHE_KEY=duel-engine-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_ENV"
 
       - name: Restore pinned duel-engine bundle
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
@@ -57,6 +62,9 @@ jobs:
           npm run duel:prepare
           docker pull docker.io/emscripten/emsdk:4.0.9@sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811
           npx tsx packages/duel-server/scripts/build-domain-core.ts
+          npx tsx packages/duel-server/scripts/build-domain-core.ts standard
+          # The Domain core of the legacy 1v1 engine (main's build), next to the merged one. 1v1 duels start on it by default.
+          npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
 
       - name: Save pinned duel-engine bundle
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.bundle.outputs.cache-hit != 'true' }}
@@ -65,9 +73,78 @@ jobs:
           path: data/duel-engine
           key: ${{ env.BUNDLE_CACHE_KEY }}
 
+      # The pinned bundle above (data/duel-engine) now holds the merged cores (ocgcore.standard.wasm, ocgcore.domain.wasm) AND the
+      # legacy 1v1 files (ocgcore.domain.legacy.wasm, card-scripts/domain.legacy.lua). Its cache key hashes legacy-1v1/** and
+      # build-standard-core.sh too, so the first deploy of the merge builds the bundle again and the bundle changes: the deploy
+      # preflight then needs an empty server (no active duel), see docs/deployment/vm-runbook.md. 1v1 duels run on the legacy files
+      # unless DUEL_1V1_ENGINE=pinned (docs/deployment/duel-engine-switch.md).
+      # The multi-duelist core (Tag and 3 and 4 player tables) is NOT part of the pinned bundle: it travels next to the bundle in the
+      # deploy tarball and is installed by packages/duel-server/scripts/install-engine-bundle.sh. The server loads it only for tables
+      # with more than 2 seats, and MULTIPLAYER_TABLES (default off) keeps those tables closed.
+      # Same inputs as staging, with a separate production prefix: pins, full series, build scripts and Domain sources.
+      # The version prefix is a literal: raise it when the build step below changes (the hash cannot see it).
+      - name: Compute multi core cache key
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        run: echo "MULTI_CACHE_KEY=duel-multi-cores-v2-${{ hashFiles('packages/duel-server/scripts/build-deploy-multi-cores.sh', 'packages/duel-server/scripts/package-deploy-multi-cores.mjs', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**') }}" >> "$GITHUB_ENV"
+
+      - name: Read the emsdk image from pins.json
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
+
+      - name: Restore multi cores
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        id: multi
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+            packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
+            packages/duel-server/domain-core/dist/ocgcore.multi-build-info.json
+            packages/duel-server/domain-core/dist/ocgcore.multi-domain-build-info.json
+          key: ${{ env.MULTI_CACHE_KEY }}
+
+      # Both cores use the full patch series. Domain also uses APPLY_DOMAIN=1 DOMAIN_MULTI=1.
+      # Production Lua randomness: no LUA_FIXED_SEED (test.yml keeps that flag for differential tests).
+      - name: Build multi cores
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.multi.outputs.cache-hit != 'true' }}
+        run: bash packages/duel-server/scripts/build-deploy-multi-cores.sh
+
+      - name: Save multi cores
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' && steps.multi.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+            packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
+            packages/duel-server/domain-core/dist/ocgcore.multi-build-info.json
+            packages/duel-server/domain-core/dist/ocgcore.multi-domain-build-info.json
+          key: ${{ env.MULTI_CACHE_KEY }}
+
       - name: Verify duel-engine bundle
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
-        run: DUEL_DATA_DIR="$PWD/data/duel-engine" sh packages/duel-server/scripts/install-engine-bundle.sh
+        run: |
+          DUEL_DATA_DIR="$PWD/data/duel-engine" sh packages/duel-server/scripts/install-engine-bundle.sh
+          # The legacy 1v1 files must be main's files (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
+          sh packages/duel-server/scripts/check-legacy-pin.sh "$PWD/data/duel-engine"
+
+      # The deploy tarball is made here, not from data/duel-engine: that folder stays the pinned bundle.
+      # The check at the end runs the install script on this exact content, in a scratch folder of the runner.
+      - name: Add both multi cores to the deploy bundle
+        if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
+        run: |
+          set -eu
+          bundle="$RUNNER_TEMP/deploy-bundle"
+          rm -rf "$bundle" "$RUNNER_TEMP/deploy-bundle-check"
+          mkdir -p "$bundle"
+          cp -a data/duel-engine/. "$bundle/"
+          node packages/duel-server/scripts/package-deploy-multi-cores.mjs "$bundle"
+          DUEL_BUNDLE_SRC="$bundle" DUEL_DATA_DIR="$RUNNER_TEMP/deploy-bundle-check/duel-engine" \
+            sh packages/duel-server/scripts/install-engine-bundle.sh
+          for core in ocgcore.multi ocgcore.multi-domain; do
+            cmp "$RUNNER_TEMP/deploy-bundle-check/duel-engine/$core.wasm" "$bundle/$core.wasm"
+            cat "$bundle/$core.SOURCE" >> "$GITHUB_STEP_SUMMARY"
+          done
+          rm -rf "$RUNNER_TEMP/deploy-bundle-check"
 
       - name: Configure SSH key
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
@@ -85,33 +162,97 @@ jobs:
       - name: Deploy over SSH
         if: ${{ env.VM_HOST != '' && env.VM_USER != '' && env.VM_SSH_PRIVATE_KEY != '' }}
         run: |
-          tar -C data/duel-engine -czf "$RUNNER_TEMP/duel-engine.tar.gz" .
+          set -eu
+          bundle_tar=$(mktemp "$RUNNER_TEMP/duel-engine.XXXXXX.tar.gz")
+          remote_bundle=
+          cleanup_transfer() {
+            rm -f "$bundle_tar"
+            if [ -n "$remote_bundle" ]; then
+              ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+                "rm -f -- '$remote_bundle'" || true
+            fi
+          }
+          trap cleanup_transfer EXIT
+          remote_bundle=$(ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+            'mktemp /tmp/yugidraft-duel-engine.XXXXXX.tar.gz')
+          printf '%s' "$remote_bundle" | grep -Eq '^/tmp/yugidraft-duel-engine\.[A-Za-z0-9]{6}\.tar\.gz$' || exit 1
+          tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$bundle_tar" .
           scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
-            "$RUNNER_TEMP/duel-engine.tar.gz" \
-            "$VM_USER@$VM_HOST:/tmp/yugidraft-duel-engine.tar.gz"
+            "$bundle_tar" \
+            "$VM_USER@$VM_HOST:$remote_bundle"
           ssh -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            'set -eu
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' sh -s" <<'REMOTE'
+             set -eu
+             bundle_src=
+             installer=
+             context_ready=0
+             cleanup() {
+               rm -f "$DEPLOY_BUNDLE"
+               if [ -n "$installer" ]; then rm -f "$installer"; fi
+               if [ -n "$bundle_src" ]; then rm -rf "$bundle_src"; fi
+               if [ "$context_ready" = 1 ]; then rm -rf /opt/yugioh-bot/.deploy-duel-engine; fi
+             }
+             trap cleanup EXIT
+             trap 'exit 1' HUP INT TERM
+             printf '%s' "$DEPLOY_COMMIT" | grep -Eq '^[0-9a-f]{40}$' || exit 1
+             # One build at a time on this VM: the staging deploy holds the same lock. Wait for it, then stop
+             # the staging containers (if any) so their memory is free for this build.
+             if command -v flock >/dev/null 2>&1; then
+               exec 9>/var/lock/yugidraft-build.lock
+               flock -w 900 9 || { echo "Another build (maybe the staging deploy) holds the build lock." >&2; exit 1; }
+             fi
              cd /opt/yugioh-bot
-             git fetch --all --prune
-             git reset --hard origin/main
+             git fetch origin "$DEPLOY_COMMIT"
+             git fetch origin main && git merge-base --is-ancestor "$DEPLOY_COMMIT" FETCH_HEAD || exit 1
+             # Preflight, before anything on the VM changes: the install script of the new commit, run in check-only
+             # mode on the new bundle. It refuses while a duel is active and the bundle would be replaced (or, for a new
+             # multi core under an identical bundle, while a Tag or free-for-all duel is active). A refusal here leaves
+             # the old checkout, the old images and the old containers as they were.
+             bundle_src=$(mktemp -d /tmp/yugidraft-duel-engine-src.XXXXXX)
+             installer=$(mktemp /tmp/yugidraft-install-engine-bundle.XXXXXX.sh)
+             tar -C "$bundle_src" -xzf "$DEPLOY_BUNDLE"
+             git show "$DEPLOY_COMMIT":packages/duel-server/scripts/install-engine-bundle.sh > "$installer"
+             if ! DUEL_PREFLIGHT=1 DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
+               sh "$installer"; then
+               echo "Deploy stopped before any change: drain the active duels (see docs/deployment/vm-runbook.md), then run the deploy again." >&2
+               exit 1
+             fi
+             rm -f "$installer"
+             staging_ids=$(docker ps -q --filter label=com.docker.compose.project=yugidraft-staging)
+             if [ -n "$staging_ids" ]; then
+               docker stop $staging_ids || true
+             fi
+             git reset --hard "$DEPLOY_COMMIT"
              sh scripts/ensure-env-secrets.sh .env DUEL_INTERNAL_SECRET
+             # The image carries the same verified bundle as the data volume.
+             rm -rf .deploy-duel-engine
+             mkdir .deploy-duel-engine
+             context_ready=1
+             cp -a "$bundle_src/." .deploy-duel-engine/
+             # Preserve the images of the current containers, even after a previous failed build retagged :latest.
+             for service in duel web bot; do
+               container=$(docker compose -f docker-compose.yml ps -aq "$service")
+               if [ -n "$container" ]; then
+                 image_id=$(docker inspect -f '{{.Image}}' "$container")
+                 image_ref=$(docker inspect -f '{{.Config.Image}}' "$container")
+                 docker tag "$image_id" "${image_ref%:*}:prev"
+               fi
+             done
              docker compose -f docker-compose.yml build
-             rm -rf /tmp/yugidraft-duel-engine-src
-             mkdir -p /tmp/yugidraft-duel-engine-src
-             tar -C /tmp/yugidraft-duel-engine-src -xzf /tmp/yugidraft-duel-engine.tar.gz
              docker compose -f docker-compose.yml stop web || true
-             if ! DUEL_BUNDLE_SRC=/tmp/yugidraft-duel-engine-src DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
+             trap 'docker compose -f docker-compose.yml start web || true; cleanup' EXIT
+             if ! DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
                sh packages/duel-server/scripts/install-engine-bundle.sh; then
-               docker compose -f docker-compose.yml start web || true
                exit 1
              fi
              docker compose -f docker-compose.yml down --remove-orphans
              docker compose -f docker-compose.yml up -d
+             trap - EXIT
+             cleanup
              docker compose -f docker-compose.yml ps
              docker compose -f docker-compose.yml logs --tail=40
-             rm -rf /tmp/yugidraft-duel-engine-src /tmp/yugidraft-duel-engine.tar.gz
              sleep 20
              duel_state=$(docker inspect -f "{{.State.Status}} restarts={{.RestartCount}}" "$(docker compose -f docker-compose.yml ps -q duel)")
              echo "duel container: $duel_state"
@@ -119,4 +260,6 @@ jobs:
                docker compose -f docker-compose.yml logs --tail=60 duel
                echo "The duel container is not running cleanly." >&2
                exit 1
-             fi'
+             fi
+             docker image prune -f
+          REMOTE

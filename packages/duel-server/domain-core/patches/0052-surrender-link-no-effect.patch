@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Wed, 1 Mar 2000 00:00:00 +0000
+Subject: [PATCH] core: the chain link of a duelist with a pending
+ Debug.EliminateDuelist loss resolves with no effect at n > 2
+
+---
+ processor.cpp | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/processor.cpp b/processor.cpp
+index e3d4370..dd1fe45 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -4464,8 +4464,9 @@ bool field::process(Processors::SolveChain& arg) {
+ 	case 2: {
+ 		for(uint8_t p = 0; p < n_duelists; ++p)
+ 			core.spsummon_state_count_tmp[p] = core.spsummon_state_count[p];
+-		// The link of an eliminated duelist resolves with no effect (no EVENT_CHAIN_DISABLED).
+-		if(n_duelists > 2 && is_duelist(cait->triggering_player) && player[cait->triggering_player].eliminated) {
++		// The link of an eliminated duelist resolves with no effect (no EVENT_CHAIN_DISABLED). A duelist with a pending loss
++		// (Debug.EliminateDuelist) is out already: its loss lands in check_losses_n only after the chain, but its links must not act.
++		if(n_duelists > 2 && is_duelist(cait->triggering_player) && (player[cait->triggering_player].eliminated || player[cait->triggering_player].pending_loss)) {
+ 			if(!(cait->flag & CHAIN_DISABLE_EFFECT)) {
+ 				auto message = pduel->new_message(MSG_CHAIN_DISABLED);
+ 				message->write<uint8_t>(cait->chain_count);

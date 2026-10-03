@@ -1,0 +1,167 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Mon, 31 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: fix simultaneous losses, FFA draw end and battle
+ defaults
+
+Four fixes for more than two duelists.
+
+Several duelists can lose in one check. Before, each loser was marked
+and run one after the other. A later body saw an earlier loser as alive,
+so it sent cards to a dead seat (index 255 in SendTo under UBSan). Now
+check_losses_n marks every loser dead first, then runs each body.
+field::eliminate has a "marked" flag for a duelist that is already
+flagged. Each loser gets exactly one message 200.
+
+A free for all that ends in a draw wrote only MSG_WIN. Now it writes one
+200 per loser (same reason as a normal loss) before MSG_WIN. A Tag end
+is unchanged: MSG_WIN only.
+
+BattleCommand started with reason_player PLAYER_NONE, which is seat 2
+at n > 2. The unit header cannot call none_id(), so the constructor now
+takes the value and all 4 creation sites in processor.cpp pass
+none_id().
+
+A direct attack with no valid pick now skips the damage at n > 2 in
+calculate_battle_damage. The old pd != pa guard already did this, so
+the skip is explicit and no damage message is written.
+
+A two-duelist duel is unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ field.cpp        |  4 ++--
+ field.h          |  6 ++++--
+ processor.cpp    | 25 +++++++++++++++++--------
+ processor_unit.h |  6 ++++--
+ 4 files changed, 27 insertions(+), 14 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index 35b2abe..bfc4cfc 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -129,9 +129,9 @@ static void send_remove_cards(duel* pduel, const std::vector<loc_info>& locs) {
+ 		done += cur;
+ 	}
+ }
+-void field::eliminate(uint8_t p, uint8_t reason) {
++void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 	// With 2 duelists a loss ends the duel, so there is nothing to eliminate: do nothing.
+-	if(n_duelists == 2 || !is_alive(p))
++	if(n_duelists == 2 || !is_duelist(p) || (!marked && player[p].eliminated))
+ 		return;
+ 	player[p].eliminated = true;
+ 	// 1. The message.
+diff --git a/field.h b/field.h
+index 015e0a5..5b54685 100644
+--- a/field.h
++++ b/field.h
+@@ -528,8 +528,10 @@ public:
+ 		return infos.turn_id_by_player[infos.turn_player] <= 1;
+ 	}
+ 	// Takes p out of the duel (n > 2): message 200, p's cards, chain links and turn. reason = the MSG_WIN reason code
+-	// that applies. Does nothing with 2 duelists or when p is already out.
+-	void eliminate(uint8_t p, uint8_t reason);
++	// that applies. Does nothing with 2 duelists or when p is already out. marked = the caller set
++	// player[p].eliminated already (several duelists lose in the same check, so every loser is dead before
++	// any body runs): then p is not "already out" and the body runs.
++	void eliminate(uint8_t p, uint8_t reason, bool marked = false);
+ 	// Applies the losses of a duel with more than 2 duelists (Adjust step 1). Sends MSG_WIN at the end.
+ 	void check_losses_n();
+ 	// Calls f(p) for p = 0 .. n_duelists - 1 in ascending order (the stock order: player 0, then 1).
+diff --git a/processor.cpp b/processor.cpp
+index 2e016b4..5c40e8d 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -3067,7 +3067,7 @@ bool field::process(Processors::ForcedBattle& arg) {
+ 		core.delayed_quick_tmp.clear();
+ 		auto message = pduel->new_message(MSG_NEW_PHASE);
+ 		message->write<uint16_t>(PHASE_BATTLE_START);
+-		emplace_process<Processors::BattleCommand>(Step{ 1 }, nullptr, true);
++		emplace_process<Processors::BattleCommand>(Step{ 1 }, nullptr, true, none_id());
+ 		return FALSE;
+ 	}
+ 	case 1: {
+@@ -3143,14 +3143,14 @@ bool field::process(Processors::DamageStep& arg) {
+ 	}
+ 	case 1: {
+ 		infos.phase = PHASE_DAMAGE_CAL;
+-		emplace_process<Processors::BattleCommand>(Step{ 26 });
++		emplace_process<Processors::BattleCommand>(Step{ 26 }, nullptr, false, none_id());
+ 		arg.step = 2;
+ 		core.reserved = std::move(arg);
+ 		return TRUE;
+ 	}
+ 	case 2: {
+ 		core.effect_damage_step = 2;
+-		emplace_process<Processors::BattleCommand>(Step{ 32 }, arg.cards_destroyed_by_battle);
++		emplace_process<Processors::BattleCommand>(Step{ 32 }, arg.cards_destroyed_by_battle, false, none_id());
+ 		return FALSE;
+ 	}
+ 	case 3: {
+@@ -3374,7 +3374,9 @@ void field::calculate_battle_damage(effect** pdamchange, card** preason_card, st
+ 			}
+ 		}
+ 	} else {
+-		if(a != 0 && (n_duelists == 2 || pd != pa)) {
++		// More than 2 duelists: a direct attack with no duelist to attack (empty pick, pd fell back to pa)
++		// gives no damage at all, and the attacker's controller never takes it.
++		if(a != 0 && (n_duelists == 2 || (is_duelist(core.battle_defender) && pd != pa))) {
+ 			damp = other(pa);
+ 			core.battle_damage[damp] = a;
+ 			reason_card = core.attacker;
+@@ -3768,7 +3770,7 @@ bool field::process(Processors::Turn& arg) {
+ 		core.delayed_quick_tmp.clear();
+ 		core.phase_action = false;
+ 		core.chain_attack = false;
+-		emplace_process<Processors::BattleCommand>();
++		emplace_process<Processors::BattleCommand>(Step{ 0 }, nullptr, false, none_id());
+ 		/*if(core.set_forced_attack)
+ 			emplace_process<Processors::ForcedBattle>();*/
+ 		return FALSE;
+@@ -4798,15 +4800,22 @@ void field::check_losses_n() {
+ 		}
+ 	}
+ 	if(stay_count >= 2) {
+-		// The duel goes on. Only free for all has more than 2 teams.
++		// The duel goes on. Only free for all has more than 2 teams. Every loser of this check is dead
++		// before any body runs: a body then does not give cards to the grave of another loser, and does
++		// not move cards that another body has removed already.
+ 		for(uint8_t i = 0; i < count; ++i) {
+ 			if(loses[order[i]])
+-				eliminate(order[i], reason_of[order[i]]);
++				player[order[i]].eliminated = true;
++		}
++		for(uint8_t i = 0; i < count; ++i) {
++			if(loses[order[i]])
++				eliminate(order[i], reason_of[order[i]], true);
+ 		}
+ 		return;
+ 	}
+ 	// The duel is over: no card leaves the game. Every duelist is marked so that MSG_WIN is sent once.
+-	if(stay_count == 1 && free_for_all) {
++	// Free for all: one message 200 per loser, also when no duelist is left (a draw).
++	if(stay_count <= 1 && free_for_all) {
+ 		for(uint8_t i = 0; i < count; ++i) {
+ 			const auto p = order[i];
+ 			if(!loses[p])
+diff --git a/processor_unit.h b/processor_unit.h
+index f32495d..a90002b 100644
+--- a/processor_unit.h
++++ b/processor_unit.h
+@@ -250,10 +250,12 @@ struct BattleCommand : public Process<false> {
+ 	owned_lua<group> cards_destroyed_by_battle;
+ 	card* reason_card;
+ 	std::multimap<effect*, card*> must_attack_map;
+-	BattleCommand(uint16_t step_, owned_lua<group> cards_destroyed_by_battle_ = nullptr, bool forced_attack_ = false) :
++	// reason_player_: the "no player" id of the duel (field::none_id()). The header cannot call it, so every place
++	// that makes this unit passes it. The default is the 2 duelist value only.
++	BattleCommand(uint16_t step_, owned_lua<group> cards_destroyed_by_battle_ = nullptr, bool forced_attack_ = false, uint8_t reason_player_ = PLAYER_NONE) :
+ 		Process(step_), phase_to_change_to(0), forced_attack(forced_attack_), forced_attack_done(false), is_replaying_attack(false), attack_announce_failed(false),
+ 		repeat_battle_phase(false), second_battle_phase_is_optional(false),
+-		previous_point_event_had_any_trigger_to_resolve(false), direct_pick(false), reason_player(PLAYER_NONE), damage_change_effect(nullptr),
++		previous_point_event_had_any_trigger_to_resolve(false), direct_pick(false), reason_player(reason_player_), damage_change_effect(nullptr),
+ 		cards_destroyed_by_battle(cards_destroyed_by_battle_), reason_card(nullptr) {}
+ };
+ struct DamageStep : public Process<false> {

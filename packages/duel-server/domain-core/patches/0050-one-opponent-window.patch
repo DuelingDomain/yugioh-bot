@@ -1,0 +1,652 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 20 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: one-opponent window (Duel.MPWindow, MPBindOpponent,
+ MPAssertBound) for Lua at n > 2
+
+At n > 2 a script that reads the other side sees every living opponent. A rule that
+needs one opponent (compare with one opponent, one run per opponent) could not say so.
+
+A scope now has a window. While it is open, the reads of the other side (field
+class, overlays, counters, hand and Deck, the place prompt) see one duelist:
+- kind ONE: the bound opponent of the scope or chain link. Free-for-all only. Tag
+  keeps the joined opposing field.
+- kind SEAT: an explicit seat (the i-th living opponent after P). Free-for-all and Tag.
+An open window with no living seat gives an EMPTY other side (trap W), never every
+opponent. A summon procedure scope with a dead bound seat also gives an empty side.
+
+Lua: Duel.MPMode, MPBound, MPOppCount, MPNeedPick, MPBindOpponent(needs_pick),
+MPWindow(i), MPWindowEnd, MPAssertBound. MPBindOpponent in a scope that cannot ask
+is a Lua error in the trap build (kind c) and false in release. MPAssertBound with
+no bound opponent logs trap U.
+
+Lifetime: the window is part of lua_scope. A new scope copies the window only for
+the same effect and the same P. scope_guard restores the window of the scope below
+on every path (also after a Lua error). A coroutine that waits in a prompt keeps its
+window in mp_saved (keyed by lua_State), and the entry is erased when it ends or
+fails (the trap build aborts on a leak).
+
+With 2 duelists nothing changes: no scope is pushed and every new branch is
+n_duelists > 2.
+
+Review fixes (Opus review of this patch):
+- The first run of the activation probe has nothing bound. A ONE window, MPBindOpponent
+  and MPAssertBound there now read every opponent / give true and set `touched`, so the
+  probe runs the check once per opponent. Before, a target check that opened a window
+  never offered the card.
+- A new scope of the same effect copies the bound opponent of a ONE window as well.
+- Reads of a player value (scope_bound_opp) inside a window with no seat give an
+  empty result (a dead-window sentinel): no widening, no pick prompt, no lazy bind.
+  lazy_bind and MPBindOpponent use the real binding, not the window seat.
+- The core lists of field effects (filter_affected_cards, filter_inrange_cards) ignore
+  a window (use mask OPP_EXCL on build_range_list / opp_restrict); the release and
+  material lists of the other side (side_cards) follow it.
+- MPWindow reads its argument as an integer (257 was seat 1).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ common.h        |   5 ++
+ field.cpp       |  95 +++++++++++++++++++++++-------
+ field.h         |  14 ++++-
+ interpreter.cpp |  53 ++++++++++++++++-
+ interpreter.h   |  62 +++++++++++++++++---
+ libduel.cpp     | 150 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 6 files changed, 350 insertions(+), 29 deletions(-)
+
+diff --git a/common.h b/common.h
+index 89372a4..f442347 100644
+--- a/common.h
++++ b/common.h
+@@ -42,6 +42,11 @@ static_assert(MAX_DUELISTS >= 2, "a duel needs two duelists");
+ constexpr uint8_t DUELIST_NONE = 0xFF;
+ constexpr uint8_t DUELIST_ALL = 0xFE;
+ static_assert(MAX_DUELISTS < DUELIST_ALL, "the special ids must not be duelist indexes");
++// F7: what scope_bound_opp() answers when an open one-opponent window has no seat to read (an out-of-range seat, or
++// a ONE window with nothing bound). It is not a duelist (field::is_alive is false), so a reader of the bound opponent
++// gives its empty result and never falls back to another opponent.
++constexpr uint8_t DUELIST_WINDOW_EMPTY = 0xFC;
++static_assert(MAX_DUELISTS < DUELIST_WINDOW_EMPTY, "the special ids must not be duelist indexes");
+ // Messages sent only when n_duelists > 2 (phase 2). The wrapper drops them; the TS side reads the raw buffer.
+ constexpr uint8_t MSG_DUELIST_ELIMINATED = 200; // u8 duelist, u8 reason
+ constexpr uint8_t MSG_ATTACK_DUELIST = 201; // u8 attacked duelist, right after MSG_ATTACK of a direct attack
+diff --git a/field.cpp b/field.cpp
+index 88f7c7b..778f14e 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -1810,7 +1810,7 @@ void field::filter_field_effect(uint32_t code, effect_set* eset, bool sort) {
+ 	if(sort)
+ 		std::sort(eset->begin(), eset->end(), effect_sort_id);
+ }
+-void field::build_range_list(range_list& rl, uint8_t self, uint32_t loc1, uint32_t loc2) {
++void field::build_range_list(range_list& rl, uint8_t self, uint32_t loc1, uint32_t loc2, uint8_t use) {
+ 	rl.count = 0;
+ 	auto add = [&rl](uint8_t who, uint32_t loc) {
+ 		rl.who[rl.count] = who;
+@@ -1831,39 +1831,83 @@ void field::build_range_list(range_list& rl, uint8_t self, uint32_t loc1, uint32
+ 				add(q, loc1 & ~individual);
+ 		}
+ 	}
+-	// oppo side. F5: a summon procedure scope (Lava Golem) with one bound opponent reads that opponent only
+-	const auto* pscope = pduel->lua->current_scope();
+-	const uint8_t only = (pscope && pscope->exclusive && is_duelist(pscope->P) && same_team(pscope->P, self)) ? pduel->lua->scope_bound_opp() : DUELIST_NONE;
++	// oppo side. F5: a summon procedure scope (Lava Golem) with one bound opponent reads that opponent only. F7: an open
++	// one-opponent window does the same (also for a dead or missing seat: the side is empty, never widened)
++	uint8_t seat = DUELIST_NONE;
++	const bool restricted = opp_restrict(self, seat, use);
+ 	if(loc2 & ~individual) {
+ 		for(uint8_t q = 0; q < n_duelists; ++q) {
+-			if(is_alive(q) && !same_team(self, q) && (!is_alive(only) || only == q))
++			if(is_alive(q) && !same_team(self, q) && (!restricted || q == seat))
+ 				add(q, loc2 & ~individual);
+ 		}
+ 	}
+ 	if(loc2 & individual) {
+-		// the bound opponent belongs to the scope of the duelist that Lua runs for
+-		const auto* scope = pduel->lua->current_scope();
+-		const uint8_t bound = (scope && is_duelist(scope->P) && same_team(scope->P, self)) ? pduel->lua->scope_bound_opp() : DUELIST_NONE;
+-		if(bound != DUELIST_NONE) {
+-			// F5 (ADR 0002): a bound opponent that is not alive any more gives nothing, no fallback to the others
+-			if(is_alive(bound) && !same_team(self, bound))
+-				add(bound, loc2 & individual);
++		if(restricted) {
++			if(seat != DUELIST_NONE)
++				add(seat, loc2 & individual);
+ 		} else {
+-			pduel->lua->scope_mark_touched();
+-			for(uint8_t q = 0; q < n_duelists; ++q) {
+-				if(is_alive(q) && !same_team(self, q))
+-					add(q, loc2 & individual);
++			// the bound opponent belongs to the scope of the duelist that Lua runs for
++			const auto* scope = pduel->lua->current_scope();
++			const uint8_t bound = (scope && is_duelist(scope->P) && same_team(scope->P, self))
++				? ((use & OPP_WINDOW) ? pduel->lua->scope_bound_opp() : pduel->lua->scope_raw_bound(scope)) : DUELIST_NONE;
++			if(bound != DUELIST_NONE) {
++				// F5 (ADR 0002): a bound opponent that is not alive any more gives nothing, no fallback to the others
++				if(is_alive(bound) && !same_team(self, bound))
++					add(bound, loc2 & individual);
++			} else {
++				pduel->lua->scope_mark_touched();
++				for(uint8_t q = 0; q < n_duelists; ++q) {
++					if(is_alive(q) && !same_team(self, q))
++						add(q, loc2 & individual);
++				}
+ 			}
+ 		}
+ 	}
+ }
++bool field::opp_restrict(uint8_t self, uint8_t& seat, uint8_t use) {
++	seat = DUELIST_NONE;
++	if(n_duelists <= 2)
++		return false;
++	auto* sc = pduel->lua->current_scope();
++	if(!sc || !is_duelist(sc->P) || !same_team(sc->P, self))
++		return false;
++	// the Tag gate covers the ONE window only: a SEAT window reads one duelist in Tag as well
++	if((use & OPP_WINDOW) && pduel->lua->window_applies(sc)) {
++		if(sc->mp.kind == interpreter::MPW_ONE && pduel->lua->scope_probing(sc)) {
++			// first run of an activation probe: nothing is bound yet, the check errs to yes (every opponent)
++			pduel->lua->scope_mark_touched();
++			return false;
++		}
++		const uint8_t w = pduel->lua->window_seat(sc);
++		if(w == DUELIST_NONE)
++			pduel->lua->fold_trap('W', "opp_restrict");
++		else if(is_alive(w) && !same_team(self, w))
++			seat = w;
++		return true;
++	}
++	// F5: a summon procedure scope (also in Tag). Nothing bound keeps the stock rule: every living opponent.
++	if((use & OPP_EXCL) && sc->exclusive) {
++		const uint8_t b = pduel->lua->scope_raw_bound(sc);
++		if(b == DUELIST_NONE)
++			return false;
++		if(is_alive(b) && !same_team(self, b))
++			seat = b;
++		return true;
++	}
++	return false;
++}
+ const card_vector& field::side_cards(uint8_t p, bool oppo, card_vector player_info::* list, card_vector& tmp) {
+ 	if(n_duelists == 2)
+ 		return player[oppo ? opponent_of(p) : p].*list;
++	// F7: the release and material lists of the other side follow an open window too
++	uint8_t seat = DUELIST_NONE;
++	const bool restricted = oppo && opp_restrict(p, seat, OPP_WINDOW);
+ 	tmp.clear();
+ 	for(uint8_t q = 0; q < n_duelists; ++q) {
+ 		if(!is_alive(q) || same_team(p, q) == oppo)
+ 			continue;
++		if(restricted && q != seat)
++			continue;
+ 		tmp.insert(tmp.end(), (player[q].*list).begin(), (player[q].*list).end());
+ 	}
+ 	return tmp;
+@@ -1878,7 +1922,7 @@ void field::filter_affected_cards(effect* peffect, card_set* cset) {
+ 	std::vector<card_vector*> cvec;
+ 	uint16_t range = peffect->s_range;
+ 	range_list rl;
+-	build_range_list(rl, self, peffect->s_range, peffect->o_range);
++	build_range_list(rl, self, peffect->s_range, peffect->o_range, OPP_EXCL);
+ 	for(uint32_t p = 0; p < rl.count; ++p) {
+ 		self = rl.who[p];
+ 		range = static_cast<uint16_t>(rl.loc[p]);
+@@ -1913,7 +1957,7 @@ void field::filter_inrange_cards(effect* peffect, card_set* cset) {
+ 	uint16_t range = peffect->s_range;
+ 	std::vector<card_vector*> cvec;
+ 	range_list rl;
+-	build_range_list(rl, self, peffect->s_range, peffect->o_range);
++	build_range_list(rl, self, peffect->s_range, peffect->o_range, OPP_EXCL);
+ 	for(uint32_t p = 0; p < rl.count; ++p) {
+ 		self = rl.who[p];
+ 		range = static_cast<uint16_t>(rl.loc[p]);
+@@ -2449,9 +2493,12 @@ void field::get_overlay_group(uint8_t playerid, uint8_t self, uint8_t oppo, card
+ 				pset->insert(pcard->xyz_materials.begin(), pcard->xyz_materials.end());
+ 		}
+ 	} else {
++		// F7: an open one-opponent window reads one opponent only (n > 2)
++		uint8_t seat = DUELIST_NONE;
++		const bool restricted = oppo && n_duelists > 2 && opp_restrict(playerid, seat);
+ 		for(int i = 0; i < n_duelists; ++i) {
+ 			if(n_duelists == 2 ? ((i == playerid && self) || (i == opponent_of(playerid) && oppo))
+-			                  : (is_alive(i) && (same_team(playerid, i) ? self : oppo))) {
++			                  : (is_alive(i) && (same_team(playerid, i) ? self : (oppo && (!restricted || i == seat))))) {
+ 				for(auto& pcard : player[i].list_mzone) {
+ 					if(pcard && !pcard->get_status(STATUS_SUMMONING | STATUS_SPSUMMON_STEP))
+ 						pset->insert(pcard->xyz_materials.begin(), pcard->xyz_materials.end());
+@@ -2469,9 +2516,12 @@ int32_t field::get_overlay_count(uint8_t playerid, uint8_t self, uint8_t oppo, g
+ 		}
+ 		return static_cast<int32_t>(count);
+ 	}
++	// F7: an open one-opponent window reads one opponent only (n > 2)
++	uint8_t seat = DUELIST_NONE;
++	const bool restricted = oppo && n_duelists > 2 && opp_restrict(playerid, seat);
+ 	for(int i = 0; i < n_duelists; ++i) {
+ 		if(n_duelists == 2 ? ((i == playerid && self) || (i == opponent_of(playerid) && oppo))
+-		                  : (is_alive(i) && (same_team(playerid, i) ? self : oppo))) {
++		                  : (is_alive(i) && (same_team(playerid, i) ? self : (oppo && (!restricted || i == seat))))) {
+ 			for(auto& pcard : player[i].list_mzone) {
+ 				if(pcard && !pcard->get_status(STATUS_SUMMONING | STATUS_SPSUMMON_STEP))
+ 					count += pcard->xyz_materials.size();
+@@ -2830,9 +2880,14 @@ uint32_t field::get_field_counter(uint8_t playerid, uint8_t self, uint8_t oppo,
+ 	uint8_t c = self;
+ 	uint32_t count = 0;
+ 	if(n_duelists > 2) {
++		// F7: an open one-opponent window reads one opponent only
++		uint8_t seat = DUELIST_NONE;
++		const bool restricted = oppo && opp_restrict(playerid, seat);
+ 		for(uint8_t q = 0; q < n_duelists; ++q) {
+ 			if(!is_alive(q) || !(same_team(playerid, q) ? self : oppo))
+ 				continue;
++			if(restricted && !same_team(playerid, q) && q != seat)
++				continue;
+ 			for(auto& pcard : player[q].list_mzone) {
+ 				if(pcard)
+ 					count += pcard->get_counter(countertype);
+diff --git a/field.h b/field.h
+index 5630b48..cb01b61 100644
+--- a/field.h
++++ b/field.h
+@@ -735,7 +735,19 @@ public:
+ 		uint8_t who[2 * MAX_DUELISTS]{};
+ 		uint32_t loc[2 * MAX_DUELISTS]{};
+ 	};
+-	void build_range_list(range_list& rl, uint8_t self, uint32_t loc1, uint32_t loc2);
++	// Which scope rules narrow a read of the other side (F5 summon procedure scope, F7 window). `use` of
++	// opp_restrict and build_range_list. The Lua read paths use both; core work that only runs while a window
++	// happens to be open (the check lists of field effects) keeps the F5 rule and ignores the window.
++	enum : uint8_t { OPP_WINDOW = 1, OPP_EXCL = 2, OPP_BOTH = 3 };
++	void build_range_list(range_list& rl, uint8_t self, uint32_t loc1, uint32_t loc2, uint8_t use = OPP_BOTH);
++	// F7 (n > 2 only). Do the reads of the OTHER side of `self` have to see one duelist? True when the scope of
++	// the running Lua call restricts them: an open one-opponent window (kind ONE: FFA only; kind SEAT: FFA and
++	// Tag), or a summon procedure scope (exclusive) with a bound opponent. `seat` is the one duelist to read; it is
++	// DUELIST_NONE when the side is EMPTY (an open window with no seat, a dead seat, or a seat on the own team).
++	// False: the stock rule (every living opponent). An open window never widens to every opponent, except in the
++	// first run of an activation probe: a ONE window with nothing bound marks `touched` and reads every opponent
++	// there (the check errs to yes, probe_bind then runs it once per opponent).
++	bool opp_restrict(uint8_t self, uint8_t& seat, uint8_t use = OPP_BOTH);
+ 	// The cards of one list of the team of p (oppo = false) or of every living opponent of p
+ 	// (oppo = true). With 2 duelists this is the list of p or of opponent_of(p) itself, no copy.
+ 	const card_vector& side_cards(uint8_t p, bool oppo, card_vector player_info::* list, card_vector& tmp);
+diff --git a/interpreter.cpp b/interpreter.cpp
+index d48611c..7fbc2f5 100644
+--- a/interpreter.cpp
++++ b/interpreter.cpp
+@@ -320,6 +320,29 @@ interpreter::scope_guard::~scope_guard() {
+ #endif
+ 	if(pushed)
+ 		I->pop_scope();
++	// F7: the window of the scope below is what it was at entry, on every path
++	if(had_parent && I->scopes.size() >= base)
++		I->scopes[base - 1].mp = saved_mp;
++}
++bool interpreter::window_applies(const lua_scope* s) const {
++	const auto* gf = pduel->game_field;
++	if(!s || !s->mp.open || !gf || gf->n_duelists <= 2)
++		return false;
++	return s->mp.kind == MPW_SEAT || gf->n_teams == gf->n_duelists;
++}
++uint8_t interpreter::scope_bound_opp() {
++	if(scopes.empty())
++		return DUELIST_NONE;
++	const auto& s = scopes.back();
++	if(!window_applies(&s))
++		return scope_raw_bound(&s);
++	const uint8_t w = window_seat(&s);
++	if(w != DUELIST_NONE)
++		return w;
++	if(s.mp.kind == MPW_ONE && scope_probing(&s))
++		return DUELIST_NONE;
++	fold_trap('W', "scope_bound_opp");
++	return DUELIST_WINDOW_EMPTY;
+ }
+ void interpreter::fold_trap(char kind, const char* fn) {
+ #ifdef YGO_N_TRAP
+@@ -450,7 +473,8 @@ bool interpreter::lazy_bind(const char* fn) {
+ 	auto* s = current_scope();
+ 	if(!s || !gf || gf->n_duelists <= 2 || !gf->is_duelist(s->P))
+ 		return false;
+-	if(scope_bound_opp() != DUELIST_NONE)
++	// F7: the binding of the scope or chain link, not the window (a SEAT window is no binding)
++	if(scope_raw_bound() != DUELIST_NONE)
+ 		return true;
+ 	uint8_t opp[MAX_DUELISTS];
+ 	const auto n = gf->living_opponents(s->P, opp);
+@@ -600,12 +624,21 @@ bool interpreter::call_function_scoped(int param_count, int ret_count, effect* s
+ 		// A pinned scope (is_activateable) answers for the effect that it runs: its bound opponent and its
+ 		// `touched` flag are what the activation probe reads
+ 		const bool inherit = cur && cur->pinned && cur->eff == eff && (scope_P == DUELIST_NONE || scope_P == cur->P);
++		// F7 copy rule: a new scope gets the window of the scope below only for the same effect and the same P
++		// (not into the condition of another card). cur can move when the vector grows: take the values now.
++		// A ONE window means "the bound opponent of the scope below": the new scope gets that opponent too
++		// (a pinned probe scope runs its own checks itself, so a copy never starts in the first run of a probe).
++		const bool copy_window = cur && cur->eff == eff && cur->P == P;
++		const mp_window parent_mp = copy_window ? cur->mp : mp_window{};
++		const uint8_t parent_bound = (copy_window && cur->mp.open && cur->mp.kind == MPW_ONE) ? scope_raw_bound(cur) : DUELIST_NONE;
+ 		if(!inherit) {
+ 			// A summon procedure reads the other side through its one bound opponent (the probe of
+ 			// check_condition seeds it; the later runs use the slot of the procedure effect)
+ 			const bool proc = is_proc_effect(eff);
+ 			uint8_t* slot = (proc && proc_seed == DUELIST_NONE) ? proc_slot(eff) : nullptr;
+ 			if(sg.push(P, slot, false, false, eff)) {
++				current_scope()->mp = parent_mp;
++				current_scope()->own_bound = parent_bound;
+ 				if(proc) {
+ 					current_scope()->exclusive = true;
+ 					if(!slot)
+@@ -864,6 +897,7 @@ int32_t interpreter::call_coroutine(int32_t function, uint32_t param_count, lua_
+ 	} else {
+ 		if(step == 0) {
+ 			auto ref = it->second.second;
++			mp_saved.erase(it->second.first);
+ 			coroutines.erase(it);
+ 			ensure_luaL_stack(luaL_unref, lua_state, LUA_REGISTRYINDEX, ref);
+ 			--call_depth;
+@@ -883,16 +917,26 @@ int32_t interpreter::call_coroutine(int32_t function, uint32_t param_count, lua_
+ 		uint8_t* slot = nullptr;
+ 		if(scope_eff)
+ 			slot = proc ? proc_slot(scope_eff) : chain_bound_of(pduel, scope_eff);
++		bool scoped = false;
+ 		if(sg.push(scope_P, slot, true, false, scope_eff)) {
+ 			auto* cs = current_scope();
+ 			cs->operation = operation;
+ 			cs->exclusive = proc;
++			// F7: the window of this coroutine survives a prompt
++			if(const auto mit = mp_saved.find(rthread); mit != mp_saved.end())
++				cs->mp = mit->second;
++			scoped = true;
+ 			bind_param_opponent();
+ 		}
+ 		push_param(rthread, true);
+ 		auto prev_state = std::exchange(current_state, rthread);
+ 		std::tie(result, nresults) = resume_coroutine(current_state, prev_state, param_count);
+ 		current_state = prev_state;
++		// every scope that the script pushed is popped again: ours is on top
++		if(scoped && result == LUA_YIELD && current_scope() && current_scope()->mp.open)
++			mp_saved[rthread] = current_scope()->mp;
++		else
++			mp_saved.erase(rthread);
+ 	}
+ 	if(result == LUA_YIELD)
+ 		return COROUTINE_YIELD;
+@@ -913,6 +957,13 @@ int32_t interpreter::call_coroutine(int32_t function, uint32_t param_count, lua_
+ 	--call_depth;
+ 	if(call_depth == 0) {
+ 		pduel->restore_assumes();
++#ifdef YGO_N_TRAP
++		// F7: no coroutine is alive, so no window can be saved
++		if(!mp_saved.empty()) {
++			std::fprintf(stderr, "YGO_N_TRAP window map leak %zu\n", mp_saved.size());
++			std::abort();
++		}
++#endif
+ 	}
+ 	return (result == LUA_OK) ? COROUTINE_FINISH : COROUTINE_ERROR;
+ }
+diff --git a/interpreter.h b/interpreter.h
+index 0dd4f07..080590b 100644
+--- a/interpreter.h
++++ b/interpreter.h
+@@ -65,6 +65,16 @@ public:
+ 	// by the scope of a call that runs the same effect (is_activateable pins P = the asking player).
+ 	// Every Lua entry point of this class pushes through scope_guard; with 2 duelists nothing is
+ 	// ever pushed, so n == 2 is the stock core.
++	// F7 one-opponent window (n > 2 only). While `open`, the field reads of the other side (field.cpp
++	// opp_restrict) see ONE duelist: kind MPW_ONE = the bound opponent of the scope or chain link (FFA only; Tag
++	// keeps the joined opposing field), kind MPW_SEAT = the explicit `seat` (FFA and Tag). A window that is open
++	// but has no living seat gives an EMPTY other side, never every opponent.
++	enum : uint8_t { MPW_ONE = 0, MPW_SEAT = 1 };
++	struct mp_window {
++		bool open{ false };
++		uint8_t kind{ MPW_ONE };
++		uint8_t seat{ DUELIST_NONE };
++	};
+ 	struct lua_scope {
+ 		uint8_t P{ DUELIST_NONE };
+ 		uint8_t* bound{ nullptr };
+@@ -80,8 +90,13 @@ public:
+ 		// F5: a summon procedure scope. With a bound opponent the field reads of the other side see only
+ 		// that opponent (Lava Golem: both Tributes come from one opponent).
+ 		bool exclusive{ false };
++		// F7: the one-opponent window of the scope (closed by default)
++		mp_window mp;
+ 	};
+ 	std::vector<lua_scope> scopes;
++	// F7: the window of a coroutine that waits in a prompt. call_coroutine puts it into the scope of every
++	// resume and writes it back at the yield; the entry is erased when the coroutine ends or fails.
++	std::unordered_map<lua_State*, mp_window> mp_saved;
+ 	void push_scope(uint8_t P, uint8_t* bound = nullptr, bool yieldable = false, bool probe = false,
+ 					effect* eff = nullptr, bool pinned = false) {
+ 		lua_scope s;
+@@ -100,13 +115,35 @@ public:
+ 	lua_scope* current_scope() {
+ 		return scopes.empty() ? nullptr : &scopes.back();
+ 	}
+-	// The bound opponent of the current scope, or DUELIST_NONE.
+-	uint8_t scope_bound_opp() const {
+-		if(scopes.empty())
++	// The bound opponent of a scope (chain link or own), without any window. DUELIST_NONE when nothing is bound.
++	static uint8_t scope_raw_bound(const lua_scope* s) {
++		return s->bound ? *s->bound : s->own_bound;
++	}
++	uint8_t scope_raw_bound() const {
++		return scopes.empty() ? DUELIST_NONE : scope_raw_bound(&scopes.back());
++	}
++	// F7: does the open window of the scope narrow the reads of the other side? A SEAT window always does; the ONE
++	// window only in free-for-all (Tag keeps the joined opposing field). n > 2 only.
++	bool window_applies(const lua_scope* s) const;
++	// F7: the seat that the window of the scope reads (field::opp_restrict). DUELIST_NONE: no window, or no seat.
++	uint8_t window_seat(const lua_scope* s) const {
++		if(!s || !s->mp.open)
+ 			return DUELIST_NONE;
+-		const auto& s = scopes.back();
+-		return s.bound ? *s.bound : s.own_bound;
++		if(s->mp.kind == MPW_SEAT)
++			return s->mp.seat;
++		return scope_raw_bound(s);
++	}
++	// F7: the scope is in the FIRST run of an activation probe: nothing is bound yet and the run only decides
++	// whether the check depends on the opponent (probe_bind runs it again once per opponent when it passes and
++	// `touched` is set). Reads that need an opponent err to yes there: they mark `touched` and see every opponent.
++	bool scope_probing(const lua_scope* s) const {
++		return (s->pinned || s->probe) && scope_raw_bound(s) == DUELIST_NONE;
+ 	}
++	// The opponent that the player-value reads (Lua 1 = the opponent) of the current scope see, or DUELIST_NONE.
++	// F7: an open window decides it: SEAT = its seat, ONE = the bound opponent. A window with nothing to read gives
++	// DUELIST_WINDOW_EMPTY (not a duelist: the reader gives its empty result, never a fallback), except in the first
++	// run of a probe, where a ONE window with nothing bound gives DUELIST_NONE (the unbound rule marks `touched`).
++	uint8_t scope_bound_opp();
+ 	// Makes d the bound opponent of the current scope when nothing is bound. True when d is the bound
+ 	// opponent afterwards, false when another opponent was bound first (a binding conflict: first wins).
+ 	bool scope_bind(uint8_t d) {
+@@ -162,7 +199,16 @@ public:
+ 		interpreter* I;
+ 		size_t base;
+ 		bool pushed{ false };
+-		explicit scope_guard(interpreter* i) : I(i), base(i->scopes.size()) {}
++		// F7: the window of the scope that was on top at entry. The destructor writes it back (also when
++		// push() pushed nothing: an inherited scope), so a window that fn opened never outlives the call.
++		bool had_parent{ false };
++		mp_window saved_mp;
++		explicit scope_guard(interpreter* i) : I(i), base(i->scopes.size()) {
++			if(!i->scopes.empty()) {
++				had_parent = true;
++				saved_mp = i->scopes.back().mp;
++			}
++		}
+ 		scope_guard(const scope_guard&) = delete;
+ 		scope_guard& operator=(const scope_guard&) = delete;
+ 		bool push(uint8_t P, uint8_t* bound = nullptr, bool yieldable = false, bool probe = false,
+@@ -176,7 +222,9 @@ public:
+ 	void bind_param_opponent();
+ 	// Fold trap record. Trap build (YGO_N_TRAP) only: one stderr line
+ 	// "NFOLD <kind> card=<code> P=<seat> fn=<name>"; it never aborts. Other builds write nothing.
+-	// kind: a unbound fallback, b binding conflict, c pick during the operation step, d bad player value.
++	// kind: a unbound fallback, b binding conflict, c pick during the operation step, d bad player value,
++	// W (F7) an open window with no seat (empty side), U (F7) an operation that needed a bound opponent
++	// and had none.
+ 	void fold_trap(char kind, const char* fn);
+ 
+ 	interpreter(duel* pd, const OCG_DuelOptions& options, bool& valid_lua_lib);
+diff --git a/libduel.cpp b/libduel.cpp
+index 7d9136a..9178218 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -4694,6 +4694,156 @@ LUA_STATIC_FUNCTION(GetCardSetcodeFromCode) {
+ 		lua_pushinteger(L, setcode);
+ 	return static_cast<int32_t>(data.setcodes.size());
+ }
++
++// ---- F7 one-opponent window (n > 2 only; at n == 2 every function here is a no-op that answers "no mode")
++// The scope that these functions work on: n > 2 and a scope for a duelist. nullptr otherwise.
++static interpreter::lua_scope* f7_scope(duel* pduel) {
++	const auto& f = *pduel->game_field;
++	if(f.n_duelists <= 2)
++		return nullptr;
++	auto* s = pduel->lua->current_scope();
++	return (s && f.is_duelist(s->P)) ? s : nullptr;
++}
++// The bound opponent of the scope or chain link, without the window (a SEAT window is not a binding).
++static uint8_t f7_raw_bound(const interpreter::lua_scope* s) {
++	return interpreter::scope_raw_bound(s);
++}
++// The first run of an activation probe (is_activateable pins the scope): nothing is bound and the scope cannot ask.
++// probe_bind runs the checks again once per opponent when this run passes and `touched` is set, so a missing binding
++// is expected here and is not an error. The run errs to yes: the function marks `touched` and answers "bound".
++static bool f7_first_run(const interpreter::lua_scope* s) {
++	return s->pinned || s->probe;
++}
++// Duel.MPMode(): 0 at n == 2, 1 FFA, 2 Tag.
++LUA_STATIC_FUNCTION(MPMode) {
++	const auto& f = *pduel->game_field;
++	lua_pushinteger(L, f.n_duelists <= 2 ? 0 : (f.n_teams == f.n_duelists ? 1 : 2));
++	return 1;
++}
++// Duel.MPBound(): true when an opponent is bound in this scope or chain link.
++LUA_STATIC_FUNCTION(MPBound) {
++	const auto* s = f7_scope(pduel);
++	lua_pushboolean(L, s && f7_raw_bound(s) != DUELIST_NONE);
++	return 1;
++}
++// Duel.MPOppCount(): the number of living opponent duelists of the scope player (Tag: the opposing members).
++LUA_STATIC_FUNCTION(MPOppCount) {
++	const auto* s = f7_scope(pduel);
++	uint8_t opp[MAX_DUELISTS];
++	lua_pushinteger(L, s ? pduel->game_field->living_opponents(s->P, opp) : 0);
++	return 1;
++}
++// Duel.MPNeedPick(): the check depends on WHICH opponent. Sets `touched`, so the activation probe runs the checks once
++// per living opponent and the activator is asked at activation. Harmless when an opponent is bound already.
++LUA_STATIC_FUNCTION(MPNeedPick) {
++	if(f7_scope(pduel))
++		pduel->lua->scope_mark_touched();
++	return 0;
++}
++// Duel.MPBindOpponent(needs_pick): binds ONE opponent to the scope or chain link (lazy_bind: asks P in a yieldable
++// cost or target, binds silently when one opponent is legal, nothing to do when one is bound). Tag with
++// needs_pick == false binds nothing (the opposing team is read joined) and gives true. Gives false when no
++// opponent lives. In a context that cannot ask: a Lua error in the trap build (YGO_N_TRAP), false in release; the
++// activation probe is no such context: in its first run (nothing bound) it sets `touched` and gives TRUE (the check
++// errs to yes, the probe runs it again per opponent with that opponent bound).
++// After the answer of the prompt this function runs again (lazy_continue), so it is idempotent.
++LUA_STATIC_FUNCTION(MPBindOpponent) {
++	auto* s = f7_scope(pduel);
++	if(!s) {
++		lua_pushboolean(L, pduel->game_field->n_duelists <= 2);
++		return 1;
++	}
++	const bool needs_pick = lua_get<bool, true>(L, 1);
++	const auto& f = *pduel->game_field;
++	if(f.n_teams != f.n_duelists && !needs_pick) {
++		lua_pushboolean(L, TRUE);
++		return 1;
++	}
++	if(pduel->lua->lazy_bind("MPBindOpponent")) {
++		lua_pushboolean(L, TRUE);
++		return 1;
++	}
++	// no binding: nobody to bind, or the scope cannot ask
++	uint8_t opp[MAX_DUELISTS];
++	if(f.living_opponents(s->P, opp) != 0) {
++		if(f7_first_run(s)) {
++			pduel->lua->scope_mark_touched();
++			lua_pushboolean(L, TRUE);
++			return 1;
++		} else {
++#ifdef YGO_N_TRAP
++			pduel->lua->fold_trap('c', "MPBindOpponent");
++			lua_error(L, "MPBindOpponent: the scope cannot ask which opponent (not a yieldable cost or target).");
++#else
++			pduel->lua->fold_trap('c', "MPBindOpponent");
++#endif
++		}
++	}
++	lua_pushboolean(L, FALSE);
++	return 1;
++}
++// Duel.MPWindow(i): opens the window. i == 0: kind ONE (the bound opponent). i >= 1: kind SEAT on the i-th living
++// opponent in turn order after P. An i that is out of range (below 0, above MAX_DUELISTS, or more than the living
++// opponents) gives a SEAT window with no seat: an EMPTY side. Gives true when a window is open afterwards.
++LUA_STATIC_FUNCTION(MPWindow) {
++	check_param_count(L, 1);
++	auto* s = f7_scope(pduel);
++	const auto i = lua_get<int64_t>(L, 1);
++	if(!s) {
++		lua_pushboolean(L, FALSE);
++		return 1;
++	}
++	if(i == 0) {
++		s->mp.open = true;
++		s->mp.kind = interpreter::MPW_ONE;
++		s->mp.seat = DUELIST_NONE;
++		lua_pushboolean(L, TRUE);
++		return 1;
++	}
++	const auto& f = *pduel->game_field;
++	uint8_t seat = DUELIST_NONE;
++	uint8_t k = 0;
++	for(uint8_t j = 1; i >= 1 && i <= MAX_DUELISTS && j < f.n_duelists; ++j) {
++		const auto q = static_cast<uint8_t>((s->P + j) % f.n_duelists);
++		if(f.is_alive(q) && !f.same_team(s->P, q) && ++k == i) {
++			seat = q;
++			break;
++		}
++	}
++	s->mp.open = true;
++	s->mp.kind = interpreter::MPW_SEAT;
++	s->mp.seat = seat;
++	lua_pushboolean(L, TRUE);
++	return 1;
++}
++// Duel.MPWindowEnd(): closes the window.
++LUA_STATIC_FUNCTION(MPWindowEnd) {
++	if(auto* s = f7_scope(pduel))
++		s->mp = interpreter::mp_window{};
++	return 0;
++}
++// Duel.MPAssertBound(): the operation (or a value that the operation uses) needs the bound opponent. True when one
++// is bound (or at n == 2). Trap build: a Lua error when none is bound. Release: trap record U and false, so that
++// a live duel never stops. The activation probe is no operation: in its first run it sets `touched` and gives true.
++LUA_STATIC_FUNCTION(MPAssertBound) {
++	const auto* s = f7_scope(pduel);
++	if(!s || f7_raw_bound(s) != DUELIST_NONE) {
++		lua_pushboolean(L, TRUE);
++		return 1;
++	}
++	if(f7_first_run(s)) {
++		// the activation probe is no operation: it errs to yes, and the run per opponent has that opponent bound
++		pduel->lua->scope_mark_touched();
++		lua_pushboolean(L, TRUE);
++		return 1;
++	}
++	pduel->lua->fold_trap('U', "MPAssertBound");
++#ifdef YGO_N_TRAP
++	lua_error(L, "MPAssertBound: no opponent is bound in this scope or chain link.");
++#endif
++	lua_pushboolean(L, FALSE);
++	return 1;
++}
+ }
+ }
+ 

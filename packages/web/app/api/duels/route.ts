@@ -1,8 +1,9 @@
+import { isDuelFormat, MULTI_CORE_UNAVAILABLE_MESSAGE, multiDomainBlockReason, multiplayerTablesBlockReason, multiplayerTablesEnabled, type DuelTableCapabilities } from "@yugidraft/shared/duels";
 import { NextRequest, NextResponse } from "next/server";
 import { createDuelSeriesService } from "@yugidraft/shared/services";
 import { sendDuelInvite } from "@/lib/announce-bot";
 import { getDb } from "@/lib/db";
-import { duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
+import { callDuelHost, duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
 import { playerIdentity } from "@/lib/player-lookup";
 
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest) {
     mode?: unknown;
     masterRule?: unknown;
     settings?: unknown;
+    format?: unknown;
     opponentPlayerId?: unknown;
     bestOf?: unknown;
     ranked?: unknown;
@@ -54,6 +56,23 @@ export async function POST(request: NextRequest) {
   if (mode !== "normal" && mode !== "domain") {
     return NextResponse.json({ error: "Duel mode must be normal or domain" }, { status: 400 });
   }
+  const format = body.format ?? "1v1";
+  if (!isDuelFormat(format)) {
+    return NextResponse.json({ error: "Duel format must be 1v1, tag, ffa3, or ffa4" }, { status: 400 });
+  }
+  // Read the shared deployment flag on every request.
+  const tablesBlocked = multiplayerTablesBlockReason(format, multiplayerTablesEnabled());
+  if (tablesBlocked) return NextResponse.json({ error: tablesBlocked }, { status: 403 });
+  if (format !== "1v1") {
+    const result = await callDuelHost({ op: "capabilities", guildId: actor.guildId, playerId: actor.playerId });
+    if (!result.ok) return result.response;
+    const data = result.data as Partial<DuelTableCapabilities> | null;
+    const hostBlocked = multiplayerTablesBlockReason(format, data?.multiplayerTables === true);
+    if (hostBlocked) return NextResponse.json({ error: hostBlocked }, { status: 403 });
+    if (data?.multiCoreReady !== true) return NextResponse.json({ error: MULTI_CORE_UNAVAILABLE_MESSAGE }, { status: 409 });
+    const domainBlocked = multiDomainBlockReason(mode, format, data?.multiDomainCoreReady === true);
+    if (domainBlocked) return NextResponse.json({ error: domainBlocked }, { status: 409 });
+  }
   const bestOf = body.bestOf ?? 1;
   if (bestOf !== 1 && bestOf !== 3) {
     return NextResponse.json({ error: "Best of must be 1 or 3" }, { status: 400 });
@@ -68,6 +87,9 @@ export async function POST(request: NextRequest) {
   }
   if (opponentPlayerId === actor.playerId) {
     return NextResponse.json({ error: "You cannot challenge yourself" }, { status: 400 });
+  }
+  if (opponentPlayerId !== null && format !== "1v1") {
+    return NextResponse.json({ error: "A challenge is a 1v1 duel" }, { status: 400 });
   }
 
   try {
@@ -116,6 +138,7 @@ export async function POST(request: NextRequest) {
       organizerPlayerId: actor.playerId,
       name,
       mode,
+      format,
       masterRule: body.masterRule as 1 | 2 | 3 | 4 | 5 | undefined,
       settings: body.settings,
       bestOf,

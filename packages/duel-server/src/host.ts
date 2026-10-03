@@ -1,13 +1,15 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
 import { createDuelSeriesService, createDuelService, type DuelFinalSnapshots } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
   DuelCommand,
   DuelDeck,
+  DuelEngineChoice,
   DuelEngineView,
+  DuelFormat,
   DuelMode,
   DuelOpeningState,
   DuelPrompt,
@@ -19,26 +21,43 @@ import type {
   DuelSettings,
 } from "@yugidraft/shared/duels";
 import {
-  CardQueryError, isFirstChoice, isRpsMove, normalizeDuelSettings, parseCardQuery, DUEL_OPENING_PICK_MS, DUEL_RPS_MOVES,
+  CardQueryError, duel1v1Engine, isFirstChoice, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
+  normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_RPS_MOVES,
 } from "@yugidraft/shared/duels";
-import { GameWorker, type DuelGameWorker, type GameOptions } from "./worker-client.js";
+import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf } from "./engine.js";
+import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
 import { DeckLegalityError, inspectDeck, validateDeck } from "./deck-legality.js";
 import { normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards } from "./card-search.js";
-import { buildPracticeBotDeck, choosePracticeBotAnswer, PracticeBotError } from "./practice-bot.js";
+import { activeMultiScriptsHash, pinnedEngineVersion } from "./multi-scripts.js";
+import { firstTurnDrawFor, savedFirstTurnDraw } from "./first-turn-draw.js";
+import { botTableOf, buildPracticeBotDeck, choosePracticeBotAnswer, chooseSurrenderedAnswer, PracticeBotError } from "./practice-bot.js";
 import {
   freezeContinueClock,
   isClockDue,
   isSeatIndex,
   persistedClockState,
   startDecisionClock,
+  stopSeatClock,
   syncDecisionClock,
   withServerNow,
   type DecisionClockView,
 } from "./clock.js";
+import { chooseScripted, ScriptedBotError, type Rule, type RuleTraceEntry } from "./scripted-bot.js";
+import { compileBoard } from "./presets/board.js";
+import { setCatalogDirectory } from "./presets/catalog.js";
+import { multiDomainCoreAvailable, multiStartProblem } from "./multi-domain-guard.js";
+import { getPreset, multiCoreAvailable, multiCoreInfo, PRESETS, SCRIPTED_POLICY, summarizePreset, type PresetIssue } from "./presets/index.js";
 
+/**
+ * Most bot answers in one turn before the table counts as stuck. The count restarts when the turn number changes, so a table that
+ * only bots are left in (every human gave up at an N-seat table) can play to the end: a duel with 3 bots needs far more than 128
+ * answers, and a random bot always ends it (the Decks run out). A bot that loops inside one turn is still caught.
+ */
 const BOT_ADVANCE_LIMIT = 128;
+const BOT_REPLAN_LIMIT = 32;
+const BOT_ONLY_TURN_LIMIT = 200;
 const DEFAULT_ARCHIVE_AFTER_MS = 10 * 60 * 1000;
 const DEFAULT_IDLE_WORKER_MS = 5 * 60 * 1000;
 const DEFAULT_POLL_INTERVAL_MS = 30 * 1000;
@@ -49,7 +68,48 @@ const SERIES_SWEEP_LIMIT = 16;
 const START_BACKOFF_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
 const MAX_TIMER_MS = 2 ** 31 - 1;
 const TIME_LIMIT_REASON = "Time limit";
+/** MSG_WIN reason codes from the core (strings.conf victory reasons): 0 Surrendered, 3 Time limit up. */
+const WIN_REASON_SURRENDER = 0;
+const WIN_REASON_TIME_LIMIT = 3;
+const ELIMINATE_PROMPT_PREFIX = ELIMINATE_PREFIX;
+
+/** The win reason code of a journaled elimination, or null when the command is an ordinary answer. */
+export function eliminationReasonOf(command: DuelCommand): number | null {
+  return eliminationCodeOf(command.promptId);
+}
 const REPLAY_CACHE_MAX = 16;
+/** Journal note of an answer that the host gave for a surrendered seat. The report uses it to place the surrender line. */
+const SURRENDER_AUTOPILOT_NOTE = "autopilot: surrendered";
+const DEFAULT_STALL_MS = 30 * 1000;
+/** A debug read of a stuck worker gives up after this long. */
+const DEFAULT_DEBUG_READ_TIMEOUT_MS = 2000;
+/** A report or a room read waits this long in a blocked duel queue before it answers without the core. */
+const DEFAULT_QUEUE_BLOCKED_MS = 3000;
+const TRACE_LIMIT = 40;
+/** The log lines a bug report keeps (the newest). */
+const BUG_CONTEXT_LOG_LINES = 15;
+
+/** What the `bug-context` op answers: public duel facts only. */
+interface BugDuelContext {
+  format: DuelFormat;
+  mode: DuelMode;
+  /** The asking player's seat, or null for a spectator. */
+  seat: number | null;
+  turn: number | null;
+  phase: string | null;
+  turnSeat: number | null;
+  livingPlayers: number | null;
+  /** The newest spectator-view log lines, oldest first. */
+  log: string[];
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms} ms`)), ms);
+  });
+  return Promise.race([work, limit]).finally(() => clearTimeout(timer));
+}
 
 class RequestError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
@@ -64,7 +124,21 @@ class ReplayMismatchError extends Error {
 
 type BotOutcome = { kind: "stop" } | { kind: "replan" } | { kind: "acted"; visible: boolean };
 
-type LiveGame = { game: DuelGameWorker; lastRequestAt: number; guildId: string };
+type LiveGame = {
+  game: DuelGameWorker;
+  lastRequestAt: number;
+  guildId: string;
+  /**
+   * Seats that surrendered or ran out of time in a table with more than two seats. The core has no
+   * "leave the duel" call yet, so the host keeps them in the game and passes for them (autopilot).
+   * Saved in the duel setup so a recover restores it.
+   */
+  surrendered: Set<number>;
+  /** Scripted bot rules by seat (hand scenarios). Seats not in the map play like the random practice bot. */
+  policies: Map<number, Rule[]>;
+  /** The rules tried for each auto seat's latest prompt (debug-trace). Kept in memory only. */
+  traces: Map<number, RuleTraceEntry[]>;
+};
 
 /** One background loop plays the practice bot's turns at a human pace; at most one per duel. */
 interface BotLoop {
@@ -72,15 +146,23 @@ interface BotLoop {
   /** Wakes the loop's current pause so it can notice cancellation. */
   wake: (() => void) | null;
   done: Promise<void>;
+  /** The bot's pause before its next step (debug-trace). */
+  timer: { seat: number; delayMs: number; startedAt: number; dueAt: number } | null;
 }
 
 interface BotPlan {
+  /** The seat the bot answers for. Every bot answers only its own seat's prompts. */
+  seat: number;
   promptId: string;
   revision: number;
   answer: DuelAnswer;
+  /** Scripted bot: why the rule answered. Saved in the journal next to the command. */
+  note?: string;
   delayMs: number;
   /** Relative weight of what the bot is about to do, used to size the pause after a visible action. */
   cost: number;
+  /** The turn number of the duel when the step was planned (the stuck-bot count restarts with a new turn). */
+  turn: number;
 }
 
 /** Relative pause weights. The base delay is the pause before a summon, set or activation. */
@@ -115,7 +197,10 @@ function newestEventId(view: DuelEngineView): number {
   return newest;
 }
 
-function freezeView(view: DuelEngineView, result: { winnerSeat: number | null; reason: string }): DuelEngineView {
+function freezeView(
+  view: DuelEngineView,
+  result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string },
+): DuelEngineView {
   return { ...view, prompt: null, prioritySeat: null, result };
 }
 
@@ -152,7 +237,22 @@ export function createDuelHost(options: {
    */
   botStepDelayMs?: number | ((prompt: DuelPrompt) => number);
   /**
-   * Rock-paper-scissors before game 1 of every duel and match. Off by default so a Start duel starts at once
+   * Stall watchdog: when the revision of an active duel stays the same for this many ms while a bot seat or the
+   * core must act, the host writes one `auto-stall` report folder. Default: env `DUEL_STALL_MS`, else 30000 when `DUEL_SCENARIOS=1`, else 0. 0 turns it off.
+   */
+  stallMs?: number;
+  /** How long a debug read (views, diagnostics) waits for a stuck worker. Default 2000. Tests make it shorter. */
+  debugReadTimeoutMs?: number;
+  /**
+   * How long a `report` or a room read (`view`) waits in a blocked duel queue. After that, a report is written
+   * without the core (`partial: true`) and a room read answers the last view sent to that seat (`stale: true`). Default 3000 when
+   * `DUEL_SCENARIOS=1`, else 0 (off: a room read waits for the queue). A `report` needs `DUEL_SCENARIOS=1` anyway.
+   */
+  queueBlockedMs?: number;
+  /** Known problems per preset id, for the dev presets page (`list-presets` answers them as `issues`). Default: none. */
+  presetIssues?: (presetId: string) => PresetIssue[];
+  /**
+   * Rock-paper-scissors before game 1 of every 1v1 duel and match. Off by default so a Start duel starts at once
    * (tests, tools); the duel server turns it on.
    */
   openingRps?: boolean;
@@ -164,6 +264,9 @@ export function createDuelHost(options: {
   const series = createDuelSeriesService(options.db);
   const manifest = JSON.parse(readFileSync(join(options.dataDirectory, "manifest.json"), "utf8")) as { bundleVersion: string };
   if (!manifest.bundleVersion) throw new Error("Engine resource manifest has no bundle version");
+  setCatalogDirectory(options.dataDirectory);
+  const pinnedVersionFor = (format: DuelFormat): string =>
+    pinnedEngineVersion(manifest.bundleVersion, seatCountFor(format), seatCountFor(format) > 2 ? activeMultiScriptsHash(options.dataDirectory) : null);
   const games = new Map<string, LiveGame>();
   const replayCache = new Map<string, DuelReplay>();
   const queues = new Map<string, Promise<unknown>>();
@@ -180,10 +283,28 @@ export function createDuelHost(options: {
   /** Series games whose last start failed: the tick sweep skips a slug until `retryAt`. */
   const startBackoff = new Map<string, { failures: number; retryAt: number }>();
   const pacedBot = typeof options.botStepDelayMs === "function" || (options.botStepDelayMs ?? 0) > 0;
+  const envStall = Number(process.env.DUEL_STALL_MS);
+  // The watchdog is a test tool (it reads every seat's view and writes report folders): on only where DUEL_SCENARIOS=1,
+  // or where DUEL_STALL_MS says so.
+  const defaultStallMs = process.env.DUEL_SCENARIOS === "1" ? DEFAULT_STALL_MS : 0;
+  const stallMs = options.stallMs ?? (process.env.DUEL_STALL_MS !== undefined && Number.isFinite(envStall) && envStall >= 0 ? envStall : defaultStallMs);
+  const debugReadTimeoutMs = options.debugReadTimeoutMs ?? DEFAULT_DEBUG_READ_TIMEOUT_MS;
+  // The stale room read is a test tool like the watchdog: production 1v1 waits for the queue exactly as main did. Off (0) unless
+  // DUEL_SCENARIOS=1 or the caller sets queueBlockedMs.
+  const queueBlockedMs = options.queueBlockedMs ?? (process.env.DUEL_SCENARIOS === "1" ? DEFAULT_QUEUE_BLOCKED_MS : 0);
+  /** The last view built for each seat of each duel (key -1: the spectator). Only views that were built for that seat are kept. */
+  const lastViews = new Map<string, Map<number, DuelEngineView>>();
+  function rememberView(slug: string, seat: number | null, view: DuelEngineView | null | undefined): void {
+    if (!view) return;
+    let perSeat = lastViews.get(slug);
+    if (!perSeat) lastViews.set(slug, (perSeat = new Map()));
+    perSeat.set(seat ?? -1, view);
+  }
   let stopped = false;
 
-  function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings): void {
-    validateDeck(mode, deck, options.dataDirectory, settings);
+  /** Check one deck against the real table format, so a Tag or FFA table also refuses the cards that do not work there. */
+  function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat): void {
+    validateDeck(mode, deck, options.dataDirectory, settings, { table: format });
   }
 
   function workerCreateOptions(
@@ -192,15 +313,116 @@ export function createDuelHost(options: {
     seed: string[],
     masterRule: DuelSession["masterRule"],
     settings: DuelSettings,
+    format: DuelFormat = "1v1",
+    startupScripts?: string[],
+    engine?: DuelEngineChoice,
+    firstTurnDraw = firstTurnDrawFor(mode, masterRule, engine, format),
   ): GameOptions {
-    return {
+    const created: GameOptions = {
       mode,
       decks,
       seed,
       dataDirectory: options.dataDirectory,
       masterRule,
       settings,
+      firstTurnDraw,
     };
+    // 1v1 keeps the exact old options. Other formats name the format; `decks` is one deck per seat in seat order.
+    if (format !== "1v1") created.format = format;
+    // Hand scenarios: the engine runs these Lua chunks before the duel starts. The worker passes options on unchanged.
+    if (startupScripts?.length) {
+      created.startupScripts = startupScripts.map((content, index) => ({ name: `startup-${index}.lua`, content }));
+    }
+    // Only a 1v1 table has a choice of engine. Without a name the worker uses the merged engine.
+    if (format === "1v1" && engine) created.engine = engine;
+    return created;
+  }
+
+  /** The engine a new 1v1 table starts on: `DUEL_1V1_ENGINE`, read now. Scenario tables need the merged engine. Other formats have none. */
+  function engineForNewTable(format: DuelFormat, hasStartupScripts = false): DuelEngineChoice | undefined {
+    if (format !== "1v1") return undefined;
+    return hasStartupScripts ? "pinned" : duel1v1Engine();
+  }
+
+  /**
+   * The engine a saved 1v1 table runs on again (recover, replay): the one it started on, whatever `DUEL_1V1_ENGINE` says now.
+   * A table with no record started before this field existed: it ran on the legacy engine. Other formats have none.
+   */
+  function engineOfSavedTable(format: DuelFormat, setup: { engine?: DuelEngineChoice; startupScripts?: string[] } | undefined): DuelEngineChoice | undefined {
+    if (format !== "1v1") return undefined;
+    return setup?.engine ?? (setup?.startupScripts?.length ? "pinned" : "legacy");
+  }
+
+  function drawRuleOf(state: ReturnType<typeof service.privateState>): boolean {
+    try {
+      return savedFirstTurnDraw(state.setup?.firstTurnDraw, state.session.mode, state.session.masterRule, state.session.format);
+    } catch (error) {
+      throw new RequestError((error as Error).message, 409);
+    }
+  }
+
+  /** Seats the host answers for: practice bots, plus seats that surrendered (they only pass). */
+  function autoSeatsOf(session: DuelSession, entry: LiveGame | undefined): number[] {
+    const seats = new Set<number>();
+    for (const seat of session.seats) if (seat.isBot) seats.add(seat.seat);
+    for (const seat of entry?.surrendered ?? []) seats.add(seat);
+    return [...seats].sort((a, b) => a - b);
+  }
+
+  type AutoPrompt = { kind: "result"; view: DuelEngineView } | { kind: "prompt"; seat: number; view: DuelEngineView };
+
+  /** The first autopilot seat that has the open prompt, or the finished result, or null when a human must act. */
+  async function findAutoPrompt(game: DuelGameWorker, seats: number[]): Promise<AutoPrompt | null> {
+    for (const seat of seats) {
+      const view = await game.view(seat);
+      if (view.result) return { kind: "result", view };
+      if (view.prompt && view.prompt.seat === seat) return { kind: "prompt", seat, view };
+    }
+    return null;
+  }
+
+  /** Rebuild the scripted bot rules of a preset table from its saved setup. */
+  function policiesOf(setup: { presetId?: string; botPolicies?: Record<string, string> } | undefined): Map<number, Rule[]> {
+    const policies = new Map<number, Rule[]>();
+    const preset = setup?.presetId ? getPreset(setup.presetId) : undefined;
+    if (!preset) return policies;
+    for (const [seat, policy] of Object.entries(setup?.botPolicies ?? {})) {
+      if (policy === SCRIPTED_POLICY) policies.set(Number(seat), preset.bots[Number(seat)] ?? []);
+    }
+    return policies;
+  }
+
+  async function chooseAutoAnswer(
+    game: DuelGameWorker,
+    entry: LiveGame | undefined,
+    seat: number,
+    prompt: DuelPrompt,
+    view: DuelEngineView,
+  ): Promise<{ answer: DuelAnswer; note?: string }> {
+    const permittedCards = prompt.kind === "announce-card" ? await game.search("") : undefined;
+    const trace: RuleTraceEntry[] = [];
+    const record = (entry0: RuleTraceEntry) => {
+      if (trace.length < TRACE_LIMIT) trace.push(entry0);
+    };
+    entry?.traces.set(seat, trace);
+    if (entry?.surrendered.has(seat)) {
+      const answer = chooseSurrenderedAnswer(prompt, { permittedCards, table: botTableOf(view) });
+      record({ rule: SURRENDER_AUTOPILOT_NOTE, matched: true, answer });
+      return { answer, note: SURRENDER_AUTOPILOT_NOTE };
+    }
+    const rules = entry?.policies.get(seat);
+    if (rules) {
+      try {
+        const chosen = chooseScripted(rules, prompt, view, { seat, permittedCards, table: botTableOf(view), trace: record });
+        return { answer: chosen.answer, note: chosen.note };
+      } catch (error) {
+        if (error instanceof ScriptedBotError) throw new PracticeBotError(error.message);
+        throw error;
+      }
+    }
+    const answer = choosePracticeBotAnswer(prompt, { permittedCards, table: botTableOf(view) });
+    record({ rule: "practice bot", matched: true, answer });
+    return { answer };
   }
 
   function stampRoomClock(room: DuelRoom, nowMs: number): DuelRoom {
@@ -224,8 +446,9 @@ export function createDuelHost(options: {
     }
   }
 
-  function bothSeatsReady(session: DuelSession): boolean {
-    return session.seats.length === 2 && session.seats.every((entry) => entry.ready);
+  /** Every seat of the table is filled and ready: 2 at a 1v1 table, 3 or 4 at a free-for-all or Tag table. */
+  function allSeatsReady(session: DuelSession): boolean {
+    return session.seats.length === seatCountFor(session.format) && session.seats.every((entry) => entry.ready);
   }
 
   /** A between-games series is due when both players are ready or the side deck window has ended. */
@@ -301,6 +524,7 @@ export function createDuelHost(options: {
   async function disposeGame(slug: string): Promise<void> {
     const entry = games.get(slug);
     games.delete(slug);
+    lastViews.delete(slug);
     cancelBotLoop(slug);
     if (entry) await safeClose(entry.game);
   }
@@ -315,14 +539,22 @@ export function createDuelHost(options: {
 
   async function captureSnapshots(
     game: DuelGameWorker,
+    format: DuelFormat,
     winnerSeat: number | null,
     reason: string,
   ): Promise<DuelFinalSnapshots> {
-    const result = { winnerSeat, reason };
+    const result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string } = { winnerSeat, reason };
+    // Tag: a team wins. `winnerSeat` is the lowest seat of the team; `winnerTeam` names it.
+    if (format === "tag") result.winnerTeam = winnerSeat === null ? null : teamOfSeat(format, winnerSeat);
+    const seats: DuelEngineView[] = [];
+    for (let seat = 0; seat < seatCountFor(format); seat += 1) {
+      seats.push(freezeView(await game.view(seat), result));
+    }
     return {
       public: freezeView(await game.view(null), result),
-      seat0: freezeView(await game.view(0), result),
-      seat1: freezeView(await game.view(1), result),
+      seat0: seats[0],
+      seat1: seats[1],
+      seats,
     };
   }
 
@@ -335,7 +567,7 @@ export function createDuelHost(options: {
   ): Promise<void> {
     let snapshots: DuelFinalSnapshots;
     try {
-      snapshots = await captureSnapshots(game, winnerSeat, reason);
+      snapshots = await captureSnapshots(game, service.get(slug, guildId).format, winnerSeat, reason);
     } catch (error) {
       await disposeGame(slug);
       throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
@@ -346,18 +578,34 @@ export function createDuelHost(options: {
     await afterGameEnded(slug, guildId);
   }
 
-  async function readClockView(game: DuelGameWorker): Promise<DecisionClockView> {
-    const first = await game.view(0);
-    const opening = first.revision === 0 && first.turn <= 1;
-    if (first.result) return { turn: first.turn, promptSeat: null };
-    if (first.prompt && isSeatIndex(first.prompt.seat)) {
-      return { turn: first.turn, promptSeat: first.prompt.seat, opening };
+  /** Who holds the open prompt, read from every seat's view. `stopped` seats (surrendered, eliminated, loss pending) do not get a running clock. */
+  async function readClockView(
+    game: DuelGameWorker,
+    seatCount: number,
+    surrendered?: Iterable<number>,
+  ): Promise<DecisionClockView> {
+    const stopped = new Set<number>(surrendered ?? []);
+    let firstTurn = 0;
+    // The first snapshot of a new game gets the opening grace (clock.ts DUEL_OPENING_GRACE_MS).
+    let opening = false;
+    const finish = (turn: number, promptSeat: number | null): DecisionClockView => {
+      const clockView: DecisionClockView = { turn, promptSeat };
+      if (promptSeat !== null && opening) clockView.opening = true;
+      if (stopped.size > 0) clockView.stoppedSeats = [...stopped].sort((a, b) => a - b);
+      return clockView;
+    };
+    for (let seat = 0; seat < seatCount; seat += 1) {
+      const view = await game.view(seat);
+      if (seat === 0) {
+        firstTurn = view.turn;
+        opening = view.revision === 0 && view.turn <= 1;
+      }
+      if (view.result) return finish(firstTurn, null);
+      // A seat whose loss is only flagged (the core lands it at the next Adjust) has left already: its clock must not run.
+      for (const entry of view.seats ?? []) if (entry.eliminated || entry.pendingElimination) stopped.add(entry.seat);
+      if (view.prompt && isSeatIndex(view.prompt.seat)) return finish(view.turn, view.prompt.seat);
     }
-    const second = await game.view(1);
-    if (second.prompt && isSeatIndex(second.prompt.seat)) {
-      return { turn: second.turn, promptSeat: second.prompt.seat, opening };
-    }
-    return { turn: first.turn, promptSeat: null };
+    return finish(firstTurn, null);
   }
 
   async function persistAcceptedCommand(
@@ -367,9 +615,10 @@ export function createDuelHost(options: {
     command: DuelCommand,
     game: DuelGameWorker,
     decidedAt: number,
+    note?: string,
   ): Promise<void> {
-    const view = await readClockView(game);
     const state = service.privateState(slug, guildId);
+    const view = await readClockView(game, seatCountFor(state.session.format), games.get(slug)?.surrendered);
     const clock = syncDecisionClock(
       state.clock,
       view,
@@ -379,40 +628,64 @@ export function createDuelHost(options: {
       state.session.settings.timeout,
       isSeatIndex(seat) ? seat : undefined,
     );
-    service.recordCommand(slug, guildId, seat, command, clock);
+    // The journal keeps the reason of a scripted bot in `note`. Replay reads only promptId, revision and answer.
+    service.recordCommand(slug, guildId, seat, note ? ({ ...command, note } as DuelCommand) : command, clock);
+  }
+
+  /** Stop a long duel once no human can play. This is an interruption, not a game draw. */
+  async function stopLongBotDuel(slug: string, guildId: string, session: DuelSession, entry: LiveGame | undefined, view: DuelEngineView): Promise<boolean> {
+    if (view.turn < BOT_ONLY_TURN_LIMIT) return false;
+    const humanLiving = session.seats.some((seat) => {
+      if (seat.isBot || entry?.surrendered.has(seat.seat)) return false;
+      const state = view.seats.find((state) => state.seat === seat.seat);
+      return !state?.eliminated && !state?.pendingElimination;
+    });
+    if (humanLiving) return false;
+    await interruptBrokenBot(slug, guildId, `No human seat is living. The duel reached the limit of ${BOT_ONLY_TURN_LIMIT} turns.`);
+    return true;
   }
 
   async function advancePracticeBot(slug: string, guildId: string, game: DuelGameWorker): Promise<void> {
-    for (let step = 0; step < BOT_ADVANCE_LIMIT; step++) {
+    let stepsInTurn = 0;
+    let lastTurn: number | null = null;
+    while (stepsInTurn < BOT_ADVANCE_LIMIT) {
+      stepsInTurn += 1;
       const session = service.get(slug, guildId);
       if (session.status !== "active") return;
-      const bot = session.seats.find((seat) => seat.isBot);
-      if (!bot) return;
-      const view = await game.view(bot.seat);
-      if (view.result) return;
-      const prompt = view.prompt;
-      if (!prompt || prompt.seat !== bot.seat) return;
-
-      let permittedCards;
-      if (prompt.kind === "announce-card") {
-        permittedCards = await game.search("");
+      const entry = games.get(slug);
+      const autoSeats = autoSeatsOf(session, entry);
+      if (autoSeats.length === 0) return;
+      const found = await findAutoPrompt(game, autoSeats);
+      if (!found || found.kind === "result") return;
+      const { seat, view } = found;
+      if (await stopLongBotDuel(slug, guildId, session, entry, view)) return;
+      const prompt = view.prompt!;
+      if (view.turn !== lastTurn) {
+        lastTurn = view.turn;
+        stepsInTurn = 1;
       }
-      let answer;
+
+      let answer: DuelAnswer;
+      let note: string | undefined;
       try {
-        answer = choosePracticeBotAnswer(prompt, { permittedCards });
+        ({ answer, note } = await chooseAutoAnswer(game, entry, seat, prompt, view));
       } catch (error) {
         const message = error instanceof PracticeBotError ? error.message : "Practice bot failed to choose";
         throw new RequestError(message, 500);
       }
+      if ((answer as { surrender?: boolean }).surrender) {
+        await forfeitSeat(slug, guildId, game, seat, "Surrender", false);
+        continue;
+      }
       const command: DuelCommand = { promptId: prompt.id, revision: view.revision, answer };
       const decidedAt = now();
       try {
-        await game.answer(bot.seat, prompt.id, answer);
+        await game.answer(seat, prompt.id, answer);
       } catch (error) {
         throw new RequestError(error instanceof Error ? error.message : "Practice bot made an illegal choice", 500);
       }
       try {
-        await persistAcceptedCommand(slug, guildId, bot.seat, command, game, decidedAt);
+        await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, note);
       } catch (error) {
         await disposeGame(slug);
         throw error;
@@ -466,7 +739,7 @@ export function createDuelHost(options: {
 
   function startBotLoop(slug: string, guildId: string): void {
     if (stopped || botLoops.has(slug)) return;
-    const loop: BotLoop = { cancelled: false, wake: null, done: Promise.resolve() };
+    const loop: BotLoop = { cancelled: false, wake: null, done: Promise.resolve(), timer: null };
     botLoops.set(slug, loop);
     const finish = () => {
       if (botLoops.get(slug) === loop) botLoops.delete(slug);
@@ -477,6 +750,8 @@ export function createDuelHost(options: {
     // registry as it truly is and can start a fresh loop.
     loop.done = (async () => {
       let steps = 0;
+      let replans = 0;
+      let lastTurn: number | null = null;
       let settle = 0;
       for (;;) {
         if (loop.cancelled || stopped) return finish();
@@ -488,7 +763,14 @@ export function createDuelHost(options: {
           return finish();
         }
         if (!plan) return;
+        if (plan.turn !== lastTurn) {
+          lastTurn = plan.turn;
+          steps = 0;
+        }
+        const startedAt = now();
+        loop.timer = { seat: plan.seat, delayMs: plan.delayMs, startedAt, dueAt: startedAt + plan.delayMs };
         await botPause(loop, plan.delayMs);
+        loop.timer = null;
         if (loop.cancelled || stopped) return finish();
         let outcome: BotOutcome;
         try {
@@ -498,14 +780,21 @@ export function createDuelHost(options: {
           return finish();
         }
         if (outcome.kind === "stop") return;
-        if (outcome.kind === "replan") continue;
-        steps += 1;
-        settle = outcome.visible ? plan.cost : 0;
-        if (steps >= BOT_ADVANCE_LIMIT) {
+        if (outcome.kind === "replan") {
+          replans += 1;
+          if (replans < BOT_REPLAN_LIMIT) continue;
+        } else {
+          replans = 0;
+          steps += 1;
+          settle = outcome.visible ? plan.cost : 0;
+        }
+        if (steps >= BOT_ADVANCE_LIMIT || replans >= BOT_REPLAN_LIMIT) {
           await enqueue(slug, async () => {
             if (loop.cancelled || stopped) return;
             finish();
-            await interruptBrokenBot(slug, guildId, "The practice bot failed to make progress.");
+            await interruptBrokenBot(slug, guildId, replans >= BOT_REPLAN_LIMIT
+              ? "The practice bot could not keep a valid plan."
+              : "The practice bot failed to make progress.");
           }).catch((error) => console.warn("[duel] practice bot interrupt failed", error));
           return;
         }
@@ -529,40 +818,46 @@ export function createDuelHost(options: {
       return null;
     }
     const session = service.get(slug, guildId);
-    const bot = session.seats.find((seat) => seat.isBot);
     const entry = games.get(slug);
-    if (session.status !== "active" || !bot || !entry?.game.running) {
+    const autoSeats = autoSeatsOf(session, entry);
+    if (session.status !== "active" || autoSeats.length === 0 || !entry?.game.running) {
       finish();
       return null;
     }
     const game = entry.game;
-    let view: DuelEngineView;
+    let found: AutoPrompt | null;
     try {
-      view = await game.view(bot.seat);
+      found = await findAutoPrompt(game, autoSeats);
     } catch (error) {
       console.warn("[duel] practice bot could not read the duel", error);
       finish();
       await disposeGame(slug);
       return null;
     }
-    if (view.result) {
+    if (found?.kind === "result") {
       finish();
+      const result = found.view.result!;
       try {
-        await persistComplete(slug, guildId, game, view.result.winnerSeat, view.result.reason);
+        await persistComplete(slug, guildId, game, result.winnerSeat, result.reason);
       } catch (error) {
         console.warn("[duel] could not record the finished duel", error);
       }
       return null;
     }
-    const prompt = view.prompt;
-    if (!prompt || prompt.seat !== bot.seat) {
+    if (!found) {
       finish();
       return null;
     }
+    const { view, seat } = found;
+    if (await stopLongBotDuel(slug, guildId, session, entry, view)) {
+      finish();
+      return null;
+    }
+    const prompt = view.prompt!;
     let answer: DuelAnswer;
+    let note: string | undefined;
     try {
-      const permittedCards = prompt.kind === "announce-card" ? await game.search("") : undefined;
-      answer = choosePracticeBotAnswer(prompt, { permittedCards });
+      ({ answer, note } = await chooseAutoAnswer(game, entry, seat, prompt, view));
     } catch (error) {
       finish();
       if (!game.running) {
@@ -576,11 +871,14 @@ export function createDuelHost(options: {
     }
     const cost = botAnswerCost(prompt, answer);
     return {
+      seat,
       promptId: prompt.id,
       revision: view.revision,
       answer,
+      note,
       cost,
       delayMs: botDelayFor(prompt, cost, settle),
+      turn: view.turn,
     };
   }
 
@@ -597,38 +895,51 @@ export function createDuelHost(options: {
       return { kind: "stop" };
     }
     const session = service.get(slug, guildId);
-    const bot = session.seats.find((seat) => seat.isBot);
     const entry = games.get(slug);
-    if (session.status !== "active" || !bot || !entry?.game.running) {
+    if (session.status !== "active" || !autoSeatsOf(session, entry).includes(plan.seat) || !entry?.game.running) {
       finish();
       return { kind: "stop" };
     }
     const game = entry.game;
     let before: DuelEngineView;
     try {
-      before = await game.view(bot.seat);
+      before = await game.view(plan.seat);
     } catch (error) {
       console.warn("[duel] practice bot could not read the duel", error);
       finish();
       await disposeGame(slug);
       return { kind: "stop" };
     }
-    if (before.result || before.prompt?.seat !== bot.seat) return { kind: "replan" };
+    if (before.result || before.prompt?.seat !== plan.seat) return { kind: "replan" };
     if (before.prompt.id !== plan.promptId || before.revision !== plan.revision) return { kind: "replan" };
 
+    if ((plan.answer as { surrender?: boolean }).surrender) {
+      try {
+        await forfeitSeat(slug, guildId, game, plan.seat, "Surrender", false);
+      } catch (error) {
+        finish();
+        console.warn("[duel] scripted bot could not surrender", error);
+        await interruptBrokenBot(slug, guildId, "The practice bot could not continue.");
+        return { kind: "stop" };
+      }
+      return { kind: "acted", visible: true };
+    }
     const command: DuelCommand = { promptId: plan.promptId, revision: plan.revision, answer: plan.answer };
     const decidedAt = now();
     try {
-      await game.answer(bot.seat, plan.promptId, plan.answer);
+      await game.answer(plan.seat, plan.promptId, plan.answer);
     } catch (error) {
       finish();
       console.warn("[duel] practice bot answer was rejected", error);
+      const rejectedTrace = entry.traces.get(plan.seat) ?? [];
+      rejectedTrace.push({ rule: plan.note ?? "practice bot", matched: true, answer: plan.answer, rejected: true, reason: error instanceof Error ? error.message : String(error) });
+      entry.traces.set(plan.seat, rejectedTrace);
       if (!game.running) await disposeGame(slug);
       else await interruptBrokenBot(slug, guildId, "The practice bot could not continue.");
       return { kind: "stop" };
     }
     try {
-      await persistAcceptedCommand(slug, guildId, bot.seat, command, game, decidedAt);
+      await persistAcceptedCommand(slug, guildId, plan.seat, command, game, decidedAt, plan.note);
     } catch (error) {
       // The answer was applied but not journaled. Dropping the worker makes the next request rebuild the
       // duel from the journal, which never contains an unrecorded command.
@@ -639,7 +950,7 @@ export function createDuelHost(options: {
     }
     let visible = false;
     try {
-      visible = newestEventId(await game.view(bot.seat)) > newestEventId(before);
+      visible = newestEventId(await game.view(plan.seat)) > newestEventId(before);
     } catch {
       // Pacing hint only.
     }
@@ -658,11 +969,19 @@ export function createDuelHost(options: {
     const state = service.privateState(slug, guildId);
     if (state.session.status !== "active") throw new RequestError("This duel is not active", 409);
     if (!state.seed || !state.bundleVersion) throw new RequestError("Duel has not started", 409);
-    if (state.bundleVersion !== manifest.bundleVersion) {
+    if (state.bundleVersion !== pinnedVersionFor(state.session.format)) {
       service.interrupt(slug, guildId, "The pinned engine resources changed; this duel cannot be replayed safely.");
       await emitChange(slug, guildId);
       await afterGameEnded(slug, guildId);
       throw new RequestError("Duel interrupted: engine resource version changed", 409);
+    }
+    let firstTurnDraw: boolean;
+    try {
+      firstTurnDraw = drawRuleOf(state);
+    } catch (error) {
+      service.interrupt(slug, guildId, (error as Error).message);
+      await emitChange(slug, guildId);
+      throw error;
     }
     const game = spawn();
     try {
@@ -672,6 +991,10 @@ export function createDuelHost(options: {
         state.seed,
         state.session.masterRule,
         state.session.settings,
+        state.session.format,
+        state.setup?.startupScripts,
+        engineOfSavedTable(state.session.format, state.setup),
+        firstTurnDraw,
       ));
     } catch (error) {
       await safeClose(game);
@@ -686,12 +1009,16 @@ export function createDuelHost(options: {
           await safeClose(game);
           throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
         }
-        if (view.revision !== input.command.revision || view.prompt?.id !== input.command.promptId) {
+        const elimination = eliminationReasonOf(input.command);
+        if (view.revision !== input.command.revision || (elimination === null && view.prompt?.id !== input.command.promptId)) {
           throw new ReplayMismatchError("Duel recovery did not reproduce the saved prompt");
         }
         try {
-          await game.answer(input.seat, input.command.promptId, input.command.answer);
+          if (elimination === null) await game.answer(input.seat, input.command.promptId, input.command.answer);
+          else if (game.eliminate) await game.eliminate(input.seat, elimination);
+          else throw new ReplayMismatchError("Duel recovery needs an engine that can eliminate a duelist");
         } catch (error) {
+          if (error instanceof ReplayMismatchError) throw error;
           if (!game.running) {
             await safeClose(game);
             throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
@@ -709,9 +1036,108 @@ export function createDuelHost(options: {
       }
       throw error;
     }
-    games.set(slug, { game, lastRequestAt: now(), guildId });
+    games.set(slug, {
+      game,
+      lastRequestAt: now(),
+      guildId,
+      surrendered: new Set(state.setup?.surrenderedSeats ?? []),
+      policies: policiesOf(state.setup),
+      traces: new Map(),
+    });
     await driveBot(slug, guildId, game);
     return game;
+  }
+
+  /**
+   * Remove a seat from a duel with more than two seats through the core (`Debug.EliminateDuelist`).
+   * Returns false when the core cannot do it: the caller then keeps the seat on autopilot.
+   */
+  async function eliminateInCore(slug: string, guildId: string, game: DuelGameWorker, seat: number, code: number): Promise<boolean> {
+    if (typeof game.eliminate !== "function") return false;
+    const before = await game.view(seat);
+    try {
+      await game.eliminate(seat, code);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Engine rejected the elimination";
+      if (/no Debug\.EliminateDuelist/.test(message)) return false;
+      if (/already eliminated/.test(message)) return true;
+      if (!game.running) throw new RequestError(message, 503);
+      throw new RequestError(message, 409);
+    }
+    const command: DuelCommand = { promptId: `${ELIMINATE_PROMPT_PREFIX}${code}`, revision: before.revision, answer: {} };
+    try {
+      await persistAcceptedCommand(slug, guildId, seat, command, game, now());
+    } catch (error) {
+      // Applied but not journaled: drop the worker so the next request rebuilds the duel from the journal.
+      await disposeGame(slug);
+      throw error;
+    }
+    return true;
+  }
+
+  /**
+   * A seat gives up (surrender or time limit).
+   * - 1v1: the other seat wins. Tag: the team is the unit, the other team wins (winner seat = its lowest seat).
+   * - FFA (3 or 4 seats): only this seat is out. The host records it and plays its prompts with passes
+   *   (only when the core has no `Debug.EliminateDuelist`; otherwise the core removes it). The last living seat wins.
+   */
+  async function forfeitSeat(
+    slug: string,
+    guildId: string,
+    game: DuelGameWorker,
+    seat: number | null,
+    reason: string,
+    drive = true,
+  ): Promise<void> {
+    const state = service.privateState(slug, guildId);
+    const format = state.session.format;
+    if (seat === null || seat >= seatCountFor(format)) {
+      await persistComplete(slug, guildId, game, null, reason);
+      return;
+    }
+    if (format === "1v1" || format === "tag") {
+      const winner = opponentSeatsOf(format, seat)[0];
+      if (winner === undefined) throw new RequestError("Opponent is missing", 409);
+      await persistComplete(slug, guildId, game, winner, reason);
+      return;
+    }
+    const entry = games.get(slug);
+    if (!entry) throw new RequestError("Duel is not running", 409);
+    if (!entry.surrendered.has(seat) && (await eliminateInCore(slug, guildId, game, seat, reason === TIME_LIMIT_REASON ? WIN_REASON_TIME_LIMIT : WIN_REASON_SURRENDER))) {
+      // The core removed the seat (journaled like an answer). The last duelist standing ends the duel.
+      const after = await game.view(0);
+      if (after.result) {
+        await persistComplete(slug, guildId, game, after.result.winnerSeat, reason);
+        return;
+      }
+      // The loss of a seat that is flagged lands only after the open prompt is answered, and that prompt may belong to the last
+      // living seat. That seat has already won: do not wait for its answer (a time limit on it would end the duel as a draw).
+      const { living } = botTableOf(after);
+      if (living?.length === 1) {
+        await persistComplete(slug, guildId, game, living[0] ?? null, reason);
+        return;
+      }
+      await emitChange(slug, guildId);
+      if (drive) await driveBot(slug, guildId, game);
+      return;
+    }
+    if (!entry.surrendered.has(seat)) {
+      entry.surrendered.add(seat);
+      service.setSetup(slug, guildId, { ...(state.setup ?? {}), surrenderedSeats: [...entry.surrendered].sort((a, b) => a - b) });
+    }
+    if (state.clock) service.setClock(slug, guildId, stopSeatClock(state.clock, seat, now()));
+    const view = await game.view(0);
+    const living: number[] = [];
+    for (let index = 0; index < seatCountFor(format); index += 1) {
+      const eliminated = view.seats?.find((entryView) => entryView.seat === index)?.eliminated === true;
+      if (!entry.surrendered.has(index) && !eliminated) living.push(index);
+    }
+    if (living.length <= 1) {
+      await persistComplete(slug, guildId, game, living[0] ?? null, reason);
+      return;
+    }
+    await emitChange(slug, guildId);
+    if (drive) await driveBot(slug, guildId, game);
   }
 
   async function settleClock(slug: string, guildId: string, game?: DuelGameWorker, at = now()): Promise<void> {
@@ -721,7 +1147,8 @@ export function createDuelHost(options: {
     if (!isClockDue(clock, at)) return;
 
     const expired = clock.activeSeat;
-    if (expired !== null && state.session.seats.some((seat) => seat.seat === expired && seat.isBot)) {
+    const surrenderedSeat = expired !== null && (state.setup?.surrenderedSeats ?? []).includes(expired);
+    if (expired !== null && (surrenderedSeat || state.session.seats.some((seat) => seat.seat === expired && seat.isBot))) {
       const live = game?.running ? game : await recover(slug, guildId);
       if (game?.running) await driveBot(slug, guildId, live);
       return;
@@ -734,19 +1161,51 @@ export function createDuelHost(options: {
       return;
     }
 
-    const winnerSeat = expired === 0 ? 1 : expired === 1 ? 0 : null;
     const live = game?.running ? game : await recover(slug, guildId);
-    await persistComplete(slug, guildId, live, winnerSeat, TIME_LIMIT_REASON);
+    await forfeitSeat(slug, guildId, live, expired, TIME_LIMIT_REASON);
   }
 
-  async function project(slug: string, guildId: string, playerId: number, game?: DuelGameWorker): Promise<DuelRoom> {
+  async function project(slug: string, guildId: string, playerId: number, game?: DuelGameWorker, spectate = false): Promise<DuelRoom> {
     const room = stampRoomClock(service.room(slug, guildId, playerId), now());
     if (game && game.running && room.session.status === "active") {
       room.engine = await game.view(room.mySeat);
+      rememberView(slug, room.mySeat, room.engine);
+      // Surrendered seats stay in the core on autopilot. Show them as out of the game.
+      for (const gone of games.get(slug)?.surrendered ?? []) {
+        const seatView = room.engine.seats?.find((entry) => entry.seat === gone);
+        if (seatView) seatView.eliminated = true;
+      }
       if (room.engine.result) {
         await persistComplete(slug, guildId, game, room.engine.result.winnerSeat, room.engine.result.reason);
-        return stampRoomClock(service.room(slug, guildId, playerId), now());
+        return project(slug, guildId, playerId, undefined, spectate);
       }
+    }
+    // Per-seat snapshots of a finished duel still hold that seat's final hand. Returning the room is safe only because
+    // service.room picks the actor's OWN snapshot, so a loser who spectated during the duel still sees "lose" and their
+    // own row. Never return another seat's or a stored snapshot from this branch.
+    if (spectate && room.mySeat !== null && (room.session.status === "completed" || room.session.status === "interrupted")) {
+      return room;
+    }
+    if (spectate) {
+      if ((room.session.format !== "ffa3" && room.session.format !== "ffa4") ||
+          (room.mySeat !== null && !room.engine?.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated))) {
+        throw new RequestError("You can watch after your seat is eliminated", 409);
+      }
+      if (game?.running && room.session.status === "active") {
+        room.engine = await game.view(null);
+        rememberView(slug, null, room.engine);
+      } else {
+        // Keep the seat record for standings; the saved public view has spectator privacy.
+        const saved = options.db.prepare<[string, string], { snapshot_public_json: string | null }>(
+          "select snapshot_public_json from duels where web_slug = ? and guild_id = ?",
+        ).get(slug, guildId);
+        room.engine = saved?.snapshot_public_json ? JSON.parse(saved.snapshot_public_json) as DuelEngineView : null;
+      }
+      room.role = "spectator";
+      room.mySeat = null;
+      room.myDeck = null;
+      room.mySide = null;
+      if (room.engine) room.engine.prompt = null;
     }
     return room;
   }
@@ -769,12 +1228,13 @@ export function createDuelHost(options: {
     if (!state.seed || !state.bundleVersion) {
       throw new RequestError("This duel has no recorded moves to replay.", 409);
     }
-    if (state.bundleVersion !== manifest.bundleVersion) {
+    if (state.bundleVersion !== pinnedVersionFor(state.session.format)) {
       throw new RequestError(
         "Replay unavailable: the duel engine changed after this game was played. The final board is still available.",
         409,
       );
     }
+    const firstTurnDraw = drawRuleOf(state);
     const viewer = room.mySeat;
     const mismatch = () =>
       new RequestError("Replay could not reproduce this duel. The final board is still available.", 409);
@@ -786,7 +1246,7 @@ export function createDuelHost(options: {
     let lastView: DuelEngineView;
     try {
       try {
-        await game.create(workerCreateOptions(session.mode, state.decks, state.seed, session.masterRule, session.settings));
+        await game.create(workerCreateOptions(session.mode, state.decks, state.seed, session.masterRule, session.settings, session.format, state.setup?.startupScripts, engineOfSavedTable(session.format, state.setup), firstTurnDraw));
       } catch (error) {
         throw transport(error);
       }
@@ -800,10 +1260,14 @@ export function createDuelHost(options: {
         const input = state.commands[i]!;
         try {
           const before = await game.view(input.seat);
-          if (before.revision !== input.command.revision || before.prompt?.id !== input.command.promptId) throw mismatch();
+          const elimination = eliminationReasonOf(input.command);
+          if (before.revision !== input.command.revision || (elimination === null && before.prompt?.id !== input.command.promptId)) throw mismatch();
           try {
-            await game.answer(input.seat, input.command.promptId, input.command.answer);
+            if (elimination === null) await game.answer(input.seat, input.command.promptId, input.command.answer);
+            else if (game.eliminate) await game.eliminate(input.seat, elimination);
+            else throw mismatch();
           } catch (error) {
+            if (error instanceof RequestError) throw error;
             if (!game.running) throw transport(error);
             throw mismatch();
           }
@@ -831,7 +1295,13 @@ export function createDuelHost(options: {
             prioritySeat: null,
             log: [],
             events: [],
-            result: { winnerSeat: session.winnerSeat, reason: session.resultReason ?? "Duel ended" },
+            result: {
+              winnerSeat: session.winnerSeat,
+              ...(session.format === "tag"
+                ? { winnerTeam: session.winnerSeat === null ? null : teamOfSeat(session.format, session.winnerSeat) }
+                : {}),
+              reason: session.resultReason ?? "Duel ended",
+            },
           },
         });
       }
@@ -857,24 +1327,524 @@ export function createDuelHost(options: {
     return built;
   }
 
-  /** Starts a lobby game. `organizer` null is a system start, which the duel service only allows for a series game. */
-  /** The checks every start makes: a lobby duel, two ready seats, two legal decks. */
+  function requireScenarios(): void {
+    if (process.env.DUEL_SCENARIOS !== "1") throw new RequestError("Not found", 404);
+  }
+
+  /** Hand scenarios: make a table from a preset, fill the bot seats and start the duel. */
+  async function startPreset(body: Record<string, unknown>, guildId: string, actor: number): Promise<unknown> {
+    const preset = typeof body.presetId === "string" ? getPreset(body.presetId) : undefined;
+    if (!preset) throw new RequestError("Unknown preset", 404);
+    const presetBlock = multiplayerSeatsBlockReason(seatCountFor(preset.format), multiplayerTablesEnabled());
+    if (presetBlock) throw new RequestError(presetBlock, 403);
+    if (preset.needs === "multi-core" && !multiCoreAvailable(options.dataDirectory)) {
+      throw new RequestError("This scenario needs the multi-duelist engine core, which is not installed on this server yet.", 409);
+    }
+    let seed: string[];
+    if (body.seed === undefined) {
+      const bytes = randomBytes(32);
+      seed = [0, 8, 16, 24].map((offset) => bytes.readBigUInt64LE(offset).toString());
+    } else if (Array.isArray(body.seed) && body.seed.length === 4 && body.seed.every((item) => typeof item === "string" && /^\d{1,20}$/.test(item))) {
+      seed = body.seed as string[];
+    } else {
+      throw new RequestError("Seed must be 4 decimal strings", 400);
+    }
+    let compiled: ReturnType<typeof compileBoard>;
+    try {
+      compiled = compileBoard(preset.board, options.dataDirectory);
+    } catch (error) {
+      throw new RequestError(error instanceof Error ? error.message : "Preset board is invalid", 500);
+    }
+    const copts = compiled.options;
+    const seatCount = seatCountFor(preset.format);
+    const created = service.create({
+      guildId,
+      organizerPlayerId: actor,
+      name: preset.title,
+      mode: copts.mode ?? "normal",
+      masterRule: copts.masterRule,
+      settings: copts.settings,
+      format: preset.format,
+    });
+    const slug = created.slug;
+    let game: DuelGameWorker | undefined;
+    try {
+      service.setDeck(slug, guildId, actor, copts.decks[0]!);
+      for (let seat = 1; seat < seatCount; seat += 1) service.addPracticeBot(slug, guildId, actor, copts.decks[seat]!, seat);
+      const state = service.privateState(slug, guildId);
+      const settings = state.session.settings;
+      const scripts = (copts.startupScripts ?? []).map((script) => script.content);
+      const engine = engineForNewTable(preset.format, true);
+      const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, engine, preset.format);
+      const botPolicies: Record<string, string> = {};
+      for (let seat = 1; seat < seatCount; seat += 1) botPolicies[String(seat)] = SCRIPTED_POLICY;
+      game = spawn();
+      try {
+        await game.create(workerCreateOptions(state.session.mode, state.decks, seed, state.session.masterRule, settings, preset.format, scripts, engine, firstTurnDraw));
+      } catch (error) {
+        throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
+      }
+      const clock = startDecisionClock(await readClockView(game, seatCount), settings.turnSeconds, now(), seatCount);
+      service.activate(slug, guildId, actor, seed, pinnedVersionFor(preset.format), clock, {
+        firstTurnDraw,
+        scenarioId: preset.id,
+        presetId: preset.id,
+        startupScripts: scripts,
+        botPolicies,
+        ...(preset.format === "1v1" ? { engine: "pinned" as const } : {}),
+      });
+      games.set(slug, {
+        game,
+        lastRequestAt: now(),
+        guildId,
+        surrendered: new Set(),
+        policies: policiesOf({ presetId: preset.id, botPolicies }),
+        traces: new Map(),
+      });
+    } catch (error) {
+      games.delete(slug);
+      if (game) await safeClose(game);
+      try {
+        service.cancel(slug, guildId, actor);
+      } catch {
+        // The table is already gone or started.
+      }
+      throw error;
+    }
+    await emitChange(slug, guildId);
+    await driveBot(slug, guildId, game);
+    const room = await project(slug, guildId, actor, game);
+    return { slug, session: room.session, room };
+  }
+
+  /** One debug read of a view. A stuck worker never answers, so every read has a time limit. */
+  async function readDebugView(slug: string, game: DuelGameWorker, seat: number | null): Promise<{ view: DuelEngineView | null; error?: string }> {
+    try {
+      const view = await withTimeout(game.view(seat), debugReadTimeoutMs, `view ${seat === null ? "spectator" : `seat ${seat}`}`);
+      rememberView(slug, seat, view);
+      return { view };
+    } catch (error) {
+      return { view: null, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  function workerStateOf(game: DuelGameWorker | undefined): WorkerDebugState {
+    return (
+      game?.debugState?.() ?? {
+        busy: false,
+        lastOp: null,
+        lastOpAt: null,
+        wasmSha: null,
+        wasmFile: null,
+        callsSinceLastPrompt: 0,
+        messagesSinceLastPrompt: 0,
+      }
+    );
+  }
+
+  /**
+   * Hand scenarios: everything a triage tool needs to classify a stuck duel. Reads the worker with time limits and never
+   * waits in the duel queue, so it answers even when the core is stuck. `worker.callsSinceLastPrompt` and
+   * `worker.messagesSinceLastPrompt` are as of the last request the worker finished.
+   */
+  async function buildDebugTrace(slug: string, guildId: string): Promise<Record<string, unknown>> {
+    const session = service.get(slug, guildId);
+    const entry = games.get(slug);
+    const game = entry?.game;
+    const seatCount = seatCountFor(session.format);
+    const errors: string[] = [];
+    const reads = game?.running
+      ? await Promise.all([...Array.from({ length: seatCount }, (_, seat) => readDebugView(slug, game, seat)), readDebugView(slug, game, null)])
+      : [];
+    const spectatorRead = reads[seatCount];
+    for (const read of reads) if (read.error) errors.push(read.error);
+    const seats = Array.from({ length: seatCount }, (_, seat) => {
+      const view = reads[seat]?.view ?? null;
+      const prompt = view?.prompt && view.prompt.seat === seat ? view.prompt : undefined;
+      return { seat, view, ...(prompt ? { prompt } : {}) };
+    });
+    const spectator = spectatorRead?.view ?? null;
+    const revision = spectator?.revision ?? seats.find((item) => item.view)?.view?.revision ?? null;
+    const worker = workerStateOf(game);
+    const loop = botLoops.get(slug);
+    const botSeats = autoSeatsOf(session, entry).map((seat) => {
+      const policy = entry?.surrendered.has(seat) ? "surrendered" : entry?.policies.has(seat) ? "scripted" : "practice";
+      const timer = loop?.timer && loop.timer.seat === seat ? { delayMs: loop.timer.delayMs, startedAt: loop.timer.startedAt, dueAt: loop.timer.dueAt } : undefined;
+      return { seat, policy, ...(timer ? { timer } : {}), lastTrace: entry?.traces.get(seat) ?? [] };
+    });
+    return {
+      revision,
+      wasmSha: worker.wasmSha,
+      wasmFile: worker.wasmFile,
+      seats,
+      promptLog: game?.promptLog?.() ?? [],
+      spectator,
+      bot: { seats: botSeats },
+      worker: {
+        busy: worker.busy,
+        lastOp: worker.lastOp,
+        lastOpAt: worker.lastOpAt,
+        callsSinceLastPrompt: worker.callsSinceLastPrompt,
+        messagesSinceLastPrompt: worker.messagesSinceLastPrompt,
+      },
+      slug,
+      status: session.status,
+      at: now(),
+      ...(errors.length > 0 ? { errors } : {}),
+    };
+  }
+
+  /**
+   * The journal lines of a report. First line: the e2e journal header (format `yugidraft-duel-journal/1`, decks, settings,
+   * startup scripts, core sha and more). Then one line per accepted command at its seq (`answer` or `eliminate`). A surrender
+   * sits before the first answer that the host gave for that seat on autopilot, so a replayer sees it at its seq.
+   */
+  function reportJournalLines(state: ReturnType<typeof service.privateState>, worker: WorkerDebugState): unknown[] {
+    const session = state.session;
+    const startupScripts = (state.setup?.startupScripts ?? []).map((content, index) => ({ name: `startup-${index}.lua`, content }));
+    const lines: unknown[] = [
+      {
+        type: "duel",
+        format: "yugidraft-duel-journal/1",
+        slug: session.slug,
+        name: session.name,
+        ...(state.setup?.presetId ? { presetId: state.setup.presetId } : {}),
+        mode: session.mode,
+        tableFormat: session.format,
+        masterRule: session.masterRule,
+        status: session.status,
+        winnerSeat: session.winnerSeat,
+        resultReason: session.resultReason,
+        createdAt: session.createdAt,
+        endedAt: session.endedAt,
+        bundleVersion: state.bundleVersion,
+        // The Lua overlay a duel with more than two seats loads, as it is when the journal is written. bundleVersion
+        // above pins it at the start, but only as one hash, so this field says which folder to look for.
+        multiScriptsHash: seatCountFor(session.format) > 2 ? activeMultiScriptsHash(options.dataDirectory) : null,
+        seed: state.seed,
+        settings: session.settings,
+        setup: state.setup ?? null,
+        startupScripts,
+        wasmSha: worker.wasmSha,
+        wasmFile: worker.wasmFile,
+        wasmSha256: worker.wasmSha && worker.wasmFile ? { [worker.wasmFile]: worker.wasmSha } : {},
+        seats: session.seats.map((seat) => ({ seat: seat.seat, playerId: seat.playerId, isBot: seat.isBot })),
+        decks: state.decks,
+        commands: [],
+      },
+    ];
+    const markerAt = new Map<number, number>();
+    for (const seat of state.setup?.surrenderedSeats ?? []) {
+      const index = state.commands.findIndex((entry) => entry.seat === seat && (entry.command as { note?: string }).note === SURRENDER_AUTOPILOT_NOTE);
+      markerAt.set(seat, index >= 0 ? index + 1 : state.commands.length + 1);
+    }
+    const marker = (seq: number) => {
+      for (const [seat, at] of markerAt) if (at === seq) lines.push({ type: "surrender", seq, seat });
+    };
+    state.commands.forEach((entry, index) => {
+      const seq = index + 1;
+      marker(seq);
+      const command = entry.command as DuelCommand & { note?: string };
+      lines.push({
+        type: eliminationReasonOf(command) === null ? "answer" : "eliminate",
+        seq,
+        seat: entry.seat,
+        bot: session.seats.some((seat) => seat.seat === entry.seat && seat.isBot),
+        ...(command.note ? { note: command.note } : {}),
+        command,
+      });
+    });
+    marker(state.commands.length + 1);
+    return lines;
+  }
+
+  /**
+   * Writes one report folder: note, journal (replayable), views, engine diagnostics and the debug trace.
+   * Used by the manual report op and by the stall watchdog. It never waits in the duel queue.
+   */
+  async function writeReportFolder(
+    slug: string,
+    guildId: string,
+    input: {
+      kind: "manual" | "auto-stall";
+      note: string;
+      game?: DuelGameWorker;
+      fallbackViews?: Map<number, DuelEngineView>;
+      stall?: Record<string, unknown>;
+      /** The core did not answer in time: write from what the host has. No core view reads. */
+      partial?: { reason: string };
+    },
+  ): Promise<{ path: string }> {
+    const game = input.game;
+    const state = service.privateState(slug, guildId);
+    const session = state.session;
+    const root = process.env.DUEL_REPORT_DIR ?? resolve(options.dataDirectory, "..", "..", ".status", "manual");
+    const stamp = new Date(now()).toISOString().replace(/[:.]/g, "-");
+    const dir = join(root, `${slug}-${input.kind === "auto-stall" ? "auto-stall-" : ""}${stamp}`);
+    mkdirSync(join(dir, "views"), { recursive: true });
+    const worker = workerStateOf(game);
+    writeFileSync(join(dir, "journal.jsonl"), reportJournalLines(state, worker).map((line) => JSON.stringify(line)).join("\n") + "\n");
+    const seatCount = seatCountFor(session.format);
+    for (let seat = 0; seat < seatCount; seat += 1) {
+      let view: DuelEngineView | undefined;
+      if (input.partial) view = lastViews.get(slug)?.get(seat) ?? input.fallbackViews?.get(seat);
+      else if (game?.running) view = (await readDebugView(slug, game, seat)).view ?? input.fallbackViews?.get(seat);
+      else view = input.fallbackViews?.get(seat);
+      if (view) writeFileSync(join(dir, "views", `seat-${seat}.json`), JSON.stringify(view, null, 2));
+    }
+    if (input.partial) {
+      const spectatorView = lastViews.get(slug)?.get(-1);
+      if (spectatorView) writeFileSync(join(dir, "views", "spectator.json"), JSON.stringify(spectatorView, null, 2));
+      writeFileSync(join(dir, "room-setup.json"), JSON.stringify({ session, setup: state.setup ?? null }, null, 2));
+      writeFileSync(join(dir, "partial.json"), JSON.stringify({ partial: true, reason: input.partial.reason, slug, at: new Date(now()).toISOString() }, null, 2));
+    }
+    // Triage only: the engine's ring buffer (response order, messages 200-202, wins, eliminations, core log lines). Not a player view.
+    // The ring and the trace each have a time limit. They run together so a stuck core costs one limit, not two.
+    const diagnosticsJob = async (): Promise<void> => {
+      if (!(game?.running && typeof game.diagnostics === "function")) return;
+      let entries: unknown;
+      try {
+        entries = await withTimeout(game.diagnostics(), debugReadTimeoutMs, "diagnostics");
+      } catch (error) {
+        entries = { error: error instanceof Error ? error.message : String(error) };
+      }
+      writeFileSync(join(dir, "engine-diagnostics.json"), JSON.stringify({ wasmSha: worker.wasmSha, wasmFile: worker.wasmFile, entries }, null, 2));
+    };
+    const traceJob = async (): Promise<void> => {
+      try {
+        writeFileSync(join(dir, "debug-trace.json"), JSON.stringify(await buildDebugTrace(slug, guildId), null, 2));
+      } catch (error) {
+        writeFileSync(join(dir, "debug-trace.json"), JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+      }
+    };
+    await Promise.all([diagnosticsJob(), traceJob()]);
+    if (input.stall) {
+      writeFileSync(join(dir, "stall.json"), JSON.stringify({ slug, ...(state.setup?.presetId ? { presetId: state.setup.presetId } : {}), wasmSha: worker.wasmSha, wasmFile: worker.wasmFile, worker, ...input.stall }, null, 2));
+    }
+    const preset = state.setup?.presetId ? getPreset(state.setup.presetId) : undefined;
+    const text = [
+      `# ${input.kind === "auto-stall" ? "Automatic stall report" : "Manual test note"}: ${slug}`,
+      "",
+      ...(input.partial ? [`PARTIAL REPORT: the core did not answer (${input.partial.reason}). Views are the last ones the host sent.`, ""] : []),
+      `Scenario: ${preset ? `${preset.id} (${preset.title})` : "none"}`,
+      `Status: ${session.status}`,
+      `Core: ${worker.wasmFile ?? "unknown"} ${worker.wasmSha ?? ""}`.trim(),
+      "",
+      input.kind === "auto-stall" ? "## Stall" : "## Tester note",
+      "",
+      input.note.trim() || "(empty)",
+      "",
+      ...(preset ? ["## Checklist", "", ...preset.checklist.map((item, index) => `${index + 1}. ${item}`), ""] : []),
+    ].join("\n");
+    writeFileSync(join(dir, "note.md"), text);
+    return { path: dir };
+  }
+
+  /** Hand scenarios: write the tester's note, the journal and every seat's view to `.status/manual/`. */
+  async function writeReport(slug: string, guildId: string, actor: number, note: unknown, ctl?: { abandoned: boolean }): Promise<{ path: string }> {
+    if (typeof note !== "string" || note.length > 4000) throw new RequestError("Note must be text of at most 4000 characters", 400);
+    const room0 = service.room(slug, guildId, actor);
+    if (room0.mySeat === null) throw new RequestError("Join this duel first", 403);
+    let game = games.get(slug)?.game;
+    if (room0.session.status === "active") game = await recover(slug, guildId);
+    // A partial report was already written for this request: never write a second folder.
+    if (ctl?.abandoned) return { path: "" };
+    const fallbackViews = new Map<number, DuelEngineView>();
+    if (room0.engine) fallbackViews.set(room0.mySeat, room0.engine);
+    return writeReportFolder(slug, guildId, { kind: "manual", note, game, fallbackViews });
+  }
+
+  /** The core or the duel queue did not answer in time: write the report folder from what the host has. */
+  async function writePartialReport(slug: string, guildId: string, actor: number, note: unknown): Promise<{ path: string; partial: true }> {
+    if (typeof note !== "string" || note.length > 4000) throw new RequestError("Note must be text of at most 4000 characters", 400);
+    const room0 = service.room(slug, guildId, actor);
+    if (room0.mySeat === null) throw new RequestError("Join this duel first", 403);
+    const fallbackViews = new Map<number, DuelEngineView>();
+    if (room0.engine) fallbackViews.set(room0.mySeat, room0.engine);
+    const written = await writeReportFolder(slug, guildId, {
+      kind: "manual",
+      note,
+      game: games.get(slug)?.game,
+      fallbackViews,
+      partial: { reason: `the duel queue or the core did not answer within ${queueBlockedMs} ms` },
+    });
+    return { ...written, partial: true };
+  }
+
+  /** A room read while the duel queue is blocked: the last view built for this seat, marked stale. Null when there is none. */
+  function staleRoom(slug: string, guildId: string, actor: number): (DuelRoom & { stale: true }) | null {
+    const room = stampRoomClock(service.room(slug, guildId, actor), now());
+    if (room.session.status !== "active") return null;
+    const view = lastViews.get(slug)?.get(room.mySeat ?? -1);
+    if (!view) return null;
+    room.engine = view;
+    return { ...room, stale: true };
+  }
+
+  /** Hand scenarios: the debug trace of one duel (404 unless `DUEL_SCENARIOS=1`). Not queued, so it works on a stuck duel. */
+  async function debugTrace(slug: string, guildId: string, actor: number): Promise<Record<string, unknown>> {
+    const room0 = service.room(slug, guildId, actor);
+    if (room0.mySeat === null) throw new RequestError("Join this duel first", 403);
+    return buildDebugTrace(slug, guildId);
+  }
+
+  /**
+   * The public facts of one duel for a bug report, read from the spectator view (audience "all" log lines only) so no
+   * private line can reach a public GitHub issue. Never waits in the duel queue and never starts a core, so it answers
+   * for a stuck duel too: when the core does not answer in time it uses the last spectator view, or gives no log.
+   */
+  async function bugContext(slug: string, guildId: string, actor: number): Promise<BugDuelContext> {
+    const room = service.room(slug, guildId, actor);
+    const { format, mode } = room.session;
+    const out: BugDuelContext = { format, mode, seat: room.mySeat, turn: null, phase: null, turnSeat: null, livingPlayers: null, log: [] };
+    let view: DuelEngineView | null = null;
+    const live = games.get(slug);
+    if (room.session.status === "active" && live?.game.running) {
+      try {
+        view = await withTimeout(live.game.view(null), debugReadTimeoutMs, "view spectator");
+        rememberView(slug, null, view);
+      } catch {
+        view = lastViews.get(slug)?.get(-1) ?? null;
+      }
+    } else if (room.session.status === "completed" || room.session.status === "interrupted") {
+      const saved = options.db.prepare<[string, string], { snapshot_public_json: string | null }>(
+        "select snapshot_public_json from duels where web_slug = ? and guild_id = ?",
+      ).get(slug, guildId);
+      try { view = saved?.snapshot_public_json ? JSON.parse(saved.snapshot_public_json) as DuelEngineView : null; } catch { view = null; }
+    }
+    if (!view) return out;
+    const gone = live?.surrendered ?? new Set<number>();
+    out.turn = view.turn;
+    out.phase = view.phase;
+    out.turnSeat = view.turnSeat;
+    out.livingPlayers = view.seats.filter((seat) => !seat.eliminated && !seat.pendingElimination && !gone.has(seat.seat)).length;
+    out.log = view.log.slice(-BUG_CONTEXT_LOG_LINES).map((entry) => entry.text);
+    return out;
+  }
+
+  // Stall watchdog: revision unchanged for `stallMs` while a bot seat or the core must act.
+  const stallWatch = new Map<string, { revision: number | null; since: number; reported: boolean }>();
+  let stallChecking = false;
+
+  async function checkStall(slug: string, entry: LiveGame): Promise<void> {
+    const t = now();
+    const session = service.get(slug, entry.guildId);
+    if (session.status !== "active") {
+      stallWatch.delete(slug);
+      return;
+    }
+    const seatCount = seatCountFor(session.format);
+    const reads = await Promise.all(Array.from({ length: seatCount }, (_, seat) => readDebugView(slug, entry.game, seat)));
+    const views = reads.map((read) => read.view);
+    const known = views.find((view): view is DuelEngineView => view !== null) ?? null;
+    const revision = known?.revision ?? null;
+    let watch = stallWatch.get(slug);
+    if (!watch || (revision !== null && revision !== watch.revision)) {
+      watch = { revision, since: t, reported: false };
+      stallWatch.set(slug, watch);
+    }
+    let waitingOn: string | null = null;
+    if (!known) waitingOn = "core (the worker does not answer)";
+    else if (known.result) waitingOn = null;
+    else {
+      const promptSeat = views.findIndex((view, seat) => view?.prompt?.seat === seat);
+      if (promptSeat < 0) waitingOn = "core (no seat holds a prompt)";
+      else if (autoSeatsOf(session, entry).includes(promptSeat)) waitingOn = `bot seat ${promptSeat}`;
+    }
+    // A human may take as long as the clock allows: the stall timer only runs while a bot or the core must act.
+    if (waitingOn === null) {
+      watch.since = t;
+      return;
+    }
+    if (watch.reported || t - watch.since < stallMs) return;
+    watch.reported = true;
+    const stalledMs = t - watch.since;
+    const note = `Revision ${revision ?? "unknown"} did not change for ${Math.round(stalledMs / 1000)} s. Waiting on: ${waitingOn}.`;
+    const written = await writeReportFolder(slug, entry.guildId, {
+      kind: "auto-stall",
+      note,
+      game: entry.game,
+      stall: { revision, stalledMs, waitingOn, stallMs, at: new Date(t).toISOString() },
+    });
+    console.warn(`[duel] stall in ${slug}: ${note} Report: ${written.path}`);
+  }
+
+  async function checkStalls(): Promise<void> {
+    if (stopped || stallChecking) return;
+    stallChecking = true;
+    try {
+      for (const slug of [...stallWatch.keys()]) if (!games.has(slug)) stallWatch.delete(slug);
+      for (const [slug, entry] of [...games]) {
+        if (stopped) return;
+        if (!entry.game.running) continue;
+        try {
+          await checkStall(slug, entry);
+        } catch (error) {
+          console.warn("[duel] stall check failed", error);
+        }
+      }
+    } finally {
+      stallChecking = false;
+    }
+  }
+
+  /**
+   * `report` and `view` must not hang behind a duel queue that is stuck inside the core. After `queueBlockedMs`:
+   * a report is written without the core, a room read answers the last view sent to that seat (when there is one).
+   */
+  async function answerOrFallback(body: Record<string, unknown>, queued: Promise<unknown>, ctl: { abandoned: boolean }): Promise<unknown> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = Symbol("queue-blocked");
+    const limit = new Promise<typeof timedOut>((resolveLimit) => {
+      timer = setTimeout(() => resolveLimit(timedOut), queueBlockedMs);
+    });
+    const first = await Promise.race([queued, limit]).finally(() => clearTimeout(timer));
+    if (first !== timedOut) return first;
+    const { op, guildId, playerId, slug } = body;
+    if (typeof guildId !== "string" || !guildId || !Number.isSafeInteger(playerId) || (playerId as number) <= 0 || typeof slug !== "string" || !slug || slug.length > 128) {
+      return queued;
+    }
+    if (op === "report") {
+      requireScenarios();
+      ctl.abandoned = true;
+      return writePartialReport(slug, guildId, playerId as number, body.note);
+    }
+    // A spectator switch must never fall back to this player's private cached view.
+    if (body.spectate === true) return queued;
+    return staleRoom(slug, guildId, playerId as number) ?? queued;
+  }
+
+  /** The checks every start makes: a lobby duel, every seat ready, and legal decks for the format. */
   function assertStartable(slug: string, guildId: string) {
     const session = service.get(slug, guildId);
     if (session.status !== "lobby") throw new RequestError("Duel already started", 409);
-    if (!bothSeatsReady(session)) {
-      throw new RequestError("Two players must submit valid decks before starting", 409);
+    const seatCount = seatCountFor(session.format);
+    // The flag is read here, on every start, so a restart with another value switches it.
+    const tablesBlock = multiplayerSeatsBlockReason(seatCount, multiplayerTablesEnabled());
+    if (tablesBlock) throw new RequestError(tablesBlock, 403);
+    const coreProblem = multiStartProblem(session.mode, session.format, options.dataDirectory);
+    if (coreProblem) throw new RequestError(coreProblem, 409);
+    if (!allSeatsReady(session)) {
+      throw new RequestError(
+        seatCount === 2
+          ? "Two players must submit valid decks before starting"
+          : `${seatCount} players must submit valid decks before starting`,
+        409,
+      );
     }
     const state = service.privateState(slug, guildId);
     const settings = state.session.settings;
-    for (const deck of state.decks) validateSessionDeck(state.session.mode, deck, settings);
-    return { session, state, settings };
+    for (const deck of state.decks) validateSessionDeck(state.session.mode, deck, settings, state.session.format);
+    return { session, state, settings, seatCount };
   }
 
+  /** Starts a lobby game. `organizer` null is a system start, which the duel service only allows for a series game. */
   async function startGame(slug: string, guildId: string, organizer: number | null): Promise<DuelGameWorker> {
-    const { state, settings } = assertStartable(slug, guildId);
+    const { state, settings, seatCount } = assertStartable(slug, guildId);
     const bytes = randomBytes(32);
     const seed = [0, 8, 16, 24].map((offset) => bytes.readBigUInt64LE(offset).toString());
+    const engine = engineForNewTable(state.session.format);
+    const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, engine, state.session.format);
     const game = spawn();
     try {
       await game.create(workerCreateOptions(
@@ -883,10 +1853,17 @@ export function createDuelHost(options: {
         seed,
         state.session.masterRule,
         settings,
+        state.session.format,
+        undefined,
+        engine,
+        firstTurnDraw,
       ));
-      const clock = startDecisionClock(await readClockView(game), settings.turnSeconds, now());
-      service.activate(slug, guildId, organizer, seed, manifest.bundleVersion, clock);
-      games.set(slug, { game, lastRequestAt: now(), guildId });
+      const clock = startDecisionClock(await readClockView(game, seatCount), settings.turnSeconds, now(), seatCount);
+      // The engine is saved with the duel, so a recover and a replay use it even after DUEL_1V1_ENGINE changes.
+      service.activate(slug, guildId, organizer, seed, pinnedVersionFor(state.session.format), clock, {
+        ...(state.setup ?? {}), firstTurnDraw, ...(engine ? { engine } : {}),
+      });
+      games.set(slug, { game, lastRequestAt: now(), guildId, surrendered: new Set(), policies: new Map(), traces: new Map() });
       await emitChange(slug, guildId);
       await driveBot(slug, guildId, game);
       return game;
@@ -998,8 +1975,8 @@ export function createDuelHost(options: {
   }
 
   /**
-   * Starts a lobby duel with two ready seats. Game 1 of a duel or match goes through the rock-paper-scissors opening
-   * first (when enabled); every other game starts at once. Returns the live game, or null while the opening runs.
+   * Starts a lobby duel with every seat ready. Game 1 of a 1v1 duel or match goes through the rock-paper-scissors
+   * opening first (when enabled); other games start at once. Returns the live game, or null while the opening runs.
    */
   async function beginGame(slug: string, guildId: string, actor: number | null): Promise<DuelGameWorker | null> {
     const existing = service.openingState(slug, guildId);
@@ -1009,7 +1986,7 @@ export function createDuelHost(options: {
       return games.get(slug)?.game ?? null;
     }
     const { session } = assertStartable(slug, guildId);
-    if (!options.openingRps || (session.gameNumber ?? 1) > 1) return startGame(slug, guildId, actor);
+    if (!options.openingRps || session.format !== "1v1" || (session.gameNumber ?? 1) > 1) return startGame(slug, guildId, actor);
     service.startOpening(slug, guildId, actor ?? session.organizerPlayerId, now());
     await driveOpening(slug, guildId);
     return games.get(slug)?.game ?? null;
@@ -1019,7 +1996,7 @@ export function createDuelHost(options: {
   async function startReadyGame(slug: string, guildId: string): Promise<boolean> {
     if (stopped) return false;
     const session = service.get(slug, guildId);
-    if (session.status !== "lobby" || !session.seriesId || !bothSeatsReady(session)) return false;
+    if (session.status !== "lobby" || !session.seriesId || !allSeatsReady(session)) return false;
     await beginGame(slug, guildId, null);
     return true;
   }
@@ -1029,7 +2006,7 @@ export function createDuelHost(options: {
    * A deck problem goes back to the caller; an engine failure is retried by the tick sweep.
    */
   async function autoStart(slug: string, guildId: string, session: DuelSession): Promise<DuelSession> {
-    if (!session.seriesId || session.status !== "lobby" || !bothSeatsReady(session)) return session;
+    if (!session.seriesId || session.status !== "lobby" || !allSeatsReady(session)) return session;
     try {
       await beginGame(slug, guildId, null);
     } catch (error) {
@@ -1075,12 +2052,27 @@ export function createDuelHost(options: {
     return step.next;
   }
 
-  async function operate(body: Record<string, unknown>): Promise<unknown> {
+  async function operate(body: Record<string, unknown>, ctl?: { abandoned: boolean }): Promise<unknown> {
     const { op, guildId, playerId } = body;
     if (typeof guildId !== "string" || !guildId || !Number.isSafeInteger(playerId) || (playerId as number) <= 0) {
       throw new RequestError("Authenticated guild and player are required", 400);
     }
     const actor = playerId as number;
+    if (op === "capabilities") {
+      return { multiplayerTables: multiplayerTablesEnabled(), multiCoreReady: multiCoreAvailable(options.dataDirectory), multiDomainCoreReady: multiDomainCoreAvailable(options.dataDirectory) };
+    }
+    if (op === "list-presets") {
+      requireScenarios();
+      return {
+        presets: PRESETS.map((preset) => summarizePreset(preset, options.dataDirectory, options.presetIssues?.(preset.id) ?? [])),
+        core: multiCoreInfo(options.dataDirectory),
+      };
+    }
+    if (op === "start-preset") {
+      requireScenarios();
+      return startPreset(body, guildId, actor);
+    }
+    if (op === "report" || op === "debug-trace") requireScenarios();
     if (op === "card-details") {
       if (!Array.isArray(body.codes) || body.codes.length > 1000
         || body.codes.some((code) => !Number.isSafeInteger(code) || code <= 0 || code > 0xffffffff)) {
@@ -1152,17 +2144,24 @@ export function createDuelHost(options: {
       if (service.get(slug, guildId).status === "active") {
         const game = await recover(slug, guildId);
         await settleClock(slug, guildId, game);
-        return project(slug, guildId, actor, games.get(slug)?.game);
+        return project(slug, guildId, actor, games.get(slug)?.game, body.spectate === true);
       }
-      return project(slug, guildId, actor, games.get(slug)?.game);
+      return project(slug, guildId, actor, games.get(slug)?.game, body.spectate === true);
     }
     if (op === "add-bot") {
       if (actor !== room.session.organizerPlayerId) throw new RequestError("Only the organizer can add a practice bot", 403);
       if (room.session.status !== "lobby") throw new RequestError("A practice bot can only be added before the duel starts", 409);
+      const blocked = multiplayerSeatsBlockReason(seatCountFor(room.session.format), multiplayerTablesEnabled());
+      if (blocked) throw new RequestError(blocked, 403);
       const settings = room.session.settings;
       const deck = buildPracticeBotDeck(room.session.mode, options.dataDirectory);
-      validateSessionDeck(room.session.mode, deck, settings);
-      const session = service.addPracticeBot(slug, guildId, actor, deck);
+      validateSessionDeck(room.session.mode, deck, settings, room.session.format);
+      let botSeat: number | undefined;
+      if (body.seat !== undefined && body.seat !== null) {
+        if (!Number.isSafeInteger(body.seat)) throw new RequestError("Bot seat must be a whole number", 400);
+        botSeat = body.seat as number;
+      }
+      const session = service.addPracticeBot(slug, guildId, actor, deck, botSeat);
       await emitChange(slug, guildId);
       return { session };
     }
@@ -1179,6 +2178,9 @@ export function createDuelHost(options: {
       await emitChange(slug, guildId);
       return project(slug, guildId, actor);
     }
+    if (op === "report") return writeReport(slug, guildId, actor, body.note, ctl);
+    if (op === "debug-trace") return debugTrace(slug, guildId, actor);
+    if (op === "bug-context") return bugContext(slug, guildId, actor);
     if (op === "replay") return replay(slug, guildId, room);
     if (op === "series-side" || op === "series-ready" || op === "series-unready" || op === "series-first") {
       const seriesId = room.session.seriesId ?? null;
@@ -1190,7 +2192,7 @@ export function createDuelHost(options: {
         // Same setting as check-deck: a code the card data cannot resolve stays as it is, so the
         // "same cards" check in setSideDeck compares like with like. validateSessionDeck still rejects it.
         const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
-        validateSessionDeck(room.session.mode, deck, room.session.settings);
+        validateSessionDeck(room.session.mode, deck, room.session.settings, room.session.format);
         // `info` is read before the await above, so a Ready sent meanwhile (through another game slug)
         // is not in it: the transaction reports whether this save cleared Ready.
         const saved = series.saveSideDeck(seriesId, guildId, actor, deck);
@@ -1250,9 +2252,9 @@ export function createDuelHost(options: {
         keepUnresolved: op === "validate-deck",
       });
       if (op === "validate-deck") {
-        return inspectDeck(room.session.mode, deck, options.dataDirectory, settings);
+        return inspectDeck(room.session.mode, deck, options.dataDirectory, settings, { table: room.session.format });
       }
-      validateSessionDeck(room.session.mode, deck, settings);
+      validateSessionDeck(room.session.mode, deck, settings, room.session.format);
       const session = service.setDeck(slug, guildId, actor, deck);
       await emitChange(slug, guildId);
       return { session: await autoStart(slug, guildId, session) };
@@ -1284,10 +2286,8 @@ export function createDuelHost(options: {
       await settleClock(slug, guildId, game);
       const current = await project(slug, guildId, actor, games.get(slug)?.game);
       if (current.session.status !== "active") return current;
-      const opponent = room.session.seats.find((entry) => entry.seat !== seat);
-      if (!opponent) throw new RequestError("Opponent is missing", 409);
-      await persistComplete(slug, guildId, games.get(slug)?.game ?? game, opponent.seat, "Surrender");
-      return project(slug, guildId, actor);
+      await forfeitSeat(slug, guildId, games.get(slug)?.game ?? game, seat, "Surrender");
+      return project(slug, guildId, actor, games.get(slug)?.game);
     }
     if (op !== "respond") throw new RequestError("Unknown duel operation", 400);
     const command = body.command as DuelCommand | undefined;
@@ -1300,6 +2300,7 @@ export function createDuelHost(options: {
       return project(slug, guildId, actor);
     }
     const live = games.get(slug)?.game ?? game;
+    if (games.get(slug)?.surrendered.has(seat)) throw new RequestError("You surrendered this duel", 409);
     const before: DuelEngineView = await live.view(seat);
     if (before.revision !== command.revision || before.prompt?.id !== command.promptId) {
       throw new RequestError("That choice is stale. Refresh the current duel state.", 409);
@@ -1432,6 +2433,8 @@ export function createDuelHost(options: {
   }, pollIntervalMs);
   timer.unref();
   void tick();
+  const stallTimer = stallMs > 0 ? setInterval(() => void checkStalls(), Math.max(10, Math.min(5000, Math.floor(stallMs / 4)))) : null;
+  stallTimer?.unref();
 
   return {
     async handle(request: Request): Promise<Response> {
@@ -1448,7 +2451,11 @@ export function createDuelHost(options: {
         try { body = JSON.parse(raw); } catch { throw new RequestError("Invalid JSON", 400); }
         if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestError("Invalid request", 400);
         const key = typeof body.slug === "string" ? body.slug : "catalog";
-        return Response.json(await enqueue(key, () => operate(body)), { headers: { "cache-control": "no-store" } });
+        // debug-trace and bug-context must answer while the duel queue is stuck inside the core, so they skip the queue.
+        const ctl = { abandoned: false };
+        const queued = (body.op === "debug-trace" || body.op === "bug-context" ? operate(body) : enqueue(key, () => operate(body, ctl)));
+        const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
+        return Response.json(answer, { headers: { "cache-control": "no-store" } });
       } catch (error) {
         const status = error instanceof Error && "status" in error && typeof error.status === "number" ? error.status : 400;
         return Response.json({ error: error instanceof Error ? error.message : "Duel request failed" }, { status });
@@ -1457,6 +2464,7 @@ export function createDuelHost(options: {
     async close(): Promise<void> {
       stopped = true;
       clearInterval(timer);
+      if (stallTimer) clearInterval(stallTimer);
       for (const seriesId of [...advanceTimers.keys()]) clearAdvanceTimer(seriesId);
       for (const slug of [...openingTimers.keys()]) clearOpeningTimer(slug);
       const loops = [...botLoops.values()];

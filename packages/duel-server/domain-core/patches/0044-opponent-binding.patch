@@ -1,0 +1,870 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sat, 12 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: bind one opponent at activation for n > 2
+
+Lua "1" means one opponent. Before this change the core guessed it (the next living opponent) and wrote a trap record.
+Now the opponent is bound when the effect is activated, and the binding stays for the whole chain link.
+
+Binding order: the event opponent; then a probe at AddChain step 0;
+then a lazy prompt in a yieldable cost or target; a context that cannot yield keeps the old fallback.
+The probe runs the checks for each living opponent when the first run reads a single opponent. The opponents that pass are the legal set.
+One opponent: bound without a prompt. More than one: the activator gets MSG_SELECT_OPTION, every option desc 0xFFFE0000|seat.
+An out-of-range answer gives MSG_RETRY from the stock option prompt. The direct attack pick stays 0xFFFF0000|seat.
+Summon procedures with a range on the opponent side (Kaiju, Lava Golem) bind in the same way; SpSummonRule asks, and the monster goes to the chosen opponent.
+In Tag the pick is between the opponent seats. Eliminated seats are never offered.
+The event opponent counts only an event that names a player: the event player of a subject event (damage, draw, chain link, summon, custom), the reason player if the event has a reason. The chain end, the phase events and the idle activation name nobody, so the pick runs.
+Team level calls in Tag need no opponent: GetLP, CheckLPCost, SetTargetPlayer and the player of an operation info store or read the team only, so there is no prompt and no mark.
+A battle event names the other side of the battle: the controller of the attacked monster for the attacker side, the controller of the attacker for the others (Yubel).
+A bound opponent that is eliminated before the link resolves gives the empty result for single-opponent calls, queries and hand or Deck reads of the other side. There is no fallback to another opponent (ADR 0002).
+An action call that reads "1" with nothing bound marks the probe, so the pick is asked. The answer of the lazy prompt binds only in the scope of the asking duelist that has a chain link. The pick and the legal set of a summon procedure are forgotten when the procedure ends or the effect is deleted.
+With 2 duelists nothing runs: every new path is guarded by n_duelists > 2.
+---
+ effect.cpp      |  73 +++++++++++++++++++-
+ effect.h        |   8 +++
+ field.cpp       |  12 ++--
+ field.h         | 100 +++++++++++++++++++++++++++
+ fold.h          |  46 +++++++++++--
+ fold_lib.h      |   9 ++-
+ interpreter.cpp | 176 ++++++++++++++++++++++++++++++++++++++++++++++--
+ interpreter.h   |  39 ++++++++++-
+ libduel.cpp     |  13 ++--
+ operations.cpp  |  28 ++++++--
+ processor.cpp   |  25 ++++++-
+ 11 files changed, 499 insertions(+), 30 deletions(-)
+
+diff --git a/effect.cpp b/effect.cpp
+index 9f8850a..778d7a3 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -397,8 +397,79 @@ int32_t effect::is_activate_ready(effect* reason_effect, uint8_t playerid, const
+ 	return TRUE;
+ }
+ int32_t effect::is_activate_ready(uint8_t playerid, const tevent& e, int32_t neglect_cond, int32_t neglect_cost, int32_t neglect_target) {
++	// F5: is_activateable reaches here. At n > 2 the probe binds the opponent (probe_bind falls back to the plain check
++	// when no probe scope is on top, so every other path is unchanged).
++	if(pduel->game_field->n_duelists > 2) {
++		uint8_t bound, mask;
++		return probe_bind(playerid, e, neglect_cond, neglect_cost, neglect_target, bound, mask);
++	}
+ 	return is_activate_ready(this, playerid, e, neglect_cond, neglect_cost, neglect_target);
+ }
++// F5. The pinned scope of is_activateable (P = playerid, eff = this) is on top of the scope stack. Its own_bound
++// is the opponent of the checks. The probe never leaves a binding behind: the caller reads `bound` and `mask`.
++int32_t effect::probe_bind(uint8_t playerid, const tevent& e, int32_t neglect_cond, int32_t neglect_cost, int32_t neglect_target, uint8_t& bound, uint8_t& mask) {
++	auto& f = *pduel->game_field;
++	auto* I = pduel->lua;
++	bound = DUELIST_NONE;
++	mask = 0;
++	// The checks push scopes, so the vector can grow: read the pinned scope again after every call (S()).
++	auto S = [I]() { return I->current_scope(); };
++	auto* s = S();
++	if(f.n_duelists <= 2 || !s || !s->pinned || s->eff != this || s->bound || !f.is_duelist(playerid) || s->P != playerid)
++		return is_activate_ready(this, playerid, e, neglect_cond, neglect_cost, neglect_target);
++	// the event opponent: the damaged player, the activator of the chain link that is answered, ...
++	// Rule: when the event names an opponent, only that one is tried. If the checks fail for it, the effect is not
++	// activateable. No other opponent is tried (the event decides, not the activator).
++	if(const uint8_t ev = f.event_opponent(playerid, e); ev != DUELIST_NONE) {
++		S()->own_bound = ev;
++		bound = ev;
++		const int32_t r = is_activate_ready(this, playerid, e, neglect_cond, neglect_cost, neglect_target);
++		S()->own_bound = DUELIST_NONE;
++		if(r)
++			mask = static_cast<uint8_t>(1u << ev);
++		return r;
++	}
++	// first run: nothing bound. A check that never asked for "an opponent" does not depend on one.
++	S()->touched = false;
++	const int32_t first = is_activate_ready(this, playerid, e, neglect_cond, neglect_cost, neglect_target);
++	if(!first || !S()->touched) {
++		S()->touched = false;
++		return first;
++	}
++	S()->touched = false;
++	uint8_t opp[MAX_DUELISTS];
++	const auto n = f.living_opponents(playerid, opp);
++	for(uint8_t i = 0; i < n; ++i) {
++		S()->own_bound = opp[i];
++		if(is_activate_ready(this, playerid, e, neglect_cond, neglect_cost, neglect_target))
++			mask |= static_cast<uint8_t>(1u << opp[i]);
++	}
++	S()->own_bound = DUELIST_NONE;
++	S()->touched = false;
++	if(mask && !(mask & (mask - 1)))
++		bound = field::opponent_of_answer(mask, 0);
++	return mask != 0;
++}
++void effect::probe_chain(uint8_t playerid, const tevent& e, uint8_t& bound, uint8_t& mask) {
++	auto& f = *pduel->game_field;
++	bound = DUELIST_NONE;
++	mask = 0;
++	if(f.n_duelists <= 2 || !f.is_duelist(playerid) || (type & EFFECT_TYPE_CONTINUOUS))
++		return;
++	// a trigger passed its condition when it was put in the queue
++	const int32_t nc = (type & (EFFECT_TYPE_TRIGGER_O | EFFECT_TYPE_TRIGGER_F | EFFECT_TYPE_FLIP)) ? TRUE : FALSE;
++	interpreter::scope_guard scope(pduel->lua);
++	scope.push(playerid, nullptr, false, false, this, true);
++	f.save_lp_cost();
++	effect* oreason = f.core.reason_effect;
++	uint8_t op = f.core.reason_player;
++	f.core.reason_effect = this;
++	f.core.reason_player = playerid;
++	probe_bind(playerid, e, nc, FALSE, FALSE, bound, mask);
++	f.core.reason_effect = oreason;
++	f.core.reason_player = op;
++	f.restore_lp_cost();
++}
+ // check functions: condition
+ int32_t effect::is_condition_check(uint8_t playerid, const tevent& e) {
+ 	card* phandler = get_handler();
+@@ -438,7 +509,7 @@ int32_t effect::is_activate_check(uint8_t playerid, const tevent& e, int32_t neg
+ 	uint8_t op = pduel->game_field->core.reason_player;
+ 	pduel->game_field->core.reason_effect = this;
+ 	pduel->game_field->core.reason_player = playerid;
+-	int32_t result = is_activate_ready(playerid, e, neglect_cond, neglect_cost, neglect_target);
++	int32_t result = is_activate_ready(this, playerid, e, neglect_cond, neglect_cost, neglect_target);
+ 	pduel->game_field->core.reason_effect = oreason;
+ 	pduel->game_field->core.reason_player = op;
+ 	pduel->game_field->restore_lp_cost();
+diff --git a/effect.h b/effect.h
+index e2ef45e..6bc97fe 100644
+--- a/effect.h
++++ b/effect.h
+@@ -73,6 +73,14 @@ public:
+ 	int32_t is_action_check(uint8_t playerid);
+ 	int32_t is_activate_ready(effect* reason_effect, uint8_t playerid, const tevent& e, int32_t neglect_cond = FALSE, int32_t neglect_cost = FALSE, int32_t neglect_target = FALSE);
+ 	int32_t is_activate_ready(uint8_t playerid, const tevent& e, int32_t neglect_cond = FALSE, int32_t neglect_cost = FALSE, int32_t neglect_target = FALSE);
++	// Phase 3 (F5), more than 2 duelists only: the opponent binding of an activation. probe_bind answers for the
++	// pinned scope at the top of the scope stack (is_activateable): the event opponent is bound at once; with
++	// nothing bound and a first run that touched "an opponent", the checks run once per living opponent.
++	// mask = the opponents for whom they pass (bit q = seat q); bound = the opponent that needs no question
++	// (the event opponent, or the only one that passes), else DUELIST_NONE. Returns the result of the check.
++	int32_t probe_bind(uint8_t playerid, const tevent& e, int32_t neglect_cond, int32_t neglect_cost, int32_t neglect_target, uint8_t& bound, uint8_t& mask);
++	// The same for AddChain step 0 (outside is_activateable: it pushes the pinned scope itself).
++	void probe_chain(uint8_t playerid, const tevent& e, uint8_t& bound, uint8_t& mask);
+ 	int32_t is_condition_check(uint8_t playerid, const tevent& e);
+ 	int32_t is_activate_check(uint8_t playerid, const tevent& e, int32_t neglect_cond = FALSE, int32_t neglect_cost = FALSE, int32_t neglect_target = FALSE);
+ 	int32_t is_target(card* pcard);
+diff --git a/field.cpp b/field.cpp
+index 4da491a..88f7c7b 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -1831,10 +1831,12 @@ void field::build_range_list(range_list& rl, uint8_t self, uint32_t loc1, uint32
+ 				add(q, loc1 & ~individual);
+ 		}
+ 	}
+-	// oppo side
++	// oppo side. F5: a summon procedure scope (Lava Golem) with one bound opponent reads that opponent only
++	const auto* pscope = pduel->lua->current_scope();
++	const uint8_t only = (pscope && pscope->exclusive && is_duelist(pscope->P) && same_team(pscope->P, self)) ? pduel->lua->scope_bound_opp() : DUELIST_NONE;
+ 	if(loc2 & ~individual) {
+ 		for(uint8_t q = 0; q < n_duelists; ++q) {
+-			if(is_alive(q) && !same_team(self, q))
++			if(is_alive(q) && !same_team(self, q) && (!is_alive(only) || only == q))
+ 				add(q, loc2 & ~individual);
+ 		}
+ 	}
+@@ -1842,8 +1844,10 @@ void field::build_range_list(range_list& rl, uint8_t self, uint32_t loc1, uint32
+ 		// the bound opponent belongs to the scope of the duelist that Lua runs for
+ 		const auto* scope = pduel->lua->current_scope();
+ 		const uint8_t bound = (scope && is_duelist(scope->P) && same_team(scope->P, self)) ? pduel->lua->scope_bound_opp() : DUELIST_NONE;
+-		if(is_alive(bound) && !same_team(self, bound)) {
+-			add(bound, loc2 & individual);
++		if(bound != DUELIST_NONE) {
++			// F5 (ADR 0002): a bound opponent that is not alive any more gives nothing, no fallback to the others
++			if(is_alive(bound) && !same_team(self, bound))
++				add(bound, loc2 & individual);
+ 		} else {
+ 			pduel->lua->scope_mark_touched();
+ 			for(uint8_t q = 0; q < n_duelists; ++q) {
+diff --git a/field.h b/field.h
+index 4d1f413..ecceb6f 100644
+--- a/field.h
++++ b/field.h
+@@ -22,6 +22,7 @@
+ #include "card.h"
+ #include "common.h"
+ #include "containers_fwd.h"
++#include "effect_constants.h"
+ #include "lua_obj.h"
+ #include "processor_unit.h"
+ #include "progressivebuffer.h"
+@@ -61,6 +62,8 @@ struct chain {
+ 	uint8_t disable_player;
+ 	// Phase 3: the opponent that Lua's "1" stands for in this link (n_duelists > 2), or DUELIST_NONE.
+ 	uint8_t bound_opp{ DUELIST_NONE };
++	// Phase 3 (F5): the opponents that passed the activation probe (bit q = seat q), the option list of the pick.
++	uint8_t legal_mask{ 0 };
+ 	uint8_t triggering_summon_location{};
+ 	bool triggering_summon_proc_complete{}; //properly summoned or not
+ 	bool was_just_sent{ false };
+@@ -532,6 +535,103 @@ public:
+ 		}
+ 		return infos.turn_id_by_player[infos.turn_player] <= 1;
+ 	}
++	// Phase 3 (F5): true when the event code raises its event_player as a real subject (the damaged player, the player
++	// of a chain link, the summoner, the player that draws). Many events pass a literal 0 there (the chain end, the
++	// battle steps, leaving the field) or the turn player (the start of a phase, the end of the turn): those name nobody.
++	static bool event_player_is_subject(uint32_t code) {
++		switch(code) {
++		case EVENT_DRAW: case EVENT_DAMAGE: case EVENT_RECOVER: case EVENT_BATTLE_DAMAGE: case EVENT_PRE_BATTLE_DAMAGE:
++		case EVENT_BE_BATTLE_TARGET: case EVENT_ATTACK_ANNOUNCE: case EVENT_PAY_LPCOST:
++		case EVENT_CHAINING: case EVENT_CHAIN_ACTIVATING: case EVENT_CHAIN_SOLVING: case EVENT_CHAIN_SOLVED:
++		case EVENT_CHAIN_NEGATED: case EVENT_CHAIN_DISABLED:
++		case EVENT_SUMMON: case EVENT_FLIP_SUMMON: case EVENT_SPSUMMON: case EVENT_SUMMON_SUCCESS:
++		case EVENT_FLIP_SUMMON_SUCCESS: case EVENT_SPSUMMON_SUCCESS: case EVENT_MSET: case EVENT_SSET:
++			return true;
++		}
++		// the player of a counter change; a custom event is raised by a script that names its player
++		return (code & ~0xFFFFu) == EVENT_ADD_COUNTER || (code & ~0xFFFFu) == EVENT_REMOVE_COUNTER || code >= EVENT_CUSTOM;
++	}
++	// F5: the battle events (not the damage events: their event player is the damaged duelist). They name no player
++	// ("0" or the turn player in the event), but the battle names the other side: battle_opponent.
++	static bool event_is_battle(uint32_t code) {
++		switch(code) {
++		case EVENT_ATTACK_ANNOUNCE: case EVENT_BE_BATTLE_TARGET: case EVENT_BATTLE_START: case EVENT_BATTLE_CONFIRM:
++		case EVENT_PRE_DAMAGE_CALCULATE: case EVENT_BATTLED: case EVENT_BATTLE_DESTROYING: case EVENT_BATTLE_DESTROYED:
++		case EVENT_DAMAGE_STEP_END:
++			return true;
++		}
++		return false;
++	}
++	// F5, n > 2 only: in a battle, the other side of P. P on the side of the attacker: the controller of the attacked
++	// monster (a direct attack has none: DUELIST_NONE). Any other P: the controller of the attacker. A seat that is not
++	// alive or is on the team of P gives DUELIST_NONE.
++	uint8_t battle_opponent(uint8_t P) const {
++		if(!core.attacker)
++			return DUELIST_NONE;
++		const uint8_t ac = core.attacker->current.controler;
++		uint8_t d = DUELIST_NONE;
++		if(is_duelist(ac) && same_team(P, ac))
++			d = core.attack_target ? core.attack_target->current.controler : DUELIST_NONE;
++		else
++			d = ac;
++		return (is_duelist(d) && is_alive(d) && !same_team(P, d)) ? d : DUELIST_NONE;
++	}
++	// Phase 3 (F5), n > 2 only: the opponent of P that an event names. A battle event: the other side of the battle
++	// (battle_opponent, Yubel). The event player if the event raises a real
++	// one (event_player_is_subject) and it is a living opponent of P, else the reason player if the event has a reason
++	// (an effect or a reason code: without one, reason_player is a literal 0) and it is one, else DUELIST_NONE.
++	// The only place of this rule (Don Zaloog: the damaged player; Dark Bribe: the activator of the link it answers;
++	// Yubel). The default event and nil_event (code 0, EVENT_FREE_CHAIN, a phase) name nobody.
++	uint8_t event_opponent(uint8_t P, const tevent& e) const {
++		if(n_duelists <= 2 || !is_alive(P))
++			return DUELIST_NONE;
++		if(event_is_battle(e.event_code)) {
++			if(const uint8_t b = battle_opponent(P); b != DUELIST_NONE)
++				return b;
++		}
++		if(event_player_is_subject(e.event_code) && is_alive(e.event_player) && !same_team(P, e.event_player))
++			return e.event_player;
++		if((e.reason_effect != nullptr || e.reason != 0) && is_alive(e.reason_player) && !same_team(P, e.reason_player))
++			return e.reason_player;
++		return DUELIST_NONE;
++	}
++	// n > 2: the living duelists that are not on the team of P, in ascending order. Gives the count.
++	uint8_t living_opponents(uint8_t P, uint8_t (&out)[MAX_DUELISTS]) const {
++		uint8_t count = 0;
++		if(n_duelists <= 2 || !is_duelist(P))
++			return count;
++		for(uint8_t q = 0; q < n_duelists; ++q) {
++			if(is_alive(q) && !same_team(P, q))
++				out[count++] = q;
++		}
++		return count;
++	}
++	// F5: the pick of one opponent. ask_opponent puts one option per seat of `mask` (bit q = seat q, in seat
++	// order, desc 0xFFFE0000|seat) in core.select_options and queues the stock option prompt for P (no hint: the
++	// stock strings have none for "choose an opponent"; 0xFFFF0000|seat is the direct-attack pick of the TS layer).
++	// The prompt answers with MSG_RETRY for an out-of-range index (R2). opponent_of_answer gives the seat of an answer.
++	static constexpr uint64_t opponent_pick_desc = 0xFFFE0000ULL;
++	void ask_opponent(uint8_t P, uint8_t mask) {
++		core.select_options.clear();
++		for(uint8_t q = 0; q < MAX_DUELISTS; ++q) {
++			if((mask >> q) & 1)
++				core.select_options.push_back(opponent_pick_desc | q);
++		}
++		emplace_process<Processors::SelectOption>(P);
++	}
++	static uint8_t opponent_of_answer(uint8_t mask, int32_t answer) {
++		int32_t rank = 0;
++		uint8_t first = DUELIST_NONE;
++		for(uint8_t q = 0; q < MAX_DUELISTS; ++q) {
++			if(!((mask >> q) & 1))
++				continue;
++			if(first == DUELIST_NONE)
++				first = q;
++			if(rank++ == answer)
++				return q;
++		}
++		return first;
++	}
+ 	// Takes p out of the duel (n > 2): message 200, p's cards, chain links and turn. reason = the MSG_WIN reason code
+ 	// that applies. Does nothing with 2 duelists or when p is already out. marked = the caller set
+ 	// player[p].eliminated already (several duelists lose in the same check, so every loser is dead before
+diff --git a/fold.h b/fold.h
+index 8800613..8784f0b 100644
+--- a/fold.h
++++ b/fold.h
+@@ -79,13 +79,28 @@ inline uint8_t unfold_action(duel* pduel, uint8_t v, const char* fn, bool team_l
+ 	if(is_own(f, P, v))
+ 		return P;
+ 	const uint8_t bound = pduel->lua->scope_bound_opp();
+-	if(f.is_alive(bound) && !f.same_team(P, bound))
+-		return bound;
++	if(bound != DUELIST_NONE) {
++		// F5 (ADR 0002, R-FFA-ELIMINATION): the bound opponent was eliminated since the bind. No fallback to
++		// another opponent, no prompt and no record: the function gives its empty result, the link does nothing.
++		return (f.is_alive(bound) && !f.same_team(P, bound)) ? bound : INVALID;
++	}
++	// F5 lazy prompt: in a yieldable cost or target (the operation step is the logged fallback) the first
++	// single-opponent access asks P and binds. A team-level Tag call needs no opponent. Does not return when
++	// it asks: the library function runs again after the answer.
++	if(!(team_level && f.n_teams != f.n_duelists) && pduel->lua->lazy_bind(fn)) {
++		const uint8_t b = pduel->lua->scope_bound_opp();
++		if(f.is_alive(b) && !f.same_team(P, b))
++			return b;
++	}
+ 	const uint8_t next = next_opponent(f, P);
+ 	if(next == DUELIST_NONE)
+ 		return INVALID;
+-	if(!(team_level && f.n_teams != f.n_duelists))
++	if(!(team_level && f.n_teams != f.n_duelists)) {
++		// F5: the activation probe must see that the answer depends on the opponent (finding: unfold_action
++		// did not mark the scope, so a probe that only used unfold_action never asked)
++		pduel->lua->scope_mark_touched();
+ 		pduel->lua->fold_trap('a', fn);
++	}
+ 	return next;
+ }
+ 
+@@ -95,8 +110,10 @@ inline uint8_t unfold_action(duel* pduel, uint8_t v, const char* fn, bool team_l
+ // activation probe of F5 knows that the answer depends on the opponent. A function that has to return one
+ // value for several opponents returns the best case ("errs to yes": the largest count, any match).
+ // PLAYER_NONE, PLAYER_ALL give count 0 without a record (the stock result of an invalid player).
++// team_level = the function reads the team LP only (GetLP, CheckLPCost): in Tag every seat of the other team gives
++// the same answer, so the read takes the next living opponent without a mark, a question or a record.
+ // Identity when not active: {v} if v is a duelist, else count 0.
+-inline uint8_t query_list(duel* pduel, uint8_t v, uint8_t (&out)[MAX_DUELISTS], const char* fn) {
++inline uint8_t query_list(duel* pduel, uint8_t v, uint8_t (&out)[MAX_DUELISTS], const char* fn, bool team_level = false) {
+ 	const auto& f = *pduel->game_field;
+ 	const auto* s = active(pduel);
+ 	if(!s) {
+@@ -117,10 +134,29 @@ inline uint8_t query_list(duel* pduel, uint8_t v, uint8_t (&out)[MAX_DUELISTS],
+ 		return 1;
+ 	}
+ 	const uint8_t bound = pduel->lua->scope_bound_opp();
+-	if(f.is_alive(bound) && !f.same_team(P, bound)) {
++	if(bound != DUELIST_NONE) {
++		// F5: a bound opponent that is not alive any more gives the empty result (see unfold_action)
++		if(!f.is_alive(bound) || f.same_team(P, bound))
++			return 0;
+ 		out[0] = bound;
+ 		return 1;
+ 	}
++	// F5: a team level read in Tag needs no opponent (the probe and the lazy prompt would ask for nothing)
++	if(team_level && f.n_teams != f.n_duelists) {
++		const uint8_t next = next_opponent(f, P);
++		if(next == DUELIST_NONE)
++			return 0;
++		out[0] = next;
++		return 1;
++	}
++	// F5 lazy prompt (see unfold_action): only the scope of a yieldable cost or target asks
++	if(pduel->lua->lazy_bind(fn)) {
++		const uint8_t b = pduel->lua->scope_bound_opp();
++		if(f.is_alive(b) && !f.same_team(P, b)) {
++			out[0] = b;
++			return 1;
++		}
++	}
+ 	pduel->lua->scope_mark_touched();
+ 	uint8_t count = 0;
+ 	for(uint8_t q = 0; q < f.n_duelists; ++q) {
+diff --git a/fold_lib.h b/fold_lib.h
+index af4983b..add1983 100644
+--- a/fold_lib.h
++++ b/fold_lib.h
+@@ -100,20 +100,23 @@ inline void pin_player(lua_State* L, duel* pduel, int idx, uint8_t seat) {
+ 
+ // A player argument that only selects the card info "as seen by that player" (summon codes, types, races...):
+ // the Lua value becomes a core seat (with no living opponent: none_id(), which is "nobody in particular").
+-inline uint8_t viewer(duel* pduel, uint8_t v, const char* fn) {
++// team_level: see unfold_action (in Tag a seat of the other team is enough, no opponent is asked).
++inline uint8_t viewer(duel* pduel, uint8_t v, const char* fn, bool team_level = false) {
+ 	if(!active(pduel))
+ 		return v;
+-	const auto d = unfold_action(pduel, v, fn);
++	const auto d = unfold_action(pduel, v, fn, team_level);
+ 	return d == INVALID ? pduel->game_field->none_id() : d;
+ }
+ 
+ // The player of an operation info: 0x10 (the card-target special summon marker) and PLAYER_EITHER are kept
+ // (neither is a seat, and fold_player leaves both alone, so a script reads the same value back). PLAYER_ALL is
+ // stored once as all_id() (an operation info holds one player). A value that names no duelist is none_id().
++// It only stores the player for later: a team level call in Tag (no opponent is asked here; the function that acts
++// on the stored value asks if it needs one).
+ inline uint8_t opinfo_player(duel* pduel, uint8_t v, const char* fn) {
+ 	if(v == 0x10 || v == PLAYER_EITHER)
+ 		return v;
+-	return viewer(pduel, v, fn);
++	return viewer(pduel, v, fn, true);
+ }
+ 
+ // An optional player argument of a check or an action (default: the reason player, a core seat). A given value
+diff --git a/interpreter.cpp b/interpreter.cpp
+index 140cbf1..d48611c 100644
+--- a/interpreter.cpp
++++ b/interpreter.cpp
+@@ -179,6 +179,7 @@ void interpreter::register_effect(effect* peffect) {
+ void interpreter::unregister_effect(effect* peffect) {
+ 	if (!peffect)
+ 		return;
++	proc_forget(peffect);
+ 	if(peffect->condition)
+ 		ensure_luaL_stack(luaL_unref, lua_state, LUA_REGISTRYINDEX, peffect->condition);
+ 	if(peffect->cost)
+@@ -338,6 +339,19 @@ void interpreter::bind_param_opponent() {
+ 	if(!s || !gf || gf->n_duelists <= 2)
+ 		return;
+ 	const uint8_t P = s->P;
++	// A chain link knows its event: the opponent is the one that the event names (field::event_opponent). The
++	// player parameters of an event that names nobody are a literal 0 or the turn player, not an opponent.
++	if(s->eff) {
++		const auto& chains = gf->core.current_chain;
++		for(auto it = chains.rbegin(); it != chains.rend(); ++it) {
++			if(it->triggering_effect != s->eff)
++				continue;
++			const uint8_t d = gf->event_opponent(P, it->evt);
++			if(d != DUELIST_NONE && !scope_bind(d))
++				fold_trap('b', "param");
++			return;
++		}
++	}
+ 	for(const auto& [param, type] : params) {
+ 		if(type != LuaParam::PLAYER)
+ 			continue;
+@@ -376,6 +390,104 @@ static uint8_t scope_player_of(const field* gf, effect* peffect) {
+ 	const uint8_t P = peffect->get_handler_player();
+ 	return gf->is_duelist(P) ? P : DUELIST_NONE;
+ }
++// F5: summon procedures with an opponent field (EFFECT_FLAG_SPSUM_PARAM and o_range), n > 2 only.
++bool interpreter::is_proc_effect(effect* peffect) const {
++	const auto* gf = pduel->game_field;
++	if(!peffect || !gf || gf->n_duelists <= 2 || peffect->code != EFFECT_SPSUMMON_PROC)
++		return false;
++	return peffect->is_flag(EFFECT_FLAG_SPSUM_PARAM) && peffect->o_range;
++}
++uint8_t* interpreter::proc_slot(effect* peffect) {
++	return &proc_choice.try_emplace(peffect, DUELIST_NONE).first->second;
++}
++uint8_t interpreter::proc_opponent(effect* peffect) {
++	if(!is_proc_effect(peffect))
++		return DUELIST_NONE;
++	const auto it = proc_choice.find(peffect);
++	return it == proc_choice.end() ? DUELIST_NONE : it->second;
++}
++bool interpreter::proc_ask_pick(effect* peffect, uint8_t sumplayer) {
++	if(!is_proc_effect(peffect) || proc_opponent(peffect) != DUELIST_NONE)
++		return false;
++	const auto it = proc_masks.find(peffect);
++	if(it == proc_masks.end() || !it->second)
++		return false;
++	if(!(it->second & (it->second - 1))) {
++		*proc_slot(peffect) = field::opponent_of_answer(it->second, 0);
++		return false;
++	}
++	proc_pick_wait = peffect;
++	pduel->game_field->ask_opponent(sumplayer, it->second);
++	return true;
++}
++void interpreter::proc_forget(effect* peffect) {
++	proc_masks.erase(peffect);
++	proc_choice.erase(peffect);
++	if(proc_pick_wait == peffect)
++		proc_pick_wait = nullptr;
++}
++void interpreter::proc_take_pick(effect* peffect, int32_t answer) {
++	proc_pick_wait = nullptr;
++	const auto it = proc_masks.find(peffect);
++	if(it != proc_masks.end() && it->second)
++		*proc_slot(peffect) = field::opponent_of_answer(it->second, answer);
++}
++// F5 lazy prompt. The continuation of the yield runs the library function that asked again, now with the
++// answer bound (the function is found on the Lua call stack: level 0 is the C function that runs).
++static int lazy_continue(lua_State* L, int /*status*/, lua_KContext ctx) {
++	auto pduel = lua_get<duel*>(L);
++	auto& I = *pduel->lua;
++	const uint8_t seat = field::opponent_of_answer(I.lazy_mask, pduel->game_field->returns.at<int32_t>(0));
++	const auto* cs = I.current_scope();
++	if(cs && cs->bound && cs->P == I.lazy_P && pduel->game_field->is_alive(seat))
++		I.scope_bind(seat);
++	I.lazy_P = DUELIST_NONE;
++	lua_settop(L, I.lazy_top);
++	return reinterpret_cast<lua_CFunction>(static_cast<intptr_t>(ctx))(L);
++}
++bool interpreter::lazy_bind(const char* fn) {
++	const auto* gf = pduel->game_field;
++	auto* s = current_scope();
++	if(!s || !gf || gf->n_duelists <= 2 || !gf->is_duelist(s->P))
++		return false;
++	if(scope_bound_opp() != DUELIST_NONE)
++		return true;
++	uint8_t opp[MAX_DUELISTS];
++	const auto n = gf->living_opponents(s->P, opp);
++	if(n == 0)
++		return false;
++	uint8_t legal = 0;
++	for(uint8_t i = 0; i < n; ++i)
++		legal |= static_cast<uint8_t>(1u << opp[i]);
++	if(s->exclusive) {
++		const auto it = proc_masks.find(s->eff);
++		if(it != proc_masks.end() && (legal & it->second))
++			legal &= it->second;
++	}
++	if(!(legal & (legal - 1))) {
++		scope_bind(field::opponent_of_answer(legal, 0));
++		return true;
++	}
++	// Only a yieldable chain scope asks (a filter, a value or a condition keeps its fallback)
++	if(!s->bound || !s->yieldable || !lua_isyieldable(current_state))
++		return false;
++	lua_Debug ar;
++	lua_CFunction running = nullptr;
++	if(lua_getstack(current_state, 0, &ar) && lua_getinfo(current_state, "f", &ar)) {
++		running = lua_tocfunction(current_state, -1);
++		lua_pop(current_state, 1);
++	}
++	if(!running)
++		return false;
++	if(s->operation)
++		fold_trap('c', fn);
++	lazy_mask = legal;
++	lazy_P = s->P;
++	lazy_top = lua_gettop(current_state);
++	pduel->game_field->ask_opponent(s->P, legal);
++	lua_yieldk(current_state, 0, static_cast<lua_KContext>(reinterpret_cast<intptr_t>(running)), lazy_continue);
++	return false; // not reached: lua_yieldk throws the yield out of the library function
++}
+ void interpreter::push_param(lua_State* L, bool is_coroutine) {
+ 	int32_t pushed = 0;
+ 	luaL_checkstack(L, static_cast<uint32_t>(params.size()), nullptr);
+@@ -485,10 +597,23 @@ bool interpreter::call_function_scoped(int param_count, int ret_count, effect* s
+ 		}
+ 		const uint8_t P = gf->is_duelist(scope_P) ? scope_P : scope_player_of(gf, eff);
+ 		const auto* cur = current_scope();
+-		// A pinned scope (is_activateable) answers for the effect that it runs
+-		const bool inherit = scope_P == DUELIST_NONE && cur && cur->pinned && cur->eff == eff;
+-		if(!inherit && sg.push(P, nullptr, false, false, eff))
+-			bind_param_opponent();
++		// A pinned scope (is_activateable) answers for the effect that it runs: its bound opponent and its
++		// `touched` flag are what the activation probe reads
++		const bool inherit = cur && cur->pinned && cur->eff == eff && (scope_P == DUELIST_NONE || scope_P == cur->P);
++		if(!inherit) {
++			// A summon procedure reads the other side through its one bound opponent (the probe of
++			// check_condition seeds it; the later runs use the slot of the procedure effect)
++			const bool proc = is_proc_effect(eff);
++			uint8_t* slot = (proc && proc_seed == DUELIST_NONE) ? proc_slot(eff) : nullptr;
++			if(sg.push(P, slot, false, false, eff)) {
++				if(proc) {
++					current_scope()->exclusive = true;
++					if(!slot)
++						current_scope()->own_bound = proc_seed;
++				}
++				bind_param_opponent();
++			}
++		}
+ 	}
+ 	push_param(current_state);
+ 	auto ret = true;
+@@ -548,6 +673,37 @@ bool interpreter::check_condition(int32_t function, uint32_t param_count, effect
+ 		params.clear();
+ 		return true;
+ 	}
++	// F5: the condition of a summon procedure with an opponent field runs once per living opponent, that
++	// opponent bound and alone on the other side. It passes when it passes for one of them; the passing
++	// set is the legal set of the pick (proc_masks). One passing opponent is bound at once.
++	if(proc_seed == DUELIST_NONE && pduel->game_field->n_duelists > 2) {
++		effect* peff = scope_eff;
++		for(auto it = params.begin(); !peff && it != params.end(); ++it) {
++			if(it->second == LuaParam::EFFECT)
++				peff = static_cast<effect*>(it->first.ptr);
++		}
++		const uint8_t P = is_proc_effect(peff) ? scope_player_of(pduel->game_field, peff) : DUELIST_NONE;
++		uint8_t opp[MAX_DUELISTS];
++		const auto n = pduel->game_field->living_opponents(P, opp);
++		if(n) {
++			const auto saved = params;
++			uint8_t mask = 0;
++			for(uint8_t i = 0; i < n; ++i) {
++				params = saved;
++				proc_seed = opp[i];
++				const bool ok = call_function(function, param_count, 1, scope_eff, scope_P);
++				proc_seed = DUELIST_NONE;
++				if(ok) {
++					if(lua_toboolean(current_state, -1))
++						mask |= static_cast<uint8_t>(1u << opp[i]);
++					lua_pop(current_state, 1);
++				}
++			}
++			proc_masks[peff] = mask;
++			*proc_slot(peff) = (mask && !(mask & (mask - 1))) ? field::opponent_of_answer(mask, 0) : DUELIST_NONE;
++			return mask != 0;
++		}
++	}
+ 	if(!call_function(function, param_count, 1, scope_eff, scope_P))
+ 		return false;
+ 	bool result = lua_toboolean(current_state, -1);
+@@ -679,7 +835,7 @@ auto resume_coroutine(lua_State* L, lua_State* from, int nargs) {
+ 	return std::make_pair(result, nresults);
+ }
+ }
+-int32_t interpreter::call_coroutine(int32_t function, uint32_t param_count, lua_Integer* yield_value, uint16_t step, uint8_t scope_P, effect* scope_eff) {
++int32_t interpreter::call_coroutine(int32_t function, uint32_t param_count, lua_Integer* yield_value, uint16_t step, uint8_t scope_P, effect* scope_eff, bool operation) {
+ 	auto ret_error = [&](const char* message) {
+ 		interpreter::print_stacktrace(current_state);
+ 		pduel->handle_message(message, OCG_LOG_TYPE_ERROR);
+@@ -723,8 +879,16 @@ int32_t interpreter::call_coroutine(int32_t function, uint32_t param_count, lua_
+ 		// Every resume pushes the scope again and pops it before the coroutine is left, so a script
+ 		// that waited in a prompt never sees the scope of what ran in between.
+ 		scope_guard sg(this);
+-		if(sg.push(scope_P, scope_eff ? chain_bound_of(pduel, scope_eff) : nullptr, true, false, scope_eff))
++		const bool proc = is_proc_effect(scope_eff);
++		uint8_t* slot = nullptr;
++		if(scope_eff)
++			slot = proc ? proc_slot(scope_eff) : chain_bound_of(pduel, scope_eff);
++		if(sg.push(scope_P, slot, true, false, scope_eff)) {
++			auto* cs = current_scope();
++			cs->operation = operation;
++			cs->exclusive = proc;
+ 			bind_param_opponent();
++		}
+ 		push_param(rthread, true);
+ 		auto prev_state = std::exchange(current_state, rthread);
+ 		std::tie(result, nresults) = resume_coroutine(current_state, prev_state, param_count);
+diff --git a/interpreter.h b/interpreter.h
+index 9694f07..0dd4f07 100644
+--- a/interpreter.h
++++ b/interpreter.h
+@@ -75,6 +75,11 @@ public:
+ 		effect* eff{ nullptr };
+ 		// The bound opponent of a scope that has no chain link (`bound` is nullptr then).
+ 		uint8_t own_bound{ DUELIST_NONE };
++		// F5: the scope runs the operation step of a chain link (a pick here is the logged fallback, kind c).
++		bool operation{ false };
++		// F5: a summon procedure scope. With a bound opponent the field reads of the other side see only
++		// that opponent (Lava Golem: both Tributes come from one opponent).
++		bool exclusive{ false };
+ 	};
+ 	std::vector<lua_scope> scopes;
+ 	void push_scope(uint8_t P, uint8_t* bound = nullptr, bool yieldable = false, bool probe = false,
+@@ -117,6 +122,38 @@ public:
+ 		if(!scopes.empty())
+ 			scopes.back().touched = true;
+ 	}
++	// F5 lazy prompt (see fold.h). Nothing is bound in the current scope and the caller needs one opponent.
++	// Returns true when the scope has a bound opponent afterwards (one opponent could be chosen without a
++	// question). Does not return when it asks P: it throws the yield of the Lua coroutine, and the library
++	// function that runs (found on the Lua call stack) runs again after the answer, with the answer bound.
++	// Returns false when the call cannot ask (not a yieldable chain scope): the caller keeps its fallback.
++	bool lazy_bind(const char* fn);
++	// What lazy_bind asked: the seats of the question (bit q = seat q) and the size of the stack of the
++	// library function that asked (its own arguments).
++	uint8_t lazy_mask{ 0 };
++	// The duelist whose scope asked. The answer binds only in a scope of the same duelist that has a chain link
++	// (the owner scope: `bound` is set), never in a nested scope that happens to be on top.
++	uint8_t lazy_P{ DUELIST_NONE };
++	int lazy_top{ 0 };
++	// Summon procedures (n > 2). A procedure effect has EFFECT_FLAG_SPSUM_PARAM and o_range: the monster goes
++	// to the field of one opponent. check_condition runs the condition once per living opponent (that opponent
++	// bound, exclusive) and keeps the opponents for whom it passes in proc_masks[e] (bit q = seat q).
++	// proc_choice[e] is the bound opponent of the procedure: set when one opponent passes, or by the pick.
++	std::unordered_map<effect*, uint8_t> proc_masks;
++	std::unordered_map<effect*, uint8_t> proc_choice;
++	uint8_t proc_seed{ DUELIST_NONE };
++	effect* proc_pick_wait{ nullptr };
++	bool is_proc_effect(effect* peffect) const;
++	uint8_t* proc_slot(effect* peffect);
++	// The opponent that the procedure effect is bound to, or DUELIST_NONE (no or more than one opponent).
++	uint8_t proc_opponent(effect* peffect);
++	// SpSummonRule: asks sumplayer to pick the opponent of the procedure when more than one qualifies (true:
++	// the prompt is queued, call proc_take_pick with the answer), else binds the only one and gives false.
++	bool proc_ask_pick(effect* peffect, uint8_t sumplayer);
++	void proc_take_pick(effect* peffect, int32_t answer);
++	// Forgets the pick and the legal set of the procedure effect: when the procedure ends (SpSummonRule) and when
++	// the effect is deleted (a new effect can get the same address).
++	void proc_forget(effect* peffect);
+ 	// RAII entry of one Lua call. push() does nothing with 2 duelists or when P is not a duelist in
+ 	// play (the call then inherits the scope around it, if any). The destructor pops what push() pushed.
+ 	// In the trap build (YGO_N_TRAP) it aborts when the depth after the call is not the depth that the
+@@ -188,7 +225,7 @@ public:
+ 	// scope_P / scope_eff: the duelist and the effect of a chain link. Every resume pushes the scope
+ 	// again (bound = the bound opponent of the matching chain link) and pops it before it returns.
+ 	int32_t call_coroutine(int32_t f, uint32_t param_count, lua_Integer* yield_value, uint16_t step,
+-						   uint8_t scope_P = DUELIST_NONE, effect* scope_eff = nullptr);
++						   uint8_t scope_P = DUELIST_NONE, effect* scope_eff = nullptr, bool operation = false);
+ 	int32_t clone_lua_ref(int32_t lua_ref);
+ 	int32_t strong_from_weak_ref(int32_t weak_lua_ref);
+ 	void push_weak_ref(lua_State* L, int32_t weak_lua_ref);
+diff --git a/libduel.cpp b/libduel.cpp
+index c226c43..c2f80ea 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -34,9 +34,9 @@ LUA_STATIC_FUNCTION(EnableGlobalFlag) {
+ LUA_STATIC_FUNCTION(GetLP) {
+ 	check_param_count(L, 1);
+ 	auto p = lua_get<int8_t>(L, 1);
+-	// individual query: "1" with no bound opponent gives the best case over the living opponents
++	// individual query: "1" with no bound opponent gives the best case over the living opponents (team level in Tag)
+ 	uint8_t who[MAX_DUELISTS];
+-	const auto count = fold::query_list(pduel, static_cast<uint8_t>(p), who, "GetLP");
++	const auto count = fold::query_list(pduel, static_cast<uint8_t>(p), who, "GetLP", true);
+ 	if(count == 0)
+ 		return 0;
+ 	int32_t lp = pduel->game_field->lp_ref(who[0]);
+@@ -1431,7 +1431,7 @@ LUA_STATIC_FUNCTION(CheckLPCost) {
+ 	check_param_count(L, 2);
+ 	// individual query: best case (true if any named duelist can pay) over the living opponents
+ 	uint8_t who[MAX_DUELISTS];
+-	const auto count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "CheckLPCost");
++	const auto count = fold::query_list(pduel, lua_get<uint8_t>(L, 1), who, "CheckLPCost", true);
+ 	if(count == 0)
+ 		return 0;
+ 	auto cost = lua_get<uint32_t>(L, 2);
+@@ -2734,10 +2734,11 @@ LUA_STATIC_FUNCTION(SelectMatchingCard) {
+ LUA_STATIC_FUNCTION(SelectCardsFromCodes) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 6);
+-	pduel->game_field->core.select_cards_codes.clear();
++	// F5: the fold runs first. It may yield for the lazy prompt and run this function again from its start
+ 	const auto playerid = fold::chooser(pduel, lua_get<uint8_t>(L, 1), "SelectCardsFromCodes");
+ 	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
++	pduel->game_field->core.select_cards_codes.clear();
+ 	auto min = lua_get<uint16_t>(L, 2);
+ 	auto max = lua_get<uint16_t>(L, 3);
+ 	bool cancelable = lua_get<bool>(L, 4);
+@@ -3217,7 +3218,9 @@ LUA_STATIC_FUNCTION(ClearTargetCard) {
+ LUA_STATIC_FUNCTION(SetTargetPlayer) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 1);
+-	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "SetTargetPlayer");
++	// F5: it only stores a player for later (the target player of the chain link). In Tag a seat of the other team
++	// is as good as any, so no opponent is asked here: the function that uses the stored value asks if it needs one
++	const auto playerid = fold::unfold_action(pduel, lua_get<uint8_t>(L, 1), "SetTargetPlayer", true);
+ 	chain* ch = pduel->game_field->get_chain(0);
+ 	// the chain keeps the real seat (or all_id()); a value that names no duelist is not stored
+ 	if(ch && !(playerid == fold::INVALID && fold::active(pduel)))
+diff --git a/operations.cpp b/operations.cpp
+index 23a9358..d48e5d3 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -3193,7 +3193,19 @@ bool field::process(Processors::SpSummonRule& arg) {
+ 		return FALSE;
+ 	}
+ 	case 1: {
+-		effect* peffect = core.select_effects[returns.at<int32_t>(0)];
++		effect* peffect;
++		if(n_duelists > 2 && pduel->lua->proc_pick_wait) {
++			// F5: the answer of the pick of the opponent (below)
++			peffect = pduel->lua->proc_pick_wait;
++			pduel->lua->proc_take_pick(peffect, returns.at<int32_t>(0));
++		} else {
++			peffect = core.select_effects[returns.at<int32_t>(0)];
++			// F5: a procedure that puts the monster on an opponent's field binds one opponent first
++			if(n_duelists > 2 && pduel->lua->proc_ask_pick(peffect, sumplayer)) {
++				arg.step = 0;
++				return FALSE;
++			}
++		}
+ 		arg.summon_proc_effect = peffect;
+ 		if(peffect->code == EFFECT_SPSUMMON_PROC_G) {
+ 			arg.step = 19;
+@@ -3214,8 +3226,12 @@ bool field::process(Processors::SpSummonRule& arg) {
+ 		return FALSE;
+ 	}
+ 	case 2: {
+-		if(!returns.at<int32_t>(0))
++		if(!returns.at<int32_t>(0)) {
++			// F5: the procedure ended without a summon, forget its pick
++			if(n_duelists > 2 && arg.summon_proc_effect)
++				pduel->lua->proc_forget(arg.summon_proc_effect);
+ 			return TRUE;
++		}
+ 		arg.spsummon_cost_effects.clear();
+ 		target->filter_effect(EFFECT_SPSUMMON_COST, &arg.spsummon_cost_effects);
+ 		for(const auto& peffect : arg.spsummon_cost_effects) {
+@@ -3266,17 +3282,21 @@ bool field::process(Processors::SpSummonRule& arg) {
+ 		const auto sumtype = (retval.size() > 0 ? (static_cast<uint32_t>(retval[0]) & 0xf00ffff) : 0) | SUMMON_TYPE_SPECIAL;
+ 		uint32_t zone = retval.size() > 1 ? static_cast<uint32_t>(retval[1]) : 0xff;
+ 		if(n_duelists > 2 && proc->is_flag(EFFECT_FLAG_SPSUM_PARAM) && proc->o_range) {
+-			// the first living opponent in turn order for whom the summon works, as card::filter_spsummon_procedure
++			// the opponent that the procedure is bound to (F5), else the first living opponent in turn order for
++			// whom the summon works, as card::filter_spsummon_procedure
+ 			const bool ignore_zone_check = retval.size() > 2 ? static_cast<bool>(retval[2]) : false;
+ 			const uint8_t topos = static_cast<uint8_t>(proc->s_range);
+ 			effect* sumeffect = core.reason_effect ? core.reason_effect : proc;
+-			targetplayer = first_summon_opponent(*this, sumplayer, [&](uint8_t q) {
++			const uint8_t bound = pduel->lua->proc_opponent(proc);
++			targetplayer = is_alive(bound) ? bound : first_summon_opponent(*this, sumplayer, [&](uint8_t q) {
+ 				if(!(topos & POS_FACEDOWN) && check_unique_onfield(target, q, LOCATION_MZONE))
+ 					return false;
+ 				if(zone != 0xff && !ignore_zone_check && get_useable_count(target, q, LOCATION_MZONE, sumplayer, LOCATION_REASON::TOFIELD, zone, nullptr) <= 0)
+ 					return false;
+ 				return is_player_can_spsummon(sumeffect, sumtype, topos, sumplayer, q, target, proc) != 0;
+ 			});
++			// the pick is used: the next summon asks again
++			pduel->lua->proc_forget(proc);
+ 		}
+ 		target->summon.type = sumtype;
+ 		target->summon.location = target->current.location;
+diff --git a/processor.cpp b/processor.cpp
+index ba67de3..3d18b16 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -129,7 +129,7 @@ bool field::process(Processors::ExecuteOperation& arg) {
+ 	core.reason_player = triggering_player;
+ 	uint32_t count = static_cast<uint32_t>(pduel->lua->params.size());
+ 	lua_Integer yield_value = 0;
+-	int32_t result = pduel->lua->call_coroutine(triggering_effect->operation, count, &yield_value, step, triggering_player, triggering_effect);
++	int32_t result = pduel->lua->call_coroutine(triggering_effect->operation, count, &yield_value, step, triggering_player, triggering_effect, true);
+ 	returns.set<int32_t>(0, static_cast<int32_t>(yield_value));
+ 	if (result != COROUTINE_YIELD) {
+ 		core.reason_effect = nullptr;
+@@ -3911,6 +3911,19 @@ bool field::process(Processors::AddChain& arg) {
+ 		auto& clit = core.new_chains.front();
+ 		effect* peffect = clit.triggering_effect;
+ 		arg.is_activated_effect = false;
++		// More than 2 duelists (F5): bind the one opponent of the chain link. The event opponent, or the only
++		// opponent for whom the checks pass, binds silently. With several, P picks one (step 12).
++		if(n_duelists > 2 && clit.bound_opp == DUELIST_NONE) {
++			uint8_t bound, mask;
++			peffect->probe_chain(clit.triggering_player, clit.evt, bound, mask);
++			clit.bound_opp = bound;
++			if(bound == DUELIST_NONE && (mask & (mask - 1))) {
++				clit.legal_mask = mask;
++				ask_opponent(clit.triggering_player, mask);
++				arg.step = 11;
++				return FALSE;
++			}
++		}
+ 		// if it's an activate effect, go to subroutine checking for effects allowing the card
+ 		// to be activated even when it shouldn't normally (the turn it was set, from the hand, etc)
+ 		if((peffect->type & EFFECT_TYPE_ACTIVATE) != 0)
+@@ -4259,6 +4272,16 @@ bool field::process(Processors::AddChain& arg) {
+ 		arg.step = 0;
+ 		return FALSE;
+ 	}
++	case 12: {
++		// F5: the answer of the pick of the opponent (see step 0). A skipped seat takes the first option.
++		auto& clit = core.new_chains.front();
++		clit.bound_opp = opponent_of_answer(clit.legal_mask, returns.at<int32_t>(0));
++		if((clit.triggering_effect->type & EFFECT_TYPE_ACTIVATE) != 0)
++			arg.step = 9;
++		else
++			arg.step = 0;
++		return FALSE;
++	}
+ 	}
+ 	return TRUE;
+ }

@@ -53,6 +53,7 @@ import {
 } from "./chain-state";
 import { chainBeatAt, chainBeatsEndAt, planChainBeats, resetChainBeats } from "./chain-beats";
 import { holdPromptReveal } from "./prompt-reveal";
+import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import styles from "./chain-fx.module.css";
 
 export type ChainFxProps = {
@@ -65,7 +66,19 @@ export type ChainFxProps = {
   reducedMotion: boolean;
   mySeat: number | null;
   playerName: (seat: number) => string;
+  /**
+   * Tones of the seats of a table of 3 or 4. When set, each link names its owner ("You" or the player's name, never
+   * "Opponent") and wears the owner's tone. Left out (1v1), nothing changes.
+   */
+  seatTones?: ReadonlyMap<number, { main: string; ink: string }>;
+  /** Tables of 3 or 4 seats: who may answer the open chain, in order. The panel lists it under its head. */
+  priority?: readonly PrioritySlot[];
 };
+
+function toneVars(tones: ChainFxProps["seatTones"], seat: number): CSSProperties | undefined {
+  const tone = tones?.get(seat);
+  return tone ? ({ "--seat-main": tone.main, "--seat-ink": tone.ink } as CSSProperties) : undefined;
+}
 
 const clock = (): number => (typeof performance !== "undefined" ? duelFxClock.now() : duelFxClock.dateNow());
 
@@ -235,7 +248,8 @@ function ChainGlyph() {
 
 const NO_LINKS: ReadonlySet<number> = new Set();
 
-export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName }: ChainFxProps) {
+export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority }: ChainFxProps) {
+  const named = seatTones != null;
   const state = useChainPlayback(events, chain, duelKey, reducedMotion);
   // Badges play historical resolution beats; targeting follows the live engine so a replacement
   // occupant is never marked while old beats play, and chain-end clears target rings immediately.
@@ -363,10 +377,10 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const prevRef = useRef<ChainState>(EMPTY_CHAIN);
   const [announcement, setAnnouncement] = useState("");
   useEffect(() => {
-    const said = chainAnnouncement(prevRef.current, state, mySeat, playerName);
+    const said = chainAnnouncement(prevRef.current, state, mySeat, playerName, named);
     prevRef.current = state;
     if (said != null) setAnnouncement(said);
-  }, [state, mySeat, playerName]);
+  }, [state, mySeat, playerName, named]);
 
   const rows = strayLinks(state, lost);
   const topIndex = links.length;
@@ -378,7 +392,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         {links.length > 0 ? (
           <ol aria-label="Current chain" data-chain-sr-list="true">
             {links.map((link) => (
-              <li key={link.index} data-chain-sr-link={link.index}>{chainLinkLabel(link, mySeat, playerName)}</li>
+              <li key={link.index} data-chain-sr-link={link.index}>{chainLinkLabel(link, mySeat, playerName, true, named)}</li>
             ))}
           </ol>
         ) : null}
@@ -453,13 +467,18 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
             <span className={styles.targetTag}>Target · {link.index}</span>
           </div>;
         }))}
-        {rows.length > 0 ? (
+        {rows.length > 0 || (links.length > 0 && priority && priority.length > 0) ? (
           <div className={styles.dock}>
-            <ol className={styles.panel} data-chain-panel="true">
+            <ol className={styles.panel} data-chain-panel="true" data-priority={priority?.length ? "true" : undefined}>
               <li className={styles.head}>
                 <span>Chain</span>
-                <small>off board</small>
+                <small>{rows.length > 0 ? "off board" : "response order"}</small>
               </li>
+              {priority && priority.length > 0 ? (
+                <li className={styles.prioRow}>
+                  <PriorityChips order={priority} mySeat={mySeat} nameOf={playerName} seatTones={seatTones} compact />
+                </li>
+              ) : null}
               {rows.map((link) => (
                 <li
                   key={link.index}
@@ -468,12 +487,14 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
                   data-negated={link.negated ? "true" : "false"}
                   data-mine={mySeat != null && link.seat === mySeat ? "true" : "false"}
                   data-chain-row={link.index}
+                  data-toned={seatTones?.has(link.seat) ? "true" : undefined}
+                  style={toneVars(seatTones, link.seat)}
                 >
                   <b className={styles.rowNum}>{link.index}</b>
                   <span className={styles.thumb} style={artStyle(link.code)} />
                   <span className={styles.text}>
                     <span className={styles.name}>{linkLabel(link)}</span>
-                    <small className={styles.who}>{chainSeatLabel(link.seat, mySeat, playerName)}</small>
+                    <small className={styles.who}>{chainSeatLabel(link.seat, mySeat, playerName, named)}</small>
                   </span>
                 </li>
               ))}

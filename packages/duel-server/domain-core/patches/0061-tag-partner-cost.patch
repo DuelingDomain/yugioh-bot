@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Fri, 10 Mar 2000 00:00:00 +0000
+Subject: [PATCH] core: in Tag the monsters of the partner are Tribute material
+ and release cost of the team, at n > 2
+
+Owner rule [R-TAG-PARTNER-COST] (ADR-0002): "You may use your partner's cards for costs, Tributes, materials and summon conditions."
+The summon Tribute list (field::get_summon_release_list: Tribute Summon, Tribute Set, Duel.GetTributeGroup, GetTributeCount,
+CheckTribute, SelectTribute) and the release list of costs and effects (field::get_release_list: Duel.GetReleaseGroup,
+CheckReleaseGroup, SelectReleaseGroup and so Duel.CheckReleaseGroupCost, SelectReleaseGroupCost) read the own monster zone and the
+zones of the opposing side only. With a partner monster and no own monster the Tribute Summon of a Level 5 monster was not offered
+and a release cost could not pay with the partner monster. Now both lists add the monsters of the living partner. They follow the
+rules of the own monsters (the same checks; the own half of the releasable mask in the summon list); the hand of the partner is
+not added ("your hand" is the own hand only). A partner monster does not free a zone of the summoning duelist, because the zone
+logic of the Tribute selection still counts the monsters of the summoner only. Fusion and Ritual material already used the team
+(side_cards). Free for all has no partner, so nothing changes there; with two duelists both loops are skipped.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ field.cpp | 41 +++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 41 insertions(+)
+
+diff --git a/field.cpp b/field.cpp
+index f0cee31..a08099f 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -2229,6 +2229,23 @@ int32_t field::get_release_list(uint8_t playerid, card_set* release_list, card_s
+ 			++rcount;
+ 		}
+ 	}
++	// More than two duelists (Tag): the monsters of the partner can be released for a cost or an effect like the own ones
++	// ([R-TAG-PARTNER-COST]); the hand of the partner can not ("your hand" is the own hand only). Free for all has no partner. Skipped with two duelists.
++	if(n_duelists > 2) {
++		for(uint8_t q = 0; q < n_duelists; ++q) {
++			if(q == playerid || !is_alive(q) || !same_team(playerid, q))
++				continue;
++			for(auto& pcard : player[q].list_mzone) {
++				if(pcard && pcard != exc && !(exg && exg->has_card(pcard)) && pcard->is_releasable_by_nonsummon(playerid, reason)
++				        && (!fun || pduel->lua->check_matching(pcard, fun, exarg))) {
++					if(release_list)
++						release_list->insert(pcard);
++					pcard->release_param = 1;
++					++rcount;
++				}
++			}
++		}
++	}
+ 	if(use_hand) {
+ 		for(auto& pcard : player[playerid].list_hand) {
+ 			if(pcard && pcard != exc && !(exg && exg->has_card(pcard)) && pcard->is_releasable_by_nonsummon(playerid, reason)
+@@ -2342,6 +2359,30 @@ int32_t field::get_summon_release_list(card* target, card_set* release_list, car
+ 			rcount += pcard->release_param;
+ 		}
+ 	}
++	// More than two duelists (Tag): the monsters of the partner are Tribute material of the team ([R-TAG-PARTNER-COST]). They follow the
++	// rules of the own monsters (the same checks, and the own half of the releasable mask), they are no extra release of an opponent.
++	// In free for all nobody has a partner, so the loop finds nothing. With two duelists it is skipped.
++	if(n_duelists > 2) {
++		for(uint8_t q = 0; q < n_duelists; ++q) {
++			if(q == p || !is_alive(q) || !same_team(p, q))
++				continue;
++			for(auto& pcard : player[q].list_mzone) {
++				if(!pcard || !((releasable >> pcard->current.sequence) & 1) || !pcard->is_releasable_by_summon(p, target))
++					continue;
++				if(mg && !mg->has_card(pcard))
++					continue;
++				if(release_list)
++					release_list->insert(pcard);
++				if(pcard->is_affected_by_effect(EFFECT_TRIPLE_TRIBUTE, target))
++					pcard->release_param = 3;
++				else if (pcard->is_affected_by_effect(EFFECT_DOUBLE_TRIBUTE, target))
++					pcard->release_param = 2;
++				else
++					pcard->release_param = 1;
++				rcount += pcard->release_param;
++			}
++		}
++	}
+ 	uint32_t ex_oneof_max = 0;
+ 	card_vector oppo_mzone_tmp;
+ 	for(auto& pcard : side_cards(p, true, &player_info::list_mzone, oppo_mzone_tmp)) {

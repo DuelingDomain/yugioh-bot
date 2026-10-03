@@ -534,6 +534,46 @@
   border-color: var(--rule-hi);
 }
 
+/* ---- Standings (3 and 4 seat tables): one row per duelist, place first ---- */
+
+.scoreboard[data-placings] {
+  grid-template-columns: 1fr;
+  width: min(30em, 100%);
+}
+.scoreboard[data-placings] .score,
+.scoreboard[data-placings] .score + .score {
+  flex-direction: row;
+  text-align: left;
+  border-left: 0;
+}
+.scoreboard[data-placings] .score + .score {
+  border-top: 1px solid var(--rule);
+}
+.scoreboard[data-placings] .score + .score .scoreName,
+.scoreboard[data-placings] .score + .score .scoreLp {
+  justify-content: flex-start;
+}
+.scoreboard[data-placings] .scoreLp {
+  font-size: clamp(1.3em, min(3.2vw, 3.6vh), 1.9em);
+}
+.place {
+  flex: none;
+  min-width: 2.6em;
+  font-family: var(--font-display);
+  font-size: clamp(1.1em, 2.6vh, 1.5em);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: var(--ink-3);
+}
+.place[data-place="1"] {
+  color: #f4d690;
+  text-shadow: 0 0 14px rgb(228 182 79 / 0.5);
+}
+.score[data-winner="true"] {
+  background: linear-gradient(90deg, rgb(228 182 79 / 0.1), transparent 70%);
+}
+
 /* ---- Small screens ----------------------------------------------------- */
 
 @media (max-width: 560px) {

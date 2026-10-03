@@ -46,10 +46,11 @@ export function useDuelWebsocket(
   slug: string,
   seat: number | null | undefined,
   onChange: () => Promise<unknown>,
+  spectate = false,
 ): DuelWebsocketState {
   const changeRef = useRef(onChange);
   changeRef.current = onChange;
-  const roomKey = `${slug}:${String(seat)}`;
+  const roomKey = `${slug}:${String(seat)}:${spectate}`;
   const roomKeyRef = useRef(roomKey);
   roomKeyRef.current = roomKey;
   const [connection, setConnection] = useState<Snapshot>(idle("", { syncing: false, recovering: false }));
@@ -62,7 +63,7 @@ export function useDuelWebsocket(
       return;
     }
 
-    const myKey = `${slug}:${String(seat)}`;
+    const myKey = `${slug}:${String(seat)}:${spectate}`;
     let disposed = false;
     let joining = false;
     let subscribed = false;
@@ -225,7 +226,7 @@ export function useDuelWebsocket(
       request = new AbortController();
       let credentials: DuelConnectionResponse | undefined;
       try {
-        const response = await fetch(`/api/duels/${encodeURIComponent(slug)}/connection`, {
+        const response = await fetch(`/api/duels/${encodeURIComponent(slug)}/connection${spectate ? "?spectate=1" : ""}`, {
           cache: "no-store", signal: AbortSignal.any([request.signal, AbortSignal.timeout(8000)]),
         });
         if (!response.ok) throw new Error("Room subscription unavailable");
@@ -324,7 +325,7 @@ export function useDuelWebsocket(
       if (guildId && socket.connected) socket.emit("duel:leave", { slug, guildId });
       socket.disconnect();
     };
-  }, [slug, seat]);
+  }, [slug, seat, spectate]);
 
   if (connection.slug === slug) return { ...connection, resync };
   return { ...idle(slug, { syncing: Boolean(slug), recovering: Boolean(slug) }), resync };

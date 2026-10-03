@@ -1,0 +1,246 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Thu, 3 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: player-effect side, unique cards and summon-to-opponent
+ procedures for more than two duelists
+
+The stock code uses effect_owner, controler ^ p and opponent_of at three more sites.
+With more than 2 duelists these gave the wrong side, or seat 255.
+Every change is in an n_duelists > 2 branch. The n == 2 text is unchanged.
+
+effect.cpp, effect::is_target_player: the own side of an ABSOLUTE_TARGET effect is get_owner_player().
+effect_owner is none_id() for effects that a startup script made, so no seat matched it.
+In a team game the own side is still team 0.
+
+card.cpp, card::get_unique_target: the own side is the controller.
+The other side is every living duelist that is not on the team of the controller.
+The partner in a team game is not an opponent. A dead duelist is not looked at.
+This is the same rule that field::add_unique_card already uses.
+
+card.cpp, check_summon_procedure, check_set_procedure, filter_spsummon_procedure:
+a procedure with EFFECT_FLAG_SPSUM_PARAM and an o_range means "to the field of an opponent".
+With more than 2 duelists the check passes when at least one living opponent works.
+The opponents are tried clockwise from the player. The first one that works is the target.
+If none works, the procedure is not allowed. There is no trap and no read out of range.
+A small helper, opponents_in_turn_order, lists the living opponents.
+
+Left alone: the zone swaps in card.cpp. They are pure bit math with no seat.
+Still open in operations.cpp (other task): the "1 - sumplayer" and "1 - setplayer" lines and the zone swaps.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ card.cpp   | 141 ++++++++++++++++++++++++++++++++++++++++-------------
+ effect.cpp |   2 +-
+ 2 files changed, 108 insertions(+), 35 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index 9599ad2..cff4dc2 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -2623,13 +2623,41 @@ int32_t card::filter_summon_procedure(uint8_t playerid, effect_set* peset, uint8
+ 		return pduel->game_field->check_tribute(this, min, max, nullptr, current.controler, zone);
+ 	return FALSE;
+ }
++// More than 2 duelists only: the living opponents of playerid (another team), clockwise after playerid.
++// A summon procedure with EFFECT_FLAG_SPSUM_PARAM and o_range puts the monster on "the opponent's
++// field". With several opponents it passes when it works for one of them: the first one in this order.
++static uint8_t opponents_in_turn_order(const field& gf, uint8_t playerid, uint8_t (&out)[MAX_DUELISTS]) {
++	uint8_t count = 0;
++	if(!gf.is_alive(playerid))
++		return count;
++	for(uint8_t q = gf.next_in_turn_order(playerid); q != playerid; q = gf.next_in_turn_order(q)) {
++		if(!gf.same_team(playerid, q))
++			out[count++] = q;
++	}
++	return count;
++}
+ int32_t card::check_summon_procedure(effect* peffect, uint8_t playerid, uint8_t ignore_count, uint8_t min_tribute, uint32_t zone) {
+ 	if(!peffect->check_count_limit(playerid))
+ 		return FALSE;
+ 	uint8_t toplayer = playerid;
+ 	if(peffect->is_flag(EFFECT_FLAG_SPSUM_PARAM)) {
+-		if(peffect->o_range)
+-			toplayer = pduel->game_field->opponent_of(playerid);
++		if(peffect->o_range) {
++			if(pduel->game_field->n_duelists == 2)
++				toplayer = pduel->game_field->opponent_of(playerid);
++			else {
++				auto& gf = *pduel->game_field;
++				uint8_t opps[MAX_DUELISTS]{};
++				const uint8_t n_opps = opponents_in_turn_order(gf, playerid, opps);
++				toplayer = gf.none_id();
++				for(uint8_t i = 0; i < n_opps && toplayer == gf.none_id(); ++i) {
++					if(gf.is_player_can_summon(peffect->get_value(this), playerid, this, opps[i])
++							&& !gf.check_unique_onfield(this, opps[i], LOCATION_MZONE))
++						toplayer = opps[i];
++				}
++				if(toplayer == gf.none_id())
++					return FALSE;
++			}
++		}
+ 	}
+ 	if(!pduel->game_field->is_player_can_summon(peffect->get_value(this), playerid, this, toplayer))
+ 		return FALSE;
+@@ -2725,8 +2753,22 @@ int32_t card::check_set_procedure(effect* peffect, uint8_t playerid, uint8_t ign
+ 		return FALSE;
+ 	uint8_t toplayer = playerid;
+ 	if(peffect->is_flag(EFFECT_FLAG_SPSUM_PARAM)) {
+-		if(peffect->o_range)
+-			toplayer = pduel->game_field->opponent_of(playerid);
++		if(peffect->o_range) {
++			if(pduel->game_field->n_duelists == 2)
++				toplayer = pduel->game_field->opponent_of(playerid);
++			else {
++				auto& gf = *pduel->game_field;
++				uint8_t opps[MAX_DUELISTS]{};
++				const uint8_t n_opps = opponents_in_turn_order(gf, playerid, opps);
++				toplayer = gf.none_id();
++				for(uint8_t i = 0; i < n_opps && toplayer == gf.none_id(); ++i) {
++					if(gf.is_player_can_mset(peffect->get_value(this), playerid, this, opps[i]))
++						toplayer = opps[i];
++				}
++				if(toplayer == gf.none_id())
++					return FALSE;
++			}
++		}
+ 	}
+ 	if(!pduel->game_field->is_player_can_mset(peffect->get_value(this), playerid, this, toplayer))
+ 		return FALSE;
+@@ -2760,40 +2802,52 @@ int32_t card::check_set_procedure(effect* peffect, uint8_t playerid, uint8_t ign
+ }
+ void card::filter_spsummon_procedure(uint8_t playerid, effect_set* peset, uint32_t summon_type) {
+ 	auto pr = field_effect.equal_range(EFFECT_SPSUMMON_PROC);
+-	uint8_t toplayer;
++	uint8_t toplayer = playerid;
+ 	uint8_t topos;
+ 	for(auto eit = pr.first; eit != pr.second;) {
+ 		effect* peffect = eit->second;
+ 		++eit;
++		// The fields the monster can go to: one, or (more than 2 duelists, o_range) every living opponent
++		// in turn order. The procedure is listed when it works for the first of them (a `continue` below
++		// tries the next one).
++		uint8_t targets[MAX_DUELISTS]{};
++		uint8_t n_targets = 1;
+ 		if(peffect->is_flag(EFFECT_FLAG_SPSUM_PARAM)) {
+ 			topos = (uint8_t)peffect->s_range;
+ 			if(peffect->o_range == 0)
+ 				toplayer = playerid;
+-			else
++			else if(pduel->game_field->n_duelists == 2)
+ 				toplayer = pduel->game_field->opponent_of(playerid);
++			else
++				n_targets = opponents_in_turn_order(*pduel->game_field, playerid, targets);
+ 		} else {
+ 			topos = POS_FACEUP;
+ 			toplayer = playerid;
+ 		}
+ 		if(!peffect->is_available() || !peffect->check_count_limit(playerid))
+ 			continue;
+-		if(is_spsummonable(peffect)
+-				&& ((topos & POS_FACEDOWN) || !pduel->game_field->check_unique_onfield(this, toplayer, LOCATION_MZONE))) {
+-			effect* sumeffect = pduel->game_field->core.reason_effect;
+-			if(!sumeffect)
+-				sumeffect = peffect;
+-			std::vector<lua_Integer> retval;
+-			peffect->get_value(this, 0, retval);
+-			uint32_t sumtype = retval.size() > 0 ? static_cast<uint32_t>(retval[0]) : 0;
+-			uint32_t zone = retval.size() > 1 ? static_cast<uint32_t>(retval[1]) : 0xff;
+-			bool ignore_zone_check = retval.size() > 2 ? static_cast<bool>(retval[2]) : false;
+-			if(zone != 0xff && !ignore_zone_check && pduel->game_field->get_useable_count(this, toplayer, LOCATION_MZONE, playerid, LOCATION_REASON::TOFIELD, zone, nullptr) <= 0)
+-				continue;
+-			if(summon_type != 0 && summon_type != sumtype)
+-				continue;
+-			if(!pduel->game_field->is_player_can_spsummon(sumeffect, sumtype, topos, playerid, toplayer, this, peffect))
+-				continue;
+-			peset->push_back(peffect);
++		for(uint8_t ti = 0; ti < n_targets; ++ti) {
++			if(pduel->game_field->n_duelists > 2 && peffect->is_flag(EFFECT_FLAG_SPSUM_PARAM) && peffect->o_range)
++				toplayer = targets[ti];
++			if(is_spsummonable(peffect)
++					&& ((topos & POS_FACEDOWN) || !pduel->game_field->check_unique_onfield(this, toplayer, LOCATION_MZONE))) {
++				effect* sumeffect = pduel->game_field->core.reason_effect;
++				if(!sumeffect)
++					sumeffect = peffect;
++				std::vector<lua_Integer> retval;
++				peffect->get_value(this, 0, retval);
++				uint32_t sumtype = retval.size() > 0 ? static_cast<uint32_t>(retval[0]) : 0;
++				uint32_t zone = retval.size() > 1 ? static_cast<uint32_t>(retval[1]) : 0xff;
++				bool ignore_zone_check = retval.size() > 2 ? static_cast<bool>(retval[2]) : false;
++				if(zone != 0xff && !ignore_zone_check && pduel->game_field->get_useable_count(this, toplayer, LOCATION_MZONE, playerid, LOCATION_REASON::TOFIELD, zone, nullptr) <= 0)
++					continue;
++				if(summon_type != 0 && summon_type != sumtype)
++					continue;
++				if(!pduel->game_field->is_player_can_spsummon(sumeffect, sumtype, topos, playerid, toplayer, this, peffect))
++					continue;
++				peset->push_back(peffect);
++				break;
++			}
+ 		}
+ 	}
+ }
+@@ -3065,21 +3119,40 @@ int32_t card::check_unique_code(card* pcard) {
+ }
+ void card::get_unique_target(card_set* cset, uint8_t controler, card* icard) {
+ 	cset->clear();
++	auto& gf = *pduel->game_field;
++	if(gf.n_duelists > 2 && !gf.is_duelist(controler))
++		return;
+ 	for(uint8_t p = 0; p < 2; ++p) {
+ 		if(!unique_pos[p])
+ 			continue;
+-		const auto& player = pduel->game_field->player[controler ^ p];
+-		if(unique_location & LOCATION_MZONE) {
+-			for(auto& pcard : player.list_mzone) {
+-				if(pcard && (pcard != icard) && pcard->is_position(POS_FACEUP) && !pcard->get_status(STATUS_SPSUMMON_STEP)
+-					&& check_unique_code(pcard))
+-					cset->insert(pcard);
+-			}
++		// The own side is the field of controler. The other side is every living duelist of another
++		// team (ADR-0002: "opponent" on the field means all opponents). With 2 duelists it is the
++		// field of controler ^ 1.
++		uint8_t sides[MAX_DUELISTS]{};
++		uint8_t n_sides = 0;
++		if(gf.n_duelists == 2)
++			sides[n_sides++] = controler ^ p;
++		else if(p == 0)
++			sides[n_sides++] = controler;
++		else {
++			for(uint8_t q = 0; q < gf.n_duelists; ++q)
++				if(gf.is_alive(q) && !gf.same_team(controler, q))
++					sides[n_sides++] = q;
+ 		}
+-		if(unique_location & LOCATION_SZONE) {
+-			for(auto& pcard : player.list_szone) {
+-				if(pcard && (pcard != icard) && pcard->is_position(POS_FACEUP) && check_unique_code(pcard))
+-					cset->insert(pcard);
++		for(uint8_t i = 0; i < n_sides; ++i) {
++			const auto& player = gf.player[sides[i]];
++			if(unique_location & LOCATION_MZONE) {
++				for(auto& pcard : player.list_mzone) {
++					if(pcard && (pcard != icard) && pcard->is_position(POS_FACEUP) && !pcard->get_status(STATUS_SPSUMMON_STEP)
++						&& check_unique_code(pcard))
++						cset->insert(pcard);
++				}
++			}
++			if(unique_location & LOCATION_SZONE) {
++				for(auto& pcard : player.list_szone) {
++					if(pcard && (pcard != icard) && pcard->is_position(POS_FACEUP) && check_unique_code(pcard))
++						cset->insert(pcard);
++				}
+ 			}
+ 		}
+ 	}
+diff --git a/effect.cpp b/effect.cpp
+index 16749e7..bb42794 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -514,7 +514,7 @@ int32_t effect::is_target_player(uint8_t playerid) {
+ 		if(!gf.is_duelist(playerid))
+ 			return FALSE;
+ 		if(is_flag(EFFECT_FLAG_ABSOLUTE_TARGET)) {
+-			const bool own_side = gf.n_teams == gf.n_duelists ? playerid == effect_owner : gf.team_of(playerid) == 0;
++			const bool own_side = gf.n_teams == gf.n_duelists ? playerid == get_owner_player() : gf.team_of(playerid) == 0;
+ 			return (own_side ? s_range : o_range) ? TRUE : FALSE;
+ 		}
+ 		// s only: the viewpoint duelist. o only: every duelist of another team. Both: everyone

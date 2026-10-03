@@ -1,0 +1,85 @@
+/* The last moves as small tiles above the side tabs. Colours come from --seat-main set per tile. */
+.strip {
+  flex: none;
+  border-bottom: 1px solid var(--duel-rule);
+  padding-bottom: 8px;
+}
+
+.cap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 6px;
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--duel-ink-3, #958f81);
+}
+.cap b { font-weight: 600; color: var(--duel-ink-2, #c8c2b4); }
+.cap i { flex: 1; height: 1px; background: var(--duel-rule); }
+.cap button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.cap button:hover, .cap button:focus-visible { color: var(--duel-ink, #efe7d5); }
+
+.rail {
+  display: flex;
+  gap: 5px;
+  margin: 0;
+  padding: 0 12px;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.none { font-size: 12px; color: var(--duel-ink-3, #958f81); }
+.item { flex: none; }
+
+.tile {
+  position: relative;
+  display: block;
+  width: 32px;
+  height: 40px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--duel-rule);
+  border-radius: 3px;
+  background: #0c1322;
+  cursor: default;
+}
+button.tile { cursor: pointer; }
+.tile img { width: 100%; height: 100%; display: block; object-fit: cover; object-position: 50% 28%; filter: saturate(0.9); }
+.tile::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--seat-main, var(--duel-rule));
+}
+.tile:hover, .tile:focus-visible { border-color: var(--seat-main, var(--duel-rule-hi)); }
+
+.k {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: rgb(5 8 16 / 0.9);
+  color: var(--duel-ink, #efe7d5);
+}
+.k[data-tone="attack"] { color: var(--duel-ember, #d98d52); }
+.k[data-tone="chain"] { color: #e4b64f; }
+.k[data-tone="loss"] { color: #f08376; }
+.k[data-tone="gain"] { color: #6fd39b; }

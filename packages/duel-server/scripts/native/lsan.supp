@@ -1,0 +1,6 @@
+# LeakSanitizer suppressions for scripts/run-nduel.sh (detect_leaks=1). Keep this list as short as possible: one line per known leak.
+#
+# field::check_chain_counter (stock ygopro-core, not a patch of this series): this call allocates an entry of the applied chain counter
+# list (core.applied_chain_counters) with `new`. When a duel is destroyed while a chain is still open, that entry is not freed
+# (n4 seed 10 does this: 28 bytes in 2 allocations). It is a leak at the end of one run, it does not change any game state.
+leak:field::check_chain_counter

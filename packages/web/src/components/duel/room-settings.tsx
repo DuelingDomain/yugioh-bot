@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { DUEL_BANLIST_OPTIONS, duelClockRulesText, isCustomDomain, type DuelClock, type DuelRoom, type DuelSession } from "@yugidraft/shared/duels";
+import { DUEL_BANLIST_OPTIONS, duelClockRulesText, isCustomDomain, startingLpFor, type DuelClock, type DuelRoom, type DuelSession } from "@yugidraft/shared/duels";
 import { Check, Link2 } from "lucide-react";
 import { SheetButton } from "./sheet-ui";
+import { formatLabel } from "./table-format";
 import styles from "./room.module.css";
 import own from "./room-settings.module.css";
 import clockStyles from "./room-clock.module.css";
@@ -11,13 +12,13 @@ import clockStyles from "./room-clock.module.css";
 export function DuelSettingsSummary({ session }: { session: DuelSession }) {
   const { settings } = session;
   const values = [
-    ["Format", session.mode === "domain" ? isCustomDomain(session.masterRule, settings) ? "Custom Domain" : "Domain 1v1" : "Standard 1v1"],
+    ["Format", `${session.mode === "domain" ? (isCustomDomain(session.masterRule, settings) ? "Custom Domain" : "Domain") : "Standard"} · ${formatLabel(session.format)}`],
     ["Visibility", settings.visibility === "private" ? "Invite only" : "Discord server members"],
     ["Engine", `Automatic · Master Rule ${session.masterRule}`],
     ["Banlist", DUEL_BANLIST_OPTIONS.find((option) => option.id === settings.banlist)?.label ?? settings.banlist],
     ["Card pool", settings.cardPool === "both" ? "TCG + OCG" : settings.cardPool.toUpperCase()],
     ["Turn timer", settings.turnSeconds === 0 ? "Unlimited" : duelClockRulesText(settings.turnSeconds)],
-    ["Starting LP", settings.startingLP.toLocaleString("en-US")],
+    [session.format === "tag" ? "Team LP (shared)" : "Starting LP", startingLpFor(session.format ?? "1v1", settings).toLocaleString("en-US")],
     ["Starting hand", `${settings.startingHand} ${settings.startingHand === 1 ? "card" : "cards"}`],
     ["Draw Phase", `${settings.drawPerTurn} ${settings.drawPerTurn === 1 ? "card" : "cards"}`],
     ["Timeout", settings.turnSeconds === 0 ? "None, nobody loses on time" : settings.timeout === "loss" ? "Lose on timeout" : "Continue at zero"],
@@ -145,7 +146,7 @@ function carriedPops(key: string): [ClockPop | null, ClockPop | null] {
 }
 
 // The parent keys this sampler by serverNow so each authoritative snapshot resets elapsed time.
-export function DuelClockDisplay({ clock, session, reducedMotion = false }: { clock: DuelClock; session: DuelSession; reducedMotion?: boolean }) {
+export function DuelClockDisplay({ clock, session, reducedMotion = false, compact = false }: { clock: DuelClock; session: DuelSession; reducedMotion?: boolean; compact?: boolean }) {
   const [elapsed, setElapsed] = useState(0);
   const [pops, setPops] = useState<[ClockPop | null, ClockPop | null]>(() => carriedPops(session.slug));
   useEffect(() => {
@@ -174,13 +175,14 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false }: { cl
   return (
     <div className={styles.clock} role="timer" aria-label="Decision clocks" aria-live="off">
       {clock.remainingMs.map((remaining, seat) => {
+        if (compact && clock.activeSeat !== seat) return null;
         const active = clock.activeSeat === seat && clock.startedAt != null;
         const seconds = Math.ceil(Math.max(0, remaining - (active ? Math.max(0, clock.serverNow + elapsed - clock.startedAt!) : 0)) / 1000);
         const time = formatClock(seconds);
         const name = session.seats.find((player) => player.seat === seat)?.displayName ?? `Player ${seat + 1}`;
         const pop = pops[seat];
         return <span key={seat} className={clockStyles.seat} data-active={active} title={`${name}${active ? " · answering" : ""}`} aria-label={`${name}: ${time}`}>
-          <small>{name}</small> <span className={styles.clockTime}>{time}</span>
+          {compact ? null : <small>{name}</small>} <span className={styles.clockTime}>{time}</span>
           {pop ? (
             <span key={pop.id} className={clockStyles.pop} data-motion={reducedMotion ? "off" : "on"} aria-hidden
               style={{ "--pop-delay": `${pop.delay}ms` } as React.CSSProperties}>{pop.text}</span>

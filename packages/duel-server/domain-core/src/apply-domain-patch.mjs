@@ -781,6 +781,21 @@ patch("field.cpp", [
   ],
 ]);
 
+// check_extra_link saves the card's location in a uint8_t and restores it afterwards. A Deck Master
+// in the DMZ (0x4000) was truncated to 0, so remove_card() skipped it and left a stale DMZ entry.
+patch("field.cpp", [
+  [
+    `	uint8_t cur_location = pcard->current.location;
+	uint8_t cur_sequence = pcard->current.sequence;
+	uint8_t cur_position = pcard->current.position;
+	player[playerid].list_mzone[sequence] = pcard;`,
+    `	uint32_t cur_location = pcard->current.location;
+	uint8_t cur_sequence = pcard->current.sequence;
+	uint8_t cur_position = pcard->current.position;
+	player[playerid].list_mzone[sequence] = pcard;`,
+  ],
+]);
+
 
 patch("operations.cpp", [
   [

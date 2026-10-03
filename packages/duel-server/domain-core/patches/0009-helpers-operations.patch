@@ -1,0 +1,346 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 9 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: use duelist helpers in operations.cpp
+
+Sites changed (same behaviour with 2 duelists):
+- 17 lines of 1 - x became opponent_of(x): draw confirm player, damage reflect (2), unique check toggle (3), control swap (1 line, 2 uses), trap monster adjust (2), hint timing, spsummon counter, move player toggle, reason player toggle, QuickEffect player, dice messages (2). All x are duelist indexes or go into a uint8_t.
+- 1 turn-player-first loop (trap monster adjust) now counts n_duelists and steps with next_in_turn_order.
+- 3 local arrays of size 2 became MAX_DUELISTS: decktop, s (xyz material deck size), spsummon_once_set. Two new local arrays d and s replace d0/d1/s0/s1 in send_to.
+- Pairs became loops over n_duelists in the order 0 then 1: xyz deck top messages, writetopcard, deck top messages in send_to, check_decktop_visibility reset and check, shuffle hand and deck checks (two loops, hand first), spsummon_once_map, card spsummon counters reset, priorities reset.
+
+The order of messages, events and shuffles stays the same, because every loop runs 0 then 1 with n_duelists == 2.
+
+Left unchanged: 3 uses of 1 - sumplayer or 1 - setplayer (decision needed), the ControlAdjust pair logic, 40 PLAYER_NONE uses (phase 2), and non player sites. See unchanged-sites.md.
+---
+ operations.cpp | 141 ++++++++++++++++++++++++-------------------------
+ 1 file changed, 68 insertions(+), 73 deletions(-)
+
+diff --git a/operations.cpp b/operations.cpp
+index 1734307..03fefff 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -488,7 +488,7 @@ bool field::process(Processors::Draw& arg) {
+ 			}
+ 			if(core.deck_reversed && (public_count < drawn)) {
+ 				message = pduel->new_message(MSG_CONFIRM_CARDS);
+-				message->write<uint8_t>(1 - playerid);
++				message->write<uint8_t>(opponent_of(playerid));
+ 				message->write<uint32_t>(drawn_set.size());
+ 				for(auto& pcard : drawn_set) {
+ 					message->write<uint32_t>(pcard->data.code);
+@@ -566,7 +566,7 @@ bool field::process(Processors::Damage& arg) {
+ 			pduel->lua->add_param<LuaParam::INT>(reason_player);
+ 			pduel->lua->add_param<LuaParam::CARD>(reason_card);
+ 			if (peff->check_value_condition(5)) {
+-				playerid = 1 - playerid;
++				playerid = opponent_of(playerid);
+ 				arg.is_reflected = true;
+ 				break;
+ 			}
+@@ -595,7 +595,7 @@ bool field::process(Processors::Damage& arg) {
+ 	}
+ 	case 1: {
+ 		if(arg.is_reflected)
+-			playerid = 1 - playerid;
++			playerid = opponent_of(playerid);
+ 		if(arg.is_reflected || (reason & REASON_RRECOVER))
+ 			arg.step = 2;
+ 		core.hint_timing[playerid] |= TIMING_DAMAGE;
+@@ -983,17 +983,17 @@ bool field::process(Processors::XyzOverlay& arg) {
+ 			if(prev_size >= 2)
+ 				std::sort(cv.begin() + (cur_size - prev_size), cv.end(), card::card_operation_sort);
+ 		}
+-		duel::duel_message* decktop[2] = { nullptr, nullptr };
+-		const size_t s[2] = { player[0].list_main.size(), player[1].list_main.size() };
++		duel::duel_message* decktop[MAX_DUELISTS] = {};
++		size_t s[MAX_DUELISTS] = {};
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			s[p] = player[p].list_main.size();
+ 		if(core.global_flag & GLOBALFLAG_DECK_REVERSE_CHECK) {
+ 			const auto m_end = materials->container.end();
+-			if(s[0] > 0 && materials->container.find(player[0].list_main.back()) != m_end) {
+-				decktop[0] = pduel->new_message(MSG_DECK_TOP);
+-				decktop[0]->write<uint8_t>(0);
+-			}
+-			if(s[1] > 0 && materials->container.find(player[1].list_main.back()) != m_end) {
+-				decktop[1] = pduel->new_message(MSG_DECK_TOP);
+-				decktop[1]->write<uint8_t>(1);
++			for(uint8_t p = 0; p < n_duelists; ++p) {
++				if(s[p] > 0 && materials->container.find(player[p].list_main.back()) != m_end) {
++					decktop[p] = pduel->new_message(MSG_DECK_TOP);
++					decktop[p]->write<uint8_t>(p);
++				}
+ 			}
+ 		}
+ 		for(auto& pcard : cv) {
+@@ -1041,8 +1041,8 @@ bool field::process(Processors::XyzOverlay& arg) {
+ 				msg->write<uint32_t>(ptop->current.position);
+ 			}
+ 		};
+-		writetopcard(0);
+-		writetopcard(1);
++		for(int p = 0; p < n_duelists; ++p)
++			writetopcard(p);
+ 		if(from_grave.size()) {
+ 			raise_event(std::move(from_grave), EVENT_LEAVE_GRAVE, core.reason_effect, 0, core.reason_player, 0, 0);
+ 			process_single_event();
+@@ -1428,7 +1428,7 @@ bool field::process(Processors::ControlAdjust& arg) {
+ 		card* pcard = *cit;
+ 		adjust_set.erase(cit);
+ 		pcard->reset(RESET_CONTROL, RESET_EVENT);
+-		move_to_field(pcard, 1 - pcard->current.controler, 1 - pcard->current.controler, LOCATION_MZONE, pcard->current.position);
++		move_to_field(pcard, opponent_of(pcard->current.controler), opponent_of(pcard->current.controler), LOCATION_MZONE, pcard->current.position);
+ 		arg.step = 2;
+ 		return FALSE;
+ 	}
+@@ -1486,21 +1486,21 @@ bool field::process(Processors::SelfDestroyUnique& arg) {
+ 					core.select_cards.push_back(pcard);
+ 			}
+ 			if(core.select_cards.size() == 0) {
+-				playerid = 1 - playerid;
++				playerid = opponent_of(playerid);
+ 				for(auto& pcard : cset) {
+ 					if(pcard->current.controler == playerid && pcard->unique_fieldid != UINT_MAX)
+ 						core.select_cards.push_back(pcard);
+ 				}
+ 			}
+ 			if(core.select_cards.size() == 0) {
+-				playerid = 1 - playerid;
++				playerid = opponent_of(playerid);
+ 				for(auto& pcard : cset) {
+ 					if(pcard->current.controler == playerid)
+ 						core.select_cards.push_back(pcard);
+ 				}
+ 			}
+ 			if(core.select_cards.size() == 0) {
+-				playerid = 1 - playerid;
++				playerid = opponent_of(playerid);
+ 				for(auto& pcard : cset) {
+ 					if(pcard->current.controler == playerid)
+ 						core.select_cards.push_back(pcard);
+@@ -1612,7 +1612,7 @@ bool field::process(Processors::TrapMonsterAdjust& arg) {
+ 	case 1: {
+ 		uint8_t check_player = infos.turn_player;
+ 		if(oppo_selection)
+-			check_player = 1 - infos.turn_player;
++			check_player = opponent_of(infos.turn_player);
+ 		refresh_location_info_instant();
+ 		int32_t fcount = get_useable_count(nullptr, check_player, LOCATION_SZONE, check_player, LOCATION_REASON::NONE);
+ 		if(fcount <= 0) {
+@@ -1638,7 +1638,7 @@ bool field::process(Processors::TrapMonsterAdjust& arg) {
+ 	case 2: {
+ 		uint8_t check_player = infos.turn_player;
+ 		if(oppo_selection)
+-			check_player = 1 - infos.turn_player;
++			check_player = opponent_of(infos.turn_player);
+ 		for(auto& pcard : return_cards.list) {
+ 			to_grave_set.insert(pcard);
+ 			core.trap_monster_adjust_set[check_player].erase(pcard);
+@@ -1654,14 +1654,14 @@ bool field::process(Processors::TrapMonsterAdjust& arg) {
+ 	}
+ 	case 4: {
+ 		uint8_t tp = infos.turn_player;
+-		for(uint8_t p = 0; p < 2; ++p) {
++		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(auto& pcard : core.trap_monster_adjust_set[tp]) {
+ 				pcard->reset(RESET_TURN_SET, RESET_EVENT);
+ 				if(!is_flag(DUEL_TRAP_MONSTERS_NOT_USE_ZONE))
+ 					refresh_location_info_instant();
+ 				move_to_field(pcard, tp, tp, LOCATION_SZONE, pcard->current.position, FALSE, 2);
+ 			}
+-			tp = 1 - tp;
++			tp = next_in_turn_order(tp);
+ 		}
+ 		if(to_grave_set.size())
+ 			send_to(std::move(to_grave_set), nullptr, REASON_RULE, PLAYER_NONE, PLAYER_NONE, LOCATION_GRAVE, 0, POS_FACEUP);
+@@ -3129,14 +3129,14 @@ bool field::process(Processors::SpSummonRule& arg) {
+ 		return FALSE;
+ 	}
+ 	case 5: {
+-		if(core.shuffle_hand_check[0])
+-			shuffle(0, LOCATION_HAND);
+-		if(core.shuffle_hand_check[1])
+-			shuffle(1, LOCATION_HAND);
+-		if(core.shuffle_deck_check[0])
+-			shuffle(0, LOCATION_DECK);
+-		if(core.shuffle_deck_check[1])
+-			shuffle(1, LOCATION_DECK);
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			if(core.shuffle_hand_check[p])
++				shuffle(p, LOCATION_HAND);
++		}
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			if(core.shuffle_deck_check[p])
++				shuffle(p, LOCATION_DECK);
++		}
+ 		set_control(target, target->current.controler, 0, 0);
+ 		core.phase_action = true;
+ 		target->current.reason_effect = arg.summon_proc_effect;
+@@ -3673,7 +3673,7 @@ bool field::process(Processors::SpSummon& arg) {
+ 		if(!cvo.empty()) {
+ 			if(cvo.size() > 1)
+ 				std::sort(cvo.begin(), cvo.end(), card::card_operation_sort);
+-			core.hint_timing[1 - infos.turn_player] |= TIMING_SPSUMMON;
++			core.hint_timing[opponent_of(infos.turn_player)] |= TIMING_SPSUMMON;
+ 			for(auto& pcard : cvo)
+ 				emplace_process<Processors::SpSummonStep>(targets, pcard, zone);
+ 		}
+@@ -3692,7 +3692,7 @@ bool field::process(Processors::SpSummon& arg) {
+ 			return TRUE;
+ 		}
+ 		bool tp = false, ntp = false;
+-		std::set<uint32_t> spsummon_once_set[2];
++		std::set<uint32_t> spsummon_once_set[MAX_DUELISTS];
+ 		for(auto& pcard : targets->container) {
+ 			if(pcard->summon.player == infos.turn_player)
+ 				tp = true;
+@@ -3704,11 +3704,11 @@ bool field::process(Processors::SpSummon& arg) {
+ 		if(tp)
+ 			set_spsummon_counter(infos.turn_player);
+ 		if(ntp)
+-			set_spsummon_counter(1 - infos.turn_player);
+-		for(auto& cit : spsummon_once_set[0])
+-			++core.spsummon_once_map[0][cit];
+-		for(auto& cit : spsummon_once_set[1])
+-			++core.spsummon_once_map[1][cit];
++			set_spsummon_counter(opponent_of(infos.turn_player));
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			for(auto& cit : spsummon_once_set[p])
++				++core.spsummon_once_map[p][cit];
++		}
+ 		for(auto& pcard : targets->container) {
+ 			pcard->set_status(STATUS_SPSUMMON_STEP, FALSE);
+ 			pcard->set_status(STATUS_SPSUMMON_TURN, TRUE);
+@@ -4389,40 +4389,33 @@ bool field::process(Processors::SendTo& arg) {
+ 	case 4: {
+ 		arg.extra_args = std::make_unique<Processors::SendTo::exargs>();
+ 		auto& param = arg.extra_args;
+-		param->check_decktop_visibility[0] = false;
+-		param->check_decktop_visibility[1] = false;
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			param->check_decktop_visibility[p] = false;
+ 		param->cv.assign(targets->container.begin(), targets->container.end());
+ 		if(param->cv.size() > 1)
+ 			std::sort(param->cv.begin(), param->cv.end(), card::card_operation_sort);
+ 		if(core.global_flag & GLOBALFLAG_DECK_REVERSE_CHECK) {
+-			int32_t d0 = static_cast<int32_t>(player[0].list_main.size() - 1), s0 = d0;
+-			int32_t d1 = static_cast<int32_t>(player[1].list_main.size() - 1), s1 = d1;
++			int32_t d[MAX_DUELISTS] = {}, s[MAX_DUELISTS] = {};
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				s[p] = d[p] = static_cast<int32_t>(player[p].list_main.size() - 1);
+ 			for(auto& pcard : param->cv) {
+ 				if(pcard->current.location != LOCATION_DECK)
+ 					continue;
+-				if((pcard->current.controler == 0) && (pcard->current.sequence == static_cast<uint32_t>(s0)))
+-					--s0;
+-				if((pcard->current.controler == 1) && (pcard->current.sequence == static_cast<uint32_t>(s1)))
+-					--s1;
+-			}
+-			if((s0 != d0) && (s0 > 0)) {
+-				card* ptop = player[0].list_main[s0];
+-				if(core.deck_reversed || (ptop->current.position == POS_FACEUP_DEFENSE)) {
+-					auto message = pduel->new_message(MSG_DECK_TOP);
+-					message->write<uint8_t>(0);
+-					message->write<uint32_t>(static_cast<uint32_t>(d0 - s0));
+-					message->write<uint32_t>(ptop->data.code);
+-					message->write<uint32_t>(ptop->current.position);
++				for(uint8_t p = 0; p < n_duelists; ++p) {
++					if((pcard->current.controler == p) && (pcard->current.sequence == static_cast<uint32_t>(s[p])))
++						--s[p];
+ 				}
+ 			}
+-			if((s1 != d1) && (s1 > 0)) {
+-				card* ptop = player[1].list_main[s1];
+-				if(core.deck_reversed || (ptop->current.position == POS_FACEUP_DEFENSE)) {
+-					auto message = pduel->new_message(MSG_DECK_TOP);
+-					message->write<uint8_t>(1);
+-					message->write<uint32_t>(d1 - s1);
+-					message->write<uint32_t>(ptop->data.code);
+-					message->write<uint32_t>(ptop->current.position);
++			for(uint8_t p = 0; p < n_duelists; ++p) {
++				if((s[p] != d[p]) && (s[p] > 0)) {
++					card* ptop = player[p].list_main[s[p]];
++					if(core.deck_reversed || (ptop->current.position == POS_FACEUP_DEFENSE)) {
++						auto message = pduel->new_message(MSG_DECK_TOP);
++						message->write<uint8_t>(p);
++						message->write<uint32_t>(static_cast<uint32_t>(d[p] - s[p]));
++						message->write<uint32_t>(ptop->data.code);
++						message->write<uint32_t>(ptop->current.position);
++					}
+ 				}
+ 			}
+ 		}
+@@ -4597,8 +4590,8 @@ bool field::process(Processors::SendTo& arg) {
+ 				message->write<uint32_t>(ptop->data.code);
+ 				message->write<uint32_t>(ptop->current.position);
+ 			};
+-			check_decktop(0);
+-			check_decktop(1);
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				check_decktop(p);
+ 		}
+ 		for(auto& pcard : targets->container) {
+ 			if(!(pcard->data.type & TYPE_TOKEN))
+@@ -4989,7 +4982,7 @@ bool field::process(Processors::MoveToField& arg) {
+ 							continue;
+ 					}
+ 					peff->dec_count();
+-					move_player = 1 - move_player;
++					move_player = opponent_of(move_player);
+ 				}
+ 			}
+ 
+@@ -5235,7 +5228,7 @@ bool field::process(Processors::ChangePos& arg) {
+ 	case 1: {
+ 		uint8_t playerid = reason_player;
+ 		if(arg.oppo_selection)
+-			playerid = 1 - reason_player;
++			playerid = opponent_of(reason_player);
+ 		card_set ssets;
+ 		for(auto& pcard : targets->container) {
+ 			uint8_t npos = pcard->position_param & 0xff;
+@@ -5347,8 +5340,10 @@ bool field::process(Processors::ChangePos& arg) {
+ 				pcard->summon.type &= 0xdf00ffff;
+ 				if((pcard->summon.type & SUMMON_TYPE_PENDULUM) == SUMMON_TYPE_PENDULUM)
+ 					pcard->summon.type &= 0xf000ffff;
+-				pcard->spsummon_counter[0] = pcard->spsummon_counter[1] = 0;
+-				pcard->spsummon_counter_rst[0] = pcard->spsummon_counter_rst[1] = 0;
++				for(uint8_t p = 0; p < n_duelists; ++p) {
++					pcard->spsummon_counter[p] = 0;
++					pcard->spsummon_counter_rst[p] = 0;
++				}
+ 			}
+ 			if((npos & POS_FACEDOWN) && pcard->equiping_cards.size()) {
+ 				for(auto csit = pcard->equiping_cards.begin(); csit != pcard->equiping_cards.end();) {
+@@ -5652,9 +5647,9 @@ bool field::process(Processors::ActivateEffect& arg) {
+ 		phandler->set_status(STATUS_CHAINING, TRUE);
+ 		peffect->dec_count(playerid);
+ 		emplace_process<Processors::AddChain>();
+-		emplace_process<Processors::QuickEffect>(false, 1 - playerid);
+-		infos.priorities[0] = 0;
+-		infos.priorities[1] = 0;
++		emplace_process<Processors::QuickEffect>(false, opponent_of(playerid));
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			infos.priorities[p] = 0;
+ 		return FALSE;
+ 	}
+ 	case 1: {
+@@ -6149,7 +6144,7 @@ bool field::process(Processors::TossDice& arg) {
+ 		}
+ 		if(count2 > 0) {
+ 			message = pduel->new_message(MSG_TOSS_DICE);
+-			message->write<uint8_t>(1 - playerid);
++			message->write<uint8_t>(opponent_of(playerid));
+ 			message->write<uint8_t>(count2);
+ 			for(int32_t i = 0; i < count2; ++i) {
+ 				const auto dice = pduel->get_next_integer(1, 6);
+@@ -6176,7 +6171,7 @@ bool field::process(Processors::TossDice& arg) {
+ 		}
+ 		if(count2 > 0) {
+ 			auto mmessage = pduel->new_message(MSG_TOSS_DICE);
+-			mmessage->write<uint8_t>(1 - playerid);
++			mmessage->write<uint8_t>(opponent_of(playerid));
+ 			mmessage->write<uint8_t>(count2);
+ 			for(int32_t i = 0; i < count2; ++i) {
+ 				mmessage->write<uint8_t>(core.dice_results[count1 + i]);

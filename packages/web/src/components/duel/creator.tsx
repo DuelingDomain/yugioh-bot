@@ -10,6 +10,10 @@ import {
   DUEL_BANLIST_OPTIONS,
   duelClockRulesText,
   isCustomDomain,
+  DUEL_FORMATS,
+  MULTI_CORE_UNAVAILABLE_MESSAGE,
+  multiDomainBlockReason,
+  type DuelFormat,
   type DuelMasterRule,
   type DuelMode,
   type DuelSettings,
@@ -20,6 +24,7 @@ import { TURN_TIMER_CHOICES } from "./turn-timer";
 import { cx, sheetButtonClass, SheetButton, SheetSegmented, SheetSelect, sheetPage, type Choice } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./creator.module.css";
+import { FORMAT_LABELS, FORMAT_RULES, formatSeatCount, formatStartingLp } from "./table-format";
 
 const MASTER_RULES: readonly Choice<DuelMasterRule>[] = [
   { value: 5, label: "Master Rules 5 (2020)" },
@@ -28,10 +33,12 @@ const MASTER_RULES: readonly Choice<DuelMasterRule>[] = [
   { value: 2, label: "Master Rules 2 (2011)" },
   { value: 1, label: "Master Rules 1 (2008)" },
 ];
+const MULTIPLAYER_MASTER_RULES = MASTER_RULES.filter((choice) => choice.value === 5);
 const VISIBILITY: readonly Choice<DuelSettings["visibility"]>[] = [
   { value: "public", label: "Public", icon: <Globe size={15} strokeWidth={1.6} aria-hidden /> },
   { value: "private", label: "Private", icon: <Lock size={15} strokeWidth={1.6} aria-hidden /> },
 ];
+const TABLE_FORMATS: readonly Choice<DuelFormat>[] = DUEL_FORMATS.map((value) => ({ value, label: FORMAT_LABELS[value] }));
 const FORMATS: readonly Choice<DuelMode>[] = [
   { value: "normal", label: "Standard duel" },
   { value: "domain", label: "Domain" },
@@ -56,11 +63,20 @@ const SERIES_LENGTHS: readonly Choice<DuelBestOf>[] = [
 ];
 const BANLISTS = DUEL_BANLIST_OPTIONS.map(({ id, label }) => ({ value: id, label: `Banlist: ${label}` }));
 
-/** `focusOpponent` opens the page with the opponent search focused (the "Challenge a player" entry). */
-export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean } = {}) {
+/**
+ * `focusOpponent` focuses the opponent search for the challenge entry.
+ * Server capabilities control the available table formats and Domain mode.
+ */
+export function DuelCreator({ focusOpponent = false, multiplayerTables = false, multiCoreReady = false, multiDomainCoreReady = false }: {
+  focusOpponent?: boolean;
+  multiplayerTables?: boolean;
+  multiCoreReady?: boolean;
+  multiDomainCoreReady?: boolean;
+} = {}) {
   const router = useRouter();
   const [name, setName] = useState("Table");
   const [mode, setMode] = useState<DuelMode>("normal");
+  const [format, setFormat] = useState<DuelFormat>("1v1");
   const [masterRule, setMasterRule] = useState<DuelMasterRule>(5);
   const [settings, setSettings] = useState(() => defaultDuelSettings("normal"));
   const [opponent, setOpponent] = useState<DuelPlayerOption | null>(null);
@@ -73,8 +89,13 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
   const inFlight = useRef(false);
   // A challenge room is always private; the server forces it, so the form shows it that way.
   const challenge = opponent != null;
+  // A challenge, Best of 3 and Ranked belong to 1v1 tables. Tag and free-for-all tables are open tables, one game.
+  const matchLocked = format !== "1v1";
   const visibility = challenge ? "private" : settings.visibility;
   const customDomain = mode === "domain" && isCustomDomain(masterRule, settings);
+  // Domain is offered only where its core exists (see multiDomainBlockReason).
+  const domainBlocked = multiDomainBlockReason("domain", format, multiDomainCoreReady);
+  const duelTypes = domainBlocked ? FORMATS.filter((choice) => choice.value !== "domain") : FORMATS;
 
   function update<K extends keyof DuelSettings>(key: K, value: DuelSettings[K]) {
     setSettings((current) => ({ ...current, [key]: value }));
@@ -88,6 +109,8 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
     setError(null);
     try {
       const { session, notified } = await createDuel(name.trim(), mode, masterRule, { ...settings, visibility }, {
+        // A 1v1 request carries no format: the body stays the one the server has always read.
+        ...(format !== "1v1" ? { format } : {}),
         opponentPlayerId: opponent?.id ?? null, bestOf, ranked,
       });
       if (opponent) {
@@ -118,6 +141,7 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
   const formatName = mode === "domain" ? (customDomain ? "Custom Domain" : "Domain") : "Standard";
   const banlistLabel = DUEL_BANLIST_OPTIONS.find((option) => option.id === settings.banlist)?.label ?? settings.banlist;
   const summaryRows: [string, string][] = [
+    ["Table", `${FORMAT_LABELS[format]} · ${formatSeatCount(format)} seats`],
     ["Match", `${bestOf === 3 ? "Best of 3" : "Best of 1"} · ${ranked ? "Ranked" : "Unranked"}`],
     ["Opponent", opponent ? opponent.displayName : "Open table"],
     ["Visibility", visibility === "private" ? "Invite only" : "Public"],
@@ -167,22 +191,27 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
               </div>
               <div className={styles.fields}>
                 <div className={styles.wide}>
-                  <OpponentPicker value={opponent} onChange={setOpponent} disabled={creating || sent != null} autoFocus={focusOpponent} />
+                  <OpponentPicker value={opponent} onChange={setOpponent} disabled={creating || sent != null || matchLocked} autoFocus={focusOpponent} />
                   {opponent ? <p className={cx(ui.hint, styles.below)}>The bot tries to send {opponent.displayName} a direct message with a link to the table. If it cannot, you get the link to share.</p> : null}
                 </div>
                 <div className={styles.wide}>
-                  <SheetSegmented label="Series length" value={bestOf} choices={SERIES_LENGTHS} onChange={setBestOf} />
+                  <SheetSegmented label="Series length" value={bestOf} choices={SERIES_LENGTHS} onChange={setBestOf} disabled={matchLocked} />
                 </div>
                 <div className={styles.wide}>
                   <label className={styles.toggle}>
-                    <input type="checkbox" checked={ranked} onChange={(event) => setRanked(event.target.checked)} />
+                    <input type="checkbox" checked={ranked} onChange={(event) => setRanked(event.target.checked)} disabled={matchLocked} />
                     <span>
                       Ranked
                       <small>The result counts toward the player rankings. Off by default.</small>
                     </span>
                   </label>
                 </div>
-                {!challenge && (bestOf === 3 || ranked) ? (
+                {matchLocked ? (
+                  <p className={cx(ui.hint, styles.wide)} data-testid="match-locked">
+                    Challenges, Best of 3 and Ranked are for 1v1 tables. Tag and free-for-all tables are one open game.
+                  </p>
+                ) : null}
+                {!matchLocked && !challenge && (bestOf === 3 || ranked) ? (
                   <p className={cx(ui.hint, styles.wide)} data-testid="practice-note">
                     {bestOf === 3
                       ? "Best of 3 works against the practice bot, with side decking between games. Best of 3 and Ranked only count when two players play each other."
@@ -195,18 +224,50 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
             <section className={styles.section} aria-labelledby="creator-format">
               <div className={styles.side}>
                 <h2 id="creator-format" className={ui.sectionTitle}>Format</h2>
-                <p className={ui.hint}>Both are 1v1, single duel.</p>
+                <p className={ui.hint}>
+                  {multiplayerTables ? "Table size and rules. Each duelist has a separate field and, in Domain, a separate Deck Master." : "Standard or Domain, one against one."}
+                </p>
               </div>
               <div className={styles.fields}>
+                {multiplayerTables ? (
                 <div className={styles.wide}>
-                  <SheetSegmented label="Duel type" value={mode} choices={FORMATS} onChange={(value) => {
+                  <SheetSelect label="Table type" value={format} choices={TABLE_FORMATS.map((choice) => ({ ...choice, disabled: choice.value !== "1v1" && !multiCoreReady }))} onChange={(value) => {
+                    setFormat(value);
+                    setSettings((current) => ({ ...current, stopAtEveryWindow: defaultDuelSettings(mode, value).stopAtEveryWindow }));
+                    // A challenge, Best of 3 and Ranked need a 1v1 table.
+                    if (value !== "1v1") {
+                      setOpponent(null);
+                      setBestOf(1);
+                      setRanked(false);
+                    }
+                    // Use the host status when changing the table format.
+                    if (mode === "domain" && multiDomainBlockReason("domain", value, multiDomainCoreReady)) {
+                      setMode("normal");
+                      setSettings((current) => ({ ...defaultDuelSettings("normal", value), visibility: current.visibility }));
+                    }
+                    // Tag and free-for-all tables run on Master Rule 5 only.
+                    if (value !== "1v1") setMasterRule(5);
+                  }} />
+                  {!multiCoreReady ? (
+                    <p className={cx(ui.hint, styles.below)} data-testid="multi-core-blocked">{MULTI_CORE_UNAVAILABLE_MESSAGE}</p>
+                  ) : null}
+                  <p className={cx(ui.hint, styles.below)} data-testid="format-rule">
+                    {formatSeatCount(format)} seats · {formatStartingLp(format, settings).toLocaleString("en-US")} LP{format === "tag" ? " per team" : " each"}. {FORMAT_RULES[format]}
+                  </p>
+                </div>
+                ) : null}
+                <div className={styles.wide}>
+                  <SheetSegmented label="Duel type" value={mode} choices={duelTypes} onChange={(value) => {
                     setMode(value);
                     setMasterRule(5);
                     // Visibility is the organizer's choice, not part of a format preset.
-                    setSettings((current) => ({ ...defaultDuelSettings(value), visibility: current.visibility }));
+                    setSettings((current) => ({ ...defaultDuelSettings(value, format), visibility: current.visibility }));
                   }} />
+                  {domainBlocked ? (
+                    <p className={cx(ui.hint, styles.below)} data-testid="domain-blocked">{domainBlocked}</p>
+                  ) : null}
                 </div>
-                <SheetSelect label="Master Rules" value={masterRule} choices={MASTER_RULES} onChange={setMasterRule} />
+                <SheetSelect label="Master Rules" value={masterRule} choices={format === "1v1" ? MASTER_RULES : MULTIPLAYER_MASTER_RULES} onChange={setMasterRule} disabled={format !== "1v1"} />
                 <SheetSelect label="Game engine" value="automatic" choices={[{ value: "automatic", label: "Automatic" }]} disabled />
               </div>
             </section>
@@ -230,7 +291,7 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
             <section className={styles.section} aria-labelledby="creator-clock">
               <div className={styles.side}>
                 <h2 id="creator-clock" className={ui.sectionTitle}>Clock &amp; life points</h2>
-                <p className={ui.hint}>Pace of the duel and where both players start.</p>
+                <p className={ui.hint}>Pace of the duel and where duelists start.{multiplayerTables ? " In Tag this is per duelist; a team shares double." : ""}</p>
               </div>
               <div className={styles.fields}>
                 <SheetSelect label="Starting Life Points" value={settings.startingLP} choices={LIFE_POINTS} onChange={(value) => update("startingLP", value)} />
@@ -262,12 +323,20 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
                       <span>
                         <strong>{customDomain ? "Custom Domain" : "Domain preset"}</strong>
                         {customDomain ? " — these overrides differ from official Domain rules." : " — 60 singleton Main Deck cards, a separate Deck Master, up to 15 Extra Deck cards, no Side Deck."}
+                        {/* The host does not send its 1v1 engine choice to the creator. */}
+                        {format !== "1v1"
+                          ? " Tag and free-for-all duels use Master Rule 5. In Domain, every duelist draws on their first turn."
+                          : " In 1v1 Domain, the duelist who goes first draws at Master Rule 1 and 2; at Master Rule 3 to 5 this depends on the server engine. The second duelist always draws."}
                       </span>
                     </p>
                   ) : (
                     <p className={styles.note}>
                       <Info size={16} strokeWidth={1.6} aria-hidden />
-                      <span>Master Rules use the current card catalog, not a historical card pool. First-turn draws follow the selected Master Rule.</span>
+                      <span>
+                        {format === "1v1"
+                          ? "Master Rules use the current card catalog, not a historical card pool. First-turn draws follow the selected Master Rule."
+                          : "Tag and free-for-all duels use Master Rule 5 and the current card catalog. First-turn draws follow Master Rule 5."}
+                      </span>
                     </p>
                   )}
                   {!settings.validateDeck ? (
@@ -287,10 +356,10 @@ export function DuelCreator({ focusOpponent = false }: { focusOpponent?: boolean
 
           <aside className={styles.summary} aria-label="Game summary">
             <div className={styles.card}>
-              <p className={styles.kind}>{formatName} · MR{masterRule} · {settings.startingLP} LP · {timerShort}</p>
+              <p className={styles.kind}>{FORMAT_LABELS[format]} · {formatName} · MR{masterRule} · {formatStartingLp(format, settings).toLocaleString("en-US")} LP · {timerShort}</p>
               <p className={styles.name} title={name.trim() || "Untitled table"}>{name.trim() || "Untitled table"}</p>
               <dl className={styles.tally}>
-                <div><dd className={ui.num}>{settings.startingLP.toLocaleString("en-US")}</dd><dt>Life Points</dt></div>
+                <div><dd className={ui.num}>{formatStartingLp(format, settings).toLocaleString("en-US")}</dd><dt>{format === "tag" ? "Team LP" : "Life Points"}</dt></div>
                 <div><dd className={ui.num}>{settings.startingHand}</dd><dt>Hand</dt></div>
                 <div><dd className={ui.num}>{settings.drawPerTurn}</dd><dt>Draw</dt></div>
               </dl>

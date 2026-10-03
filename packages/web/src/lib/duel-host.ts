@@ -14,7 +14,16 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 
-export type DuelHostOp = "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck";
+export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context";
+
+/** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
+export function scenariosEnabled(): boolean {
+  return process.env.DUEL_SCENARIOS === "1";
+}
+
+export function scenariosOffResponse(): NextResponse {
+  return NextResponse.json({ error: "Not found" }, { status: 404 });
+}
 
 type DuelActor =
   | { ok: true; guildId: string; playerId: number; duels: DuelService }
@@ -87,10 +96,20 @@ export async function callDuelHost(input: {
   slug?: string;
   guildId: string;
   playerId: number;
+  /** view only: an eliminated FFA player watches through the public view. */
+  spectate?: boolean;
   command?: DuelCommand;
   deck?: DuelDeck;
   query?: string;
   codes?: number[];
+  /** add-bot only: the 0-based empty seat to fill. */
+  seat?: number;
+  /** start-preset only. */
+  presetId?: string;
+  /** start-preset only: four decimal strings (the core seed). */
+  seed?: string[];
+  /** report only: the tester's note. */
+  note?: string;
   cardQuery?: CardQuery;
   /** Rules for `check-deck`. */
   mode?: DuelMode;
@@ -114,10 +133,15 @@ export async function callDuelHost(input: {
     playerId: input.playerId,
   };
   if (input.slug) payload.slug = input.slug;
+  if (input.op === "view" && input.spectate === true) payload.spectate = true;
   if (input.command) payload.command = input.command;
   if (input.deck) payload.deck = input.deck;
   if (input.query !== undefined) payload.query = input.query;
   if (input.codes !== undefined) payload.codes = input.codes;
+  if (input.seat !== undefined) payload.seat = input.seat;
+  if (input.presetId !== undefined) payload.presetId = input.presetId;
+  if (input.seed !== undefined) payload.seed = input.seed;
+  if (input.note !== undefined) payload.note = input.note;
   if (input.cardQuery !== undefined) payload.cardQuery = input.cardQuery;
   if (input.mode !== undefined) payload.mode = input.mode;
   if (input.masterRule !== undefined) payload.masterRule = input.masterRule;

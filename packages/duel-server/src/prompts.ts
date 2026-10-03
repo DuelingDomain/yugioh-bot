@@ -1,4 +1,5 @@
-import type { DuelAnswer, DuelCardInfo, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelFormat, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
+import { teamOfSeat } from "@yugidraft/shared/duels";
 import {
   OcgLocation,
   OcgMessageType,
@@ -22,13 +23,33 @@ import {
 import type { CardDatabase } from "./cards.js";
 import { cardInfoLabel } from "./cards.js";
 import { attributeName, fillPlaceholders, locationLabel, positionLabel, raceName, type TemplateValue } from "./text.js";
-import { DOMAIN_LEAVE_TAX_STEP, LOCATION_DECKMASTER, type DomainSeatState } from "./views.js";
+import { DOMAIN_LEAVE_TAX_STEP, DUELIST_NONE, LOCATION_DECKMASTER, type DomainSeatState } from "./views.js";
+import { sortCardResponse } from "./sort-response.js";
+export { sortCardResponse } from "./sort-response.js";
 
 export interface MapPromptExtras {
   recall?: { card: DuelCardInfo; returns: number; nextCost: number };
   domain?: readonly DomainSeatState[];
   /** Card code from the last HINT_CARD the core sent: the card whose effect the next prompts belong to. */
   hintCard?: number;
+  /**
+   * The seat that the upper half of a SELECT_PLACE / SELECT_DISFIELD mask names. The message has no seat for it, and
+   * the core reads only the sequence of the answer (any living other seat passes). Default `player ^ 1` (1v1);
+   * with more seats the engine gives the next living opponent in turn order (`player ^ 1` can be no seat at all,
+   * and in Tag it must not be a partner: see `nextLivingOpponentSeat`).
+   */
+  placeOpponent?: number;
+  /**
+   * The seat from the core's last HINT_PLACE_SEAT. It names the seat of the high half of the next SELECT_PLACE /
+   * SELECT_DISFIELD mask and wins over `placeOpponent`. Absent on old cores and in 1v1. The core sends it in Tag
+   * too: Tag has separate fields for each seat, so the seat of the high half matters there as well.
+   */
+  placeSeat?: number;
+  /**
+   * Seats that may be offered in an opponent pick (the seats still in the duel and not leaving). Other seats are
+   * left out of the prompt. When that would leave no option, the full list stays so that the duel cannot deadlock.
+   */
+  livingSeats?: readonly number[];
   /** The Synchro monster explicitly chosen for an inherent summon, with its queried Level. */
   synchroSummon?: DuelZoneRef & { code: number; level: number };
 }
@@ -54,6 +75,15 @@ function sourceOf(cards: CardDatabase, code: number | undefined, seat: number, z
   const source: DuelPromptSource = { code, name: info.name, seat, text: info.description };
   if (zone) source.zone = zone;
   return source;
+}
+
+/**
+ * The source of a prompt for a card at `place`. A controller of 0xFF means "no duelist" (three or more seats):
+ * the card has no seat or zone, so the answering seat stands in, as when the engine gave no location at all.
+ */
+function sourceAt(cards: CardDatabase, code: number | undefined, place: { controller: number; location: number; sequence: number }, answering: number): DuelPromptSource | undefined {
+  if (place.controller === DUELIST_NONE) return sourceOf(cards, code, answering);
+  return sourceOf(cards, code, place.controller, zoneRef(place));
 }
 
 function zoneRef(place: { controller: number; location: number; sequence: number }): DuelZoneRef {
@@ -116,7 +146,60 @@ export function isWaitingMessage(message: OcgMessage): boolean {
   return WAITING_TYPES.has(message.type);
 }
 
-export function parseFieldPlaces(mask: number, answeringPlayer: number): SelectFieldPlace[] {
+/** Direct-attack pick (multi-duelist cores): a SELECT_OPTION entry `0xFFFF0000 | duelist` means "attack that duelist". */
+export function directAttackSeat(desc: bigint | number): number | null {
+  const value = typeof desc === "bigint" ? desc : BigInt(desc);
+  if (value < 0xffff0000n || value > 0xffffffffn) return null;
+  const duelist = Number(value & 0xffffn);
+  // 0xFF is "no duelist", never a seat to attack.
+  return duelist === DUELIST_NONE ? null : duelist;
+}
+
+/** Opponent pick (multi-duelist cores): a SELECT_OPTION entry `0xFFFE0000 | duelist` means "choose this opponent". */
+export function opponentPickSeat(desc: bigint | number): number | null {
+  const value = typeof desc === "bigint" ? desc : BigInt(desc);
+  if (value < 0xfffe0000n || value > 0xfffeffffn) return null;
+  const duelist = Number(value & 0xffffn);
+  return duelist === DUELIST_NONE ? null : duelist;
+}
+
+/** True when every entry is an opponent pick (and there is at least one). */
+export function isOpponentPick(options: readonly (bigint | number)[]): boolean {
+  return options.length > 0 && options.every((option) => opponentPickSeat(option) != null);
+}
+
+/** HINT type of the multi-duelist cores: the data is the seat that the high half of the next place mask belongs to. */
+export const HINT_PLACE_SEAT = 0xf0;
+
+/** The seat of a HINT_PLACE_SEAT message, or null for any other message (and for "no duelist"). */
+export function placeSeatHint(message: OcgMessage): number | null {
+  if (message.type !== OcgMessageType.HINT || Number(message.hint_type) !== HINT_PLACE_SEAT) return null;
+  const seat = Number(BigInt(message.hint) & 0xffffn);
+  return seat === DUELIST_NONE ? null : seat;
+}
+
+/**
+ * The next living opponent of `seat` in turn order. A Tag partner is never an opponent. When no opponent lives
+ * (the duel is over) the first opposing seat of any state is returned, never a team member, so the guess for a
+ * place mask stays on the other side. `seat ^ 1` is the last resort for a table with no opposing seat at all.
+ */
+export function nextLivingOpponentSeat(format: DuelFormat, seatCount: number, seat: number, eliminated: ReadonlySet<number>): number {
+  const opposing = (other: number) => teamOfSeat(format, other) !== teamOfSeat(format, seat);
+  let fallback: number | null = null;
+  for (let step = 1; step < seatCount; step += 1) {
+    const other = (seat + step) % seatCount;
+    if (!opposing(other)) continue;
+    if (!eliminated.has(other)) return other;
+    fallback ??= other;
+  }
+  return fallback ?? seat ^ 1;
+}
+
+/**
+ * Field places from a placement mask. The high half belongs to one bound opponent. With two duelists
+ * that is the other seat; with more, the caller must name it (`opponentSeat`).
+ */
+export function parseFieldPlaces(mask: number, answeringPlayer: number, opponentSeat: number = answeringPlayer ^ 1): SelectFieldPlace[] {
   const places: SelectFieldPlace[] = [];
   const parsePlayer = (bits: number, player: number) => {
     let value = bits;
@@ -131,7 +214,7 @@ export function parseFieldPlaces(mask: number, answeringPlayer: number): SelectF
     }
   };
   parsePlayer(mask & 0xffff, answeringPlayer);
-  parsePlayer(mask >> 16, answeringPlayer ^ 1);
+  parsePlayer(mask >> 16, opponentSeat);
   return places;
 }
 
@@ -343,13 +426,12 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
     }
     case OcgMessageType.SELECT_EFFECTYN: {
       const info = cards.get(message.code);
-      const zone = zoneRef(message);
       const values: TemplateValue[] = [cardInfoLabel(cards, message.code), locationLabel(message.location, message.sequence), message.sequence + 1];
       const text = message.description === 0n
         ? fillPlaceholders(cards.system(EFFECTYN_DEFAULT_DESC) ?? "", values)
         : effectLabel(cards, message.description, values);
       const title = hint || text || `Apply the effect of ${cardInfoLabel(cards, message.code)}?`;
-      const built = yesNo(message.player, id, title, text, info, sourceOf(cards, message.code, message.controller, zone));
+      const built = yesNo(message.player, id, title, text, info, sourceAt(cards, message.code, message, message.player));
       built.message = message;
       return built;
     }
@@ -358,12 +440,39 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
       const optionCodes = message.options.map((option) => cardStringCode(option));
       const shared = optionCodes.find((code) => code !== 0);
       const sourceCode = shared && optionCodes.every((code) => code === 0 || code === shared) ? shared : extras?.hintCard;
+      const attackSeats = message.options.map((option) => directAttackSeat(option));
+      const attackPick = attackSeats.length > 0 && attackSeats.every((seat) => seat != null);
+      const pickSeats = message.options.map((option) => opponentPickSeat(option));
+      const opponentPick = !attackPick && pickSeats.length > 0 && pickSeats.every((seat) => seat != null);
+      if (opponentPick) {
+        // The option index stays the core's index (values[0]); only the seats that can still be picked are listed.
+        const all = pickSeats.map((seat, index) => ({ seat: seat as number, index }));
+        const living = extras?.livingSeats ? all.filter((entry) => extras.livingSeats!.includes(entry.seat)) : all;
+        const offered = living.length > 0 ? living : all;
+        const pick: DuelPrompt = {
+          id,
+          seat: message.player,
+          kind: "choice",
+          title: hint || "Choose an opponent",
+          options: offered.map(({ seat, index }) => ({ id: `opt:${index}`, label: `Player ${seat + 1}`, controller: seat, values: [index] })),
+          min: 1,
+          max: 1,
+          context: { type: "opponent" },
+        };
+        const pickSource = sourceOf(cards, extras?.hintCard, message.player);
+        if (pickSource) pick.source = pickSource;
+        return { id, seat: message.player, prompt: pick, message };
+      }
       const prompt: DuelPrompt = {
         id,
         seat: message.player,
         kind: "choice",
-        title: hint || "Select an option",
+        title: hint || (attackPick ? "Select a duelist to attack" : "Select an option"),
         options: message.options.map((option, index) => {
+          const attackSeat = attackSeats[index];
+          if (attackPick && attackSeat != null) {
+            return { id: `opt:${index}`, label: `Attack Player ${attackSeat + 1} directly`, controller: attackSeat, values: [index] };
+          }
           const code = optionCodes[index] || sourceCode;
           const name = code ? cardInfoLabel(cards, code) : subjectName;
           const effect = effectLabel(cards, option, [name]);
@@ -435,13 +544,13 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
       };
       // A single candidate makes the prompt about that one card (a trigger effect asking to activate).
       const only = message.selects.length === 1 ? message.selects[0] : undefined;
-      const source = only ? sourceOf(cards, only.code, only.controller, zoneRef(only)) : undefined;
+      const source = only ? sourceAt(cards, only.code, only, message.player) : undefined;
       if (source) prompt.source = source;
       return { id, seat: message.player, prompt, message };
     }
     case OcgMessageType.SELECT_PLACE:
     case OcgMessageType.SELECT_DISFIELD: {
-      const places = parseFieldPlaces(message.field_mask, message.player);
+      const places = parseFieldPlaces(message.field_mask, message.player, extras?.placeSeat ?? extras?.placeOpponent);
       return hinted({
         id,
         seat: message.player,
@@ -757,7 +866,12 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
     }
     case OcgMessageType.SELECT_PLACE:
     case OcgMessageType.SELECT_DISFIELD: {
-      const places = parseFieldPlaces(message.field_mask, message.player);
+      // The mapped options carry the seats that mapPrompt chose for the mask (see MapPromptExtras.placeOpponent).
+      const places = pending.prompt.options.map((option) => ({
+        player: option.controller as number,
+        location: option.location as OcgLocation,
+        sequence: option.sequence as number,
+      }));
       if (places.length === message.count && message.count > 0) {
         return {
           type: message.type === OcgMessageType.SELECT_DISFIELD ? OcgResponseType.SELECT_DISFIELD : OcgResponseType.SELECT_PLACE,
@@ -785,7 +899,7 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
       return null;
     case OcgMessageType.SORT_CARD:
     case OcgMessageType.SORT_CHAIN:
-      if (message.cards.length <= 1) return { type: OcgResponseType.SORT_CARD, order: message.cards.map((_, index) => index) };
+      if (message.cards.length <= 1) return sortCardResponse(null);
       return null;
     case OcgMessageType.SELECT_IDLECMD:
     case OcgMessageType.SELECT_BATTLECMD:
@@ -959,7 +1073,7 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
       if (ids.length !== message.cards.length) throw new EngineAnswerError("Invalid answer");
       const order = uniqueIndices(ids, "card:");
       if (order.some((index) => index >= message.cards.length)) throw new EngineAnswerError("Invalid answer");
-      return { type: OcgResponseType.SORT_CARD, order };
+      return sortCardResponse(order);
     }
     case OcgMessageType.ANNOUNCE_RACE: {
       const ids = selectedIds(prompt, answer);

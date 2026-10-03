@@ -480,3 +480,28 @@
     transition: none;
   }
 }
+
+/* Owner in the seat colour (tables of 3 or more seats). */
+.root[data-toned="true"] .panel,
+.root[data-toned="true"][data-owner="you"] .panel {
+  border-color: color-mix(in srgb, var(--seat-main) 60%, transparent);
+}
+.root[data-toned="true"] .head,
+.root[data-toned="true"][data-owner="you"] .head {
+  border-bottom-color: color-mix(in srgb, var(--seat-main) 55%, transparent);
+}
+.ownerTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--seat-ink);
+  font-size: var(--pv-t-sm);
+  line-height: 1.2;
+}
+.ownerTag i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--seat-main);
+}

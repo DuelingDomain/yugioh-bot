@@ -1,0 +1,73 @@
+import type { CSSProperties } from "react";
+import { CompactChips } from "./compact-chips";
+import { slotZIndex } from "./geometry";
+import type { SeatFieldProps, SeatFieldRenderer, SeatPose } from "./types";
+import styles from "./rival-field.module.css";
+
+export interface RivalFieldProps {
+  pose: SeatPose;
+  /** Everything the seat field needs. `angleDeg` and `scale` come from the pose, so the caller leaves them out. */
+  field: Omit<SeatFieldProps, "angleDeg" | "scale">;
+  /** SeatField from field.tsx. A render prop, so this file does not import the duel field. */
+  render: SeatFieldRenderer;
+  /** Extra turn of the whole world (the fly-in view), added to the angle the field reads for upright text. */
+  angleOffsetDeg?: number;
+}
+
+/** CSS transform of a seat box: its centre goes to the pose, then it tilts, turns and scales about its own centre. */
+export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "tiltDeg" | "scale">): string {
+  const tilt = pose.tiltDeg ?? 0;
+  return [
+    `translate(${pose.x}px, ${pose.y}px)`,
+    "translate(-50%, -50%)",
+    pose.tiltDeg != null ? `perspective(1700px) rotateX(${tilt}deg)` : "",
+    `rotate(${pose.rotateDeg}deg)`,
+    `scale(${pose.scale})`,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * One seat of the table at its pose. The wrapper owns the place, tilt, turn and scale; the seat field inside
+ * draws the board at a fixed card size (`--sf-z`) and counter-rotates its own text when upright is on.
+ * It serves the viewer's own seat too: that pose is simply upright at full size. A compact pose (a 4-way rival that
+ * is too small to read) hides the board and draws chips over it; the board stays mounted so the effects can still
+ * find its zones.
+ */
+export function RivalField({ pose, field, render, angleOffsetDeg = 0 }: RivalFieldProps) {
+  const style: CSSProperties & Record<string, string | number> = {
+    "--sf-z": `${pose.z}px`,
+    transform: seatTransform(pose),
+    zIndex: slotZIndex(pose.slot, pose.scale),
+  };
+  return (
+    <div
+      className={styles.seat}
+      style={style}
+      data-seat-slot={pose.seat}
+      data-pose-scale={pose.scale}
+      data-docked={pose.docked ? "true" : undefined}
+      data-compact={pose.compact ? "true" : undefined}
+      hidden={pose.hidden || undefined}
+    >
+      {render({ ...field, angleDeg: pose.rotateDeg + angleOffsetDeg, scale: pose.scale })}
+      {pose.compact ? (
+        <CompactChips
+          engine={field.engine}
+          seat={field.seat}
+          tone={field.tone}
+          name={field.name ?? `Player ${field.seat + 1}`}
+          rotateDeg={pose.rotateDeg}
+          scale={pose.scale}
+          usable={field.usable}
+          legalKeys={field.legalKeys}
+          selectedKeys={field.selectedKeys}
+          onActivate={field.onActivate}
+          onInspect={field.onInspect}
+          onHoverCard={field.onHoverCard}
+        />
+      ) : null}
+    </div>
+  );
+}

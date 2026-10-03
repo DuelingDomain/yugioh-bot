@@ -1,0 +1,210 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Wed, 5 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: size per-duelist state arrays by MAX_DUELISTS
+
+Changed 28 member arrays from [2] to [MAX_DUELISTS]. They are indexed by an absolute duelist id.
+field_info: turn_id_by_player, priorities (initial value {0,0} became {}, same zeros).
+field::processor: player_amount (in action_value_t), control_adjust_set, trap_monster_adjust_set,
+unique_cards, spsummon_once_map, spsummon_once_map_rst, battle_damage, summon_count, extra_summon,
+spe_effect, overdraw, shuffle_hand_check, shuffle_deck_check, the nine state counts
+(summon, normalsummon, flipsummon, spsummon, spsummon_rst, spsummon_tmp, attack, battle_phase, battled),
+hint_timing. card: spsummon_counter, spsummon_counter_rst. SendTo::exargs: check_decktop_visibility.
+MAX_DUELISTS, DUELIST_NONE and DUELIST_ALL move from field.h to common.h, because card.h and
+processor_unit.h need them and do not include field.h.
+
+The behaviour is the same with 2 duelists. No .cpp code loops over these arrays, uses sizeof,
+memset, fill or copies them. Only entries 0 and 1 are used. Loop bounds p < 2 are not changed here.
+
+Kept at size 2: processor::pre_field (attacker and target), card::unique_pos (self and opponent),
+card::counter_map value (permanent and temporary count), effect::flag and effect::hint_timing,
+std::array<bool, 2> bd in calculate_battle_damage (attacker and defender), lpcost cost[2] comment.
+---
+ card.h           |  4 ++--
+ common.h         | 11 +++++++++
+ field.h          | 61 ++++++++++++++++++++----------------------------
+ processor_unit.h |  2 +-
+ 4 files changed, 39 insertions(+), 39 deletions(-)
+
+diff --git a/card.h b/card.h
+index 80383d9..bf87a11 100644
+--- a/card.h
++++ b/card.h
+@@ -152,8 +152,8 @@ public:
+ 	int32_t unique_function{};
+ 	effect* unique_effect{};
+ 	uint32_t spsummon_code{};
+-	uint16_t spsummon_counter[2]{};
+-	uint16_t spsummon_counter_rst[2]{};
++	uint16_t spsummon_counter[MAX_DUELISTS]{};
++	uint16_t spsummon_counter_rst[MAX_DUELISTS]{};
+ 	std::map<uint32_t, uint64_t> assume;
+ 	card* equiping_target{};
+ 	card* pre_equip_target{};
+diff --git a/common.h b/common.h
+index b0fd585..abf5df5 100644
+--- a/common.h
++++ b/common.h
+@@ -32,6 +32,17 @@
+ #include <cstdint>
+ #include "ocgapi_constants.h"
+ 
++// Most duelists one duel can hold (2v2 Tag and 4-player free for all).
++// Only the first field::n_duelists entries of field::player are in play.
++constexpr uint8_t MAX_DUELISTS = 4;
++static_assert(MAX_DUELISTS >= 2, "a duel needs two duelists");
++// Core-private duelist ids for "no duelist" and "every duelist". They are not duelist indexes.
++// The Lua and API values PLAYER_NONE (2) and PLAYER_ALL (3) keep their numbers: a later patch
++// translates them at the boundary, because 2 and 3 are real duelists in a 3 or 4 duelist duel.
++constexpr uint8_t DUELIST_NONE = 0xFF;
++constexpr uint8_t DUELIST_ALL = 0xFE;
++static_assert(MAX_DUELISTS < DUELIST_ALL, "the special ids must not be duelist indexes");
++
+ #define TRUE 1
+ #define FALSE 0
+ 
+diff --git a/field.h b/field.h
+index b84e261..2350253 100644
+--- a/field.h
++++ b/field.h
+@@ -28,17 +28,6 @@ class duel;
+ class group;
+ class effect;
+ 
+-// Most duelists one duel can hold (2v2 Tag and 4-player free for all).
+-// Only the first field::n_duelists entries of field::player are in play.
+-constexpr uint8_t MAX_DUELISTS = 4;
+-static_assert(MAX_DUELISTS >= 2, "a duel needs two duelists");
+-// Core-private duelist ids for "no duelist" and "every duelist". They are not duelist indexes.
+-// The Lua and API values PLAYER_NONE (2) and PLAYER_ALL (3) keep their numbers: a later patch
+-// translates them at the boundary, because 2 and 3 are real duelists in a 3 or 4 duelist duel.
+-constexpr uint8_t DUELIST_NONE = 0xFF;
+-constexpr uint8_t DUELIST_ALL = 0xFE;
+-static_assert(MAX_DUELISTS < DUELIST_ALL, "the special ids must not be duelist indexes");
+-
+ struct tevent {
+ 	card* trigger_card{};
+ 	owned_lua<group> event_cards;
+@@ -184,11 +173,11 @@ struct field_info {
+ 	uint32_t field_id{ 1 };
+ 	uint16_t copy_id{ 1 };
+ 	int16_t turn_id{ 0 };
+-	int16_t turn_id_by_player[2]{ 0,0 };
++	int16_t turn_id_by_player[MAX_DUELISTS]{};
+ 	uint32_t card_id{ 1 };
+ 	uint16_t phase{ 0 };
+ 	uint8_t turn_player{ 0 };
+-	uint8_t priorities[2]{ 0,0 };
++	uint8_t priorities[MAX_DUELISTS]{};
+ 	bool can_shuffle{ true };
+ };
+ struct lpcost {
+@@ -231,7 +220,7 @@ struct processor {
+ 	using chain_limit_list = std::vector<chain_limit_t>;
+ 	struct action_value_t {
+ 		int32_t check_function;
+-		uint16_t player_amount[2];
++		uint16_t player_amount[MAX_DUELISTS];
+ 	};
+ 	using action_counter_t = std::unordered_map<uint32_t, action_value_t>;
+ 
+@@ -287,11 +276,11 @@ struct processor {
+ 	card_set special_summoning;
+ 	card_set ss_tograve_set;
+ 	card_set equiping_cards;
+-	card_set control_adjust_set[2];
++	card_set control_adjust_set[MAX_DUELISTS];
+ 	card_set unique_destroy_set;
+ 	card_set self_destroy_set;
+ 	card_set self_tograve_set;
+-	card_set trap_monster_adjust_set[2];
++	card_set trap_monster_adjust_set[MAX_DUELISTS];
+ 	card_set release_cards;
+ 	card_set release_cards_ex;
+ 	card_set release_cards_ex_oneof;
+@@ -308,12 +297,12 @@ struct processor {
+ 	effect_set_v extra_szone_effects;
+ 	std::set<effect*> reseted_effects;
+ 	std::unordered_map<card*, uint32_t> readjust_map;
+-	card_set unique_cards[2];
++	card_set unique_cards[MAX_DUELISTS];
+ 	effect_count_map effect_count_code;
+ 	effect_count_map effect_count_code_duel;
+ 	effect_count_map effect_count_code_chain;
+-	std::unordered_map<uint32_t, uint32_t> spsummon_once_map[2];
+-	std::unordered_map<uint32_t, uint32_t> spsummon_once_map_rst[2];
++	std::unordered_map<uint32_t, uint32_t> spsummon_once_map[MAX_DUELISTS];
++	std::unordered_map<uint32_t, uint32_t> spsummon_once_map_rst[MAX_DUELISTS];
+ 	std::multimap<int32_t, card*, std::greater<int32_t>> xmaterial_lst;
+ 	uint32_t global_flag;
+ 	uint32_t pre_field[2];
+@@ -344,10 +333,10 @@ struct processor {
+ 	uint8_t attack_cost_paid;
+ 	bool attack_rollback;
+ 	uint8_t effect_damage_step;
+-	int32_t battle_damage[2];
+-	int32_t summon_count[2];
+-	uint8_t extra_summon[2];
+-	int32_t spe_effect[2];
++	int32_t battle_damage[MAX_DUELISTS];
++	int32_t summon_count[MAX_DUELISTS];
++	uint8_t extra_summon[MAX_DUELISTS];
++	int32_t spe_effect[MAX_DUELISTS];
+ 	uint64_t duel_options;
+ 	uint32_t copy_reset;
+ 	uint8_t copy_reset_count;
+@@ -365,28 +354,28 @@ struct processor {
+ 	card* chain_attack_target;
+ 	uint8_t attack_player;
+ 	bool selfdes_disabled;
+-	bool overdraw[2];
++	bool overdraw[MAX_DUELISTS];
+ 	int32_t check_level;
+ 	bool shuffle_check_disabled;
+-	bool shuffle_hand_check[2];
+-	bool shuffle_deck_check[2];
++	bool shuffle_hand_check[MAX_DUELISTS];
++	bool shuffle_deck_check[MAX_DUELISTS];
+ 	bool deck_reversed;
+ 	bool remove_brainwashing;
+ 	bool flip_delayed;
+ 	bool damage_calculated;
+ 	bool hand_adjusted;
+-	uint8_t summon_state_count[2];
+-	uint8_t normalsummon_state_count[2];
+-	uint8_t flipsummon_state_count[2];
+-	uint8_t spsummon_state_count[2];
+-	uint8_t spsummon_state_count_rst[2];
+-	uint8_t spsummon_state_count_tmp[2];
++	uint8_t summon_state_count[MAX_DUELISTS];
++	uint8_t normalsummon_state_count[MAX_DUELISTS];
++	uint8_t flipsummon_state_count[MAX_DUELISTS];
++	uint8_t spsummon_state_count[MAX_DUELISTS];
++	uint8_t spsummon_state_count_rst[MAX_DUELISTS];
++	uint8_t spsummon_state_count_tmp[MAX_DUELISTS];
+ 	bool spsummon_rst;
+-	uint8_t attack_state_count[2];
+-	uint8_t battle_phase_count[2];
+-	uint8_t battled_count[2];
++	uint8_t attack_state_count[MAX_DUELISTS];
++	uint8_t battle_phase_count[MAX_DUELISTS];
++	uint8_t battled_count[MAX_DUELISTS];
+ 	bool phase_action;
+-	uint32_t hint_timing[2];
++	uint32_t hint_timing[MAX_DUELISTS];
+ 	uint8_t current_player;
+ 	uint8_t conti_player{ PLAYER_NONE };
+ 	bool force_turn_end;
+diff --git a/processor_unit.h b/processor_unit.h
+index 66efb0d..c50f4f5 100644
+--- a/processor_unit.h
++++ b/processor_unit.h
+@@ -329,7 +329,7 @@ struct Release : public Process<false> {
+ struct SendTo : public Process<false> {
+ 	struct exargs {
+ 		card_set leave_field, leave_grave, detach;
+-		bool check_decktop_visibility[2];
++		bool check_decktop_visibility[MAX_DUELISTS];
+ 		card_vector cv;
+ 		card_vector::iterator cvit;
+ 		effect* predirect;

@@ -1,0 +1,198 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Thu, 13 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: use duelist helpers in libcard, libeffect, libgroup and
+ libdebug
+
+Validity checks: 12 checks `x != 0 && x != 1` on a uint8_t from lua_get<uint8_t>
+(libcard 3, libeffect 1, libgroup 5, libdebug 3, plus AddCard owner and
+playerid) now use !is_duelist(x) on the same variable. The accept set is the
+same with 2 duelists.
+
+1 - x: 4 sites in libcard (GetLinkedZone, GetFreeLinkedZone,
+GetMutualLinkedZone, GetColumnZone) use opponent_of(current.controler).
+The controler of a card on the field is 0 or 1.
+
+Explicit pairs: 2 pairs in Debug.ReloadFieldEnd (shuffle_hand_check and
+shuffle_deck_check) are now loops to n_duelists, in the same order.
+
+Left unchanged: PLAYER_NONE and PLAYER_ALL defaults and branches (phase 2),
+pre_field[0] and pre_field[1] in libcard, unique_pos, counter_map second[0]
+and second[1], effect flag[2], SetAbsoluteRange (self/opponent range),
+unchecked player values. The full list is in unchanged-sites.md.
+---
+ libcard.cpp   | 14 +++++++-------
+ libdebug.cpp  | 14 +++++++-------
+ libeffect.cpp |  2 +-
+ libgroup.cpp  | 10 +++++-----
+ 4 files changed, 20 insertions(+), 20 deletions(-)
+
+diff --git a/libcard.cpp b/libcard.cpp
+index 0aff505..df27ab5 100644
+--- a/libcard.cpp
++++ b/libcard.cpp
+@@ -231,7 +231,7 @@ LUA_FUNCTION(GetLinkedGroupCount) {
+ LUA_FUNCTION(GetLinkedZone) {
+ 	uint32_t zone = self->get_linked_zone();
+ 	auto cp = lua_get<uint8_t>(L, 2, self->current.controler);
+-	if(cp == 1 - self->current.controler)
++	if(cp == pduel->game_field->opponent_of(self->current.controler))
+ 		lua_pushinteger(L, (((zone & 0xffff) << 16) | (zone >> 16)));
+ 	else
+ 		lua_pushinteger(L, zone);
+@@ -240,7 +240,7 @@ LUA_FUNCTION(GetLinkedZone) {
+ LUA_FUNCTION(GetFreeLinkedZone) {
+ 	uint32_t zone = self->get_linked_zone(true);
+ 	auto cp = lua_get<uint8_t>(L, 2, self->current.controler);
+-	if(cp == 1 - self->current.controler)
++	if(cp == pduel->game_field->opponent_of(self->current.controler))
+ 		lua_pushinteger(L, (((zone & 0xffff) << 16) | (zone >> 16)));
+ 	else
+ 		lua_pushinteger(L, zone);
+@@ -262,7 +262,7 @@ LUA_FUNCTION(GetMutualLinkedGroupCount) {
+ LUA_FUNCTION(GetMutualLinkedZone) {
+ 	uint32_t zone = self->get_mutual_linked_zone();
+ 	auto cp = lua_get<uint8_t>(L, 2, self->current.controler);
+-	if(cp == 1 - self->current.controler)
++	if(cp == pduel->game_field->opponent_of(self->current.controler))
+ 		lua_pushinteger(L, (((zone & 0xffff) << 16) | (zone >> 16)));
+ 	else
+ 		lua_pushinteger(L, zone);
+@@ -300,7 +300,7 @@ LUA_FUNCTION(GetColumnZone) {
+ 	auto right = lua_get<uint8_t, 0>(L, 4);
+ 	auto cp = lua_get<uint8_t>(L, 5, self->current.controler);
+ 	uint32_t zone = self->get_column_zone(loc, left, right);
+-	if(cp == 1 - self->current.controler)
++	if(cp == pduel->game_field->opponent_of(self->current.controler))
+ 		lua_pushinteger(L, (((zone & 0xffff) << 16) | (zone >> 16)));
+ 	else
+ 		lua_pushinteger(L, zone);
+@@ -955,7 +955,7 @@ LUA_FUNCTION(GetOverlayTarget) {
+ LUA_FUNCTION(CheckRemoveOverlayCard) {
+ 	check_param_count(L, 4);
+ 	auto playerid = lua_get<uint8_t>(L, 2);
+-	if(playerid != 0 && playerid != 1)
++	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto count = lua_get<uint16_t>(L, 3);
+ 	auto reason = lua_get<uint32_t>(L, 4);
+@@ -967,7 +967,7 @@ LUA_FUNCTION(RemoveOverlayCard) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 5);
+ 	auto playerid = lua_get<uint8_t>(L, 2);
+-	if(playerid != 0 && playerid != 1)
++	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto min = lua_get<uint16_t>(L, 3);
+ 	auto max = lua_get<uint16_t>(L, 4);
+@@ -1859,7 +1859,7 @@ LUA_FUNCTION(IsCanAddCounter) {
+ LUA_FUNCTION(IsCanRemoveCounter) {
+ 	check_param_count(L, 5);
+ 	auto playerid = lua_get<uint8_t>(L, 2);
+-	if(playerid != 0 && playerid != 1)
++	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto countertype = lua_get<uint16_t>(L, 3);
+ 	auto count = lua_get<uint16_t>(L, 4);
+diff --git a/libdebug.cpp b/libdebug.cpp
+index b38629f..238c73d 100644
+--- a/libdebug.cpp
++++ b/libdebug.cpp
+@@ -39,9 +39,9 @@ LUA_STATIC_FUNCTION(AddCard) {
+ 	auto sequence = lua_get<uint16_t>(L, 5);
+ 	auto position = lua_get<uint8_t>(L, 6);
+ 	bool proc = lua_get<bool, false>(L, 7);
+-	if(owner != 0 && owner != 1)
++	if(!pduel->game_field->is_duelist(owner))
+ 		return 0;
+-	if(playerid != 0 && playerid != 1)
++	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto& field = pduel->game_field;
+ 	if(!field->is_field_location_valid(location, sequence))
+@@ -100,7 +100,7 @@ LUA_STATIC_FUNCTION(SetPlayerInfo) {
+ 	auto lp = lua_get<uint32_t>(L, 2);
+ 	auto startcount = lua_get<uint32_t>(L, 3);
+ 	auto drawcount = lua_get<uint32_t>(L, 4);
+-	if(playerid != 0 && playerid != 1)
++	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto& player = pduel->game_field->player[playerid];
+ 	player.lp = lp;
+@@ -185,10 +185,10 @@ LUA_STATIC_FUNCTION(ReloadFieldBegin) {
+ LUA_STATIC_FUNCTION(ReloadFieldEnd) {
+ 	auto& field = pduel->game_field;
+ 	auto& core = field->core;
+-	core.shuffle_hand_check[0] = false;
+-	core.shuffle_hand_check[1] = false;
+-	core.shuffle_deck_check[0] = false;
+-	core.shuffle_deck_check[1] = false;
++	for(uint8_t p = 0; p < field->n_duelists; ++p)
++		core.shuffle_hand_check[p] = false;
++	for(uint8_t p = 0; p < field->n_duelists; ++p)
++		core.shuffle_deck_check[p] = false;
+ 	field->reload_field_info();
+ 	if(lua_isyieldable(L))
+ 		return yield();
+diff --git a/libeffect.cpp b/libeffect.cpp
+index 6e09e11..36df70a 100644
+--- a/libeffect.cpp
++++ b/libeffect.cpp
+@@ -270,7 +270,7 @@ LUA_FUNCTION(SetOperation) {
+ }
+ LUA_FUNCTION(SetOwnerPlayer) {
+ 	auto p = lua_get<uint8_t>(L, 2);
+-	if(p != 0 && p != 1)
++	if(!pduel->game_field->is_duelist(p))
+ 		return 0;
+ 	self->effect_owner = p;
+ 	return 0;
+diff --git a/libgroup.cpp b/libgroup.cpp
+index 1053240..6234501 100644
+--- a/libgroup.cpp
++++ b/libgroup.cpp
+@@ -221,7 +221,7 @@ LUA_FUNCTION(FilterSelect) {
+ 			cset.erase(pcard);
+ 	}
+ 	auto playerid = lua_get<uint8_t>(L, 2);
+-	if(playerid != 0 && playerid != 1)
++	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto min = lua_get<uint16_t>(L, 4);
+ 	auto max = lua_get<uint16_t>(L, 5);
+@@ -251,7 +251,7 @@ LUA_FUNCTION(Select) {
+ 			cset.erase(pcard);
+ 	}
+ 	auto playerid = lua_get<uint8_t>(L, 2);
+-	if(playerid != 0 && playerid != 1)
++	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto min = lua_get<uint16_t>(L, 3);
+ 	auto max = lua_get<uint16_t>(L, 4);
+@@ -264,7 +264,7 @@ LUA_FUNCTION(SelectUnselect) {
+ 	check_param_count(L, 3);
+ 	auto pgroup2 = lua_get<group*>(L, 2);
+ 	auto playerid = lua_get<uint8_t>(L, 3);
+-	if(playerid != 0 && playerid != 1)
++	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	if(pgroup2) {
+ 		auto first1 = self->container.begin();
+@@ -390,7 +390,7 @@ LUA_FUNCTION(SelectWithSumEqual) {
+ 	check_param_count(L, 6);
+ 	const auto findex = lua_get<function, true>(L, 3);
+ 	auto playerid = lua_get<uint8_t>(L, 2);
+-	if(playerid != 0 && playerid != 1)
++	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto acc = lua_get<uint32_t>(L, 4);
+ 	auto min = lua_get<int32_t>(L, 5);
+@@ -456,7 +456,7 @@ LUA_FUNCTION(SelectWithSumGreater) {
+ 	check_param_count(L, 4);
+ 	const auto findex = lua_get<function, true>(L, 3);
+ 	auto playerid = lua_get<uint8_t>(L, 2);
+-	if(playerid != 0 && playerid != 1)
++	if(!pduel->game_field->is_duelist(playerid))
+ 		return 0;
+ 	auto acc = lua_get<uint32_t>(L, 4);
+ 	int32_t extraargs = lua_gettop(L) - 4;

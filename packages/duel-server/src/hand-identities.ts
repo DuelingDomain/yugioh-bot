@@ -3,15 +3,26 @@ type Identity = { id: string; code: number; arrival?: number; arrivalCode?: numb
 const isSequence = (sequence: number): boolean => Number.isSafeInteger(sequence) && sequence >= 0;
 
 export class HandIdentities {
-  private nextOwn = [0, 0];
+  private nextOwn: number[];
   private nextSleeve = 0;
-  private shuffledArrivals = [new Set<number>(), new Set<number>()];
-  private own: Identity[][] = [[], []];
-  private sleeves: Identity[][] = [[], []];
+  private shuffledArrivals: Array<Set<number>>;
+  private own: Identity[][];
+  private sleeves: Identity[][];
   /** The last observed sleeve order until a query confirms which effects survived a shuffle. */
-  private beforeShuffle: Array<Identity[] | undefined> = [undefined, undefined];
-  private shuffledPublic: Array<Map<string, number> | undefined> = [undefined, undefined];
-  private mutatedAfterShuffle = [false, false];
+  private beforeShuffle: Array<Identity[] | undefined>;
+  private shuffledPublic: Array<Map<string, number> | undefined>;
+  private mutatedAfterShuffle: boolean[];
+
+  /** One hand per seat: 2 for a duel, 3 or 4 for a free-for-all or Tag table. */
+  constructor(seatCount = 2) {
+    this.nextOwn = new Array<number>(seatCount).fill(0);
+    this.shuffledArrivals = Array.from({ length: seatCount }, () => new Set<number>());
+    this.own = Array.from({ length: seatCount }, () => []);
+    this.sleeves = Array.from({ length: seatCount }, () => []);
+    this.beforeShuffle = new Array<Identity[] | undefined>(seatCount).fill(undefined);
+    this.shuffledPublic = new Array<Map<string, number> | undefined>(seatCount).fill(undefined);
+    this.mutatedAfterShuffle = new Array<boolean>(seatCount).fill(false);
+  }
 
   add(seat: number, code: number, sequence: number, arrival?: number, isPublic = false, publicArrivalCode?: number): void {
     if (!this.own[seat] || !isSequence(sequence)) return;

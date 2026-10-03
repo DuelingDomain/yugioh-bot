@@ -1,0 +1,145 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 30 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: keep the response cursor and the continuous-effect
+ marker right for more than two duelists
+
+Three sites change. All three are new code paths for n_duelists > 2 or give the same value at n == 2.
+
+next_responder (field.cpp): when the cursor duelist was eliminated while its window was open, it was not in
+the response order, so the result was DUELIST_NONE and the window closed before the living duelists answered.
+The search for the cursor now uses the full seat order (eliminated duelists keep their place) and then takes the
+next living duelist who has not passed. response_order() is unchanged for its callers: it shares one static
+helper with a living_only flag. next_responder is not called at n == 2.
+
+PhaseEvent pass (processor.cpp, step 2): the pass of an eliminated cursor no longer counts against the living
+duelists, so the window cannot close one duelist early. The count is unchanged when the cursor is alive. n == 2
+uses the stock priority_passed branch above it.
+
+Continuous effects (processor.cpp, SolveContinuous case 4 and SolveChain case 8): conti_player = opponent_of(tp)
+was 255 (none_id) for tp 2 and 254 (all_id) for tp 3. For tp 2 case 4 then reset the marker to the turn player,
+so new turn player effects ran before the other duelists had finished. At n > 2 a separate marker value
+(DUELIST_ALL - 1, local to processor.cpp) is used. At n == 2 it is still opponent_of(tp). No header change.
+
+Not changed: next_trigger_player has the same dead cursor case (SEGOC), and a duelist who passed and was
+eliminated later is still counted in PhaseEvent pass_count. Both belong to other sites.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ field.cpp     | 23 +++++++++++++++--------
+ processor.cpp | 21 +++++++++++++++++----
+ 2 files changed, 32 insertions(+), 12 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index cfce69b..5819771 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -287,17 +287,19 @@ void field::eliminate(uint8_t p, uint8_t reason) {
+ 	}
+ 	core.re_adjust = true;
+ }
+-uint8_t field::response_order(uint8_t anchor, uint8_t* out) const {
++// The response order of response_order(). With living_only == false the eliminated duelists keep their
++// place, so a cursor that was eliminated in the middle of a window can still be found in the order.
++static uint8_t response_sequence(const field& f, uint8_t anchor, uint8_t* out, bool living_only) {
+ 	uint8_t count = 0;
+-	const uint8_t tp = infos.turn_player;
++	const uint8_t tp = f.infos.turn_player;
+ 	auto add = [&](uint8_t q) {
+-		q = static_cast<uint8_t>(q % n_duelists);
+-		if(is_alive(q))
++		q = static_cast<uint8_t>(q % f.n_duelists);
++		if(!living_only || f.is_alive(q))
+ 			out[count++] = q;
+ 	};
+-	if(n_teams == n_duelists) {
++	if(f.n_teams == f.n_duelists) {
+ 		const uint8_t s = (anchor == tp) ? static_cast<uint8_t>(tp + 1) : tp;
+-		for(uint8_t i = 0; i < n_duelists; ++i)
++		for(uint8_t i = 0; i < f.n_duelists; ++i)
+ 			add(static_cast<uint8_t>(s + i));
+ 	} else if(anchor == DUELIST_NONE) {
+ 		add(tp);
+@@ -312,6 +314,9 @@ uint8_t field::response_order(uint8_t anchor, uint8_t* out) const {
+ 	}
+ 	return count;
+ }
++uint8_t field::response_order(uint8_t anchor, uint8_t* out) const {
++	return response_sequence(*this, anchor, out, true);
++}
+ uint8_t field::first_responder() const {
+ 	uint8_t order[MAX_DUELISTS];
+ 	const uint8_t count = response_order(core.response_anchor, order);
+@@ -321,13 +326,15 @@ uint8_t field::first_responder() const {
+ 	return infos.turn_player;
+ }
+ uint8_t field::next_responder(uint8_t cur) const {
++	// Look for cur in the order with the eliminated duelists in it: a cursor that was eliminated while
++	// its window was open still has its place, and the living duelists after it are asked.
+ 	uint8_t order[MAX_DUELISTS];
+-	const uint8_t count = response_order(core.response_anchor, order);
++	const uint8_t count = response_sequence(*this, core.response_anchor, order, false);
+ 	uint8_t i = 0;
+ 	while(i < count && order[i] != cur)
+ 		++i;
+ 	for(++i; i < count; ++i)
+-		if(!infos.priorities[order[i]])
++		if(is_alive(order[i]) && !infos.priorities[order[i]])
+ 			return order[i];
+ 	return DUELIST_NONE;
+ }
+diff --git a/processor.cpp b/processor.cpp
+index 51a8a90..173357a 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -16,6 +16,16 @@
+ #include "group.h"
+ #include "interpreter.h"
+ 
++// The value of core.conti_player while the continuous effects of the players who are not the turn player
++// are solved. With 2 duelists it is the opponent, as in the stock core. With more duelists the turn player
++// has no single opponent (and 1 - tp, tp + 1 or opponent_of(tp) could be a seat, none_id() or all_id()),
++// so a marker that is none of those is used.
++static constexpr uint8_t CONTI_NON_TURN = DUELIST_ALL - 1;
++static_assert(MAX_DUELISTS < CONTI_NON_TURN, "the continuous effect marker must not be a duelist index");
++static uint8_t conti_non_turn_player(const field& f) {
++	return f.n_duelists == 2 ? f.opponent_of(f.infos.turn_player) : CONTI_NON_TURN;
++}
++
+ bool field::process(Processors::ExecuteCost& arg) {
+ 	auto step = arg.step;
+ 	auto triggering_effect = arg.triggering_effect;
+@@ -478,7 +488,10 @@ bool field::process(Processors::PhaseEvent& arg) {
+ 				for(uint8_t q = 0; q < n_duelists; ++q)
+ 					if(is_alive(q))
+ 						++living;
+-				if(++arg.pass_count >= living)
++				// the pass of a duelist who was eliminated in this window does not count
++				if(is_alive(arg.check_cursor))
++					++arg.pass_count;
++				if(arg.pass_count >= living)
+ 					arg.step = 19;
+ 				else {
+ 					arg.check_cursor = next_in_turn_order(arg.check_cursor);
+@@ -4320,9 +4333,9 @@ bool field::process(Processors::SolveContinuous& arg) {
+ 				core.sub_solving_continuous.splice(core.sub_solving_continuous.end(), core.delayed_continuous_tp, core.delayed_continuous_tp.begin());
+ 				emplace_process<Processors::SolveContinuous>();
+ 			} else
+-				core.conti_player = opponent_of(infos.turn_player);
++				core.conti_player = conti_non_turn_player(*this);
+ 		}
+-		if(core.conti_player == opponent_of(infos.turn_player)) {
++		if(core.conti_player == conti_non_turn_player(*this)) {
+ 			if(core.delayed_continuous_ntp.size()) {
+ 				core.sub_solving_continuous.splice(core.sub_solving_continuous.end(), core.delayed_continuous_ntp, core.delayed_continuous_ntp.begin());
+ 				emplace_process<Processors::SolveContinuous>();
+@@ -4524,7 +4537,7 @@ bool field::process(Processors::SolveChain& arg) {
+ 			core.sub_solving_continuous.splice(core.sub_solving_continuous.end(), core.delayed_continuous_tp, core.delayed_continuous_tp.begin());
+ 			emplace_process<Processors::SolveContinuous>();
+ 		} else if(core.delayed_continuous_ntp.size()) {
+-			core.conti_player = opponent_of(infos.turn_player);
++			core.conti_player = conti_non_turn_player(*this);
+ 			core.sub_solving_continuous.splice(core.sub_solving_continuous.end(), core.delayed_continuous_ntp, core.delayed_continuous_ntp.begin());
+ 			emplace_process<Processors::SolveContinuous>();
+ 		} else

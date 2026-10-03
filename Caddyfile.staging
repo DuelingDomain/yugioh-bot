@@ -1,0 +1,18 @@
+# Caddy for the staging stack (docker-compose.staging.yml). Runbook: docs/deployment/staging.md
+#
+# Plain HTTP only. The host port is STAGING_HTTP_PORT (default 8080, never 80 or 443: the production
+# Caddy owns them). There is no HTTPS here: a certificate needs port 80 or 443, and staging must not take
+# them. To get HTTPS later, add the staging host name as a second site to the production Caddy.
+{
+	# No admin API. No automatic HTTPS: staging is plain HTTP.
+	admin off
+	auto_https off
+}
+
+:80 {
+	# Socket.IO goes to the staging ws. Everything else goes to the staging web.
+	handle /socket.io/* {
+		reverse_proxy ws:3001
+	}
+	reverse_proxy web:3000
+}

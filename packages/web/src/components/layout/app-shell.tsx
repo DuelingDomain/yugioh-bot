@@ -5,6 +5,9 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { PhoneTopBar } from "./phone-top-bar";
 import { MobileDrawer } from "./mobile-drawer";
+import { BugReportDialog } from "../bug-report/bug-report-dialog";
+import { BugReportFab } from "../bug-report/bug-report-fab";
+import { collectBugContext } from "../bug-report/context";
 import { useShellAccount } from "./use-shell-account";
 import { useLiveNow } from "./use-live-now";
 import { ShellContext } from "./shell-context";
@@ -36,6 +39,7 @@ function ShellFrame({ children }: { children: ReactNode }) {
   // flips a per-visit override that is not written to storage and resets on the next route.
   const [override, setOverride] = useState<boolean | null>(null);
   const [roomWidth, setRoomWidth] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
@@ -81,6 +85,10 @@ function ShellFrame({ children }: { children: ReactNode }) {
     triggerRef.current = trigger;
     setDrawerOpen(true);
   }, []);
+  const openReport = useCallback(() => setReportOpen(true), []);
+  const closeReport = useCallback(() => setReportOpen(false), []);
+  // A page report has no room: the path and the browser details only.
+  const collectPage = useCallback(() => collectBugContext(null), []);
   const shell = useMemo(() => ({ openMenu, menuOpen: drawerOpen, live }), [openMenu, drawerOpen, live]);
 
   // Close the phone menu when the window grows past phone width.
@@ -114,13 +122,15 @@ function ShellFrame({ children }: { children: ReactNode }) {
         className={`${styles.frame} min-h-screen bg-bg-deep text-text-primary`}
         data-sidebar-collapsed={sidebarCollapsed ? "true" : "false"}
       >
-        <PhoneTopBar ref={menuButtonRef} account={account} menuOpen={drawerOpen} live={live} onMenuClick={openMenu} />
-        <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} account={account} live={live} />
+        <PhoneTopBar ref={menuButtonRef} account={account} menuOpen={drawerOpen} live={live} onMenuClick={openMenu} onReportBug={openReport} />
+        <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} account={account} live={live} onReportBug={openReport} />
         <main className={styles.main}>
-          <div className={`${styles.content} mx-auto p-4 sm:p-6 lg:p-8`}>{children}</div>
+          <div className={`${styles.content} mx-auto p-4 pb-16 sm:p-6 sm:pb-16 lg:p-8 lg:pb-16`}>{children}</div>
         </main>
+        <BugReportFab className={`fixed bottom-3 z-40 ${styles.bugFab}`} />
       </div>
-      <MobileDrawer open={drawerOpen} onClose={closeDrawer} account={account} live={live} />
+      <MobileDrawer open={drawerOpen} onClose={closeDrawer} account={account} live={live} onReportBug={openReport} />
+      <BugReportDialog open={reportOpen} onClose={closeReport} collect={collectPage} />
     </ShellContext.Provider>
   );
 }
@@ -131,12 +141,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Keep the field's inspector and Domain rail usable instead of squeezing them
   // beside the dashboard navigation. The room includes its own route back.
   if (pathname.startsWith("/duels/")) {
-    return <main className="min-h-screen bg-bg-deep p-4 text-text-primary sm:p-6 lg:p-8">{children}</main>;
+    return (
+      <>
+        <main className="min-h-screen bg-bg-deep p-4 text-text-primary sm:p-6 lg:p-8">{children}</main>
+        <BugReportFab />
+      </>
+    );
   }
 
   // The deck editor is a full-screen, three-pane workspace with its own route back.
   if (pathname === "/decks/new" || /^\/decks\/\d+$/.test(pathname)) {
-    return <main className="min-h-screen bg-bg-deep text-text-primary">{children}</main>;
+    return (
+      <>
+        <main className="min-h-screen bg-bg-deep text-text-primary">{children}</main>
+        <BugReportFab />
+      </>
+    );
   }
 
   return <ShellFrame>{children}</ShellFrame>;

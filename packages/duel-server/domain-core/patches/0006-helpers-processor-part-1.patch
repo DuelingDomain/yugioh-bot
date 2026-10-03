@@ -1,0 +1,498 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Thu, 6 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: use duelist helpers in processor.cpp (part 1)
+
+Part 1 is processor.cpp lines 1 to 2932 (before calculate_battle_damage).
+
+Changed (same result with 2 duelists):
+- 23 explicit pairs or statement groups became loops over n_duelists in the same order: shuffle_deck_check and shuffle_hand_check reset and shuffle (3 times each, 12 groups as 6 pairs of loops), infos.priorities reset (6), core.hint_timing set/and/or (3), battle damage on player 0 then 1 (2).
+- 2 loops `p < 2` now use n_duelists.
+- 6 checks `event_player == 0 || event_player == 1` now use is_duelist(event_player). event_player is a uint8_t, so the accept set is the same.
+- 33 `1 - x` now use opponent_of(x). x is infos.turn_player, a check_player derived from it, or the triggering_player of a chain. All are 0 or 1 here and the result goes into uint8_t arguments, array indexes or an int32_t that holds 0 or 1.
+
+Left unchanged: 2 `1 - priority` (decision needed), check_hint_timing self/opponent swap, hint_timing `||` read, std::array<bool,2> bd (needs header), PLAYER_NONE uses (phase 2), pre_field and flag[1] (not players). See unchanged-sites.md.
+---
+ processor.cpp | 192 ++++++++++++++++++++++++--------------------------
+ 1 file changed, 92 insertions(+), 100 deletions(-)
+
+diff --git a/processor.cpp b/processor.cpp
+index d654000..2a331d0 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -39,10 +39,10 @@ bool field::process(Processors::ExecuteCost& arg) {
+ 		pduel->lua->add_param<LuaParam::INT>(triggering_player, true);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(triggering_effect, true);
+ 		if(core.check_level == 0) {
+-			core.shuffle_deck_check[0] = false;
+-			core.shuffle_deck_check[1] = false;
+-			core.shuffle_hand_check[0] = false;
+-			core.shuffle_hand_check[1] = false;
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				core.shuffle_deck_check[p] = false;
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				core.shuffle_hand_check[p] = false;
+ 		}
+ 		arg.shuffle_check_was_disabled = core.shuffle_check_disabled;
+ 		core.shuffle_check_disabled = false;
+@@ -59,14 +59,12 @@ bool field::process(Processors::ExecuteCost& arg) {
+ 		core.reason_player = PLAYER_NONE;
+ 		--core.check_level;
+ 		if(core.check_level == 0) {
+-			if(core.shuffle_hand_check[0])
+-				shuffle(0, LOCATION_HAND);
+-			if(core.shuffle_hand_check[1])
+-				shuffle(1, LOCATION_HAND);
+-			if(core.shuffle_deck_check[0])
+-				shuffle(0, LOCATION_DECK);
+-			if(core.shuffle_deck_check[1])
+-				shuffle(1, LOCATION_DECK);
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				if(core.shuffle_hand_check[p])
++					shuffle(p, LOCATION_HAND);
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				if(core.shuffle_deck_check[p])
++					shuffle(p, LOCATION_DECK);
+ 		}
+ 		core.shuffle_check_disabled = arg.shuffle_check_was_disabled;
+ 		core.solving_event.pop_front();
+@@ -96,10 +94,10 @@ bool field::process(Processors::ExecuteOperation& arg) {
+ 		pduel->lua->add_param<LuaParam::INT>(triggering_player, true);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(triggering_effect, true);
+ 		if(core.check_level == 0) {
+-			core.shuffle_deck_check[0] = false;
+-			core.shuffle_deck_check[1] = false;
+-			core.shuffle_hand_check[0] = false;
+-			core.shuffle_hand_check[1] = false;
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				core.shuffle_deck_check[p] = false;
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				core.shuffle_hand_check[p] = false;
+ 		}
+ 		arg.shuffle_check_was_disabled = core.shuffle_check_disabled;
+ 		core.shuffle_check_disabled = false;
+@@ -116,14 +114,12 @@ bool field::process(Processors::ExecuteOperation& arg) {
+ 		core.reason_player = PLAYER_NONE;
+ 		--core.check_level;
+ 		if(core.check_level == 0) {
+-			if(core.shuffle_hand_check[0])
+-				shuffle(0, LOCATION_HAND);
+-			if(core.shuffle_hand_check[1])
+-				shuffle(1, LOCATION_HAND);
+-			if(core.shuffle_deck_check[0])
+-				shuffle(0, LOCATION_DECK);
+-			if(core.shuffle_deck_check[1])
+-				shuffle(1, LOCATION_DECK);
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				if(core.shuffle_hand_check[p])
++					shuffle(p, LOCATION_HAND);
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				if(core.shuffle_deck_check[p])
++					shuffle(p, LOCATION_DECK);
+ 			//cost[0].count = 0;
+ 			//cost[1].count = 0;
+ 			//cost[0].amount = 0;
+@@ -158,10 +154,10 @@ bool field::process(Processors::ExecuteTarget& arg) {
+ 		pduel->lua->add_param<LuaParam::INT>(triggering_player, true);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(triggering_effect, true);
+ 		if(core.check_level == 0) {
+-			core.shuffle_deck_check[0] = false;
+-			core.shuffle_deck_check[1] = false;
+-			core.shuffle_hand_check[0] = false;
+-			core.shuffle_hand_check[1] = false;
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				core.shuffle_deck_check[p] = false;
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				core.shuffle_hand_check[p] = false;
+ 		}
+ 		arg.shuffle_check_was_disabled = core.shuffle_check_disabled;
+ 		core.shuffle_check_disabled = false;
+@@ -178,14 +174,12 @@ bool field::process(Processors::ExecuteTarget& arg) {
+ 		core.reason_player = PLAYER_NONE;
+ 		--core.check_level;
+ 		if(core.check_level == 0) {
+-			if(core.shuffle_hand_check[0])
+-				shuffle(0, LOCATION_HAND);
+-			if(core.shuffle_hand_check[1])
+-				shuffle(1, LOCATION_HAND);
+-			if(core.shuffle_deck_check[0])
+-				shuffle(0, LOCATION_DECK);
+-			if(core.shuffle_deck_check[1])
+-				shuffle(1, LOCATION_DECK);
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				if(core.shuffle_hand_check[p])
++					shuffle(p, LOCATION_HAND);
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				if(core.shuffle_deck_check[p])
++					shuffle(p, LOCATION_DECK);
+ 		}
+ 		core.shuffle_check_disabled = arg.shuffle_check_was_disabled;
+ 		core.solving_event.pop_front();
+@@ -311,7 +305,7 @@ bool field::process(Processors::PhaseEvent& arg) {
+ 		nil_event.event_player = infos.turn_player;
+ 		int32_t check_player = infos.turn_player;
+ 		if(arg.is_opponent)
+-			check_player = 1 - infos.turn_player;
++			check_player = opponent_of(infos.turn_player);
+ 		core.select_chains.clear();
+ 		int32_t tf_count = 0, to_count = 0, fc_count = 0, cn_count = 0;
+ 		auto pr = effects.trigger_f_effect.equal_range(phase_event);
+@@ -479,7 +473,7 @@ bool field::process(Processors::PhaseEvent& arg) {
+ 		} else if(!(peffect->type & EFFECT_TYPE_CONTINUOUS)) {
+ 			int32_t check_player = infos.turn_player;
+ 			if(arg.is_opponent)
+-				check_player = 1 - infos.turn_player;
++				check_player = opponent_of(infos.turn_player);
+ 			core.new_chains.splice(core.new_chains.end(), core.select_chains, selected_chain);
+ 			selected_chain->flag = 0;
+ 			selected_chain->chain_id = infos.field_id++;
+@@ -493,9 +487,9 @@ bool field::process(Processors::PhaseEvent& arg) {
+ 			if(is_flag(DUEL_INVERTED_QUICK_PRIORITY))
+ 				emplace_process<Processors::QuickEffect>(false, check_player);
+ 			else
+-				emplace_process<Processors::QuickEffect>(false, 1 - check_player);
+-			infos.priorities[0] = 0;
+-			infos.priorities[1] = 0;
++				emplace_process<Processors::QuickEffect>(false, opponent_of(check_player));
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				infos.priorities[p] = 0;
+ 		} else {
+ 			core.select_chains.clear();
+ 			solve_continuous(peffect->get_handler_player(), peffect, nil_event);
+@@ -662,7 +656,7 @@ bool field::process(Processors::PointEvent& arg) {
+ 	case 3: {
+ 		if(returns.at<int32_t>(0) == -1) {
+ 			if(core.new_fchain_s.size()) {
+-				core.current_player = 1 - infos.turn_player;
++				core.current_player = opponent_of(infos.turn_player);
+ 				arg.step = 1;
+ 			} else {
+ 				core.current_player = infos.turn_player;
+@@ -762,7 +756,7 @@ bool field::process(Processors::PointEvent& arg) {
+ 				core.new_ochain_s.remove_if([chain_id = ch.chain_id](const chain& ch) { return ch.chain_id == chain_id; });
+ 			}
+ 			if(core.new_ochain_s.size()) {
+-				core.current_player = 1 - infos.turn_player;
++				core.current_player = opponent_of(infos.turn_player);
+ 				arg.step = 3;
+ 			} else {
+ 				core.current_player = infos.turn_player;
+@@ -836,17 +830,17 @@ bool field::process(Processors::PointEvent& arg) {
+ 		return FALSE;
+ 	}
+ 	case 9: {
+-		infos.priorities[0] = 0;
+-		infos.priorities[1] = 0;
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			infos.priorities[p] = 0;
+ 		if(core.current_chain.size() == 0) {
+ 			if(!core.hand_adjusted) {
+ 				if(is_flag(DUEL_INVERTED_QUICK_PRIORITY))
+-					emplace_process<Processors::QuickEffect>(skip_freechain, 1 - infos.turn_player);
++					emplace_process<Processors::QuickEffect>(skip_freechain, opponent_of(infos.turn_player));
+ 				else
+ 					emplace_process<Processors::QuickEffect>(skip_freechain, infos.turn_player);
+ 			}
+ 		} else
+-			emplace_process<Processors::QuickEffect>(skip_freechain, 1 - core.current_chain.back().triggering_player);
++			emplace_process<Processors::QuickEffect>(skip_freechain, opponent_of(core.current_chain.back().triggering_player));
+ 		return FALSE;
+ 	}
+ 	case 10: {
+@@ -902,7 +896,7 @@ bool field::process(Processors::PointEvent& arg) {
+ 		return FALSE;
+ 	}
+ 	case 32: {
+-		int32_t check_player = 1 - infos.turn_player;
++		int32_t check_player = opponent_of(infos.turn_player);
+ 		nil_event.event_code = EVENT_FREE_CHAIN;
+ 		core.select_chains.clear();
+ 		core.spe_effect[check_player] = 0;
+@@ -947,7 +941,7 @@ bool field::process(Processors::QuickEffect& arg) {
+ 	case 0: {
+ 		uint8_t check_player = infos.turn_player;
+ 		if(arg.is_opponent)
+-			check_player = 1 - infos.turn_player;
++			check_player = opponent_of(infos.turn_player);
+ 		core.select_chains.clear();
+ 		for(auto ifit = core.quick_f_chain.begin(); ifit != core.quick_f_chain.end(); ) {
+ 			effect* peffect = ifit->first;
+@@ -977,9 +971,9 @@ bool field::process(Processors::QuickEffect& arg) {
+ 				arg.step = Processors::restart;
+ 			} else if(core.new_chains.size()) {
+ 				emplace_process<Processors::AddChain>();
+-				emplace_process<Processors::QuickEffect>(false, 1 - core.new_chains.back().triggering_player);
+-				infos.priorities[0] = 0;
+-				infos.priorities[1] = 0;
++				emplace_process<Processors::QuickEffect>(false, opponent_of(core.new_chains.back().triggering_player));
++				for(uint8_t p = 0; p < n_duelists; ++p)
++					infos.priorities[p] = 0;
+ 				/*if(core.set_forced_attack) {
+ 					core.set_forced_attack = false;
+ 					emplace_process<Processors::ForcedBattle>();
+@@ -1145,15 +1139,15 @@ bool field::process(Processors::QuickEffect& arg) {
+ 			peffect->dec_count(priority);
+ 			emplace_process<Processors::AddChain>();
+ 			emplace_process<Processors::QuickEffect>(false, 1 - priority);
+-			infos.priorities[0] = 0;
+-			infos.priorities[1] = 0;
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				infos.priorities[p] = 0;
+ 		} else {
+ 			infos.priorities[priority] = 1;
+ 			if(!infos.priorities[0] || !infos.priorities[1])
+ 				emplace_process<Processors::QuickEffect>(Step{ 1 }, skip_freechain, 1 - priority);
+ 			else {
+-				core.hint_timing[0] &= TIMING_DAMAGE_STEP | TIMING_DAMAGE_CAL;
+-				core.hint_timing[1] &= TIMING_DAMAGE_STEP | TIMING_DAMAGE_CAL;
++				for(uint8_t p = 0; p < n_duelists; ++p)
++					core.hint_timing[p] &= TIMING_DAMAGE_STEP | TIMING_DAMAGE_CAL;
+ 			}
+ 		}
+ 		core.select_chains.clear();
+@@ -1188,7 +1182,7 @@ int32_t field::process_instant_event() {
+ 			effect* peffect = eit->second;
+ 			++eit;
+ 			uint8_t owner_player = peffect->get_handler_player();
+-			if(peffect->is_flag(EFFECT_FLAG_EVENT_PLAYER) && (ev.event_player == 0 || ev.event_player == 1))
++			if(peffect->is_flag(EFFECT_FLAG_EVENT_PLAYER) && is_duelist(ev.event_player))
+ 				owner_player = ev.event_player;
+ 			if(peffect->is_activateable(owner_player, ev)) {
+ 				auto& chain_set = [&]() -> chain_list& {
+@@ -1237,7 +1231,7 @@ int32_t field::process_instant_event() {
+ 			newchain.evt = ev;
+ 			newchain.triggering_effect = peffect;
+ 			newchain.set_triggering_state(phandler);
+-			if(peffect->is_flag(EFFECT_FLAG_EVENT_PLAYER) && (ev.event_player == 0 || ev.event_player == 1))
++			if(peffect->is_flag(EFFECT_FLAG_EVENT_PLAYER) && is_duelist(ev.event_player))
+ 				newchain.triggering_player = ev.event_player;
+ 			else
+ 				newchain.triggering_player = phandler->current.controler;
+@@ -1263,7 +1257,7 @@ int32_t field::process_instant_event() {
+ 			newchain.evt = ev;
+ 			newchain.triggering_effect = peffect;
+ 			newchain.set_triggering_state(phandler);
+-			if(peffect->is_flag(EFFECT_FLAG_EVENT_PLAYER) && (ev.event_player == 0 || ev.event_player == 1))
++			if(peffect->is_flag(EFFECT_FLAG_EVENT_PLAYER) && is_duelist(ev.event_player))
+ 				newchain.triggering_player = ev.event_player;
+ 			else
+ 				newchain.triggering_player = phandler->current.controler;
+@@ -1286,7 +1280,7 @@ int32_t field::process_instant_event() {
+ 				newchain.evt = ev;
+ 				newchain.triggering_effect = peffect;
+ 				newchain.set_triggering_state(phandler);
+-				if(peffect->is_flag(EFFECT_FLAG_EVENT_PLAYER) && (ev.event_player == 0 || ev.event_player == 1))
++				if(peffect->is_flag(EFFECT_FLAG_EVENT_PLAYER) && is_duelist(ev.event_player))
+ 					newchain.triggering_player = ev.event_player;
+ 				else
+ 					newchain.triggering_player = phandler->current.controler;
+@@ -1371,7 +1365,7 @@ int32_t field::process_single_event(effect* peffect, const tevent& e, chain_list
+ 	//continuous & trigger (single)
+ 	if(peffect->type & EFFECT_TYPE_CONTINUOUS) {
+ 		uint8_t owner_player = peffect->get_handler_player();
+-		if(peffect->is_flag(EFFECT_FLAG_EVENT_PLAYER) && (e.event_player == 0 || e.event_player == 1))
++		if(peffect->is_flag(EFFECT_FLAG_EVENT_PLAYER) && is_duelist(e.event_player))
+ 			owner_player = e.event_player;
+ 		if(peffect->is_activateable(owner_player, e)) {
+ 			auto& chain_set = [&]() -> chain_list& {
+@@ -1419,7 +1413,7 @@ int32_t field::process_single_event(effect* peffect, const tevent& e, chain_list
+ 		newchain.evt = e;
+ 		newchain.triggering_effect = peffect;
+ 		newchain.set_triggering_state(phandler);
+-		if(peffect->is_flag(EFFECT_FLAG_EVENT_PLAYER) && (e.event_player == 0 || e.event_player == 1))
++		if(peffect->is_flag(EFFECT_FLAG_EVENT_PLAYER) && is_duelist(e.event_player))
+ 			newchain.triggering_player = e.event_player;
+ 		else {
+ 			if(phandler->current.reason & REASON_TEMPORARY)
+@@ -1613,9 +1607,9 @@ bool field::process(Processors::IdleCommand& arg) {
+ 			peffect->dec_count(infos.turn_player);
+ 			core.select_chains.clear();
+ 			emplace_process<Processors::AddChain>();
+-			emplace_process<Processors::QuickEffect>(false, 1 - infos.turn_player);
+-			infos.priorities[0] = 0;
+-			infos.priorities[1] = 0;
++			emplace_process<Processors::QuickEffect>(false, opponent_of(infos.turn_player));
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				infos.priorities[p] = 0;
+ 			core.select_chains.clear();
+ 			return FALSE;
+ 		} else if(ctype == 0) {
+@@ -1642,13 +1636,13 @@ bool field::process(Processors::IdleCommand& arg) {
+ 			arg.step = 9;
+ 			auto message = pduel->new_message(MSG_HINT);
+ 			message->write<uint8_t>(HINT_EVENT);
+-			message->write<uint8_t>(1 - infos.turn_player);
++			message->write<uint8_t>(opponent_of(infos.turn_player));
+ 			message->write<uint64_t>(23);
+ 			core.select_chains.clear();
+ 			core.hint_timing[infos.turn_player] = TIMING_MAIN_END;
+-			emplace_process<Processors::QuickEffect>(false, 1 - infos.turn_player);
++			emplace_process<Processors::QuickEffect>(false, opponent_of(infos.turn_player));
+ 			infos.priorities[infos.turn_player] = 1;
+-			infos.priorities[1 - infos.turn_player] = 0;
++			infos.priorities[opponent_of(infos.turn_player)] = 0;
+ 			arg.phase_to_change_to = ctype;
+ 			return FALSE;
+ 		}
+@@ -1881,13 +1875,13 @@ bool field::process(Processors::BattleCommand& arg) {
+ 			arg.phase_to_change_to = ctype;
+ 			auto message = pduel->new_message(MSG_HINT);
+ 			message->write<uint8_t>(HINT_EVENT);
+-			message->write<uint8_t>(1 - infos.turn_player);
++			message->write<uint8_t>(opponent_of(infos.turn_player));
+ 			message->write<uint64_t>(29);
+ 			core.select_chains.clear();
+ 			core.hint_timing[infos.turn_player] = TIMING_BATTLE_STEP_END;
+-			emplace_process<Processors::QuickEffect>(false, 1 - infos.turn_player);
++			emplace_process<Processors::QuickEffect>(false, opponent_of(infos.turn_player));
+ 			infos.priorities[infos.turn_player] = 1;
+-			infos.priorities[1 - infos.turn_player] = 0;
++			infos.priorities[opponent_of(infos.turn_player)] = 0;
+ 			return FALSE;
+ 		} else if(ctype == 0) {
+ 			auto newchain = std::next(core.select_chains.begin(), sel);
+@@ -1915,9 +1909,9 @@ bool field::process(Processors::BattleCommand& arg) {
+ 			peffect->dec_count(infos.turn_player);
+ 			core.select_chains.clear();
+ 			emplace_process<Processors::AddChain>();
+-			emplace_process<Processors::QuickEffect>(false, 1 - infos.turn_player);
+-			infos.priorities[0] = 0;
+-			infos.priorities[1] = 0;
++			emplace_process<Processors::QuickEffect>(false, opponent_of(infos.turn_player));
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				infos.priorities[p] = 0;
+ 			core.select_chains.clear();
+ 			return FALSE;
+ 		} else if(ctype == 1) {
+@@ -2004,7 +1998,7 @@ bool field::process(Processors::BattleCommand& arg) {
+ 				return FALSE;
+ 			}
+ 			if(is_player_affected_by_effect(infos.turn_player, EFFECT_PATRICIAN_OF_DARKNESS))
+-				emplace_process<Processors::SelectEffectYesNo>(1 - infos.turn_player, 31, core.attacker);
++				emplace_process<Processors::SelectEffectYesNo>(opponent_of(infos.turn_player), 31, core.attacker);
+ 			else
+ 				emplace_process<Processors::SelectYesNo>(infos.turn_player, 31);
+ 			return FALSE;
+@@ -2033,9 +2027,9 @@ bool field::process(Processors::BattleCommand& arg) {
+ 				message->write(core.attacker->get_info_location());
+ 				message = pduel->new_message(MSG_HINT);
+ 				message->write<uint8_t>(HINT_SELECTMSG);
+-				message->write<uint8_t>(1 - infos.turn_player);
++				message->write<uint8_t>(opponent_of(infos.turn_player));
+ 				message->write<uint64_t>(549);
+-				emplace_process<Processors::SelectCard>(1 - infos.turn_player, false, 1, 1);
++				emplace_process<Processors::SelectCard>(opponent_of(infos.turn_player), false, 1, 1);
+ 				if(!patrician && atype == 3 && arg.must_attack_map.size() != differentMustAttackMonsterEffects) {
+ 					arg.step = 15;
+ 					return FALSE;
+@@ -2058,11 +2052,11 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		} else {
+ 			if(core.select_cards.size()) {
+ 				auto opposel = !!is_player_affected_by_effect(infos.turn_player, EFFECT_PATRICIAN_OF_DARKNESS);
+-				const auto sel_player = opposel ? 1 - infos.turn_player : infos.turn_player;
++				const auto sel_player = opposel ? opponent_of(infos.turn_player) : infos.turn_player;
+ 				const auto cancelable = (core.attack_cancelable && !opposel);
+ 				auto message = pduel->new_message(MSG_HINT);
+ 				message->write<uint8_t>(HINT_SELECTMSG);
+-				message->write<uint8_t>(opposel ? 1 - infos.turn_player : infos.turn_player);
++				message->write<uint8_t>(opposel ? opponent_of(infos.turn_player) : infos.turn_player);
+ 				message->write<uint64_t>(549);
+ 				emplace_process<Processors::SelectCard>(sel_player, cancelable, 1, 1);
+ 			} else {
+@@ -2118,15 +2112,15 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		auto message = pduel->new_message(MSG_ATTACK);
+ 		message->write(core.attacker->get_info_location());
+ 		if(core.attack_target) {
+-			raise_single_event(core.attack_target, nullptr, EVENT_BE_BATTLE_TARGET, nullptr, 0, 0, 1 - infos.turn_player, 0);
+-			raise_event(core.attack_target, EVENT_BE_BATTLE_TARGET, nullptr, 0, 0, 1 - infos.turn_player, 0);
++			raise_single_event(core.attack_target, nullptr, EVENT_BE_BATTLE_TARGET, nullptr, 0, 0, opponent_of(infos.turn_player), 0);
++			raise_event(core.attack_target, EVENT_BE_BATTLE_TARGET, nullptr, 0, 0, opponent_of(infos.turn_player), 0);
+ 			message->write(core.attack_target->get_info_location());
+ 		} else {
+ 			message->write(loc_info{});
+ 		}
+ 		core.attack_rollback = false;
+ 		core.opp_mzone.clear();
+-		for(auto& pcard : player[1 - infos.turn_player].list_mzone) {
++		for(auto& pcard : player[opponent_of(infos.turn_player)].list_mzone) {
+ 			if(pcard)
+ 				core.opp_mzone.insert(pcard->fieldid_r);
+ 		}
+@@ -2156,8 +2150,8 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		message->write<uint8_t>(HINT_EVENT);
+ 		message->write<uint8_t>(1);
+ 		message->write<uint64_t>(24);
+-		core.hint_timing[0] = TIMING_BATTLE_PHASE;
+-		core.hint_timing[1] = TIMING_BATTLE_PHASE;
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			core.hint_timing[p] = TIMING_BATTLE_PHASE;
+ 		emplace_process<Processors::PointEvent>(Step{ 30 }, false, false, false);
+ 		return FALSE;
+ 	}
+@@ -2468,11 +2462,11 @@ bool field::process(Processors::BattleCommand& arg) {
+ 					raise_single_event(core.attack_target, nullptr, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, infos.turn_player, core.battle_damage[infos.turn_player]);
+ 				raise_event(reason_card, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, infos.turn_player, core.battle_damage[infos.turn_player]);
+ 			}
+-			if(core.battle_damage[1 - infos.turn_player]) {
+-				raise_single_event(core.attacker, nullptr, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, 1 - infos.turn_player, core.battle_damage[1 - infos.turn_player]);
++			if(core.battle_damage[opponent_of(infos.turn_player)]) {
++				raise_single_event(core.attacker, nullptr, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, opponent_of(infos.turn_player), core.battle_damage[opponent_of(infos.turn_player)]);
+ 				if(core.attack_target)
+-					raise_single_event(core.attack_target, nullptr, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, 1 - infos.turn_player, core.battle_damage[1 - infos.turn_player]);
+-				raise_event(reason_card, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, 1 - infos.turn_player, core.battle_damage[1 - infos.turn_player]);
++					raise_single_event(core.attack_target, nullptr, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, opponent_of(infos.turn_player), core.battle_damage[opponent_of(infos.turn_player)]);
++				raise_event(reason_card, EVENT_PRE_BATTLE_DAMAGE, nullptr, 0, reason_card->current.controler, opponent_of(infos.turn_player), core.battle_damage[opponent_of(infos.turn_player)]);
+ 			}
+ 		}
+ 		process_single_event();
+@@ -2490,15 +2484,13 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		auto* reason_card = arg.reason_card;
+ 		effect* damchange = std::exchange(arg.damage_change_effect, nullptr);
+ 		if(!damchange) {
+-			if(core.battle_damage[0])
+-				damage(nullptr, REASON_BATTLE, arg.reason_player, reason_card, 0, core.battle_damage[0]);
+-			if(core.battle_damage[1])
+-				damage(nullptr, REASON_BATTLE, arg.reason_player, reason_card, 1, core.battle_damage[1]);
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				if(core.battle_damage[p])
++					damage(nullptr, REASON_BATTLE, arg.reason_player, reason_card, p, core.battle_damage[p]);
+ 		} else {
+-			if(core.battle_damage[0])
+-				damage(damchange, REASON_EFFECT, arg.reason_player, reason_card, 0, core.battle_damage[0]);
+-			if(core.battle_damage[1])
+-				damage(damchange, REASON_EFFECT, arg.reason_player, reason_card, 1, core.battle_damage[1]);
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				if(core.battle_damage[p])
++					damage(damchange, REASON_EFFECT, arg.reason_player, reason_card, p, core.battle_damage[p]);
+ 		}
+ 		reset_phase(PHASE_DAMAGE_CAL);
+ 		adjust_all();
+@@ -2634,8 +2626,8 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		message->write<uint8_t>(HINT_EVENT);
+ 		message->write<uint8_t>(1);
+ 		message->write<uint64_t>(43);
+-		core.hint_timing[0] |= TIMING_BATTLED;
+-		core.hint_timing[1] |= TIMING_BATTLED;
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			core.hint_timing[p] |= TIMING_BATTLED;
+ 		emplace_process<Processors::PointEvent>(false, false, is_flag(DUEL_SINGLE_CHAIN_IN_DAMAGE_SUBSTEP));
+ 		return FALSE;
+ 	}
+@@ -2805,7 +2797,7 @@ bool field::process(Processors::ForcedBattle& arg) {
+ 			return TRUE;
+ 		core.attacker = tmp_attacker;
+ 		core.attack_target = tmp_attack_target;
+-		for(uint8_t p = 0; p < 2; ++p) {
++		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(auto& pcard : player[p].list_mzone) {
+ 				if(!pcard)
+ 					continue;
+@@ -2841,7 +2833,7 @@ bool field::process(Processors::ForcedBattle& arg) {
+ 		core.new_ochain.clear();
+ 		core.quick_f_chain.clear();
+ 		core.delayed_quick_tmp.clear();
+-		for(uint8_t p = 0; p < 2; ++p) {
++		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(auto& pcard : player[p].list_mzone) {
+ 				if(!pcard)
+ 					continue;

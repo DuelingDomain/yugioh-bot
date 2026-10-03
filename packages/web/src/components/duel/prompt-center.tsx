@@ -32,6 +32,8 @@ import {
   POS_FACEUP_ATTACK,
   POS_FACEUP_DEFENSE,
 } from "./constants";
+import { opponentPickLabel } from "./multi-seat";
+import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import { CardBack } from "./card-face";
 import { CardStrip, type StripCard } from "./card-strip";
 import { optionNotes } from "./option-strip";
@@ -191,9 +193,22 @@ function effectKind(prompt: DuelPrompt): EffectKind {
   return "";
 }
 
-function ownerWord(seat: number | undefined, mySeat: number | null, form: "your" | "you"): string {
+/** Tones of the seats of a table of 3 or 4 (seat -> main and ink colour). */
+export type PromptSeatTones = ReadonlyMap<number, { main: string; ink: string }>;
+
+function toneVars(tones: PromptSeatTones | undefined, seat: number | undefined): CSSProperties | undefined {
+  const tone = seat != null ? tones?.get(seat) : undefined;
+  return tone ? ({ "--seat-main": tone.main, "--seat-ink": tone.ink } as CSSProperties) : undefined;
+}
+
+/**
+ * "You" / "Opponent" (or "Your" / "Opponent's"). With `nameOf` (a table of 3 or 4, where "Opponent" does not say
+ * which one) a rival reads by name.
+ */
+function ownerWord(seat: number | undefined, mySeat: number | null, form: "your" | "you", nameOf?: (seat: number) => string): string {
   if (seat == null || mySeat == null) return form === "your" ? "Your" : "You";
   if (seat === mySeat) return form === "your" ? "Your" : "You";
+  if (nameOf) return form === "your" ? `${nameOf(seat)}'s` : nameOf(seat);
   return form === "your" ? "Opponent's" : "Opponent";
 }
 
@@ -339,6 +354,14 @@ export function optionsOnBoard(prompt: DuelPrompt, hasZone: (key: string) => boo
     const keys = optionZoneKeys(option);
     return keys.length > 0 && hasZone(keys[0]);
   });
+}
+
+/**
+ * The box the prompt measures: the room's board is the layer's parent. A table stage puts the layer in a slot beside
+ * its canvas, so it marks the stage with `data-prompt-scope` and the zones are found there.
+ */
+function boardOf(layer: HTMLElement | null): HTMLElement | null {
+  return layer?.closest<HTMLElement>("[data-prompt-scope]") ?? layer?.parentElement ?? null;
 }
 
 function allOptionsOnBoard(prompt: DuelPrompt, scope: ParentNode): boolean {
@@ -513,6 +536,8 @@ function ChainRows({
   mySeat,
   choose,
   onInspectCard,
+  seatTones,
+  nameOf,
 }: {
   prompt: DuelPrompt;
   draft: PromptDraft;
@@ -520,19 +545,29 @@ function ChainRows({
   mySeat: number | null;
   choose: (id: string) => void;
   onInspectCard?: InspectCardHandler;
+  seatTones?: PromptSeatTones;
+  nameOf?: (seat: number) => string;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   return (
-    <div className={styles.rows}>
+    <div className={styles.rows} data-toned={seatTones ? "true" : undefined} style={toneVars(seatTones, prompt.seat)}>
       {prompt.options.map((option, index) => {
         const { name, effect, cardText } = effectText(option);
-        const owner = ownerWord(option.controller ?? prompt.seat, mySeat, "you");
+        const ownerSeat = option.controller ?? prompt.seat;
+        const owner = ownerWord(ownerSeat, mySeat, "you", seatTones ? nameOf : undefined);
         const open = Boolean(expanded[option.id]);
         const showMore = cardText.length > 0 && cardText !== effect;
         // A short effect label ("Take control") says too little on its own: the printed text follows it.
         const detail = showMore && effect.length < 48 ? cardText : "";
         return (
-          <div key={option.id} className={styles.row} data-active={draft.highlight === index} data-open={open ? "true" : "false"}>
+          <div
+            key={option.id}
+            className={styles.row}
+            data-active={draft.highlight === index}
+            data-open={open ? "true" : "false"}
+            data-toned={seatTones?.has(ownerSeat) ? "true" : undefined}
+            style={toneVars(seatTones, ownerSeat)}
+          >
             <button
               type="button"
               className={styles.rowMain}
@@ -554,7 +589,7 @@ function ChainRows({
               <span className={styles.rowText}>
                 <b>
                   {name}
-                  <span className={styles.rowOwner} data-owner={owner === "You" ? "you" : "opp"}>{owner}</span>
+                  <span className={styles.rowOwner} data-owner={mySeat == null || ownerSeat === mySeat ? "you" : "opp"}>{owner}</span>
                 </b>
                 {effect ? <small>{effect}</small> : null}
                 {detail ? <small className={styles.rowDetail}>{detail}</small> : null}
@@ -639,6 +674,9 @@ function ResponseBody({
   mySeat,
   onSubmit,
   onInspectCard,
+  nameOf,
+  seatTones,
+  priority,
 }: {
   prompt: DuelPrompt;
   draft: PromptDraft;
@@ -648,6 +686,9 @@ function ResponseBody({
   mySeat: number | null;
   onSubmit: (answer: DuelAnswer) => void;
   onInspectCard?: InspectCardHandler;
+  nameOf?: (seat: number) => string;
+  seatTones?: PromptSeatTones;
+  priority?: readonly PrioritySlot[];
 }) {
   const context = prompt.context;
   const choose = (id: string) => onSubmit({ choice: id });
@@ -697,10 +738,11 @@ function ResponseBody({
     return (
       <>
         <ChainStrip chain={chain} compact={cards} />
+        {priority && nameOf ? <PriorityChips order={priority} mySeat={mySeat} nameOf={nameOf} seatTones={seatTones} compact={cards} /> : null}
         {cards ? (
           <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} />
         ) : (
-          <ChainRows prompt={prompt} draft={draft} busy={busy} mySeat={mySeat} choose={choose} onInspectCard={onInspectCard} />
+          <ChainRows prompt={prompt} draft={draft} busy={busy} mySeat={mySeat} choose={choose} onInspectCard={onInspectCard} seatTones={seatTones} nameOf={nameOf} />
         )}
       </>
     );
@@ -756,11 +798,16 @@ function ResponseBody({
       <div className={styles.rows}>
         {prompt.options.map((option, index) => {
           const { effectText: optionEffect } = optionTexts(option);
-          const label = humanizeLabel(fillPlaceholders(option.label, option.card?.name ?? source?.name));
+          // Seat-only choices use the same names as the LP panels, including duplicate-name seat numbers.
+          const directAttack = seatTones != null && option.controller != null && option.location == null && /^Attack .+ directly$/i.test(option.label);
+          const seatName = (context?.type === "opponent" || directAttack) && option.controller != null ? nameOf?.(option.controller) : undefined;
+          const label = directAttack && seatName ? `Attack ${seatName} directly`
+            : seatName ?? humanizeLabel(fillPlaceholders(option.label, option.card?.name ?? source?.name));
           return (
             <div
               key={option.id}
               className={styles.row}
+              data-seat={context?.type === "opponent" || directAttack ? option.controller : undefined}
               data-plain={option.card ? undefined : "true"}
               data-active={draft.highlight === index}
               data-selected={prompt.kind === "toggle" ? Boolean(option.selected) : undefined}
@@ -771,6 +818,7 @@ function ResponseBody({
                 data-primary={index === draft.highlight ? true : undefined}
                 data-index={index}
                 disabled={busy}
+                aria-label={context?.type === "opponent" ? opponentPickLabel(label) : directAttack && seatName ? label : undefined}
                 onClick={() => choose(option.id)}
                 onMouseEnter={() => {
                   draft.setHighlight(index);
@@ -840,13 +888,14 @@ export function responseTitle(
   prompt: DuelPrompt,
   chain: readonly DuelChainLink[],
   mySeat: number | null = null,
+  nameOf?: (seat: number) => string,
 ): { title: string; sub?: string; source: PromptSource | null } {
   const context = prompt.context;
   const source = promptSource(prompt);
   const place = zonePlace(source?.zone, mySeat);
   const kind = effectKind(prompt);
   const sourceLine = source
-    ? [source.name, `${ownerWord(source.seat, mySeat, "your")} ${kind ? `${kind} effect` : "effect"}`, place]
+    ? [source.name, `${ownerWord(source.seat, mySeat, "your", nameOf)} ${kind ? `${kind} effect` : "effect"}`, place]
         .filter(Boolean)
         .join(" · ")
     : undefined;
@@ -1171,6 +1220,15 @@ export interface PromptCenterProps {
   revealed?: boolean;
   /** Hovering or focusing a card in a grid or a response row shows it in the left inspector. */
   onInspectCard?: InspectCardHandler;
+  /** Display name of a seat. An opponent pick shows the name instead of the engine's "Player N". */
+  nameOf?: (seat: number) => string;
+  /**
+   * Tones of the seats of a table of 3 or 4 (with `nameOf`). Chain rows then name their owner ("You" or the player's
+   * name, never "Opponent") and wear the owner's tone. Left out (1v1), nothing changes.
+   */
+  seatTones?: PromptSeatTones;
+  /** Tables of 3 or 4 seats: who may answer the open chain, in order. A chain response then lists it under the chain. */
+  priority?: readonly PrioritySlot[];
 }
 
 /**
@@ -1245,7 +1303,7 @@ export function PromptCenter(props: PromptCenterProps) {
 
   // Which way to answer a card pick: on the board, or in a centred grid.
   useLayoutEffect(() => {
-    const scope = layerRef.current?.parentElement;
+    const scope = boardOf(layerRef.current);
     if ((baseKind !== "select" && !boardToggle) || !prompt || !scope) {
       setOnBoard(null);
       return;
@@ -1258,7 +1316,7 @@ export function PromptCenter(props: PromptCenterProps) {
   // easy to see and hits no hand card or field row you can pick (see select-bar-place.ts).
   const placeBar = useCallback(() => {
     const layer = layerRef.current;
-    const board = layer?.parentElement;
+    const board = boardOf(layer ?? null);
     if (!layer || !board) return;
     const rectOf = (element: Element): BarRect => {
       const { left, right, top, bottom } = element.getBoundingClientRect();
@@ -1277,7 +1335,7 @@ export function PromptCenter(props: PromptCenterProps) {
   useLayoutEffect(() => {
     if (kind !== "select" || onBoard !== true) return;
     placeBar();
-    const board = layerRef.current?.parentElement;
+    const board = boardOf(layerRef.current);
     if (!board || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(placeBar);
     observer.observe(board);
@@ -1351,6 +1409,8 @@ export function PromptCenter(props: PromptCenterProps) {
         else check.no();
         return;
       }
+      // A dialog opened over the duel (Report a bug) owns its keys: its Escape must not answer the prompt behind it.
+      if (event.target instanceof Element && event.target.closest("[role='dialog']")) return;
       if (event.key !== "Escape") return;
       event.preventDefault();
       if (check?.backable && !collapsedRef.current) {
@@ -1552,7 +1612,7 @@ export function PromptCenter(props: PromptCenterProps) {
   );
 
   if (kind === "response") {
-    const { title, sub, source } = responseTitle(prompt, chain, mySeat);
+    const { title, sub, source } = responseTitle(prompt, chain, mySeat, props.seatTones ? props.nameOf : undefined);
     const actions = prompt.kind === "choice" && isYesNo(prompt) ? null : (
       <Actions prompt={prompt} draft={draft} busy={busy} onSubmit={onSubmit} />
     );
@@ -1585,7 +1645,7 @@ export function PromptCenter(props: PromptCenterProps) {
           {hide}
         </header>
         <ResponseBody prompt={prompt} draft={draft} busy={busy} slug={slug} chain={chain} mySeat={mySeat} onSubmit={onSubmit}
-          onInspectCard={onInspectCard} />
+          onInspectCard={onInspectCard} nameOf={props.nameOf} seatTones={props.seatTones} priority={props.priority} />
         {hasActions || optional ? (
           <footer className={styles.foot}>
             {optional ? <span className={styles.hint}>Right-click to pass</span> : null}

@@ -1,0 +1,338 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Fri, 28 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: fix special summon counters, reflected damage and
+ opponent_of reads at n > 2
+
+The stock code reads or writes the opponent seat with opponent_of at several
+sites. With more than 2 duelists that is seat 255 or the wrong seat. Every
+change below is in an n_duelists > 2 branch. The n == 2 text is unchanged.
+
+Special summon (SpSummon case 0 and case 2): each card is counted for its own
+summon player. hint_timing and set_spsummon_counter run once per summon player,
+the turn player first, then clockwise.
+Reflect damage (Damage case 0 and case 1): the damage goes to the reason player
+when that is a living duelist that is not on the holder's team. Otherwise
+nobody takes it and the holder takes none. The normal damage messages and
+lp_ref are used for the new target.
+SelfDestroyUnique case 0: the choice list walks the living duelists clockwise
+(own cards first, then the others, first with the unique place, then all). If
+no card is valid the step ends, so the prompt cannot get an empty list.
+SendTo case 6: a card without a controller no longer writes hint_timing and
+check_decktop_visibility at seat 255.
+Draw (deck_reversed confirm): one MSG_CONFIRM_CARDS for each living opponent.
+TossDice: the count2 dice go to the first living opponent clockwise (one
+opponent, so the result count stays count1 + count2).
+is_player_can_discard_deck_as_cost: a redirect effect is checked against the
+CANNOT_REMOVE state of its own handler player.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ field.cpp      |   5 +-
+ operations.cpp | 179 ++++++++++++++++++++++++++++++++++++++-----------
+ 2 files changed, 144 insertions(+), 40 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index f45ceee..cfce69b 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -3132,7 +3132,7 @@ int32_t field::is_player_can_discard_deck_as_cost(uint8_t playerid, uint32_t cou
+ 	if((count == 1) && topcard->is_position(POS_FACEUP))
+ 		return topcard->is_capable_cost_to_grave(playerid);
+ 	bool cant_remove_s = !is_player_can_action(playerid, EFFECT_CANNOT_REMOVE);
+-	bool cant_remove_o = !is_player_can_action(opponent_of(playerid), EFFECT_CANNOT_REMOVE);
++	bool cant_remove_o = n_duelists == 2 && !is_player_can_action(opponent_of(playerid), EFFECT_CANNOT_REMOVE);
+ 	effect_set eset;
+ 	filter_field_effect(EFFECT_TO_GRAVE_REDIRECT, &eset);
+ 	for(const auto& peff : eset) {
+@@ -3141,6 +3141,9 @@ int32_t field::is_player_can_discard_deck_as_cost(uint8_t playerid, uint32_t cou
+ 		if(redirect & LOCATION_REMOVED) {
+ 			if(topcard->is_affected_by_effect(EFFECT_CANNOT_REMOVE))
+ 				continue;
++			// With more than 2 duelists every other duelist is judged by its own effects (the handler player p).
++			if(n_duelists > 2 && p != playerid)
++				cant_remove_o = is_duelist(p) && !is_player_can_action(p, EFFECT_CANNOT_REMOVE);
+ 			if((cant_remove_s && (p == playerid)) || (cant_remove_o && (p != playerid)))
+ 				continue;
+ 		}
+diff --git a/operations.cpp b/operations.cpp
+index 97aa13d..c68be24 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -487,14 +487,27 @@ bool field::process(Processors::Draw& arg) {
+ 				message->write<uint32_t>(pcard->current.position);
+ 			}
+ 			if(core.deck_reversed && (public_count < drawn)) {
+-				message = pduel->new_message(MSG_CONFIRM_CARDS);
+-				message->write<uint8_t>(opponent_of(playerid));
+-				message->write<uint32_t>(drawn_set.size());
+-				for(auto& pcard : drawn_set) {
+-					message->write<uint32_t>(pcard->data.code);
+-					message->write<uint8_t>(pcard->current.controler);
+-					message->write<uint8_t>(pcard->current.location);
+-					message->write<uint32_t>(pcard->current.sequence);
++				// Each opponent sees the drawn cards (with 2 duelists: the one opponent).
++				uint8_t viewers[MAX_DUELISTS];
++				uint8_t viewer_count = 0;
++				if(n_duelists == 2) {
++					viewers[viewer_count++] = opponent_of(playerid);
++				} else {
++					for(uint8_t q = 0; q < n_duelists; ++q) {
++						if(is_alive(q) && !same_team(playerid, q))
++							viewers[viewer_count++] = q;
++					}
++				}
++				for(uint8_t vi = 0; vi < viewer_count; ++vi) {
++					message = pduel->new_message(MSG_CONFIRM_CARDS);
++					message->write<uint8_t>(viewers[vi]);
++					message->write<uint32_t>(drawn_set.size());
++					for(auto& pcard : drawn_set) {
++						message->write<uint32_t>(pcard->data.code);
++						message->write<uint8_t>(pcard->current.controler);
++						message->write<uint8_t>(pcard->current.location);
++						message->write<uint32_t>(pcard->current.sequence);
++					}
+ 				}
+ 				shuffle(playerid, LOCATION_HAND);
+ 			}
+@@ -566,7 +579,18 @@ bool field::process(Processors::Damage& arg) {
+ 			pduel->lua->add_param<LuaParam::INT>(reason_player);
+ 			pduel->lua->add_param<LuaParam::CARD>(reason_card);
+ 			if (peff->check_value_condition(5)) {
+-				playerid = opponent_of(playerid);
++				if(n_duelists == 2) {
++					playerid = opponent_of(playerid);
++				} else {
++					// The damage goes to the reason player when that is a living duelist that is not on the
++					// holder's team. Otherwise (self damage, partner, no player, dead) nobody takes it.
++					if(!is_alive(reason_player) || same_team(playerid, reason_player)) {
++						returns.set<uint32_t>(0, 0);
++						return TRUE;
++					}
++					playerid = reason_player;
++					arg.playerid = playerid;
++				}
+ 				arg.is_reflected = true;
+ 				break;
+ 			}
+@@ -594,7 +618,7 @@ bool field::process(Processors::Damage& arg) {
+ 		return FALSE;
+ 	}
+ 	case 1: {
+-		if(arg.is_reflected)
++		if(arg.is_reflected && n_duelists == 2)
+ 			playerid = opponent_of(playerid);
+ 		if(arg.is_reflected || (reason & REASON_RRECOVER))
+ 			arg.step = 2;
+@@ -1507,29 +1531,53 @@ bool field::process(Processors::SelfDestroyUnique& arg) {
+ 			unique_card->unique_fieldid = (*cit)->fieldid;
+ 		} else {
+ 			core.select_cards.clear();
+-			for(auto& pcard : cset) {
+-				if(pcard->current.controler == playerid && pcard->unique_fieldid != UINT_MAX)
+-					core.select_cards.push_back(pcard);
+-			}
+-			if(core.select_cards.size() == 0) {
+-				playerid = opponent_of(playerid);
++			if(n_duelists == 2) {
+ 				for(auto& pcard : cset) {
+ 					if(pcard->current.controler == playerid && pcard->unique_fieldid != UINT_MAX)
+ 						core.select_cards.push_back(pcard);
+ 				}
+-			}
+-			if(core.select_cards.size() == 0) {
+-				playerid = opponent_of(playerid);
+-				for(auto& pcard : cset) {
+-					if(pcard->current.controler == playerid)
+-						core.select_cards.push_back(pcard);
++				if(core.select_cards.size() == 0) {
++					playerid = opponent_of(playerid);
++					for(auto& pcard : cset) {
++						if(pcard->current.controler == playerid && pcard->unique_fieldid != UINT_MAX)
++							core.select_cards.push_back(pcard);
++					}
+ 				}
+-			}
+-			if(core.select_cards.size() == 0) {
+-				playerid = opponent_of(playerid);
+-				for(auto& pcard : cset) {
+-					if(pcard->current.controler == playerid)
+-						core.select_cards.push_back(pcard);
++				if(core.select_cards.size() == 0) {
++					playerid = opponent_of(playerid);
++					for(auto& pcard : cset) {
++						if(pcard->current.controler == playerid)
++							core.select_cards.push_back(pcard);
++					}
++				}
++				if(core.select_cards.size() == 0) {
++					playerid = opponent_of(playerid);
++					for(auto& pcard : cset) {
++						if(pcard->current.controler == playerid)
++							core.select_cards.push_back(pcard);
++					}
++				}
++			} else {
++				// First the cards that already hold the unique place, then all of them. In each round the own
++				// cards come first, then the other living duelists clockwise. The owner of the first
++				// non-empty list chooses. The same order as the 2 duelist code above.
++				const uint8_t first_player = playerid;
++				for(int round = 0; round < 2 && core.select_cards.empty(); ++round) {
++					for(uint8_t k = 0; k < n_duelists && core.select_cards.empty(); ++k) {
++						const uint8_t q = static_cast<uint8_t>((first_player + k) % n_duelists);
++						if(!is_alive(q))
++							continue;
++						for(auto& pcard : cset) {
++							if(pcard->current.controler == q && (round == 1 || pcard->unique_fieldid != UINT_MAX))
++								core.select_cards.push_back(pcard);
++						}
++						if(!core.select_cards.empty())
++							playerid = q;
++					}
++				}
++				if(core.select_cards.empty()) {
++					core.unique_destroy_set.erase(unique_card);
++					return TRUE;
+ 				}
+ 			}
+ 			if(core.select_cards.size() == 1) {
+@@ -3709,6 +3757,27 @@ bool field::process(Processors::SpSummon& arg) {
+ 	auto zone = arg.zone;
+ 	switch(arg.step) {
+ 	case 0: {
++		if(n_duelists > 2) {
++			// One group per summon player: the turn player first, then clockwise. A card whose summon player
++			// is not a duelist goes with the turn player's group.
++			card_vector cvp[MAX_DUELISTS];
++			for(auto& pcard : targets->container) {
++				const uint8_t sp = pcard->summon.player;
++				cvp[is_duelist(sp) ? sp : infos.turn_player].push_back(pcard);
++			}
++			for(uint8_t k = 0; k < n_duelists; ++k) {
++				const uint8_t p = static_cast<uint8_t>((infos.turn_player + k) % n_duelists);
++				auto& cv = cvp[p];
++				if(cv.empty())
++					continue;
++				if(cv.size() > 1)
++					std::sort(cv.begin(), cv.end(), card::card_operation_sort);
++				core.hint_timing[p] |= TIMING_SPSUMMON;
++				for(auto& pcard : cv)
++					emplace_process<Processors::SpSummonStep>(targets, pcard, zone);
++			}
++			return FALSE;
++		}
+ 		card_vector cvs, cvo;
+ 		for(auto& pcard : targets->container) {
+ 			if(pcard->summon.player == infos.turn_player)
+@@ -3745,19 +3814,31 @@ bool field::process(Processors::SpSummon& arg) {
+ 			return TRUE;
+ 		}
+ 		bool tp = false, ntp = false;
++		bool summoned[MAX_DUELISTS] = {};
+ 		std::set<uint32_t> spsummon_once_set[MAX_DUELISTS];
+ 		for(auto& pcard : targets->container) {
+ 			if(pcard->summon.player == infos.turn_player)
+ 				tp = true;
+ 			else
+ 				ntp = true;
++			if(is_duelist(pcard->summon.player))
++				summoned[pcard->summon.player] = true;
+ 			if(pcard->spsummon_code)
+ 				spsummon_once_set[pcard->summon.player].insert(pcard->spsummon_code);
+ 		}
+-		if(tp)
+-			set_spsummon_counter(infos.turn_player);
+-		if(ntp)
+-			set_spsummon_counter(opponent_of(infos.turn_player));
++		if(n_duelists > 2) {
++			// Count the summon for each summon player once: the turn player first, then clockwise.
++			for(uint8_t k = 0; k < n_duelists; ++k) {
++				const uint8_t p = static_cast<uint8_t>((infos.turn_player + k) % n_duelists);
++				if(summoned[p])
++					set_spsummon_counter(p);
++			}
++		} else {
++			if(tp)
++				set_spsummon_counter(infos.turn_player);
++			if(ntp)
++				set_spsummon_counter(opponent_of(infos.turn_player));
++		}
+ 		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(auto& cit : spsummon_once_set[p])
+ 				++core.spsummon_once_map[p][cit];
+@@ -4528,16 +4609,23 @@ bool field::process(Processors::SendTo& arg) {
+ 		uint8_t dest = pcard->sendto_param.location;
+ 		uint8_t seq = pcard->sendto_param.sequence;
+ 		uint8_t control_player = pcard->overlay_target ? pcard->overlay_target->current.controler : pcard->current.controler;
++		// A card without a controller (none_id() is 0xFF with more than 2 duelists) has no seat to hint or to
++		// check the deck top for. With 2 duelists the stock writes stay as they are.
++		const bool has_seat = n_duelists == 2 || is_duelist(control_player);
+ 		if(dest == LOCATION_GRAVE) {
+-			core.hint_timing[control_player] |= TIMING_TOGRAVE;
++			if(has_seat)
++				core.hint_timing[control_player] |= TIMING_TOGRAVE;
+ 		} else if(dest == LOCATION_HAND) {
+ 			pcard->set_status(STATUS_PROC_COMPLETE, FALSE);
+-			core.hint_timing[control_player] |= TIMING_TOHAND;
++			if(has_seat)
++				core.hint_timing[control_player] |= TIMING_TOHAND;
+ 		} else if(dest == LOCATION_DECK) {
+ 			pcard->set_status(STATUS_PROC_COMPLETE, FALSE);
+-			core.hint_timing[control_player] |= TIMING_TODECK;
++			if(has_seat)
++				core.hint_timing[control_player] |= TIMING_TODECK;
+ 		} else if(dest == LOCATION_REMOVED) {
+-			core.hint_timing[control_player] |= TIMING_REMOVE;
++			if(has_seat)
++				core.hint_timing[control_player] |= TIMING_REMOVE;
+ 		}
+ 		//call move_card()
+ 		if(pcard->current.controler != playerid || pcard->current.location != dest) {
+@@ -4553,7 +4641,7 @@ bool field::process(Processors::SendTo& arg) {
+ 			message->write(pcard->get_info_location());
+ 			message->write<uint32_t>(pcard->current.reason);
+ 		}
+-		if(pcard->current.location == LOCATION_DECK && (core.deck_reversed || (pcard->current.position == POS_FACEUP_DEFENSE)))
++		if(has_seat && pcard->current.location == LOCATION_DECK && (core.deck_reversed || (pcard->current.position == POS_FACEUP_DEFENSE)))
+ 			param->check_decktop_visibility[control_player] = true;
+ 		pcard->set_status(STATUS_LEAVE_CONFIRMED, FALSE);
+ 		if(pcard->status & (STATUS_SUMMON_DISABLED | STATUS_ACTIVATE_DISABLED)) {
+@@ -6169,6 +6257,19 @@ bool field::process(Processors::TossCoin& arg) {
+ 	}
+ 	return TRUE;
+ }
++// The duelist who rolls the count2 dice of Duel.TossDice. With 2 duelists this is the opponent. With more, one
++// opponent rolls: the first living duelist clockwise from playerid who is not on its team (playerid if there is none).
++// Every opponent rolling would change the number of results that the Lua side and the replace effects expect.
++static uint8_t toss_dice_opponent(const field& f, uint8_t playerid) {
++	if(f.n_duelists == 2)
++		return f.opponent_of(playerid);
++	for(uint8_t k = 1; k < f.n_duelists; ++k) {
++		const uint8_t q = static_cast<uint8_t>((playerid + k) % f.n_duelists);
++		if(f.is_alive(q) && !f.same_team(playerid, q))
++			return q;
++	}
++	return playerid;
++}
+ bool field::process(Processors::TossDice& arg) {
+ 	auto reason_effect = arg.reason_effect;
+ 	auto reason_player = arg.reason_player;
+@@ -6219,7 +6320,7 @@ bool field::process(Processors::TossDice& arg) {
+ 		}
+ 		if(count2 > 0) {
+ 			message = pduel->new_message(MSG_TOSS_DICE);
+-			message->write<uint8_t>(opponent_of(playerid));
++			message->write<uint8_t>(toss_dice_opponent(*this, playerid));
+ 			message->write<uint8_t>(count2);
+ 			for(int32_t i = 0; i < count2; ++i) {
+ 				const auto dice = pduel->get_next_integer(1, 6);
+@@ -6246,7 +6347,7 @@ bool field::process(Processors::TossDice& arg) {
+ 		}
+ 		if(count2 > 0) {
+ 			auto mmessage = pduel->new_message(MSG_TOSS_DICE);
+-			mmessage->write<uint8_t>(opponent_of(playerid));
++			mmessage->write<uint8_t>(toss_dice_opponent(*this, playerid));
+ 			mmessage->write<uint8_t>(count2);
+ 			for(int32_t i = 0; i < count2; ++i) {
+ 				mmessage->write<uint8_t>(core.dice_results[count1 + i]);

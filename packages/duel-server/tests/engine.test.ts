@@ -390,6 +390,19 @@ describe("temporary reveals", () => {
     expect(slotRevealed(reveals, 0, 1, OcgLocation.HAND, 2, 555)).toBe(false);
     expect(slotRevealed(reveals, 0, 1, OcgLocation.DECK, 0, 555)).toBe(false);
   });
+
+  it("forgets a hand reveal when the card is Set face-down, and keeps a face-up move", () => {
+    const reveals = createRevealMap();
+    noteReveal(reveals, 0, 1, OcgLocation.HAND, 0, 777);
+    moveReveals(reveals, { controller: 1, location: OcgLocation.HAND, sequence: 0 }, { controller: 1, location: OcgLocation.SZONE, sequence: 2, position: 0x8 }, 777);
+    expect(slotRevealed(reveals, 0, 1, OcgLocation.SZONE, 2, 777)).toBe(false);
+    noteReveal(reveals, 0, 1, OcgLocation.HAND, 1, 888);
+    moveReveals(reveals, { controller: 1, location: OcgLocation.HAND, sequence: 1 }, { controller: 1, location: OcgLocation.MZONE, sequence: 0, position: 0x1 }, 888);
+    expect(slotRevealed(reveals, 0, 1, OcgLocation.MZONE, 0, 888)).toBe(true);
+    noteReveal(reveals, 0, 1, OcgLocation.SZONE, 3, 999);
+    moveReveals(reveals, { controller: 1, location: OcgLocation.SZONE, sequence: 3 }, { controller: 1, location: OcgLocation.SZONE, sequence: 4, position: 0x8 }, 999);
+    expect(slotRevealed(reveals, 0, 1, OcgLocation.SZONE, 4, 999)).toBe(true);
+  });
 });
 
 describe("forced choices", () => {

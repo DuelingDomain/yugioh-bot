@@ -90,7 +90,7 @@ describe("auth public routes", () => {
       process.env.DUEL_FX_LAB = "1";
       const authorized = await loadAuthorizedCallback();
 
-      for (const path of ["/dev/fx-lab", "/api/cards/89631139/image"]) {
+      for (const path of ["/dev/fx-lab", "/dev/table-preview", "/dev/table-preview/ffa3", "/dev/table-preview/tag", "/api/cards/89631139/image"]) {
         const result = await authorized({ auth: null, request: { nextUrl: new URL(`http://localhost${path}`) } });
         expect(result, path).toBe(true);
       }
@@ -99,7 +99,7 @@ describe("auth public routes", () => {
     it("returns 404 for the lab when disabled and protects card art", async () => {
       const authorized = await loadAuthorizedCallback();
 
-      for (const path of ["/dev/fx-lab", "/api/cards/89631139/image"]) {
+      for (const path of ["/dev/fx-lab", "/dev/table-preview", "/dev/table-preview/ffa3", "/api/cards/89631139/image"]) {
         const result = await authorized({ auth: null, request: { nextUrl: new URL(`http://localhost${path}`) } });
         expect(result, path).toBeInstanceOf(Response);
         if (path === "/dev/fx-lab") expect((result as Response).status).toBe(404);
@@ -110,7 +110,7 @@ describe("auth public routes", () => {
       process.env.DUEL_FX_LAB = "1";
       const authorized = await loadAuthorizedCallback();
 
-      for (const path of ["/dev/other", "/api/cards/resolve", "/api/cards/1/image/extra", "/draft/example"]) {
+      for (const path of ["/dev/other", "/dev/table-previews", "/api/cards/resolve", "/api/cards/1/image/extra", "/draft/example"]) {
         const result = await authorized({ auth: null, request: { nextUrl: new URL(`http://localhost${path}`) } });
         expect(result, path).toBeInstanceOf(Response);
       }

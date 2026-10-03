@@ -91,6 +91,7 @@ function resultRoom(board: LabBoard, result: { winnerSeat: number | null; reason
       organizerPlayerId: 1,
       mode: board.seats.some((seat) => seat.deckMaster) ? "domain" : "normal",
       masterRule: 5,
+      format: "1v1",
       status: "completed",
       settings: {} as DuelRoom["session"]["settings"],
       seats: [

@@ -5,6 +5,7 @@ import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { installMultiScripts } from "../src/multi-scripts.js";
 
 const sources = {
   corePackage: "ocgcore-wasm@0.1.2",
@@ -14,6 +15,13 @@ const sources = {
 };
 const directory = resolve(process.env.DUEL_DATA_DIR ?? fileURLToPath(new URL("../../../data/duel-engine/", import.meta.url)));
 const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
+// integrity.multiScripts (the Lua overlay of duels with more than two seats) is not part of bundleVersion: the host pins
+// it for those duels only (pinnedEngineVersion), so an overlay edit never touches a 1v1 duel or its replay.
+// build-domain-core.sh and build-standard-core.sh compute the same value.
+const bundleVersionOf = (sources: Record<string, unknown>, integrity: Record<string, string>) => {
+  const { multiScripts: _overlay, ...engine } = integrity;
+  return hash(JSON.stringify({ sources, integrity: engine }));
+};
 
 type Manifest = {
   sources: Record<string, unknown>;
@@ -58,13 +66,26 @@ async function catalogIsCurrent(manifest: Manifest | null): Promise<boolean> {
 
 await mkdir(directory, { recursive: true });
 const previous = await readManifest(join(directory, "manifest.json"));
+// The Lua overlay of duels with more than two seats ships as <data>/multi-scripts. It is not part of card-scripts
+// (this script replaces that folder), and it changes with the repo, so it is installed on every run.
+const multiScriptsHash = installMultiScripts(directory);
 if (previous && await catalogIsCurrent(previous)) {
+  const integrity = { ...previous.integrity, multiScripts: multiScriptsHash };
+  const bundleVersion = bundleVersionOf(previous.sources, integrity);
+  if (previous.integrity.multiScripts !== multiScriptsHash || previous.bundleVersion !== bundleVersion) {
+    previous.integrity = integrity;
+    previous.bundleVersion = bundleVersion;
+    await writeFile(join(directory, "manifest.json"), JSON.stringify(previous, null, 2) + "\n");
+  }
   console.log(JSON.stringify({ directory, skipped: true, ...previous }, null, 2));
   process.exit(0);
 }
 
 const luaPath = join(directory, "card-scripts", "domain.lua");
 const savedLua = existsSync(luaPath) ? await readFile(luaPath) : null;
+// The Domain Lua of the legacy 1v1 engine (built by legacy-1v1/scripts/build-domain-core.sh) is kept the same way.
+const legacyLuaPath = join(directory, "card-scripts", "domain.legacy.lua");
+const savedLegacyLua = existsSync(legacyLuaPath) ? await readFile(legacyLuaPath) : null;
 const temporary = await mkdtemp(join(tmpdir(), "yugidraft-resources-"));
 try {
   const [cards, strings, scripts] = await Promise.all([
@@ -78,6 +99,7 @@ try {
   await mkdir(scriptStaging, { recursive: true });
   execFileSync("tar", ["-xzf", archive, "--strip-components=1", "-C", scriptStaging]);
   if (savedLua) await writeFile(join(scriptStaging, "domain.lua"), savedLua);
+  if (savedLegacyLua) await writeFile(join(scriptStaging, "domain.legacy.lua"), savedLegacyLua);
   const scriptDirectory = join(directory, "card-scripts");
   await rm(scriptDirectory, { recursive: true, force: true });
   await cp(scriptStaging, scriptDirectory, { recursive: true });
@@ -93,6 +115,7 @@ try {
     scripts: hash(scripts),
     wasm: hash(wasm),
     wrapper: hash(wrapper),
+    multiScripts: multiScriptsHash,
   };
   const mergedSources: Record<string, unknown> = { ...sources };
   const domainWasmPath = join(directory, "ocgcore.domain.wasm");
@@ -103,7 +126,19 @@ try {
     integrity.domainLua = hash(await readFile(domainLuaPath));
     if (previous.integrity.domainPatch) integrity.domainPatch = previous.integrity.domainPatch;
   }
-  const manifest = { sources: mergedSources, integrity, bundleVersion: hash(JSON.stringify({ sources: mergedSources, integrity })) };
+  const legacyWasmPath = join(directory, "ocgcore.domain.legacy.wasm");
+  if (previous?.sources.domainCoreLegacy && existsSync(legacyWasmPath) && existsSync(legacyLuaPath)) {
+    mergedSources.domainCoreLegacy = previous.sources.domainCoreLegacy;
+    integrity.domainLegacyWasm = hash(await readFile(legacyWasmPath));
+    integrity.domainLegacyLua = hash(await readFile(legacyLuaPath));
+    if (previous.integrity.domainLegacyPatch) integrity.domainLegacyPatch = previous.integrity.domainLegacyPatch;
+  }
+  const standardWasmPath = join(directory, "ocgcore.standard.wasm");
+  if (previous?.sources.standardCore && existsSync(standardWasmPath)) {
+    mergedSources.standardCore = previous.sources.standardCore;
+    integrity.standardWasm = hash(await readFile(standardWasmPath));
+  }
+  const manifest = { sources: mergedSources, integrity, bundleVersion: bundleVersionOf(mergedSources, integrity) };
   await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   console.log(JSON.stringify({ directory, ...manifest }, null, 2));
 } finally {

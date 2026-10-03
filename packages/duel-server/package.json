@@ -9,7 +9,21 @@
     "typecheck": "tsc --noEmit",
     "start": "node dist/server.js",
     "test": "vitest run tests --testTimeout=15000",
-    "prepare:data": "tsx scripts/prepare-data.ts"
+    "test:unit": "vitest run tests --config vitest.unit.config.ts --testTimeout=15000",
+    "test:engine": "DUEL_REQUIRE_CORES=1 NSEAT_LIVE=1 vitest run tests --testTimeout=15000",
+    "test:smoke": "for f in tests/*.smoke.ts; do echo \"== $f\"; tsx \"$f\" || exit 1; done",
+    "test:native": "bash scripts/native/checks/run.sh",
+    "prepare:data": "tsx scripts/prepare-data.ts",
+    "test:scenarios": "vitest run tests/scenarios",
+    "test:scenarios:json": "vitest run tests/scenarios --reporter=default --reporter=json --outputFile.json=../../.status/scenarios.json",
+    "status": "tsx scripts/status.ts",
+    "scenarios:list": "tsx tests/support/list.ts",
+    "scenarios:find-card": "tsx tests/support/find-card.ts",
+    "fuzz": "FUZZ_RUNS=200 vitest run tests/fuzz --testTimeout=300000",
+    "fuzz:nightly": "tsx scripts/fuzz-nightly.ts",
+    "fuzz:repro": "tsx scripts/fuzz-repro.ts",
+    "fuzz:n": "tsx scripts/fuzz-n.ts",
+    "scan:multiplayer": "tsx scripts/scan-multiplayer-scripts.ts"
   },
   "dependencies": {
     "@yugidraft/shared": "*",
@@ -20,6 +34,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "latest",
     "@types/node": "latest",
+    "fast-check": "^4.10.2",
     "tsx": "latest",
     "typescript": "latest",
     "vitest": "latest"

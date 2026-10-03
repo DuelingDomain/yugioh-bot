@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Fri, 17 Mar 2000 00:00:00 +0000
+Subject: [PATCH] core: keep the stock Synchro material effect query order
+
+Compare controllers or teams before the material effect query. Own material skips the query, as stock does. Extra Lua condition calls can change effect IDs and state.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ card.cpp | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index d8f4f33..890feb1 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -4008,12 +4008,14 @@ int32_t card::is_can_be_synchro_material(card* scard, uint8_t playerid, card* /*
+ 		return FALSE;
+ 	if(!(get_type(scard, SUMMON_TYPE_SYNCHRO, playerid) & TYPE_MONSTER))
+ 		return FALSE;
+-	if(scard && current.location == LOCATION_MZONE && !is_affected_by_effect(EFFECT_SYNCHRO_MATERIAL)) {
++	if(scard && current.location == LOCATION_MZONE) {
+ 		// More than two duelists (Tag): a monster of the partner is a Synchro material of the team ([R-TAG-PARTNER-COST]), like a
+ 		// monster of the own field. Free for all has no partner (same_team is false for two different duelists). Two duelists: stock test.
+ 		const auto& gf = *pduel->game_field;
+-		if(gf.n_duelists == 2 ? current.controler != scard->current.controler
+-		                      : !(gf.is_duelist(current.controler) && gf.is_duelist(scard->current.controler) && gf.same_team(current.controler, scard->current.controler)))
++		const bool other = gf.n_duelists == 2 ? current.controler != scard->current.controler
++		                      : !(gf.is_duelist(current.controler) && gf.is_duelist(scard->current.controler) && gf.same_team(current.controler, scard->current.controler));
++		// Keep stock short-circuit order: own material never queries this effect.
++		if(other && !is_affected_by_effect(EFFECT_SYNCHRO_MATERIAL))
+ 			return FALSE;
+ 	}
+ 	if(is_status(STATUS_FORBIDDEN))

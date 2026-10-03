@@ -1,0 +1,56 @@
+/* The turn track of the live Rooftop. It reads the --duel-* tokens that tag-shell.module.css sets on the shell root. */
+
+.track { flex: none; position: relative; z-index: 2; }
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 3px 12px;
+  border-top: 1px solid var(--duel-rule);
+  background: var(--duel-lamp);
+}
+.baton {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--duel-t-xs);
+  color: var(--duel-ink-3);
+}
+.baton li { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 999px; border: 1px solid transparent; }
+.baton b { font-weight: 600; letter-spacing: 0.08em; color: var(--seat-ink); }
+.baton em { font-style: normal; font-size: 0.85em; letter-spacing: 0.1em; text-transform: uppercase; }
+.baton li[data-now="true"] {
+  color: var(--duel-ink);
+  border-color: rgb(var(--seat) / 0.7);
+  background: rgb(var(--seat) / 0.16);
+  box-shadow: 0 0 10px rgb(var(--seat) / 0.35);
+}
+.baton li[data-next="true"] { color: var(--duel-ink-2); }
+.baton li[data-out="true"] { text-decoration: line-through; opacity: 0.6; }
+.arrow { margin-right: 4px; color: var(--duel-ink-4); }
+
+/* The lock is a quiet gold chip: it informs, it does not shout. */
+.lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 9px;
+  border: 1px solid rgb(228 182 79 / 0.45);
+  border-radius: 999px;
+  background: var(--duel-chain-soft);
+  color: var(--duel-chain-ink);
+  font-size: var(--duel-t-xs);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.clock { display: inline-flex; align-items: center; color: var(--duel-ink-2); font-family: var(--duel-f-num); font-size: var(--duel-t-sm); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 900px) {
+  .row { flex-wrap: wrap; gap: 4px 10px; }
+}

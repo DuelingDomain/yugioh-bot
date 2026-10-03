@@ -462,11 +462,14 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
         }
         const status: ChainStatus =
           event.kind === "chain-resolving" ? "resolving" : event.kind === "chain-resolved" ? "resolved" : "negated";
+        // The engine reports a negation before the link's own resolving and resolved events. The link stays negated.
         patch(key, (tile) => ({
           ...tile,
           lastEventId: event.id,
           card: tile.card ?? event.card ?? null,
-          chain: tile.chain ? { ...tile.chain, status } : { index: idx, size: idx, status },
+          chain: tile.chain
+            ? { ...tile.chain, status: tile.chain.status === "negated" ? "negated" : status }
+            : { index: idx, size: idx, status },
         }));
         chain.current = event.kind === "chain-resolving" ? idx : null;
         break;

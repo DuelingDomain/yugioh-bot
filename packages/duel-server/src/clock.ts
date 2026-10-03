@@ -1,11 +1,11 @@
 import { DUEL_CLOCK_INCREMENT_MS, DUEL_OPENING_GRACE_MS, duelClockBankMs, duelClockRegainMs } from "@yugidraft/shared/duels";
 
-export type SeatIndex = 0 | 1;
+export type SeatIndex = number;
 
 /** Matches shared `DuelClockState`; host persists this JSON, never live-subtracted remaining. */
 export interface DecisionClockState {
   turn: number;
-  remainingMs: [number, number];
+  remainingMs: number[];
   activeSeat: SeatIndex | null;
   startedAt: number | null;
 }
@@ -13,6 +13,8 @@ export interface DecisionClockState {
 export interface DecisionClockView {
   turn: number;
   promptSeat: number | null;
+  /** Seats that no longer play (eliminated, or surrendered and on autopilot). Their clock does not run. */
+  stoppedSeats?: readonly number[];
   /** The first engine snapshot of a new game, before any command was accepted. */
   opening?: boolean;
 }
@@ -22,7 +24,7 @@ export interface PublicDecisionClock extends DecisionClockState {
 }
 
 export function isSeatIndex(value: number | null | undefined): value is SeatIndex {
-  return value === 0 || value === 1;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
 /** Time bank size (the cap for every seat). Rules constants live in shared `settings.ts`. */
@@ -35,20 +37,19 @@ function addCapped(current: number, add: number, cap: number): number {
   return Math.max(current, Math.min(cap, current + add));
 }
 
-export function liveRemainingMs(clock: DecisionClockState, now: number): [number, number] {
-  const remaining: [number, number] = [
-    Math.max(0, clock.remainingMs[0]),
-    Math.max(0, clock.remainingMs[1]),
-  ];
+export function liveRemainingMs(clock: DecisionClockState, now: number): number[] {
+  const remaining = clock.remainingMs.map((ms) => Math.max(0, ms));
   if (clock.activeSeat === null || clock.startedAt === null) return remaining;
+  const active = clock.activeSeat;
+  if (active >= remaining.length) return remaining;
   const elapsed = Math.max(0, now - clock.startedAt);
-  remaining[clock.activeSeat] = Math.max(0, remaining[clock.activeSeat] - elapsed);
+  remaining[active] = Math.max(0, (remaining[active] ?? 0) - elapsed);
   return remaining;
 }
 
 export function deadlineAt(clock: DecisionClockState): number | null {
   if (clock.activeSeat === null || clock.startedAt === null) return null;
-  return clock.startedAt + Math.max(0, clock.remainingMs[clock.activeSeat]);
+  return clock.startedAt + Math.max(0, clock.remainingMs[clock.activeSeat] ?? 0);
 }
 
 export function isClockDue(clock: DecisionClockState, now: number): boolean {
@@ -60,13 +61,18 @@ export function startDecisionClock(
   view: DecisionClockView,
   turnSeconds: number,
   now: number,
+  seatCount = 2,
 ): DecisionClockState | null {
   const budget = clockBudgetMs(turnSeconds);
   if (budget === null) return null;
-  const activeSeat = isSeatIndex(view.promptSeat) ? view.promptSeat : null;
+  const stopped = view.stoppedSeats ?? [];
+  const activeSeat =
+    isSeatIndex(view.promptSeat) && view.promptSeat < seatCount && !stopped.includes(view.promptSeat)
+      ? view.promptSeat
+      : null;
   return {
     turn: view.turn,
-    remainingMs: [budget, budget],
+    remainingMs: Array.from({ length: seatCount }, () => budget),
     activeSeat,
     startedAt: activeSeat === null ? null : now + (view.opening ? DUEL_OPENING_GRACE_MS : 0),
   };
@@ -96,7 +102,11 @@ export function syncDecisionClock(
   const budget = clockBudgetMs(turnSeconds);
   if (budget === null) return null;
   if (!previous) return null;
-  if (timeout === "loss" && isClockDue(previous, decidedAt)) {
+  const stopped = view.stoppedSeats ?? [];
+  const decidedStopped = isSeatIndex(decidedSeat) && stopped.includes(decidedSeat);
+  // A due clock of a seat that has left (its loss may still be pending) is not kept: the clock moves on to the next prompt.
+  const dueSeatStopped = previous.activeSeat !== null && stopped.includes(previous.activeSeat);
+  if (timeout === "loss" && !decidedStopped && !dueSeatStopped && isClockDue(previous, decidedAt)) {
     const remaining = liveRemainingMs(previous, decidedAt);
     return {
       turn: previous.turn,
@@ -106,15 +116,20 @@ export function syncDecisionClock(
     };
   }
   const remaining = liveRemainingMs(previous, decidedAt);
-  if (isSeatIndex(decidedSeat) && remaining[decidedSeat] > 0) {
-    remaining[decidedSeat] = addCapped(remaining[decidedSeat], DUEL_CLOCK_INCREMENT_MS, budget);
+  if (isSeatIndex(decidedSeat) && !decidedStopped && decidedSeat < remaining.length && (remaining[decidedSeat] ?? 0) > 0) {
+    remaining[decidedSeat] = addCapped(remaining[decidedSeat] ?? 0, DUEL_CLOCK_INCREMENT_MS, budget);
   }
   if (previous.turn !== view.turn) {
     const regain = duelClockRegainMs(turnSeconds);
-    remaining[0] = addCapped(remaining[0], regain, budget);
-    remaining[1] = addCapped(remaining[1], regain, budget);
+    for (let seat = 0; seat < remaining.length; seat += 1) {
+      if (stopped.includes(seat)) continue;
+      remaining[seat] = addCapped(remaining[seat] ?? 0, regain, budget);
+    }
   }
-  const nextSeat = isSeatIndex(view.promptSeat) ? view.promptSeat : null;
+  const nextSeat =
+    isSeatIndex(view.promptSeat) && view.promptSeat < remaining.length && !stopped.includes(view.promptSeat)
+      ? view.promptSeat
+      : null;
   // Reduced motion or a bot may answer during the opening grace. Keep its original end,
   // without granting another grace window on a prompt change or a reconnect.
   const startAt = Math.max(resumeAt, previous.startedAt ?? resumeAt);
@@ -122,7 +137,7 @@ export function syncDecisionClock(
     turn: view.turn,
     remainingMs: remaining,
     activeSeat: nextSeat,
-    startedAt: nextSeat !== null && remaining[nextSeat] > 0 ? startAt : null,
+    startedAt: nextSeat !== null && (remaining[nextSeat] ?? 0) > 0 ? startAt : null,
   };
 }
 
@@ -136,6 +151,17 @@ export function freezeContinueClock(clock: DecisionClockState, now: number): Dec
   };
 }
 
+/** A seat leaves the game: its time stops where it is. Other seats keep their clock. */
+export function stopSeatClock(clock: DecisionClockState, seat: SeatIndex, now: number): DecisionClockState {
+  if (clock.activeSeat !== seat) return clock;
+  return {
+    turn: clock.turn,
+    remainingMs: liveRemainingMs(clock, now),
+    activeSeat: null,
+    startedAt: null,
+  };
+}
+
 export function timeoutLossSeat(clock: DecisionClockState, now: number): SeatIndex | null {
   if (!isClockDue(clock, now) || clock.activeSeat === null) return null;
   return clock.activeSeat;
@@ -145,7 +171,7 @@ export function withServerNow(clock: DecisionClockState | null, now: number): Pu
   if (!clock) return null;
   return {
     turn: clock.turn,
-    remainingMs: [clock.remainingMs[0], clock.remainingMs[1]],
+    remainingMs: [...clock.remainingMs],
     activeSeat: clock.activeSeat,
     startedAt: clock.startedAt,
     serverNow: now,
@@ -158,7 +184,7 @@ export function persistedClockState(
   if (!clock) return null;
   return {
     turn: clock.turn,
-    remainingMs: [clock.remainingMs[0], clock.remainingMs[1]],
+    remainingMs: [...clock.remainingMs],
     activeSeat: clock.activeSeat,
     startedAt: clock.startedAt,
   };

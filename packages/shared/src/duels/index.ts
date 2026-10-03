@@ -1,4 +1,4 @@
-import type { DuelClock, DuelSettings } from "./settings.js";
+import type { DuelClock, DuelFormat, DuelSettings } from "./settings.js";
 import type { DuelFirstChoice, DuelOpeningView } from "./opening.js";
 
 export type DuelMode = "normal" | "domain";
@@ -10,11 +10,24 @@ export type {
   DuelCardPool,
   DuelClock,
   DuelClockState,
+  DuelFormat,
   DuelSettings,
   DuelTimeout,
   DuelVisibility,
 } from "./settings.js";
 export {
+  DEFAULT_DUEL_FORMAT,
+  DUEL_FORMATS,
+  MAX_DUEL_SEATS,
+  isDuelFormat,
+  opponentSeatsOf,
+  partnerSeatOf,
+  seatCountFor,
+  seatsOfTeam,
+  sharedExtraSeatOf,
+  startingLpFor,
+  teamCountFor,
+  teamOfSeat,
   DUEL_CLOCK_INCREMENT_MS,
   DUEL_CLOCK_REGAIN_FRACTION,
   DUEL_CLOCK_REGAIN_MIN_MS,
@@ -29,6 +42,18 @@ export {
   NO_BANLIST_ID,
   PINNED_TCG_BANLIST_ID,
 } from "./settings.js";
+export { DEFAULT_DUEL_1V1_ENGINE, DUEL_1V1_ENGINE_ENV, duel1v1Engine, isDuelEngineChoice } from "./engine-switch.js";
+export type { DuelEngineChoice } from "./engine-switch.js";
+export {
+  MULTIPLAYER_TABLES_ENV,
+  MULTIPLAYER_TABLES_OFF_MESSAGE,
+  enabledDuelFormats,
+  multiplayerSeatsBlockReason,
+  multiplayerTablesBlockReason,
+  multiplayerTablesEnabled,
+} from "./multiplayer-tables.js";
+export { MULTI_CORE_UNAVAILABLE_MESSAGE, MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason } from "./multi-domain.js";
+export type { DuelTableCapabilities } from "./multi-domain.js";
 export type { DuelBanlistOption } from "./banlist-options.js";
 export type {
   DuelFirstChoice,
@@ -223,6 +248,8 @@ export type DuelPromptContext =
   | { type: "action"; phase: "main" | "battle" }
   | { type: "chain"; forced: boolean }
   | { type: "position" }
+  /** The activating duelist picks the one opponent that a hand, Deck, draw or LP effect binds. Options carry `controller: seat`. */
+  | { type: "opponent" }
   | { type: "deck-master-recall"; card: DuelCardInfo; returns: number; nextCost: number };
 
 export interface DuelPrompt {
@@ -271,6 +298,26 @@ export interface DuelSeatView {
   graveyard: DuelCard[];
   banished: DuelCard[];
   deckMaster?: { card: DuelCardInfo; inZone: boolean; returns: number; nextCost: number };
+  /** Team of this seat (`teamOfSeat(format, seat)`). Absent in 1v1 views made before multi-player formats. */
+  team?: number;
+  /**
+   * Living across seat sharing these Extra Monster Zones in FFA4 (0/2, 1/3). Null in other formats or
+   * when either seat is eliminated. Sequences 5/6 mirror to 6/5. Absent in older views.
+   */
+  sharedExtraWith?: number | null;
+  /** True after this seat (FFA) or its team (Tag) lost while the duel goes on. Its fields are empty. */
+  eliminated?: boolean;
+  /**
+   * True while this seat (FFA) or its team (Tag) is leaving: the elimination is requested, but the core applies
+   * the loss only after the open prompt is answered. Absent otherwise.
+   */
+  pendingElimination?: boolean;
+  /**
+   * Zones of this seat that an effect disabled (for example Field Disable effects), as a bit mask in the
+   * layout of the low half of MSG_FIELD_DISABLED (Monster Zones from bit 0, Spell and Trap Zones from bit 8).
+   * Absent when no zone is disabled.
+   */
+  disabledZones?: number;
 }
 
 /** A board position, in the same terms as DuelCard (controller, location bitmask, sequence). */
@@ -401,12 +448,16 @@ export interface DuelChainLink {
 
 export interface DuelEngineView {
   revision: number;
+  /** Seat and team layout. Absent means `1v1`. In Tag both partners' `lp` is the shared team LP. */
+  format?: DuelFormat;
   turn: number;
   turnSeat: number;
   phase: string;
   /** The current Battle Phase step; null outside the Battle Phase. Best effort from core messages. */
   battleStep?: DuelBattleStep | null;
   seats: DuelSeatView[];
+  /** Earliest losses first. Seats reported together share a place. Absent on older views and 1v1. */
+  eliminationOrder?: number[][];
   prompt: DuelPrompt | null;
   /**
    * Public seat the engine is waiting on, including when that viewer cannot see the prompt.
@@ -417,7 +468,11 @@ export interface DuelEngineView {
   chain: DuelChainLink[];
   events: DuelEvent[];
   log: Array<{ id: number; text: string }>;
-  result: { winnerSeat: number | null; reason: string } | null;
+  /**
+   * `winnerSeat` is the winning seat in 1v1 and FFA. In Tag it is the lowest seat of the winning team, and
+   * `winnerTeam` names the team. Null means a draw.
+   */
+  result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string } | null;
 }
 
 export interface DuelSeat {
@@ -436,6 +491,8 @@ export interface DuelSession {
   guildId: string;
   organizerPlayerId: number;
   mode: DuelMode;
+  /** Seat and team layout. `1v1` for every duel made before multi-player formats. */
+  format: DuelFormat;
   masterRule: DuelMasterRule;
   status: DuelStatus;
   settings: DuelSettings;
@@ -470,6 +527,8 @@ export interface DuelRoom {
   series?: DuelSeriesSummary | null;
   /** The viewer's series decks when the viewer is a series player; otherwise null. */
   mySide?: DuelSeriesSideState | null;
+  /** True when the duel host was busy and answered with the last view it built for this seat. The client asks again soon. */
+  stale?: boolean;
   /** Rock-paper-scissors before the game starts; null when there is none. */
   opening?: DuelOpeningView | null;
 }

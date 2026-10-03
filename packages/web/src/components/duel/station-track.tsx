@@ -1,12 +1,22 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { ArrowRight, Check, Hourglass } from "lucide-react";
+import { ArrowRight, Check, Hourglass, Lock } from "lucide-react";
 import type { DuelPromptOption } from "@yugidraft/shared/duels";
 import { phaseLabel } from "./constants";
 import { duelFontClasses } from "./fonts";
 import styles from "./station-track.module.css";
 
+
+/**
+ * Action ids the engine sends that never change the board: phase moves and a hand shuffle. When the local action prompt
+ * offers nothing else, the player has no legal play left and the track lets "End Turn" glow.
+ */
+const PASSIVE_ACTION_IDS: ReadonlySet<string> = new Set(["to_bp", "to_m2", "to_ep", "shuffle"]);
+
+export function hasNoLegalMoves(options: readonly DuelPromptOption[]): boolean {
+  return options.length > 0 && options.every((option) => PASSIVE_ACTION_IDS.has(option.id));
+}
 
 /* ---------- Battle Phase steps ---------- */
 
@@ -60,6 +70,26 @@ export function battleStepLabel(step: BattleStep | null | undefined): string | n
 
 /* ---------- Station track ---------- */
 
+/** The word under a seat chip in the strip. */
+export const SEAT_CHIP_WORD: Record<StationSeatChip["status"], string> = {
+  turn: "turn",
+  choosing: "choosing",
+  next: "next",
+  active: "waits",
+  leaving: "leaving",
+  eliminated: "out",
+};
+
+/** One seat of a table of 3 or more duelists, as the strip next to the buttons shows it. */
+export type StationSeatChip = {
+  seat: number;
+  name: string;
+  /** Seat colour (hex): the dot and the edge. */
+  tone: { main: string; ink: string };
+  you: boolean;
+  status: "active" | "turn" | "choosing" | "next" | "leaving" | "eliminated";
+};
+
 export type StationTrackProps = {
   /** Raw engine phase (engine.phase). Use phaseLabel() from ./constants to normalise. */
   phase: string | null | undefined;
@@ -83,6 +113,10 @@ export type StationTrackProps = {
   /** Caption override for non-action moments, e.g. "Respond to the chain". */
   caption?: string | null;
   reducedMotion: boolean;
+  /** Tables of 3 or more seats: the duelists in turn order, each with its colour and standing. */
+  seatStrip?: readonly StationSeatChip[];
+  /** Tables of 3 or more seats: attacks are still shut. Shows "No attack until turn N". */
+  attackLock?: { firstTurn: number; turnsLeft: number } | null;
 };
 
 type PhaseMove = "to_bp" | "to_m2" | "to_ep";
@@ -182,6 +216,8 @@ export function StationTrack({
   clock,
   caption,
   reducedMotion,
+  seatStrip,
+  attackLock,
 }: StationTrackProps) {
   const current = STATION_INDEX[phaseLabel(phase)] ?? -1;
   const spectator = mySeat == null;
@@ -231,6 +267,8 @@ export function StationTrack({
       data-phase={STATIONS[current]?.code ?? "none"}
       data-step={step ?? undefined}
       data-reduced={reducedMotion ? "true" : "false"}
+      data-seats={seatStrip && seatStrip.length > 0 ? "true" : undefined}
+      data-seat-count={seatStrip && seatStrip.length > 3 ? seatStrip.length : undefined}
     >
       <div className={styles.seat}>
         <span className={styles.lamp} aria-hidden="true" />
@@ -314,6 +352,34 @@ export function StationTrack({
       </div>
 
       <div className={styles.actions}>
+        {attackLock ? (
+          <span className={styles.lock} data-testid="attack-lock" title={`Attacks open on turn ${attackLock.firstTurn}`}>
+            <Lock strokeWidth={2} aria-hidden="true" />
+            <span>No attack until turn {attackLock.firstTurn}</span>
+          </span>
+        ) : null}
+        {seatStrip && seatStrip.length > 0 ? (
+          <ol className={styles.strip} role="list" aria-label="Turn order">
+            {seatStrip.map((chip) => (
+              <li
+                key={chip.seat}
+                className={styles.chip}
+                data-status={chip.status}
+                data-you={chip.you ? "true" : undefined}
+                style={{ "--seat-main": chip.tone.main, "--seat-ink": chip.tone.ink } as CSSProperties}
+                title={`${chip.name}${chip.status === "turn" ? " · turn" : chip.status === "eliminated" ? " · out" : ""}`}
+                aria-current={chip.status === "turn" || chip.status === "choosing" ? "true" : undefined}
+              >
+                <i className={styles.chipDot} aria-hidden="true" />
+                <span className={styles.chipText}>
+                  <span className={styles.chipName}>{chip.you ? "You" : chip.name.split(" ")[0]}</span>
+                  <small className={styles.chipWord} data-testid="chip-word" aria-hidden="true">{SEAT_CHIP_WORD[chip.status]}</small>
+                </span>
+                <span className={styles.srOnly}>{chip.you ? `${chip.name} (you)` : chip.name}{chip.status === "turn" ? ", turn" : chip.status === "eliminated" ? ", out" : ""}</span>
+              </li>
+            ))}
+          </ol>
+        ) : null}
         {showSecondary && endTurn ? (
           <button
             type="button"

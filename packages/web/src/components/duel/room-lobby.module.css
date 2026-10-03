@@ -35,6 +35,11 @@
 .deckPanel { gap: 22px; }
 
 /* ---------- seats ---------- */
+.group { display: grid; gap: 10px; }
+.group + .group { margin-top: 4px; }
+.groupTitle { color: var(--duel-ink-3); font-size: 12.5px; font-weight: 450; letter-spacing: 0.06em; text-transform: uppercase; }
+.group[data-team="true"] { padding: 12px; border: 1px solid var(--duel-rule-lo); border-radius: 12px; }
+.seatActions { grid-area: status; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .seats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .seat { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "avatar text" "status status"; gap: 12px 12px; align-items: center; padding: 14px; border: 1px solid var(--duel-rule-lo); border-radius: 10px; background: rgb(4 7 14 / 0.4); }
 .seat[data-ready="true"] { border-color: rgb(134 207 161 / 0.32); }
@@ -52,6 +57,7 @@
 .seatName { color: var(--duel-ink); font-size: 16px; font-weight: 450; line-height: 1.2; overflow-wrap: anywhere; }
 .seatOpen .seatName { color: var(--duel-ink-3); font-weight: 400; }
 .seatMeta { color: var(--duel-ink-3); font-size: 12.5px; }
+.seatActions .status { grid-area: auto; }
 .status { grid-area: status; display: inline-flex; align-items: center; gap: 7px; justify-self: start; height: 26px; padding: 0 11px 0 9px; border: 1px solid var(--duel-rule-lo); border-radius: 999px; color: var(--duel-ink-3); font-size: 13px; }
 .statusReady { border-color: rgb(134 207 161 / 0.4); background: var(--duel-ok-soft); color: var(--duel-ok); }
 
@@ -70,7 +76,9 @@
 }
 @media (max-width: 600px) {
   .seats { grid-template-columns: minmax(0, 1fr); }
-  .seat { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "avatar text status"; }
+  .seat { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "avatar text status"; padding: 12px; gap: 10px; }
+  .seatActions { flex-direction: column; align-items: flex-end; gap: 6px; }
+  .group[data-team="true"] { padding: 10px; }
   .panel { padding: 16px; }
   .footer > button:first-child { flex: 1 1 100%; }
 }

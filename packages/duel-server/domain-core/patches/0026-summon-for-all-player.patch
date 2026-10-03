@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Thu, 27 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: compare the summon-for-all operation player with
+ all_id()
+
+At n > 2 the Lua value 3 (PLAYER_ALL) is seat 3, so SetOperationInfo
+with CATEGORY_SPECIAL_SUMMON by seat 3 raised the "group size wasn't
+exactly 2" error. Compare with all_id() instead of PLAYER_ALL (1 site in
+libduel.cpp, 4 sites in processor.cpp). all_id() is PLAYER_ALL at
+n == 2, so a two-duelist duel is unchanged.
+
+The phase 3 fold must map the Lua PLAYER_ALL to all_id() at n > 2.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ libduel.cpp   | 2 +-
+ processor.cpp | 8 ++++----
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/libduel.cpp b/libduel.cpp
+index a82b387..f995a93 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -3006,7 +3006,7 @@ LUA_STATIC_FUNCTION(SetOperationInfo) {
+ 		opt.op_cards = pduel->new_group(pobj);
+ 		// spear creting and similar stuff, they set CATEGORY_SPECIAL_SUMMON with PLAYER_ALL to increase the summon counters
+ 		// and the core always assume the group is exactly 2 cards
+-		if(cate == 0x200 && playerid == PLAYER_ALL && opt.op_cards->container.size() != 2)
++		if(cate == 0x200 && playerid == pduel->game_field->all_id() && opt.op_cards->container.size() != 2)
+ 			lua_error(L, "Called Duel.SetOperationInfo with CATEGORY_SPECIAL_SUMMON and PLAYER_ALL but the group size wasn't exactly 2.");
+ 		opt.op_cards->is_readonly = true;
+ 	}
+diff --git a/processor.cpp b/processor.cpp
+index 39fe7f7..51a8a90 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -4106,13 +4106,13 @@ bool field::process(Processors::AddChain& arg) {
+ 			if(is_flag(DUEL_CANNOT_SUMMON_OATH_OLD)) {
+ 				core.spsummon_rst = true;
+ 				set_spsummon_counter(clit.triggering_player, true, true);
+-				if(clit.opinfos[0x200].op_player == PLAYER_ALL)
++				if(clit.opinfos[0x200].op_player == all_id())
+ 					set_spsummon_counter(opponent_of(clit.triggering_player), true, true);
+ 			}
+ 			if(is_flag(DUEL_SPSUMMON_ONCE_OLD_NEGATE) && (core.global_flag & GLOBALFLAG_SPSUMMON_ONCE)) {
+ 				auto& optarget = clit.opinfos[0x200];
+ 				if(optarget.op_cards) {
+-					if(optarget.op_player == PLAYER_ALL) {
++					if(optarget.op_player == all_id()) {
+ 						auto opit = optarget.op_cards->container.begin();
+ 						uint32_t sumplayer = optarget.op_param;
+ 						if((*opit)->spsummon_code) {
+@@ -4478,14 +4478,14 @@ bool field::process(Processors::SolveChain& arg) {
+ 				if(is_flag(DUEL_CANNOT_SUMMON_OATH_OLD)) {
+ 					if(core.spsummon_state_count_tmp[cait->triggering_player] == core.spsummon_state_count[cait->triggering_player])
+ 						set_spsummon_counter(cait->triggering_player);
+-					if(cait->opinfos[0x200].op_player == PLAYER_ALL && core.spsummon_state_count_tmp[opponent_of(cait->triggering_player)] == core.spsummon_state_count[opponent_of(cait->triggering_player)])
++					if(cait->opinfos[0x200].op_player == all_id() && core.spsummon_state_count_tmp[opponent_of(cait->triggering_player)] == core.spsummon_state_count[opponent_of(cait->triggering_player)])
+ 						set_spsummon_counter(opponent_of(cait->triggering_player));
+ 				}
+ 				if(is_flag(DUEL_CANNOT_SUMMON_OATH_OLD)) {
+ 					//sometimes it may add twice, only works for once per turn
+ 					auto& optarget = cait->opinfos[0x200];
+ 					if(optarget.op_cards) {
+-						if(optarget.op_player == PLAYER_ALL) {
++						if(optarget.op_player == all_id()) {
+ 							uint32_t sumplayer = optarget.op_param;
+ 							if(is_flag(DUEL_SPSUMMON_ONCE_OLD_NEGATE) && (core.global_flag & GLOBALFLAG_SPSUMMON_ONCE)) {
+ 								auto opit = optarget.op_cards->container.begin();

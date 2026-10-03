@@ -1,0 +1,169 @@
+/* The city of the fly-in. Everything here sits in the world (3D) and is hidden until the board has data-fly. */
+.city {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: scale3d(0.64, 0.64, 0.64);
+  transform-style: preserve-3d;
+  pointer-events: none;
+  visibility: hidden;
+  transition: visibility 0s linear 0.9s;
+}
+
+:global([data-fly="true"]) .city {
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.city > * {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+.floor {
+  width: 3200px;
+  height: 3200px;
+  transform: translate3d(-1600px, -1600px, 0);
+  opacity: 0;
+  transition: opacity 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+:global([data-fly="true"]) .floor {
+  opacity: 1;
+}
+
+.floor > *,
+.floor span > i {
+  position: absolute;
+  pointer-events: none;
+}
+
+.asphalt {
+  inset: 0;
+  border-radius: 50%;
+  background:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .6  0 0 0 0 .65  0 0 0 0 .8  0 0 0 .13 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"),
+    radial-gradient(closest-side, #0c111d 0%, #090d17 70%, #05070c 100%);
+  -webkit-mask: radial-gradient(closest-side, #000 82%, transparent 100%);
+  mask: radial-gradient(closest-side, #000 82%, transparent 100%);
+}
+
+.walk {
+  left: calc(50% - 1000px);
+  top: calc(50% - 1000px);
+  width: 2000px;
+  height: 2000px;
+  border-radius: 50%;
+  background:
+    repeating-linear-gradient(0deg, rgb(0 0 0 / 0.45) 0 2px, transparent 2px 64px),
+    repeating-linear-gradient(90deg, rgb(0 0 0 / 0.45) 0 2px, transparent 2px 64px),
+    radial-gradient(closest-side, #141a28, #10151f);
+  box-shadow:
+    0 0 0 3px rgb(181 153 99 / 0.12),
+    inset 0 0 120px rgb(0 0 0 / 0.6);
+}
+
+.avenue {
+  width: 540px;
+  height: 1700px;
+  left: calc(50% - 270px);
+  top: calc(50% - 1700px);
+  transform-origin: 50% 100%;
+  background:
+    linear-gradient(90deg, transparent 22px, rgb(239 231 213 / 0.16) 22px 26px, transparent 26px calc(100% - 26px), rgb(239 231 213 / 0.16) calc(100% - 26px) calc(100% - 22px), transparent calc(100% - 22px)),
+    repeating-linear-gradient(180deg, rgb(228 182 79 / 0.38) 0 60px, transparent 60px 120px) 50% 0 / 7px 100% no-repeat,
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2'/><feColorMatrix values='0 0 0 0 .5  0 0 0 0 .55  0 0 0 0 .7  0 0 0 .12 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"),
+    #080b12;
+}
+
+.avenue::after {
+  content: "";
+  position: absolute;
+  left: 30px;
+  right: 30px;
+  bottom: 850px;
+  height: 100px;
+  background: repeating-linear-gradient(90deg, rgb(239 231 213 / 0.22) 0 26px, transparent 26px 52px);
+}
+
+.pool {
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(255 196 128 / 0.13), rgb(255 196 128 / 0.04) 55%, transparent);
+}
+
+.lamp {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #2a2f3c;
+  box-shadow:
+    0 0 0 3px #11151f,
+    0 0 18px 6px rgb(255 200 140 / 0.35);
+}
+
+/* Standing towers: only seen in the fly-in camera. */
+.bld {
+  backface-visibility: hidden;
+  background-color: #0b0f1a;
+  box-shadow: inset 0 2px 0 rgb(239 231 213 / 0.1);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.9s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+:global([data-fly="true"]) .bld {
+  opacity: 1;
+}
+
+.bld::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgb(3 5 10 / 0.82), rgb(3 5 10 / 0.1) 45%, rgb(3 5 10 / 0.35));
+}
+
+.sign {
+  position: absolute;
+  z-index: 1;
+  left: 12%;
+  right: 12%;
+  top: 9%;
+  padding: 10px 0;
+  border: 2px solid rgb(228 182 79 / 0.7);
+  background: rgb(20 12 4 / 0.75);
+  box-shadow: 0 0 40px rgb(228 182 79 / 0.35);
+  color: #ffe2a8;
+  font: 700 42px/1 var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+  letter-spacing: 0.14em;
+  text-align: center;
+  text-shadow: 0 0 18px rgb(228 182 79 / 0.9);
+}
+
+.screen {
+  position: absolute;
+  z-index: 1;
+  left: 10%;
+  right: 10%;
+  top: 12%;
+  display: grid;
+  height: 30%;
+  place-items: center;
+  border: 2px solid rgb(155 126 255 / 0.55);
+  background: linear-gradient(180deg, rgb(40 28 90 / 0.9), rgb(12 10 30 / 0.95));
+  box-shadow: 0 0 50px rgb(155 126 255 / 0.35);
+  color: #e9e0ff;
+  font: 700 54px/1.05 var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+.screen small {
+  display: block;
+  color: #c6b6ff;
+  font: 500 26px/1.2 var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  letter-spacing: 0.3em;
+}

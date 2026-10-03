@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DuelAnswer, DuelCardInfo, DuelPrompt } from "@yugidraft/shared/duels";
-import { OcgHintType, OcgLocation, OcgMessageType, OcgPhase, OcgPosition, OcgType, type OcgMessage } from "ocgcore-wasm";
+import { OcgResponseType, OcgHintType, OcgLocation, OcgMessageType, OcgPhase, OcgPosition, OcgType, type OcgMessage } from "ocgcore-wasm";
 import type { CardDatabase } from "../src/cards.js";
 import { isPendulumSummonAnswer } from "../src/engine.js";
-import { cardStringCode, mapPrompt } from "../src/prompts.js";
+import { cardStringCode, mapPrompt, sortCardResponse } from "../src/prompts.js";
 import {
   createEventContext,
   createRevealMap,
@@ -20,6 +20,7 @@ const GIANT_RAT = 97017120;
 const ENEMY_CONTROLLER = 98045062;
 const FLAME_SWORDSMAN = 45231177;
 const PALADIN = 73398797;
+const ODD_EYES_PENDULUM = 16178681;
 
 const library: Record<number, DuelCardInfo> = {
   [GIANT_RAT]: {
@@ -37,6 +38,10 @@ const library: Record<number, DuelCardInfo> = {
   [PALADIN]: {
     code: PALADIN, name: "Paladin of White Dragon", type: OcgType.MONSTER | OcgType.RITUAL | OcgType.EFFECT, attack: 1900, defense: 1200, level: 4, attribute: 0x10, race: "Dragon",
     description: 'You can Ritual Summon this card with "White Dragon Ritual".',
+  },
+  [ODD_EYES_PENDULUM]: {
+    code: ODD_EYES_PENDULUM, name: "Odd-Eyes Pendulum Dragon", type: OcgType.MONSTER | OcgType.EFFECT | OcgType.PENDULUM, attack: 2500, defense: 2000, level: 7, attribute: 0x20, race: "Dragon",
+    description: "Pendulum Scale 4.",
   },
 };
 
@@ -264,6 +269,33 @@ describe("prompt source privacy", () => {
     const graveyard = { ...own, seat: 0, source: { ...own.source!, zone: { controller: 1, location: OcgLocation.GRAVE, sequence: 0 } } };
     expect(project(graveyard, 0, { "1:16": [{ code: ENEMY_CONTROLLER, position: OcgPosition.FACEUP }] }).prompt?.source?.code).toBe(ENEMY_CONTROLLER);
   });
+
+  it("hides the card of a position prompt when the answering seat cannot see it", () => {
+    const position = mapPrompt(
+      { type: OcgMessageType.SELECT_POSITION, player: 0, code: GIANT_RAT, positions: (OcgPosition.FACEUP_ATTACK | OcgPosition.FACEUP_DEFENSE) as never },
+      cards,
+      "p1",
+    ).prompt;
+    const hidden = project(position, 0, { "1:4": [{ code: GIANT_RAT, position: OcgPosition.FACEDOWN_DEFENSE }] }).prompt!;
+    expect(JSON.stringify(hidden)).not.toMatch(/Giant Rat|Beast|1400/);
+    expect(JSON.stringify(hidden)).not.toContain(String(GIANT_RAT));
+    expect(hidden.options.map((option) => option.id)).toEqual(["pos:1", "pos:4"]);
+    // The owner of the face-down monster still sees its name.
+    const own = project(position, 0, { "0:4": [{ code: GIANT_RAT, position: OcgPosition.FACEDOWN_DEFENSE }] }).prompt!;
+    expect(own.title).toContain("Giant Rat");
+    expect(own.options[0]!.card?.code).toBe(GIANT_RAT);
+    // A face-up copy does not make the face-down copy known.
+    const copies = project(position, 0, {
+      "0:4": [{ code: GIANT_RAT, position: OcgPosition.FACEUP_ATTACK }],
+      "1:4": [{ code: GIANT_RAT, position: OcgPosition.FACEDOWN_DEFENSE }],
+    }).prompt!;
+    expect(JSON.stringify(copies)).not.toMatch(/Giant Rat/);
+    expect(JSON.stringify(copies)).not.toContain(String(GIANT_RAT));
+    // A card summoned from this seat's own Deck is not on the board yet. It keeps its name.
+    const fromDeck = project(position, 0, {}).prompt!;
+    expect(fromDeck.title).toContain("Giant Rat");
+    expect(fromDeck.options[0]!.card?.code).toBe(GIANT_RAT);
+  });
 });
 
 describe("battle step", () => {
@@ -458,13 +490,35 @@ describe("summon kinds", () => {
       type: OcgMessageType.SELECT_IDLECMD, player: 0, summons: [], pos_changes: [], monster_sets: [], spell_sets: [], activates: [], to_bp: false, to_ep: true, shuffle: false,
       special_summons: [
         { code: GIANT_RAT, controller: 0, location: OcgLocation.HAND, sequence: 0 },
-        { code: PALADIN, controller: 0, location: OcgLocation.SZONE, sequence: 6 },
+        // Master Rule 3 Pendulum Zone.
+        { code: ODD_EYES_PENDULUM, controller: 0, location: OcgLocation.SZONE, sequence: 6 },
+        // Master Rule 4/5 Pendulum Zones.
+        { code: ODD_EYES_PENDULUM, controller: 0, location: OcgLocation.SZONE, sequence: 0 },
+        { code: ODD_EYES_PENDULUM, controller: 0, location: OcgLocation.SZONE, sequence: 4 },
+        // Not Pendulum cards, or not in a Pendulum Zone.
+        { code: PALADIN, controller: 0, location: OcgLocation.SZONE, sequence: 0 },
+        { code: ODD_EYES_PENDULUM, controller: 0, location: OcgLocation.SZONE, sequence: 2 },
       ],
     };
     const pending = mapPrompt(idle, cards, "p1");
     const answer = (choice: string): DuelAnswer => ({ choice });
     expect(isPendulumSummonAnswer(pending, answer("spsummon:0"))).toBe(false);
     expect(isPendulumSummonAnswer(pending, answer("spsummon:1"))).toBe(true);
+    expect(isPendulumSummonAnswer(pending, answer("spsummon:2"))).toBe(true);
+    expect(isPendulumSummonAnswer(pending, answer("spsummon:3"))).toBe(true);
+    expect(isPendulumSummonAnswer(pending, answer("spsummon:4"))).toBe(false);
+    expect(isPendulumSummonAnswer(pending, answer("spsummon:5"))).toBe(false);
     expect(isPendulumSummonAnswer(pending, answer("to_ep"))).toBe(false);
+  });
+});
+
+describe("sort response encoding", () => {
+  it("sends one raw byte per card, never a length prefix", () => {
+    expect(sortCardResponse(null)).toEqual({ type: OcgResponseType.SORT_CARD, order: null });
+    // One card needs no order. The core rejects [1, 0] as a response.
+    expect(sortCardResponse([0])).toEqual({ type: OcgResponseType.SORT_CARD, order: null });
+    const response = sortCardResponse([2, 0, 1]) as unknown as { type: number; places: Array<{ player: number; location: number; sequence: number }> };
+    expect(response.type).toBe(OcgResponseType.SELECT_PLACE);
+    expect(response.places).toEqual([{ player: 2, location: 0, sequence: 1 }]);
   });
 });

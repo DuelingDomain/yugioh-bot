@@ -1,0 +1,382 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sat, 8 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: use duelist helpers in processor.cpp (part 3)
+
+Part 3 covers processor.cpp from SortChain to the end of the file.
+
+Changed:
+- 11 turn player opposites `1 - infos.turn_player` and `1 - controler` and `1 - triggering_player` now use opponent_of (the value is a duelist, 0 or 1).
+- 3 turn-player-first loops now step with next_in_turn_order.
+- 9 loops over duelists now stop at n_duelists.
+- 13 explicit pairs for player 0 and 1 (clear, reset, hand checks, shuffles, deck top, reverse deck, hint_timing, spsummon counts) are now loops over n_duelists in the same order.
+- 2 shuffle steps of turn player then opponent are now one loop in turn order.
+
+With 2 duelists every loop runs for 0 then 1 in the old order, and opponent_of(x) is 1 - x for x in 0..1. Messages, events and random calls keep their order.
+
+Left unchanged (see unchanged-sites.md): 1 - sumplayer (3), 1 - winp (1), win and lose checks, the extra monster zone mirror and disabled_location pairs, `||` tests over both adjust sets, PLAYER_NONE and PLAYER_ALL uses.
+---
+ processor.cpp | 162 ++++++++++++++++++++++++--------------------------
+ 1 file changed, 77 insertions(+), 85 deletions(-)
+
+diff --git a/processor.cpp b/processor.cpp
+index 6d9cba0..cb872ce 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -4083,9 +4083,9 @@ bool field::process(Processors::SolveContinuous& arg) {
+ 				core.sub_solving_continuous.splice(core.sub_solving_continuous.end(), core.delayed_continuous_tp, core.delayed_continuous_tp.begin());
+ 				emplace_process<Processors::SolveContinuous>();
+ 			} else
+-				core.conti_player = 1 - infos.turn_player;
++				core.conti_player = opponent_of(infos.turn_player);
+ 		}
+-		if(core.conti_player == 1 - infos.turn_player) {
++		if(core.conti_player == opponent_of(infos.turn_player)) {
+ 			if(core.delayed_continuous_ntp.size()) {
+ 				core.sub_solving_continuous.splice(core.sub_solving_continuous.end(), core.delayed_continuous_ntp, core.delayed_continuous_ntp.begin());
+ 				emplace_process<Processors::SolveContinuous>();
+@@ -4110,12 +4110,12 @@ bool field::process(Processors::SolveChain& arg) {
+ 	case 0: {
+ 		if(core.spsummon_rst) {
+ 			if(is_flag(DUEL_CANNOT_SUMMON_OATH_OLD)) {
+-				set_spsummon_counter(0, false, true);
+-				set_spsummon_counter(1, false, true);
++				for(uint8_t p = 0; p < n_duelists; ++p)
++					set_spsummon_counter(p, false, true);
+ 				core.spsummon_rst = false;
+ 			}
+ 			if(is_flag(DUEL_SPSUMMON_ONCE_OLD_NEGATE)) {
+-				for(int plr = 0; plr < 2; ++plr) {
++				for(int plr = 0; plr < n_duelists; ++plr) {
+ 					for(auto& iter : core.spsummon_once_map[plr]) {
+ 						auto spcode = iter.first;
+ 						core.spsummon_once_map[plr][spcode] -= core.spsummon_once_map_rst[plr][spcode];
+@@ -4163,8 +4163,8 @@ bool field::process(Processors::SolveChain& arg) {
+ 		return FALSE;
+ 	}
+ 	case 2: {
+-		core.spsummon_state_count_tmp[0] = core.spsummon_state_count[0];
+-		core.spsummon_state_count_tmp[1] = core.spsummon_state_count[1];
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			core.spsummon_state_count_tmp[p] = core.spsummon_state_count[p];
+ 		effect* peffect = cait->triggering_effect;
+ 		card* pcard = peffect->get_handler();
+ 		if((cait->flag & CHAIN_CONTINUOUS_CARD) && !pcard->is_has_relation(*cait)) {
+@@ -4175,7 +4175,7 @@ bool field::process(Processors::SolveChain& arg) {
+ 			pcard->enable_field_effect(true);
+ 			if(is_flag(DUEL_1_FACEUP_FIELD)) {
+ 				if(pcard->data.type & TYPE_FIELD) {
+-					card* fscard = player[1 - pcard->current.controler].list_szone[5];
++					card* fscard = player[opponent_of(pcard->current.controler)].list_szone[5];
+ 					if(fscard && fscard->is_position(POS_FACEUP))
+ 						fscard->enable_field_effect(false);
+ 				}
+@@ -4232,8 +4232,8 @@ bool field::process(Processors::SolveChain& arg) {
+ 				if(is_flag(DUEL_CANNOT_SUMMON_OATH_OLD)) {
+ 					if(core.spsummon_state_count_tmp[cait->triggering_player] == core.spsummon_state_count[cait->triggering_player])
+ 						set_spsummon_counter(cait->triggering_player);
+-					if(cait->opinfos[0x200].op_player == PLAYER_ALL && core.spsummon_state_count_tmp[1 - cait->triggering_player] == core.spsummon_state_count[1 - cait->triggering_player])
+-						set_spsummon_counter(1 - cait->triggering_player);
++					if(cait->opinfos[0x200].op_player == PLAYER_ALL && core.spsummon_state_count_tmp[opponent_of(cait->triggering_player)] == core.spsummon_state_count[opponent_of(cait->triggering_player)])
++						set_spsummon_counter(opponent_of(cait->triggering_player));
+ 				}
+ 				if(is_flag(DUEL_CANNOT_SUMMON_OATH_OLD)) {
+ 					//sometimes it may add twice, only works for once per turn
+@@ -4270,15 +4270,15 @@ bool field::process(Processors::SolveChain& arg) {
+ 				}
+ 			}
+ 		}
+-		core.spsummon_state_count_tmp[0] = 0;
+-		core.spsummon_state_count_tmp[1] = 0;
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			core.spsummon_state_count_tmp[p] = 0;
+ 		core.chain_solving = false;
+ 		if(core.delayed_continuous_tp.size()) {
+ 			core.conti_player = infos.turn_player;
+ 			core.sub_solving_continuous.splice(core.sub_solving_continuous.end(), core.delayed_continuous_tp, core.delayed_continuous_tp.begin());
+ 			emplace_process<Processors::SolveContinuous>();
+ 		} else if(core.delayed_continuous_ntp.size()) {
+-			core.conti_player = 1 - infos.turn_player;
++			core.conti_player = opponent_of(infos.turn_player);
+ 			core.sub_solving_continuous.splice(core.sub_solving_continuous.end(), core.delayed_continuous_ntp, core.delayed_continuous_ntp.begin());
+ 			emplace_process<Processors::SolveContinuous>();
+ 		} else
+@@ -4308,9 +4308,9 @@ bool field::process(Processors::SolveChain& arg) {
+ 		if(is_flag(DUEL_1_FACEUP_FIELD)) {
+ 			if((pcard->data.type & TYPE_FIELD) && (peffect->type & EFFECT_TYPE_ACTIVATE)
+ 					&& !pcard->is_status(STATUS_LEAVE_CONFIRMED) && pcard->is_has_relation(*cait)) {
+-				card* fscard = player[1 - pcard->current.controler].list_szone[5];
++				card* fscard = player[opponent_of(pcard->current.controler)].list_szone[5];
+ 				if(fscard && fscard->is_position(POS_FACEUP))
+-					destroy(fscard, nullptr, REASON_RULE, 1 - pcard->current.controler);
++					destroy(fscard, nullptr, REASON_RULE, opponent_of(pcard->current.controler));
+ 			}
+ 		}
+ 		peffect->active_type = 0;
+@@ -4364,8 +4364,8 @@ bool field::process(Processors::SolveChain& arg) {
+ 		process_instant_event();
+ 		adjust_all();
+ 		if(!arg.skip_trigger || !arg.skip_new) {
+-			core.hint_timing[0] |= TIMING_CHAIN_END;
+-			core.hint_timing[1] |= TIMING_CHAIN_END;
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				core.hint_timing[p] |= TIMING_CHAIN_END;
+ 			emplace_process<Processors::PointEvent>(arg.skip_trigger, arg.skip_freechain || arg.skip_new, arg.skip_new);
+ 		}
+ 		returns.set<int32_t>(0, TRUE);
+@@ -4377,8 +4377,8 @@ bool field::process(Processors::SolveChain& arg) {
+ int32_t field::break_effect(bool clear_sent) {
+ 	if(clear_sent)
+ 		core.just_sent_cards.clear();
+-	core.hint_timing[0] &= TIMING_DAMAGE_STEP | TIMING_DAMAGE_CAL;
+-	core.hint_timing[1] &= TIMING_DAMAGE_STEP | TIMING_DAMAGE_CAL;
++	for(uint8_t p = 0; p < n_duelists; ++p)
++		core.hint_timing[p] &= TIMING_DAMAGE_STEP | TIMING_DAMAGE_CAL;
+ 	for (auto chit = core.new_ochain.begin(); chit != core.new_ochain.end();) {
+ 		auto rm = chit++;
+ 		effect* peffect = rm->triggering_effect;
+@@ -4743,7 +4743,7 @@ bool field::process(Processors::Adjust& arg) {
+ 	case 2: {
+ 		//disable check
+ 		uint8_t tp = infos.turn_player;
+-		for(uint8_t p = 0; p < 2; ++p) {
++		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(auto& pcard : player[tp].list_mzone) {
+ 				if(pcard)
+ 					add_to_disable_check_list(pcard);
+@@ -4752,7 +4752,7 @@ bool field::process(Processors::Adjust& arg) {
+ 				if(pcard)
+ 					add_to_disable_check_list(pcard);
+ 			}
+-			tp = 1 - tp;
++			tp = next_in_turn_order(tp);
+ 		}
+ 		adjust_disable_check_list();
+ 		emplace_process<Processors::RefreshLoc>();
+@@ -4760,9 +4760,9 @@ bool field::process(Processors::Adjust& arg) {
+ 	}
+ 	case 3: {
+ 		//trap monster
+-		core.trap_monster_adjust_set[0].clear();
+-		core.trap_monster_adjust_set[1].clear();
+-		for(uint8_t p = 0; p < 2; ++p) {
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			core.trap_monster_adjust_set[p].clear();
++		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(auto& pcard : player[p].list_mzone) {
+ 				if(!pcard) continue;
+ 				if((pcard->get_type() & TYPE_TRAPMONSTER) && pcard->is_affected_by_effect(EFFECT_DISABLE_TRAPMONSTER)) {
+@@ -4778,10 +4778,10 @@ bool field::process(Processors::Adjust& arg) {
+ 	}
+ 	case 4: {
+ 		//control
+-		core.control_adjust_set[0].clear();
+-		core.control_adjust_set[1].clear();
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			core.control_adjust_set[p].clear();
+ 		card_set reason_cards;
+-		for(uint8_t p = 0; p < 2; ++p) {
++		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(auto& pcard : player[p].list_mzone) {
+ 				if(!pcard) continue;
+ 				uint8_t cur = pcard->current.controler;
+@@ -4795,8 +4795,8 @@ bool field::process(Processors::Adjust& arg) {
+ 		}
+ 		if(core.control_adjust_set[0].size() || core.control_adjust_set[1].size()) {
+ 			core.re_adjust = true;
+-			get_control(core.control_adjust_set[1 - infos.turn_player], nullptr, PLAYER_NONE, infos.turn_player, 0, 0, 0xff);
+-			get_control(core.control_adjust_set[infos.turn_player], nullptr, PLAYER_NONE, 1 - infos.turn_player, 0, 0, 0xff);
++			get_control(core.control_adjust_set[opponent_of(infos.turn_player)], nullptr, PLAYER_NONE, infos.turn_player, 0, 0, 0xff);
++			get_control(core.control_adjust_set[infos.turn_player], nullptr, PLAYER_NONE, opponent_of(infos.turn_player), 0, 0, 0xff);
+ 			for(auto& rcard : reason_cards) {
+ 				++core.readjust_map[rcard];
+ 				if(core.readjust_map[rcard] > 3)
+@@ -4809,12 +4809,12 @@ bool field::process(Processors::Adjust& arg) {
+ 	case 5: {
+ 		//remove brainwashing
+ 		if(core.global_flag & GLOBALFLAG_BRAINWASHING_CHECK) {
+-			core.control_adjust_set[0].clear();
+-			core.control_adjust_set[1].clear();
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				core.control_adjust_set[p].clear();
+ 			effect_set eset;
+ 			filter_field_effect(EFFECT_REMOVE_BRAINWASHING, &eset, false);
+ 			if(core.remove_brainwashing = !eset.empty(); core.remove_brainwashing) {
+-				for(uint8_t p = 0; p < 2; ++p) {
++				for(uint8_t p = 0; p < n_duelists; ++p) {
+ 					for(auto& pcard : player[p].list_mzone) {
+ 						if(!pcard || !pcard->is_affected_by_effect(EFFECT_REMOVE_BRAINWASHING))
+ 							continue;
+@@ -4833,8 +4833,8 @@ bool field::process(Processors::Adjust& arg) {
+ 			}
+ 			if(core.control_adjust_set[0].size() || core.control_adjust_set[1].size()) {
+ 				core.re_adjust = true;
+-				get_control(core.control_adjust_set[1 - infos.turn_player], nullptr, PLAYER_NONE, infos.turn_player, 0, 0, 0xff);
+-				get_control(core.control_adjust_set[infos.turn_player], nullptr, PLAYER_NONE, 1 - infos.turn_player, 0, 0, 0xff);
++				get_control(core.control_adjust_set[opponent_of(infos.turn_player)], nullptr, PLAYER_NONE, infos.turn_player, 0, 0, 0xff);
++				get_control(core.control_adjust_set[infos.turn_player], nullptr, PLAYER_NONE, opponent_of(infos.turn_player), 0, 0, 0xff);
+ 			}
+ 		}
+ 		arg.step = 7;
+@@ -4858,13 +4858,13 @@ bool field::process(Processors::Adjust& arg) {
+ 		//equip check
+ 		uint8_t tp = infos.turn_player;
+ 		card_set destroy_set;
+-		for(uint8_t p = 0; p < 2; ++p) {
++		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(uint8_t i = 0; i < 5; ++i) {
+ 				card* pcard = player[tp].list_szone[i];
+ 				if(pcard && pcard->equiping_target && !pcard->is_affected_by_effect(EFFECT_EQUIP_LIMIT, pcard->equiping_target))
+ 					destroy_set.insert(pcard);
+ 			}
+-			tp = 1 - tp;
++			tp = next_in_turn_order(tp);
+ 		}
+ 		if(destroy_set.size()) {
+ 			core.re_adjust = true;
+@@ -4877,7 +4877,7 @@ bool field::process(Processors::Adjust& arg) {
+ 		uint32_t tp = infos.turn_player, pos;
+ 		card_set pos_adjust;
+ 		effect_set eset;
+-		for(uint8_t p = 0; p < 2; ++p) {
++		for(uint8_t p = 0; p < n_duelists; ++p) {
+ 			for(auto& pcard : player[tp].list_mzone) {
+ 				if(!pcard || ((pcard->data.type & TYPE_LINK) && (pcard->data.type & TYPE_MONSTER)) || pcard->is_affected_by_effect(EFFECT_CANNOT_CHANGE_POS_E))
+ 					continue;
+@@ -4897,7 +4897,7 @@ bool field::process(Processors::Adjust& arg) {
+ 					pcard->set_status(STATUS_JUST_POS, FALSE);
+ 				}
+ 			}
+-			tp = 1 - tp;
++			tp = next_in_turn_order(tp);
+ 		}
+ 		if(pos_adjust.size()) {
+ 			core.re_adjust = true;
+@@ -4910,22 +4910,20 @@ bool field::process(Processors::Adjust& arg) {
+ 	}
+ 	case 12: {
+ 		//shuffle check
+-		for(auto& pcard : player[0].list_hand) {
+-			effect* pub = pcard->is_affected_by_effect(EFFECT_PUBLIC);
+-			if(!pub && pcard->is_position(POS_FACEUP))
+-				core.shuffle_hand_check[0] = true;
+-			pcard->current.position = pub ? POS_FACEUP : POS_FACEDOWN;
+-		}
+-		for(auto& pcard : player[1].list_hand) {
+-			effect* pub = pcard->is_affected_by_effect(EFFECT_PUBLIC);
+-			if(!pub && pcard->is_position(POS_FACEUP))
+-				core.shuffle_hand_check[1] = true;
+-			pcard->current.position = pub ? POS_FACEUP : POS_FACEDOWN;
+-		}
+-		if(core.shuffle_hand_check[infos.turn_player])
+-			shuffle(infos.turn_player, LOCATION_HAND);
+-		if(core.shuffle_hand_check[1 - infos.turn_player])
+-			shuffle(1 - infos.turn_player, LOCATION_HAND);
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			for(auto& pcard : player[p].list_hand) {
++				effect* pub = pcard->is_affected_by_effect(EFFECT_PUBLIC);
++				if(!pub && pcard->is_position(POS_FACEUP))
++					core.shuffle_hand_check[p] = true;
++				pcard->current.position = pub ? POS_FACEUP : POS_FACEDOWN;
++			}
++		}
++		uint8_t stp = infos.turn_player;
++		for(uint8_t i = 0; i < n_duelists; ++i) {
++			if(core.shuffle_hand_check[stp])
++				shuffle(stp, LOCATION_HAND);
++			stp = next_in_turn_order(stp);
++		}
+ 		return FALSE;
+ 	}
+ 	case 13: {
+@@ -4935,25 +4933,19 @@ bool field::process(Processors::Adjust& arg) {
+ 			filter_field_effect(EFFECT_REVERSE_DECK, &eset, false);
+ 			auto reversed = !eset.empty();
+ 			if(std::exchange(core.deck_reversed, reversed) != reversed) {
+-				reverse_deck(0);
+-				reverse_deck(1);
++				for(uint8_t p = 0; p < n_duelists; ++p)
++					reverse_deck(p);
+ 				pduel->new_message(MSG_REVERSE_DECK);
+ 				if(reversed) {
+-					if(player[0].list_main.size()) {
+-						card* ptop = player[0].list_main.back();
+-						auto message = pduel->new_message(MSG_DECK_TOP);
+-						message->write<uint8_t>(0);
+-						message->write<uint32_t>(0);
+-						message->write<uint32_t>(ptop->data.code);
+-						message->write<uint32_t>(ptop->current.position);
+-					}
+-					if(player[1].list_main.size()) {
+-						card* ptop = player[1].list_main.back();
+-						auto message = pduel->new_message(MSG_DECK_TOP);
+-						message->write<uint8_t>(1);
+-						message->write<uint32_t>(0);
+-						message->write<uint32_t>(ptop->data.code);
+-						message->write<uint32_t>(ptop->current.position);
++					for(uint8_t p = 0; p < n_duelists; ++p) {
++						if(player[p].list_main.size()) {
++							card* ptop = player[p].list_main.back();
++							auto message = pduel->new_message(MSG_DECK_TOP);
++							message->write<uint8_t>(p);
++							message->write<uint32_t>(0);
++							message->write<uint32_t>(ptop->data.code);
++							message->write<uint32_t>(ptop->current.position);
++						}
+ 					}
+ 				}
+ 			}
+@@ -4979,7 +4971,7 @@ bool field::process(Processors::Adjust& arg) {
+ 			if(core.attack_rollback)
+ 				return FALSE;
+ 			std::set<uint32_t> fidset;
+-			for(auto& pcard : player[1 - infos.turn_player].list_mzone) {
++			for(auto& pcard : player[opponent_of(infos.turn_player)].list_mzone) {
+ 				if(pcard)
+ 					fidset.insert(pcard->fieldid_r);
+ 			}
+@@ -5006,14 +4998,14 @@ bool field::process(Processors::Adjust& arg) {
+ 			arg.step = Processors::restart;
+ 			return FALSE;
+ 		}
+-		if(core.shuffle_hand_check[0])
+-			shuffle(0, LOCATION_HAND);
+-		if(core.shuffle_hand_check[1])
+-			shuffle(1, LOCATION_HAND);
+-		if(core.shuffle_deck_check[0])
+-			shuffle(0, LOCATION_DECK);
+-		if(core.shuffle_deck_check[1])
+-			shuffle(1, LOCATION_DECK);
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			if(core.shuffle_hand_check[p])
++				shuffle(p, LOCATION_HAND);
++		}
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			if(core.shuffle_deck_check[p])
++				shuffle(p, LOCATION_DECK);
++		}
+ 		return TRUE;
+ 	}
+ 	}
+@@ -5023,16 +5015,16 @@ bool field::process(Processors::Adjust& arg) {
+ bool field::process(Processors::Startup& arg) {
+ 	switch(arg.step) {
+ 	case 0: {
+-		core.shuffle_hand_check[0] = false;
+-		core.shuffle_hand_check[1] = false;
+-		core.shuffle_deck_check[0] = false;
+-		core.shuffle_deck_check[1] = false;
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			core.shuffle_hand_check[p] = false;
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			core.shuffle_deck_check[p] = false;
+ 		raise_event(nullptr, EVENT_STARTUP, nullptr, 0, 0, 0, 0);
+ 		process_instant_event();
+ 		return FALSE;
+ 	}
+ 	case 1: {
+-		for(int p = 0; p < 2; p++) {
++		for(int p = 0; p < n_duelists; p++) {
+ 			core.shuffle_hand_check[p] = false;
+ 			core.shuffle_deck_check[p] = false;
+ 			if(player[p].start_count > 0)

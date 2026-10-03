@@ -5,6 +5,7 @@ import {
   isClockDue,
   liveRemainingMs,
   startDecisionClock,
+  stopSeatClock,
   syncDecisionClock,
   timeoutLossSeat,
   withServerNow,
@@ -307,5 +308,72 @@ describe("decision clock", () => {
     expect(duelClockRulesText(120)).toBe("2 min bank · +3 s per move · +30 s each turn");
     expect(duelClockRulesText(300)).toBe("5 min bank · +3 s per move · +1 min 15 s each turn");
     expect(duelClockRulesText(0)).toBe("");
+  });
+});
+
+describe("N-seat decision clock", () => {
+  it("starts every seat with the bank and ticks only the prompt owner", () => {
+    const clock = startDecisionClock({ turn: 1, promptSeat: 2 }, 30, 1000, 4)!;
+    expect(clock.remainingMs).toEqual([30_000, 30_000, 30_000, 30_000]);
+    expect(clock.activeSeat).toBe(2);
+    expect(liveRemainingMs(clock, 1500)).toEqual([30_000, 30_000, 29_500, 30_000]);
+    expect(deadlineAt(clock)).toBe(31_000);
+    expect(timeoutLossSeat(clock, 31_000)).toBe(2);
+  });
+
+  it("keeps two seats when no seat count is given", () => {
+    expect(startDecisionClock({ turn: 1, promptSeat: 0 }, 30, 0)!.remainingMs).toHaveLength(2);
+  });
+
+  it("charges the deciding seat, adds the increment, and regains time for every seat on a new turn", () => {
+    const previous = { turn: 1, remainingMs: [10_000, 10_000, 10_000], activeSeat: 2, startedAt: 0 };
+    const next = syncDecisionClock(previous, { turn: 2, promptSeat: 0 }, 60, 4_000, 4_000, "continue")!;
+    const regain = duelClockRegainMs(60);
+    expect(next.remainingMs).toEqual([10_000 + regain, 10_000 + regain, 6_000 + 3_000 + regain]);
+    expect(next.activeSeat).toBe(0);
+    expect(next.startedAt).toBe(4_000);
+  });
+
+  it("copies through withServerNow and freezes a continue clock", () => {
+    const clock = { turn: 1, remainingMs: [5, 6, 7, 8], activeSeat: 3, startedAt: 10 };
+    expect(withServerNow(clock, 99)).toEqual({ ...clock, serverNow: 99 });
+    expect(freezeContinueClock(clock, 12).remainingMs).toEqual([5, 6, 7, 6]);
+    expect(isClockDue({ ...clock, remainingMs: [5, 6, 7, 1] }, 11)).toBe(true);
+  });
+
+  it("does not run the clock of a stopped seat and never gives it time back", () => {
+    const started = startDecisionClock({ turn: 1, promptSeat: 1, stoppedSeats: [1] }, 60, 0, 3)!;
+    expect(started.activeSeat).toBeNull();
+    expect(started.startedAt).toBeNull();
+    const previous = { turn: 1, remainingMs: [10_000, 5_000, 10_000], activeSeat: 0, startedAt: 0 };
+    const next = syncDecisionClock(previous, { turn: 2, promptSeat: 1, stoppedSeats: [1] }, 60, 1_000, 1_000, "loss")!;
+    expect(next.activeSeat).toBeNull();
+    expect(next.startedAt).toBeNull();
+    // The stopped seat gets no turn regain; the others do.
+    expect(next.remainingMs[1]).toBe(5_000);
+    expect(next.remainingMs[2]).toBeGreaterThan(10_000);
+  });
+
+  it("moves a due loss clock of a seat that has left to the next prompt seat", () => {
+    // Seat 1 timed out: its loss is pending and the window of seat 2 is open. The due clock of seat 1 must not stay.
+    const previous = { turn: 1, remainingMs: [60_000, 20_000, 60_000, 60_000], activeSeat: 1, startedAt: 0 };
+    const view = { turn: 1, promptSeat: 2, stoppedSeats: [1] };
+    const next = syncDecisionClock(previous, view, 60, 25_000, 25_000, "loss", 1)!;
+    expect(next).toEqual({ turn: 1, remainingMs: [60_000, 0, 60_000, 60_000], activeSeat: 2, startedAt: 25_000 });
+    // Seat 2 answers later while seat 1 is still pending and its old clock is still due: the clock still moves on.
+    const later = syncDecisionClock(previous, { turn: 1, promptSeat: 3, stoppedSeats: [1] }, 60, 30_000, 30_000, "loss", 2)!;
+    expect(later.activeSeat).toBe(3);
+    expect(later.startedAt).toBe(30_000);
+    expect(later.remainingMs[1]).toBe(0);
+    // A due clock of a seat that plays on is still kept for the loss.
+    const kept = syncDecisionClock(previous, { turn: 1, promptSeat: 2 }, 60, 25_000, 25_000, "loss", 1)!;
+    expect(kept.activeSeat).toBe(1);
+    expect(kept.startedAt).toBe(0);
+  });
+
+  it("stops the clock of a seat that leaves the game", () => {
+    const clock = { turn: 1, remainingMs: [5_000, 6_000, 7_000], activeSeat: 2, startedAt: 1_000 };
+    expect(stopSeatClock(clock, 2, 3_000)).toEqual({ turn: 1, remainingMs: [5_000, 6_000, 5_000], activeSeat: null, startedAt: null });
+    expect(stopSeatClock(clock, 0, 3_000)).toBe(clock);
   });
 });

@@ -489,3 +489,12 @@ button.thumb:focus-visible { outline: 2px solid var(--h-pen); outline-offset: 2p
   .crack path { animation: none; }
   button.thumb { transition: none; }
 }
+
+/* ---- seat colours (3 and 4 seat tables): the row, its mark, its thumb edges and its name pill take the seat's tone ---- */
+.row[data-toned] .mark { background: var(--seat-main); }
+.row[data-toned][data-side="opp"] .mark { background: var(--seat-main); opacity: 0.85; }
+.row[data-toned] .who { border-color: color-mix(in srgb, var(--seat-main) 55%, transparent); color: var(--seat-ink); background: color-mix(in srgb, var(--seat-main) 12%, transparent); }
+.thumb[data-toned], .portrait[data-toned] { border-color: color-mix(in srgb, var(--seat-main) 70%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--seat-main) 24%, transparent), 0 2px 5px rgb(0 0 0 / 0.5); }
+.thumb[data-toned][data-struck] { border-color: rgb(228 90 77 / 0.65); }
+.portrait[data-toned] { border-style: solid; background: color-mix(in srgb, var(--seat-main) 10%, var(--h-panel-2)); }
+.portrait[data-toned] b, .portrait[data-toned] svg { color: var(--seat-ink); }

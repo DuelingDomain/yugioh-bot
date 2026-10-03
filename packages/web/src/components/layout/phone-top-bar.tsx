@@ -14,11 +14,12 @@ interface PhoneTopBarProps {
   menuOpen: boolean;
   live: LiveNow | null;
   onMenuClick: (trigger: HTMLElement | null) => void;
+  onReportBug?: () => void;
 }
 
 /** 56px bar shown at phone width only: menu (with the Live dot), page title, your ring. */
 export const PhoneTopBar = forwardRef<HTMLButtonElement, PhoneTopBarProps>(function PhoneTopBar(
-  { account, menuOpen, live, onMenuClick },
+  { account, menuOpen, live, onMenuClick, onReportBug },
   menuButtonRef,
 ) {
   const pathname = usePathname();
@@ -44,7 +45,7 @@ export const PhoneTopBar = forwardRef<HTMLButtonElement, PhoneTopBarProps>(funct
           ) : null}
         </button>
         <p className={styles.topTitle}>{pageTitle(pathname, account.playerId)}</p>
-        <AccountMenu account={account} pathname={pathname} variant="phone" />
+        <AccountMenu account={account} pathname={pathname} variant="phone" onReportBug={onReportBug} />
       </header>
     </SheetRoot>
   );

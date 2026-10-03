@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 
-const { requireDuelActor, notifyDuelChange } = vi.hoisted(() => ({ requireDuelActor: vi.fn(), notifyDuelChange: vi.fn() }));
+const { requireDuelActor, callDuelHost, notifyDuelChange } = vi.hoisted(() => ({ requireDuelActor: vi.fn(), callDuelHost: vi.fn(), notifyDuelChange: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/duel-host", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/duel-host")>(), requireDuelActor,
+  ...await importOriginal<typeof import("@/lib/duel-host")>(), requireDuelActor, callDuelHost,
 }));
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange }));
 
@@ -34,6 +34,7 @@ function post(path: string, body?: unknown) {
 }
 
 beforeEach(() => {
+  vi.stubEnv("MULTIPLAYER_TABLES", "1");
   db = new Database(":memory:");
   migrate(db);
   const insert = db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)");
@@ -43,11 +44,15 @@ beforeEach(() => {
   duels = createDuelService(db);
   slug = duels.create({ guildId: "g", organizerPlayerId: host, name: "Table", mode: "normal" }).slug;
   requireDuelActor.mockReset();
+  callDuelHost.mockReset().mockResolvedValue({ ok: true, data: { multiCoreReady: true } });
   notifyDuelChange.mockReset();
   notifyDuelChange.mockResolvedValue(undefined);
   actor();
 });
-afterEach(() => db.close());
+afterEach(() => {
+  db.close();
+  vi.unstubAllEnvs();
+});
 
 describe("spectator entry", () => {
   it("reads an open table as a spectator without claiming a seat or notifying viewers", async () => {
@@ -77,6 +82,15 @@ describe("spectator entry", () => {
 });
 
 describe("POST /api/duels/[slug]/seat", () => {
+  it.each([["ffa3", 2], ["ffa4", 3], ["tag", 3]] as const)("takes an extra seat at a %s table (seat %i)", async (format, seat) => {
+    slug = duels.create({ guildId: "g", organizerPlayerId: host, name: "Multi table", mode: "normal", format }).slug;
+    const { POST } = await import("../app/api/duels/[slug]/seat/route");
+    const response = await POST(...post("seat", { seat }));
+    expect(response.status).toBe(200);
+    expect(duels.room(slug, "g", guest).mySeat).toBe(seat);
+    expect(notifyDuelChange).toHaveBeenCalledWith(slug, "g");
+  });
+
   it("takes the requested seat and notifies other viewers", async () => {
     const { POST } = await import("../app/api/duels/[slug]/seat/route");
     const response = await POST(...post("seat", { seat: 1 }));

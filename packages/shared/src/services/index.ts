@@ -34,3 +34,5 @@ export type { DeckRegistration, DeckRegistrationMark, DeckRegistrationTournament
 export { createLiveNowService } from "./live-now.js";
 export type { LiveNow, LiveNowService, LiveDuelState } from "./live-now.js";
 export type { TournamentDuelService, TournamentDuelRules, TournamentDeckRegistration } from "./tournament-duels.js";
+export { createBugReportService, BugReportServiceError, BUG_REPORT_LIMIT } from "./bug-reports.js";
+export type { BugReportService, BugReport, BugReportInput, BugReportLimit } from "./bug-reports.js";

@@ -1,15 +1,19 @@
 import { config } from "dotenv";
 import { createServer } from "node:http";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { openDatabase } from "@yugidraft/shared/db";
 import { createBroadcaster, httpTransport } from "@yugidraft/shared/notify";
 import { loadCardDatabase } from "./cards.js";
+import { verifyEngineBundle } from "./engine-bundle.js";
 import { createDuelHost } from "./host.js";
+import { createIssueSource } from "./presets/issue-source.js";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 config({ path: resolve(root, ".env") });
 const dataDirectory = resolve(root, process.env.DUEL_DATA_DIR ?? "data/duel-engine");
+verifyEngineBundle(dataDirectory);
 const db = openDatabase(resolve(root, process.env.DATABASE_PATH ?? "data/bot.sqlite"));
 const cards = loadCardDatabase(dataDirectory);
 const wsTransport = httpTransport({
@@ -21,10 +25,13 @@ const broadcaster = createBroadcaster(wsTransport);
 const archiveAfterMs = Number(process.env.DUEL_ARCHIVE_AFTER_MS);
 const idleWorkerMs = Number(process.env.DUEL_IDLE_WORKER_MS);
 const botStepMs = Number(process.env.DUEL_BOT_STEP_MS ?? 900);
+const issuesDirectory = resolve(root, process.env.DUEL_ISSUES_DIR ?? ".status/issues");
+const presetIssues = process.env.DUEL_SCENARIOS === "1" && existsSync(issuesDirectory) ? createIssueSource(issuesDirectory) : undefined;
 const host = createDuelHost({
   db,
   dataDirectory,
   secret: process.env.DUEL_INTERNAL_SECRET ?? "",
+  presetIssues,
   searchCards: (query) => cards.search(query),
   onChange: async (slug, guildId) => {
     await wsTransport.post("/internal/duel/changed", JSON.stringify({ slug, guildId }));

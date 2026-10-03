@@ -1,0 +1,168 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Wed, 2 Feb 2000 00:00:00 +0000
+Subject: [PATCH] core: keep the Link and column zone code inside the own field
+ for more than two duelists
+
+With more than two duelists every duelist has a separate field. Nothing is mirrored.
+The Link and column code read bits 16-31 of a zone mask as "the other field" through opponent_of().
+This made the Space Insulator zone select hang (ffa3 seed 14).
+
+card.cpp, 8 sites:
+- get_linked_zone: the mask keeps only the low 16 bits. The free-zone checks of the other field run only with 2 duelists.
+- get_linked_cards, get_mutual_linked_cards, get_column_cards: the lookup in the other field runs only with 2 duelists.
+- is_extra_link_state: the lists of the "other field" are the own lists when n > 2. They are never read then.
+- get_column_zone: the mask keeps only the low 16 bits (only the columns of the own field).
+libcard.cpp, 4 sites (GetLinkedZone, GetFreeLinkedZone, GetMutualLinkedZone, GetColumnZone):
+- With n > 2 the zone of the controller is returned for the controller, and 0 for any other seat.
+
+With 2 duelists every changed statement is under an n_duelists == 2 test or masks nothing, so the stock text runs unchanged.
+get_mutual_linked_zone, is_mutual_linked and is_link_state need no change: they work on masked results, and field::get_linked_zone is already guarded.
+Left alone (other tasks): the summon-procedure o_range zone swaps in card.cpp (check_summon_procedure, is_summonable).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ card.cpp    | 37 +++++++++++++++++++++++++------------
+ libcard.cpp | 16 ++++++++++++----
+ 2 files changed, 37 insertions(+), 16 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index f234259..9599ad2 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -1362,6 +1362,9 @@ uint32_t card::get_linked_zone(bool free) {
+ 		if(is_link_marker(LINK_MARKER_TOP, marker))
+ 			zones |= 1u << s;
+ 	}
++	// More than two duelists: separate fields, nothing is mirrored. There is no high half (the zones of "the other field").
++	if(pduel->game_field->n_duelists != 2)
++		zones &= 0xffff;
+ 	if(free) {
+ 		for(int i = 0; i < 8; ++i) {
+ 			if(!pduel->game_field->is_location_useable(current.controler, LOCATION_MZONE, i)) {
+@@ -1373,14 +1376,16 @@ uint32_t card::get_linked_zone(bool free) {
+ 				zones &= ~(1u << (i + 8));
+ 			}
+ 		}
+-		for(int i = 0; i < 8; ++i) {
+-			if(!pduel->game_field->is_location_useable(pduel->game_field->opponent_of(current.controler), LOCATION_MZONE, i)) {
+-				zones &= ~(1u << (i + 16));
++		if(pduel->game_field->n_duelists == 2) {
++			for(int i = 0; i < 8; ++i) {
++				if(!pduel->game_field->is_location_useable(pduel->game_field->opponent_of(current.controler), LOCATION_MZONE, i)) {
++					zones &= ~(1u << (i + 16));
++				}
+ 			}
+-		}
+-		for(int i = 0; i < 8; ++i) {
+-			if(!pduel->game_field->is_location_useable(pduel->game_field->opponent_of(current.controler), LOCATION_SZONE, i)) {
+-				zones &= ~(1u << (i + 24));
++			for(int i = 0; i < 8; ++i) {
++				if(!pduel->game_field->is_location_useable(pduel->game_field->opponent_of(current.controler), LOCATION_SZONE, i)) {
++					zones &= ~(1u << (i + 24));
++				}
+ 			}
+ 		}
+ 	}
+@@ -1393,7 +1398,8 @@ void card::get_linked_cards(card_set* cset, uint32_t zones) {
+ 	int32_t p = current.controler;
+ 	uint32_t linked_zone = (zones) ? zones : get_linked_zone();
+ 	pduel->game_field->get_cards_in_zone(cset, linked_zone, p, LOCATION_ONFIELD);
+-	pduel->game_field->get_cards_in_zone(cset, linked_zone >> 16, pduel->game_field->opponent_of(p), LOCATION_ONFIELD);
++	if(pduel->game_field->n_duelists == 2)
++		pduel->game_field->get_cards_in_zone(cset, linked_zone >> 16, pduel->game_field->opponent_of(p), LOCATION_ONFIELD);
+ 	for(auto it = cset->begin(); it != cset->end();) {
+ 		if((*it)->current.location == LOCATION_SZONE && !((*it)->get_type() & TYPE_LINK)) {
+ 			it = cset->erase(it);
+@@ -1426,7 +1432,8 @@ void card::get_mutual_linked_cards(card_set* cset) {
+ 	int32_t p = current.controler;
+ 	uint32_t mutual_linked_zone = get_mutual_linked_zone();
+ 	pduel->game_field->get_cards_in_zone(cset, mutual_linked_zone, p, LOCATION_ONFIELD);
+-	pduel->game_field->get_cards_in_zone(cset, mutual_linked_zone >> 16, pduel->game_field->opponent_of(p), LOCATION_ONFIELD);
++	if(pduel->game_field->n_duelists == 2)
++		pduel->game_field->get_cards_in_zone(cset, mutual_linked_zone >> 16, pduel->game_field->opponent_of(p), LOCATION_ONFIELD);
+ }
+ int32_t card::is_link_state() {
+ 	if(!(current.location & LOCATION_ONFIELD))
+@@ -1463,8 +1470,10 @@ int32_t card::is_extra_link_state() {
+ 	uint32_t linked_zone = get_mutual_linked_zone();
+ 	const auto& list_mzone0 = pduel->game_field->player[current.controler].list_mzone;
+ 	const auto& list_szone0 = pduel->game_field->player[current.controler].list_szone;
+-	const auto& list_mzone1 = pduel->game_field->player[pduel->game_field->opponent_of(current.controler)].list_mzone;
+-	const auto& list_szone1 = pduel->game_field->player[pduel->game_field->opponent_of(current.controler)].list_szone;
++	// More than two duelists: no mirrored field. linked_zone has no high half then, so list_mzone1 and list_szone1 are never read.
++	const uint8_t other_field = (pduel->game_field->n_duelists == 2) ? pduel->game_field->opponent_of(current.controler) : current.controler;
++	const auto& list_mzone1 = pduel->game_field->player[other_field].list_mzone;
++	const auto& list_szone1 = pduel->game_field->player[other_field].list_szone;
+ 	while(true) {
+ 		if(((linked_zone >> 5) | (linked_zone >> (16 + 6))) & ((linked_zone >> 6) | (linked_zone >> (16 + 5))) & 1)
+ 			return TRUE;
+@@ -1527,6 +1536,9 @@ uint32_t card::get_column_zone(int32_t loc1, int32_t left, int32_t right) {
+ 		for (int32_t s = seq1; s <= seq2; ++s)
+ 			zones |= (1u << (8 + s)) | (1u << (16 + 8 + (4 - s)));
+ 	}
++	// More than two duelists: separate fields, so only the columns of the own field.
++	if(pduel->game_field->n_duelists != 2)
++		zones &= 0xffff;
+ 	zones &= ~((1 << current.sequence) << ((loc2 == LOCATION_SZONE) ? 8 : 0));
+ 	return zones;
+ }
+@@ -1537,7 +1549,8 @@ void card::get_column_cards(card_set* cset, int32_t left, int32_t right) {
+ 	int32_t p = current.controler;
+ 	uint32_t column_zone = get_column_zone(LOCATION_ONFIELD, left, right);
+ 	pduel->game_field->get_cards_in_zone(cset, column_zone, p, LOCATION_ONFIELD);
+-	pduel->game_field->get_cards_in_zone(cset, column_zone >> 16, pduel->game_field->opponent_of(p), LOCATION_ONFIELD);
++	if(pduel->game_field->n_duelists == 2)
++		pduel->game_field->get_cards_in_zone(cset, column_zone >> 16, pduel->game_field->opponent_of(p), LOCATION_ONFIELD);
+ }
+ int32_t card::is_all_column() {
+ 	if(!(current.location & LOCATION_ONFIELD))
+diff --git a/libcard.cpp b/libcard.cpp
+index b781d4d..58c00a6 100644
+--- a/libcard.cpp
++++ b/libcard.cpp
+@@ -231,7 +231,9 @@ LUA_FUNCTION(GetLinkedGroupCount) {
+ LUA_FUNCTION(GetLinkedZone) {
+ 	uint32_t zone = self->get_linked_zone();
+ 	auto cp = lua_get<uint8_t>(L, 2, self->current.controler);
+-	if(cp == pduel->game_field->opponent_of(self->current.controler))
++	if(pduel->game_field->n_duelists != 2)
++		lua_pushinteger(L, (cp == self->current.controler) ? zone : 0u); // separate fields: no zones in the field of another duelist
++	else if(cp == pduel->game_field->opponent_of(self->current.controler))
+ 		lua_pushinteger(L, (((zone & 0xffff) << 16) | (zone >> 16)));
+ 	else
+ 		lua_pushinteger(L, zone);
+@@ -240,7 +242,9 @@ LUA_FUNCTION(GetLinkedZone) {
+ LUA_FUNCTION(GetFreeLinkedZone) {
+ 	uint32_t zone = self->get_linked_zone(true);
+ 	auto cp = lua_get<uint8_t>(L, 2, self->current.controler);
+-	if(cp == pduel->game_field->opponent_of(self->current.controler))
++	if(pduel->game_field->n_duelists != 2)
++		lua_pushinteger(L, (cp == self->current.controler) ? zone : 0u); // separate fields: no zones in the field of another duelist
++	else if(cp == pduel->game_field->opponent_of(self->current.controler))
+ 		lua_pushinteger(L, (((zone & 0xffff) << 16) | (zone >> 16)));
+ 	else
+ 		lua_pushinteger(L, zone);
+@@ -262,7 +266,9 @@ LUA_FUNCTION(GetMutualLinkedGroupCount) {
+ LUA_FUNCTION(GetMutualLinkedZone) {
+ 	uint32_t zone = self->get_mutual_linked_zone();
+ 	auto cp = lua_get<uint8_t>(L, 2, self->current.controler);
+-	if(cp == pduel->game_field->opponent_of(self->current.controler))
++	if(pduel->game_field->n_duelists != 2)
++		lua_pushinteger(L, (cp == self->current.controler) ? zone : 0u); // separate fields: no zones in the field of another duelist
++	else if(cp == pduel->game_field->opponent_of(self->current.controler))
+ 		lua_pushinteger(L, (((zone & 0xffff) << 16) | (zone >> 16)));
+ 	else
+ 		lua_pushinteger(L, zone);
+@@ -300,7 +306,9 @@ LUA_FUNCTION(GetColumnZone) {
+ 	auto right = lua_get<uint8_t, 0>(L, 4);
+ 	auto cp = lua_get<uint8_t>(L, 5, self->current.controler);
+ 	uint32_t zone = self->get_column_zone(loc, left, right);
+-	if(cp == pduel->game_field->opponent_of(self->current.controler))
++	if(pduel->game_field->n_duelists != 2)
++		lua_pushinteger(L, (cp == self->current.controler) ? zone : 0u); // separate fields: no zones in the field of another duelist
++	else if(cp == pduel->game_field->opponent_of(self->current.controler))
+ 		lua_pushinteger(L, (((zone & 0xffff) << 16) | (zone >> 16)));
+ 	else
+ 		lua_pushinteger(L, zone);

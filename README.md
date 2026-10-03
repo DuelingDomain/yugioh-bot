@@ -57,7 +57,7 @@ Authenticated **Standard 1v1** tables use selectable EDOPro Master Rule presets 
 
 **Turn clocks** are a time bank: the room's timer (e.g. 4 minutes) is the most a player can hold. Only the player with the pending prompt is charged. Each accepted decision gives that player 3 seconds back, and at the start of every turn each player regains a quarter of the bank (at least 30 seconds, so 1 minute on a 4-minute bank), never above the full bank. The web room shows a short "+3s" or "+1:00" next to a clock when time is added. Engine processing is excluded. Disconnects, reloads, worker eviction, and host recovery do not reset the saved deadline. Timeout either records a loss or continues at zero until the next turn, according to the room setting. No-timer rooms have no clock; legacy rooms keep their previous no-timer/no-banlist behavior.
 
-The canonical resource bundle is worktree-local `data/duel-engine` (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `manifest.json`). Domain mode loads only `DUEL_DATA_DIR/ocgcore.domain.wasm` (default `./data/duel-engine`); it does not fall back to `out/` or `packages/duel-server/domain-core/dist`. Shuffled openings use the core's pinned seed; unshuffled openings use the imported order. Both replay with the saved settings and accepted-input journal. A `manifest.json` `bundleVersion` change interrupts in-flight tables.
+The canonical resource bundle is worktree-local `data/duel-engine` (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `ocgcore.standard.wasm`, `manifest.json`, plus `ocgcore.domain.legacy.wasm` and `card-scripts/domain.legacy.lua` for the legacy 1v1 engine). Domain mode loads only `DUEL_DATA_DIR/ocgcore.domain.wasm` (default `./data/duel-engine`); Standard mode loads only `DUEL_DATA_DIR/ocgcore.standard.wasm`, the ygopro-core built from the same pins without the Domain patch (it has only the shared engine bug fixes in `packages/duel-server/domain-core/src/apply-core-fixes.mjs`, which both builds apply; the rules stay stock) (the npm `ocgcore-wasm` core is older than the pinned card scripts and is never used for duels). Neither falls back to `out/`, `packages/duel-server/domain-core/dist` or the npm core; a missing file is an error that names its build script. Shuffled openings use the core's pinned seed; unshuffled openings use the imported order. Both replay with the saved settings and accepted-input journal. A `manifest.json` `bundleVersion` change interrupts in-flight tables.
 
 With deck validation enabled, Domain submission requires a separate Deck Master, exactly 60 singleton Main Deck cards, at most 15 Extra Deck cards, and no Side Deck. Main Deck Pendulum Masters can be activated as scales or Pendulum Summoned from the Deck Master Zone; non-Pendulum Main Deck Masters can also be Pendulum Summoned when eligible. Extra Deck Pendulum Masters require their proper Extra Deck summon mechanic. Summon surcharges apply to subsequent departures, including effect-based summons, and recall eligibility resets on changes of location kind. Format rules: [Domain Format](https://www.domainformat.com/rules).
 
@@ -106,6 +106,9 @@ npm run duel:prepare
 # Domain wasm + domain.lua into data/duel-engine. Default: already-pulled
 # docker.io/emscripten/emsdk:4.0.9. DOMAIN_CORE_BUILD=local uses host em++.
 npx tsx packages/duel-server/scripts/build-domain-core.ts
+# Standard wasm (stock rules plus the shared core fixes), same toolchain and pins:
+# ocgcore.standard.wasm into data/duel-engine, integrity.standardWasm in manifest.json.
+npx tsx packages/duel-server/scripts/build-domain-core.ts standard
 ```
 
 **Compiled engine** (bind `127.0.0.1:4003` by default; never expose that port). `dist/worker.js` must sit next to `dist/worker-client.js`. Load `.env` into the process environment — do not pass `node --env-file` (Node 24 rejects it when Next forwards the flag into `NODE_OPTIONS`).
@@ -170,6 +173,8 @@ Source attribution: [ocgcore-wasm](https://github.com/n1xx1/ocgcore-wasm), [EDOP
 | `DUEL_INTERNAL_SECRET` | Yes (web + duel) | Shared HMAC secret for web → private duel host (`x-announce-signature`). Generate with `openssl rand -hex 32`. Never expose port 4003 |
 | `DUEL_INTERNAL_URL` | Yes (web) | Internal URL of the duel host. Host: `http://127.0.0.1:4003`. Compose: `http://duel:4003` |
 | `DUEL_DATA_DIR` | No | Canonical engine bundle. Defaults to `./data/duel-engine`. Use an absolute path when the process cwd is not the worktree |
+| `DUEL_1V1_ENGINE` | No | Engine of new 1v1 duels: `legacy` (default, main's engine from before the n-seat work) or `pinned` (merged engine). See `docs/deployment/duel-engine-switch.md` |
+| `MULTIPLAYER_TABLES` | No | `1`, `true` or `on` opens Tag, 3-player and 4-player tables. Default off (1v1 only). Set it on `duel` and `web` |
 | `DUEL_INTERNAL_HOST` | No | Duel host bind address. Defaults to `127.0.0.1` (`0.0.0.0` in Compose) |
 | `DUEL_INTERNAL_PORT` | No | Duel host port. Defaults to `4003` |
 | `DUEL_ARCHIVE_AFTER_MS` | No | Delay before terminal tables are archived from live listings; default `600000` (10 minutes). Records remain in SQLite |
@@ -199,8 +204,11 @@ The seed uses the tracked offline catalog at `scripts/data/draft-catalog-legenda
 
 ### Production
 
+Use the `Deploy` workflow on `main` for image updates. It prepares and verifies the engine bundle
+and installs it before recreating containers. To start already built images:
+
 ```bash
-docker compose -f docker-compose.yml up -d --build
+docker compose -f docker-compose.yml up -d
 ```
 
 Production should always use the base file explicitly so local dev overrides are not loaded.
@@ -236,8 +244,10 @@ passwd
 3. Clone the repo to `/opt/yugioh-bot`
 4. Configure [DNS, firewall](docs/deployment/vm-runbook.md#create-the-server), and the [production environment](docs/deployment/vm-runbook.md#create-env)
 5. Set Discord OAuth redirect URI: `https://<SITE_DOMAIN>/api/auth/callback/discord` (see [runbook](docs/deployment/vm-runbook.md#discord-oauth-redirect))
-6. Follow the runbook's [first production start](docs/deployment/vm-runbook.md#build--run)
-7. Add GitHub Actions secrets (`VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`, `VM_PORT`)
+6. Add GitHub Actions secrets (`VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`, `VM_PORT`)
+7. Follow the runbook's [first production start](docs/deployment/vm-runbook.md#build--run): run the
+   `Deploy` workflow on `main` to build images and install the engine bundle. Later starts of
+   already built images use `docker compose -f docker-compose.yml up -d` (without `--build`).
 
 See the [VM runbook](docs/deployment/vm-runbook.md) for the full step-by-step guide.
 

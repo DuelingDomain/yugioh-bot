@@ -1,0 +1,341 @@
+/* The camera UI floats over the board box, in its corners. Nothing here takes space from the stage. */
+.panel,
+.chip,
+.cue,
+.look {
+  position: absolute;
+  z-index: 70;
+  pointer-events: auto; /* the overlay slot lets pointers through; these controls take them */
+  font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font-size: 12px;
+  line-height: 1.3;
+  color: #c3bba8;
+}
+
+.panel {
+  right: 10px;
+  bottom: 10px;
+  width: 232px;
+}
+
+.toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  border: 1px solid rgb(181 153 99 / 0.34);
+  border-radius: 6px;
+  background: rgb(7 11 21 / 0.86);
+  color: #efe7d5;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toggle span {
+  flex: 1;
+  text-align: left;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  max-height: min(60vh, 460px);
+  margin-top: 4px;
+  padding: 6px;
+  border: 1px solid rgb(181 153 99 / 0.34);
+  border-radius: 6px;
+  background: rgb(9 12 24 / 0.95);
+  box-shadow: 0 10px 30px -12px rgb(0 0 0 / 0.8);
+  overflow: auto;
+}
+
+.panel[data-open="true"] {
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+/* In a side column: part of the flow, the grid opens below the toggle. */
+.panel[data-variant="column"] {
+  position: static;
+  z-index: auto;
+  flex: none;
+  width: 100%;
+  margin-top: 8px;
+}
+.panel[data-variant="column"][data-open="true"] { flex-direction: column; }
+.panel[data-variant="column"] .grid { max-height: none; box-shadow: none; }
+
+.sec {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 2px 2px;
+  color: #958f81;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.vb {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 6px;
+  border: 1px solid rgb(var(--t, 181 153 99) / 0.3);
+  border-radius: 5px;
+  background: rgb(var(--t, 181 153 99) / 0.07);
+  color: var(--tink, #c3bba8);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.vb span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+}
+
+.vb[data-wide="true"] {
+  grid-column: 1 / -1;
+}
+
+.vb[aria-pressed="true"] {
+  border-color: rgb(var(--t, 228 182 79) / 0.85);
+  background: rgb(var(--t, 228 182 79) / 0.2);
+  color: #efe7d5;
+}
+
+.vb:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: rgb(var(--t));
+  box-shadow: 0 0 8px rgb(var(--t));
+}
+
+.panel kbd,
+.look kbd {
+  padding: 0 4px;
+  border: 1px solid rgb(181 153 99 / 0.45);
+  border-radius: 3px;
+  color: #efe7d5;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.sec kbd {
+  margin-left: auto;
+}
+
+.chip {
+  left: 10px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid rgb(181 153 99 / 0.17);
+  border-radius: 5px;
+  background: rgb(7 11 21 / 0.8);
+  color: #958f81;
+  font-size: 11.5px;
+  pointer-events: none;
+}
+
+.chip b {
+  color: #efe7d5;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.lock {
+  display: none;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border: 1px solid rgb(217 141 82 / 0.7);
+  border-radius: 999px;
+  background: rgb(217 141 82 / 0.14);
+  color: #f3c49c;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.chip[data-lock="true"] {
+  border-color: rgb(217 141 82 / 0.5);
+}
+
+.chip[data-lock="true"] .lock {
+  display: inline-flex;
+}
+
+.chip[data-lock="true"] .hint {
+  display: none;
+}
+
+.cue {
+  left: 10px;
+  bottom: 46px;
+  display: flex;
+  width: 206px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 8px 8px 8px 10px;
+  border: 1px solid rgb(var(--t, 181 153 99) / 0.6);
+  border-radius: 6px;
+  background: rgb(9 12 24 / 0.94);
+  box-shadow: 0 0 22px -8px rgb(var(--t, 181 153 99) / 0.7);
+  animation: cue-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.cue > span {
+  flex: 1 1 150px;
+}
+
+.cue b {
+  color: var(--tink, #efe7d5);
+  font-weight: 600;
+}
+
+.cue button,
+.look button {
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid rgb(181 153 99 / 0.34);
+  border-radius: 999px;
+  background: rgb(14 20 38 / 0.9);
+  color: #c3bba8;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.look {
+  left: 50%;
+  top: 10px;
+  display: flex;
+  max-width: calc(100% - 32px);
+  translate: -50% 0;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid rgb(var(--t) / 0.6);
+  border-radius: 8px;
+  background: rgb(9 12 24 / 0.94);
+  box-shadow: 0 0 22px -8px rgb(var(--t) / 0.7);
+}
+
+.look b {
+  color: var(--tink);
+}
+
+/* 4-way: the far field's hand row sits under the top-centre banner, so the banner moves to the bottom-left, above the camera pill. */
+.look[data-format="ffa4"] {
+  top: auto;
+  bottom: 44px;
+  left: 10px;
+  max-width: 330px;
+  translate: none;
+}
+
+.look[data-format="ffa4"] .lookNote {
+  display: none;
+}
+
+.look button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.panel button:focus-visible,
+.cue button:focus-visible,
+.look button:focus-visible {
+  outline: 2px solid #c6b6ff;
+  outline-offset: 2px;
+}
+
+@keyframes cue-in {
+  from {
+    opacity: 0;
+    translate: -30% 0;
+  }
+}
+
+/* Phone width (under 640px): a seat switcher across the top of the stage, no key hints (there is no keyboard). */
+.phoneSeats { display: none; }
+
+@media (max-width: 640px) {
+  .phoneSeats {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    z-index: 70;
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    pointer-events: auto;
+    font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  }
+
+  .phoneSeats button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 4px 10px;
+    border: 1px solid rgb(var(--t, 181 153 99) / 0.5);
+    border-radius: 999px;
+    background: rgb(7 11 21 / 0.86);
+    color: #efe7d5;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+
+  .phoneSeats button[aria-pressed="true"] {
+    border-color: rgb(var(--t, 181 153 99));
+    background: rgb(var(--t, 181 153 99) / 0.2);
+    color: var(--tink, #efe7d5);
+  }
+
+  .phoneSeats button:disabled { opacity: 0.55; }
+
+  .hint { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cue {
+    animation: none;
+  }
+}
+
+.chip {
+  pointer-events: none;
+}

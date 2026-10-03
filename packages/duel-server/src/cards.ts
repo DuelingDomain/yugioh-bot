@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import type { DeckCardInfo, DuelCardInfo } from "@yugidraft/shared/duels";
+import type { ScriptOverlay } from "./multi-scripts.js";
 import {
   OcgType,
   ocgAttributeParse,
@@ -33,7 +34,8 @@ export interface CardDatabase {
   system(id: number): string | undefined;
   victory(id: number): string | undefined;
   counter(id: number): string | undefined;
-  readScript(name: string): string | null;
+  /** Script text by name. `overlay` (duels with more than two seats only) maps the original text; omitted, the text is the original. */
+  readScript(name: string, overlay?: ScriptOverlay): string | null;
   close(): void;
 }
 
@@ -276,11 +278,11 @@ function loadFromDisk(root: string): CardDatabase {
     counter(id) {
       return counters.get(id);
     },
-    readScript(name) {
+    readScript(name, overlay) {
       const normalized = name.replaceAll("\\", "/");
       const file = scripts.get(normalized) ?? scripts.get(normalized.split("/").pop() ?? "");
-      if (!file) return null;
-      return readFileSync(file, "utf8");
+      const original = file ? readFileSync(file, "utf8") : null;
+      return overlay ? overlay.apply(name, original) : original;
     },
     close() {
       cache.delete(root);

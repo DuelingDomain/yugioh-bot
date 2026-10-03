@@ -21,7 +21,12 @@ import type {
 } from "../duels/index.js";
 import {
   clockWithServerNow,
+  DEFAULT_DUEL_FORMAT,
+  type DuelFormat,
   DuelSettingsError,
+  isDuelFormat,
+  seatCountFor,
+  teamOfSeat,
   normalizeDuelClockState,
   normalizeDuelSettings,
   parseStoredDuelClock,
@@ -30,6 +35,7 @@ import {
 import { randomBytes, timingSafeEqual } from "node:crypto";
 // duel-series.ts imports this module too; see the note there about the cycle.
 import { createSeriesStore } from "./duel-series.js";
+import { isDuelEngineChoice, type DuelEngineChoice } from "../duels/engine-switch.js";
 import {
   newOpening,
   openingNeedsSwap,
@@ -43,7 +49,6 @@ import {
   type DuelOpeningState,
 } from "../duels/opening.js";
 
-const MAX_SEATS = 2;
 const MIN_MAIN = 40;
 const MAX_MAIN = 60;
 const MAX_EXTRA = 15;
@@ -63,10 +68,14 @@ export function isDuelMasterRule(value: unknown): value is DuelMasterRule {
   return value === 1 || value === 2 || value === 3 || value === 4 || value === 5;
 }
 
-export function resolveMasterRule(_mode: DuelMode, value: unknown): DuelMasterRule {
+export function resolveMasterRule(_mode: DuelMode, value: unknown, format: DuelFormat = DEFAULT_DUEL_FORMAT): DuelMasterRule {
   const rule = value === undefined ? 5 : value;
   if (!isDuelMasterRule(rule)) {
     throw new DuelServiceError("Master rule must be 1, 2, 3, 4, or 5", 400);
+  }
+  // The multi-duelist core rejects the old-rule duel flags of MR1-MR4 (Debug.SetupDuelists).
+  if (seatCountFor(format) > 2 && rule !== 5) {
+    throw new DuelServiceError("Tag and free-for-all duels use Master Rule 5", 400);
   }
   return rule;
 }
@@ -81,6 +90,25 @@ export class DuelServiceError extends Error {
   }
 }
 
+/** Scenario setup kept with the private state so a recover can rebuild the board. */
+export interface DuelSetup {
+  /** The resolved FIRST_TURN_DRAW flag at start. Recovery and replay must keep this rule. */
+  firstTurnDraw?: boolean;
+  startupScripts?: string[];
+  scenarioId?: string;
+  /** Seats that gave up (or ran out of time) in a table with more than two seats; the host plays them on autopilot. */
+  surrenderedSeats?: number[];
+  /** Dev scenario presets (DUEL_SCENARIOS=1): the preset the table was made from. The host rebuilds the bot rules from it. */
+  presetId?: string;
+  /** Seat number (as text) to bot policy name, for example `{ "1": "scripted" }`. */
+  botPolicies?: Record<string, string>;
+  /**
+   * The engine a one-against-one duel started on (`DUEL_1V1_ENGINE`). A recover and a replay use it, so a switch of the env
+   * value does not change a running duel. Absent means `legacy`: duels from before this field ran on that engine.
+   */
+  engine?: DuelEngineChoice;
+}
+
 export interface DuelPrivateState {
   session: DuelSession;
   decks: DuelDeck[];
@@ -88,12 +116,18 @@ export interface DuelPrivateState {
   bundleVersion: string | null;
   commands: Array<{ seat: number; command: DuelCommand }>;
   clock: DuelClockState | null;
+  setup?: DuelSetup;
 }
 
+/**
+ * Final boards. `seats` holds one view per seat (any seat count). `seat0` and `seat1` are the old
+ * two-seat fields; they are used for seat 0 and 1 when `seats` does not cover them.
+ */
 export interface DuelFinalSnapshots {
   public: DuelEngineView;
-  seat0: DuelEngineView;
-  seat1: DuelEngineView;
+  seat0?: DuelEngineView;
+  seat1?: DuelEngineView;
+  seats?: DuelEngineView[];
 }
 
 export interface DuelService {
@@ -104,6 +138,7 @@ export interface DuelService {
     mode: DuelMode;
     masterRule?: DuelMasterRule;
     settings?: unknown;
+    format?: DuelFormat;
     /** Open table match options; default Best of 1, unranked. CONTRACT: stored in duels.best_of / duels.ranked. */
     bestOf?: DuelBestOf;
     ranked?: boolean;
@@ -117,9 +152,13 @@ export interface DuelService {
   /** Claims an open human seat before any opening or series has started. Defaults to the first open seat. */
   takeSeat(slug: string, guildId: string, playerId: number, seat?: number): DuelSession;
   leave(slug: string, guildId: string, playerId: number): DuelSession;
-  addPracticeBot(slug: string, guildId: string, organizerPlayerId: number, deck: DuelDeck): DuelSession;
-  /** Takes the practice bot out of its seat (organizer only, lobby only) so a human can sit there. */
-  removePracticeBot(slug: string, guildId: string, organizerPlayerId: number): DuelSession;
+  /** `seat` picks the empty seat (for example a Tag partner). Without it the lowest empty seat is used. */
+  addPracticeBot(slug: string, guildId: string, organizerPlayerId: number, deck: DuelDeck, seat?: number): DuelSession;
+  /**
+   * Takes a practice bot out of its seat (organizer only, lobby only) so a human can sit there. `seat` names
+   * the bot's seat; without it every practice bot at the table goes (a 1v1 table has at most one).
+   */
+  removePracticeBot(slug: string, guildId: string, organizerPlayerId: number, seat?: number): DuelSession;
   setDeck(slug: string, guildId: string, playerId: number, deck: DuelDeck): DuelSession;
   room(slug: string, guildId: string, playerId: number): DuelRoom;
   privateState(slug: string, guildId: string): DuelPrivateState;
@@ -140,6 +179,7 @@ export interface DuelService {
     seed: string[],
     bundleVersion: string,
     clock: DuelClockState | null,
+    setup?: DuelSetup,
   ): DuelSession;
   recordCommand(slug: string, guildId: string, seat: number, command: DuelCommand, clock: DuelClockState | null): void;
   complete(
@@ -154,6 +194,7 @@ export interface DuelService {
   archive(slug: string, guildId: string, organizerPlayerId: number): DuelSession;
   archiveDue(limit: number, archiveAfterMs: number): DuelSession[];
   admit(slug: string, guildId: string, playerId: number, inviteCode: string): void;
+  setSetup(slug: string, guildId: string, setup: DuelSetup | null): void;
   setClock(slug: string, guildId: string, clock: DuelClockState | null): void;
   dueClocks(now: number, limit: number): Array<{ slug: string; guildId: string }>;
   /**
@@ -200,6 +241,9 @@ type DuelRow = {
   snapshot_public_json: string | null;
   snapshot_seat0_json: string | null;
   snapshot_seat1_json: string | null;
+  snapshot_seats_json?: string | null;
+  format?: string | null;
+  setup_json?: string | null;
   settings_json: string | null;
   clock_json: string | null;
   invite_code: string | null;
@@ -312,12 +356,119 @@ function parseEngineView(raw: string | null): DuelEngineView | null {
   }
 }
 
-function freezeSnapshot(view: DuelEngineView, result: { winnerSeat: number | null; reason: string }): string {
+function freezeSnapshot(
+  view: DuelEngineView,
+  result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string },
+): string {
   const frozen: DuelEngineView = { ...view, prompt: null, prioritySeat: null, result };
   return JSON.stringify(frozen);
 }
 
+function parseSeatSnapshots(raw: string | null | undefined): Array<DuelEngineView | null> {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((entry) => {
+      if (!entry || typeof entry !== "object" || !Array.isArray((entry as DuelEngineView).seats)) return null;
+      return { ...(entry as DuelEngineView), prompt: null, prioritySeat: null };
+    });
+  } catch {
+    return [];
+  }
+}
+
+function isPolicyMap(value: unknown): value is Record<string, string> {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.entries(value).every(([seat, policy]) => /^\d+$/.test(seat) && typeof policy === "string" && policy.length > 0 && policy.length <= 40)
+  );
+}
+
+function parseSetup(raw: string | null | undefined): DuelSetup | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const input = parsed as Record<string, unknown>;
+    const setup: DuelSetup = {};
+    if (typeof input.firstTurnDraw === "boolean") setup.firstTurnDraw = input.firstTurnDraw;
+    if (Array.isArray(input.startupScripts) && input.startupScripts.every((entry) => typeof entry === "string")) {
+      setup.startupScripts = input.startupScripts as string[];
+    }
+    if (typeof input.scenarioId === "string") setup.scenarioId = input.scenarioId;
+    if (Array.isArray(input.surrenderedSeats) && input.surrenderedSeats.every((entry) => Number.isInteger(entry) && entry >= 0)) {
+      setup.surrenderedSeats = input.surrenderedSeats as number[];
+    }
+    if (typeof input.presetId === "string" && input.presetId) setup.presetId = input.presetId;
+    if (isPolicyMap(input.botPolicies)) setup.botPolicies = input.botPolicies;
+    if (isDuelEngineChoice(input.engine)) setup.engine = input.engine;
+    return setup;
+  } catch {
+    return undefined;
+  }
+}
+
+function validateSetup(setup: unknown): DuelSetup {
+  if (!setup || typeof setup !== "object" || Array.isArray(setup)) {
+    throw new DuelServiceError("Duel setup must be an object", 400);
+  }
+  const input = setup as Record<string, unknown>;
+  const extra = Object.keys(input).find((key) => key !== "firstTurnDraw" && key !== "startupScripts" && key !== "scenarioId" && key !== "surrenderedSeats" && key !== "presetId" && key !== "botPolicies" && key !== "engine");
+  if (extra) throw new DuelServiceError(`Unknown duel setup field: ${extra}`, 400);
+  const out: DuelSetup = {};
+  if (input.firstTurnDraw !== undefined) {
+    if (typeof input.firstTurnDraw !== "boolean") throw new DuelServiceError("firstTurnDraw must be a boolean", 400);
+    out.firstTurnDraw = input.firstTurnDraw;
+  }
+  if (input.startupScripts !== undefined) {
+    if (!Array.isArray(input.startupScripts) || input.startupScripts.some((entry) => typeof entry !== "string")) {
+      throw new DuelServiceError("startupScripts must be a list of strings", 400);
+    }
+    out.startupScripts = input.startupScripts as string[];
+  }
+  if (input.scenarioId !== undefined) {
+    if (typeof input.scenarioId !== "string" || !input.scenarioId) {
+      throw new DuelServiceError("scenarioId must be a non-empty string", 400);
+    }
+    out.scenarioId = input.scenarioId;
+  }
+  if (input.surrenderedSeats !== undefined) {
+    if (!Array.isArray(input.surrenderedSeats) || input.surrenderedSeats.some((entry) => !Number.isInteger(entry) || entry < 0)) {
+      throw new DuelServiceError("surrenderedSeats must be a list of seat numbers", 400);
+    }
+    out.surrenderedSeats = input.surrenderedSeats as number[];
+  }
+  if (input.presetId !== undefined) {
+    if (typeof input.presetId !== "string" || !input.presetId || input.presetId.length > 100) {
+      throw new DuelServiceError("presetId must be a non-empty string", 400);
+    }
+    out.presetId = input.presetId;
+  }
+  if (input.botPolicies !== undefined) {
+    if (!isPolicyMap(input.botPolicies)) throw new DuelServiceError("botPolicies must map seat numbers to policy names", 400);
+    out.botPolicies = input.botPolicies;
+  }
+  if (input.engine !== undefined) {
+    if (!isDuelEngineChoice(input.engine)) throw new DuelServiceError("engine must be legacy or pinned", 400);
+    out.engine = input.engine;
+  }
+  return out;
+}
+
+function rowFormat(row: DuelRow): DuelFormat {
+  const value = row.format ?? DEFAULT_DUEL_FORMAT;
+  if (!isDuelFormat(value)) throw new DuelServiceError("Duel record is invalid", 500);
+  return value;
+}
+
 function snapshotForRole(row: DuelRow, mySeat: number | null): DuelEngineView | null {
+  if (mySeat !== null) {
+    const fromList = parseSeatSnapshots(row.snapshot_seats_json)[mySeat];
+    if (fromList) return fromList;
+  }
   if (mySeat === 0) return parseEngineView(row.snapshot_seat0_json);
   if (mySeat === 1) return parseEngineView(row.snapshot_seat1_json);
   return parseEngineView(row.snapshot_public_json);
@@ -402,10 +553,10 @@ export function createDuelService(db: Database.Database): DuelService {
     "select 1 as ok from players where id = ? and guild_id = ?",
   );
   const series = createSeriesStore(db);
-  const insertDuel = db.prepare<[string, string, string, number, DuelMode, DuelMasterRule, string, string | null, number, number]>(
+  const insertDuel = db.prepare<[string, string, string, number, DuelMode, DuelMasterRule, string, string | null, DuelFormat, number, number]>(
     `
-      insert into duels (guild_id, web_slug, name, organizer_player_id, mode, master_rule, status, settings_json, invite_code, best_of, ranked)
-      values (?, ?, ?, ?, ?, ?, 'lobby', ?, ?, ?, ?)
+      insert into duels (guild_id, web_slug, name, organizer_player_id, mode, master_rule, status, settings_json, invite_code, format, best_of, ranked)
+      values (?, ?, ?, ?, ?, ?, 'lobby', ?, ?, ?, ?, ?)
     `,
   );
   const insertSeat = db.prepare<[number, number, number]>(
@@ -431,6 +582,7 @@ export function createDuelService(db: Database.Database): DuelService {
     "select 1 as ok from duel_invite_grants where duel_id = ? and player_id = ?",
   );
   const touchActivity = db.prepare<[number]>("update duels set last_activity_at = datetime('now') where id = ?");
+  const updateSetup = db.prepare<[string | null, number]>("update duels set setup_json = ? where id = ?");
   const updateClock = db.prepare<[string | null, number]>("update duels set clock_json = ? where id = ?");
   const listLive = db.prepare<Record<string, string | number>, DuelListItemRow>(
     `
@@ -484,7 +636,7 @@ export function createDuelService(db: Database.Database): DuelService {
       where status = 'active'
         and clock_json is not null
         and json_extract(clock_json, '$.startedAt') is not null
-        and json_extract(clock_json, '$.activeSeat') in (0, 1)
+        and json_extract(clock_json, '$.activeSeat') >= 0
         and (
           json_extract(clock_json, '$.startedAt')
           + json_extract(clock_json, '$.remainingMs[' || json_extract(clock_json, '$.activeSeat') || ']')
@@ -493,6 +645,14 @@ export function createDuelService(db: Database.Database): DuelService {
       limit ?
     `,
   );
+
+  const checkedClock = (clock: DuelClockState, seatCount: number): DuelClockState => {
+    const stored = wrapSettingsError(() => normalizeDuelClockState(clock));
+    if (stored.remainingMs.length !== seatCount) {
+      throw new DuelServiceError(`clock must have ${seatCount} seats`, 400);
+    }
+    return stored;
+  };
 
   const selectDueOpenings = db.prepare<[number, number], { slug: string; guildId: string }>(
     `
@@ -532,6 +692,7 @@ export function createDuelService(db: Database.Database): DuelService {
       organizerPlayerId: row.organizer_player_id,
       mode: row.mode,
       masterRule: row.master_rule,
+      format: rowFormat(row),
       status: row.status,
       settings: rowSettings(row),
       seats: seatRows(row.id).map(mapSeat),
@@ -604,10 +765,11 @@ export function createDuelService(db: Database.Database): DuelService {
     const row = loadDuelRow(slug, guildId);
     assertPlayerGuild(actorPlayerId, guildId);
     if (row.status !== "lobby") throw new DuelServiceError("Duel already started", 409);
+    if (rowFormat(row) !== "1v1") throw new DuelServiceError("Rock-paper-scissors is only available for 1v1 duels", 409);
     const existing = parseOpening(row.opening_json);
     if (existing) return existing;
     const seats = seatRows(row.id);
-    if (seats.length !== MAX_SEATS || seats.some((seat) => seat.ready !== 1)) {
+    if (seats.length !== 2 || seats.some((seat) => seat.ready !== 1)) {
       throw new DuelServiceError("Duel needs exactly two ready players to start", 400);
     }
     if (row.series_id !== null) {
@@ -643,20 +805,26 @@ export function createDuelService(db: Database.Database): DuelService {
       mode: DuelMode;
       masterRule?: DuelMasterRule;
       settings?: unknown;
+      format?: DuelFormat;
       bestOf?: DuelBestOf;
       ranked?: boolean;
     }) => {
+      const format = input.format ?? DEFAULT_DUEL_FORMAT;
+      if (!isDuelFormat(format)) throw new DuelServiceError("Duel format must be 1v1, tag, ffa3, or ffa4", 400);
       const name = input.name.trim();
       if (!name) throw new DuelServiceError("Duel name is required", 400);
       if (!isDuelMode(input.mode)) throw new DuelServiceError("Duel mode must be normal or domain", 400);
       assertPlayerGuild(input.organizerPlayerId, input.guildId);
-      const masterRule = resolveMasterRule(input.mode, input.masterRule);
-      const settings = wrapSettingsError(() => normalizeDuelSettings(input.mode, input.settings));
+      const masterRule = resolveMasterRule(input.mode, input.masterRule, format);
+      const settings = wrapSettingsError(() => normalizeDuelSettings(input.mode, input.settings, format));
       const inviteCode = settings.visibility === "private" ? generateInviteCode() : null;
       const bestOf = input.bestOf === undefined ? 1 : input.bestOf;
       if (bestOf !== 1 && bestOf !== 3) throw new DuelServiceError("Best of must be 1 or 3", 400);
       const ranked = input.ranked === undefined ? false : input.ranked;
       if (typeof ranked !== "boolean") throw new DuelServiceError("Ranked must be true or false", 400);
+      if (format !== DEFAULT_DUEL_FORMAT && (bestOf !== 1 || ranked)) {
+        throw new DuelServiceError("Only a 1v1 duel can be best of 3 or ranked", 400);
+      }
 
       const result = insertDuel.run(
         input.guildId,
@@ -667,6 +835,7 @@ export function createDuelService(db: Database.Database): DuelService {
         masterRule,
         JSON.stringify(settings),
         inviteCode,
+        format,
         bestOf,
         ranked ? 1 : 0,
       );
@@ -687,8 +856,9 @@ export function createDuelService(db: Database.Database): DuelService {
     if (row.series_id !== null) {
       throw new DuelServiceError("This match is between two players; seats are fixed", 409);
     }
-    if (requestedSeat !== undefined && (!Number.isInteger(requestedSeat) || requestedSeat < 0 || requestedSeat >= MAX_SEATS)) {
-      throw new DuelServiceError("Seat must be 0 or 1", 400);
+    const seatCount = seatCountFor(rowFormat(row));
+    if (requestedSeat !== undefined && (!Number.isInteger(requestedSeat) || requestedSeat < 0 || requestedSeat >= seatCount)) {
+      throw new DuelServiceError(seatCount === 2 ? "Seat must be 0 or 1" : `Seat must be between 0 and ${seatCount - 1}`, 400);
     }
 
     const seats = seatRows(row.id);
@@ -701,7 +871,7 @@ export function createDuelService(db: Database.Database): DuelService {
     }
 
     const used = new Set(seats.map((seat) => seat.seat));
-    const seat = requestedSeat ?? [0, 1].find((index) => !used.has(index));
+    const seat = requestedSeat ?? Array.from({ length: seatCount }, (_, index) => index).find((index) => !used.has(index));
     if (seat === undefined || used.has(seat)) {
       throw new DuelServiceError("That seat is already taken. You are still watching; choose another open seat.", 409);
     }
@@ -716,7 +886,7 @@ export function createDuelService(db: Database.Database): DuelService {
     return mapSession(row);
   });
 
-  const addPracticeBotTx = db.transaction((slug: string, guildId: string, organizerPlayerId: number, deck: DuelDeck) => {
+  const addPracticeBotTx = db.transaction((slug: string, guildId: string, organizerPlayerId: number, deck: DuelDeck, wantedSeat?: number) => {
     const row = loadDuelRow(slug, guildId);
     assertPlayerGuild(organizerPlayerId, guildId);
     assertRoomAccess(row, organizerPlayerId);
@@ -726,14 +896,23 @@ export function createDuelService(db: Database.Database): DuelService {
     }
 
     const seats = seatRows(row.id);
-    if (seats.length !== 1) {
+    const seatCount = seatCountFor(rowFormat(row));
+    if (seats.length < 1 || seats.length >= seatCount) {
       throw new DuelServiceError("Duel needs an empty opponent seat", 409);
     }
 
     const used = new Set(seats.map((seat) => seat.seat));
     let seat = 0;
-    while (used.has(seat) && seat < MAX_SEATS) seat += 1;
-    if (seat >= MAX_SEATS) throw new DuelServiceError("Duel needs an empty opponent seat", 409);
+    if (wantedSeat !== undefined) {
+      if (!Number.isInteger(wantedSeat) || wantedSeat < 0 || wantedSeat >= seatCount) {
+        throw new DuelServiceError(`Seat must be between 0 and ${seatCount - 1}`, 400);
+      }
+      if (used.has(wantedSeat)) throw new DuelServiceError("That seat is taken", 409);
+      seat = wantedSeat;
+    } else {
+      while (used.has(seat) && seat < seatCount) seat += 1;
+    }
+    if (seat >= seatCount) throw new DuelServiceError("Duel needs an empty opponent seat", 409);
 
     const normalized = validateDuelDeckShape(deck, rowSettings(row).validateDeck);
     try {
@@ -745,7 +924,7 @@ export function createDuelService(db: Database.Database): DuelService {
     return mapSession(row);
   });
 
-  const removePracticeBotTx = db.transaction((slug: string, guildId: string, organizerPlayerId: number) => {
+  const removePracticeBotTx = db.transaction((slug: string, guildId: string, organizerPlayerId: number, seat?: number) => {
     const row = loadDuelRow(slug, guildId);
     assertPlayerGuild(organizerPlayerId, guildId);
     assertRoomAccess(row, organizerPlayerId);
@@ -755,7 +934,10 @@ export function createDuelService(db: Database.Database): DuelService {
       throw new DuelServiceError("Only the organizer can remove a practice bot", 403);
     }
     // The bot's seat row holds everything the add created (ready flag and deck), so deleting it clears it all.
-    const removed = db.prepare<[number]>("delete from duel_seats where duel_id = ? and is_bot = 1").run(row.id);
+    const removed =
+      seat === undefined
+        ? db.prepare<[number]>("delete from duel_seats where duel_id = ? and is_bot = 1").run(row.id)
+        : db.prepare<[number, number]>("delete from duel_seats where duel_id = ? and is_bot = 1 and seat = ?").run(row.id, seat);
     if (removed.changes === 0) throw new DuelServiceError("This table has no practice bot", 409);
     return mapSession(row);
   });
@@ -816,6 +998,7 @@ export function createDuelService(db: Database.Database): DuelService {
       seed: string[],
       bundleVersion: string,
       clock: DuelClockState | null,
+      setup?: DuelSetup,
     ) => {
       const row = loadDuelRow(slug, guildId);
       if (row.status !== "lobby") throw new DuelServiceError("Duel is not in lobby", 400);
@@ -837,15 +1020,22 @@ export function createDuelService(db: Database.Database): DuelService {
       }
       if (!bundleVersion.trim()) throw new DuelServiceError("Bundle version is required", 400);
 
+      const seatCount = seatCountFor(rowFormat(row));
       const seats = seatRows(row.id);
-      if (seats.length !== MAX_SEATS || seats.some((seat) => seat.ready !== 1)) {
-        throw new DuelServiceError("Duel needs exactly two ready players to start", 400);
+      if (seats.length !== seatCount || seats.some((seat) => seat.ready !== 1)) {
+        throw new DuelServiceError(
+          seatCount === 2
+            ? "Duel needs exactly two ready players to start"
+            : `Duel needs exactly ${seatCount} ready players to start`,
+          400,
+        );
       }
 
-      const storedClock = clock === null ? null : wrapSettingsError(() => normalizeDuelClockState(clock));
-      db.prepare<[string, string, string | null, number]>(
-        "update duels set status = 'active', seed_json = ?, bundle_version = ?, clock_json = ?, opening_json = null, last_activity_at = datetime('now') where id = ? and status = 'lobby'",
-      ).run(JSON.stringify(seed), bundleVersion, serializeClock(storedClock), row.id);
+      const storedClock = clock === null ? null : checkedClock(clock, seatCount);
+      const storedSetup = setup === undefined ? null : JSON.stringify(validateSetup(setup));
+      db.prepare<[string, string, string | null, string | null, number]>(
+        "update duels set status = 'active', seed_json = ?, bundle_version = ?, clock_json = ?, setup_json = coalesce(?, setup_json), opening_json = null, last_activity_at = datetime('now') where id = ? and status = 'lobby'",
+      ).run(JSON.stringify(seed), bundleVersion, serializeClock(storedClock), storedSetup, row.id);
       const updated = selectDuelById.get(row.id);
       if (!updated || updated.status !== "active") throw new DuelServiceError("Duel is not in lobby", 400);
       series.onActivate(updated, rowSettings(updated));
@@ -861,7 +1051,7 @@ export function createDuelService(db: Database.Database): DuelService {
       if (!Number.isInteger(seat) || !seatRows(row.id).some((entry) => entry.seat === seat)) {
         throw new DuelServiceError("Seat is not occupied", 400);
       }
-      const storedClock = clock === null ? null : wrapSettingsError(() => normalizeDuelClockState(clock));
+      const storedClock = clock === null ? null : checkedClock(clock, seatCountFor(rowFormat(row)));
       const next = nextCommandSeq.get(row.id);
       if (!next) throw new DuelServiceError("Duel record is invalid", 500);
       insertCommand.run(row.id, next.next_seq, seat, JSON.stringify(command));
@@ -885,27 +1075,50 @@ export function createDuelService(db: Database.Database): DuelService {
       }
       if (row.status !== "active") throw new DuelServiceError("Duel is not active", 400);
 
+      const format = rowFormat(row);
       let winnerPlayerId: number | null = null;
+      let winnerTeam: number | null = null;
       let winnerIsBot = false;
       if (nextStatus === "completed" && winnerSeat !== null) {
-        const winner = seatRows(row.id).find((entry) => entry.seat === winnerSeat);
+        const rows = seatRows(row.id);
+        const winner = rows.find((entry) => entry.seat === winnerSeat);
         if (!winner) throw new DuelServiceError("Winner seat is not occupied", 400);
         winnerPlayerId = winner.player_id;
         winnerIsBot = winner.is_bot === 1;
+        if (format === "tag") {
+          // A team wins together. `winner_player_id` names the first human of the winning team, so a
+          // bot partner in the lowest seat does not hide the human winner. Both partners won.
+          winnerTeam = teamOfSeat(format, winnerSeat);
+          const human = rows.find((entry) => teamOfSeat(format, entry.seat) === winnerTeam && entry.player_id !== null);
+          if (winnerPlayerId === null && human) winnerPlayerId = human.player_id;
+        }
       }
 
-      const result = { winnerSeat: nextStatus === "completed" ? winnerSeat : null, reason };
+      const result: { winnerSeat: number | null; winnerTeam?: number | null; reason: string } = {
+        winnerSeat: nextStatus === "completed" ? winnerSeat : null,
+        reason,
+      };
+      if (format === "tag") result.winnerTeam = winnerTeam;
       const publicJson = snapshots ? freezeSnapshot(snapshots.public, result) : null;
-      const seat0Json = snapshots ? freezeSnapshot(snapshots.seat0, result) : null;
-      const seat1Json = snapshots ? freezeSnapshot(snapshots.seat1, result) : null;
+      const seatCount = seatCountFor(rowFormat(row));
+      const seatViews: Array<DuelEngineView | undefined> = [];
+      for (let index = 0; index < seatCount; index += 1) {
+        seatViews.push(snapshots?.seats?.[index] ?? (index === 0 ? snapshots?.seat0 : index === 1 ? snapshots?.seat1 : undefined));
+      }
+      const seat0Json = seatViews[0] ? freezeSnapshot(seatViews[0], result) : null;
+      const seat1Json = seatViews[1] ? freezeSnapshot(seatViews[1], result) : null;
+      const seatsJson =
+        snapshots && seatCount > 2 && seatViews.every((view) => view)
+          ? JSON.stringify(seatViews.map((view) => JSON.parse(freezeSnapshot(view as DuelEngineView, result)) as unknown))
+          : null;
 
       db.prepare<
-        ["completed" | "interrupted", number | null, number | null, string, string | null, string | null, string | null, number]
+        ["completed" | "interrupted", number | null, number | null, string, string | null, string | null, string | null, string | null, number]
       >(
         `
           update duels
           set status = ?, ended_at = datetime('now'), archived_at = coalesce(archived_at, datetime('now')), winner_player_id = ?, winner_seat = ?, result_reason = ?,
-              snapshot_public_json = ?, snapshot_seat0_json = ?, snapshot_seat1_json = ?, clock_json = null
+              snapshot_public_json = ?, snapshot_seat0_json = ?, snapshot_seat1_json = ?, snapshot_seats_json = ?, clock_json = null
           where id = ? and status = 'active'
         `,
       ).run(
@@ -916,6 +1129,7 @@ export function createDuelService(db: Database.Database): DuelService {
         publicJson,
         seat0Json,
         seat1Json,
+        seatsJson,
         row.id,
       );
       const updated = selectDuelById.get(row.id);
@@ -1041,19 +1255,19 @@ export function createDuelService(db: Database.Database): DuelService {
       return leaveTx(slug, guildId, playerId);
     },
 
-    addPracticeBot(slug, guildId, organizerPlayerId, deck) {
-      return addPracticeBotTx(slug, guildId, organizerPlayerId, deck);
+    addPracticeBot(slug, guildId, organizerPlayerId, deck, seat) {
+      return addPracticeBotTx(slug, guildId, organizerPlayerId, deck, seat);
     },
 
-    removePracticeBot(slug, guildId, organizerPlayerId) {
-      return removePracticeBotTx(slug, guildId, organizerPlayerId);
+    removePracticeBot(slug, guildId, organizerPlayerId, seat) {
+      return removePracticeBotTx(slug, guildId, organizerPlayerId, seat);
     },
 
     setDeck(slug, guildId, playerId, deck) {
       return setDeckTx(slug, guildId, playerId, deck);
     },
 
-    room(slug, guildId, playerId) {
+    room(slug, guildId, playerId): DuelRoom {
       const row = loadDuelRow(slug, guildId);
       assertPlayerGuild(playerId, guildId);
       assertRoomAccess(row, playerId);
@@ -1100,6 +1314,7 @@ export function createDuelService(db: Database.Database): DuelService {
           command: JSON.parse(entry.command_json) as DuelCommand,
         })),
         clock: rowClock(row),
+        setup: parseSetup(row.setup_json),
       };
     },
 
@@ -1107,8 +1322,8 @@ export function createDuelService(db: Database.Database): DuelService {
       return markReadyTx(slug, guildId, playerId);
     },
 
-    activate(slug, guildId, organizerPlayerId, seed, bundleVersion, clock) {
-      return activateTx(slug, guildId, organizerPlayerId, seed, bundleVersion, clock);
+    activate(slug, guildId, organizerPlayerId, seed, bundleVersion, clock, setup) {
+      return activateTx(slug, guildId, organizerPlayerId, seed, bundleVersion, clock, setup);
     },
 
     recordCommand(slug, guildId, seat, command, clock) {
@@ -1183,8 +1398,13 @@ export function createDuelService(db: Database.Database): DuelService {
 
     setClock(slug, guildId, clock) {
       const row = loadDuelRow(slug, guildId);
-      const storedClock = clock === null ? null : wrapSettingsError(() => normalizeDuelClockState(clock));
+      const storedClock = clock === null ? null : checkedClock(clock, seatCountFor(rowFormat(row)));
       updateClock.run(serializeClock(storedClock), row.id);
+    },
+
+    setSetup(slug, guildId, setup) {
+      const row = loadDuelRow(slug, guildId);
+      updateSetup.run(setup === null ? null : JSON.stringify(validateSetup(setup)), row.id);
     },
 
     dueClocks(now, limit) {

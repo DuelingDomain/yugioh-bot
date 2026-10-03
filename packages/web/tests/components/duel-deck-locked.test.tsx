@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DuelDeck, DuelDeckValidation, DuelSettings } from "@yugidraft/shared/duels";
+import type { DuelDeck, DuelDeckValidation, DuelFormat, DuelSettings } from "@yugidraft/shared/duels";
 import { defaultDuelSettings } from "@yugidraft/shared/duels";
 import { DeckEditor } from "../../src/components/duel/deck-editor";
 import { RoomLobby } from "../../src/components/duel/room-lobby";
 import { makeSeriesRoom } from "../helpers/duel-series";
+import { DeckValidationSkippedError } from "../../src/components/duel/api";
 
 const { validateDuelDeck } = vi.hoisted(() => ({ validateDuelDeck: vi.fn() }));
 
@@ -22,16 +23,55 @@ vi.mock("next/link", () => ({
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 
 vi.mock("../../src/components/decks/api", () => ({ listSavedDecks: vi.fn(async () => []) }));
-vi.mock("../../src/components/duel/api", () => ({ validateDuelDeck, searchDuelCards: vi.fn(async () => ({ cards: [] })) }));
+vi.mock("../../src/components/duel/api", async (importActual) => ({
+  ...await importActual<typeof import("../../src/components/duel/api")>(),
+  validateDuelDeck, searchDuelCards: vi.fn(async () => ({ cards: [] })),
+}));
 
 const settings = { validateDeck: true } as DuelSettings;
 const deck: DuelDeck = { main: [111, 112], extra: [], side: [] };
-const lockedError = Object.assign(new Error("Decks are locked after the duel starts"), { name: "DuelRequestError", status: 409 });
+const lockedError = new DeckValidationSkippedError();
 
 beforeEach(() => { validateDuelDeck.mockReset(); });
 afterEach(cleanup);
 
 describe("deck check when the duel starts", () => {
+  it.each(["1v1", "tag", "ffa3", "ffa4"] as DuelFormat[])("aborts an in-flight %s check when the lobby becomes active", async (format) => {
+    vi.useFakeTimers();
+    try {
+      const room = makeSeriesRoom({ series: null, status: "lobby", mySeat: 0 });
+      room.session.format = format;
+      room.session.settings = defaultDuelSettings("normal");
+      room.myDeck = deck;
+      let signal: AbortSignal | undefined;
+      let resolve: (value: DuelDeckValidation) => void = () => {};
+      validateDuelDeck.mockImplementation((_slug, _deck, current) => {
+        signal = current;
+        return new Promise<DuelDeckValidation>((done) => { resolve = done; });
+      });
+      const noop = vi.fn();
+      const props = { slug: "t", busy: false, actionError: null, onTakeSeat: noop, onAddBot: noop, onRemoveBot: noop, onReady: noop, onStart: noop, onCancel: noop, onLeave: noop };
+      const { rerender, unmount } = render(<RoomLobby room={room} {...props} />);
+      await act(() => vi.advanceTimersByTimeAsync(151));
+      expect(signal?.aborted).toBe(false);
+      rerender(<RoomLobby room={{ ...room, session: { ...room.session, status: "active" } }} {...props} />);
+      expect(signal?.aborted).toBe(true);
+      await act(async () => { resolve({ issues: [] } as unknown as DuelDeckValidation); });
+      await act(() => vi.advanceTimersByTimeAsync(300));
+      expect(validateDuelDeck).toHaveBeenCalledTimes(1);
+      expect(screen.queryByText("Deck could not be checked")).toBeNull();
+      unmount();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("aborts validation when the lobby unmounts", async () => {
+    validateDuelDeck.mockImplementation(() => new Promise(() => {}));
+    const { unmount } = render(<DeckEditor slug="t" mode="normal" settings={settings} initial={deck} busy={false} onReady={vi.fn()} />);
+    await waitFor(() => expect(validateDuelDeck).toHaveBeenCalledTimes(1));
+    const signal = validateDuelDeck.mock.calls[0][2] as AbortSignal;
+    unmount();
+    expect(signal.aborted).toBe(true);
+  });
   it("treats a locked answer as a room change: no error box, the room refreshes", async () => {
     validateDuelDeck.mockRejectedValue(lockedError);
     const onLocked = vi.fn();

@@ -62,6 +62,7 @@ function makeRoom(options: RoomOptions): DuelRoom {
       guildId: "g",
       organizerPlayerId: 1,
       mode: options.domain ? "domain" : "normal",
+      format: "1v1",
       masterRule: 5,
       status: options.status ?? "completed",
       settings: {} as DuelRoom["session"]["settings"],

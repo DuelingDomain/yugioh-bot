@@ -1,0 +1,279 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Fri, 14 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: use duelist helpers in phase 1b sites
+
+Seven pairs of HINT_EVENT messages in processor.cpp (player 0, then player 1) are now one loop over n_duelists, with the same bytes and order.
+Two disabled_location resets and one used_location |= 0x1111 pair in processor.cpp, the MUST_USE_MZONE filter pair in operations.cpp, the spsummon_counter and spsummon_counter_rst reset in card.cpp, and the EQUIP hint_timing pair in libduel.cpp are now loops over n_duelists (12 sites).
+Four validity checks on uint8_t values are now is_duelist: sumplayer in card.cpp, playerid in CreateToken, sumplayer in SpecialSummon and SpecialSummonStep.
+With 2 duelists every loop runs for 0 and then 1, and is_duelist accepts exactly 0 and 1 like the old checks did for a uint8_t.
+Left unchanged: CheckTiming and IsEnvironment in libduel.cpp (a[0] || a[1] inside one expression, not statement pairs), ControlAdjust, GetCustomActivityCount, and all phase 2 decision sites.
+---
+ card.cpp       |   8 ++--
+ libduel.cpp    |  10 ++---
+ operations.cpp |   4 +-
+ processor.cpp  | 110 +++++++++++++++++++++----------------------------
+ 4 files changed, 60 insertions(+), 72 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index dc9e9a8..c511e8e 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -1636,8 +1636,10 @@ void card::apply_field_effect() {
+ 	}
+ 	if(unique_code && (current.location & unique_location))
+ 		pduel->game_field->add_unique_card(this);
+-	spsummon_counter[0] = spsummon_counter[1] = 0;
+-	spsummon_counter_rst[0] = spsummon_counter_rst[1] = 0;
++	for(uint8_t p = 0; p < pduel->game_field->n_duelists; ++p) {
++		spsummon_counter[p] = 0;
++		spsummon_counter_rst[p] = 0;
++	}
+ }
+ void card::cancel_field_effect() {
+ 	if (current.controler == PLAYER_NONE)
+@@ -3338,7 +3340,7 @@ int32_t card::is_can_be_special_summoned(effect* reason_effect, uint32_t sumtype
+ 			return FALSE;
+ 	}
+ 	sumtype |= SUMMON_TYPE_SPECIAL;
+-	if((sumplayer == 0 || sumplayer == 1) && !pduel->game_field->is_player_can_spsummon(reason_effect, sumtype, sumpos, sumplayer, toplayer, this))
++	if(pduel->game_field->is_duelist(sumplayer) && !pduel->game_field->is_player_can_spsummon(reason_effect, sumtype, sumpos, sumplayer, toplayer, this))
+ 		return FALSE;
+ 	if(is_affected_by_effect(EFFECT_CANNOT_SPECIAL_SUMMON))
+ 		return FALSE;
+diff --git a/libduel.cpp b/libduel.cpp
+index e4e1d6f..746f1cf 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -390,7 +390,7 @@ LUA_STATIC_FUNCTION(CreateToken) {
+ 	check_action_permission(L);
+ 	check_param_count(L, 2);
+ 	auto playerid = lua_get<uint8_t>(L, 1);
+-	if(playerid >= PLAYER_NONE) {
++	if(!pduel->game_field->is_duelist(playerid)) {
+ 		lua_pushboolean(L, 0);
+ 		return 1;
+ 	}
+@@ -407,7 +407,7 @@ LUA_STATIC_FUNCTION(SpecialSummon) {
+ 	check_param_count(L, 7);
+ 	auto sumtype = lua_get<uint32_t>(L, 2);
+ 	auto sumplayer = lua_get<uint8_t>(L, 3);
+-	if(sumplayer >= PLAYER_NONE)
++	if(!pduel->game_field->is_duelist(sumplayer))
+ 		return 0;
+ 	auto playerid = lua_get<uint8_t>(L, 4);
+ 	auto nocheck = lua_get<bool>(L, 5);
+@@ -429,7 +429,7 @@ LUA_STATIC_FUNCTION(SpecialSummonStep) {
+ 	auto pcard = lua_get<card*, true>(L, 1);
+ 	auto sumtype = lua_get<uint32_t>(L, 2);
+ 	auto sumplayer = lua_get<uint8_t>(L, 3);
+-	if(sumplayer >= PLAYER_NONE)
++	if(!pduel->game_field->is_duelist(sumplayer))
+ 		return 0;
+ 	auto playerid = lua_get<uint8_t>(L, 4);
+ 	auto nocheck = lua_get<bool>(L, 5);
+@@ -1238,8 +1238,8 @@ LUA_STATIC_FUNCTION(EquipComplete) {
+ 	}
+ 	field->raise_event(core.equiping_cards, EVENT_EQUIP,
+ 	                               core.reason_effect, 0, core.reason_player, PLAYER_NONE, 0);
+-	core.hint_timing[0] |= TIMING_EQUIP;
+-	core.hint_timing[1] |= TIMING_EQUIP;
++	for(uint8_t p = 0; p < field->n_duelists; ++p)
++		core.hint_timing[p] |= TIMING_EQUIP;
+ 	field->process_single_event();
+ 	field->process_instant_event();
+ 	return yield();
+diff --git a/operations.cpp b/operations.cpp
+index 03fefff..7ddd7d6 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -5093,8 +5093,8 @@ bool field::process(Processors::MoveToField& arg) {
+ 			target->unequip();
+ 		if(target->current.location == LOCATION_MZONE) {
+ 			effect_set eset;
+-			filter_player_effect(0, EFFECT_MUST_USE_MZONE, &eset, false);
+-			filter_player_effect(1, EFFECT_MUST_USE_MZONE, &eset, false);
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				filter_player_effect(p, EFFECT_MUST_USE_MZONE, &eset, false);
+ 			target->filter_effect(EFFECT_MUST_USE_MZONE, &eset);
+ 			LOCATION_REASON real_reason = LOCATION_REASON::TOFIELD;
+ 			if(reason != LOCATION_REASON::NONE) {
+diff --git a/processor.cpp b/processor.cpp
+index cb872ce..a64b7a7 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -2142,14 +2142,12 @@ bool field::process(Processors::BattleCommand& arg) {
+ 			arg.step = 10;
+ 			return FALSE;
+ 		}
+-		auto message = pduel->new_message(MSG_HINT);
+-		message->write<uint8_t>(HINT_EVENT);
+-		message->write<uint8_t>(0);
+-		message->write<uint64_t>(24);
+-		message = pduel->new_message(MSG_HINT);
+-		message->write<uint8_t>(HINT_EVENT);
+-		message->write<uint8_t>(1);
+-		message->write<uint64_t>(24);
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			auto message = pduel->new_message(MSG_HINT);
++			message->write<uint8_t>(HINT_EVENT);
++			message->write<uint8_t>(p);
++			message->write<uint64_t>(24);
++		}
+ 		for(uint8_t p = 0; p < n_duelists; ++p)
+ 			core.hint_timing[p] = TIMING_BATTLE_PHASE;
+ 		emplace_process<Processors::PointEvent>(Step{ 30 }, false, false, false);
+@@ -2298,14 +2296,12 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		arg.previous_point_event_had_any_trigger_to_resolve = false;
+ 		if(!is_flag(DUEL_6_STEP_BATLLE_STEP) || (core.new_fchain.size() || core.new_ochain.size())) {
+ 			arg.previous_point_event_had_any_trigger_to_resolve = core.new_fchain.size() || core.new_ochain.size();
+-			auto message = pduel->new_message(MSG_HINT);
+-			message->write<uint8_t>(HINT_EVENT);
+-			message->write<uint8_t>(0);
+-			message->write<uint64_t>(40);
+-			message = pduel->new_message(MSG_HINT);
+-			message->write<uint8_t>(HINT_EVENT);
+-			message->write<uint8_t>(1);
+-			message->write<uint64_t>(40);
++			for(uint8_t p = 0; p < n_duelists; ++p) {
++				auto message = pduel->new_message(MSG_HINT);
++				message->write<uint8_t>(HINT_EVENT);
++				message->write<uint8_t>(p);
++				message->write<uint64_t>(40);
++			}
+ 			emplace_process<Processors::PointEvent>(false, false, is_flag(DUEL_SINGLE_CHAIN_IN_DAMAGE_SUBSTEP));
+ 		}
+ 		return FALSE;
+@@ -2338,14 +2334,12 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		process_instant_event();
+ 		if(!is_flag(DUEL_6_STEP_BATLLE_STEP) || !arg.previous_point_event_had_any_trigger_to_resolve
+ 		   || core.new_fchain.size() || core.new_ochain.size()) {
+-			auto message = pduel->new_message(MSG_HINT);
+-			message->write<uint8_t>(HINT_EVENT);
+-			message->write<uint8_t>(0);
+-			message->write<uint64_t>(41);
+-			message = pduel->new_message(MSG_HINT);
+-			message->write<uint8_t>(HINT_EVENT);
+-			message->write<uint8_t>(1);
+-			message->write<uint64_t>(41);
++			for(uint8_t p = 0; p < n_duelists; ++p) {
++				auto message = pduel->new_message(MSG_HINT);
++				message->write<uint8_t>(HINT_EVENT);
++				message->write<uint8_t>(p);
++				message->write<uint64_t>(41);
++			}
+ 			core.hint_timing[infos.turn_player] = TIMING_DAMAGE_STEP;
+ 			emplace_process<Processors::PointEvent>(false, false, is_flag(DUEL_SINGLE_CHAIN_IN_DAMAGE_SUBSTEP));
+ 		}
+@@ -2369,14 +2363,12 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		raise_event(nullptr, EVENT_PRE_DAMAGE_CALCULATE, nullptr, 0, 0, 0, 0);
+ 		process_single_event();
+ 		process_instant_event();
+-		auto message = pduel->new_message(MSG_HINT);
+-		message->write<uint8_t>(HINT_EVENT);
+-		message->write<uint8_t>(0);
+-		message->write<uint64_t>(42);
+-		message = pduel->new_message(MSG_HINT);
+-		message->write<uint8_t>(HINT_EVENT);
+-		message->write<uint8_t>(1);
+-		message->write<uint64_t>(42);
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			auto message = pduel->new_message(MSG_HINT);
++			message->write<uint8_t>(HINT_EVENT);
++			message->write<uint8_t>(p);
++			message->write<uint64_t>(42);
++		}
+ 		core.hint_timing[infos.turn_player] = TIMING_DAMAGE_CAL;
+ 		emplace_process<Processors::PointEvent>(false, false, is_flag(DUEL_SINGLE_CHAIN_IN_DAMAGE_SUBSTEP));
+ 		return FALSE;
+@@ -2577,14 +2569,12 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		if(is_flag(DUEL_6_STEP_BATLLE_STEP)) {
+ 			//EVENT_BATTLE_END was here, but this timing does not exist in Master Rule 3+
+ 			if(!core.effect_damage_step) {
+-				auto message = pduel->new_message(MSG_HINT);
+-				message->write<uint8_t>(HINT_EVENT);
+-				message->write<uint8_t>(0);
+-				message->write<uint64_t>(45);
+-				message = pduel->new_message(MSG_HINT);
+-				message->write<uint8_t>(HINT_EVENT);
+-				message->write<uint8_t>(1);
+-				message->write<uint64_t>(45);
++				for(uint8_t p = 0; p < n_duelists; ++p) {
++					auto message = pduel->new_message(MSG_HINT);
++					message->write<uint8_t>(HINT_EVENT);
++					message->write<uint8_t>(p);
++					message->write<uint64_t>(45);
++				}
+ 				core.hint_timing[infos.turn_player] = TIMING_DAMAGE_CAL;
+ 				emplace_process<Processors::PointEvent>(false, false, is_flag(DUEL_SINGLE_CHAIN_IN_DAMAGE_SUBSTEP));
+ 			} else {
+@@ -2618,14 +2608,12 @@ bool field::process(Processors::BattleCommand& arg) {
+ 		[[fallthrough]];
+ 	}
+ 	case 32: {
+-		auto message = pduel->new_message(MSG_HINT);
+-		message->write<uint8_t>(HINT_EVENT);
+-		message->write<uint8_t>(0);
+-		message->write<uint64_t>(43);
+-		message = pduel->new_message(MSG_HINT);
+-		message->write<uint8_t>(HINT_EVENT);
+-		message->write<uint8_t>(1);
+-		message->write<uint64_t>(43);
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			auto message = pduel->new_message(MSG_HINT);
++			message->write<uint8_t>(HINT_EVENT);
++			message->write<uint8_t>(p);
++			message->write<uint64_t>(43);
++		}
+ 		for(uint8_t p = 0; p < n_duelists; ++p)
+ 			core.hint_timing[p] |= TIMING_BATTLED;
+ 		emplace_process<Processors::PointEvent>(false, false, is_flag(DUEL_SINGLE_CHAIN_IN_DAMAGE_SUBSTEP));
+@@ -2683,14 +2671,12 @@ bool field::process(Processors::BattleCommand& arg) {
+ 			core.attack_target->set_status(STATUS_BATTLE_DESTROYED, FALSE);
+ 		process_single_event();
+ 		process_instant_event();
+-		auto message = pduel->new_message(MSG_HINT);
+-		message->write<uint8_t>(HINT_EVENT);
+-		message->write<uint8_t>(0);
+-		message->write<uint64_t>(44);
+-		message = pduel->new_message(MSG_HINT);
+-		message->write<uint8_t>(HINT_EVENT);
+-		message->write<uint8_t>(1);
+-		message->write<uint64_t>(44);
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			auto message = pduel->new_message(MSG_HINT);
++			message->write<uint8_t>(HINT_EVENT);
++			message->write<uint8_t>(p);
++			message->write<uint64_t>(44);
++		}
+ 		emplace_process<Processors::PointEvent>(false, false, true);
+ 		arg.step = 38;
+ 		return FALSE;
+@@ -4461,8 +4447,8 @@ void field::adjust_all() {
+ void field::refresh_location_info_instant() {
+ 	effect_set eset;
+ 	uint32_t dis1 = player[0].disabled_location | (player[1].disabled_location << 16);
+-	player[0].disabled_location = 0;
+-	player[1].disabled_location = 0;
++	for(uint8_t p = 0; p < n_duelists; ++p)
++		player[p].disabled_location = 0;
+ 	filter_field_effect(EFFECT_DISABLE_FIELD, &eset);
+ 	for(const auto& peff : eset) {
+ 		uint32_t value = peff->get_value();
+@@ -4496,12 +4482,12 @@ bool field::process(Processors::RefreshLoc& arg) {
+ 	case 0: {
+ 		effect_set eset;
+ 		if(is_flag(DUEL_3_COLUMNS_FIELD)) {
+-			player[0].used_location |= 0x1111;
+-			player[1].used_location |= 0x1111;
++			for(uint8_t p = 0; p < n_duelists; ++p)
++				player[p].used_location |= 0x1111;
+ 		}
+ 		arg.previously_disabled_locations = (player[0].disabled_location & 0xffff) | (player[1].disabled_location << 16);
+-		player[0].disabled_location = 0;
+-		player[1].disabled_location = 0;
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			player[p].disabled_location = 0;
+ 		core.disfield_effects.clear();
+ 		core.extra_mzone_effects.clear();
+ 		core.extra_szone_effects.clear();

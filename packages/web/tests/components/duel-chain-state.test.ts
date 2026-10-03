@@ -307,6 +307,11 @@ describe("chainSeatLabel", () => {
   it("uses the names for a spectator", () => {
     expect(chainSeatLabel(1, null, names)).toBe("Player 2");
   });
+  it("names every rival at a table of 3 or 4, never Opponent", () => {
+    expect(chainSeatLabel(0, 0, names, true)).toBe("You");
+    expect(chainSeatLabel(1, 0, names, true)).toBe("Player 2");
+    expect(chainSeatLabel(2, 0, names, true)).toBe("Player 3");
+  });
 });
 
 describe("chainStepDelay", () => {

@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sat, 29 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: control check, old-rule flags and effect owner compare
+ for more than two duelists
+
+card::is_control_can_be_changed read the zones of opponent_of(controller). For a monster of seat 2
+or 3 that is seat 255, an out of bounds read (Lua IsAbleToChangeControler reaches it). With more
+than two duelists it now asks every living duelist except the controller: one of them must have a
+usable monster zone (unless ignore_mzone) and, for a Trap Monster, a usable spell zone, with the
+same arguments as before. With two duelists the stock lines run, now behind else-if.
+
+Debug.SetupDuelists now raises a Lua error with more than two duelists when DUEL_CANNOT_SUMMON_OATH_OLD,
+DUEL_SPSUMMON_ONCE_OLD_NEGATE or DUEL_1_FACEUP_FIELD is set. Their code in processor.cpp uses opponent_of,
+PLAYER_ALL and the field zone of seat 255, and it is not changed. DUEL_RELAY and
+DUEL_INVERTED_QUICK_PRIORITY were rejected already. MR1 to MR4 and Goat hold these flags, MR5 does not.
+
+effect::is_target compared the controller with effect_owner for ABSOLUTE_TARGET in a free for all
+duel. effect_owner can be none_id(). It now uses get_owner_player(), as the rest of effect.cpp does.
+The line is in the n > 2 branch, so two duelists are not touched.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UrYy4jjEcbJHKdcVYasfdb
+---
+ card.cpp     | 20 ++++++++++++++++++--
+ effect.cpp   |  2 +-
+ libdebug.cpp |  7 +++++++
+ 3 files changed, 26 insertions(+), 3 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index ec72bf9..8f01550 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -3813,9 +3813,25 @@ int32_t card::is_control_can_be_changed(int32_t ignore_mzone, uint32_t zone) {
+ 		return FALSE;
+ 	if(current.location != LOCATION_MZONE)
+ 		return FALSE;
+-	if(!ignore_mzone && pduel->game_field->get_useable_count(this, pduel->game_field->opponent_of(current.controler), LOCATION_MZONE, current.controler, LOCATION_REASON::CONTROL, zone) <= 0)
++	if(pduel->game_field->n_duelists > 2) {
++		// The card can go to any living duelist other than its controller. One of them must pass both zone checks.
++		auto& gf = *pduel->game_field;
++		const bool trap_zone = !gf.is_flag(DUEL_TRAP_MONSTERS_NOT_USE_ZONE) && (get_type() & TYPE_TRAPMONSTER) != 0;
++		bool target_found = false;
++		for(uint8_t q = 0; q < gf.n_duelists && !target_found; ++q) {
++			if(q == current.controler || !gf.is_alive(q))
++				continue;
++			if(!ignore_mzone && gf.get_useable_count(this, q, LOCATION_MZONE, current.controler, LOCATION_REASON::CONTROL, zone) <= 0)
++				continue;
++			if(trap_zone && gf.get_useable_count(this, q, LOCATION_SZONE, current.controler, LOCATION_REASON::CONTROL) <= 0)
++				continue;
++			target_found = true;
++		}
++		if(!target_found)
++			return FALSE;
++	} else if(!ignore_mzone && pduel->game_field->get_useable_count(this, pduel->game_field->opponent_of(current.controler), LOCATION_MZONE, current.controler, LOCATION_REASON::CONTROL, zone) <= 0)
+ 		return FALSE;
+-	if(!pduel->game_field->is_flag(DUEL_TRAP_MONSTERS_NOT_USE_ZONE) && ((get_type() & TYPE_TRAPMONSTER)
++	else if(!pduel->game_field->is_flag(DUEL_TRAP_MONSTERS_NOT_USE_ZONE) && ((get_type() & TYPE_TRAPMONSTER)
+ 											 && pduel->game_field->get_useable_count(this, pduel->game_field->opponent_of(current.controler), LOCATION_SZONE, current.controler, LOCATION_REASON::CONTROL) <= 0))
+ 		return FALSE;
+ 	if(is_affected_by_effect(EFFECT_CANNOT_CHANGE_CONTROL))
+diff --git a/effect.cpp b/effect.cpp
+index 88e8c59..16749e7 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -466,7 +466,7 @@ int32_t effect::is_target(card* pcard) {
+ 			bool own_side;
+ 			if(is_flag(EFFECT_FLAG_ABSOLUTE_TARGET)) {
+ 				if(gf.n_teams == gf.n_duelists)
+-					own_side = con == effect_owner;
++					own_side = con == get_owner_player();
+ 				else
+ 					own_side = gf.is_duelist(con) && gf.team_of(con) == 0;
+ 			} else {
+diff --git a/libdebug.cpp b/libdebug.cpp
+index 088364d..aeeddee 100644
+--- a/libdebug.cpp
++++ b/libdebug.cpp
+@@ -269,6 +269,13 @@ LUA_STATIC_FUNCTION(SetupDuelists) {
+ 		lua_error(L, "Debug.SetupDuelists: DUEL_RELAY is not supported with more than 2 duelists.");
+ 	if(count > 2 && field->is_flag(DUEL_INVERTED_QUICK_PRIORITY))
+ 		lua_error(L, "Debug.SetupDuelists: DUEL_INVERTED_QUICK_PRIORITY is not supported with more than 2 duelists.");
++	// Old-rule flags: their code paths in processor.cpp read the one opponent (opponent_of, PLAYER_ALL, the field zone of seat 255).
++	if(count > 2 && field->is_flag(DUEL_CANNOT_SUMMON_OATH_OLD))
++		lua_error(L, "Debug.SetupDuelists: DUEL_CANNOT_SUMMON_OATH_OLD is not supported with more than 2 duelists.");
++	if(count > 2 && field->is_flag(DUEL_SPSUMMON_ONCE_OLD_NEGATE))
++		lua_error(L, "Debug.SetupDuelists: DUEL_SPSUMMON_ONCE_OLD_NEGATE is not supported with more than 2 duelists.");
++	if(count > 2 && field->is_flag(DUEL_1_FACEUP_FIELD))
++		lua_error(L, "Debug.SetupDuelists: DUEL_1_FACEUP_FIELD is not supported with more than 2 duelists.");
+ 	uint16_t first_attack_turn = 0;
+ 	if(count == 2 && teams == 2)
+ 		first_attack_turn = 2;

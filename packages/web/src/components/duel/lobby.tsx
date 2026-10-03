@@ -8,6 +8,7 @@ import { ArrowRight, Eye, Lock, Plus, Swords, Users } from "lucide-react";
 import { isCustomDomain, type DuelHistoryScope, type DuelListItem } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { formatLabel, formatSeatCount } from "./table-format";
 import { DUEL_LIST_KEY, cancelDuel, leaveDuel, listDuels, surrenderDuel, takeDuelSeat } from "./api";
 import { isNotableSeries, SeriesBadges } from "./series-banner";
 import { cx, SheetButton, sheetButtonClass, SheetSegmented, sheetRoot } from "./sheet-ui";
@@ -25,7 +26,7 @@ function statusLabel(status: DuelListItem["status"]): string {
 }
 
 function modeLabel(duel: DuelListItem): string {
-  if (duel.mode === "domain") return isCustomDomain(duel.masterRule, duel.settings) ? "Custom Domain" : "Domain 1v1";
+  if (duel.mode === "domain") return isCustomDomain(duel.masterRule, duel.settings) ? "Custom Domain" : duel.format && duel.format !== "1v1" ? "Domain" : "Domain 1v1";
   return `Master Rule ${duel.masterRule}`;
 }
 
@@ -116,9 +117,11 @@ function LiveRow({ duel, onClose }: { duel: DuelListItem; onClose: (duel: DuelLi
   const router = useRouter();
   const [joining, setJoining] = useState(false);
   const own = duel.mySeat != null;
-  const openSeat = [0, 1].find((index) => !duel.seats.some((seat) => seat.seat === index));
+  const seatCount = formatSeatCount(duel.format);
+  const openSeat = Array.from({ length: seatCount }, (_, seat) => seat)
+    .find((index) => !duel.seats.some((seat) => seat.seat === index));
   const open = duel.status === "lobby" && openSeat != null && duel.seriesId == null && duel.series == null;
-  const full = duel.status === "lobby" && duel.seats.length >= 2;
+  const full = duel.status === "lobby" && duel.seats.length >= seatCount;
   const activity = relativeActivity(duel.lastActivityAt);
   const roomPath = `/duels/${duel.slug}`;
 
@@ -147,7 +150,8 @@ function LiveRow({ duel, onClose }: { duel: DuelListItem; onClose: (duel: DuelLi
           <span className={ui.chip}>{modeLabel(duel)}</span>
           <span className={cx(ui.chip, duel.status === "active" && ui.chipGold)}>{statusLabel(duel.status)}</span>
           {isNotableSeries(duel.series) ? <SeriesBadges series={duel.series} showGame plain /> : null}
-          <span className={ui.chip}><Users size={13} strokeWidth={1.6} aria-hidden />{duel.seats.length}/2</span>
+          <span className={ui.chip}><Users size={13} strokeWidth={1.6} aria-hidden />{duel.seats.length}/{seatCount}</span>
+          {duel.format && duel.format !== "1v1" ? <span className={ui.chip}>{formatLabel(duel.format)}</span> : null}
           {duel.settings.visibility === "private" ? <span className={ui.chip}><Lock size={13} strokeWidth={1.6} aria-hidden />Private</span> : null}
           {activity ? <span className={styles.activity}>{activity}</span> : null}
         </span>

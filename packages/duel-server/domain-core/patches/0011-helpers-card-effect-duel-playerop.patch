@@ -1,0 +1,200 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Tue, 11 Jan 2000 00:00:00 +0000
+Subject: [PATCH] core: use duelist helpers in card, effect, duel, playerop and
+ API code
+
+Phase 1 site work for card.cpp, effect.cpp, duel.cpp, playerop.cpp and ocgapi.cpp. No behaviour change with 2 duelists.
+
+Changed:
+- 13 "1 - x" sites now use opponent_of (12 in card.cpp, 1 in playerop.cpp). In card.cpp x is the controler of a card on the field (0 or 1), or a summon player that goes into a uint8_t. In playerop.cpp x already indexes hint_timing[2].
+- 1 loop over duelists uses n_duelists as bound (ocgapi.cpp OCG_DuelQueryField). card.cpp get_unique_target keeps its stock bound: it is a relative self/opponent loop over unique_pos[2].
+- 1 turn-player-first loop (playerop.cpp counter select) counts n_duelists steps and uses next_in_turn_order.
+- 4 validity checks use is_duelist (ocgapi.cpp 3, playerop.cpp 1). All take a uint8_t, so the accept set is 0 and 1 with 2 duelists.
+
+Why it is the same: opponent_of(x) equals 1 - x for x in 0..1, n_duelists is 2, next_in_turn_order(p) equals 1 - p for 2 duelists, and is_duelist accepts exactly 0 and 1.
+
+Left unchanged: PLAYER_NONE checks, absolute target tests (player 0 or 1), the Rock Paper Scissors win code, SIMPLE_AI player 1 tests, member array pairs owned by agent H, and Domain anchor text. effect.cpp, duel.cpp, interpreter.cpp, processor_visit.cpp and scriptlib.cpp have no changed site. See unchanged-sites.md.
+---
+ card.cpp     | 24 ++++++++++++------------
+ ocgapi.cpp   |  8 ++++----
+ playerop.cpp |  8 ++++----
+ 3 files changed, 20 insertions(+), 20 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index 526af70..dc9e9a8 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -1367,12 +1367,12 @@ uint32_t card::get_linked_zone(bool free) {
+ 			}
+ 		}
+ 		for(int i = 0; i < 8; ++i) {
+-			if(!pduel->game_field->is_location_useable(1 - current.controler, LOCATION_MZONE, i)) {
++			if(!pduel->game_field->is_location_useable(pduel->game_field->opponent_of(current.controler), LOCATION_MZONE, i)) {
+ 				zones &= ~(1u << (i + 16));
+ 			}
+ 		}
+ 		for(int i = 0; i < 8; ++i) {
+-			if(!pduel->game_field->is_location_useable(1 - current.controler, LOCATION_SZONE, i)) {
++			if(!pduel->game_field->is_location_useable(pduel->game_field->opponent_of(current.controler), LOCATION_SZONE, i)) {
+ 				zones &= ~(1u << (i + 24));
+ 			}
+ 		}
+@@ -1386,7 +1386,7 @@ void card::get_linked_cards(card_set* cset, uint32_t zones) {
+ 	int32_t p = current.controler;
+ 	uint32_t linked_zone = (zones) ? zones : get_linked_zone();
+ 	pduel->game_field->get_cards_in_zone(cset, linked_zone, p, LOCATION_ONFIELD);
+-	pduel->game_field->get_cards_in_zone(cset, linked_zone >> 16, 1 - p, LOCATION_ONFIELD);
++	pduel->game_field->get_cards_in_zone(cset, linked_zone >> 16, pduel->game_field->opponent_of(p), LOCATION_ONFIELD);
+ 	for(auto it = cset->begin(); it != cset->end();) {
+ 		if((*it)->current.location == LOCATION_SZONE && !((*it)->get_type() & TYPE_LINK)) {
+ 			it = cset->erase(it);
+@@ -1419,7 +1419,7 @@ void card::get_mutual_linked_cards(card_set* cset) {
+ 	int32_t p = current.controler;
+ 	uint32_t mutual_linked_zone = get_mutual_linked_zone();
+ 	pduel->game_field->get_cards_in_zone(cset, mutual_linked_zone, p, LOCATION_ONFIELD);
+-	pduel->game_field->get_cards_in_zone(cset, mutual_linked_zone >> 16, 1 - p, LOCATION_ONFIELD);
++	pduel->game_field->get_cards_in_zone(cset, mutual_linked_zone >> 16, pduel->game_field->opponent_of(p), LOCATION_ONFIELD);
+ }
+ int32_t card::is_link_state() {
+ 	if(!(current.location & LOCATION_ONFIELD))
+@@ -1456,8 +1456,8 @@ int32_t card::is_extra_link_state() {
+ 	uint32_t linked_zone = get_mutual_linked_zone();
+ 	const auto& list_mzone0 = pduel->game_field->player[current.controler].list_mzone;
+ 	const auto& list_szone0 = pduel->game_field->player[current.controler].list_szone;
+-	const auto& list_mzone1 = pduel->game_field->player[1 - current.controler].list_mzone;
+-	const auto& list_szone1 = pduel->game_field->player[1 - current.controler].list_szone;
++	const auto& list_mzone1 = pduel->game_field->player[pduel->game_field->opponent_of(current.controler)].list_mzone;
++	const auto& list_szone1 = pduel->game_field->player[pduel->game_field->opponent_of(current.controler)].list_szone;
+ 	while(true) {
+ 		if(((linked_zone >> 5) | (linked_zone >> (16 + 6))) & ((linked_zone >> 6) | (linked_zone >> (16 + 5))) & 1)
+ 			return TRUE;
+@@ -1530,7 +1530,7 @@ void card::get_column_cards(card_set* cset, int32_t left, int32_t right) {
+ 	int32_t p = current.controler;
+ 	uint32_t column_zone = get_column_zone(LOCATION_ONFIELD, left, right);
+ 	pduel->game_field->get_cards_in_zone(cset, column_zone, p, LOCATION_ONFIELD);
+-	pduel->game_field->get_cards_in_zone(cset, column_zone >> 16, 1 - p, LOCATION_ONFIELD);
++	pduel->game_field->get_cards_in_zone(cset, column_zone >> 16, pduel->game_field->opponent_of(p), LOCATION_ONFIELD);
+ }
+ int32_t card::is_all_column() {
+ 	if(!(current.location & LOCATION_ONFIELD))
+@@ -2607,7 +2607,7 @@ int32_t card::check_summon_procedure(effect* peffect, uint8_t playerid, uint8_t
+ 	uint8_t toplayer = playerid;
+ 	if(peffect->is_flag(EFFECT_FLAG_SPSUM_PARAM)) {
+ 		if(peffect->o_range)
+-			toplayer = 1 - playerid;
++			toplayer = pduel->game_field->opponent_of(playerid);
+ 	}
+ 	if(!pduel->game_field->is_player_can_summon(peffect->get_value(this), playerid, this, toplayer))
+ 		return FALSE;
+@@ -2704,7 +2704,7 @@ int32_t card::check_set_procedure(effect* peffect, uint8_t playerid, uint8_t ign
+ 	uint8_t toplayer = playerid;
+ 	if(peffect->is_flag(EFFECT_FLAG_SPSUM_PARAM)) {
+ 		if(peffect->o_range)
+-			toplayer = 1 - playerid;
++			toplayer = pduel->game_field->opponent_of(playerid);
+ 	}
+ 	if(!pduel->game_field->is_player_can_mset(peffect->get_value(this), playerid, this, toplayer))
+ 		return FALSE;
+@@ -2748,7 +2748,7 @@ void card::filter_spsummon_procedure(uint8_t playerid, effect_set* peset, uint32
+ 			if(peffect->o_range == 0)
+ 				toplayer = playerid;
+ 			else
+-				toplayer = 1 - playerid;
++				toplayer = pduel->game_field->opponent_of(playerid);
+ 		} else {
+ 			topos = POS_FACEUP;
+ 			toplayer = playerid;
+@@ -3810,10 +3810,10 @@ int32_t card::is_control_can_be_changed(int32_t ignore_mzone, uint32_t zone) {
+ 		return FALSE;
+ 	if(current.location != LOCATION_MZONE)
+ 		return FALSE;
+-	if(!ignore_mzone && pduel->game_field->get_useable_count(this, 1 - current.controler, LOCATION_MZONE, current.controler, LOCATION_REASON::CONTROL, zone) <= 0)
++	if(!ignore_mzone && pduel->game_field->get_useable_count(this, pduel->game_field->opponent_of(current.controler), LOCATION_MZONE, current.controler, LOCATION_REASON::CONTROL, zone) <= 0)
+ 		return FALSE;
+ 	if(!pduel->game_field->is_flag(DUEL_TRAP_MONSTERS_NOT_USE_ZONE) && ((get_type() & TYPE_TRAPMONSTER)
+-											 && pduel->game_field->get_useable_count(this, 1 - current.controler, LOCATION_SZONE, current.controler, LOCATION_REASON::CONTROL) <= 0))
++											 && pduel->game_field->get_useable_count(this, pduel->game_field->opponent_of(current.controler), LOCATION_SZONE, current.controler, LOCATION_REASON::CONTROL) <= 0))
+ 		return FALSE;
+ 	if(is_affected_by_effect(EFFECT_CANNOT_CHANGE_CONTROL))
+ 		return FALSE;
+diff --git a/ocgapi.cpp b/ocgapi.cpp
+index 26dc09c..29eb9cb 100644
+--- a/ocgapi.cpp
++++ b/ocgapi.cpp
+@@ -82,7 +82,7 @@ void OCG_DuelNewCard(OCG_Duel ocg_duel, const OCG_NewCardInfo* info_ptr) {
+ 			}
+ 		}
+ 	} else {
+-		if(info.team > 1 || !(info.loc & (LOCATION_DECK | LOCATION_EXTRA)))
++		if(!game_field.is_duelist(info.team) || !(info.loc & (LOCATION_DECK | LOCATION_EXTRA)))
+ 			return;
+ 		card* pcard = pduel->new_card(info.code);
+ 		auto& player = game_field.player[info.team];
+@@ -139,7 +139,7 @@ int OCG_LoadScript(OCG_Duel ocg_duel, const char* buffer, uint32_t length, const
+ 
+ uint32_t OCG_DuelQueryCount(OCG_Duel ocg_duel, uint8_t team, uint32_t loc) {
+ 	auto* pduel = static_cast<duel*>(ocg_duel);
+-	if(team > 1)
++	if(!pduel->game_field->is_duelist(team))
+ 		return 0;
+ 	if(bit::popcnt(loc) != 1)
+ 		return 0;
+@@ -218,7 +218,7 @@ void* OCG_DuelQueryLocation(OCG_Duel ocg_duel, uint32_t* length, const OCG_Query
+ 		}
+ 	};
+ 	buffer.clear();
+-	if(info.con <= 1u && bit::popcnt(info.loc & ~LOCATION_OVERLAY) == 1) {
++	if(pduel->game_field->is_duelist(info.con) && bit::popcnt(info.loc & ~LOCATION_OVERLAY) == 1) {
+ 		if(info.loc & LOCATION_OVERLAY) {
+ 			insert_value<int16_t>(buffer, 0);
+ 		} else {
+@@ -253,7 +253,7 @@ void* OCG_DuelQueryField(OCG_Duel ocg_duel, uint32_t* length) {
+ 	query.clear();
+ 	//insert_value<int8_t>(query, MSG_RELOAD_FIELD);
+ 	insert_value<uint32_t>(query, pduel->game_field->core.duel_options);
+-	for(int playerid = 0; playerid < 2; ++playerid) {
++	for(int playerid = 0; playerid < pduel->game_field->n_duelists; ++playerid) {
+ 		auto& player = pduel->game_field->player[playerid];
+ 		insert_value<uint32_t>(query, player.lp);
+ 		for(auto& pcard : player.list_mzone) {
+diff --git a/playerop.cpp b/playerop.cpp
+index c1596eb..04b7a5c 100644
+--- a/playerop.cpp
++++ b/playerop.cpp
+@@ -479,7 +479,7 @@ bool field::process(Processors::SelectChain& arg) {
+ 		message->write<uint8_t>(spe_count);
+ 		message->write<uint8_t>(forced);
+ 		message->write<uint32_t>(core.hint_timing[playerid]);
+-		message->write<uint32_t>(core.hint_timing[1 - playerid]);
++		message->write<uint32_t>(core.hint_timing[opponent_of(playerid)]);
+ 		core.select_chains.sort(chain::chain_operation_sort);
+ 		message->write<uint32_t>(core.select_chains.size());
+ 		for(const auto& ch : core.select_chains) {
+@@ -573,7 +573,7 @@ bool field::process(Processors::SelectPlace& arg) {
+ 		uint8_t pt = 0;
+ 		for(int8_t i = 0; i < count; ++i) {
+ 			uint8_t select_player = returns.at<uint8_t>(pt);
+-			if(select_player > 1)
++			if(!is_duelist(select_player))
+ 				return retry();
+ 			const bool isplayerid = (select_player == playerid);
+ 			uint8_t location = returns.at<uint8_t>(pt + 1);
+@@ -714,7 +714,7 @@ bool field::process(Processors::SelectCounter& arg) {
+ 		uint8_t fp = playerid;
+ 		uint32_t total = 0;
+ 		core.select_cards.clear();
+-		for(int p = 0; p < 2; ++p) {
++		for(int p = 0; p < n_duelists; ++p) {
+ 			if(avail) {
+ 				for(auto& pcard : player[fp].list_mzone) {
+ 					if(pcard && pcard->get_counter(countertype)) {
+@@ -729,7 +729,7 @@ bool field::process(Processors::SelectCounter& arg) {
+ 					}
+ 				}
+ 			}
+-			fp = 1 - fp;
++			fp = next_in_turn_order(fp);
+ 			avail = oppo;
+ 		}
+ 		if(count > total)
