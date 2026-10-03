@@ -349,6 +349,10 @@ jobs:
       - name: Install
         run: npm ci --ignore-scripts
 
+      # The script imports @yugidraft/shared/dist/duels, which only exists after the build.
+      - name: Build shared
+        run: npm run build --workspace=@yugidraft/shared
+
       # --check prints the table and writes no file. --strict fails when a rule of ADR-0002 has no covering test.
       - name: Rule coverage
         run: npx tsx packages/duel-server/scripts/rule-coverage.ts --check --strict
