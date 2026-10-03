@@ -14,7 +14,7 @@ import { ELF, SOURCE } from "./nseat-scenarios.js";
 const SKULL = "Summoned Skull";
 const Q8 = `${SOURCE} [R-FFA-OPP-ONE], answers to the ten triage questions, 8 (Tribute of an opponent monster)`;
 const NO_WRAPPER = `${SOURCE} [R-FFA-OPP-ONE], the other cards use the defaults`;
-const OWNER_LP = `${SOURCE} [R-COMMON-ONGOING], finding s2-duelstyle-swap-1: Snatch Steal gives the LP to the owner of the stolen monster, in the Standby Phase of that owner`;
+const OWNER_LP = `${SOURCE} [R-FFA-OPP-ONE], finding s2-duelstyle-swap-1: Snatch Steal gives the LP to the owner of the stolen monster, in the Standby Phase of that owner`;
 const SUMMON = `${SOURCE} [R-COMMON-OPP-PICK], a summon to the field of an opponent: the summoning player picks one opponent`;
 
 export const DUEL_STYLE_FFA4_SCENARIOS: Scenario[] = [
@@ -73,7 +73,7 @@ export const DUEL_STYLE_FFA4_SCENARIOS: Scenario[] = [
     id: "owner-lp-snatch-steal-ffa4-only-the-owner-gains-the-lp-in-its-own-standby-phase",
     title: "FFA4: the 1000 LP of Snatch Steal go to the owner of the stolen monster (p3) in its own Standby Phase, with no pick, and to nobody else",
     source: OWNER_LP,
-    rules: ["R-COMMON-ONGOING", "R-FFA-ORDER"],
+    rules: ["R-FFA-OPP-ONE", "R-FFA-ORDER"],
     tags: ["multiplayer", "equip", "steal", "lp", "ffa4", "card:45986603"],
     setup: {
       format: "ffa4",

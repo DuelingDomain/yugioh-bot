@@ -22,7 +22,7 @@ const Q7 = `${SOURCE} [R-FFA-OPP-ONE/R-TAG-SHARED-CARDS], answers to the ten tri
 const Q8 = `${SOURCE} [R-FFA-OPP-ONE/R-TAG-SHARED-CARDS], answers to the ten triage questions, 8 (Tribute of an opponent monster)`;
 const SUMMON = `${SOURCE} [R-COMMON-OPP-PICK], a summon to the field of an opponent: the summoning player picks one opponent`;
 const NO_WRAPPER = `${SOURCE} [R-COMMON-OPP-PICK], the other cards use the defaults`;
-const OWNER_LP = `${SOURCE} [R-COMMON-ONGOING/R-TAG-LP], finding s2-duelstyle-swap-1: Snatch Steal gives the LP to the owner of the stolen monster, in the Standby Phase of that owner`;
+const OWNER_LP = `${SOURCE} [R-FFA-OPP-ONE/R-TAG-LP], finding s2-duelstyle-swap-1: Snatch Steal gives the LP to the owner of the stolen monster, in the Standby Phase of that owner`;
 
 type Seat = "p0" | "p1" | "p2" | "p3";
 
@@ -427,7 +427,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     id: "owner-lp-snatch-steal-ffa3-only-the-owner-gains-the-lp-in-its-own-standby-phase",
     title: "FFA3: the 1000 LP of Snatch Steal go to the owner of the stolen monster (p2) in its own Standby Phase, with no pick, and to nobody else",
     source: OWNER_LP,
-    rules: ["R-COMMON-ONGOING", "R-FFA-ORDER"],
+    rules: ["R-FFA-OPP-ONE", "R-FFA-ORDER"],
     tags: ["multiplayer", "equip", "steal", "lp", "ffa3", "card:45986603"],
     setup: {
       format: "ffa3",
