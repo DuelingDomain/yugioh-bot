@@ -36,10 +36,11 @@ export async function importYdkIntoCube(cubes: CubeService, cubeId: number, text
   if (distinct.size > IMPORT_MAX_DISTINCT) throw new Error(tooManyDistinct(distinct.size));
   const before = totalCopies(cubes.getCubePools(cubeId));
   const existing = copiesById(cubes.getCubePools(cubeId));
-  const groups: Array<{ codes: number[]; pool?: "extra" }> = [
+  const all: Array<{ codes: number[]; pool?: "extra" }> = [
     { codes: [...ydk.main, ...ydk.side, ...(ydk.deckMaster != null ? [ydk.deckMaster] : [])] },
     { codes: ydk.extra, pool: "extra" },
-  ].filter((g) => g.codes.length > 0);
+  ];
+  const groups = all.filter((g) => g.codes.length > 0);
   const merged = groups.map(({ codes, pool }) => {
     const withExisting = mergeCopies(codes, existing);
     // A card in both sections adds up: the next group starts from this group's totals.
