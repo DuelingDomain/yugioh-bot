@@ -18,8 +18,8 @@ import { ELF, SOURCE } from "./nseat-scenarios.js";
 // Tag seats: p0 and p2 are team 0, p1 and p3 are team 1.
 
 const Q4 = `${SOURCE} [R-COMMON-OPP-PICK], answers to the ten triage questions, 4 (duel-style cards)`;
-const Q7 = `${SOURCE} [R-FFA-OPP-ONE/R-TAG-SHARED-CARDS], answers to the ten triage questions, 7 (swap of control)`;
-const Q8 = `${SOURCE} [R-FFA-OPP-ONE/R-TAG-SHARED-CARDS], answers to the ten triage questions, 8 (Tribute of an opponent monster)`;
+const Q7 = `${SOURCE} [R-FFA-OPP-ONE] [R-TAG-SHARED-CARDS], answers to the ten triage questions, 7 (swap of control)`;
+const Q8 = `${SOURCE} [R-FFA-OPP-ONE] [R-TAG-SHARED-CARDS], answers to the ten triage questions, 8 (Tribute of an opponent monster)`;
 const SUMMON = `${SOURCE} [R-COMMON-OPP-PICK], a summon to the field of an opponent: the summoning player picks one opponent`;
 const NO_WRAPPER = `${SOURCE} [R-COMMON-OPP-PICK], the other cards use the defaults`;
 const OWNER_LP = `${SOURCE} [R-FFA-OPP-ONE/R-TAG-LP], finding s2-duelstyle-swap-1: Snatch Steal gives the LP to the owner of the stolen monster, in the Standby Phase of that owner`;
