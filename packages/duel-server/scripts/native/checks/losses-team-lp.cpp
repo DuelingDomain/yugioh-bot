@@ -431,10 +431,11 @@ static void check_first_attack() {
 		setup(g, 3, false, {40, 40, 40});
 		drive(g, 6000, [](Game& g) { if(g.idle_no == 1) lua(g, "Duel.SetLP(1,0)"); }, 7);
 		const auto v = first_per_turn(g);
+		const auto t = new_turns(g);
 		bool good = v.size() >= 4;
 		for(const auto& x : v)
 			good = good && (x.second == (x.first < 2));
-		EXPECT(good, "FFA3 seat 1 out: %s", show(v).c_str());
+		EXPECT(good && t.size() >= 3 && t[1] == 2 && t[2] == 0, "FFA3 seat 1 out: %s", show(v).c_str());
 		std::printf("ok   first attack FFA3 seat 1 eliminated before its turn: %s\n", show(v).c_str());
 	}
 }

@@ -362,7 +362,7 @@ static uint8_t seat_of_turn(int n, int turn) { return static_cast<uint8_t>((turn
 
 static void check_battle() {
 	const uint64_t opt1 = 0xFFFF0000ull | 1, opt2 = 0xFFFF0000ull | 2, opt3 = 0xFFFF0000ull | 3, opt0 = 0xFFFF0000ull;
-	// FFA3: the first attack is on turn 4, played by seat 0.
+	// Seat 0 first attacks on turn 4. Seat 2 can battle on turn 3.
 	{
 		Scenario s{"ffa3 both opponents have monsters -> seat 2's", 3, {0, 1, 2}, true, {{0, 3}, {1, 4}, {2, 4}}, 1, -1, true};
 		// The list is sorted by card order: seat 1's monster, then seat 2's (both zone 0).
@@ -422,7 +422,7 @@ static void check_battle() {
 		auto r = play(s, 21);
 		verify(s, r, {2, {0, 2}, false, {}, -1, 0, 1500});
 	}
-	// FFA battle starts when the last living duelist starts its first turn.
+	// R-FFA-NO-ATTACK: the last living seat has the first Battle Phase.
 	struct Early { const char* name; int n; std::vector<int> team; int first; };
 	const Early early[] = {
 		{"ffa3", 3, {0, 1, 2}, 3}, {"ffa4", 4, {0, 1, 2, 3}, 4}, {"tag", 4, {0, 1, 0, 1}, 4},
