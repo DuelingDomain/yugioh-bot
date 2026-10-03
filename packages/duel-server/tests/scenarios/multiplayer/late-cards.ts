@@ -404,25 +404,32 @@ function table(seats: Seat[], hands: Partial<Record<Seat, number>>, p0: { grave?
 }
 
 const timeSealSetup = { spells: [{ card: TIME_SEAL, pos: "set" as const }] };
+const TIME_SEAL_RULE = `${SOURCE} [R-FFA-OPP-ONE] [R-FFA-ACTIVATED-LOCK] [R-FFA-FIRST-DRAW]: Time Seal skips the declared opponent's next Draw Phase; all first draws follow the duel mode and Master Rule`;
 const timeSealFfa3 = defineScenario({
-  id: "r3-ffa3-time-seal-skips-the-draw-of-the-next-opponent-turn-in-turn-order",
-  title: "FFA3: p0 activates Time Seal in its turn: the Draw Phase of the NEXT opponent turn (p1) is skipped, p2 draws in its own turn, and p1 draws again in its next turn",
-  source: R3_RULE,
-  rules: ["R-FFA-ORDER"],
+  id: "r3-ffa3-time-seal-skips-the-draw-of-the-declared-opponent",
+  title: "FFA3: p0 declares p1 for Time Seal: p1 skips its next Draw Phase, p2 draws on its turn, and p1 draws on its second turn",
+  source: TIME_SEAL_RULE,
+  rules: ["R-FFA-ORDER", "R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-FIRST-DRAW"],
   tags: ["multiplayer", "late-cards", "turn-count", "r3", "ffa3", "card:35316708"],
   setup: { format: "ffa3", p0: timeSealSetup },
   steps: [
     activate(TIME_SEAL, "p0"),
+    expectPrompt({ by: "p0", context: "opponent" }),
+    expectPickSeats(["p1", "p2"], "p0"),
+    pickOpponent("p1", "p0"),
     table(["p0", "p1", "p2"], {}, { grave: [TIME_SEAL] }),
     endTurn("p0"), expectTurn("p1", 2),
-    // The next opponent turn is the turn of p1: no draw.
+    // The lock is bound to p1: p1 does not draw.
     table(["p0", "p1", "p2"], {}, { grave: [TIME_SEAL] }),
+    expectBoard({ p1: { deckCount: 20 }, p2: { deckCount: 20 } }),
     endTurn("p1"), expectTurn("p2", 3),
-    // The skip ended with the turn of p1: p2 draws.
+    // The lock does not affect p2: p2 draws.
     table(["p0", "p1", "p2"], { p2: 1 }, { grave: [TIME_SEAL] }),
+    expectBoard({ p1: { deckCount: 20 }, p2: { deckCount: 19 } }),
     endTurn("p2"), expectTurn("p0", 4),
     endTurn("p0"), expectTurn("p1", 5),
     table(["p0", "p1", "p2"], { p0: 1, p1: 1, p2: 1 }, { grave: [TIME_SEAL] }),
+    expectBoard({ p0: { deckCount: 19 }, p1: { deckCount: 19 }, p2: { deckCount: 19 } }),
   ],
 });
 

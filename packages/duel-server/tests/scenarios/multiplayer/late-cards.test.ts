@@ -14,10 +14,11 @@ describeWithCores("live late-card scenarios", liveNseat, () => {
   runScenarios("multiplayer/late-cards", LATE_CARD_SCENARIOS);
 });
 
-// Check the FFA target limit and the Tag Graveyard rule in real Domain duels.
-describeWithCores("Domain Foolish Revival", [liveNseat, ...needs.domainMulti()], () => {
+// Check the declared opponent and the Tag Graveyard rule in real Domain duels.
+describeWithCores("Domain late-card opponent rules", [liveNseat, ...needs.domainMulti()], () => {
   runScenarios("multiplayer/late-cards-domain", LATE_CARD_SCENARIOS
-    .filter((scenario) => scenario.tags.includes("card:83778600"))
+    .filter((scenario) => scenario.tags.includes("card:83778600")
+      || scenario.id === "r3-ffa3-time-seal-skips-the-draw-of-the-declared-opponent")
     .map(domainVariant));
 });
 
