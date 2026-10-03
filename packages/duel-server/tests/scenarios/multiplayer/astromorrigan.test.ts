@@ -14,6 +14,14 @@ describeWithCores("live scenarios of Prediction Princess Astromorrigan", liveNse
 });
 
 describe("Prediction Princess Astromorrigan scenario list", () => {
+  it("names the declared opponent result in every FFA proof ID", () => {
+    for (const scenario of ASTROMORRIGAN_SCENARIOS) {
+      if (scenario.setup.format === "tag") continue;
+      expect(scenario.id).not.toContain("each-opponent");
+      expect(scenario.id).toContain("declared-");
+    }
+  });
+
   it("has unique ids, a source, a multi-seat format, the rules it proves and an outcome after an action", () => {
     expect(new Set(ASTROMORRIGAN_SCENARIOS.map((s) => s.id)).size).toBe(ASTROMORRIGAN_SCENARIOS.length);
     for (const s of ASTROMORRIGAN_SCENARIOS) {

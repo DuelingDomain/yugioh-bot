@@ -79,6 +79,10 @@ describe("multiplayer card catalog", () => {
     }
   });
 
+  it("names every one-opponent catalog row with the current group", () => {
+    for (const row of GROUP_ONE) expect(row.id).toBe(`mp-one-${row.code}`);
+  });
+
   it("uses only passcodes that exist in cards.cdb and have an official script", () => {
     const codes = [
       ...SCENARIOS.map((scenario) => scenario.code),

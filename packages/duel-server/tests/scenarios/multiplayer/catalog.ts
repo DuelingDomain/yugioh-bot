@@ -1392,13 +1392,13 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
   ], // Space-Time Police
   // Cross-seat staples proven live (the event binding and the delayed draw), all three tables.
   35480699: [
-    "book-of-eclipse-ffa3-p0-each-opponent-flips-its-own-monsters-and-draws-for-them",
-    "book-of-eclipse-ffa3-p1-each-opponent-flips-its-own-monsters-and-draws-for-them",
-    "book-of-eclipse-ffa4-p0-each-opponent-flips-its-own-monsters-and-draws-for-them",
-    "book-of-eclipse-ffa4-p2-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa3-p0-declared-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa3-p1-declared-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa4-p0-declared-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa4-p2-declared-opponent-flips-its-own-monsters-and-draws-for-them",
     "book-of-eclipse-tag-p0-each-opponent-flips-its-own-monsters-and-draws-for-them",
     "book-of-eclipse-tag-p1-each-opponent-flips-its-own-monsters-and-draws-for-them",
-    "book-of-eclipse-ffa3-p0-activates-in-the-turn-of-p1-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa3-p0-activates-in-the-turn-of-p1-declared-opponent-flips-its-own-monsters-and-draws-for-them",
   ], // Book of Eclipse
   76922029: [
     "don-zaloog-ffa3-p1-damages-p2-deck-effect-hits-only-p2",

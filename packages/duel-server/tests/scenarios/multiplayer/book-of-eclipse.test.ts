@@ -14,6 +14,14 @@ describeWithCores("live scenarios of Book of Eclipse", liveNseat, () => {
 });
 
 describe("Book of Eclipse scenario list", () => {
+  it("names the declared opponent result in every FFA proof ID", () => {
+    for (const scenario of BOOK_OF_ECLIPSE_SCENARIOS) {
+      if (scenario.setup.format === "tag") continue;
+      expect(scenario.id).not.toContain("each-opponent");
+      expect(scenario.id).toContain("declared-");
+    }
+  });
+
   it("has unique ids, a source, a multi-seat format, the rules it proves and an outcome after an action", () => {
     expect(new Set(BOOK_OF_ECLIPSE_SCENARIOS.map((s) => s.id)).size).toBe(BOOK_OF_ECLIPSE_SCENARIOS.length);
     for (const s of BOOK_OF_ECLIPSE_SCENARIOS) {
