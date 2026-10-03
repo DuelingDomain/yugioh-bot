@@ -270,10 +270,79 @@ describe("per-player copy cap in booster drafts", () => {
 
     expect(drafts.findById(draftId).status).toBe("completed");
     for (const playerId of players) {
+      expect(drafts.pool(draftId, playerId)).toHaveLength(20);
       for (const [, copies] of heldByPlayer(db, draftId, playerId)) {
         expect(copies).toBeLessThanOrEqual(MAX_COPIES_PER_PLAYER);
       }
     }
+  });
+
+  it.each([
+    [3, 15, 5, 6, 7919, false], [3, 15, 5, 6, 15838, true], [3, 15, 5, 6, 23757, true],
+    [4, 16, 4, 8, 7919, true], [4, 16, 4, 8, 15838, true], [4, 16, 4, 8, 23757, false],
+  ] as const)("preserves packs and reachable deck sizes (%i players, %i names, pack %i × %i, seed %i, passes %s)", (count, distinct, packSize, waves, seed, expectPass) => {
+    const db = new Database(":memory:");
+    migrate(db);
+    seedCards(db, distinct);
+    let state = seed;
+    const random = () => {
+      state = (state * 1103515245 + 12345) % 2147483648;
+      return state / 2147483648;
+    };
+    const drafts = createDraftService(db, { seedSource: () => seed, random });
+    const players = Array.from({ length: count }, (_, i) => insertPlayer(db, `P${i}`));
+    const cardsPerPlayer = packSize * waves;
+    const draft = drafts.create("g", "c", "seeded cap property", {
+      cubeCardIds: distinctCube(distinct).flatMap((id) => Array(10).fill(id)),
+      packSize, packsPerPlayer: waves, cardsPerPlayer,
+    }, "host", players[0]);
+    for (const id of players.slice(1)) drafts.join(draft.id, id);
+    drafts.start(draft.id);
+    const collisions = db.prepare(
+      `select p.current_holder_seat_index from draft_packs p
+       where p.draft_id = ? and p.wave_number = ?
+         and exists (select 1 from draft_cards c where c.draft_pack_id = p.id and c.picked_by_player_id is null)
+       group by p.current_holder_seat_index having count(*) > 1`,
+    );
+    let sawEarlyFinisher = false;
+    let sawCap = false;
+    let sawPass = false;
+    for (let guard = 0; guard < 1000 && drafts.findById(draft.id).status === "active"; guard += 1) {
+      const current = drafts.findById(draft.id);
+      expect(collisions.all(draft.id, current.currentPackRound)).toEqual([]);
+      const playerId = players.find((id) => drafts.pickOptions(draft.id, id).length > 0);
+      // All-pass steps are settled synchronously; a takeable card must surface.
+      expect(playerId).toBeDefined();
+      const options = drafts.pickOptions(draft.id, playerId!);
+      drafts.pickCard(draft.id, playerId!, options[Math.floor(random() * options.length)].id);
+      expect(collisions.all(draft.id, drafts.findById(draft.id).currentPackRound)).toEqual([]);
+      const counts = players.map((id) => drafts.pool(draft.id, id).length);
+      sawEarlyFinisher ||= counts.some((n) => n === cardsPerPlayer) && counts.some((n) => n < cardsPerPlayer);
+      sawPass ||= Boolean(db.prepare("select 1 from draft_passes where draft_id = ? limit 1").get(draft.id));
+      for (const id of players) {
+        for (const copies of Object.values(drafts.heldCopies(draft.id, id))) {
+          expect(copies).toBeLessThanOrEqual(MAX_COPIES_PER_PLAYER);
+          sawCap ||= copies === MAX_COPIES_PER_PLAYER;
+        }
+      }
+    }
+    expect(drafts.findById(draft.id).status).toBe("completed");
+    expect(sawEarlyFinisher).toBe(true);
+    expect(sawCap).toBe(true);
+    if (expectPass) expect(sawPass).toBe(true);
+    const remaining = db.prepare("select distinct catalog_card_id as id from draft_cards where draft_id = ? and picked_by_player_id is null")
+      .all(draft.id) as Array<{ id: number }>;
+    for (const id of players) {
+      const picked = drafts.pool(draft.id, id).length;
+      expect(picked).toBeLessThanOrEqual(cardsPerPlayer);
+      expect(db.prepare("select pick_count as n from draft_players where draft_id = ? and player_id = ?").get(draft.id, id)).toEqual({ n: picked });
+      if (picked < cardsPerPlayer) {
+        expect(remaining.length).toBeGreaterThan(0);
+        const held = drafts.heldCopies(draft.id, id);
+        for (const card of remaining) expect(held[card.id]).toBe(MAX_COPIES_PER_PLAYER);
+      }
+    }
+    db.close();
   });
 });
 
