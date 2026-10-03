@@ -772,7 +772,12 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
         releases.push(beginPileHold(`move:${plan.id}`, plan.event.zone, waitMs));
       }
       if (releases.length > 0) {
-        const release = () => releases.forEach((fn) => fn());
+        const release = () => {
+          duelFxClock.clearTimeout(failsafe);
+          timersRef.current.delete(failsafe);
+          releasesRef.current.delete(plan.id);
+          releases.forEach((fn) => fn());
+        };
         releasesRef.current.set(plan.id, release);
         const failsafe = duelFxClock.setTimeout(release, waitMs);
         timersRef.current.add(failsafe);
