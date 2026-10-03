@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DuelEvent } from "@yugidraft/shared/duels";
-import { lockForEvents } from "@/components/duel/tag/fx-lock";
+import { lastEventId, lockForEvents } from "@/components/duel/tag/fx-lock";
 
 const ev = (id: number, kind: DuelEvent["kind"], extra: Partial<DuelEvent> = {}): DuelEvent => ({ id, kind, text: kind, ...extra });
 
@@ -36,5 +36,15 @@ describe("lockForEvents", () => {
 
   it("quiet events do not lock", () => {
     expect(lockForEvents([ev(1, "phase"), ev(2, "summon"), ev(3, "move")], 0)).toBeNull();
+  });
+
+  it("does not lock with reduced motion, even for an attack", () => {
+    expect(lockForEvents([ev(1, "attack"), ev(2, "chain-resolving")], 0, true)).toBeNull();
+    expect(lockForEvents([ev(1, "attack")], 0, false)?.reason).toBe("direct");
+  });
+
+  it("lastEventId moves the cursor past the newest event", () => {
+    expect(lastEventId([ev(4, "phase"), ev(9, "attack"), ev(7, "destroy")], 2)).toBe(9);
+    expect(lastEventId([], 5)).toBe(5);
   });
 });
