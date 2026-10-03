@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { MULTIPLAYER_TABLES_OFF_MESSAGE, multiplayerTablesBlockReason } from "../../src/duels/multiplayer-tables.js";
-import { MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason } from "../../src/duels/multi-domain.js";
+import { MULTI_CORE_UNAVAILABLE_MESSAGE, MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason } from "../../src/duels/multi-domain.js";
+
+describe("MULTI_CORE_UNAVAILABLE_MESSAGE", () => {
+  it("identifies the unavailable table formats and offers 1v1 without exposing a file path", () => {
+    expect(MULTI_CORE_UNAVAILABLE_MESSAGE).toMatch(/Tag, 3-player and 4-player/);
+    expect(MULTI_CORE_UNAVAILABLE_MESSAGE).toContain("Play a 1v1 table");
+    expect(MULTI_CORE_UNAVAILABLE_MESSAGE).not.toMatch(/[/\\]|\.wasm/);
+  });
+});
 
 describe("multiDomainBlockReason", () => {
   it("allows Standard at every table type", () => {

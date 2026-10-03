@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { MULTI_DOMAIN_UNAVAILABLE_MESSAGE } from "@yugidraft/shared/duels";
-import { MULTI_CORE_MISSING_MESSAGE, multiDomainCoreAvailable, multiDomainStartProblem, multiStartProblem } from "../src/multi-domain-guard.js";
+import { MULTI_CORE_UNAVAILABLE_MESSAGE, MULTI_DOMAIN_UNAVAILABLE_MESSAGE } from "@yugidraft/shared/duels";
+import { multiDomainCoreAvailable, multiDomainStartProblem, multiStartProblem } from "../src/multi-domain-guard.js";
 
 const dirs: string[] = [];
 function dataDir(files: string[]): string {
@@ -50,11 +50,11 @@ describe("multiStartProblem", () => {
     const dir = dataDir(["ocgcore.standard.wasm", "ocgcore.domain.wasm"]);
     for (const mode of ["normal", "domain"] as const) {
       for (const format of ["tag", "ffa3", "ffa4"] as const) {
-        expect(multiStartProblem(mode, format, dir)).toBe(MULTI_CORE_MISSING_MESSAGE);
+        expect(multiStartProblem(mode, format, dir)).toBe(MULTI_CORE_UNAVAILABLE_MESSAGE);
       }
     }
     // The message holds no file path.
-    expect(MULTI_CORE_MISSING_MESSAGE).not.toMatch(/[/\\]|\.wasm/);
+    expect(MULTI_CORE_UNAVAILABLE_MESSAGE).not.toMatch(/[/\\]|\.wasm/);
   });
 
   it("lets Standard at Tag and free-for-all tables start with the multi core alone", () => {

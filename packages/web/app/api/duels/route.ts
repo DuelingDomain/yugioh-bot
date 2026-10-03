@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     if (hostBlocked) return NextResponse.json({ error: hostBlocked }, { status: 403 });
     if (data?.multiCoreReady !== true) return NextResponse.json({ error: MULTI_CORE_UNAVAILABLE_MESSAGE }, { status: 409 });
     const domainBlocked = multiDomainBlockReason(mode, format, data?.multiDomainCoreReady === true);
-    if (domainBlocked) return NextResponse.json({ error: domainBlocked }, { status: 400 });
+    if (domainBlocked) return NextResponse.json({ error: domainBlocked }, { status: 409 });
   }
   const bestOf = body.bestOf ?? 1;
   if (bestOf !== 1 && bestOf !== 3) {
