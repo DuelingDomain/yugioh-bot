@@ -152,6 +152,8 @@ const SPECS: EffectSpec[] = [
     code: 54191698, name: "Number 29: Mannequin Cat", slug: "number-29-mannequin-cat", does: "Special Summons a monster of an opponent Graveyard",
     p0: { monsters: [{ card: "Number 29: Mannequin Cat", materials: [ELF, ELF] }] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
+    // Only the target opponent has a legal GY monster in FFA. The detach choice still opens.
+    noPick: (roles) => roles.format !== "tag",
     steps: [activate("Number 29: Mannequin Cat", "p0")],
     then: [select(ELF), no("p0")],
     p0End: { monsters: ["Number 29: Mannequin Cat"], grave: ["Mystical Elf"] },
