@@ -677,31 +677,66 @@ function makeSpriteTex(kind: "soft" | "ring"): THREE.Texture {
   return t;
 }
 
-/** A plain card back, for a card whose art has not arrived (or has no passcode). */
+/** The card back source: the same SVG the field uses (public/duel/card-back-main.svg), drawn once at this size. */
+const BACK_W = 256;
+const BACK_H = 373;
+const BACK_SRC = "/duel/card-back-main.svg";
+let backImage: Promise<HTMLImageElement | null> | null = null;
+
+/** Loads the card back SVG once. Resolves null when it cannot load (the plain fallback stays). */
+function loadBackImage(): Promise<HTMLImageElement | null> {
+  if (!backImage) {
+    backImage = new Promise((resolve) => {
+      if (typeof Image === "undefined") return resolve(null);
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = BACK_SRC;
+    });
+  }
+  return backImage;
+}
+
+/**
+ * A card back, for a card whose art has not arrived (or has no passcode). It draws a plain back at
+ * once and swaps in the same design as the field card back when the SVG has loaded.
+ */
 function makeBackTexture(): THREE.Texture {
   const cv = document.createElement("canvas");
-  cv.width = 128;
-  cv.height = 186;
+  cv.width = BACK_W;
+  cv.height = BACK_H;
   const g = cv.getContext("2d");
   if (g) {
-    g.fillStyle = "#3a2312";
-    g.fillRect(0, 0, 128, 186);
+    g.fillStyle = "#160b05";
+    g.fillRect(0, 0, BACK_W, BACK_H);
     g.strokeStyle = "#c9a45a";
-    g.lineWidth = 6;
-    g.strokeRect(6, 6, 116, 174);
-    const gr = g.createRadialGradient(64, 93, 6, 64, 93, 54);
+    g.lineWidth = 12;
+    g.strokeRect(6, 6, BACK_W - 12, BACK_H - 12);
+    const gr = g.createRadialGradient(BACK_W / 2, BACK_H / 2, 12, BACK_W / 2, BACK_H / 2, 108);
     gr.addColorStop(0, "#9b4a1d");
-    gr.addColorStop(1, "#3a2312");
+    gr.addColorStop(1, "#160b05");
     g.fillStyle = gr;
     g.beginPath();
-    g.ellipse(64, 93, 40, 62, 0, 0, Math.PI * 2);
+    g.ellipse(BACK_W / 2, BACK_H / 2, 80, 124, 0, 0, Math.PI * 2);
     g.fill();
     g.strokeStyle = "#c9a45a";
-    g.lineWidth = 3;
+    g.lineWidth = 6;
     g.stroke();
   }
   const t = new THREE.CanvasTexture(cv);
   t.colorSpace = THREE.NoColorSpace;
+  let disposed = false;
+  const dispose = t.dispose.bind(t);
+  t.dispose = () => {
+    disposed = true;
+    dispose();
+  };
+  void loadBackImage().then((img) => {
+    if (!img || disposed || !g) return;
+    g.clearRect(0, 0, BACK_W, BACK_H);
+    g.drawImage(img, 0, 0, BACK_W, BACK_H);
+    t.needsUpdate = true;
+  });
   return t;
 }
 
