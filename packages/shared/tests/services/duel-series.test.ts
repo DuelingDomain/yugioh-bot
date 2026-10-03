@@ -1158,6 +1158,37 @@ describe("tournament series", () => {
     expectStatus(() => app.series.startTournamentMatch({ guildId: "g1", tournamentMatchId: slot.id, actorPlayerId: app.p1 }), 409);
   });
 
+  it("lets any guild player watch a tournament game as a spectator, but never sit or see decks", () => {
+    const { app, slot, register } = tournamentSetup();
+    register(app.p1, validDeck(1));
+    register(app.p2, validDeck(1000));
+    const first = app.series.startTournamentMatch({ guildId: "g1", tournamentMatchId: slot.id, actorPlayerId: app.p1 });
+    const watcher = insertPlayer(app.db, "g1", "u8", "Tea");
+    const check = (slug: string) => {
+      const room = app.duels.room(slug, "g1", watcher);
+      expect(room).toMatchObject({ role: "spectator", mySeat: null, myDeck: null, mySide: null });
+      expect(room.session.settings.visibility).toBe("public");
+      expect(room.inviteCode).toBeUndefined();
+      expect(room.session.seats).toHaveLength(2);
+      expectStatus(() => app.duels.takeSeat(slug, "g1", watcher), 409);
+      expect(app.duels.get(slug, "g1").seats.map((seat) => seat.playerId).sort()).toEqual([app.p1, app.p2].sort());
+    };
+    check(first.duel.slug);
+    // Listed for the watcher with the series attached and both seats taken, so it is never an open table.
+    const listed = app.duels.list("g1", watcher).find((entry) => entry.slug === first.duel.slug);
+    expect(listed).toMatchObject({ mySeat: null, seriesId: first.series.id });
+    expect(listed?.seats).toHaveLength(2);
+    // Another guild still cannot see it.
+    expectStatus(() => app.duels.room(first.duel.slug, "g2", app.outsider), 404);
+    // Games 2 and 3 copy the series settings, so they are public too.
+    app.duels.setDeck(first.duel.slug, "g1", app.p1, validDeck(1));
+    app.duels.setDeck(first.duel.slug, "g1", app.p2, validDeck(1000));
+    playGame(app, first.duel.slug, app.p1);
+    const second = app.series.createNextGame(first.series.id, "g1");
+    expect(second.settings.visibility).toBe("public");
+    check(second.slug);
+  });
+
   it("rejects a slot with a pending manual report", () => {
     const { app, t, slot, register } = tournamentSetup();
     register(app.p1, validDeck(1));
@@ -1182,7 +1213,7 @@ describe("tournament series", () => {
     expect(first.series.tournamentSlug).toBeTruthy();
     expect(first.duel.name).toBe(`Cup · Round ${slot.round_number}`);
     expect(first.duel.organizerPlayerId).toBe(slot.player_one_id);
-    expect(first.duel.settings.visibility).toBe("private");
+    expect(first.duel.settings.visibility).toBe("public");
     expect(first.duel.seats.every((seat) => !seat.ready)).toBe(true);
     expect(app.duels.privateState(first.duel.slug, "g1").decks).toHaveLength(2);
     expect(app.series.openForTournamentMatch(slot.id)?.id).toBe(first.series.id);
