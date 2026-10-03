@@ -47,7 +47,7 @@ import {
 } from "./views.js";
 import { createDomainCore } from "./domain-core.js";
 import { chooseSurrenderedAnswer } from "./practice-bot.js";
-import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, parseDuelistMessages, rawMessageCapture, withoutDuelistParseWarnings, type RawDuelistMessage } from "./raw-messages.js";
+import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, MSG_SURRENDER_WINDOW_CLOSED, parseDuelistMessages, rawMessageCapture, withoutDuelistParseWarnings, type RawDuelistMessage } from "./raw-messages.js";
 import { MP_UTILITY_FILE, loadMultiScriptsFor } from "./multi-scripts.js";
 import { fillPlaceholders } from "./text.js";
 import { firstTurnDrawFor } from "./first-turn-draw.js";
@@ -519,6 +519,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   /** Links of the chain that are still on it: the wrapper cannot read the chain when there are more than two seats. */
   let liveChainSize = 0;
   let pending: PendingPrompt | null = null;
+  let closedResponseSeat: number | null = null;
   let result: DuelEngineView["result"] = null;
   let closed = false;
   const log: LogEntry[] = [];
@@ -732,6 +733,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   /** A multi-duelist message that the wrapper drops: MSG_DUELIST_ELIMINATED (200) and MSG_ATTACK_DUELIST (201). */
   const applyRaw = (raw: RawDuelistMessage) => {
     if (raw.type !== MSG_DUELIST_ELIMINATED) eliminationGroup = null;
+    if (raw.type === MSG_SURRENDER_WINDOW_CLOSED) {
+      if (raw.duelist < seatCount) closedResponseSeat = raw.duelist;
+      return;
+    }
     if (raw.type === MSG_DUELIST_ELIMINATED) {
       // A seat is 0..seatCount-1. Anything else (0xFF, "no duelist") eliminates nobody.
       if (raw.duelist >= seatCount) {
@@ -780,7 +785,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     resetEventBatch(eventContext);
     while (!result) {
       const status = lib.duelProcess(handle);
-      // The wrapper warns once per message id 200, 201 and 202 (it does not know them). The tap reads them below.
+      // The wrapper warns once per message id 200, 201, 202 and 203 (it does not know them). The tap reads them below.
       const messages = tap ? withoutDuelistParseWarnings(() => lib.duelGetMessage(handle)) : lib.duelGetMessage(handle);
       callsSinceLastPrompt += 1;
       messagesSinceLastPrompt += messages.length;
@@ -862,7 +867,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   /** Bound automatic answers while the current chain or cut-short turn finishes. */
   const LEAVING_ANSWER_LIMIT = 200;
 
-  const mustPassCutShortTurn = () => format !== "tag" && eliminated.has(turnSeat) && liveChainSize === 0
+  const mustCloseResponseWindow = () => pending?.seat === closedResponseSeat
     && pending?.message.type === OcgMessageType.SELECT_CHAIN && !pending.message.forced;
 
   /**
@@ -871,8 +876,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
    * a journal replay of the same commands gives the same answers.
    */
   const answerForLeavingSeats = () => {
-    for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustPassCutShortTurn()); step += 1) {
+    for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustCloseResponseWindow()); step += 1) {
       const current = pending;
+      closedResponseSeat = null;
       if (step >= LEAVING_ANSWER_LIMIT) {
         throw new Error(`Seat ${current.seat} is still in the duel after ${LEAVING_ANSWER_LIMIT} automatic answers (open prompt ${current.id}, ${current.prompt.kind})`);
       }
@@ -997,8 +1003,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       if (result) pending = null;
       // Do not run the core here. A call with no new response is no no-op: the core takes the old response buffer as the answer
       // of the open prompt (a chain window gets a pass), so the prompt of ANOTHER seat would be answered without that seat.
-      // The living seat's prompt stays. The engine auto-answers a leaver's prompt and the optional
-      // response windows of a cut-short turn, until the next living turn or a required living choice.
+      // Living choices stay open. The core identifies an optional response to the departed
+      // turn player; only that window and prompts held by leavers receive automatic answers.
       answerForLeavingSeats();
       revision += 1;
     },

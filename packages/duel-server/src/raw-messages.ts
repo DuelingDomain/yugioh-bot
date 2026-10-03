@@ -91,18 +91,20 @@ export const MSG_DUELIST_ELIMINATED = 200;
 export const MSG_ATTACK_DUELIST = 201;
 /** Sent instead of MSG_FIELD_DISABLED when there are more than two duelists: `u8 count`, then count x (`u8 duelist`, `u32 mask`). */
 export const MSG_FIELD_DISABLED_N = 202;
+/** The core closes the named seat's optional response to a departed turn player. */
+export const MSG_SURRENDER_WINDOW_CLOSED = 203;
 
 /**
- * The minified wrapper does not know ids 200, 201 and 202. For each one it drops the message and calls
- * `console.warn("failed to parse a message: <id>")` (the parse itself is correct: the layout of the three
- * messages matches the core writer, see the tests). The tap above reads them, so those three warnings are noise
+ * The minified wrapper does not know ids 200, 201, 202 and 203. For each one it drops the message and calls
+ * `console.warn("failed to parse a message: <id>")` (the parse itself is correct: the layout of the four
+ * messages matches the core writer, see the tests). The tap above reads them, so those four warnings are noise
  * at 3 and 4 seats. Run `read` with them removed. Any other warning (also for an unknown id) still passes.
  */
 export function withoutDuelistParseWarnings<T>(read: () => T): T {
   const warn = console.warn;
   console.warn = (...args: unknown[]) => {
     const text = args.length === 1 && typeof args[0] === "string" ? args[0] : null;
-    if (text != null && /^failed to parse a message: (200|201|202)$/.test(text)) return;
+    if (text != null && /^failed to parse a message: (200|201|202|203)$/.test(text)) return;
     warn(...args);
   };
   try {
@@ -113,12 +115,13 @@ export function withoutDuelistParseWarnings<T>(read: () => T): T {
 }
 
 export type RawDuelistMessage =
+  | { type: typeof MSG_SURRENDER_WINDOW_CLOSED; duelist: number; after: number }
   | { type: typeof MSG_DUELIST_ELIMINATED; duelist: number; reason: number; /** Raw messages of any other id before this one in the buffer. */ after: number }
   | { type: typeof MSG_ATTACK_DUELIST; duelist: number; after: number }
   | { type: typeof MSG_FIELD_DISABLED_N; zones: Array<{ duelist: number; mask: number }>; after: number };
 
 /**
- * Parse the messages with id 200, 201 and 202 out of one getMessage buffer. Each message is a length
+ * Parse the messages with ids 200, 201, 202 and 203 out of one getMessage buffer. Each message is a length
  * prefix, then the id byte, then its body. Any other message only counts toward `after`.
  */
 export function parseDuelistMessages(bytes: Uint8Array): { extras: RawDuelistMessage[]; others: number } {
@@ -128,6 +131,8 @@ export function parseDuelistMessages(bytes: Uint8Array): { extras: RawDuelistMes
     const id = message[0];
     if (id === MSG_DUELIST_ELIMINATED && message.byteLength >= 3) {
       extras.push({ type: MSG_DUELIST_ELIMINATED, duelist: message[1]!, reason: message[2]!, after: others });
+    } else if (id === MSG_SURRENDER_WINDOW_CLOSED) {
+      if (message.byteLength >= 2) extras.push({ type: MSG_SURRENDER_WINDOW_CLOSED, duelist: message[1]!, after: others });
     } else if (id === MSG_ATTACK_DUELIST && message.byteLength >= 2) {
       extras.push({ type: MSG_ATTACK_DUELIST, duelist: message[1]!, after: others });
     } else if (id === MSG_FIELD_DISABLED_N && message.byteLength >= 2) {

@@ -572,6 +572,43 @@ end`]);
       expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[1]).toEqual(live);
     }, 60_000);
 
+    for (const [actor, target, closes] of [[0, 1, true], [1, 0, true], [1, 1, false]] as const) {
+      it.each(["ffa3", "ffa4"] as const)(`R-COMMON-SURRENDER-EOT: %s turn-player loss ${closes ? "closes an involved" : "keeps a living-only"} response window (actor ${actor}, target ${target})`, async (format) => {
+        const t = await table(mode, format, true, [`local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_PHASE_START+PHASE_MAIN1)
+e:SetCountLimit(1)
+e:SetOperation(function() local c=Duel.GetFieldCard(${target},LOCATION_MZONE,0) if Duel.GetTurnCount()==1 and c then Duel.Destroy(c,REASON_EFFECT) end end)
+Duel.RegisterEffect(e,${actor})`]);
+        const responder = t.count - 1;
+        for (let step = 0; step < 25; step++) {
+          const v = await t.view(responder);
+          if (v.phase === "main1" && !v.seats[target]!.monsters.some(Boolean) && v.prompt?.context?.type === "chain") break;
+          await passPrompt(t);
+        }
+        const before = await t.view(responder);
+        expect(before).toMatchObject({ turn: 1, turnSeat: 0, phase: "main1", chain: [] });
+        expect(before.seats[target]!.monsters.filter(Boolean)).toHaveLength(0);
+        expect(before.prompt?.context?.type).toBe("chain");
+        await t.post("surrender", 0);
+        const after = await t.view(responder);
+        expect(states(after)).toEqual(["out", ...Array(t.count - 1).fill("in")]);
+        if (closes) {
+          expect(after.prompt?.id).not.toBe(before.prompt!.id);
+          await reachMain(t, 1);
+        } else {
+          expect(after).toMatchObject({ turn: 1, turnSeat: 0, phase: "main1", chain: [] });
+          expect(after.prompt).toEqual(before.prompt);
+          await t.recover();
+          expect(await t.view(responder)).toEqual(after);
+          expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[responder]).toEqual(after);
+          await t.answer(responder, chooseSurrenderedAnswer(after.prompt!));
+          await reachMain(t, 1);
+        }
+        expect(await t.view(1)).toMatchObject({ turn: 2, turnSeat: 1, result: null });
+      }, 60_000);
+    }
+
     it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s own-turn chain resolves before the next living turn", async (format) => {
       const t = await table(mode, format, true);
       await reachMain(t);

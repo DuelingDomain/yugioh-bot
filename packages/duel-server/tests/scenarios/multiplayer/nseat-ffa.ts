@@ -553,7 +553,7 @@ export const FFA_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "nseat-ffa4-turn-player-surrenders-mid-battle",
-    title: "FFA4: the turn player gives up after its attack is declared while p3 holds a chain window: the window stays, the attack is rolled back",
+    title: "FFA4: the turn player gives up after its attack is declared while p3 holds a chain window: the window closes, the attack is cancelled",
     source: `${SOURCE} [R-FFA-ELIMINATION]`,
     rules: ["R-FFA-ELIMINATION", "R-FFA-ATTACK"],
     tags: ["multiplayer", "elimination", "battle", "surrender", "ffa4", "card:15025844", "card:60082869"],
@@ -574,9 +574,8 @@ export const FFA_SCENARIOS: Scenario[] = [
       attack(ELF, { card: ELF, owner: "p1" }, "p0"),
       expectPrompt({ by: "p3", context: "chain" }),
       surrender("p0"),
-      // The window of p3 is still there: the loss of the turn player does not close it.
-      expectPrompt({ by: "p3", context: "chain" }),
-      ...declineWindows("p3", 2),
+      // This window responds to p0's attack. It closes when p0 leaves.
+      // Later phase windows for the departed turn also close in the core.
       expectEliminated("p0"),
       expectTurn("p1", 6),
       // No battle took place: the Elf of p1 is alive and nobody lost LP.

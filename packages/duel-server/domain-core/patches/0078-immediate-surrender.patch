@@ -11,19 +11,31 @@ Other loss reasons retain their existing timing.
 diff --git a/field.h b/field.h
 --- a/field.h
 +++ b/field.h
-@@ -711,7 +711,7 @@
+@@ -262,6 +262,10 @@
+ 	event_list single_event;
+ 	event_list solving_event;
+ 	event_list sub_solving_event;
++	// Snapshot the event participants before immediate surrender removes their cards.
++	uint8_t response_window_seats{ 0 };
++	uint8_t response_window_player{ DUELIST_NONE };
++	bool response_window_optional{ false };
+ 	chain_list select_chains;
+ 	chain_array current_chain;
+ 	int32_t real_chain_count;
+@@ -711,7 +715,8 @@
  	// any body runs): then p is not "already out" and the body runs.
  	void eliminate(uint8_t p, uint8_t reason, bool marked = false);
  	// Applies the losses of a duel with more than 2 duelists (Adjust step 1). Sends MSG_WIN at the end.
 -	void check_losses_n();
 +	void check_losses_n(bool surrenders_only = false);
++	uint8_t response_window_participants() const;
  	// Calls f(p) for p = 0 .. n_duelists - 1 in ascending order (the stock order: player 0, then 1).
  	template<typename F>
  	void for_each_duelist(F&& f) const {
 diff --git a/libdebug.cpp b/libdebug.cpp
 --- a/libdebug.cpp
 +++ b/libdebug.cpp
-@@ -336,6 +336,23 @@
+@@ -336,6 +336,31 @@
  	return 0;
  }
  
@@ -39,8 +51,16 @@ diff --git a/libdebug.cpp b/libdebug.cpp
 +		lua_error(L, "Debug.SurrenderDuelist: only in a duel of more than 2 duelists.");
 +	if(!field->is_alive(p))
 +		lua_error(L, "Debug.SurrenderDuelist: the duelist is not in the duel.");
++	// An already open living response must be closed explicitly by the host.
++	const bool close_window = field->n_teams == field->n_duelists && p == field->infos.turn_player
++		&& field->core.current_chain.empty() && field->core.response_window_optional
++		&& (field->core.response_window_seats & (1u << p));
 +	field->player[p].pending_loss = 0x200;
 +	field->check_losses_n(true);
++	if(close_window && !field->is_alive(p)) {
++		auto message = pduel->new_message(203); // MSG_SURRENDER_WINDOW_CLOSED: u8 response seat
++		message->write<uint8_t>(field->core.response_window_player);
++	}
 +	return 0;
 +}
 +
@@ -166,7 +186,15 @@ diff --git a/operations.cpp b/operations.cpp
 diff --git a/playerop.cpp b/playerop.cpp
 --- a/playerop.cpp
 +++ b/playerop.cpp
-@@ -259,11 +259,11 @@
+@@ -14,6 +14,7 @@
+ #include "duel.h"
+ #include "effect.h"
+ #include "field.h"
++#include "group.h"
+ 
+ bool field::process(Processors::SelectBattleCmd& arg) {
+ 	auto playerid = arg.playerid;
+@@ -259,11 +260,11 @@
  					all_picks = false;
  					break;
  				}
@@ -180,7 +208,70 @@ diff --git a/playerop.cpp b/playerop.cpp
  				pduel->new_message(MSG_RETRY);
  				return FALSE;
  			}
-@@ -561,6 +561,10 @@
+@@ -493,10 +494,48 @@
+ 		return TRUE;
+ 	}
+ }
++// Real action events take precedence over the phase/free-chain events in the same window.
++// A window without a real action belongs to the current turn (phase/idle timing).
++uint8_t field::response_window_participants() const {
++	uint8_t seats = 0;
++	auto add = [&](uint8_t p) { if(is_duelist(p)) seats |= 1u << p; };
++	auto add_card = [&](card* c) {
++		if(c && (c->current.location || c->previous.location)) {
++			add(c->owner);
++			add(c->current.controler);
++			if(!c->current.location)
++				add(c->previous.controler);
++		}
++	};
++	for(const auto* events : { &core.point_event, &core.instant_event }) {
++		for(const auto& e : *events) {
++			if(!e.event_code || e.event_code == EVENT_FREE_CHAIN || e.event_code == EVENT_ADJUST
++				|| e.event_code == EVENT_BREAK_EFFECT || e.event_code == EVENT_CHAIN_END
++				|| e.event_code == EVENT_TURN_END || (e.event_code & 0xfffff000u) == EVENT_PHASE
++				|| (e.event_code & 0xfffff000u) == EVENT_PHASE_START)
++				continue;
++			if(event_player_is_subject(e.event_code)) add(e.event_player);
++			if(e.reason_effect || e.reason) add(e.reason_player);
++			if(e.reason_effect) add_card(e.reason_effect->get_handler());
++			add_card(e.trigger_card);
++			if(e.event_cards)
++				for(auto* c : e.event_cards->container) add_card(c);
++			if(event_is_battle(e.event_code)) {
++				add_card(core.attacker);
++				add_card(core.attack_target);
++				add(core.battle_defender);
++			}
++		}
++	}
++	if(!seats) add(infos.turn_player);
++	return seats;
++}
++
+ bool field::process(Processors::SelectChain& arg) {
+ 	auto playerid = arg.playerid;
+ 	auto spe_count = arg.spe_count;
+ 	auto forced = arg.forced;
++	core.response_window_optional = false;
+ 	if(arg.step == 0) {
+ 		returns.set<int32_t>(0, -1);
+ 		// a seat that is not alive passes, and only takes a forced chain
+@@ -522,6 +561,13 @@
+ 			}
+ 			return TRUE;
+ 		}
++		core.response_window_seats = response_window_participants();
++		// Close only a response to the departed turn player. Other living actions finish first.
++		if(n_duelists > 2 && n_teams == n_duelists && !forced && core.current_chain.empty()
++			&& !is_alive(infos.turn_player) && (core.response_window_seats & (1u << infos.turn_player)))
++			return TRUE;
++		core.response_window_optional = !forced;
++		core.response_window_player = playerid;
+ 		auto message = pduel->new_message(MSG_SELECT_CHAIN);
+ 		message->write<uint8_t>(playerid);
+ 		message->write<uint8_t>(spe_count);
+@@ -561,6 +607,10 @@
  	auto disable_field = arg.disable_field;
  	// n_duelists > 2: the seat whose field the opponent zones belong to (DUELIST_NONE = not named, or the own field)
  	const uint8_t target = (n_duelists > 2 && arg.target != playerid) ? arg.target : DUELIST_NONE;
