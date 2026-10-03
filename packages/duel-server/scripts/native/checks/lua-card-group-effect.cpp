@@ -7,11 +7,10 @@
 //   ffa4e               FFA4 with seat 1 marked eliminated: no prompt may go to seat 1
 //   n2, n2s             n == 2 without and with Debug.SetupDuelists(2,0,1): same message bytes and raw ids
 // The test card is a mandatory trigger on EVENT_PHASE+PHASE_STANDBY (as in the F1 check).
-// F5 binding: the operation reads Duel.GetTurnPlayer() first. On the turn of an opponent that read binds this opponent
-// (silent). On an own turn the first yieldable read of "1" (Card.IsType with the viewer 1-tp) asks the activator which
-// opponent it means (MSG_SELECT_OPTION, every desc 0xFFFE0000|seat, ascending, living opponents only). The driver answers option k % options for pick number
-// k, so the bound opponent is that seat (a core that ignores the answer fails). Every pick here is the fallback pick of the operation step
-// (the test card has no target or cost); the pick at activation is covered by opponent-pick. Group.Select(1-tp) and SetOwnerPlayer(1-tp) then use that seat.
+// A003 declaration rules: R-FFA-OPP-ONE and R-FFA-OPP-RESPONSE. FFA phase triggers that name no
+// opponent's turn declare at activation. The driver varies the real answer and records it for each activation.
+// A later GetTurnPlayer read keeps the declared seat and logs a conflict when the seats differ.
+// A004 saved range binding: R-FFA-ACTIVATED-LOCK. Tag and two-seat paths keep their stock behavior.
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -476,12 +475,12 @@ struct Model {
 			if(!same_team(P, q) && q != eliminate) v.push_back(q);
 		return v;
 	}
-	// the opponent that "1" means during the operation of the card of seat P on the turn of seat T: the turn player when it
-	// is an opponent (the GetTurnPlayer read binds it), else the only living opponent (silent bind), else the pick (option
-	// k % options: chosen[P] is the seat of the last answer of seat P)
+	// R-FFA-OPP-ONE, R-FFA-OPP-RESPONSE: this phase trigger names no opponent's turn.
+	// In FFA, the activation answer fixes the seat. A later turn-player read cannot replace it.
+	// Rec::chosen stores the answered seat for each activation. Tag keeps the stock turn/read rule.
 	int bound(int P, int T, const int* chosen) const {
 		if(!fold()) return 1 - P;
-		if(!same_team(P, T)) return T;
+		if(tag && !same_team(P, T)) return T;
 		const auto v = opponents(P);
 		if(v.empty()) return -1;
 		return v.size() == 1 ? v[0] : chosen[P];
@@ -566,7 +565,7 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 			EXPECT(m["k"] == "true,false,true,true", "%s: count limit round trip seat %d: %s", sc.name, P, r.text.c_str());
 		} else if(k == "abs") {
 			// The monsters of the seats whose folded value (as the script sees it) is the named player get the boost:
-			// n > 2 FFA: tp = seat P only, 1-tp = every opponent. Tag: the team id names a whole team (so a seat of team 1
+			// n > 2 FFA: tp = seat P only; A004 saves the declared opponent for 1-tp. Tag: the team id names a whole team (so a seat of team 1
 			// names its own team with tp, and the opponents with 0). n == 2: the stock seat.
 			auto want_for = [&](int named) {
 				std::string w;
@@ -598,22 +597,23 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 	EXPECT(out.depth_bad == 0, "%s: scope depth not 0 at %zu of %zu prompts", sc.name, out.depth_bad, out.prompts);
 	EXPECT(g_errors == 0, "%s: %ld Lua errors, first: %s", sc.name, g_errors, g_error_text.empty() ? "" : g_error_text[0].c_str());
 	if(M.fold()) {
-		// one kind (d) record per firing: SetOwnerPlayer(7); nothing else of F4 may write kind (d), (b) or (c)
+		// One kind (d) record per firing: SetOwnerPlayer(7). Check binding and late-read diagnostics below.
 		if(sc.eliminate < 0)
 			EXPECT(count_kind(nfold, 'd') == firings, "%s: %d kind (d) records, want %d", sc.name, count_kind(nfold, 'd'), firings);
-		EXPECT(count_kind(nfold, 'b') == 0, "%s: %d kind (b) records (a binding conflict)", sc.name, count_kind(nfold, 'b'));
-		// F5: no unbound fallback (a). The first read of a single "1" in a yieldable operation is Card.IsType with the viewer
-		// 1-tp: on an own turn of a seat with at least 2 living opponents the core asks for a pick (one per
-		// firing); on an opponent's turn the GetTurnPlayer read has bound the turn player; one living opponent binds silently.
-		int want_picks = 0;
+		// R-FFA-OPP-ONE: declared seat per activation; the broad card filters still cover all seats.
+		int want_picks = 0, want_b = 0;
 		for(const auto& r : g_recs) {
 			auto m = fields_of(r.text);
 			if(m["kind"] != "who") continue;
-			const int P = as_int(m, "s");
-			if(M.same_team(P, r.turn_player) && M.opponents(P).size() >= 2) ++want_picks;
+			const int P = as_int(m, "s"), T = r.turn_player;
+			if((!M.tag || M.same_team(P, T)) && M.opponents(P).size() >= 2) ++want_picks;
+			// GetTurnPlayer is the only binding read here. A conflicting read keeps the declaration.
+			if(!M.tag && !M.same_team(P, T) && M.bound(P, T, r.chosen) != T) ++want_b;
 		}
+		EXPECT(count_kind(nfold, 'b') == want_b && count_kind(nfold, 'b', "push_player") == want_b,
+		       "%s: %d kind (b) records from conflicting turn reads, want %d", sc.name, count_kind(nfold, 'b'), want_b);
 		EXPECT(count_kind(nfold, 'a') == 0, "%s: %d kind (a) records (an unbound fallback), want 0", sc.name, count_kind(nfold, 'a'));
-		// Valid bound FFA operations are not kind (c) diagnostics; Tag keeps its stock count.
+		// R-FFA-OPP-ONE: valid bound FFA operations have no kind (c). This Tag non-chooser keeps trap c.
 		const int want_c = M.tag ? want_picks : 0;
 		EXPECT(count_kind(nfold, 'c') == want_c && count_kind(nfold, 'c', "IsType") == want_c, "%s: %d kind (c) records (%d from IsType), want %d", sc.name,
 		       count_kind(nfold, 'c'), count_kind(nfold, 'c', "IsType"), want_c);
