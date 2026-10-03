@@ -355,6 +355,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 65477143, name: "Abyss Actor - Liberty Dramatist", slug: "abyss-actor-liberty-dramatist", does: "Special Summons itself from the Pendulum Zone when a monster attacks",
+    // Owner 2026-10-03: the attack target is the bound opponent.
     binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
