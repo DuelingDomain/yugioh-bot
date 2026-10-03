@@ -19,12 +19,25 @@ function durations(declaration: string): number[] {
 }
 
 describe("usable zone highlight", () => {
-  it("shows at once: the legal frame has no border or fill fade and a lift of at most 80 ms", () => {
-    const body = rule(field, '.zone[data-legal="true"]:not(:hover) .frame');
-    const transition = body.slice(body.indexOf("transition:"));
-    expect(Math.max(...durations(transition))).toBeLessThanOrEqual(80);
+  const LEGAL_FRAME = '.felt:not([data-reduced-motion="true"]) .zone[data-legal="true"]:not(:hover) .frame';
+
+  it("shows at once: the legal frame has no border or fill fade", () => {
+    const transition = (() => { const body = rule(field, `  ${LEGAL_FRAME}`); return body.slice(body.indexOf("transition:")); })();
     expect(transition).toMatch(/border-color 0s/);
     expect(transition).toMatch(/background-color 0s/);
+  });
+
+  it("keeps the 0.18 s transform move, so a legal hand card shrinks back gently", () => {
+    const body = rule(field, `  ${LEGAL_FRAME}`);
+    expect(body).toMatch(/transform 0\.18s/);
+  });
+
+  it("only applies when motion is allowed, so the reduced-motion rules still win", () => {
+    const at = field.indexOf(LEGAL_FRAME);
+    const media = field.lastIndexOf("@media", at);
+    expect(field.slice(media, at)).toContain("(prefers-reduced-motion: no-preference)");
+    expect(LEGAL_FRAME).toContain(':not([data-reduced-motion="true"])');
+    expect(field).toMatch(/\.felt\[data-reduced-motion="true"\] \.frame[^{]*\{\s*transition: none;/);
   });
 
   it("the plain frame keeps its slower fades, so only the highlight changed", () => {

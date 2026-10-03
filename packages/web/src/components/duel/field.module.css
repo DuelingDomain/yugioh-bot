@@ -1378,13 +1378,16 @@
   background: var(--pen-soft);
 }
 
-/* A zone you can use lights up at once: the 0.3 s border and 0.2 s fill fades of a plain frame are cut to nothing, and the
-   lift of a usable card to 80 ms. (Entering hover keeps the normal 0.18 s move.) */
-.zone[data-legal="true"]:not(:hover) .frame {
-  transition:
-    border-color 0s,
-    background-color 0s,
-    transform 80ms var(--ease);
+/* A zone you can use lights up at once: the 0.3 s border and 0.2 s fill fades of a plain frame are cut to nothing. The
+   transform keeps its 0.18 s move (a legal hand card still shrinks back gently). Scoped so that the reduced-motion rules,
+   which switch every transition off, still win. */
+@media (prefers-reduced-motion: no-preference) {
+  .felt:not([data-reduced-motion="true"]) .zone[data-legal="true"]:not(:hover) .frame {
+    transition:
+      border-color 0s,
+      background-color 0s,
+      transform 0.18s var(--ease);
+  }
 }
 
 .zone[data-legal="true"][data-occupied="true"] .frame {
