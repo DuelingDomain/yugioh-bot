@@ -1,0 +1,109 @@
+/* Shared by the three mocks: the flight layer and the neutral mock-controls panel.
+   The panel is deliberately plain grey so it never reads as part of a concept. */
+
+.kit-fx {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+}
+
+.kit-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  border-radius: 6px;
+  background: #06080e center / cover no-repeat;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5), 0 0 22px 4px rgb(var(--glow, 155 126 255) / 0.55), 0 14px 26px rgb(0 0 0 / 0.55);
+  will-change: transform, opacity;
+}
+
+.kit-demo-tab {
+  position: fixed;
+  top: 50%;
+  right: 0;
+  z-index: 90;
+  translate: 0 -50%;
+  writing-mode: vertical-rl;
+  padding: 12px 5px;
+  border: 1px solid #4a4d55;
+  border-right: 0;
+  border-radius: 7px 0 0 7px;
+  background: #24262c;
+  color: #cfd1d6;
+  font: 500 11.5px/1 system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  opacity: 0.72;
+}
+.kit-demo-tab:hover,
+.kit-demo-tab[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.kit-demo {
+  position: fixed;
+  top: 50%;
+  right: 30px;
+  z-index: 91;
+  translate: 0 -50%;
+  width: min(300px, calc(100vw - 44px));
+  padding: 12px;
+  border: 1px solid #4a4d55;
+  border-radius: 10px;
+  background: #24262c;
+  color: #d9dbe0;
+  font: 400 12.5px/1.35 system-ui, sans-serif;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.6);
+}
+.kit-demo[hidden] {
+  display: none;
+}
+.kd-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.kd-x {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 18px;
+  cursor: pointer;
+}
+.kd-note {
+  margin: 2px 0 10px;
+  color: #9a9da5;
+}
+.kd-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-top: 8px;
+}
+.kd-row > span {
+  flex: 0 0 100%;
+  color: #9a9da5;
+  font-size: 11.5px;
+}
+.kit-demo button,
+.kit-demo a {
+  padding: 5px 8px;
+  border: 1px solid #50535c;
+  border-radius: 6px;
+  background: #2e3037;
+  color: #e4e6ea;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.kit-demo [aria-pressed="true"],
+.kit-demo [aria-current="true"] {
+  border-color: #c9ccd3;
+  background: #43464f;
+}
+.kit-demo .kd-restart {
+  margin-top: 4px;
+}
