@@ -5871,6 +5871,21 @@
       "seatExtra": "c90846359.extra.lua"
     },
     {
+      "code": 91286284,
+      "file": "c91286284.lua",
+      "name": "Gold Pride - That Came Out of Nowhere!",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPPick": [
+          "sptg"
+        ]
+      },
+      "stockSha256": "0aed4a4e239213db3baf7b4077e6d989687dc898377c3c4b0f58678a344a20e3",
+      "note": "In Tag, select one opponent at activation for the optional summon from the hand or GY. Keep the joined team field."
+    },
+    {
       "code": 91668078,
       "file": "c91668078.lua",
       "name": "In Papa's Footsteps",
