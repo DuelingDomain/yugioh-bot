@@ -1,11 +1,88 @@
 import { describe, expect, it } from "vitest";
 import { OcgLocation as L, OcgMessageType as M, OcgPosition as P } from "ocgcore-wasm";
 import type { CardDatabase } from "../src/cards.js";
-import { createEventContext, createRevealMap, moveReveals, noteReveal, observeMoveEvents, projectView, slotRevealed, type StoredDuelEvent } from "../src/views.js";
+import { clearRevealsAt, createEventContext, createRevealMap, moveReveals, noteReveal, observeMoveEvents, projectView, slotRevealed, type StoredDuelEvent } from "../src/views.js";
 
 const cards = { get: (code: number) => ({ code, name: `Card ${code}`, type: 17 }) } as CardDatabase;
 
 describe("hand order in projected views", () => {
+  it.each([0, 1, null])("keeps EFFECT_PUBLIC cards on their sleeve after an initial query by viewer %s", (initialViewer) => {
+    const ctx = createEventContext();
+    const events = observeMoveEvents({ type: M.DRAW, player: 0, drawn: [10, 20, 30, 40, 50].map((code) => ({ code, position: P.FACEDOWN_ATTACK })) }, cards, ctx, 1);
+    let raw = [10, 20, 30, 40, 50];
+    const project = (viewer: number | null) => projectView({
+      lib: { duelQueryField: () => ({ players: [{ deck_size: 30, extra_size: 0 }, { deck_size: 30, extra_size: 0 }], chain: [] }),
+        duelQueryLocation: (_h: unknown, q: { controller: number; location: number }) => q.controller === 0 && q.location === L.HAND
+          ? raw.map((code) => ({ code, position: P.FACEDOWN_ATTACK, isPublic: code === 20 || code === 50 })) : [] } as never,
+      handle: {} as never, cards, viewer, revision: 0, turn: 1, turnSeat: 0, phase: "main1", lp: [8000, 8000],
+      prompt: null, promptSeat: null, log: [], events, result: null, reveals: createRevealMap(), mode: "normal", handIdentities: ctx.handIdentities,
+    });
+    project(initialViewer);
+    const before = [0, 1, 2, 3, 4].map((sequence) => ctx.handIdentities.at(0, false, sequence));
+    // An owner-only query observes the same public flags, independent of projection order.
+    expect(project(0).seats[0]!.hand.map((card) => card.code)).toEqual(raw);
+    raw = [50, 30, 20, 10, 40];
+    observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: raw }, cards, ctx, 6);
+    for (const viewer of [1, null]) {
+      const view = project(viewer);
+      expect(view.seats[0]!.hand.map((card) => card.handId)).toEqual([before[4], before[0], before[1], before[2], before[3]]);
+      expect(view.seats[0]!.hand.map((card) => card.code)).toEqual([50, undefined, 20, undefined, undefined]);
+      expect(view.events[1]!.handId).toBe(view.seats[0]!.hand[2]!.handId);
+      expect(view.events[4]!.handId).toBe(view.seats[0]!.hand[0]!.handId);
+      expect(project(viewer)).toEqual(view);
+    }
+  });
+
+  it("forgets a removed public effect before a concealed hand shuffle", () => {
+    const ctx = createEventContext();
+    observeMoveEvents({ type: M.DRAW, player: 0, drawn: [10, 20].map((code) => ({ code, position: P.FACEDOWN_ATTACK })) }, cards, ctx, 1);
+    let isPublic = true;
+    let raw = [10, 20];
+    const project = (viewer: number | null) => projectView({
+      lib: { duelQueryField: () => ({ players: [{ deck_size: 30, extra_size: 0 }, { deck_size: 30, extra_size: 0 }], chain: [] }),
+        duelQueryLocation: (_h: unknown, q: { controller: number; location: number }) => q.controller === 0 && q.location === L.HAND
+          ? raw.map((code) => ({ code, position: P.FACEDOWN_ATTACK, isPublic: code === 20 && isPublic })) : [] } as never,
+      handle: {} as never, cards, viewer, revision: 0, turn: 1, turnSeat: 0, phase: "main1", lp: [8000, 8000],
+      prompt: null, promptSeat: null, log: [], events: [], result: null, reveals: createRevealMap(), mode: "normal", handIdentities: ctx.handIdentities,
+    });
+    const before = project(null).seats[0]!.hand.map((card) => card.handId);
+    isPublic = false;
+    raw = [20, 10];
+    observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: raw }, cards, ctx, 3);
+    project(0); // The effect reset and shuffle may occur between consecutive views.
+    for (const viewer of [1, null]) {
+      const hand = project(viewer).seats[0]!.hand;
+      expect(hand.map((card) => card.handId)).toEqual(before);
+      expect(hand.map((card) => card.code)).toEqual([undefined, undefined]);
+    }
+  });
+
+  it("does not let viewer-scoped confirmations reveal a concealed shuffle through sleeves or arrivals", () => {
+    const snapshots = [[10, 20, 30], [30, 20, 10]].map((after) => {
+      const ctx = createEventContext();
+      const reveals = createRevealMap();
+      const events = observeMoveEvents({ type: M.DRAW, player: 0, drawn: [10, 20, 30].map((code) => ({ code, position: P.FACEDOWN_ATTACK })) }, cards, ctx, 1);
+      let raw = [10, 20, 30];
+      const project = (viewer: number | null) => projectView({
+        lib: { duelQueryField: () => ({ players: [{ deck_size: 30, extra_size: 0 }, { deck_size: 30, extra_size: 0 }], chain: [] }),
+          duelQueryLocation: (_h: unknown, q: { controller: number; location: number }) => q.controller === 0 && q.location === L.HAND
+            ? raw.map((code) => ({ code, position: P.FACEDOWN_ATTACK, isPublic: false })) : [] } as never,
+        handle: {} as never, cards, viewer, revision: 0, turn: 1, turnSeat: 0, phase: "main1", lp: [8000, 8000],
+        prompt: null, promptSeat: null, log: [], events, result: null, reveals, mode: "normal", handIdentities: ctx.handIdentities,
+      });
+      observeMoveEvents({ type: M.CONFIRM_CARDS, player: 1, cards: [{ controller: 0, location: L.HAND, sequence: 0, code: 10 }] }, cards, ctx, 4);
+      noteReveal(reveals, 1, 0, L.HAND, 0, 10);
+      expect(project(1).seats[0]!.hand[0]!.code).toBe(10);
+      expect(project(null).seats[0]!.hand[0]!.code).toBeUndefined();
+      // engine.applyMessage clears confirmations before recording SHUFFLE_HAND.
+      clearRevealsAt(reveals, 0, L.HAND);
+      raw = after;
+      observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: raw }, cards, ctx, 4);
+      return [project(1), project(null)];
+    });
+    expect(snapshots[0]).toEqual(snapshots[1]);
+  });
+
   it.each([L.DECK, L.GRAVE, L.REMOVED, L.EXTRA, L.MZONE])("uses raw engine slots after every middle insertion, re-sequence and departure from %s", (source) => {
     const ctx = createEventContext();
     const events: StoredDuelEvent[] = [];
@@ -100,7 +177,7 @@ describe("hand order in projected views", () => {
       expect(own.prompt!.options[0]!.sequence).toBe(own.seats[0]!.hand[0]!.sequence);
       expect(project(null).seats[0]!.hand.map((c) => c.code)).toEqual([undefined, undefined, undefined]);
       expect(project(1).seats[0]!.hand.map((c) => c.code)).toEqual([undefined, 20, undefined]);
-      expect(project(null).events[2]!.handId).toBe(project(null).seats[0]!.hand[2]!.handId);
+      expect(project(null).events[2]!.handId).toBe("departed-3");
       expect(project(null).seats[0]!.hand.map((c) => c.handId)).not.toEqual(own.seats[0]!.hand.map((c) => c.handId));
       expect(project(0)).toEqual(own); // reads and replay snapshots never mutate order
     }

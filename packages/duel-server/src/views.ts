@@ -734,6 +734,12 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
       return [];
     case OcgMessageType.SHUFFLE_HAND:
       ctx.handIdentities.shuffle(message.player, message.cards);
+      if (message.player === 0 || message.player === 1) ctx.handSize[message.player] = message.cards.length;
+      return [];
+    case OcgMessageType.POS_CHANGE:
+      if (message.location === OcgLocation.HAND) {
+        ctx.handIdentities.setPublic(message.controller, message.sequence, message.code, (message.position & OcgPosition.FACEUP) !== 0);
+      }
       return [];
     case OcgMessageType.DRAW: {
       const seat = message.player === 1 ? 1 : 0;
@@ -742,7 +748,7 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
         const from = { controller: seat, location: OcgLocation.DECK as number, sequence: 0, position: OcgPosition.FACEDOWN_DEFENSE as number };
         const to = { controller: seat, location: OcgLocation.HAND as number, sequence: ctx.handSize[seat] + index, position: drawn.position as number };
         out.push(trackMove(ctx, firstId + out.length, cards, drawn.code, from, to, "draw"));
-        ctx.handIdentities.add(seat, drawn.code, to.sequence, firstId + out.length - 1);
+        ctx.handIdentities.add(seat, drawn.code, to.sequence, firstId + out.length - 1, (drawn.position & OcgPosition.FACEUP) !== 0);
       });
       ctx.handSize[seat] += message.drawn.length;
       return out;
@@ -751,6 +757,7 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
       const { from, to } = message;
       if (from.location === OcgLocation.HAND && to.location === OcgLocation.HAND && from.controller === to.controller) {
         ctx.handIdentities.relocate(from.controller, from.sequence, to.sequence);
+        ctx.handIdentities.setPublic(to.controller, to.sequence, message.card, (to.position & OcgPosition.FACEUP) !== 0);
         return [];
       }
       const overlay = OcgLocation.OVERLAY as number;
@@ -760,7 +767,7 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
         : undefined;
       if (from.location === OcgLocation.HAND) ctx.handIdentities.remove(from.controller, from.sequence);
       // Skipped moves still update slot identities, but must not claim the next emitted event's id.
-      if (to.location === OcgLocation.HAND) ctx.handIdentities.add(to.controller, message.card, to.sequence, event?.id);
+      if (to.location === OcgLocation.HAND) ctx.handIdentities.add(to.controller, message.card, to.sequence, event?.id, (to.position & OcgPosition.FACEUP) !== 0);
       if (from.location === OcgLocation.HAND) ctx.handSize[from.controller === 1 ? 1 : 0] = Math.max(0, ctx.handSize[from.controller === 1 ? 1 : 0] - 1);
       if (to.location === OcgLocation.HAND) ctx.handSize[to.controller === 1 ? 1 : 0] += 1;
       if (isFieldLocation(from.location)) ctx.arrivals.delete(slotKey(from.controller, from.location, from.sequence));
@@ -1127,7 +1134,11 @@ export function projectView(args: {
       return projected;
     });
     const spells = projectList(args.viewer, controller, OcgLocation.SZONE, queryLocation(args.lib, args.handle, controller, OcgLocation.SZONE), args.cards, args.reveals);
-    const engineHand = compact(projectList(args.viewer, controller, OcgLocation.HAND, queryLocation(args.lib, args.handle, controller, OcgLocation.HAND), args.cards, args.reveals));
+    const handQueries = queryLocation(args.lib, args.handle, controller, OcgLocation.HAND);
+    // EFFECT_PUBLIC is shared knowledge even in an owner query. Temporary, viewer-scoped
+    // confirmations are intentionally excluded: the engine forgets those on SHUFFLE_HAND.
+    args.handIdentities?.syncPublic(seat, handQueries);
+    const engineHand = compact(projectList(args.viewer, controller, OcgLocation.HAND, handQueries, args.cards, args.reveals));
     // The query alone determines membership, order and engine coordinates. IDs only keep DOM
     // nodes and animation destinations attached while the core inserts, removes or shuffles.
     const hand = engineHand.map((card) => {

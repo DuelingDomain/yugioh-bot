@@ -102,6 +102,152 @@ describe("animation identities in engine slots", () => {
     expect(a.arrival(1, false, 3)?.sequence).toBe(0);
   });
 
+  it("moves public sleeves with their cards while hidden sleeves keep their old order", () => {
+    const ctx = createEventContext();
+    const cards = { get: () => undefined } as never;
+    observeMoveEvents({ type: M.DRAW, player: 0, drawn: [10, 20, 30, 40].map((code) => ({
+      code, position: code === 20 ? P.FACEUP_ATTACK : P.FACEDOWN_ATTACK,
+    })) }, cards, ctx, 1);
+    const before = [0, 1, 2, 3].map((sequence) => ctx.handIdentities.at(0, false, sequence));
+    observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: [40, 30, 10, 20] }, cards, ctx, 5);
+    expect([0, 1, 2, 3].map((sequence) => ctx.handIdentities.at(0, false, sequence))).toEqual([
+      before[0], before[2], before[3], before[1],
+    ]);
+    expect(ctx.handIdentities.arrival(0, false, 2)).toEqual({ id: before[1], sequence: 3 });
+  });
+
+  it("tracks public hand arrivals from MOVE messages", () => {
+    const ctx = createEventContext();
+    const cards = { get: () => undefined } as never;
+    observeMoveEvents({ type: M.DRAW, player: 0, drawn: [{ code: 10, position: P.FACEDOWN_ATTACK }] }, cards, ctx, 1);
+    observeMoveEvents({ type: M.MOVE, card: 20,
+      from: { controller: 0, location: L.GRAVE, sequence: 0, position: P.FACEUP_ATTACK },
+      to: { controller: 0, location: L.HAND, sequence: 1, position: P.FACEUP_ATTACK } }, cards, ctx, 2);
+    const before = ctx.handIdentities.at(0, false, 1);
+    observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: [20, 10] }, cards, ctx, 3);
+    expect(ctx.handIdentities.at(0, false, 0)).toBe(before);
+    expect(ctx.handIdentities.arrival(0, false, 2)?.sequence).toBe(0);
+  });
+
+  it("updates public sleeve tracking when hand positions change", () => {
+    const ctx = createEventContext();
+    const cards = { get: () => undefined } as never;
+    observeMoveEvents({ type: M.DRAW, player: 0, drawn: [10, 20].map((code) => ({ code, position: P.FACEDOWN_ATTACK })) }, cards, ctx, 1);
+    const before = [0, 1].map((sequence) => ctx.handIdentities.at(0, false, sequence));
+    observeMoveEvents({ type: M.POS_CHANGE, code: 20, controller: 0, location: L.HAND, sequence: 1,
+      prev_position: P.FACEDOWN_ATTACK, position: P.FACEUP_ATTACK }, cards, ctx, 3);
+    observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: [20, 10] }, cards, ctx, 3);
+    expect([0, 1].map((sequence) => ctx.handIdentities.at(0, false, sequence))).toEqual([before[1], before[0]]);
+    observeMoveEvents({ type: M.POS_CHANGE, code: 20, controller: 0, location: L.HAND, sequence: 0,
+      prev_position: P.FACEUP_ATTACK, position: P.FACEDOWN_ATTACK }, cards, ctx, 3);
+    observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: [10, 20] }, cards, ctx, 3);
+    expect([0, 1].map((sequence) => ctx.handIdentities.at(0, false, sequence))).toEqual([before[1], before[0]]);
+  });
+
+  it("repairs missing and stale sleeves to the shuffle's hand size before the next draw", () => {
+    const ctx = createEventContext();
+    const cards = { get: () => undefined } as never;
+    observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: [10, 20, 30] }, cards, ctx, 1);
+    const before = [0, 1, 2].map((sequence) => ctx.handIdentities.at(0, false, sequence));
+    expect(before.every((id) => id != null)).toBe(true);
+    expect(new Set(before).size).toBe(3);
+    expect(ctx.handIdentities.at(0, false, 3)).toBeUndefined();
+    expect(ctx.handSize[0]).toBe(3);
+    observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: [20] }, cards, ctx, 1);
+    expect(ctx.handIdentities.at(0, false, 0)).toBe(before[0]);
+    expect(ctx.handIdentities.at(0, false, 1)).toBeUndefined();
+    expect(ctx.handSize[0]).toBe(1);
+    const [draw] = observeMoveEvents({ type: M.DRAW, player: 0, drawn: [{ code: 40, position: P.FACEDOWN_ATTACK }] }, cards, ctx, 1);
+    expect(draw?.zone?.sequence).toBe(1);
+    expect(ctx.handIdentities.arrival(0, false, 1)?.sequence).toBe(1);
+    observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: [] }, cards, ctx, 2);
+    expect(ctx.handIdentities.at(0, false, 0)).toBeUndefined();
+    expect(ctx.handSize[0]).toBe(0);
+  });
+
+  it("does not expose owner reconciliation misses through later sleeve IDs", () => {
+    const a = new HandIdentities();
+    const b = new HandIdentities();
+    for (const ids of [a, b]) { ids.add(0, 10, 0, 1); ids.add(0, 20, 1, 2); }
+    a.shuffle(0, [20, 10]); b.shuffle(0, [30, 40]);
+    for (const ids of [a, b]) ids.add(0, 50, 2, 3);
+    expect([0, 1, 2].map((sequence) => a.at(0, false, sequence))).toEqual([0, 1, 2].map((sequence) => b.at(0, false, sequence)));
+    expect(a.arrival(0, false, 3)).toEqual(b.arrival(0, false, 3));
+  });
+
+  it("forgets hidden arrival targets after a shuffle while retaining public and owner targets", () => {
+    const ctx = createEventContext();
+    const cards = { get: () => undefined } as never;
+    observeMoveEvents({ type: M.DRAW, player: 0, drawn: [10, 20].map((code) => ({
+      code, position: code === 20 ? P.FACEUP_ATTACK : P.FACEDOWN_ATTACK,
+    })) }, cards, ctx, 1);
+    observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: [20, 10] }, cards, ctx, 3);
+    expect(ctx.handIdentities.arrival(0, false, 1)).toBeUndefined();
+    expect(ctx.handIdentities.arrival(0, false, 2)?.sequence).toBe(0);
+    expect(ctx.handIdentities.arrival(0, true, 1)?.sequence).toBe(1);
+    expect(ctx.handIdentities.arrival(0, true, 2)?.sequence).toBe(0);
+  });
+
+  it("keeps repaired sleeve IDs stable when the next query validates their visibility", () => {
+    const ids = new HandIdentities();
+    ids.shuffle(0, [10, 20]);
+    const before = [0, 1].map((sequence) => ids.at(0, false, sequence));
+    ids.syncPublic(0, [{ code: 10, isPublic: false }, { code: 20, isPublic: false }]);
+    expect([0, 1].map((sequence) => ids.at(0, false, sequence))).toEqual(before);
+    ids.add(0, 30, 2, 1);
+    expect(ids.at(0, false, 2)).toBe("sleeve-3");
+  });
+
+  it("preserves a later hidden arrival when validating an earlier shuffle", () => {
+    const ids = new HandIdentities();
+    ids.add(0, 10, 0, 1); ids.add(0, 20, 1, 2, true);
+    ids.shuffle(0, [20, 10]);
+    ids.add(0, 30, 2, 3);
+    ids.syncPublic(0, [{ code: 20, isPublic: true }, { code: 10, isPublic: false }, { code: 30, isPublic: false }]);
+    expect(ids.arrival(0, false, 3)?.sequence).toBe(2);
+    expect(ids.arrival(0, false, 2)?.sequence).toBe(0);
+    expect(ids.arrival(0, false, 1)).toBeUndefined();
+  });
+
+  it("retains all sleeves when one public duplicate becomes hidden during a shuffle", () => {
+    const ids = new HandIdentities();
+    ids.add(0, 10, 0, 1, true); ids.add(0, 10, 1, 2, true); ids.add(0, 20, 2, 3);
+    const before = [0, 1, 2].map((sequence) => ids.at(0, false, sequence));
+    ids.shuffle(0, [10, 20, 10]);
+    ids.syncPublic(0, [{ code: 10, isPublic: false }, { code: 20, isPublic: false }, { code: 10, isPublic: true }]);
+    expect([0, 1, 2].map((sequence) => ids.at(0, false, sequence))).toEqual([before[1], before[2], before[0]]);
+    expect(ids.arrival(0, false, 2)).toBeUndefined();
+    expect(ids.arrival(0, false, 1)?.sequence).toBe(2);
+  });
+
+  it("restores hidden order when a public effect expires across multiple unobserved shuffles", () => {
+    const ids = new HandIdentities();
+    [10, 20, 30, 40].forEach((code, sequence) => ids.add(0, code, sequence, sequence + 1, code === 20));
+    const before = [0, 1, 2, 3].map((sequence) => ids.at(0, false, sequence));
+    ids.shuffle(0, [40, 20, 30, 10]);
+    ids.shuffle(0, [20, 40, 10, 30]);
+    ids.syncPublic(0, [20, 40, 10, 30].map((code) => ({ code, isPublic: false })));
+    expect([0, 1, 2, 3].map((sequence) => ids.at(0, false, sequence))).toEqual(before);
+    expect(ids.arrival(0, false, 2)).toBeUndefined();
+  });
+
+  it("keeps pending visibility validation aligned through removals, insertions and public relocations", () => {
+    const ids = new HandIdentities();
+    ids.add(0, 10, 0, 1); ids.add(0, 20, 1, 2, true); ids.add(0, 30, 2, 3);
+    const publicSleeve = ids.at(0, false, 1);
+    ids.shuffle(0, [20, 30, 10]);
+    ids.remove(0, 1);
+    ids.add(0, 40, 1, 4);
+    const laterSleeve = ids.at(0, false, 1);
+    const hiddenSleeve = ids.at(0, false, 2);
+    ids.relocate(0, 0, 2);
+    ids.syncPublic(0, [40, 10, 20].map((code) => ({ code, isPublic: code === 20 })));
+    expect([0, 1, 2].map((sequence) => ids.at(0, false, sequence))).toEqual([laterSleeve, hiddenSleeve, publicSleeve]);
+    expect(ids.at(0, false, 3)).toBeUndefined();
+    expect(ids.arrival(0, false, 2)?.sequence).toBe(2);
+    expect(ids.arrival(0, false, 4)?.sequence).toBe(0);
+  });
+
   it("follows public hand-to-hand sequence moves for both views", () => {
     const ids = new HandIdentities();
     ids.add(0, 10, 0, 1); ids.add(0, 20, 1, 2);
