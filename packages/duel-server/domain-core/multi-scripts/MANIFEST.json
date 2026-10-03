@@ -3493,6 +3493,21 @@
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
     },
     {
+      "code": 53753697,
+      "file": "c53753697.lua",
+      "name": "Zoa the Fiendish Beast",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "IGNITION",
+      "wrap": {
+        "MPPick": [
+          "sptg"
+        ]
+      },
+      "stockSha256": "6c7ae3b8ab92f07cc67caa7c0b74d9415084caf9e667840cf848eb3775942f21",
+      "note": "In Tag, select one opponent at activation for the opponent-hand effect. Keep the joined team field."
+    },
+    {
       "code": 53792930,
       "file": "c53792930.lua",
       "name": "K9-X Forced Release",
