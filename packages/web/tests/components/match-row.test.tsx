@@ -22,6 +22,13 @@ function renderRow(match: Match = openMatch, overrides: Partial<MatchRowProps> =
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); push.mockReset(); });
 
 describe("match row presentation and permissions", () => {
+  it("keeps Start duel before Report in document order for a player", () => {
+    renderRow();
+    const start = screen.getByRole("button", { name: "Start duel" });
+    const report = screen.getByRole("button", { name: "Report" });
+    expect(start.compareDocumentPosition(report) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
   it("has the row anchor, player gems and the open player state", () => {
     const { container } = renderRow();
     const row = container.querySelector("#match-1")!;
@@ -40,8 +47,11 @@ describe("match row presentation and permissions", () => {
 
   it("an organizer outside the match sees quiet Start duel and Set result", () => {
     renderRow(openMatch, { currentUserPlayerId: 99, isHost: true });
-    expect(screen.getByRole("button", { name: "Start duel" })).toHaveClass("btn-quiet");
-    expect(screen.getByRole("button", { name: "Set result" })).toBeInTheDocument();
+    const start = screen.getByRole("button", { name: "Start duel" });
+    const result = screen.getByRole("button", { name: "Set result" });
+    expect(start).toHaveClass("btn-quiet");
+    expect(result).toBeInTheDocument();
+    expect(start.compareDocumentPosition(result) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.queryByRole("button", { name: "Report" })).toBeNull();
     expect(screen.queryByText("Organizer")).toBeNull();
   });

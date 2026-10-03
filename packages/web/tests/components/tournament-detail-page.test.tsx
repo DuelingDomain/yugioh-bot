@@ -12,8 +12,9 @@ vi.mock("next/font/google", () => {
 const push = vi.fn();
 let handlers: NonNullable<Parameters<typeof useTournamentWebsocket>[1]>;
 let searchParams = new URLSearchParams();
+let routeSlug = "friday-night-12";
 vi.mock("next/navigation", () => ({
-  useParams: () => ({ slug: "friday-night-12" }), useRouter: () => ({ push, replace: vi.fn() }), useSearchParams: () => searchParams,
+  useParams: () => ({ slug: routeSlug }), useRouter: () => ({ push, replace: vi.fn() }), useSearchParams: () => searchParams,
 }));
 vi.mock("@/lib/hooks/use-tournament-websocket", () => ({
   useTournamentWebsocket: (_slug: string, options: typeof handlers) => { handlers = options; },
@@ -44,7 +45,7 @@ function deferred() {
   return { promise, resolve };
 }
 beforeEach(() => { vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false }))); });
-afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); searchParams = new URLSearchParams(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); searchParams = new URLSearchParams(); routeSlug = "friday-night-12"; });
 
 describe("TournamentDetailPage one sheet", () => {
   it("shows the header, the track caption and the three named sections together", async () => {
@@ -193,11 +194,11 @@ describe("TournamentDetailPage one sheet", () => {
     expect(screen.getByLabelText(/Deadline/)).toHaveValue("2099-01-01T12:30");
   });
 
-  it("keeps old data with a quiet status after a failed refresh and clears it on recovery", async () => {
+  it.each([404, 500])("keeps old data after a refresh fails with status %s and clears the quiet status on recovery", async (status) => {
     const fetchMock = setup();
     render(<TournamentDetailPage />);
     await screen.findByRole("region", { name: "Matches" });
-    fetchMock.mockResolvedValueOnce(Response.json({}, { status: 500 }));
+    fetchMock.mockResolvedValueOnce(Response.json({}, { status }));
     act(() => handlers.onMatchUpdated?.());
     expect(await screen.findByRole("status")).toHaveTextContent("Couldn't refresh. Showing the last update.");
     expect(screen.getByRole("heading", { name: sheetTournament.name })).toBeInTheDocument();
@@ -205,7 +206,7 @@ describe("TournamentDetailPage one sheet", () => {
     await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
   });
 
-  it.each([200, 500])("ignores an out-of-order tournament response with status %s", async (status) => {
+  it.each([200, 404, 500])("ignores an out-of-order tournament response with status %s", async (status) => {
     const fetchMock = setup();
     render(<TournamentDetailPage />);
     await screen.findByRole("region", { name: "Matches" });
@@ -222,12 +223,97 @@ describe("TournamentDetailPage one sheet", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("shows an initial-load error when no last update exists", async () => {
+  it("shows the missing tournament address and recovery links after an initial 404", async () => {
+    routeSlug = "no-such-event";
     const fetchMock = setup();
-    fetchMock.mockImplementation(async (url) => String(url) === SLUG ? Response.json({}, { status: 500 }) : Response.json({}));
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url, init) => String(url) === "/api/tournaments/no-such-event"
+      ? Promise.resolve(Response.json({}, { status: 404 }))
+      : original(url, init));
     render(<TournamentDetailPage />);
-    expect(await screen.findByText("Failed to load tournament")).toBeInTheDocument();
+    const title = await screen.findByRole("heading", { name: "No tournament at this address" });
+    expect(title.closest(".ms")).not.toBeNull();
+    expect(screen.getByText("404")).toBeInTheDocument();
+    const address = screen.getByText("/tournament/no-such-event");
+    expect(address.tagName).toBe("CODE");
+    expect(address.parentElement).toHaveTextContent("Nothing on this server matches /tournament/no-such-event. It may have been deleted, or the link has a typo.");
+    expect(screen.getByRole("link", { name: "All tournaments" })).toHaveAttribute("href", "/tournaments");
+    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/dashboard");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Matches" })).toBeNull();
+  });
+
+  it("retries an initial 500 once while busy and renders the tournament on success", async () => {
+    const fetchMock = setup();
+    const original = fetchMock.getMockImplementation()!;
+    const retry = deferred();
+    let requests = 0;
+    fetchMock.mockImplementation((url, init) => String(url) === SLUG && !init?.method
+      ? (++requests === 1 ? Promise.resolve(Response.json({}, { status: 500 })) : retry.promise)
+      : original(url, init));
+    render(<TournamentDetailPage />);
+    const title = await screen.findByRole("heading", { name: "This tournament didn't load" });
+    expect(title.closest(".ms")).not.toBeNull();
+    expect(screen.getByText("Error", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("Nothing was changed. Try again, and if it keeps happening, tell whoever runs the bot.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/dashboard");
+    const button = screen.getByRole("button", { name: "Try again" });
+    expect(button).toBeEnabled();
+    act(() => { fireEvent.click(button); fireEvent.click(button); });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    fireEvent.click(button);
+    expect(detailFetches(fetchMock)).toHaveLength(2);
+    await act(async () => retry.resolve(Response.json(sheetTournament)));
+    expect(await screen.findByRole("heading", { name: sheetTournament.name })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "This tournament didn't load" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Matches" })).toBeInTheDocument();
+  });
+
+  it("shows the retry state for an initial network failure", async () => {
+    const fetchMock = setup();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url, init) => String(url) === SLUG && !init?.method
+      ? Promise.reject(new TypeError("Failed to fetch"))
+      : original(url, init));
+    render(<TournamentDetailPage />);
+    expect(await screen.findByRole("heading", { name: "This tournament didn't load" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(screen.queryByRole("heading", { name: "No tournament at this address" })).toBeNull();
+  });
+
+  it("lets the viewer try again after a retry also fails", async () => {
+    const fetchMock = setup();
+    const original = fetchMock.getMockImplementation()!;
+    const retry = deferred();
+    let requests = 0;
+    fetchMock.mockImplementation((url, init) => String(url) === SLUG && !init?.method
+      ? (++requests === 1 ? Promise.resolve(Response.json({}, { status: 500 })) : retry.promise)
+      : original(url, init));
+    render(<TournamentDetailPage />);
+    const button = await screen.findByRole("button", { name: "Try again" });
+    fireEvent.click(button);
+    expect(button).toHaveAttribute("aria-busy", "true");
+    await act(async () => retry.resolve(Response.json({}, { status: 500 })));
+    expect(button).toBeEnabled();
+    expect(button).toHaveAttribute("aria-busy", "false");
+    fetchMock.mockResolvedValueOnce(Response.json(sheetTournament));
+    fireEvent.click(button);
+    expect(await screen.findByRole("heading", { name: sheetTournament.name })).toBeInTheDocument();
+  });
+
+  it("announces the initial loading state inside the Match Sheet", async () => {
+    const fetchMock = setup();
+    const original = fetchMock.getMockImplementation()!;
+    const loading = deferred();
+    fetchMock.mockImplementation((url, init) => String(url) === SLUG && !init?.method ? loading.promise : original(url, init));
+    render(<TournamentDetailPage />);
+    const status = screen.getByRole("status", { name: "Loading tournament" });
+    expect(status).toHaveTextContent("Loading tournament");
+    expect(status.closest(".ms")).not.toBeNull();
+    await act(async () => loading.resolve(Response.json(sheetTournament)));
+    expect(await screen.findByRole("heading", { name: sheetTournament.name })).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: "Loading tournament" })).toBeNull();
   });
 
   it("refreshes ratings on match updates and status changes, keeping participant refreshes cheap", async () => {

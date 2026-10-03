@@ -105,7 +105,7 @@ function ActionMatch({ props, match, others, deck, narrow }: { props: YourMatchP
       <div className="ym-foot">
         {!narrow && <Deckline {...deck} />}
         <div className={narrow ? "acts ph-acts" : "acts"}>
-          <MatchControls match={match} view={view} actions={actions} small={false} reportLabel={narrow ? "Report" : "Report a result"} waitingOn={reportNames(match).other} />
+          <MatchControls match={match} view={view} actions={actions} small={false} reportLabel={narrow ? "Report" : "Report a result"} reportFirst waitingOn={reportNames(match).other} />
         </div>
       </div>
       {actions.reporting && view.canReport && (

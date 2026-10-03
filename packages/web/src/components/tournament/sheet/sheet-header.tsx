@@ -1,11 +1,13 @@
 import { Fragment, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
+import { MetaLine } from "@/components/meta-line/meta-line";
 import { LivePill, StationTrack } from "@/components/sheet";
 import { formatWhen } from "../sheet-dates";
 import { formatLabel, rulesSummary } from "../sheet-rules";
 import type { TournamentDetail } from "../types";
 import type { TournamentProgress } from "./sheet-model";
+import styles from "./sheet-header.module.css";
 
 export type TournamentEnding = "finished" | "ended-early" | "cancelled" | null;
 
@@ -54,12 +56,10 @@ export function SheetHeader({ tournament, progress, mine, ending, caption }: {
       <header className="t-head sheet-head">
         <div>
           <h1 className="t-title">{tournament.name}</h1>
-          <p className="t-meta">
-            {status}
-            {meta.map((value) => <Fragment key={value}><span className="dot" aria-hidden="true" /><span>{value}</span></Fragment>)}
-          </p>
+          <MetaLine className="t-meta" items={[{ content: status }, ...meta.map((value) => ({ content: value }))]} />
         </div>
         <StationTrack
+          className={styles.track}
           stations={[{ code: "LB", name: "Lobby" }, { code: "PL", name: play }, { code: "FN", name: "Final" }]}
           current={current}
           tone={tone}

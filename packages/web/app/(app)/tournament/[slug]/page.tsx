@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { AlertTriangle, Compass, RotateCw } from "lucide-react";
+import { SheetRoot } from "@/components/sheet";
 import { useTournamentWebsocket } from "@/lib/hooks/use-tournament-websocket";
 import { TournamentSheet } from "@/components/tournament/sheet/tournament-sheet";
 import { buildPlayerRatings } from "@/components/tournament/sheet/sheet-model";
@@ -13,10 +16,12 @@ export default function TournamentDetailPage() {
   const slug = typeof params.slug === "string" ? params.slug : "";
   const searchParams = useSearchParams();
   const [loaded, setLoaded] = useState<{ slug: string; tournament: TournamentDetail } | null>(null);
-  const [error, setError] = useState<{ slug: string; message: string } | null>(null);
+  const [error, setError] = useState<{ slug: string; status: number | null } | null>(null);
+  const [loadingSlug, setLoadingSlug] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [ratings, setRatings] = useState<PlayerRatings>(() => new Map());
   const tournamentRequest = useRef(0);
+  const tournamentInFlight = useRef(false);
   const ratingsRequest = useRef(0);
   const lastStatus = useRef<string | undefined>(undefined);
   const tournament = loaded?.slug === slug ? loaded.tournament : null;
@@ -33,16 +38,26 @@ export default function TournamentDetailPage() {
   const fetchTournament = useCallback(async () => {
     if (!slug) return;
     const request = ++tournamentRequest.current;
+    tournamentInFlight.current = true;
+    setLoadingSlug(slug);
     try {
       const response = await fetch(`/api/tournaments/${slug}`);
-      if (!response.ok) throw new Error("Failed to load tournament");
+      if (!response.ok) {
+        if (request === tournamentRequest.current) setError({ slug, status: response.status });
+        return;
+      }
       const data: TournamentDetail = await response.json();
       if (request !== tournamentRequest.current) return;
       setLoaded({ slug, tournament: data });
       setError(null);
-    } catch (err) {
+    } catch {
       if (request !== tournamentRequest.current) return;
-      setError({ slug, message: err instanceof Error ? err.message : "Failed to load tournament" });
+      setError({ slug, status: null });
+    } finally {
+      if (request === tournamentRequest.current) {
+        tournamentInFlight.current = false;
+        setLoadingSlug(null);
+      }
     }
   }, [slug]);
 
@@ -50,7 +65,7 @@ export default function TournamentDetailPage() {
     lastStatus.current = undefined;
     void fetchTournament();
     // Invalidate requests from an old slug or a component that has unmounted.
-    return () => { tournamentRequest.current++; };
+    return () => { tournamentRequest.current++; tournamentInFlight.current = false; };
   }, [fetchTournament]);
 
   const fetchRatings = useCallback(async () => {
@@ -85,16 +100,41 @@ export default function TournamentDetailPage() {
   });
 
   if (!tournament) {
+    const initialError = error?.slug === slug ? error : null;
+    const missing = initialError?.status === 404;
     return (
-      <div className="mx-auto max-w-4xl p-6">
-        {error?.slug === slug ? (
-          <div className="rounded-lg border border-accent-cta/20 bg-accent-cta/10 p-6 text-accent-cta">{error.message}</div>
-        ) : (
-          <div className="flex items-center justify-center py-20" role="status" aria-label="Loading tournament">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-primary border-t-transparent" />
-          </div>
-        )}
-      </div>
+      <SheetRoot>
+        <div className="nf">
+          {initialError ? (
+            <>
+              <p className="nf-code">
+                {missing ? <Compass className="ic" aria-hidden="true" /> : <AlertTriangle className="ic" style={{ color: "var(--loss-ink)" }} aria-hidden="true" />}
+                {missing ? "404" : "Error"}
+              </p>
+              <h1 className="t-title">{missing ? "No tournament at this address" : "This tournament didn't load"}</h1>
+              {missing ? (
+                <p>Nothing on this server matches{" "}<code>/tournament/{slug}</code>.{" "}It may have been deleted, or the link has a typo.</p>
+              ) : (
+                <p>Nothing was changed. Try again, and if it keeps happening, tell whoever runs the bot.</p>
+              )}
+              <div className="acts">
+                {missing ? (
+                  <Link className="btn btn-primary" href="/tournaments">All tournaments</Link>
+                ) : (
+                  <button className="btn btn-primary" type="button" disabled={loadingSlug === slug} aria-busy={loadingSlug === slug} onClick={() => {
+                    if (!tournamentInFlight.current) void fetchTournament();
+                  }}>
+                    <RotateCw className="ic" aria-hidden="true" />Try again
+                  </button>
+                )}
+                <Link className="btn btn-quiet" href="/dashboard">Dashboard</Link>
+              </div>
+            </>
+          ) : (
+            <p className="ref" role="status" aria-label="Loading tournament">Loading tournament…</p>
+          )}
+        </div>
+      </SheetRoot>
     );
   }
 
