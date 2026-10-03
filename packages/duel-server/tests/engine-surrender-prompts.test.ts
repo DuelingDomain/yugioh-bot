@@ -26,7 +26,7 @@ const cases: [string, DuelPrompt["kind"], string][] = [
   ["card", "announce-card", "Duel.AnnounceCard(0)"],
   ["number", "choice", "Duel.AnnounceNumber(0,1,2,3)"],
   ["tribute", "tribute", "Duel.SelectTribute(0,g:GetFirst(),1,1)"],
-  ["counters", "counters", `Duel.RemoveCounter(0,1,0,0x1,1,REASON_COST)`],
+  ["counters", "counters", `Duel.RemoveCounter(0,1,0,0x1,1,REASON_EFFECT)`],
   ["counter target leaves", "counters", `Duel.RemoveCounter(0,1,0,0x1,1,REASON_EFFECT)`],
   ["counter fallback", "counters", `(function() Duel.MPWindow(1); local answer=Duel.RemoveCounter(0,0,1,0x1,1,REASON_EFFECT); Duel.MPWindowEnd(); return answer end)()`],
   ["retained token counters", "counters", `Duel.RemoveCounter(0,1,0,0x1,1,REASON_COST)`],
@@ -190,7 +190,7 @@ ${_name === "idle" ? "" : "Duel.RegisterEffect(e,0)"}` }],
 
 describeWithCores("counter sources changed by surrender", [needs.multi(currentMultiWasm()), ...needs.domainMulti(dataDirectory, currentDomainMultiWasm())], () => {
   for (const mode of ["normal", "domain"] as const) {
-    it.each(["partial", "one source", "insufficient effect", "continuous cost", "summon cost"] as const)(`${mode}: %s`, async (scenario) => {
+    it.each(["partial", "one source", "insufficient effect", "continuous cost", "summon cost", "returned sources", "departed payer cost", "paid payer cost"] as const)(`${mode}: %s`, async (scenario) => {
       const cost = scenario.endsWith("cost");
       const count = scenario.startsWith("insufficient") || cost ? 3 : 1;
       const ownSources = scenario === "one source" ? 1 : 2;
@@ -206,19 +206,21 @@ describeWithCores("counter sources changed by surrender", [needs.multi(currentMu
         startupScripts: [...setup.options.startupScripts!, { name: "surrender-counter-sources.lua", content: `
 local sources=Group.CreateGroup()
 for i=0,${ownSources} do
-  local c=Debug.AddCard(46986414,i==${ownSources} and 1 or 0,0,LOCATION_MZONE,i,POS_FACEUP_ATTACK,true)
-  if i==${ownSources} then
+  local c=Debug.AddCard(46986414,${scenario === "returned sources" ? "0" : scenario.includes("payer") ? "1" : `i==${ownSources} and 1 or 0`},${scenario === "returned sources" || scenario.includes("payer") ? "1" : "0"},LOCATION_MZONE,i,POS_FACEUP_ATTACK,true)
+  if ${scenario === "returned sources" ? "true" : scenario.includes("payer") ? "false" : `i==${ownSources}`} then
     local control=Effect.CreateEffect(c); control:SetType(EFFECT_TYPE_SINGLE)
-    control:SetCode(EFFECT_SET_CONTROL); control:SetValue(0); control:SetProperty(EFFECT_FLAG_CANNOT_DISABLE)
+    control:SetCode(EFFECT_SET_CONTROL); control:SetValue(${scenario === "returned sources" ? "1" : "0"}); control:SetProperty(EFFECT_FLAG_CANNOT_DISABLE)
     control:SetReset(RESET_EVENT|RESETS_STANDARD|RESET_CONTROL); c:RegisterEffect(control)
   end
   sources:AddCard(c)
 end
 local removed=Effect.GlobalEffect()
 removed:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS); removed:SetCode(EVENT_REMOVE_COUNTER+0x1)
-removed:SetOperation(function() Duel.SetLP(3,6000) end); Duel.RegisterEffect(removed,3)
+removed:SetOperation(function() Duel.SetLP(3,6000) ${scenario === "paid payer cost" ? "Duel.SelectYesNo(0,30)" : ""} end); Duel.RegisterEffect(removed,3)
 local function pay()
-  local answer=Duel.RemoveCounter(0,1,0,0x1,${count},${cost ? "REASON_COST" : "REASON_EFFECT"})
+  ${scenario === "returned sources" || scenario.includes("payer") ? "Duel.MPWindow(1)" : ""}
+  local answer=Duel.RemoveCounter(${scenario.includes("payer") ? "1,1,0" : scenario === "returned sources" ? "0,0,1" : "0,1,0"},0x1,${count},${cost ? "REASON_COST" : "REASON_EFFECT"})
+  ${scenario === "returned sources" || scenario.includes("payer") ? "Duel.MPWindowEnd()" : ""}
   Duel.SetLP(2,answer and 7000+Duel.GetCounter(0,1,0,0x1) or 7100)
 end
 ${scenario === "summon cost" ? `local c=Duel.GetFieldGroup(0,LOCATION_HAND,0):GetFirst()
@@ -238,7 +240,7 @@ e:SetOperation(function()
 end); Duel.RegisterEffect(e,0)` }],
       });
       try {
-        for (let step = 0; step < 40 && game.view(0).prompt?.kind !== "counters"; step++) {
+        for (let step = 0; step < 40 && game.view(holder(game)).prompt?.kind !== "counters"; step++) {
           const prompt = game.view(holder(game)).prompt!;
           if (scenario === "summon cost" && prompt.kind === "choice" && prompt.context?.type === "action") {
             const option = prompt.options.find((o) => o.id.startsWith("spsummon:"));
@@ -246,11 +248,23 @@ end); Duel.RegisterEffect(e,0)` }],
             game.answer(0, prompt.id, { choice: option!.id });
           } else pass(game);
         }
-        const original = game.view(0).prompt!;
+        const original = game.view(holder(game)).prompt!;
         expect(original.kind).toBe("counters");
+        if (scenario === "paid payer cost") {
+          game.answer(1, original.id, chooseSurrenderedAnswer(original));
+          const removalEvent = game.view(0).prompt!;
+          expect(removalEvent.kind).toBe("choice");
+          expect(game.view(null).seats[3].lp).toBe(6000);
+          game.eliminate(1, 0);
+          game.answer(0, removalEvent.id, { choice: "no" });
+          expect(game.view(null).seats[2].lp).toBe(7000);
+          expect(game.diagnostics().filter((d) => d.kind === "stderr")).toEqual([]);
+          pass(game);
+          return;
+        }
         game.eliminate(1, 0);
         expect(game.view(null).seats[1].eliminated).toBe(true);
-        game.answer(0, original.id, chooseSurrenderedAnswer(original));
+        if (scenario !== "departed payer cost") game.answer(0, original.id, chooseSurrenderedAnswer(original));
         if (scenario === "partial" || scenario === "one source") {
           const refreshed = game.view(0).prompt!;
           expect(refreshed.kind).toBe("counters");
@@ -264,6 +278,7 @@ end); Duel.RegisterEffect(e,0)` }],
         } else {
           expect(game.view(null).seats[2].lp).toBe(cost ? 8000 : 7100);
           expect(game.view(null).seats[3].lp).toBe(8000);
+          if (scenario === "returned sources") expect(game.view(null).seats[0].monsters.filter(Boolean)).toHaveLength(ownSources + 1);
           if (scenario === "summon cost") {
             expect(game.view(0).seats[0].hand.map((c) => c.code)).toContain(48305365);
             expect(game.view(null).seats[0].monsters.filter(Boolean)).toHaveLength(ownSources);

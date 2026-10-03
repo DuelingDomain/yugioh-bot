@@ -1,21 +1,21 @@
-From db8d7ccaa8aa66f7b9da9efc96f138bd8961831c Mon Sep 17 00:00:00 2001
+From c6548dc3d0fb5339326cb41f16ba4171496db2a3 Mon Sep 17 00:00:00 2001
 From: yugidraft <yugidraft@localhost>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
 Subject: [PATCH] Keep surrender prompt answers, refresh counters and cancel
  unpaid costs
 
 ---
- field.h             |  74 +++++++++++++++++++++---------
- interpreter.cpp     |  16 +++++++
+ field.h             |  74 +++++++++++++++++-------
+ interpreter.cpp     |  16 ++++++
  interpreter.h       |   1 +
- libdebug.cpp        |  30 +++++++++++++
+ libdebug.cpp        |  30 ++++++++++
  libduel.cpp         |   4 +-
- operations.cpp      |  73 ++++++++++++++++++++++++++++++
- playerop.cpp        | 107 ++++++++++++++++++++++++++++++++++++++++++--
- processor.cpp       | 100 ++++++++++++++++++++++++++++++++---------
- processor_unit.h    |  14 ++++--
- processor_visit.cpp |  64 ++++++++++++++++++++++++++
- 10 files changed, 431 insertions(+), 52 deletions(-)
+ operations.cpp      | 136 ++++++++++++++++++++++++++++++++++++++++++++
+ playerop.cpp        | 110 +++++++++++++++++++++++++++++++++--
+ processor.cpp       | 106 +++++++++++++++++++++++++++-------
+ processor_unit.h    |  25 +++++++-
+ processor_visit.cpp |  65 +++++++++++++++++++++
+ 10 files changed, 515 insertions(+), 52 deletions(-)
 
 diff --git a/field.h b/field.h
 index b804f12..be9d20c 100644
@@ -255,7 +255,7 @@ index 25976df..92313ec 100644
  	field->process_instant_event();
  	for(auto* pcard : pgroup->container) {
 diff --git a/operations.cpp b/operations.cpp
-index e01720f..c2f13a6 100644
+index e01720f..31a8aae 100644
 --- a/operations.cpp
 +++ b/operations.cpp
 @@ -55,6 +55,12 @@ static bool proc_bound_gone(const field& f, interpreter& lua, effect* proc) {
@@ -271,18 +271,22 @@ index e01720f..c2f13a6 100644
  int32_t field::negate_chain(uint8_t chaincount) {
  	if(core.current_chain.size() == 0)
  		return FALSE;
-@@ -859,6 +865,10 @@ bool field::process(Processors::RemoveCounter& arg) {
+@@ -859,6 +865,14 @@ bool field::process(Processors::RemoveCounter& arg) {
  	auto oppo = arg.oppo;
  	auto countertype = arg.countertype;
  	auto count = arg.count;
 +	if(n_duelists > 2 && !is_alive(rplayer)) {
-+		returns.set<int32_t>(0, FALSE);
++		// Steps 3/4 follow a completed removal (or its replacement).
++		// A payer leaving during its event must not undo a paid action.
++		if((arg.step == 1 || arg.step == 2) && (reason & REASON_COST))
++			cancel_surrender_counter_cost();
++		returns.set<int32_t>(0, arg.step >= 3 ? TRUE : FALSE);
 +		return TRUE;
 +	}
  	switch(arg.step) {
  	case 0: {
  		core.select_options.clear();
-@@ -917,6 +927,14 @@ bool field::process(Processors::RemoveCounter& arg) {
+@@ -917,6 +931,14 @@ bool field::process(Processors::RemoveCounter& arg) {
  		return FALSE;
  	}
  	case 2: {
@@ -297,12 +301,22 @@ index e01720f..c2f13a6 100644
  		for(uint32_t i = 0; i < core.select_cards.size(); ++i)
  			if(returns.at<int16_t>(i) > 0)
  				core.select_cards[i]->remove_counter(countertype, returns.at<int16_t>(i));
-@@ -2077,6 +2095,17 @@ bool field::process(Processors::Equip& arg) {
+@@ -2077,6 +2099,27 @@ bool field::process(Processors::Equip& arg) {
  	return TRUE;
  }
  bool field::process(Processors::SummonRule& arg) {
 +	// A surrender can cancel this operation while a placement or cost choice is open.
 +	if(n_duelists > 2 && (arg.surrender_cost_failed || !is_alive(arg.sumplayer) || removed_duelist_card(*this, arg.target))) {
++		if(arg.surrender_cost_failed) {
++			for(const auto& cost : arg.summon_cost_effects)
++				remove_oath_effect(cost);
++			if(auto* proc = arg.summon_procedure_effect) {
++				remove_oath_effect(proc);
++				if(!is_flag(DUEL_CANNOT_SUMMON_OATH_OLD) && arg.step >= 8
++					&& proc->is_flag(EFFECT_FLAG_COUNT_LIMIT) && (proc->count_flag & EFFECT_COUNT_CODE_OATH))
++					dec_effect_code(proc->count_code, proc->count_flag, proc->count_hopt_index, arg.sumplayer);
++			}
++		}
 +		if(arg.summon_procedure_effect)
 +			pduel->lua->proc_forget(arg.summon_procedure_effect);
 +		if(((arg.step > 0 && arg.step <= 8) || arg.step == 10) && core.summon_depth > 0)
@@ -315,23 +329,35 @@ index e01720f..c2f13a6 100644
  	auto sumplayer = arg.sumplayer;
  	auto target = arg.target;
  	auto summon_procedure_effect = arg.summon_procedure_effect;
-@@ -2681,6 +2710,10 @@ bool field::process(Processors::SummonRule& arg) {
+@@ -2681,6 +2724,12 @@ bool field::process(Processors::SummonRule& arg) {
  	return TRUE;
  }
  bool field::process(Processors::FlipSummon& arg) {
 +	if(n_duelists > 2 && arg.surrender_cost_failed) {
++		for(const auto& cost : arg.flip_summon_cost_effects)
++			remove_oath_effect(cost);
 +		returns.set<int32_t>(0, FALSE);
 +		return TRUE;
 +	}
  	auto sumplayer = arg.sumplayer;
  	auto target = arg.target;
  	switch(arg.step) {
-@@ -2772,6 +2805,15 @@ bool field::process(Processors::FlipSummon& arg) {
+@@ -2772,6 +2821,25 @@ bool field::process(Processors::FlipSummon& arg) {
  	return TRUE;
  }
  bool field::process(Processors::MonsterSet& arg) {
 +	// A surrender can cancel this operation while a placement or cost choice is open.
 +	if(n_duelists > 2 && (arg.surrender_cost_failed || !is_alive(arg.setplayer) || removed_duelist_card(*this, arg.target))) {
++		if(arg.surrender_cost_failed)
++			for(const auto& cost : arg.surrender_set_costs)
++				remove_oath_effect(cost);
++		if(arg.surrender_cost_failed && arg.summon_procedure_effect) {
++			auto* proc = arg.summon_procedure_effect;
++			remove_oath_effect(proc);
++			if(!is_flag(DUEL_CANNOT_SUMMON_OATH_OLD) && arg.step >= 8
++				&& proc->is_flag(EFFECT_FLAG_COUNT_LIMIT) && (proc->count_flag & EFFECT_COUNT_CODE_OATH))
++				dec_effect_code(proc->count_code, proc->count_flag, proc->count_hopt_index, arg.setplayer);
++		}
 +		if(arg.summon_procedure_effect)
 +			pduel->lua->proc_forget(arg.summon_procedure_effect);
 +		if(core.summoning_card == arg.target)
@@ -342,12 +368,23 @@ index e01720f..c2f13a6 100644
  	auto setplayer = arg.setplayer;
  	auto target = arg.target;
  	auto summon_procedure_effect = arg.summon_procedure_effect;
-@@ -3131,6 +3173,13 @@ bool field::process(Processors::MonsterSet& arg) {
+@@ -2956,6 +3024,7 @@ bool field::process(Processors::MonsterSet& arg) {
+ 		}
+ 		effect_set eset;
+ 		target->filter_effect(EFFECT_MSET_COST, &eset);
++		arg.surrender_set_costs = eset;
+ 		for(const auto& peff : eset) {
+ 			if(peff->operation) {
+ 				core.sub_solving_event.push_back(nil_event);
+@@ -3131,6 +3200,16 @@ bool field::process(Processors::MonsterSet& arg) {
  	return TRUE;
  }
  bool field::process(Processors::SpellSet& arg) {
 +	// A surrender can cancel this operation while a placement or cost choice is open.
 +	if(n_duelists > 2 && (arg.surrender_cost_failed || !is_alive(arg.setplayer) || removed_duelist_card(*this, arg.target))) {
++		if(arg.surrender_cost_failed)
++			for(const auto& cost : arg.surrender_set_costs)
++				remove_oath_effect(cost);
 +		if(core.summoning_card == arg.target)
 +			core.summoning_card = nullptr;
 +		returns.set<int32_t>(0, FALSE);
@@ -356,12 +393,61 @@ index e01720f..c2f13a6 100644
  	auto setplayer = arg.setplayer;
  	auto toplayer = arg.toplayer;
  	auto target = arg.target;
-@@ -3366,6 +3415,15 @@ bool field::process(Processors::SpellSetGroup& arg) {
+@@ -3149,6 +3228,7 @@ bool field::process(Processors::SpellSet& arg) {
+ 			return TRUE;
+ 		effect_set eset;
+ 		target->filter_effect(EFFECT_SSET_COST, &eset);
++		arg.surrender_set_costs = eset;
+ 		for(const auto& peff : eset) {
+ 			if(peff->operation) {
+ 				core.sub_solving_event.push_back(nil_event);
+@@ -3192,6 +3272,16 @@ bool field::process(Processors::SpellSet& arg) {
+ 	return TRUE;
+ }
+ bool field::process(Processors::SpellSetGroup& arg) {
++	if(n_duelists > 2 && arg.surrender_cost_failed) {
++		for(const auto& cost : arg.surrender_set_costs)
++			remove_oath_effect(cost);
++		core.set_group_pre_set.clear();
++		core.set_group_set.clear();
++		core.set_group_used_zones = 0;
++		core.operated_set.clear();
++		returns.set<int32_t>(0, 0);
++		return TRUE;
++	}
+ 	auto setplayer = arg.setplayer;
+ 	auto toplayer = arg.toplayer;
+ 	auto ptarget = arg.ptarget;
+@@ -3219,6 +3309,7 @@ bool field::process(Processors::SpellSetGroup& arg) {
+  		for(auto& pcard : set_cards) {
+ 			eset.clear();
+ 			pcard->filter_effect(EFFECT_SSET_COST, &eset);
++			arg.surrender_set_costs.insert(arg.surrender_set_costs.end(), eset.begin(), eset.end());
+ 			for(const auto& peff : eset) {
+ 				if(peff->operation) {
+ 					core.sub_solving_event.push_back(nil_event);
+@@ -3366,6 +3457,31 @@ bool field::process(Processors::SpellSetGroup& arg) {
  	return TRUE;
  }
  bool field::process(Processors::SpSummonRule& arg) {
 +	// A surrender can cancel this operation while a placement or cost choice is open.
 +	if(n_duelists > 2 && (arg.surrender_cost_failed || !is_alive(arg.sumplayer) || removed_duelist_card(*this, arg.target))) {
++		if(arg.surrender_cost_failed) {
++			core.must_use_mats = nullptr;
++			core.only_use_mats = nullptr;
++			core.forced_summon_minc = 0;
++			core.forced_summon_maxc = 0;
++			for(const auto& cost : arg.surrender_group_costs)
++				remove_oath_effect(cost);
++			for(const auto& cost : arg.spsummon_cost_effects)
++				remove_oath_effect(cost);
++			if(auto* proc = arg.summon_proc_effect) {
++				remove_oath_effect(proc);
++				if(!is_flag(DUEL_CANNOT_SUMMON_OATH_OLD) && ((arg.step >= 4 && arg.step < 20) || arg.step >= 21)
++					&& proc->is_flag(EFFECT_FLAG_COUNT_LIMIT) && (proc->count_flag & EFFECT_COUNT_CODE_OATH))
++					dec_effect_code(proc->count_code, proc->count_flag, proc->count_hopt_index, arg.sumplayer);
++			}
++		}
 +		if(arg.summon_proc_effect)
 +			pduel->lua->proc_forget(arg.summon_proc_effect);
 +		if(core.summoning_card == arg.target)
@@ -372,7 +458,7 @@ index e01720f..c2f13a6 100644
  	auto sumplayer = arg.sumplayer;
  	auto target = arg.target;
  	auto summon_type = arg.summon_type;
-@@ -3404,6 +3462,8 @@ bool field::process(Processors::SpSummonRule& arg) {
+@@ -3404,6 +3520,8 @@ bool field::process(Processors::SpSummonRule& arg) {
  			pduel->lua->proc_take_pick(peffect, returns.at<int32_t>(0));
  		} else {
  			peffect = core.select_effects[returns.at<int32_t>(0)];
@@ -381,13 +467,25 @@ index e01720f..c2f13a6 100644
  			// F5: a procedure that puts the monster on an opponent's field binds one opponent first
  			if(n_duelists > 2 && pduel->lua->proc_ask_pick(peffect, sumplayer)) {
  				arg.step = 0;
-@@ -3958,6 +4018,14 @@ bool field::process(Processors::SpSummonStep& arg) {
+@@ -3704,6 +3822,8 @@ bool field::process(Processors::SpSummonRule& arg) {
+ 			}
+ 			arg.spsummon_cost_effects.clear();
+ 			pcard->filter_effect(EFFECT_SPSUMMON_COST, &arg.spsummon_cost_effects);
++			arg.surrender_group_costs.insert(arg.surrender_group_costs.end(),
++				arg.spsummon_cost_effects.begin(), arg.spsummon_cost_effects.end());
+ 			for(const auto& peffect : arg.spsummon_cost_effects) {
+ 				if(peffect->operation) {
+ 					core.sub_solving_event.push_back(nil_event);
+@@ -3958,6 +4078,17 @@ bool field::process(Processors::SpSummonStep& arg) {
  	uint8_t nocheck = (target->spsummon_param >> 16) & 0xff;
  	uint8_t nolimit = (target->spsummon_param >> 8) & 0xff;
  	uint8_t positions = target->spsummon_param & 0xff;
 +	// A removed summon must not report success or survive in the completion group.
 +	if(n_duelists > 2 && (arg.surrender_cost_failed || !is_alive(target->summon.player) || !is_alive(playerid)
 +		|| removed_duelist_card(*this, target) || (arg.step == 2 && !returns.at<int32_t>(0)))) {
++		if(arg.surrender_cost_failed)
++			for(const auto& cost : arg.spsummon_cost_effects)
++				remove_oath_effect(cost);
 +		core.special_summoning.erase(target);
 +		core.ss_tograve_set.erase(target);
 +		target->set_status(STATUS_SPSUMMON_STEP, FALSE);
@@ -396,7 +494,7 @@ index e01720f..c2f13a6 100644
  	switch(arg.step) {
  	case 0: {
  		if(target->is_affected_by_effect(EFFECT_REVIVE_LIMIT) && !target->is_status(STATUS_PROC_COMPLETE)) {
-@@ -5364,6 +5432,11 @@ bool field::process(Processors::MoveToField& arg) {
+@@ -5364,6 +5495,11 @@ bool field::process(Processors::MoveToField& arg) {
  	uint8_t playerid = (target->to_field_param >> 16) & 0xff;
  	uint8_t location = (target->to_field_param >> 8) & 0xff;
  	uint8_t positions = (target->to_field_param) & 0xff;
@@ -409,7 +507,7 @@ index e01720f..c2f13a6 100644
  	// chooses when the chooser is not alive (a folded or stale seat)
  	if(n_duelists > 2 && !is_alive(move_player) && is_alive(playerid))
 diff --git a/playerop.cpp b/playerop.cpp
-index 7a6fe3e..4a9fede 100644
+index 7a6fe3e..65a1677 100644
 --- a/playerop.cpp
 +++ b/playerop.cpp
 @@ -14,6 +14,7 @@
@@ -572,7 +670,7 @@ index 7a6fe3e..4a9fede 100644
  	if(arg.step == 0) {
  		if(count == 0) {
  			auto message = pduel->new_message(MSG_HINT);
-@@ -791,6 +869,20 @@ bool field::process(Processors::SelectCounter& arg) {
+@@ -791,6 +869,22 @@ bool field::process(Processors::SelectCounter& arg) {
  	auto count = arg.count;
  	auto self = arg.self;
  	auto oppo = arg.oppo;
@@ -584,8 +682,10 @@ index 7a6fe3e..4a9fede 100644
 +		}
 +		refresh = std::any_of(arg.offered_counters.begin(), arg.offered_counters.end(),
 +			[countertype](const auto& offer) {
-+				return !(offer.first->current.location & LOCATION_ONFIELD)
-+					|| offer.first->get_counter(countertype) != offer.second;
++				const auto& current = offer.source->current;
++				return !(current.location & LOCATION_ONFIELD)
++					|| current.controler != offer.controller || current.location != offer.location
++					|| current.sequence != offer.sequence || offer.source->get_counter(countertype) != offer.count;
 +			});
 +		if(refresh)
 +			arg.step = 0;
@@ -593,7 +693,7 @@ index 7a6fe3e..4a9fede 100644
  	if(arg.step == 0) {
  		if(count == 0)
  			return TRUE;
-@@ -822,9 +914,14 @@ bool field::process(Processors::SelectCounter& arg) {
+@@ -822,9 +916,14 @@ bool field::process(Processors::SelectCounter& arg) {
  			if(n_duelists > 2 && fp == playerid)
  				break;
  		}
@@ -609,21 +709,22 @@ index 7a6fe3e..4a9fede 100644
  			returns.set<int16_t>(0, count);
  			return TRUE;
  		}
-@@ -834,7 +931,9 @@ bool field::process(Processors::SelectCounter& arg) {
+@@ -834,7 +933,10 @@ bool field::process(Processors::SelectCounter& arg) {
  		message->write<uint16_t>(count);
  		message->write<uint32_t>(core.select_cards.size());
  		std::sort(core.select_cards.begin(), core.select_cards.end(), card::card_operation_sort);
 +		arg.offered_counters.clear();
  		for(auto& pcard : core.select_cards) {
-+			arg.offered_counters.emplace_back(pcard, pcard->get_counter(countertype));
++			arg.offered_counters.push_back({pcard, pcard->get_counter(countertype),
++				pcard->current.controler, pcard->current.location, pcard->current.sequence});
  			message->write<uint32_t>(pcard->data.code);
  			message->write<uint8_t>(pcard->current.controler);
  			message->write<uint8_t>(pcard->current.location);
 diff --git a/processor.cpp b/processor.cpp
-index 56bae6e..364115c 100644
+index 56bae6e..f0998f5 100644
 --- a/processor.cpp
 +++ b/processor.cpp
-@@ -74,7 +74,8 @@ bool field::process(Processors::ExecuteCost& arg) {
+@@ -74,9 +74,12 @@ bool field::process(Processors::ExecuteCost& arg) {
  	core.reason_player = triggering_player;
  	uint32_t count = static_cast<uint32_t>(pduel->lua->params.size());
  	lua_Integer yield_value = 0;
@@ -632,8 +733,12 @@ index 56bae6e..364115c 100644
 +		: pduel->lua->call_coroutine(triggering_effect->cost, count, &yield_value, step, triggering_player, triggering_effect);
  	returns.set<int32_t>(0, static_cast<int32_t>(yield_value));
  	if (result != COROUTINE_YIELD) {
++		if(arg.surrender_cost_failed)
++			remove_oath_effect(triggering_effect);
  		core.reason_effect = nullptr;
-@@ -130,7 +131,8 @@ bool field::process(Processors::ExecuteOperation& arg) {
+ 		core.reason_player = none_id();
+ 		--core.check_level;
+@@ -130,9 +133,12 @@ bool field::process(Processors::ExecuteOperation& arg) {
  	uint32_t count = static_cast<uint32_t>(pduel->lua->params.size());
  	lua_Integer yield_value = 0;
  	zone_mask_scope zone_scope(this, triggering_effect, step == 0);
@@ -642,8 +747,12 @@ index 56bae6e..364115c 100644
 +		: pduel->lua->call_coroutine(triggering_effect->operation, count, &yield_value, step, triggering_player, triggering_effect, true);
  	returns.set<int32_t>(0, static_cast<int32_t>(yield_value));
  	if (result != COROUTINE_YIELD) {
++		if(arg.surrender_cost_failed)
++			remove_oath_effect(triggering_effect);
  		core.reason_effect = nullptr;
-@@ -190,7 +192,8 @@ bool field::process(Processors::ExecuteTarget& arg) {
+ 		core.reason_player = none_id();
+ 		--core.check_level;
+@@ -190,9 +196,12 @@ bool field::process(Processors::ExecuteTarget& arg) {
  	core.reason_player = triggering_player;
  	uint32_t count = static_cast<uint32_t>(pduel->lua->params.size());
  	lua_Integer yield_value = 0;
@@ -652,8 +761,12 @@ index 56bae6e..364115c 100644
 +		: pduel->lua->call_coroutine(triggering_effect->target, count, &yield_value, step, triggering_player, triggering_effect);
  	returns.set<int32_t>(0, static_cast<int32_t>(yield_value));
  	if (result != COROUTINE_YIELD) {
++		if(arg.surrender_cost_failed)
++			remove_oath_effect(triggering_effect);
  		core.reason_effect = nullptr;
-@@ -210,7 +213,7 @@ bool field::process(Processors::ExecuteTarget& arg) {
+ 		core.reason_player = none_id();
+ 		--core.check_level;
+@@ -210,7 +219,7 @@ bool field::process(Processors::ExecuteTarget& arg) {
  	}
  	return FALSE;
  }
@@ -662,7 +775,7 @@ index 56bae6e..364115c 100644
  	auto& new_event = core.queue_event.emplace_back();
  	new_event.trigger_card = nullptr;
  	if (event_card) {
-@@ -226,8 +229,9 @@ void field::raise_event(card* event_card, uint32_t event_code, effect* reason_ef
+@@ -226,8 +235,9 @@ void field::raise_event(card* event_card, uint32_t event_code, effect* reason_ef
  	new_event.event_player = event_player;
  	new_event.event_value = event_value;
  	new_event.global_id = infos.event_id;
@@ -673,7 +786,7 @@ index 56bae6e..364115c 100644
  	auto& new_event = core.queue_event.emplace_back();
  	new_event.trigger_card = nullptr;
  	auto pgroup = pduel->new_group(std::move(event_cards));
-@@ -240,8 +244,9 @@ void field::raise_event(card_set event_cards, uint32_t event_code, effect* reaso
+@@ -240,8 +250,9 @@ void field::raise_event(card_set event_cards, uint32_t event_code, effect* reaso
  	new_event.event_player = event_player;
  	new_event.event_value = event_value;
  	new_event.global_id = infos.event_id;
@@ -684,7 +797,7 @@ index 56bae6e..364115c 100644
  	auto& new_event = core.single_event.emplace_back();
  	new_event.trigger_card = trigger_card;
  	if (event_cards) {
-@@ -257,6 +262,7 @@ void field::raise_single_event(card* trigger_card, card_set* event_cards, uint32
+@@ -257,6 +268,7 @@ void field::raise_single_event(card* trigger_card, card_set* event_cards, uint32
  	new_event.event_player = event_player;
  	new_event.event_value = event_value;
  	new_event.global_id = infos.event_id;
@@ -692,7 +805,7 @@ index 56bae6e..364115c 100644
  }
  int32_t field::check_event(uint32_t code, tevent* pe) {
  	for(const auto& ev : core.point_event) {
-@@ -333,14 +339,18 @@ bool field::process(Processors::PhaseEvent& arg) {
+@@ -333,14 +345,18 @@ bool field::process(Processors::PhaseEvent& arg) {
  		const bool out_turn = n_duelists > 2 && phase == PHASE_END && core.force_turn_end && !is_alive(infos.turn_player);
  		if(out_turn)
  			core.hand_adjusted = true;
@@ -715,7 +828,7 @@ index 56bae6e..364115c 100644
  		int32_t phase_event = EVENT_PHASE + phase;
  		nil_event.event_code = phase_event;
  		nil_event.event_player = infos.turn_player;
-@@ -487,7 +497,7 @@ bool field::process(Processors::PhaseEvent& arg) {
+@@ -487,7 +503,7 @@ bool field::process(Processors::PhaseEvent& arg) {
  			else
  				message->write<uint64_t>(26);
  			if(tf_count == 0 && to_count == 1 && fc_count == 0 && cn_count == 0) {
@@ -724,7 +837,7 @@ index 56bae6e..364115c 100644
  				return FALSE;
  			} else {
  				emplace_process<Processors::SelectChain>(check_player, core.spe_effect[check_player], (tf_count + cn_count) > 0);
-@@ -530,6 +540,7 @@ bool field::process(Processors::PhaseEvent& arg) {
+@@ -530,6 +546,7 @@ bool field::process(Processors::PhaseEvent& arg) {
  			}
  			return FALSE;
  		}
@@ -732,7 +845,7 @@ index 56bae6e..364115c 100644
  		arg.priority_passed = false;
  		arg.pass_mask = 0;
  		auto selected_chain = std::next(core.select_chains.begin(), returns.at<int32_t>(0));
-@@ -622,6 +633,7 @@ bool field::process(Processors::PhaseEvent& arg) {
+@@ -622,6 +639,7 @@ bool field::process(Processors::PhaseEvent& arg) {
  		return FALSE;
  	}
  	case 22: {
@@ -740,7 +853,7 @@ index 56bae6e..364115c 100644
  		core.hand_adjusted = true;
  		emplace_process<Processors::PointEvent>(false, false, false);
  		arg.step = Processors::restart;
-@@ -640,7 +652,9 @@ bool field::process(Processors::PhaseEvent& arg) {
+@@ -640,7 +658,9 @@ bool field::process(Processors::PhaseEvent& arg) {
  	case 26: {
  		core.quick_f_chain.clear();
  		core.instant_event.clear();
@@ -750,7 +863,7 @@ index 56bae6e..364115c 100644
  		core.delayed_activate_event.clear();
  		core.full_event.clear();
  		/*if(core.set_forced_attack) {
-@@ -665,6 +679,7 @@ bool field::process(Processors::PointEvent& arg) {
+@@ -665,6 +685,7 @@ bool field::process(Processors::PointEvent& arg) {
  	case 0: {
  		core.select_chains.clear();
  		core.point_event.splice(core.point_event.end(), core.instant_event);
@@ -758,7 +871,7 @@ index 56bae6e..364115c 100644
  		if(skip_trigger) {
  			arg.step = 7;
  			return FALSE;
-@@ -703,8 +718,10 @@ bool field::process(Processors::PointEvent& arg) {
+@@ -703,8 +724,10 @@ bool field::process(Processors::PointEvent& arg) {
  			   && check_trigger_effect(*clit)
  			   && peffect->is_chainable(tp)
  			   && peffect->is_activateable(tp, clit->evt, TRUE, FALSE, FALSE, is_flag(DUEL_TRIGGER_WHEN_PRIVATE_KNOWLEDGE), is_flag(DUEL_TRIGGER_WHEN_PRIVATE_KNOWLEDGE))) {
@@ -770,7 +883,7 @@ index 56bae6e..364115c 100644
  			} else {
  				peffect->active_type = 0;
  				core.new_fchain_s.erase(clit++);
-@@ -798,8 +815,10 @@ bool field::process(Processors::PointEvent& arg) {
+@@ -798,8 +821,10 @@ bool field::process(Processors::PointEvent& arg) {
  			   && peffect->is_chainable(tp)
  			   && peffect->is_activateable(tp, clit->evt, TRUE, FALSE, FALSE, is_flag(DUEL_TRIGGER_WHEN_PRIVATE_KNOWLEDGE), is_flag(DUEL_TRIGGER_WHEN_PRIVATE_KNOWLEDGE))
  			   && check_spself_from_hand_trigger(*clit)) {
@@ -782,7 +895,7 @@ index 56bae6e..364115c 100644
  			} else {
  				peffect->active_type = 0;
  				core.new_ochain_s.erase(clit++);
-@@ -825,7 +844,7 @@ bool field::process(Processors::PointEvent& arg) {
+@@ -825,7 +850,7 @@ bool field::process(Processors::PointEvent& arg) {
  				core.select_chains.erase(endit, core.select_chains.end());
  			}
  			if(core.select_chains.size() == 1 && !core.current_chain.size()) {
@@ -791,7 +904,7 @@ index 56bae6e..364115c 100644
  				return FALSE;
  			} else {
  				emplace_process<Processors::SelectChain>(core.current_player, 0x7f, false);
-@@ -969,6 +988,7 @@ bool field::process(Processors::PointEvent& arg) {
+@@ -969,6 +994,7 @@ bool field::process(Processors::PointEvent& arg) {
  			emplace_process<Processors::SolveChain>(skip_trigger, skip_freechain, skip_new);
  		} else {
  			core.used_event.splice(core.used_event.end(), core.point_event);
@@ -799,7 +912,7 @@ index 56bae6e..364115c 100644
  			reset_chain();
  			returns.set<int32_t>(0, FALSE);
  		}
-@@ -1070,6 +1090,13 @@ bool field::process(Processors::PointEvent& arg) {
+@@ -1070,6 +1096,13 @@ bool field::process(Processors::PointEvent& arg) {
  	return TRUE;
  }
  bool field::process(Processors::QuickEffect& arg) {
@@ -813,7 +926,7 @@ index 56bae6e..364115c 100644
  	auto skip_freechain = arg.skip_freechain;
  	auto priority = arg.priority_player;
  	switch(arg.step) {
-@@ -1492,6 +1519,8 @@ int32_t field::process_single_event() {
+@@ -1492,6 +1525,8 @@ int32_t field::process_single_event() {
  	chain_list tp;
  	chain_list ntp;
  	for(const auto& ev : core.single_event) {
@@ -822,7 +935,7 @@ index 56bae6e..364115c 100644
  		card* starget = ev.trigger_card;
  		auto pr = starget->single_effect.equal_range(ev.event_code);
  		for(auto eit = pr.first; eit != pr.second;) {
-@@ -3526,6 +3555,7 @@ bool field::process(Processors::Turn& arg) {
+@@ -3526,6 +3561,7 @@ bool field::process(Processors::Turn& arg) {
  	switch(arg.step) {
  	case 0: {
  		//Pre Draw
@@ -830,7 +943,7 @@ index 56bae6e..364115c 100644
  		core.used_event.clear();
  		// These containers compare by effect ids, so an insert or erase reads the effects in
  		// them. In turn 1 they can still hold entries from the Startup events (the first clear
-@@ -3912,6 +3942,23 @@ bool field::process(Processors::Turn& arg) {
+@@ -3912,6 +3948,23 @@ bool field::process(Processors::Turn& arg) {
  	return TRUE;
  }
  bool field::process(Processors::AddChain& arg) {
@@ -854,7 +967,7 @@ index 56bae6e..364115c 100644
  	switch (arg.step) {
  	case 0: {
  		if (!core.new_chains.size())
-@@ -4473,8 +4520,8 @@ bool field::process(Processors::SolveChain& arg) {
+@@ -4473,8 +4526,8 @@ bool field::process(Processors::SolveChain& arg) {
  		for(uint8_t p = 0; p < n_duelists; ++p)
  			core.spsummon_state_count_tmp[p] = core.spsummon_state_count[p];
  		// The link of an eliminated duelist resolves with no effect (no EVENT_CHAIN_DISABLED). A duelist with a pending loss
@@ -865,7 +978,7 @@ index 56bae6e..364115c 100644
  			if(!(cait->flag & CHAIN_DISABLE_EFFECT)) {
  				auto message = pduel->new_message(MSG_CHAIN_DISABLED);
  				message->write<uint8_t>(cait->chain_count);
-@@ -4708,6 +4755,7 @@ bool field::process(Processors::SolveChain& arg) {
+@@ -4708,6 +4761,7 @@ bool field::process(Processors::SolveChain& arg) {
  	}
  	case 12: {
  		core.used_event.splice(core.used_event.end(), core.point_event);
@@ -873,7 +986,7 @@ index 56bae6e..364115c 100644
  		pduel->new_message(MSG_CHAIN_END);
  		reset_chain();
  		if((core.summoning_card || core.summoning_proc_group_type || core.effect_damage_step == 1) && core.reserved)
-@@ -4751,6 +4799,7 @@ int32_t field::break_effect(bool clear_sent) {
+@@ -4751,6 +4805,7 @@ int32_t field::break_effect(bool clear_sent) {
  		}
  	}
  	core.used_event.splice(core.used_event.end(), core.instant_event);
@@ -881,7 +994,7 @@ index 56bae6e..364115c 100644
  	adjust_instant();
  	if(n_duelists == 2 && !is_flag(DUEL_RELAY) && !core.force_turn_end) {
  		uint32_t winp = 5, rea = 1;
-@@ -4812,9 +4861,16 @@ int32_t field::break_effect(bool clear_sent) {
+@@ -4812,9 +4867,16 @@ int32_t field::break_effect(bool clear_sent) {
  // Duel.Win of another team (every living opponent without CANNOT_LOSE_EFFECT). Losses wait while a chain
  // resolves or a script runs. Then: no team is left = draw MSG_WIN(0xFF), one team is left = MSG_WIN(team),
  // else every loser is eliminated in turn order from the turn player.
@@ -900,7 +1013,7 @@ index 56bae6e..364115c 100644
  	uint8_t order[MAX_DUELISTS];
  	uint8_t count = 0;
  	for(uint8_t i = 0; i < n_duelists; ++i) {
-@@ -4830,7 +4886,7 @@ void field::check_losses_n() {
+@@ -4830,7 +4892,7 @@ void field::check_losses_n() {
  	};
  	for(uint8_t i = 0; i < count; ++i) {
  		const auto p = order[i];
@@ -909,7 +1022,7 @@ index 56bae6e..364115c 100644
  			bool protect = false;
  			for(uint8_t q = 0; q < count; ++q) {
  				if(same_team(order[q], p) && is_player_affected_by_effect(order[q], EFFECT_CANNOT_LOSE_LP))
-@@ -4839,13 +4895,13 @@ void field::check_losses_n() {
+@@ -4839,13 +4901,13 @@ void field::check_losses_n() {
  			if(!protect)
  				mark(p, 1);
  		}
@@ -927,7 +1040,7 @@ index 56bae6e..364115c 100644
  		if(is_alive(w) && !loses[w]) {
  			for(uint8_t i = 0; i < count; ++i) {
 diff --git a/processor_unit.h b/processor_unit.h
-index 6e21e1d..359726e 100644
+index 6e21e1d..7d99295 100644
 --- a/processor_unit.h
 +++ b/processor_unit.h
 @@ -12,6 +12,7 @@
@@ -958,15 +1071,22 @@ index 6e21e1d..359726e 100644
  };
  struct SelectYesNo : public Process<true> {
  	uint8_t playerid;
-@@ -153,6 +156,7 @@ struct SelectCounter : public Process<true> {
+@@ -153,6 +156,14 @@ struct SelectCounter : public Process<true> {
  	uint8_t self;
  	uint8_t oppo;
  	uint8_t opponent_mask;
-+	std::vector<std::pair<card*, uint16_t>> offered_counters;
++	struct counter_offer {
++		card* source;
++		int32_t count;
++		uint8_t controller;
++		uint16_t location;
++		uint32_t sequence;
++	};
++	std::vector<counter_offer> offered_counters;
  	SelectCounter(uint16_t step_, uint8_t playerid_, uint16_t countertype_, uint16_t count_,
  				  uint8_t self_, uint8_t oppo_, uint8_t opponent_mask_ = 0xff) :
  		Process(step_), countertype(countertype_), count(count_), playerid(playerid_), self(self_),
-@@ -233,6 +237,7 @@ struct PhaseEvent : public Process<false> {
+@@ -233,6 +244,7 @@ struct PhaseEvent : public Process<false> {
  	bool priority_passed;
  	uint8_t check_cursor{ DUELIST_NONE }; // n_duelists > 2: the duelist asked now
  	uint8_t pass_mask{ 0 }; // n_duelists > 2: bit q is set when duelist q passed since the last activation
@@ -974,7 +1094,7 @@ index 6e21e1d..359726e 100644
  	PhaseEvent(uint16_t step_, uint16_t phase_) :
  		Process(step_), phase(phase_), is_opponent(false), priority_passed(false) {}
  };
-@@ -276,8 +281,11 @@ struct ForcedBattle : public Process<false> {
+@@ -276,8 +288,11 @@ struct ForcedBattle : public Process<false> {
  };
  struct AddChain : public Process<false> {
  	bool is_activated_effect;
@@ -987,11 +1107,43 @@ index 6e21e1d..359726e 100644
  };
  struct SolveChain : public Process<false> {
  	bool skip_trigger;
+@@ -443,6 +458,7 @@ struct SpSummonRule : public Process<false> {
+ 	effect* summon_proc_effect;
+ 	owned_lua<group> cards_to_summon_g;
+ 	effect_set spsummon_cost_effects;
++	effect_set surrender_group_costs;
+ 	SpSummonRule(uint16_t step_, uint8_t sumplayer_, card* target_, uint32_t summon_type_,
+ 				 bool is_mid_chain_ = false, effect* summon_proc_effect_ = nullptr) :
+ 		Process(step_), sumplayer(sumplayer_), is_mid_chain(is_mid_chain_), summon_type(summon_type_), target(target_),
+@@ -475,6 +491,7 @@ struct MonsterSet : public Process<false> {
+ 	effect* summon_procedure_effect;
+ 	effect* extra_summon_effect;
+ 	card_set tributes;
++	effect_set surrender_set_costs;
+ 	MonsterSet(uint16_t step_, uint8_t setplayer_, card* target_, effect* proc_,
+ 						bool ignore_count_, uint8_t min_tribute_, uint32_t zone_) :
+ 		Process(step_), setplayer(setplayer_), min_tribute(min_tribute_), max_allowed_tributes(0), ignore_count(ignore_count_),
+@@ -485,6 +502,7 @@ struct SpellSet : public Process<false> {
+ 	uint8_t toplayer;
+ 	card* target;
+ 	effect* reason_effect;
++	effect_set surrender_set_costs;
+ 	SpellSet(uint16_t step_, uint8_t setplayer_, uint8_t toplayer_, card* target_,
+ 					  effect* reason_effect_) :
+ 		Process(step_), setplayer(setplayer_), toplayer(toplayer_), target(target_),
+@@ -505,6 +523,7 @@ struct SpellSetGroup : public Process<false> {
+ 	owned_lua<group> ptarget;
+ 	effect* reason_effect;
+ 	card_set set_cards;
++	effect_set surrender_set_costs;
+ 	SpellSetGroup(uint16_t step_, uint8_t setplayer_, uint8_t toplayer_,
+ 						   owned_lua<group> ptarget_, bool confirm_, effect* reason_effect_) :
+ 		Process(step_), setplayer(setplayer_), toplayer(toplayer_), confirm(confirm_),
 diff --git a/processor_visit.cpp b/processor_visit.cpp
-index 3c08f5f..b1d2c07 100644
+index 3c08f5f..110ffcf 100644
 --- a/processor_visit.cpp
 +++ b/processor_visit.cpp
-@@ -6,11 +6,75 @@
+@@ -6,11 +6,76 @@
  #include <variant> //std::visit
  #include "field.h"
  
@@ -1020,6 +1172,7 @@ index 3c08f5f..b1d2c07 100644
 +			|| mark(static_cast<Processors::SpSummonRule*>(nullptr))
 +			|| mark(static_cast<Processors::FlipSummon*>(nullptr))
 +			|| mark(static_cast<Processors::SpellSet*>(nullptr))
++			|| mark(static_cast<Processors::SpellSetGroup*>(nullptr))
 +			|| mark(static_cast<Processors::SpSummonStep*>(nullptr)))
 +			return;
 +		if(Processors::get_opt_variant<Processors::SolveContinuous>(unit))

@@ -6,6 +6,7 @@
 #undef main
 #include "card.h"
 #include "effect.h"
+#include "group.h"
 
 static void surrender_phase(int leaver) {
 	OCG_Duel d = make_ffa4({{103}, {103}, {103}, {103}}, 0);
@@ -235,6 +236,40 @@ static void surrender_forced_chain_cleanup() {
 	OCG_DestroyDuel(d);
 }
 
+// An interrupted procedure must release its inputs and oath restrictions, just
+// as a summon that fails its payment check does. No earlier payment is refunded.
+static void surrender_failed_cost_cleanup() {
+	OCG_Duel d = make_duel(0);
+	EXPECT(run_lua(d, "Debug.SetupDuelists(4,0,1,2,3)"), "cost-cleanup setup failed");
+	add_cards(d, 0, LOCATION_HAND, 1, 1);
+	auto& f = F(d);
+	auto* target = f.player[0].list_hand.front();
+	auto* proc = static_cast<duel*>(d)->new_effect();
+	proc->owner = proc->handler = target;
+	proc->code = EFFECT_SPSUMMON_PROC;
+	proc->flag[0] = EFFECT_FLAG_COUNT_LIMIT;
+	proc->count_limit = proc->count_limit_max = 1;
+	proc->count_code = 970006;
+	proc->count_flag = EFFECT_COUNT_CODE_OATH;
+	proc->dec_count(0);
+	auto* oath = static_cast<duel*>(d)->new_effect();
+	oath->owner = oath->handler = target;
+	f.effects.oath.emplace(oath, proc);
+	f.core.must_use_mats = static_cast<duel*>(d)->new_group(target);
+	f.core.only_use_mats = static_cast<duel*>(d)->new_group(target);
+	f.core.forced_summon_minc = 1;
+	f.core.forced_summon_maxc = 2;
+	Processors::SpSummonRule action(4, 0, target, 0, false, proc);
+	action.surrender_cost_failed = true;
+	EXPECT(f.process(action), "failed cost did not cancel the summon");
+	EXPECT(target->current.location == LOCATION_HAND, "unpaid summon left the hand");
+	EXPECT(!f.core.must_use_mats && !f.core.only_use_mats, "failed cost kept material groups");
+	EXPECT(f.core.forced_summon_minc == 0 && f.core.forced_summon_maxc == 0, "failed cost kept material limits");
+	EXPECT(f.effects.oath.empty(), "failed cost kept an oath restriction");
+	EXPECT(f.get_effect_code(proc->count_code, proc->count_flag, proc->count_hopt_index, 0) == 0, "failed cost kept an oath count");
+	OCG_DestroyDuel(d);
+}
+
 int main() {
 	init_scripts();
 	// FX3: a seat which passed, and is not the turn player, is removed at seat 2's prompt.
@@ -247,6 +282,7 @@ int main() {
 	surrender_return_cleanup(false);
 	surrender_return_cleanup(true);
 	surrender_forced_chain_cleanup();
+	surrender_failed_cost_cleanup();
 	std::printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
 	return failures ? 1 : 0;
 }
