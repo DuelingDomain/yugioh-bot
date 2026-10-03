@@ -1,13 +1,3 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: yugidraft <yugidraft@localhost>
-Date: Sat, 3 Oct 2026 00:00:00 +0000
-Subject: [PATCH] core: immediate FFA surrender with normal chain resolution
-
-Surrender waits for the whole open chain, including the leaver links.
-Without a chain it removes the seat immediately. It preserves living
-choices and only closes response windows that involve the leaving turn seat.
-Other loss reasons retain their existing timing.
-
 diff --git a/field.h b/field.h
 --- a/field.h
 +++ b/field.h
@@ -33,7 +23,18 @@ diff --git a/field.h b/field.h
  	chain_list select_chains;
  	chain_array current_chain;
  	int32_t real_chain_count;
-@@ -711,7 +719,9 @@
+@@ -453,6 +461,10 @@
+ 	field_effect effects;
+ 	processor core{};
+ 	ProgressiveBuffer returns;
++	// External loss cleanup runs before the suspended selector. Keep its response
++	// until that same processor resumes, including cleanup that yields another prompt.
++	bool capture_surrender_response{ false };
++	std::vector<std::pair<const processor_unit*, ProgressiveBuffer>> surrender_responses;
+ 	return_card return_cards;
+ 	return_card_code return_card_codes;
+ 	tevent nil_event;
+@@ -711,7 +723,9 @@
  	// any body runs): then p is not "already out" and the body runs.
  	void eliminate(uint8_t p, uint8_t reason, bool marked = false);
  	// Applies the losses of a duel with more than 2 duelists (Adjust step 1). Sends MSG_WIN at the end.
@@ -44,7 +45,7 @@ diff --git a/field.h b/field.h
  	// Calls f(p) for p = 0 .. n_duelists - 1 in ascending order (the stock order: player 0, then 1).
  	template<typename F>
  	void for_each_duelist(F&& f) const {
-@@ -955,9 +965,9 @@
+@@ -955,9 +969,9 @@
  		emplace_process<T>(Step{ 0 }, std::forward<Args>(args)...);
  	}
  
@@ -60,7 +61,7 @@ diff --git a/field.h b/field.h
 diff --git a/libdebug.cpp b/libdebug.cpp
 --- a/libdebug.cpp
 +++ b/libdebug.cpp
-@@ -336,6 +336,33 @@
+@@ -336,6 +336,36 @@
  	return 0;
  }
  
@@ -83,7 +84,10 @@ diff --git a/libdebug.cpp b/libdebug.cpp
 +	if(field->n_teams == field->n_duelists && p == field->infos.turn_player)
 +		field->core.turn_surrendered = true;
 +	field->player[p].pending_loss = 0x200;
++	const auto queued_before = field->core.subunits.size();
 +	field->check_losses_n(true);
++	if(field->core.subunits.size() > queued_before)
++		field->capture_surrender_response = true;
 +	if(close_window && !field->is_alive(p)) {
 +		auto message = pduel->new_message(203); // MSG_SURRENDER_WINDOW_CLOSED: u8 response seat
 +		message->write<uint8_t>(field->core.response_window_player);
@@ -702,3 +706,33 @@ diff --git a/processor_unit.h b/processor_unit.h
  };
  struct SolveChain : public Process<false> {
  	bool skip_trigger;
+diff --git a/processor_visit.cpp b/processor_visit.cpp
+--- a/processor_visit.cpp
++++ b/processor_visit.cpp
+@@ -7,9 +7,26 @@
+ #include "field.h"
+ 
+ OCG_DuelStatus field::process() {
++	if(capture_surrender_response) {
++		capture_surrender_response = false;
++		if(!core.units.empty()) {
++			const auto waiting = [](const auto& arg) { return arg.needs_answer && arg.step != 0; };
++			const bool suspended = std::visit([&](const auto& arg) {
++				if constexpr(Processors::IsProcess<decltype(arg)>) return waiting(arg);
++				else return std::visit(waiting, arg);
++			}, core.units.front());
++			if(suspended)
++				surrender_responses.emplace_back(&core.units.front(), returns);
++		}
++	}
+ 	core.units.splice(core.units.begin(), core.subunits);
+ 	if(core.units.empty())
+ 		return OCG_DUEL_STATUS_END;
++
++	if(!surrender_responses.empty() && surrender_responses.back().first == &core.units.front()) {
++		returns = std::move(surrender_responses.back().second);
++		surrender_responses.pop_back();
++	}
+ 
+ 	auto invoke = [this](auto& arg) -> OCG_DuelStatus {
+ 		if(process(arg)) {

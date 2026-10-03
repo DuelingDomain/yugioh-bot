@@ -1,0 +1,99 @@
+import { readFileSync } from "node:fs";
+import { expect, it } from "vitest";
+import type { DuelPrompt } from "@yugidraft/shared/duels";
+import { createEngineGame, type EngineGame } from "../src/engine.js";
+import { chooseSurrenderedAnswer } from "../src/practice-bot.js";
+import { engineDataDirectory as dataDirectory } from "./engine-data-dir.js";
+import { compileBoard } from "./support/board.js";
+import { currentDomainMultiWasm, currentMultiWasm, describeWithCores, needs } from "./support/cores.js";
+
+const cases: [string, DuelPrompt["kind"], string][] = [
+  ["yes-no", "choice", "Duel.SelectYesNo(0,30)"],
+  ["effect yes-no", "choice", "Duel.SelectEffectYesNo(0,g:GetFirst(),30)"],
+  ["option", "choice", "Duel.SelectOption(0,30,31)"],
+  ["cards", "cards", "g:Select(0,1,1,nil)"],
+  ["unselect", "toggle", "g:SelectUnselect(Group.CreateGroup(),0,true,true,1,1)"],
+  ["place", "places", "Duel.SelectFieldZone(0,1,LOCATION_MZONE,0,0)"],
+  ["disabled places", "places", "Duel.SelectDisableField(0,1,LOCATION_MZONE,0,0)"],
+  ["position", "choice", "Duel.SelectPosition(0,g:GetFirst(),POS_FACEUP)"],
+  ["sum", "sum", "g:SelectWithSumEqual(0,function() return 1 end,1,1,1)"],
+  ["sort", "order", "Duel.SortDecktop(0,0,3)"],
+  ["race", "cards", "Duel.AnnounceRace(0,1,RACE_ALL)"],
+  ["attribute", "cards", "Duel.AnnounceAttribute(0,1,ATTRIBUTE_ALL)"],
+  ["card", "announce-card", "Duel.AnnounceCard(0)"],
+  ["number", "choice", "Duel.AnnounceNumber(0,1,2,3)"],
+  ["tribute", "tribute", "Duel.SelectTribute(0,g:GetFirst(),1,1)"],
+  ["rock-paper-scissors", "choice", "Duel.RockPaperScissors()"],
+];
+
+function holder(game: EngineGame): number {
+  const seat = game.view(null).seats.find((s) => game.view(s.seat).prompt)?.seat;
+  expect(seat, "a living seat must hold the next prompt").toBeDefined();
+  return seat!;
+}
+function pass(game: EngineGame): void {
+  const seat = holder(game);
+  const prompt = game.view(seat).prompt!;
+  game.answer(seat, prompt.id, chooseSurrenderedAnswer(prompt, {
+    permittedCards: prompt.kind === "announce-card" ? game.searchCards("") : undefined,
+  }));
+}
+
+describeWithCores("surrender at each required prompt with return cleanup", [needs.multi(currentMultiWasm()), ...needs.domainMulti(dataDirectory, currentDomainMultiWasm())], () => {
+  for (const mode of ["normal", "domain"] as const) {
+    it.each(cases)(`${mode}: %s accepts surrender and the next living answer`, async (_name, kind, call) => {
+      const setup = compileBoard({ mode, format: "ffa4",
+        p0: { hand: ["Mystical Elf", "Celtic Guardian", "Battle Ox"], monsters: ["Beaver Warrior", "Gemini Elf"], ...(mode === "domain" ? { deckMaster: "Axe Raider" } : {}) },
+        p1: { monsters: Array(5).fill("Dark Magician"), ...(mode === "domain" ? { deckMaster: "Giant Soldier of Stone" } : {}) },
+        p2: { ...(mode === "domain" ? { deckMaster: "Summoned Skull" } : {}) },
+        p3: { ...(mode === "domain" ? { deckMaster: "Gemini Elf" } : {}) },
+      });
+      const bytes = readFileSync(mode === "domain" ? currentDomainMultiWasm() : currentMultiWasm());
+      const game = await createEngineGame({ ...setup.options, dataDirectory, seed: ["1", "2", "3", "4"],
+        multiWasmBinary: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        startupScripts: [...setup.options.startupScripts!, { name: "surrender-required-prompt.lua", content: `
+local foreign=Debug.AddCard(97017120,1,0,LOCATION_MZONE,2,POS_FACEUP_ATTACK,true)
+local control=Effect.CreateEffect(foreign)
+control:SetType(EFFECT_TYPE_SINGLE); control:SetCode(EFFECT_SET_CONTROL); control:SetValue(0)
+control:SetProperty(EFFECT_FLAG_CANNOT_DISABLE); control:SetReset(RESET_EVENT|RESETS_STANDARD|RESET_CONTROL)
+foreign:RegisterEffect(control)
+local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_PHASE_START|PHASE_MAIN1)
+e:SetCondition(function() return Duel.GetTurnCount()==1 end)
+e:SetOperation(function()
+  local g=Duel.GetFieldGroup(0,LOCATION_HAND,0)
+  ${_name === "counters" ? `for i=0,1 do
+    local c=Duel.GetFieldCard(0,LOCATION_MZONE,i)
+    local permit=Effect.CreateEffect(c); permit:SetType(EFFECT_TYPE_SINGLE)
+    permit:SetCode(EFFECT_COUNTER_PERMIT+0x1); permit:SetRange(LOCATION_MZONE); permit:SetValue(LOCATION_MZONE)
+    c:RegisterEffect(permit); c:AddCounter(0x1,1)
+  end` : ""}
+  local answer=${call}
+  ${["yes-no", "effect yes-no", "option"].includes(_name) ? "Duel.SetLP(2,7000+(answer==true and 1 or type(answer)=='number' and answer or 0))" : ""}
+end)
+Duel.RegisterEffect(e,0)` }],
+      });
+      try {
+        // Reach the exact required prompt, without answering it.
+        for (let step = 0; step < 40; step++) {
+          const prompt = game.view(holder(game)).prompt!;
+          if (holder(game) === 0 && prompt.context?.type !== "chain" && prompt.context?.type !== "action") break;
+          pass(game);
+        }
+        expect(holder(game)).toBe(0);
+        expect(game.view(0).prompt?.kind).toBe(kind);
+        expect(game.view(null).chain ?? []).toHaveLength(0);
+        game.eliminate(0, 0);
+        expect(game.view(null).seats[0].eliminated).toBe(true);
+        expect(game.view(0).prompt).toBeNull();
+        expect(game.view(null).seats[1].graveyard.map((c) => c.code)).toContain(97017120);
+        if (["yes-no", "effect yes-no", "option"].includes(_name)) expect(game.view(null).seats[2].lp).toBe(7000);
+        expect(holder(game)).not.toBe(0);
+        pass(game);
+        expect(game.view(null).result ?? null).toBeNull();
+        expect(game.diagnostics().filter((d) => d.kind === "stderr")).toEqual([]);
+      } finally { game.close(); }
+    });
+  }
+});

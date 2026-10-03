@@ -4,6 +4,7 @@
 #define main response_cursor_original_main
 #include "response-cursor.cpp"
 #undef main
+#include "card.h"
 
 static void surrender_phase(int leaver) {
 	OCG_Duel d = make_ffa4({{103}, {103}, {103}, {103}}, 0);
@@ -156,6 +157,43 @@ static void surrender_cancel_activation() {
 	OCG_DestroyDuel(d);
 }
 
+// A foreign monster must go to its owner's full field, then to the Graveyard.
+// SendTo writes 1 into returns; it must not replace the pending 7 or -1 answer.
+static void surrender_return_cleanup(bool living_window) {
+	OCG_Duel d = make_ffa4({{}, {}, {}, {}}, 0, "", {{1}, {1, 1, 1, 1, 1}});
+	F(d).player[0].list_mzone[0]->owner = 1;
+	std::vector<Msg> msgs;
+	bool surrendered = false, reached_idle = false;
+	int retries = 0;
+	for(int steps = 0; steps < 4000; ++steps) {
+		const int status = advance(d, msgs);
+		for(const auto& m : msgs) if(m.id == MSG_RETRY) ++retries;
+		if(retries || status == OCG_DUEL_STATUS_END) break;
+		if(status != OCG_DUEL_STATUS_AWAITING) continue;
+		if(msgs.empty()) { EXPECT(false, "awaiting without messages"); break; }
+		const auto last = msgs.back();
+		if(!surrendered && ((living_window && last.id == MSG_SELECT_CHAIN && last.b1 == 2)
+			|| (!living_window && last.id == MSG_SELECT_IDLECMD && last.b1 == 0))) {
+			EXPECT(run_lua(d, "Debug.SurrenderDuelist(0)"), "cleanup surrender failed");
+			EXPECT(!F(d).is_alive(0), "cleanup surrender was not immediate");
+			surrendered = true;
+			answer_i32(d, living_window ? -1 : 7);
+			continue;
+		}
+		if(surrendered && last.id == MSG_SELECT_IDLECMD) {
+			reached_idle = true;
+			EXPECT(last.b1 == 1, "cleanup reached idle seat %d, want 1", last.b1);
+			break;
+		}
+		EXPECT(answer_default(d, last), "unexpected cleanup prompt %u", last.id);
+	}
+	EXPECT(surrendered && reached_idle && retries == 0, "cleanup living=%d surrendered=%d idle=%d retries=%d",
+		living_window, surrendered, reached_idle, retries);
+	EXPECT(F(d).player[1].list_grave.size() == 1, "foreign monster did not reach its owner's Graveyard");
+	std::printf("Return cleanup, living window %d: retries %d; next idle %d\n", living_window, retries, reached_idle);
+	OCG_DestroyDuel(d);
+}
+
 int main() {
 	init_scripts();
 	// FX3: a seat which passed, and is not the turn player, is removed at seat 2's prompt.
@@ -165,6 +203,8 @@ int main() {
 	surrender_then_activate(false);
 	surrender_then_activate(true);
 	surrender_cancel_activation();
+	surrender_return_cleanup(false);
+	surrender_return_cleanup(true);
 	std::printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
 	return failures ? 1 : 0;
 }
