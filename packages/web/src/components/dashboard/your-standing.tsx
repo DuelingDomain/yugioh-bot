@@ -76,8 +76,10 @@ export function YourStanding({
           <div>
             <dt>Streak</dt>
             <dd>
-              {streak > 0 && <Flame className={styles.flame} aria-hidden="true" />}
-              {streak > 0 ? streak : "—"}
+              <span className={styles.streak}>
+                {streak > 0 && <Flame className={styles.flame} aria-hidden="true" />}
+                {streak > 0 ? streak : "—"}
+              </span>
             </dd>
             <span className={styles.sub}>this season</span>
           </div>

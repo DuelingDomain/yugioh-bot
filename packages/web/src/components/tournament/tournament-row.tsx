@@ -33,6 +33,8 @@ export interface TournamentRowProps {
   viewerId?: number | null;
   /** Forces the "you" underlay when `rounds` is not given. */
   you?: boolean;
+  /** Leads the row with the viewer's own ring (the dashboard does; the tournaments list does not). */
+  showYou?: boolean;
   className?: string;
 }
 
@@ -41,7 +43,7 @@ export interface TournamentRowProps {
  * a live round label, a strip of round slots, and the one duel action the viewer has.
  * Render inside a `SheetRoot`.
  */
-export function TournamentRow({ tournament, variant, rounds, viewerId = null, you: youProp, className }: TournamentRowProps) {
+export function TournamentRow({ tournament, variant, rounds, viewerId = null, you: youProp, showYou = false, className }: TournamentRowProps) {
   const href = tournamentHref(tournament);
   const input = rounds ? { format: tournament.format, status: tournament.status, participants: rounds.participants, matches: rounds.matches } : null;
   const you = youProp ?? (viewerId !== null && !!rounds?.participants.some((p) => p.playerId === viewerId));
@@ -63,20 +65,16 @@ export function TournamentRow({ tournament, variant, rounds, viewerId = null, yo
   return (
     <FloorRow
       you={you}
-      className={`${styles.row}${className ? ` ${className}` : ""}`}
-      cols="36px minmax(0, 1fr) auto auto"
-      phoneCols="36px minmax(0, 1fr) auto"
-      phoneAreas={'"lead id act" "lead strip strip"'}
+      className={`${styles.row}${showYou ? ` ${styles.withLead}` : ""}${className ? ` ${className}` : ""}`}
+      cols={showYou ? "36px minmax(0, 1fr) auto auto" : "minmax(0, 1fr) auto auto"}
+      phoneCols={showYou ? "36px minmax(0, 1fr)" : "minmax(0, 1fr)"}
+      phoneAreas={showYou ? '"lead id" "lead strip" "lead act"' : '"id" "strip" "act"'}
     >
-      <span className={styles.lead}>
-        {you ? (
+      {showYou && (
+        <span className={styles.lead}>
           <Mono name={viewerName} you />
-        ) : leader ? (
-          <Mono name={leader.displayName} ring={ringColour(leader.playerId)} label={`${leader.displayName}, the leader`} />
-        ) : (
-          <Mono name="" dashed />
-        )}
-      </span>
+        </span>
+      )}
       <div className={styles.id}>
         <Link href={href} className={styles.name}>
           {tournament.name}
@@ -94,6 +92,7 @@ export function TournamentRow({ tournament, variant, rounds, viewerId = null, yo
       </div>
       {strip && strip.slots.length > 0 && (
         <div className={styles.strip}>
+          {leader && <Mono name={leader.displayName} size="sm" ring={ringColour(leader.playerId)} label={`${leader.displayName}, the leader`} />}
           <LocatorStrip slots={strip.slots} size="sm" label={rangeLabel} />
         </div>
       )}

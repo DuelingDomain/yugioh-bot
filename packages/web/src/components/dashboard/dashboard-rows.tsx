@@ -40,6 +40,7 @@ export function TournamentRow({
       rounds={rounds}
       viewerId={viewerId}
       you
+      showYou
     />
   );
 }

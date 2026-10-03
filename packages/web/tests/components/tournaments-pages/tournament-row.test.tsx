@@ -34,4 +34,11 @@ describe("TournamentRow", () => {
     expect(screen.queryByRole("list", { name: /rounds/i })).toBeNull();
     expect(screen.queryByRole("button")).toBeNull();
   });
+
+  it("starts with the name, with no initials ring in front of it, unless the dashboard asks for one", () => {
+    const { container, rerender } = render(<ul><TournamentRow tournament={tournament("running")} variant="running" you /></ul>);
+    expect(container.querySelector(".sv-mono")).toBeNull();
+    rerender(<ul><TournamentRow tournament={tournament("running")} variant="running" you showYou /></ul>);
+    expect(container.querySelectorAll(".sv-mono")).toHaveLength(1);
+  });
 });
