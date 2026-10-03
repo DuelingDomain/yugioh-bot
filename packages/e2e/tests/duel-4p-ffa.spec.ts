@@ -254,9 +254,10 @@ test.describe("4-player FFA", () => {
     const result = (page: Page) => page.getByTestId("duel-result");
     await expect(result(alice.page)).toHaveAttribute("data-outcome", "win");
     await expect(result(alice.page)).toContainText("YOU WIN");
-    // A lost seat switches to spectating on its own, so each of them reads the result as a spectator and not as "lose".
+    // A seat that auto-spectated still reads its own loss once the duel is over: "lose" and its own "You" row.
     for (const seat of [bob, carol, dave]) {
-      await expect(result(seat.page)).toHaveAttribute("data-outcome", "spectator");
+      await expect(result(seat.page)).toHaveAttribute("data-outcome", "lose");
+      await expect(result(seat.page).locator("[data-tag='you']")).toHaveCount(1);
     }
     // Every screen lists the 4 final placings and Life Points.
     for (const seat of seats) {

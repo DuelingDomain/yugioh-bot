@@ -305,6 +305,23 @@ describe("live room table mount", () => {
     expect(screen.queryByRole("button", { name: "Stay and watch" })).toBeNull();
   });
 
+  it.each(["completed", "interrupted"] as const)("does not send an eliminated seat to spectate once the duel is %s", (status) => {
+    room(FFA3_FIXTURES.states.result.room);
+    state.room!.session.status = status;
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, eliminated: true } : seat);
+    expect(state.room!.mySeat).toBe(0);
+    mount();
+    expect(state.replace).not.toHaveBeenCalled();
+  });
+
+  it("does not send an eliminated seat to spectate when the engine already holds a result", () => {
+    room(FFA3_FIXTURES.states.main.room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, eliminated: true } : seat);
+    state.room!.engine!.result = { winnerSeat: 1, reason: "Last duelist standing" };
+    mount();
+    expect(state.replace).not.toHaveBeenCalled();
+  });
+
   it("leaves a spectator room with the small header control without another surrender", () => {
     room(FFA3_FIXTURES.states.spectator.room);
     mount(false);

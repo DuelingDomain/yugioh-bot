@@ -218,7 +218,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     seat.seat === data.mySeat && (seat.eliminated === true || seat.pendingElimination === true)) === true;
   const viewerSeat = data?.engine?.seats.find((seat) => seat.seat === data.mySeat);
   const viewerLeaving = viewerOut && viewerSeat?.eliminated !== true && viewerSeat?.pendingElimination === true;
-  const viewerEliminated = (liveFormat === "ffa3" || liveFormat === "ffa4") && viewerSeat?.eliminated === true;
+  // Auto-spectate only watches the REMAINING duel; once it is over the eliminated seat keeps its own result screen.
+  const duelOver = data?.session.status !== "active" || data?.engine?.result != null;
+  const viewerEliminated = (liveFormat === "ffa3" || liveFormat === "ffa4") && viewerSeat?.eliminated === true && !duelOver;
   useEffect(() => {
     if (!viewerEliminated || spectate) return;
     const query = new URLSearchParams(window.location.search);
