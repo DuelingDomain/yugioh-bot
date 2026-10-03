@@ -375,6 +375,25 @@ Duel.RegisterEffect(e,0)`]);
       expect(replay.frames.at(-1)!.view.result?.reason).toBe("Surrender");
     }, 60_000);
 
+    it("saved Surrendered results remain readable", async () => {
+      const t = await table(mode, "1v1");
+      await t.view();
+      await t.post("surrender", 1);
+      const row = t.db.prepare("SELECT snapshot_public_json, snapshot_seat0_json, snapshot_seat1_json, snapshot_seats_json FROM duels WHERE id = ?")
+        .get(t.session.id) as Record<string, string | null>;
+      for (const [column, saved] of Object.entries(row)) {
+        if (saved) t.db.prepare(`UPDATE duels SET ${column} = ? WHERE id = ?`)
+          .run(saved.replaceAll('"Surrender"', '"Surrendered"'), t.session.id);
+      }
+      t.db.prepare("UPDATE duels SET result_reason = 'Surrendered' WHERE id = ?").run(t.session.id);
+      await t.recover();
+      const room = await t.post("view");
+      expect(room.session).toMatchObject({ status: "completed", winnerSeat: 0, resultReason: "Surrendered" });
+      expect(room.engine!.result).toMatchObject({ winnerSeat: 0, reason: "Surrendered" });
+      const replay = await t.post("replay") as unknown as DuelReplay;
+      expect(replay.frames.at(-1)!.view.result).toMatchObject({ winnerSeat: 0, reason: "Surrender" });
+    }, 60_000);
+
     it("1v1 surrender still ends the duel at once", async () => {
       const t = await table(mode, "1v1");
       const before = await t.view();
@@ -723,6 +742,10 @@ Duel.RegisterEffect(e,0)`]);
       const final = await t.view();
       expect(states(final)).toEqual(Array.from({ length: t.count }, (_, seat) =>
         (format === "tag" ? teamOfSeat(format, seat) === 1 : losers.includes(seat)) ? "out" : "in"));
+      if (format !== "tag") {
+        expect(final.log.filter((line) => line.text.includes("is eliminated")).map((line) => line.text))
+          .toEqual(losers.map((seat) => `Player ${seat + 1} is eliminated (Surrender)`));
+      }
       if (format === "tag") expect(final.result?.winnerSeat).toBe(0);
       else {
         expect(final.eliminationOrder).toEqual(losers.map((seat) => [seat]));

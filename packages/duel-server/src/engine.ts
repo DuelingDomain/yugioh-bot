@@ -758,7 +758,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         for (const seat of newlyLost) eliminated.add(seat);
       }
       diagnose("msg200", raw.duelist, `reason ${raw.reason}`);
-      const reason = cards.victory(raw.reason) ?? `Win reason ${raw.reason}`;
+      const reason = raw.reason === 0 ? "Surrender" : cards.victory(raw.reason) ?? `Win reason ${raw.reason}`;
       appendLog(format === "tag" ? `Team ${teamOfSeat(format, raw.duelist) + 1} is eliminated (${reason})` : `Player ${raw.duelist + 1} is eliminated (${reason})`);
     } else if (raw.type === MSG_ATTACK_DUELIST) {
       // The core writes 0xFF when a direct attack has no defender duelist (no seat to name).
