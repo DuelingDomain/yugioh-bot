@@ -43,7 +43,8 @@ test.describe("Tag surrender and spectators", () => {
         await expect(watcher.page.getByTestId("duel-result")).toHaveCount(0);
       }
       // The spectator view holds no seat, no deck and no hand faces.
-      const room = await readTable(watcher.page, slug, true);
+      // The watcher holds no seat, so the plain room read is already the public view (spectate=1 is for an eliminated seat).
+      const room = await readTable(watcher.page, slug);
       expect(room).toMatchObject({ role: "spectator", mySeat: null, myDeck: null, engine: { prompt: null } });
       for (const seat of room.engine!.seats) expect(seat.hand.every((card) => card.code == null && card.name == null)).toBe(true);
       await tableShot(watcher.page, slug, info, "tag-spectator-rooftop");

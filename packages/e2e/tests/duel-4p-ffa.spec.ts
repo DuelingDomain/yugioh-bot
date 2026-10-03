@@ -2,7 +2,7 @@ import { test, expect, type Seat } from "../helpers/fixtures";
 import { activateSingleResponse, attackWithFirstMonster, endTurn, expectOpponentBoards, handCard, pickLegalZone, startTable, turnLabel, useCard } from "../helpers/board";
 import { FILLER, withFiller } from "../helpers/decks";
 import { surrender } from "../helpers/duel";
-import { actionPosts, expectRealCore, readTable, startTablePreset, tableField, tableLp, tableLpValue } from "../helpers/table";
+import { actionPosts, expectAutoSpectating, expectRealCore, readTable, startTablePreset, tableField, tableLp, tableLpValue } from "../helpers/table";
 import type { Page } from "@playwright/test";
 
 // 4-player free-for-all in real browsers (ADR-0002 and ADR-0003). Turn order is seat 0, 1, 2, 3.
@@ -225,7 +225,8 @@ test.describe("4-player FFA", () => {
     // Seat 0 ends the turn: seat 3 is out for good. The turn goes 1, 2, then back to 0: seat 3 is skipped.
     await endTurn(alice.page, 6);
     for (const seat of seats) await expect(seat.page.locator("[data-holo='3']")).toHaveAttribute("data-elim", "true");
-    await expect(dave.page.getByTestId("self-eliminated")).toBeVisible();
+    // The eliminated duelist switches to spectating without a choice panel.
+    await expectAutoSpectating(dave.page, slug);
     // Bob and Carol hold 7 cards on their second turn: a summon keeps the hand at the limit, so no discard prompt opens.
     await normalSummon(bob);
     await endTurn(bob.page, 7);
@@ -253,8 +254,9 @@ test.describe("4-player FFA", () => {
     const result = (page: Page) => page.getByTestId("duel-result");
     await expect(result(alice.page)).toHaveAttribute("data-outcome", "win");
     await expect(result(alice.page)).toContainText("YOU WIN");
+    // A lost seat switches to spectating on its own, so each of them reads the result as a spectator and not as "lose".
     for (const seat of [bob, carol, dave]) {
-      await expect(result(seat.page)).toHaveAttribute("data-outcome", "lose");
+      await expect(result(seat.page)).toHaveAttribute("data-outcome", "spectator");
     }
     // Every screen lists the 4 final placings and Life Points.
     for (const seat of seats) {

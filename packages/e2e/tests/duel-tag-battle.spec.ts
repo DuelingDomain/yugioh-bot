@@ -2,7 +2,7 @@ import { test, expect, type Seat } from "../helpers/fixtures";
 import { expectReadyToAct, handCard, startTable, useCard } from "../helpers/board";
 import { FILLER, withFiller } from "../helpers/decks";
 import { collectTableErrors, expectRealCore, readTable, tableShot } from "../helpers/table";
-import { expectRooftop, tagField, teamLpPlate, teamLpValue, turnNumber } from "../helpers/tag";
+import { expectRooftop, pickLegalZone, tagField, teamLpPlate, teamLpValue, turnNumber } from "../helpers/tag";
 import type { DuelEngineView, DuelEvent } from "@yugidraft/shared/duels";
 import type { Page } from "@playwright/test";
 
@@ -17,8 +17,7 @@ const teamOf = (seat: number) => seat % 2;
 
 async function normalSummon(seat: Seat, slug: string): Promise<void> {
   await useCard(seat.page, handCard(seat.page, FILLER), "Normal Summon");
-  await expect.poll(async () => (await readTable(seat.page, slug)).engine!.prompt?.kind).toBe("places");
-  await tagField(seat.page, "self").locator('[data-kind="mz"][data-legal="true"][data-occupied="false"] button').first().click();
+  await pickLegalZone(seat.page, slug, "mz");
   await expect(tagField(seat.page, "self").locator('[data-kind="mz"][data-occupied="true"]')).toHaveCount(1);
 }
 
@@ -50,7 +49,11 @@ async function pickDirectTarget(page: Page, slug: string, attackerSeat: number, 
     return teamLp(engine, 1 - teamOf(attackerSeat)) < TEAM_LP ? "done" : "pick";
   });
   if (outcome === "done") return;
-  await page.locator(`[data-lp-seat='${targetSeat}'][data-pickable='true']`).click();
+  // The chip shows its digit; the digit key must choose the same rival as a click does.
+  const chip = page.locator(`[data-lp-seat='${targetSeat}'][data-pickable='true']`);
+  const key = (await chip.locator("kbd").textContent())?.trim() ?? "";
+  expect(key).toMatch(/^[1-9]$/);
+  await page.keyboard.press(key);
   const confirm = page.getByTestId("aim-confirm");
   if (await confirm.waitFor({ state: "visible", timeout: 3_000 }).then(() => true, () => false)) await confirm.click();
 }
