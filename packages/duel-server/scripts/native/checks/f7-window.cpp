@@ -20,7 +20,7 @@
 //   place     SelectDisableField in SEAT windows: the place prompt names the window seat
 //   raigeki   FFA declares one opponent at activation; Tag uses both opposing fields
 //   assertu / assertb   MPAssertBound without and with a bound opponent (W18)
-//   w16       the window is not copied into the condition of another card, and an error there does not close it (W16, W13)
+//   w16       an independent helper on the same card has no copied window; errors keep the caller window (W16, W13)
 //   err, errt a Lua error inside a window on the pinned probe path, cost and target (W13)
 //   coerr     a Lua error in a coroutine after a prompt: the saved window is erased (W13)
 //   tgwin, tgbind, conassert   review fix 1: a ONE window (or MPBindOpponent, MPAssertBound) in the target or condition

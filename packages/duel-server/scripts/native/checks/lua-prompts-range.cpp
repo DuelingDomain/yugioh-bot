@@ -6,11 +6,11 @@
 // marker before each call. The harness logs the player byte of every prompt, so a call is checked by the seat that got
 // the prompt: tp -> the seat of the card, 1-tp -> the bound opponent (F5, see below). Then it registers field effects with
 // SetAbsoluteRange + Duel.RegisterEffect and reads the ATK of every test card.
-// F5 binding: the operation reads Duel.GetTurnPlayer() first. On the turn of an opponent that read binds this opponent
-// (silent, no prompt). On an own turn the first "1-tp" asks the activator which opponent it means (MSG_SELECT_OPTION, every
-// desc 0xFFFE0000|seat, ascending, living opponents only); the driver answers option k % options for pick number k, so the bound opponent is that seat (a core
-// that ignores the answer fails). With one living opponent the bind is silent. Every pick here is the fallback pick of the operation
-// step; the pick at activation is covered by opponent-pick. The pick prompts are counted, not treated as library prompts.
+// Binding: the model records the opponent used by each operation and checks each prompt recipient.
+// The driver answers option k % options for pick number k from ascending living opponents.
+// With one living opponent the bind is silent. FFA declaration picks follow R-FFA-OPP-ONE.
+// A Tag Q5 chooser is permitted in the operation (R-COMMON-OPP-PICK); it is not a kind-c violation.
+// The pick prompts are counted separately from the library prompts.
 //   ffa3, ffa4, tag     n > 2
 //   ffa4e               FFA4 with seat 1 marked eliminated: no prompt may go to seat 1
 //   n2, n2s             n == 2 without and with Debug.SetupDuelists(2,0,1): same message bytes
@@ -688,9 +688,9 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 	EXPECT(out.depth_bad == 0, "%s: scope depth not 0 at %zu of %zu prompts", sc.name, out.depth_bad, out.prompts);
 	EXPECT(g_errors == 0, "%s: %ld Lua errors, first: %s", sc.name, g_errors, g_error_text.empty() ? "" : g_error_text[0].c_str());
 	if(M.fold()) {
-		// F5: no unbound fallback (a), no binding conflict (b), no bad player value (d). There is one opponent prompt
-		// per firing on an own turn of a seat with at least 2 living opponents, none on an opponent's turn (the
-		// GetTurnPlayer read binds the turn player) and none with one living opponent (silent bind).
+		// Require zero unbound fallbacks, binding conflicts and bad player values.
+		// Count each real pick from this fixture's recorded phase/binding model.
+		// Tag Q5 chooser picks are permitted; the exact recipient and legal list still apply.
 		int want_picks = 0;
 		for(const auto& r : g_recs) {
 			auto m = fields_of(r.text);

@@ -1,10 +1,8 @@
-// Native check for core patch 0057 (a pick of an opponent skips a seat with a pending loss and refuses an answer that names one, at n > 2).
-// A seat that gives up (Debug.EliminateDuelist) is still alive until the next Adjust. The test card of seat 0 is a mandatory trigger at its
-// Standby Phase that hits "the opponent" (the folded 1, bound by the pick) for 100. Variants: cond (Duel.MPNeedPick in the condition: the
-// chain-link pick), tgt (Duel.MPBindOpponent(true) in the target: the lazy pick), tgtloss (like tgt, the target first gives seat 2 a pending
-// loss). Cases: a control pick of seat 2 (accepted, seat 2 loses 100), a pick answer that names a seat with a pending loss (FFA3 and FFA4:
-// MSG_RETRY, then the other seat is hit), Tag (no pick), and a lazy pick that is built when seat 2 already has a pending loss (the list
-// has only the living seat).
+// Native check for patch 0057: an opponent pick excludes a seat with a pending loss and rejects a stale answer.
+// R-FFA-OPP-ONE declares before the target callback. The tgtloss variants lose seat 2 during target processing;
+// their declaration still offers the seats that are alive before that loss. The preloss variants set
+// before_loss_seat before declaration and exclude it. FFA3 preloss has only one living opponent and no prompt.
+// Cases also check stale-answer retry, Tag, and the exact LP and loss state of every seat.
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -328,7 +326,7 @@ static void run(const Scenario& sc) {
 
 int main(int argc, char** argv) {
 	const std::string only = argc > 1 ? argv[1] : "";
-	// name, n, teams, variant, loss seat, first answer, want retry, second answer, want prompts, hit seat, unhit seat
+	// name, n, teams, variant, loss seat, first answer, want retry, second answer, want prompts, hit seat, unhit seat, before_loss_seat
 	const std::vector<Scenario> scenarios = {
 		{ "ffa3-ctl-s2",    3, { 0, 1, 2 }, "cond",    -1, 2, 0, -1, 1, 2, 1 },
 		{ "ffa3-stale",     3, { 0, 1, 2 }, "cond",     2, 2, 1,  1, 1, 1, 2 },
