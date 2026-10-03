@@ -83,7 +83,7 @@ describe("live room table mount", () => {
     expect(props.controller.engine.format).toBe("tag");
     expect(props.fillViewport).toBe(true);
     expect(Object.keys(props).sort()).toEqual(["actions", "boardRef", "busy", "connection", "controller", "fillViewport", "fxActive",
-      "headerTools", "initialOutOrder", "inputSuspended", "modals", "notices", "pickContinuation", "settingsTools", "teamNames"]);
+      "headerTools", "initialOutOrder", "inputSuspended", "modals", "notices", "pickContinuation", "preferences", "settingsTools", "teamNames"]);
     expect(screen.getByRole("button", { name: "Surrender" })).toBeTruthy();
   });
 
