@@ -105,13 +105,20 @@
  * A tilted plane is still rasterized at a low fixed density whatever the camera does. So the plane is laid out --ss
  * times larger (zoom) and drawn --ss times smaller (scale about the world origin): the same picture with --ss
  * squared times the texels. --ss follows the stage scale k (table-stage.tsx).
+ * Guarded by @supports: a browser without `zoom` keeps the 1x layout.
  */
 .board[data-fly="true"] .wstage,
 .canvas[data-tilted] .wstage {
   transform: translateZ(1px);
-  transform-origin: 550px 410px;
-  zoom: var(--ss, 1);
-  scale: calc(1 / var(--ss, 1)) calc(1 / var(--ss, 1)) calc(1 / var(--ss, 1));
+}
+
+@supports (zoom: 2) {
+  .board[data-fly="true"] .wstage,
+  .canvas[data-tilted] .wstage {
+    transform-origin: 550px 410px;
+    zoom: var(--ss, 1);
+    scale: calc(1 / var(--ss, 1)) calc(1 / var(--ss, 1)) calc(1 / var(--ss, 1));
+  }
 }
 
 .sky,

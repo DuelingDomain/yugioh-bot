@@ -158,6 +158,7 @@
  * transform: `scale` composes after that transform, and `zoom` multiplies its lengths. Same picture and same 3D
  * position, --roof-ss squared times the texels. Only the holds that carry text and card art get it; the city and
  * the slab are big and plain. 3 on a high-density screen, where the same camera zoom needs more texels.
+ * Guarded by @supports: a browser without `zoom` keeps the 1x layout.
  */
 .world { --roof-ss: 2; }
 
@@ -165,10 +166,12 @@
   .world { --roof-ss: 3; }
 }
 
-.fieldHold,
-.bpills {
-  zoom: var(--roof-ss);
-  scale: calc(1 / var(--roof-ss)) calc(1 / var(--roof-ss)) calc(1 / var(--roof-ss));
+@supports (zoom: 2) {
+  .fieldHold,
+  .bpills {
+    zoom: var(--roof-ss);
+    scale: calc(1 / var(--roof-ss)) calc(1 / var(--roof-ss)) calc(1 / var(--roof-ss));
+  }
 }
 
 .fog {
