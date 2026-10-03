@@ -7,9 +7,9 @@
  * memoised per event id, so whichever layer sees a batch first plans it and the others read it.
  *
  * Human pacing (the numbers live in duel-timing.ts): a card placed from the hand takes 700-860 ms,
- * a toss into a pile 680-840 ms, a draw about 740 ms. A card that an effect adds to a hand (a search,
+ * a toss into a pile 680-840 ms, a draw about 667 ms. A card that an effect adds to a hand (a search,
  * Painful Choice, a salvage, a bounce) is shown: it rises to the middle of the board, is held there
- * (about 800 ms), then flies into the hand (add-to-hand.ts). Moves queue one after another; the next
+ * (about 720 ms), then flies into the hand (add-to-hand.ts). Moves queue one after another; the next
  * one starts when the previous one is 70% through (never less than minGapMs later, so two draws stay
  * two cards). The next move after a showcase starts when the showcase card sets off for the hand, and
  * the showcases of one effect go first. A long burst is compressed, never skipped, so the whole queue
@@ -27,10 +27,13 @@ import {
 } from "./constants";
 import { battleBreakIs3d, battleDestroyAt, battleTakeover, BREAK_SETTLE_MS, HELD_CRACK_MS } from "./battle-hold";
 import { playsBigSummon } from "./big-summon";
+import { fieldPlacementMs, isFieldPlacementLocation } from "./placement-timing";
 import { MOVE_PACE } from "./duel-timing";
 import { isAddToHand, showcaseGateMs, showcaseOrigin, showcasePhases, type ShowcaseOrigin, type ShowcasePhases } from "./add-to-hand";
 import { chainEffectAt } from "./chain-beats";
-import { findZoneElement } from "./event-queue";
+import { findZoneElement, findMoveDestination, handArrivalTarget, moveDestinationRect } from "./event-queue";
+import { artCodeOf } from "./destroy-hide";
+import { resetEffectSequence, sequenceEffects } from "./effect-sequence";
 
 export const MOVE_TIMING = {
   placeMin: MOVE_PACE.placeMinMs,
@@ -43,6 +46,8 @@ export const MOVE_TIMING = {
   overlap: MOVE_PACE.overlap,
   /** The next move never starts sooner than this after the previous one (a sped-up burst still reads as separate cards). */
   minGapMs: MOVE_PACE.minGapMs,
+  handMinGapMs: MOVE_PACE.handMinGapMs,
+  handQueueCapMs: MOVE_PACE.handQueueCapMs,
   /** The whole queue should finish within this many ms of the newest batch arriving. */
   queueCapMs: MOVE_PACE.queueCapMs,
   /** Never speed a burst up by more than this factor (1 / minSpeed). */
@@ -71,6 +76,8 @@ export type MovePlan = {
   durationMs: number;
   /** Destroy hand-off: ms the card cracks in place before `startAt` (already inside `startAt`). */
   leadMs: number;
+  /** Explicit battle/canvas/chain floor, independent of the serial queue's overlap. */
+  notBeforeAt?: number;
   /** Extra ms the ghost stays after landing. */
   holdMs: number;
   /** The card is being destroyed: it is hidden in its zone until this flight lands in the pile. */
@@ -97,6 +104,10 @@ export type MovePlan = {
   source: ZoneSnapshot | null;
   /** An effect added the card to a hand (style "add"): the showcase, then the flight into the hand. */
   showcase: ShowcasePlan | null;
+  /** Same-batch hand departure: replace this ghost at landing, without a duplicate or glow. */
+  handoff?: number;
+  /** The preceding arrival, whose current landing geometry becomes this flight's source. */
+  handoffFrom?: DuelEvent;
 };
 
 export type MoveGeometry = { distance: number };
@@ -107,6 +118,7 @@ const pairs = new Map<number, number>();
 const state = { key: "", nextStartAt: 0 };
 
 export function resetMoveSchedule(key = ""): void {
+  resetEffectSequence();
   plans.clear();
   pairs.clear();
   state.key = key;
@@ -165,7 +177,7 @@ export function moveStyleOf(event: DuelEvent, reduced: boolean): MoveStyle {
   return "place";
 }
 
-export function baseDuration(style: MoveStyle, distance: number, reduced = false): number {
+export function baseDuration(style: MoveStyle, distance: number, reduced = false, fieldPlacement = true): number {
   const d = Math.max(0, distance);
   switch (style) {
     case "fade":
@@ -177,7 +189,7 @@ export function baseDuration(style: MoveStyle, distance: number, reduced = false
     case "toss":
       return clamp(MOVE_TIMING.tossMin + d * 0.1, MOVE_TIMING.tossMin, MOVE_TIMING.tossMax);
     default:
-      return clamp(MOVE_TIMING.placeMin + d * 0.14, MOVE_TIMING.placeMin, MOVE_TIMING.placeMax);
+      return fieldPlacementMs(clamp(MOVE_TIMING.placeMin + d * 0.14, MOVE_TIMING.placeMin, MOVE_TIMING.placeMax), reduced || !fieldPlacement);
   }
 }
 
@@ -200,15 +212,21 @@ type Candidate = {
   index: number;
   /** The showcase starts here (style "add"). */
   origin: ShowcaseOrigin | null;
+  predecessor?: Candidate;
 };
 
-/** Where a card was: the last snapshot of its anchor, else the anchor as it is now. */
-export function resolveSource(zone: DuelZoneRef): ZoneSnapshot | null {
-  const snap = getZoneSnapshot(zone);
-  if (snap) return snap;
+/** Departing cards use frozen geometry; a stationary Deck uses its currently displayed anchor. */
+export function resolveSource(zone: DuelZoneRef, eventId?: number): ZoneSnapshot | null {
+  // Seat assignments and viewer perspective can change before the opening snapshot commits.
+  // The Deck remains on the board: an old seat-indexed rect can point at the other player's Deck.
+  if (zone.location !== LOCATION_DECK) {
+    if (eventId != null && departureSnapshots.has(eventId)) return departureSnapshots.get(eventId) ?? null;
+    const snap = getZoneSnapshot(zone);
+    if (snap) return snap;
+  }
   const live = findZoneElement(zone);
   if (!live) return null;
-  const r = live.getBoundingClientRect();
+  const r = moveDestinationRect(live);
   if (r.width < 4 || r.height < 4) return null;
   return {
     rect: { left: r.left, top: r.top, width: r.width, height: r.height },
@@ -220,11 +238,10 @@ export function resolveSource(zone: DuelZoneRef): ZoneSnapshot | null {
 
 /** Distance between the source and destination anchors, from the live board. */
 export function measureGeometry(event: DuelEvent): MoveGeometry | null {
-  const to = findZoneElement(event.zone);
-  if (!to) return null;
-  const toRect = to.getBoundingClientRect();
-  if (toRect.width < 4) return null;
-  const fromRect = event.from ? resolveSource(event.from)?.rect : null;
+  const to = findMoveDestination(event);
+  const toRect = to ? moveDestinationRect(to) : event.zone?.location === LOCATION_HAND ? handArrivalTarget(event)?.rect : undefined;
+  if (!toRect || toRect.width < 4) return null;
+  const fromRect = event.from ? resolveSource(event.from, event.id)?.rect : null;
   if (!fromRect) return { distance: 240 };
   const dx = fromRect.left + fromRect.width / 2 - (toRect.left + toRect.width / 2);
   const dy = fromRect.top + fromRect.height / 2 - (toRect.top + toRect.height / 2);
@@ -334,11 +351,60 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     if (chainAt > now) notBefore = Math.max(notBefore, chainAt + lead);
     // A card that also breaks away from a destroyed zone keeps its flight.
     if (lead > 0) silent = false;
-    const source = resolveSource(from);
+    const source = resolveSource(from, event.id);
     const origin = style === "add" ? showcaseOrigin(event, now, source != null) : null;
-    candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance, reduced), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin });
+    candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance, reduced, isFieldPlacementLocation(to.location)), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin });
   }
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) {
+    sequenceEffects(fresh, [...plans.values()], now, reduced);
+    return [];
+  }
+  const chained = new Set<Candidate>();
+  const byId = new Map(candidates.map((item) => [item.event.id, item]));
+  const pending = new Map<number, Array<Candidate | undefined>>();
+  // Follow engine slots through the complete batch, including moves without visible anchors.
+  // Draws, searches and Exchange can all be followed by departures after other cards moved;
+  // removing a hand card compacts the remaining sequences before the next move is observed.
+  for (const event of fresh) {
+    if (!isMoveEvent(event) || sameZone(event.from, event.zone)) continue;
+    const from = event.from!;
+    const to = event.zone!;
+    const item = byId.get(event.id);
+    if (from.location === LOCATION_HAND) {
+      const hand = pending.get(from.controller) ?? [];
+      let previous = hand[from.sequence];
+      const afterCode = event.card?.code;
+      if (afterCode != null && (previous == null || (previous.event.card?.code != null && previous.event.card.code !== afterCode))) {
+        // SHUFFLE_HAND is not an animation event. Only an explicitly retired arrival may
+        // follow its known code across that permutation; an older identical copy can also leave.
+        previous = hand.find((arrival) => arrival?.event.handId?.startsWith("departed-") && arrival.event.card?.code === afterCode);
+      }
+      const beforeCode = previous?.event.card?.code;
+      if (item && previous && (!previous.event.handId || previous.event.handId.startsWith("departed-")) &&
+        !((afterCode == null || afterCode <= 0) && previous.event.handShuffled) &&
+        (beforeCode == null || afterCode == null || beforeCode === afterCode)) {
+        item.predecessor = previous;
+        chained.add(previous);
+        const target = handArrivalTarget(previous.event);
+        if (target) item.source = { ...target, faceUp: (previous.event.card?.code ?? 0) > 0, defense: false };
+      }
+      if (previous) {
+        const matched = hand.indexOf(previous);
+        // The departure identifies its engine slot after an unreported shuffle. Preserve the
+        // displaced pending entry until a later message identifies it, then compact once.
+        if (matched !== from.sequence) hand[matched] = hand[from.sequence];
+      }
+      hand.splice(from.sequence, 1);
+      pending.set(from.controller, hand);
+    }
+    if (to.location === LOCATION_HAND) {
+      const hand = pending.get(to.controller) ?? [];
+      // Empty entries represent older cards or moves without visible anchors.
+      hand.length = Math.max(hand.length, to.sequence);
+      hand.splice(to.sequence, 0, item);
+      pending.set(to.controller, hand);
+    }
+  }
   // The showcase of a run goes first: the card the player cares about is shown, then the rest of the
   // effect (the other cards to the Graveyard) plays. A run is moves with no other event between them.
   const runs: Candidate[][] = [];
@@ -366,11 +432,16 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       // A showcase has fixed legs (the hold stays long enough to read); the rest of the queue gives way.
       const phases = item.style === "add" ? showcasePhases(speed, reduced) : null;
       const dur = phases ? phases.totalMs : item.base * speed;
-      const start = Math.max(cursor + item.lead, item.notBefore);
+      const predecessorIndex = item.predecessor ? candidates.indexOf(item.predecessor) : -1;
+      const predecessor = out[predecessorIndex];
+      // A continuation starts exactly where its own card lands, even while other cards in the
+      // effect are arriving. Keep the serial queue moving forward for unrelated flights.
+      const start = Math.max(predecessor ? predecessor.start + predecessor.dur + item.lead : cursor + item.lead, item.notBefore);
       out.push({ start, dur, phases });
       // The next card of the effect starts as the showcase card sets off for the hand.
-      const gate = phases ? showcaseGateMs(phases, candidates[index + 1]?.style === "add") : Math.max(dur * MOVE_TIMING.overlap, MOVE_TIMING.minGapMs);
-      cursor = start + gate;
+      const minGap = item.event.zone?.location === LOCATION_HAND ? MOVE_TIMING.handMinGapMs : MOVE_TIMING.minGapMs;
+      const gate = phases ? showcaseGateMs(phases, candidates[index + 1]?.style === "add") : Math.max(dur * MOVE_TIMING.overlap, minGap);
+      cursor = Math.max(cursor, start + gate);
     });
     return { out, cursor };
   };
@@ -378,13 +449,14 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
   let layout = place(speed);
   // Time spent waiting for a battle is not a backlog to squeeze: measure from the latest hold.
   const queued = candidates.filter((item) => !item.takeover);
+  const queueCap = queued.every((item) => item.event.zone?.location === LOCATION_HAND) ? MOVE_TIMING.handQueueCapMs : MOVE_TIMING.queueCapMs;
   const floor = queued.reduce((max, item) => Math.max(max, item.notBefore), now);
   const finishQueued = (l: ReturnType<typeof place>) => l.out.reduce((max, o, i) => (candidates[i].takeover ? max : Math.max(max, o.start + o.dur)), 0);
   const span = finishQueued(layout) - floor;
-  if (span > MOVE_TIMING.queueCapMs) {
+  if (span > queueCap) {
     const fixed = queued.reduce((sum, item) => sum + item.lead, 0);
     const variable = span - fixed;
-    speed = clamp((MOVE_TIMING.queueCapMs - fixed) / Math.max(1, variable), MOVE_TIMING.minSpeed, 1);
+    speed = clamp((queueCap - fixed) / Math.max(1, variable), MOVE_TIMING.minSpeed, 1);
     layout = place(speed);
   }
 
@@ -393,14 +465,15 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     const { start, dur, phases } = layout.out[index];
     const plan: MovePlan = {
       id: item.event.id,
-      event: item.event,
+      event: { ...item.event },
       style: item.style,
       startAt: start,
       landAt: start + dur,
       durationMs: dur,
       leadMs: item.lead,
+      notBeforeAt: item.notBefore,
       // After a showcase lands, the ring of light plays on the hand card.
-      holdMs: phases ? phases.glowMs : item.hold,
+      holdMs: chained.has(item) ? 0 : phases ? phases.glowMs : item.hold,
       destroy: item.destroy,
       takeover: item.takeover,
       pieces: item.pieces,
@@ -409,19 +482,24 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       reduced,
       source: item.source,
       showcase: phases && item.origin ? { origin: item.origin, phases } : null,
+      handoff: candidates.find((candidate) => candidate.predecessor === item)?.event.id,
+      handoffFrom: item.predecessor?.event,
     };
     plans.set(plan.id, plan);
     for (const id of item.paired) pairs.set(id, plan.id);
     created.push(plan);
   });
   state.nextStartAt = layout.cursor;
+  sequenceEffects(fresh, [...plans.values()], now, reduced);
+  // Keep the queue's existing overlap gate on its final, reconciled flight.
+  state.nextStartAt += created[created.length - 1].startAt - layout.out[layout.out.length - 1].start;
   return created;
 }
 
 /* ---------- zone snapshots ----------
  * By the time a move event arrives the board already shows the new state: the card has left its
- * hand slot or zone. A short-interval snapshot of every anchor lets the flight start where the card
- * really was. */
+ * hand slot or zone. The pre-commit boundary freezes sources for fresh events before React changes
+ * the DOM; background snapshots remain a fallback for effects without a departure event. */
 
 export type ZoneSnapshot = {
   rect: { left: number; top: number; width: number; height: number };
@@ -432,12 +510,32 @@ export type ZoneSnapshot = {
 };
 
 const snapshots = new Map<string, ZoneSnapshot>();
+const snapshotCards = new Map<string, { code: number; owner: boolean }>();
 const handRails = new Map<string, ZoneSnapshot>();
+const departureSnapshots = new Map<number, ZoneSnapshot | null>();
+
+/** A failed pre-commit capture must never fall through to a replacement hand slot. */
+export function invalidateHandDepartures(events: readonly DuelEvent[]): void {
+  for (const event of events) {
+    if (isMoveEvent(event) && event.from?.location === LOCATION_HAND) departureSnapshots.set(event.id, null);
+  }
+}
+const DEPARTURE_SNAPSHOT_CAP = 512;
+
+/** A new board must not reuse another duel's coordinates or event IDs. */
+export function clearZoneSnapshots(): void {
+  snapshots.clear();
+  snapshotCards.clear();
+  handRails.clear();
+  departureSnapshots.clear();
+}
 
 export function captureZoneSnapshots(root: ParentNode = document): void {
-  const seen = new Set<string>();
+  snapshots.clear();
+  snapshotCards.clear();
+  handRails.clear();
   root.querySelectorAll<HTMLElement>("[data-zones]").forEach((el) => {
-    const r = el.getBoundingClientRect();
+    const r = moveDestinationRect(el);
     if (r.width < 4 || r.height < 4) return;
     const snap: ZoneSnapshot = {
       rect: { left: r.left, top: r.top, width: r.width, height: r.height },
@@ -448,34 +546,76 @@ export function captureZoneSnapshots(root: ParentNode = document): void {
     for (const key of (el.dataset.zones ?? "").split(/\s+/)) {
       if (!key) continue;
       snapshots.set(key, snap);
-      seen.add(key);
+      snapshotCards.set(key, { code: artCodeOf(el), owner: el.closest<HTMLElement>("[data-hand-id]")?.dataset.handId?.startsWith("hand-") === true });
     }
   });
   root.querySelectorAll<HTMLElement>("[data-hand-seat]").forEach((el) => {
-    const r = el.getBoundingClientRect();
-    if (r.width < 4 || r.height < 4) return;
+    const seat = Number(el.dataset.handSeat);
+    const target = handArrivalTarget({ id: 0, kind: "move", text: "Hand anchor", handId: "snapshot-missing",
+      zone: { controller: seat, location: LOCATION_HAND, sequence: 0 } });
+    if (!target) return;
     handRails.set(el.dataset.handSeat ?? "", {
-      rect: { left: r.left, top: r.top, width: r.width, height: r.height },
-      side: el.dataset.side === "opp" ? "opp" : "you",
+      ...target,
       faceUp: false,
       defense: false,
     });
   });
 }
 
+/** Called before a batch commits. Each engine removal compacts its hand, but keeps the original rect. */
+export function captureDepartureSnapshots(events: readonly DuelEvent[], root: ParentNode = document): void {
+  captureZoneSnapshots(root);
+  type HandSource = { snapshot: ZoneSnapshot | null; code: number };
+  const hands = new Map<number, Array<HandSource | null>>();
+  const ownedHands = new Set<number>();
+  for (const [key, snapshot] of snapshots) {
+    const [seat, location, sequence] = key.split(":").map(Number);
+    if (location !== LOCATION_HAND) continue;
+    const hand = hands.get(seat) ?? [];
+    const card = snapshotCards.get(key);
+    hand[sequence] = { snapshot, code: card?.code ?? 0 };
+    if (card?.owner) ownedHands.add(seat);
+    hands.set(seat, hand);
+  }
+  for (const event of events) {
+    if (!isMoveEvent(event)) continue;
+    const from = event.from!;
+    const to = event.zone!;
+    const sourceHand = from.location === LOCATION_HAND ? hands.get(from.controller) : undefined;
+    let sourceSequence = from.sequence;
+    const indexed = sourceHand?.[sourceSequence];
+    const code = event.card?.code ?? 0;
+    if (sourceHand && ownedHands.has(from.controller) && code > 0 && indexed?.code !== code) {
+      // SHUFFLE_HAND has no projected event. An owner can still identify its departed card in
+      // the old DOM; consume that copy once. Opponent/spectator sleeves stay slot-bound, and a
+      // missing known card never borrows the indexed replacement's geometry. Unknown sleeves
+      // (including Exchange transfers) still occupy and consume their engine sequence.
+      const matched = sourceHand.findIndex((entry) => entry?.code === code && (!entry.snapshot || entry.snapshot.side === "you"));
+      sourceSequence = matched >= 0 ? matched : from.sequence;
+    }
+    const sourceEntry = sourceHand?.[sourceSequence] ?? null;
+    const mismatchedOwner = sourceHand && ownedHands.has(from.controller) && code > 0 &&
+      sourceEntry != null && sourceEntry.code > 0 && sourceEntry.code !== code;
+    const source = from.location === LOCATION_HAND ? mismatchedOwner ? null : sourceEntry?.snapshot ?? null : getZoneSnapshot(from);
+    departureSnapshots.set(event.id, source);
+    if (from.location === LOCATION_HAND && sourceSequence >= 0) sourceHand?.splice(sourceSequence, 1);
+    if (to.location === LOCATION_HAND) {
+      const hand = hands.get(to.controller) ?? [];
+      // A card added and removed within this batch has no old DOM anchor; its preceding flight
+      // supplies the hand source. Keep its known code so a later shuffle can distinguish this
+      // unanchored arrival from an older duplicate without borrowing replacement geometry.
+      hand.splice(to.sequence, 0, from.location === LOCATION_HAND && sourceEntry ? { ...sourceEntry, code: code || sourceEntry.code } : { snapshot: null, code });
+      hands.set(to.controller, hand);
+    }
+  }
+  while (departureSnapshots.size > DEPARTURE_SNAPSHOT_CAP) departureSnapshots.delete(departureSnapshots.keys().next().value!);
+}
+
 export function getZoneSnapshot(zone: DuelZoneRef): ZoneSnapshot | null {
   const exact = snapshots.get(zoneKey(zone.controller, zone.location, zone.sequence));
   if (exact) return exact;
   if (zone.location === LOCATION_HAND) {
-    const rail = handRails.get(String(zone.controller));
-    if (rail) {
-      const h = rail.rect.height;
-      const w = h * 0.686;
-      return {
-        ...rail,
-        rect: { left: rail.rect.left + rail.rect.width / 2 - w / 2, top: rail.rect.top, width: w, height: h },
-      };
-    }
+    return handRails.get(String(zone.controller)) ?? null;
   }
   return null;
 }

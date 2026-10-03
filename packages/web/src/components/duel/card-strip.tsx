@@ -1,5 +1,6 @@
 "use client";
 
+import { duelFxClock } from "./fx-clock";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
@@ -142,7 +143,7 @@ export function CardStrip({
         rect: { left: r.left, top: r.top, width: r.width, height: r.height },
       });
     });
-    rememberPickRects(entries, performance.now());
+    rememberPickRects(entries, duelFxClock.now());
   }, []);
 
   // After every draw: the strip may have moved, resized or changed its cards.
@@ -151,7 +152,7 @@ export function CardStrip({
   });
 
   // When the strip goes away its rects stay for a few seconds (the picked card flies from there).
-  useEffect(() => () => closePickRects(performance.now()), []);
+  useEffect(() => () => closePickRects(duelFxClock.now()), []);
 
   // The arrow keys move the highlight: keep that card in view, clear of the edge fade.
   useEffect(() => {

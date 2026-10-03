@@ -1,18 +1,47 @@
 "use client";
 
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { reportDuelClientError } from "./client-error";
+export { reportDuelClientError } from "./client-error";
 
-/** Reports an effects crash to the web server log (see /api/duels/client-error). */
-export function reportDuelClientError(error: unknown, componentStack = ""): void {
-  const err = error instanceof Error ? error : new Error(String(error));
-  try {
-    void fetch("/api/duels/client-error", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ url: window.location.href, message: `${err.name}: ${err.message}`, stack: err.stack ?? "", componentStack }),
-    }).catch(() => undefined);
-  } catch {
-    // reporting must never throw
+import { Component, type ErrorInfo, type ReactNode, type RefObject } from "react";
+import type { DuelEvent } from "@yugidraft/shared/duels";
+import { maxEventId } from "./event-queue";
+import { captureDepartureSnapshots, clearZoneSnapshots, invalidateHandDepartures } from "./move-plan";
+
+/** Captures old board geometry in React's pre-mutation commit phase, including batched updates. */
+export class MoveSourceBoundary extends Component<{
+  children: ReactNode;
+  events: readonly DuelEvent[];
+  duelKey: string;
+  root: RefObject<HTMLElement | null>;
+}> {
+  getSnapshotBeforeUpdate(previous: Readonly<typeof this.props>): null {
+    if (previous.duelKey !== this.props.duelKey) {
+      clearZoneSnapshots();
+      return null;
+    }
+    const cursor = maxEventId(previous.events) ?? 0;
+    const fresh = this.props.events.filter((event) => event.id > cursor);
+    if (fresh.length > 0 && this.props.root.current) {
+      try {
+        captureDepartureSnapshots(fresh, this.props.root.current);
+      } catch (error) {
+        clearZoneSnapshots();
+        invalidateHandDepartures(fresh);
+        reportDuelClientError(error);
+      }
+    }
+    return null;
+  }
+
+  componentDidUpdate(): void {}
+
+  componentWillUnmount(): void {
+    clearZoneSnapshots();
+  }
+
+  render(): ReactNode {
+    return this.props.children;
   }
 }
 

@@ -15,6 +15,7 @@
  *
  * `resultGate` is the whole decision as a pure function; `useResultGate` feeds it with the clock and the board.
  */
+import { duelFxClock } from "./fx-clock";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import type { DuelStatus } from "@yugidraft/shared/duels";
 import { classifyResultReason, type DuelResultReasonKind } from "./duel-result";
@@ -74,7 +75,7 @@ export function resultGate(input: ResultGateInput, timing: ResultTiming = RESULT
 
 /** True when nothing on the board is moving: the last FX of the duel has finished. */
 export function boardQuietNow(board: AnimationSource | null | undefined): boolean {
-  const stamp = typeof performance !== "undefined" ? performance.now() : Date.now();
+  const stamp = typeof performance !== "undefined" ? duelFxClock.now() : duelFxClock.dateNow();
   return pendingBoardAnimations(board).length === 0 &&
     promptRevealHoldMs() <= 0 &&
     lpMotionRemainingMs() <= 0 &&
@@ -120,10 +121,10 @@ export function useResultGate({ slug, status, hasResult, reason, reducedMotion, 
       return undefined;
     }
     if (immediate) return undefined;
-    const startedAt = Date.now();
+    const startedAt = duelFxClock.dateNow();
     let quietSince: number | null = null;
     const tick = () => {
-      const now = Date.now();
+      const now = duelFxClock.dateNow();
       quietSince = boardQuietNow(board.current) ? (quietSince ?? now) : null;
       const decision = resultGate({
         ...latest.current,
@@ -131,11 +132,11 @@ export function useResultGate({ slug, status, hasResult, reason, reducedMotion, 
         quietForMs: quietSince == null ? null : now - quietSince,
       });
       if (!decision.show) return;
-      window.clearInterval(timer);
+      duelFxClock.clearInterval(timer);
       setReadyFor(slug);
     };
-    const timer = window.setInterval(tick, RESULT_TIMING.tickMs);
-    return () => window.clearInterval(timer);
+    const timer = duelFxClock.setInterval(tick, RESULT_TIMING.tickMs);
+    return () => duelFxClock.clearInterval(timer);
   }, [over, immediate, slug, board]);
 
   return over && (immediate || readyFor === slug);

@@ -77,6 +77,17 @@ describe("BetweenGamesScreen: editing after Ready", () => {
     await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
   });
 
+  it("shows the un-ready explanation only once after completing a swap", async () => {
+    const view = setup({ sideReady: [true, false] });
+    await swap();
+    await waitFor(() => expect(view.onChanged).toHaveBeenCalled());
+    const explanation = "You are no longer ready. Finish your swaps, then click Ready again.";
+    expect(screen.getAllByText(explanation)).toHaveLength(1);
+    expect(status().textContent).toBe(explanation);
+    expect(screen.getByTestId("ready-reason").textContent).toBe("");
+    expect(ready().disabled).toBe(false);
+  });
+
   it("makes Ready wait for a queued trailing un-ready, so none lands after it", async () => {
     const first = pending<unknown>();
     const second = pending<unknown>();
@@ -95,6 +106,7 @@ describe("BetweenGamesScreen: editing after Ready", () => {
   it("trusts a refreshed room over its own Ready answer, even when the snapshot's Ready did not change", async () => {
     // This tab readies; another tab takes it back before the refresh, so the room still says not ready.
     setup({}, vi.fn().mockResolvedValue(undefined));
+    await tile("Card 1, Main Deck");
     fireEvent.click(ready());
     await waitFor(() => expect(api.readySeries).toHaveBeenCalled());
     await waitFor(() => expect(ready().disabled).toBe(false));
@@ -116,7 +128,7 @@ describe("BetweenGamesScreen: editing after Ready", () => {
     expect(status().textContent).toMatch(/You are ready/);
   });
 
-  it("retries failed un-ready on the next mark and lets Ready save the changed deck as a backstop", async () => {
+  it("retries failed un-ready on the next mark and autosaves the changed deck as a backstop before Ready", async () => {
     api.unreadySeries.mockRejectedValue(new Error("Network down"));
     setup({ sideReady: [true, false] });
     fireEvent.click(await tile("Card 2, Main Deck"));
@@ -125,11 +137,14 @@ describe("BetweenGamesScreen: editing after Ready", () => {
     await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
     // Still failing: the error stays.
     expect(screen.getByRole("alert").textContent).toBe("Network down");
-    await waitFor(() => expect(status().textContent).toMatch(/Saving these swaps clears your Ready/));
+    // The valid swap is saved even though un-ready failed; that save clears Ready in its transaction.
+    await waitFor(() => expect(api.saveSeriesSideDeck).toHaveBeenCalledWith("game-1", sided));
+    await waitFor(() => expect(status().textContent).toMatch(/You are (?:not|no longer) ready/));
     expect(ready().disabled).toBe(false);
     fireEvent.click(ready());
     await waitFor(() => expect(api.readySeries).toHaveBeenCalled());
     expect(api.saveSeriesSideDeck).toHaveBeenCalledWith("game-1", sided);
+    expect(api.saveSeriesSideDeck).toHaveBeenCalledTimes(1);
     expect(status().textContent).toMatch(/You are ready/);
   });
 
@@ -157,6 +172,7 @@ describe("BetweenGamesScreen: editing after Ready", () => {
 
   it("uses the Ready response before the room refreshes and un-readies the next edit", async () => {
     const view = setup();
+    await tile("Card 1, Main Deck");
     fireEvent.click(ready());
     await waitFor(() => expect(status().textContent).toMatch(/You are ready/));
     await waitFor(() => expect(view.onChanged).toHaveBeenCalled());
@@ -197,6 +213,7 @@ describe("BetweenGamesScreen: editing after Ready", () => {
   it("un-readies after remounting with stale props when Ready worked but refresh failed", async () => {
     const onChanged = vi.fn().mockRejectedValue(new Error("Refresh failed"));
     const view = setup({}, onChanged);
+    await tile("Card 1, Main Deck");
     fireEvent.click(ready());
     await waitFor(() => expect(status().textContent).toMatch(/You are ready/));
     await waitFor(() => expect(ready().getAttribute("aria-busy")).not.toBe("true"));

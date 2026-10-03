@@ -117,6 +117,104 @@ function eventsOf(game: EngineGame, viewer: number | null = null): DuelEvent[] {
 }
 
 describe("richer engine events", () => {
+  it("emits Sangan's destroyed trigger and search after Dark Hole's cleanup", async () => {
+    const SANGAN = 26202165;
+    const DARK_HOLE = 53129443;
+    const game = await openGame([SANGAN, DARK_HOLE], [strong[0]!]);
+    try {
+      drive(game, (w) => {
+        if (eventsOf(game).some((e) => e.kind === "move" && e.addedToHand)) return "stop";
+        if (w.seat === 0 && w.view.turn === 1) {
+          const summon = option(w, "summon:", SANGAN);
+          if (summon) return { choice: summon };
+        }
+        if (w.seat === 1 && w.view.turn === 2) {
+          const summon = option(w, "summon:", strong[0]!);
+          if (summon) return { choice: summon };
+        }
+        if (w.seat === 0 && w.view.turn === 3) {
+          const activate = option(w, "activate:", DARK_HOLE);
+          if (activate) return { choice: activate };
+        }
+        if (w.prompt.source?.code === SANGAN && w.prompt.options.some((o) => o.id === "yes")) return { choice: "yes" };
+        if (w.prompt.context?.type === "chain") {
+          const trigger = w.prompt.options.find((o) => o.card?.code === SANGAN);
+          if (trigger) return { choice: trigger.id };
+        }
+        return null;
+      });
+      const events = eventsOf(game);
+      const cleanup = events.find((e) => e.kind === "move" && e.card?.code === DARK_HOLE && e.zone?.location === OcgLocation.GRAVE)!;
+      const trigger = events.find((e) => e.kind === "activate" && e.card?.code === SANGAN)!;
+      const search = events.find((e) => e.kind === "move" && e.addedToHand)!;
+      expect(cleanup.reason).toBe("send");
+      expect(trigger.zone?.location).toBe(OcgLocation.GRAVE);
+      expect(cleanup.id).toBeLessThan(trigger.id);
+      expect(trigger.id).toBeLessThan(search.id);
+    } finally { game.close(); }
+  });
+
+  it.each([
+    { code: 53129443, name: "Dark Hole", trap: false, attack: false },
+    { code: 12580477, name: "Raigeki", trap: false, attack: false },
+    { code: 53582587, name: "Torrential Tribute", trap: true, attack: false },
+    { code: 44095762, name: "Mirror Force", trap: true, attack: true },
+    { code: 5318639, name: "Mystical Space Typhoon", trap: false, attack: false },
+  ])("records the engine destruction and cleanup order for $name", async ({ code, trap, attack }) => {
+    const game = await openGame([weak[0]!, code], [strong[0]!, ...(code === 5318639 ? [44095762] : [])]);
+    let enteredBattle = false;
+    let activated = false;
+    try {
+      drive(game, (w) => {
+        if (activated && eventsOf(game).some((event) => event.kind === "chain-end")) return "stop";
+        if (w.seat === 0 && w.view.turn === 1) {
+          const set = trap ? option(w, "sset:", code) : undefined;
+          if (set) return { choice: set };
+        }
+        const activate = option(w, "activate:", code) ?? (w.prompt.context?.type === "chain" ?
+          w.prompt.options.find((entry) => entry.card?.code === code)?.id : undefined);
+        if (activate && (trap || (w.seat === 0 && w.view.turn === 3))) {
+          activated = true;
+          return { choice: activate };
+        }
+        if (w.seat === 1 && w.view.turn === 2) {
+          if (code === 5318639) {
+            // Use a Spell/Trap target for MST rather than a monster.
+            const set = option(w, "sset:", 44095762);
+            if (set) return { choice: set };
+          }
+          const summon = option(w, "summon:", strong[0]!);
+          if (summon) return { choice: summon };
+          if (attack && !enteredBattle && w.prompt.options.some((entry) => entry.id === "to_bp")) {
+            enteredBattle = true;
+            return { choice: "to_bp" };
+          }
+          const strike = w.prompt.options.find((entry) => entry.id.startsWith("attack:"));
+          if (attack && strike) return { choice: strike.id };
+        }
+        return null;
+      });
+      const all = eventsOf(game);
+      const activation = all.find((event) => event.kind === "activate" && event.card?.code === code)!;
+      expect(activation).toBeDefined();
+      const sequence = all.filter((event) => event.id >= activation.id);
+      const end = sequence.findIndex((event) => event.kind === "chain-end");
+      expect(sequence.slice(0, end + 1).map((event) => event.kind)).toEqual([
+        "activate", ...(code === 5318639 ? ["target"] : []), "chain-resolving", "move",
+        ...(code === 5318639 ? ["target"] : []), "chain-resolved", "destroy", "move", "chain-end",
+      ]);
+      const resolving = sequence.find((event) => event.kind === "chain-resolving")!;
+      const destroyed = sequence.find((event) => event.kind === "destroy")!;
+      const victimMove = sequence.find((event) => event.kind === "move" && event.reason === "destroy")!;
+      const cleanup = sequence.find((event) => event.kind === "move" && event.card?.code === code && event.zone?.location === OcgLocation.GRAVE)!;
+      expect(activation.id).toBeLessThan(resolving.id);
+      expect(resolving.id).toBeLessThan(victimMove.id);
+      expect(victimMove.id).toBeLessThan(cleanup.id);
+      expect(destroyed.cause).toBe("effect");
+      expect(cleanup.reason).toBe("send");
+    } finally { game.close(); }
+  });
+
   it("logs Gagaga Cowboy's real detach as a Graveyard send without destruction eligibility", async () => {
     const [thrasher, dragon, cowboy] = cardCodes("Photon Thrasher", "Alexandrite Dragon", "Gagaga Cowboy");
     const detaches: Array<{ message: Extract<OcgMessage, { type: OcgMessageType.MOVE }>; lines: duelLogLines.LogLine[] }> = [];

@@ -5,10 +5,11 @@ import { LAB_CATEGORIES, LAB_SCENARIOS, findScenario, scenariosIn } from "@/comp
 import { LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_REMOVED, LOCATION_SZONE } from "@/components/duel/constants";
 import { CARDS } from "@/components/duel/fx-lab/cards";
 import { groupScenes } from "@/components/duel/fx3d/scene-plan";
+import { ADD_TO_HAND } from "@/components/duel/duel-timing";
 
 const KINDS = new Set<DuelEvent["kind"]>([
   "summon", "set", "activate", "chain-resolving", "chain-resolved", "chain-negated", "chain-end",
-  "attack", "phase", "damage", "destroy", "move", "position", "equip",
+  "attack", "battle", "battle-end", "phase", "damage", "destroy", "move", "position", "equip",
 ]);
 
 function cardAt(board: LabBoard, ref: DuelZoneRef): DuelCard | null | undefined {
@@ -91,6 +92,97 @@ describe("fx lab scenarios", () => {
     }
   });
 
+  it("appends a search before later engine shuffles change its flight target and landing glow", () => {
+    const built = findScenario("move-hand-order")!.build();
+    const [arrival, duringFlight, duringGlow] = built.steps;
+    const beforeIds = built.initial.seats[0].hand.map((card) => card.handId);
+    expect(arrival.events?.[0].zone).toEqual({ controller: 0, location: LOCATION_HAND, sequence: 4 });
+    const appended = applyEdits(built.initial, arrival.edits ?? []);
+    expect(appended.seats[0].hand.map((card) => card.handId)).toEqual([...beforeIds, "lab-added"]);
+    expect(appended.seats[0].hand[4].code).toBe(CARDS.cyberDragon.code);
+
+    const flightStart = ADD_TO_HAND.riseMs + ADD_TO_HAND.holdMs;
+    const landing = flightStart + ADD_TO_HAND.flyMs;
+    expect(duringFlight.at).toBeGreaterThan(flightStart);
+    expect(duringFlight.at).toBeLessThan(landing);
+    expect(duringFlight.events ?? []).toEqual([]);
+    const shuffled = applyEdits(appended, duringFlight.edits ?? []);
+    expect(shuffled.seats[0].hand.map((card) => card.handId)).toEqual([
+      beforeIds[3], "lab-added", beforeIds[0], beforeIds[2], beforeIds[1],
+    ]);
+    expect(shuffled.seats[0].hand[1].code).toBe(CARDS.cyberDragon.code);
+
+    expect(duringGlow.at).toBeGreaterThan(landing);
+    expect(duringGlow.at).toBeLessThan(landing + ADD_TO_HAND.glowMs);
+    expect(duringGlow.events ?? []).toEqual([]);
+    const glowing = applyEdits(shuffled, duringGlow.edits ?? []);
+    expect(glowing.seats[0].hand[3].handId).toBe("lab-added");
+    expect(glowing.seats[0].hand[3].code).toBe(CARDS.cyberDragon.code);
+  });
+
+  it("keeps the opponent search arrival on its sleeve after a same-batch append and hidden shuffle", () => {
+    const built = findScenario("move-hand-order")!.build();
+    expect(built.steps).toHaveLength(6);
+    let before = built.initial;
+    for (const step of built.steps.slice(0, 4)) before = applyEdits(before, step.edits ?? []);
+    const [arrival, shuffle] = built.steps.slice(4);
+    expect(arrival.events?.[0].zone).toEqual({ controller: 1, location: LOCATION_HAND, sequence: 5 });
+    expect(arrival.events?.[0].card).toBeUndefined();
+    const appended = applyEdits(before, arrival.edits ?? []);
+    expect(appended.seats[1].hand.map((card) => card.handId)).toEqual([
+      ...before.seats[1].hand.map((card) => card.handId), "sleeve-11",
+    ]);
+    expect(arrival.events?.[0].handId).toBe(appended.seats[1].hand[5].handId);
+    expect(arrival.events?.[0].handId).toMatch(/^sleeve-/);
+    expect(shuffle.events ?? []).toEqual([]);
+    const shuffled = applyEdits(appended, shuffle.edits ?? []);
+    expect(shuffled.seats[1].hand.map((card) => card.handId)).toEqual(appended.seats[1].hand.map((card) => card.handId));
+    for (const card of shuffled.seats[1].hand) {
+      expect(card.code).toBeUndefined();
+      expect(card.name).toBeUndefined();
+    }
+  });
+
+  it("adds and discards the same card in one batch with a departed arrival id", () => {
+    const built = findScenario("move-added-discard")?.build();
+    expect(built).toBeDefined();
+    expect(built!.steps).toHaveLength(1);
+    const [{ step, events }] = numberSteps(built!.steps, 100);
+    expect(step.at).toBe(0);
+    expect(events).toHaveLength(2);
+    const [arrival, departure] = events;
+    expect(arrival.addedToHand).toBe(true);
+    expect(arrival.handId).toMatch(/^departed-/);
+    expect(arrival.zone).toEqual({ controller: 0, location: LOCATION_HAND, sequence: 4 });
+    expect(departure.from).toEqual(arrival.zone);
+    expect(departure.reason).toBe("discard");
+    expect(departure.card?.code).toBe(arrival.card?.code);
+    const after = applyEdits(built!.initial, step.edits ?? []);
+    expect(after.seats[0].hand).toEqual(built!.initial.seats[0].hand);
+    expect(after.seats[0].deckCount).toBe(built!.initial.seats[0].deckCount - 1);
+    expect(cardAt(after, departure.zone!)?.code).toBe(CARDS.cyberDragon.code);
+  });
+
+  it("draws and discards the same card in one batch with a departed arrival id", () => {
+    const built = findScenario("move-draw-discard")?.build();
+    expect(built).toBeDefined();
+    expect(built!.steps).toHaveLength(1);
+    const [{ step, events }] = numberSteps(built!.steps, 100);
+    expect(step.at).toBe(0);
+    expect(events).toHaveLength(2);
+    const [arrival, departure] = events;
+    expect(arrival.reason).toBe("draw");
+    expect(arrival.handId).toMatch(/^departed-/);
+    expect(arrival.zone).toEqual({ controller: 0, location: LOCATION_HAND, sequence: 4 });
+    expect(departure.from).toEqual(arrival.zone);
+    expect(departure.reason).toBe("discard");
+    expect(departure.card?.code).toBe(arrival.card?.code);
+    const after = applyEdits(built!.initial, step.edits ?? []);
+    expect(after.seats[0].hand).toEqual(built!.initial.seats[0].hand);
+    expect(after.seats[0].deckCount).toBe(built!.initial.seats[0].deckCount - 1);
+    expect(cardAt(after, departure.zone!)?.code).toBe(CARDS.heavyStorm.code);
+  });
+
   for (const scenario of LAB_SCENARIOS) {
     describe(scenario.id, () => {
       it("builds the same script twice (pure)", () => {
@@ -118,11 +210,17 @@ describe("fx lab scenarios", () => {
             expect(event.text.length).toBeGreaterThan(0);
             if (event.kind.startsWith("chain-") && event.kind !== "chain-end") expect(event.chainIndex ?? 0).toBeGreaterThanOrEqual(1);
             if (event.kind === "activate") expect(event.chainIndex ?? 0).toBeGreaterThanOrEqual(1);
-            if (["summon", "set", "attack", "destroy", "move", "position", "equip", "activate"].includes(event.kind)) {
+            if (["summon", "set", "attack", "battle", "destroy", "move", "position", "equip", "activate"].includes(event.kind)) {
               expect(event.zone, `${scenario.id} ${event.kind} needs a zone`).toBeDefined();
             }
             if (event.kind === "move") expect(event.from).toBeDefined();
             if (event.kind === "damage") expect(event.amount ?? 0).toBeGreaterThan(0);
+            if (event.kind === "battle") {
+              expect(event.battle?.attacker).toEqual(expect.objectContaining({
+                attack: expect.any(Number), defense: expect.any(Number), position: expect.any(Number),
+              }));
+              expect(event.battle?.target != null).toBe(event.target != null);
+            }
             if (event.kind === "destroy" && event.zone) {
               const card = cardAt(before, event.zone) ?? cardAt(applyEdits(before, step.edits ?? []), event.zone);
               expect(card ?? null, `${scenario.id} destroy of an empty zone`).not.toBeNull();

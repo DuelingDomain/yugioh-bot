@@ -85,8 +85,8 @@ export interface DuelSeriesService {
    * Stores the player's sided deck for the next game. The duel host has
    * already checked card types. The service checks: status between_games, the
    * same cards as the current deck (as a multiset over main+extra+side), the
-   * side deck count unchanged, main >= min(40, base main count) and <= 60,
-   * extra <= 15. A deck that differs from the current one clears the player's
+   * Main, Extra and Side counts unchanged, main >= min(40, base main count)
+   * and <= 60, extra <= 15. A deck that differs from the current one clears the player's
    * Ready, so the next game never starts on a deck they did not confirm.
    */
   setSideDeck(seriesId: number, guildId: string, playerId: number, deck: DuelDeck): DuelSeriesSummary;
@@ -601,15 +601,6 @@ export function createSeriesStore(db: Database.Database) {
     const now = Date.now();
     const tournament = series.tournament_match_id !== null;
     const needed = series.best_of === 3 ? 2 : 1;
-    // A corrupt saved deck must not stop the game from finishing: treat it as having nothing to side.
-    const emptySide = (raw: string | null) => {
-      try {
-        return (parseSeriesDeck(raw)?.side.length ?? 0) === 0 ? 1 : 0;
-      } catch (error) {
-        console.error("[duel-series] a series deck is corrupt", { seriesId: series.id, duelId: duel.id, error });
-        return 1;
-      }
-    };
     const vsBot = series.vs_bot === 1;
     // `chooser` is the series index of the loser of a decided game; null keeps the seat swap (draw, interrupt).
     // The practice bot is always ready, and when it lost it chooses to go first at once.
@@ -635,8 +626,9 @@ export function createSeriesStore(db: Database.Database) {
         wins0,
         wins1,
         new Date(now + SERIES_SIDE_WINDOW_MS).toISOString(),
-        emptySide(series.deck0_json),
-        emptySide(series.deck1_json),
+        // Every human must explicitly click Ready, even with no Side Deck or a saved turn choice.
+        0,
+        0,
         chooser,
       );
 
@@ -1048,6 +1040,12 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
       }
       if (next.side.length !== state.currentDeck.side.length) {
         throw new DuelServiceError("The side deck must keep the same number of cards", 400);
+      }
+      if (next.main.length !== state.currentDeck.main.length) {
+        throw new DuelServiceError("The main deck must keep the same number of cards", 400);
+      }
+      if (next.extra.length !== state.currentDeck.extra.length) {
+        throw new DuelServiceError("The extra deck must keep the same number of cards", 400);
       }
       const minMain = Math.min(SIDE_DECK_MIN_MAIN, state.baseDeck.main.length);
       if (next.main.length < minMain || next.main.length > SIDE_DECK_MAX_MAIN) {

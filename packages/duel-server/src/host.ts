@@ -348,13 +348,14 @@ export function createDuelHost(options: {
 
   async function readClockView(game: DuelGameWorker): Promise<DecisionClockView> {
     const first = await game.view(0);
+    const opening = first.revision === 0 && first.turn <= 1;
     if (first.result) return { turn: first.turn, promptSeat: null };
     if (first.prompt && isSeatIndex(first.prompt.seat)) {
-      return { turn: first.turn, promptSeat: first.prompt.seat };
+      return { turn: first.turn, promptSeat: first.prompt.seat, opening };
     }
     const second = await game.view(1);
     if (second.prompt && isSeatIndex(second.prompt.seat)) {
-      return { turn: second.turn, promptSeat: second.prompt.seat };
+      return { turn: second.turn, promptSeat: second.prompt.seat, opening };
     }
     return { turn: first.turn, promptSeat: null };
   }
@@ -1202,11 +1203,8 @@ export function createDuelHost(options: {
         if (info.status !== "between_games") throw new RequestError("The series is not between games", 409);
         const updated = series.setFirstChoice(seriesId, guildId, actor, body.choice);
         await emitChange(updated.currentDuelSlug ?? slug, guildId);
-        const advanced = isSeriesDue(updated, now()) ? await advanceSeries(seriesId, guildId) : null;
-        const latest = series.get(seriesId, guildId);
-        const nextSlug = advanced
-          ?? (latest.status === "active" && latest.currentDuelSlug !== slug ? latest.currentDuelSlug : null);
-        return { series: latest, nextSlug };
+        // A turn choice only records the choice. Ready and the deadline own advancement.
+        return { series: updated, nextSlug: null };
       }
       if (info.status !== "between_games") {
         // The next game may already exist (the timer or the other player was first): point the client at it.

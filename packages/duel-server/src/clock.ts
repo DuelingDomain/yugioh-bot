@@ -1,4 +1,4 @@
-import { DUEL_CLOCK_INCREMENT_MS, duelClockBankMs, duelClockRegainMs } from "@yugidraft/shared/duels";
+import { DUEL_CLOCK_INCREMENT_MS, DUEL_OPENING_GRACE_MS, duelClockBankMs, duelClockRegainMs } from "@yugidraft/shared/duels";
 
 export type SeatIndex = 0 | 1;
 
@@ -13,6 +13,8 @@ export interface DecisionClockState {
 export interface DecisionClockView {
   turn: number;
   promptSeat: number | null;
+  /** The first engine snapshot of a new game, before any command was accepted. */
+  opening?: boolean;
 }
 
 export interface PublicDecisionClock extends DecisionClockState {
@@ -66,7 +68,7 @@ export function startDecisionClock(
     turn: view.turn,
     remainingMs: [budget, budget],
     activeSeat,
-    startedAt: activeSeat === null ? null : now,
+    startedAt: activeSeat === null ? null : now + (view.opening ? DUEL_OPENING_GRACE_MS : 0),
   };
 }
 
@@ -113,11 +115,14 @@ export function syncDecisionClock(
     remaining[1] = addCapped(remaining[1], regain, budget);
   }
   const nextSeat = isSeatIndex(view.promptSeat) ? view.promptSeat : null;
+  // Reduced motion or a bot may answer during the opening grace. Keep its original end,
+  // without granting another grace window on a prompt change or a reconnect.
+  const startAt = Math.max(resumeAt, previous.startedAt ?? resumeAt);
   return {
     turn: view.turn,
     remainingMs: remaining,
     activeSeat: nextSeat,
-    startedAt: nextSeat !== null && remaining[nextSeat] > 0 ? resumeAt : null,
+    startedAt: nextSeat !== null && remaining[nextSeat] > 0 ? startAt : null,
   };
 }
 

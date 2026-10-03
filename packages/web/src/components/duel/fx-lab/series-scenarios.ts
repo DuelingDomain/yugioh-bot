@@ -104,6 +104,13 @@ export const SERIES_SCENARIOS: LabScenario[] = [
     build: () => seriesScript({ wins: [1, 0], game: 1, screen: "side", secondsLeft: 48, opponentReady: false }),
   },
   {
+    id: "match-side-deck-60",
+    category: "Match",
+    name: "Side decking: 60 / 15 / 15 cards",
+    description: "Maximum-size sections for checking that all thumbnails and the controls fit on desktop without scrolling.",
+    build: () => seriesScript({ wins: [0, 1], game: 1, screen: "side", secondsLeft: 44, vsBot: true, mainCount: 60 }),
+  },
+  {
     id: "match-side-even",
     category: "Match",
     name: "Between games: siding, counts match",

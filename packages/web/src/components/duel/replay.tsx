@@ -11,6 +11,7 @@ import { CardHoverInfo } from "./card-interactions";
 import { phaseLabel } from "./constants";
 import { DeckMasterRail, DuelField } from "./field";
 import { DuelFeedback } from "./feedback";
+import { MoveSourceBoundary } from "./fx-boundary";
 import { CardInspector, type InspectTarget } from "./inspector";
 import { DuelLogLine, useLogCategories } from "./log-line";
 import { useDuelPreferences } from "./preferences";
@@ -74,6 +75,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
   const [pane, setPane] = useState<"card" | "log">("card");
   const [mobileInspect, setMobileInspect] = useState(false);
   const [hover, setHover] = useState<{ card: DuelCard; anchor: HTMLElement } | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
 
   const timeline = useMemo(() => (data ? buildReplayTimeline(data.frames) : null), [data]);
   const last = Math.max((timeline?.length ?? 1) - 1, 0);
@@ -238,7 +240,8 @@ export function DuelReplayView({ slug }: { slug: string }) {
           <div className={styles.sideContent} role="region" aria-label={pane === "card" ? "Card" : "Duel log"}>{sideContent}</div>
         </aside>
         <section className={styles.boardColumn} aria-label="Replay field">
-          <div className={styles.board}>
+          <div className={styles.board} ref={boardRef}>
+            <MoveSourceBoundary events={engine.events} duelKey={`${slug}:replay:${epoch}`} root={boardRef}>
             <DuelField key={slug} engine={engine} mySeat={data.mySeat} masterRule={session.masterRule}
               reducedMotion={preferences.reducedMotion}
               legalKeys={EMPTY_KEYS} selectedKeys={EMPTY_KEYS} onActivate={onActivate}
@@ -247,6 +250,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
               topName={playerName(top?.seat ?? 1 - localSeat)} />
             <DuelFeedback events={engine.events} duelKey={`${slug}:replay:${epoch}`}
               soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} />
+            </MoveSourceBoundary>
           </div>
           <nav className={styles.phases} aria-label="Duel phases">
             {PHASES.map((phase) => (

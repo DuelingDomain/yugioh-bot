@@ -1,8 +1,9 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DuelCard, DuelChainLink, DuelEngineView, DuelEvent, DuelRoom } from "@yugidraft/shared/duels";
 import { DeckMasterRail, DuelField } from "../field";
+import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "../animation-speed-control";
 import { BattleFx } from "../battle-fx";
 import { DestroyFx } from "../destroy-fx";
 import { DuelFeedback } from "../feedback";
@@ -15,7 +16,7 @@ import { PromptCenter } from "../prompt-center";
 import { activatePromptFromField, promptSelectedKeys, type PromptDraft } from "../prompts";
 import { PickRefusalHint, shakeRefusedCard } from "../card-interactions";
 import { DuelResultScreen } from "../duel-result";
-import { FxBoundary } from "../fx-boundary";
+import { FxBoundary, MoveSourceBoundary } from "../fx-boundary";
 import { duelFontClasses } from "../fonts";
 import { isBattlePhase } from "../constants";
 import { getSharedFx3d } from "../fx3d/shared";
@@ -127,6 +128,8 @@ export function FxLab() {
   const [selectedId, setSelectedId] = useState<string>(LAB_SCENARIOS[0].id);
   const [speed, setSpeed] = useState<Speed>(1);
   const [reduced, setReduced] = useState(false);
+  const animationSpeed = useDuelAnimationSpeed(reduced);
+  const playbackSpeed = reduced ? 1 : speed * animationSpeed;
   const [loop, setLoop] = useState(false);
   const [sound, setSound] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
@@ -145,8 +148,9 @@ export function FxLab() {
   const token = useRef(0);
   const nextId = useRef(0);
   const boardRef = useRef<LabBoard>(live.board);
-  const optionsRef = useRef({ speed, reduced, loop });
-  optionsRef.current = { speed, reduced, loop };
+  const stageRef = useRef<HTMLDivElement>(null);
+  const optionsRef = useRef({ speed: playbackSpeed, reduced, loop });
+  optionsRef.current = { speed: playbackSpeed, reduced, loop };
 
   const scenario = findScenario(selectedId) ?? LAB_SCENARIOS[0];
   const script = useMemo<LabScript>(() => scenario.build(), [scenario]);
@@ -221,6 +225,7 @@ export function FxLab() {
       const begin = () => {
         if (!started()) return;
         shim.setFactor(rate);
+        shim.resetTimeline();
         setStatus("playing");
         for (const { step, events } of numbered) {
           later(step.at / rate, () => {
@@ -239,7 +244,6 @@ export function FxLab() {
         }
         later(scriptDurationMs(built) / rate, () => {
           if (!started()) return;
-          shim.setFactor(1);
           setStatus("done");
           if (optionsRef.current.loop) later(900, () => started() && play(target));
         });
@@ -304,11 +308,16 @@ export function FxLab() {
   // Between games and opening RPS are not live engine decisions.
   if (script.opening || script.series?.screen) engine.turn = 0;
   const duelKey = `lab-${live.runKey}`;
+  const viewerSeat = script.mySeat === undefined ? 0 : script.mySeat;
   const stageHeight = "clamp(560px, calc(100dvh - 250px), 900px)";
   const battle = isBattlePhase(live.board.phase);
   const canvasReady = Boolean(getSharedFx3d());
   // A Best of 3 scenario: the header label always shows; the between-games or match screen opens once it plays.
-  const seriesRoom = useMemo(() => (script.series ? labSeriesRoom(script.initial, script.series) : null), [script, live.runKey]);
+  const seriesRoom = useMemo(() => script.series ? {
+    ...labSeriesRoom(script.initial, script.series),
+    mySeat: viewerSeat,
+    role: viewerSeat == null ? "spectator" as const : "player" as const,
+  } : null, [script, live.runKey, viewerSeat]);
 
   return (
     <div className={fx.page}>
@@ -334,7 +343,7 @@ export function FxLab() {
             <button type="button" className={fx.btn} onClick={() => play(scenario)}>
               {status === "idle" ? "Play" : "Replay"}
             </button>
-            <span className={fx.seg} role="group" aria-label="Speed">
+            <span className={fx.seg} role="group" aria-label="Review speed">
               {SPEEDS.map((value) => (
                 <button key={value} type="button" aria-pressed={speed === value} onClick={() => setSpeed(value)}>
                   {value}x
@@ -348,15 +357,16 @@ export function FxLab() {
               <input type="checkbox" checked={loop} onChange={(event) => setLoop(event.target.checked)} /> Loop
             </label>
             <label className={fx.check}>
-              <input type="checkbox" checked={sound} onChange={(event) => setSound(event.target.checked)} /> Sound (normal speed)
+              <input type="checkbox" checked={sound} onChange={(event) => setSound(event.target.checked)} /> Sound
             </label>
           </div>
+          <div className={fx.pace}><DuelAnimationSpeedControl /></div>
           <div className={fx.caption} aria-live="polite">
             <strong>{scenario.name}</strong>
             <p>{scenario.description}</p>
             <p>
               Scenario <code>{scenario.id}</code> · about {seconds(expectedMs)} at 1x
-              {speed !== 1 ? ` (${seconds(expectedMs / speed)} at ${speed}x)` : ""} ·{" "}
+              {playbackSpeed !== 1 ? ` (${seconds(expectedMs / playbackSpeed)} at ${playbackSpeed.toFixed(2)}x)` : ""} ·{" "}
               <span className={fx.status}>
                 {status === "idle" ? "Ready" : status === "preparing" ? "Preparing" : status === "playing" ? "Playing" : "Done"}
               </span>
@@ -367,28 +377,29 @@ export function FxLab() {
           <div
             className={`${styles.shell} ${duelFontClasses}`}
             style={{ height: stageHeight, borderRadius: 8, border: "1px solid rgb(181 153 99 / 0.25)" }}
+            data-duel-fx-speed-root
             data-domain={script.domain ? "true" : "false"}
             data-fit="true"
             data-phase={battle ? "battle" : undefined}
-            data-turn={live.board.turnSeat === 0 ? "you" : "opp"}
+            data-turn={live.board.turnSeat === (viewerSeat ?? 0) ? "you" : "opp"}
             data-reduced={reduced ? "true" : "false"}
           >
             {seriesRoom ? <SeriesLabHeader room={seriesRoom} /> : null}
             <div className={fx.row}>
               <div className={fx.boardWrap}>
-                <div className={styles.board}>
-                  <Fragment key={live.runKey}>
+                <div className={styles.board} ref={stageRef}>
+                  <MoveSourceBoundary key={live.runKey} events={engine.events} duelKey={duelKey} root={stageRef}>
                     <DuelField
                       engine={engine}
-                      mySeat={script.mySeat ?? 0}
+                      mySeat={viewerSeat}
                       masterRule={script.masterRule ?? 5}
                       reducedMotion={reduced}
                       legalKeys={legalKeys as Set<string>}
                       selectedKeys={pickedKeys as Set<string>}
                       onActivate={onActivate}
                       onInspect={noop}
-                      bottomName="You"
-                      topName="Practice Bot"
+                      bottomName={viewerSeat == null ? "Seat 0" : "You"}
+                      topName={viewerSeat == null ? "Seat 1" : "Practice Bot"}
                     />
                     <FxBoundary>
                       <DuelFeedback events={engine.events} duelKey={duelKey} soundEnabled={sound} soundVolume={0.6} reducedMotion={reduced} />
@@ -397,13 +408,13 @@ export function FxLab() {
                       <PositionFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} />
                       <ChainFx events={engine.events} chain={engine.chain} duelKey={duelKey} reducedMotion={reduced} mySeat={0} playerName={(seat) => (seat === 0 ? "You" : "Practice Bot")} />
                       <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={duelKey} reducedMotion={reduced} mySeat={0} />
-                      <BattleFx events={engine.events} seats={engine.seats} reducedMotion={reduced} active aim={script.aim} />
+                      <BattleFx events={engine.events} seats={engine.seats} reducedMotion={reduced} active aim={script.aim} result={engine.result} />
                       <DestroyFx events={engine.events} reducedMotion={reduced} active mySeat={0} />
                     </FxBoundary>
                     {script.prompt ? (
                       <PromptCenter
                         prompt={script.prompt.prompt}
-                        mySeat={script.mySeat ?? 0}
+                        mySeat={viewerSeat}
                         active
                         slug="fx-lab"
                         busy={false}
@@ -417,7 +428,7 @@ export function FxLab() {
                         battleStep={script.prompt.battleStep ?? null}
                       />
                     ) : null}
-                  </Fragment>
+                  </MoveSourceBoundary>
                 </div>
               </div>
               {script.domain ? (

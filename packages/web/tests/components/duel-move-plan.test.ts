@@ -31,19 +31,76 @@ beforeEach(() => resetMoveSchedule("t"));
 
 describe("baseDuration", () => {
   it("keeps placements between 700 and 860 ms", () => {
-    expect(baseDuration("place", 0)).toBe(700);
-    expect(baseDuration("place", 200)).toBeGreaterThan(700);
-    expect(baseDuration("place", 5000)).toBe(860);
+    expect(baseDuration("place", 0)).toBe(700 * 0.95);
+    expect(baseDuration("place", 200)).toBeGreaterThan(700 * 0.95);
+    expect(baseDuration("place", 5000)).toBe(860 * 0.95);
   });
-  it("keeps tosses between 680 and 840 ms and draws at 740 ms", () => {
+  it("keeps tosses between 680 and 840 ms and makes draws about 10% quicker", () => {
     expect(baseDuration("toss", 0)).toBe(680);
     expect(baseDuration("toss", 5000)).toBe(840);
-    expect(baseDuration("draw", 300)).toBe(740);
+    // Round up by 1 ms to preserve the 400 ms floor at the maximum queue compression.
+    expect(baseDuration("draw", 300)).toBe(667);
     expect(baseDuration("fade", 300)).toBe(150);
   });
 });
 
 describe("planMoves", () => {
+  it.each([false, true])("does not correlate a public arrival with an unknown departure after a hidden shuffle (reduced=%s)", (reduced) => {
+    const events = [move(1, z(1, GRAVE, 0), z(1, HAND, 1),
+      { addedToHand: true, handId: "departed-1", handShuffled: true }),
+      move(2, z(1, HAND, 1), z(1, DECK, 0), { card: undefined, reason: "return" })];
+    const [incoming, outgoing] = planMoves(events, { now: 0, reduced, duelKey: "t", geometry });
+    expect(incoming.handoff).toBeUndefined();
+    expect(outgoing.handoffFrom).toBeUndefined();
+  });
+
+  it("chains a known arrival discarded from a different slot after an unreported engine shuffle", () => {
+    const events = [move(1, z(0, DECK, 0), z(0, HAND, 4), { reason: "draw", handId: "departed-1", handShuffled: true }),
+      move(2, z(0, HAND, 1), z(0, GRAVE, 0), { reason: "discard" })];
+    const [incoming, outgoing] = planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry });
+    expect(incoming.handoff).toBe(outgoing.id);
+    expect(outgoing.handoffFrom?.id).toBe(incoming.id);
+    expect(outgoing.startAt).toBe(incoming.landAt);
+  });
+
+  it.each([false, true])("preserves every pending arrival when code matching differs from the compacted engine slot (reduced=%s)", (reduced) => {
+    const identified = (code: number) => ({ ...card!, code });
+    const events = [
+      ...[10, 20, 30].map((code, index) => move(index + 1, z(0, DECK, 0), z(0, HAND, index + 2),
+        { reason: "draw", handId: `departed-${index + 1}`, card: identified(code) })),
+      // An unreported shuffle put C in A's engine slot; B and A then leave that compacted slot.
+      ...[30, 20, 10].map((code, index) => move(index + 4, z(0, HAND, 2), z(0, GRAVE, index),
+        { reason: "discard", card: identified(code) })),
+    ];
+    const plans = new Map(planMoves(events, { now: 0, reduced, duelKey: "t", geometry }).map((plan) => [plan.id, plan]));
+    for (const [arrival, departure] of [[3, 4], [2, 5], [1, 6]]) {
+      expect(plans.get(arrival)!.handoff).toBe(departure);
+      expect(plans.get(departure)!.handoffFrom?.id).toBe(arrival);
+      expect(plans.get(departure)!.startAt).toBe(plans.get(arrival)!.landAt);
+    }
+  });
+
+  it("keeps a surviving identical arrival separate from an older card's departure", () => {
+    const events = [move(1, z(0, DECK, 0), z(0, HAND, 2), { reason: "draw", handId: "hand-survivor" }),
+      move(2, z(0, HAND, 2), z(0, GRAVE, 0), { reason: "discard" })];
+    const [incoming, outgoing] = planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry });
+    expect(incoming.handoff).toBeUndefined();
+    expect(outgoing.handoffFrom).toBeUndefined();
+  });
+  it("makes the whole opening deal about 10% quicker, including a compressed queue", () => {
+    const opening = Array.from({ length: 10 }, (_, i) => move(i + 1, z(Math.floor(i / 5), DECK, 0), z(Math.floor(i / 5), HAND, i % 5), { reason: "draw" }));
+    const plans = planMoves(opening, { now: 0, reduced: false, duelKey: "t", geometry });
+    expect(plans[plans.length - 1].landAt).toBeCloseTo(4400 * 0.9, 0);
+  });
+
+  it("shortens the hand-entry stagger under reduced motion and keeps plain fades", () => {
+    const draws = [move(1, z(0, DECK, 0), z(0, HAND, 0), { reason: "draw" }), move(2, z(0, DECK, 0), z(0, HAND, 1), { reason: "draw" })];
+    const [a, b] = planMoves(draws, { now: 0, reduced: true, duelKey: "t", geometry });
+    expect(a.style).toBe("fade");
+    expect(b.startAt - a.startAt).toBe(280 * 0.9);
+    expect(a.durationMs).toBe(150);
+  });
+
   it("does not allocate a card flight for a board-only target update", () => {
     const target: DuelEvent = { id: 1, kind: "target", chainIndex: 1,
       text: "Chain Link 1 targets 1 card", targets: [z(1, SZONE, 0)] };
@@ -134,6 +191,67 @@ describe("planMoves", () => {
     const [plan] = planMoves([move(1, z(0, HAND, 0), z(0, MZONE, 0))], { now: 0, reduced: true, duelKey: "t", geometry });
     expect(plan.style).toBe("fade");
     expect(plan.durationMs).toBe(150);
+  });
+
+  it.each([false, true])("chains multiple draws into compacted discards despite intervening moves (reduced=%s)", (reduced) => {
+    const identified = (code: number) => ({ ...card!, code });
+    const events = [
+      move(1, z(0, DECK, 0), z(0, HAND, 2), { reason: "draw", card: identified(10) }),
+      move(2, z(0, DECK, 0), z(0, HAND, 3), { reason: "draw", card: identified(20) }),
+      move(3, z(0, DECK, 0), z(0, HAND, 4), { reason: "draw", card: identified(30) }),
+      move(4, z(1, HAND, 0), z(1, GRAVE, 0)),
+      move(5, z(0, HAND, 2), z(0, GRAVE, 0), { reason: "discard", card: identified(10) }),
+      move(6, z(0, HAND, 2), z(0, GRAVE, 1), { reason: "discard", card: identified(20) }),
+    ];
+    const plans = planMoves(events, { now: 0, reduced, duelKey: "t", geometry });
+    const byId = new Map(plans.map((plan) => [plan.id, plan]));
+    for (const [arrival, departure] of [[1, 5], [2, 6]]) {
+      expect(byId.get(arrival)!.handoff).toBe(departure);
+      expect(byId.get(departure)!.handoffFrom?.id).toBe(arrival);
+      expect(byId.get(departure)!.startAt).toBe(byId.get(arrival)!.landAt);
+      expect(byId.get(arrival)!.holdMs).toBe(0);
+    }
+    expect(byId.get(3)!.handoff).toBeUndefined();
+    expect(byId.get(4)!.handoffFrom).toBeUndefined();
+  });
+
+  it("chains an Exchange hand arrival into its departure after another seat's move", () => {
+    const exchange = move(1, z(0, HAND, 1), z(1, HAND, 2));
+    const events = [exchange, move(2, z(0, HAND, 0), z(0, GRAVE, 0)), move(3, z(1, HAND, 2), z(1, GRAVE, 0))];
+    const [arrival, unrelated, departure] = planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry });
+    expect(arrival.handoff).toBe(departure.id);
+    expect(departure.handoffFrom?.id).toBe(exchange.id);
+    expect(departure.startAt).toBe(arrival.landAt);
+    expect(unrelated.handoffFrom).toBeUndefined();
+  });
+
+  it("chains a concealed draw when the subsequent discard reveals its card", () => {
+    const events = [
+      move(1, z(1, DECK, 0), z(1, HAND, 2), { reason: "draw", card: undefined }),
+      move(2, z(0, HAND, 0), z(0, GRAVE, 0)),
+      move(3, z(1, HAND, 2), z(1, GRAVE, 0), { reason: "discard" }),
+    ];
+    const [arrival, , departure] = planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry });
+    expect(arrival.handoff).toBe(departure.id);
+    expect(departure.startAt).toBe(arrival.landAt);
+    expect(arrival.event.card).toBeUndefined();
+    expect(departure.event.card).toBe(card);
+  });
+
+  it("compacts pending arrivals through skipped moves without matching an older identical copy", () => {
+    const events = [
+      move(1, z(0, DECK, 0), z(0, HAND, 2), { reason: "draw" }),
+      move(2, z(0, DECK, 0), z(0, HAND, 3), { reason: "draw" }),
+      move(3, z(0, HAND, 0), z(0, GRAVE, 0), { reason: "discard" }),
+      move(4, z(0, HAND, 1), z(0, GRAVE, 1), { reason: "discard" }),
+      move(5, z(0, HAND, 1), z(0, GRAVE, 2), { reason: "discard" }),
+    ];
+    const [a, b, discardA, discardB] = planMoves(events, { now: 0, reduced: false, duelKey: "t",
+      geometry: (event) => event.id === 3 ? null : geometry() });
+    expect(a.handoff).toBe(discardA.id);
+    expect(b.handoff).toBe(discardB.id);
+    expect(discardA.handoffFrom?.id).toBe(a.id);
+    expect(discardB.handoffFrom?.id).toBe(b.id);
   });
 });
 

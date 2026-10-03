@@ -1,9 +1,11 @@
 "use client";
 
+import { duelFxClock } from "./fx-clock";
 import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { formatLp } from "./constants";
 import { duelFontClasses } from "./fonts";
 import { LP_TIMING } from "./duel-timing";
+import { battleSeekMs, type BattleClock } from "./battle-clock";
 import { noteLpMotion } from "./lp-motion";
 import styles from "./life-points.module.css";
 
@@ -28,7 +30,7 @@ export type LifePointsProps = {
 
 /* ---------- hold store: lets a battle animation delay a roll it does not own ---------- */
 
-type LpHold = { ms: number; until: number };
+type LpHold = { ms: number; until: number; clock?: BattleClock };
 const lpHolds = new Map<number, LpHold>();
 const lpHoldKeys = new Set<string>();
 
@@ -36,18 +38,18 @@ const lpHoldKeys = new Set<string>();
  * Arm a one-shot delay for the next LP loss shown at `seat`. `key` de-duplicates re-renders
  * (use the damage event id). The hold expires after LP_TIMING.holdExpiryMs if no LP change consumes it.
  */
-export function armLpHold(seat: number, ms: number, key: string): void {
+export function armLpHold(seat: number, ms: number, key: string, clock?: BattleClock): void {
   if (lpHoldKeys.has(key)) return;
   lpHoldKeys.add(key);
   if (lpHoldKeys.size > 200) lpHoldKeys.clear();
-  lpHolds.set(seat, { ms, until: Date.now() + LP_TIMING.holdExpiryMs });
+  lpHolds.set(seat, { ms, until: duelFxClock.dateNow() + LP_TIMING.holdExpiryMs, clock });
 }
 
 export function takeLpHold(seat: number): number {
   const hold = lpHolds.get(seat);
   lpHolds.delete(seat);
-  if (!hold || hold.until < Date.now()) return 0;
-  return hold.ms;
+  if (!hold || hold.until < duelFxClock.dateNow()) return 0;
+  return Math.max(0, hold.ms - (hold.clock ? battleSeekMs(hold.clock.startedAt) : 0));
 }
 
 export function clearLpHolds(): void {
@@ -285,9 +287,9 @@ function clearReelFx(el: HTMLElement) {
 }
 
 function stopMotion(engine: Engine) {
-  if (engine.raf != null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(engine.raf);
+  if (engine.raf != null && typeof cancelAnimationFrame === "function") duelFxClock.cancelAnimationFrame(engine.raf);
   engine.raf = null;
-  if (engine.timer != null) window.clearTimeout(engine.timer);
+  if (engine.timer != null) duelFxClock.clearTimeout(engine.timer);
   engine.timer = null;
   for (const reel of engine.live) clearReelFx(reel.el);
   engine.live = [];
@@ -295,7 +297,7 @@ function stopMotion(engine: Engine) {
 }
 
 function stopCue(engine: Engine, root: HTMLElement | null) {
-  if (engine.cueTimer != null) window.clearTimeout(engine.cueTimer);
+  if (engine.cueTimer != null) duelFxClock.clearTimeout(engine.cueTimer);
   engine.cueTimer = null;
   root?.removeAttribute("data-tone");
 }
@@ -341,7 +343,7 @@ function applyHidden(ctx: Ctx, hidden: Set<string>) {
 function pulse(el: HTMLElement | null) {
   if (!el || typeof el.animate !== "function") return;
   try {
-    el.animate([{ opacity: 0.25 }, { opacity: 1 }], { duration: LP_TIMING.reducedFadeMs + 140, easing: "ease-out" });
+    duelFxClock.animate(el, [{ opacity: 0.25 }, { opacity: 1 }], { duration: LP_TIMING.reducedFadeMs + 140, easing: "ease-out" });
   } catch {
     /* ignore */
   }
@@ -419,7 +421,7 @@ function startRoll(ctx: Ctx, from: number, to: number, glyphs: Glyph[]) {
 
   engine.live = live;
   engine.active = true;
-  if (engine.cueTimer != null) window.clearTimeout(engine.cueTimer);
+  if (engine.cueTimer != null) duelFxClock.clearTimeout(engine.cueTimer);
   engine.cueTimer = null;
   ctx.rootRef.current?.setAttribute("data-tone", dir < 0 ? "loss" : "gain");
 
@@ -455,15 +457,15 @@ function startRoll(ctx: Ctx, from: number, to: number, glyphs: Glyph[]) {
     }
     syncColumns();
     if (running) {
-      engine.raf = requestAnimationFrame(frame);
+      engine.raf = duelFxClock.requestAnimationFrame(frame);
     } else {
       engine.raf = null;
       finishRoll(ctx);
     }
   };
-  engine.raf = requestAnimationFrame(frame);
+  engine.raf = duelFxClock.requestAnimationFrame(frame);
   // If frames are throttled (background tab), still land on the right number.
-  engine.timer = window.setTimeout(() => finishRoll(ctx), plan.total + FINISH_SLACK_MS);
+  engine.timer = duelFxClock.setTimeout(() => finishRoll(ctx), plan.total + FINISH_SLACK_MS);
 }
 
 function applyPlan(plan: Plan, ctx: Ctx) {
@@ -479,7 +481,7 @@ function applyPlan(plan: Plan, ctx: Ctx) {
     // Reduced motion: no spin, just a short pulse and a brief tone flash.
     pulse(ctx.rollRef.current);
     ctx.rootRef.current?.setAttribute("data-tone", plan.cue);
-    engine.cueTimer = window.setTimeout(() => {
+    engine.cueTimer = duelFxClock.setTimeout(() => {
       engine.cueTimer = null;
       ctx.rootRef.current?.removeAttribute("data-tone");
     }, CUE_MS);
@@ -542,16 +544,16 @@ export function LifePoints({ value, reducedMotion, size = "lg", showChange = tru
 
   useLayoutEffect(() => {
     return () => {
-      if (holdTimerRef.current != null) window.clearTimeout(holdTimerRef.current);
+      if (holdTimerRef.current != null) duelFxClock.clearTimeout(holdTimerRef.current);
       holdTimerRef.current = null;
       stopMotion(engine);
-      if (engine.cueTimer != null) window.clearTimeout(engine.cueTimer);
+      if (engine.cueTimer != null) duelFxClock.clearTimeout(engine.cueTimer);
       engine.cueTimer = null;
     };
   }, [engine]);
 
   useLayoutEffect(() => {
-    if (holdTimerRef.current != null) window.clearTimeout(holdTimerRef.current);
+    if (holdTimerRef.current != null) duelFxClock.clearTimeout(holdTimerRef.current);
     holdTimerRef.current = null;
     const ctx: Ctx = { engine, rootRef, rollRef, valueRef, setShown };
     const prev = prevValueRef.current;
@@ -595,7 +597,7 @@ export function LifePoints({ value, reducedMotion, size = "lg", showChange = tru
       noteLpMotion(Math.max(0, hold) + rollDurationMs(Math.abs(next - from)));
     }
     if (hold > 0) {
-      holdTimerRef.current = window.setTimeout(() => {
+      holdTimerRef.current = duelFxClock.setTimeout(() => {
         holdTimerRef.current = null;
         run();
       }, hold);

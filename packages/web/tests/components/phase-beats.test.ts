@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { PHASE_TIMING } from "../../src/components/duel/duel-timing";
-import { getPhaseBeat, isOpeningView, phaseKeyOfText, planPhaseBeats, resetPhaseBeats } from "../../src/components/duel/phase-beats";
+import { getPhaseBeat, isOpeningView, openingPresentationMs, phaseKeyOfText, planPhaseBeats, resetPhaseBeats } from "../../src/components/duel/phase-beats";
+import { planMoves, resetMoveSchedule } from "../../src/components/duel/move-plan";
 
 const phase = (id: number, text: string): DuelEvent => ({ id, kind: "phase", text }) as DuelEvent;
 const draw = (id: number): DuelEvent => ({ id, kind: "move", reason: "draw", text: "draw" }) as unknown as DuelEvent;
@@ -27,6 +28,20 @@ describe("isOpeningView", () => {
     expect(isOpeningView({ revision: 1, turn: 1, events })).toBe(false);
     expect(isOpeningView({ revision: 0, turn: 2, events })).toBe(false);
     expect(isOpeningView({ revision: 0, turn: 1, events: [] })).toBe(false);
+  });
+});
+
+describe("opening presentation duration", () => {
+  it.each([false, true])("covers the opening hand and phase beats (reduced motion: %s)", (reduced) => {
+    resetMoveSchedule("t");
+    const opening = [
+      ...Array.from({ length: 10 }, (_, i) => ({ ...draw(i + 1), from: { controller: Math.floor(i / 5), location: 1, sequence: 0 }, zone: { controller: Math.floor(i / 5), location: 2, sequence: i % 5 } })),
+      phase(11, "Draw Phase"), phase(12, "Standby Phase"), phase(13, "Main Phase 1"),
+    ];
+    planMoves(opening, { now: 0, reduced, duelKey: "t", geometry: () => ({ distance: 240 }) });
+    const plan = planPhaseBeats(opening, 0, { now: 0, reduced, duelKey: "t" })!;
+    expect(openingPresentationMs(opening, reduced)).toBeGreaterThanOrEqual(plan.releaseAt);
+    expect(openingPresentationMs(opening, reduced)).toBeLessThan(8_000);
   });
 });
 

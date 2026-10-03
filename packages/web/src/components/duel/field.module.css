@@ -396,6 +396,18 @@
   height: 100%;
 }
 
+.handSizeProbe {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  width: var(--ohcw);
+  aspect-ratio: 59 / 86;
+}
+
+.handSizeProbe[data-side="you"] {
+  width: var(--lhcw);
+}
+
 .hand {
   --cardw: var(--ohcw);
   --base: var(--ohg);
@@ -439,6 +451,17 @@
   position: relative;
   flex: 0 0 auto;
   width: var(--cardw);
+  transform-origin: 50% 170%;
+  transition: transform 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hand:not(.handLocal) .handCard {
+  transform-origin: 50% -70%;
+}
+
+.felt[data-reduced-motion="true"] .handCard,
+.handCard:has([style*="visibility: hidden"]) {
+  transition: none;
 }
 
 .handCard:hover,

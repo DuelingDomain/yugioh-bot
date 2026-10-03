@@ -1,3 +1,4 @@
+import { fieldPlacementMs } from "../placement-timing";
 import type { SummonStyle } from "../event-queue";
 import type { DuelShakePreference } from "../preferences";
 import { easeInCubic, easeOutCubic, ramp } from "./ease";
@@ -17,7 +18,7 @@ export type Summon3dTimeline = {
   total: number;
 };
 
-export const SUMMON3D_TIMELINE: Record<Summon3dKey, Summon3dTimeline> = {
+export const SUMMON3D_AUTHORED: Record<Summon3dKey, Summon3dTimeline> = {
   fusion: { rise0: 220, rise1: 540, holdEnd: 1100, handOver: 1340, total: 1720 },
   synchro: { rise0: 240, rise1: 560, holdEnd: 1120, handOver: 1360, total: 1740 },
   xyz: { rise0: 260, rise1: 580, holdEnd: 1140, handOver: 1380, total: 1760 },
@@ -27,6 +28,12 @@ export const SUMMON3D_TIMELINE: Record<Summon3dKey, Summon3dTimeline> = {
   heavy: { rise0: 120, rise1: 400, holdEnd: 960, handOver: 1180, total: 1550 },
 };
 
+export const SUMMON3D_TIMELINE = Object.fromEntries(
+  Object.entries(SUMMON3D_AUTHORED).map(([key, tl]) => [key, Object.fromEntries(
+    Object.entries(tl).map(([beat, ms]) => [beat, fieldPlacementMs(ms)]),
+  )]),
+) as Record<Summon3dKey, Summon3dTimeline>;
+
 /** The moment the portrait lands in the card: the slam (shake, cracks, aura) is timed to it. */
 export function summon3dHitMs(key: Summon3dKey): number {
   return SUMMON3D_TIMELINE[key].handOver;
@@ -34,7 +41,7 @@ export function summon3dHitMs(key: Summon3dKey): number {
 
 /** A second big summon may start this long after the first: a beat after the first one landed. */
 export function summon3dLockMs(key: Summon3dKey): number {
-  return SUMMON3D_TIMELINE[key].handOver + 220;
+  return SUMMON3D_TIMELINE[key].handOver + fieldPlacementMs(220);
 }
 
 export type EmbodimentStage = "before" | "rise" | "hold" | "shrink" | "landed";

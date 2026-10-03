@@ -31,6 +31,9 @@ export const DUEL_CLOCK_INCREMENT_MS = 3_000;
 export const DUEL_CLOCK_REGAIN_FRACTION = 0.25;
 export const DUEL_CLOCK_REGAIN_MIN_MS = 30_000;
 
+/** Bounded presentation grace at game start: the hands and turn-one phase beats precede decisions. */
+export const DUEL_OPENING_GRACE_MS = 8_000;
+
 export function duelClockBankMs(turnSeconds: number): number | null {
   if (!Number.isFinite(turnSeconds) || turnSeconds <= 0) return null;
   return turnSeconds * 1000;

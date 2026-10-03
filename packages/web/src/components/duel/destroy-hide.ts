@@ -1,3 +1,4 @@
+import { duelFxClock } from "./fx-clock";
 import { zoneKey } from "./constants";
 
 /**
@@ -39,13 +40,13 @@ export function zoneKeyOf(zone: Zone): string {
 function failsafe(id: string, ms: number, end: () => void): void {
   if (typeof window === "undefined") return;
   const capped = Math.min(DESTROY_HIDE_CAP_MS, Math.max(0, Number.isFinite(ms) ? ms : 0));
-  timers.set(id, window.setTimeout(end, capped));
+  timers.set(id, duelFxClock.setTimeout(end, capped));
 }
 
 function clearTimer(id: string): void {
   const timer = timers.get(id);
   if (timer == null) return;
-  if (typeof window !== "undefined") window.clearTimeout(timer);
+  if (typeof window !== "undefined") duelFxClock.clearTimeout(timer);
   timers.delete(id);
 }
 

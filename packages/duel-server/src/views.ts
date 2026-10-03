@@ -17,6 +17,7 @@ import {
 } from "ocgcore-wasm";
 import { raceLabel, type CardDatabase } from "./cards.js";
 import { fillPlaceholders, locationLabel } from "./text.js";
+import { HandIdentities } from "./hand-identities.js";
 
 export const LOCATION_DECKMASTER = 0x4000;
 export const DOMAIN_LEAVE_TAX_STEP = 500;
@@ -66,12 +67,19 @@ export function moveReveals(
   code: number,
 ): void {
   const origin = slotKey(from.controller, from.location, from.sequence);
-  const forget = to.location === OcgLocation.DECK || (to.location === OcgLocation.EXTRA && isFacedownPosition(to.position));
+  const forget = to.location === 0 || to.location === OcgLocation.DECK || (to.location === OcgLocation.EXTRA && isFacedownPosition(to.position));
   for (const tracked of reveals.values()) {
     const stored = tracked.get(origin);
-    if (stored == null) continue;
     tracked.delete(origin);
-    if (forget || (code !== 0 && stored !== code)) continue;
+    const shiftHand = (controller: number, sequence: number, delta: number) => {
+      const prefix = `${controller}:${OcgLocation.HAND}:`;
+      const changed = [...tracked].filter(([key]) => key.startsWith(prefix) && Number(key.slice(prefix.length)) >= sequence);
+      for (const [key] of changed) tracked.delete(key);
+      for (const [key, value] of changed) tracked.set(`${prefix}${Number(key.slice(prefix.length)) + delta}`, value);
+    };
+    if (from.location === OcgLocation.HAND) shiftHand(from.controller, from.sequence + 1, -1);
+    if (to.location === OcgLocation.HAND) shiftHand(to.controller, to.sequence, 1);
+    if (stored == null || forget || (code !== 0 && stored !== code)) continue;
     tracked.set(slotKey(to.controller, to.location, to.sequence), stored);
   }
 }
@@ -293,6 +301,7 @@ export interface StoredDuelEvent {
   addedToHand?: true;
   moveId?: number;
   target?: DuelZoneRef;
+  battle?: DuelEvent["battle"];
   targets?: DuelZoneRef[];
   amount?: number;
   cause?: DuelEvent["cause"];
@@ -443,6 +452,7 @@ export interface EventContext {
   moves: TrackedMove[];
   /** Cards in each hand, so DRAW messages (which carry no sequence) can be given a hand slot. */
   handSize: [number, number];
+  handIdentities: HandIdentities;
   /** Location each field zone's current card arrived from (zone key -> location bit), kept across batches. */
   arrivals: Map<string, number>;
   /** The answer that started the current summon was a Pendulum Summon (a Pendulum Zone card's summon action). */
@@ -460,7 +470,7 @@ interface TrackedMove {
 }
 
 export function createEventContext(): EventContext {
-  return { battle: false, summonTribute: false, destroyNotes: [], chainTargetNotes: [], resolving: null, pendingMoves: [], moves: [], handSize: [0, 0], arrivals: new Map(), pendulumSummon: false, materialReasons: 0 };
+  return { battle: false, summonTribute: false, destroyNotes: [], chainTargetNotes: [], resolving: null, pendingMoves: [], moves: [], handSize: [0, 0], handIdentities: new HandIdentities(), arrivals: new Map(), pendulumSummon: false, materialReasons: 0 };
 }
 
 /** Internal notes arrive during core processing, before its buffered messages are consumed. */
@@ -599,6 +609,7 @@ function destroyEvent(id: number, code: number, from: PendingMove["from"], cards
     revealCardTo: hidden ? from.controller : "all",
     zone: { controller: from.controller, location: from.location, sequence: from.sequence },
   };
+  if (from.location === OcgLocation.MZONE) event.fromPosition = from.position;
   if (detail && detail !== true) applyDestroyDetail(event, detail);
   return event;
 }
@@ -640,6 +651,10 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   if (event.chainIndex != null) projected.chainIndex = event.chainIndex;
   if (event.zone) projected.zone = { ...event.zone };
   if (event.target) projected.target = { ...event.target };
+  if (event.battle) projected.battle = {
+    attacker: { ...event.battle.attacker },
+    ...(event.battle.target ? { target: { ...event.battle.target } } : {}),
+  };
   if (event.targets) projected.targets = event.targets.map(zoneOf);
   if (event.from) projected.from = { ...event.from };
   if (event.reason) projected.reason = event.reason;
@@ -898,6 +913,7 @@ function trackMove(
     from: fromZone,
     reason,
   };
+  if (from.location === OcgLocation.MZONE) event.fromPosition = from.position;
   if (to.location === OcgLocation.MZONE || to.location === OcgLocation.SZONE || to.location === OcgLocation.REMOVED || to.location === LOCATION_DECKMASTER) {
     event.faceDown = isFacedownPosition(to.position);
   }
@@ -916,6 +932,22 @@ function trackMove(
  */
 export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx: EventContext, firstId: number): StoredDuelEvent[] {
   switch (message.type) {
+    case OcgMessageType.REMOVE_CARDS:
+      for (const card of [...message.cards].sort((a, b) => b.sequence - a.sequence)) {
+        if (card.location !== OcgLocation.HAND) continue;
+        ctx.handIdentities.remove(card.controller, card.sequence);
+        ctx.handSize[card.controller] = Math.max(0, ctx.handSize[card.controller] - 1);
+      }
+      return [];
+    case OcgMessageType.SHUFFLE_HAND:
+      ctx.handIdentities.shuffle(message.player, message.cards);
+      if (message.player === 0 || message.player === 1) ctx.handSize[message.player] = message.cards.length;
+      return [];
+    case OcgMessageType.POS_CHANGE:
+      if (message.location === OcgLocation.HAND) {
+        ctx.handIdentities.setPublic(message.controller, message.sequence, message.code, (message.position & OcgPosition.FACEUP) !== 0);
+      }
+      return [];
     case OcgMessageType.DRAW: {
       const seat = message.player === 1 ? 1 : 0;
       const out: StoredDuelEvent[] = [];
@@ -923,6 +955,7 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
         const from = { controller: seat, location: OcgLocation.DECK as number, sequence: 0, position: OcgPosition.FACEDOWN_DEFENSE as number };
         const to = { controller: seat, location: OcgLocation.HAND as number, sequence: ctx.handSize[seat] + index, position: drawn.position as number };
         out.push(trackMove(ctx, firstId + out.length, cards, drawn.code, from, to, "draw"));
+        ctx.handIdentities.add(seat, drawn.code, to.sequence, firstId + out.length - 1, (drawn.position & OcgPosition.FACEUP) !== 0);
       });
       ctx.handSize[seat] += message.drawn.length;
       return out;
@@ -934,15 +967,25 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
       const materialReason = (message as typeof message & { reason?: number }).reason ?? 0;
       if (materialReason & REASON_MATERIAL) ctx.materialReasons |= materialReason;
       if ((materialReason & TRIBUTE_MATERIAL_REASON) === TRIBUTE_MATERIAL_REASON) ctx.summonTribute = true;
+      if (from.location === OcgLocation.HAND && to.location === OcgLocation.HAND && from.controller === to.controller) {
+        ctx.handIdentities.relocate(from.controller, from.sequence, to.sequence);
+        ctx.handIdentities.setPublic(to.controller, to.sequence, message.card, (to.position & OcgPosition.FACEUP) !== 0);
+        return [];
+      }
+      const overlay = OcgLocation.OVERLAY as number;
+      const event = from.location && to.location && from.location !== overlay && to.location !== overlay
+        && !(from.controller === to.controller && from.location === to.location)
+        ? trackMove(ctx, firstId, cards, message.card, from, to, defaultMoveReason(from.location, to.location))
+        : undefined;
+      if (from.location === OcgLocation.HAND) ctx.handIdentities.remove(from.controller, from.sequence);
+      // Skipped moves still update slot identities, but must not claim the next emitted event's id.
+      if (to.location === OcgLocation.HAND) ctx.handIdentities.add(to.controller, message.card, to.sequence, event?.id,
+        (to.position & OcgPosition.FACEUP) !== 0, event?.revealCardTo === "all" ? message.card : undefined);
       if (from.location === OcgLocation.HAND) ctx.handSize[from.controller === 1 ? 1 : 0] = Math.max(0, ctx.handSize[from.controller === 1 ? 1 : 0] - 1);
       if (to.location === OcgLocation.HAND) ctx.handSize[to.controller === 1 ? 1 : 0] += 1;
       if (isFieldLocation(from.location)) ctx.arrivals.delete(slotKey(from.controller, from.location, from.sequence));
       if (isFieldLocation(to.location)) ctx.arrivals.set(slotKey(to.controller, to.location, to.sequence), from.location);
-      const overlay = OcgLocation.OVERLAY as number;
-      if (!from.location || !to.location || from.location === overlay || to.location === overlay) return [];
-      if (from.controller === to.controller && from.location === to.location) return [];
-      const reason = defaultMoveReason(from.location, to.location);
-      const event = trackMove(ctx, firstId, cards, message.card, from, to, reason);
+      if (!event) return [];
       // A MOVE to a hand is never a draw (draws arrive as DRAW): a card effect added it.
       if (to.location === OcgLocation.HAND && from.location !== OcgLocation.HAND) event.addedToHand = true;
       return [event];
@@ -1126,6 +1169,24 @@ export function observeDuelEvent(
       if (message.target) event.target = zoneOf(message.target);
       return event;
     }
+    case OcgMessageType.DAMAGE_STEP_END:
+      return { id, kind: "battle-end", text: "Damage Step ended", publicText: "Damage Step ended", revealCardTo: "all" };
+    case OcgMessageType.BATTLE: {
+      const stats = (card: NonNullable<typeof message.card>) => ({
+        attack: card.attack, defense: card.defense, position: card.position as number,
+      });
+      const text = "Damage calculation";
+      const event: StoredDuelEvent = {
+        id, kind: "battle", seat: message.card.controller, text, publicText: text,
+        revealCardTo: "all", zone: zoneOf(message.card), battle: { attacker: stats(message.card) },
+      };
+      // The stock wrapper parses the direct-attack sentinel as a zero-location card.
+      if (message.target?.location === OcgLocation.MZONE) {
+        event.target = zoneOf(message.target);
+        event.battle!.target = stats(message.target);
+      }
+      return event;
+    }
     case OcgMessageType.DAMAGE: {
       if (message.amount <= 0) return null;
       const text = `Player ${message.player + 1} takes ${message.amount} damage`;
@@ -1288,6 +1349,7 @@ export function projectView(args: {
   reveals: RevealMap;
   mode: DuelMode;
   domainState?: DomainSeatState[];
+  handIdentities?: HandIdentities;
 }): DuelEngineView {
   const field = args.lib.duelQueryField(args.handle);
   const seats: DuelSeatView[] = [0, 1].map((seat) => {
@@ -1314,7 +1376,17 @@ export function projectView(args: {
       return projected;
     });
     const spells = projectList(args.viewer, controller, OcgLocation.SZONE, queryLocation(args.lib, args.handle, controller, OcgLocation.SZONE), args.cards, args.reveals);
-    const hand = compact(projectList(args.viewer, controller, OcgLocation.HAND, queryLocation(args.lib, args.handle, controller, OcgLocation.HAND), args.cards, args.reveals));
+    const handQueries = queryLocation(args.lib, args.handle, controller, OcgLocation.HAND);
+    // EFFECT_PUBLIC is shared knowledge even in an owner query. Temporary, viewer-scoped
+    // confirmations are intentionally excluded: the engine forgets those on SHUFFLE_HAND.
+    args.handIdentities?.syncPublic(seat, handQueries);
+    const engineHand = compact(projectList(args.viewer, controller, OcgLocation.HAND, handQueries, args.cards, args.reveals));
+    // The query alone determines membership, order and engine coordinates. IDs only keep DOM
+    // nodes and animation destinations attached while the core inserts, removes or shuffles.
+    const hand = engineHand.map((card) => {
+      const handId = args.handIdentities?.at(seat, args.viewer === seat, card.sequence);
+      return handId ? { ...card, handId } : card;
+    });
     const graveyard = compact(projectList(args.viewer, controller, OcgLocation.GRAVE, queryLocation(args.lib, args.handle, controller, OcgLocation.GRAVE), args.cards, args.reveals));
     const banished = compact(projectList(args.viewer, controller, OcgLocation.REMOVED, queryLocation(args.lib, args.handle, controller, OcgLocation.REMOVED), args.cards, args.reveals));
     const extraQueries = queryLocation(args.lib, args.handle, controller, OcgLocation.EXTRA);
@@ -1366,7 +1438,23 @@ export function projectView(args: {
     prompt: projectPrompt(args.prompt, args.viewer, args.promptSeat, seats, args.reveals),
     prioritySeat: args.prompt && !args.result ? args.promptSeat : null,
     chain,
-    events: args.events.map((event) => projectStoredEvent(event, args.viewer)),
+    events: args.events.map((event) => {
+      const projected = projectStoredEvent(event, args.viewer);
+      if (event.kind === "move" && event.zone?.location === OcgLocation.HAND && args.handIdentities) {
+        const seat = event.zone.controller;
+        const entry = args.handIdentities.arrival(seat, args.viewer === seat, event.id);
+        const visible = entry && seats[seat]?.hand[entry.sequence];
+        // Viewer-scoped confirmations may reveal a different card on an anonymous sleeve.
+        // Retire that audience's correlation without changing spectator/public sleeve history.
+        const mismatched = visible?.code != null && projected.card?.code != null && visible.code !== projected.card.code;
+        // A departed arrival gets an unresolvable id so its flight cannot hide a replacement card.
+        projected.handId = entry && !mismatched ? entry.id : `departed-${event.id}`;
+        if (args.handIdentities.shuffledSinceArrival(seat, event.id)) projected.handShuffled = true;
+        // Keep the original engine message coordinates in history. Flights resolve this ID in the
+        // current query-ordered hand, rather than rewriting past draws/moves after later compaction.
+      }
+      return projected;
+    }),
     log: args.log
       .filter((entry) => entry.audience === "all" || entry.audience === args.viewer)
       .map(({ id, text }) => ({ id, text })),

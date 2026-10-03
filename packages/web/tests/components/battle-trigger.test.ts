@@ -16,6 +16,51 @@ const phase = (id: number) => ev(id, { kind: "phase" });
 const activate = (id: number) => ev(id, { kind: "activate", zone: z(0, 3) });
 
 describe("battleTrigger", () => {
+  it("plays a calculated battle even when neither damage nor destruction occurs", () => {
+    const calculation = ev(11, {
+      kind: "battle", zone: attacker, target,
+      battle: { attacker: { attack: 200, defense: 900, position: 1 }, target: { attack: 100, defense: 200, position: 4 } },
+    });
+    expect(battleTrigger([attack, calculation], attack)).toEqual({ action: "wait" });
+    expect(battleTrigger([attack, calculation, ev(12, { kind: "battle-end" })], attack)).toEqual({ action: "play", reason: "calculation" });
+    expect(battleTrigger([attack, { ...calculation, zone: z(0, 2) }], attack)).toEqual({ action: "wait" });
+  });
+
+  it.each(["before", "after"])("plays a confirmed calculation after an activation %s calculation", when => {
+    const calculation = ev(when === "before" ? 12 : 11, {
+      kind: "battle", zone: attacker, target,
+      battle: { attacker: { attack: 200, defense: 900, position: 1 }, target: { attack: 100, defense: 200, position: 4 } },
+    });
+    const response = activate(when === "before" ? 11 : 12);
+    expect(battleTrigger([attack, calculation, response, ev(13, { kind: "battle-end" })], attack)).toEqual({ action: "play", reason: "calculation" });
+  });
+
+  it("plays calculation-only completion after a long response window", () => {
+    const calculation = ev(11, {
+      kind: "battle", zone: attacker, target,
+      battle: { attacker: { attack: 200, defense: 900, position: 1 }, target: { attack: 100, defense: 200, position: 4 } },
+    });
+    const events = [attack, calculation, ev(12, { kind: "battle-end" })];
+    expect(battleTrigger(events, attack, CLASH_MAX_AGE_MS)).toEqual({ action: "play", reason: "calculation" });
+    expect(battleTrigger(events, attack, CLASH_MAX_AGE_MS + 1)).toEqual({ action: "play", reason: "calculation" });
+  });
+
+  it.each(["damage", "destroy"] as const)("still plays actual battle %s after a response and the clash age limit", kind => {
+    const calculation = ev(12, {
+      kind: "battle", zone: attacker, target,
+      battle: { attacker: { attack: 200, defense: 900, position: 1 }, target: { attack: 100, defense: 100, position: 4 } },
+    });
+    const resolved = kind === "damage" ? damage(13, 1) : destroy(13, target);
+    expect(battleTrigger([attack, activate(11), calculation, resolved, ev(14, { kind: "battle-end" })], attack, CLASH_MAX_AGE_MS + 1)).toEqual({ action: "play", reason: kind });
+  });
+
+  it("waits through calculation and recognizes casualties moved before battle destruction", () => {
+    const calculation = ev(11, { kind: "battle", zone: attacker, target,
+      battle: { attacker: { attack: 200, defense: 900, position: 1 }, target: { attack: 200, defense: 100, position: 1 } } });
+    const casualty = ev(12, { kind: "move", from: attacker, zone: { controller: 0, location: 16, sequence: 0 }, reason: "destroy", cause: "battle" });
+    expect(battleTrigger([attack, calculation], attack)).toEqual({ action: "wait" });
+    expect(battleTrigger([attack, calculation, casualty, destroy(13, attacker), destroy(14, target)], attack)).toEqual({ action: "play", reason: "destroy" });
+  });
   it("waits at the declaration, while the duel stops for responses", () => {
     expect(battleTrigger([attack], attack)).toEqual({ action: "wait" });
     expect(battleTrigger([phase(9), attack], attack)).toEqual({ action: "wait" });

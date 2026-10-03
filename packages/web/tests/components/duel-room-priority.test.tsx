@@ -6,9 +6,9 @@ import type { DuelRoom } from "@yugidraft/shared/duels";
 import { makeSeriesRoom } from "../helpers/duel-series";
 import { newBoard } from "@/components/duel/fx-lab/board";
 
-const { state, mutate, sendDuelAction } = vi.hoisted(() => ({
+const { state, mutate, sendDuelAction, startBeats } = vi.hoisted(() => ({
   state: { room: null as DuelRoom | null, error: null as Error | null, recovering: false, syncing: false, beats: false, revealed: true },
-  mutate: vi.fn(async () => {}), sendDuelAction: vi.fn(),
+  mutate: vi.fn(async () => {}), sendDuelAction: vi.fn(), startBeats: vi.fn(),
 }));
 vi.mock("swr", () => ({ default: () => ({ data: state.room, error: state.error, isLoading: false, mutate }) }));
 vi.mock("next/font/google", () => {
@@ -19,7 +19,7 @@ vi.mock("next/link", () => ({ default: ({ href, children }: { href: string; chil
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({ useDuelWebsocket: () => ({ syncing: state.syncing, recovering: state.recovering, connected: true, presence: null, resync: vi.fn() }) }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
-vi.mock("@/components/duel/use-start-beats", () => ({ useStartBeats: () => ({ active: state.beats, phase: undefined, replayFrom: null, waiting: false }) }));
+vi.mock("@/components/duel/use-start-beats", () => ({ useStartBeats: startBeats }));
 vi.mock("@/components/duel/prompt-reveal", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/components/duel/prompt-reveal")>(), usePromptReveal: () => state.revealed,
 }));
@@ -52,6 +52,7 @@ beforeEach(() => {
   window.localStorage.clear();
   vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
   Object.assign(state, { error: null, recovering: false, syncing: false, beats: false, revealed: true });
+  startBeats.mockImplementation(() => ({ active: state.beats, phase: undefined, replayFrom: null, waiting: false }));
   state.room = makeSeriesRoom({ series: null, status: "active", mySeat: 0 });
   state.room.engine = { revision: 1, turn: 2, turnSeat: 1, phase: "main1", seats: newBoard().seats,
     prioritySeat: 0, prompt: { id: "p1", seat: 0, kind: "choice", title: "Respond?", options: [{ id: "pass", label: "Pass" }] },
@@ -61,6 +62,18 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const live = () => screen.getByTestId("priority").getAttribute("data-live");
 
 describe("room priority gate", () => {
+  it("keeps the opening pending until Open here instead mounts the card layers", () => {
+    state.room!.engine!.revision = 0;
+    state.room!.engine!.turn = 1;
+    render(<DuelRoomView slug="game-2" />);
+    expect(screen.getByTestId("duel-window-gate")).toBeTruthy();
+    expect(screen.queryByTestId("priority")).toBeNull();
+    expect(startBeats.mock.lastCall?.[0].ready).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Open here instead" }));
+    expect(screen.getByTestId("priority")).toBeTruthy();
+    expect(startBeats.mock.lastCall?.[0].ready).toBe(true);
+  });
+
   it("shares the local prompt reveal with the field", () => {
     state.revealed = false;
     const { rerender } = render(<DuelRoomView slug="game-1" windowed />);

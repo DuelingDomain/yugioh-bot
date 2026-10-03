@@ -18,6 +18,7 @@ export {
   DUEL_CLOCK_INCREMENT_MS,
   DUEL_CLOCK_REGAIN_FRACTION,
   DUEL_CLOCK_REGAIN_MIN_MS,
+  DUEL_OPENING_GRACE_MS,
   defaultDuelSettings,
   duelClockBankMs,
   duelClockRegainMs,
@@ -155,6 +156,8 @@ export interface DuelCard {
   location: number;
   sequence: number;
   position: number;
+  /** Opaque animation identity; hand order and sequence always come from the engine query. */
+  handId?: string;
   code?: number;
   name?: string;
   description?: string;
@@ -298,11 +301,18 @@ export type DuelSummonKind =
  */
 export type DuelBattleStep = "start" | "battle" | "damage" | "damage-calculation" | "end";
 
+/** The core's actual stats at damage calculation, before temporary effects expire. */
+export interface DuelBattleStats {
+  attack: number;
+  defense: number;
+  position: number;
+}
+
 export interface DuelEvent {
   id: number;
   kind:
     | "summon" | "set" | "activate" | "target" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
-    | "attack" | "phase" | "damage" | "destroy" | "move" | "position" | "equip" | "confirm";
+    | "attack" | "battle" | "battle-end" | "phase" | "damage" | "destroy" | "move" | "position" | "equip" | "confirm";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
@@ -338,8 +348,14 @@ export interface DuelEvent {
    * Deck then reads like a draw).
    */
   addedToHand?: true;
+  /** move into hand: animation destination in the current engine view. Hidden shuffles stay anonymous. */
+  handId?: string;
+  /** move into hand: a public shuffle occurred since this arrival; unknown departures cannot identify it. */
+  handShuffled?: true;
   /** attack: the attacked monster's zone; absent for a direct attack. equip: the monster it was equipped to. */
   target?: DuelZoneRef;
+  /** battle: public MSG_BATTLE values; a direct attack has no target. These never replace live board stats. */
+  battle?: { attacker: DuelBattleStats; target?: DuelBattleStats };
   /** damage: LP lost by `seat` (positive number). */
   amount?: number;
   /**
@@ -362,6 +378,8 @@ export interface DuelEvent {
    * 0x1 face-up Attack, 0x2 face-down Attack, 0x4 face-up Defense, 0x8 face-down Defense).
    * `zone` is the card's zone; `card` follows the move-event rule (present when the card is
    * face-up before or after the change, or the viewer controls it).
+   * move / destroy: `fromPosition` is the Monster Zone position before departure, even when the
+   * destination snapshot already removed the card. A Graveyard position is not its battle pose.
    */
   fromPosition?: number;
   toPosition?: number;

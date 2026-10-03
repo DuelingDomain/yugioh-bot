@@ -32,16 +32,20 @@ const MAX_KEPT = 400;
 
 const beats = new Map<number, number>();
 const effects = new Map<number, number>();
+/** Presentation of a paired event can precede its deferred engine marker. */
+const presentations = new Map<number, number>();
 const handled = new Set<number>();
-const state = { key: "", freeAt: 0, resolvingAt: null as number | null };
+const state = { key: "", freeAt: 0, resolvingAt: null as number | null, resolvingId: 0 };
 
 export function resetChainBeats(key = ""): void {
   beats.clear();
   effects.clear();
+  presentations.clear();
   handled.clear();
   state.key = key;
   state.freeAt = 0;
   state.resolvingAt = null;
+  state.resolvingId = 0;
 }
 
 /** When ChainFx plays this chain event; 0 when it was never planned. */
@@ -51,7 +55,30 @@ export function chainBeatAt(eventId: number): number {
 
 /** The earliest start of the effect carried by this event; 0 when nothing holds it. */
 export function chainEffectAt(eventId: number): number {
-  return effects.get(eventId) ?? 0;
+  return presentations.get(eventId) ?? effects.get(eventId) ?? 0;
+}
+
+export function presentEffectAt(eventId: number, at: number): void {
+  presentations.set(eventId, at);
+  trim(presentations);
+}
+
+/** Extend an existing chain gate to an actual animation handoff, preserving every later beat. */
+export function holdChainFrom(eventId: number, until: number): void {
+  const following = [...beats].filter(([id]) => id >= eventId);
+  const first = following.reduce((min, [, at]) => Math.min(min, at), Infinity);
+  const delta = Math.max(0, until - first);
+  if (!Number.isFinite(delta) || delta <= 0) return;
+  for (const [id, at] of following) beats.set(id, at + delta);
+  for (const [id, at] of effects) if (id >= eventId) effects.set(id, at + delta);
+  if (state.resolvingAt != null && state.resolvingId >= eventId) state.resolvingAt += delta;
+  state.freeAt += delta;
+}
+
+export function holdChainAfter(eventId: number, until: number): void {
+  holdChainFrom(eventId + 1, until);
+  // A response window can split activation from resolution: keep the handoff for the next batch.
+  state.freeAt = Math.max(state.freeAt, until);
 }
 
 /** When the last planned beat has had its hold; 0 when nothing is planned. */
@@ -78,7 +105,7 @@ export function planChainBeats(fresh: readonly DuelEvent[], options: PlanOptions
     handled.add(event.id);
     if (isChainEvent(event)) {
       beats.set(event.id, cursor);
-      if (event.kind === "chain-resolving") state.resolvingAt = cursor;
+      if (event.kind === "chain-resolving") { state.resolvingAt = cursor; state.resolvingId = event.id; }
       else if (event.kind === "chain-resolved" || event.kind === "chain-end" || event.kind === "activate") state.resolvingAt = null;
       played += 1;
       cursor += chainStepDelay(event.kind, total - played, reduced);

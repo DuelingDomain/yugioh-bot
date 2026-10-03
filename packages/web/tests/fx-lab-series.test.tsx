@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -29,6 +29,7 @@ describe("fx lab: Best of 3 scenarios", () => {
       "match-label-game-2",
       "match-label-game-3",
       "match-side-deck",
+      "match-side-deck-60",
       "match-side-even",
       "match-side-uneven",
       "match-side-none",
@@ -116,6 +117,16 @@ describe("fx lab: Best of 3 scenarios", () => {
     expect(screen.getByTestId("section-main")).toBeTruthy();
     expect(screen.getByTestId("section-extra")).toBeTruthy();
     expect(screen.getByTestId("section-side")).toBeTruthy();
+    expect(room.mySide!.currentDeck.main).toHaveLength(40);
+    expect(room.mySide!.currentDeck.extra).toHaveLength(15);
+    expect(room.mySide!.currentDeck.side).toHaveLength(15);
+  });
+
+  it("offers a maximum-size deck for checking desktop layout", () => {
+    const { room } = open("match-side-deck-60");
+    expect(room.mySide!.currentDeck.main).toHaveLength(60);
+    expect(room.mySide!.currentDeck.extra).toHaveLength(15);
+    expect(room.mySide!.currentDeck.side).toHaveLength(15);
   });
 
   it("shows siding with matching counts: Ready is on", () => {
@@ -133,11 +144,36 @@ describe("fx lab: Best of 3 scenarios", () => {
     expect(screen.getByTestId("ready-reason").textContent).toMatch(/Bring in 1 card/);
   });
 
-  it("shows a player with no Side Deck as ready", () => {
+  it("shows a player with no Side Deck waiting to click Ready", () => {
     const { room, spec } = open("match-side-none");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
     expect(screen.getByText("No Side Deck. You play the same deck again.")).toBeTruthy();
     expect(screen.getByTestId("swap-counter").textContent).toContain("0 out · 0 in");
+    expect(room.series!.sideReady[0]).toBe(false);
+    expect(screen.getByTestId("my-side-status").textContent).toBe("You are not ready.");
+    expect((screen.getByRole("button", { name: "Ready" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it.each(["match-side-even", "match-ready"])("does not send side-deck or un-ready writes from the %s preview", async (id) => {
+    const fetchMock = vi.fn(async (_url: unknown) => Response.json({ cards: [], missing: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { room, spec } = open(id);
+      if (id === "match-ready") room.series!.sideReady[0] = true;
+      render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+      await act(async () => { await Promise.resolve(); });
+      expect(fetchMock.mock.calls.every(([url]) => !String(url).endsWith("/series/side"))).toBe(true);
+      await act(async () => {
+        fireEvent.click(screen.getAllByRole("button", { name: id === "match-ready" ? /, Main Deck$/ : /, Main Deck, going out$/ })[0]);
+      });
+      expect(fetchMock.mock.calls.every(([url]) => !String(url).endsWith("/series/unready"))).toBe(true);
+      expect(fetchMock.mock.calls.every(([url]) => !String(url).endsWith("/series/side"))).toBe(true);
+      expect(screen.getByTestId("swap-counter").textContent).toContain(id === "match-ready" ? "1 out · 0 in" : "1 out · 2 in");
+      if (id === "match-ready") expect(screen.getByTestId("my-side-status").textContent).toMatch(/You are no longer ready/);
+      expect(screen.queryByRole("alert")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("shows the opponent ready while the player sides", () => {

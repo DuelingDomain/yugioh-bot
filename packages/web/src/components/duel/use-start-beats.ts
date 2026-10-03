@@ -6,10 +6,11 @@
  * banner layers whether to replay the opening of the duel (the deal of both hands) instead of dropping
  * its events as history.
  */
+import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { DuelEngineView } from "@yugidraft/shared/duels";
+import type { DuelClock, DuelEngineView } from "@yugidraft/shared/duels";
 import { collectFreshEvents, maxEventId } from "./event-queue";
-import { isOpeningView, planPhaseBeats, type PhaseBeatPlan } from "./phase-beats";
+import { isOpeningView, openingPresentationMs, planPhaseBeats, type PhaseBeatPlan } from "./phase-beats";
 
 export type StartBeats = {
   /** The turn-start phases are passing: nothing can be answered yet. */
@@ -18,6 +19,8 @@ export type StartBeats = {
   phase: string | null | undefined;
   /** Where the card and banner layers start replaying events (0: the opening deal), or null for none. */
   replayFrom: number | null;
+  /** Opening events already presented or too late to present, including in layers mounted earlier. */
+  skipThrough: number | null;
   /** The opening deal waits for the card layers to mount: the hands stay hidden until then. */
   waiting: boolean;
 };
@@ -25,22 +28,35 @@ export type StartBeats = {
 type Shown = { active: boolean; phase: string | null };
 const IDLE: Shown = { active: false, phase: null };
 
+// Each series game has its own duel slug. Keep this outside the room/layers so a reconnect,
+// FX recovery or route remount cannot present an unchanged revision-zero opening twice.
+const presentedOpenings = new Set<string>();
+
 export function useStartBeats({
   engine,
+  clock,
   duelKey,
   reducedMotion,
   ready,
 }: {
   engine: DuelEngineView | null | undefined;
+  clock?: DuelClock | null;
   duelKey: string;
   reducedMotion: boolean;
   /** The card and banner layers are mounted (the room hides them while it recovers a connection). */
   ready: boolean;
 }): StartBeats {
+  const receivedClock = useRef({ clock, at: performance.now() });
+  if (receivedClock.current.clock !== clock) receivedClock.current = { clock, at: performance.now() };
+  const graceLeft = clock?.startedAt == null ? Infinity
+    : clock.startedAt - clock.serverNow - (performance.now() - receivedClock.current.at);
+  const opening = engine != null && isOpeningView(engine);
   // A duel that is still at its very start replays its opening; one the player joins halfway does not.
-  const replayFrom = engine && isOpeningView(engine) ? 0 : null;
+  const replayFrom = opening && !presentedOpenings.has(duelKey)
+    && duelFxClock.realMs(openingPresentationMs(engine.events, reducedMotion)) + 100 <= graceLeft ? 0 : null;
 
   const [shown, setShown] = useState<Shown>(IDLE);
+  const [, setOpeningClaim] = useState<string | null>(null);
   const cursorRef = useRef<number | null>(null);
   const keyRef = useRef(duelKey);
   const timersRef = useRef<Set<number>>(new Set());
@@ -51,7 +67,7 @@ export function useStartBeats({
   const events = engine?.events;
 
   const clearTimers = () => {
-    for (const timer of timersRef.current) window.clearTimeout(timer);
+    for (const timer of timersRef.current) duelFxClock.clearTimeout(timer);
     timersRef.current.clear();
   };
 
@@ -78,7 +94,20 @@ export function useStartBeats({
     if (!ready) {
       // The layers are gone and will read the first events again when they return: so does this hook.
       cursorRef.current = null;
+      releaseAtRef.current = 0;
+      clearTimers();
+      setShown(IDLE);
       return;
+    }
+    if (opening && !presentedOpenings.has(duelKey)) {
+      // The opening may arrive after an empty engine snapshot, when the cursor is already set.
+      presentedOpenings.add(duelKey);
+      // Publish the consumed cursor to the layers even if this batch has no phase beats to show.
+      setOpeningClaim(duelKey);
+      if (replayFrom == null) {
+        cursorRef.current = maxEventId(events) ?? 0;
+        return;
+      }
     }
     if (cursorRef.current == null) {
       cursorRef.current = replayFrom ?? maxEventId(events) ?? 0;
@@ -89,7 +118,7 @@ export function useStartBeats({
     if (fresh.length === 0) return;
     cursorRef.current = nextCursor;
 
-    const now = performance.now();
+    const now = duelFxClock.now();
     const plan: PhaseBeatPlan | null = planPhaseBeats(events, cursor, { now, reduced: reducedRef.current, duelKey });
     if (!plan) return;
 
@@ -99,7 +128,7 @@ export function useStartBeats({
         fn();
         return;
       }
-      const timer = window.setTimeout(() => {
+      const timer = duelFxClock.setTimeout(() => {
         timersRef.current.delete(timer);
         if (mountedRef.current) fn();
       }, wait);
@@ -111,15 +140,16 @@ export function useStartBeats({
     releaseAtRef.current = Math.max(releaseAtRef.current, plan.releaseAt);
     after(plan.releaseAt, () => {
       // A later batch may have held the player for longer.
-      if (performance.now() + 8 >= releaseAtRef.current) setShown(IDLE);
+      if (duelFxClock.now() + 8 >= releaseAtRef.current) setShown(IDLE);
     });
-  }, [duelKey, events, replayFrom, ready]);
+  }, [duelKey, events, opening, replayFrom, ready]);
 
   const waiting = replayFrom === 0 && !ready;
   return {
     active: shown.active,
     phase: shown.active ? shown.phase : waiting ? null : undefined,
     replayFrom,
+    skipThrough: opening && replayFrom == null ? maxEventId(events ?? []) : null,
     waiting,
   };
 }
