@@ -326,6 +326,7 @@ describe("the overlay files", () => {
     coreApi.add("MPOwnerSeat");
     coreApi.add("MPTurnSeat");
     coreApi.add("MPTurnControls");
+    coreApi.add("MPIsAlive");
     for (const card of cards) {
       for (const [, helper] of text(card).matchAll(/\baux\.(MP\w+)/g)) {
         expect(helperText, `${card.file}: aux.${helper}`).toContain(`function aux.${helper}(`);
