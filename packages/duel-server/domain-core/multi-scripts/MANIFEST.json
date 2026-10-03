@@ -1920,7 +1920,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "46059a0ed50acf73a65bba6db3ccf61c304db2fda001c15e16fe02dbf83e4081",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "Pin Baller cannot be negated when any living opposing LP pool is greater than its own. The selected equip opponent does not limit this condition."
     },
     {
       "code": 29307554,
