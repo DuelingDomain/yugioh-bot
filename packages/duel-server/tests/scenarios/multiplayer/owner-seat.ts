@@ -799,17 +799,17 @@ export const OWNER_SEAT_PROOFS: SeatProof[] = [
           "by": "p0"
         },
         {
+          "op": "pickOpponent",
+          "seat": "p1",
+          "by": "p0"
+        },
+        {
           "op": "raw",
           "answer": {
             "selected": [
               "card:0"
             ]
           },
-          "by": "p0"
-        },
-        {
-          "op": "pickOpponent",
-          "seat": "p1",
           "by": "p0"
         },
         {
