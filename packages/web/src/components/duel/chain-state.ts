@@ -346,7 +346,7 @@ export function chainStateKey(state: ChainState): string {
 }
 
 type Point = { x: number; y: number };
-type Box = { left: number; top: number; width: number; height: number };
+export type Box = { left: number; top: number; width: number; height: number };
 
 /**
  * Badge geometry, shared with chain-fx.module.css (.badge): the badge hangs on the card's top right
@@ -374,6 +374,53 @@ export function chainWirePath(from: Point, to: Point, minGap: number): string | 
   const cy = (from.y + to.y) / 2 + (dx / dist) * sag;
   const r = (n: number) => Math.round(n * 10) / 10;
   return `M${r(from.x)} ${r(from.y)} Q${r(cx)} ${r(cy)} ${r(to.x)} ${r(to.y)}`;
+}
+
+export type CalloutPlace = {
+  /** Sideways shift in px that keeps the tag on the board. */
+  dx: number;
+  /** "near": the side it opens on by default; "far": the other side; "hidden": no side is clear of a prompt. */
+  side: "near" | "far" | "hidden";
+};
+
+const CALLOUT_GAP = 8;
+const CALLOUT_EDGE = 4;
+const CALLOUT_CLEAR = 6;
+
+function rectsOverlap(a: Box, b: Box, pad: number): boolean {
+  return a.left < b.left + b.width + pad && a.left + a.width + pad > b.left &&
+    a.top < b.top + b.height + pad && a.top + a.height + pad > b.top;
+}
+
+/**
+ * Where the callout tag of the focus card goes. All boxes are in board pixels. The tag is centred on its card and
+ * opens below it on the upper half of the board (`half` "high") and above it on the lower half. It slides sideways to
+ * stay on the board. It must never sit over an open prompt panel (the Yes/No bar, the card choices): clicks pass
+ * through the tag, so a covered button would still be pressed with the player unable to read it. If the default
+ * side is covered it opens on the other side when that side is on the board and clear, else it is hidden (the stack
+ * panel keeps the same words).
+ */
+export function placeCallout(input: {
+  card: Box;
+  board: { width: number; height: number };
+  tag: { width: number; height: number };
+  half: "high" | "low";
+  panels: readonly Box[];
+}): CalloutPlace {
+  const { card, board, tag, half, panels } = input;
+  const centre = card.left + card.width / 2;
+  const hw = tag.width / 2;
+  const dx = Math.round(Math.max(CALLOUT_EDGE + hw - centre, Math.min(0, board.width - CALLOUT_EDGE - hw - centre)));
+  const left = centre + dx - hw;
+  const below: Box = { left, top: card.top + card.height + CALLOUT_GAP, width: tag.width, height: tag.height };
+  const above: Box = { left, top: card.top - CALLOUT_GAP - tag.height, width: tag.width, height: tag.height };
+  const near = half === "high" ? below : above;
+  const far = half === "high" ? above : below;
+  const clear = (rect: Box) => panels.every((panel) => !rectsOverlap(rect, panel, CALLOUT_CLEAR));
+  if (clear(near)) return { dx, side: "near" };
+  const onBoard = far.top >= 0 && far.top + far.height <= board.height;
+  if (onBoard && clear(far)) return { dx, side: "far" };
+  return { dx, side: "hidden" };
 }
 
 /** What a screen reader says for one link, e.g. "Chain Link 2: Card, Opponent, negated. Effect text". */

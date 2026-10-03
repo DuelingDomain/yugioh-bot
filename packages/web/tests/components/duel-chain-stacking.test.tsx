@@ -28,13 +28,16 @@ const CHAIN: DuelChainLink[] = [{ index: 1, seat: 0, code: 11 }, { index: 2, sea
  * prompt slot after it. Each slot is its own stacking context in the real table, so the chain's front layer must
  * not live in either.
  */
-function Table({ withRoot = true, table }: { withRoot?: boolean; table?: string }) {
+function Table({ withRoot = true, table, panels = [] }: { withRoot?: boolean; table?: string; panels?: string[] }) {
   const board = (
     <div data-board data-format={table}>
       <div data-slot="fx">
         <ChainFx events={EVENTS} chain={CHAIN} duelKey="t" reducedMotion mySeat={0} playerName={names} table={table} />
       </div>
-      <div data-slot="prompt"><div data-prompt-panel>Activate its effect?</div></div>
+      <div data-slot="prompt">
+        <div data-prompt-panel>Activate its effect?</div>
+        {panels.map((box) => <div key={box} data-prompt-panel data-box={box}>choices</div>)}
+      </div>
     </div>
   );
   return withRoot ? <div data-duel-fx-speed-root data-testid="root">{board}</div> : board;
@@ -45,7 +48,8 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     let box = [0, 0, 0, 0];
     if (this.dataset.zones === "0:8:0") box = [100, 400, 60, 80];
-    else if (this.dataset.zones === "1:8:0") box = [100, 100, 60, 80];
+    else if (this.dataset.zones === "1:8:0") box = [320, 160, 60, 80];
+    else if (this.hasAttribute("data-prompt-panel")) box = (this.dataset.box ?? "0,0,0,0").split(",").map(Number);
     else if (this.hasAttribute("data-duel-fx-speed-root")) box = [20, 10, 1000, 700];
     else if (this.hasAttribute("data-chain-fx") || this.hasAttribute("data-board")) box = [120, 60, 900, 600];
     const [left, top, width, height] = box;
@@ -120,6 +124,48 @@ describe("chain front layer stacking", () => {
     expect(document.querySelector("[data-chain-front]")).not.toBeNull();
     unmount();
     expect(document.querySelector("[data-chain-front]")).toBeNull();
+  });
+
+  describe("callout tag and an open prompt", () => {
+    // Board at client (120, 60). The focus card (link 2) is at board (200, 100), 60x80, in the upper half.
+    // Its tag (200x30 here) opens below it: board y 188..218, x 130..330 (client x 250..450, y 248..278).
+    const tagOf = (root: HTMLElement) => root.querySelector("[data-chain-callout]") as HTMLElement;
+    beforeEach(() => {
+      Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get() { return this.hasAttribute("data-chain-callout") ? 200 : 0; } });
+      Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get() { return this.hasAttribute("data-chain-callout") ? 30 : 0; } });
+    });
+    afterEach(() => {
+      delete (HTMLElement.prototype as { offsetWidth?: number }).offsetWidth;
+      delete (HTMLElement.prototype as { offsetHeight?: number }).offsetHeight;
+    });
+
+    it("opens on its default side when no prompt panel is near", () => {
+      const { getByTestId } = render(<Table table="ffa3" />);
+      act(() => { vi.advanceTimersByTime(60); });
+      expect(tagOf(getByTestId("root")).dataset.side).toBe("near");
+    });
+
+    it("moves to the other side when the Yes/No bar sits under it, and never overlaps the bar", () => {
+      // The bar, in client pixels: over the default side of the tag.
+      const { getByTestId } = render(<Table table="ffa3" panels={["240,240,300,70"]} />);
+      act(() => { vi.advanceTimersByTime(60); });
+      expect(tagOf(getByTestId("root")).dataset.side).toBe("far");
+    });
+
+    it("hides the tag, and leaves the words to the stack, when both sides are covered", () => {
+      const { getByTestId } = render(<Table table="ffa3" panels={["240,240,300,70", "240,100,300,60"]} />);
+      act(() => { vi.advanceTimersByTime(60); });
+      const root = getByTestId("root");
+      expect(tagOf(root).dataset.side).toBe("hidden");
+      // The stack still names the card and what it does.
+      expect(root.querySelector('[data-chain-row="2"]')?.textContent).toContain("activates its effect");
+    });
+
+    it("styles a hidden tag as invisible but keeps its place", () => {
+      const sheet = css("chain-fx.module.css");
+      expect(sheet).toMatch(/\.tag\[data-side="hidden"\]\s*\{[^}]*visibility:\s*hidden/);
+      expect(sheet).toMatch(/\.tag\[data-side="far"\]/);
+    });
   });
 
   it("paints the layer above the prompt in the style sheets", () => {

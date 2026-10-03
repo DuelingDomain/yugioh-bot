@@ -208,6 +208,11 @@
   animation: chainTagIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .slot[data-half="low"] .tag { top: auto; bottom: calc(100% + 8px); }
+/* The other side of the card, when the default side is under a prompt; hidden when neither side is clear. Only
+   a visibility switch: the tag keeps its place so the frame loop can still measure it. */
+.slot[data-half="high"] .tag[data-side="far"] { top: auto; bottom: calc(100% + 8px); }
+.slot[data-half="low"] .tag[data-side="far"] { top: calc(100% + 8px); bottom: auto; }
+.tag[data-side="hidden"] { visibility: hidden; }
 .tag b { flex: none; color: var(--duel-chain-ink, #f4d690); letter-spacing: 0.04em; text-transform: uppercase; }
 .tagName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tagAction { flex: none; color: var(--duel-pen-ink, #c6b6ff); font-weight: 500; }

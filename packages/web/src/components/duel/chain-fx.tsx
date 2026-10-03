@@ -51,6 +51,8 @@ import {
   EMPTY_CHAIN,
   isChainEvent,
   nextToResolve,
+  placeCallout,
+  type CalloutPlace,
   type ChainAnchor,
   type ChainLinkState,
   type ChainState,
@@ -222,7 +224,7 @@ const MAX_BADGE = 46;
 
 type Box = { left: number; top: number; width: number; height: number };
 /** One link as the read phase of a frame saw it; the write phase applies it. */
-type PlacedLink = { link: ChainLinkState; slot: HTMLElement; box: Box | null; size: number; shift: number; half: "high" | "low"; tagHalf: number };
+type PlacedLink = { link: ChainLinkState; slot: HTMLElement; box: Box | null; size: number; shift: number; half: "high" | "low"; callout: CalloutPlace | null };
 type PlacedMark = { link: ChainLinkState; mark: HTMLElement | undefined; wire: SVGPathElement | undefined; box: Box | null };
 
 /** The card's visible box: a Defense Position card is turned a quarter inside its portrait zone. */
@@ -299,6 +301,12 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       const origin = overlay.getBoundingClientRect();
       const front = frontRef.current;
       const hostRect = front && host ? host.getBoundingClientRect() : null;
+      // Open prompt panels, in board pixels: the callout tag keeps clear of them.
+      const panels: Box[] = [];
+      for (const panel of document.querySelectorAll<HTMLElement>("[data-prompt-panel]")) {
+        const rect = panel.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) panels.push({ left: rect.left - origin.left, top: rect.top - origin.top, width: rect.width, height: rect.height });
+      }
       const stacked = new Map<HTMLElement, number>();
       const placed: PlacedLink[] = [];
       const centers = new Map<number, { x: number; y: number }>();
@@ -310,7 +318,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         const zone = anchor ? resolveAnchor(anchor) : null;
         const box = zone ? cardBox(origin, zone) : null;
         if (!zone || !box) {
-          placed.push({ link, slot, box: null, size: 0, shift: 0, half: "high", tagHalf: 0 });
+          placed.push({ link, slot, box: null, size: 0, shift: 0, half: "high", callout: null });
           continue;
         }
         const shift = stacked.get(zone) ?? 0;
@@ -321,7 +329,10 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         // The callout tag opens away from the nearer board edge, so it stays on screen.
         const half = box.top + box.height / 2 > origin.height / 2 ? "low" : "high";
         const tag = tagRefs.current.get(link.index);
-        placed.push({ link, slot, box, size, shift, half, tagHalf: tag ? tag.offsetWidth / 2 : 0 });
+        const callout = tag
+          ? placeCallout({ card: box, board: { width: origin.width, height: origin.height }, tag: { width: tag.offsetWidth, height: tag.offsetHeight }, half, panels })
+          : null;
+        placed.push({ link, slot, box, size, shift, half, callout });
       }
       const marks: PlacedMark[] = [];
       for (const link of targetLinksRef.current) {
@@ -344,7 +355,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           front.style.translate = `${x}px ${y}px`;
         }
       }
-      for (const { link, slot, box, size, shift, half, tagHalf } of placed) {
+      for (const { link, slot, box, size, shift, half, callout } of placed) {
         const ring = ringRefs.current.get(link.index);
         if (!box) {
           if (slot.dataset.placed !== "false") slot.dataset.placed = "false";
@@ -365,14 +376,14 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           }
           if (el.dataset.placed !== "true") el.dataset.placed = "true";
         }
-        // Keep the callout tag inside the board: it is centred on its card, so near an edge it slides in.
+        // The callout tag stays on the board and off every open prompt panel (see placeCallout).
         const tag = tagRefs.current.get(link.index);
-        if (tag) {
-          const centre = box.left + box.width / 2;
-          const dx = Math.round(Math.max(4 + tagHalf - centre, Math.min(0, origin.width - 4 - tagHalf - centre)));
-          if (tag.dataset.dx !== String(dx)) {
-            tag.dataset.dx = String(dx);
-            tag.style.translate = `calc(-50% + ${dx}px) 0`;
+        if (tag && callout) {
+          const place = `${callout.dx},${callout.side}`;
+          if (tag.dataset.place !== place) {
+            tag.dataset.place = place;
+            tag.style.translate = `calc(-50% + ${callout.dx}px) 0`;
+            tag.dataset.side = callout.side;
           }
         }
       }

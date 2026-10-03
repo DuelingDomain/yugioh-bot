@@ -18,6 +18,7 @@ import {
   EMPTY_CHAIN,
   isChainEvent,
   nextToResolve,
+  placeCallout,
   strayLinks,
   type ChainState,
 } from "../../src/components/duel/chain-state";
@@ -491,5 +492,44 @@ describe("chain stack and callout", () => {
     expect(chainCallout(fold([ev("chain-resolving", 2)], base).links[1], 0, you).action).toBe("is resolving");
     expect(chainCallout(fold([ev("chain-resolving", 2), ev("chain-resolved", 2)], base).links[1], 0, you).action).toBe("resolved");
     expect(chainCallout(fold([ev("chain-negated", 2)], base).links[1], 0, you).action).toBe("was negated");
+  });
+});
+
+describe("placeCallout", () => {
+  const board = { width: 900, height: 600 };
+  const tag = { width: 200, height: 30 };
+  const card = { left: 400, top: 100, width: 60, height: 80 };
+  const place = (over: Partial<Parameters<typeof placeCallout>[0]> = {}) =>
+    placeCallout({ card, board, tag, half: "high", panels: [], ...over });
+
+  it("opens on the default side when no prompt is near", () => {
+    expect(place()).toEqual({ dx: 0, side: "near" });
+    expect(place({ half: "low", card: { ...card, top: 400 } })).toEqual({ dx: 0, side: "near" });
+  });
+
+  it("slides sideways to stay on the board", () => {
+    expect(place({ card: { ...card, left: 0 } }).dx).toBe(74);
+    expect(place({ card: { ...card, left: 860 } }).dx).toBe(-94);
+  });
+
+  it("opens on the other side when the default side is under a prompt", () => {
+    // The default side (below the card) is covered by a Yes/No bar.
+    const bar = { left: 300, top: 185, width: 300, height: 70 };
+    expect(place({ panels: [bar] })).toEqual({ dx: 0, side: "far" });
+  });
+
+  it("hides the tag when both sides are covered or the other side is off the board", () => {
+    const below = { left: 300, top: 185, width: 300, height: 70 };
+    const above = { left: 300, top: 50, width: 300, height: 40 };
+    expect(place({ panels: [below, above] }).side).toBe("hidden");
+    // The card sits at the top edge: there is no room above it.
+    expect(place({ card: { ...card, top: 10 }, panels: [{ ...below, top: 95 }] }).side).toBe("hidden");
+  });
+
+  it("keeps a margin: a panel a few pixels away still counts as covering", () => {
+    const near = { left: 300, top: 188 + 30 + 3, width: 300, height: 70 };
+    expect(place({ panels: [near] }).side).toBe("far");
+    const apart = { left: 300, top: 188 + 30 + 20, width: 300, height: 70 };
+    expect(place({ panels: [apart] }).side).toBe("near");
   });
 });
