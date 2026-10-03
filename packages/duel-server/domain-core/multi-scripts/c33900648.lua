@@ -25,13 +25,8 @@ function s.PlayerControlsAttributeOrIsAffectedByClearWall(player,attribute)
 end
 local function mp_hint(e,tp)
 	Duel.Hint(HINT_CARD,0,id)
-	local own=aux.MPKeyOfSeat(tp)
-	for seat=0,3 do
-		local lp=Duel.GetLP(seat)
-		if lp and lp>0 and aux.MPKeyOfSeat(seat)~=own then
-			Duel.Hint(HINT_OPSELECTED,seat,e:GetDescription())
-		end
-	end
+	-- Global callbacks use real seats; patch 0067 expands this caller's opponents.
+	Duel.Hint(HINT_OPSELECTED,tp,e:GetDescription())
 end
 function s.desop(e,tp,eg,ep,ev,re,r,rp)
 	e:GetHandler():RegisterFlagEffect(id,RESETS_STANDARD_PHASE_END,0,1)
