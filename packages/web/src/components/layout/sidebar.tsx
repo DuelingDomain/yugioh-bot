@@ -28,7 +28,7 @@ export function Sidebar({ collapsed, onToggle, account }: SidebarProps) {
         <aside className="ns-side" aria-label="Sidebar">
           <div className="ns-brand">
             <BrandMark />
-            <span className="ns-word">YugiDraft</span>
+            <span className="ns-word">Duelists Kingdom</span>
             <button className="ns-ib" type="button" aria-label={label} title={label} aria-expanded={!collapsed} onClick={onToggle}>
               <PanelLeft className="ic" aria-hidden="true" />
             </button>

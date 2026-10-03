@@ -824,7 +824,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       data-reduced={preferences.reducedMotion ? "true" : "false"}>
       <header className={styles.header}>
         <div className={styles.identity}>
-          <Link href="/duels" replace={inDuelWindow}>Yugidraft</Link>
+          <Link href="/duels" replace={inDuelWindow}>Duelists Kingdom</Link>
           {spectator ? <strong className={styles.viewerRole} title="You are watching. Both players' hidden cards remain private.">
             <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
           </strong> : null}
