@@ -113,14 +113,14 @@ describe("the R1 entries (each duelist, hand suffixes with aux.MPForEachDuelist)
     }
   });
 
-  it("stay within the 92 R1 cards, and no card is an entry and also in R1_NO_CHANGE", () => {
+  it("stay within the 93 R1 cards, and no card is an entry and also in R1_NO_CHANGE", () => {
     expect(r1Cards.length + R1_NO_CHANGE.length).toBeLessThanOrEqual(EXPECTED_COUNTS.r1);
     expect(r1Cards.filter((card) => R1_NO_CHANGE.includes(card.code))).toEqual([]);
   });
 
-  it("are complete: 91 suffixes and 1 card without change make the 92 R1 cards", () => {
+  it("are complete: 92 suffixes and 1 card without change make the 93 R1 cards", () => {
     expect(R1_COMPLETE).toBe(true);
-    expect(r1Cards).toHaveLength(91);
+    expect(r1Cards).toHaveLength(92);
     expect(R1_NO_CHANGE).toEqual([39513225]);
     expect(r1Cards.length + R1_NO_CHANGE.length).toBe(EXPECTED_COUNTS.r1);
   });
@@ -327,6 +327,7 @@ describe("the overlay files", () => {
     coreApi.add("MPTurnSeat");
     coreApi.add("MPTurnControls");
     coreApi.add("MPIsAlive");
+    coreApi.add("MPRotateControl");
     for (const card of cards) {
       for (const [, helper] of text(card).matchAll(/\baux\.(MP\w+)/g)) {
         expect(helperText, `${card.file}: aux.${helper}`).toContain(`function aux.${helper}(`);
@@ -420,7 +421,7 @@ describeWithCores("the overlay against the stock scripts", stock, () => {
 });
 
 describeWithCores("the overlay against the triage file", triageNeed, () => {
-  it("the lists equal the triage (COMPARE 54, CHOOSER 44, R1 92)", () => {
+  it("the lists equal the triage (COMPARE 54, CHOOSER 44, R1 93)", () => {
     const triage = readTriage();
     expect(triage).not.toBeNull();
     expect(checkLists(manifest, triage)).toEqual([]);
