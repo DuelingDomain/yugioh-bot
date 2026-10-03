@@ -39,6 +39,25 @@
   --duel-chain-soft: rgb(228 182 79 / 0.11);
   --duel-loss: #e45a4d;
   --duel-loss-ink: #ff9489;
+  /* Log categories (log-category.ts), shared with the history list. At least 6:1 on the panel. */
+  --duel-cat-summon: #fbf7ee;
+  --duel-cat-chain: var(--duel-chain-ink);
+  --duel-cat-battle: #f0905a;
+  --duel-cat-destroy: #ff8f9c;
+  --duel-cat-graveyard: #aba395;
+  --duel-cat-material: #b9a3cf;
+  --duel-cat-banish: #8fd3e2;
+  --duel-cat-set: #c9b38a;
+  --duel-cat-hand: #8fe3b0;
+  --duel-cat-system: #9399a3;
+  /* Summon method inks: the card frame colour, lifted so it reads on the dark panel. */
+  --duel-sum-monster: #ffb37a;
+  --duel-sum-fusion: #dc95f5;
+  --duel-sum-synchro: #f6f7fb;
+  --duel-sum-xyz: #b4bccb;
+  --duel-sum-link: #6fa4ff;
+  --duel-sum-ritual: #b9dcff;
+  --duel-sum-pendulum: #3fd0c8;
   --duel-lamp: rgb(239 231 213 / 0.085);
   --duel-gold: var(--duel-chain);
   --duel-edge: var(--duel-rule-hi);
@@ -427,6 +446,27 @@
 .log li[data-kind="gain"] { color: var(--duel-ink-2); }
 .log li[data-kind="chain"] { color: var(--duel-chain-ink); background: var(--duel-chain-soft); }
 .log li[data-kind="result"] { font-weight: 600; border-top: 3px double var(--duel-rule-hi); }
+/* Category: a slim edge in the category colour and its icon before the text. */
+.log li[data-cat] { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--duel-cat) 70%, transparent); }
+.logGlyph { display: inline-block; margin-right: 6px; vertical-align: -1px; color: var(--duel-cat); }
+.log li[data-cat="summon"] { --duel-cat: var(--duel-cat-summon); }
+.log li[data-cat="chain"] { --duel-cat: var(--duel-cat-chain); }
+.log li[data-cat="battle"] { --duel-cat: var(--duel-cat-battle); }
+.log li[data-cat="destroy"] { --duel-cat: var(--duel-cat-destroy); }
+.log li[data-cat="graveyard"] { --duel-cat: var(--duel-cat-graveyard); }
+.log li[data-cat="material"] { --duel-cat: var(--duel-cat-material); }
+.log li[data-cat="banish"] { --duel-cat: var(--duel-cat-banish); }
+.log li[data-cat="set"] { --duel-cat: var(--duel-cat-set); }
+.log li[data-cat="hand"] { --duel-cat: var(--duel-cat-hand); }
+.log li[data-cat="system"] { --duel-cat: var(--duel-cat-system); }
+/* A summon line's glyph and edge take the method's ink. */
+.log li[data-summon="monster"] { --duel-cat: var(--duel-sum-monster); }
+.log li[data-summon="fusion"] { --duel-cat: var(--duel-sum-fusion); }
+.log li[data-summon="synchro"] { --duel-cat: var(--duel-sum-synchro); }
+.log li[data-summon="xyz"] { --duel-cat: var(--duel-sum-xyz); }
+.log li[data-summon="link"] { --duel-cat: var(--duel-sum-link); }
+.log li[data-summon="ritual"] { --duel-cat: var(--duel-sum-ritual); }
+.log li[data-summon="pendulum"] { --duel-cat: var(--duel-sum-pendulum); }
 
 /* ---------- options pane ---------- */
 .options { display: flex; flex-direction: column; gap: calc(12 * var(--duel-unit)); padding: calc(14 * var(--duel-unit)); font-size: var(--duel-t-body); }

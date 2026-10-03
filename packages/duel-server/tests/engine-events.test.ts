@@ -1,10 +1,12 @@
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { DuelAnswer, DuelCardInfo, DuelEngineView, DuelEvent, DuelPrompt } from "@yugidraft/shared/duels";
 import { OcgLocation, OcgMessageType, OcgPosition, type OcgMessage } from "ocgcore-wasm";
 import type { CardDatabase } from "../src/cards.js";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
+import * as duelLogLines from "../src/log-lines.js";
 import { choosePracticeBotAnswer } from "../src/practice-bot.js";
+import * as duelViews from "../src/views.js";
 import {
   DESTROY_NOTE_PREFIX,
   createEventContext,
@@ -16,6 +18,7 @@ import {
   resetEventBatch,
 } from "../src/views.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
+import { materialCountScenarios, runMaterialCountScenario } from "./material-count-fixture.js";
 
 const dataDirectory = engineDataDirectory;
 const seed = ["1", "2", "3", "4"];
@@ -40,8 +43,21 @@ const weak = monsters("level = 4 and atk > 0 and atk <= 1000");
 const strong = monsters("level = 4 and atk >= 1800");
 const high = monsters("level = 6 and atk >= 2000");
 
-async function openGame(a: number[], b: number[]): Promise<EngineGame> {
-  const fill = (head: number[]) => ({ main: [...head, ...weak.slice(10, 45 - head.length)], extra: [], side: [] });
+function cardCodes(...names: string[]): number[] {
+  const db = new Database(`${dataDirectory}/cards.cdb`, { readonly: true });
+  try {
+    return names.map((name) => {
+      const row = db.prepare("SELECT d.id FROM datas d JOIN texts t USING(id) WHERE t.name=? AND d.alias=0 AND (d.ot&3)!=0 LIMIT 1").get(name) as { id: number } | undefined;
+      if (!row) throw new Error(`Missing pinned card: ${name}`);
+      return row.id;
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function openGame(a: number[], b: number[], extra: number[] = []): Promise<EngineGame> {
+  const fill = (head: number[]) => ({ main: [...head, ...weak.slice(10, 45 - head.length)], extra, side: [] });
   return createEngineGame({
     mode: "normal",
     decks: [fill(a), fill(b)],
@@ -100,6 +116,319 @@ function eventsOf(game: EngineGame, viewer: number | null = null): DuelEvent[] {
 }
 
 describe("richer engine events", () => {
+  it("logs Gagaga Cowboy's real detach as a Graveyard send without destruction eligibility", async () => {
+    const [thrasher, dragon, cowboy] = cardCodes("Photon Thrasher", "Alexandrite Dragon", "Gagaga Cowboy");
+    const detaches: Array<{ message: Extract<OcgMessage, { type: OcgMessageType.MOVE }>; lines: duelLogLines.LogLine[] }> = [];
+    const original = duelLogLines.moveLogLines;
+    const spy = vi.spyOn(duelLogLines, "moveLogLines").mockImplementation((message, cards) => {
+      const lines = original(message, cards);
+      if (message.card === thrasher && message.from.overlay_sequence != null && message.to.location === OcgLocation.GRAVE) {
+        detaches.push({ message: structuredClone(message), lines: structuredClone(lines) });
+      }
+      return lines;
+    });
+    let game: EngineGame | undefined;
+    try {
+      game = await openGame([thrasher, dragon], [], [cowboy]);
+      drive(game, (w) => {
+        if (w.view.seats[1].lp === 7200) return "stop";
+        if (w.seat !== 0 || w.view.turn !== 1) return null;
+        const activate = option(w, "activate:", cowboy);
+        if (activate) return { choice: activate };
+        for (const [prefix, code] of [["spsummon:", cowboy], ["spsummon:", thrasher], ["summon:", dragon]] as const) {
+          const action = option(w, prefix, code);
+          if (action) return { choice: action };
+        }
+        if (w.prompt.options.some((entry) => entry.id === "pos:4")) return { choice: "pos:4" };
+        if (w.prompt.kind === "cards") {
+          const material = w.prompt.options.find((entry) => entry.card?.code === thrasher);
+          if (material) return { selected: [material.id] };
+        }
+        return null;
+      });
+      const summoned = game.view(0).seats[0].monsters.find((card) => card?.code === cowboy)!;
+      expect(summoned.position).toBe(OcgPosition.FACEUP_DEFENSE);
+      expect(summoned.materials).toHaveLength(1);
+      expect(game.view(0).seats[0].graveyard.map((card) => card.code)).toEqual([thrasher]);
+      expect(detaches).toHaveLength(1);
+      expect(detaches[0].message.from).toMatchObject({ location: OcgLocation.MZONE, sequence: summoned.sequence, overlay_sequence: expect.any(Number) });
+      for (const viewer of [0, 1, null]) {
+        const lines = game.view(viewer).log.map((entry) => entry.text);
+        expect(lines).toContain("Photon Thrasher was sent to the Graveyard");
+        expect(lines).not.toContain("Photon Thrasher was destroyed");
+      }
+      expect(detaches[0].lines).toEqual([{ text: "Photon Thrasher was sent to the Graveyard", audience: "all" }]);
+    } finally {
+      game?.close();
+      spy.mockRestore();
+    }
+  });
+
+  it("reports Dark Magician's real two-monster Tribute Summon in the event and Text log", async () => {
+    const scenario = materialCountScenarios.find((entry) => entry.kind === "tribute")!;
+    const { event, completedView, graveyard, materials } = await runMaterialCountScenario(scenario);
+    expect(materials).toHaveLength(2);
+    expect(graveyard.map((card) => card.code)).toEqual(expect.arrayContaining(materials));
+    expect(event).toMatchObject({ kind: "summon", seat: 0, card: { name: "Dark Magician" } });
+    expect(event.summonKind).toBe("tribute");
+    expect(completedView.log.map((entry) => entry.text)).toContain("Player 1 Tribute Summons Dark Magician");
+  });
+
+  it("keeps a real one-monster Tribute Set of Summoned Skull private in the opponent's Text log", async () => {
+    const [thrasher, skull] = cardCodes("Photon Thrasher", "Summoned Skull");
+    const game = await openGame([thrasher, skull], []);
+    try {
+      drive(game, (w) => {
+        if (w.view.seats[0].monsters.some((card) => card?.code === skull)) return "stop";
+        if (w.seat !== 0 || w.view.turn !== 1) return null;
+        const set = option(w, "mset:", skull);
+        if (set) return { choice: set };
+        const summon = option(w, "spsummon:", thrasher);
+        if (summon) return { choice: summon };
+        if (w.prompt.kind === "tribute") {
+          return { selected: w.prompt.options.filter((entry) => entry.card?.code === thrasher).map((entry) => entry.id) };
+        }
+        return null;
+      });
+      const mine = game.view(0);
+      expect(mine.seats[0].graveyard.map((card) => card.code)).toEqual([thrasher]);
+      expect(mine.seats[0].monsters.find((card) => card?.code === skull)?.position).toBe(OcgPosition.FACEDOWN_DEFENSE);
+      expect(mine.events.find((event) => event.kind === "set" && event.card?.code === skull)).toBeDefined();
+      for (const viewer of [1, null]) {
+        const view = game.view(viewer);
+        expect(view.events.find((event) => event.kind === "set")).toMatchObject({ seat: 0, text: "Player 1 Sets a card" });
+        expect(view.events.find((event) => event.kind === "set")?.card).toBeUndefined();
+        expect(view.log.map((entry) => entry.text)).toContain("Player 1 Sets a card");
+        expect(view.log.some((entry) => entry.text.includes("Summoned Skull"))).toBe(false);
+      }
+    } finally {
+      game.close();
+    }
+  });
+
+  it("labels both simultaneous Nekroz Kaleidoscope Ritual Summons and clears the method before a later effect summon", async () => {
+    const [kaleidoscope, unicore, clausolas, archer, stein, swordsman] = cardCodes(
+      "Nekroz Kaleidoscope", "Nekroz of Unicore", "Nekroz of Clausolas", "Junk Archer", "Cyber-Stein", "Flame Swordsman",
+    );
+    const messages: OcgMessage[] = [];
+    const observe = duelViews.observeMoveEvents;
+    const spy = vi.spyOn(duelViews, "observeMoveEvents").mockImplementation((message, cards, ctx, id) => {
+      messages.push(structuredClone(message));
+      return observe(message, cards, ctx, id);
+    });
+    let game: EngineGame | undefined;
+    try {
+      game = await openGame([kaleidoscope, unicore, clausolas, stein], [], [archer, swordsman]);
+      drive(game, (w) => {
+        const field = w.view.seats[0].monsters;
+        if (field.some((card) => card?.code === swordsman)) return "stop";
+        if (w.seat !== 0 || w.view.turn !== 1) return null;
+        if (field.some((card) => card?.code === unicore) && field.some((card) => card?.code === clausolas)) {
+          const summon = option(w, "summon:", stein);
+          if (summon) return { choice: summon };
+          const activate = option(w, "activate:", stein);
+          if (activate) return { choice: activate };
+        } else {
+          const activate = option(w, "activate:", kaleidoscope);
+          if (activate) return { choice: activate };
+        }
+        if (w.prompt.kind === "cards") {
+          const material = w.prompt.options.find((entry) => entry.card?.code === archer);
+          if (material) return { selected: [material.id] };
+          const target = w.prompt.options.find((entry) => entry.card?.code === swordsman);
+          if (target) return { selected: [target.id] };
+        }
+        if (w.prompt.kind === "sum") {
+          return { selected: w.prompt.options.filter((entry) => entry.card?.code === unicore || entry.card?.code === clausolas).map((entry) => entry.id) };
+        }
+        return null;
+      });
+      const materialIndex = messages.findIndex((message) => message.type === OcgMessageType.MOVE && message.card === archer && message.to.location === OcgLocation.GRAVE);
+      expect(materialIndex).toBeGreaterThanOrEqual(0);
+      expect(messages[materialIndex]).toMatchObject({ reason: 0x100048 });
+      const summons = messages.flatMap((message, index) => message.type === OcgMessageType.SPSUMMONING ? [{ code: message.code, index }] : []);
+      expect(summons.map((summon) => summon.code).sort()).toEqual([unicore, clausolas, swordsman].sort());
+      const rituals = summons.filter((summon) => summon.code === unicore || summon.code === clausolas);
+      expect(rituals).toHaveLength(2);
+      expect(rituals[0].index).toBeGreaterThan(materialIndex);
+      expect(messages.slice(rituals[0].index, rituals[1].index).some((message) => message.type === OcgMessageType.SPSUMMONED)).toBe(false);
+      const completionIndex = messages.findIndex((message, index) => index > rituals[1].index && message.type === OcgMessageType.SPSUMMONED);
+      expect(completionIndex).toBeGreaterThan(rituals[1].index);
+      expect(summons.find((summon) => summon.code === swordsman)!.index).toBeGreaterThan(completionIndex);
+      for (const viewer of [0, 1, null]) {
+        const view = game.view(viewer);
+        for (const code of [unicore, clausolas]) {
+          expect(view.events.find((event) => event.kind === "summon" && event.card?.code === code)?.summonKind).toBe("ritual");
+        }
+        expect(view.events.find((event) => event.kind === "summon" && event.card?.code === swordsman)?.summonKind).toBe("special");
+        expect(view.log.map((entry) => entry.text)).toEqual(expect.arrayContaining([
+          "Player 1 Ritual Summons Nekroz of Unicore", "Player 1 Ritual Summons Nekroz of Clausolas", "Player 1 Special Summons Flame Swordsman",
+        ]));
+      }
+    } finally {
+      game?.close();
+      spy.mockRestore();
+    }
+  });
+
+  it.each(["summon:", "mset:"])("keeps Beast King Barbaros's no-Tribute %s procedure plain", async (action) => {
+    const [barbaros] = cardCodes("Beast King Barbaros");
+    const game = await openGame([barbaros], []);
+    try {
+      drive(game, (w) => {
+        if (w.view.seats[0].monsters.some((card) => card?.code === barbaros)) return "stop";
+        const choice = option(w, action, barbaros);
+        return choice ? { choice } : null;
+      });
+      expect(game.view(0).seats[0].graveyard).toEqual([]);
+      const mine = game.view(0);
+      if (action === "summon:") {
+        expect(mine.seats[0].monsters.find((card) => card?.code === barbaros)?.attack).toBe(1900);
+        for (const viewer of [0, 1, null]) {
+          const view = game.view(viewer);
+          expect(view.events.find((event) => event.kind === "summon" && event.card?.code === barbaros)?.summonKind).toBe("normal");
+          expect(view.log.map((entry) => entry.text)).toContain("Player 1 Normal Summons Beast King Barbaros");
+          expect(view.log.map((entry) => entry.text)).not.toContain("Player 1 Tribute Summons Beast King Barbaros");
+        }
+      } else {
+        expect(mine.events.find((event) => event.kind === "set" && event.card?.code === barbaros)).toBeDefined();
+        for (const viewer of [0, 1, null]) expect(game.view(viewer).log.map((entry) => entry.text)).toContain("Player 1 Sets a card");
+        for (const viewer of [1, null]) expect(game.view(viewer).events.find((event) => event.kind === "set")?.card).toBeUndefined();
+      }
+    } finally {
+      game.close();
+    }
+  });
+
+  it("keeps a Contact Fusion procedure without a Fusion reason as a Special Summon", async () => {
+    const [cyberDragon, zwei, fortress] = cardCodes("Cyber Dragon", "Cyber Dragon Zwei", "Chimeratech Fortress Dragon");
+    const game = await openGame([cyberDragon], [zwei], [fortress]);
+    try {
+      drive(game, (w) => {
+        if (w.view.seats[0].monsters.some((card) => card?.code === fortress)) return "stop";
+        if (w.seat === 1 && w.view.turn === 2) {
+          const summon = option(w, "summon:", zwei);
+          if (summon) return { choice: summon };
+        }
+        if (w.seat === 0 && w.view.turn === 3) {
+          for (const code of [fortress, cyberDragon]) {
+            const summon = option(w, "spsummon:", code);
+            if (summon) return { choice: summon };
+          }
+        }
+        return null;
+      });
+      // The pinned contactop uses REASON_COST | REASON_MATERIAL, with no REASON_FUSION.
+      expect(game.view(0).seats[0].graveyard.map((card) => card.code)).toContain(cyberDragon);
+      expect(game.view(0).seats[1].graveyard.map((card) => card.code)).toContain(zwei);
+      for (const viewer of [0, 1, null]) {
+        const view = game.view(viewer);
+        expect(view.events.find((event) => event.kind === "summon" && event.card?.code === fortress)?.summonKind).toBe("special");
+        expect(view.log.map((entry) => entry.text)).toContain("Player 1 Special Summons Chimeratech Fortress Dragon");
+      }
+    } finally {
+      game.close();
+    }
+  });
+
+  it("reports both the original Xyz Summon and Rank-Up-Magic's overlay summon as Xyz", async () => {
+    const [thrasher, dragon, utopia, upgraded, rankUp] = cardCodes(
+      "Photon Thrasher", "Alexandrite Dragon", "Number 39: Utopia", "Number C39: Utopia Ray V", "Rank-Up-Magic Quick Chaos",
+    );
+    const game = await openGame([thrasher, dragon, rankUp], [], [utopia, upgraded]);
+    try {
+      drive(game, (w) => {
+        const field = w.view.seats[0].monsters;
+        if (field.some((card) => card?.code === upgraded)) return "stop";
+        if (w.seat === 0 && w.view.turn === 1) {
+          if (field.some((card) => card?.code === utopia)) {
+            const activate = option(w, "activate:", rankUp);
+            if (activate) return { choice: activate };
+          }
+          for (const [prefix, code] of [["spsummon:", utopia], ["spsummon:", thrasher], ["summon:", dragon]] as const) {
+            const action = option(w, prefix, code);
+            if (action) return { choice: action };
+          }
+          if (w.prompt.kind === "cards") {
+            const target = w.prompt.options.find((entry) => entry.card?.code === upgraded);
+            if (target) return { selected: [target.id] };
+          }
+        }
+        return null;
+      });
+      expect(game.view(0).seats[0].monsters.find((card) => card?.code === upgraded)?.materials?.map((card) => card.code)).toContain(utopia);
+      for (const viewer of [0, 1, null]) {
+        const view = game.view(viewer);
+        for (const code of [utopia, upgraded]) {
+          expect(view.events.find((event) => event.kind === "summon" && event.card?.code === code)?.summonKind).toBe("xyz");
+        }
+        expect(view.log.map((entry) => entry.text)).toContain("Player 1 Xyz Summons Number C39: Utopia Ray V");
+      }
+    } finally {
+      game.close();
+    }
+  });
+
+  it("reports Cyber-Stein summoning a Fusion monster without materials as a Special Summon", async () => {
+    const CYBER_STEIN = 69015963;
+    const FLAME_SWORDSMAN = 45231177;
+    const game = await openGame([CYBER_STEIN], [], [FLAME_SWORDSMAN]);
+    try {
+      drive(game, (w) => {
+        if (w.view.seats[0].monsters.some((card) => card?.code === FLAME_SWORDSMAN)) return "stop";
+        if (w.seat === 0 && w.view.turn === 1) {
+          const summon = option(w, "summon:", CYBER_STEIN);
+          if (summon) return { choice: summon };
+          const activate = option(w, "activate:", CYBER_STEIN);
+          if (activate) return { choice: activate };
+        }
+        return null;
+      });
+      expect(game.view(0).seats[0].lp).toBe(3000);
+      expect(game.view(0).seats[0].graveyard).toEqual([]);
+      for (const viewer of [0, 1, null]) {
+        const view = game.view(viewer);
+        expect(view.events.find((event) => event.kind === "summon" && event.card?.code === FLAME_SWORDSMAN)?.summonKind).toBe("special");
+        expect(view.log.map((entry) => entry.text)).toContain("Player 1 Special Summons Flame Swordsman");
+        expect(view.log.map((entry) => entry.text)).not.toContain("Player 1 Fusion Summons Flame Swordsman");
+      }
+    } finally {
+      game.close();
+    }
+  });
+
+  it("reports destruction redirected to banishment by Dimensional Fissure in the Text log", async () => {
+    const DIMENSIONAL_FISSURE = 81674782;
+    const game = await openGame([weak[0]!, DIMENSIONAL_FISSURE], [RAIGEKI]);
+    try {
+      drive(game, (w) => {
+        if (w.view.seats[0].banished.some((card) => card.code === weak[0])) return "stop";
+        if (w.seat === 0 && w.view.turn === 1) {
+          const summon = option(w, "summon:", weak[0]!);
+          if (summon) return { choice: summon };
+          const activate = option(w, "activate:", DIMENSIONAL_FISSURE);
+          if (activate) return { choice: activate };
+        }
+        if (w.seat === 1 && w.view.turn === 2) {
+          const activate = option(w, "activate:", RAIGEKI);
+          if (activate) return { choice: activate };
+        }
+        return null;
+      });
+      const destroyed = eventsOf(game).find((event) => event.kind === "destroy" && event.card?.code === weak[0]);
+      expect(destroyed).toMatchObject({ cause: "effect", sourceCode: RAIGEKI });
+      expect(game.view(0).seats[0].banished.map((card) => card.code)).toContain(weak[0]);
+      for (const viewer of [0, 1, null]) {
+        const log = game.view(viewer).log.map((entry) => entry.text);
+        expect(log).toContain(`${destroyed!.card!.name} was destroyed and banished`);
+        expect(log).not.toContain(`${destroyed!.card!.name} was banished`);
+        expect(log).not.toContain(`${destroyed!.card!.name} was sent to the Graveyard`);
+      }
+    } finally {
+      game.close();
+    }
+  });
+
   it("reports summon zone, attack target, battle damage and destruction", async () => {
     const game = await openGame([weak[0]!], [strong[0]!]);
     try {
@@ -140,6 +469,12 @@ describe("richer engine events", () => {
       expect(destroy!.card?.code).toBe(weak[0]);
       expect(destroy!.text).toBe(`${destroy!.card!.name} was destroyed`);
       expect(destroy).toMatchObject({ cause: "battle" });
+      // The Text log says how each monster arrived and that the one lost in battle was destroyed.
+      const log = game.view(null).log.map((entry) => entry.text);
+      expect(log).toContain(`Player 1 Normal Summons ${summons[0]!.card!.name}`);
+      expect(log).toContain(`Player 2 Normal Summons ${summons[1]!.card!.name}`);
+      expect(log).toContain(`${destroy!.card!.name} was destroyed`);
+      expect(log).not.toContain(`${destroy!.card!.name} was sent to the Graveyard`);
       expect(game.view(0).seats[0].lp).toBe(8000 - damage!.amount!);
       const ids = events.map((event) => event.id);
       expect(ids.indexOf(attack!.id)).toBeLessThan(ids.indexOf(damage!.id));
@@ -206,6 +541,12 @@ describe("richer engine events", () => {
       const destroyed = all.filter((event) => event.kind === "destroy");
       expect(destroyed.map((event) => event.seat)).toEqual([1]);
       expect(destroyed[0]).toMatchObject({ zone: { controller: 1, location: OcgLocation.MZONE, sequence: 0 }, card: { code: strong[0] } });
+      // Destroyed by Raigeki vs. sent to the Graveyard after resolving.
+      const log = game.view(1).log.map((entry) => entry.text);
+      expect(log).toContain(`${destroyed[0]!.card!.name} was destroyed`);
+      expect(log).toContain(`${activations[0]!.card!.name} was sent to the Graveyard`);
+      const raigeki = all.find((event) => event.kind === "activate" && event.card?.code === RAIGEKI);
+      expect(log).toContain(`${raigeki!.card!.name} was sent to the Graveyard`);
     } finally {
       game.close();
     }
@@ -244,6 +585,17 @@ describe("richer engine events", () => {
       const last = summons[summons.length - 1]!;
       expect(last.card?.code).toBe(high[0]);
       expect(last.summonKind).toBe("tribute");
+      // The Text log: the Tribute Summon is named; the Set monster's name reaches its opponent only once it is
+      // in the Graveyard (public), never from the Set itself.
+      const setName = eventsOf(game, 1).find((event) => event.kind === "set")!.card!.name;
+      for (const viewer of [0, null]) {
+        const log = game.view(viewer).log.map((entry) => entry.text);
+        expect(log).toContain(`Player 2 Tribute Summons ${last.card!.name}`);
+        expect(log).toContain("Player 2 Sets a card");
+        expect(log.filter((text) => text.includes(setName))).toEqual([`${setName} was sent to the Graveyard`]);
+        // The Tribute's line sits directly above the summon line: the web Text log relies on that to colour it.
+        expect(log[log.indexOf(`Player 2 Tribute Summons ${last.card!.name}`) - 1]).toBe(`${setName} was sent to the Graveyard`);
+      }
       expect(last.zone).toMatchObject({ controller: 1, location: OcgLocation.MZONE });
     } finally {
       game.close();
@@ -461,8 +813,8 @@ describe("event observer messages", () => {
   const at = (controller: 0 | 1, location: OcgLocation, sequence: number, position: OcgPosition = OcgPosition.FACEUP_ATTACK) => ({
     controller, location, sequence, position,
   });
-  const moveOut = (code: number, from: ReturnType<typeof at>): OcgMessage => ({
-    type: OcgMessageType.MOVE, card: code, from, to: at(from.controller, OcgLocation.GRAVE, 0, OcgPosition.FACEUP),
+  const moveOut = (code: number, from: ReturnType<typeof at>, reason = 0): Extract<OcgMessage, { type: OcgMessageType.MOVE }> & { reason: number } => ({
+    type: OcgMessageType.MOVE, card: code, from, to: at(from.controller, OcgLocation.GRAVE, 0, OcgPosition.FACEUP), reason,
   });
 
   it("reports an equip with both zones and no card identity", () => {
@@ -488,21 +840,63 @@ describe("event observer messages", () => {
     const ctx = createEventContext();
     const event = (type: OcgMessageType, code: number) => observeDuelEvent(summon(type, code), cards, [], 1, ctx)!;
     expect(event(OcgMessageType.SUMMONING, 1).summonKind).toBe("normal");
-    expect(event(OcgMessageType.SUMMONING, 7).summonKind).toBe("tribute");
+    expect(event(OcgMessageType.SUMMONING, 7).summonKind).toBe("normal");
     expect(event(OcgMessageType.SPSUMMONING, 7).summonKind).toBe("special");
     expect(event(OcgMessageType.FLIPSUMMONING, 1).summonKind).toBe("flip");
     expect(event(OcgMessageType.SUMMONING, 1).zone).toEqual({ controller: 0, location: OcgLocation.MZONE, sequence: 2 });
   });
 
-  it("treats a Level 4 Normal Summon after a release as a Tribute Summon", () => {
+  it.each([0, 1] as const)("recognizes an actual summon Tribute controlled by seat %i across a place prompt", (controller) => {
     const ctx = createEventContext();
-    noteDestroyLog(ctx, "unrelated");
-    observeDuelEvent(moveOut(2, at(0, OcgLocation.MZONE, 1)), cards, [], 1, ctx);
+    const tribute = moveOut(2, at(controller, OcgLocation.MZONE, 1), 0x1a);
+    observeMoveEvents(tribute, cards, ctx, 1);
+    observeDuelEvent(tribute, cards, [], 1, ctx);
+    resetEventBatch(ctx, true);
     const event = observeDuelEvent(
       { type: OcgMessageType.SUMMONING, code: 1, controller: 0, location: OcgLocation.MZONE, sequence: 1, position: OcgPosition.FACEUP_ATTACK },
       cards, [], 2, ctx,
     )!;
     expect(event.summonKind).toBe("tribute");
+  });
+
+  it.each([0x40, 0x42, 0x82, 0x10004a, 0x12, 0x18])("does not treat an earlier field departure with reason %i as a summon Tribute", (reason) => {
+    const ctx = createEventContext();
+    const departure = moveOut(2, at(0, OcgLocation.MZONE, 1), reason);
+    observeMoveEvents(departure, cards, ctx, 1);
+    observeDuelEvent(departure, cards, [], 1, ctx);
+    const event = observeDuelEvent(
+      { type: OcgMessageType.SUMMONING, code: 1, controller: 0, location: OcgLocation.MZONE, sequence: 1, position: OcgPosition.FACEUP_ATTACK },
+      cards, [], 2, ctx,
+    )!;
+    expect(event.summonKind).toBe("normal");
+  });
+
+  it("requires all Tribute reason bits on the same material move", () => {
+    const ctx = createEventContext();
+    for (const [sequence, reason] of [0x4a, 0x18].entries()) {
+      observeMoveEvents(moveOut(2 + sequence, at(0, OcgLocation.MZONE, sequence), reason), cards, ctx, sequence);
+    }
+    expect(observeDuelEvent(
+      { type: OcgMessageType.SUMMONING, code: 1, controller: 0, location: OcgLocation.MZONE, sequence: 1, position: OcgPosition.FACEUP_ATTACK },
+      cards, [], 2, ctx,
+    )!.summonKind).toBe("normal");
+  });
+
+  it("consumes Tribute material evidence when a monster is Set", () => {
+    const ctx = createEventContext();
+    const tribute = moveOut(2, at(0, OcgLocation.MZONE, 1), 0x1a);
+    observeMoveEvents(tribute, cards, ctx, 1);
+    observeDuelEvent(tribute, cards, [], 1, ctx);
+    const set = observeDuelEvent(
+      { type: OcgMessageType.SET, code: 7, controller: 0, location: OcgLocation.MZONE, sequence: 1, position: OcgPosition.FACEDOWN_DEFENSE },
+      cards, [], 2, ctx,
+    )!;
+    expect(projectStoredEvent(set, 1)).toMatchObject({ kind: "set", text: "Player 1 Sets a card" });
+    expect(projectStoredEvent(set, 1).card).toBeUndefined();
+    expect(observeDuelEvent(
+      { type: OcgMessageType.SUMMONING, code: 1, controller: 0, location: OcgLocation.MZONE, sequence: 1, position: OcgPosition.FACEUP_ATTACK },
+      cards, [], 3, ctx,
+    )!.summonKind).toBe("normal");
   });
 
   it("keeps zones public but the identity of a face-down summon private", () => {
