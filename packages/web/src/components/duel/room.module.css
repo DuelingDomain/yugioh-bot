@@ -129,10 +129,14 @@
 }
 .identity, .turn { display: flex; align-items: center; gap: calc(10 * var(--duel-unit)); min-width: 0; white-space: nowrap; }
 .identity a {
+  /* The siblings shrink faster (flex-shrink 4 below), so the format text gives way first. The block padding and matching negative margin keep descenders
+     out of the overflow clip (line-height 1) without changing the header layout. */
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding-block: 0.2em;
+  margin-block: -0.2em;
   font-size: calc(20 * var(--duel-unit));
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -144,7 +148,7 @@
   outline-offset: 2px;
   border-radius: 4px;
 }
-.identity span { color: var(--duel-ink-2); font-size: var(--duel-t-body); overflow: hidden; text-overflow: ellipsis; }
+.identity span { flex-shrink: 4; color: var(--duel-ink-2); font-size: var(--duel-t-body); overflow: hidden; text-overflow: ellipsis; }
 .format::before { content: "/"; margin-right: calc(10 * var(--duel-unit)); color: var(--duel-rule-hi); }
 .turn { justify-content: center; }
 .turn strong { font-size: var(--duel-t-head); font-weight: 500; }
@@ -688,7 +692,7 @@
 
   .identity .format, .connectionStatus svg, .pref, .whoPill { display: none; }
   .identity:has(.viewerRole) { flex-direction: column; align-items: flex-start; gap: 2px; }
-  .identity a { font-size: 17px; }
+  .identity a { max-width: 100%; font-size: 17px; }
   .viewerRole { padding: 0; border: 0; background: transparent; font-size: 10px; line-height: 12px; }
   .viewerRole svg { width: 12px; height: 12px; }
   .turn { justify-content: flex-start; overflow: hidden; }
