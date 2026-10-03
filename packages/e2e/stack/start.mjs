@@ -7,7 +7,7 @@ import net from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  cardImageDir, dbPath, duelDataDir, ensureSecrets, guildId, livePorts, manualInfoFile, manualMode, players, ports, repoRoot, stackDir, stackLogFile, webUrl, wsUrl,
+  cardImageDir, dbPath, duelDataDir, e2eSlot, ensureSecrets, guildId, livePorts, manualInfoFile, manualMode, players, ports, repoRoot, stackDir, stackLogFile, standaloneBuildDir, webUrl, wsUrl,
 } from "./env.mjs";
 import { seedDatabase } from "./seed.mjs";
 import { prepareManualData } from "./manual-data.mjs";
@@ -81,7 +81,7 @@ for (const port of Object.values(ports)) {
 // stack can run while the repo build is being rebuilt. Default: the repo build.
 const standaloneDir = process.env.E2E_STANDALONE_DIR
   ? resolve(process.env.E2E_STANDALONE_DIR)
-  : resolve(repoRoot, "packages/web/.next/standalone/packages/web");
+  : standaloneBuildDir;
 for (const [label, file] of [
   ["web standalone build", resolve(standaloneDir, "server.js")],
   ["ws build", resolve(repoRoot, "packages/ws/dist/server.js")],
@@ -122,14 +122,24 @@ const base = {
   DOTENV_CONFIG_PATH: resolve(stackDir, "none.env"),
   DOTENV_CONFIG_QUIET: "true",
 };
+const serviceDirectory = (name) => {
+  if (e2eSlot === undefined) return repoRoot;
+  const directory = resolve(stackDir, name);
+  mkdirSync(directory, { recursive: true });
+  return directory;
+};
+if (e2eSlot !== undefined) {
+  base.TMPDIR = resolve(stackDir, "tmp");
+  mkdirSync(base.TMPDIR, { recursive: true });
+}
 
-run("ws", process.execPath, ["packages/ws/dist/server.js"], {
-  cwd: repoRoot,
+run("ws", process.execPath, [resolve(repoRoot, "packages/ws/dist/server.js")], {
+  cwd: serviceDirectory("ws"),
   env: { ...base, WEB_URL: webUrl, WS_PORT: String(ports.ws), WS_INTERNAL_PORT: String(ports.wsInternal), WS_INTERNAL_SECRET: secrets.ws },
 });
 
-run("duel", process.execPath, ["packages/duel-server/dist/server.js"], {
-  cwd: repoRoot,
+run("duel", process.execPath, [resolve(repoRoot, "packages/duel-server/dist/server.js")], {
+  cwd: serviceDirectory("duel"),
   env: {
     ...base,
     DUEL_DATA_DIR: runtimeDuelDataDir,
@@ -143,6 +153,7 @@ run("duel", process.execPath, ["packages/duel-server/dist/server.js"], {
     DUEL_FX_LAB: manualMode ? "1" : "0",
     // The duel host report op writes here, not into the repo .status/manual. Keeps the real manual reports apart.
     DUEL_REPORT_DIR: resolve(stackDir, "reports"),
+    ...(e2eSlot === undefined ? {} : { DUEL_ISSUES_DIR: resolve(stackDir, "issues") }),
     // Tag, 3-player and 4-player tables. On for the E2E stack so the multi-seat specs run; E2E_MULTIPLAYER_TABLES=0 turns it off.
     MULTIPLAYER_TABLES: process.env.E2E_MULTIPLAYER_TABLES ?? "1",
     // The engine of new 1v1 duels. The E2E stack tests the merged engine (pinned) unless E2E_1V1_ENGINE=legacy asks for the

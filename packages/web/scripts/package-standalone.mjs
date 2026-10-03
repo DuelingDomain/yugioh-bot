@@ -1,13 +1,16 @@
 import { access, cp } from "node:fs/promises";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const webRoot = new URL("../", import.meta.url);
-const standaloneRoot = new URL(".next/standalone/packages/web/", webRoot);
+export async function packageStandalone({
+  webRoot = fileURLToPath(new URL("../", import.meta.url)),
+  distDir = process.env.E2E_NEXT_DIST_DIR ?? ".next",
+} = {}) {
+  const standaloneRoot = resolve(webRoot, distDir, "standalone/packages/web");
+  // Next traces server dependencies, but leaves browser assets outside standalone.
+  await access(resolve(standaloneRoot, "server.js"));
+  await cp(resolve(webRoot, distDir, "static"), resolve(standaloneRoot, distDir, "static"), { recursive: true });
+  await cp(resolve(webRoot, "public"), resolve(standaloneRoot, "public"), { recursive: true });
+}
 
-// Next traces server dependencies, but leaves browser assets outside standalone.
-await access(new URL("server.js", standaloneRoot));
-await cp(new URL(".next/static/", webRoot), new URL(".next/static/", standaloneRoot), {
-  recursive: true,
-});
-await cp(new URL("public/", webRoot), new URL("public/", standaloneRoot), {
-  recursive: true,
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) await packageStandalone();

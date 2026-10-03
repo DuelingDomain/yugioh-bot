@@ -4,28 +4,14 @@
 //  - web standalone     (next build with the E2E NEXT_PUBLIC_WS_URL baked in)
 // Set E2E_FORCE_BUILD=1 to rebuild all. Set E2E_SKIP_BUILD=1 to skip all builds.
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { repoRoot, wsUrl } from "./env.mjs";
+import { buildStampFile, e2eRoot, e2eSlot, nextDistDir, repoRoot, standaloneBuildDir, wsUrl } from "./env.mjs";
+import { isBuildFresh, newest, withBuildLock, withPreservedFiles } from "./build.mjs";
 
 if (process.env.E2E_SKIP_BUILD === "1") process.exit(0);
 const force = process.env.E2E_FORCE_BUILD === "1";
 
-function newest(paths) {
-  let latest = 0;
-  const walk = (path) => {
-    if (!existsSync(path)) return;
-    const info = statSync(path);
-    if (info.isDirectory()) {
-      for (const entry of readdirSync(path)) if (entry !== "node_modules" && !entry.startsWith(".next")) walk(resolve(path, entry));
-    } else latest = Math.max(latest, info.mtimeMs);
-  };
-  paths.forEach(walk);
-  return latest;
-}
-function oldest(file) {
-  return existsSync(file) ? statSync(file).mtimeMs : 0;
-}
 function sh(label, args, options = {}) {
   console.log(`[e2e:prepare] ${label}`);
   const result = spawnSync("npm", args, { cwd: repoRoot, stdio: "inherit", ...options });
@@ -33,29 +19,36 @@ function sh(label, args, options = {}) {
 }
 
 const at = (path) => resolve(repoRoot, path);
+const serviceInputs = (name) => ["src", "package.json", "tsconfig.json", "tsconfig.build.json"].map((path) => at(`packages/${name}/${path}`)).concat(at("tsconfig.json"));
 const sharedDist = at("packages/shared/dist/services/index.js");
-if (!existsSync(sharedDist)) throw new Error('packages/shared/dist is missing. Run "npm run build --workspace=packages/shared" once.');
+if (!isBuildFresh(sharedDist, serviceInputs("shared"))) throw new Error('packages/shared/dist is missing or stale. Run "npm run build --workspace=packages/shared" once before starting parallel slots.');
+console.log("[e2e:prepare] shared build is up to date");
 
-if (force || oldest(at("packages/ws/dist/server.js")) < newest([at("packages/ws/src")])) {
-  sh("build ws", ["run", "build", "--workspace=packages/ws"]);
-}
-if (force || oldest(at("packages/duel-server/dist/server.js")) < newest([at("packages/duel-server/src")])) {
-  sh("build duel-server", ["run", "build", "--workspace=packages/duel-server"]);
+for (const name of ["ws", "duel-server"]) {
+  if (force || !isBuildFresh(at(`packages/${name}/dist/server.js`), [...serviceInputs(name), at("packages/shared/dist")])) {
+    sh(`build ${name}`, ["run", "build", `--workspace=packages/${name}`]);
+  } else console.log(`[e2e:prepare] ${name} build is up to date`);
 }
 
-const stamp = at("packages/web/.next/standalone/packages/web/.e2e-build.json");
-let stamped = { wsUrl: "", builtAt: 0 };
-try {
-  stamped = JSON.parse(readFileSync(stamp, "utf8"));
-} catch {
-  // No stamp: build.
-}
-const webInputs = [at("packages/web/app"), at("packages/web/src"), at("packages/web/public"), at("packages/web/next.config.ts"), at("packages/shared/dist")];
-if (force || stamped.wsUrl !== wsUrl || stamped.builtAt < newest(webInputs)) {
-  sh("build web (production standalone)", ["run", "build", "--workspace=packages/web"], {
-    env: { ...process.env, NEXT_PUBLIC_WS_URL: wsUrl, NEXT_TELEMETRY_DISABLED: "1" },
-  });
-  writeFileSync(stamp, JSON.stringify({ wsUrl, builtAt: Date.now() }));
-} else {
-  console.log("[e2e:prepare] web build is up to date");
-}
+const webInputs = ["app", "src", "public", "next.config.ts", "package.json", "scripts", "tsconfig.json"].map((path) => at(`packages/web/${path}`)).concat(at("packages/shared/dist"));
+const prepareWeb = async () => {
+  let stamped = { wsUrl: "", builtAt: 0 };
+  try { stamped = JSON.parse(readFileSync(buildStampFile, "utf8")); } catch { /* No stamp: build. */ }
+  if (force || !existsSync(resolve(standaloneBuildDir, "server.js")) || stamped.wsUrl !== wsUrl || stamped.builtAt < newest(webInputs)) {
+    // Turbopack refuses dependency symlinks outside its filesystem root. Webpack supports borrowed
+    // dependencies in isolated worktrees without widening the root into another worker's checkout.
+    const borrowedDependencies = e2eSlot !== undefined && [at("node_modules"), at("packages/web/node_modules")]
+      .some((path) => existsSync(path) && lstatSync(path).isSymbolicLink());
+    const build = () => {
+      const options = { env: { ...process.env, E2E_NEXT_DIST_DIR: nextDistDir, NEXT_PUBLIC_WS_URL: wsUrl, NEXT_TELEMETRY_DISABLED: "1" } };
+      if (borrowedDependencies) {
+        sh(`build web (${nextDistDir}, webpack with symlinked dependencies)`, ["exec", "--workspace=packages/web", "--", "next", "build", "--webpack"], options);
+        sh("package web standalone", ["run", "package:standalone", "--workspace=packages/web"], options);
+      } else sh(`build web (${nextDistDir}, production standalone)`, ["run", "build", "--workspace=packages/web"], options);
+    };
+    if (e2eSlot === undefined) build();
+    else await withPreservedFiles([at("packages/web/next-env.d.ts"), at("packages/web/tsconfig.json")], build);
+    writeFileSync(buildStampFile, JSON.stringify({ wsUrl, builtAt: Date.now() }));
+  } else console.log(`[e2e:prepare] web build ${nextDistDir} is up to date`);
+};
+await withBuildLock(resolve(e2eRoot, ".stack-build-lock"), prepareWeb);
