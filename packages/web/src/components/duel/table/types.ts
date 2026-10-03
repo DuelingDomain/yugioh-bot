@@ -123,7 +123,6 @@ export interface SeatFieldProps {
   emz: "own" | "shared-bottom" | "shared-top";
   showTally: boolean; // false when a holo LP panel owns data-lp-seat
   usable: boolean; // false: legal ring only, no USE glow (partner, spectator)
-  peekSetCards?: boolean; // tag partner: set cards readable, eye chip
   name?: string; // display name of the seat (labels and aria text); default "Player <n>"
   scale?: number; // drawn scale of the field (text grows when it is small); default 1
   legalKeys: Set<string>;

@@ -221,7 +221,6 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       emz: "own",
       showTally: false,
       usable: relation === "self",
-      peekSetCards: relation === "partner",
       name: nameOf(seat),
       legalKeys,
       selectedKeys,
