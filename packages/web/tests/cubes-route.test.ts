@@ -147,6 +147,65 @@ describe("cube API routes", () => {
     }
   });
 
+  describe("import limits", () => {
+    async function cubeAndPost() {
+      await setupDb();
+      vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [] })));
+      const { POST: createCube } = await import("../app/api/cubes/route");
+      const created = await createCube(
+        new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Limits" }) }) as any,
+      );
+      const { cube } = await created.json();
+      const { POST: mutate } = await import("../app/api/cubes/[id]/cards/route");
+      return (body: object) =>
+        mutate(new Request("http://x", { method: "POST", body: JSON.stringify(body) }) as any, {
+          params: Promise.resolve({ id: String(cube.id) }),
+        });
+    }
+    const distinct = (n: number) => Array.from({ length: n }, (_, i) => 1_000_000 + i);
+
+    it("rejects YDK text over 64 KB and more than 1000 different passcodes, with a clear message", async () => {
+      const post = await cubeAndPost();
+      const big = await post({ op: "importYdk", text: `#main\n${"1\n".repeat(33_000)}` });
+      expect(big.status).toBe(400);
+      expect((await big.json()).error).toMatch(/64 KB/);
+
+      const many = await post({ op: "importYdk", text: `#main\n${distinct(1001).join("\n")}\n` });
+      expect(many.status).toBe(400);
+      expect((await many.json()).error).toBe("That list has 1001 different cards. Import at most 1000 at a time.");
+
+      const ok = await post({ op: "importYdk", text: `#main\n${distinct(1000).join("\n")}\n` });
+      expect(ok.status).toBe(200);
+      expect((await ok.json()).unknown).toHaveLength(1000);
+    });
+
+    it("applies the same cap to the passcode import, counting different cards and not copies", async () => {
+      const post = await cubeAndPost();
+      const many = await post({ op: "import", codes: distinct(1001) });
+      expect(many.status).toBe(400);
+      expect((await many.json()).error).toMatch(/1001 different cards/);
+      const copies = await post({ op: "import", codes: Array.from({ length: 3000 }, () => 1) });
+      expect(copies.status).toBe(200);
+    });
+
+    it("lists a passcode the card database answers with HTTP 400 as unknown", async () => {
+      const post = await cubeAndPost();
+      const discordFetch = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+          String(input).includes("ygoprodeck") ? new Response("{}", { status: 400 }) : discordFetch(input, init),
+        ),
+      );
+      const res = await post({ op: "importYdk", text: "#main\n1\n777\n#extra\n2\n888\n" });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toMatchObject({ added: 2, unknown: [777, 888] });
+      expect(body.pools.main.map((c: any) => c.catalogCardId)).toEqual([1]);
+      expect(body.pools.extra.map((c: any) => c.catalogCardId)).toEqual([2]);
+    });
+  });
+
   it("exports a cube as a .ydk download named after the cube", async () => {
     await setupDb();
     const { POST: createCube } = await import("../app/api/cubes/route");

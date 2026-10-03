@@ -6,7 +6,7 @@ import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
 import { cubeDetail } from "@/lib/cube-detail";
 import { importYdkIntoCube } from "@/lib/cube-ydk";
-import { YDK_MAX_CHARS } from "@/lib/ydk-file";
+import { IMPORT_MAX_DISTINCT, YDK_MAX_CHARS, tooManyDistinct } from "@/lib/ydk-file";
 
 export const runtime = "nodejs";
 
@@ -54,6 +54,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         const codes = Array.isArray(body.codes)
           ? body.codes.filter((n): n is number => Number.isInteger(n))
           : [];
+        const distinct = new Set(codes).size;
+        if (distinct > IMPORT_MAX_DISTINCT) {
+          return NextResponse.json({ error: tooManyDistinct(distinct) }, { status: 400 });
+        }
         const result = await cubes.importPasscodes(cubeId, codes, { pool: body.pool });
         return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result });
       }
@@ -62,7 +66,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           return NextResponse.json({ error: "Add a YDK file or paste a deck list." }, { status: 400 });
         }
         if (body.text.length > YDK_MAX_CHARS) {
-          return NextResponse.json({ error: "That YDK text is too large." }, { status: 400 });
+          return NextResponse.json({ error: "That YDK text is too large. The limit is 64 KB." }, { status: 400 });
         }
         // parseDeckText throws on a file with two #deckmaster sections; the catch below sends it as a 400.
         const result = await importYdkIntoCube(cubes, cubeId, body.text);

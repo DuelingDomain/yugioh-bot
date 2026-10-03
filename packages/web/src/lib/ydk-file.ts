@@ -6,8 +6,14 @@
 
 /** Copies of one card a cube can hold. Mirrors MAX_CUBE_COPIES in shared. */
 export const YDK_MAX_COPIES = 99;
-/** Longest YDK text the import accepts. A full deck file is a few KB. */
-export const YDK_MAX_CHARS = 500_000;
+/** Longest YDK text the import accepts (64 KB). A full deck file is a few KB. */
+export const YDK_MAX_CHARS = 64 * 1024;
+/** Different passcodes one import may hold. Each unknown one costs a lookup in the card database. */
+export const IMPORT_MAX_DISTINCT = 1000;
+
+/** The 400 message for an import with too many different passcodes. */
+export const tooManyDistinct = (count: number): string =>
+  `That list has ${count} different cards. Import at most ${IMPORT_MAX_DISTINCT} at a time.`;
 
 export interface YdkEntry {
   catalogCardId: number;

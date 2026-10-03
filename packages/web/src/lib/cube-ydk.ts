@@ -1,7 +1,7 @@
 import type { CubePools } from "@yugidraft/shared/types";
 import type { CubeService } from "@yugidraft/shared/services";
 import { parseDeckText } from "@/components/duel/ydk";
-import { mergeCopies } from "./ydk-file";
+import { IMPORT_MAX_DISTINCT, mergeCopies, tooManyDistinct } from "./ydk-file";
 
 export interface YdkImportResult {
   /** Different cards the file put in the cube. */
@@ -32,6 +32,8 @@ function startInMain(text: string): string {
  */
 export async function importYdkIntoCube(cubes: CubeService, cubeId: number, text: string): Promise<YdkImportResult> {
   const ydk = parseDeckText(startInMain(text));
+  const distinct = new Set([...ydk.main, ...ydk.side, ...ydk.extra, ...(ydk.deckMaster != null ? [ydk.deckMaster] : [])]);
+  if (distinct.size > IMPORT_MAX_DISTINCT) throw new Error(tooManyDistinct(distinct.size));
   const before = totalCopies(cubes.getCubePools(cubeId));
   const existing = copiesById(cubes.getCubePools(cubeId));
   const groups: Array<{ codes: number[]; pool?: "extra" }> = [
