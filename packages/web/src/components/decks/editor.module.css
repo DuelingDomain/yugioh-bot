@@ -29,7 +29,7 @@
 
 /* three panes */
 .de-body { display: grid; grid-template-columns: clamp(250px, 21%, 320px) minmax(0, 1fr) clamp(320px, 28%, 420px); min-height: 0; }
-.de-read { min-height: 0; overflow: auto; padding: 20px 20px 64px; /* the end of the left pane clears the Report bug button */ border-right: 1px solid var(--rule-lo); background: rgb(4 7 14 / 0.35); }
+.de-read { min-height: 0; overflow: auto; padding: 20px 20px 28px; border-right: 1px solid var(--rule-lo); background: rgb(4 7 14 / 0.35); }
 .de-deck { container: de-deck / inline-size; display: grid; align-content: start; gap: 22px; min-height: 0; overflow: auto; padding: 12px 22px 40px; }
 
 /* left pane: the deck check */
@@ -270,7 +270,7 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
   .de-deck { padding: 0 12px 64px; gap: 12px; }
   .de[data-tab="cards"] .de-deck { display: none; }
   .de[data-tab="deck"] .de-body > [id="deck-editor-cards"] { display: none; }
-  .de-body > [id="deck-editor-cards"] { border: 0; margin: 0 12px 56px; } /* the strip under the list is the Report bug button's */
+  .de-body > [id="deck-editor-cards"] { border: 0; margin: 0 12px; } /* the list's own 64px end padding already clears the Report bug button */
   .de-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; }
   .de-hand-g { grid-template-columns: repeat(6, minmax(0, 72px)); }
   .de-size { width: 92px; }

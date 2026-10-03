@@ -39,6 +39,14 @@ export function liftFor(rect: { top: number; bottom: number; height: number }, p
   return Math.max(0, Math.ceil(viewportHeight - rect.top + GAP - FAB_BOTTOM));
 }
 
+/**
+ * The height the bar rect and the fixed button are laid out against: the layout viewport. Not `visualViewport.height`,
+ * which shrinks with the phone keyboard or a pinch zoom while the rect and the button do not move with it.
+ */
+function layoutViewportHeight(): number {
+  return document.documentElement.clientHeight || window.innerHeight;
+}
+
 /** A div that keeps the Report bug button above it while it sticks to the bottom of the screen. */
 export function BugFabLift(props: ComponentPropsWithoutRef<"div">) {
   const ref = useRef<HTMLDivElement>(null);
@@ -48,7 +56,7 @@ export function BugFabLift(props: ComponentPropsWithoutRef<"div">) {
     let frame = 0;
     const measure = () => {
       frame = 0;
-      const viewport = window.visualViewport?.height ?? window.innerHeight;
+      const viewport = layoutViewportHeight();
       lifts.set(el, liftFor(el.getBoundingClientRect(), getComputedStyle(el).position, viewport));
       publish();
     };
@@ -58,12 +66,21 @@ export function BugFabLift(props: ComponentPropsWithoutRef<"div">) {
     measure();
     window.addEventListener("scroll", schedule, { passive: true, capture: true });
     window.addEventListener("resize", schedule);
+    // The keyboard and pinch zoom move the visual viewport (and the bar's stuck state) without a window resize or scroll.
+    const visual = window.visualViewport;
+    visual?.addEventListener("resize", schedule);
+    visual?.addEventListener("scroll", schedule);
+    // Page content growing or shrinking sticks or unsticks the bar with no scroll event, so watch the content too.
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     observer?.observe(el);
+    if (el.parentElement) observer?.observe(el.parentElement);
+    observer?.observe(document.body);
     return () => {
       if (frame) cancelAnimationFrame(frame);
       window.removeEventListener("scroll", schedule, true);
       window.removeEventListener("resize", schedule);
+      visual?.removeEventListener("resize", schedule);
+      visual?.removeEventListener("scroll", schedule);
       observer?.disconnect();
       lifts.delete(el);
       publish();
