@@ -8,6 +8,7 @@ import { getAnimationSpeed } from "./animation-speed";
 export function createDuelFxClock(preference = getAnimationSpeed, realNow = () => performance.now()) {
   let rate = 1;
   let reduced = false;
+  let reviewSpeed: number | null = null;
   let realBase = 0;
   let virtualBase = 0;
   let lastReal = 0;
@@ -19,7 +20,7 @@ export function createDuelFxClock(preference = getAnimationSpeed, realNow = () =
     if (real < lastReal) { leases.clear(); realBase = virtualBase = real; rate = 1; }
     lastReal = real;
     for (const [key, until] of leases) if (until <= real) leases.delete(key);
-    const wanted = reduced ? 1 : preference();
+    const wanted = reduced ? 1 : reviewSpeed ?? preference();
     if (leases.size === 0 && wanted !== rate) {
       virtualBase += (real - realBase) * rate;
       realBase = real;
@@ -92,9 +93,20 @@ export function createDuelFxClock(preference = getAnimationSpeed, realNow = () =
       const real = sync();
       return Date.now() + virtualBase + (real - realBase) * rate - real;
     },
-    requestAnimationFrame: (fn: FrameRequestCallback): number => window.requestAnimationFrame(() => fn(now())),
+    requestAnimationFrame: (fn: FrameRequestCallback): number => window.requestAnimationFrame((stamp) => {
+      sync();
+      fn(virtualBase + (stamp - realBase) * rate);
+    }),
     cancelAnimationFrame: (id: number) => window.cancelAnimationFrame(id),
     setReducedMotion: (value: boolean) => { reduced = value; },
+    /** Lab-only override, also allowing quarter-speed review. Room preferences remain untouched. */
+    setReviewSpeed: (value: number | null) => { reviewSpeed = value != null && Number.isFinite(value) && value > 0 ? value : null; },
+    /** Only after the lab remount has disposed every old layer and its holds. */
+    resetReviewTimeline: () => {
+      leases.clear();
+      realBase = virtualBase = lastReal = realNow();
+      rate = reduced ? 1 : reviewSpeed ?? preference();
+    },
   };
 }
 
