@@ -224,6 +224,13 @@ function resolveAnchor(anchor: ChainAnchor): HTMLElement | null {
 
 const OBSTACLES = "[data-prompt-panel], [data-prompt-surface], [data-feedback-cue]";
 
+/** Mirrors .targetTag: it stands on the card's bottom edge, lifted 16 px per link, 3 px left of the ring. */
+const TARGET_STEP = 16;
+const TARGET_OUTSET = 3;
+const TAG_FALLBACK = { width: 56, height: 16 };
+/** A target ring hides when a panel covers more than this part of the card, its tag when it covers more than this part of it. */
+const TARGET_COVERED = 0.3;
+const TAG_COVERED = 0.15;
 /** The top badge is drawn 1.16 times its size. */
 const MAX_SCALE = 1.16;
 /** A badge covered by more than this part of an open prompt is hidden. */
@@ -412,7 +419,17 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           const key = `${link.index}:${zoneKey(target.controller, target.location, target.sequence)}`;
           const zone = findZoneElement(target);
           const box = zone ? cardBox(origin, zone) : null;
-          marks.push({ link, mark: targetRefs.current.get(key), wire: targetWireRefs.current.get(key), box, covered: box != null && coveredFraction(box, panels) > 0.5 });
+          const mark = targetRefs.current.get(key);
+          let covered = false;
+          if (box) {
+            // The ring hides under much of a panel; the "Target · N" tag, which carries the words, under a little.
+            const tag = mark?.querySelector<HTMLElement>("[data-target-tag]");
+            const w = tag?.offsetWidth || TAG_FALLBACK.width;
+            const h = tag?.offsetHeight || TAG_FALLBACK.height;
+            const tagBox = { left: box.left - TARGET_OUTSET, top: box.top + box.height - (link.index - 1) * TARGET_STEP - h, width: w, height: h };
+            covered = coveredFraction(box, panels) > TARGET_COVERED || coveredFraction(tagBox, panels) > TAG_COVERED;
+          }
+          marks.push({ link, mark, wire: targetWireRefs.current.get(key), box, covered });
         }
       }
       // ---- Write phase. ----
@@ -601,9 +618,9 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           if (el) targetRefs.current.set(key, el);
           else targetRefs.current.delete(key);
         }} className={styles.target} data-placed="false" data-chain-target={link.index} data-target-zone={zone}
-          style={{ "--target-offset": `${(link.index - 1) * 16}px` } as CSSProperties}>
+          style={{ "--target-offset": `${(link.index - 1) * TARGET_STEP}px` } as CSSProperties}>
           <span className={styles.targetRing} />
-          <span className={styles.targetTag}>Target · {link.index}</span>
+          <span className={styles.targetTag} data-target-tag>Target · {link.index}</span>
         </div>;
       }))}
       {showStack ? (

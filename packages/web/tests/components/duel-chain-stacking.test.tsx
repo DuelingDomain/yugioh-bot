@@ -277,6 +277,21 @@ describe("chain front layer stacking", () => {
       expect(front().dataset.size).toBe("full");
     });
 
+    it("hides the target mark when a panel covers its Target tag, though most of the card is clear", () => {
+      // The target card is at client (100, 400, 60, 80). Link 2's tag sits on its bottom edge, 16 px up: board y 388..404.
+      const { getByTestId } = render(withTarget("95,448,40,12"));
+      act(() => { vi.advanceTimersByTime(60); });
+      const mark = getByTestId("root").querySelector("[data-chain-target='2']") as HTMLElement;
+      expect(mark.dataset.covered).toBe("true");
+    });
+
+    it("keeps the target mark when a panel only grazes the card", () => {
+      const { getByTestId } = render(withTarget("95,400,20,20"));
+      act(() => { vi.advanceTimersByTime(60); });
+      const mark = getByTestId("root").querySelector("[data-chain-target='2']") as HTMLElement;
+      expect(mark.dataset.covered).toBe("false");
+    });
+
     it("draws the target mark in the front layer, above the prompt, and hides it under a panel", () => {
       const open = render(withTarget(null));
       act(() => { vi.advanceTimersByTime(60); });
