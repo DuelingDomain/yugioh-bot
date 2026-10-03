@@ -1,4 +1,5 @@
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
+import { battleCalculation } from "./battle-calculation";
 
 /**
  * Which engine event starts the battle animation.
@@ -8,9 +9,11 @@ import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
  * attacker away. So the full animation (lunge, slash or beam, impact, counter, break, LP roll)
  * starts when the battle RESOLVES:
  *   - a battle damage event, or
- *   - a destroy event caused by battle (of the attacker or of the target).
- * A fight with neither (ATK equal to a Defense Position DEF) leaves no event; it is seen only when
- * the next attack or phase event closes it, and then only as a short clash.
+ *   - a destroy event caused by battle (of the attacker or of the target), or
+ *   - the engine's Damage Step end, for a calculated fight that leaves neither.
+ * MSG_BATTLE supplies stats, but after-calculation response windows can still precede destruction.
+ * Older replays without calculation events close a fight with neither damage nor destruction
+ * (ATK equal to a Defense Position DEF) at the next attack or phase, as a short clash.
  * An attack that leaves no trace of a fight (an effect was activated, the attacker or the target
  * left the field, or the attack is direct and no damage came) fizzles: no attack animation.
  *
@@ -19,7 +22,7 @@ import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 
 export type BattleTrigger =
   | { action: "wait" }
-  | { action: "play"; reason: "damage" | "destroy" | "clash" }
+  | { action: "play"; reason: "calculation" | "damage" | "destroy" | "clash" }
   | { action: "fizzle"; reason: "negated" | "attacker-left" | "target-left" | "no-battle" | "stale" };
 
 /** A clash that no event closed for this long is not shown: it would play long after the fight. */
@@ -41,6 +44,11 @@ export function battleTrigger(events: readonly DuelEvent[], attack: DuelEvent, a
   let responded = false;
   for (const event of after) {
     switch (event.kind) {
+      case "battle-end":
+        if (battleCalculation(events, attack)) {
+          return { action: "play", reason: "calculation" };
+        }
+        break;
       case "damage":
         if (event.cause === "cost") break;
         // Effect damage after the declaration is not the fight; battle damage is.
@@ -55,6 +63,8 @@ export function battleTrigger(events: readonly DuelEvent[], attack: DuelEvent, a
         }
         break;
       case "move":
+        // The core moves battle casualties before announcing their destruction.
+        if (event.reason === "destroy" && event.cause === "battle") break;
         // Banished, bounced or sent away without a destroy event.
         if (sameZone(event.from, attack.zone)) return { action: "fizzle", reason: "attacker-left" };
         if (!direct && sameZone(event.from, attack.target)) return { action: "fizzle", reason: "target-left" };

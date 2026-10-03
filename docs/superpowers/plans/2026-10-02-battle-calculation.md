@@ -10,7 +10,7 @@ Architecture: project MSG_BATTLE as a public `battle` event with attacker/target
 - [x] Preserve MSG_BATTLE, including the direct-attack sentinel and an explicit Damage Step end.
 - [x] Test/show calculation stats in battle playback, with dedicated FX-lab scenes.
 - [x] Cover Enemy Controller position for both seats/spectators and web orientation.
-- [ ] Finish full validation and register the isolated FX-lab scenes after the other worker commits the catalog.
+- [x] Run full validation and register the isolated FX-lab scenes after the other worker commits the catalog.
 
 Investigation: the root DB has no duel tables; the service's configured DB is `.worktrees/domain-multiplayer/data/bot.sqlite` (read only). Duel 62 (`69poo575`, 51 commands) is the latest played game and contains neither reported card. Duel 29 (`05vj1y64`, 107 commands) fully replays Enemy Controller at command 18: Beckoned by the World Chalice changes from position 1 to 4. No stored seat deck or public final snapshot contains Cat's Ear Tribe. Its historical battle cannot be verified from these rows.
 

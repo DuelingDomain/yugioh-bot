@@ -16,6 +16,23 @@ const phase = (id: number) => ev(id, { kind: "phase" });
 const activate = (id: number) => ev(id, { kind: "activate", zone: z(0, 3) });
 
 describe("battleTrigger", () => {
+  it("plays a calculated battle even when neither damage nor destruction occurs", () => {
+    const calculation = ev(11, {
+      kind: "battle", zone: attacker, target,
+      battle: { attacker: { attack: 200, defense: 900, position: 1 }, target: { attack: 100, defense: 200, position: 4 } },
+    });
+    expect(battleTrigger([attack, calculation], attack)).toEqual({ action: "wait" });
+    expect(battleTrigger([attack, calculation, ev(12, { kind: "battle-end" })], attack)).toEqual({ action: "play", reason: "calculation" });
+    expect(battleTrigger([attack, { ...calculation, zone: z(0, 2) }], attack)).toEqual({ action: "wait" });
+  });
+
+  it("waits through calculation and recognizes casualties moved before battle destruction", () => {
+    const calculation = ev(11, { kind: "battle", zone: attacker, target,
+      battle: { attacker: { attack: 200, defense: 900, position: 1 }, target: { attack: 200, defense: 100, position: 1 } } });
+    const casualty = ev(12, { kind: "move", from: attacker, zone: { controller: 0, location: 16, sequence: 0 }, reason: "destroy", cause: "battle" });
+    expect(battleTrigger([attack, calculation], attack)).toEqual({ action: "wait" });
+    expect(battleTrigger([attack, calculation, casualty, destroy(13, attacker), destroy(14, target)], attack)).toEqual({ action: "play", reason: "destroy" });
+  });
   it("waits at the declaration, while the duel stops for responses", () => {
     expect(battleTrigger([attack], attack)).toEqual({ action: "wait" });
     expect(battleTrigger([phase(9), attack], attack)).toEqual({ action: "wait" });

@@ -119,8 +119,8 @@ describe("BattleFx", () => {
 
   /** Engine-view seats with one monster per side (attacker seat 0, defender seat 1). */
   const seatsOf = (
-    attacker: { code?: number; name?: string; race?: string; attribute?: number },
-    defender: { code?: number; name?: string; race?: string; attribute?: number },
+    attacker: { code?: number; name?: string; race?: string; attribute?: number; attack?: number; defense?: number },
+    defender: { code?: number; name?: string; race?: string; attribute?: number; attack?: number; defense?: number },
     defenderPosition = 1,
   ): DuelSeatView[] =>
     [
@@ -130,6 +130,59 @@ describe("BattleFx", () => {
   // A Warrior (slash: two halves), a Machine (beam: 24 tiles) and a Spellcaster (arcane: 24 tiles).
   const warrior = { code: 6368038, name: "Gaia The Fierce Knight", race: "Warrior", attribute: 1 };
   const machine = { code: 77585513, name: "Jinzo", race: "Machine", attribute: 32 };
+
+  it("waits through an after-calculation prompt and plays both actual battle casualties", () => {
+    const before = seatsOf(warrior, machine);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={before} />);
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Damage calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 200, defense: 1200, position: 1 }, target: { attack: 200, defense: 100, position: 1 } } };
+    rerender(<BattleFx events={[phase, attack, calculation]} reducedMotion={false} seats={before} />);
+    expect(playLayer()).toBeNull();
+    const move: DuelEvent = { id: 4, kind: "move", text: "", from: attack.zone, zone: { controller: 0, location: 16, sequence: 0 }, reason: "destroy", cause: "battle" };
+    const casualties: DuelEvent[] = [move,
+      { id: 5, kind: "destroy", text: "", zone: attack.zone, cause: "battle" },
+      { id: 6, kind: "destroy", text: "", zone: attack.target, cause: "battle" },
+      { id: 7, kind: "battle-end", text: "Damage Step ended" }];
+    rerender(<BattleFx events={[phase, attack, calculation, ...casualties]} reducedMotion={false} seats={before} />);
+    expect(playLayer()?.getAttribute("data-kind")).toBe("tie");
+    expect(cutRoles().sort()).toEqual(["attacker", "target"]);
+    expect(document.querySelector('[data-battle-stat="attacker"]')?.textContent).toBe("200 ATK");
+  });
+
+  it("shows calculation-time ATK after temporary stats have expired on the board", () => {
+    vi.useFakeTimers();
+    const before = seatsOf({ ...warrior, attack: 2900 }, { ...machine, attack: 200 });
+    const { rerender, unmount } = render(<BattleFx events={[phase]} reducedMotion={false} seats={before} />);
+    act(() => undefined);
+    // Declaration and resolution are separate snapshots; the live attacker is back at 2900.
+    rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={before} />);
+    const calculation: DuelEvent = {
+      id: 3, kind: "battle", text: "Damage calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 1200, defense: 1200, position: 1 }, target: { attack: 200, defense: 100, position: 1 } },
+    };
+    const damage: DuelEvent = { id: 4, kind: "damage", seat: 1, amount: 1000, cause: "battle", text: "" };
+    rerender(<BattleFx events={[phase, attack, calculation, damage]} reducedMotion={false} seats={before} />);
+    expect(document.querySelector('[data-battle-stat="attacker"]')?.textContent).toBe("1200 ATK");
+    expect(document.querySelector('[data-battle-stat="target"]')?.textContent).toBe("200 ATK");
+    act(() => vi.advanceTimersByTime(10000));
+    expect(document.querySelector('[data-battle-stat]')).toBeNull();
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it("shows the target's calculated DEF when it is in defense, including reduced motion", () => {
+    const before = seatsOf(warrior, machine, 4);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={before} />);
+    act(() => undefined);
+    const calculation: DuelEvent = {
+      id: 3, kind: "battle", text: "Damage calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 200, defense: 1200, position: 1 }, target: { attack: 200, defense: 100, position: 4 } },
+    };
+    const destroyed: DuelEvent = { id: 4, kind: "destroy", text: "", zone: attack.target, cause: "battle" };
+    rerender(<BattleFx events={[phase, attack, calculation, destroyed]} reducedMotion seats={before} />);
+    expect(document.querySelector('[data-battle-stat="attacker"]')?.textContent).toBe("200 ATK");
+    expect(document.querySelector('[data-battle-stat="target"]')?.textContent).toBe("100 DEF");
+  });
 
   it("does not replay events that were already in the first snapshot", () => {
     render(<BattleFx events={[phase, attack]} reducedMotion={false} />);

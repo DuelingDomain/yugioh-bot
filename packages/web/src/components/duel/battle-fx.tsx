@@ -18,6 +18,7 @@ import type { BattleSoundPlan } from "./attack-audio";
 import { collectFreshEvents, emitDuelFxCue, maxEventId } from "./event-queue";
 import { duelFontClasses } from "./fonts";
 import { armLpHold } from "./life-points";
+import { battleCalculation } from "./battle-calculation";
 import { ATTACK_TIMING, paceAttack } from "./duel-timing";
 import styles from "./battle-fx.module.css";
 
@@ -273,6 +274,7 @@ type Play = {
   totalMs: number;
   /** What the fight sounds like (sent to the audio layer when it starts). */
   sound: BattleSoundPlan;
+  stats: Array<{ role: "attacker" | "target"; box: Box; value: number; label: "ATK" | "DEF" }>;
 };
 
 /** The signature passcode when the card plays a signature attack, else null. */
@@ -331,6 +333,15 @@ function damageDelay(event: DuelEvent, attack: DuelEvent, direct: boolean, timin
 function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events: readonly DuelEvent[], attack: DuelEvent, layer3d = false): Play | null {
   const resolved = resolveBattle(capture, events, attack, reduced);
   const { kind, timing, attackerStyle, defenderStyle } = resolved;
+  const calculation = battleCalculation(events, attack);
+  const stats: Play["stats"] = [];
+  if (calculation) {
+    stats.push({ role: "attacker", box: capture.from, value: calculation.attacker.attack, label: "ATK" });
+    if (calculation.target && !capture.direct) {
+      const defense = isDefense(calculation.target.position);
+      stats.push({ role: "target", box: capture.to, value: defense ? calculation.target.defense : calculation.target.attack, label: defense ? "DEF" : "ATK" });
+    }
+  }
   const attacker: FxSide = {
     box: capture.from, el: capture.fromEl, style: attackerStyle.style, tint: attackerStyle.tint,
     caption: attackerStyle.caption, cut: capture.attacker,
@@ -360,7 +371,7 @@ function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events
   return {
     seq, reduced, fx, style: attackerStyle.style,
     counterStyle: hasCounterStrike(kind) && defenderStyle ? defenderStyle.style : null,
-    kind, totalMs: timing.totalMs, sound,
+    kind, totalMs: timing.totalMs, sound, stats,
   };
 }
 
@@ -394,6 +405,13 @@ function AttackPlay({ play }: { play: Play }) {
     >
       <div ref={htmlRef} className={styles.htmlLayer} />
       <svg ref={svgRef} className={styles.svg} aria-hidden />
+      {play.stats.map(stat => (
+        <span key={stat.role} className={styles.calculationStat} data-battle-stat={stat.role}
+          title="Damage calculation"
+          style={{ left: stat.box.left + stat.box.width / 2, top: stat.box.top + stat.box.height + 8 }}>
+          {stat.value} {stat.label}
+        </span>
+      ))}
     </div>
   );
 }
