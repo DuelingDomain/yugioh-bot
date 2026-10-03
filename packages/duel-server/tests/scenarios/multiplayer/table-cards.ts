@@ -356,7 +356,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
       attack("Battle Ox", { card: "Giant Rat", owner: "p0" }, "p1"),
       activate("The Grave of Enkindling", "p0"),
       selectBy("p1", "Mystical Elf"),
-      // 8000 - 300 (battle) - 500 (maintenance). p0 and p1 choose a card; p2 has one card. Each banishes one.
+      // 8000 - 300 (battle) - 500 (maintenance). p1 chooses a card. p0 and p2 each have one legal card, so each banishes it with no choice.
       everySeat("ffa3", {
         p0: { lp: 7200, monsters: ["Giant Rat"], spells: ["Summoning Curse"], grave: ["The Grave of Enkindling"], banished: ["Mystical Elf"] },
         p1: { monsters: ["Battle Ox", "Celtic Guardian"], banished: ["Mystical Elf"] },

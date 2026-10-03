@@ -386,10 +386,10 @@ function foolishRevivalOtherGrave(format: "ffa3" | "tag"): Scenario {
 }
 
 // --- R3 (Q1): cards that last "until the end of your opponent's next turn" or for N opponent turns ------------------------------------
-// In FFA, RESET_OPPO_TURN without RESET_SELF_TURN counts only the declared opponent's turns when the effect binds one opponent.
-// Effects with no declared opponent keep R3: every opponent turn counts. Tag keeps its opposing-duelist count; a partner turn does not count.
+// In FFA, a player effect's RESET_OPPO_TURN without RESET_SELF_TURN counts only the living declared opponent's turns.
+// Card effects and player effects with no living declared opponent keep R3. Tag counts opposing turns; a partner turn does not count.
 // A seat that lost takes no turn. The state of every living seat is checked after each step that matters.
-const R3_RULE = `${SOURCE} [R-FFA-ORDER] Q1 R3: with no declared opponent, every opponent turn counts. [R-FFA-DECLARED-DURATION]: in FFA, RESET_OPPO_TURN without RESET_SELF_TURN counts only the declared opponent's turns. Tag keeps its opposing-duelist count; a seat that lost takes no turn`;
+const R3_RULE = `${SOURCE} [R-FFA-ORDER] Q1 R3: card effects and player effects with no declared opponent count every opponent turn; player effects with a declared opponent follow R-FFA-DECLARED-DURATION; in Tag only a turn of an opposing duelist; a seat that lost takes no turn`;
 const TIME_SEAL = "Time Seal";
 
 /** The table of the living `seats`: every seat has the hand size of `hands` (0 when it is missing), p0 has the Graveyard and Spell/Trap zones given. */
