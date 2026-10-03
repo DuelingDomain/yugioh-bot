@@ -63,6 +63,8 @@ async function chooseOption(page: Page, group: string, label: string): Promise<v
 }
 
 export type TableOptions = {
+  /** Public by default; private tables are visible only to invited players. */
+  visibility?: "public" | "private";
   /** Domain format (Deck Masters). Default is a Standard duel. */
   domain?: boolean;
   /** Keep the .ydk order: the first 5 main cards are the opening hand. */
@@ -84,6 +86,7 @@ export type TableOptions = {
 export async function createTable(page: Page, name: string, options: TableOptions = {}): Promise<string> {
   await page.goto("/duels/new");
   await page.getByLabel("Table name").fill(name);
+  if (options.visibility) await chooseOption(page, "Visibility", options.visibility === "private" ? "Private" : "Public");
   if (options.format && options.format !== "1v1") await page.getByLabel("Table type").selectOption(options.format);
   if (options.domain) await chooseOption(page, "Duel type", "Domain");
   await page.getByLabel("Turn timer").selectOption({ label: "Unlimited" });

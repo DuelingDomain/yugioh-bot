@@ -58,7 +58,8 @@ export async function useCard(page: Page, card: Locator, action: RegExp | string
 
 /**
  * A live table must own an answerable prompt before a card can open its action menu. The header can
- * advance while its snapshot is still catching up. The two-seat field uses its existing waiting copy.
+ * advance while its snapshot is still catching up. The two-seat phase control becomes enabled only
+ * when its action prompt is ready, after the Draw/Standby presentation holds finish.
  */
 export async function expectReadyToAct(page: Page): Promise<void> {
   const table = page.locator("[data-table-shell]");
@@ -66,7 +67,7 @@ export async function expectReadyToAct(page: Page): Promise<void> {
     await expect(table).toHaveAttribute("data-can-act", "true");
     return;
   }
-  await expect(page.getByText("Waiting for a response.")).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Duel phases" }).getByRole("button").first()).toBeEnabled();
 }
 
 /**
