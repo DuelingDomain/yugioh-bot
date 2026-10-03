@@ -1,0 +1,39 @@
+/* Single elimination as a road: one stop per round, a line through the nodes, your path in violet. */
+.road { padding: 28px 40px 0; }
+.empty { margin: 0; color: var(--ink-3); }
+.stops { display: grid; grid-template-columns: repeat(var(--stops, 3), minmax(210px, 1fr)); gap: 0; margin: 4px 0 0; padding: 0; list-style: none; overflow-x: auto; }
+.stop { position: relative; min-width: 0; padding: 28px 22px 0 0; }
+.stop::before { content: ""; position: absolute; left: 0; right: 0; top: 7px; height: 1px; background: var(--rule); }
+.stop[data-mine]::before { height: 2px; top: 6.5px; background: var(--pen); }
+.node { position: absolute; left: 0; top: 0; width: 15px; height: 15px; border-radius: 50%; border: 2px solid var(--rule-hi); background: var(--floor); }
+.stop[data-mine] .node { border-color: var(--pen); }
+.stop[data-state="done"] .node { background: var(--chain); border-color: var(--chain); }
+.stop[data-mine][data-state="done"] .node { background: var(--pen); border-color: var(--pen); }
+.stop[data-state="now"] .node { border-color: rgb(var(--beam)); box-shadow: 0 0 10px 1px rgb(var(--beam) / 0.5); }
+.stopH { margin: 0; font: 600 18px/1.2 var(--f-display); color: var(--ink); }
+.stopNote { margin: 3px 0 12px; color: var(--ink-3); font-size: 14px; }
+.chips { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.chip { min-width: 0; padding: 4px 0 4px 12px; border-left: 2px solid var(--rule-lo); }
+.chip[data-mine] { border-left-color: var(--pen); }
+.chip[data-bye] { border-left-style: dashed; }
+.sides { margin: 0; padding: 0; list-style: none; }
+.cs { display: flex; align-items: center; gap: 9px; min-height: 36px; min-width: 0; }
+.cs[data-lost] { opacity: 0.55; }
+.csn { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; color: var(--ink); }
+.csc { font: 600 25px/1 var(--f-num); color: var(--ink-2); }
+.csc[data-won] { color: var(--chain-ink); }
+.tbd { color: var(--ink-3); font-size: 14.5px; }
+.byew { display: inline-block; margin: 4px 0 0; padding: 3px 10px; border: 1px dashed var(--ink-4); border-radius: 20px; color: var(--ink-2); font-size: 13.5px; }
+.cnote { margin: 4px 0 0; color: var(--ink-3); font-size: 13.5px; }
+.cnote a, .cnote button { padding: 0; border: 0; background: none; color: var(--pen-ink); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.undrawn { margin: 0; color: var(--ink-3); font-size: 15px; line-height: 1.4; max-width: 28ch; }
+
+@container (max-width: 760px) {
+  .road { padding: 22px 16px 0; }
+  .stops { display: block; overflow: visible; }
+  .stop { padding: 0 0 8px 30px; }
+  .stop::before { left: 7px; right: auto; top: 0; bottom: 0; width: 1px; height: auto; }
+  .stop[data-mine]::before { left: 6.5px; width: 2px; height: auto; top: 0; }
+  .node { top: 2px; }
+  .stopNote { margin-bottom: 8px; }
+}

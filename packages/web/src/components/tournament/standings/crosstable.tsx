@@ -1,43 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
 import { ChevronRight } from "lucide-react";
-import { matchAnchorId, SECTION_IDS, type CrosstableProps, type PlayerRatings } from "../sheet-contracts";
-import { buildCrosstable, buildPlayerFlags, buildStandings, type CrosstableRow } from "./standings-model";
-import { StandingsList, StandingsPlayer } from "./standings-list";
+import { Mono, YouPill, ringColour } from "@/components/sheet";
+import { matchAnchorId } from "../sheet-contracts";
+import type { CrosstableRow } from "./standings-model";
+import styles from "./standings.module.css";
 
-/** Scrolls to a match row and moves focus there, the way the old link did. */
+/** Scrolls to a match (the field carries the anchor of your own match) and moves focus there. */
 export function goToMatch(matchId: number) {
-  const node = document.getElementById(matchAnchorId(matchId));
+  const node = document.getElementById(matchAnchorId(matchId)) ?? document.getElementById("duel-field");
   if (!node) return;
-  node.scrollIntoView({ behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
+  node.scrollIntoView({ behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   if (!node.hasAttribute("tabindex")) node.setAttribute("tabindex", "-1");
   node.focus({ preventScroll: true });
 }
 
-export function Crosstable({ tournament, currentUserPlayerId, ratings, narrow = false, final = false }: CrosstableProps & { narrow?: boolean; final?: boolean }) {
-  const [showGrid, setShowGrid] = useState(false);
-  const standings = buildStandings(tournament);
-  const roundRobin = tournament.format === "round_robin";
-  const gridVisible = roundRobin && (!narrow || showGrid);
-
-  return (
-    <section id={SECTION_IDS.standings} aria-label={final ? "Final standings" : "Standings"}>
-      <div className="sec-h">
-        <h2 className="sec-t">{final ? "Final standings" : "Standings"}</h2>
-        {narrow && roundRobin
-          ? <button type="button" className="btn btn-quiet btn-sm" aria-pressed={showGrid} onClick={() => setShowGrid(!showGrid)}>{showGrid ? "Show list" : "Show grid"}</button>
-          : <span className="sec-aux">{roundRobin ? "Wins, then fewest losses · columns are opponents in the same order" : "Placed by wins, then fewest losses. Equal records share a place."}</span>}
-      </div>
-      {standings.length === 0 ? <p className="small">No players yet.</p>
-        : gridVisible ? <StandingsGrid rows={buildCrosstable(tournament, currentUserPlayerId)} currentUserPlayerId={currentUserPlayerId} ratings={ratings} narrow={narrow} />
-        : <StandingsList standings={standings} currentUserPlayerId={currentUserPlayerId} ratings={ratings} flags={buildPlayerFlags(tournament)} />}
-    </section>
-  );
-}
-
 const LEGEND: Array<{ r: string; text: string; label: string | null; note: string }> = [
-  { r: "w", text: "2–1", label: "won", note: "Row player won. Game score when the duel was online, W when it was reported." },
+  { r: "w", text: "2–1", label: "won", note: "Row player won. Game score when the duel was online, W when it was reported by hand." },
   { r: "l", text: "1–2", label: "lost", note: "Row player lost." },
   { r: "live", text: "1–0", label: "game 2", note: "Being played now." },
   { r: "wait", text: "W", label: "reported", note: "Reported, waiting for the other player to confirm." },
@@ -45,10 +25,9 @@ const LEGEND: Array<{ r: string; text: string; label: string | null; note: strin
   { r: "open", text: "·", label: null, note: "Not started." },
 ];
 
-function StandingsGrid({ rows, currentUserPlayerId, ratings, narrow }: {
+export function StandingsGrid({ rows, currentUserPlayerId, narrow }: {
   rows: CrosstableRow[];
   currentUserPlayerId: number | null;
-  ratings: PlayerRatings;
   narrow: boolean;
 }) {
   return (
@@ -69,7 +48,11 @@ function StandingsGrid({ rows, currentUserPlayerId, ratings, narrow }: {
               return (
                 <tr key={row.playerId} className={me ? "me" : undefined}>
                   <td className="pos">{row.place}</td>
-                  <td className="who"><StandingsPlayer player={row} ratings={ratings} me={me} gem={!narrow} /></td>
+                  <td className="who"><span className={styles.gridWho}>
+                    {!narrow && <Mono name={row.displayName} size="sm" ring={ringColour(row.playerId)} you={me} />}
+                    <Link href={`/player/${row.playerId}`} title={row.displayName}>{row.displayName}</Link>
+                    {me && <YouPill />}
+                  </span></td>
                   {row.cells.map((cell, index) => (
                     <td key={rows[index].playerId} aria-label={cell.accessibleName}>
                       {cell.result === "you" && cell.matchId != null

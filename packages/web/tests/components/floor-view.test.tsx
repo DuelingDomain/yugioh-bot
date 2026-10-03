@@ -1,0 +1,146 @@
+// @vitest-environment jsdom
+import React from "react";
+import { render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("next/font/google", () => {
+  const font = () => ({ className: "font", variable: "font-var", style: {} });
+  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+});
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
+import { SheetRoot } from "@/components/sheet";
+import { LiveView } from "@/components/tournament/floor/live-view";
+import { SpectatorGrid, TableStrip } from "@/components/tournament/floor/tables";
+import type { Match, TournamentDetail } from "@/components/tournament/types";
+import { sheetRatings, sheetTournament } from "../fixtures/tournament-sheet";
+
+const ratings = new Map(sheetRatings.map((row) => [row.playerId, { rating: row.rating, rank: row.rank }]));
+afterEach(() => vi.restoreAllMocks());
+
+function live(tournament: TournamentDetail, isHost = false) {
+  return render(
+    <SheetRoot>
+      <LiveView tournament={tournament} tournamentSlug="friday-night-12" ratings={ratings} isHost={isHost} onChanged={() => {}} narrow={false} />
+    </SheetRoot>,
+  );
+}
+
+const done = (m: Match): Match => ({ ...m, status: "completed", winnerId: m.playerOneId });
+const allDecided: TournamentDetail = { ...sheetTournament, status: "completed", matches: sheetTournament.matches.map(done) };
+
+describe("your field", () => {
+  it("shows both seats, the opponent's name and the actions of an open match", () => {
+    live(sheetTournament);
+    const field = screen.getByRole("region", { name: "Your match" });
+    expect(field).toHaveAttribute("id", expect.stringMatching(/^match-\d+$/));
+    expect(within(field).getAllByText("Imran").length).toBeGreaterThan(0);
+    expect(within(field).getByRole("button", { name: "Start duel" })).toBeInTheDocument();
+  });
+
+  it("names the stakes from the server and never says winnings", () => {
+    const match = sheetTournament.matches.find((m) => m.id === 1)!;
+    const { container } = live({ ...sheetTournament, stakes: { tournamentMatchId: match.id, opponentId: 3, win: 18, loss: -14 } });
+    expect(container).toHaveTextContent("+18");
+    expect(container).toHaveTextContent("−14");
+    expect(container.textContent ?? "").not.toMatch(/winnings/i);
+  });
+
+  it("gives a spectator the grid of every table instead of a field", () => {
+    live({ ...sheetTournament, isParticipant: false, currentUserPlayerId: null });
+    expect(screen.getByTestId("spectator-grid")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Your match" })).toBeNull();
+  });
+
+  it("crowns the champion of a finished tournament", () => {
+    live(allDecided);
+    const champ = screen.getByRole("region", { name: "Champion" });
+    expect(champ).toHaveTextContent(/wins Friday Night Duels #12/);
+  });
+
+  it("tells an early end apart from a finish: no champion", () => {
+    live({ ...sheetTournament, status: "completed" });
+    expect(screen.queryByRole("region", { name: "Champion" })).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent(/Ended early with \d+ matches unplayed\./);
+  });
+});
+
+describe("the tables of a round", () => {
+  it("lists a table per match with the viewer's table marked and a Watch link on live ones", () => {
+    const { container } = render(<SheetRoot><TableStrip tournament={sheetTournament} round={2} viewerId={5} /></SheetRoot>);
+    expect(screen.getByTestId("table-strip")).toHaveAttribute("id", "matches");
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(/^Round 2\. \d+ tables?\.$/);
+    expect(container.querySelectorAll("[data-table-score]").length).toBeGreaterThan(0);
+  });
+
+  it("marks the viewer's table", () => {
+    render(<SheetRoot><TableStrip tournament={sheetTournament} round={1} viewerId={5} /></SheetRoot>);
+    expect(screen.getAllByText("Your table").length).toBeGreaterThan(0);
+  });
+
+  it("the spectator grid puts a locator slot for each player on every table", () => {
+    const { container } = render(<SheetRoot><SpectatorGrid tournament={sheetTournament} round={1} viewerId={null} /></SheetRoot>);
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent(/^Round 1 of 5\. Every table\.$/);
+    const slots = container.querySelectorAll("[data-slot]");
+    expect(slots.length).toBeGreaterThan(0);
+    expect(slots[0].getAttribute("data-slot")).toMatch(/^\d+:\d+$/);
+  });
+});
+
+describe("the field as drawn in the mock", () => {
+  it("puts the tables of the round above the field, and both name the same round", () => {
+    live(sheetTournament);
+    const strip = screen.getByTestId("table-strip");
+    const field = screen.getByTestId("duel-field");
+    expect(strip.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(strip).getByRole("heading", { level: 2 })).toHaveTextContent("Round 1. 3 tables.");
+    expect(field).toHaveTextContent("Round 1. Not started.");
+  });
+
+  it("shows the record so far under each seat", () => {
+    live(sheetTournament);
+    const field = screen.getByTestId("duel-field");
+    expect(within(field).getAllByText(/^\d+–\d+ so far$/)).toHaveLength(2);
+    expect(within(field).queryByText(/here$/)).toBeNull();
+  });
+
+  it("always shows the big score and the game dots, 0 to 0 before it starts", () => {
+    live(sheetTournament);
+    const field = screen.getByTestId("duel-field");
+    expect(within(field).getByLabelText("Games 0 to 0")).toHaveTextContent("0 – 0");
+    expect(within(field).getByRole("img", { name: "Best of 3, 0 to 0" }).querySelectorAll("i")).toHaveLength(3);
+  });
+
+  it("labels the zones: Beat, Lost to, this round, and R-numbers with the opponent dim inside", () => {
+    live({ ...sheetTournament, matches: sheetTournament.matches.map((m) => (m.id === 8 ? { ...m, roundNumber: 1 } : m)) });
+    const field = screen.getByTestId("duel-field");
+    expect(within(field).getAllByText("Round 1").length).toBeGreaterThan(0);
+    expect(within(field).getAllByText(/^R\d$/).length).toBeGreaterThan(0);
+    expect(within(field).getAllByText(/^Beat [A-Z][a-z]$/).length).toBeGreaterThan(0);
+    expect(within(field).getAllByText(/^Lost to [A-Z][a-z]$/).length).toBeGreaterThan(0);
+  });
+
+  it("reads a finished table as who won and the score, and a live one with a dot and Watch", () => {
+    const { container } = render(<SheetRoot><TableStrip tournament={sheetTournament} round={1} viewerId={5} /></SheetRoot>);
+    expect(container).toHaveTextContent("Kestrel won 2–1.");
+    expect(container).not.toHaveTextContent("Final Kestrel");
+  });
+
+  it("shows the live table with Game N in progress and a Watch link", () => {
+    const { container } = render(<SheetRoot><TableStrip tournament={sheetTournament} round={2} viewerId={5} /></SheetRoot>);
+    expect(container).toHaveTextContent("Game 2 in progress");
+    expect(screen.getByRole("link", { name: "Watch" })).toHaveAttribute("href", "/duels/duel-4");
+    expect(container.querySelector(".sv-ldot")).not.toBeNull();
+  });
+
+  it("gives each spectator table both players' round slots beside their names, the dots, and the status under it", () => {
+    const { container } = render(<SheetRoot><SpectatorGrid tournament={sheetTournament} round={2} viewerId={null} /></SheetRoot>);
+    const tables = container.querySelectorAll('[data-st]');
+    expect(tables.length).toBe(3);
+    for (const table of Array.from(tables)) {
+      expect(table.querySelectorAll('[role="group"][aria-label$=", rounds"]')).toHaveLength(2);
+      expect(table.querySelector('[role="img"][aria-label^="Best of"]')).not.toBeNull();
+    }
+    expect(container).toHaveTextContent("Game 2 in progress");
+  });
+});

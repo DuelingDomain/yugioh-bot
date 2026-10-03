@@ -2,13 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Layers, Lock } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { DeckMark, StatusLine, SvButton } from "@/components/sheet";
 import { deckSummaryText, parseMyDeckState, registerErrorText, type MyDeckState } from "./my-deck-model";
 import type { TournamentDetail } from "./types";
-
-const SELECT_CLASS =
-  "native-select w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:border-accent-primary focus:outline-none disabled:opacity-60";
+import styles from "./my-deck.module.css";
 
 /**
  * "My deck" for a participant: the registered deck and its lock state, plus
@@ -100,69 +97,62 @@ export function MyDeckPanel({
   }
 
   return (
-    <section id="tournament-my-deck" data-testid="tournament-my-deck" className="rounded-xl border border-border bg-surface p-5">
-      <h2 className="mb-3 flex items-center gap-2 font-body text-sm font-semibold uppercase tracking-wider text-text-secondary">
-        <Layers className="h-4 w-4 text-accent-primary" aria-hidden="true" />
-        My deck
-      </h2>
+    <section id="tournament-my-deck" data-testid="tournament-my-deck" className={styles.panel}>
+      <h2 className={styles.h}>My deck</h2>
 
       {registration ? (
-        <p className="text-sm text-text-primary">
-          <span className="font-semibold text-accent-success">Registered</span>
-          {" · "}
-          {deckSummaryText(registeredName, registration.deck)}
+        <p className={styles.line}>
+          <DeckMark state="in" locked={locked} />
+          <span className={styles.summary}>{deckSummaryText(registeredName, registration.deck)}</span>
         </p>
       ) : (
-        <p className="text-sm text-accent-gold">No deck registered yet.</p>
+        <p className={styles.line}><DeckMark state="none" /></p>
       )}
 
       {locked ? (
-        <p className="mt-3 flex items-center gap-1.5 text-sm text-text-secondary">
-          <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-          Locked — your first tournament game started
-        </p>
+        <p className={styles.note}>Locked. Your first tournament game started.</p>
       ) : isDraft ? (
-        <div className="mt-3 space-y-3">
-          <p className="text-sm text-text-secondary">Your draft deck is used.</p>
-          <div className="flex flex-wrap items-center gap-3">
+        <div className={styles.stack}>
+          <p className={styles.note}>Your draft deck is used.</p>
+          <div className={styles.row}>
             {editDeckId !== null ? (
               // The pool editor enforces the draft pool limits; the generic editor does not.
-              <Link href={draftSlug ? `/decks/draft/${draftSlug}` : `/decks/${editDeckId}`} className="text-sm font-medium text-accent-primary hover:underline">
+              <Link href={draftSlug ? `/decks/draft/${draftSlug}` : `/decks/${editDeckId}`} className={styles.link}>
                 Edit draft deck
               </Link>
             ) : draftSlug ? (
-              <Link href={`/draft/${draftSlug}`} className="text-sm font-medium text-accent-primary hover:underline">
+              <Link href={`/draft/${draftSlug}`} className={styles.link}>
                 Build your deck from the draft
               </Link>
             ) : null}
             {registration == null && draftDeckOption !== null && (
-              <Button size="sm" loading={saving} onClick={() => handleRegister(draftDeckOption.id)}>
+              <SvButton variant="primary" disabled={saving} aria-busy={saving} onClick={() => handleRegister(draftDeckOption.id)}>
                 Register
-              </Button>
+              </SvButton>
             )}
           </div>
         </div>
       ) : (
-        <div className="mt-3 space-y-3">
+        <div className={styles.stack}>
           {savedDeckOptions.length === 0 ? (
-            <p className="text-sm text-text-secondary">
+            <p className={styles.note}>
               You have no saved decks.{" "}
-              <Link href="/decks/new" className="font-medium text-accent-primary hover:underline">
+              <Link href="/decks/new" className={styles.link}>
                 Build a deck
               </Link>{" "}
               and come back to register it.
             </p>
           ) : (
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <div className="flex-1">
-                <label htmlFor="my-deck-select" className="mb-1 block text-sm font-medium text-text-primary">
+            <div className={styles.pick}>
+              <div className={styles.field}>
+                <label htmlFor="my-deck-select" className={styles.label}>
                   Saved deck
                 </label>
                 <select
                   id="my-deck-select"
                   value={selectValue}
                   onChange={(e) => setSelected(e.target.value)}
-                  className={SELECT_CLASS}
+                  className={styles.select}
                 >
                   <option value="" disabled>
                     Choose a deck
@@ -174,18 +164,18 @@ export function MyDeckPanel({
                   ))}
                 </select>
               </div>
-              <Button size="md" loading={saving} disabled={!canSubmit} onClick={() => handleRegister(Number(selected))}>
+              <SvButton variant="primary" disabled={saving || !canSubmit} aria-busy={saving} onClick={() => handleRegister(Number(selected))}>
                 {savedNote ? "Saved" : registration ? "Change" : "Register"}
-              </Button>
+              </SvButton>
             </div>
           )}
         </div>
       )}
 
       {error && (
-        <p role="alert" className="mt-3 text-sm text-accent-cta">
-          {error}
-        </p>
+        <div role="alert" className={styles.err}>
+          <StatusLine tone="block">{error}</StatusLine>
+        </div>
       )}
     </section>
   );

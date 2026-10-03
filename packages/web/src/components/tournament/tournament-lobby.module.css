@@ -1,8 +1,24 @@
-/* The sheet's invite row is a fixed two-column grid. With two buttons it squeezed the link to nothing
-   on a phone, so let the buttons drop under the link when there isn't room beside it. */
-:global(.ms) .inviteRow.inviteRow { display: flex; flex-wrap: wrap; gap: 8px; }
-:global(.ms) .inviteRow > :global(.input) { flex: 1 1 260px; }
-:global(.ms) .inviteRow > :global(.acts) { display: flex; flex-wrap: wrap; gap: 8px; }
-/* Breathing room under the seat grid for the pairing note and the host's note. */
-:global(.ms) .pairNote.pairNote { margin: 10px 0 0; }
-:global(.ms) .seatsSec > :global(.inline-note) { margin-top: 12px; }
+/* The lobby: join, invite, who is in, and the host's start controls in the rail. */
+.lobby { display: grid; grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+.main { min-width: 0; padding: 28px 40px 60px; display: grid; gap: 28px; }
+.rail { padding-top: 6px; }
+.join { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 22px; border-bottom: 1px solid var(--rule-lo); }
+.joinT { margin: 0 0 6px; font: 600 24px/1.2 var(--f-display); color: var(--ink); }
+.joinN { margin: 0; color: var(--ink-2); font-size: 16px; line-height: 1.45; }
+.joined { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+.note { margin: 10px 0 0; color: var(--ink-3); font-size: 14px; line-height: 1.45; }
+.cmd { font-family: var(--f-num); color: var(--ink-2); }
+.invite, .seats, .deck { min-width: 0; }
+.who { min-width: 0; }
+.no { color: var(--ink-3); font-family: var(--f-num); font-size: 16px; }
+.host { color: var(--gold-ink); font-size: 13px; }
+.open { display: flex; align-items: center; gap: 12px; color: var(--ink-3); font-size: 15px; }
+.startActs { display: grid; gap: 10px; justify-items: start; }
+.startActs > :first-child { justify-self: stretch; }
+@container (max-width: 1060px) {
+  .lobby { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 760px) {
+  .main { padding: 20px 16px 24px; gap: 22px; }
+  .joinT { font-size: 21px; }
+}

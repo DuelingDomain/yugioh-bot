@@ -6,7 +6,7 @@ import type { TournamentDetail } from "./types";
 export interface RulesSummary {
   bestOf: number;
   rows: Array<{ label: string; value: string }>;
-  /** "Best of 3 · Normal · TCG September 2026 · 3 min turns" */
+  /** "Best of 3, Normal, TCG September 2026, 3 min turns" */
   line: string;
 }
 
@@ -30,7 +30,7 @@ export function rulesSummary(tournament: RulesSource): RulesSummary | null {
   const rules = rulesValueFromTournament(tournament);
   const bestOf = `Best of ${rules.bestOf}`;
   if (isDraftTournament(tournament)) {
-    return { bestOf: rules.bestOf, rows: [{ label: "Rules", value: "Draft pool, no banlist" }], line: `${bestOf} · Draft pool, no banlist` };
+    return { bestOf: rules.bestOf, rows: [{ label: "Rules", value: "Draft pool, no banlist" }], line: `${bestOf}, Draft pool, no banlist` };
   }
   const mode = rules.mode === "domain" ? "Domain" : "Normal";
   const banlist = DUEL_BANLIST_OPTIONS.find((option) => option.id === rules.banlist)?.label ?? rules.banlist;
@@ -43,6 +43,6 @@ export function rulesSummary(tournament: RulesSource): RulesSummary | null {
       { label: "Banlist", value: banlist },
       { label: "Turn time", value: turn },
     ],
-    line: [bestOf, mode, banlist, turnLine].join(" · "),
+    line: [bestOf, mode, banlist, turnLine].join(", "),
   };
 }

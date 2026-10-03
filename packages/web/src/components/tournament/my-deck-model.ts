@@ -54,10 +54,10 @@ export function parseMyDeckState(data: unknown): MyDeckState | null {
   return { registration, draft, savedDeckOptions };
 }
 
-/** "Name · 40 main · 15 extra · 15 side". */
+/** "Name, 40 main, 15 extra, 15 side". */
 export function deckSummaryText(name: string | null, deck: DuelDeck): string {
-  const counts = `${deck.main.length} main · ${deck.extra.length} extra · ${deck.side.length} side`;
-  return name ? `${name} · ${counts}` : counts;
+  const counts = `${deck.main.length} main, ${deck.extra.length} extra, ${deck.side.length} side`;
+  return name ? `${name}, ${counts}` : counts;
 }
 
 /** Text for an API failure of the register call, with deck issues when the API sends them. */

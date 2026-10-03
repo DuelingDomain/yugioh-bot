@@ -124,8 +124,8 @@ describe("my deck response", () => {
   });
 
   it("summarizes deck counts and joins validation issues to the error", () => {
-    expect(deckSummaryText("Goat", { main: [1, 2], extra: [3], side: [] })).toBe("Goat · 2 main · 1 extra · 0 side");
-    expect(deckSummaryText(null, { main: [], extra: [], side: [] })).toBe("0 main · 0 extra · 0 side");
+    expect(deckSummaryText("Goat", { main: [1, 2], extra: [3], side: [] })).toBe("Goat, 2 main, 1 extra, 0 side");
+    expect(deckSummaryText(null, { main: [], extra: [], side: [] })).toBe("0 main, 0 extra, 0 side");
     expect(registerErrorText({ error: "Deck is not legal.", report: { issues: [{ message: "Too few cards." }] } }, "x")).toBe(
       "Deck is not legal. Too few cards.",
     );
