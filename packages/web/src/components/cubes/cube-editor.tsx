@@ -2,9 +2,9 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Check, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Check, Download, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { PageFrame } from "@/components/decks/page-frame";
-import { ConfirmPanel, SectionHead, SizeBar, StatusLine, SvButton, Zone } from "@/components/sheet";
+import { ConfirmPanel, Segmented, StatusLine, SvButton, svButtonClass, Zone } from "@/components/sheet";
 import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
 import { isExtraDeckCardClient, poolToGridCards, type CubeCardDto, type CubePoolsDto } from "@/lib/cube-pools";
@@ -24,17 +24,9 @@ import {
 import { CubeInspector } from "./cube-inspector";
 import { CubeBottomSheet, UndoToast } from "./cube-sheet";
 import { parseAddTab } from "./library-model";
-import {
-  cardsToRaise,
-  clampCopies,
-  cubeReadiness,
-  poolTotals,
-  THEME_CHOICES,
-  THEME_EXTRA_CARDS,
-  THEME_EXTRA_NEEDED,
-  THEME_MAIN_CARDS,
-  THEME_MAIN_NEEDED,
-} from "./readiness";
+import { clampCopies, poolTotals, type BoosterSettings } from "./readiness";
+import { CubeCheck } from "./cube-check";
+import { CUBE_DRAFT_TYPES, CUBE_TYPE_HINTS, CUBE_TYPE_LABELS, type CubeDraftType } from "@/lib/cube-type";
 import styles from "./cubes.module.css";
 
 interface CubeDto {
@@ -42,6 +34,10 @@ interface CubeDto {
   name: string;
   archetype: string | null;
   banlist: string | null;
+  /** Absent in an old response: a cube with no type is "any". */
+  draftType?: CubeDraftType;
+  /** Pack settings the cube's saved config carries, for the cube draft check. */
+  settings?: BoosterSettings;
 }
 
 type PoolName = "main" | "extra";
@@ -80,6 +76,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
   const [editingName, setEditingName] = React.useState(false);
   const [nameDraft, setNameDraft] = React.useState("");
   const [savingName, setSavingName] = React.useState(false);
+  const [savingType, setSavingType] = React.useState(false);
   const [confirmingDelete, setConfirmingDelete] = React.useState(false);
   const [activePool, setActivePool] = React.useState<PoolName>("main");
   const [view, setView] = React.useState<PoolView>(DEFAULT_VIEW);
@@ -150,7 +147,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
         return null;
       }
       applyDetail({ pools: data.pools, cards: data.cards });
-      return { added: data.added, unknown: data.unknown };
+      return { added: data.added, unknown: data.unknown, copies: data.copies };
     } finally {
       setBusy(false);
     }
@@ -261,6 +258,29 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
     }
   };
 
+  const draftType: CubeDraftType = cube?.draftType ?? "any";
+
+  const saveType = async (next: CubeDraftType) => {
+    if (next === draftType || savingType) return;
+    setSavingType(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/cubes/${cubeId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draftType: next }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(data.error ?? "Failed to change the cube type.");
+        return;
+      }
+      setCube((cur) => (cur ? { ...cur, draftType: next } : cur));
+    } finally {
+      setSavingType(false);
+    }
+  };
+
   const deleteCube = async () => {
     setBusy(true);
     setError(null);
@@ -282,7 +302,6 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
 
   const mainTotals = poolTotals(pools.main);
   const extraTotals = poolTotals(pools.extra);
-  const readiness = cubeReadiness(mainTotals.usable, extraTotals.usable);
 
   const activeEntries = pools[activePool];
   const grid = poolToGridCards(activeEntries, cardsById);
@@ -309,6 +328,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
     onAddCard: addCard,
     onSeedArchetype: (archetype: string) => mutate({ op: "seedArchetype", archetype }),
     onImportCodes: (codes: number[]) => mutate({ op: "import", codes }),
+    onImportYdk: (text: string) => mutate({ op: "importYdk", text }),
   };
 
   const inspector = selected ? (
@@ -324,39 +344,6 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
     />
   ) : null;
 
-  const raise = cardsToRaise(pools.main, readiness.main.short);
-
-  const mainRow = (
-    <div className={styles.rdRow}>
-      <span>Main</span>
-      <SizeBar
-        className={styles.rdSize}
-        label={`${readiness.main.have} of ${THEME_MAIN_NEEDED} main copies`}
-        value={readiness.main.have}
-        min={THEME_MAIN_NEEDED}
-        max={Math.max(THEME_MAIN_NEEDED, readiness.main.have)}
-      />
-      <span className={styles.rdVal} data-short={readiness.main.short > 0 ? "true" : undefined}>
-        <b>{readiness.main.have}</b> / {THEME_MAIN_NEEDED}
-      </span>
-    </div>
-  );
-  const extraRow = (
-    <div className={styles.rdRow}>
-      <span>Extra</span>
-      <SizeBar
-        className={styles.rdSize}
-        label={`${readiness.extra.have} of ${THEME_EXTRA_NEEDED} Extra copies`}
-        value={readiness.extra.have}
-        min={THEME_EXTRA_NEEDED}
-        max={Math.max(THEME_EXTRA_NEEDED, readiness.extra.have)}
-      />
-      <span className={styles.rdVal}>
-        <b>{readiness.extra.have}</b> / {THEME_EXTRA_NEEDED}
-      </span>
-    </div>
-  );
-
   return (
     <PageFrame
       back={{ href: backHref, label: backLabel }}
@@ -367,6 +354,10 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
             <Pencil size={16} aria-hidden="true" />
             Rename
           </SvButton>
+          <a className={svButtonClass("ghost")} href={`/api/cubes/${cubeId}/ydk`} download title="Download this cube as a .ydk file">
+            <Download size={16} aria-hidden="true" />
+            Export YDK
+          </a>
           <SvButton variant="danger" disabled={busy} onClick={() => setConfirmingDelete(true)}>
             <Trash2 size={16} aria-hidden="true" />
             Delete cube
@@ -418,6 +409,16 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
             {cube?.banlist ? <span>{cube.banlist} banlist</span> : null}
             {busy ? <span className={styles.busy}>Saving…</span> : null}
           </p>
+          <div className={styles.typePick}>
+            <Segmented
+              label="Cube type"
+              value={draftType}
+              disabled={savingType}
+              options={CUBE_DRAFT_TYPES.map((value) => ({ value, label: CUBE_TYPE_LABELS[value] }))}
+              onChange={(value) => void saveType(value)}
+            />
+            <p className="hint">{CUBE_TYPE_HINTS[draftType]}</p>
+          </div>
           <p className={styles.counts}>
             <span>
               Main <b>{mainTotals.cards}</b> {plural(mainTotals.cards, "card", "cards")}, <b>{mainTotals.copies}</b>{" "}
@@ -429,35 +430,7 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
             </span>
           </p>
         </div>
-        <section className={styles.check} aria-labelledby="ce-rd">
-          <SectionHead
-            id="ce-rd"
-            title="Theme draft check"
-            note={`${THEME_CHOICES} choices a pick, ${THEME_MAIN_CARDS} main and ${THEME_EXTRA_CARDS} extra`}
-          />
-          {mainRow}
-          {extraRow}
-          {readiness.state === "blocked" ? (
-            <StatusLine tone="warn">
-              <b>
-                {readiness.main.short} main {plural(readiness.main.short, "copy", "copies")} short.
-              </b>{" "}
-              A theme draft can&apos;t start with it.{" "}
-              {raise != null
-                ? `Raising ${raise} main ${plural(raise, "card", "cards")} to ×3 covers it.`
-                : "Add more main cards to cover it."}
-            </StatusLine>
-          ) : readiness.state === "soft" ? (
-            <StatusLine tone="neutral">
-              <b>Extra may come up short.</b> {readiness.extra.have} of {THEME_EXTRA_NEEDED} Extra copies. A theme
-              draft still starts.
-            </StatusLine>
-          ) : (
-            <StatusLine tone="ready">
-              <b>Ready for a theme draft.</b> Main and Extra both covered.
-            </StatusLine>
-          )}
-        </section>
+        <CubeCheck type={draftType} pools={pools} settings={cube?.settings} />
       </section>
 
       {error && (

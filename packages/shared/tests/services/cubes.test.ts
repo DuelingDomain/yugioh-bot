@@ -162,6 +162,112 @@ describe("cube service core", () => {
     expect(res.unknown).toEqual([9999999]);
   });
 
+  describe("passcode lookups that fail", () => {
+    /** A catalog whose card database answers HTTP 400 for an unknown id, as YGOPRODeck does. */
+    function rejectingSetup(failure: "http400" | "offline" = "http400") {
+      const db = new Database(":memory:");
+      migrate(db);
+      const calls: string[] = [];
+      const catalog = createCardCatalogService(db, {
+        fetch: async (input) => {
+          calls.push(String(input));
+          if (failure === "offline") throw new Error("fetch failed");
+          return { ok: false, status: 400, async json() { return { error: "No card matching your query" }; } } as Response;
+        },
+      });
+      seedCard(db, 1, "Main A", "Normal Monster", "normal");
+      seedCard(db, 2, "Xyz B", "XYZ Monster", "xyz");
+      return { db, calls, cubes: createCubeService(db, catalog) };
+    }
+
+    it("treats an HTTP 400 as an unknown passcode and still imports the rest", async () => {
+      const { cubes, calls } = rejectingSetup();
+      const cube = cubes.createBlank("g", "Custom", "u");
+      const res = await cubes.importPasscodes(cube.id, [1, 777, 2, 1]);
+      expect(calls).toHaveLength(1);
+      expect(res).toEqual({ added: 2, unknown: [777] });
+      expect(cubes.getCubePools(cube.id).main.map((c) => [c.catalogCardId, c.maxCopies])).toEqual([[1, 2]]);
+      expect(cubes.getCubePools(cube.id).extra.map((c) => c.catalogCardId)).toEqual([2]);
+    });
+
+    it("writes nothing when the card database cannot be reached, so a retry cannot double copies", async () => {
+      const { cubes } = rejectingSetup("offline");
+      const cube = cubes.createBlank("g", "Custom", "u");
+      await expect(cubes.importPasscodes(cube.id, [1, 777])).rejects.toThrow(/Could not reach the card database/);
+      expect(cubes.getCubePools(cube.id)).toEqual({ main: [], extra: [] });
+    });
+
+    it("looks up every group before it writes any", async () => {
+      const { cubes } = rejectingSetup("offline");
+      const cube = cubes.createBlank("g", "Custom", "u");
+      await expect(
+        cubes.importPasscodeGroups(cube.id, [{ codes: [1] }, { codes: [2, 888], pool: "extra" }]),
+      ).rejects.toThrow();
+      expect(cubes.getCubePools(cube.id)).toEqual({ main: [], extra: [] });
+
+    });
+
+    it("rolls the whole import back when a write fails half way", async () => {
+      const { db, cubes } = rejectingSetup();
+      const cube = cubes.createBlank("g", "Custom", "u");
+      db.prepare(
+        "create trigger boom before insert on cube_cards when new.catalog_card_id = 2 begin select raise(abort, 'boom'); end",
+      ).run();
+      await expect(
+        cubes.importPasscodeGroups(cube.id, [{ codes: [1] }, { codes: [2], pool: "extra" }]),
+      ).rejects.toThrow(/boom/);
+      expect(cubes.getCubePools(cube.id)).toEqual({ main: [], extra: [] });
+    });
+
+    it("imports several groups at once, each into its own pool, and counts distinct cards", async () => {
+      const { cubes } = rejectingSetup();
+      const cube = cubes.createBlank("g", "Custom", "u");
+      const res = await cubes.importPasscodeGroups(cube.id, [
+        { codes: [1, 1, 1] },
+        { codes: [2, 999], pool: "extra" },
+      ]);
+      expect(res).toEqual({ added: 2, unknown: [999] });
+      const pools = cubes.getCubePools(cube.id);
+      expect(pools.main.map((c) => [c.catalogCardId, c.maxCopies])).toEqual([[1, 3]]);
+      expect(pools.extra.map((c) => [c.catalogCardId, c.maxCopies])).toEqual([[2, 1]]);
+    });
+  });
+
+  describe("save over an existing cube", () => {
+    const raw = (db: Database.Database, id: number) =>
+      JSON.parse((db.prepare("select config_json from cubes where id = ?").get(id) as { config_json: string }).config_json);
+
+    it("replaces the draft config but keeps the cube type", () => {
+      const { db, cubes } = setup();
+      const cube = cubes.save("g", "Pool", { customCardIds: [1, 2], packSize: 9 }, "u");
+      db.prepare("update cubes set config_json = ? where id = ?").run(
+        JSON.stringify({ customCardIds: [1, 2], packSize: 9, draftType: "theme" }),
+        cube.id,
+      );
+      const again = cubes.save("g", "Pool", { setNames: ["LOB"], packSize: 12 }, "u2");
+      expect(again.id).toBe(cube.id);
+      expect(raw(db, cube.id)).toEqual({ setNames: ["LOB"], packSize: 12, draftType: "theme" });
+    });
+
+    it("lets a config that names a type win, and adds nothing to a cube that had none", () => {
+      const { db, cubes } = setup();
+      const cube = cubes.save("g", "Pool", { packSize: 9 }, "u");
+      cubes.save("g", "Pool", { packSize: 10 }, "u");
+      expect(raw(db, cube.id)).toEqual({ packSize: 10 });
+      cubes.save("g", "Pool", { packSize: 10, draftType: "booster" }, "u");
+      cubes.save("g", "Pool", { packSize: 11, draftType: "any" }, "u");
+      expect(raw(db, cube.id)).toEqual({ packSize: 11, draftType: "any" });
+    });
+
+    it("survives an unreadable old config", () => {
+      const { db, cubes } = setup();
+      const cube = cubes.save("g", "Pool", { packSize: 9 }, "u");
+      db.prepare("update cubes set config_json = 'not json' where id = ?").run(cube.id);
+      cubes.save("g", "Pool", { packSize: 10 }, "u");
+      expect(raw(db, cube.id)).toEqual({ packSize: 10 });
+    });
+  });
+
   it("seedArchetypeInto additively pulls an archetype into an existing cube", async () => {
     const db = new Database(":memory:");
     migrate(db);

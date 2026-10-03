@@ -1461,4 +1461,30 @@ describe("command handlers", () => {
       ),
     ).rejects.toThrow("Only the event creator can do that");
   });
+
+  it("/draft template save over an existing cube replaces the draft config but keeps what the cube is for", async () => {
+    const app = setup();
+    const yugi = { id: "user-7", username: "Yugi" };
+    const player = app.players.upsert("guild-1", yugi.id, "Yugi");
+    const draft = app.drafts.create("guild-1", "channel-1", "cube night", { packSize: 12, setNames: ["Metal Raiders"] }, yugi.id, player.id);
+    const cube = app.templates.save("guild-1", "Weekend", { packSize: 9, customCardIds: [1, 2] }, yugi.id);
+    app.db
+      .prepare("update cubes set config_json = ? where id = ?")
+      .run(JSON.stringify({ packSize: 9, customCardIds: [1, 2], draftType: "booster" }), cube.id);
+
+    const { interaction, replies } = fakeInteraction({
+      commandName: "draft",
+      subcommandGroup: "template",
+      subcommand: "save",
+      user: yugi,
+      strings: { name: "Weekend", draft: draft.name },
+    });
+    await handleCommand(interaction, app);
+
+    expect(replies[0]).toBe("Saved template: Weekend.");
+    const saved = JSON.parse((app.db.prepare("select config_json from cubes where id = ?").get(cube.id) as { config_json: string }).config_json);
+    expect(saved).toMatchObject({ packSize: 12, setNames: ["Metal Raiders"], draftType: "booster" });
+    // The old pool keys are replaced, not merged.
+    expect(saved.customCardIds).toBeUndefined();
+  });
 });

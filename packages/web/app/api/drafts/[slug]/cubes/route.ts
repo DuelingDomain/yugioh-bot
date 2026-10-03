@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createDraftService, createCubeService } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
+import { setCubeDraftType } from "@/lib/cube-type";
 
 export const runtime = "nodejs";
 
@@ -85,6 +86,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       }
       cube = cubes.createBlank(guildId, name, session.user.id);
     }
+    // A cube made inside a theme draft is for theme drafts. An attached library cube keeps its type.
+    if (body.kind !== "existing") setCubeDraftType(db, cube.id, "theme");
 
     const allowedCubeIds = [...(draft.config.allowedCubeIds ?? []), cube.id];
     persistAllowedCubeIds(db, row.id, allowedCubeIds);

@@ -5,6 +5,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
 import { cubeDetail } from "@/lib/cube-detail";
+import { cubeDraftSettingsOf, cubeDraftTypeOf, parseCubeDraftType, setCubeDraftType } from "@/lib/cube-type";
 
 export const runtime = "nodejs";
 
@@ -32,9 +33,19 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const catalog = createCardCatalogService(db);
   const cubes = createCubeService(db, catalog);
   const cube = db
-    .prepare("select id, guild_id, name, archetype, banlist, created_by_user_id from cubes where id = ? and guild_id = ?")
+    .prepare(
+      "select id, guild_id, name, archetype, banlist, created_by_user_id, config_json from cubes where id = ? and guild_id = ?",
+    )
     .get(ctx.cubeId, ctx.guildId) as
-    | { id: number; guild_id: string; name: string; archetype: string | null; banlist: string | null; created_by_user_id: string }
+    | {
+        id: number;
+        guild_id: string;
+        name: string;
+        archetype: string | null;
+        banlist: string | null;
+        created_by_user_id: string;
+        config_json: string | null;
+      }
     | undefined;
   if (!cube) {
     return NextResponse.json({ error: "Cube not found" }, { status: 404 });
@@ -48,6 +59,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       archetype: cube.archetype,
       banlist: cube.banlist,
       createdByUserId: cube.created_by_user_id,
+      draftType: cubeDraftTypeOf(cube.config_json),
+      settings: cubeDraftSettingsOf(cube.config_json),
     },
     ...cubeDetail(ctx.cubeId, cubes, catalog),
   });
@@ -60,13 +73,23 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   const db = getDb();
   const denied = await cubeWriteAccess(db, ctx.cubeId, ctx.userId);
   if (denied) return denied;
-  const body = (await request.json().catch(() => ({}))) as { name?: string };
-  const cubes = createCubeService(db, createCardCatalogService(db));
-  const result = cubes.renameCube(ctx.cubeId, body.name ?? "");
-  if ("error" in result) {
-    const status = result.error === "Cube not found" ? 404 : result.error === "name is required" ? 400 : 409;
-    return NextResponse.json({ error: result.error }, { status });
+  const body = (await request.json().catch(() => ({}))) as { name?: string; draftType?: string };
+  const draftType = body.draftType === undefined ? null : parseCubeDraftType(body.draftType);
+  if (body.draftType !== undefined && !draftType) {
+    return NextResponse.json({ error: "draftType must be theme, booster or any" }, { status: 400 });
   }
+  if (body.name === undefined && !draftType) {
+    return NextResponse.json({ error: "name or draftType is required" }, { status: 400 });
+  }
+  if (body.name !== undefined) {
+    const cubes = createCubeService(db, createCardCatalogService(db));
+    const result = cubes.renameCube(ctx.cubeId, body.name);
+    if ("error" in result) {
+      const status = result.error === "Cube not found" ? 404 : result.error === "name is required" ? 400 : 409;
+      return NextResponse.json({ error: result.error }, { status });
+    }
+  }
+  if (draftType) setCubeDraftType(db, ctx.cubeId, draftType);
   return NextResponse.json({ ok: true });
 }
 

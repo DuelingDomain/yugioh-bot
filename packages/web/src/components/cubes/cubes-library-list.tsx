@@ -4,7 +4,8 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
-import { FloorList, FloorRow, StatusLine, SvButton, Zone } from "@/components/sheet";
+import { FloorList, FloorRow, Segmented, StatusLine, SvButton, Zone } from "@/components/sheet";
+import { CUBE_DRAFT_TYPES, CUBE_TYPE_HINTS, CUBE_TYPE_LABELS, type CubeDraftType } from "@/lib/cube-type";
 import { PageFrame } from "@/components/decks/page-frame";
 import { isDraftTemplate, nextCubeName, type AddTab, type CubeSummary } from "./library-model";
 import styles from "./cubes.module.css";
@@ -105,6 +106,7 @@ function CubeRow({
         <p className={styles.facts}>
           {cube.archetype ? <span>Seeded from <b>{cube.archetype}</b></span> : <span>Built by hand</span>}
           {cube.banlist ? <span>{cube.banlist} banlist</span> : null}
+          {cube.draftType && cube.draftType !== "any" ? <span>{CUBE_TYPE_LABELS[cube.draftType]}</span> : null}
         </p>
         <p className={styles.counts}>
           <span>Main <b>{cube.mainCount}</b> cards</span>
@@ -124,6 +126,9 @@ export function CubesLibraryList() {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [confirmId, setConfirmId] = React.useState<number | null>(null);
+  // The "what is this cube for" step that comes before a cube is made.
+  const [chooser, setChooser] = React.useState<{ tab?: AddTab } | null>(null);
+  const [newType, setNewType] = React.useState<CubeDraftType>("any");
 
   const load = React.useCallback(() => {
     setLoading(true);
@@ -179,10 +184,12 @@ export function CubesLibraryList() {
     }
   };
 
-  // Create a fresh blank cube (auto-named to avoid collisions) and jump straight
-  // into its editor, where the user names it and builds the pool.
-  const addCube = (tab?: AddTab) => {
-    void create({ kind: "blank", name: nextCubeName(cubes.map((c) => c.name)) }, tab);
+  // New cube: ask what it is for first, then create a blank, auto-named one (no name
+  // collisions) and jump into its editor, where the user names it and builds the pool.
+  const askType = (tab?: AddTab) => setChooser({ tab });
+  const createChosen = () => {
+    const tab = chooser?.tab;
+    void create({ kind: "blank", name: nextCubeName(cubes.map((c) => c.name)), draftType: newType }, tab);
   };
 
   return (
@@ -190,7 +197,7 @@ export function CubesLibraryList() {
       title="Cubes"
       sub={!loading && !loadFailed && cubes.length > 0 ? `${cubes.length} ${cubes.length === 1 ? "cube" : "cubes"}` : undefined}
       actions={
-        <SvButton variant="primary" disabled={busy || loading} onClick={() => addCube()}>
+        <SvButton variant="primary" disabled={busy || loading} onClick={() => askType()}>
           <Plus size={16} aria-hidden="true" />
           New cube
         </SvButton>
@@ -199,6 +206,28 @@ export function CubesLibraryList() {
       <p className={styles.lede}>
         Reusable card pools for cube drafts and theme drafts. Anyone on the server can use them; only the creator or an admin can edit one.
       </p>
+
+      {chooser && (
+        <section className={styles.newCube} aria-label="New cube">
+          <h2>What is this cube for?</h2>
+          <Segmented
+            label="Cube type"
+            value={newType}
+            disabled={busy}
+            options={CUBE_DRAFT_TYPES.map((value) => ({ value, label: CUBE_TYPE_LABELS[value] }))}
+            onChange={setNewType}
+          />
+          <p className="hint">{CUBE_TYPE_HINTS[newType]} You can change this later.</p>
+          <div className={styles.newActs}>
+            <SvButton variant="primary" disabled={busy} onClick={createChosen}>
+              Create cube
+            </SvButton>
+            <SvButton variant="quiet" disabled={busy} onClick={() => setChooser(null)}>
+              Cancel
+            </SvButton>
+          </div>
+        </section>
+      )}
 
       {error && (
         <div role="alert">
@@ -238,13 +267,13 @@ export function CubesLibraryList() {
               time.
             </p>
             <div className={styles.emptyActs}>
-              <SvButton variant="ghost" disabled={busy} onClick={() => addCube("archetype")}>
+              <SvButton variant="ghost" disabled={busy} onClick={() => askType("archetype")}>
                 From an archetype
               </SvButton>
-              <SvButton variant="ghost" disabled={busy} onClick={() => addCube("passcodes")}>
+              <SvButton variant="ghost" disabled={busy} onClick={() => askType("passcodes")}>
                 From passcodes
               </SvButton>
-              <SvButton variant="quiet" disabled={busy} onClick={() => addCube()}>
+              <SvButton variant="quiet" disabled={busy} onClick={() => askType()}>
                 Blank cube
               </SvButton>
             </div>

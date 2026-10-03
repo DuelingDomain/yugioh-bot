@@ -90,4 +90,62 @@ describe("CubesLibraryList", () => {
     expect(await screen.findByText(/Couldn.t load your cubes/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Retry/ })).toBeInTheDocument();
   });
+
+  describe("cube type", () => {
+    it("asks what the cube is for before it creates one, and sends the choice", async () => {
+      const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) =>
+        init?.method === "POST"
+          ? Response.json({ cube: { id: 11 } }, { status: 201 })
+          : Response.json({ cubes }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      render(<CubesLibraryList />);
+      await screen.findByRole("link", { name: "Blue-Eyes pool" });
+      fireEvent.click(screen.getByRole("button", { name: "New cube" }));
+      expect(screen.getByRole("heading", { name: "What is this cube for?" })).toBeInTheDocument();
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+      expect(screen.getByRole("button", { name: "Any" })).toHaveAttribute("aria-pressed", "true");
+      fireEvent.click(screen.getByRole("button", { name: "Cube draft" }));
+      fireEvent.click(screen.getByRole("button", { name: "Create cube" }));
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/cubes/11"));
+      const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+      expect(JSON.parse(String(post[1]?.body))).toMatchObject({ kind: "blank", draftType: "booster" });
+    });
+
+    it("creates an Any cube by default and cancels without creating", async () => {
+      const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) =>
+        init?.method === "POST" ? Response.json({ cube: { id: 12 } }, { status: 201 }) : Response.json({ cubes }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      render(<CubesLibraryList />);
+      await screen.findByRole("link", { name: "Blue-Eyes pool" });
+      fireEvent.click(screen.getByRole("button", { name: "New cube" }));
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(screen.queryByRole("heading", { name: "What is this cube for?" })).toBeNull();
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+      fireEvent.click(screen.getByRole("button", { name: "New cube" }));
+      fireEvent.click(screen.getByRole("button", { name: "Create cube" }));
+      await waitFor(() => expect(push).toHaveBeenCalledWith("/cubes/12"));
+      const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST")!;
+      expect(JSON.parse(String(post[1]?.body)).draftType).toBe("any");
+    });
+
+    it("shows the type on a row only when it is not Any", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () =>
+          Response.json({
+            cubes: [
+              { ...cubes[0], draftType: "theme" },
+              { ...cubes[0], id: 3, name: "Open pool", draftType: "any" },
+            ],
+          }),
+        ),
+      );
+      render(<CubesLibraryList />);
+      const themed = (await screen.findByRole("link", { name: "Blue-Eyes pool" })).closest("li")!;
+      expect(themed).toHaveTextContent("Theme cube");
+      expect(screen.getByRole("link", { name: "Open pool" }).closest("li")).not.toHaveTextContent(/Theme cube|Cube draft/);
+    });
+  });
 });

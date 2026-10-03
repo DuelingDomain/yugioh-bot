@@ -87,13 +87,15 @@ export function CreateDraftForm() {
             customCardIds?: number[];
             mainCards?: SavedPoolCard[];
             extraCount?: number;
+            draftType?: string;
           }>;
         }) => {
           if (cancelled) return;
           // A cube's pool is its config sets/passcodes plus the cards in its main pool (a card
           // once per copy); surface both as loadable saved pools for the shared cube draft.
+          // A cube made for theme drafts stays out of this list; theme-less ("any") ones show.
           setTemplates(
-            (data.cubes ?? []).map((c) => ({
+            (data.cubes ?? []).filter((c) => c.draftType !== "theme").map((c) => ({
               id: c.id,
               name: c.name,
               config: { setNames: c.setNames ?? [], customCardIds: savedPoolIds(c.customCardIds, c.mainCards) },

@@ -114,6 +114,150 @@ describe("cube API routes", () => {
     ).toEqual({ max_copies: 99 });
   });
 
+  it("imports a YDK file into a cube, merging copies and reporting unknown passcodes", async () => {
+    await setupDb();
+    // The catalog asks ygoprodeck about a passcode it does not know; answer with no card.
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [] })));
+    const { POST: createCube } = await import("../app/api/cubes/route");
+    const created = await createCube(
+      new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Imported" }) }) as any,
+    );
+    const { cube } = await created.json();
+    const { POST: mutate } = await import("../app/api/cubes/[id]/cards/route");
+    const post = (body: object) =>
+      mutate(new Request("http://x", { method: "POST", body: JSON.stringify(body) }) as any, {
+        params: Promise.resolve({ id: String(cube.id) }),
+      });
+
+    const first = await post({ op: "importYdk", text: "#created by x\n#main\n1\n1\n1\n#extra\n2\n!side\n777\n" });
+    expect(first.status).toBe(200);
+    const body = await first.json();
+    expect(body).toMatchObject({ added: 2, copies: 4, unknown: [777] });
+    expect(body.pools.main.map((c: any) => [c.catalogCardId, c.maxCopies])).toEqual([[1, 3]]);
+    expect(body.pools.extra.map((c: any) => [c.catalogCardId, c.maxCopies])).toEqual([[2, 1]]);
+
+    const second = await (await post({ op: "importYdk", text: "#main\n1\n" })).json();
+    expect(second.pools.main[0].maxCopies).toBe(4);
+
+    const cap = await (await post({ op: "importYdk", text: `#main\n${"1\n".repeat(150)}` })).json();
+    expect(cap.pools.main[0].maxCopies).toBe(99);
+
+    for (const text of ["", "   ", 5, "# only a comment\n", "x".repeat(600_000), "#deckmaster\n1\n#deckmaster\n2\n"]) {
+      expect((await post({ op: "importYdk", text })).status).toBe(400);
+    }
+  });
+
+  describe("import limits", () => {
+    async function cubeAndPost() {
+      await setupDb();
+      vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [] })));
+      const { POST: createCube } = await import("../app/api/cubes/route");
+      const created = await createCube(
+        new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Limits" }) }) as any,
+      );
+      const { cube } = await created.json();
+      const { POST: mutate } = await import("../app/api/cubes/[id]/cards/route");
+      return (body: object) =>
+        mutate(new Request("http://x", { method: "POST", body: JSON.stringify(body) }) as any, {
+          params: Promise.resolve({ id: String(cube.id) }),
+        });
+    }
+    const distinct = (n: number) => Array.from({ length: n }, (_, i) => 1_000_000 + i);
+
+    it("rejects YDK text over 64 KB and more than 1000 different passcodes, with a clear message", async () => {
+      const post = await cubeAndPost();
+      const big = await post({ op: "importYdk", text: `#main\n${"1\n".repeat(33_000)}` });
+      expect(big.status).toBe(400);
+      expect((await big.json()).error).toMatch(/64 KB/);
+
+      const many = await post({ op: "importYdk", text: `#main\n${distinct(1001).join("\n")}\n` });
+      expect(many.status).toBe(400);
+      expect((await many.json()).error).toBe("That list has 1001 different cards. Import at most 1000 at a time.");
+
+      const ok = await post({ op: "importYdk", text: `#main\n${distinct(1000).join("\n")}\n` });
+      expect(ok.status).toBe(200);
+      expect((await ok.json()).unknown).toHaveLength(1000);
+    });
+
+    it("applies the same cap to the passcode import, counting different cards and not copies", async () => {
+      const post = await cubeAndPost();
+      const many = await post({ op: "import", codes: distinct(1001) });
+      expect(many.status).toBe(400);
+      expect((await many.json()).error).toMatch(/1001 different cards/);
+      const copies = await post({ op: "import", codes: Array.from({ length: 3000 }, () => 1) });
+      expect(copies.status).toBe(200);
+    });
+
+    it("lists a passcode the card database answers with HTTP 400 as unknown", async () => {
+      const post = await cubeAndPost();
+      const discordFetch = globalThis.fetch;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+          String(input).includes("ygoprodeck") ? new Response("{}", { status: 400 }) : discordFetch(input, init),
+        ),
+      );
+      const res = await post({ op: "importYdk", text: "#main\n1\n777\n#extra\n2\n888\n" });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toMatchObject({ added: 2, unknown: [777, 888] });
+      expect(body.pools.main.map((c: any) => c.catalogCardId)).toEqual([1]);
+      expect(body.pools.extra.map((c: any) => c.catalogCardId)).toEqual([2]);
+    });
+  });
+
+  it("exports a cube as a .ydk download named after the cube", async () => {
+    await setupDb();
+    const { POST: createCube } = await import("../app/api/cubes/route");
+    const created = await createCube(
+      new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Stun: pool" }) }) as any,
+    );
+    const { cube } = await created.json();
+    const { POST: mutate } = await import("../app/api/cubes/[id]/cards/route");
+    for (const op of [
+      { op: "add", catalogCardId: 1, pool: "main", maxCopies: 2 },
+      { op: "add", catalogCardId: 2, pool: "extra", maxCopies: 3 },
+    ]) {
+      await mutate(new Request("http://x", { method: "POST", body: JSON.stringify(op) }) as any, {
+        params: Promise.resolve({ id: String(cube.id) }),
+      });
+    }
+
+    const { GET: exportYdk } = await import("../app/api/cubes/[id]/ydk/route");
+    const res = await exportYdk(new Request("http://x") as any, { params: Promise.resolve({ id: String(cube.id) }) });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-disposition")).toContain('filename="Stun pool.ydk"');
+    expect(await res.text()).toBe("#created by Duelists Kingdom\n#main\n1\n1\n#extra\n2\n2\n2\n!side\n");
+
+    const missing = await exportYdk(new Request("http://x") as any, { params: Promise.resolve({ id: "9999" }) });
+    expect(missing.status).toBe(404);
+
+    // A cube from another guild is not readable.
+    const { getDb } = await import("../src/lib/db");
+    const foreign = Number(
+      getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other-guild','Foreign','x')").run()
+        .lastInsertRowid,
+    );
+    const hidden = await exportYdk(new Request("http://x") as any, { params: Promise.resolve({ id: String(foreign) }) });
+    expect(hidden.status).toBe(404);
+  });
+
+  it("percent-encodes ' ( ) ! in the UTF-8 file name of the download", async () => {
+    await setupDb();
+    const { POST: createCube } = await import("../app/api/cubes/route");
+    const created = await createCube(
+      new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Dark (Magician)! O'Neil *é" }) }) as any,
+    );
+    const { cube } = await created.json();
+    const { GET: exportYdk } = await import("../app/api/cubes/[id]/ydk/route");
+    const res = await exportYdk(new Request("http://x") as any, { params: Promise.resolve({ id: String(cube.id) }) });
+    const header = res.headers.get("content-disposition")!;
+    const encoded = header.split("filename*=UTF-8''")[1]!;
+    expect(encoded).toBe("Dark%20%28Magician%29%21%20O%27Neil%20%C3%A9.ydk");
+    expect(encoded).not.toMatch(/['()*!]/);
+    expect(decodeURIComponent(encoded)).toBe("Dark (Magician)! O'Neil é.ydk");
+  });
+
   it("lists cubes for the guild", async () => {
     await setupDb();
     const { POST: createCube, GET: listCubes } = await import("../app/api/cubes/route");
@@ -252,6 +396,91 @@ describe("cube API routes", () => {
       { params: Promise.resolve({ id: String(id) }) },
     );
     expect(collide.status).toBe(409);
+  });
+
+  describe("cube type", () => {
+    const post = async (body: object) => {
+      const { POST } = await import("../app/api/cubes/route");
+      return POST(new Request("http://x/api/cubes", { method: "POST", body: JSON.stringify(body) }) as any);
+    };
+    const put = async (id: number, body: object) => {
+      const { PUT } = await import("../app/api/cubes/[id]/route");
+      return PUT(new Request(`http://x/api/cubes/${id}`, { method: "PUT", body: JSON.stringify(body) }) as any, {
+        params: Promise.resolve({ id: String(id) }),
+      });
+    };
+    const getOne = async (id: number) => {
+      const { GET } = await import("../app/api/cubes/[id]/route");
+      return (
+        await GET(new Request(`http://x/api/cubes/${id}`) as any, { params: Promise.resolve({ id: String(id) }) })
+      ).json();
+    };
+    const listed = async (name: string) => {
+      const { GET } = await import("../app/api/cubes/route");
+      return (await (await GET()).json()).cubes.find((c: any) => c.name === name);
+    };
+
+    it("defaults to any for a cube made without a type", async () => {
+      await setupDb();
+      const res = await post({ kind: "blank", name: "Plain" });
+      expect(res.status).toBe(201);
+      expect((await res.json()).cube.draftType).toBe("any");
+      expect((await listed("Plain")).draftType).toBe("any");
+      expect((await getOne(await cubeIdOf("Plain"))).cube.draftType).toBe("any");
+    });
+
+    it("stores the chosen type on a blank cube and on a saved config cube", async () => {
+      await setupDb();
+      const blank = await post({ kind: "blank", name: "Themed", draftType: "theme" });
+      expect((await blank.json()).cube.draftType).toBe("theme");
+      expect((await listed("Themed")).draftType).toBe("theme");
+
+      const saved = await post({ name: "Pool", draftType: "booster", config: { setNames: [], customCardIds: [1] } });
+      const { cube } = await saved.json();
+      expect(cube.draftType).toBe("booster");
+      expect(cube.config.customCardIds).toEqual([1]);
+      expect((await listed("Pool")).draftType).toBe("booster");
+    });
+
+    it("rejects an unknown type with 400 and creates nothing", async () => {
+      await setupDb();
+      const res = await post({ kind: "blank", name: "Bad", draftType: "ladder" });
+      expect(res.status).toBe(400);
+      expect(await listed("Bad")).toBeUndefined();
+    });
+
+    it("PUT changes the type, keeps the other config keys and the name", async () => {
+      await setupDb();
+      await post({ name: "Pool", config: { setNames: ["Set A"], customCardIds: [7] } });
+      const id = await cubeIdOf("Pool");
+      // The create route keeps only the pool; pack settings arrive from elsewhere (a draft's saved config).
+      const Database = (await import("better-sqlite3")).default;
+      const raw = new Database(process.env.DATABASE_PATH!);
+      raw
+        .prepare("update cubes set config_json = ? where id = ?")
+        .run(JSON.stringify({ setNames: ["Set A"], customCardIds: [7], cardsPerPlayer: 45, packSize: 9 }), id);
+      raw.close();
+      const res = await put(id, { draftType: "booster" });
+      expect(res.status).toBe(200);
+      const { cube } = await getOne(id);
+      expect(cube.draftType).toBe("booster");
+      expect(cube.name).toBe("Pool");
+      expect(cube.settings).toMatchObject({ cardsPerPlayer: 45, packSize: 9 });
+      const list = await listed("Pool");
+      expect(list.setNames).toEqual(["Set A"]);
+      expect(list.customCardIds).toEqual([7]);
+    });
+
+    it("PUT with a bad type or an empty body is 400, and a rename still works", async () => {
+      await setupDb();
+      await post({ kind: "blank", name: "Alpha", draftType: "theme" });
+      const id = await cubeIdOf("Alpha");
+      expect((await put(id, { draftType: "nope" })).status).toBe(400);
+      expect((await put(id, {})).status).toBe(400);
+      expect((await getOne(id)).cube.draftType).toBe("theme");
+      expect((await put(id, { name: "Alpha Prime" })).status).toBe(200);
+      expect((await getOne(id)).cube.draftType).toBe("theme");
+    });
   });
 
   it("DELETE removes a cube; 404 on already-gone", async () => {
