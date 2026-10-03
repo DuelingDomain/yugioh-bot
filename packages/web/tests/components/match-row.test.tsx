@@ -33,7 +33,7 @@ describe("match row presentation and permissions", () => {
     const { container } = renderRow();
     const row = container.querySelector("#match-1")!;
     expect(row).toHaveAttribute("data-s", "you");
-    expect(row).toHaveTextContent(/Your match · not started/);
+    expect(row).toHaveTextContent(/Your match\. Not started\./);
     expect(row.querySelectorAll("svg[viewBox='0 0 24 24']").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole("button", { name: "Report" })).toBeInTheDocument();
   });
@@ -49,16 +49,16 @@ describe("match row presentation and permissions", () => {
     renderRow(openMatch, { currentUserPlayerId: 99, isHost: true });
     const start = screen.getByRole("button", { name: "Start duel" });
     const result = screen.getByRole("button", { name: "Set result" });
-    expect(start).toHaveClass("btn-quiet");
+    expect(start).toHaveClass("quiet");
     expect(result).toBeInTheDocument();
     expect(start.compareDocumentPosition(result) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(screen.queryByRole("button", { name: "Report" })).toBeNull();
     expect(screen.queryByText("Organizer")).toBeNull();
   });
 
-  it.each([6, 5, 99, null])("hides Approve and Deny from player %s who is not the reporter's opponent", playerId => {
+  it.each([6, 5, 99, null])("hides Confirm and Deny from player %s who is not the reporter's opponent", playerId => {
     renderRow(pendingMatch, { currentUserPlayerId: playerId, isHost: true });
-    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
     expect(screen.getByText("Waiting on duelist.josh")).toBeInTheDocument();
     if (playerId === 6) expect(screen.getByText("You reported a win.")).toBeInTheDocument();
@@ -69,25 +69,25 @@ describe("match row presentation and permissions", () => {
     renderRow({ ...pendingMatch, winnerId: 3 }, { currentUserPlayerId: 3 });
     expect(screen.getByText("Marik_Mains says they lost.")).toBeInTheDocument();
     expect(screen.getByText(/If you do nothing, it approves itself after 24 hours\./)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
   });
 
   it("Reopen is absent in single elimination; round labels only appear there", () => {
     renderRow({ ...decidedMatch, roundNumber: 2 }, { isHost: true, tournament: tournament({ format: "single_elim" }) });
     expect(screen.queryByRole("button", { name: "Reopen" })).toBeNull();
-    expect(screen.getByText("· Round 2")).toBeInTheDocument();
+    expect(screen.getByText("Round 2.")).toBeInTheDocument();
     expect(screen.getByText("2–1")).toHaveClass("m-sc");
-    expect(screen.getByText(/Imran won.*online, best of 3/)).toBeInTheDocument();
+    expect(screen.getByText(/Imran won.*Online, best of 3/)).toBeInTheDocument();
   });
 
   it("reported decisions use def. and byes do not offer actions", () => {
     const { unmount } = renderRow({ ...decidedMatch, series: null });
     expect(screen.getByText("def.")).toHaveClass("m-vs");
-    expect(screen.queryByText(/online, best of/)).toBeNull();
+    expect(screen.queryByText(/Online, best of/)).toBeNull();
     unmount(); renderRow(byeMatch, { isHost: true });
     expect(screen.getByText("bye this round")).toBeInTheDocument();
-    expect(screen.getByText("No match to play · not counted as a win in standings")).toBeInTheDocument();
+    expect(screen.getByText("No match to play. Not counted as a win in standings.")).toBeInTheDocument();
     expect(screen.queryAllByRole("button")).toHaveLength(0);
   });
 
@@ -107,7 +107,7 @@ describe("match row presentation and permissions", () => {
     rerender(<SheetRoot><MatchRow {...props} tournament={tournament({ status: "completed" })} /></SheetRoot>);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("button", { name: "Set result" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
   });
 });
@@ -120,7 +120,7 @@ describe("match actions and inline failures", () => {
     fireEvent.click(screen.getByRole("button", { name: "Report" }));
     const won = screen.getByRole("button", { name: /I won/ });
     const lost = screen.getByRole("button", { name: /I lost/ });
-    expect(won).toHaveClass("btn"); expect(lost).not.toHaveClass("btn-danger");
+    expect(won).toHaveClass("primary"); expect(lost).not.toHaveClass("danger");
     expect(screen.queryByRole("button", { name: "Start duel" })).toBeNull();
     fireEvent.click(result === "win" ? won : lost);
     await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
@@ -142,22 +142,22 @@ describe("match actions and inline failures", () => {
   it.each(["approve", "deny"] as const)("posts %s to the linked report", async action => {
     const fetchMock = vi.fn(async () => Response.json({ success: true })); vi.stubGlobal("fetch", fetchMock);
     const onChanged = vi.fn(); renderRow(pendingMatch, { currentUserPlayerId: 3, onChanged });
-    fireEvent.click(screen.getByRole("button", { name: action === "approve" ? "Approve" : "Deny" }));
+    fireEvent.click(screen.getByRole("button", { name: action === "approve" ? "Confirm" : "Deny" }));
     await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
     expect(fetchMock).toHaveBeenCalledWith(`/api/matches/104/${action}`, { method: "POST" });
   });
 
   it.each([
     ["Report", "I won", "Failed to report match"],
-    ["Approve", null, "Failed to approve"],
+    ["Confirm", null, "Failed to approve"],
     ["Deny", null, "Failed to deny"],
     ["Start duel", null, "Failed to start the duel"],
     ["Reopen", "Reopen match", "Failed to reopen"],
   ])("keeps the %s fallback inline and never calls alert", async (button, secondButton, error) => {
     const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({}, { status: 500 })));
-    const match = button === "Reopen" ? decidedMatch : ["Approve", "Deny"].includes(button) ? pendingMatch : openMatch;
-    renderRow(match, { isHost: true, currentUserPlayerId: button === "Approve" || button === "Deny" ? 3 : 5 });
+    const match = button === "Reopen" ? decidedMatch : ["Confirm", "Deny"].includes(button) ? pendingMatch : openMatch;
+    renderRow(match, { isHost: true, currentUserPlayerId: button === "Confirm" || button === "Deny" ? 3 : 5 });
     fireEvent.click(screen.getByRole("button", { name: button }));
     if (secondButton) fireEvent.click(screen.getByRole("button", { name: new RegExp(secondButton) }));
     expect(await screen.findByRole("alert")).toHaveTextContent(error!);
@@ -218,7 +218,7 @@ describe("online match states", () => {
   it("puts the live score between names, with Open duel for players", () => {
     renderRow(liveMatch, { currentUserPlayerId: 1 });
     expect(screen.getByTestId("tournament-match-score-3")).toHaveTextContent("1–0");
-    expect(screen.getByText("Game 2 in progress · Kestrel took game 1")).toBeInTheDocument();
+    expect(screen.getByText("Game 2 in progress. Kestrel took game 1.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open duel" })).toHaveAttribute("href", "/duels/duel-3");
     expect(screen.queryByRole("button", { name: "Report" })).toBeNull();
   });
@@ -244,7 +244,7 @@ describe("online match states", () => {
     rerender(<SheetRoot><MatchRow {...props} match={{ ...openMatch, status: "pending_approval", winnerId: 5, reporterId: 5 }} /></SheetRoot>);
     expect(screen.getByText("You reported a win.")).toBeInTheDocument();
     rerender(<SheetRoot><MatchRow {...props} match={{ ...openMatch }} /></SheetRoot>);
-    expect(screen.getByText(/Your match · not started/)).toBeInTheDocument();
+    expect(screen.getByText(/Your match\. Not started\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Report" })).toBeInTheDocument(); expect(screen.queryByText(/How did it go/)).toBeNull();
   });
 
@@ -252,13 +252,13 @@ describe("online match states", () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-01T12:00:00Z"));
     const match = { ...liveMatch, series: seriesFor(liveMatch, { status: "between_games", wins: [1, 1], nextGameAt: "2026-10-01T12:01:40Z" }) };
     const { rerender, props } = renderRow(match);
-    expect(screen.getByText(/Between games · game 3 starts in/)).toHaveTextContent("1:40");
+    expect(screen.getByText(/Between games\. Game 3 starts in/)).toHaveTextContent("1:40");
     act(() => vi.advanceTimersByTime(1000)); expect(screen.getByText("1:39")).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(99000)); expect(screen.getByText("0:00")).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(5000)); expect(screen.getByText("0:00")).toBeInTheDocument();
     expect(vi.getTimerCount()).toBe(0);
     rerender(<SheetRoot><MatchRow {...props} match={{ ...match, series: { ...match.series, nextGameAt: null } }} /></SheetRoot>);
-    expect(screen.getByText("Between games · side decking")).toBeInTheDocument();
+    expect(screen.getByText("Between games. Side decking.")).toBeInTheDocument();
   });
 });
 
@@ -275,11 +275,11 @@ describe("Set result dialog", () => {
     expect(screen.queryByRole("dialog")).toBeNull(); expect(opener).toHaveFocus();
   });
 
-  it("without a series, Record result is purple and disabled until selection, and Cancel resets the selection", () => {
+  it("without a series, Record result is primary and disabled until selection, and Cancel resets the selection", () => {
     renderRow(openMatch, { isHost: true });
     const opener = screen.getByRole("button", { name: "Set result" }); fireEvent.click(opener);
     expect(screen.queryByText(/This cancels the online duel/)).toBeNull();
-    const confirm = screen.getByRole("button", { name: "Record result" }); expect(confirm).toBeDisabled(); expect(confirm).toHaveClass("btn-primary");
+    const confirm = screen.getByRole("button", { name: "Record result" }); expect(confirm).toBeDisabled(); expect(confirm).toHaveClass("primary");
     fireEvent.click(screen.getByRole("radio", { name: "Imran" })); expect(confirm).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" })); fireEvent.click(opener);
     expect(screen.getByRole("button", { name: "Record result" })).toBeDisabled();
@@ -289,7 +289,7 @@ describe("Set result dialog", () => {
     const fetchMock = vi.fn(async () => Response.json({ success: true })); vi.stubGlobal("fetch", fetchMock);
     const onChanged = vi.fn(); renderRow(liveMatch, { isHost: true, onChanged }); fireEvent.click(screen.getByRole("button", { name: "Set result" }));
     expect(screen.getByText(/This cancels the online duel in progress, which Kestrel leads/)).toHaveTextContent("1–0");
-    const confirm = screen.getByRole("button", { name: "End duel and record" }); expect(confirm).toBeDisabled(); expect(confirm).toHaveClass("btn-danger");
+    const confirm = screen.getByRole("button", { name: "End duel and record" }); expect(confirm).toBeDisabled(); expect(confirm).toHaveClass("danger");
     fireEvent.click(screen.getByRole("radio", { name: "voidpriest" })); fireEvent.click(confirm);
     await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
     expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/friday-night-duels-12/matches/3/result", {

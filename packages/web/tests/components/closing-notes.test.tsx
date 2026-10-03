@@ -10,7 +10,7 @@ vi.mock("next/font/google", () => {
 
 import { SheetRoot } from "@/components/sheet";
 import { ClosingNote } from "@/components/tournament/sheet/closing-notes";
-import { tournamentEnding } from "@/components/tournament/sheet/sheet-header";
+import { tournamentEnding } from "@/components/tournament/floor/floor-model";
 import { sheetTournament } from "../fixtures/tournament-sheet";
 
 const allDone = { ...sheetTournament, status: "completed", matches: sheetTournament.matches.map((m) => ({ ...m, status: "completed" })) };
@@ -23,10 +23,9 @@ describe("closed tournament endings", () => {
     expect(tournamentEnding(allDone)).toBe("finished");
   });
 
-  it("finished: a Finished stamp and a match count, with no champion crowned", () => {
+  it("finished: says so with a match count, and crowns nobody", () => {
     render(<SheetRoot><ClosingNote tournament={allDone} ending="finished" /></SheetRoot>);
-    expect(screen.getByText("Finished")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Result" })).toHaveTextContent(`${allDone.matches.length} matches decided`);
+    expect(screen.getByRole("status")).toHaveTextContent(`Finished. ${allDone.matches.length} matches decided.`);
     expect(screen.queryByText(/champion/i)).toBeNull();
   });
 
@@ -35,6 +34,7 @@ describe("closed tournament endings", () => {
     const unplayed = tournament.matches.filter((m) => m.status !== "completed").length;
     render(<SheetRoot><ClosingNote tournament={tournament} ending="ended-early" /></SheetRoot>);
     expect(screen.getByRole("status")).toHaveTextContent(`Ended early with ${unplayed} ${unplayed === 1 ? "match" : "matches"} unplayed.`);
+    expect(screen.getByRole("status")).not.toHaveTextContent(/winnings/i);
   });
 
   it("cancelled: a clear note", () => {
