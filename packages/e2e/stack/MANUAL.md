@@ -23,11 +23,12 @@ still win; callers choosing overrides must keep them disjoint. Occupied and live
 ports are refused. Empty, fractional, padded, and out-of-range slots are rejected.
 
 Each slot owns `packages/e2e/.stack-N/`, containing `e2e.sqlite`, `logs/`,
-`reports/`, card images, manual runtime data, `manual.json`, `browsers/`, `.auth/`,
+`reports/`, card images, manual runtime data, `supervisor.pid`, `manual.json`, `browsers/`, `.auth/`,
 `test-results/` (including traces, videos, screenshots, and the failure index),
 `playwright-report/`, `.status/e2e-results.json`, and `.status/e2e-multi/` evidence.
 The ws and duel children use private `.stack-N/ws` and `.stack-N/duel` working
 directories; temporary files go to `.stack-N/tmp`.
+Preset issue badges read the shared `.status/issues/` inbox without writing to it.
 
 The web build lives in `packages/web/.next-e2e-N/`. Its standalone entry point is
 `.next-e2e-N/standalone/packages/web/server.js`; the `.e2e-build.json` stamp sits
@@ -42,7 +43,7 @@ explicit override for a copied, already matching standalone build.
 npm run build --workspace=packages/shared
 npm run build --workspace=packages/duel-server
 npm run build --workspace=packages/ws
-export E2E_DUEL_DATA_DIR=/home/sulman633/orca/workspaces/yugioh-bot/n-player-ui/data/duel-engine-snap
+export E2E_DUEL_DATA_DIR="$PWD/data/duel-engine-snap"
 
 # Optional: prebuild each slot's web once before the test batch.
 E2E_SLOT=1 npm run stack:build --workspace=packages/e2e
@@ -58,17 +59,35 @@ E2E_SLOT=3 npm run e2e --workspace=packages/e2e -- <spec>
 General invocation: `E2E_SLOT=N npm run e2e --workspace=packages/e2e -- <spec>`.
 Prepare skips fresh shared/service/web output. Shared freshness requires a build
 after changes to its source or config; service freshness also checks shared dist.
+With `E2E_SLOT` set, stale ws or duel-server output is refused: build each service
+once before starting the parallel batch. Prepare never rebuilds shared service
+output in slot mode, including when `E2E_FORCE_BUILD=1` requests a web rebuild.
 Do not edit source/config or rebuild shared/service dist during a parallel batch.
 `E2E_FORCE_BUILD=1` is for a serial rebuild, never a parallel batch.
+Prepare and manual start refuse a running `supervisor.pid` and probe all stack
+ports before building. Startup claims its PID under the same web build lock;
+the PID remains until all children stop. Stop a slot before rebuilding its web.
 
 Web builds are serialized with `packages/e2e/.stack-build-lock` because Next also
 writes `next-env.d.ts` and `tsconfig.json`. Slot builds restore those files and
 their mtimes before stamping success. This serialization affects preparation;
 the resulting stacks and tests run concurrently. Do not run a separate web build
-or web typecheck during preparation. If a build is killed without cleanup, inspect
-the lock's `pid` and remove the lock only after confirming no build is running.
-Slot builds with symlinked dependencies use Webpack, since Turbopack refuses
-dependencies outside its filesystem root. Ordinary production commands are unchanged.
+or web typecheck during preparation. SIGINT/Ctrl+C and SIGTERM are forwarded to
+the build processes; prepare then restores configuration and releases its lock.
+Prepare recovers a stale lock automatically when its holder PID no longer exists.
+It waits as long as a holder PID is alive; only locks without a valid PID have a
+ten-minute wait limit.
+Slot builds use **Webpack, not Turbopack**, including with ordinary dependencies.
+Webpack supports borrowed dependencies outside the worktree's filesystem root.
+Ordinary unset E2E and production builds continue to use Turbopack.
+
+**Before a release, run at least one unset E2E run with Turbopack.** Slot-only
+validation does not cover the production bundler. Use a checkout with dependencies
+inside its filesystem root, and force the ordinary build before the run:
+
+```bash
+env -u E2E_SLOT -u E2E_NEXT_DIST_DIR E2E_FORCE_BUILD=1 npm run e2e --workspace=packages/e2e
+```
 
 Select the same slot for manual start, login, report, and failure-index commands:
 
@@ -87,15 +106,16 @@ the checked-in patch, so borrowed dependency symlinks remain read only.
 
 ## Start
 
-Keep the engine snapshot read only. Select it explicitly when it lives in another worktree:
+Keep the engine snapshot read only. Select it explicitly; adjust the path if it lives elsewhere:
 
 ```bash
-export E2E_DUEL_DATA_DIR=/home/sulman633/orca/workspaces/yugioh-bot/n-player-ui/data/duel-engine-snap
+export E2E_DUEL_DATA_DIR="$PWD/data/duel-engine-snap"
 npm run build --workspace=packages/shared
 npm run stack:manual --workspace=packages/e2e
 ```
 
-Leave that terminal running. The manual entry point builds stale services and the production web,
+Leave that terminal running. With `E2E_SLOT` unset, the manual entry point builds stale services and the production web;
+with a slot set, it requires fresh service builds and prepares that slot's Webpack web output. It
 then supervises them until Ctrl+C. Wait for the web to report `Ready`; check readiness from another terminal:
 
 ```bash
@@ -208,8 +228,8 @@ The environment for each was:
 
 ```bash
 E2E_SLOT=N E2E_WORKERS=1 E2E_MANUAL=1 E2E_BOT_STEP_MS=900 \
-E2E_DUEL_DATA_DIR=/home/sulman633/orca/workspaces/yugioh-bot/n-player-ui/data/duel-engine-snap \
-E2E_CARD_IMAGE_SOURCE_DIR=/home/sulman633/orca/workspaces/yugioh-bot/n-player-ui/packages/e2e/.stack/manual-card-images \
+E2E_DUEL_DATA_DIR="$PWD/data/duel-engine-snap" \
+E2E_CARD_IMAGE_SOURCE_DIR="$PWD/packages/e2e/.stack/manual-card-images" \
 npm run e2e --workspace=packages/e2e -- tests/duel-3p-ffa-table.spec.ts --grep 'mounts three own-EMZ'
 ```
 

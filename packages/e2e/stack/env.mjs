@@ -11,6 +11,7 @@ if (rawSlot !== undefined && !/^[0-9]$/.test(rawSlot)) {
 }
 export const e2eSlot = rawSlot === undefined ? undefined : Number(rawSlot);
 export const stackDir = resolve(e2eRoot, e2eSlot === undefined ? ".stack" : `.stack-${e2eSlot}`);
+export const supervisorPidFile = resolve(stackDir, "supervisor.pid");
 /** One timestamped file with the output of ws, duel host and web. Tests attach the lines of a failed test. */
 export const stackLogFile = resolve(stackDir, "logs/stack.log");
 
@@ -55,7 +56,7 @@ export const jsonReportFile = resolve(statusDir, "e2e-results.json");
 export const multiStatusDir = resolve(statusDir, "e2e-multi");
 
 // NEXT_PUBLIC_WS_URL is baked into each slot's independent build.
-export const nextDistDir = process.env.E2E_NEXT_DIST_DIR ?? (e2eSlot === undefined ? ".next" : `.next-e2e-${e2eSlot}`);
+export const nextDistDir = process.env.E2E_NEXT_DIST_DIR || (e2eSlot === undefined ? ".next" : `.next-e2e-${e2eSlot}`);
 export const standaloneBuildDir = resolve(repoRoot, "packages/web", nextDistDir, "standalone/packages/web");
 export const buildStampFile = resolve(standaloneBuildDir, ".e2e-build.json");
 
