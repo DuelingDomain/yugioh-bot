@@ -965,7 +965,7 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
   ], // Black Garden
   80551022: ["compare-gaps-ffa3-mimighoul-slime-picked-opponent-does-not-pass"], // Mimighoul Slime
   83778600: [
-    "late-ffa3-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked",
+    "late-ffa3-foolish-revival-target-and-summon-use-the-declared-opponent",
     "late-tag-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked",
     "opponent-field-effects-ffa3-foolish-revival-goes-to-the-picked-opponent",
     "opponent-field-effects-ffa4-foolish-revival-goes-to-the-picked-opponent",
