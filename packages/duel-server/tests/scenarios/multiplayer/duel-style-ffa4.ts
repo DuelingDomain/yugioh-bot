@@ -77,7 +77,7 @@ export const DUEL_STYLE_FFA4_SCENARIOS: Scenario[] = [
     source: OWNER_LP,
     // This row proves owner LP only. It has no opponent declaration.
     // Add R-FFA-OPP-ONE only when a pick step proves the declaration order.
-    // open-failure-triage owns the declaration-order change.
+    // equip-filter-pick (triage brief 02) owns the declaration-order change.
     rules: ["R-FFA-ORDER"],
     tags: ["multiplayer", "equip", "steal", "lp", "ffa4", "card:45986603"],
     setup: {
