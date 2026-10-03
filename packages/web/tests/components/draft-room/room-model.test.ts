@@ -4,6 +4,7 @@ import {
   anchorPoint,
   countKinds,
   dealReducer,
+  dialModel,
   INITIAL_DEAL,
   filterWords,
   isFiltering,
@@ -11,6 +12,7 @@ import {
   kindOf,
   levelsModel,
   matchesFilter,
+  mixGradient,
   orderSeats,
   passDirection,
   passLabel,
@@ -103,6 +105,84 @@ describe("sizes and theme progress", () => {
     expect(themeProgress(4, s).inExtra).toBe(false);
     expect(themeProgress(10, s).inExtra).toBe(true);
     expect(roomSizes({}).total).toBe(40);
+  });
+});
+
+describe("dial", () => {
+  const mainPool = Array.from({ length: 40 }, (_, i) => card(i + 1));
+  const themeSizes = roomSizes({ mode: "theme", cardsPerPlayer: 40, extraDeckSize: 15 });
+
+  it("starts the extra phase empty after forty main picks", () => {
+    const dial = dialModel(mainPool, themeSizes);
+    expect(dial).toEqual({
+      done: 0,
+      of: 15,
+      label: "of 15 extra",
+      counts: { monster: 0, spell: 0, trap: 0, extra: 0 },
+    });
+    expect(mixGradient(dial.counts, dial.of)).toBe("conic-gradient(rgb(255 255 255 / 0.07) 0% 100%)");
+  });
+
+  it("fills a third of the extra ring after five extra picks", () => {
+    const extraPool = Array.from({ length: 5 }, (_, i) => card(41 + i, { type: "Fusion Monster", frameType: "fusion" }));
+    const dial = dialModel([...mainPool, ...extraPool], themeSizes);
+    expect(dial).toEqual({
+      done: 5,
+      of: 15,
+      label: "of 15 extra",
+      counts: { monster: 0, spell: 0, trap: 0, extra: 5 },
+    });
+    expect(mixGradient(dial.counts, dial.of)).toBe(
+      "conic-gradient(var(--k-extra) 0% 33.33333333333333%, rgb(255 255 255 / 0.07) 33.33333333333333% 100%)",
+    );
+  });
+
+  it.each([
+    { name: "booster", mode: "booster" as const },
+    { name: "cube", mode: undefined },
+  ])("keeps the whole pool in the $name dial", ({ mode }) => {
+    const pool = [
+      card(1),
+      card(2, { type: "Spell Card", frameType: "spell" }),
+      card(3, { type: "Trap Card", frameType: "trap" }),
+      card(4, { type: "Fusion Monster", frameType: "fusion" }),
+    ];
+    const dial = dialModel(pool, roomSizes({ mode, cardsPerPlayer: 40 }));
+    expect(dial).toEqual({
+      done: 4,
+      of: 40,
+      label: "of 40",
+      counts: { monster: 1, spell: 1, trap: 1, extra: 1 },
+    });
+    expect(mixGradient(dial.counts, dial.of)).toBe(
+      "conic-gradient(var(--k-monster) 0% 2.5%, var(--k-spell) 2.5% 5%, var(--k-trap) 5% 7.5%, var(--k-extra) 7.5% 10%, rgb(255 255 255 / 0.07) 10% 100%)",
+    );
+  });
+});
+
+describe("mixGradient", () => {
+  it("clips an oversized kind to the entire ring", () => {
+    expect(mixGradient({ monster: 40, spell: 0, trap: 0, extra: 0 }, 15)).toBe(
+      "conic-gradient(var(--k-monster) 0% 100%, rgb(255 255 255 / 0.07) 100% 100%)",
+    );
+  });
+
+  it("clips later kinds to the remaining ring", () => {
+    expect(mixGradient({ monster: 8, spell: 4, trap: 2, extra: 1 }, 10)).toBe(
+      "conic-gradient(var(--k-monster) 0% 80%, var(--k-spell) 80% 100%, rgb(255 255 255 / 0.07) 100% 100%)",
+    );
+  });
+
+  it.each([0, -15, NaN, Infinity, 15])("keeps every stop finite and within the ring with a total of %s", (of) => {
+    const gradient = mixGradient({ monster: 2, spell: -2, trap: NaN, extra: Infinity }, of);
+    expect(gradient).not.toMatch(/NaN|Infinity/);
+    const stops = [...gradient.matchAll(/(-?\d+(?:\.\d+)?)%/g)].map((match) => Number(match[1]));
+    expect(stops.length).toBeGreaterThan(0);
+    for (const stop of stops) {
+      expect(stop).toBeGreaterThanOrEqual(0);
+      expect(stop).toBeLessThanOrEqual(100);
+    }
+    expect(stops).toEqual([...stops].sort((a, b) => a - b));
   });
 });
 
