@@ -30,24 +30,45 @@ export async function GET() {
     .prepare("select id, guild_id, name, archetype, banlist, config_json from cubes where guild_id = ? order by name asc")
     .all(env.discordGuildId) as CubeRow[];
 
-  const counts = db.prepare(
-    "select pool, count(*) as n from cube_cards where cube_id = ? group by pool",
-  );
+  // One query for every card of every cube in the guild, instead of two per cube.
+  const cardRows = db
+    .prepare(
+      `select cc.cube_id, cc.pool, cc.catalog_card_id, cc.max_copies
+         from cube_cards cc
+         join cubes c on c.id = cc.cube_id
+        where c.guild_id = ?
+        order by cc.cube_id asc, cc.rowid asc`,
+    )
+    .all(env.discordGuildId) as Array<{ cube_id: number; pool: string; catalog_card_id: number; max_copies: number }>;
+  const mainByCube = new Map<number, Array<{ id: number; copies: number }>>();
+  const extraCountByCube = new Map<number, number>();
+  for (const card of cardRows) {
+    if (card.pool === "main") {
+      const list = mainByCube.get(card.cube_id) ?? [];
+      list.push({ id: card.catalog_card_id, copies: card.max_copies });
+      mainByCube.set(card.cube_id, list);
+    } else if (card.pool === "extra") {
+      extraCountByCube.set(card.cube_id, (extraCountByCube.get(card.cube_id) ?? 0) + 1);
+    }
+  }
 
   // One shape serves both the Cubes library (main/extra counts) and the saved-pool
-  // loaders in the cube-draft create form / settings (setNames + customCardIds).
+  // loaders in the cube-draft create form / settings (setNames + customCardIds). A cube
+  // built in the editor keeps its cards in cube_cards, not in config, so mainCards
+  // carries those passcodes and their copies for the loaders.
   const cubes = rows.map((row) => {
-    const poolCounts = counts.all(row.id) as Array<{ pool: string; n: number }>;
     const config = JSON.parse(row.config_json || "{}") as { setNames?: string[]; customCardIds?: number[] };
+    const mainCards = mainByCube.get(row.id) ?? [];
     return {
       id: row.id,
       name: row.name,
       archetype: row.archetype,
       banlist: row.banlist,
-      mainCount: poolCounts.find((p) => p.pool === "main")?.n ?? 0,
-      extraCount: poolCounts.find((p) => p.pool === "extra")?.n ?? 0,
+      mainCount: mainCards.length,
+      extraCount: extraCountByCube.get(row.id) ?? 0,
       setNames: Array.isArray(config.setNames) ? config.setNames : [],
       customCardIds: Array.isArray(config.customCardIds) ? config.customCardIds : [],
+      mainCards,
     };
   });
 

@@ -37,10 +37,11 @@ describe("cardsToRaise", () => {
 });
 
 describe("poolTotals and clampCopies", () => {
-  it("sums copies", () => {
-    expect(poolTotals([{ maxCopies: 3 }, { maxCopies: 1 }])).toEqual({ cards: 2, copies: 4 });
+  it("sums copies, and the copies one player can be given count a card at most three times", () => {
+    expect(poolTotals([{ maxCopies: 3 }, { maxCopies: 1 }])).toEqual({ cards: 2, copies: 4, usable: 4 });
+    expect(poolTotals([{ maxCopies: 30 }, { maxCopies: 1 }])).toEqual({ cards: 2, copies: 31, usable: 4 });
   });
-  it("clamps to 1..3", () => {
-    expect([0, 1, 2, 3, 4].map(clampCopies)).toEqual([1, 1, 2, 3, 3]);
+  it("clamps to 1..99", () => {
+    expect([0, 1, 2, 3, 4, 50, 99, 100, 250].map(clampCopies)).toEqual([1, 1, 2, 3, 4, 50, 99, 99, 99]);
   });
 });

@@ -74,6 +74,7 @@ export async function DELETE(
 
     if (draft.status === DRAFT_STATUS.completed || draft.status === DRAFT_STATUS.cancelled) {
       db.transaction(() => {
+        db.prepare("delete from draft_passes where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_picks where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_cards where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_packs where draft_id = ?").run(draft.id);
@@ -216,6 +217,7 @@ export async function PUT(
         2,
         (mergedConfig as any).packsPerPlayer ?? 5,
         (mergedConfig as any).packSize ?? 8,
+        (mergedConfig as any).cardsPerPlayer ?? 40,
       );
 
       (mergedConfig as any).cubeCardIds = cubeCardIds;

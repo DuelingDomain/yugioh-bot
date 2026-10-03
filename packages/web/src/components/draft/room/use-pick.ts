@@ -26,7 +26,7 @@ export function usePick(slug: string, hooks?: PickHooks) {
   const pick = useCallback(
     async (cardId: number): Promise<boolean> => {
       const state = useDraftStore.getState();
-      const canPick = state.isMyTurn && state.currentPack.some((card) => card.id === cardId);
+      const canPick = state.isMyTurn && state.currentPack.some((card) => card.id === cardId && !card.blocked);
       if (pendingRef.current || !canPick) {
         state.setPreviewCard(null);
         state.setSelectedCard(null);

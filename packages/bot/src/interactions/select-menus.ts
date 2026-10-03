@@ -11,7 +11,7 @@ import type { PlayerRepository } from "../repositories/players.js";
 import type { CardCatalogService } from "../services/card-catalog.js";
 import type { DraftImageService } from "../services/draft-images.js";
 import type { DraftService } from "../services/drafts.js";
-import { createDraftTournamentService } from "@yugidraft/shared/services";
+import { createDraftTournamentService, MAX_COPIES_PER_PLAYER } from "@yugidraft/shared/services";
 import type { TournamentService } from "@yugidraft/shared/services";
 import type { Broadcaster } from "@yugidraft/shared/notify";
 
@@ -76,11 +76,48 @@ export async function handleSelectMenu(
     const options = deps.drafts.pickOptions(draftId, player.id);
 
     if (options.length === 0) {
-      await interaction.reply({ content: "You already picked this step. Waiting for other players.", ephemeral: true });
+      const progress = deps.db.prepare(
+        "select pick_count, finished_at from draft_players where draft_id = ? and player_id = ?",
+      ).get(draftId, player.id) as { pick_count: number; finished_at: string | null } | undefined;
+      if (
+        draft.status === "active" && progress &&
+        (progress.finished_at !== null || progress.pick_count >= (draft.config.cardsPerPlayer ?? 40))
+      ) {
+        await interaction.reply({
+          content: "You have finished drafting. Waiting for other players.",
+          ephemeral: true,
+        });
+        return;
+      }
+      const picked = deps.db.prepare(
+        "select 1 from draft_picks where draft_id = ? and player_id = ? and wave_number = ? and pick_step = ?",
+      ).get(draftId, player.id, draft.currentPackRound, draft.currentPickStep);
+      const pack = deps.drafts.currentPackOptions(draftId, player.id);
+      const content = draft.status === "completed"
+        ? "This draft has completed."
+        : picked
+          ? "You already picked this step. Waiting for other players."
+          : deps.drafts.hasPassedStep(draftId, player.id)
+            ? "You passed this pick because there was nothing in the pack you could take. Waiting for other players."
+            : pack.length > 0
+              ? `Nothing in this pack you can take (you have ${MAX_COPIES_PER_PLAYER} of each). Waiting for the next pack.`
+              : "You have no card to take this step. Waiting for the next pack.";
+      await interaction.reply({ content, ephemeral: true });
       return;
     }
 
     const draftCardId = Number(interaction.values[0]);
+    const pickedCard = options.find((card) => card.id === draftCardId);
+    if (!pickedCard) {
+      const cappedChoice = deps.drafts.currentPackOptions(draftId, player.id).some((card) => card.id === draftCardId);
+      await interaction.reply({
+        content: cappedChoice
+          ? `You already have ${MAX_COPIES_PER_PLAYER} copies of that card. Choose another card from your current pack.`
+          : "This choice is no longer in your current pack. Open your current pack and choose again.",
+        ephemeral: true,
+      });
+      return;
+    }
     const beforePickDraft = deps.drafts.findById(draftId);
     deps.drafts.pickCard(draftId, player.id, draftCardId);
 
@@ -104,8 +141,7 @@ export async function handleSelectMenu(
       }
     }
 
-    const pickedCard = options.find((card) => card.id === draftCardId);
-    const catalogCards = deps.cards.findByIds(pickedCard ? [pickedCard.catalogCardId] : []);
+    const catalogCards = deps.cards.findByIds([pickedCard.catalogCardId]);
     const cardName = catalogCards[0]?.name ?? "Unknown";
 
     await interaction.reply({ content: `You picked ${cardName}.`, ephemeral: true });

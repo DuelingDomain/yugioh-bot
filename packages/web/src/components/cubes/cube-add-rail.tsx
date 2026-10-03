@@ -343,7 +343,7 @@ function PasscodesTab({ busy, onImportCodes }: Pick<AddRailProps, "busy" | "onIm
           style={{ height: "auto", padding: "10px 12px", fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 13 }}
         />
         <p className="hint">
-          List a card three times for three copies, up to 3. A card already in the cube takes the new count, so one line
+          List a card as many times as you want copies, up to 99. A card already in the cube takes the new count, so one line
           sets it to ×1.
         </p>
       </div>

@@ -16,7 +16,7 @@ vi.mock("@/lib/notify", () => ({
   announcer: { announce: vi.fn() },
 }));
 
-async function createCompletedDraftWithDeal() {
+async function createCompletedDraftWithDeal(status = "completed", withPass = false) {
   const tempDir = mkdtempSync(join(tmpdir(), "yugioh-drafts-delete-route-"));
   const dbPath = join(tempDir, "drafts-delete-route.sqlite");
   tempDirs.push(tempDir);
@@ -52,7 +52,11 @@ async function createCompletedDraftWithDeal() {
      values (1, 'Test Card', 'Normal Monster', 'normal', 'http://x/i.png', 'http://x/s.png', '[]', '2026-01-01')`,
   ).run();
   db.prepare("insert into draft_deal (draft_id, position, catalog_card_id) values (?, 0, 1)").run(draft.id);
-  db.prepare("update drafts set status = 'completed' where id = ?").run(draft.id);
+  if (withPass) {
+    db.prepare("insert into draft_passes (draft_id, player_id, wave_number, pick_step, passed_at) values (?, ?, 1, 1, 't')")
+      .run(draft.id, creator.id);
+  }
+  db.prepare("update drafts set status = ? where id = ?").run(status, draft.id);
 
   db.close();
 
@@ -102,6 +106,24 @@ describe("DELETE /api/drafts/[slug]", () => {
 
     expect(row).toBeUndefined();
     expect(dealRows.c).toBe(0);
+  });
+
+  it.each(["completed", "cancelled"])("deletes a %s draft with pass rows", async (status) => {
+    const draft = await createCompletedDraftWithDeal(status, true);
+    const { DELETE } = await import("../app/api/drafts/[slug]/route");
+    const response = await DELETE(
+      new Request(`http://localhost/api/drafts/${draft.webSlug}`, { method: "DELETE" }),
+      { params: Promise.resolve({ slug: draft.webSlug ?? "" }) },
+    );
+    expect(response.status).toBe(200);
+    expect((await response.json()).deleted).toBe(true);
+
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(process.env.DATABASE_PATH!);
+    expect(db.prepare("select id from drafts where id = ?").get(draft.id)).toBeUndefined();
+    expect(db.prepare("select count(*) as n from draft_passes where draft_id = ?").get(draft.id)).toEqual({ n: 0 });
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+    db.close();
   });
 
   it("deletes a completed theme draft that has draft_player_cube rows", async () => {

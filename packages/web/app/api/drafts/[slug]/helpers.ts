@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
-import { createCardCatalogService, createDraftService, createSavedDeckService } from "@yugidraft/shared/services";
+import {
+  createCardCatalogService,
+  createDraftService,
+  createSavedDeckService,
+  MAX_COPIES_PER_PLAYER,
+} from "@yugidraft/shared/services";
 import { toUtcIso } from "@/lib/utils";
 import { broadcaster } from "@/lib/notify";
+import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
   if (!pickDeadlineAt) {
@@ -138,15 +144,22 @@ export async function buildDraftResponse(slug: string, userId: string) {
     ? players.some((p: any) => p.playerId === currentPlayer.id)
     : false;
 
+  // A player who passed the pick (nothing in the pack they may take) is done for the step too.
   const pickedPlayerIds = new Set(
     db
       .prepare(
         `
           select player_id from draft_picks
           where draft_id = ? and wave_number = ? and pick_step = ?
+          union
+          select player_id from draft_passes
+          where draft_id = ? and wave_number = ? and pick_step = ?
         `
       )
-      .all(draft.id, draftModel.currentPackRound, draftModel.currentPickStep)
+      .all(
+        draft.id, draftModel.currentPackRound, draftModel.currentPickStep,
+        draft.id, draftModel.currentPackRound, draftModel.currentPickStep,
+      )
       .map((row: any) => row.player_id as number)
   );
 
@@ -176,7 +189,16 @@ export async function buildDraftResponse(slug: string, userId: string) {
         }))
       : [];
 
-  const currentPack = mapDraftCardDetails(db, currentPackCards);
+  // The whole pack is sent. A card the viewer already holds the per-player maximum of is marked
+  // blocked, with the copies held, so the room can show it as unavailable.
+  const held =
+    draft.status === "active" && currentPlayer && isParticipant ? drafts.heldCopies(draft.id, currentPlayer.id) : {};
+  const currentPack = mapDraftCardDetails(db, currentPackCards).map((card) => {
+    const copies = held[card.passcode] ?? 0;
+    return { ...card, held: copies, blocked: copies >= MAX_COPIES_PER_PLAYER };
+  });
+  const passed =
+    draft.status === "active" && currentPlayer && isParticipant ? drafts.hasPassedStep(draft.id, currentPlayer.id) : false;
   const myPool = mapDraftCardDetails(db, myPoolCards);
 
   // Theme-mode extras: derived phase, progress, and lobby theme previews.
@@ -231,7 +253,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
 
   const timerSeconds = getTimerSeconds(draft.pick_deadline_at);
   const pickSeconds = draftModel.config.pickSeconds ?? 45;
-  const isMyTurn = draft.status === "active" && currentPack.length > 0;
+  const isMyTurn = draft.status === "active" && currentPack.some((card) => !card.blocked);
   const participantPickCount = currentPlayer && isParticipant
     ? players.find((player) => player.playerId === currentPlayer.id)?.pickCount
     : undefined;
@@ -270,10 +292,12 @@ export async function buildDraftResponse(slug: string, userId: string) {
     pickStep: draftModel.currentPickStep,
     timerSeconds,
     isMyTurn,
+    passed,
     completed: draft.status === "completed",
     pickSeconds,
     phase,
     themeProgress,
     allowedCubes,
+    botsEnabled: draftTestBotsEnabled(),
   };
 }
