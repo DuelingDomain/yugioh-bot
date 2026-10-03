@@ -139,8 +139,8 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0068). No experimental patches or
-  `PATCH_LIMIT`. The current series hash is `441ed76499bd6a57fb6136c5c786c00fd7a2bd27c2925c9293baaf457a6b3096`.
+- All numbered patches in `domain-core/patches` (currently 0001–0083). No experimental patches or
+  `PATCH_LIMIT`. The current series hash is `0ac799b817a713da9a9463ace779c2d266aab79723a07c2bb174aee168d6caf9`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `cf5100707bce7701cb0be0ac4a8ff47308a13b278174f03c157f2f2e46dd849a`.
