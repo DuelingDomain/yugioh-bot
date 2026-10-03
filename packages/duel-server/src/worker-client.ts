@@ -97,8 +97,6 @@ export class GameWorker implements DuelGameWorker {
 
   private fail(error: Error) {
     this.stopped = true;
-    this.prompts.length = 0;
-    this.promptStart = 0;
     for (const request of this.pending.values()) request.reject(error);
     this.pending.clear();
   }
@@ -160,6 +158,8 @@ export class GameWorker implements DuelGameWorker {
 
   async close(): Promise<void> {
     this.fail(new Error("Engine worker closed"));
+    this.prompts.length = 0;
+    this.promptStart = 0;
     await this.worker.terminate();
   }
 }

@@ -6,6 +6,7 @@ import type { DuelFormat } from "./settings.js";
  */
 export const MULTI_DOMAIN_CORE_READY = false;
 
+/** Shared web and host error for a missing multi core; both return HTTP 409. */
 export const MULTI_CORE_UNAVAILABLE_MESSAGE =
   "The core for Tag, 3-player and 4-player tables is missing on this server. Play a 1v1 table.";
 

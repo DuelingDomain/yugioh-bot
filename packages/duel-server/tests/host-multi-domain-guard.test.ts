@@ -5,10 +5,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
-import { MULTIPLAYER_TABLES_OFF_MESSAGE, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
+import { MULTIPLAYER_TABLES_OFF_MESSAGE, MULTI_CORE_UNAVAILABLE_MESSAGE, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
-import { MULTI_CORE_MISSING_MESSAGE } from "../src/multi-domain-guard.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
 
 const SECRET = "multi-domain-guard-secret";
@@ -130,7 +129,7 @@ describe("host start of a table with 3 or more seats when the multi core is miss
       const t = lobby(format, [], mode);
       const started = await t.start();
       expect(started.status).toBe(409);
-      expect(started.data.error).toBe(MULTI_CORE_MISSING_MESSAGE);
+      expect(started.data.error).toBe(MULTI_CORE_UNAVAILABLE_MESSAGE);
       expect(t.workersCreated()).toBe(0);
     }
   });

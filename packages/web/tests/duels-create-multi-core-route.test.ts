@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
+import { MULTI_CORE_UNAVAILABLE_MESSAGE } from "@yugidraft/shared/duels";
 
 const { create, host } = vi.hoisted(() => ({ create: vi.fn(), host: vi.fn() }));
 vi.mock("@/lib/duel-host", () => ({
@@ -32,7 +33,7 @@ describe("POST /api/duels when the plain multi core is missing", () => {
       const response = await POST(request(mode, format));
       expect(response.status).toBe(409);
       expect(await response.json()).toEqual({
-        error: "The core for Tag, 3-player and 4-player tables is missing on this server. Play a 1v1 table.",
+        error: MULTI_CORE_UNAVAILABLE_MESSAGE,
       });
     }
     expect(create).not.toHaveBeenCalled();

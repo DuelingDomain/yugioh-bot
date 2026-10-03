@@ -30,7 +30,7 @@ afterEach(() => vi.unstubAllEnvs());
 describe("POST /api/duels with Domain", () => {
   it.each(["tag", "ffa3", "ffa4"])("refuses Domain at a %s table with a clear message and makes no table", async (format) => {
     const response = await POST(request({ name: "T", mode: "domain", format }));
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: MULTI_DOMAIN_UNAVAILABLE_MESSAGE });
     expect(create).not.toHaveBeenCalled();
   });
@@ -39,6 +39,14 @@ describe("POST /api/duels with Domain", () => {
     expect((await POST(request({ name: "T", mode: "domain", format: "1v1" }))).status).toBe(201);
     expect((await POST(request({ name: "T", mode: "normal", format: "ffa4" }))).status).toBe(201);
     expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([undefined, "true", null])("fails closed with 409 when multiDomainCoreReady is %j", async (multiDomainCoreReady) => {
+    callDuelHost.mockResolvedValue({ ok: true, data: { multiplayerTables: true, multiCoreReady: true, multiDomainCoreReady } });
+    const response = await POST(request({ name: "T", mode: "domain", format: "ffa3" }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: MULTI_DOMAIN_UNAVAILABLE_MESSAGE });
+    expect(create).not.toHaveBeenCalled();
   });
 
   it.each(["ffa3", "ffa4", "tag"])("makes a Domain %s table when the host has its core", async (format) => {

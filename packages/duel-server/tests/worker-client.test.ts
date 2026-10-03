@@ -93,17 +93,37 @@ describe("GameWorker prompt history", () => {
     expect(game.promptLog()[0]).toEqual(prompt(1));
   });
 
-  it.each(["close", "error", "exit"] as const)("clears prompts on %s and ignores late messages", async (event) => {
-    const { game, transport, emitPrompt } = makeWorker();
+  it("clears prompts on close and ignores late messages", async () => {
+    const { game, emitPrompt } = makeWorker();
     for (let index = 0; index < 5_001; index += 1) emitPrompt(index);
     const pending = expect(game.view(0)).rejects.toThrow(/Engine worker/);
-    if (event === "close") await game.close();
-    else if (event === "error") transport.emit("error", new Error("Engine worker failed"));
-    else transport.emit("exit", 1);
+    await game.close();
     await pending;
     expect(game.running).toBe(false);
     expect(game.promptLog()).toHaveLength(0);
     emitPrompt(5_001);
+    expect(game.promptLog()).toHaveLength(0);
+  });
+
+  it.each(["error", "exit"] as const)("retains prompt history on %s until close and ignores late messages", async (event) => {
+    const { game, transport, emitPrompt } = makeWorker();
+    for (let index = 0; index < 5_001; index += 1) emitPrompt(index);
+    const history = Array.from({ length: 5_000 }, (_, index) => prompt(index + 1));
+    const pendingView = expect(game.view(0)).rejects.toThrow(/Engine worker/);
+    const pendingSearch = expect(game.search("test")).rejects.toThrow(/Engine worker/);
+    if (event === "error") transport.emit("error", new Error("Engine worker failed"));
+    else transport.emit("exit", 1);
+    await Promise.all([pendingView, pendingSearch]);
+    expect(game.running).toBe(false);
+    expect(game.debugState().busy).toBe(false);
+    expect(game.promptLog()).toHaveLength(5_000);
+    expect(game.promptLog()).toEqual(history);
+    emitPrompt(5_001);
+    expect(game.promptLog()).toEqual(history);
+    await expect(game.view(0)).rejects.toThrow("Engine worker is no longer running");
+    await game.close();
+    expect(game.promptLog()).toHaveLength(0);
+    emitPrompt(5_002);
     expect(game.promptLog()).toHaveLength(0);
   });
 });
