@@ -231,9 +231,21 @@ describe("hand order in projected views", () => {
       expect(own.prompt!.options[0]!.sequence).toBe(own.seats[0]!.hand[0]!.sequence);
       expect(project(null).seats[0]!.hand.map((c) => c.code)).toEqual([undefined, undefined, undefined]);
       expect(project(1).seats[0]!.hand.map((c) => c.code)).toEqual([undefined, 20, undefined]);
-      expect(project(null).events[2]!.handId).toBe("departed-3");
+      for (const viewer of [1, null]) {
+        const view = project(viewer);
+        expect(view.events[2]!.handId).toBe(view.seats[0]!.hand[2]!.handId);
+        expect(view.events[2]!.handId).toMatch(/^sleeve-/);
+      }
       expect(project(null).seats[0]!.hand.map((c) => c.handId)).not.toEqual(own.seats[0]!.hand.map((c) => c.handId));
       expect(project(0)).toEqual(own); // reads and replay snapshots never mutate order
+      if (source === L.GRAVE) {
+        const spectator = project(null);
+        noteReveal(reveals, 1, 0, L.HAND, 2, 10);
+        expect(project(1).events[2]!.handId).toBe("departed-3");
+        expect(project(null)).toEqual(spectator); // A private confirmation cannot retire spectator history.
+        clearRevealsAt(reveals, 0, L.HAND);
+        noteReveal(reveals, 1, 0, L.HAND, 1, 20);
+      }
     }
   });
 });

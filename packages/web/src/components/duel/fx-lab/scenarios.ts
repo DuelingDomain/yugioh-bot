@@ -806,7 +806,7 @@ const MOVES: LabScenario[] = [
       4000,
     ),
   ),
-  moveScenario("move-hand-order", "Hand order: engine slots", "A search appends to the hand, then a later engine shuffle moves its landing slot during flight and its glow after landing. A discard closes the gap. An opponent search appends a sleeve; hidden shuffles keep sleeve identities at public slots.", () => {
+  moveScenario("move-hand-order", "Hand order: engine slots", "A search appends to the hand, then a later engine shuffle moves its landing slot during flight and its glow after landing. A discard closes the gap. An opponent search appends and shuffles in one engine batch; its anonymous arrival still resolves to the appended sleeve.", () => {
     const initial = board();
     for (const seat of initial.seats) seat.hand.forEach((card, i) => { card.handId = `lab-${seat.seat}-${i}`; });
     const arrival = "lab-added";
@@ -831,10 +831,13 @@ const MOVES: LabScenario[] = [
       }] },
       { at: 3200, events: [ev.move(ME, C.cyberDragon, HAND(ME, 3), GY(ME, 0), "discard")],
         edits: [edit.removeHand(ME, 3), edit.grave(ME, C.cyberDragon)] },
-      { at: 5000, events: [{ ...ev.addToHand(OPP, null, DECK(OPP), HAND(OPP, 5)), handId: "lab-opp-added" }],
+      { at: 5000, events: [{ ...ev.addToHand(OPP, null, DECK(OPP), HAND(OPP, 5)), handId: "sleeve-11" }],
         edits: [edit.drawFromDeck(OPP), edit.addHand(OPP, null), (b) => {
           const hand = b.seats[OPP].hand;
-          hand[5].handId = "lab-opp-added";
+          // MOVE appends, then SHUFFLE_HAND runs in the same batch. This audience's
+          // queried sleeves keep their order and the arrival still names the live sleeve.
+          hand[5].handId = "sleeve-11";
+          b.seats[OPP].hand = hand.map((sleeve) => ({ ...sleeve }));
         }] },
       { at: 5000 + flightStart + ADD_TO_HAND.flyMs / 2, edits: [(b) => {
         // The public SHUFFLE_HAND snapshot refreshes sleeves in engine slots. The hidden
@@ -874,7 +877,12 @@ const MOVES: LabScenario[] = [
   moveScenario("move-opp-added", "Opponent adds a card to the hand", "A search by the opponent. You see only a card back.", () =>
     script(
       board(),
-      [{ at: 0, events: [ev.addToHand(OPP, null, DECK(OPP), HAND(OPP, 5))], edits: [edit.drawFromDeck(OPP), edit.addHand(OPP, null)] }],
+      [{ at: 0, events: [{ ...ev.addToHand(OPP, null, DECK(OPP), HAND(OPP, 5)), handId: "sleeve-11" }],
+        edits: [edit.drawFromDeck(OPP), edit.addHand(OPP, null), (b) => {
+          // The append and concealed SHUFFLE_HAND share one projected engine snapshot.
+          b.seats[OPP].hand[5].handId = "sleeve-11";
+          b.seats[OPP].hand = b.seats[OPP].hand.map((sleeve) => ({ ...sleeve }));
+        }] }],
       3200,
     ),
   ),

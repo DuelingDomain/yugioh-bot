@@ -67,6 +67,12 @@ describe("engine hand order through the real engine view", () => {
       expect(arrival).toBeDefined();
       expect(arrival.code).toBe(warrior);
       expect(hand[arrival.sequence]).toBe(arrival);
+      for (const viewer of [1, null]) {
+        const audience = game.view(viewer);
+        const searched = audience.events.find((event) => event.id === add.id)!;
+        expect(searched.handId).toMatch(/^sleeve-/);
+        expect(audience.seats[0]!.hand.find((card) => card.handId === searched.handId)).toBeDefined();
+      }
       const summon = view.prompt!.options.find((o) => o.id.startsWith("summon:") && o.sequence === arrival.sequence)!;
       expect(summon).toBeDefined();
       answer(0, view.prompt!.id, { choice: summon.id });

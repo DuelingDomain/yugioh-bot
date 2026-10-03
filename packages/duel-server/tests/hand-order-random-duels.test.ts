@@ -139,6 +139,13 @@ function checkHands(game: EngineGame, tracker: () => HandIdentities | undefined,
       const seat = view.seats[event.zone!.controller]!;
       expect(event.handId, `${label}: arrival ${event.id} identity`).toBeDefined();
       if (event.handId!.startsWith("departed-")) {
+        const tracked = Reflect.get(tracker()!, seat.seat === viewer ? "own" : "sleeves") as Array<Array<{ id: string; arrival?: number }>>;
+        expect(tracked[seat.seat]!.some((entry) => {
+          if (entry.arrival !== event.id) return false;
+          const card = seat.hand.find((card) => card.handId === entry.id);
+          return card && (card.code == null || event.card == null || card.code === event.card.code);
+        }),
+          `${label}: viewer ${viewer} departed arrival ${event.id} still in hand`).toBe(false);
         expect(event.handId).toBe(`departed-${event.id}`);
         expect(seat.hand.some((card) => card.handId === event.handId)).toBe(false);
         continue;

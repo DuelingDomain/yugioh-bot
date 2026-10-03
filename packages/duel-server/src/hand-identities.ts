@@ -1,5 +1,5 @@
 /** Animation metadata indexed by engine sequence. Never chooses or sorts the displayed hand. */
-type Identity = { id: string; code: number; arrival?: number; public?: boolean };
+type Identity = { id: string; code: number; arrival?: number; arrivalCode?: number; public?: boolean };
 const isSequence = (sequence: number): boolean => Number.isSafeInteger(sequence) && sequence >= 0;
 
 export class HandIdentities {
@@ -12,10 +12,10 @@ export class HandIdentities {
   private shuffledPublic: Array<Map<string, number> | undefined> = [undefined, undefined];
   private mutatedAfterShuffle = [false, false];
 
-  add(seat: number, code: number, sequence: number, arrival?: number, isPublic = false): void {
+  add(seat: number, code: number, sequence: number, arrival?: number, isPublic = false, publicArrivalCode?: number): void {
     if (!this.own[seat] || !isSequence(sequence)) return;
     this.own[seat]!.splice(sequence, 0, { id: `hand-${++this.nextOwn}`, code, arrival });
-    const sleeve = { id: `sleeve-${++this.nextSleeve}`, code: isPublic ? code : 0, arrival, public: isPublic };
+    const sleeve = { id: `sleeve-${++this.nextSleeve}`, code: isPublic ? code : 0, arrival, arrivalCode: isPublic ? code : publicArrivalCode, public: isPublic };
     const following = this.sleeves[seat]![sequence];
     this.sleeves[seat]!.splice(sequence, 0, sleeve);
     const before = this.beforeShuffle[seat];
@@ -30,6 +30,10 @@ export class HandIdentities {
     if (!isSequence(sequence)) return;
     const sleeve = this.sleeves[seat]?.[sequence];
     if (!sleeve) return;
+    // Only shared knowledge may validate an anonymous arrival. Remembering a private draw's
+    // code here would make later public queries disclose hidden-card substitutions.
+    if (isPublic && sleeve.arrivalCode != null && sleeve.arrivalCode !== code) delete sleeve.arrival;
+    if (isPublic) sleeve.arrivalCode ??= code;
     sleeve.public = isPublic;
     sleeve.code = isPublic ? code : 0;
   }
@@ -58,10 +62,12 @@ export class HandIdentities {
         else {
           entry.public = false;
           entry.code = 0;
-          delete entry.arrival;
           // Only this public history is ambiguous after a mutation; hidden sleeves retain
           // their identities and order, including when the public sleeve was already removed.
-          if (expired && this.mutatedAfterShuffle[seat]) entry.id = `sleeve-${++this.nextSleeve}`;
+          if (expired && this.mutatedAfterShuffle[seat]) {
+            entry.id = `sleeve-${++this.nextSleeve}`;
+            delete entry.arrival;
+          }
         }
       }
       this.sleeves[seat] = this.reorderSleeves(before, queries.map((query) => query?.code ?? 0), queries.map((query) => query?.isPublic === true));
@@ -116,9 +122,6 @@ export class HandIdentities {
     this.beforeShuffle[seat] ??= [...this.sleeves[seat]!];
     const publicEntries = this.shuffledPublic[seat] ??= new Map();
     for (const entry of this.sleeves[seat]!) if (entry.public) publicEntries.set(entry.id, entry.code);
-    // A concealed shuffle severs the connection to the arrived card. Keeping that old target
-    // could later bind its flight to an unrelated card when the slot becomes visible.
-    for (const entry of this.sleeves[seat]!) if (!entry.public) delete entry.arrival;
     // Hidden codes cannot choose provisional sleeve slots: a public card may have a hidden
     // duplicate. Keep the prior order until syncPublic receives the actual public slots.
     this.sleeves[seat] = Array.from({ length: codes.length }, (_, sequence) =>

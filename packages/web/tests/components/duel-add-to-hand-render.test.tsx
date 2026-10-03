@@ -11,6 +11,8 @@ import { ADD_TO_HAND, CARD_FX } from "@/components/duel/duel-timing";
 import { resetMoveSchedule } from "@/components/duel/move-plan";
 import { resetPickRects, takePickRect } from "@/components/duel/pick-rects";
 
+import { HandIdentities } from "../../../duel-server/src/hand-identities";
+
 const HAND = 0x02;
 const GRAVE = 0x10;
 const info = (code: number) => ({ code, name: `Card ${code}`, description: "", type: 1, attack: 0, defense: 0, level: 1, attribute: 1, race: "Warrior" });
@@ -145,17 +147,26 @@ describe("the Added to hand showcase on the board", () => {
     expect(animate.mock.contexts.some((el, index) => el === ghost && (animate.mock.calls[index][1] as KeyframeAnimationOptions).duration === showcasePhases(1, false).flyMs)).toBe(true);
     expect(animate.mock.contexts).not.toContain(view.getByTestId("added-ring"));
   });
-  it("refreshes an active hidden arrival after a private shuffle without revealing its replacement sleeve", () => {
-    const original = addEvent({ handId: "sleeve-1", card: undefined, addedToHand: true });
-    const view = deliver(original, { handId: "sleeve-1", slotCode: 0 });
-    advance(200);
-    view.rerender(<Board events={[{ ...original, handId: "departed-5" }]} handId="sleeve-1" slotCode={777} />);
-    advance(100);
-    expect(view.getByTestId("slot").style.visibility).toBe("");
+  it("hides the live opponent sleeve for a same-batch append and private SHUFFLE_HAND", () => {
+    const ids = new HandIdentities();
+    [10, 20, 30, 40].forEach((code, sequence) => ids.add(0, code, sequence));
+    // The core appends every non-draw hand arrival, then shuffles before publishing its view.
+    ids.add(0, 1234, 4, 5);
+    ids.shuffle(0, [1234, 20, 10, 40, 30]);
+    ids.syncPublic(0, [1234, 20, 10, 40, 30].map((code) => ({ code, isPublic: false })));
+    const handId = ids.at(0, false, 4)!;
+    const event = addEvent({ handId: ids.arrival(0, false, 5)?.id ?? "departed-5", card: undefined,
+      from: { controller: 0, location: 0x01, sequence: 0 }, zone: { controller: 0, location: HAND, sequence: 4 }, addedToHand: true });
+    const view = deliver(event, { handId, slotCode: 0 });
+    expect(event.handId).toBe(handId);
+    expect(view.getByTestId("slot").style.visibility).toBe("hidden");
+    advance(300);
+    expect(view.getByTestId("slot").style.visibility).toBe("hidden");
     expect(view.getByTestId("added-ghost").dataset.known).toBe("false");
     expect(view.getByTestId("added-ghost").querySelector("img")).toBeNull();
     advance(showcasePhases(1, false).totalMs);
-    expect(animate.mock.contexts).not.toContain(view.getByTestId("added-ring"));
+    expect(view.getByTestId("slot").style.visibility).toBe("");
+    expect(animate.mock.contexts).toContain(view.getByTestId("added-ring"));
   });
   it("plays an add then discard from the same chain even when the final hand has no arrival", () => {
     const added = addEvent({ handId: "departed-5" });

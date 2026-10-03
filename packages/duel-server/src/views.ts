@@ -767,7 +767,8 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
         : undefined;
       if (from.location === OcgLocation.HAND) ctx.handIdentities.remove(from.controller, from.sequence);
       // Skipped moves still update slot identities, but must not claim the next emitted event's id.
-      if (to.location === OcgLocation.HAND) ctx.handIdentities.add(to.controller, message.card, to.sequence, event?.id, (to.position & OcgPosition.FACEUP) !== 0);
+      if (to.location === OcgLocation.HAND) ctx.handIdentities.add(to.controller, message.card, to.sequence, event?.id,
+        (to.position & OcgPosition.FACEUP) !== 0, event?.revealCardTo === "all" ? message.card : undefined);
       if (from.location === OcgLocation.HAND) ctx.handSize[from.controller === 1 ? 1 : 0] = Math.max(0, ctx.handSize[from.controller === 1 ? 1 : 0] - 1);
       if (to.location === OcgLocation.HAND) ctx.handSize[to.controller === 1 ? 1 : 0] += 1;
       if (isFieldLocation(from.location)) ctx.arrivals.delete(slotKey(from.controller, from.location, from.sequence));
@@ -1199,8 +1200,12 @@ export function projectView(args: {
       if (event.kind === "move" && event.zone?.location === OcgLocation.HAND && args.handIdentities) {
         const seat = event.zone.controller;
         const entry = args.handIdentities.arrival(seat, args.viewer === seat, event.id);
+        const visible = entry && seats[seat]?.hand[entry.sequence];
+        // Viewer-scoped confirmations may reveal a different card on an anonymous sleeve.
+        // Retire that audience's correlation without changing spectator/public sleeve history.
+        const mismatched = visible?.code != null && projected.card?.code != null && visible.code !== projected.card.code;
         // A departed arrival gets an unresolvable id so its flight cannot hide a replacement card.
-        projected.handId = entry?.id ?? `departed-${event.id}`;
+        projected.handId = entry && !mismatched ? entry.id : `departed-${event.id}`;
         // Keep the original engine message coordinates in history. Flights resolve this ID in the
         // current query-ordered hand, rather than rewriting past draws/moves after later compaction.
       }

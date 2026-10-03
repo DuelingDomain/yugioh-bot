@@ -120,7 +120,7 @@ describe("fx lab scenarios", () => {
     expect(glowing.seats[0].hand[3].code).toBe(CARDS.cyberDragon.code);
   });
 
-  it("keeps opponent sleeve ids bound to engine slots across a hidden hand shuffle", () => {
+  it("keeps the opponent search arrival on its sleeve after a same-batch append and hidden shuffle", () => {
     const built = findScenario("move-hand-order")!.build();
     expect(built.steps).toHaveLength(6);
     let before = built.initial;
@@ -130,8 +130,10 @@ describe("fx lab scenarios", () => {
     expect(arrival.events?.[0].card).toBeUndefined();
     const appended = applyEdits(before, arrival.edits ?? []);
     expect(appended.seats[1].hand.map((card) => card.handId)).toEqual([
-      ...before.seats[1].hand.map((card) => card.handId), "lab-opp-added",
+      ...before.seats[1].hand.map((card) => card.handId), "sleeve-11",
     ]);
+    expect(arrival.events?.[0].handId).toBe(appended.seats[1].hand[5].handId);
+    expect(arrival.events?.[0].handId).toMatch(/^sleeve-/);
     expect(shuffle.events ?? []).toEqual([]);
     const shuffled = applyEdits(appended, shuffle.edits ?? []);
     expect(shuffled.seats[1].hand.map((card) => card.handId)).toEqual(appended.seats[1].hand.map((card) => card.handId));

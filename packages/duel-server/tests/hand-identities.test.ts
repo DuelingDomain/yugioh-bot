@@ -179,7 +179,7 @@ describe("animation identities in engine slots", () => {
     expect(a.arrival(0, false, 3)).toEqual(b.arrival(0, false, 3));
   });
 
-  it("forgets hidden arrival targets after a shuffle while retaining public and owner targets", () => {
+  it("retains hidden arrival targets through a shuffle alongside public and owner targets", () => {
     const ctx = createEventContext();
     const cards = { get: () => undefined } as never;
     observeMoveEvents({ type: M.DRAW, player: 0, drawn: [10, 20].map((code) => ({
@@ -187,10 +187,26 @@ describe("animation identities in engine slots", () => {
     })) }, cards, ctx, 1);
     observeMoveEvents({ type: M.SHUFFLE_HAND, player: 0, cards: [20, 10] }, cards, ctx, 3);
     ctx.handIdentities.syncPublic(0, [{ code: 20, isPublic: true }, { code: 10, isPublic: false }]);
-    expect(ctx.handIdentities.arrival(0, false, 1)).toBeUndefined();
+    expect(ctx.handIdentities.arrival(0, false, 1)?.sequence).toBe(1);
     expect(ctx.handIdentities.arrival(0, false, 2)?.sequence).toBe(0);
     expect(ctx.handIdentities.arrival(0, true, 1)?.sequence).toBe(1);
     expect(ctx.handIdentities.arrival(0, true, 2)?.sequence).toBe(0);
+  });
+
+  it("retires a known arrival only when its sleeve gets a different public code", () => {
+    const ids = new HandIdentities();
+    ids.add(0, 10, 0, 1, true); ids.add(0, 20, 1, 2, true);
+    ids.setPublic(0, 0, 10, false);
+    ids.setPublic(0, 1, 20, false);
+    ids.shuffle(0, [20, 10]);
+    ids.syncPublic(0, [{ code: 20, isPublic: true }, { code: 10, isPublic: false }]);
+    expect(ids.arrival(0, false, 1)).toBeUndefined();
+    expect(ids.arrival(0, false, 2)?.sequence).toBe(1);
+    ids.setPublic(0, 1, 20, true);
+    expect(ids.arrival(0, false, 2)?.sequence).toBe(1);
+    ids.setPublic(0, 1, 30, true);
+    expect(ids.arrival(0, false, 2)).toBeUndefined();
+    expect(ids.arrival(0, true, 1)?.sequence).toBe(1);
   });
 
   it("keeps repaired sleeve IDs stable when the next query validates their visibility", () => {
@@ -211,7 +227,7 @@ describe("animation identities in engine slots", () => {
     ids.syncPublic(0, [{ code: 20, isPublic: true }, { code: 10, isPublic: false }, { code: 30, isPublic: false }]);
     expect(ids.arrival(0, false, 3)?.sequence).toBe(2);
     expect(ids.arrival(0, false, 2)?.sequence).toBe(0);
-    expect(ids.arrival(0, false, 1)).toBeUndefined();
+    expect(ids.arrival(0, false, 1)?.sequence).toBe(1);
   });
 
   it("retains all sleeves when one public duplicate becomes hidden during a shuffle", () => {
@@ -221,7 +237,7 @@ describe("animation identities in engine slots", () => {
     ids.shuffle(0, [10, 20, 10]);
     ids.syncPublic(0, [{ code: 10, isPublic: false }, { code: 20, isPublic: false }, { code: 10, isPublic: true }]);
     expect([0, 1, 2].map((sequence) => ids.at(0, false, sequence))).toEqual([before[1], before[2], before[0]]);
-    expect(ids.arrival(0, false, 2)).toBeUndefined();
+    expect(ids.arrival(0, false, 2)?.sequence).toBe(0);
     expect(ids.arrival(0, false, 1)?.sequence).toBe(2);
   });
 
@@ -233,7 +249,7 @@ describe("animation identities in engine slots", () => {
     ids.shuffle(0, [20, 40, 10, 30]);
     ids.syncPublic(0, [20, 40, 10, 30].map((code) => ({ code, isPublic: false })));
     expect([0, 1, 2, 3].map((sequence) => ids.at(0, false, sequence))).toEqual(before);
-    expect(ids.arrival(0, false, 2)).toBeUndefined();
+    expect(ids.arrival(0, false, 2)?.sequence).toBe(1);
   });
 
   it("retires a public correlation consumed before a shuffle's public slots are queried", () => {
