@@ -35,6 +35,26 @@ test("unset slot preserves all existing ports and output paths", () => {
   assert.equal(c.standaloneBuildDir, resolve(c.repoRoot, "packages/web/.next/standalone/packages/web"));
 });
 
+test("empty dist-dir overrides use the same defaults as an unset override", () => {
+  const cases: Record<string, string>[] = [{}, { E2E_SLOT: "2" }];
+  for (const overrides of cases) {
+    const defaultConfig = readConfig(overrides);
+    const emptyConfig = readConfig({ ...overrides, E2E_NEXT_DIST_DIR: "" });
+    assert.equal(emptyConfig.nextDistDir, defaultConfig.nextDistDir);
+    assert.equal(emptyConfig.standaloneBuildDir, defaultConfig.standaloneBuildDir);
+    assert.equal(emptyConfig.buildStampFile, defaultConfig.buildStampFile);
+  }
+});
+
+test("nonempty dist-dir overrides apply to both ordinary and slot builds", () => {
+  const cases: Record<string, string>[] = [{}, { E2E_SLOT: "2" }];
+  for (const overrides of cases) {
+    const c = readConfig({ ...overrides, E2E_NEXT_DIST_DIR: ".next-custom" });
+    assert.equal(c.nextDistDir, ".next-custom");
+    assert.equal(c.standaloneBuildDir, resolve(c.repoRoot, "packages/web/.next-custom/standalone/packages/web"));
+  }
+});
+
 test("all ten slots have disjoint ports and private output directories", () => {
   const reserved = new Set([3000, 3001, 3002, 3100, 3110, 4001, 4002, 4003, 4010, 3300, 3302, 4302, 4303, 3400, 3402, 4402, 4403]);
   const seen = new Set<number>();

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { test } from "node:test";
@@ -139,6 +139,50 @@ test("standalone packaging follows both default and slot output paths", async ()
       assert.equal(readFileSync(resolve(standalone, distDir, "static/client.js"), "utf8"), distDir);
       assert.equal(readFileSync(resolve(standalone, "public/card.png"), "utf8"), "public asset");
     }
+  } finally { rmSync(webRoot, { recursive: true, force: true }); }
+});
+
+test("standalone packaging treats an empty environment dist dir as .next", async () => {
+  const webRoot = mkdtempSync(resolve(tmpdir(), "e2e-empty-dist-"));
+  const previous = process.env.E2E_NEXT_DIST_DIR;
+  try {
+    const standalone = resolve(webRoot, ".next/standalone/packages/web");
+    mkdirSync(standalone, { recursive: true });
+    mkdirSync(resolve(webRoot, ".next/static"));
+    mkdirSync(resolve(webRoot, "public"));
+    writeFileSync(resolve(standalone, "server.js"), "server");
+    writeFileSync(resolve(webRoot, ".next/static/client.js"), "browser assets");
+    process.env.E2E_NEXT_DIST_DIR = "";
+    await packageStandalone({ webRoot });
+    assert.equal(readFileSync(resolve(standalone, ".next/static/client.js"), "utf8"), "browser assets");
+  } finally {
+    if (previous === undefined) delete process.env.E2E_NEXT_DIST_DIR;
+    else process.env.E2E_NEXT_DIST_DIR = previous;
+    rmSync(webRoot, { recursive: true, force: true });
+  }
+});
+
+test("standalone CLI packages assets when its entry point is a symlink", () => {
+  const webRoot = mkdtempSync(resolve(tmpdir(), "e2e-package-cli-"));
+  try {
+    const standalone = resolve(webRoot, ".next/standalone/packages/web");
+    mkdirSync(standalone, { recursive: true });
+    mkdirSync(resolve(webRoot, ".next/static"));
+    mkdirSync(resolve(webRoot, "public"));
+    mkdirSync(resolve(webRoot, "scripts"));
+    writeFileSync(resolve(standalone, "server.js"), "server");
+    writeFileSync(resolve(webRoot, ".next/static/client.js"), "browser assets");
+    writeFileSync(resolve(webRoot, "public/card.png"), "public asset");
+    const entry = resolve(webRoot, "scripts/package-standalone.mjs");
+    copyFileSync(new URL("../../web/scripts/package-standalone.mjs", import.meta.url), entry);
+    const alias = resolve(webRoot, "package-link.mjs");
+    symlinkSync(entry, alias);
+    const env = { ...process.env };
+    delete env.E2E_NEXT_DIST_DIR;
+    const result = spawnSync(process.execPath, [alias], { env, encoding: "utf8", timeout: 2000 });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(existsSync(resolve(standalone, ".next/static/client.js")), "symlink invocation must run the packager");
+    assert.equal(readFileSync(resolve(standalone, "public/card.png"), "utf8"), "public asset");
   } finally { rmSync(webRoot, { recursive: true, force: true }); }
 });
 

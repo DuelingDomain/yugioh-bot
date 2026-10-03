@@ -56,7 +56,7 @@ export const jsonReportFile = resolve(statusDir, "e2e-results.json");
 export const multiStatusDir = resolve(statusDir, "e2e-multi");
 
 // NEXT_PUBLIC_WS_URL is baked into each slot's independent build.
-export const nextDistDir = process.env.E2E_NEXT_DIST_DIR ?? (e2eSlot === undefined ? ".next" : `.next-e2e-${e2eSlot}`);
+export const nextDistDir = process.env.E2E_NEXT_DIST_DIR || (e2eSlot === undefined ? ".next" : `.next-e2e-${e2eSlot}`);
 export const standaloneBuildDir = resolve(repoRoot, "packages/web", nextDistDir, "standalone/packages/web");
 export const buildStampFile = resolve(standaloneBuildDir, ".e2e-build.json");
 
