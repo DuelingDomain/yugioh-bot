@@ -54,7 +54,6 @@ const EXTRA_RULES: Record<number, string[]> = {
   19613556: ["R-COMMON-ALL-BOTH"], // Heavy Storm
   42703248: ["R-COMMON-ALL-BOTH"], // Giant Trunade
   53582587: ["R-COMMON-ALL-BOTH"], // Torrential Tribute
-  14532163: ["R-COMMON-ALL-BOTH"], // Lightning Storm
   // Ongoing effects on "your opponent".
   85742772: ["R-COMMON-ONGOING"], // Gravity Bind
   44947065: ["R-COMMON-ONGOING"], // Burden of the Mighty
@@ -67,7 +66,7 @@ const EXTRA_RULES: Record<number, string[]> = {
   81674782: ["R-COMMON-EACH-PLAYER"], // Dimensional Fissure
   30241314: ["R-COMMON-EACH-PLAYER"], // Macro Cosmos
   72405967: ["R-COMMON-EACH-PLAYER"], // Royal Tribute
-  66788016: ["R-COMMON-EACH-PLAYER"], // Fissure
+  35480699: ["R-COMMON-ALL-BOTH"], // Book of Eclipse first flips every seat
   // Partner cards count for "you control".
   2314238: ["R-TAG-SHARED-CARDS"], // Dark Magic Attack
   // A card that works only on an opponent (or negates one activation) never hits the partner.
@@ -76,14 +75,21 @@ const EXTRA_RULES: Record<number, string[]> = {
   14558127: ["R-TAG-PARTNER", "R-FFA-NEGATE"], // Ash Blossom & Joyous Spring
   41420027: ["R-TAG-PARTNER", "R-FFA-NEGATE"], // Solemn Judgment
   // Attacks.
-  44095762: ["R-FFA-ATTACK"], // Mirror Force
+  44095762: ["R-FFA-ATTACK", "R-FFA-OPP-RESPONSE"], // Mirror Force
   56120475: ["R-FFA-ATTACK"], // Sakuretsu Armor
   70342110: ["R-FFA-ATTACK"], // Dimensional Prison
 };
 
 const rulesOf = (group: "all" | "one", row: Row): string[] => {
-  const base = row.code === 31036355 ? [] : group === "all" ? ["R-COMMON-OPP-FIELD"] : [row.binding === "explicit-pick" ? "R-COMMON-OPP-PICK" : "R-COMMON-OPP-FIELD"];
-  return [...new Set([...base, ...(EXTRA_RULES[row.code] ?? [])])];
+  const extra = EXTRA_RULES[row.code] ?? [];
+  const base = row.code === 31036355 ? [] : group === "one"
+    ? ["R-FFA-OPP-ONE", ...(row.binding === "explicit-pick" ? ["R-COMMON-OPP-PICK"] : [])]
+    : row.code === 70095154 ? ["R-FFA-OPP-ONE"] // Cyber Dragon: one opponent meeting its condition is enough.
+    : row.code === 32807846 ? ["R-COMMON-OPP-PICK"] // Informational hints still reach every opponent.
+    : extra.includes("R-COMMON-ONGOING") || extra.includes("R-COMMON-CONT-NEG") ? []
+    : ["R-COMMON-ALL-BOTH"];
+  return [...new Set([...base, ...extra])];
+
 };
 
 const all = (row: Row): CatalogScenario => ({
@@ -105,7 +111,7 @@ const one = (row: Row): CatalogScenario => ({
 
 const U = "Same as 1v1.";
 
-/** Group (a): the effect touches ALL opponents. */
+/** Group (a): all-seat effects, face-up ongoing effects and no-resource checks. */
 export const GROUP_ALL: CatalogScenario[] = [
   all({
     card: "Creature Swap", code: 31036355, ruleClass: "O",
@@ -119,24 +125,6 @@ export const GROUP_ALL: CatalogScenario[] = [
     setup: "Each living duelist controls a monster. P0 has Creature Swap.",
     action: "P0 activates Creature Swap. Each affected duelist chooses one monster.",
     expected: "In FFA, each chosen monster goes to the next living seat. In Tag, the two chosen monsters swap control.",
-  }),
-  all({
-    card: "Raigeki", code: 12580477, ruleClass: "U",
-    oneVsOne: "Destroys all monsters of the opponent.",
-    results: { ffa3: "Destroys the monsters of both opponents.", ffa4: "Destroys the monsters of all 3 opponents.", tag: "Destroys the monsters of both opposing team members. The partner keeps its monsters." },
-    evidence: [ev(12580477, 16, "GetMatchingGroup(aux.TRUE,tp,0,LOCATION_MZONE"), ev(12580477, 20, "GetMatchingGroup(aux.TRUE,tp,0,LOCATION_MZONE")],
-    setup: "P0 holds Raigeki. Each other seat controls one monster. In Tag, P2 (partner) controls one monster.",
-    action: "P0 activates Raigeki.",
-    expected: "All opponent monsters go to the GY. The monster of the partner stays on the field.",
-  }),
-  all({
-    card: "Harpie's Feather Duster", code: 18144506, ruleClass: "U",
-    oneVsOne: "Destroys all Spells and Traps of the opponent.",
-    results: { ffa3: "Destroys the Spells and Traps of both opponents.", ffa4: "Destroys the Spells and Traps of all 3 opponents.", tag: "Destroys the Spells and Traps of both opposing team members. The partner is safe." },
-    evidence: [ev(18144506, 19, "0,LOCATION_ONFIELD"), ev(18144506, 24, "0,LOCATION_ONFIELD")],
-    setup: "Each other seat controls one set Spell. The partner (Tag) controls one set Spell.",
-    action: "P0 activates Harpie's Feather Duster.",
-    expected: "All opponent Spells and Traps are destroyed. The partner Spell stays.",
   }),
   all({
     card: "Dark Hole", code: 53129443, ruleClass: "U",
@@ -166,15 +154,6 @@ export const GROUP_ALL: CatalogScenario[] = [
     expected: "Each card returns to the hand of its owner.",
   }),
   all({
-    card: "Mirror Force", code: 44095762, ruleClass: "C",
-    oneVsOne: "When an opponent monster attacks, destroys all attack position monsters of the opponent.",
-    results: { ffa3: "When any opponent attacks, destroys the attack position monsters of both opponents.", ffa4: "When any opponent attacks, destroys the attack position monsters of all 3 opponents.", tag: "When an opposing monster attacks, destroys the attack position monsters of both opposing members. The partner is safe." },
-    evidence: [ev(44095762, 16, "IsTurnPlayer(1-tp)"), ev(44095762, 27, "GetMatchingGroup(s.filter,tp,0,LOCATION_MZONE")],
-    setup: "P0 has Mirror Force set. P1 and P2 each control one attack position monster. P1 is the turn player.",
-    action: "P1 attacks. P0 activates Mirror Force.",
-    expected: "The attack position monsters of P1 and P2 are destroyed. The trigger test uses the turn player, so it works for P1 and P2 alike (core rule: 'opponent turn' means any opponent).",
-  }),
-  all({
     card: "Torrential Tribute", code: 53582587, ruleClass: "U",
     oneVsOne: "When a monster is Summoned, destroys all monsters on the field.",
     results: { ffa3: "Destroys all monsters of all 3 players.", ffa4: "Destroys all monsters of all 4 players.", tag: "Destroys all monsters of all 4 players, the partner included." },
@@ -184,33 +163,6 @@ export const GROUP_ALL: CatalogScenario[] = [
     expected: "All monsters on the field are destroyed.",
   }),
   all({
-    card: "Dark Magic Attack", code: 2314238, ruleClass: "U",
-    oneVsOne: "If you control Dark Magician, destroys all Spells and Traps of the opponent.",
-    results: { ffa3: "Destroys the Spells and Traps of both opponents.", ffa4: "Destroys the Spells and Traps of all 3 opponents.", tag: "Destroys the Spells and Traps of both opposing members. The condition counts Dark Magician of the partner (you control includes the partner)." },
-    evidence: [ev(2314238, 17, "CARD_DARK_MAGICIAN"), ev(2314238, 24, "0,LOCATION_ONFIELD"), ev(2314238, 29, "0,LOCATION_ONFIELD")],
-    setup: "Tag: the partner controls face-up Dark Magician and P0 controls none. All opponents control one Spell or Trap.",
-    action: "P0 activates Dark Magic Attack.",
-    expected: "The activation is legal only in Tag through the partner. All opponent Spells and Traps are destroyed.",
-  }),
-  all({
-    card: "Lightning Storm", code: 14532163, ruleClass: "U",
-    oneVsOne: "If you control no face-up cards, choose: destroy all Attack Position monsters or all Spells and Traps of the opponent.",
-    results: { ffa3: "Destroys the chosen card type of both opponents.", ffa4: "Destroys the chosen card type of all 3 opponents.", tag: "Destroys the chosen card type of both opposing members. The condition checks the own field, which includes the partner." },
-    evidence: [ev(14532163, 18, "IsFaceup,tp,LOCATION_ONFIELD,0"), ev(14532163, 21, "IsAttackPos,tp,0,LOCATION_MZONE"), ev(14532163, 39, "IsSpellTrap,tp,0,LOCATION_ONFIELD")],
-    setup: "P0 controls no face-up card. Each opponent controls one attack position monster and one Spell.",
-    action: "P0 activates Lightning Storm and chooses the monster option.",
-    expected: "Attack position monsters of all opponents are destroyed. Spells stay.",
-  }),
-  all({
-    card: "Book of Eclipse", code: 35480699, ruleClass: "O",
-    oneVsOne: "Changes all face-up monsters to face-down. In the End Phase of the turn, the opponent flips its face-down monsters face-up and draws one card for each.",
-    results: { ffa3: "The field part reaches the monsters of every seat. In the End Phase each opponent flips its OWN face-down monsters and draws for them (script fix, overlay c35480699.lua).", ffa4: "Same as 3-FFA.", tag: "Same, for each opposing member: the member flips and draws for the monsters it controls." },
-    evidence: [ev(35480699, 17, "LOCATION_MZONE,LOCATION_MZONE"), ev(35480699, 38, "IsFacedown,tp,0,LOCATION_MZONE"), ev(35480699, 40, "Duel.Draw(1-tp,ct")],
-    setup: "Each seat controls one face-up monster.",
-    action: "P0 activates Book of Eclipse. The turn ends.",
-    expected: "All face-up monsters become face-down. In the End Phase each opponent flips its own monster face-up and draws 1 card. The partner of P0 and P0 draw nothing.",
-  }),
-  all({
     card: "Cyber Dragon", code: 70095154, ruleClass: "U",
     oneVsOne: "If only the opponent controls a monster, you can Special Summon this card from the hand.",
     results: { ffa3: "Legal when P0 controls no monster and any opponent controls one.", ffa4: "Legal when P0 controls no monster and any opponent controls one.", tag: "Legal when the team of P0 controls no monster and any opposing member controls one." },
@@ -218,15 +170,6 @@ export const GROUP_ALL: CatalogScenario[] = [
     setup: "P0 has Cyber Dragon in hand and no monster. Only P2 controls a monster.",
     action: "P0 tries to Special Summon Cyber Dragon.",
     expected: "The summon is legal. In Tag, it is illegal if the partner controls a monster.",
-  }),
-  all({
-    card: "Gameciel, the Sea Turtle Kaiju", code: 55063751, ruleClass: "O",
-    oneVsOne: "Tribute 1 monster of the opponent to Special Summon this card to their field.",
-    results: { ffa3: "The Kaiju goes to the field of the player whose monster was Tributed (owner decision 2026-10-01).", ffa4: "Same as 3-FFA.", tag: "Goes to the field of the player whose monster was Tributed (an opposing member)." },
-    evidence: [ev(55063751, 5, "aux.AddKaijuProcedure"), { file: "cards_specific_functions.lua", line: 347, token: "SetTargetRange(position,1)" }, { file: "cards_specific_functions.lua", line: 362, token: "0,LOCATION_MZONE" }],
-    setup: "P1 and P2 control one monster each. P0 has Gameciel in hand.",
-    action: "P0 Tributes the monster of P2 to summon Gameciel.",
-    expected: "Gameciel appears on the field of P2 (target-controller binding). The same rule holds for the other 6 Kaiju and the Lava cards (MULTIPLAYER_CARD_RULES).",
   }),
   all({
     card: "Gravity Bind", code: 85742772, ruleClass: "U",
@@ -254,24 +197,6 @@ export const GROUP_ALL: CatalogScenario[] = [
     setup: "Each seat controls one effect monster. P0 has Skill Drain set.",
     action: "P0 activates Skill Drain.",
     expected: "The effect of each face-up monster is negated. LP of P0 drops by 1000 (Tag: team LP drops by 1000).",
-  }),
-  all({
-    card: "Lightning Vortex", code: 69162969, ruleClass: "U",
-    oneVsOne: "Discard 1 card. Destroys all face-up monsters of the opponent.",
-    results: { ffa3: "Destroys all face-up monsters of both opponents.", ffa4: "Destroys all face-up monsters of all 3 opponents.", tag: "Destroys all face-up monsters of both opposing members." },
-    evidence: [ev(69162969, 21, "IsFaceup,tp,0,LOCATION_MZONE"), ev(69162969, 25, "IsFaceup,tp,0,LOCATION_MZONE")],
-    setup: "Each other seat controls one face-up monster.",
-    action: "P0 discards a card and activates Lightning Vortex.",
-    expected: "All opponent face-up monsters are destroyed.",
-  }),
-  all({
-    card: "Fissure", code: 66788016, ruleClass: "U",
-    oneVsOne: "Destroys the face-up monster of the opponent with the lowest ATK.",
-    results: { ffa3: "Destroys the lowest ATK face-up monster among both opponents (ties: P0 picks).", ffa4: "Destroys the lowest ATK face-up monster among all 3 opponents.", tag: "Destroys the lowest ATK face-up monster among the opposing members." },
-    evidence: [ev(66788016, 15, "IsFaceup,tp,0,LOCATION_MZONE"), ev(66788016, 16, "IsFaceup,tp,0,LOCATION_MZONE")],
-    setup: "P1 controls a monster with 1500 ATK. P2 controls a monster with 1000 ATK.",
-    action: "P0 activates Fissure.",
-    expected: "The monster of P2 is destroyed (lowest ATK in the union).",
   }),
   all({
     card: "Judgment Dragon", code: 57774843, ruleClass: "U",
@@ -355,15 +280,6 @@ export const GROUP_ALL: CatalogScenario[] = [
     expected: "The Trap effect is negated.",
   }),
   all({
-    card: "Kycoo the Ghost Destroyer", code: 88240808, ruleClass: "U",
-    oneVsOne: "Banishes up to 2 cards from the monster zone or GY of the opponent.",
-    results: { ffa3: "P0 picks up to 2 targets from the union of both opponent fields and GYs.", ffa4: "P0 picks up to 2 targets from the union of all 3 opponents.", tag: "P0 picks up to 2 targets from both opposing members." },
-    evidence: [ev(88240808, 22, "SetTargetRange(0,1)"), ev(88240808, 37, "IsExistingTarget(s.filter,tp,0,LOCATION_MZONE|LOCATION_GRAVE")],
-    setup: "P1 has a card in the GY. P2 controls one monster.",
-    action: "P0 activates Kycoo and picks the GY card of P1 and the monster of P2.",
-    expected: "Both targets are banished. The partner cards are not valid targets.",
-  }),
-  all({
     card: "Reinforcement of the Army", code: 32807846, ruleClass: "U",
     oneVsOne: "Adds a Warrior monster from the Deck to the hand and shows it to the opponent.",
     results: { ffa3: "Shows the card to both opponents.", ffa4: "Shows the card to all 3 opponents.", tag: "Shows the card to both opposing members. The partner may see it by the team rule; the ADR leaves this to Layer 3." },
@@ -385,6 +301,98 @@ export const GROUP_ALL: CatalogScenario[] = [
 
 /** Group (b): the effect touches ONE opponent. `binding` names the source (spec 4.2). */
 export const GROUP_ONE: CatalogScenario[] = [
+  // These IDs stay stable when their rows move to the one-opponent group.
+  one({
+    card: "Raigeki", code: 12580477, ruleClass: "C", binding: "explicit-pick",
+    oneVsOne: "Destroys all monsters of the opponent.",
+    results: { ffa3: "Destroys only the monsters of the opponent declared at activation.", ffa4: "Destroys only the monsters of one opponent declared at activation; the other two keep theirs.", tag: "Destroys the monsters of both opposing team members. The partner keeps its monsters." },
+    evidence: [ev(12580477, 16, "GetMatchingGroup(aux.TRUE,tp,0,LOCATION_MZONE"), ev(12580477, 20, "GetMatchingGroup(aux.TRUE,tp,0,LOCATION_MZONE")],
+    setup: "P0 holds Raigeki. Each other seat controls one monster. In Tag, P2 (partner) controls one monster.",
+    action: "P0 activates Raigeki.",
+    expected: "FFA: only the declared opponent loses its monsters. Tag: both opposing members lose theirs; the partner keeps its monster.",
+  }),
+  one({
+    card: "Harpie's Feather Duster", code: 18144506, ruleClass: "C", binding: "explicit-pick",
+    oneVsOne: "Destroys all Spells and Traps of the opponent.",
+    results: { ffa3: "Destroys only the Spells and Traps of the opponent declared at activation.", ffa4: "Destroys only the Spells and Traps of one declared opponent; the other two keep theirs.", tag: "Destroys the Spells and Traps of both opposing team members. The partner is safe." },
+    evidence: [ev(18144506, 19, "0,LOCATION_ONFIELD"), ev(18144506, 24, "0,LOCATION_ONFIELD")],
+    setup: "Each other seat controls one set Spell. The partner (Tag) controls one set Spell.",
+    action: "P0 activates Harpie's Feather Duster.",
+    expected: "FFA: only the declared opponent loses its Spells and Traps. Tag: both opposing fields lose them; the partner keeps its Spell.",
+  }),
+  one({
+    card: "Mirror Force", code: 44095762, ruleClass: "C", binding: "event-opponent",
+    oneVsOne: "When an opponent monster attacks, destroys all attack position monsters of the opponent.",
+    results: { ffa3: "Any opponent of the attacker can respond; only the attacker loses its Attack Position monsters.", ffa4: "Any opponent of the attacker can respond; only the attacker loses its Attack Position monsters.", tag: "When an opposing monster attacks, destroys the attack position monsters of both opposing members. The partner is safe." },
+    evidence: [ev(44095762, 16, "IsTurnPlayer(1-tp)"), ev(44095762, 27, "GetMatchingGroup(s.filter,tp,0,LOCATION_MZONE")],
+    setup: "P0 has Mirror Force set. P1 and P2 each control one attack position monster. P1 is the turn player.",
+    action: "P1 attacks. P0 activates Mirror Force.",
+    expected: "FFA: only P1 loses its Attack Position monsters; P2 keeps its monsters. Tag: both opposing members lose their Attack Position monsters.",
+  }),
+  one({
+    card: "Dark Magic Attack", code: 2314238, ruleClass: "C", binding: "explicit-pick",
+    oneVsOne: "If you control Dark Magician, destroys all Spells and Traps of the opponent.",
+    results: { ffa3: "Destroys only the Spells and Traps of the opponent declared at activation.", ffa4: "Destroys only the Spells and Traps of one declared opponent; the other two keep theirs.", tag: "Destroys the Spells and Traps of both opposing members. The condition counts Dark Magician of the partner (you control includes the partner)." },
+    evidence: [ev(2314238, 17, "CARD_DARK_MAGICIAN"), ev(2314238, 24, "0,LOCATION_ONFIELD"), ev(2314238, 29, "0,LOCATION_ONFIELD")],
+    setup: "Tag: the partner controls face-up Dark Magician and P0 controls none. All opponents control one Spell or Trap.",
+    action: "P0 activates Dark Magic Attack.",
+    expected: "The partner can meet the activation condition in Tag. FFA: only the declared opponent loses Spells and Traps. Tag: both opposing fields lose them.",
+  }),
+  one({
+    card: "Lightning Storm", code: 14532163, ruleClass: "C", binding: "explicit-pick",
+    oneVsOne: "If you control no face-up cards, choose: destroy all Attack Position monsters or all Spells and Traps of the opponent.",
+    results: { ffa3: "Destroys the chosen card type of the opponent declared at activation.", ffa4: "Destroys the chosen card type of one declared opponent; the other two keep theirs.", tag: "Destroys the chosen card type of both opposing members. The condition checks the own field, which includes the partner." },
+    evidence: [ev(14532163, 18, "IsFaceup,tp,LOCATION_ONFIELD,0"), ev(14532163, 21, "IsAttackPos,tp,0,LOCATION_MZONE"), ev(14532163, 39, "IsSpellTrap,tp,0,LOCATION_ONFIELD")],
+    setup: "P0 controls no face-up card. Each opponent controls one attack position monster and one Spell.",
+    action: "P0 activates Lightning Storm and chooses the monster option.",
+    expected: "FFA: only the declared opponent loses its Attack Position monsters. Tag: both opposing fields lose them. Spells stay.",
+  }),
+  one({
+    card: "Book of Eclipse", code: 35480699, ruleClass: "O", binding: "explicit-pick",
+    oneVsOne: "Changes all face-up monsters to face-down. In the End Phase of the turn, the opponent flips its face-down monsters face-up and draws one card for each.",
+    results: { ffa3: "The initial flip reaches every seat. The End Phase flip and draw reach only the opponent declared at activation (overlay c35480699.lua).", ffa4: "Same as 3-FFA.", tag: "The initial flip reaches every seat. In the End Phase each opposing member flips and draws for its own monsters." },
+    evidence: [ev(35480699, 17, "LOCATION_MZONE,LOCATION_MZONE"), ev(35480699, 38, "IsFacedown,tp,0,LOCATION_MZONE"), ev(35480699, 40, "Duel.Draw(1-tp,ct")],
+    setup: "Each seat controls one face-up monster.",
+    action: "P0 activates Book of Eclipse. The turn ends.",
+    expected: "All face-up monsters become face-down. FFA: only the declared opponent flips and draws in the End Phase. Tag: each opposing member flips and draws for its own monsters.",
+  }),
+  one({
+    card: "Gameciel, the Sea Turtle Kaiju", code: 55063751, ruleClass: "O", binding: "target-controller",
+    oneVsOne: "Tribute 1 monster of the opponent to Special Summon this card to their field.",
+    results: { ffa3: "The Kaiju goes to the field of the player whose monster was Tributed (owner decision 2026-10-01).", ffa4: "Same as 3-FFA.", tag: "Goes to the field of the player whose monster was Tributed (an opposing member)." },
+    evidence: [ev(55063751, 5, "aux.AddKaijuProcedure"), { file: "cards_specific_functions.lua", line: 347, token: "SetTargetRange(position,1)" }, { file: "cards_specific_functions.lua", line: 362, token: "0,LOCATION_MZONE" }],
+    setup: "P1 and P2 control one monster each. P0 has Gameciel in hand.",
+    action: "P0 Tributes the monster of P2 to summon Gameciel.",
+    expected: "Gameciel appears on the field of P2 (target-controller binding). The same rule holds for the other 6 Kaiju and the Lava cards (MULTIPLAYER_CARD_RULES).",
+  }),
+  one({
+    card: "Lightning Vortex", code: 69162969, ruleClass: "C", binding: "explicit-pick",
+    oneVsOne: "Discard 1 card. Destroys all face-up monsters of the opponent.",
+    results: { ffa3: "Destroys the face-up monsters of the opponent declared at activation.", ffa4: "Destroys the face-up monsters of one declared opponent; the other two keep theirs.", tag: "Destroys all face-up monsters of both opposing members." },
+    evidence: [ev(69162969, 21, "IsFaceup,tp,0,LOCATION_MZONE"), ev(69162969, 25, "IsFaceup,tp,0,LOCATION_MZONE")],
+    setup: "Each other seat controls one face-up monster.",
+    action: "P0 discards a card and activates Lightning Vortex.",
+    expected: "FFA: only the declared opponent loses face-up monsters. Tag: both opposing members lose face-up monsters.",
+  }),
+  one({
+    card: "Fissure", code: 66788016, ruleClass: "C", binding: "explicit-pick",
+    oneVsOne: "Destroys the face-up monster of the opponent with the lowest ATK.",
+    results: { ffa3: "Destroys the lowest ATK face-up monster of the declared opponent (ties: P0 picks).", ffa4: "Destroys the lowest ATK face-up monster of one declared opponent.", tag: "Destroys the lowest ATK face-up monster among the opposing members." },
+    evidence: [ev(66788016, 15, "IsFaceup,tp,0,LOCATION_MZONE"), ev(66788016, 16, "IsFaceup,tp,0,LOCATION_MZONE")],
+    setup: "P1 controls a monster with 1500 ATK. P2 controls a monster with 1000 ATK.",
+    action: "P0 activates Fissure.",
+    expected: "FFA: P0 declares P2 and destroys its lowest ATK face-up monster. Tag: use the lowest ATK among both opposing fields.",
+  }),
+  one({
+    card: "Kycoo the Ghost Destroyer", code: 88240808, ruleClass: "C", binding: "event-opponent",
+    oneVsOne: "Banishes up to 2 cards from the monster zone or GY of the opponent.",
+    results: { ffa3: "P0 picks up to 2 targets from the declared opponent field and GY.", ffa4: "P0 picks up to 2 targets from one declared opponent field and GY.", tag: "P0 picks up to 2 targets from both opposing members." },
+    evidence: [ev(88240808, 22, "SetTargetRange(0,1)"), ev(88240808, 37, "IsExistingTarget(s.filter,tp,0,LOCATION_MZONE|LOCATION_GRAVE")],
+    setup: "P1 has a card in the GY. P2 controls one monster.",
+    action: "P0 activates Kycoo after damage to P1 and picks only cards of P1 in FFA; Tag can use both opposing fields.",
+    expected: "FFA: only the battle opponent supplies targets. Tag: both opposing members supply targets. The partner cards are never valid targets.",
+  }),
+
   one({
     card: "Mind Crush", code: 15800838, ruleClass: "U", binding: "explicit-pick",
     oneVsOne: "Name a card. If the opponent has it in hand, they discard all copies. If not, you discard 1 card at random.",
@@ -843,8 +851,56 @@ export const SCENARIOS: CatalogScenario[] = [...GROUP_ALL, ...GROUP_ONE];
  * target cap of Ultimate Sky.
  */
 export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
+  18144506: [
+    "p3-catalog-ffa3-harpie-s-feather-duster",
+    "p3-catalog-ffa4-harpie-s-feather-duster",
+    "p3-catalog-tag-harpie-s-feather-duster",
+  ],
+  2314238: [
+    "p3-catalog-ffa3-dark-magic-attack",
+    "p3-catalog-ffa4-dark-magic-attack",
+    "p3-catalog-tag-dark-magic-attack",
+  ],
+  14532163: [
+    "p3-catalog-ffa3-lightning-storm-monsters",
+    "p3-catalog-ffa3-lightning-storm-spells",
+    "p3-catalog-ffa4-lightning-storm-monsters",
+    "p3-catalog-ffa4-lightning-storm-spells",
+    "p3-catalog-tag-lightning-storm-monsters",
+    "p3-catalog-tag-lightning-storm-spells",
+  ],
+  69162969: [
+    "p3-catalog-ffa3-lightning-vortex",
+    "p3-catalog-ffa4-lightning-vortex",
+    "p3-catalog-tag-lightning-vortex",
+  ],
+  66788016: [
+    "p3-catalog-ffa3-fissure",
+    "p3-catalog-ffa4-fissure",
+    "p3-catalog-tag-fissure",
+  ],
+  44095762: [
+    "p3-catalog-ffa3-third-duelist-mirror-force",
+    "p3-catalog-ffa4-third-duelist-mirror-force",
+    "p3-catalog-tag-third-duelist-mirror-force",
+  ],
+  19613556: [
+    "p3-catalog-ffa3-heavy-storm",
+    "p3-catalog-ffa4-heavy-storm",
+    "p3-catalog-tag-heavy-storm",
+  ],
+  53582587: [
+    "p3-catalog-ffa3-torrential-tribute",
+    "p3-catalog-ffa4-torrential-tribute",
+    "p3-catalog-tag-torrential-tribute",
+  ],
   // Group (a) and (b) sketches.
-  12580477: ["compare-ffa3-window-closes-after-evenly-matched"], // Raigeki (FFA3: both opponents lose their monsters)
+  12580477: [
+    "p3-catalog-ffa3-raigeki",
+    "p3-catalog-ffa4-raigeki",
+    "p3-catalog-tag-raigeki",
+    "compare-ffa3-window-closes-after-evenly-matched",
+  ], // Raigeki: its own declared opponent after a prior binding.
   53129443: [
     "seats-r2-ffa3-fatal-abacus-damages-each-real-controller-of-the-destroyed-monsters",
     "seats-r2-tag-fatal-abacus-damages-the-team-of-each-real-controller",
@@ -1402,6 +1458,8 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "book-of-eclipse-tag-p0-each-opponent-flips-its-own-monsters-and-draws-for-them",
     "book-of-eclipse-tag-p1-each-opponent-flips-its-own-monsters-and-draws-for-them",
     "book-of-eclipse-ffa3-p0-activates-in-the-turn-of-p1-declared-opponent-flips-its-own-monsters-and-draws-for-them",
+    "book-of-eclipse-ffa4-p0-declared-p2-has-no-monsters-no-other-opponent-flips-or-draws",
+    "book-of-eclipse-ffa4-p0-declared-p3-eliminated-before-end-phase",
   ], // Book of Eclipse
   76922029: [
     "don-zaloog-ffa3-p1-damages-p2-deck-effect-hits-only-p2",
