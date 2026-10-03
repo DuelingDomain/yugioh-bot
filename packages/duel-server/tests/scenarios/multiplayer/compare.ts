@@ -4,10 +4,8 @@
 // Decisions: docs/adr/0002-multiplayer-duel-rules.md (question 2 and 5). FFA: the activator picks ONE opponent and compares with that
 // opponent only. Tag: the joined field of the two opposing duelists, and the picked opposing duelist chooses.
 
-import {
-  activate, attack, changePhase, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, expectPrompt,
-  normalSummon, pass, pickOpponent, select, expectTurn, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
-} from "../../support/dsl.js";
+import { activate, attack, changePhase, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, expectPrompt,
+  normalSummon, pass, pickOpponent, select, expectTurn, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
@@ -125,9 +123,9 @@ export const COMPARE_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "compare-ffa3-window-closes-after-evenly-matched",
-    title: "FFA3: after Evenly Matched resolved on one opponent, Raigeki of the same duelist destroys the monsters of EVERY opponent (W5)",
-    source: `${SOURCE} [R-COMMON-OPP-FIELD]`,
-    rules: ["R-COMMON-OPP-FIELD", "R-COMMON-OPP-PICK"],
+    title: "FFA3: after Evenly Matched resolves on p1, Raigeki declares p2 and destroys only p2 monsters (W5)",
+    source: `${SOURCE} [R-FFA-OPP-ONE], owner decision 2026-10-02`,
+    rules: ["R-FFA-OPP-ONE", "R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "compare", "chooser", "ffa3", "card:15693423", "card:12580477"],
     // Evenly Matched is a Trap that p0 activates from the hand in the Battle Phase (no card on the field, an opponent with 2 or more).
     setup: {
@@ -148,8 +146,16 @@ export const COMPARE_SCENARIOS: Scenario[] = [
       // p1 banishes 3 - 0 - 1 (the card in the hand) = 2 of its own cards. p2 is not touched.
       select(SANGAN, WITCH),
       expectBoard({ p1: { monsters: [BUG] }, p2: { monsters: [OX, GUARDIAN] } }),
+      // Reason: activated opponent-field effects now declare one opponent; a later chain link must not reuse the Evenly Matched bind.
       activate("Raigeki", "p0"),
-      expectBoard({ p1: { monsters: { count: 0 } }, p2: { monsters: { count: 0 } } }),
+      expectPickSeats(["p1", "p2"], "p0"),
+      pickOpponent("p2", "p0"),
+      expectBoard({
+        // Standard MR5 skips turn 1's draw. p0 draws once, on turn 4.
+        p0: { lp: 8000, monsters: [], spells: [], grave: ["Evenly Matched", "Raigeki"], banished: [], hand: { count: 1 } },
+        p1: { lp: 8000, monsters: [BUG], spells: [], grave: [], banished: { count: 2 }, hand: { count: 1 } },
+        p2: { lp: 8000, monsters: [], spells: [], grave: [OX, GUARDIAN], banished: [], hand: { count: 1 } },
+      }),
     ],
   }),
   defineScenario({
