@@ -44,7 +44,7 @@ beforeEach(() => {
   state.reportEnabled.mockResolvedValue(false);
   window.history.replaceState(null, "", "/duels/live");
 });
-afterEach(cleanup);
+afterEach(() => { cleanup(); window.name = ""; });
 function room(source: DuelRoom) {
   state.room = { ...source, session: { ...source.session, slug: "live" }, engine: { ...source.engine!, events: [],
     prompt: source.engine!.prompt ? { ...source.engine!.prompt, options: source.engine!.prompt.options.map((option) => ({ ...option })) } : null } };
@@ -161,13 +161,12 @@ describe("live room table mount", () => {
     expect(container.querySelector("[data-hand-seat='0']")).not.toBeNull();
   });
 
-  it("keeps the own-window gate in the room", () => {
+  it("opens the board in place when a seated player lands on a live duel outside the duel window", () => {
     room(FFA3_FIXTURES.states.main.room);
     const { container } = mount(false);
-    expect(screen.getByTestId("duel-window-gate")).toBeTruthy();
-    expect(container.querySelector("[data-table-shell]")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Open here instead" }));
+    expect(screen.queryByTestId("duel-window-gate")).toBeNull();
     expect(container.querySelector("[data-table-shell]")).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Pop out" })).toBeTruthy();
   });
 
   it("routes a table card action once through the room's prompt and revision", async () => {

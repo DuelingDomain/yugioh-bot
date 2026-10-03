@@ -70,7 +70,7 @@ import {
 } from "./prompts";
 import { isBattlePhase, phaseTitle, zoneKey } from "./constants";
 import { DuelResultScreen } from "./duel-result";
-import { duelWindowPath, exitDuelWindow, isDuelWindow, openDuelWindow } from "./duel-window";
+import { closeDuelWindow, duelWindowName, duelWindowPath, exitDuelWindow, isDuelWindow, liveDuelWindow, openDuelWindow, renameDuelWindow } from "./duel-window";
 import { ownWindowGateVisible } from "./start-flow";
 import { SeriesBanner, SeriesGameLabel } from "./series-banner";
 import { BetweenGamesScreen, isStartingNextGame, NextGameStarting } from "./between-games";
@@ -173,17 +173,53 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // Read after mount: the server render cannot know whether this is the duel window.
   const [inDuelWindow, setInDuelWindow] = useState(windowed);
   const [playHere, setPlayHere] = useState(false);
-  const [windowBlocked, setWindowBlocked] = useState(false);
   const [windowOpened, setWindowOpened] = useState(false);
   // Start duel was clicked and the server has not answered yet.
   const [starting, setStarting] = useState(false);
+  const popup = useRef<Window | null>(null);
   const openWindow = () => {
     const opened = openDuelWindow(slug);
+    popup.current = opened;
     setWindowOpened(opened != null);
-    setWindowBlocked(opened == null);
     return opened;
   };
-  useEffect(() => { if (isDuelWindow(slug)) setInDuelWindow(true); }, [slug]);
+  // Pop out: the board moves to the duel window, this tab shows where it went.
+  const [popBlocked, setPopBlocked] = useState(false);
+  const popOut = () => {
+    setPlayHere(false);
+    setPopBlocked(openWindow() == null);
+  };
+  useEffect(() => {
+    if (!popBlocked) return undefined;
+    const timer = window.setTimeout(() => setPopBlocked(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [popBlocked]);
+  // A remount (the next game of a series, or back from the tables list) must not show a second board
+  // for a seat whose duel window this page still has open.
+  useEffect(() => {
+    if (isDuelWindow(slug)) return;
+    const existing = liveDuelWindow(slug);
+    if (!existing) return;
+    popup.current = existing;
+    setWindowOpened(true);
+  }, [slug]);
+  useEffect(() => {
+    if (!isDuelWindow(slug)) return;
+    setInDuelWindow(true);
+    // The name lets a later open of this duel find this window and focus it.
+    try { window.name = duelWindowName(slug); } catch { /* a read-only name only costs the focus-reuse */ }
+  }, [slug]);
+  // The player closed the duel window: the duel continues in this tab.
+  useEffect(() => {
+    if (!windowOpened) return undefined;
+    const timer = window.setInterval(() => {
+      if (popup.current?.closed) {
+        popup.current = null;
+        setWindowOpened(false);
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [windowOpened]);
   const [menu, setMenu] = useState<CardMenuState | null>(null);
   const [hover, setHover] = useState<{ card: DuelCard; anchor: HTMLElement } | null>(null);
   // A click the pick refused (full): a short note on the card, which also shakes.
@@ -382,6 +418,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }, [watchingCurrent, slug]);
   const nextTarget = data ? nextGameTarget(data, slug, { followAsSpectator: watchedLive === slug }) : null;
   const goToGame = useCallback((next: string) => {
+    // The window this tab opened follows the series on its own; name it for the next game now, so the
+    // next room finds it before the window has finished moving.
+    if (!inDuelWindow && popup.current && !popup.current.closed) renameDuelWindow(popup.current, next);
     const path = inDuelWindow ? duelWindowPath(next) : `/duels/${encodeURIComponent(next)}`;
     router.replace(legacyStage ? `${path}${inDuelWindow ? "&" : "?"}stage=legacy` : path);
   }, [router, inDuelWindow, legacyStage]);
@@ -586,6 +625,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
             } catch (err) {
               // Back to the lobby with the error; the pop-up has nothing to show.
               setStarting(false);
+              setWindowOpened(false);
+              popup.current = null;
               try { opened?.close(); } catch { /* the browser keeps it open */ }
               throw err;
             }
@@ -648,22 +689,32 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const leavingNotice = viewerLeaving ? <p className={styles.leavingNotice} role="status" data-testid="self-leaving">
     Leaving — you surrendered; you leave at the end of this turn
   </p> : null;
+  const popOutControl = data.mySeat != null && !viewerOut && !inDuelWindow && data.session.status === "active" && !engine?.result ?
+    <>
+      <button type="button" className={styles.tool} onClick={popOut}>Pop out</button>
+      {popBlocked ? <span className={styles.tool} role="status">Your browser blocked the window.</span> : null}
+    </> : null;
   const leaveControl = data.mySeat == null || viewerOut ?
     <button type="button" className={styles.tool} onClick={exitDuel}>Leave room</button> : null;
   if (ownWindowGate) {
     return (
       <div className="mx-auto flex min-h-[60vh] max-w-lg flex-col items-center justify-center gap-4 text-center"
         data-testid="duel-window-gate">
-        <h1 className="text-xl font-semibold text-text-primary">{windowOpened ? "Duel is open in its own window" : "Your duel is live"}</h1>
+        <h1 className="text-xl font-semibold text-text-primary">Duel is open in its own window</h1>
         <p className="text-sm text-text-secondary">
-          {windowOpened ? "" : "Open it in its own window. "}The duel runs in a separate window so Back and Forward cannot pull you out of it.
-          {windowBlocked ? " Your browser blocked the window. Click the button to open it." : ""}
+          The duel runs in a separate window so Back and Forward cannot pull you out of it. Closing that window brings the duel back here.
         </p>
         <div className="flex flex-wrap justify-center gap-2">
           <SheetButton kind="primary" size="lg" onClick={openWindow}>
-            <ExternalLink size={16} strokeWidth={1.6} aria-hidden />{windowOpened ? "Focus window" : "Open duel window"}
+            <ExternalLink size={16} strokeWidth={1.6} aria-hidden />Focus window
           </SheetButton>
-          <SheetButton kind="quiet" onClick={() => setPlayHere(true)}>Open here instead</SheetButton>
+          <SheetButton kind="quiet" onClick={() => {
+            // One board per seat: the duel window closes, the duel continues in this tab.
+            closeDuelWindow(popup.current);
+            popup.current = null;
+            setWindowOpened(false);
+            setPlayHere(true);
+          }}>Open here instead</SheetButton>
         </div>
       </div>
     );
@@ -680,6 +731,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       headerTools: <>
         <BugReportHeaderButton room={data} />
         <ReportButton slug={slug} />
+        {popOutControl}
         {leaveControl}
         {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error)}
           onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
@@ -904,6 +956,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           </span>
           <BugReportHeaderButton room={data} />
           <ReportButton slug={slug} />
+          {popOutControl}
           {leaveControl}
           {hasResult && hideResult ? (
             <button type="button" className={styles.tool} onClick={() => setHideResult(false)}>

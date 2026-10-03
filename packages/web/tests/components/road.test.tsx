@@ -12,6 +12,8 @@ vi.mock("next/font/google", () => {
 import { SheetRoot } from "@/components/sheet";
 import { Road } from "@/components/tournament/bracket/road";
 import type { Match, TournamentDetail } from "@/components/tournament/types";
+import { seriesFor } from "../fixtures/matches";
+import { navigateDuelWindow } from "@/components/duel/duel-window";
 import { standingsRatings, standingsTournament } from "../fixtures/standings";
 
 function bracketTournament(count: number, decide: (matches: Match[]) => Match[] = (m) => m): TournamentDetail {
@@ -67,6 +69,17 @@ describe("the single elimination road", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show the whole bracket" }));
     expect(screen.getAllByText("Bye. Goes straight through.").length).toBeGreaterThan(0);
     expect(screen.getByTestId("bracket-match-2")).toHaveAttribute("data-mine", "true");
+  });
+
+  it("focuses the duel window this page opened when Open duel is clicked", () => {
+    const popup = { closed: false, name: "", location: { href: "about:blank" }, focus: vi.fn() };
+    navigateDuelWindow(popup as unknown as Window, "duel-2");
+    popup.focus.mockClear();
+    show(bracketTournament(8, (matches) => matches.map((match) => match.id === 2 ? { ...match, series: seriesFor(match) } : match)));
+    const link = screen.getByRole("link", { name: "Open duel" });
+    expect(link).toHaveAttribute("href", "/duels/duel-2");
+    expect(fireEvent.click(link)).toBe(false);
+    expect(popup.focus).toHaveBeenCalledOnce();
   });
 
   it("says when a later round will be drawn", () => {
