@@ -307,6 +307,8 @@ describe("live room table mount", () => {
 
   it.each(["completed", "interrupted"] as const)("does not send an eliminated seat to spectate once the duel is %s", (status) => {
     room(FFA3_FIXTURES.states.result.room);
+    // The fixture already carries engine.result; clear it so only the session status keeps the seat from spectating.
+    state.room!.engine!.result = null;
     state.room!.session.status = status;
     state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, eliminated: true } : seat);
     expect(state.room!.mySeat).toBe(0);
