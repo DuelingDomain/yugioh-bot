@@ -4,7 +4,7 @@ import { afterEach, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import type { DuelAnswer, DuelCardInfo, DuelEngineView, DuelFormat } from "@yugidraft/shared/duels";
-import { DUEL_CLOCK_INCREMENT_MS } from "@yugidraft/shared/duels";
+import { DUEL_CLOCK_INCREMENT_MS, DUEL_OPENING_GRACE_MS } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
@@ -101,10 +101,10 @@ describeWithCores("clock after a time-limit loss that is still pending (real eng
     const states = async () => (await t.view(0)).seats.map((seat) => (seat.eliminated ? "out" : seat.pendingElimination ? "pending" : "in"));
     const start = t.time.now;
     expect(await holders()).toEqual([1]);
-    expect(t.clock()).toEqual({ turn: 1, remainingMs: [BANK, BANK, BANK, BANK], activeSeat: 1, startedAt: start });
+    expect(t.clock()).toEqual({ turn: 1, remainingMs: [BANK, BANK, BANK, BANK], activeSeat: 1, startedAt: start + DUEL_OPENING_GRACE_MS });
 
-    // p1 holds the chain window and does not answer.
-    t.time.now += BANK + 1_000;
+    // p1 holds the chain window and does not answer. The opening grace comes before the bank.
+    t.time.now += DUEL_OPENING_GRACE_MS + BANK + 1_000;
     expect(await holders()).toEqual([2]);
     expect(await states()).toEqual(["in", "pending", "in", "in"]);
     // The clock runs for p2 from now on. It is not stuck on the due clock of p1.
@@ -134,7 +134,7 @@ describeWithCores("clock after a time-limit loss that is still pending (real eng
   it("keeps the clock of a seat that answers after the one that left: only the answering seat is charged", async () => {
     const t = await table("ffa4", 4, BOARD);
     expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
-    t.time.now += BANK + 1_000;
+    t.time.now += DUEL_OPENING_GRACE_MS + BANK + 1_000;
     const v2 = await t.view(2);
     expect(v2.prompt?.seat).toBe(2);
     // p2 answers 10 s after its window opened. The window of p3 opens and the loss of p1 lands.

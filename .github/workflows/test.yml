@@ -237,6 +237,21 @@ jobs:
       - name: Engine tests
         run: npm run test:engine
 
+      # Web tests that run a real stock-core duel. The unit job has no engine bundle, so they skip there.
+      # DUEL_REQUIRE_CORES=1 (from the job env) makes a missing bundle a failure here.
+      # The step finds the files itself: every web test that imports the shared cores helper
+      # (describeWithCores / itWithCores) runs here, so a new engine test needs no edit of this file.
+      # Only direct imports of the cores helper are found. A web test that gets the helper through another module is not run here.
+      # The full web suite (about 400 files) already runs in the unit job, so only the matching files run again.
+      - name: Web tests with the engine
+        run: |
+          set -o pipefail
+          # Lines that start with // or * are comments: a comment that names the helper does not count.
+          files=$({ grep -rE "duel-server/tests/support/cores(\.js)?[\"']" packages/web/tests --include='*.test.ts' --include='*.test.tsx' || true; } | { grep -vE '^[^:]*:[[:space:]]*(//|\*)' || true; } | cut -d: -f1 | sed 's#^packages/web/##' | sort -u)
+          if [ -z "$files" ]; then echo "No web test imports the cores helper. Fix this step."; exit 1; fi
+          echo "$files"
+          npm exec --workspace=packages/web -- vitest run $files
+
       # tests/*.smoke.ts are plain assert scripts (vitest does not match them); one failing script fails the step.
       - name: Engine smoke scripts
         run: npm run test:smoke --workspace=packages/duel-server
@@ -348,6 +363,10 @@ jobs:
 
       - name: Install
         run: npm ci --ignore-scripts
+
+      # The script imports @yugidraft/shared/dist/duels, which only exists after the build.
+      - name: Build shared
+        run: npm run build --workspace=@yugidraft/shared
 
       # --check prints the table and writes no file. --strict fails when a rule of ADR-0002 has no covering test.
       - name: Rule coverage

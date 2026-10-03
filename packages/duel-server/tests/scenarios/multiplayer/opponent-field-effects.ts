@@ -7,8 +7,7 @@
 // Every scenario ends with the state of every seat (everySeat). Plain data, also read by scripts/rule-coverage.ts; opponent-field-effects.test.ts
 // runs them on a live core (NSEAT_LIVE=1).
 
-import { expectPickSeats, pickOpponent, type CardEntry, type DuelistExpect, type DuelistSetup, type Scenario, type Step } from "../../support/dsl.js";
-import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
+import { defineScenario, expectPickSeats, pickOpponent, type CardEntry, type DuelistExpect, type DuelistSetup, type Scenario, type Step } from "../../support/dsl.js";
 import { everySeat } from "./table-cards.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
@@ -164,6 +163,6 @@ export function effectScenarios(spec: EffectSpec): Scenario[] {
       tags: ["multiplayer", "opponent-field-summon", format, `card:${spec.code}`],
       setup: setup as never,
       steps: [...steps, ...pick, ...then, everySeat(format, Object.fromEntries(Object.entries(seatSpec).map(([seat, zones]) => [seat, expectOf(zones)])))],
-    }, spec.slug === "ceruli" ? { card: ELF } : {});
+    });
   });
 }
