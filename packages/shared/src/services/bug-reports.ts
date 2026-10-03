@@ -94,6 +94,17 @@ export function createBugReportService(db: Database.Database) {
   );
   const setError = db.prepare("update bug_reports set github_error = ? where id = ? and guild_id = ?");
 
+  /** Throws 429 with `retryAfterSeconds` when the player has used up the window. Counts only; it writes nothing. */
+  function assertWithinLimit(guildId: string, playerId: number, now: number, { limit, windowMs }: BugReportLimit): void {
+    const since = new Date(now - windowMs).toISOString();
+    const recent = recentFor.all(guildId, playerId, since) as Array<{ created_at: string }>;
+    if (recent.length >= limit) {
+      const oldest = Date.parse(recent[recent.length - limit]!.created_at);
+      const retryAfter = Math.max(1, Math.ceil((oldest + windowMs - now) / 1000));
+      throw new BugReportServiceError("Too many bug reports. Try again later.", 429, retryAfter);
+    }
+  }
+
   function get(id: number, guildId: string): BugReport {
     const row = selectOne.get(id, guildId);
     if (!row) throw new BugReportServiceError("Bug report not found", 404);
@@ -109,19 +120,12 @@ export function createBugReportService(db: Database.Database) {
      */
     create(input: BugReportInput, options: { now?: number; limit?: BugReportLimit } = {}): BugReport {
       const now = options.now ?? Date.now();
-      const { limit, windowMs } = options.limit ?? BUG_REPORT_LIMIT;
       const duelSlug = input.duelSlug ?? null;
       const run = db.transaction(() => {
         if (duelSlug !== null && !duelInGuild.get(duelSlug, input.guildId)) {
           throw new BugReportServiceError("Duel not found", 404);
         }
-        const since = new Date(now - windowMs).toISOString();
-        const recent = recentFor.all(input.guildId, input.playerId, since) as Array<{ created_at: string }>;
-        if (recent.length >= limit) {
-          const oldest = Date.parse(recent[recent.length - limit]!.created_at);
-          const retryAfter = Math.max(1, Math.ceil((oldest + windowMs - now) / 1000));
-          throw new BugReportServiceError("Too many bug reports. Try again later.", 429, retryAfter);
-        }
+        assertWithinLimit(input.guildId, input.playerId, now, options.limit ?? BUG_REPORT_LIMIT);
         const info = insert.run(
           input.guildId,
           input.playerId,
@@ -136,6 +140,14 @@ export function createBugReportService(db: Database.Database) {
         return Number(info.lastInsertRowid);
       });
       return get(run(), input.guildId);
+    },
+
+    /**
+     * Throws 429 (with `retryAfterSeconds`) when the player already sent the most reports allowed in the window. The
+     * same count `create` makes, without a write: call it before any slow or costly work (a GitHub call).
+     */
+    assertWithinLimit(guildId: string, playerId: number, options: { now?: number; limit?: BugReportLimit } = {}): void {
+      assertWithinLimit(guildId, playerId, options.now ?? Date.now(), options.limit ?? BUG_REPORT_LIMIT);
     },
 
     /** The newest reports that own a GitHub issue. The local source of duplicate candidates when GitHub cannot be read. */

@@ -365,6 +365,33 @@ describe("POST /api/bug-reports with duplicateOf", () => {
     expect(row!.github_error).not.toContain(TOKEN);
   });
 
+  it("429 for a player who is out of reports, before any GitHub call", async () => {
+    serve();
+    const { getDb } = await import("../src/lib/db");
+    const insert = getDb().prepare("insert into bug_reports (guild_id, player_id, created_at, path, description, context_json) values (?, 1, ?, '/', 'older', '{}')");
+    for (let i = 0; i < 5; i += 1) insert.run(GUILD, new Date(Date.now() - 60_000 + i).toISOString());
+    const POST = await route();
+    const res = await POST(post(body({ duplicateOf: ISSUE })));
+    expect(res.status).toBe(429);
+    expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(github).not.toHaveBeenCalled();
+    expect(await rows()).toHaveLength(5);
+  });
+
+  it("limits the target checks that end in 409 (10 in 10 minutes) and stops calling GitHub", async () => {
+    serve(raw({ state: "closed" }));
+    const POST = await route();
+    for (let i = 0; i < 10; i += 1) expect((await POST(post(body({ duplicateOf: 12 })))).status).toBe(409);
+    expect(github).toHaveBeenCalledTimes(10);
+    const res = await POST(post(body({ duplicateOf: 12 })));
+    expect(res.status).toBe(429);
+    expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(github).toHaveBeenCalledTimes(10);
+    // A new issue (no duplicateOf) is not affected by the target check limit.
+    expect((await POST(post(body()))).status).toBe(200);
+    expect(await rows()).toHaveLength(1);
+  });
+
   it("counts a +1 in the same limit of 5 reports in 10 minutes", async () => {
     serve();
     const POST = await route();

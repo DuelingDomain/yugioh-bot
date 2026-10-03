@@ -65,6 +65,20 @@ describe("bug reports", () => {
     expect(reports.create(base, { now: t0 + 10 * 60_000 + 1 }).id).toBeGreaterThan(5);
   });
 
+  it("assertWithinLimit counts like create does, without writing", () => {
+    const { db, reports } = setup();
+    const t0 = Date.UTC(2026, 9, 3);
+    for (let i = 0; i < 4; i += 1) reports.create(base, { now: t0 + i * 1000 });
+    expect(() => reports.assertWithinLimit("guild-a", 1, { now: t0 + 60_000 })).not.toThrow();
+    reports.create(base, { now: t0 + 4000 });
+    const error = status(() => reports.assertWithinLimit("guild-a", 1, { now: t0 + 60_000 }));
+    expect(error.status).toBe(429);
+    expect(error.retryAfterSeconds).toBe(540);
+    expect(() => reports.assertWithinLimit("guild-a", 2, { now: t0 + 60_000 })).not.toThrow();
+    expect(() => reports.assertWithinLimit("guild-a", 1, { now: t0 + 10 * 60_000 + 1 })).not.toThrow();
+    expect((db.prepare("select count(*) as n from bug_reports").get() as { n: number }).n).toBe(5);
+  });
+
   it("does not store a report that the limit refused", () => {
     const { db, reports } = setup();
     for (let i = 0; i < 5; i += 1) reports.create(base, { now: 1000 + i });

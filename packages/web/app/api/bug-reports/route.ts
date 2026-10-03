@@ -3,11 +3,17 @@ import { BugReportServiceError, createBugReportService, createPlayerService } fr
 import { webBaseUrl } from "@/lib/announce-bot";
 import { parseBugReportRequest } from "@/lib/bug-report";
 import { bugReportRepo, commentOnIssue, createGithubIssue, getOpenFromAppIssue } from "@/lib/bug-report-github";
+import { takeDuplicateCheckSlot } from "@/lib/bug-reports/precheck";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
 
 export const runtime = "nodejs";
+
+function serviceErrorResponse(error: BugReportServiceError) {
+  const headers = error.retryAfterSeconds ? { "Retry-After": String(error.retryAfterSeconds) } : undefined;
+  return NextResponse.json({ error: error.message }, { status: error.status, headers });
+}
 
 /**
  * Saves a bug report and opens a GitHub issue for it. The full report (with the reporter's player id) stays in the
@@ -16,6 +22,9 @@ export const runtime = "nodejs";
  *
  * With `duplicateOf` the player said an open issue is the same bug. The report is saved and linked to that issue and a
  * "+1" comment (the same public context) is added to it: no new issue. The issue must be open and filed by the app.
+ *
+ * The 5 reports in 10 minutes limit is checked before any GitHub call, and the target checks of `duplicateOf` have their
+ * own limit, so a member cannot use up the GitHub token's quota with reports that never get saved.
  */
 export async function POST(request: Request) {
   const actor = await requireWebAccess();
@@ -36,6 +45,21 @@ export async function POST(request: Request) {
   const db = getDb();
   const player = createPlayerService(db).findOrCreate(guildId, actor.userId, actor.userName);
   const reports = createBugReportService(db);
+
+  // Limits first, before any GitHub call: a player who is out of reports gets 429 and costs no GitHub quota, and the
+  // target checks (409 is never saved, so the report limit cannot count them) have their own per-player limit.
+  try {
+    reports.assertWithinLimit(guildId, player.id);
+  } catch (error) {
+    if (error instanceof BugReportServiceError) return serviceErrorResponse(error);
+    throw error;
+  }
+  if (report.duplicateOf !== undefined) {
+    const slot = takeDuplicateCheckSlot(`${guildId}:${actor.userId}`);
+    if (!slot.ok) {
+      return NextResponse.json({ error: "Too many checks. Try again soon." }, { status: 429, headers: { "Retry-After": String(slot.retryAfterSeconds) } });
+    }
+  }
 
   // Check the target before anything is saved, so a refused +1 costs the player nothing.
   let target: { number: number; url: string; verified: boolean } | null = null;
@@ -63,10 +87,7 @@ export async function POST(request: Request) {
       duplicateOf: target?.number ?? null,
     });
   } catch (error) {
-    if (error instanceof BugReportServiceError) {
-      const headers = error.retryAfterSeconds ? { "Retry-After": String(error.retryAfterSeconds) } : undefined;
-      return NextResponse.json({ error: error.message }, { status: error.status, headers });
-    }
+    if (error instanceof BugReportServiceError) return serviceErrorResponse(error);
     console.error("[api/bug-reports] save failed", error);
     return NextResponse.json({ error: "Could not save the report" }, { status: 500 });
   }
