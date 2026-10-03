@@ -433,23 +433,32 @@ const timeSealFfa3 = defineScenario({
   ],
 });
 
-// p1 gives up before its turn comes: the next opponent turn is the turn of p2, so the skip moves to the Draw Phase of p2.
+// p1 leaves before its turn. The lock stays bound to p1, so p2 draws on both of its turns.
 const timeSealCutShort = defineScenario({
-  id: "r3-ffa3-time-seal-opponent-out-before-its-turn-the-skip-moves-to-the-next-living-opponent",
-  title: "FFA3: p0 activates Time Seal, p1 gives up before its turn: p1 takes no turn, so the Draw Phase of p2 (the next opponent turn) is skipped and p2 draws in its following turn",
-  source: `${R3_RULE} [R-FFA-ELIMINATION]`,
-  rules: ["R-FFA-ORDER", "R-FFA-ELIMINATION"],
+  id: "r3-ffa3-time-seal-declared-opponent-leaves-the-lock-does-not-move",
+  title: "FFA3: p0 declares p1 for Time Seal, then p1 gives up: p1 takes no turn; the lock stays bound to p1 and p2 draws on both of its turns",
+  source: `${TIME_SEAL_RULE} [R-FFA-ELIMINATION]: an effect bound to an eliminated opponent does not move to another opponent`,
+  rules: ["R-FFA-ORDER", "R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-ELIMINATION", "R-FFA-FIRST-DRAW"],
   tags: ["multiplayer", "late-cards", "turn-count", "r3", "elimination", "ffa3", "card:35316708"],
   setup: { format: "ffa3", p0: timeSealSetup },
   steps: [
     activate(TIME_SEAL, "p0"),
+    expectPrompt({ by: "p0", context: "opponent" }),
+    expectPickSeats(["p1", "p2"], "p0"),
+    pickOpponent("p1", "p0"),
+    table(["p0", "p1", "p2"], {}, { grave: [TIME_SEAL] }),
     surrender("p1"),
+    // The surrender keeps p0's action prompt open until p0 ends its turn.
+    expectPrompt({ by: "p0", context: "action", offers: ["to_ep"] }),
     endTurn("p0"), expectEliminated("p1"), expectTurn("p2", 2),
-    table(["p0", "p2"], {}, { grave: [TIME_SEAL] }),
+    table(["p0", "p2"], { p2: 1 }, { grave: [TIME_SEAL] }),
+    expectBoard({ p2: { deckCount: 19 } }),
     endTurn("p2"), expectTurn("p0", 3),
-    table(["p0", "p2"], { p0: 1 }, { grave: [TIME_SEAL] }),
-    endTurn("p0"), expectTurn("p2", 4),
     table(["p0", "p2"], { p0: 1, p2: 1 }, { grave: [TIME_SEAL] }),
+    endTurn("p0"), expectTurn("p2", 4),
+    expectEliminated("p1"),
+    table(["p0", "p2"], { p0: 1, p2: 2 }, { grave: [TIME_SEAL] }),
+    expectBoard({ p0: { deckCount: 19 }, p2: { deckCount: 18 } }),
   ],
 });
 

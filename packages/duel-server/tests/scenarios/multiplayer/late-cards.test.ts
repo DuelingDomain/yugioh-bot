@@ -17,8 +17,7 @@ describeWithCores("live late-card scenarios", liveNseat, () => {
 // Check the declared opponent and the Tag Graveyard rule in real Domain duels.
 describeWithCores("Domain late-card opponent rules", [liveNseat, ...needs.domainMulti()], () => {
   runScenarios("multiplayer/late-cards-domain", LATE_CARD_SCENARIOS
-    .filter((scenario) => scenario.tags.includes("card:83778600")
-      || scenario.id === "r3-ffa3-time-seal-skips-the-draw-of-the-declared-opponent")
+    .filter((scenario) => scenario.tags.some((tag) => ["card:83778600", "card:35316708"].includes(tag)))
     .map(domainVariant));
 });
 
