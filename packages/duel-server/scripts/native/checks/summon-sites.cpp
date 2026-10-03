@@ -116,10 +116,9 @@ static void init_scripts() {
 	    "function(e,tp) Debug.Message('c112 resolves') end");
 	// 114: a Field Spell that is activated from the hand. 113 is the face-up Field Spell on the other fields.
 	g_scripts[114] = activate_spell(114, "", "function(e,tp) Debug.Message('c114 resolves') end");
-	// 117: changes every Trap Monster (115) of seat 0, 1 and 2 to face-down.
+	// 117: R-COMMON-ALL-BOTH. Both location arguments include every field in a card scope.
 	g_scripts[117] = activate_spell(117, "",
-	    "function(e,tp) local g=Group.CreateGroup()"
-	    " for p=0,2 do g:Merge(Duel.GetMatchingGroup(function(c) return c:IsCode(115) end,p,LOCATION_MZONE,0,nil)) end"
+	    "function(e,tp) local g=Duel.GetMatchingGroup(function(c) return c:IsCode(115) end,tp,LOCATION_MZONE,LOCATION_MZONE,nil)"
 	    " Debug.Message('c117 group '..g:GetCount()) Debug.Message('c117 change '..Duel.ChangePosition(g,POS_FACEDOWN_DEFENSE)) end");
 	// 121: DiscardDeck for a seat above the table, for PLAYER_ALL and for the own seat.
 	g_scripts[121] = activate_spell(121, "",
@@ -446,6 +445,10 @@ static void mode_pass() {
 	EXPECT(p.card_seats == want, "SELECT_CARD seats %s", seats(p.card_seats).c_str());
 	EXPECT(killed, "seat 1 never chose");
 	EXPECT(w2 == "grave", "seat 2 got no pass (115 is %s)", w2.c_str());
+	EXPECT(p.done && logged("c117 group 5"), "all five Trap Monsters were read and the effect finished");
+	// This fixture tests the pass loop. It sets the loss flag without elimination cleanup.
+	for(int q = 0; q < 3; ++q)
+		EXPECT(count_in(d, q, LOCATION_GRAVE, 115) == 1, "seat %d: one Trap Monster must go to the Graveyard", q);
 	std::printf("RESULT pass %s\n", ok ? "PASS" : "FAIL");
 	OCG_DestroyDuel(d);
 }
