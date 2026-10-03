@@ -61,9 +61,9 @@ const formatOf = async () =>
   new Map(((await loadScenarios()) as (ScenarioLike & { setup?: { format?: string } })[]).map((scenario) => [scenario.id, scenario.setup?.format ?? "1v1"]));
 
 describe("multiplayer card catalog", () => {
-  it("has about 30 cards in each of the groups (a) and (b)", () => {
-    expect(GROUP_ALL.length).toBeGreaterThanOrEqual(28);
-    expect(GROUP_ONE.length).toBeGreaterThanOrEqual(28);
+  it("keeps 20 all-seat or ongoing cards and 43 one-opponent cards after the FFA rule change", () => {
+    expect(GROUP_ALL).toHaveLength(20);
+    expect(GROUP_ONE).toHaveLength(43);
     expect(MULTIPLAYER_FORBIDDEN.length).toBeGreaterThanOrEqual(25);
   });
 
@@ -80,6 +80,21 @@ describe("multiplayer card catalog", () => {
         expect(LIVE_PROOF[code]).toContain(`p3-catalog-${format}-${slug}-domain`);
       }
     }
+  });
+
+  it("keeps Creature Swap legal and states the FFA rotation and Tag swap", () => {
+    const row = SCENARIOS.find((scenario) => scenario.code === 31036355)!;
+    expect(row.group).toBe("all");
+    expect(row.forbidden).not.toBe(true);
+    expect(row.binding).toBeUndefined();
+    expect(row.formats).toEqual(["ffa3", "ffa4", "tag"]);
+    expect(row.rules).toContain("R-COMMON-EACH-PLAYER");
+    expect(row.rules).toContain("R-FFA-RESOURCE-ROTATION");
+    expect(row.rules).not.toContain("R-FFA-OPP-ONE");
+    expect(row.results.ffa3).toMatch(/next living seat/);
+    expect(row.results.tag).toMatch(/swap control/);
+    expect(FORBIDDEN_EVIDENCE[31036355]).toBeUndefined();
+    expect(MULTIPLAYER_FORBIDDEN.some((entry) => entry.code === 31036355)).toBe(false);
   });
 
   it("names every one-opponent catalog row with the current group", () => {

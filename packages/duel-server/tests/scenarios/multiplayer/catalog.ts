@@ -63,6 +63,7 @@ const EXTRA_RULES: Record<number, string[]> = {
   77585513: ["R-COMMON-CONT-NEG"], // Jinzo
   82732705: ["R-COMMON-CONT-NEG"], // Skill Drain
   // Both players / each player.
+  31036355: ["R-COMMON-EACH-PLAYER", "R-FFA-RESOURCE-ROTATION", "R-TAG-SHARED-CARDS"],
   81674782: ["R-COMMON-EACH-PLAYER"], // Dimensional Fissure
   30241314: ["R-COMMON-EACH-PLAYER"], // Macro Cosmos
   72405967: ["R-COMMON-EACH-PLAYER"], // Royal Tribute
@@ -81,7 +82,7 @@ const EXTRA_RULES: Record<number, string[]> = {
 };
 
 const rulesOf = (group: "all" | "one", row: Row): string[] => {
-  const base = group === "all" ? ["R-COMMON-OPP-FIELD"] : [row.binding === "explicit-pick" ? "R-COMMON-OPP-PICK" : "R-COMMON-OPP-FIELD"];
+  const base = row.code === 31036355 ? [] : group === "all" ? ["R-COMMON-OPP-FIELD"] : [row.binding === "explicit-pick" ? "R-COMMON-OPP-PICK" : "R-COMMON-OPP-FIELD"];
   return [...new Set([...base, ...(EXTRA_RULES[row.code] ?? [])])];
 };
 
@@ -106,6 +107,19 @@ const U = "Same as 1v1.";
 
 /** Group (a): the effect touches ALL opponents. */
 export const GROUP_ALL: CatalogScenario[] = [
+  all({
+    card: "Creature Swap", code: 31036355, ruleClass: "O",
+    oneVsOne: "Each player picks 1 monster. The players swap control of them.",
+    results: {
+      ffa3: "Each living duelist must control a monster. Each chooses one in turn order. Each chosen monster goes to the next living seat.",
+      ffa4: "Each living duelist chooses one monster. The monsters rotate to the next living seat, including when all Main Monster Zones are full.",
+      tag: "The activator and one opposing duelist each choose one monster from their team field. The two monsters swap control.",
+    },
+    evidence: [ev(31036355, 28, "SelectMatchingCard(tp,s.filter,tp,LOCATION_MZONE,0,1,1,nil)"), ev(31036355, 31, "SelectMatchingCard(1-tp"), ev(31036355, 35, "SwapControl(c1,c2,0,0)")],
+    setup: "Each living duelist controls a monster. P0 has Creature Swap.",
+    action: "P0 activates Creature Swap. Each affected duelist chooses one monster.",
+    expected: "In FFA, each chosen monster goes to the next living seat. In Tag, the two chosen monsters swap control.",
+  }),
   all({
     card: "Raigeki", code: 12580477, ruleClass: "U",
     oneVsOne: "Destroys all monsters of the opponent.",
@@ -666,16 +680,6 @@ export const GROUP_ONE: CatalogScenario[] = [
     expected: "PENDING: no override exists. The card is on the forbidden list.",
   }),
   one({
-    card: "Creature Swap", code: 31036355, ruleClass: "O", binding: "explicit-pick", forbidden: true,
-    oneVsOne: "Each player picks 1 monster. The players swap control of them.",
-    results: { ffa3: "Forbidden. Test of a future override: swap with the one picked opponent.", ffa4: "Forbidden. Same as 3-FFA.", tag: "Not forbidden in Tag." },
-    evidence: [ev(31036355, 28, "SelectMatchingCard(tp,s.filter,tp,LOCATION_MZONE,0,1,1,nil)"), ev(31036355, 31, "SelectMatchingCard(1-tp"), ev(31036355, 35, "SwapControl(c1,c2,0,0)")],
-    formats: ["ffa3", "ffa4"],
-    setup: "P0 and P1 control one monster each.",
-    action: "P0 activates Creature Swap.",
-    expected: "PENDING: no override exists. The card is on the forbidden list.",
-  }),
-  one({
     card: "Evenly Matched", code: 15693423, ruleClass: "O", binding: "explicit-pick",
     oneVsOne: "Destroys opponent cards until they control as many as you.",
     results: {
@@ -730,7 +734,6 @@ export const FORBIDDEN_EVIDENCE: Record<number, Evidence[]> = {
   27204311: [ev(27204311, 34, "RegisterFlagEffect(tc:GetSummonPlayer()"), ev(27204311, 38, "GetFlagEffect(1-tp,id)>=5")],
   94145021: [ev(94145021, 17, "aux.GlobalCheck"), ev(94145021, 42, "ev==1-tp or ev==PLAYER_ALL")],
   57728570: [ev(57728570, 43, "GetFieldGroup(tp,0,LOCATION_MZONE|LOCATION_HAND)"), ev(57728570, 52, "SelectYesNo(1-tp")],
-  31036355: [ev(31036355, 31, "SelectMatchingCard(1-tp"), ev(31036355, 35, "SwapControl(c1,c2,0,0)")],
   15305240: [ev(15305240, 30, "SelectMatchingCard(1-tp"), ev(15305240, 34, "SwapControl(c1,c2,0,0)")],
   30426226: [ev(30426226, 19, "GetFieldGroup(tp,LOCATION_MZONE,LOCATION_MZONE)"), ev(30426226, 29, "SwapControl(g1,g2)")],
   13532663: [ev(13532663, 25, "SelectMatchingCard(1-tp"), ev(13532663, 26, "SwapControl(c,g:GetFirst(),0,0)")],
