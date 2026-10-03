@@ -4,6 +4,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { SummonFx } from "@/components/duel/summon-fx";
+import { MoveFx } from "@/components/duel/move-fx";
 import { ChainFx } from "@/components/duel/chain-fx";
 import { getMovePlan, resetMoveSchedule } from "@/components/duel/move-plan";
 import { CARDS as C } from "@/components/duel/fx-lab/cards";
@@ -127,4 +128,29 @@ it.each([false, true])("hands an activated source to destruction when another ch
   const timing = animate.mock.calls[index][1];
   const departure = getMovePlan(4)!;
   expect(1000 + timing.delay + timing.duration).toBeLessThanOrEqual(departure.startAt - departure.leadMs);
+});
+
+
+it("keeps a destroyed Set Trap upright despite its combined facedown position bits", () => {
+  const view = render(<Board events={[]} reduced={false} />);
+  view.rerender(<Board events={[{ id: 1, kind: "destroy", text: "destroy", card: C.mirrorForce,
+    zone: source, fromPosition: 0xA, cause: "effect" }]} reduced={false} />);
+  const whole = view.container.querySelector(`img[src*="/cards/${C.mirrorForce.code}/image"]`)!.parentElement!;
+  expect(whole.parentElement!.style.rotate).toBe("");
+});
+
+it("starts a resolved Spell's Graveyard flight upright", () => {
+  function FlightBoard({ batch }: { batch: DuelEvent[] }) {
+    return <div>
+      <div data-zones="0:8:0" data-side="you" data-defense="false"><span data-card-art /></div>
+      <div data-zones="0:16:0" data-side="you" />
+      <MoveFx events={batch} duelKey="render-sequence" reducedMotion={false} />
+    </div>;
+  }
+  const view = render(<FlightBoard batch={[]} />);
+  view.rerender(<FlightBoard batch={[{ id: 1, kind: "move", text: "cleanup", card: C.mst,
+    from: source, fromPosition: 0x5, zone: { controller: 0, location: 16, sequence: 0 }, reason: "send" }]} />);
+  const flight = animate.mock.calls.find(call => String(call[0][0]?.transform).startsWith("translate3d"));
+  expect(flight).toBeDefined();
+  expect(flight![0][0].transform).toContain("rotate(0.00deg)");
 });

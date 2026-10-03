@@ -23,7 +23,7 @@
 import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelEvent } from "@yugidraft/shared/duels";
-import { cardArtUrl, isDefense, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED } from "./constants";
+import { cardArtUrl, isDefenseAt, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED } from "./constants";
 import { collectFreshEvents, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation } from "./event-queue";
 import {
   getMovePlan,
@@ -371,7 +371,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         dx: sx - cx,
         dy: sy - cy,
         startScale: clamp(source.rect.height / h, 0.35, 2.4),
-        startRot: cardTurn(source.side, plan.event.fromPosition == null ? source.defense : isDefense(plan.event.fromPosition)),
+        startRot: cardTurn(source.side, plan.event.fromPosition == null ? source.defense : isDefenseAt(plan.event.from?.location, plan.event.fromPosition)),
         endRot: endTurn,
         cardH: h,
         spin: seededSign(plan.id) * (14 + (plan.id % 5) * 3),

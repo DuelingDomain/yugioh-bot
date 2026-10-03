@@ -33,7 +33,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { duelFxClock } from "./fx-clock";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
-import { cardArtUrl, isDefense, LOCATION_GRAVE, LOCATION_PZONE, LOCATION_SZONE, TYPE_LINK, TYPE_XYZ } from "./constants";
+import { cardArtUrl, isDefenseAt, LOCATION_GRAVE, LOCATION_PZONE, LOCATION_SZONE, TYPE_LINK, TYPE_XYZ } from "./constants";
 import {
   auraTintOf,
   collectFreshEvents,
@@ -714,7 +714,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
   const handoff = item.plan != null;
   const claimed = item.claim3d === true;
   useEffectSetup(overlay, item, done, ({ track, geo }) => {
-    const defense = item.event.fromPosition == null ? geo.defense : isDefense(item.event.fromPosition);
+    const defense = item.event.fromPosition == null ? geo.defense : isDefenseAt(item.event.zone?.location, item.event.fromPosition);
     if (anchor.current) {
       placeAnchor(anchor.current, geo);
       // The zone can already be empty. Keep the whole stand-in and every shard in its departure pose.
