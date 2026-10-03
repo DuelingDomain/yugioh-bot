@@ -6,11 +6,14 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useDraftStore } from "@/lib/stores/draft-store";
+import { useTalkStore } from "@/lib/stores/talk-store";
+import { TALK_COOLDOWN_MS, type TalkLineId } from "@yugidraft/shared/ws/talk";
 import { Binder, type BinderHandle } from "./binder";
 import { CardReader } from "./card-reader";
 import { Holo, type HoloTarget } from "./holo";
 import { FullscreenLayer } from "./layer";
 import { MotionMenu } from "./motion-menu";
+import { SayMenu } from "./say-menu";
 import { animate, flight, motionOff, useMotionSetting, wait } from "./motion";
 import { RoomBar } from "./room-bar";
 import {
@@ -102,6 +105,9 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const [sheet, setSheet] = useState<"card" | "binder" | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [motionOpen, setMotionOpen] = useState(false);
+  const [sayAnchor, setSayAnchor] = useState<HTMLElement | null>(null);
+  const [sayWait, setSayWait] = useState(false);
+  const sayTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [kbd, setKbd] = useState(false);
   const [newId, setNewId] = useState<number | null>(null);
   const [landed, setLanded] = useState<{ kind: Kind; seq: number } | null>(null);
@@ -119,6 +125,51 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const tp = themeProgress(poolCount, sizes);
   const phase: "main" | "extra" = theme && tp.inExtra ? "extra" : "main";
   const urgency = useDraftStore((s) => urgencyFor(s.timerSeconds, turn));
+
+  /* ---------- table talk: a few fixed words to the table ---------- */
+  const heard = useTalkStore((s) => s.heard);
+  const myPlayerId = useDraftStore((s) => s.seats.find((x) => x.isCurrentPlayer)?.playerId ?? null);
+  const canSay = isParticipant && myPlayerId != null;
+  const sayOpen = sayAnchor != null;
+  useEffect(() => {
+    useTalkStore.getState().clear();
+    return () => {
+      useTalkStore.getState().clear();
+      if (sayTimer.current) clearTimeout(sayTimer.current);
+    };
+  }, []);
+  const toggleSay = useCallback((anchor: HTMLElement) => {
+    setMotionOpen(false);
+    setSayAnchor((cur) => (cur === anchor ? null : anchor));
+  }, []);
+  // the Say button moves between the bar and the seat strip at the phone breakpoint
+  useEffect(() => setSayAnchor(null), [phone]);
+  const waitToSay = useCallback((ms: number) => {
+    setSayWait(true);
+    if (sayTimer.current) clearTimeout(sayTimer.current);
+    sayTimer.current = setTimeout(() => setSayWait(false), ms);
+  }, []);
+  const say = useCallback(
+    (line: TalkLineId) => {
+      const anchor = sayAnchor;
+      setSayAnchor(null);
+      anchor?.focus();
+      waitToSay(TALK_COOLDOWN_MS);
+      // The line comes back to everyone, you included, through the live feed.
+      void fetch(`/api/drafts/${encodeURIComponent(slug)}/talk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ line }),
+      })
+        .then(async (res) => {
+          if (res.status !== 429) return;
+          const body = (await res.json().catch(() => null)) as { retryAfterMs?: number } | null;
+          waitToSay(Math.min(TALK_COOLDOWN_MS, Math.max(500, body?.retryAfterMs ?? TALK_COOLDOWN_MS)));
+        })
+        .catch(() => {});
+    },
+    [sayAnchor, slug, waitToSay],
+  );
 
   /* ---------- geometry ---------- */
   useLayoutEffect(() => {
@@ -605,8 +656,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const pickable = !!reading && turn === "picking";
 
   /* ---------- keys: 1-9 choose, arrows move, Enter picks, / searches, Esc closes ---------- */
-  const latest = useRef({ rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets });
-  latest.current = { rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets };
+  const latest = useRef({ rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen: motionOpen || sayOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets });
+  latest.current = { rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen: motionOpen || sayOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const L = latest.current;
@@ -710,7 +761,13 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
           sub={subline}
           motion={motion}
           motionOpen={motionOpen}
-          onMotion={() => setMotionOpen((v) => !v)}
+          onMotion={() => {
+            setSayAnchor(null);
+            setMotionOpen((v) => !v);
+          }}
+          canSay={canSay}
+          sayOpen={sayOpen}
+          onSay={toggleSay}
           progress={Math.min(1, poolCount / Math.max(1, sizes.total))}
           where={{
             theme,
@@ -724,7 +781,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
             phaseOf: tp.of,
           }}
         />
-        <SeatStrip friends={friends} />
+        <SeatStrip friends={friends} heard={heard} canSay={canSay} sayOpen={sayOpen} onSay={toggleSay} />
         <div className="body">
           <div className="reader-panel" ref={readerPanelRef} inert={phone && sheet !== "card"} tabIndex={-1}>
             <CardReader
@@ -774,7 +831,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               onCardPointerDown={onCardPointerDown}
               onCardHover={onCardHover}
             />
-            <Seats friends={friends} positions={positions} theme={theme} />
+            <Seats friends={friends} positions={positions} theme={theme} heard={heard} stageWidth={size.w} />
             <Holo target={holoTarget} stage={stage} />
             <div className="notes">
               <div className="status" role="status" data-on={status ? "" : undefined}>
@@ -808,6 +865,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               <span>{ribbon?.sub}</span>
             </div>
             <Tray
+              said={myPlayerId != null ? heard[myPlayerId] : null}
               done={dial.done}
               of={dial.of}
               label={dial.label}
@@ -839,6 +897,9 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
           </div>
         </div>
       </div>
+      {sayAnchor && canSay ? (
+        <SayMenu anchor={sayAnchor} waiting={sayWait} onSay={say} onClose={() => setSayAnchor(null)} />
+      ) : null}
       {motionOpen ? (
         <MotionMenu
           anchor={motionBtn.current}

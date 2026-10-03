@@ -171,13 +171,16 @@ describe("Draft room panels", () => {
     await renderRoom();
     // jsdom and user-event do not honor inert. Let Tab traversal skip inert ancestors as browsers do.
     const inertStyle = document.createElement("style");
-    inertStyle.textContent = "[inert] { visibility: hidden; }";
+    // The phone layout also moves the Say button from the bar to the seat strip.
+    inertStyle.textContent = "[inert] { visibility: hidden; } .bar .say-btn { display: none; }";
     document.head.appendChild(inertStyle);
     try {
       await user.tab();
       expect(screen.getByRole("link", { name: "Back to drafts" })).toHaveFocus();
       await user.tab();
       expect(screen.getByRole("button", { name: /animations:/i })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole("button", { name: "Say something to the table" })).toHaveFocus();
       await user.tab();
 
       expect(screen.getByRole("button", { name: "Card 1" })).toHaveFocus();
