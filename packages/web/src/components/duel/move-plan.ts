@@ -214,11 +214,15 @@ type Candidate = {
   predecessor?: Candidate;
 };
 
-/** A batch's frozen departure source, else the last anchor snapshot or its live resting slot. */
+/** Departing cards use frozen geometry; a stationary Deck uses its currently displayed anchor. */
 export function resolveSource(zone: DuelZoneRef, eventId?: number): ZoneSnapshot | null {
-  if (eventId != null && departureSnapshots.has(eventId)) return departureSnapshots.get(eventId) ?? null;
-  const snap = getZoneSnapshot(zone);
-  if (snap) return snap;
+  // Seat assignments and viewer perspective can change before the opening snapshot commits.
+  // The Deck remains on the board: an old seat-indexed rect can point at the other player's Deck.
+  if (zone.location !== LOCATION_DECK) {
+    if (eventId != null && departureSnapshots.has(eventId)) return departureSnapshots.get(eventId) ?? null;
+    const snap = getZoneSnapshot(zone);
+    if (snap) return snap;
+  }
   const live = findZoneElement(zone);
   if (!live) return null;
   const r = moveDestinationRect(live);

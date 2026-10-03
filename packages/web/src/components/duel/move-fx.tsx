@@ -29,6 +29,7 @@ import {
   getMovePlan,
   planMoves,
   resetMoveSchedule,
+  resolveSource,
   startZoneSnapshots,
   type MovePlan,
   type MoveStyle,
@@ -321,7 +322,9 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   useLayoutEffect(() => {
     const predecessor = plan.handoffFrom ? getMovePlan(plan.handoffFrom.id)?.event ?? plan.handoffFrom : null;
     const predecessorTarget = predecessor ? handArrivalTarget(predecessor) : null;
-    const source = predecessorTarget ? { ...predecessorTarget, faceUp: (predecessor?.card?.code ?? 0) > 0, defense: false } : plan.source;
+    // Staggered draws can launch after a seat/perspective change or a board resize.
+    const deckSource = plan.event.from?.location === LOCATION_DECK ? resolveSource(plan.event.from) : plan.source;
+    const source = predecessorTarget ? { ...predecessorTarget, faceUp: (predecessor?.card?.code ?? 0) > 0, defense: false } : deckSource;
     const dest = findMoveDestination(plan.event);
     const el = root.current;
     const target = handArrivalTarget(plan.event);
