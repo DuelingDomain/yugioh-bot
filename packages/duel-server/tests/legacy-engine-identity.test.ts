@@ -1,20 +1,22 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import type { DuelDeck } from "@yugidraft/shared/duels";
+import type { DuelDeck, DuelMasterRule } from "@yugidraft/shared/duels";
 import { createEngineGame } from "../src/engine.js";
 import { createLegacyEngineGame } from "../src/legacy/index.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
+import { itEachWithCores, itWithCores, needs } from "./support/cores.js";
 
 // The legacy 1v1 engine must run the same cores as main: the npm package core for Standard, main's own Domain build for Domain.
 // The checks compare the core a legacy duel reports with the npm file, the manifest and the legacy files in the bundle.
 
 const MANIFEST = JSON.parse(readFileSync(join(DATA, "manifest.json"), "utf8")) as { integrity: Record<string, string> };
 const sha256 = (path: string) => createHash("sha256").update(readFileSync(path)).digest("hex");
-const LEGACY_DOMAIN_AVAILABLE = existsSync(join(DATA, "ocgcore.domain.legacy.wasm"));
+const legacyDomain = needs.file("legacy Domain core", join(DATA, "ocgcore.domain.legacy.wasm"),
+  "Run npm run duel:prepare, then build-domain-core.ts legacy-domain.");
 
 const settings = {
   visibility: "public" as const, banlist: "none" as const, cardPool: "both" as const, turnSeconds: 240,
@@ -65,7 +67,7 @@ describe("legacy 1v1 engine core identity", () => {
     }
   });
 
-  it.skipIf(!LEGACY_DOMAIN_AVAILABLE).each([1, 2, 3, 4, 5] as const)("Domain MR%s: only MR1 and MR2 draw on turn 1", async (masterRule) => {
+  itEachWithCores<[DuelMasterRule]>(legacyDomain, [[1], [2], [3], [4], [5]], "Domain MR%s: only MR1 and MR2 draw on turn 1", async (masterRule) => {
     const game = await createLegacyEngineGame({ mode: "domain", format: "1v1", masterRule,
       decks: decks(true), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
     try {
@@ -101,7 +103,7 @@ describe("legacy 1v1 engine core identity", () => {
     }
   });
 
-  it.skipIf(!LEGACY_DOMAIN_AVAILABLE)("Domain runs main's Domain build, the file the manifest lists as domainLegacyWasm", async () => {
+  itWithCores("Domain runs main's Domain build, the file the manifest lists as domainLegacyWasm", legacyDomain, async () => {
     const game = await createLegacyEngineGame({ mode: "domain", format: "1v1", decks: decks(true), seed: ["1", "2", "3", "4"], dataDirectory: DATA, settings });
     try {
       const info = game.coreInfo();
