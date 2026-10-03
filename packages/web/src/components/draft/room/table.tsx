@@ -5,7 +5,7 @@
  * Cards deal in, pass out and gather to the stack with transform and opacity only (WAAPI), as the mock does.
  */
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { animate, flight, motionCalm, motionOff, wait } from "./motion";
+import { animate, flight, motionCalm, motionOff, prefersReducedMotion, wait } from "./motion";
 import { CardImg } from "./card-img";
 import { EdgeClock } from "./edge-clock";
 import { anchorDelta, anchorFor, packSlots, themeStackPoint, type Geometry, type Slot } from "./table-geometry";
@@ -52,6 +52,12 @@ export const Table = memo(function Table(props: TableProps) {
   const cardsRef = useRef<HTMLDivElement>(null);
   const leaveRef = useRef<HTMLDivElement>(null);
   const batch = useRef(0);
+
+  useLayoutEffect(() => {
+    const stage = cardsRef.current?.closest(".stage");
+    stage?.toggleAttribute("data-tall", g.tall);
+    return () => stage?.removeAttribute("data-tall");
+  }, [g.tall]);
 
   const visible: Item[] = useMemo(() => {
     if (clearedSeq === deal.seq) return [];
@@ -294,7 +300,20 @@ export const Table = memo(function Table(props: TableProps) {
           } as React.CSSProperties
         }
         onClick={interactive ? () => props.onCardClick(it.card) : undefined}
-        onFocus={interactive ? () => props.onCardFocus(it.card) : undefined}
+        onKeyDown={interactive ? (e) => {
+          if (e.key !== " ") return;
+          e.preventDefault();
+          if (!e.repeat) props.onCardClick(it.card);
+        } : undefined}
+        onFocus={interactive ? (e) => {
+          props.onCardFocus(it.card);
+          if (g.tall) {
+            e.currentTarget.scrollIntoView?.({
+              block: "nearest",
+              behavior: prefersReducedMotion() || motionOff() ? "instant" : "smooth",
+            });
+          }
+        } : undefined}
         onPointerDown={interactive ? props.onCardPointerDown : undefined}
         onPointerEnter={interactive && canHover ? () => props.onCardHover(it.card) : undefined}
         onPointerLeave={interactive && canHover ? () => props.onCardHover(null) : undefined}
@@ -325,11 +344,11 @@ export const Table = memo(function Table(props: TableProps) {
           ))}
         </div>
       </div>
-      <div className="scene">
-        <div
-          className="dr-table"
-          style={{ "--tw": `${g.tw}px`, "--th": `${g.th}px`, "--tilt": `${g.tilt}deg` } as React.CSSProperties}
-        >
+      <div
+        className="scene"
+        style={{ "--tw": `${g.tw}px`, "--th": `${g.th}px`, "--tilt": `${g.tilt}deg` } as React.CSSProperties}
+      >
+        <div className="dr-table">
           <div className="felt">
             <div className="flow far">
               <i />
