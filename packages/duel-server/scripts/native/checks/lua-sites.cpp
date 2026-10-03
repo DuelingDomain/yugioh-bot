@@ -8,7 +8,7 @@
 //   rel     Duel.CheckReleaseGroup / SelectReleaseGroup with seat 2 (stock test accepted only 0 and 1)
 //   cnt     Duel.RemoveCounter in a Tag duel: the partner's counters are own side (SelectCounter prompt lists them)
 //   act     Duel.GetCustomActivityCount with a value that is not a seat
-//   abs     Effect.SetAbsoluteRange(seat, 1, 0): the stored ranges stay relative to the owner at n > 2 (no swap)
+//   abs     Effect.SetAbsoluteRange(seat, 1, 0): set the global owner first; check ranges and every seat
 //   dd/tr/uq  DiscardDeck, CheckTribute (toplayer) and Card.CheckUniqueOnField with 255 (not a seat), one mode each
 //   n2      disf/top/env/rel/abs at n == 2 (the DATA lines must be identical on both libraries)
 //   all     every mode above
@@ -365,15 +365,32 @@ static void mode_act() {
 }
 
 
-// ---- abs: Effect.SetAbsoluteRange(playerid, 1, 0). Stock swaps s and o for playerid != 0. At n > 2 no swap.
-static void abs_case(const char* label, int n, int seat, int want_s, int want_o) {
-	OCG_Duel d = make_n(n, "local e=Effect.GlobalEffect() e:SetCode(30583) e:SetAbsoluteRange(" + std::to_string(seat) + ",1,0)\n");
+// ---- abs: register a global player effect. Set its owner before the absolute range.
+// In FFA, the self range belongs to the owner. In Tag, it belongs to team 0.
+static void abs_case(const char* label, int n, int seat, int want_s, int want_o,
+                     int owner = -1, std::vector<int> teams = {}, std::vector<int> targets = {}) {
+	if(owner < 0)
+		owner = seat;
+	if(targets.empty())
+		targets.push_back(seat);
+	OCG_Duel d = make_n(n, "", teams);
+	const std::string lua = "local e=Effect.GlobalEffect() e:SetCode(30583)"
+	    " e:SetType(EFFECT_TYPE_FIELD) e:SetProperty(" + std::to_string(EFFECT_FLAG_PLAYER_TARGET) + ")"
+	    " e:SetOwnerPlayer(" + std::to_string(owner) + ")"
+	    " e:SetAbsoluteRange(" + std::to_string(seat) + ",1,0)"
+	    " Duel.RegisterEffect(e," + std::to_string(owner) + ")";
+	EXPECT(run_lua(d, lua), "abs %s: effect setup", label);
 	int s = -1, o = -1, found = 0;
 	for(effect* e : static_cast<duel*>(d)->effects) {
 		if(e->code == 30583) {
 			s = e->s_range;
 			o = e->o_range;
 			++found;
+			EXPECT(e->get_owner_player() == owner, "abs %s: owner %d, want %d", label, e->get_owner_player(), owner);
+			for(int q = 0; q < n; ++q) {
+				const bool want = std::find(targets.begin(), targets.end(), q) != targets.end();
+				EXPECT((e->is_target_player(q) != 0) == want, "abs %s: target seat %d, want %d", label, q, want);
+			}
 		}
 	}
 	OCG_DestroyDuel(d);
@@ -385,6 +402,11 @@ static void mode_abs() {
 	abs_case("n3-seat2", 3, 2, 1, 0);
 	abs_case("n4-seat3", 4, 3, 1, 0);
 	abs_case("n3-seat0", 3, 0, 1, 0);
+	// R-COMMON-ONGOING: a continuous opponent range includes every opponent.
+	abs_case("n3-owner0-seat2", 3, 2, 0, 1, 0, {}, {1, 2});
+	abs_case("n4-owner0-seat3", 4, 3, 0, 1, 0, {}, {1, 2, 3});
+	abs_case("tag-seat3", 4, 3, 0, 1, 3, {0, 1, 0, 1}, {1, 3});
+	abs_case("tag-seat2", 4, 2, 1, 0, 2, {0, 1, 0, 1}, {0, 2});
 	std::printf("RESULT abs %s\n", failures == before ? "PASS" : "FAIL");
 }
 
