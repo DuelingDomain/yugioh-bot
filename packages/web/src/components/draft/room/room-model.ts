@@ -321,8 +321,12 @@ export function levelsModel(cards: RoomCard[]): LevelsModel {
 
 /* ---------- the filter: one lens for the binder and the table ---------- */
 
+export type MonsterSubtype = "all" | "effect" | "normal";
+
 export interface RoomFilter {
   kinds: ReadonlySet<Kind>;
+  /** Applies only when Monster is the sole selected kind. Omitted means all. */
+  monsterSubtype?: MonsterSubtype;
   q: string;
   lvl: ReadonlySet<TierKey>;
   attr: ReadonlySet<string>;
@@ -348,6 +352,10 @@ export function haystack(card: RoomCard): string {
 export function matchesFilter(card: RoomCard, f: RoomFilter): boolean {
   const kind = kindOf(card);
   if (f.kinds.size && !f.kinds.has(kind)) return false;
+  if (f.kinds.size === 1 && f.kinds.has("monster") && f.monsterSubtype && f.monsterSubtype !== "all") {
+    const frame = card.frameType.trim().toLowerCase();
+    if (frame !== f.monsterSubtype && frame !== `${f.monsterSubtype}_pendulum`) return false;
+  }
   if (f.q) {
     const h = haystack(card);
     if (!f.q.split(/\s+/).every((w) => h.includes(w))) return false;
@@ -363,7 +371,10 @@ export function matchesFilter(card: RoomCard, f: RoomFilter): boolean {
 
 export function filterWords(f: RoomFilter): string {
   const parts: string[] = [];
-  if (f.kinds.size) parts.push([...f.kinds].map((k) => KIND_LABEL[k]).join(" or "));
+  if (f.kinds.size) {
+    const subtype = f.kinds.size === 1 && f.kinds.has("monster") ? f.monsterSubtype : undefined;
+    parts.push(subtype && subtype !== "all" ? `${titleCase(subtype)} monsters` : [...f.kinds].map((k) => KIND_LABEL[k]).join(" or "));
+  }
   if (f.lvl.size) parts.push("Level " + [...f.lvl].map((k) => TIER_RANGE[k]).join(" or "));
   if (f.attr.size) parts.push([...f.attr].map(titleCase).join(" or "));
   if (f.q) parts.push(`“${f.q}”`);
@@ -395,6 +406,8 @@ export function attributeChips(list: RoomCard[], inPack: RoomCard[], selected: R
 }
 
 /* ---------- the pool: grouping, order, pick numbers ---------- */
+
+export type Order = "type" | "newest" | "oldest" | "name";
 
 export interface PoolEntry {
   card: RoomCard;
@@ -445,7 +458,18 @@ export function compareCards(a: RoomCard, b: RoomCard): number {
   return x[1].localeCompare(y[1]);
 }
 
-/** Copies of the same card (same name) share a row in the "By type" list. */
+/** Incoming entries are in pick order. Sorting preserves each entry's original index. */
+export function orderEntries<T extends { card: RoomCard }>(entries: T[], order: Order): T[] {
+  const sorted = [...entries];
+  if (order === "newest") return sorted.reverse();
+  if (order === "name") return sorted.sort((a, b) => a.card.name.localeCompare(b.card.name));
+  if (order === "type") {
+    return sorted.sort((a, b) => KINDS.indexOf(kindOf(a.card)) - KINDS.indexOf(kindOf(b.card)) || compareCards(a.card, b.card));
+  }
+  return sorted;
+}
+
+/** Copies of the same card (same name) share a row in the Type list. */
 export function groupCopies<T extends { card: RoomCard }>(entries: T[]): T[][] {
   const by = new Map<string, T[]>();
   for (const e of entries) {

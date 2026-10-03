@@ -909,6 +909,7 @@
 .dr .kinds button:hover { border-color: var(--rule); }
 .dr .kinds button[aria-pressed="true"] { border-color: var(--kc); background: color-mix(in srgb, var(--kc) 14%, transparent); }
 .dr .kinds button[aria-pressed="true"] small { color: var(--ink); }
+.dr .monster-subtypes { margin-top: 8px; }
 
 .dr .more {
   display: flex;
@@ -973,8 +974,8 @@
 
 .dr .bd-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .dr .bd-bar { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 10px; padding: 10px 14px 8px; border-bottom: 1px solid var(--rule-lo); background: #0a1120; }
-.dr .bd-bar .seg { margin-left: auto; padding: 2px; }
-.dr .bd-bar .seg button { min-height: 28px; font-size: 13px; padding: 0 9px; }
+.dr .bd-sort { display: flex; flex: none; align-items: center; gap: 6px; margin-left: auto; color: var(--ink-3); font-size: 13px; }
+.dr .bd-sort select { min-width: 0; max-width: 100%; min-height: 32px; padding: 3px 6px; border: 1px solid var(--rule-lo); border-radius: 8px; background: var(--panel-3); color: var(--ink); font: inherit; cursor: pointer; }
 .dr .showing { min-width: 0; color: var(--ink-3); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dr .showing button { padding: 0; border: 0; background: none; color: var(--pen-ink); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 
