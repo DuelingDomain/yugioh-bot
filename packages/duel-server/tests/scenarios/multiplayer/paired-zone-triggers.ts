@@ -82,32 +82,71 @@ function extraNetOpponentSummon(): Scenario {
  board.p1!.monsters=["Link Spider"];board.p1!.grave=["Mystical Elf"];
  return defineScenario({id:"paired-zone-triggers-extra-net-tag-opponent-summon",title:"Extra Net: opposing-team summon needs no pick",
   source:"Extra Net card text; docs/adr/0002-multiplayer-duel-rules.md [R-COMMON-OPP-PICK]",
-  rules:["R-COMMON-OPP-PICK","R-TAG-PARTNER"],tags:["multiplayer","pair","card:95376428","extra-net","tag","opponent-summon"],setup,
+  rules:["R-COMMON-OPP-PICK"],tags:["multiplayer","pair","card:95376428","extra-net","tag","opponent-summon"],setup,
   steps:[endTurn("p0"),expectTurn("p1",2),specialSummon("Link Spider","p1"),select({card:"Mystical Elf",owner:"p1"}),
    // A pick has no yes/no options. The next prompt must be p0's optional draw.
    expectPrompt({by:"p0",kind:"choice",offers:["yes","no"]}),yes("p0"),expectBoard(board)]});
 }
 PAIRED_ZONE_TRIGGERS_SCENARIOS.push(extraNetOpponentSummon());
 
-// Pinpoint Dash with different Extra Deck card types summons only the opponent's
-// card. Its effect has p0 as the reason player, so the summon event names no
-// single opponent. Extra Net must still offer p0 a draw without another pick.
-function extraNetPinpointSummon(): Scenario {
+// Pinpoint Dash summons the opposing card with summon player 1-tp. The Tag
+// summon event does not bind one seat for Extra Net's new link. Extra Net must
+// offer p0 a draw without another pick after Pinpoint Dash declares its opponent.
+// Stock Pinpoint Dash reads the opponent's Extra Deck in its activation check, so the core asks p0 for one Tag opponent. No overlay is needed.
+function extraNetPinpointSummon(format: "tag" | "ffa4" | "1v1", opponent: "p1" | "p3"): Scenario {
+ const count=format==="1v1"?2:4,lp=format==="tag"?16000:8000;
+ const setup: Scenario["setup"] = {format,deckSize:3};
+ const board: Parameters<typeof expectBoard>[0] = {};
+ for (let i=0;i<count;i++) {
+  setup[SEATS[i]]={hand:[HANDS[i]],monsters:["Mystical Elf"],deck:Array(3).fill("Mystical Elf"),extra:["Link Spider"]};
+  board[SEATS[i]]={lp,hand:[HANDS[i]],monsters:["Mystical Elf"],spells:[],grave:[],banished:[],extra:["Link Spider"],deckCount:3};
+ }
+ setup.p0!.field="Extra Net";setup.p0!.spells=[{card:"Pinpoint Dash",pos:"set"}];
+ setup.p0!.extra=["Karbonala Warrior"];board.p0!.extra=[];
+ const beforePick: Parameters<typeof expectBoard>[0] = structuredClone(board);
+ beforePick.p0!.extra=["Karbonala Warrior"];beforePick.p0!.spells=["Extra Net","Pinpoint Dash"];
+ board.p0!.spells=["Extra Net"];board.p0!.hand=[HANDS[0],"Mystical Elf"];board.p0!.deckCount=2;
+ board.p0!.grave=["Pinpoint Dash","Karbonala Warrior"];
+ board[opponent]!.monsters=["Mystical Elf","Link Spider"];board[opponent]!.extra=[];
+ const opponentSteps: Step[]=format==="1v1"?[]:[
+  expectNoEvent({kind:"activate",card:94431029}),expectNoEvent({kind:"chain-resolving",card:94431029}),
+  expectPickSeats(format==="tag"?["p1","p3"]:SEATS.slice(1,count),"p0"),
+  expectBoard(beforePick),pickOpponent(opponent,"p0")
+ ];
+ return defineScenario({id:`paired-zone-triggers-extra-net-${format}-pinpoint-opponent-summon-${opponent}`,title:`Pinpoint Dash: only ${opponent}'s Extra Deck changes; ${format==="ffa4"?"Extra Net keeps its FFA pick":"Extra Net needs no extra pick"}`,
+  source:"Extra Net and Pinpoint Dash card text; docs/adr/0002-multiplayer-duel-rules.md [R-COMMON-OPP-PICK]",
+  rules:["R-COMMON-OPP-PICK"],tags:["multiplayer","pair","card:94431029","card:95376428","extra-net",format,"pinpoint-opponent-summon"],setup,
+  // Each Extra Deck has one card. The core selects those cards without a prompt.
+  // FFA4 records the current Extra Net pick. The FFA second-pick question is open.
+  // Owner: FFA analyzer (condition-pick-fix2). Update this row if that decision changes.
+  // Tag and 1v1 must go straight to p0's draw.
+  steps:[activate("Pinpoint Dash","p0"),...opponentSteps,
+   ...(format==="ffa4"?[expectPickSeats(SEATS.slice(1,count),"p0"),pickOpponent(opponent,"p0")]:[]),
+   expectPrompt({by:"p0",kind:"choice",offers:["yes","no"]}),yes("p0"),expectBoard(board)]});
+}
+PAIRED_ZONE_TRIGGERS_SCENARIOS.push(
+ extraNetPinpointSummon("tag","p1"),extraNetPinpointSummon("tag","p3"),
+ extraNetPinpointSummon("ffa4","p3"),extraNetPinpointSummon("1v1","p1")
+);
+
+// The partner's summon is an own-team summon. Only an opposing member may draw.
+function extraNetPartnerSummon(): Scenario {
  const setup: Scenario["setup"] = {format:"tag",deckSize:3};
  const board: Parameters<typeof expectBoard>[0] = {};
  for (let i=0;i<4;i++) {
   setup[SEATS[i]]={hand:[HANDS[i]],monsters:["Mystical Elf"],deck:Array(3).fill("Mystical Elf")};
   board[SEATS[i]]={lp:16000,hand:[HANDS[i]],monsters:["Mystical Elf"],spells:[],grave:[],banished:[],extra:[],deckCount:3};
  }
- setup.p0!.field="Extra Net";setup.p0!.spells=[{card:"Pinpoint Dash",pos:"set"}];
- setup.p0!.extra=["Karbonala Warrior"];setup.p1!.extra=["Link Spider"];
- board.p0!.spells=["Extra Net"];board.p0!.hand=[HANDS[0],"Mystical Elf"];board.p0!.deckCount=2;
- board.p0!.grave=["Pinpoint Dash","Karbonala Warrior"];
- board.p1!.monsters=["Mystical Elf","Link Spider"];
- return defineScenario({id:"paired-zone-triggers-extra-net-tag-pinpoint-opponent-summon",title:"Extra Net: Pinpoint Dash summons only for p1",
-  source:"Extra Net and Pinpoint Dash card text; docs/adr/0002-multiplayer-duel-rules.md [R-COMMON-OPP-PICK]",
-  rules:["R-COMMON-OPP-PICK","R-TAG-PARTNER"],tags:["multiplayer","pair","card:95376428","extra-net","tag","opponent-summon"],setup,
-  // Each Extra Deck has one card. The core selects those cards without a prompt.
-  steps:[activate("Pinpoint Dash","p0"),expectPrompt({by:"p0",kind:"choice",offers:["yes","no"]}),yes("p0"),expectBoard(board)]});
+ setup.p0!.field="Extra Net";setup.p2!.extra=["Link Spider"];board.p0!.spells=["Extra Net"];
+ for (const i of [1,2]) {board[SEATS[i]]!.hand=[HANDS[i],"Mystical Elf"];board[SEATS[i]]!.deckCount=2;}
+ board.p2!.monsters=["Link Spider"];board.p2!.grave=["Mystical Elf"];
+ const beforePick: Parameters<typeof expectBoard>[0] = structuredClone(board);
+ board.p3!.hand=[HANDS[3],"Mystical Elf"];board.p3!.deckCount=2;
+ return defineScenario({id:"paired-zone-triggers-extra-net-tag-partner-summon",title:"Extra Net: partner p2 summons and only picked p3 draws",
+  source:"Extra Net card text; docs/adr/0002-multiplayer-duel-rules.md [R-TAG-PARTNER] [R-COMMON-OPP-PICK]",
+  rules:["R-COMMON-OPP-PICK","R-TAG-PARTNER"],tags:["multiplayer","pair","card:95376428","extra-net","tag","partner-summon"],setup,
+  steps:[endTurn("p0"),endTurn("p1"),expectTurn("p2",3),specialSummon("Link Spider","p2"),select({card:"Mystical Elf",owner:"p2"}),
+   expectNoEvent({kind:"chain-resolving",card:95376428}),expectPickSeats(["p1","p3"],"p0"),expectBoard(beforePick),pickOpponent("p3","p0"),
+   expectPrompt({by:"p3",kind:"choice",offers:["yes","no"]}),yes("p3"),expectBoard(board)]});
 }
-PAIRED_ZONE_TRIGGERS_SCENARIOS.push(extraNetPinpointSummon());
+PAIRED_ZONE_TRIGGERS_SCENARIOS.push(extraNetPartnerSummon());
