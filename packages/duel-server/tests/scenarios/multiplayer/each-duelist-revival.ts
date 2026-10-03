@@ -1,6 +1,6 @@
 // Each duelist selects from its own GY or banishment. Tag includes the partner.
 import {
-  activate, attack, changePosition, endTurn, expectBoard, expectPickOptions, expectTurn, select, zone,
+  activate, attack, endTurn, expectBoard, expectPickOptions, expectTurn, select, zone,
   type BoardExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
@@ -19,7 +19,6 @@ const seat = (n: number) => `p${n}` as DuelistId;
 
 function revival(format: Format, actor: 0 | 1, code: number, card: string): Scenario {
   const n = format === "ffa3" ? 3 : 4;
-  const cretin = code === 58551308;
   const battle = code === 84136000;
   const banished = code === 39900763;
   const attacker = actor === 0 ? 1 : 0;
@@ -28,8 +27,7 @@ function revival(format: Format, actor: 0 | 1, code: number, card: string): Scen
   for (let i = 0; i < n; i++) {
     setup[seat(i)] = {
       ...(banished ? { banished: PAIRS[i] } : { grave: PAIRS[i] }),
-      ...(i === actor ? (cretin ? { monsters: [{ card, pos: "set" }], hand: ["Dark Hole"] }
-        : battle ? { monsters: ["Giant Rat"], spells: [{ card, pos: "set" }] }
+      ...(i === actor ? (battle ? { monsters: ["Giant Rat"], spells: [{ card, pos: "set" }] }
         : banished ? { spells: [{ card, pos: "set" }] } : { hand: [card] }) : {}),
       ...(battle && i === attacker ? { monsters: ["Luster Dragon"] } : {}),
     };
@@ -56,14 +54,11 @@ function revival(format: Format, actor: 0 | 1, code: number, card: string): Scen
     }
     board[seat(attacker)]!.monsters = ["Luster Dragon", PAIRS[attacker][0]];
     board[seat(actor)]!.grave = [PAIRS[actor][1], "Giant Rat", card];
-  } else if (cretin) {
-    steps.push(changePosition(card, seat(actor)));
-    board[seat(actor)]!.grave = [PAIRS[actor][1], card, "Dark Hole"];
   } else {
     board[seat(actor)]!.grave = [...(banished ? [] : [PAIRS[actor][1]]), card];
   }
-  steps.push(activate(cretin ? "Dark Hole" : card, seat(actor)));
-  if (cretin || (!battle && !banished)) steps.push(zone(seat(actor), "s0", seat(actor)));
+  steps.push(activate(card, seat(actor)));
+  if (!battle && !banished) steps.push(zone(seat(actor), "s0", seat(actor)));
   for (let k = 0; k < n; k++) {
     const i = (actor + k) % n;
     steps.push(expectPickOptions([

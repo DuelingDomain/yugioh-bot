@@ -1,23 +1,23 @@
 if not aux.MPAny then return end
-local function anyopp(fn)
-	if Duel.MPMode()==0 then return fn() end
-	for i=1,Duel.MPOppCount() do
-		Duel.MPWindow(i)
-		local r=fn()
-		Duel.MPWindowEnd()
-		if r then return true end
-	end
-	return false
+-- Activation needs the activator's own target and one opposing duelist's target.
+local function mp_can_target(e,tp)
+	local actor=Duel.MPSeatOf(e:GetHandler())
+	local own_key=aux.MPKeyOfSeat(actor)
+	local own,opponent=false,false
+	aux.MPForEachDuelist(function(tp_i,seat_i)
+		local function filter(c) return Duel.MPSeatOf(c)==seat_i and s.filter(c,e,tp_i) end
+		if Duel.GetLocationCount(tp_i,LOCATION_MZONE)>0
+			and Duel.IsExistingTarget(filter,tp_i,LOCATION_GRAVE,0,1,nil) then
+			if seat_i==actor then own=true
+			elseif aux.MPKeyOfSeat(seat_i)~=own_key then opponent=true end
+		end
+	end)
+	return own and opponent
 end
 -- The Shallow Grave: each living duelist targets from its own Graveyard. Tag includes the partner.
 function s.target(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
 	if chkc then return false end
-	if chk==0 then return Duel.GetLocationCount(tp,LOCATION_MZONE)>0
-		and Duel.IsExistingTarget(s.filter,tp,LOCATION_GRAVE,0,1,nil,e,tp)
-		and anyopp(function()
-			return Duel.GetLocationCount(1-tp,LOCATION_MZONE)>0
-				and Duel.IsExistingTarget(s.filter,1-tp,LOCATION_GRAVE,0,1,nil,e,1-tp)
-		end) end
+	if chk==0 then return mp_can_target(e,tp) end
 	local g=Group.CreateGroup()
 	aux.MPForEachDuelist(function(tp_i,seat_i)
 		local function filter(c) return Duel.MPSeatOf(c)==seat_i and s.filter(c,e,tp_i) end
@@ -42,7 +42,8 @@ function s.operation(e,tp,eg,ep,ev,re,r,rp)
 			return Duel.MPSeatOf(c)==seat_i and g:IsContains(c)
 		end,nil)
 		for tc in aux.Next(tg) do
-			if tc:IsRelateToEffect(e) and Duel.SpecialSummonStep(tc,0,tp_i,tp_i,false,false,POS_FACEDOWN_DEFENSE) then
+			if tc:IsRelateToEffect(e) then
+				Duel.SpecialSummonStep(tc,0,tp_i,tp_i,false,false,POS_FACEDOWN_DEFENSE)
 			end
 		end
 	end)
