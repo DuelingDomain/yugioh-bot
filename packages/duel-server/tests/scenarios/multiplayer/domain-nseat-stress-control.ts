@@ -68,12 +68,14 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
 }
 
 for (const format of ["ffa3", "ffa4"] as const) {
-  DOMAIN_NSEAT_STRESS_CONTROL.push(scenario(format, "lost-thief-sends-master-to-living-owner-grave", {
+  DOMAIN_NSEAT_STRESS_CONTROL.push(scenario(format, "eliminated-thief-returns-master-to-living-owner-field", {
     setup: setup(format, { p0: { hand: ["Change of Heart"] }, p2: { monsters: ["Mystical Elf"] } }),
+    rules: ["R-COMMON-SEP-FIELDS", "R-FFA-ELIMINATION", "R-FFA-RETURN-OWNED-CARDS"],
     steps: [...turnsBefore(format, "p2"), normalSummon({ card: MASTERS.p2, from: "dmz" }, "p2"),
       ...SEATS[format].slice(2).map((seat) => endTurn(seat)), activate("Change of Heart", "p0"), select({ card: MASTERS.p2, owner: "p2" }),
-      surrender("p0"), expectPrompt({ by: "p2", context: "deck-master-recall" }), no("p2"), expectEliminated("p0"),
-      board(format, { p0: { hand: [], deckMaster: OUT }, p2: { monsters: ["Mystical Elf"], grave: [MASTERS.p2], deckMaster: OUT } })],
+      board(format, { p0: { monsters: [MASTERS.p2], grave: ["Change of Heart"] }, p2: { monsters: ["Mystical Elf"], deckMaster: OUT } }),
+      surrender("p0"), expectEliminated("p0"), expectPrompt({ by: "p1", context: "action" }),
+      board(format, { p0: { hand: [], deckMaster: OUT }, p2: { monsters: ["Mystical Elf", MASTERS.p2], deckMaster: OUT } })],
   }));
 }
 
