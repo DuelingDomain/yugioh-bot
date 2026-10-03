@@ -36,7 +36,7 @@ import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, PickRefusalHint, shakeRefusedCard } from "./card-interactions";
 import { DestroyFx } from "./destroy-fx";
-import { FxBoundary } from "./fx-boundary";
+import { FxBoundary, MoveSourceBoundary } from "./fx-boundary";
 import { BattleFx, type BattleAim } from "./battle-fx";
 import fxStyles from "./battle-fx.module.css";
 import { DuelFeedback } from "./feedback";
@@ -968,7 +968,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
         <section className={styles.boardColumn} aria-label="Duel field">
           <div className={styles.board} ref={boardRef} data-deal-wait={startBeats.waiting ? "true" : undefined}>
             {engine ? (
-              <>
+              <MoveSourceBoundary events={engine.events} duelKey={slug} root={boardRef}>
                 <DuelField key={slug} engine={engine} mySeat={data.mySeat} masterRule={data.session.masterRule}
                   reducedMotion={preferences.reducedMotion}
                   priorityLive={!busy && !error && !realtime.recovering && !catchingUp &&
@@ -1008,7 +1008,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
                     legalKeys={legalKeys} selectedKeys={selectedKeys}
                     reducedMotion={preferences.reducedMotion} />
                 ) : null}
-              </>
+              </MoveSourceBoundary>
             ) : <p className="p-4">{data.session.status === "active" ? "Waiting for engine view…" : "No saved final board is available for this record."}</p>}
           </div>
         </section>

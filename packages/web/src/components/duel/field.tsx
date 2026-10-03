@@ -573,6 +573,7 @@ function HandStrip({
           );
         })}
       </div>
+      <div className={styles.handSizeProbe} data-hand-size-probe="true" data-side={mine ? "you" : "opp"} aria-hidden="true" />
     </div>
   );
 }

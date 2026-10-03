@@ -235,8 +235,15 @@ export function handArrivalTarget(event: DuelEvent): { rect: ReturnType<typeof m
     return { rect: { ...rect, left: rect.left + (zone.sequence - sequence) * step }, side };
   }
   const rail = hand.getBoundingClientRect();
-  const width = rail.height * 0.686;
-  return { rect: { left: rail.left + (rail.width - width) / 2, top: rail.top, width, height: rail.height }, side };
+  // The rail includes LP, lift reserves and spare board height. Its permanent sizing sibling
+  // resolves the distinct local/far card sizes without mutating DOM during animation-frame reads.
+  const size = hand.parentElement?.querySelector<HTMLElement>("[data-hand-size-probe]")?.getBoundingClientRect();
+  if (!size || size.width < 4 || size.height < 4) return null;
+  const padding = getComputedStyle(hand);
+  const top = side === "opp"
+    ? rail.top + (Number.parseFloat(padding.paddingTop) || 0)
+    : rail.top + rail.height - (Number.parseFloat(padding.paddingBottom) || 0) - size.height;
+  return { rect: { left: rail.left + (rail.width - size.width) / 2, top, width: size.width, height: size.height }, side };
 }
 
 /** Engine-slot geometry without a hand card's temporary FLIP/entry translation. */

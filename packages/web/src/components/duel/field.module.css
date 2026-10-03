@@ -396,6 +396,18 @@
   height: 100%;
 }
 
+.handSizeProbe {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  width: var(--ohcw);
+  aspect-ratio: 59 / 86;
+}
+
+.handSizeProbe[data-side="you"] {
+  width: var(--lhcw);
+}
+
 .hand {
   --cardw: var(--ohcw);
   --base: var(--ohg);

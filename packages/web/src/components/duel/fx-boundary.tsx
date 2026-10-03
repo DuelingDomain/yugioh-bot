@@ -1,6 +1,38 @@
 "use client";
 
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, type ErrorInfo, type ReactNode, type RefObject } from "react";
+import type { DuelEvent } from "@yugidraft/shared/duels";
+import { maxEventId } from "./event-queue";
+import { captureDepartureSnapshots, clearZoneSnapshots } from "./move-plan";
+
+/** Captures old board geometry in React's pre-mutation commit phase, including batched updates. */
+export class MoveSourceBoundary extends Component<{
+  children: ReactNode;
+  events: readonly DuelEvent[];
+  duelKey: string;
+  root: RefObject<HTMLElement | null>;
+}> {
+  getSnapshotBeforeUpdate(previous: Readonly<typeof this.props>): null {
+    if (previous.duelKey !== this.props.duelKey) {
+      clearZoneSnapshots();
+      return null;
+    }
+    const cursor = maxEventId(previous.events) ?? 0;
+    const fresh = this.props.events.filter((event) => event.id > cursor);
+    if (fresh.length > 0 && this.props.root.current) captureDepartureSnapshots(fresh, this.props.root.current);
+    return null;
+  }
+
+  componentDidUpdate(): void {}
+
+  componentWillUnmount(): void {
+    clearZoneSnapshots();
+  }
+
+  render(): ReactNode {
+    return this.props.children;
+  }
+}
 
 /** Reports an effects crash to the web server log (see /api/duels/client-error). */
 export function reportDuelClientError(error: unknown, componentStack = ""): void {

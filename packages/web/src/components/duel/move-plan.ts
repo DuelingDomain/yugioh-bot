@@ -207,13 +207,14 @@ type Candidate = {
   predecessor?: Candidate;
 };
 
-/** Where a card was: the last snapshot of its anchor, else the anchor as it is now. */
-export function resolveSource(zone: DuelZoneRef): ZoneSnapshot | null {
+/** A batch's frozen departure source, else the last anchor snapshot or its live resting slot. */
+export function resolveSource(zone: DuelZoneRef, eventId?: number): ZoneSnapshot | null {
+  if (eventId != null && departureSnapshots.has(eventId)) return departureSnapshots.get(eventId) ?? null;
   const snap = getZoneSnapshot(zone);
   if (snap) return snap;
   const live = findZoneElement(zone);
   if (!live) return null;
-  const r = live.getBoundingClientRect();
+  const r = moveDestinationRect(live);
   if (r.width < 4 || r.height < 4) return null;
   return {
     rect: { left: r.left, top: r.top, width: r.width, height: r.height },
@@ -228,7 +229,7 @@ export function measureGeometry(event: DuelEvent): MoveGeometry | null {
   const to = findMoveDestination(event);
   const toRect = to ? moveDestinationRect(to) : event.zone?.location === LOCATION_HAND ? handArrivalTarget(event)?.rect : undefined;
   if (!toRect || toRect.width < 4) return null;
-  const fromRect = event.from ? resolveSource(event.from)?.rect : null;
+  const fromRect = event.from ? resolveSource(event.from, event.id)?.rect : null;
   if (!fromRect) return { distance: 240 };
   const dx = fromRect.left + fromRect.width / 2 - (toRect.left + toRect.width / 2);
   const dy = fromRect.top + fromRect.height / 2 - (toRect.top + toRect.height / 2);
@@ -338,7 +339,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     if (chainAt > now) notBefore = Math.max(notBefore, chainAt + lead);
     // A card that also breaks away from a destroyed zone keeps its flight.
     if (lead > 0) silent = false;
-    const source = resolveSource(from);
+    const source = resolveSource(from, event.id);
     const origin = style === "add" ? showcaseOrigin(event, now, source != null) : null;
     candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance, reduced), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin });
   }
@@ -440,8 +441,8 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
 
 /* ---------- zone snapshots ----------
  * By the time a move event arrives the board already shows the new state: the card has left its
- * hand slot or zone. A short-interval snapshot of every anchor lets the flight start where the card
- * really was. */
+ * hand slot or zone. The pre-commit boundary freezes sources for fresh events before React changes
+ * the DOM; background snapshots remain a fallback for effects without a departure event. */
 
 export type ZoneSnapshot = {
   rect: { left: number; top: number; width: number; height: number };
@@ -453,11 +454,21 @@ export type ZoneSnapshot = {
 
 const snapshots = new Map<string, ZoneSnapshot>();
 const handRails = new Map<string, ZoneSnapshot>();
+const departureSnapshots = new Map<number, ZoneSnapshot | null>();
+const DEPARTURE_SNAPSHOT_CAP = 512;
+
+/** A new board must not reuse another duel's coordinates or event IDs. */
+export function clearZoneSnapshots(): void {
+  snapshots.clear();
+  handRails.clear();
+  departureSnapshots.clear();
+}
 
 export function captureZoneSnapshots(root: ParentNode = document): void {
-  const seen = new Set<string>();
+  snapshots.clear();
+  handRails.clear();
   root.querySelectorAll<HTMLElement>("[data-zones]").forEach((el) => {
-    const r = el.getBoundingClientRect();
+    const r = moveDestinationRect(el);
     if (r.width < 4 || r.height < 4) return;
     const snap: ZoneSnapshot = {
       rect: { left: r.left, top: r.top, width: r.width, height: r.height },
@@ -468,34 +479,56 @@ export function captureZoneSnapshots(root: ParentNode = document): void {
     for (const key of (el.dataset.zones ?? "").split(/\s+/)) {
       if (!key) continue;
       snapshots.set(key, snap);
-      seen.add(key);
     }
   });
   root.querySelectorAll<HTMLElement>("[data-hand-seat]").forEach((el) => {
-    const r = el.getBoundingClientRect();
-    if (r.width < 4 || r.height < 4) return;
+    const seat = Number(el.dataset.handSeat);
+    const target = handArrivalTarget({ id: 0, kind: "move", text: "Hand anchor", handId: "snapshot-missing",
+      zone: { controller: seat, location: LOCATION_HAND, sequence: 0 } });
+    if (!target) return;
     handRails.set(el.dataset.handSeat ?? "", {
-      rect: { left: r.left, top: r.top, width: r.width, height: r.height },
-      side: el.dataset.side === "opp" ? "opp" : "you",
+      ...target,
       faceUp: false,
       defense: false,
     });
   });
 }
 
+/** Called before a batch commits. Each engine removal compacts its hand, but keeps the original rect. */
+export function captureDepartureSnapshots(events: readonly DuelEvent[], root: ParentNode = document): void {
+  captureZoneSnapshots(root);
+  const hands = new Map<number, Array<ZoneSnapshot | null>>();
+  for (const [key, snapshot] of snapshots) {
+    const [seat, location, sequence] = key.split(":").map(Number);
+    if (location !== LOCATION_HAND) continue;
+    const hand = hands.get(seat) ?? [];
+    hand[sequence] = snapshot;
+    hands.set(seat, hand);
+  }
+  for (const event of events) {
+    if (!isMoveEvent(event)) continue;
+    const from = event.from!;
+    const to = event.zone!;
+    const sourceHand = from.location === LOCATION_HAND ? hands.get(from.controller) : undefined;
+    const source = from.location === LOCATION_HAND ? sourceHand?.[from.sequence] ?? null : getZoneSnapshot(from);
+    departureSnapshots.set(event.id, source);
+    if (from.location === LOCATION_HAND) sourceHand?.splice(from.sequence, 1);
+    if (to.location === LOCATION_HAND) {
+      const hand = hands.get(to.controller) ?? [];
+      // A card added and removed within this batch has no old DOM anchor; its preceding flight
+      // supplies the hand source. Never read a replacement at its original message coordinate.
+      hand.splice(to.sequence, 0, from.location === LOCATION_HAND ? source : null);
+      hands.set(to.controller, hand);
+    }
+  }
+  while (departureSnapshots.size > DEPARTURE_SNAPSHOT_CAP) departureSnapshots.delete(departureSnapshots.keys().next().value!);
+}
+
 export function getZoneSnapshot(zone: DuelZoneRef): ZoneSnapshot | null {
   const exact = snapshots.get(zoneKey(zone.controller, zone.location, zone.sequence));
   if (exact) return exact;
   if (zone.location === LOCATION_HAND) {
-    const rail = handRails.get(String(zone.controller));
-    if (rail) {
-      const h = rail.rect.height;
-      const w = h * 0.686;
-      return {
-        ...rail,
-        rect: { left: rail.rect.left + rail.rect.width / 2 - w / 2, top: rail.rect.top, width: w, height: h },
-      };
-    }
+    return handRails.get(String(zone.controller)) ?? null;
   }
   return null;
 }

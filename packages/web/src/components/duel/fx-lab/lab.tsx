@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DuelCard, DuelChainLink, DuelEngineView, DuelEvent, DuelRoom } from "@yugidraft/shared/duels";
 import { DeckMasterRail, DuelField } from "../field";
 import { BattleFx } from "../battle-fx";
@@ -15,7 +15,7 @@ import { PromptCenter } from "../prompt-center";
 import { activatePromptFromField, promptSelectedKeys, type PromptDraft } from "../prompts";
 import { PickRefusalHint, shakeRefusedCard } from "../card-interactions";
 import { DuelResultScreen } from "../duel-result";
-import { FxBoundary } from "../fx-boundary";
+import { FxBoundary, MoveSourceBoundary } from "../fx-boundary";
 import { duelFontClasses } from "../fonts";
 import { isBattlePhase } from "../constants";
 import { getSharedFx3d } from "../fx3d/shared";
@@ -145,6 +145,7 @@ export function FxLab() {
   const token = useRef(0);
   const nextId = useRef(0);
   const boardRef = useRef<LabBoard>(live.board);
+  const stageRef = useRef<HTMLDivElement>(null);
   const optionsRef = useRef({ speed, reduced, loop });
   optionsRef.current = { speed, reduced, loop };
 
@@ -376,8 +377,8 @@ export function FxLab() {
             {seriesRoom ? <SeriesLabHeader room={seriesRoom} /> : null}
             <div className={fx.row}>
               <div className={fx.boardWrap}>
-                <div className={styles.board}>
-                  <Fragment key={live.runKey}>
+                <div className={styles.board} ref={stageRef}>
+                  <MoveSourceBoundary key={live.runKey} events={engine.events} duelKey={duelKey} root={stageRef}>
                     <DuelField
                       engine={engine}
                       mySeat={script.mySeat ?? 0}
@@ -417,7 +418,7 @@ export function FxLab() {
                         battleStep={script.prompt.battleStep ?? null}
                       />
                     ) : null}
-                  </Fragment>
+                  </MoveSourceBoundary>
                 </div>
               </div>
               {script.domain ? (
