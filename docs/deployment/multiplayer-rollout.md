@@ -2,7 +2,7 @@
 
 Test staging first, including legacy 1v1; then the owner merges to main and deploys. This rehearsal does not deploy anything.
 
-- Keep `MULTIPLAYER_TABLES=0` initially. Production compose already defaults it off on both `duel` and `web`. Enable it on both together only after staging approval; changing it requires recreating both services, not a new image build. Turning it off blocks new multiplayer tables and starts while active games can finish.
+- Production compose defaults `MULTIPLAYER_TABLES` on for both `duel` and `web` (owner decision 2026-10-03: test on production). Set `MULTIPLAYER_TABLES=0` in `.env` to close the tables; changing it requires recreating both services, not a new image build. Turning it off blocks new multiplayer tables and starts while active games can finish.
 - Leave `DUEL_1V1_ENGINE` unset (compose defaults to `legacy`) until the owner approves switching. Existing games recover with their recorded engine. Staging defaults to `pinned`, so test with `STAGING_DUEL_1V1_ENGINE=legacy` too.
 - The web service needs `DISCORD_TOKEN` and `DISCORD_GUILD_ID` in its runtime environment for main's Discord access check, alongside the existing OAuth/auth settings. Production `web` reads `.env` through `env_file`; missing membership credentials prevent login/access with 503. Keep `DUEL_INTERNAL_SECRET` configured for web and duel.
 - Leave `DUEL_SCENARIOS`, `DUEL_FX_LAB`, `E2E_AUTH`, and `E2E_AUTH_SECRET` unset in production.

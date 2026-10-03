@@ -21,11 +21,9 @@ describe("known limits", () => {
     expect(ids(text, { format: "tag" })).toEqual([]);
   });
 
-  it("matches a Domain 3-way report in either word order", () => {
-    expect(ids("Cannot start a Domain 3-way duel on the site")).toEqual(["domain-multiplayer-not-live"]);
-    expect(ids("four player table with domain rules does not exist")).toEqual(["domain-multiplayer-not-live"]);
-    expect(ids("Domain FFA is missing")).toEqual(["domain-multiplayer-not-live"]);
-    expect(ids("Domain duel froze on my turn")).toEqual([]);
+  it("does not hide Domain 3-way and 4-way reports (those tables are live)", () => {
+    expect(ids("Cannot start a Domain 3-way duel on the site")).toEqual([]);
+    expect(ids("Domain FFA froze on my turn", { format: "ffa4", duelMode: "domain" })).toEqual([]);
   });
 
   it("matches the wrong Graveyard after an elimination", () => {

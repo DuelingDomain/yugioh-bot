@@ -135,8 +135,8 @@ The multiplayer merge changes the Standard and Domain cores, so its first deploy
 
 ### Engine switch and multiplayer flag
 
-The merge deploys with `DUEL_1V1_ENGINE=legacy` (1v1 duels run on main's old engine) and `MULTIPLAYER_TABLES` off (no
-Tag, 3-player or 4-player tables). Both are read by a restart of the `duel` service (the flag also by `web`). They need no
+The merge deploys with `DUEL_1V1_ENGINE=legacy` (1v1 duels run on main's old engine) and `MULTIPLAYER_TABLES` on (Tag,
+3-player and 4-player tables open; `MULTIPLAYER_TABLES=0` in `.env` closes them). Both are read by a restart of the `duel` service (the flag also by `web`). They need no
 empty server. See `duel-engine-switch.md` for the values, the engine saved for each duel and how to switch back.
 
 ### Report bug button (GitHub issues)

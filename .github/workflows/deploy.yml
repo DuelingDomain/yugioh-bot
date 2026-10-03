@@ -80,7 +80,7 @@ jobs:
       # unless DUEL_1V1_ENGINE=pinned (docs/deployment/duel-engine-switch.md).
       # The multi-duelist core (Tag and 3 and 4 player tables) is NOT part of the pinned bundle: it travels next to the bundle in the
       # deploy tarball and is installed by packages/duel-server/scripts/install-engine-bundle.sh. The server loads it only for tables
-      # with more than 2 seats, and MULTIPLAYER_TABLES (default off) keeps those tables closed.
+      # with more than 2 seats, and MULTIPLAYER_TABLES (default on; set 0 in .env to close) controls those tables.
       # Same inputs as staging, with a separate production prefix: pins, full series, build scripts and Domain sources.
       # The version prefix is a literal: raise it when the build step below changes (the hash cannot see it).
       - name: Compute multi core cache key

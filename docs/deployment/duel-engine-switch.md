@@ -3,16 +3,16 @@
 The multiplayer merge ships with two limits. Both are set by environment variables on the VM.
 
 1. 1v1 duels must not change. The owner can go back to the old engine at any time.
-2. 3-player, 4-player and Tag tables stay off in production until a separate UI project is done.
+2. 3-player, 4-player and Tag tables are on in production by default (Standard format only).
 
-## MULTIPLAYER_TABLES (default off)
+## MULTIPLAYER_TABLES (default on in production compose)
 
 | Value | Result |
 | --- | --- |
-| not set, or anything else | Only 1v1 tables exist. The creator shows no 3-player, 4-player or Tag option. The web API and the duel host refuse them with the message "Only 1v1 tables are open on this server." |
-| `1`, `true` or `on` | Tag, 3-player and 4-player tables are open. |
+| `0`, or anything else | Only 1v1 tables exist. The creator shows no 3-player, 4-player or Tag option. The web API and the duel host refuse them with the message "Only 1v1 tables are open on this server." |
+| `1`, `true` or `on` | Tag, 3-player and 4-player tables are open. Production compose uses this when `.env` does not set it. |
 
-- Set it in `docker-compose.yml` for the `duel` and `web` services (`MULTIPLAYER_TABLES=${MULTIPLAYER_TABLES:-0}`).
+- Set it in `docker-compose.yml` for the `duel` and `web` services (`MULTIPLAYER_TABLES=${MULTIPLAYER_TABLES:-1}`). Put `MULTIPLAYER_TABLES=0` in `/opt/yugioh-bot/.env` to close the tables.
   Both services read it at run time. A restart of both switches it. No build is needed.
 - Staging sets it on in `docker-compose.staging.yml` (`STAGING_MULTIPLAYER_TABLES`, default `1`).
 - The E2E stack sets it on. `E2E_MULTIPLAYER_TABLES=0` turns it off. `packages/e2e/tests/multiplayer-flag-off.spec.ts` checks the off state.
@@ -86,7 +86,7 @@ Run the 1v1 specs with `E2E_1V1_ENGINE=legacy` to check the production default.
 
 - To use the old 1v1 engine: set `DUEL_1V1_ENGINE=legacy` (or remove it) and restart the `duel` service. New 1v1 tables then start on the old engine.
 - To go back to the merged engine: set `DUEL_1V1_ENGINE=pinned` and restart `duel`.
-- To close the multi-seat tables: remove `MULTIPLAYER_TABLES` from `duel` and `web` and restart both.
+- To close the multi-seat tables: set `MULTIPLAYER_TABLES=0` in `/opt/yugioh-bot/.env` and recreate `duel` and `web` (`docker compose -f docker-compose.yml up -d duel web`).
 - To remove the whole merge: follow "Rollback" in `vm-runbook.md`.
 
 ## What is checked
