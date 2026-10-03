@@ -129,7 +129,6 @@ const SPECS: EffectSpec[] = [
     code: 22411609, name: "Volcanic Trooper", slug: "volcanic-trooper", does: "Special Summons a Bomb Token",
     p0: { hand: ["Giant Rat"], monsters: ["Volcanic Trooper"] },
     steps: [activate("Volcanic Trooper", "p0")],
-    then: (roles) => roles.format === "tag" ? [] : [select("Giant Rat")],
     p0End: { monsters: ["Volcanic Trooper"], hand: [], grave: ["Giant Rat"] },
     gain: { tokens: { count: 1 } },
   },
