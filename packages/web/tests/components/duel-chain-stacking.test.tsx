@@ -43,12 +43,15 @@ function Table({ withRoot = true, table, panels = [] }: { withRoot?: boolean; ta
   return withRoot ? <div data-duel-fx-speed-root data-testid="root">{board}</div> : board;
 }
 
+/** Client boxes of the two zones (left, top, width, height); a test may move them. */
+let ZONES: Record<string, number[]> = {};
+
 beforeEach(() => {
+  ZONES = { "0:8:0": [100, 400, 60, 80], "1:8:0": [320, 160, 60, 80] };
   vi.useFakeTimers();
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     let box = [0, 0, 0, 0];
-    if (this.dataset.zones === "0:8:0") box = [100, 400, 60, 80];
-    else if (this.dataset.zones === "1:8:0") box = [320, 160, 60, 80];
+    if (this.dataset.zones && ZONES[this.dataset.zones]) box = ZONES[this.dataset.zones];
     else if (this.hasAttribute("data-prompt-panel")) box = (this.dataset.box ?? "0,0,0,0").split(",").map(Number);
     else if (this.hasAttribute("data-duel-fx-speed-root")) box = [20, 10, 1000, 700];
     else if (this.hasAttribute("data-chain-fx") || this.hasAttribute("data-board")) box = [120, 60, 900, 600];
@@ -165,6 +168,58 @@ describe("chain front layer stacking", () => {
       const sheet = css("chain-fx.module.css");
       expect(sheet).toMatch(/\.tag\[data-side="hidden"\]\s*\{[^}]*visibility:\s*hidden/);
       expect(sheet).toMatch(/\.tag\[data-side="far"\]/);
+    });
+  });
+
+  describe("free gutter and target marks", () => {
+    const withTarget = (box: string | null) => {
+      const events: DuelEvent[] = [
+        activate(1, 0, 11, z(0, SZONE, 0)),
+        { ...activate(2, 1, 22, z(1, SZONE, 0)), targets: [z(0, SZONE, 0)] },
+      ];
+      return (
+        <div data-duel-fx-speed-root data-testid="root">
+          <div data-board>
+            <div data-slot="fx"><ChainFx events={events} chain={CHAIN} duelKey="g" reducedMotion mySeat={0} playerName={names} /></div>
+            {box ? <div data-prompt-panel data-box={box}>choices</div> : null}
+          </div>
+        </div>
+      );
+    };
+
+    it("uses the chips form when the field leaves no room on the left", () => {
+      // The card at client x 100 is left of the board edge (120): the gutter is 0.
+      const { getByTestId } = render(withTarget(null));
+      act(() => { vi.advanceTimersByTime(60); });
+      const front = getByTestId("root").querySelector("[data-chain-front]") as HTMLElement;
+      expect(front.dataset.size).toBe("compact");
+      expect(front.dataset.gutter).toBe("0");
+    });
+
+    it("uses the full stack, sized by the gutter, when the field starts well to the right", () => {
+      // Both cards 300px in from the board edge (client 120 + 300).
+      ZONES = { "0:8:0": [420, 400, 60, 80], "1:8:0": [440, 160, 60, 80] };
+      const { getByTestId } = render(withTarget(null));
+      act(() => { vi.advanceTimersByTime(60); });
+      const front = getByTestId("root").querySelector("[data-chain-front]") as HTMLElement;
+      expect(front.dataset.size).toBe("full");
+      expect(front.dataset.gutter).toBe("300");
+      expect(front.style.getPropertyValue("--chain-gutter")).toBe("300px");
+    });
+
+    it("draws the target mark in the front layer, above the prompt, and hides it under a panel", () => {
+      const open = render(withTarget(null));
+      act(() => { vi.advanceTimersByTime(60); });
+      const front = open.getByTestId("root").querySelector("[data-chain-front]") as HTMLElement;
+      const mark = front.querySelector("[data-chain-target='2']") as HTMLElement;
+      expect(mark).not.toBeNull();
+      expect(mark.dataset.covered).toBe("false");
+      open.unmount();
+      // A panel over the target card (client 100,400 60x80).
+      const covered = render(withTarget("90,390,100,100"));
+      act(() => { vi.advanceTimersByTime(60); });
+      const hidden = covered.getByTestId("root").querySelector("[data-chain-target='2']") as HTMLElement;
+      expect(hidden.dataset.covered).toBe("true");
     });
   });
 

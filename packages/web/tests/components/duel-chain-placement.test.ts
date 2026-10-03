@@ -22,18 +22,32 @@ describe("chain stack placement", () => {
     expect(dock).toMatch(/pointer-events:\s*none/);
   });
 
-  it("moves the stack to a small strip at the top left of a narrow board", () => {
-    const narrow = /@media \(max-width: 760px\)\s*\{([\s\S]*?)\n\}/.exec(chainCss);
-    expect(narrow).not.toBeNull();
-    expect(narrow![1]).toMatch(/\.dock\s*\{\s*inset:\s*\d+px auto auto \d+px/);
-    expect(narrow![1]).toMatch(/\.panel\s*\{[^}]*width:\s*min\(\d+px,\s*\d+vw\)/);
+  it("turns the stack into a row of numbered chips in the top left corner when there is no free gutter", () => {
+    expect(rule(chainCss, ".front[data-size=\"compact\"] .dock")).toMatch(/inset:\s*\d+px auto auto \d+px/);
+    const panel = /\.front\[data-size="compact"\] \.panel,[^{]*\{([^}]*)\}/.exec(chainCss);
+    expect(panel).not.toBeNull();
+    expect(panel![1]).toMatch(/flex-direction:\s*row/);
+    expect(panel![1]).toMatch(/max-height:\s*none/);
+    expect(panel![1]).toMatch(/max-width:\s*100%/);
+    // The text and the thumbnail go; the number, its state and the head count stay.
+    expect(chainCss).toMatch(/\.front\[data-size="compact"\] \.thumb,\s*\n\.front\[data-size="compact"\] \.text \{ display: none; \}/);
+    // No viewport media query decides it: the measured gutter does.
+    expect(chainCss).not.toMatch(/@media \(max-width: 760px\)/);
+  });
+
+  it("sizes the full stack by the measured gutter and never by a fixed px width alone", () => {
+    expect(rule(chainCss, ".panel")).toMatch(/width:\s*clamp\(150px,\s*calc\(var\(--chain-gutter,\s*200px\) - 16px\),\s*264px\)/);
+  });
+
+  it("hides a target ring that sits under an open prompt panel", () => {
+    expect(chainCss).toMatch(/\.target\[data-covered="true"\]\s*\{\s*visibility:\s*hidden/);
   });
 
   it("keeps the stack off the middle lane the prompt uses", () => {
     // The prompt panel is centred; the stack is a fixed-width panel on the left edge.
     expect(promptCss).toMatch(/left:\s*50%/);
     const panel = rule(chainCss, ".panel");
-    expect(panel).toMatch(/width:\s*clamp\(138px/);
+    expect(panel).toMatch(/width:\s*clamp\(150px/);
     expect(panel).toMatch(/max-height:\s*72%/);
   });
 

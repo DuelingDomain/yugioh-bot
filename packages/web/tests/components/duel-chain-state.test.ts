@@ -11,6 +11,8 @@ import {
   chainLinkLabel,
   chainSeatLabel,
   chainStackRows,
+  chainStackSize,
+  coveredFraction,
   chainStepDelay,
   chainStateKey,
   chainWirePath,
@@ -531,5 +533,27 @@ describe("placeCallout", () => {
     expect(place({ panels: [near] }).side).toBe("far");
     const apart = { left: 300, top: 188 + 30 + 20, width: 300, height: 70 };
     expect(place({ panels: [apart] }).side).toBe("near");
+  });
+});
+
+describe("chain stack size and covered marks", () => {
+  it("is full with a wide gutter and compact without one, with a dead band between", () => {
+    expect(chainStackSize(228, undefined)).toBe("full");
+    expect(chainStackSize(60, undefined)).toBe("compact");
+    expect(chainStackSize(180, undefined)).toBe("compact");
+    // Between 170 and 190 the stack keeps the form it has: no flicker on the line.
+    expect(chainStackSize(180, "full")).toBe("full");
+    expect(chainStackSize(180, "compact")).toBe("compact");
+    expect(chainStackSize(169, "full")).toBe("compact");
+    expect(chainStackSize(190, "compact")).toBe("full");
+  });
+
+  it("measures how much of a target an open prompt covers", () => {
+    const card = { left: 100, top: 100, width: 60, height: 80 };
+    expect(coveredFraction(card, [])).toBe(0);
+    expect(coveredFraction(card, [{ left: 0, top: 0, width: 50, height: 50 }])).toBe(0);
+    expect(coveredFraction(card, [{ left: 100, top: 100, width: 60, height: 40 }])).toBeCloseTo(0.5);
+    expect(coveredFraction(card, [{ left: 0, top: 0, width: 500, height: 500 }])).toBe(1);
+    expect(coveredFraction({ ...card, width: 0 }, [{ left: 0, top: 0, width: 500, height: 500 }])).toBe(0);
   });
 });

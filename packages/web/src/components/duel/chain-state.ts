@@ -423,6 +423,36 @@ export function placeCallout(input: {
   return { dx, side: "hidden" };
 }
 
+/**
+ * How much of a box the open prompt panels cover, 0 to 1. A target mark under a panel is not drawn over it: the
+ * ring would float on top of the question.
+ */
+export function coveredFraction(box: Box, panels: readonly Box[]): number {
+  const area = box.width * box.height;
+  if (area <= 0) return 0;
+  let covered = 0;
+  for (const panel of panels) {
+    const w = Math.min(box.left + box.width, panel.left + panel.width) - Math.max(box.left, panel.left);
+    const h = Math.min(box.top + box.height, panel.top + panel.height) - Math.max(box.top, panel.top);
+    if (w > 0 && h > 0) covered += w * h;
+  }
+  return Math.min(1, covered / area);
+}
+
+/** Below this many px of free space left of the field, the stack is a row of numbered chips. At or above, a full panel. */
+const GUTTER_FULL_MIN = 190;
+const GUTTER_COMPACT_BELOW = 170;
+
+/**
+ * Which form the chain stack takes, from the free width left of the board's leftmost zone, pile or LP panel. The
+ * two thresholds differ (hysteresis), so a gutter that sits on the line does not flip the stack every frame.
+ */
+export function chainStackSize(gutter: number, previous: "full" | "compact" | undefined): "full" | "compact" {
+  if (previous === "full") return gutter < GUTTER_COMPACT_BELOW ? "compact" : "full";
+  if (previous === "compact") return gutter >= GUTTER_FULL_MIN ? "full" : "compact";
+  return gutter >= GUTTER_FULL_MIN ? "full" : "compact";
+}
+
 /** What a screen reader says for one link, e.g. "Chain Link 2: Card, Opponent, negated. Effect text". */
 export function chainLinkLabel(
   link: ChainLinkState,

@@ -45,8 +45,10 @@ import {
   chainLinkLabel,
   chainSeatLabel,
   chainStackRows,
+  chainStackSize,
   chainStateKey,
   chainWirePath,
+  coveredFraction,
   deriveChainState,
   EMPTY_CHAIN,
   isChainEvent,
@@ -225,7 +227,7 @@ const MAX_BADGE = 46;
 type Box = { left: number; top: number; width: number; height: number };
 /** One link as the read phase of a frame saw it; the write phase applies it. */
 type PlacedLink = { link: ChainLinkState; slot: HTMLElement; box: Box | null; size: number; shift: number; half: "high" | "low"; callout: CalloutPlace | null };
-type PlacedMark = { link: ChainLinkState; mark: HTMLElement | undefined; wire: SVGPathElement | undefined; box: Box | null };
+type PlacedMark = { link: ChainLinkState; mark: HTMLElement | undefined; wire: SVGPathElement | undefined; box: Box | null; covered: boolean };
 
 /** The card's visible box: a Defense Position card is turned a quarter inside its portrait zone. */
 function cardBox(overlay: DOMRect, zone: HTMLElement): Box | null {
@@ -238,6 +240,22 @@ function cardBox(overlay: DOMRect, zone: HTMLElement): Box | null {
   const height = turned ? rect.width : rect.height;
   return { left: cx - width / 2, top: cy - height / 2, width, height };
 }
+
+/**
+ * The free width left of the board's leftmost zone, pile or LP panel: where the chain stack can stand without
+ * covering the field. Reads layout, so it runs in the read phase and only a few times a second.
+ */
+function freeGutter(origin: DOMRect): number {
+  let gutter = origin.width;
+  for (const el of document.querySelectorAll<HTMLElement>("[data-zones], [data-lp-seat]")) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 4 || rect.height < 4) continue;
+    if (rect.right <= origin.left || rect.left >= origin.right || rect.bottom <= origin.top || rect.top >= origin.bottom) continue;
+    gutter = Math.min(gutter, Math.max(0, rect.left - origin.left));
+  }
+  return gutter;
+}
+const GUTTER_EVERY_MS = 400;
 
 function artStyle(code: number | null): CSSProperties | undefined {
   return code != null ? { backgroundImage: `url(${cardArtUrl(code)})` } : undefined;
@@ -280,6 +298,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const slotRefs = useRef(new Map<number, HTMLElement>());
   const ringRefs = useRef(new Map<number, HTMLElement>());
   const tagRefs = useRef(new Map<number, HTMLElement>());
+  const gutterRef = useRef({ at: Number.NEGATIVE_INFINITY, px: 0 });
   const wireRefs = useRef(new Map<number, SVGPathElement>());
   const targetRefs = useRef(new Map<string, HTMLElement>());
   const targetWireRefs = useRef(new Map<string, SVGPathElement>());
@@ -306,6 +325,12 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       for (const panel of document.querySelectorAll<HTMLElement>("[data-prompt-panel]")) {
         const rect = panel.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) panels.push({ left: rect.left - origin.left, top: rect.top - origin.top, width: rect.width, height: rect.height });
+      }
+      let gutter = gutterRef.current.px;
+      const now = clock();
+      if (front && now - gutterRef.current.at >= GUTTER_EVERY_MS) {
+        gutter = freeGutter(origin);
+        gutterRef.current = { at: now, px: gutter };
       }
       const stacked = new Map<HTMLElement, number>();
       const placed: PlacedLink[] = [];
@@ -339,10 +364,20 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         for (const target of link.targets) {
           const key = `${link.index}:${zoneKey(target.controller, target.location, target.sequence)}`;
           const zone = findZoneElement(target);
-          marks.push({ link, mark: targetRefs.current.get(key), wire: targetWireRefs.current.get(key), box: zone ? cardBox(origin, zone) : null });
+          const box = zone ? cardBox(origin, zone) : null;
+          marks.push({ link, mark: targetRefs.current.get(key), wire: targetWireRefs.current.get(key), box, covered: box != null && coveredFraction(box, panels) > 0.5 });
         }
       }
       // ---- Write phase. ----
+      if (front) {
+        const size = chainStackSize(gutter, front.dataset.size as "full" | "compact" | undefined);
+        if (front.dataset.size !== size) front.dataset.size = size;
+        const px = String(Math.round(gutter));
+        if (front.dataset.gutter !== px) {
+          front.dataset.gutter = px;
+          front.style.setProperty("--chain-gutter", `${px}px`);
+        }
+      }
       // The front layer sits over the board box, wherever the board is inside the root.
       if (front && host && hostRect) {
         const x = Math.round(origin.left - hostRect.left - host.clientLeft);
@@ -398,9 +433,10 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           wire.setAttribute("d", d);
         }
       }
-      for (const { link, mark, wire, box } of marks) {
+      for (const { link, mark, wire, box, covered } of marks) {
         if (mark) {
           mark.dataset.placed = box ? "true" : "false";
+          mark.dataset.covered = covered ? "true" : "false";
           if (box) {
             const geo = `${box.left},${box.top},${box.width},${box.height}`;
             if (mark.dataset.geo !== geo) {
@@ -458,8 +494,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   // portaled into the duel root, see `host`), so a prompt, a banner or a pile cannot cover the chain.
   const front = (
     <div ref={frontRef} className={`${styles.layer} ${styles.front}`} aria-hidden="true" data-chain-fx="front" data-chain-front="true"
-    data-portal={host ? "true" : undefined} data-table={table}
-    data-open={links.length > 0 ? "true" : "false"} data-reduced={reducedMotion ? "true" : "false"}>
+      data-portal={host ? "true" : undefined} data-table={table}
+      data-open={links.length > 0 ? "true" : "false"} data-reduced={reducedMotion ? "true" : "false"}>
       {links.map((link) => {
         const callout = chainCallout(link, mySeat, playerName, named);
         return (
@@ -497,6 +533,18 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           </div>
         );
       })}
+      {targetLinks.flatMap((link) => link.targets.map((target) => {
+        const zone = zoneKey(target.controller, target.location, target.sequence);
+        const key = `${link.index}:${zone}`;
+        return <div key={key} ref={(el) => {
+          if (el) targetRefs.current.set(key, el);
+          else targetRefs.current.delete(key);
+        }} className={styles.target} data-placed="false" data-chain-target={link.index} data-target-zone={zone}
+          style={{ "--target-offset": `${(link.index - 1) * 16}px` } as CSSProperties}>
+          <span className={styles.targetRing} />
+          <span className={styles.targetTag}>Target · {link.index}</span>
+        </div>;
+      }))}
       {showStack ? (
         <div className={styles.dock}>
           <ol className={styles.panel} data-chain-panel="true" data-priority={priority?.length ? "true" : undefined}>
@@ -599,18 +647,6 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
             <span className={styles.wash} />
           </div>
         ))}
-        {targetLinks.flatMap((link) => link.targets.map((target) => {
-          const zone = zoneKey(target.controller, target.location, target.sequence);
-          const key = `${link.index}:${zone}`;
-          return <div key={key} ref={(el) => {
-            if (el) targetRefs.current.set(key, el);
-            else targetRefs.current.delete(key);
-          }} className={styles.target} data-placed="false" data-chain-target={link.index} data-target-zone={zone}
-            style={{ "--target-offset": `${(link.index - 1) * 16}px` } as CSSProperties}>
-            <span className={styles.targetRing} />
-            <span className={styles.targetTag}>Target · {link.index}</span>
-          </div>;
-        }))}
       </div>
       {host === undefined ? null : host ? createPortal(front, host) : front}
     </>
