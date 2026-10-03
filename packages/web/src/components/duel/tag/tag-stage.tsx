@@ -191,8 +191,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   // End of an FX lock: the reducer restores the saved view on the first tick after the time.
   const lockUntil = camera.lock?.untilMs ?? null;
   useEffect(() => {
-    if (lockUntil == null) return;
-    const wait = Math.max(0, lockUntil - performance.now()) + 8;
+    // An open-ended lock (a preview lock, an infinite time) has no end to wait for. A timer over 2^31 ms would fire at once.
+    if (lockUntil == null || !Number.isFinite(lockUntil)) return;
+    const wait = Math.min(2 ** 31 - 1, Math.max(0, lockUntil - performance.now()) + 8);
     const timer = window.setTimeout(() => dispatchCamera({ type: "tick", nowMs: performance.now() }), wait);
     return () => window.clearTimeout(timer);
   }, [lockUntil, dispatchCamera]);
