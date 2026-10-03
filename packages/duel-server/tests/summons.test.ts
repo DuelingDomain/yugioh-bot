@@ -5,8 +5,18 @@ import type { DuelAnswer, DuelDeck, DuelMode, DuelPrompt } from "@yugidraft/shar
 import { createEngineGame } from "../src/engine.js";
 import { validateDeck } from "../src/deck-legality.js";
 import { engineDataDirectory as dataDirectory } from "./engine-data-dir.js";
+import { materialCountScenarios, runMaterialCountScenario } from "./material-count-fixture.js";
 
 const seed = ["1", "2", "3", "4"];
+
+describe("stock-core summon methods", () => {
+  it.each(materialCountScenarios)("reports $kind for $monster using real materials", async (scenario) => {
+    const { event, completedView } = await runMaterialCountScenario(scenario);
+    expect(event.summonKind).toBe(scenario.kind);
+    const method = scenario.kind[0].toUpperCase() + scenario.kind.slice(1);
+    expect(completedView.log.map((entry) => entry.text)).toContain(`Player 1 ${method} Summons ${scenario.monster}`);
+  });
+});
 
 describe("proper effect summons", () => {
   it.each([
@@ -77,6 +87,16 @@ describe("proper effect summons", () => {
       if (mode === "domain") expect(seat.deckMaster?.inZone).toBe(false);
       const summons = game.view(0).events.filter((event) => event.kind === "summon" && event.card?.code === master);
       expect(summons.at(-1)?.summonKind).toBe(scenario.spell === "Polymerization" ? "fusion" : "ritual");
+      // The Text log names the method of a face-up summon, for every viewer, and the materials' trip to the Graveyard.
+      const method = scenario.spell === "Polymerization" ? "Fusion" : "Ritual";
+      for (const viewer of [0, 1, null]) {
+        const lines = game.view(viewer).log.map((entry) => entry.text);
+        expect(lines).toContain(`Player 1 ${method} Summons ${scenario.master}`);
+        for (const material of scenario.materials) expect(lines).toContain(`${material} was sent to the Graveyard`);
+        // The material lines sit directly above the summon line: the web Text log relies on that to colour them.
+        const at = lines.indexOf(`Player 1 ${method} Summons ${scenario.master}`);
+        expect(lines.slice(at - scenario.materials.length, at).sort()).toEqual(scenario.materials.map((material) => `${material} was sent to the Graveyard`).sort());
+      }
     } finally {
       game.close();
     }
@@ -223,6 +243,7 @@ describe("domain extra-deck proper summons from DMZ", () => {
       assert(summoned, `never summoned ${scenario.master}: ${seen.join(" -> ")}`);
       expect(summoned.code).toBe(master);
       expect(summoned.sequence).toBeLessThan(7);
+      expect(game.view(0).events.find((event) => event.kind === "summon" && event.card?.code === master)?.summonKind).toBe(scenario.kind);
       expect(seat.deckMaster?.inZone).toBe(false);
       expect(seat.lp).toBe(8000);
       expect(seat.hand.some((card) => materials.includes(card.code!))).toBe(false);
@@ -440,6 +461,7 @@ describe("domain inherent SS and extra matching bridge", () => {
       const seat = game.view(0).seats[0];
       const summoned = seat.monsters.find((card) => card?.code === master);
       assert(summoned, `never summoned Utopia Ray V: ${seen.join(" -> ")}`);
+      expect(game.view(0).events.find((event) => event.kind === "summon" && event.card?.code === master)?.summonKind).toBe("xyz");
       expect(seat.deckMaster?.inZone).toBe(false);
       expect(seat.lp).toBe(8000);
       const overlay = (summoned.materials ?? []).map((card) => card.code);

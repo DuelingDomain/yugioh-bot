@@ -1,0 +1,175 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { DuelFirstChoice, DuelOpeningView, DuelRpsMove } from "@yugidraft/shared/duels";
+import { DUEL_RPS_MOVES } from "@yugidraft/shared/duels";
+import { duelFontClasses } from "./fonts";
+import { cx } from "./sheet-ui";
+import styles from "./opening.module.css";
+import {
+  MOVE_LABEL,
+  isOpeningPlayer,
+  myPickText,
+  openingSeats,
+  openingStage,
+  opponentPickText,
+  revealEndsAt,
+  revealHeadline,
+  revealOutcome,
+  startText,
+  waitChooseText,
+} from "./opening-model";
+import { useSecondsUntil } from "./series-next";
+
+/** Simple original line icons, drawn with the current text color. */
+export function MoveIcon({ move, size = 56 }: { move: DuelRpsMove; size?: number }) {
+  const common = { width: size, height: size, viewBox: "0 0 48 48", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinejoin: "round", strokeLinecap: "round", "aria-hidden": true, focusable: false } as const;
+  if (move === "rock") {
+    return (
+      <svg {...common}>
+        <path d="M10 30 14 17l9-6 11 3 5 10-3 11-12 4-11-5Z" />
+        <path d="m14 17 9 7 11-10M23 24l-1 15M23 24l13 3" opacity="0.55" />
+      </svg>
+    );
+  }
+  if (move === "paper") {
+    return (
+      <svg {...common}>
+        <path d="M12 6h17l8 8v28H12Z" />
+        <path d="M29 6v8h8" />
+        <path d="M18 23h13M18 30h13M18 37h8" opacity="0.55" />
+      </svg>
+    );
+  }
+  return (
+    <svg {...common}>
+      <circle cx="12" cy="36" r="5" />
+      <circle cx="26" cy="38" r="5" />
+      <path d="m15 32 20-22M23 34 14 10" />
+    </svg>
+  );
+}
+
+function Countdown({ iso, label }: { iso: string; label: string }) {
+  const seconds = useSecondsUntil(iso);
+  if (seconds == null) return null;
+  return (
+    <p className={styles.countdown} data-testid="opening-countdown">
+      {label} <b aria-hidden>{Math.max(0, seconds)}</b><span className={styles.sr}>{Math.max(0, seconds)} seconds</span>
+    </p>
+  );
+}
+
+/** Re-renders when the reveal ends, so the screen moves on without waiting for a poll. */
+function useNow(opening: DuelOpeningView): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    const end = revealEndsAt(opening);
+    const wait = end - Date.now();
+    if (wait <= 0) return undefined;
+    const timer = window.setTimeout(() => setNow(Date.now()), wait + 20);
+    return () => window.clearTimeout(timer);
+  }, [opening]);
+  return now;
+}
+
+/**
+ * The opening of a match: rock-paper-scissors, then the winner chooses to go first or second.
+ * Picks stay hidden until both are in; the server decides the result and the timeouts.
+ */
+export function OpeningScreen({ opening, mySeat, names, busy = false, error = null, onPick, onChoose }: {
+  opening: DuelOpeningView;
+  mySeat: number | null;
+  names: [string, string];
+  busy?: boolean;
+  error?: string | null;
+  onPick: (move: DuelRpsMove) => void;
+  onChoose: (choice: DuelFirstChoice) => void;
+}) {
+  const now = useNow(opening);
+  const stage = openingStage(opening, mySeat, now);
+  const player = isOpeningPlayer(mySeat);
+  const { me, them } = openingSeats(mySeat);
+  const outcome = revealOutcome(opening, mySeat);
+  const reveal = opening.reveal;
+  const mine = myPickText(opening, mySeat);
+  const theirs = opponentPickText(opening, mySeat, names[them]);
+  const picked = mySeat != null ? opening.myPick : null;
+
+  let status = "";
+  if (stage === "reveal" && outcome) status = revealHeadline(outcome, reveal?.winnerSeat != null ? names[reveal.winnerSeat] : null);
+  else if (stage === "pick") status = player ? (picked ? `You chose ${MOVE_LABEL[picked]}. ${theirs.text}` : "Choose your move") : "Rock-paper-scissors";
+  else if (stage === "choose") status = "You win. Go first or second?";
+  else if (stage === "wait-choose") status = waitChooseText(opening, mySeat, names);
+  else status = startText(opening, mySeat, names);
+
+  return (
+    <div className={cx(styles.root, duelFontClasses)} role="dialog" aria-modal="true" aria-labelledby="opening-title" data-testid="opening-screen" data-stage={stage}>
+      <div className={styles.inner}>
+        <header className={styles.head}>
+          <h2 id="opening-title" className={styles.title}>Who goes first?</h2>
+          <p className={styles.sub}>{names[0]} vs {names[1]}{opening.round > 1 ? ` · Round ${opening.round}` : ""}</p>
+        </header>
+
+        <p className={styles.status} role="status" aria-live="polite" data-testid="opening-status">{status}</p>
+
+        {stage === "reveal" && reveal ? (
+          <div className={styles.reveal} data-outcome={outcome} data-testid="opening-reveal">
+            {([me, them] as const).map((seat, index) => (
+              <div key={seat} className={styles.revealCard} data-win={reveal.winnerSeat === seat ? "true" : undefined} data-side={index === 0 ? "me" : "them"}>
+                <MoveIcon move={reveal.picks[seat]} size={72} />
+                <span>{MOVE_LABEL[reveal.picks[seat]]}</span>
+                <small>{mySeat == null ? names[seat] : seat === me ? "You" : "Opponent"}</small>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {stage === "pick" ? (
+          <>
+            {player ? (
+              <div className={styles.moves} role="group" aria-label="Choose your move">
+                {DUEL_RPS_MOVES.map((move) => (
+                  <button key={move} type="button" className={styles.move} aria-pressed={picked === move}
+                    disabled={busy || picked != null} onClick={() => onPick(move)} data-testid={`opening-move-${move}`}>
+                    <MoveIcon move={move} />
+                    <span>{MOVE_LABEL[move]}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <div className={styles.chips}>
+              {mine ? <span className={styles.chip} data-done={mine.done ? "true" : "false"}>{mine.text}</span> : null}
+              <span className={styles.chip} data-done={theirs.done ? "true" : "false"} data-testid="opening-opponent">{theirs.text}</span>
+            </div>
+            <Countdown iso={opening.deadlineAt} label="A random move is made in" />
+          </>
+        ) : null}
+
+        {stage === "choose" ? (
+          <>
+            <div className={styles.orders} role="group" aria-label="Turn order">
+              <button type="button" className={styles.order} disabled={busy} onClick={() => onChoose("first")} data-testid="opening-first">
+                <b>Go first</b><span>You take the first turn</span>
+              </button>
+              <button type="button" className={styles.order} disabled={busy} onClick={() => onChoose("second")} data-testid="opening-second">
+                <b>Go second</b><span>The opponent takes the first turn</span>
+              </button>
+            </div>
+            <Countdown iso={opening.deadlineAt} label="You go first in" />
+          </>
+        ) : null}
+
+        {stage === "wait-choose" ? (
+          <>
+            <p className={styles.chips}><span className={styles.chip} data-done="false">{waitChooseText(opening, mySeat, names)}</span></p>
+            <Countdown iso={opening.deadlineAt} label="Time left" />
+          </>
+        ) : null}
+
+        {error ? <p className={styles.error} role="alert">{error}</p> : null}
+      </div>
+    </div>
+  );
+}

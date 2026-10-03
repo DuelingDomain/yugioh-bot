@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { HistoryRail, HistoryRow, HistoryTurn } from "@/components/sheet/history-rail";
 import { DangerRow, DangerZone } from "@/components/sheet/danger-zone";
@@ -49,6 +51,51 @@ describe("DangerZone", () => {
 });
 
 describe("ConfirmPanel", () => {
+  it.each(["Cancel", "End tournament"])("returns focus to a replaced trigger after %s closes the panel", async (closeLabel) => {
+    function Confirmation() {
+      const [open, setOpen] = useState(false);
+      const triggerRef = useRef<HTMLButtonElement>(null);
+      return open ? (
+        <ConfirmPanel
+          title="End now?"
+          confirmLabel="End tournament"
+          onConfirm={() => setOpen(false)}
+          onCancel={() => setOpen(false)}
+          returnFocusRef={triggerRef}
+        />
+      ) : <button ref={triggerRef} onClick={() => setOpen(true)}>End now</button>;
+    }
+    const user = userEvent.setup();
+    render(<Confirmation />);
+    await user.tab();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+    if (closeLabel === "End tournament") await user.tab();
+    await user.keyboard("{Enter}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "End now" })).toHaveFocus();
+  });
+
+  it("restores the previously focused trigger when it stays mounted", async () => {
+    function Confirmation() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>End now</button>
+          {open && <ConfirmPanel title="End now?" confirmLabel="End tournament" onConfirm={() => setOpen(false)} onCancel={() => setOpen(false)} />}
+        </>
+      );
+    }
+    const user = userEvent.setup();
+    render(<Confirmation />);
+    await user.tab();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "End now" })).toHaveFocus();
+  });
+
   it("focuses cancel on mount and wires both buttons", () => {
     const onConfirm = vi.fn();
     const onCancel = vi.fn();
