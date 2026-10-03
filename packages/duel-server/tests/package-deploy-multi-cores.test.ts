@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { readCoreCapabilities } from "../src/core-capabilities.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const roots: string[] = [];
@@ -90,6 +91,8 @@ printf '{"luaFixedSeed":0,"head":"compiler-head"}\\n' > "packages/duel-server/do
       const source = readFileSync(join(f.bundle, `${stem}.SOURCE`), "utf8");
       expect(source).toContain(`builtBy=${builtBy}\n`);
       expect(source).toContain(`deployedBy=${f.deployedBy}\n`);
+      const sha = createHash("sha256").update(readFileSync(join(f.bundle, `${stem}.wasm`))).digest("hex");
+      expect(readCoreCapabilities(f.bundle, `${stem}.wasm`, sha)).toEqual({ ffa4SharedExtraZones: true });
     }
     expect(result.stdout).toContain(`builtBy=${builtBy}`);
     expect(result.stdout).toContain(`deployedBy=${f.deployedBy}`);

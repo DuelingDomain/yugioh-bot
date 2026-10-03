@@ -15,7 +15,7 @@ import { Session } from "./support/session.js";
 
 function core(mode: DuelMode) {
   const file = mode === "domain" ? "ocgcore.multi-domain.wasm" : "ocgcore.multi.wasm";
-  const path = (mode === "domain" ? process.env.DOMAIN_MULTI_WASM : process.env.NSEAT_WASM) ?? join(dataDirectory, file);
+  const path = (mode === "domain" ? process.env.DOMAIN_MULTI_WASM : process.env.MULTI_WASM ?? process.env.NSEAT_WASM) ?? join(dataDirectory, file);
   try {
     const bytes = readFileSync(path);
     const sha = createHash("sha256").update(bytes).digest("hex");

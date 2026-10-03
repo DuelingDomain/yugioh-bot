@@ -58,7 +58,7 @@ jobs:
       # The emsdk image comes from pins.json (a pins.json change also changes the key).
       - name: Compute bundle cache key
         id: key
-        run: echo "key=duel-engine-ci-v3-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
+        run: echo "key=duel-engine-ci-v4-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
 
       - name: Read the emsdk image from pins.json
         run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
@@ -127,10 +127,12 @@ jobs:
           dist=packages/duel-server/domain-core/dist
           cp "$dist/ocgcore.multi.sync.wasm" "$BUNDLE_DIR/ocgcore.multi.wasm"
           cp "$dist/ocgcore.multi-domain.sync.wasm" "$BUNDLE_DIR/ocgcore.multi-domain.wasm"
-          printf 'tag=ci-%s\nsource=%s\nsha256=%s\ninstalled=%s\nnote=built by .github/workflows/test.yml\n' \
-            "${GITHUB_SHA::12}" "$dist/ocgcore.multi.sync.wasm" \
-            "$(sha256sum "$dist/ocgcore.multi.sync.wasm" | cut -d' ' -f1)" \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BUNDLE_DIR/ocgcore.multi.SOURCE"
+          for stem in ocgcore.multi ocgcore.multi-domain; do
+            printf 'tag=ci-%s\nsource=%s\nsha256=%s\ncapabilities=ffa4-shared-extra-zones\ninstalled=%s\nnote=built by .github/workflows/test.yml\n' \
+              "${GITHUB_SHA::12}" "$dist/$stem.sync.wasm" \
+              "$(sha256sum "$dist/$stem.sync.wasm" | cut -d' ' -f1)" \
+              "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BUNDLE_DIR/$stem.SOURCE"
+          done
 
       - name: Save engine bundle
         if: steps.bundle.outputs.cache-hit != 'true'
@@ -144,7 +146,7 @@ jobs:
       - name: Verify engine bundle
         run: |
           set -eu
-          for f in ocgcore.standard.wasm ocgcore.domain.wasm ocgcore.multi.wasm ocgcore.multi-domain.wasm ocgcore.multi.SOURCE cards.cdb; do
+          for f in ocgcore.standard.wasm ocgcore.domain.wasm ocgcore.multi.wasm ocgcore.multi-domain.wasm ocgcore.multi.SOURCE ocgcore.multi-domain.SOURCE cards.cdb; do
             test -s "$BUNDLE_DIR/$f" || { echo "bundle file missing or empty: $BUNDLE_DIR/$f" >&2; exit 1; }
           done
           for f in ocgcore.multi.sync.wasm ocgcore.multi-ref.sync.wasm ocgcore.multi-domain.sync.wasm ocgcore.multi-ref-domain.sync.wasm ocgcore.multi-trap.sync.wasm ocgcore.multi-domain-trap.sync.wasm; do
