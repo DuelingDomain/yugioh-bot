@@ -104,7 +104,7 @@ describe("commentOnIssue and buildCommentBody", () => {
     expected: "It resolves",
     path: "/duels/abc",
     duelSlug: "abc",
-    context: { format: "ffa3" as const, turn: 4, phase: "main1", log: ["Turn 4", "You added Dark Magician to your hand", "Player 1 draws 1 card"] },
+    context: { format: "ffa3" as const, turn: 4, phase: "main1", log: ["Turn 4", "Player 1 draws 1 card"] },
     baseUrl: "https://duel.example.com",
   };
   const redact = ["123456789012345678", "Seraphina Quill", "guild-xyz"];
@@ -116,11 +116,10 @@ describe("commentOnIssue and buildCommentBody", () => {
     expect(body).toContain("Player 1 draws 1 card");
   });
 
-  it("has no Discord id, no name, no private log line and no live mention or issue link", () => {
+  it("has no Discord id, no name and no live mention or issue link", () => {
     const body = buildCommentBody(input, redact);
     expect(body).not.toContain("123456789012345678");
     expect(body).not.toContain("Seraphina");
-    expect(body).not.toContain("Dark Magician");
     expect(body).not.toMatch(/@octocat/);
     expect(body).not.toMatch(/#9\b/);
     expect(buildIssueBody(input, redact)).not.toContain("123456789012345678");

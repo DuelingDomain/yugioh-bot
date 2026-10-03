@@ -3,8 +3,9 @@
  * Pure (no Node or React imports) so the browser and the route share it.
  *
  * Privacy: the GitHub repo is public. An issue only ever holds fields this file lists, the public log lines and the
- * report id. It never holds a hand, a Discord id or name, an email or the guild id. `buildIssueBody` takes the values
- * it must scrub as a last line of defence (`redact`).
+ * report id. It never holds a hand, a Discord id or name, an email or the guild id. The duel facts and the log come
+ * from the server (the duel host's public view), never from the browser. `buildIssueBody` takes the values it must
+ * scrub from the text the player wrote (`redact`).
  */
 
 export const BUG_TEXT_MAX = 4000;
@@ -17,7 +18,11 @@ export const BUG_DUEL_MODES = ["normal", "domain"] as const;
 
 export type BugFormat = (typeof BUG_FORMATS)[number];
 
-/** What the browser sends alongside the text. Everything here is public duel information or browser data. */
+/**
+ * The context of a report. The browser may send only path-level browser data (viewport, animation speed, browser,
+ * time). The route replaces everything else with what the server reads from the duel host (see
+ * `lib/bug-reports/server-context.ts`), so the duel facts and the log never come from the client.
+ */
 export interface BugReportContext {
   format?: BugFormat;
   duelMode?: (typeof BUG_DUEL_MODES)[number];
@@ -28,7 +33,7 @@ export interface BugReportContext {
   turnSeat?: number | null;
   livingPlayers?: number;
   animationSpeed?: number;
-  /** The last public log lines, oldest first. */
+  /** The last public log lines, oldest first. Set by the server from the duel host's public view. */
   log?: string[];
   userAgent?: string;
   viewport?: { width: number; height: number };
@@ -125,33 +130,6 @@ export function fence(text: string, language = "text"): string {
   return `${ticks}${language}\n${text}\n${ticks}`;
 }
 
-/**
- * Keeps only the log lines every player at the table sees. The engine log a player receives also holds lines meant for
- * that player alone: "You added X to your hand", "X returned to your hand", "Confirmed X", and the card name of a
- * face-down summon (it follows the public "... a face-down monster" line). The client cannot tell them apart by a flag,
- * so this drops those shapes. The route runs it again on whatever the browser sent.
- */
-export function publicLogLines(lines: readonly string[]): string[] {
-  const out: string[] = [];
-  let hiddenPrefix: string | null = null;
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) continue;
-    const faceDown = /^(.*? (?:Normal|Special|Flip) Summons) a face-down monster$/.exec(line);
-    if (faceDown) {
-      out.push(line);
-      hiddenPrefix = faceDown[1]!;
-      continue;
-    }
-    const prefix = hiddenPrefix;
-    hiddenPrefix = null;
-    if (prefix && line.startsWith(`${prefix} `)) continue;
-    if (/^You /.test(line) || /\bto your hand$/.test(line) || /^Confirmed\b/.test(line)) continue;
-    out.push(line);
-  }
-  return out;
-}
-
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -217,13 +195,9 @@ function parseContext(raw: unknown): ParseResult<BugReportContext> {
     if (!isObject(v) || width === null || height === null || Object.keys(v).length !== 2) return { ok: false, error: "context.viewport is not valid" };
     out.viewport = { width, height };
   }
-  if (raw.log !== undefined) {
-    if (!Array.isArray(raw.log) || raw.log.length > 200 || raw.log.some((line) => typeof line !== "string")) {
-      return { ok: false, error: "context.log must be a list of text lines" };
-    }
-    out.log = publicLogLines((raw.log as string[]).map((line) => clean(line).slice(0, LOG_LINE_MAX * 2)))
-      .slice(-BUG_LOG_LINES)
-      .map((line) => sanitizeLine(line, LOG_LINE_MAX));
+  // `log` is still accepted so an older page does not get a 400, but it is never kept: the server builds the log.
+  if (raw.log !== undefined && (!Array.isArray(raw.log) || raw.log.length > 200 || raw.log.some((line) => typeof line !== "string"))) {
+    return { ok: false, error: "context.log must be a list of text lines" };
   }
   return { ok: true, value: out };
 }
@@ -339,7 +313,7 @@ function reportSections(input: IssueBodyInput): string[] {
     ["Sent at", cell(context.timestamp)],
   ];
   const table = ["| Field | Value |", "| --- | --- |", ...rows.filter(([, value]) => value !== "-").map(([key, value]) => `| ${key} | ${value} |`)].join("\n");
-  const log = publicLogLines(context.log ?? []).slice(-BUG_LOG_LINES).map((line) => sanitizeLine(line, LOG_LINE_MAX));
+  const log = (context.log ?? []).slice(-BUG_LOG_LINES).map((line) => sanitizeLine(line, LOG_LINE_MAX));
   const sections = [
     "## Description",
     fence(sanitizeText(input.description)),

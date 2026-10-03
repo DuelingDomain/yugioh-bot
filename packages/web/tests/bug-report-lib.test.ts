@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildIssueBody, fence, issueTitle, parseBugReportRequest, publicLogLines, validateBugText, redactText, sanitizeText,
+  buildIssueBody, fence, issueTitle, parseBugReportRequest, validateBugText, redactText, sanitizeText,
 } from "@/lib/bug-report";
 
 const ZW = "​";
@@ -28,31 +28,6 @@ describe("fence", () => {
     const block = fence(text);
     expect(block.startsWith("`````text\n")).toBe(true);
     expect(block.endsWith("\n`````")).toBe(true);
-  });
-});
-
-describe("publicLogLines", () => {
-  it("drops lines only the reporter sees", () => {
-    const log = [
-      "Turn 2",
-      "Player 1 Normal Summons a face-down monster",
-      "Player 1 Normal Summons Dark Magician",
-      "Player 2 added a card to their hand",
-      "You added Blue-Eyes White Dragon to your hand",
-      "A face-down card returned to Player 1's hand",
-      "Pot of Greed returned to your hand",
-      "Confirmed Exodia the Forbidden One",
-      "Player 2 Special Summons Summoned Skull",
-      "Player 1 takes 500 damage",
-    ];
-    expect(publicLogLines(log)).toEqual([
-      "Turn 2",
-      "Player 1 Normal Summons a face-down monster",
-      "Player 2 added a card to their hand",
-      "A face-down card returned to Player 1's hand",
-      "Player 2 Special Summons Summoned Skull",
-      "Player 1 takes 500 damage",
-    ]);
   });
 });
 
@@ -91,15 +66,10 @@ describe("parseBugReportRequest", () => {
   ])("refuses %s", (_name, body) => {
     expect(parseBugReportRequest(body).ok).toBe(false);
   });
-  it("keeps at most the last 15 public log lines", () => {
-    const log = Array.from({ length: 60 }, (_, i) => `Player 1 draws card ${i}`);
+  it("never keeps a log the browser sent: the server builds the log", () => {
+    const log = ["You added Dark Magician to your hand", "Turn 3"];
     const parsed = parseBugReportRequest({ ...valid, context: { log } });
-    expect(parsed.ok && parsed.value.context.log).toHaveLength(15);
-    expect(parsed.ok && parsed.value.context.log?.[14]).toBe("Player 1 draws card 59");
-  });
-  it("filters private log lines again on the server", () => {
-    const parsed = parseBugReportRequest({ ...valid, context: { log: ["You added Dark Magician to your hand", "Turn 3"] } });
-    expect(parsed.ok && parsed.value.context.log).toEqual(["Turn 3"]);
+    expect(parsed.ok && parsed.value.context.log).toBeUndefined();
   });
 });
 

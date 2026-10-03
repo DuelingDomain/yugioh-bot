@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { BugReportServiceError, createBugReportService, createPlayerService } from "@yugidraft/shared/services";
+import { BugReportServiceError, createBugReportService, createDuelService, createPlayerService } from "@yugidraft/shared/services";
 import { webBaseUrl } from "@/lib/announce-bot";
 import { parseBugReportRequest } from "@/lib/bug-report";
 import { bugReportRepo, commentOnIssue, createGithubIssue, getOpenFromAppIssue } from "@/lib/bug-report-github";
+import { buildReportContext } from "@/lib/bug-reports/server-context";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
@@ -49,6 +50,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "That issue is not open for reports. Send your report as a new one." }, { status: 409 });
     }
   }
+
+  // The duel facts and the log come from the server, never from the browser's copy.
+  report.context = await buildReportContext({ guildId, playerId: player.id, duels: createDuelService(db), duelSlug: report.duelSlug, client: report.context });
 
   let saved;
   try {
