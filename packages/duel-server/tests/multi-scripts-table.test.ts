@@ -110,6 +110,7 @@ const EXPECTED_TRAPS: Record<number, { kind: string; reason: string }[]> = {};
  * both formats unless NO_CONDITION_RUN_ONLY names the formats (the card runs its condition in the other one).
  */
 const NO_CONDITION_RUN: Record<number, string> = {
+  95376428: "Extra Net: the trigger needs a Special Summon from the Extra Deck; the generic game has no Extra Deck monster (paired-zone-triggers.ts proves the real trigger, prompts and every seat in 1v1, FFA3, FFA4 and Tag)",
   14220547: "Branded in Central Dogmatika: its Extra Deck trigger needs a Ritual Summon by a Spell; the generic table does not make one (p3-extra-deck.ts proves the real trigger, prompts and every seat in Standard and Domain)",
   1804528: "Dark Coffin: the trigger needs this card to be face-down on the field and destroyed; no generic seat destroys a set Trap",
   12247206: "Inferno Reckless Summon: the condition needs p0 to Special Summon exactly one weak monster while an opponent has a monster; the generic driver does not play it",

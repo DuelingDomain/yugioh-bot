@@ -749,6 +749,21 @@
       "note": "Card text says \"your opponent\" (one): CH-OP (decision Q5), not CH-EACH as in the first pass of the design."
     },
     {
+      "code": 12292422,
+      "file": "c12292422.lua",
+      "name": "Specimen Inspection",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPPick": [
+          "target"
+        ]
+      },
+      "stockSha256": "f19b5ba2c43d0ea03b31aca05fbb44ea43f7fe5299d4b76e8d52df1752c211bc",
+      "note": "Select one Tag opponent at activation before the hand and Deck choices."
+    },
+    {
       "code": 12381100,
       "file": "c12381100.lua",
       "name": "Dragon Master Magia",
@@ -4231,6 +4246,21 @@
       ]
     },
     {
+      "code": 64659851,
+      "file": "c64659851.lua",
+      "name": "Law of the Cosmos",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPPick": [
+          "target"
+        ]
+      },
+      "stockSha256": "36b46bd938c007a242a5c1157795cabe633190eb4c4fbb56ab1cb26da2b2fb5f",
+      "note": "Select one Tag opponent at activation for the optional Trap Set."
+    },
+    {
       "code": 65541655,
       "file": "c65541655.lua",
       "name": "Red Nova Dragon - Burning Soul",
@@ -5849,6 +5879,21 @@
       "stockSha256": "e3ecbd82350ce4d91687610f428f50c978d1fcd06a03e8f3e64f1160a2c948b8"
     },
     {
+      "code": 89839552,
+      "file": "c89839552.lua",
+      "name": "Puppet Pawn",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "IGNITION",
+      "wrap": {
+        "MPPick": [
+          "thtg2"
+        ]
+      },
+      "stockSha256": "518d20c508be30eab0fb70ff97ee098102f080acbb6942c201b263305d5952d2",
+      "note": "Select one Tag opponent at activation for the optional Deck search."
+    },
+    {
       "code": 89883517,
       "file": "c89883517.lua",
       "name": "Mistaken Accusation",
@@ -6359,6 +6404,21 @@
       "classes": [],
       "stockSha256": "8e5dd7281a1bf6c34f1f7a36858d60fe1eed8686eeeeb10907faa05cd0c77615",
       "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
+    },
+    {
+      "code": 95376428,
+      "file": "c95376428.lua",
+      "name": "Extra Net",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+TRIGGER_F",
+      "wrap": {
+        "MPPick": [
+          "target"
+        ]
+      },
+      "stockSha256": "37d67f76062e7125c745db31521635dc170ac5e442a12e4ed7873ffbf92a9424",
+      "note": "Select one Tag opponent at activation for the optional draw after an own-team summon. An opposing-team summon needs no pick."
     },
     {
       "code": 95403418,
