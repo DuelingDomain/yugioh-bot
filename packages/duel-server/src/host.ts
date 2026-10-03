@@ -1056,10 +1056,15 @@ export function createDuelHost(options: {
     // With no final board, replay the journal to check that the loss did land.
     let noBoardLoss = false;
     if (room.mySeat !== null && room.engine === null && room.session.status === "interrupted" && room.session.format !== "1v1") {
-      const publicReplay = await replay(slug, guildId, { ...room, role: "spectator", mySeat: null, myDeck: null });
-      const last = publicReplay.frames.at(-1)?.view ?? null;
-      markLegacyLosses(last);
-      noBoardLoss = last?.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated) === true;
+      try {
+        const publicReplay = await replay(slug, guildId, { ...room, role: "spectator", mySeat: null, myDeck: null });
+        const last = publicReplay.frames.at(-1)?.view ?? null;
+        markLegacyLosses(last);
+        noBoardLoss = last?.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated) === true;
+      } catch (error) {
+        // A missing replay must not prevent a room read. No board is exposed in this case.
+        if (!(error instanceof RequestError) || (error.status !== 409 && error.status !== 503)) throw error;
+      }
     }
     // The final loss ends play. Only earlier losses give the automatic spectator role.
     const spectator = room.session.status === "completed"

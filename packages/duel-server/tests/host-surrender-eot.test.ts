@@ -478,6 +478,21 @@ Duel.RegisterEffect(e,0)`]);
       expect(replay).toMatchObject({ role: "player", mySeat: 3 });
     }, 60_000);
 
+    it("R-COMMON-SURRENDER-EOT: an interrupted room stays available when replay cannot check the loss", async () => {
+      const t = await table(mode, "ffa4");
+      await t.view();
+      await t.post("surrender", 3);
+      t.service.interrupt(t.session.slug, "g", "Test interruption");
+      t.db.prepare("UPDATE duels SET bundle_version = ? WHERE id = ?").run("old-test-engine", t.session.id);
+      await t.recover();
+      for (let seat = 0; seat < t.count; seat++) {
+        const room = await t.post("view", seat);
+        expect(room).toMatchObject({ role: "player", mySeat: seat, engine: null });
+        expect(room.session.status).toBe("interrupted");
+      }
+      await t.post("replay", 3, {}, 409);
+    }, 60_000);
+
     it("R-COMMON-SURRENDER-EOT: a save error keeps the journal and setup unchanged", async () => {
       const t = await table(mode, "ffa4");
       const before = await t.view();
