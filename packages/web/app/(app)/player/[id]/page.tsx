@@ -4,16 +4,22 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createScoringService, createSeasonService } from "@yugidraft/shared/services";
 import { ProfileView } from "@/components/player/profile-view";
-import { SheetRoot } from "@/components/sheet";
+import { PageFrame } from "@/components/dashboard/page-frame";
+import { liveDuelSlugs } from "@/components/player/live-duels";
+import { Zone } from "@/components/sheet";
+import styles from "@/components/player/profile.module.css";
 
 function NotFound() {
   return (
-    <SheetRoot>
-      <div className="empty">
-        <h2>Player not found.</h2>
-        <p>That player is not in this server.</p>
+    <PageFrame title="Player" back={{ href: "/leaderboard", label: "Leaderboard" }}>
+      <div className={styles.missing}>
+        <Zone state="dashed" />
+        <div>
+          <h2>Player not found.</h2>
+          <p>That player is not in this server.</p>
+        </div>
       </div>
-    </SheetRoot>
+    </PageFrame>
   );
 }
 
@@ -45,5 +51,16 @@ export default async function PlayerProfilePage({ params }: { params: Promise<{ 
   const posIdx = leaderboard.findIndex((r) => r.playerId === playerId);
   const leaderboardRank = posIdx >= 0 ? posIdx + 1 : null;
 
-  return <ProfileView profile={profile} leaderboardRank={leaderboardRank} isMe={me?.id === playerId} hasSeason={hasSeason} seasonStartedAt={season?.startedAt ?? null} />;
+  const liveDuel = liveDuelSlugs(db, guildId, me?.id ?? null)[playerId] ?? null;
+
+  return (
+    <ProfileView
+      profile={profile}
+      leaderboardRank={leaderboardRank}
+      isMe={me?.id === playerId}
+      hasSeason={hasSeason}
+      seasonStartedAt={season?.startedAt ?? null}
+      liveDuel={liveDuel}
+    />
+  );
 }
