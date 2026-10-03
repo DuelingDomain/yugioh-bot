@@ -120,6 +120,51 @@ describe("Draft room panels", () => {
     expect(screen.getByRole("dialog", { name: "Draft room" })).not.toHaveAttribute("data-sheet");
   });
 
+  it("focuses the first table card when the phone reader closes after its card is picked", async () => {
+    await renderRoom();
+    const opener = screen.getByRole("button", { name: "Card 1" });
+    act(() => opener.focus());
+    expect(opener).toHaveFocus();
+    expect(readerPanel()).not.toHaveAttribute("inert");
+
+    await act(async () => useDraftStore.setState({ timerSeconds: 2 }));
+
+    await waitFor(() => expect(opener).not.toBeInTheDocument());
+    expect(useDraftStore.getState().myPool.map((c) => c.id)).toEqual([1]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Card 2" })).toHaveFocus());
+    expect(document.body).not.toHaveFocus();
+    expect(readerPanel()).toHaveAttribute("inert");
+    expect(screen.getByRole("dialog", { name: "Draft room" })).not.toHaveAttribute("data-sheet");
+  });
+
+  it("keeps the phone reader closed when restoring focus after an inert opener", async () => {
+    const user = userEvent.setup();
+    await renderRoom();
+    const opener = screen.getByRole("button", { name: "Card 1" });
+    act(() => opener.focus());
+    opener.setAttribute("inert", "");
+
+    await user.click(within(reader()).getByRole("button", { name: "Close" }));
+
+    expect(screen.getByRole("button", { name: "Card 2" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Card 2" })).not.toHaveAttribute("data-sel");
+    expect(readerPanel()).toHaveAttribute("inert");
+    expect(screen.getByRole("dialog", { name: "Draft room" })).not.toHaveAttribute("data-sheet");
+  });
+
+  it("focuses the stage when a picked phone card has no focusable table fallback", async () => {
+    await renderRoom();
+    const opener = screen.getByRole("button", { name: "Card 1" });
+    act(() => opener.focus());
+    opener.parentElement!.setAttribute("inert", "");
+
+    await act(async () => useDraftStore.setState({ timerSeconds: 2 }));
+
+    await waitFor(() => expect(opener).not.toBeInTheDocument());
+    expect(screen.getByRole("region", { name: "Draft table" })).toHaveFocus();
+    expect(readerPanel()).toHaveAttribute("inert");
+  });
+
   it("opens the phone reader when Tabbing onto a card without moving focus off the card", async () => {
     const user = userEvent.setup();
     await renderRoom();
@@ -261,6 +306,65 @@ describe("Draft room panels", () => {
       expect(screen.getByRole("dialog", { name: "Draft room" })).not.toHaveAttribute("data-binder");
     },
   );
+
+  it("focuses the binder toggle when the drawer closes after its opener card is removed", async () => {
+    const user = userEvent.setup();
+    roomLayout(1100);
+    await renderRoom();
+    const opener = screen.getByRole("button", { name: "Card 1" });
+    act(() => opener.focus());
+    await user.keyboard("/");
+    await waitFor(() => expect(within(binder()).getByRole("searchbox")).toHaveFocus());
+
+    await act(async () => useDraftStore.setState({ timerSeconds: 2 }));
+    await waitFor(() => expect(opener).not.toBeInTheDocument());
+    expect(useDraftStore.getState().myPool.map((c) => c.id)).toEqual([1]);
+    expect(binderPanel()).not.toHaveAttribute("inert");
+    await user.click(within(binder()).getByRole("button", { name: "Close" }));
+
+    await waitFor(() => expect(dial()).toHaveFocus());
+    expect(binderPanel()).toHaveAttribute("inert");
+  });
+
+  it.each(["inert", "hidden", "display: none", "visibility: hidden"])(
+    "skips a binder toggle with %s when restoring focus after an inert opener",
+    async (unavailable) => {
+      roomLayout(1100);
+      await renderRoom();
+      const opener = screen.getByRole("button", { name: "Card 1" });
+      act(() => opener.focus());
+      fireEvent.click(dial());
+      await waitFor(() => expect(binderPanel().contains(document.activeElement)).toBe(true));
+      opener.setAttribute("inert", "");
+      // Include ancestors: a control in a hidden or inert tray cannot receive focus.
+      const tray = dial().parentElement!;
+      if (unavailable.includes(":")) tray.setAttribute("style", unavailable);
+      else tray.setAttribute(unavailable, "");
+
+      fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+
+      expect(screen.getByRole("button", { name: "Card 2" })).toHaveFocus();
+      expect(binderPanel()).toHaveAttribute("inert");
+    },
+  );
+
+  it("leaves outside focus alone when a drawer closes after its opener disappears", async () => {
+    roomLayout(1100);
+    await renderRoom();
+    const opener = screen.getByRole("button", { name: "Card 1" });
+    act(() => opener.focus());
+    fireEvent.click(dial());
+    await waitFor(() => expect(binderPanel().contains(document.activeElement)).toBe(true));
+    await act(async () => useDraftStore.setState({ timerSeconds: 2 }));
+    await waitFor(() => expect(opener).not.toBeInTheDocument());
+    const outside = screen.getByRole("button", { name: /animations:/i });
+    act(() => outside.focus());
+
+    fireEvent.click(within(binder()).getByRole("button", { name: "Close" }));
+
+    expect(outside).toHaveFocus();
+    expect(binderPanel()).toHaveAttribute("inert");
+  });
 
   it("moves focus into the medium drawer opened by a kind tile and returns it on close", async () => {
     roomLayout(1100);
