@@ -85,7 +85,7 @@ function parseDuelChanged(v: unknown): { slug: string; guildId: string } | null 
   return { slug: o.slug, guildId: o.guildId };
 }
 
-export function createInternalHttpHandler(opts: { io: TypedServer; secret: string }) {
+export function createInternalHttpHandler(opts: { io: TypedServer; secret: string; beforeDraftBroadcast?: (slug: string) => void }) {
   return async function handle(req: Request): Promise<Response> {
     const url = new URL(req.url);
     if (req.method !== "POST") return new Response("Not found", { status: 404 });
@@ -101,12 +101,14 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
       case "/internal/draft/status": {
         const data = parseStatus(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeDraftBroadcast?.(data.slug);
         opts.io.to(draftSocketRoom(data.slug)).emit("draft:status", { status: data.status });
         return new Response(null, { status: 204 });
       }
       case "/internal/draft/pick": {
         const data = parsePick(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeDraftBroadcast?.(data.slug);
         opts.io.to(draftSocketRoom(data.slug)).emit("draft:pick", {
           playerId: data.playerId,
           packRound: data.packRound,
@@ -117,6 +119,7 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
       case "/internal/draft/resync": {
         const data = parseResync(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeDraftBroadcast?.(data.slug);
         opts.io.to(draftSocketRoom(data.slug)).emit("draft:resync", {
           packRound: data.packRound,
           pickStep: data.pickStep,
@@ -126,12 +129,14 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
       case "/internal/draft/complete": {
         const data = parseComplete(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeDraftBroadcast?.(data.slug);
         opts.io.to(draftSocketRoom(data.slug)).emit("draft:complete", {});
         return new Response(null, { status: 204 });
       }
       case "/internal/draft/seats": {
         const data = parseSeats(parsed);
         if (!data) return new Response("Bad payload", { status: 400 });
+        opts.beforeDraftBroadcast?.(data.slug);
         opts.io.to(draftSocketRoom(data.slug)).emit("draft:seats", {});
         return new Response(null, { status: 204 });
       }
@@ -187,8 +192,8 @@ export function createInternalHttpHandler(opts: { io: TypedServer; secret: strin
   };
 }
 
-export function listenInternalHttp(opts: { io: TypedServer; secret: string; port: number }): Server {
-  const handle = createInternalHttpHandler({ io: opts.io, secret: opts.secret });
+export function listenInternalHttp(opts: { io: TypedServer; secret: string; port: number; beforeDraftBroadcast?: (slug: string) => void }): Server {
+  const handle = createInternalHttpHandler(opts);
   const server = createServer(async (nodeReq, nodeRes) => {
     const chunks: Buffer[] = [];
     for await (const chunk of nodeReq) chunks.push(chunk as Buffer);

@@ -25,9 +25,45 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
 
     const socket = io(WS_URL, { autoConnect: true });
     socketRef.current = socket;
+    let disposed = false;
+    let requestId = 0;
+    let tokenRequest: AbortController | null = null;
+
+    async function joinDraftRoom() {
+      const currentRequest = ++requestId;
+      tokenRequest?.abort();
+      tokenRequest = new AbortController();
+      try {
+        const response = await fetch(`/api/drafts/${encodeURIComponent(slug)}/connection`, {
+          cache: "no-store", signal: tokenRequest.signal,
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (disposed || !socket.connected || currentRequest !== requestId) return;
+        socket.emit("draft:join", { slug, token: data.token, userId: data.userId }, (result?: { error?: string }) => {
+          if (result?.error !== undefined || disposed || !socket.connected || currentRequest !== requestId) return;
+          optionsRef.current.onResync?.();
+        });
+      } catch (error) {
+        if (!disposed && currentRequest === requestId && !(error instanceof Error && error.name === "AbortError")) {
+          console.warn("Draft live feed is unavailable. Reconnect to try again.");
+        }
+      }
+    }
 
     socket.on("connect", () => {
-      socket.emit("draft:join", { slug });
+      void joinDraftRoom();
+    });
+
+    socket.on("disconnect", () => {
+      ++requestId;
+      tokenRequest?.abort();
+    });
+
+    socket.on("draft:subscription-expired", (payload: { slug: string }) => {
+      if (payload.slug !== slug) return;
+      optionsRef.current.onResync?.();
+      void joinDraftRoom();
     });
 
     socket.on("draft:status", (payload: { status: "active" | "cancelled" | "completed" }) => {
@@ -69,6 +105,9 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
     });
 
     return () => {
+      disposed = true;
+      ++requestId;
+      tokenRequest?.abort();
       socket.disconnect();
       socketRef.current = null;
     };

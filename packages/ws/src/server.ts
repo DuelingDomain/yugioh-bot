@@ -6,6 +6,7 @@ import { registerEventHandlers } from "./events.js";
 import { registerDuelEventHandlers } from "./duel-events.js";
 import { listenInternalHttp } from "./internal-http.js";
 import type { TypedServer } from "./events.js";
+import { createDraftAccessReader } from "@yugidraft/shared/services";
 
 const WEB_URL = process.env.WEB_URL ?? "http://localhost:3000";
 const WS_PORT = Number(process.env.WS_PORT ?? 3001);
@@ -18,7 +19,12 @@ const io: TypedServer = new Server(httpServer, {
 });
 
 const roomManager = new DraftRoomManager();
-registerEventHandlers(io, roomManager);
+const draftAccess = createDraftAccessReader();
+httpServer.on("close", () => draftAccess.close());
+const draftEvents = registerEventHandlers(io, roomManager, {
+  secret: WS_INTERNAL_SECRET,
+  canReadDraft: draftAccess.canReadDraft,
+});
 registerDuelEventHandlers(io, { secret: WS_INTERNAL_SECRET });
 
 httpServer.listen(WS_PORT, () => {
@@ -27,7 +33,10 @@ httpServer.listen(WS_PORT, () => {
 });
 
 if (WS_INTERNAL_SECRET) {
-  listenInternalHttp({ io, secret: WS_INTERNAL_SECRET, port: WS_INTERNAL_PORT });
+  listenInternalHttp({
+    io, secret: WS_INTERNAL_SECRET, port: WS_INTERNAL_PORT,
+    beforeDraftBroadcast: draftEvents.pruneDraftRoom,
+  });
 } else {
   console.warn("[ws] WS_INTERNAL_SECRET not set - broadcast endpoint disabled");
 }

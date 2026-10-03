@@ -7,6 +7,7 @@ import { analyzeCube, createCardCatalogService, createDraftService } from "@yugi
 import { buildDraftResponse } from "./helpers";
 import { announcer, broadcaster } from "@/lib/notify";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
+import { draftReadAccess } from "@/lib/draft-access";
 
 export const runtime = "nodejs";
 
@@ -27,6 +28,8 @@ export async function GET(
     }
 
     const { slug } = await params;
+    const denied = draftReadAccess(getDb(), slug, env.discordGuildId, session.user.id);
+    if (denied) return denied;
     const response = await buildDraftResponse(slug, session.user.id);
 
     if (!response) {
