@@ -5,7 +5,7 @@ import { describeWithCores, needs } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import { Session, domainNseatWasmBinary, nseatWasmBinary } from "../../support/session.js";
-import { activate, defineScenario, expectBoard, expectNotOffered, expectPrompt, no, yes, select, type DuelistId, type Scenario, type Step, type BoardExpect } from "../../support/dsl.js";
+import { activate, defineScenario, eliminate, endTurn, expectBoard, expectEliminated, expectNotOffered, expectOffered, expectPrompt, no, yes, select, type DuelistId, type Scenario, type Step, type BoardExpect } from "../../support/dsl.js";
 const ELF="Mystical Elf", CIRCLE="Underworld Circle";
 function proof(format:"ffa3"|"ffa4"|"tag",domain:boolean,summon:boolean):Scenario {
  const seats:DuelistId[]=format==="ffa3" ? ["p0","p1","p2"] : ["p0","p1","p2","p3"];
@@ -29,11 +29,24 @@ function insufficient(format:"ffa3"|"ffa4"|"tag",domain:boolean,shortSeat:Duelis
  }
  return defineScenario({id:`circle-every-living-duelist-${format}-short-${shortSeat}${domain ? "-domain" : ""}`,title:"Circle needs five monsters in every living duelist's Graveyard",source:"R-COMMON-EACH-PLAYER; Underworld Circle card text",rules:["R-COMMON-EACH-PLAYER"],tags:["multiplayer","card:73443672"],setup,steps:[expectNotOffered("activate",CIRCLE,"p0"),expectBoard(board)]});
 }
+function eliminatedShortSeat(domain:boolean):Scenario {
+ const scenario=proof("ffa4",domain,false);
+ scenario.setup.p3!.monsters=[];
+ scenario.setup.p3!.grave=Array(4).fill(ELF);
+ const final=scenario.steps[scenario.steps.length-1];
+ if(final.op!=="expectBoard")throw new Error("Circle proof must end with a board check");
+ // An eliminated duelist's owned cards leave play. Every living seat still meets the condition.
+ final.board.p3={lp:8000,hand:[],monsters:[],spells:[],grave:[],banished:[],deckCount:0};
+ return {...scenario,id:`circle-eliminated-short-seat${domain ? "-domain" : ""}`,
+  title:"A short eliminated seat does not block Circle",
+  rules:["R-COMMON-EACH-PLAYER","R-FFA-ELIMINATION"],
+  steps:[eliminate("p3",1),endTurn("p0"),endTurn("p1"),endTurn("p2"),expectEliminated("p3"),expectOffered("activate",CIRCLE,"p0"),...scenario.steps]};
+}
 async function run(scenario:Scenario) {
  const compiled=compileBoard(scenario.setup);
  const skip="local e=Effect.GlobalEffect(); e:SetType(EFFECT_TYPE_FIELD); e:SetCode(EFFECT_SKIP_DP); e:SetProperty(EFFECT_FLAG_PLAYER_TARGET); e:SetTargetRange(1,1); Duel.RegisterEffect(e,0)";
  const game=await createEngineGame({...compiled.options,dataDirectory:engineDataDirectory,multiWasmBinary:scenario.setup.mode==="domain" ? domainNseatWasmBinary() : nseatWasmBinary(),startupScripts:[...compiled.options.startupScripts!,{name:"circle-proof-draw-control.lua",content:skip}],seed:["1","2","3","4"]});
  try{const session=new Session(scenario,game);session.reachMainPhase();session.startRecording();scenario.steps.forEach((step,index)=>session.run(step,index+1));}finally{game.close();}
 }
-function seatsForShort(format:"ffa3"|"ffa4"|"tag"):DuelistId[] { return format==="tag" ? ["p2","p3"] : [format==="ffa3" ? "p2" : "p3"]; }
-describeWithCores("Circle own-GY choices on both cores",[liveNseat,...needs.domainMulti()],()=>runScenarios("no-opponent-circle",[false,true].flatMap(domain=>(["ffa3","ffa4","tag"] as const).flatMap(format=>[...([false,true].map(summon=>proof(format,domain,summon))),...seatsForShort(format).map(seat=>insufficient(format,domain,seat))])),run));
+function seatsForShort(format:"ffa3"|"ffa4"|"tag"):DuelistId[] { return ["p0","p1",...(format==="tag" ? ["p2","p3"] as const : [format==="ffa3" ? "p2" : "p3"] as const)]; }
+describeWithCores("Circle own-GY choices on both cores",[liveNseat,...needs.domainMulti()],()=>runScenarios("no-opponent-circle",[false,true].flatMap(domain=>[...(["ffa3","ffa4","tag"] as const).flatMap(format=>[...([false,true].map(summon=>proof(format,domain,summon))),...seatsForShort(format).map(seat=>insufficient(format,domain,seat))]),eliminatedShortSeat(domain)]),run));
