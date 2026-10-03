@@ -162,7 +162,7 @@ export function planPhaseBeats(events: readonly DuelEvent[], cursor: number, opt
 
   // A phase consumer can commit before the card layer. Establish its shared flight schedule
   // before memoising the beats, or missing landing times let the ribbons overtake the deal.
-  if (!options.landAtOf) planMoves(fresh, { now, reduced, duelKey });
+  if (!options.landAtOf && !(typeof document !== "undefined" && document.hidden)) planMoves(fresh, { now, reduced, duelKey });
 
   let holdPhase: PhaseKey | null = previous;
   for (const event of fresh) {
