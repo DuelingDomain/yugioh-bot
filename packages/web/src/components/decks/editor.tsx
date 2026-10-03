@@ -19,9 +19,12 @@ import {
   AlertTriangle,
   ArrowDownUp,
   ArrowLeft,
+  Check,
+  ChevronDown,
   Crown,
   Download,
   Hand,
+  MoreHorizontal,
   Redo2,
   Save,
   Trash2,
@@ -30,15 +33,19 @@ import {
 } from "lucide-react";
 import { TYPE_MONSTER } from "@/components/duel/constants";
 import { parseDeckText, selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
-import { cx, SheetButton, SheetSegmented, SheetSelect, sheetButtonClass, sheetRoot } from "@/components/duel/sheet-ui";
-import ui from "@/components/duel/sheet-ui.module.css";
+import { SheetRoot } from "@/components/sheet";
+import { cn } from "@/lib/utils";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import { createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, saveDraftDeck, updateSavedDeck } from "./api";
-import { CardActions } from "./card-actions";
+import { CardActions, CardCopyCount } from "./card-actions";
 import { CardArt } from "./card-art";
 import { CardBrowser } from "./card-browser";
+import { CardBottomSheet } from "./card-bottom-sheet";
 import { CardPreview } from "./card-preview";
+import { DeckButton, DeckSegmented, DeckSelect } from "./controls";
+import { DeckSummary, type DeckCheckProps } from "./deck-check";
 import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
+import { useEditorViewport } from "./editor-viewport";
 import {
   BANLIST_CHOICES,
   banlistLabel,
@@ -57,6 +64,7 @@ import {
   clearSection,
   cloneDeck,
   copyCounts,
+  copyKey,
   copyLimit,
   copyProblems,
   defaultAddSection,
@@ -70,6 +78,7 @@ import {
   snapshotOf,
   sortDeck,
   uniqueCodes,
+  type CopyProblem,
   type CardSource,
   type DeckSection,
   type SelectedStack,
@@ -81,13 +90,12 @@ import {
   deckUsage,
   draftDeckNotes,
   draftMainMinimum,
-  draftMainTone,
   draftRuleText,
   poolCounts,
   remainingCopies,
   type DraftDeckPool,
 } from "./pool-model";
-import { DeckSectionGrid, type CountTone, type HoveredCopy } from "./section-grid";
+import { DeckSectionGrid, type HoveredCopy } from "./section-grid";
 import styles from "./editor.module.css";
 
 const MODE_CHOICES = [
@@ -149,11 +157,6 @@ function copiesText(max: number): string {
   return `allows ${max} ${max === 1 ? "copy" : "copies"}`;
 }
 
-function mainTone(mode: DuelMode, count: number): CountTone {
-  if (mode === "domain") return count === 60 ? "ok" : count > 60 ? "bad" : "warn";
-  return count >= 40 && count <= 60 ? "ok" : count > 60 ? "bad" : "warn";
-}
-
 /**
  * The deck editor. With `pool` it edits the player's draft deck: the card list holds only the pool,
  * each card has as many copies as the player drafted, and there is no banlist.
@@ -176,6 +179,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [saveBusy, setSaveBusy] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -201,10 +205,15 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const [poolCards, setPoolCards] = useState<DeckCardInfo[] | null>(null);
   const [poolError, setPoolError] = useState<string | null>(null);
   const [poolRetry, setPoolRetry] = useState(0);
+  const { editorRef, isPhone } = useEditorViewport(!!pool);
+  const [phoneTab, setPhoneTab] = useState<"deck" | "cards">("deck");
+  const [cardSheetOpen, setCardSheetOpen] = useState(false);
   const importGeneration = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const inspectScrollRef = useRef<HTMLDivElement>(null);
   const hoverTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => { if (!isPhone) setCardSheetOpen(false); }, [isPhone]);
 
   useEffect(() => () => {
     importGeneration.current += 1;
@@ -421,6 +430,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     setHover(null);
     setInspectCode(code);
     setSelected(stack);
+    if (isPhone) setCardSheetOpen(true);
   }
 
   function pointAt(target: HoverTarget | null) {
@@ -513,7 +523,13 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   function showArchetype(archetype: CardArchetype) {
     setQuery((current) => ({ ...current, archetypes: [...archetype.codes], archetypeMode: "member", text: "" }));
-    searchRef.current?.focus();
+    setCardSheetOpen(false);
+    focusSearch();
+  }
+
+  function focusSearch() {
+    setPhoneTab("cards");
+    requestAnimationFrame(() => { searchRef.current?.focus(); searchRef.current?.select(); });
   }
 
   function applyImported(raw: DuelDeck) {
@@ -625,8 +641,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     }
   }
 
-  const shortcuts = useRef({ undo, redo, save });
-  shortcuts.current = { undo, redo, save };
+  const shortcuts = useRef({ undo, redo, save, focusSearch });
+  shortcuts.current = { undo, redo, save, focusSearch };
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       const mod = event.ctrlKey || event.metaKey;
@@ -646,8 +662,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
         shortcuts.current.redo();
       } else if (!mod && !event.altKey && event.key === "/") {
         event.preventDefault();
-        searchRef.current?.focus();
-        searchRef.current?.select();
+        shortcuts.current.focusSearch();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -680,37 +695,44 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   if (routeId === "invalid" || (loadError && savedId == null)) {
     return (
-      <div className={cx(sheetRoot, styles.editor, styles.center)}>
-        <p role="alert" className={ui.alert}>{loadError ?? "That deck id is not valid."}</p>
-        <Link href={backHref} className={sheetButtonClass("secondary")}>{pool ? "Back to the draft" : "Back to decks"}</Link>
-      </div>
+      <SheetRoot className={cn(styles.host, styles.center)} data-pool={pool ? "" : undefined}>
+        <p ref={editorRef} role="alert" className="banner banner-bad">{loadError ?? "That deck id is not valid."}</p>
+        <Link href={backHref} className="btn btn-secondary">{pool ? "Back to the draft" : "Back to decks"}</Link>
+      </SheetRoot>
     );
   }
-
   if (loading) {
     return (
-      <div className={cx(sheetRoot, styles.editor, styles.center)}>
-        <p className={ui.hint}>Loading deck…</p>
-      </div>
+      <SheetRoot className={cn(styles.host, styles.center)} data-pool={pool ? "" : undefined}>
+        <p ref={editorRef} className="small">Loading deck…</p>
+      </SheetRoot>
     );
   }
 
+  const mainLow = pool ? mainMinimum : mode === "domain" ? 60 : 40;
+  const tone = problems.length ? "bad" : notes.length ? "warn" : "ok";
+  const flag = problems.length
+    ? `${problems.length} ${problems.length === 1 ? "card has" : "cards have"} too many copies`
+    : deck.main.length < mainLow ? `Main needs ${mainLow - deck.main.length} more ${mainLow - deck.main.length === 1 ? "card" : "cards"}`
+      : notes[0] ?? `Deck size is correct for ${pool ? "a draft deck" : mode === "domain" ? "Domain" : "Standard"}.`;
+
+  function showProblem(problem: CopyProblem) {
+    const code = allCodes(deck).find((value) => copyKey(value, catalog) === problem.key);
+    if (code == null) return;
+    const section = (["main", "extra", "side"] as const).find((value) => deck[value].includes(code));
+    inspect(code, section ? { section, code } : null);
+  }
+  const checkProps: DeckCheckProps = { problems, notes, banlistName, flag, tone, pool: !!pool, onProblem: showProblem };
   const sectionProps = {
-    catalog,
-    unknown,
-    limits,
-    over,
-    selected,
+    catalog, unknown, limits, over, selected,
     onSelect: (stack: SelectedStack) => inspect(stack.code, stack),
     onHover: pointAt,
     onRemove: removeCopy,
     onDrop: dropCard,
   };
-
   const clearButton = (section: DeckSection, label: string) => (
-    <SheetButton
+    <DeckButton
       kind="quiet"
-      size="sm"
       disabled={deck[section].length === 0 || busy}
       aria-label={`Remove every card from the ${label} Deck`}
       onClick={() => {
@@ -718,382 +740,188 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
         setNotice(`${label} Deck cleared. Press Ctrl+Z to undo.`);
       }}
     >
-      <Trash2 size={14} strokeWidth={1.6} aria-hidden />
-      Clear
-    </SheetButton>
+      <Trash2 className="ic sm" aria-hidden />
+      <span>Clear</span>
+    </DeckButton>
+  );
+  const historyControls = (
+    <span className={styles["de-hist"]}>
+      <button type="button" className={styles["de-ib"]} aria-label="Undo" title="Undo (Ctrl+Z)" disabled={busy || history.past.length === 0} onClick={undo}><Undo2 className="ic" aria-hidden /></button>
+      <button type="button" className={styles["de-ib"]} aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={busy || history.future.length === 0} onClick={redo}><Redo2 className="ic" aria-hidden /></button>
+    </span>
+  );
+  const cardControls = inspected && !previewing ? (
+    <CardActions
+      card={inspected}
+      deck={deck}
+      mode={mode}
+      copies={deckCount(inspected)}
+      limit={copyLimit(inspected.code, catalog, limits)}
+      poolCopies={poolMap ? poolMap.get(inspected.code) ?? 0 : undefined}
+      banlistName={banlistName}
+      archetypes={archetypes}
+      hideSummary={isPhone && cardSheetOpen}
+      onAdd={(section) => addFromList(inspected, section)}
+      onRemove={(section) => removeCopy({ code: inspected.code, from: section })}
+      onMaster={() => makeMaster(inspected.code, selected?.code === inspected.code ? selected.section : undefined)}
+      onArchetype={showArchetype}
+    />
+  ) : null;
+  const missingReader = (
+    <p className={styles.inspectNotice}>
+      Passcode {shownCode}: {unknown.has(shownCode ?? 0)
+        ? "this card is not in the card database. It stays in your deck."
+        : metaError ? "card details are not available." : "loading card details…"}
+    </p>
   );
 
   return (
-    <div className={cx(sheetRoot, styles.editor)}>
-      <header className={styles.toolbar}>
-        <div className={styles.toolbarLead}>
-          <Link href={backHref} className={cx(sheetButtonClass("quiet", "sm"), styles.back)} aria-label={pool ? "Back to the draft" : "Back to decks"}>
-            <ArrowLeft size={16} strokeWidth={1.6} aria-hidden />
-            <span className={styles.backText}>{pool ? "Draft" : "Decks"}</span>
+    <SheetRoot className={styles.host} data-pool={pool ? "" : undefined} aria-hidden={isPhone && cardSheetOpen ? true : undefined}>
+      <div ref={editorRef} className={styles.de} data-tab={phoneTab}>
+        <header className={styles["de-bar"]}>
+          <Link href={backHref} className={cn("btn btn-quiet btn-sm", styles["de-back"])} aria-label={pool ? "Back to the draft" : "Back to decks"}>
+            <ArrowLeft className="ic" aria-hidden />
+            <span>{pool ? "Draft" : "Decks"}</span>
           </Link>
-          <label className={styles.nameField}>
-            <span className={ui.srOnly}>Deck name</span>
+          <label className={styles["de-namef"]}>
+            <span className="sr">Deck name</span>
             <input
-              className={styles.nameInput}
+              className={styles["de-name"]}
               value={name}
               maxLength={MAX_NAME_LENGTH}
               disabled={busy}
-              onChange={(event) => { importGeneration.current += 1; setName(event.target.value); setSavedFlash(false); }}
+              onChange={(event) => {
+                importGeneration.current += 1;
+                setName(event.target.value);
+                setSavedFlash(false);
+              }}
             />
           </label>
-          {pool ? (
-            <p className={styles.draftRule}>
-              <strong>Draft deck — {pool.draftName}</strong>
-              <span>{draftRuleText(pool.mainPoolCount)}</span>
-            </p>
-          ) : (
-            <>
-              <SheetSegmented
-                label="Format"
-                hideLabel
-                value={mode}
+          <div className={styles["de-prow"]}>
+            {pool ? (
+              <>
+                <p className={styles["de-rule"]}>
+                  <b>Draft deck from {pool.draftName}</b>
+                  <span>{draftRuleText(pool.mainPoolCount)}</span>
+                </p>
+                {isPhone ? <DeckButton onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</DeckButton> : null}
+              </>
+            ) : (
+              <>
+                <DeckSegmented label="Format" value={mode} disabled={busy} choices={MODE_CHOICES} className={styles["de-fmt"]} onChange={(value) => commit(selection, value)} />
+                <DeckSelect
+                  label="Banlist"
+                  value={query.banlist}
+                  choices={BANLIST_CHOICES}
+                  className={styles["de-banf"]}
+                  onChange={(banlist) => setQuery((current) => ({ ...current, banlist, limits: banlist === "none" ? [] : current.limits }))}
+                />
+              </>
+            )}
+          </div>
+          <p className={styles["de-status"]} data-tone={statusTone} aria-live="polite"><span className="lamp" aria-hidden />{statusText}</p>
+          <div className={styles["de-acts"]}>
+            {!isPhone ? historyControls : null}
+            {!pool ? (
+              <DeckImportPopover
+                className={styles["de-import"]}
+                open={importOpen}
+                onOpenChange={(open) => { setImportOpen(open); if (open) setParseError(null); }}
                 disabled={busy}
-                choices={MODE_CHOICES}
-                onChange={(value) => commit(selection, value)}
+                mode={mode}
+                fileName={fileName}
+                error={parseError}
+                onFile={onFile}
+                onPaste={onPaste}
               />
-              <SheetSelect
-                label="Banlist"
-                hideLabel
-                compact
-                className={styles.banlist}
-                value={query.banlist}
-                choices={BANLIST_CHOICES}
-                onChange={(banlist) => setQuery((current) => ({ ...current, banlist, limits: banlist === "none" ? [] : current.limits }))}
-              />
-            </>
-          )}
-        </div>
-        <div className={styles.toolbarActions}>
-          <p className={styles.status} data-tone={statusTone} aria-live="polite">{statusText}</p>
-          <div className={styles.history}>
-            <button type="button" className={styles.toolIcon} aria-label="Undo" title="Undo (Ctrl+Z)" disabled={busy || history.past.length === 0} onClick={undo}>
-              <Undo2 size={16} strokeWidth={1.6} aria-hidden />
-            </button>
-            <button type="button" className={styles.toolIcon} aria-label="Redo" title="Redo (Ctrl+Shift+Z)" disabled={busy || history.future.length === 0} onClick={redo}>
-              <Redo2 size={16} strokeWidth={1.6} aria-hidden />
-            </button>
-          </div>
-          {pool ? null : (
-            <DeckImportPopover
-              open={importOpen}
-              onOpenChange={(open) => { setImportOpen(open); if (open) setParseError(null); }}
-              disabled={busy}
-              mode={mode}
-              fileName={fileName}
-              error={parseError}
-              onFile={onFile}
-              onPaste={onPaste}
-            />
-          )}
-          <SheetButton size="sm" onClick={() => downloadYdkFile(name, deck)}>
-            <Download size={15} strokeWidth={1.6} aria-hidden />
-            Export
-          </SheetButton>
-          {savedId != null && !pool ? (
-            <Popover
-              label="Delete"
-              icon={<Trash2 size={15} strokeWidth={1.6} aria-hidden />}
-              kind="quiet"
-              open={deleteOpen}
-              onOpenChange={(open) => { setDeleteOpen(open); setDeleteError(null); }}
-              disabled={busy}
-            >
-              <div className={styles.confirm}>
-                <p>Delete <strong>{name.trim() || "this deck"}</strong>? You cannot undo this.</p>
-                {deleteError ? <p role="alert" className={ui.alert}>{deleteError}</p> : null}
-                <div className={styles.popoverActions}>
-                  <SheetButton kind="quiet" size="sm" disabled={deleteBusy} onClick={() => setDeleteOpen(false)}>Keep</SheetButton>
-                  <SheetButton kind="danger" size="sm" loading={deleteBusy} onClick={() => void confirmDelete()}>Delete deck</SheetButton>
-                </div>
-              </div>
-            </Popover>
-          ) : null}
-          <SheetButton kind="primary" size="sm" loading={saveBusy} disabled={busy} title="Save (Ctrl+S)" onClick={() => void save()}>
-            <Save size={15} strokeWidth={1.6} aria-hidden />
-            Save
-          </SheetButton>
-        </div>
-      </header>
-
-      <div className={styles.panes}>
-        <aside className={styles.inspectPane} aria-label="Card details">
-          <div ref={inspectScrollRef} className={styles.inspectScroll}>
-            {shownCode == null ? (
-              <div className={styles.inspectEmpty}>
-                <p className={styles.inspectEmptyTitle}>Point at a card to read it here. Click a card to select it.</p>
-                <ul className={styles.tips}>
-                  <li><b>Add</b> Double-click, right-click or drag a card from the list.</li>
-                  <li><b>Remove</b> Right-click a card in the deck, press Delete, or drag it back to the list.</li>
-                  <li><b>Move</b> Drag a card between Main, Extra and Side.</li>
-                  <li><b>Keys</b> <kbd>/</kbd> search · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>S</kbd> save</li>
-                </ul>
-              </div>
-            ) : shown ? (
-              <CardPreview card={shown} />
-            ) : (
-              <p className={styles.inspectNotice}>
-                Passcode {shownCode}: {unknown.has(shownCode)
-                  ? "this card is not in the card database. It stays in your deck."
-                  : metaError ? "card details are not available." : "loading card details…"}
-              </p>
-            )}
-          </div>
-          {inspected && !previewing ? (
-            <CardActions
-              card={inspected}
-              deck={deck}
-              mode={mode}
-              copies={deckCount(inspected)}
-              limit={copyLimit(inspected.code, catalog, limits)}
-              poolCopies={poolMap ? poolMap.get(inspected.code) ?? 0 : undefined}
-              banlistName={banlistName}
-              archetypes={archetypes}
-              onAdd={(section) => addFromList(inspected, section)}
-              onRemove={(section) => removeCopy({ code: inspected.code, from: section })}
-              onMaster={() => makeMaster(inspected.code, selected?.code === inspected.code ? selected.section : undefined)}
-              onArchetype={showArchetype}
-            />
-          ) : null}
-        </aside>
-
-        <main className={styles.deckPane} aria-label="Deck">
-          <div className={styles.deckBar}>
-            {notes.length > 0 || problems.length > 0 ? (
-              <details className={styles.notes}>
-                <summary>
-                  <AlertTriangle size={15} strokeWidth={1.6} aria-hidden />
-                  {problems.length > 0
-                    ? `${problems.length} ${problems.length === 1 ? "card has" : "cards have"} too many copies`
-                    : `${notes.length} deck ${notes.length === 1 ? "note" : "notes"}`}
-                </summary>
-                <ul className={ui.bannerList}>
-                  {problems.map((problem) => (
-                    <li key={problem.key}>
-                      {problem.name}: {problem.count} copies, {problem.max === 0 ? "Forbidden" : `${problem.max} allowed`}
-                      {banlistName && problem.max < 3 ? ` on ${banlistName}` : ""}.
-                    </li>
-                  ))}
-                  {notes.map((note) => <li key={note}>{note}</li>)}
-                </ul>
-                <p className={ui.hint}>
-                  {pool
-                    ? "A draft deck needs its Main Deck size before it can be saved."
-                    : "You can save an unfinished deck. The table checks legality when you ready up."}
-                </p>
-              </details>
-            ) : (
-              <p className={styles.notesOk}>Deck size is correct for {pool ? "a draft deck" : mode === "domain" ? "Domain" : "Standard"}.</p>
-            )}
-            <div className={styles.deckTools}>
-              <SheetButton kind="quiet" size="sm" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}>
-                <ArrowDownUp size={14} strokeWidth={1.6} aria-hidden />
-                Sort
-              </SheetButton>
-              <SheetButton kind="quiet" size="sm" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => (hand ? setHand(null) : dealHand())}>
-                <Hand size={14} strokeWidth={1.6} aria-hidden />
-                Test hand
-              </SheetButton>
-            </div>
-          </div>
-
-          {notice ? (
-            <p className={styles.notice} role="status">
-              {notice}
-              <button type="button" className={styles.noticeClose} aria-label="Close message" onClick={() => setNotice(null)}>
-                <X size={14} aria-hidden />
-              </button>
-            </p>
-          ) : null}
-
-          {facetsError ? (
-            <div className={cx(ui.banner, ui.bannerBad)}>
-              <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
-              <div className={ui.bannerBody}>
-                <strong>Filters and banlists are not available</strong>
-                <p>{pool ? "Archetype filters do not load." : "Archetype filters do not load and the editor does not check banlist limits."}</p>
-                <SheetButton size="sm" onClick={() => setFacetsRetry((value) => value + 1)}>Try again</SheetButton>
-              </div>
-            </div>
-          ) : null}
-
-          {pool && pool.unresolved.length > 0 ? (
-            <div className={cx(ui.banner, ui.bannerBad)}>
-              <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
-              <div className={ui.bannerBody}>
-                <strong>{pool.unresolved.length} {pool.unresolved.length === 1 ? "card" : "cards"} cannot be used</strong>
-                <p>The duel engine does not know {pool.unresolved.length === 1 ? "this card" : "these cards"}, so {pool.unresolved.length === 1 ? "it is" : "they are"} not in the list.</p>
-              </div>
-            </div>
-          ) : null}
-
-          {poolError ? (
-            <div className={cx(ui.banner, ui.bannerBad)}>
-              <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
-              <div className={ui.bannerBody}>
-                <strong>Your draft pool is not available</strong>
-                <p>{poolError}</p>
-                <SheetButton size="sm" onClick={() => setPoolRetry((value) => value + 1)}>Try again</SheetButton>
-              </div>
-            </div>
-          ) : null}
-
-          {metaError ? (
-            <div className={cx(ui.banner, ui.bannerBad)}>
-              <AlertTriangle size={17} strokeWidth={1.6} aria-hidden />
-              <div className={ui.bannerBody}>
-                <strong>Card details are not available</strong>
-                <p>{metaError} The passcodes stay in the deck.</p>
-                <SheetButton size="sm" onClick={() => { setBlocked(new Set()); setMetaRetry((value) => value + 1); }}>Try again</SheetButton>
-              </div>
-            </div>
-          ) : null}
-
-          {hand ? (
-            <section className={styles.hand} aria-label="Test hand">
-              <header className={styles.handHead}>
-                <h2 className={styles.sectionTitle}>Test hand <span className={cx(ui.num, styles.sectionTarget)}>{hand.drawn.length} {hand.drawn.length === 1 ? "card" : "cards"} · {hand.pile.length} left</span></h2>
-                <div className={styles.sectionActions}>
-                  <SheetButton kind="quiet" size="sm" disabled={hand.pile.length === 0} onClick={() => setHand({ drawn: [...hand.drawn, hand.pile[0]!], pile: hand.pile.slice(1) })}>Draw</SheetButton>
-                  <SheetButton kind="quiet" size="sm" onClick={dealHand}>New hand</SheetButton>
-                  <button type="button" className={styles.toolIcon} aria-label="Close test hand" onClick={() => setHand(null)}>
-                    <X size={15} aria-hidden />
-                  </button>
-                </div>
-              </header>
-              <ul className={styles.handCards}>
-                {hand.drawn.map((code, index) => (
-                  <li key={`${index}-${code}`}>
-                    <button
-                      type="button"
-                      className={styles.card}
-                      aria-label={cardName(code)}
-                      title={cardName(code)}
-                      onClick={() => inspect(code)}
-                      onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code, from: "hand", index }); }}
-                      onPointerLeave={() => pointAt(null)}
-                    >
-                      <CardArt code={code} name={cardName(code)} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-
-          {mode === "domain" ? (
-            <section
-              className={styles.master}
-              aria-label="Deck Master"
-              data-dropping={masterDropping ? "true" : undefined}
-              onDragOver={(event) => {
-                if (!hasCardDrag(event)) return;
-                event.preventDefault();
-                setMasterDropping(true);
-              }}
-              onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMasterDropping(false); }}
-              onDrop={(event) => {
-                setMasterDropping(false);
-                const drag = readCardDrag(event);
-                if (!drag || drag.from === "master") return;
-                event.preventDefault();
-                makeMaster(drag.code, drag.from === "list" ? undefined : drag.from);
-              }}
-            >
-              <div className={styles.masterSlot}>
-                {deck.deckMaster != null ? (
-                  <button
-                    type="button"
-                    className={styles.card}
-                    aria-label={`Deck Master: ${cardName(deck.deckMaster)}`}
-                    aria-pressed={inspectCode === deck.deckMaster && selected == null}
-                    title={cardName(deck.deckMaster)}
-                    draggable
-                    onClick={() => inspect(deck.deckMaster!)}
-                    onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }}
-                    onPointerLeave={() => pointAt(null)}
-                    onDragStart={(event) => writeCardDrag(event, { code: deck.deckMaster!, from: "master" })}
-                    onContextMenu={(event) => { event.preventDefault(); commit(selectDomainMaster(selection, undefined)); }}
-                  >
-                    <CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} />
-                  </button>
+            ) : null}
+            {!isPhone ? <DeckButton className={styles["de-export"]} onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</DeckButton> : null}
+            {!pool ? (
+              <Popover
+                label="More deck actions"
+                icon={<MoreHorizontal className="ic" aria-hidden />}
+                iconOnly
+                open={moreOpen || deleteOpen}
+                role={deleteOpen ? "dialog" : "menu"}
+                dialogLabel={deleteOpen ? `Delete ${name.trim() || "this deck"}?` : "More deck actions"}
+                focusKey={deleteOpen ? "delete" : "more"}
+                className={styles["de-more"]}
+                disabled={busy && !deleteOpen}
+                onOpenChange={(open) => { setMoreOpen(open); setDeleteOpen(false); setDeleteError(null); }}
+              >
+                {deleteOpen ? (
+                  <>
+                    <p className={styles["de-pop-h"]}>Delete {name.trim() || "this deck"}?</p>
+                    <p className="small">You cannot undo this.</p>
+                    {deleteError ? <p role="alert" className={styles.errorText}>{deleteError}</p> : null}
+                    <div className={styles["de-pop-a"]}>
+                      <DeckButton kind="quiet" data-autofocus disabled={deleteBusy} onClick={() => { setDeleteOpen(false); setMoreOpen(false); }}>Keep</DeckButton>
+                      <DeckButton kind="danger" loading={deleteBusy} onClick={() => void confirmDelete()}>Delete deck</DeckButton>
+                    </div>
+                  </>
                 ) : (
-                  <Crown size={22} strokeWidth={1.3} aria-hidden />
+                  <>
+                    {isPhone ? <><DeckButton kind="quiet" role="menuitem" onClick={() => { setMoreOpen(false); setParseError(null); setImportOpen(true); }}>Import</DeckButton><DeckButton kind="quiet" role="menuitem" onClick={() => { setMoreOpen(false); downloadYdkFile(name, deck); }}>Export YDK</DeckButton></> : null}
+                    <DeckButton kind="quiet" role="menuitem" disabled={savedId == null || busy} className={styles.errorText} onClick={() => { setMoreOpen(false); setDeleteOpen(true); setDeleteError(null); }}>
+                      <Trash2 className="ic sm" aria-hidden />Delete
+                    </DeckButton>
+                  </>
                 )}
-              </div>
-              <div className={styles.masterText}>
-                <h2 className={styles.sectionTitle}>Deck Master</h2>
-                <p className={ui.hint}>
-                  {deck.deckMaster != null
-                    ? cardName(deck.deckMaster)
-                    : "Drag a monster here, or select one and press Use as Deck Master."}
-                </p>
-                {deck.deckMaster != null ? (
-                  <SheetButton kind="quiet" size="sm" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>
-                    Clear
-                  </SheetButton>
-                ) : null}
-              </div>
-            </section>
-          ) : null}
-
-          <DeckSectionGrid
-            {...sectionProps}
-            title="Main"
-            section="main"
-            codes={deck.main}
-            target={pool ? `/ ${mainMinimum}–${DRAFT_MAIN_MAX}` : mode === "domain" ? "/ 60" : "/ 40–60"}
-            tone={pool ? draftMainTone(deck.main.length, pool.mainPoolCount) : mainTone(mode, deck.main.length)}
-            emptyHint="Add cards from the list on the right."
-            actions={clearButton("main", "Main")}
-          />
-          <DeckSectionGrid
-            {...sectionProps}
-            title="Extra"
-            section="extra"
-            codes={deck.extra}
-            target="/ 15"
-            tone={deck.extra.length > DRAFT_EXTRA_MAX ? "bad" : undefined}
-            emptyHint="Fusion, Synchro, Xyz and Link Monsters go here."
-            actions={clearButton("extra", "Extra")}
-          />
-          <DeckSectionGrid
-            {...sectionProps}
-            title="Side"
-            section="side"
-            codes={deck.side}
-            target={mode === "domain" ? "not used in Domain" : "/ 15"}
-            tone={deck.side.length > 15 || (mode === "domain" && deck.side.length > 0) ? "bad" : undefined}
-            emptyHint="Drag cards here, or use + Side on a selected card."
-            actions={clearButton("side", "Side")}
-          />
-        </main>
-
-        <CardBrowser
-          pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, card.code) } : undefined}
-          query={query}
-          onQueryChange={setQuery}
-          archetypes={archetypes}
-          limits={limits}
-          view={view}
-          onViewChange={setView}
-          deckCount={deckCount}
-          inspectCode={selected == null ? inspectCode : null}
-          onInspect={(card) => { rememberCatalog([card]); inspect(card.code); }}
-          onHover={(card) => {
-            if (card) rememberCatalog([card]);
-            pointAt(card ? { code: card.code, from: "list" } : null);
-          }}
-          onAdd={(card) => addFromList(card)}
-          onCatalog={rememberCatalog}
-          onRemoveDrop={(drag) => removeCopy(drag)}
-          searchRef={searchRef}
-        />
+              </Popover>
+            ) : null}
+            <DeckButton kind="primary" className={styles["de-save"]} loading={saveBusy} disabled={busy} title="Save (Ctrl+S)" onClick={() => void save()}><Save className="ic sm" aria-hidden />Save</DeckButton>
+          </div>
+        </header>
+        <div className={cn("seg", styles["de-tabs"])} role="tablist" aria-label="Editor" onKeyDown={(event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const next = event.key === "Home" ? "deck" : event.key === "End" ? "cards" : phoneTab === "deck" ? "cards" : "deck";
+          setPhoneTab(next);
+          document.getElementById(next === "deck" ? "deck-editor-tab" : "deck-editor-cards-tab")?.focus();
+        }}>
+          <button type="button" role="tab" tabIndex={phoneTab === "deck" ? 0 : -1} id="deck-editor-tab" aria-controls="deck-editor-deck" aria-selected={phoneTab === "deck"} aria-pressed={phoneTab === "deck"} onClick={() => setPhoneTab("deck")}>Deck <b className="num">{deck.main.length}</b></button>
+          <button type="button" role="tab" tabIndex={phoneTab === "cards" ? 0 : -1} id="deck-editor-cards-tab" aria-controls="deck-editor-cards" aria-selected={phoneTab === "cards"} aria-pressed={phoneTab === "cards"} onClick={() => setPhoneTab("cards")}>Cards</button>
+        </div>
+        <div className={styles["de-body"]}>
+          <aside className={styles["de-read"]} aria-label="Card details" ref={inspectScrollRef}>
+            {shownCode == null ? <DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /> : shown ? <CardPreview card={shown} /> : missingReader}
+            {cardControls}
+          </aside>
+          <main className={styles["de-deck"]} aria-label="Deck" id="deck-editor-deck">
+            {isPhone ? <details className={styles["de-pchk"]} data-s={tone}><summary>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span>{flag}</span><ChevronDown className="ic sm" aria-hidden /></summary><DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /></details> : null}
+            <div className={styles["de-dbar"]}>
+              {!isPhone ? <button className={styles["de-flag"]} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}{flag}</button> : null}
+              <span className={styles["de-tools"]}><DeckButton kind="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</DeckButton><DeckButton kind="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</DeckButton></span>
+              {isPhone ? historyControls : null}
+            </div>
+            {notice ? <p className={styles.notice} role="status">{notice}<button type="button" className={styles["de-ib"]} aria-label="Close message" onClick={() => setNotice(null)}><X className="ic sm" aria-hidden /></button></p> : null}
+            {facetsError ? <div className="banner banner-bad"><AlertTriangle className="ic" aria-hidden /><div><strong>Filters and banlists are not available</strong><p>{pool ? "Archetype filters do not load." : "Archetype filters do not load and the editor does not check banlist limits."}</p><DeckButton onClick={() => setFacetsRetry((value) => value + 1)}>Try again</DeckButton></div></div> : null}
+            {pool && pool.unresolved.length > 0 ? <div className="banner banner-bad"><AlertTriangle className="ic" aria-hidden /><div><strong>{pool.unresolved.length} {pool.unresolved.length === 1 ? "card" : "cards"} cannot be used</strong><p>The duel engine does not know {pool.unresolved.length === 1 ? "this card" : "these cards"}, so {pool.unresolved.length === 1 ? "it is" : "they are"} not in the list.</p></div></div> : null}
+            {poolError ? <div className="banner banner-bad"><AlertTriangle className="ic" aria-hidden /><div><strong>Your draft pool is not available</strong><p>{poolError}</p><DeckButton onClick={() => setPoolRetry((value) => value + 1)}>Try again</DeckButton></div></div> : null}
+            {metaError ? <div className="banner banner-bad"><AlertTriangle className="ic" aria-hidden /><div><strong>Card details are not available</strong><p>{metaError} The passcodes stay in the deck.</p><DeckButton onClick={() => { setBlocked(new Set()); setMetaRetry((value) => value + 1); }}>Try again</DeckButton></div></div> : null}
+            {hand ? (
+              <section className={styles["de-hand"]} aria-label="Test hand">
+                <header className={styles["de-sh"]}><h2 className={styles["de-st"]}>Test hand</h2><span className={cn("num", styles["de-tg"])}>{hand.drawn.length} {hand.drawn.length === 1 ? "card" : "cards"}, {hand.pile.length} left</span><span className={styles["de-tools"]}><DeckButton kind="quiet" disabled={hand.pile.length === 0} onClick={() => setHand({ drawn: [...hand.drawn, hand.pile[0]!], pile: hand.pile.slice(1) })}>Draw</DeckButton><DeckButton kind="quiet" onClick={dealHand}>New hand</DeckButton><button type="button" className={styles["de-ib"]} aria-label="Close test hand" onClick={() => setHand(null)}><X className="ic sm" aria-hidden /></button></span></header>
+                <ul className={cn(styles["de-grid"], styles["de-hand-g"])}>{hand.drawn.map((code, index) => <li key={`${index}-${code}`}><button type="button" className={styles["de-c"]} aria-label={cardName(code)} title={cardName(code)} onClick={(event) => { event.currentTarget.focus(); inspect(code); }} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code, from: "hand", index }); }} onPointerLeave={() => pointAt(null)}><CardArt code={code} name={cardName(code)} /></button></li>)}</ul>
+              </section>
+            ) : null}
+            {mode === "domain" ? (
+              <section className={styles["de-master"]} aria-label="Deck Master" data-dropping={masterDropping || undefined}
+                onDragOver={(event) => { if (hasCardDrag(event)) { event.preventDefault(); setMasterDropping(true); } }}
+                onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMasterDropping(false); }}
+                onDrop={(event) => { setMasterDropping(false); const drag = readCardDrag(event); if (!drag || drag.from === "master") return; event.preventDefault(); makeMaster(drag.code, drag.from === "list" ? undefined : drag.from); }}>
+                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}`} aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable onClick={(event) => { event.currentTarget.focus(); inspect(deck.deckMaster!); }} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => writeCardDrag(event, { code: deck.deckMaster!, from: "master" })} onContextMenu={(event) => { event.preventDefault(); commit(selectDomainMaster(selection, undefined)); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /></button> : <Crown className="ic" aria-hidden />}</div>
+                <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, or select one and press Use as Deck Master.</p>{deck.deckMaster != null ? <DeckButton kind="quiet" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>Clear</DeckButton> : null}</div>
+              </section>
+            ) : null}
+            <DeckSectionGrid {...sectionProps} title="Main" section="main" codes={deck.main} minimum={mainLow} maximum={DRAFT_MAIN_MAX} target={mode === "domain" ? "60" : `${mainLow}–${DRAFT_MAIN_MAX}`} emptyHint="Add cards from the list on the right." actions={clearButton("main", "Main")} />
+            <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link Monsters go here." actions={clearButton("extra", "Extra")} />
+            <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, or use Side on a selected card." actions={clearButton("side", "Side")} />
+          </main>
+          <CardBrowser id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, card.code), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code), 0) } : undefined} query={query} onQueryChange={setQuery} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card) => { rememberCatalog([card]); inspect(card.code); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
+        </div>
+        {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview card={shown} compact copySummary={inspected && !previewing ? <CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? poolMap.get(inspected.code) ?? 0 : undefined} /> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}
       </div>
-    </div>
+    </SheetRoot>
   );
 }

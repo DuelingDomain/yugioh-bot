@@ -3,14 +3,18 @@
 import { Crown, Minus, Plus, Search } from "lucide-react";
 import type { CardArchetype, DeckCardInfo, DuelDeck, DuelMode } from "@yugidraft/shared/duels";
 import { TYPE_MONSTER } from "@/components/duel/constants";
-import { cx, SheetButton } from "@/components/duel/sheet-ui";
-import ui from "@/components/duel/sheet-ui.module.css";
+import { cn } from "@/lib/utils";
+import { DeckButton } from "./controls";
 import { cardArchetypes } from "./filter-model";
 import { limitName } from "./limit-badge";
 import { defaultAddSection, type DeckSection } from "./model";
 import styles from "./editor.module.css";
 
 const SECTION_LABELS: Record<DeckSection, string> = { main: "Main", extra: "Extra", side: "Side" };
+
+export function CardCopyCount({ copies, limit, poolCopies }: { copies: number; limit: number; poolCopies?: number }) {
+  return <p className={styles["de-copies"]}><b className="num">{copies}</b>{" "}of <b className="num">{poolCopies ?? limit}</b>{" "}{poolCopies !== undefined ? "pool copies " : ""}in deck</p>;
+}
 
 /** Add, remove and Deck Master controls for the inspected card, under the card text. */
 export function CardActions({
@@ -26,6 +30,7 @@ export function CardActions({
   onRemove,
   onMaster,
   onArchetype,
+  hideSummary = false,
 }: {
   card: DeckCardInfo;
   deck: DuelDeck;
@@ -41,6 +46,7 @@ export function CardActions({
   onRemove: (section: DeckSection) => void;
   onMaster: () => void;
   onArchetype: (archetype: CardArchetype) => void;
+  hideSummary?: boolean;
 }) {
   const home = defaultAddSection(card);
   const sections: DeckSection[] = [home, "side"];
@@ -54,38 +60,36 @@ export function CardActions({
   const canMaster = mode === "domain" && (card.type & TYPE_MONSTER) !== 0;
 
   return (
-    <div className={styles.actions}>
-      <div className={styles.actionsHead}>
-        <p className={styles.copies}>
-          <span className={ui.num}>{copies}</span> of <span className={ui.num}>{inPool ? poolCopies : limit}</span> {inPool ? "pool copies " : ""}in deck
-        </p>
+    <div className={styles["de-acts-c"]}>
+      {hideSummary ? null : <div className={styles.actionsHead}>
+        <CardCopyCount copies={copies} limit={limit} poolCopies={poolCopies} />
         {status ? (
-          <span className={cx(ui.chip, limit === 0 ? styles.chipBad : ui.chipGold)} title={banlistName ? `${status} on ${banlistName}` : status}>
+          <span className={cn("chip", limit === 0 ? styles.chipBad : "chip-gold")} title={banlistName ? `${status} on ${banlistName}` : status}>
             {status}
           </span>
         ) : null}
-      </div>
+      </div>}
 
       <ul className={styles.steppers}>
         {sections.map((section) => {
           const count = deck[section].filter((code) => code === card.code).length;
           const label = SECTION_LABELS[section];
           return (
-            <li key={section} className={styles.stepper}>
-              <span className={styles.stepLabel}>{label}</span>
+            <li key={section} className={styles["de-step"]}>
+              <span>{label}</span>
               <button
                 type="button"
-                className={styles.stepButton}
+                className={styles["de-ib"]}
                 aria-label={`Remove one ${card.name} from ${label}`}
                 disabled={count === 0}
                 onClick={() => onRemove(section)}
               >
                 <Minus size={15} strokeWidth={1.8} aria-hidden />
               </button>
-              <output className={cx(ui.num, styles.stepCount)} aria-label={`${count} in ${label}`}>{count}</output>
+              <output className="num" aria-label={`${count} in ${label}`}>{count}</output>
               <button
                 type="button"
-                className={styles.stepButton}
+                className={styles["de-ib"]}
                 aria-label={`Add one ${card.name} to ${label}`}
                 disabled={full || (section !== home && section !== "side")}
                 onClick={() => onAdd(section)}
@@ -98,10 +102,10 @@ export function CardActions({
       </ul>
 
       {canMaster ? (
-        <SheetButton size="sm" kind={isMaster ? "quiet" : "secondary"} block disabled={isMaster} onClick={onMaster}>
+        <DeckButton size="sm" kind={isMaster ? "quiet" : "secondary"} block disabled={isMaster} onClick={onMaster}>
           <Crown size={15} strokeWidth={1.6} aria-hidden />
           {isMaster ? "This is your Deck Master" : "Use as Deck Master"}
-        </SheetButton>
+        </DeckButton>
       ) : null}
 
       {own.length > 0 ? (
@@ -112,7 +116,7 @@ export function CardActions({
               <li key={archetype.name}>
                 <button
                   type="button"
-                  className={cx(ui.chip, styles.archetypeChip)}
+                  className={cn("chip chip-pen", styles.archetypeChip)}
                   title={`Show all ${archetype.name} cards`}
                   onClick={() => onArchetype(archetype)}
                 >
