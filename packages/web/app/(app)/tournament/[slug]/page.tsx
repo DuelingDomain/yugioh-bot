@@ -2,10 +2,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import Link from "next/link";
-import { AlertTriangle, Compass, RotateCw } from "lucide-react";
-import { SheetRoot } from "@/components/sheet";
 import { useTournamentWebsocket } from "@/lib/hooks/use-tournament-websocket";
+import { TournamentGate } from "@/components/tournament/sheet/tournament-gate";
 import { TournamentSheet } from "@/components/tournament/sheet/tournament-sheet";
 import { buildPlayerRatings } from "@/components/tournament/sheet/sheet-model";
 import type { PlayerRatings } from "@/components/tournament/sheet-contracts";
@@ -90,51 +88,22 @@ export default function TournamentDetailPage() {
     lastStatus.current = tournament.status;
   }, [tournament, fetchRatings]);
 
+  // Every event refetches the tournament (onInvalidate). A match update also reloads ratings, which move with results.
   useTournamentWebsocket(slug, {
-    onParticipantJoined: () => { void fetchTournament(); },
-    onParticipantLeft: () => { void fetchTournament(); },
-    onStarted: () => { void fetchTournament(); },
-    onCancelled: () => { void fetchTournament(); },
-    onCompleted: () => { void fetchTournament(); },
-    onMatchUpdated: () => { void fetchTournament(); void fetchRatings(); },
+    onInvalidate: () => { void fetchTournament(); },
+    onMatchUpdated: () => { void fetchRatings(); },
   });
 
   if (!tournament) {
     const initialError = error?.slug === slug ? error : null;
-    const missing = initialError?.status === 404;
+    if (!initialError) return <TournamentGate kind="loading" slug={slug} />;
     return (
-      <SheetRoot>
-        <div className="nf">
-          {initialError ? (
-            <>
-              <p className="nf-code">
-                {missing ? <Compass className="ic" aria-hidden="true" /> : <AlertTriangle className="ic" style={{ color: "var(--loss-ink)" }} aria-hidden="true" />}
-                {missing ? "404" : "Error"}
-              </p>
-              <h1 className="t-title">{missing ? "No tournament at this address" : "This tournament didn't load"}</h1>
-              {missing ? (
-                <p>Nothing on this server matches{" "}<code>/tournament/{slug}</code>.{" "}It may have been deleted, or the link has a typo.</p>
-              ) : (
-                <p>Nothing was changed. Try again, and if it keeps happening, tell whoever runs the bot.</p>
-              )}
-              <div className="acts">
-                {missing ? (
-                  <Link className="btn btn-primary" href="/tournaments">All tournaments</Link>
-                ) : (
-                  <button className="btn btn-primary" type="button" disabled={loadingSlug === slug} aria-busy={loadingSlug === slug} onClick={() => {
-                    if (!tournamentInFlight.current) void fetchTournament();
-                  }}>
-                    <RotateCw className="ic" aria-hidden="true" />Try again
-                  </button>
-                )}
-                <Link className="btn btn-quiet" href="/dashboard">Dashboard</Link>
-              </div>
-            </>
-          ) : (
-            <p className="ref" role="status" aria-label="Loading tournament">Loading tournament…</p>
-          )}
-        </div>
-      </SheetRoot>
+      <TournamentGate
+        kind={initialError.status === 404 ? "missing" : "error"}
+        slug={slug}
+        busy={loadingSlug === slug}
+        onRetry={() => { if (!tournamentInFlight.current) void fetchTournament(); }}
+      />
     );
   }
 

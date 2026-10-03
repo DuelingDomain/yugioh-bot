@@ -33,7 +33,7 @@ export function MatchRow({ match, tournament, tournamentSlug, currentUserPlayerI
       id={matchAnchorId(match.id)}
       className={`mrow${live ? " lv" : ""}`}
       data-s={view.lamp === "you" || view.lamp === "wait" || view.lamp === "live" || view.lamp === "done" || view.lamp === "open" ? view.lamp : undefined}
-      aria-label={`${match.playerOneName}${match.playerTwoName ? ` vs ${match.playerTwoName}` : " · bye"}`}
+      aria-label={`${match.playerOneName}${match.playerTwoName ? ` vs ${match.playerTwoName}` : ", bye"}`}
     >
       <div>
         <div className="m-line">
