@@ -27,8 +27,11 @@ function controllerWith(events: DuelEvent[], over: Partial<DuelEngineView> = {},
   return { engine, room: { ...main, engine }, viewerSeat: 0, nameOf: (seat) => `P${seat}`, prompt: null, reducedMotion };
 }
 const chainOf = (...seats: number[]) => seats.map((seat, index) => ({ index: index + 1, seat }) as DuelChainLink);
-const damageSeen = (name: string) =>
-  seen.calls.filter((call) => call.name === name).flatMap((call) => (call.props.events as DuelEvent[]).filter((event) => event.kind === "damage"));
+// The effect gets the events again on each render, so read what its latest render got.
+const damageSeen = (name: string) => {
+  const latest = seen.calls.filter((call) => call.name === name).at(-1);
+  return ((latest?.props.events as DuelEvent[] | undefined) ?? []).filter((event) => event.kind === "damage");
+};
 
 describe("TagFx", () => {
   it("renders no effects while fxActive is false", () => {
@@ -111,6 +114,14 @@ describe("Tag chain chips", () => {
   it("moves to the link owner's team after both rivals passed", () => {
     const engine = { ...main.engine!, chain: chainOf(0) } as DuelEngineView;
     expect(tagPriority(engine, [1, 3], 0)!.map((slot) => slot.seat)).toEqual([0, 2, 1, 3]);
+  });
+  it("starts each team from the turn seat", () => {
+    const engine = { ...main.engine!, turnSeat: 2, chain: chainOf(0) } as DuelEngineView;
+    expect(tagPriority(engine, [], null)!.map((slot) => slot.seat)).toEqual([3, 1, 2, 0]);
+  });
+  it("is empty when both teams passed", () => {
+    const engine = { ...main.engine!, chain: chainOf(0) } as DuelEngineView;
+    expect(tagPriority(engine, [0, 1, 2, 3], null)).toBeNull();
   });
   it("is empty without a chain", () => {
     expect(tagPriority({ ...main.engine!, chain: [] } as DuelEngineView, [], null)).toBeNull();

@@ -36,7 +36,7 @@ const sameTeam = (a: number, b: number) => teamOfSeat("tag", a) === teamOfSeat("
  * member, the second event is a mirror of the first and would play the same effect twice. A damage event is dropped when
  * its id was seen already, or when the damage event right before it hit a team mate for the same amount and cause.
  */
-export function dedupeTeamDamage(events: readonly DuelEvent[]): readonly DuelEvent[] {
+export function dedupeTeamDamage(events: DuelEvent[]): DuelEvent[] {
   const seen = new Set<number>();
   const kept: DuelEvent[] = [];
   let previous: DuelEvent | null = null;
@@ -60,12 +60,14 @@ export function dedupeTeamDamage(events: readonly DuelEvent[]): readonly DuelEve
 
 /**
  * Who may answer the open chain, in order, for the chain chips: the team that answers now (the opposing team first,
- * R-TAG-RESPONSE), then the other team. Null when the chain is empty or nobody is left to answer.
+ * R-TAG-RESPONSE), then the other team. Each team starts from the turn seat. Null when the chain is empty or both teams passed.
  */
 export function tagPriority(engine: DuelEngineView, passed: readonly number[], choosingSeat: number | null): PrioritySlot[] | null {
-  const order = tagResponseOrder(engine, passed);
+  const order = tagResponseOrder(engine, engine.turnSeat, passed);
   if (!order) return null;
-  const others = seatsOfTeam("tag", 1 - order.team);
+  // The other team reads in turn order too, from the turn seat, as the responding team does.
+  const count = seatsOfTeam("tag", 0).length + seatsOfTeam("tag", 1).length;
+  const others = Array.from({ length: count }, (_, i) => (engine.turnSeat + i) % count).filter((seat) => teamOfSeat("tag", seat) !== order.team);
   return [...order.seats, ...others].map((seat) => ({ seat, choosing: seat === choosingSeat }));
 }
 
