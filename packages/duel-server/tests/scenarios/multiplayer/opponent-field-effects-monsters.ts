@@ -214,6 +214,8 @@ const SPECS: EffectSpec[] = [
     code: 9400127, name: "Flogos, the Ogdoadic Boundless", slug: "flogos", does: "Special Summons a monster from the Graveyard of an opponent",
     p0: { hand: ["Monster Reborn"], grave: ["Flogos, the Ogdoadic Boundless"] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
+    // Monster Reborn reads either GY. Only the target opponent has a legal GY monster for Flogos in FFA.
+    noPick: (roles) => roles.format !== "tag",
     steps: [activate("Monster Reborn", "p0"), select("Flogos, the Ogdoadic Boundless"), yes("p0")],
     then: (roles) => roles.format === "tag" ? [select({ card: ELF, owner: roles.tgt })] : [],
     p0End: { hand: [], grave: ["Monster Reborn"], monsters: ["Flogos, the Ogdoadic Boundless"] },
