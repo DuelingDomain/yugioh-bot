@@ -463,6 +463,13 @@ export function boardFor(format: DuelFormat, code: number, layout: Layout): Boar
       spells: layout === "behind" ? [{ card: "Dark Hole", pos: "set" }] : [],
     };
   });
+  if (format === "ffa3" && code === 86209650) {
+    // Stray Asmodian must be destroyed by battle. Dark Hole does not meet its condition.
+    // p2 can attack on turn 3 (R-FFA-NO-ATTACK). Battle Ox has more ATK than Asmodian.
+    board.p0 = { monsters: [code], hand: [] };
+    board.p1 = { monsters: ["Battle Ox"], hand: [] };
+    board.p2 = { monsters: ["Battle Ox"], hand: [] };
+  }
   return board;
 }
 
@@ -569,6 +576,11 @@ export async function playTable(format: DuelFormat, code: number, layout: Layout
       result.turn = Math.max(result.turn, view.turn);
       if (view.result) break;
       const answers = candidatesFor(prompt, seat, actions < MAX_ACTIONS, result.steps < LIVELY_STEPS, rng, game, view.seats?.filter((entry) => !entry.eliminated).map((entry) => entry.seat));
+      if (format === "ffa3" && code === 86209650 && seat === 2 && prompt.kind === "cards") {
+        // Choose the real battle target. A random target can leave Asmodian on the field.
+        const target = prompt.options.find((option) => option.controller === 0 && option.card?.code === code);
+        if (target) answers.unshift({ selected: [target.id] });
+      }
       let accepted: DuelAnswer | null = null;
       for (const answer of answers) {
         try {
