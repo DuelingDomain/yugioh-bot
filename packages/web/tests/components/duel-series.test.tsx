@@ -140,10 +140,16 @@ describe("SeriesNextControls", () => {
     expect(screen.getByTestId("opponent-side-status").textContent).toBe("Opponent is not ready");
   });
 
-  it("shows no opponent state to a spectator", () => {
-    const series = makeSeries({ status: "between_games", nextGameAt: soon() });
+  it("shows a spectator both players' Ready state instead of an opponent state", () => {
+    const series = makeSeries({ status: "between_games", nextGameAt: soon(), sideReady: [true, false] });
     render(<SeriesNextControls room={makeSeriesRoom({ series, mySeat: null })} slug="game-1" tone="sheet" onChanged={vi.fn()} onNavigate={vi.fn()} />);
     expect(screen.queryByTestId("opponent-side-status")).toBeNull();
+    expect(screen.getByText("Side decking in progress")).toBeTruthy();
+    expect(screen.getAllByTestId("series-ready-row").map((row) => [row.textContent, row.getAttribute("data-ready")])).toEqual([
+      ["SulmanReady", "true"],
+      ["ImranSide decking…", "false"],
+    ]);
+    expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("cancels an interrupted casual series after a second click", async () => {
@@ -176,13 +182,13 @@ describe("DuelResultScreen with a series", () => {
   const screenProps = { slug: "game-1", reducedMotion: true, soundEnabled: false, onClose: vi.fn() };
 
   it("shows the score and the between games controls", () => {
-    const series = makeSeries({ status: "between_games", wins: [1, 0], nextGameAt: soon(), hasSide: [true, false] });
+    const series = makeSeries({ status: "between_games", wins: [1, 0], nextGameAt: soon(), hasSide: [true, false], firstChooser: 1 });
     render(<DuelResultScreen room={makeSeriesRoom({ series })} {...screenProps} />);
     const block = screen.getByRole("region", { name: "Series" });
     expect(within(block).getByText("Best of 3")).toBeTruthy();
     expect(within(block).getByText("Game 1 won by you · 1–0")).toBeTruthy();
     expect(within(block).getByText("Game 2 of 3")).toBeTruthy();
-    expect(within(block).getByText("Imran goes first (the loser of game 1 goes first)")).toBeTruthy();
+    expect(within(block).getByTestId("between-games-info").textContent).toContain("Opponent is choosing to go first or second…");
     expect(within(block).getByTestId("opponent-side-status").textContent).toBe("Opponent is siding…");
     expect(within(block).getByRole("timer")).toBeTruthy();
   });
@@ -194,12 +200,12 @@ describe("DuelResultScreen with a series", () => {
     expect(screen.getByRole("button", { name: "Ready for next game" })).toBeTruthy();
   });
 
-  it("names the loser as the first player of the next game", () => {
-    const series = makeSeries({ status: "between_games", wins: [1, 0], nextGameAt: soon() });
+  it("tells the loser that they choose the order of the next game", () => {
+    const series = makeSeries({ status: "between_games", wins: [1, 0], nextGameAt: soon(), firstChooser: 1 });
     render(<DuelResultScreen room={makeSeriesRoom({ series, mySeat: 1 })} {...screenProps} />);
     const info = screen.getByTestId("between-games-info");
     expect(within(info).getByText("Game 1 won by Sulman · 0–1")).toBeTruthy();
-    expect(within(info).getByText("You go first (the loser of game 1 goes first)")).toBeTruthy();
+    expect(within(info).getByText("You choose to go first or second")).toBeTruthy();
   });
 
   it("offers no next game when the match is over", () => {
@@ -228,6 +234,45 @@ describe("DuelResultScreen with a series", () => {
     cleanup();
     render(<DuelResultScreen room={makeSeriesRoom({ series: { ...ranked, ranked: false } })} {...screenProps} />);
     expect(screen.getByText("Unranked")).toBeTruthy();
+  });
+
+  it.each(["public", "private"] as const)("tells a %s spectator they will follow after side decking", (visibility) => {
+    const series = makeSeries({ status: "between_games", wins: [1, 0], nextGameAt: soon(), sideReady: [false, true] });
+    const room = makeSeriesRoom({ series, mySeat: null });
+    room.session.settings = { visibility } as typeof room.session.settings;
+    render(<DuelResultScreen room={room} {...screenProps} />);
+    const block = screen.getByRole("region", { name: "Series" });
+    expect(within(block).getByText("Game 1 won by Sulman · 1–0")).toBeTruthy();
+    expect(within(block).getByText("Side decking in progress")).toBeTruthy();
+    expect(within(block).getByText(/You will move to game 2 when it starts/)).toBeTruthy();
+    expect(within(block).getAllByTestId("series-ready-row")).toHaveLength(2);
+    expect(within(block).getByRole("timer")).toBeTruthy();
+    expect(within(block).queryByRole("button", { name: /Ready/ })).toBeNull();
+  });
+
+  it.each(["public", "private"] as const)("points a %s spectator at the next game once it is live", (visibility) => {
+    const onNavigate = vi.fn();
+    const series = makeSeries({ status: "active", wins: [1, 0], gameNumber: 2, currentDuelSlug: "game-2" });
+    const room = makeSeriesRoom({ series, mySeat: null });
+    room.session.settings = { visibility } as typeof room.session.settings;
+    render(<DuelResultScreen room={room} {...screenProps} onNavigate={onNavigate} />);
+    const block = screen.getByRole("region", { name: "Series" });
+    expect(within(block).getByText("Game 2 of 3 is live")).toBeTruthy();
+    // Watching the live game is the main action; leaving steps back.
+    expect(within(block).getByRole("button", { name: "Watch game 2" }).getAttribute("data-kind")).toBe("primary");
+    expect(screen.getByRole("link", { name: "Back to tables" }).getAttribute("data-kind")).toBe("secondary");
+    fireEvent.click(within(block).getByRole("button", { name: "Watch game 2" }));
+    expect(onNavigate).toHaveBeenCalledWith("game-2");
+  });
+
+  it("shows a spectator the final series result once the series is decided", () => {
+    const series = makeSeries({ status: "completed", wins: [2, 1], winnerPlayerId: 1, gameNumber: 3, currentDuelSlug: "game-3" });
+    render(<DuelResultScreen room={makeSeriesRoom({ series, mySeat: null })} {...screenProps} />);
+    const block = screen.getByRole("region", { name: "Series" });
+    expect(within(block).getByText("Sulman wins the series")).toBeTruthy();
+    expect(within(block).getByText("Final score 2 – 1")).toBeTruthy();
+    expect(within(block).queryByTestId("series-ready-row")).toBeNull();
+    expect(within(block).queryByRole("button", { name: /Watch game/ })).toBeNull();
   });
 
   it("leaves a duel with no series as it was", () => {

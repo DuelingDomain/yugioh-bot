@@ -374,8 +374,15 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     [mutate],
   );
 
-  // A series moves on to its next game by itself: follow it, keeping the duel window.
-  const nextTarget = data ? nextGameTarget(data, slug) : null;
+  // A series moves on to its next game by itself: follow it, keeping the duel window. Players always
+  // follow. A spectator follows once they have watched this game while it was the series' current
+  // game, so the end screen of game 1 hands them to game 2; one who opens an older game stays on it.
+  const [watchedLive, setWatchedLive] = useState<string | null>(null);
+  const watchingCurrent = data?.series != null && isSeriesOpen(data.series) && data.series.currentDuelSlug === slug;
+  useEffect(() => {
+    if (watchingCurrent) setWatchedLive(slug);
+  }, [watchingCurrent, slug]);
+  const nextTarget = data ? nextGameTarget(data, slug, { followAsSpectator: watchedLive === slug }) : null;
   const goToGame = useCallback((next: string) => {
     router.replace(inDuelWindow ? duelWindowPath(next) : `/duels/${encodeURIComponent(next)}`);
   }, [router, inDuelWindow]);

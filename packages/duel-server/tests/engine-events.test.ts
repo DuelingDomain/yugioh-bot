@@ -746,7 +746,7 @@ describe("event observer messages", () => {
 
   it("falls back to the resolving chain link when the core names no reason card", () => {
     const ctx = createEventContext();
-    const chain = [{ index: 1, seat: 1, code: 55 }];
+    const chain = [{ index: 1, seat: 1, code: 55, zone: at(1, OcgLocation.MZONE, 0), targets: [] }];
     observeDuelEvent({ type: OcgMessageType.CHAIN_SOLVING, chain_size: 1 } as OcgMessage, cards, chain, 1, ctx);
     noteDestroyLog(ctx, `${DESTROY_NOTE_PREFIX}0:${OcgLocation.MZONE}:0:65:0:0:1`);
     const destroyed = observeDuelEvent(moveOut(4, at(0, OcgLocation.MZONE, 0)), cards, chain, 2, ctx)!;
@@ -755,7 +755,7 @@ describe("event observer messages", () => {
 
   it("keeps the resolving chain link for a note that arrives after the link resolved", () => {
     const ctx = createEventContext();
-    const chain = [{ index: 1, seat: 1, code: 55 }];
+    const chain = [{ index: 1, seat: 1, code: 55, zone: at(1, OcgLocation.MZONE, 0), targets: [] }];
     observeDuelEvent({ type: OcgMessageType.CHAIN_SOLVING, chain_size: 1 } as OcgMessage, cards, chain, 1, ctx);
     observeDuelEvent(moveOut(2, at(0, OcgLocation.MZONE, 0)), cards, chain, 2, ctx);
     observeDuelEvent({ type: OcgMessageType.CHAIN_SOLVED, chain_size: 1 } as OcgMessage, cards, chain, 3, ctx);
