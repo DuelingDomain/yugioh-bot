@@ -26,23 +26,23 @@ describe("battleTrigger", () => {
     expect(battleTrigger([attack, { ...calculation, zone: z(0, 2) }], attack)).toEqual({ action: "wait" });
   });
 
-  it.each(["before", "after"])("fizzles calculation-only completion after an activation %s calculation", when => {
+  it.each(["before", "after"])("plays a confirmed calculation after an activation %s calculation", when => {
     const calculation = ev(when === "before" ? 12 : 11, {
       kind: "battle", zone: attacker, target,
       battle: { attacker: { attack: 200, defense: 900, position: 1 }, target: { attack: 100, defense: 200, position: 4 } },
     });
     const response = activate(when === "before" ? 11 : 12);
-    expect(battleTrigger([attack, calculation, response, ev(13, { kind: "battle-end" })], attack)).toEqual({ action: "fizzle", reason: "negated" });
+    expect(battleTrigger([attack, calculation, response, ev(13, { kind: "battle-end" })], attack)).toEqual({ action: "play", reason: "calculation" });
   });
 
-  it("fizzles calculation-only completion after the clash age limit", () => {
+  it("plays calculation-only completion after a long response window", () => {
     const calculation = ev(11, {
       kind: "battle", zone: attacker, target,
       battle: { attacker: { attack: 200, defense: 900, position: 1 }, target: { attack: 100, defense: 200, position: 4 } },
     });
     const events = [attack, calculation, ev(12, { kind: "battle-end" })];
     expect(battleTrigger(events, attack, CLASH_MAX_AGE_MS)).toEqual({ action: "play", reason: "calculation" });
-    expect(battleTrigger(events, attack, CLASH_MAX_AGE_MS + 1)).toEqual({ action: "fizzle", reason: "stale" });
+    expect(battleTrigger(events, attack, CLASH_MAX_AGE_MS + 1)).toEqual({ action: "play", reason: "calculation" });
   });
 
   it.each(["damage", "destroy"] as const)("still plays actual battle %s after a response and the clash age limit", kind => {
