@@ -1,3 +1,4 @@
+import { duelFxClock } from "./fx-clock";
 import { zoneKey } from "./constants";
 import { MOVE_PACE } from "./duel-timing";
 import type { BattleClock } from "./battle-clock";
@@ -12,7 +13,7 @@ import type { BattleClock } from "./battle-clock";
  * its render phase (before SummonFx, MoveFx and the toast layer plan the same batch); they ask
  * for it when they schedule a destroy, and start that destroy no earlier than the hold.
  *
- * Times are performance.now() stamps. A hold is read, never consumed, so every layer that plans
+ * Times are duelFxClock.now() stamps. A hold is read, never consumed, so every layer that plans
  * the same destroy sees the same answer. It fades on its own once its time has passed.
  */
 
@@ -39,7 +40,7 @@ const claims = new Set<string>();
 const impacts = new Map<number, number>();
 const armedKeys = new Set<string>();
 
-const now = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
+const now = (): number => (typeof performance !== "undefined" ? duelFxClock.now() : duelFxClock.dateNow());
 
 /**
  * Holds the destroy of the card on `zone` until `delayMs` from now. `key` (the attack event and
@@ -89,7 +90,7 @@ export function battleBreakIs3d(zone: Zone | undefined | null, at: number = now(
   return claims.has(id) && battleDestroyAt(zone, at) > 0;
 }
 
-/** Records the absolute time (performance.now()) an attack lands, for the scenes that react to it. */
+/** Records the absolute time (duelFxClock.now()) an attack lands, for the scenes that react to it. */
 export function noteAttackImpact(attackId: number, absMs: number): void {
   impacts.set(attackId, absMs);
   if (impacts.size > 50) impacts.delete(impacts.keys().next().value as number);
@@ -99,7 +100,7 @@ export function attackImpactAt(attackId: number): number {
   return impacts.get(attackId) ?? 0;
 }
 
-/** The time (performance.now()) the destroy of the card on `zone` may break, or 0 when nothing holds it. */
+/** The time (duelFxClock.now()) the destroy of the card on `zone` may break, or 0 when nothing holds it. */
 export function battleDestroyAt(zone: Zone | undefined | null, at: number = now()): number {
   if (!zone) return 0;
   const id = zoneKey(zone.controller, zone.location, zone.sequence);
