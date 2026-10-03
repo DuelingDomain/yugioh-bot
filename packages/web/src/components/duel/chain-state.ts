@@ -180,18 +180,6 @@ function fillGaps(entries: readonly ChainLinkState[], top: number): ChainLinkSta
   return out;
 }
 
-/**
- * The links the board cannot show as a badge: the activation zone is unknown, or the card and its
- * hand / pile are not on the board right now (`lost` holds the indexes the badge layer could not
- * place). The board shows every other link as a badge, and only as a badge, so these are the only
- * links the off-board strip may list. The top of the chain comes first.
- */
-export function strayLinks(state: ChainState, lost: ReadonlySet<number>): ChainLinkState[] {
-  return state.links
-    .filter((link) => lost.has(link.index) || chainAnchor(link) === null)
-    .sort((a, b) => b.index - a.index);
-}
-
 /** The chain as a stack, top of the chain first: the highest link is on top, Chain Link 1 at the bottom. */
 export function chainStackRows(state: ChainState): ChainLinkState[] {
   return state.links.slice().sort((a, b) => b.index - a.index);

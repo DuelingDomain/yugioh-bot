@@ -23,7 +23,6 @@ import {
   nextToResolve,
   placeCallout,
   placeChips,
-  strayLinks,
   type ChainState,
 } from "../../src/components/duel/chain-state";
 
@@ -190,33 +189,6 @@ describe("deriveChainState", () => {
   it("counts a repeated activation of one index once", () => {
     const state = deriveChainState([activate(1, 0, 11, z(0, SZONE, 0)), activate(1, 0, 11, z(0, SZONE, 0))], []);
     expect(state.links).toHaveLength(1);
-  });
-});
-
-describe("strayLinks", () => {
-  const stack = () => fold([
-    activate(1, 0, 11, z(0, SZONE, 0)),
-    activate(2, 1, 22, z(1, SZONE, 0)),
-    activate(3, 0, 33, z(0, SZONE, 1)),
-  ]);
-
-  it("is empty while every link has a card on the board: the badges are the only view", () => {
-    expect(strayLinks(stack(), new Set())).toEqual([]);
-    expect(strayLinks(EMPTY_CHAIN, new Set([1]))).toEqual([]);
-  });
-
-  it("lists a link the board could not place, top of the chain first", () => {
-    expect(strayLinks(stack(), new Set([1, 3])).map((l) => l.index)).toEqual([3, 1]);
-  });
-
-  it("lists a link with no known zone without waiting for a measure", () => {
-    const state = deriveChainState([], [{ index: 1, seat: 0, code: 11, name: "Card 11" }]);
-    expect(strayLinks(state, new Set()).map((l) => l.index)).toEqual([1]);
-  });
-
-  it("never lists a link twice, and ignores lost indexes that are not in the chain", () => {
-    const rows = strayLinks(stack(), new Set([2, 2, 9]));
-    expect(rows.map((l) => l.index)).toEqual([2]);
   });
 });
 
