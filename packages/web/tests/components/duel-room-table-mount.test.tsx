@@ -4,15 +4,13 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelRoom } from "@yugidraft/shared/duels";
 
-const state = vi.hoisted(() => ({ playerId: undefined as number | undefined, room: undefined as DuelRoom | undefined, error: undefined as unknown, syncing: false, recovering: false, revealed: true, reportEnabled: vi.fn().mockResolvedValue(false), mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), resync: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined), surrender: vi.fn().mockResolvedValue(undefined) }));
+const state = vi.hoisted(() => ({ room: undefined as DuelRoom | undefined, error: undefined as unknown, syncing: false, recovering: false, revealed: true, reportEnabled: vi.fn().mockResolvedValue(false), mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), resync: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined), surrender: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: state.replace }), useSearchParams: () => new URLSearchParams(window.location.search) }));
-vi.mock("swr", () => ({ default: (key: string) => key === "/api/player/me"
-  ? { data: state.playerId == null ? undefined : { playerId: state.playerId } }
-  : { data: state.room, error: state.error, isLoading: !state.room, mutate: state.mutate } }));
+vi.mock("swr", () => ({ default: () => ({ data: state.room, error: state.error, isLoading: !state.room, mutate: state.mutate }) }));
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({ useDuelWebsocket: () => ({ connected: true, syncing: state.syncing, recovering: state.recovering, presence: null, resync: state.resync }) }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
 vi.mock("@/components/duel/prompt-reveal", async (original) => ({ ...await original<object>(), usePromptReveal: () => state.revealed, usePromptAnswerable: () => true }));
@@ -36,7 +34,6 @@ beforeAll(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   state.error = undefined; state.syncing = false; state.recovering = false; state.revealed = true;
-  state.playerId = undefined;
   state.reportEnabled.mockResolvedValue(false);
   window.history.replaceState(null, "", "/duels/live");
 });
@@ -265,8 +262,8 @@ describe("live room table mount", () => {
   it.each([true, false])("keeps Archive table available only to a spectating organizer (organizer=%s)", (organizer) => {
     room(FFA3_FIXTURES.states.result.room);
     state.room!.mySeat = null;
-    state.playerId = organizer ? state.room!.session.organizerPlayerId : state.room!.session.organizerPlayerId + 1;
-    mount(false);
+    const actorPlayerId = organizer ? state.room!.session.organizerPlayerId : state.room!.session.organizerPlayerId + 1;
+    render(<DuelRoomView slug="live" spectate actorPlayerId={actorPlayerId} />);
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
     expect(screen.queryByRole("button", { name: "Archive table" }) != null).toBe(organizer);
   });

@@ -90,8 +90,8 @@ import {
 /** The attack target the player pointed at; only the confirm submits it. */
 type AimLock = { promptId: string; optionId: string; key: string; anchor: HTMLElement; name: string };
 
-export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage = false, spectate = false }: {
-  slug: string; inviteCode?: string; windowed?: boolean; legacyStage?: boolean; spectate?: boolean;
+export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage = false, spectate = false, actorPlayerId = null }: {
+  slug: string; inviteCode?: string; windowed?: boolean; legacyStage?: boolean; spectate?: boolean; actorPlayerId?: number | null;
 }) {
   const router = useRouter();
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
@@ -124,12 +124,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     () => mutate(() => getDuelRoom(slug, spectate), { revalidate: false }),
     [mutate, slug, spectate],
   );
-  // Spectating changes the board viewpoint, not the signed-in actor's organizer controls.
-  const { data: actor } = useSWR<{ playerId: number } | null>(data?.mySeat === null ? "/api/player/me" : null,
-    async (url: string) => {
-      const response = await fetch(url);
-      return response.ok ? response.json() : null;
-    }, { revalidateOnFocus: false });
   // The duel host answers with the last view it built when its queue is blocked (stale). Ask again until it is fresh.
   const roomStale = data?.stale === true;
   useEffect(() => {
@@ -565,7 +559,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const seatPick = multi && canAct && revealed ? seatPickFor(prompt, engine, onSubmitAnswer) : null;
   const canSurrender = data.session.status === "active" && data.mySeat != null && !engine?.result && !viewerOut;
   const terminal = data.session.status !== "active";
-  const isOrganizer = actor?.playerId === data.session.organizerPlayerId || data.session.seats.some((seat) =>
+  const isOrganizer = actorPlayerId === data.session.organizerPlayerId || data.session.seats.some((seat) =>
     seat.seat === data.mySeat && seat.playerId === data.session.organizerPlayerId);
   const canArchive = terminal && isOrganizer && !data.session.archivedAt;
   const series = data.series ?? null;
