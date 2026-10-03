@@ -42,7 +42,8 @@ for (const mode of ["normal", "domain"] as const) {
           expected.spells ??= [];
           expected.banished ??= [];
           expected.lp ??= scenario.setup.format === "tag" ? 16000 : 8000;
-          const drawn = scenario.drawn[id];
+          // Domain draws on turn 1. Standard MR5 skips that draw.
+          const drawn = scenario.drawn[id] + (mode === "domain" && id === "p0" ? 1 : 0);
           // The board compiler uses known top cards, then Mystical Elf as Deck filler.
           const hand = (scenario.setup[id]?.hand ?? []).map((entry) =>
             resolveCard(typeof entry === "object" ? entry.card : entry),

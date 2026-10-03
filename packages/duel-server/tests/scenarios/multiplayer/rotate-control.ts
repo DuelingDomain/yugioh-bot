@@ -7,7 +7,7 @@ type RotationScenario = Scenario & { fixture?: string; drawn: Record<DuelistId, 
 function rotationScenario(scenario: Scenario & { drawn?: Partial<Record<DuelistId, number>> }): RotationScenario {
   return {
     ...defineScenario(scenario),
-    drawn: { p0: scenario.setup.format === "tag" || scenario.setup.format === "1v1" ? 0 : 1, p1: 0, p2: 0, p3: 0, ...scenario.drawn },
+    drawn: { p0: 0, p1: 0, p2: 0, p3: 0, ...scenario.drawn },
   };
 }
 
@@ -31,7 +31,7 @@ for (const format of ["ffa3", "ffa4"] as const) {
 }
 ROTATE_CONTROL_SCENARIOS.push(rotationScenario({
   id: "rotate-control-ffa4-p2-turn",
-  drawn: { p0: 1, p1: 1, p2: 1, p3: 0 },
+  drawn: { p0: 0, p1: 1, p2: 1, p3: 0 },
   title: "Card and zone choices start with p2 on the turn of p2",
   source: "Owner answers 2026-10-02",
   rules: ["R-FFA-RESOURCE-ROTATION", "R-COMMON-EACH-PLAYER"],
@@ -61,7 +61,7 @@ ROTATE_CONTROL_SCENARIOS.push(rotationScenario({
     }),
   ],
 }));
-ROTATE_CONTROL_SCENARIOS.push(rotationScenario({ id: "rotate-control-ffa4-skips-eliminated", drawn: { p0: 1, p1: 0, p2: 1, p3: 0 }, title: "Three living seats rotate and the lost seat stays empty", source: "Owner answers 2026-10-02", rules: ["R-FFA-RESOURCE-ROTATION","R-COMMON-EACH-PLAYER","R-FFA-ELIMINATION"], tags: ["multiplayer","ffa4","card:31036355"], setup: { format: "ffa4", p0: { monsters: [cards[0],"Mystical Elf"] },p2:{hand:["Creature Swap"],monsters:[cards[2],"Mystical Elf"]},p3:{monsters:[cards[3],"Mystical Elf"]} }, steps: [surrender("p1"),endTurn("p0"),expectEliminated("p1"),activate("Creature Swap","p2"),expectPrompt({by:"p2",kind:"cards"}),select(cards[2]),expectPrompt({by:"p3",kind:"cards"}),select(cards[3]),expectPrompt({by:"p0",kind:"cards"}),select(cards[0]),expectBoard({p0:{monsters:[cards[3],"Mystical Elf"],grave:[]},p1:{monsters:[],spells:[],hand:[],grave:[],banished:[],deckCount:0},p2:{monsters:[cards[0],"Mystical Elf"],grave:["Creature Swap"]},p3:{monsters:[cards[2],"Mystical Elf"],grave:[]}})] }));
+ROTATE_CONTROL_SCENARIOS.push(rotationScenario({ id: "rotate-control-ffa4-skips-eliminated", drawn: { p0: 0, p1: 0, p2: 1, p3: 0 }, title: "Three living seats rotate and the lost seat stays empty", source: "Owner answers 2026-10-02", rules: ["R-FFA-RESOURCE-ROTATION","R-COMMON-EACH-PLAYER","R-FFA-ELIMINATION"], tags: ["multiplayer","ffa4","card:31036355"], setup: { format: "ffa4", p0: { monsters: [cards[0],"Mystical Elf"] },p2:{hand:["Creature Swap"],monsters:[cards[2],"Mystical Elf"]},p3:{monsters:[cards[3],"Mystical Elf"]} }, steps: [surrender("p1"),endTurn("p0"),expectEliminated("p1"),activate("Creature Swap","p2"),expectPrompt({by:"p2",kind:"cards"}),select(cards[2]),expectPrompt({by:"p3",kind:"cards"}),select(cards[3]),expectPrompt({by:"p0",kind:"cards"}),select(cards[0]),expectBoard({p0:{monsters:[cards[3],"Mystical Elf"],grave:[]},p1:{monsters:[],spells:[],hand:[],grave:[],banished:[],deckCount:0},p2:{monsters:[cards[0],"Mystical Elf"],grave:["Creature Swap"]},p3:{monsters:[cards[2],"Mystical Elf"],grave:[]}})] }));
 ROTATE_CONTROL_SCENARIOS.push(rotationScenario({ id: "rotate-control-tag-stock-swap", title: "Tag keeps the two-monster swap and the partner cards stay", source: "ADR-0002 [R-TAG-SHARED-CARDS]", rules: ["R-TAG-SHARED-CARDS"], tags: ["multiplayer","tag","card:31036355"], setup:{format:"tag",p0:{hand:["Creature Swap"],monsters:[cards[0],"Mystical Elf"]},p1:{monsters:[cards[1],"Mystical Elf"]},p2:{monsters:[cards[2]]},p3:{monsters:[]}},steps:[activate("Creature Swap","p0"),select(cards[0]),pickOpponent("p1","p0"),select(cards[1]),expectBoard({p0:{monsters:[cards[1],"Mystical Elf"],grave:["Creature Swap"]},p1:{monsters:[cards[0],"Mystical Elf"],grave:[]},p2:{monsters:[cards[2]],grave:[]},p3:{monsters:[],grave:[]}})]}));
 
 for (const format of ["ffa3","ffa4"] as const) {
