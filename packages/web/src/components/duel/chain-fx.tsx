@@ -361,6 +361,25 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         gutter = freeGutter(origin);
         gutterRef.current = { at: now, px: gutter };
       }
+      const marks: PlacedMark[] = [];
+      for (const link of targetLinksRef.current) {
+        for (const target of link.targets) {
+          const key = `${link.index}:${zoneKey(target.controller, target.location, target.sequence)}`;
+          const zone = findZoneElement(target);
+          const box = zone ? cardBox(origin, zone) : null;
+          const mark = targetRefs.current.get(key);
+          let covered = false;
+          if (box) {
+            // The ring hides under much of a panel; the "Target · N" tag, which carries the words, under a little.
+            const tag = mark?.querySelector<HTMLElement>("[data-target-tag]");
+            const w = tag?.offsetWidth || TAG_FALLBACK.width;
+            const h = tag?.offsetHeight || TAG_FALLBACK.height;
+            const tagBox = { left: box.left - TARGET_OUTSET, top: box.top + box.height - (link.index - 1) * TARGET_STEP - h, width: w, height: h };
+            covered = coveredFraction(box, panels) > TARGET_COVERED || coveredFraction(tagBox, panels) > TAG_COVERED;
+          }
+          marks.push({ link, mark, wire: targetWireRefs.current.get(key), box, covered });
+        }
+      }
       // The full stack is a column in the left gutter. A prompt surface that meets it turns it into the chips, which
       // dodge it. Measured on the column itself while it is full; while it is chips, on the column's last box.
       const panelEl = panelRef.current;
@@ -374,7 +393,11 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       const size = front ? chainStackSize(gutter, previous, blocked) : "full";
       let chips: { left: number; top: number } | null = null;
       if (front && size === "compact" && panelEl) {
+        // Open panels, target cards (and their ring) and life-point plates: the chips sit on none of them.
         const obstacles = panels.slice();
+        for (const { box } of marks) {
+          if (box) obstacles.push({ left: box.left - TARGET_OUTSET, top: box.top - TARGET_OUTSET, width: box.width + TARGET_OUTSET * 2, height: box.height + TARGET_OUTSET * 2 });
+        }
         for (const plate of document.querySelectorAll<HTMLElement>("[data-lp-seat]")) {
           const rect = plate.getBoundingClientRect();
           if (rect.width > 4 && rect.height > 4) obstacles.push({ left: rect.left - origin.left, top: rect.top - origin.top, width: rect.width, height: rect.height });
@@ -412,25 +435,6 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           ? placeCallout({ card: box, board: { width: origin.width, height: origin.height }, tag: { width: tag.offsetWidth, height: tag.offsetHeight }, half, panels })
           : null;
         placed.push({ link, slot, box, size, shift, half, callout, covered });
-      }
-      const marks: PlacedMark[] = [];
-      for (const link of targetLinksRef.current) {
-        for (const target of link.targets) {
-          const key = `${link.index}:${zoneKey(target.controller, target.location, target.sequence)}`;
-          const zone = findZoneElement(target);
-          const box = zone ? cardBox(origin, zone) : null;
-          const mark = targetRefs.current.get(key);
-          let covered = false;
-          if (box) {
-            // The ring hides under much of a panel; the "Target · N" tag, which carries the words, under a little.
-            const tag = mark?.querySelector<HTMLElement>("[data-target-tag]");
-            const w = tag?.offsetWidth || TAG_FALLBACK.width;
-            const h = tag?.offsetHeight || TAG_FALLBACK.height;
-            const tagBox = { left: box.left - TARGET_OUTSET, top: box.top + box.height - (link.index - 1) * TARGET_STEP - h, width: w, height: h };
-            covered = coveredFraction(box, panels) > TARGET_COVERED || coveredFraction(tagBox, panels) > TAG_COVERED;
-          }
-          marks.push({ link, mark, wire: targetWireRefs.current.get(key), box, covered });
-        }
       }
       // ---- Write phase. ----
       if (front) {

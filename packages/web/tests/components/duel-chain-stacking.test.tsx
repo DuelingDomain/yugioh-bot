@@ -285,6 +285,17 @@ describe("chain front layer stacking", () => {
       expect(mark.dataset.covered).toBe("true");
     });
 
+    it("slides the chips off a target card in the top left corner", () => {
+      // The target card (client 100,400) moves to the corner: board (4, 4), 60x80. No gutter, so the stack is chips.
+      ZONES = { "0:8:0": [124, 64, 60, 80], "1:8:0": [320, 160, 60, 80] };
+      const { getByTestId } = render(withTarget(null));
+      act(() => { vi.advanceTimersByTime(60); });
+      const front = getByTestId("root").querySelector("[data-chain-front]") as HTMLElement;
+      expect(front.dataset.size).toBe("compact");
+      // Past the card's right edge (4 + 60), its 3 px ring and a 6 px gap.
+      expect(Number.parseInt(front.style.getPropertyValue("--chain-dock-left"), 10)).toBeGreaterThanOrEqual(73);
+    });
+
     it("keeps the target mark when a panel only grazes the card", () => {
       const { getByTestId } = render(withTarget("95,400,20,20"));
       act(() => { vi.advanceTimersByTime(60); });
