@@ -7,14 +7,13 @@ import {
   KIND_LABEL,
   attributeChips,
   attributeTint,
-  compareCards,
   countKinds,
   facetCount,
-  filterWords,
   groupCopies,
   isFiltering,
   kindOf,
   matchesFilter,
+  orderEntries,
   pickInfo,
   poolEntries,
   statParts,
@@ -24,6 +23,8 @@ import {
   cardText,
   type GoneCard,
   type Kind,
+  type MonsterSubtype,
+  type Order,
   type PickConfig,
   type PoolEntry,
   type RoomCard,
@@ -32,7 +33,13 @@ import {
 } from "./room-model";
 
 export type Tab = "mine" | "gone";
-export type Order = "type" | "pick";
+export type { Order } from "./room-model";
+
+const MONSTER_SUBTYPES: Array<[MonsterSubtype, string]> = [
+  ["all", "All monsters"],
+  ["effect", "Effect"],
+  ["normal", "Normal"],
+];
 
 export interface BinderHandle {
   focusSearch: () => void;
@@ -83,6 +90,8 @@ export const Binder = memo(
     const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const filterRef = useRef(filter);
     filterRef.current = filter;
+    const monsterOnly = filter.kinds.size === 1 && filter.kinds.has("monster");
+    const monsterSubtype = monsterOnly ? (filter.monsterSubtype ?? "all") : "all";
 
     useImperativeHandle(ref, () => ({
       focusSearch: () => input.current?.focus({ preventScroll: true }),
@@ -93,6 +102,12 @@ export const Binder = memo(
       if (filter.q === "") setText("");
     }, [filter.q]);
     useEffect(() => () => clearTimeout(timer.current), []);
+    // Kind changes from the table also clear a subtype that no longer applies.
+    useEffect(() => {
+      if (!monsterOnly && filter.monsterSubtype && filter.monsterSubtype !== "all") {
+        onFilter({ ...filter, monsterSubtype: "all" });
+      }
+    }, [monsterOnly, filter, onFilter]);
 
     const onType = (value: string) => {
       setText(value);
@@ -121,10 +136,15 @@ export const Binder = memo(
     const chips = useMemo(() => attributeChips(cards, p.packCards, filter.attr), [cards, p.packCards, filter.attr]);
 
     const rows = useMemo(() => {
-      const out: Array<{ heading: React.ReactNode; kind?: Kind; count: number; rows: Row[] }> = [];
-      if (order === "pick" && p.tab === "mine") {
+      const out: Array<{ key: string; heading?: React.ReactNode; kind?: Kind; count: number; rows: Row[] }> = [];
+      const sorted = orderEntries(shown, order);
+      const rowFor = (e: (typeof shown)[number], i: number): Row => ({
+        key: `${p.tab}:${e.card.id}:${e.entry?.index ?? i}`,
+        group: [{ card: e.card, kind: e.kind, gone: e.gone, info: e.entry ? pickInfo(e.entry.index, pickConfig) : undefined }],
+      });
+      if ((order === "oldest" || order === "newest") && p.tab === "mine") {
         const groups = new Map<string, typeof shown>();
-        shown.forEach((e) => {
+        sorted.forEach((e) => {
           const info = pickInfo(e.entry!.index, pickConfig);
           const k = theme ? (info.phase === "extra" ? "Extra deck" : "Main deck") : `Pack ${info.round}`;
           if (!groups.has(k)) groups.set(k, []);
@@ -132,21 +152,21 @@ export const Binder = memo(
         });
         groups.forEach((g, k) =>
           out.push({
+            key: k,
             heading: k,
             count: g.length,
-            rows: g.map((e, i) => ({
-              key: `mine:${e.card.id}:${k}${i}`,
-              group: [{ card: e.card, kind: e.kind, info: pickInfo(e.entry!.index, pickConfig) }],
-            })),
+            rows: g.map(rowFor),
           }),
         );
         return out;
       }
+      if (order !== "type") return [{ key: order, count: sorted.length, rows: sorted.map(rowFor) }];
       KINDS.forEach((k) => {
-        const g = shown.filter((e) => e.kind === k).sort((a, b) => compareCards(a.card, b.card));
+        const g = sorted.filter((e) => e.kind === k);
         if (!g.length) return;
         const grouped = p.tab === "gone" ? g.map((e) => [e]) : groupCopies(g);
         out.push({
+          key: k,
           heading: KIND_LABEL[k],
           kind: k,
           count: g.length,
@@ -282,7 +302,7 @@ export const Binder = memo(
                   data-g="kinds"
                   data-k={k}
                   aria-pressed={filter.kinds.has(k)}
-                  onClick={() => onFilter({ ...filter, kinds: toggled(filter.kinds, k) })}
+                  onClick={() => onFilter({ ...filter, kinds: toggled(filter.kinds, k), monsterSubtype: "all" })}
                 >
                   <b>{counts[k]}</b>
                   <small>
@@ -292,6 +312,21 @@ export const Binder = memo(
                 </button>
               ))}
             </div>
+            {monsterOnly ? (
+              <div className="monster-subtypes chips" role="group" aria-label="Monster subtype">
+                {MONSTER_SUBTYPES.map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className="chip"
+                    aria-pressed={monsterSubtype === value}
+                    onClick={() => onFilter({ ...filter, monsterSubtype: value })}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <div className="levels">
               <LevelsChart
                 cards={cards}
@@ -332,14 +367,15 @@ export const Binder = memo(
           </div>
           <div className="bd-bar">
             <span className="showing">{showingText}</span>
-            <div className="seg" role="group" aria-label="Sort">
-              <button type="button" aria-pressed={order === "type"} disabled={p.tab === "gone"} onClick={() => { setOrder("type"); setOpen(new Set()); }}>
-                By type
-              </button>
-              <button type="button" aria-pressed={order === "pick"} disabled={p.tab === "gone"} onClick={() => { setOrder("pick"); setOpen(new Set()); }}>
-                In order
-              </button>
-            </div>
+            <label className="bd-sort">
+              <span>Sort</span>
+              <select value={order} onChange={(e) => { setOrder(e.target.value as Order); setOpen(new Set()); }}>
+                <option value="type">Type</option>
+                <option value="newest">Newest</option>
+                <option value="oldest">Oldest</option>
+                <option value="name">Name</option>
+              </select>
+            </label>
           </div>
           <div
             className="list"
@@ -349,27 +385,29 @@ export const Binder = memo(
             data-tab={p.tab}
             onPointerLeave={() => peek(null)}
           >
-            {!list.length ? (
+            {!shown.length && filtering ? (
+              <p className="empty">
+                No cards match these filters.{" "}
+                <button type="button" onClick={clearAll}>
+                  Clear filters
+                </button>
+              </p>
+            ) : !list.length ? (
               <p className="empty">
                 {p.tab === "gone"
                   ? "Nothing yet. When a pack you've already seen comes back around, the cards your friends took from it show up here."
                   : "Your picks land here as you draft."}
               </p>
-            ) : !shown.length ? (
-              <p className="empty">
-                Nothing here matches {filterWords(filter)}.{" "}
-                <button type="button" onClick={clearAll}>
-                  Clear the filter
-                </button>
-              </p>
             ) : (
               rows.map((section) => (
-                <div key={String(section.heading)} style={{ display: "contents" }}>
-                  <h4 data-kind={section.kind}>
-                    {section.kind ? <i /> : null}
-                    {section.heading}
-                    <span>{section.count}</span>
-                  </h4>
+                <div key={section.key} style={{ display: "contents" }}>
+                  {section.heading ? (
+                    <h4 data-kind={section.kind}>
+                      {section.kind ? <i /> : null}
+                      {section.heading}
+                      <span>{section.count}</span>
+                    </h4>
+                  ) : null}
                   <ul>
                     {section.rows.map((row) => {
                       const e = row.group[0];
@@ -380,7 +418,7 @@ export const Binder = memo(
                         .filter((_, j) => j !== 0 || e.kind === "spell" || e.kind === "trap")
                         .join(", ");
                       let right: React.ReactNode;
-                      if (order === "pick" && p.tab === "mine" && e.info) {
+                      if ((order === "oldest" || order === "newest") && p.tab === "mine" && e.info) {
                         right = (
                           <span className="rs">
                             <span className="no">{theme ? `Round ${e.info.step}` : `Pick ${e.info.step}`}</span>
