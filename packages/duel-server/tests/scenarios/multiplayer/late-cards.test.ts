@@ -14,10 +14,10 @@ describeWithCores("live late-card scenarios", liveNseat, () => {
   runScenarios("multiplayer/late-cards", LATE_CARD_SCENARIOS);
 });
 
-// Check the declared opponent and the Tag Graveyard rule in real Domain duels.
+// Check the declared opponent, the Tag Graveyard rule and both coin results in real Domain duels.
 describeWithCores("Domain late-card opponent rules", [liveNseat, ...needs.domainMulti()], () => {
   runScenarios("multiplayer/late-cards-domain", LATE_CARD_SCENARIOS
-    .filter((scenario) => scenario.tags.some((tag) => ["card:83778600", "card:35316708"].includes(tag)))
+    .filter((scenario) => scenario.tags.some((tag) => ["card:83778600", "card:35316708", "card:37812118"].includes(tag)))
     .map(domainVariant));
 });
 

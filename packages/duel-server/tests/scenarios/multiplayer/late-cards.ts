@@ -190,7 +190,7 @@ function cupOfAce(format: Format, heads = false): Scenario {
       hand: draws ? [...DECK_OF[seat]] : [],
       grave: seat === "p0" ? [CUP] : [],
       // The board fixture fills each Deck to setup.deckSize, or 20 cards by default.
-      ...(heads ? { deckCount: (setup.deckSize ?? 20) - (draws ? 2 : 0) } : {}),
+      deckCount: (setup.deckSize ?? 20) - (draws ? 2 : 0),
     };
   }
   const steps: Step[] = [
