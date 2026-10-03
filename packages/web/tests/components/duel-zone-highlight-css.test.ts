@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const read = (name: string) => readFileSync(join(__dirname, "../../src/components/duel", name), "utf8");
 const field = read("field.module.css");
 const opponent = read("opponent-board.module.css");
+const holo = read("table/holo-lp.module.css");
 
 /** The body of the first rule whose selector line is exactly `selector`. */
 function rule(css: string, selector: string): string {
@@ -53,7 +54,17 @@ describe("usable zone highlight", () => {
   it("the rival board marks zones and piles with a glow, not a dashed outline", () => {
     expect(rule(opponent, ".ring")).toMatch(/box-shadow/);
     expect(rule(opponent, ".ring")).not.toMatch(/dashed/);
-    expect(rule(opponent, '.count[data-legal="true"]')).not.toMatch(/dashed/);
+    const legal = rule(opponent, '.count[data-legal="true"]');
+    expect(legal).not.toMatch(/dashed|border/);
+    expect(legal).toMatch(/box-shadow/);
+    expect(rule(opponent, '.count[data-selected="true"]')).not.toMatch(/border/);
+  });
+
+  it("a selectable player panel glows, with no dashed or solid outline", () => {
+    const body = rule(holo, ".ring");
+    expect(body).toMatch(/box-shadow/);
+    expect(body).not.toMatch(/border:|dashed/);
+    expect(holo).not.toMatch(/dashed/);
   });
 
   it("the glow itself has no fade-in: it only breathes", () => {

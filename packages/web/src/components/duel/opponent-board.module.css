@@ -447,14 +447,13 @@
 }
 
 .count[data-legal="true"] {
-  border-color: var(--pen);
   color: var(--pen-ink);
   box-shadow: 0 0 7px rgb(155 126 255 / 0.85), 0 0 13px rgb(155 126 255 / 0.32);
 }
 
 .count[data-selected="true"] {
-  border: 1px solid var(--pen);
   background: rgb(155 126 255 / 0.2);
+  box-shadow: 0 0 5px 1px rgb(244 214 144 / 0.85), 0 0 10px 2px rgb(155 126 255 / 1), 0 0 16px 3px rgb(155 126 255 / 0.5);
 }
 
 .rows {
