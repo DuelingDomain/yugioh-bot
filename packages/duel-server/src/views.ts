@@ -438,8 +438,6 @@ interface PendingMove {
 export interface EventContext {
   /** Between a BATTLE message and the end of the damage step, DAMAGE is battle damage. */
   battle: boolean;
-  /** Legacy per-controller release counters; summon methods use explicit material reasons below. */
-  released: [number, number];
   /** A MOVE carried RELEASE | SUMMON | MATERIAL for the pending Normal Summon or monster Set. */
   summonTribute: boolean;
   /** Destruction notes printed by the startup script and not yet matched to a MOVE. */
@@ -472,7 +470,7 @@ interface TrackedMove {
 }
 
 export function createEventContext(): EventContext {
-  return { battle: false, released: [0, 0], summonTribute: false, destroyNotes: [], chainTargetNotes: [], resolving: null, pendingMoves: [], moves: [], handSize: [0, 0], handIdentities: new HandIdentities(), arrivals: new Map(), pendulumSummon: false, materialReasons: 0 };
+  return { battle: false, summonTribute: false, destroyNotes: [], chainTargetNotes: [], resolving: null, pendingMoves: [], moves: [], handSize: [0, 0], handIdentities: new HandIdentities(), arrivals: new Map(), pendulumSummon: false, materialReasons: 0 };
 }
 
 /** Internal notes arrive during core processing, before its buffered messages are consumed. */
@@ -636,7 +634,6 @@ export function resetEventBatch(ctx: EventContext, continuingSummon = false): vo
   ctx.chainTargetNotes.length = 0;
   ctx.pendingMoves.length = 0;
   ctx.moves.length = 0;
-  ctx.released = [0, 0];
   if (!continuingSummon) clearSummonMaterials(ctx);
 }
 

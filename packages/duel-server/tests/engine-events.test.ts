@@ -945,19 +945,6 @@ describe("event observer messages", () => {
     expect(event(OcgMessageType.SUMMONING, 1).zone).toEqual({ controller: 0, location: OcgLocation.MZONE, sequence: 2 });
   });
 
-  it("treats a Level 4 Normal Summon after a release as a Tribute Summon", () => {
-    const ctx = createEventContext();
-    noteDestroyLog(ctx, "unrelated");
-    const tribute = moveOut(2, at(0, OcgLocation.MZONE, 1), 0x1a);
-    observeMoveEvents(tribute, cards, ctx, 1);
-    observeDuelEvent(tribute, cards, [], 1, ctx);
-    const event = observeDuelEvent(
-      { type: OcgMessageType.SUMMONING, code: 1, controller: 0, location: OcgLocation.MZONE, sequence: 1, position: OcgPosition.FACEUP_ATTACK },
-      cards, [], 2, ctx,
-    )!;
-    expect(event.summonKind).toBe("tribute");
-  });
-
   it.each([0, 1] as const)("recognizes an actual summon Tribute controlled by seat %i across a place prompt", (controller) => {
     const ctx = createEventContext();
     const tribute = moveOut(2, at(controller, OcgLocation.MZONE, 1), 0x1a);
