@@ -14,7 +14,7 @@ function opponentCost(format: "ffa3" | "ffa4"): Scenario {
     source: `${SOURCE} [R-COMMON-EMZ]`, rules: ["R-COMMON-EMZ"], tags: ["multiplayer", format, "link"], setup,
     steps: [activate(READER, "p0"), expectPrompt({ by: "p0", context: "action" }),
       everySeat(format, Object.fromEntries(SEATS[format].map((seat) => [seat, seat === "p0"
-        ? { lp: 7500, hand: ["Mystical Elf"], monsters: [], spells: [], grave: [READER], banished: [], extra: [], deckCount: 19 }
+        ? { lp: 7500, hand: [], monsters: [], spells: [], grave: [READER], banished: [], extra: [], deckCount: 20 }
         : { lp: 8000, hand: [], monsters: ["Imduk the World Chalice Dragon", "Saryuja Skull Dread"], spells: [], grave: [], banished: [], extra: [], deckCount: 20,
           zones: { m1: "Imduk the World Chalice Dragon", emz0: "Saryuja Skull Dread", emz1: null } }])) )],
   });

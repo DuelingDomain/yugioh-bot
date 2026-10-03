@@ -46,6 +46,7 @@ import {
   type StoredDuelEvent,
 } from "./views.js";
 import { createDomainCore } from "./domain-core.js";
+import { readCoreCapabilities } from "./core-capabilities.js";
 import { chooseSurrenderedAnswer } from "./practice-bot.js";
 import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, parseDuelistMessages, rawMessageCapture, withoutDuelistParseWarnings, type RawDuelistMessage } from "./raw-messages.js";
 import { MP_UTILITY_FILE, loadMultiScriptsFor } from "./multi-scripts.js";
@@ -376,6 +377,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   } else {
     loaded = options.standardWasmBinary ? describeWasm(options.standardWasmBinary, PROVIDED_WASM) : readStandardWasm(options.dataDirectory);
   }
+  const coreCapabilities = multi ? readCoreCapabilities(options.dataDirectory,
+    options.mode === "domain" ? "ocgcore.multi-domain.wasm" : "ocgcore.multi.wasm", loaded.sha) : undefined;
   // Core log lines (stderr of the wasm, e.g. YGO_N_TRAP_LOG census lines) go into the diagnostics ring.
   const earlyStderr: string[] = [];
   let stderrSink: ((text: string) => void) | null = null;
@@ -889,6 +892,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       if (seat != null && !(Number.isInteger(seat) && seat >= 0 && seat < seatCount)) throw new Error("Invalid seat");
       const projected = projectView({
         lib,
+        coreCapabilities,
         handle,
         cards,
         viewer: seat,

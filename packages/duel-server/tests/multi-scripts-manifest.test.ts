@@ -24,7 +24,7 @@ const clone = (): Manifest => JSON.parse(JSON.stringify(manifest)) as Manifest;
 const stockDirectory = process.env.DUEL_SCRIPTS_DIR ?? join(currentEngineDataDirectory(), "card-scripts/official");
 const stock = needs.file("official script corpus", stockDirectory, "Set DUEL_SCRIPTS_DIR, or set DUEL_DATA_DIR to an engine data directory with card-scripts/official.");
 const triageNeed = needs.localFile("multiplayer triage", TRIAGE_FILE, "Run scripts/scan-multiplayer-scripts.ts to write .status/multiplayer-triage.json.");
-const stockText = (code: number) => readFileSync(join(stockDirectory, `c${code}.lua`), "utf8");
+const stockText = (code: number) => readFileSync(existsSync(join(stockDirectory, `c${code}.lua`)) ? join(stockDirectory, `c${code}.lua`) : join(stockDirectory, "../pre-errata", `c${code}.lua`), "utf8");
 
 function isActivationCheck(body: string, name: string): boolean {
   const source = makeSource(body);
@@ -321,7 +321,7 @@ describe("the overlay files", () => {
   });
 
   it("uses only helpers that mp-utility.lua defines and core functions of the F7 window", () => {
-    const coreApi = new Set(["MPMode", "MPBound", "MPOppCount", "MPNeedPick", "MPBindOpponent", "MPWindow", "MPWindowEnd", "MPAssertBound", "MPTurnOwns", "MPAttackedSeat", "MPSeatOf", "MPBindSeat", "MPNthDuelist", "MPSeat"]);
+    const coreApi = new Set(["MPMode", "MPBound", "MPOppCount", "MPNeedPick", "MPBindOpponent", "MPWindow", "MPWindowEnd", "MPAssertBound", "MPTurnOwns", "MPAttackedSeat", "MPSeatOf", "MPBindSeat", "MPNthDuelist", "MPSeat", "MPChainSeat", "MPSharedZones", "MPAcrossSeat", "MPSeatBinding"]);
     coreApi.add("MPActionSeat");
     coreApi.add("MPOwnerSeat");
     for (const card of cards) {
@@ -379,7 +379,7 @@ describe("the overlay files", () => {
 describeWithCores("the overlay against the stock scripts", stock, () => {
   it("each stockSha256 equals the hash of the stock script (a changed stock script needs a new look at the card)", () => {
     for (const card of cards) {
-      const hash = createHash("sha256").update(readFileSync(join(stockDirectory, `c${card.code}.lua`))).digest("hex");
+      const hash = createHash("sha256").update(stockText(card.code)).digest("hex");
       expect(card.stockSha256, `${card.code} ${card.name}`).toBe(hash);
     }
   });

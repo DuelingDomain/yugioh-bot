@@ -245,7 +245,30 @@ static void check_linked(int n, bool tag) {
 	OCG_DestroyDuel(d);
 }
 
-int main() {
+// Keep the dead seat's card and occupied bit. This isolates across_of's alive guard.
+static void check_dead_across() {
+ OCG_Duel d = make_duel();
+ EXPECT(run_lua(d, setup_code(4, false)), "setup dead across");
+ auto& f = F(d);
+ EXPECT(run_lua(d, "Debug.AddCard(1,2,2,4,6,1)"), "add retained EMZ card");
+ EXPECT(f.player[2].list_mzone[6] != nullptr && (f.player[2].used_location & 0x40), "retained card and occupied bit");
+ EXPECT(!f.is_location_useable(0, LOCATION_MZONE, 5), "living seat 2 blocks seat 0 EMZ 5");
+ f.player[2].eliminated = true;
+ EXPECT(f.player[2].list_mzone[6] != nullptr && (f.player[2].used_location & 0x40), "dead seat still has the test card and bit");
+ EXPECT(f.is_location_useable(0, LOCATION_MZONE, 5), "dead seat 2 cannot block seat 0 EMZ 5");
+ f.player[2].eliminated = false;
+ f.player[2].used_location &= ~0x40u;
+ f.player[2].disabled_location |= 0x40u;
+ EXPECT(!f.is_location_useable(0, LOCATION_MZONE, 5), "living seat 2 disabled bit mirrors");
+ f.player[2].eliminated = true;
+ EXPECT(f.is_location_useable(0, LOCATION_MZONE, 5), "dead seat 2 disabled bit cannot mirror");
+ std::printf("ok   dead across: retained card, used bit and disabled bit do not block EMZ 5\n");
+ OCG_DestroyDuel(d);
+}
+
+int main(int argc, char** argv) {
+ if(argc > 1 && std::string(argv[1]) == "dead-across") { check_dead_across(); return failures ? 1 : 0; }
+ check_dead_across();
 	// n = 2 first: the stock mirror, and the stock MSG_FIELD_DISABLED bytes.
 	check_emz(2, false);
 	// 0x00010003: seat 0 gets 3, seat 1 gets 1 (static value is absolute for 2 duelists).

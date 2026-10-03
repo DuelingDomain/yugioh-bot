@@ -1,0 +1,1156 @@
+{
+  "pattern": "\\+\\s*0x10\\b|\\b16\\s*\\+|GetPreviousSequence|\\+\\s*16\\b|(?:<<|>>)\\s*16\\b|\\b4\\s*-|\\b11\\s*-|IsColumn",
+  "stock": [
+    {
+      "script": "constant.lua",
+      "line": 243,
+      "expression": "PLAYER_EITHER  = 4 --Not defined by the core",
+      "result": "Excluded: a constant definition followed by a comment, not a zone expression."
+    },
+    {
+      "script": "official/c10000080.lua",
+      "line": 69,
+      "expression": "zone=(ret[2]>>16)&(ZONES_EMZ|ZONES_MMZ)",
+      "result": "C3/C4: extra-release value supplies a zone for the declared tribute opponent. This is no Link or column mask."
+    },
+    {
+      "script": "official/c10000080.lua",
+      "line": 83,
+      "expression": "zone=(ret[2]>>16)&(ZONES_EMZ|ZONES_MMZ)",
+      "result": "C3/C4: extra-release value supplies a zone for the declared tribute opponent. This is no Link or column mask."
+    },
+    {
+      "script": "official/c10045474.lua",
+      "line": 80,
+      "expression": "if c:IsControler(1-e:GetHandlerPlayer()) then seq=4-seq end",
+      "result": "C6 fixed: distg rejects side-seat cards; disop checks the exact activation seat. Natural column proofs cover both paths."
+    },
+    {
+      "script": "official/c10045474.lua",
+      "line": 94,
+      "expression": "seq=rc:GetPreviousSequence()",
+      "result": "Excluded: local previous-zone index, location boundary, or return position; no across mask or foreign geometry comparison."
+    },
+    {
+      "script": "official/c10045474.lua",
+      "line": 104,
+      "expression": "if ep~=e:GetHandlerPlayer() then cseq=4-cseq end",
+      "result": "C6 fixed: distg rejects side-seat cards; disop checks the exact activation seat. Natural column proofs cover both paths."
+    },
+    {
+      "script": "official/c10552026.lua",
+      "line": 28,
+      "expression": "if p==1-tp then seq=seq+16 end",
+      "result": "Fixed: ChainFilter suffix uses the activation seat."
+    },
+    {
+      "script": "official/c10584050.lua",
+      "line": 29,
+      "expression": "local zone1=Duel.SelectFieldZone(tp,1,0,LOCATION_MZONE,ZONES_EMZ<<16)",
+      "result": "C3/C4: SelectFieldZone chooses numeric zones on one declared opponent. The shift excludes that opponent's EMZ."
+    },
+    {
+      "script": "official/c10584050.lua",
+      "line": 34,
+      "expression": "local zone2=Duel.SelectFieldZone(tp,1,0,LOCATION_MZONE,(ZONES_EMZ<<16)|zone1)",
+      "result": "C3/C4: SelectFieldZone chooses numeric zones on one declared opponent. The shift excludes that opponent's EMZ."
+    },
+    {
+      "script": "official/c10852583.lua",
+      "line": 62,
+      "expression": "if seq2<5 then seq2=4-seq2",
+      "result": "C6 fixed: mvcon and mvop reject side-seat summons. A living across summon keeps the stock mirror and movement."
+    },
+    {
+      "script": "official/c13629812.lua",
+      "line": 50,
+      "expression": "if tc:IsControler(1-tp) then seq=seq+16 end",
+      "result": "Excluded: numeric disable mask and ReturnToField for the selected monster; its bound seat is retained."
+    },
+    {
+      "script": "official/c13629812.lua",
+      "line": 83,
+      "expression": "local seq=tc:GetPreviousSequence()",
+      "result": "Excluded: numeric disable mask and ReturnToField for the selected monster; its bound seat is retained."
+    },
+    {
+      "script": "official/c15967552.lua",
+      "line": 27,
+      "expression": "local z2=1<<(4-seq)",
+      "result": "C6 fixed: Small Scuffle binds only the living across seat in its target check and operation. Empty side zones supply no shared column. Natural side/across proofs check both summon positions."
+    },
+    {
+      "script": "official/c15967552.lua",
+      "line": 43,
+      "expression": "local z2=1<<(4-math.log(z1,2))",
+      "result": "C6 fixed: Small Scuffle binds only the living across seat in its target check and operation. Empty side zones supply no shared column. Natural side/across proofs check both summon positions."
+    },
+    {
+      "script": "official/c17745969.lua",
+      "line": 79,
+      "expression": "local seq=tc:GetPreviousSequence()",
+      "result": "Excluded: local previous-zone index, location boundary, or return position; no across mask or foreign geometry comparison."
+    },
+    {
+      "script": "official/c19951423.lua",
+      "line": 65,
+      "expression": "and Duel.IsExistingMatchingCard(Card.IsColumn,tp,LOCATION_MZONE,0,1,nil,trig_seq,1-tp,LOCATION_MZONE)",
+      "result": "C6 fixed: Card.IsColumn returns false for a side seat and keeps the stock own/across sequence test."
+    },
+    {
+      "script": "official/c21501505.lua",
+      "line": 36,
+      "expression": "if ev==(label>>16) then ct=(label&0xffff) end",
+      "result": "Excluded: the upper half stores an event index with a counter. It is not a zone mask."
+    },
+    {
+      "script": "official/c21501505.lua",
+      "line": 42,
+      "expression": "local val=ct+(ev+1<<16)",
+      "result": "Excluded: the upper half stores an event index with a counter. It is not a zone mask."
+    },
+    {
+      "script": "official/c21637210.lua",
+      "line": 77,
+      "expression": "local seq=c:GetPreviousSequence()",
+      "result": "Fixed: PreviousFilter and across geometry suffix."
+    },
+    {
+      "script": "official/c21637210.lua",
+      "line": 78,
+      "expression": "if not c:IsPreviousControler(tp) then seq=seq+16 end",
+      "result": "Fixed: PreviousFilter and across geometry suffix."
+    },
+    {
+      "script": "official/c22593417.lua",
+      "line": 36,
+      "expression": "return (ec:GetLinkedZone(c:GetPreviousControler())&(1<<c:GetPreviousSequence()))~=0",
+      "result": "Fixed: PreviousFilter suffix on the previous-Link branch."
+    },
+    {
+      "script": "official/c22869904.lua",
+      "line": 18,
+      "expression": "and c:IsPreviousControler(1-tp) and c:GetPreviousSequence()~=5",
+      "result": "Excluded: local previous-zone index, location boundary, or return position; no across mask or foreign geometry comparison."
+    },
+    {
+      "script": "official/c22959079.lua",
+      "line": 28,
+      "expression": "if tc:IsControler(1-tp) then seq=seq+16 end",
+      "result": "Excluded: numeric disable mask for the selected banished monster; no Link or column read."
+    },
+    {
+      "script": "official/c29253591.lua",
+      "line": 37,
+      "expression": "return 4<<16|e:GetHandler():GetLevel()",
+      "result": "Excluded: the upper half encodes a second Ritual Level, not a field or column."
+    },
+    {
+      "script": "official/c2930675.lua",
+      "line": 50,
+      "expression": "return c:IsFaceup() and c:IsSetCard(SET_MEKK_KNIGHT) and c:IsColumn(seq,p,LOCATION_SZONE)",
+      "result": "C6 fixed: Card.IsColumn returns false for a side seat and keeps the stock own/across sequence test."
+    },
+    {
+      "script": "official/c2930675.lua",
+      "line": 61,
+      "expression": "seq=rc:GetPreviousSequence()",
+      "result": "Excluded: local previous-zone index, location boundary, or return position; no across mask or foreign geometry comparison."
+    },
+    {
+      "script": "official/c30010480.lua",
+      "line": 37,
+      "expression": "local relzone=-(1<<e:GetHandler():GetSequence()+16)",
+      "result": "Fixed: PreviousFilter and across-only extra Normal Summon suffix."
+    },
+    {
+      "script": "official/c30010480.lua",
+      "line": 42,
+      "expression": "local seq=c:GetPreviousSequence()",
+      "result": "Fixed: PreviousFilter and across-only extra Normal Summon suffix."
+    },
+    {
+      "script": "official/c30010480.lua",
+      "line": 43,
+      "expression": "if not c:IsPreviousControler(tp) then seq=seq+16 end",
+      "result": "Fixed: PreviousFilter and across-only extra Normal Summon suffix."
+    },
+    {
+      "script": "official/c30822527.lua",
+      "line": 55,
+      "expression": "local seq=c:GetPreviousSequence()",
+      "result": "Fixed: PreviousFilter suffix."
+    },
+    {
+      "script": "official/c30822527.lua",
+      "line": 56,
+      "expression": "if not c:IsPreviousControler(tp) then seq=seq+16 end",
+      "result": "Fixed: PreviousFilter suffix."
+    },
+    {
+      "script": "official/c32224143.lua",
+      "line": 49,
+      "expression": "if tc:IsControler(1-tp) then seq=seq+16 end",
+      "result": "Excluded: numeric disable mask for an explicitly targeted monster; its bound seat is retained."
+    },
+    {
+      "script": "official/c32841045.lua",
+      "line": 67,
+      "expression": "return re:IsHasType(EFFECT_TYPE_ACTIVATE) and c:IsColumn(seq,p,LOCATION_SZONE)",
+      "result": "C6 fixed: Card.IsColumn returns false for a side seat and keeps the stock own/across sequence test."
+    },
+    {
+      "script": "official/c35334193.lua",
+      "line": 69,
+      "expression": "Duel.MoveSequence(tc,math.log(Duel.SelectDisableField(tp,1,0,LOCATION_MZONE,filter<<16)>>16,2))",
+      "result": "C6 fixed by core: GetLinkedZone(1-tp) permits only the living across view; shifts pass that mask to a place prompt."
+    },
+    {
+      "script": "official/c35772782.lua",
+      "line": 83,
+      "expression": "local ct=(ev&0xff)+(ev>>16)",
+      "result": "Excluded: event bits encode counts, not field geometry."
+    },
+    {
+      "script": "official/c37351133.lua",
+      "line": 55,
+      "expression": "return c:IsPreviousLocation(LOCATION_MZONE) and c:IsPreviousPosition(POS_FACEUP) and c:GetPreviousSequence()>4",
+      "result": "Excluded: local previous-zone index, location boundary, or return position; no across mask or foreign geometry comparison."
+    },
+    {
+      "script": "official/c38383368.lua",
+      "line": 33,
+      "expression": "return c:IsReason(REASON_BATTLE) and c:GetPreviousSequence()>4",
+      "result": "Excluded: local previous-zone index, location boundary, or return position; no across mask or foreign geometry comparison."
+    },
+    {
+      "script": "official/c38383368.lua",
+      "line": 34,
+      "expression": "and rc and ((rc:IsLocation(LOCATION_MZONE) and rc:GetSequence()<5) or (not rc:IsLocation(LOCATION_MZONE) and rc:GetPreviousSequence()<5))",
+      "result": "Excluded: local previous-zone index, location boundary, or return position; no across mask or foreign geometry comparison."
+    },
+    {
+      "script": "official/c39454112.lua",
+      "line": 24,
+      "expression": "local ct=(ev&0xff)+(ev>>16)",
+      "result": "Excluded: event bits encode counts, not field geometry."
+    },
+    {
+      "script": "official/c41482598.lua",
+      "line": 48,
+      "expression": "Duel.SetOperationInfo(0,CATEGORY_DRAW,nil,0,tp,4-ht)",
+      "result": "Excluded: four minus the hand count sets a draw count. No zone or seat is read."
+    },
+    {
+      "script": "official/c41482598.lua",
+      "line": 54,
+      "expression": "Duel.Draw(tp,4-ht,REASON_EFFECT)",
+      "result": "Excluded: four minus the hand count sets a draw count. No zone or seat is read."
+    },
+    {
+      "script": "official/c41482598.lua",
+      "line": 55,
+      "expression": "e:GetLabelObject():SetLabel(4-ht)",
+      "result": "Excluded: four minus the hand count sets a draw count. No zone or seat is read."
+    },
+    {
+      "script": "official/c42517468.lua",
+      "line": 49,
+      "expression": "zone=((zone&0xffff)<<16)|((zone>>16)&0xffff)",
+      "result": "C3/C4: swaps the halves of an explicitly selected numeric disable mask for the declared opponent; no geometry read."
+    },
+    {
+      "script": "official/c4611341.lua",
+      "line": 67,
+      "expression": "if not is_own then zone=zone>>16 end",
+      "result": "C3/C4: reads a local zone chosen for the selected monster's controller. No Link or column mask is used."
+    },
+    {
+      "script": "official/c46247282.lua",
+      "line": 84,
+      "expression": "local dz1=tc:IsControler(tp) and (dz << tc:GetSequence()) or (dz << (16 + tc:GetSequence()))",
+      "result": "Excluded: the loop starts from GetColumnGroup, which contains only the own and across fields."
+    },
+    {
+      "script": "official/c46247282.lua",
+      "line": 85,
+      "expression": "local dz2=tc:IsControler(tp) and (dz << (16 + (11 - tc:GetSequence()))) or (dz << (11 - tc:GetSequence()))",
+      "result": "Excluded: the loop starts from GetColumnGroup, which contains only the own and across fields."
+    },
+    {
+      "script": "official/c46247282.lua",
+      "line": 88,
+      "expression": "dz=tc:IsControler(tp) and (dz << tc:GetSequence()) or (dz << (16 + tc:GetSequence()))",
+      "result": "Excluded: the loop starts from GetColumnGroup, which contains only the own and across fields."
+    },
+    {
+      "script": "official/c47759571.lua",
+      "line": 33,
+      "expression": "if p==1-tp then seq=seq+16 end",
+      "result": "Fixed: ChainFilter suffix uses the activation seat."
+    },
+    {
+      "script": "official/c47810543.lua",
+      "line": 43,
+      "expression": "local nseq=4-seq",
+      "result": "C6 fixed: Crooked Crown keeps the own summon, but registers the mirrored lock only for the living across seat. Natural side/across summon-zone proofs check the place prompt."
+    },
+    {
+      "script": "official/c47810543.lua",
+      "line": 49,
+      "expression": "e1:SetLabel(nseq+16)",
+      "result": "C6 fixed: Crooked Crown keeps the own summon, but registers the mirrored lock only for the living across seat. Natural side/across summon-zone proofs check the place prompt."
+    },
+    {
+      "script": "official/c47914440.lua",
+      "line": 28,
+      "expression": "local RIGHTMOST_SEQ=4-offset",
+      "result": "Excluded: the edge index and FORCE_MZONE mask limit own placement. The high half allows all opposing Main Monster Zones."
+    },
+    {
+      "script": "official/c47914440.lua",
+      "line": 53,
+      "expression": "return (1<<seq)|ZONES_EMZ|(ZONES_MMZ<<16)",
+      "result": "Excluded: the edge index and FORCE_MZONE mask limit own placement. The high half allows all opposing Main Monster Zones."
+    },
+    {
+      "script": "official/c47914440.lua",
+      "line": 56,
+      "expression": "return ZONES_EMZ|(ZONES_MMZ<<16)",
+      "result": "Excluded: the edge index and FORCE_MZONE mask limit own placement. The high half allows all opposing Main Monster Zones."
+    },
+    {
+      "script": "official/c49407319.lua",
+      "line": 61,
+      "expression": "return (seq-1>=0 and c:GetPreviousSequence()==seq-1) or (seq+1<=4 and c:GetPreviousSequence()==seq+1)",
+      "result": "Excluded: own-field adjacent-zone test, guarded by IsPreviousControler(tp)."
+    },
+    {
+      "script": "official/c5043010.lua",
+      "line": 65,
+      "expression": "local seq=c:GetPreviousSequence()",
+      "result": "Fixed: PreviousFilter and trigger geometry suffix."
+    },
+    {
+      "script": "official/c5043010.lua",
+      "line": 66,
+      "expression": "if not c:IsPreviousControler(tp) then seq=seq+16 end",
+      "result": "Fixed: PreviousFilter and trigger geometry suffix."
+    },
+    {
+      "script": "official/c50675040.lua",
+      "line": 27,
+      "expression": "return bc1 and bc2 and bc1:IsColumn(bc2:GetSequence(),1-tp,LOCATION_MZONE)",
+      "result": "C6 fixed: Card.IsColumn returns false for a side seat and keeps the stock own/across sequence test."
+    },
+    {
+      "script": "official/c50696588.lua",
+      "line": 20,
+      "expression": "e:SetLabel(zone>>16)",
+      "result": "C3/C4: stores a zone explicitly selected on the declared opponent's field, without a geometry query."
+    },
+    {
+      "script": "official/c51124303.lua",
+      "line": 39,
+      "expression": "return lv==(mlv&0xffff) or lv==(mlv>>16)",
+      "result": "Excluded: packed alternate Ritual Levels, not field geometry."
+    },
+    {
+      "script": "official/c5230799.lua",
+      "line": 36,
+      "expression": "return c:IsColumn(seq,p,LOCATION_SZONE)",
+      "result": "C6 fixed: Card.IsColumn returns false for a side seat and keeps the stock own/across sequence test."
+    },
+    {
+      "script": "official/c56818742.lua",
+      "line": 70,
+      "expression": "local seq=c:GetPreviousSequence()",
+      "result": "Fixed: PreviousFilter suffix."
+    },
+    {
+      "script": "official/c56818742.lua",
+      "line": 72,
+      "expression": "if c:IsPreviousControler(1-tp) then seq=seq+16 end",
+      "result": "Fixed: PreviousFilter suffix."
+    },
+    {
+      "script": "official/c5821478.lua",
+      "line": 34,
+      "expression": "return (ec:GetLinkedZone(c:GetPreviousControler())&(1<<c:GetPreviousSequence()))~=0",
+      "result": "Fixed: PreviousFilter suffix on the previous-Link branch."
+    },
+    {
+      "script": "official/c58707981.lua",
+      "line": 49,
+      "expression": "seq=4-seq",
+      "result": "C6 fixed: the existing Disablaster suffix checks the exact chain seat before the stock sequence mirror."
+    },
+    {
+      "script": "official/c61888819.lua",
+      "line": 4,
+      "expression": "local ALL_EMZ=0x600060 --0x60 for your EMZs, 0x60<<16 for your opponent's EMZs",
+      "result": "Excluded: this is a comment about a full both-EMZ mask. The natural Origin placement proof checks side and across seats."
+    },
+    {
+      "script": "official/c62530723.lua",
+      "line": 65,
+      "expression": "return c:IsFaceup() and c:IsSetCard(SET_MEKK_KNIGHT) and c:IsColumn(seq,p,LOCATION_SZONE)",
+      "result": "C6 fixed: Card.IsColumn returns false for a side seat and keeps the stock own/across sequence test."
+    },
+    {
+      "script": "official/c62530723.lua",
+      "line": 76,
+      "expression": "seq=rc:GetPreviousSequence()",
+      "result": "Excluded: local previous-zone index, location boundary, or return position; no across mask or foreign geometry comparison."
+    },
+    {
+      "script": "official/c62941499.lua",
+      "line": 91,
+      "expression": "local zone=Duel.SelectFieldZone(tp,1,0,LOCATION_ONFIELD,~filter<<16)",
+      "result": "C3/C4: selected adjacent zones belong to one declared opponent. The shifts unpack that numeric selection; no Link or column read."
+    },
+    {
+      "script": "official/c62941499.lua",
+      "line": 93,
+      "expression": "Duel.Hint(HINT_ZONE,1-tp,zone>>16)",
+      "result": "C3/C4: selected adjacent zones belong to one declared opponent. The shifts unpack that numeric selection; no Link or column read."
+    },
+    {
+      "script": "official/c62941499.lua",
+      "line": 95,
+      "expression": "local sg=groupfrombit(zone>>16,1-tp)",
+      "result": "C3/C4: selected adjacent zones belong to one declared opponent. The shifts unpack that numeric selection; no Link or column read."
+    },
+    {
+      "script": "official/c62941499.lua",
+      "line": 100,
+      "expression": "local g=groupfrombit(e:GetLabel()>>16,1-tp)",
+      "result": "C3/C4: selected adjacent zones belong to one declared opponent. The shifts unpack that numeric selection; no Link or column read."
+    },
+    {
+      "script": "official/c65107325.lua",
+      "line": 46,
+      "expression": "zones=zones&~(ctrl and (1<<seq) or (1<<(16+seq)))",
+      "result": "Excluded: the loop starts from GetColumnGroup, which contains only the own and across fields."
+    },
+    {
+      "script": "official/c65107325.lua",
+      "line": 48,
+      "expression": "zones=zones&~(ctrl and (1<<(27-seq)) or (1<<(11-seq)))",
+      "result": "Excluded: the loop starts from the fixed GetColumnGroup, so it contains only own/across cards. 11-seq mirrors EMZ indices."
+    },
+    {
+      "script": "official/c68024506.lua",
+      "line": 35,
+      "expression": "return c:IsColumn(seq,p,LOCATION_SZONE)",
+      "result": "C6 fixed: Card.IsColumn returns false for a side seat and keeps the stock own/across sequence test."
+    },
+    {
+      "script": "official/c68246154.lua",
+      "line": 67,
+      "expression": "return re:IsHasType(EFFECT_TYPE_ACTIVATE) and c:IsColumn(seq,p,LOCATION_SZONE)",
+      "result": "C6 fixed: Card.IsColumn returns false for a side seat and keeps the stock own/across sequence test."
+    },
+    {
+      "script": "official/c70709488.lua",
+      "line": 40,
+      "expression": "local seq=c:GetPreviousSequence()",
+      "result": "Fixed: PreviousFilter suffix."
+    },
+    {
+      "script": "official/c70709488.lua",
+      "line": 41,
+      "expression": "if c:GetPreviousControler()==1-tp then seq=seq+16 end",
+      "result": "Fixed: PreviousFilter suffix."
+    },
+    {
+      "script": "official/c71095768.lua",
+      "line": 115,
+      "expression": "if tc:IsControler(1-p) then seq=seq+16 end",
+      "result": "Fixed: Suffix stores the real activation seat and checks the across pair."
+    },
+    {
+      "script": "official/c71095768.lua",
+      "line": 117,
+      "expression": "if tc:GetPreviousControler()==1-p then seq=seq+16 end",
+      "result": "Fixed: Suffix stores the real activation seat and checks the across pair."
+    },
+    {
+      "script": "official/c73542331.lua",
+      "line": 79,
+      "expression": "dis=dis>>16",
+      "result": "C3/C4: a stored numeric disable mask changes halves after control changes. It keeps the declared-opponent origin."
+    },
+    {
+      "script": "official/c73542331.lua",
+      "line": 81,
+      "expression": "dis=dis<<16",
+      "result": "C3/C4: a stored numeric disable mask changes halves after control changes. It keeps the declared-opponent origin."
+    },
+    {
+      "script": "official/c75713017.lua",
+      "line": 20,
+      "expression": "local seq=bc:GetPreviousSequence()",
+      "result": "Excluded: numeric zone mask for the battle target; the attacker response binds that target seat."
+    },
+    {
+      "script": "official/c75713017.lua",
+      "line": 21,
+      "expression": "e:SetLabel(seq+16)",
+      "result": "Excluded: numeric zone mask for the battle target; the attacker response binds that target seat."
+    },
+    {
+      "script": "official/c77307161.lua",
+      "line": 51,
+      "expression": "local seq=c:GetPreviousSequence()",
+      "result": "Fixed: PreviousFilter suffix."
+    },
+    {
+      "script": "official/c77307161.lua",
+      "line": 52,
+      "expression": "if not c:IsPreviousControler(tp) then seq=seq+16 end",
+      "result": "Fixed: PreviousFilter suffix."
+    },
+    {
+      "script": "official/c80141055.lua",
+      "line": 35,
+      "expression": "and c:IsPreviousControler(tp) and c:GetPreviousSequence()<5",
+      "result": "Excluded: local previous-zone index, location boundary, or return position; no across mask or foreign geometry comparison."
+    },
+    {
+      "script": "official/c81306186.lua",
+      "line": 85,
+      "expression": "if not ((mlv&0xffff)>=lv or (mlv>>16)>=lv) then return false end",
+      "result": "Excluded: packed alternate Ritual Levels, not field geometry."
+    },
+    {
+      "script": "official/c8152834.lua",
+      "line": 50,
+      "expression": "local zone=1<<tc:GetPreviousSequence()",
+      "result": "Excluded: local previous-zone index, location boundary, or return position; no across mask or foreign geometry comparison."
+    },
+    {
+      "script": "official/c81965543.lua",
+      "line": 37,
+      "expression": "return te:GetOwnerPlayer()~=e:GetHandlerPlayer() and te:IsActivated() and e:GetHandler():IsColumn(te:GetCardSequence(),te:GetCardControler(),te:GetCardLocation())",
+      "result": "C6 fixed: the immunity value supplies its incoming Effect as the exact, non-binding column origin. Numeric unbound foreign origins return false. Natural side/across Raigeki proofs cover the immune callback."
+    },
+    {
+      "script": "official/c82685480.lua",
+      "line": 41,
+      "expression": "seq=bit.replace(seq,0x1,tc:GetPreviousSequence())",
+      "result": "Excluded: numeric disable mask of the destroyed declared-opponent group; no geometry read."
+    },
+    {
+      "script": "official/c83094004.lua",
+      "line": 36,
+      "expression": "if Duel.CheckLocation(tp,LOCATION_MZONE,i) and Duel.CheckLocation(1-tp,LOCATION_MZONE,4-i) then",
+      "result": "C6 fixed by core: GetColumnGroup limits the target to own/across cards. The subsequent mirrored move uses that target's bound seat."
+    },
+    {
+      "script": "official/c83094004.lua",
+      "line": 61,
+      "expression": "if Duel.CheckLocation(tp,LOCATION_MZONE,i) and Duel.CheckLocation(1-tp,LOCATION_MZONE,4-i) then",
+      "result": "C6 fixed by core: GetColumnGroup limits the target to own/across cards. The subsequent mirrored move uses that target's bound seat."
+    },
+    {
+      "script": "official/c83094004.lua",
+      "line": 69,
+      "expression": "Duel.MoveSequence(tc,4-math.log(selzone,2))",
+      "result": "C6 fixed by core: GetColumnGroup limits the target to own/across cards. The subsequent mirrored move uses that target's bound seat."
+    },
+    {
+      "script": "official/c83241722.lua",
+      "line": 30,
+      "expression": "local ct2=(ev>>16)",
+      "result": "Excluded: event bits encode counts, not field geometry."
+    },
+    {
+      "script": "official/c83994646.lua",
+      "line": 2,
+      "expression": "--4-Starred Ladybug of Doom",
+      "result": "Excluded: a card-name comment, not an executable expression."
+    },
+    {
+      "script": "official/c85687952.lua",
+      "line": 88,
+      "expression": "return 4-ct",
+      "result": "Excluded: four minus a count sets a material limit. No zone or column is read."
+    },
+    {
+      "script": "official/c86962245.lua",
+      "line": 69,
+      "expression": "and not c:IsPreviousControler(tp) and c:GetPreviousSequence()<5",
+      "result": "Excluded: local previous-zone index, location boundary, or return position; no across mask or foreign geometry comparison."
+    },
+    {
+      "script": "official/c88086137.lua",
+      "line": 18,
+      "expression": "if p==1-tp then seq=seq+16 end",
+      "result": "Fixed: ChainFilter suffix uses the activation seat."
+    },
+    {
+      "script": "official/c88392300.lua",
+      "line": 29,
+      "expression": "Duel.MoveSequence(tc,math.log(Duel.SelectDisableField(tp,1,0,LOCATION_MZONE,0)>>16,2))",
+      "result": "C3/C4: selects a local move zone on the declared opponent field. No Link or column query is used."
+    },
+    {
+      "script": "official/c89027418.lua",
+      "line": 45,
+      "expression": "return not c:IsColumn(seq,ctrl,LOCATION_MZONE)",
+      "result": "C6 fixed: Card.IsColumn returns false for a side seat and keeps the stock own/across sequence test."
+    },
+    {
+      "script": "official/c89571015.lua",
+      "line": 36,
+      "expression": "return te:IsMonsterEffect() and te:IsActivated() and tc:GetPreviousSequence()>4",
+      "result": "Excluded: local previous-zone index, location boundary, or return position; no across mask or foreign geometry comparison."
+    },
+    {
+      "script": "official/c93020401.lua",
+      "line": 44,
+      "expression": "local seq=c:GetPreviousSequence()+16",
+      "result": "Fixed: PreviousFilter suffix on spcfilter."
+    },
+    {
+      "script": "official/c94365540.lua",
+      "line": 43,
+      "expression": "if c:IsControler(tp) then seq=seq+16 end",
+      "result": "Fixed: Across-only Link target suffix."
+    },
+    {
+      "script": "official/c94418111.lua",
+      "line": 36,
+      "expression": "return c:IsColumn(seq,p,LOCATION_SZONE)",
+      "result": "C6 fixed: Card.IsColumn returns false for a side seat and keeps the stock own/across sequence test."
+    },
+    {
+      "script": "official/c94626871.lua",
+      "line": 28,
+      "expression": "local seq=c:GetPreviousSequence()",
+      "result": "Fixed: PreviousFilter suffix."
+    },
+    {
+      "script": "official/c94626871.lua",
+      "line": 29,
+      "expression": "if not c:IsPreviousControler(tp) then seq=seq+16 end",
+      "result": "Fixed: PreviousFilter suffix."
+    },
+    {
+      "script": "official/c95372220.lua",
+      "line": 51,
+      "expression": "return (ec:GetLinkedZone(c:GetPreviousControler())&(0x1<<c:GetPreviousSequence()))~=0",
+      "result": "Fixed: PreviousFilter suffix on the previous-Link branch."
+    },
+    {
+      "script": "official/c95493471.lua",
+      "line": 71,
+      "expression": "local seq=c:GetPreviousSequence()",
+      "result": "Fixed: PreviousFilter and across geometry suffix."
+    },
+    {
+      "script": "official/c95493471.lua",
+      "line": 72,
+      "expression": "if not c:IsPreviousControler(tp) then seq=seq+16 end",
+      "result": "Fixed: PreviousFilter and across geometry suffix."
+    },
+    {
+      "script": "official/c97729135.lua",
+      "line": 54,
+      "expression": "Duel.MoveSequence(tc,math.log(Duel.SelectDisableField(tp,1,0,LOCATION_MZONE,~(zone<<16))>>16,2))",
+      "result": "C6 fixed by core: the zone comes from linked-zone queries. A side binding gets no across mask; shifts pass the checked mask to placement."
+    },
+    {
+      "script": "official/c98935722.lua",
+      "line": 78,
+      "expression": "return c:IsFaceup() and c:IsSetCard(SET_MEKK_KNIGHT) and c:IsColumn(seq,p,LOCATION_MZONE)",
+      "result": "C6 fixed: Card.IsColumn returns false for a side seat and keeps the stock own/across sequence test."
+    },
+    {
+      "script": "pre-errata/c5043020.lua",
+      "line": 63,
+      "expression": "local seq=c:GetPreviousSequence()",
+      "result": "Fixed: PreviousFilter and trigger geometry suffix (loadable pre-errata)."
+    },
+    {
+      "script": "pre-errata/c5043020.lua",
+      "line": 64,
+      "expression": "if not c:IsPreviousControler(tp) then seq=seq+16 end",
+      "result": "Fixed: PreviousFilter and trigger geometry suffix (loadable pre-errata)."
+    },
+    {
+      "script": "pre-release/c100458010.lua",
+      "line": 42,
+      "expression": "local selected_zones=Duel.SelectFieldZone(tp,ct,0,LOCATION_MZONE,ZONES_EMZ<<16)",
+      "result": "Excluded from current data: the pre-release passcode has no database row. Its numeric opponent-zone selection is C3/C4 scope in custom data.",
+      "requiresAbsentCode": 100458010
+    },
+    {
+      "script": "pre-release/c100458010.lua",
+      "line": 57,
+      "expression": "local zone=1<<(Chain.GetTriggeringSequence(ev)+16)",
+      "result": "Excluded: this pre-release passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 100458010
+    },
+    {
+      "script": "pre-release/c101402090.lua",
+      "line": 73,
+      "expression": "local seq=4-s.normalizeseq(e:GetHandler():GetSequence())",
+      "result": "Excluded from current data: the pre-release passcode has no database row. Custom data must review its direct mirrored-column target filter.",
+      "requiresAbsentCode": 101402090
+    },
+    {
+      "script": "pre-release/c101403030.lua",
+      "line": 74,
+      "expression": "filter=filter|(1<<(mc:GetSequence()+16))",
+      "result": "Excluded: this pre-release passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 101403030
+    },
+    {
+      "script": "proc_ritual.lua",
+      "line": 44,
+      "expression": "return (lv<<16)|clv",
+      "result": "Excluded: shifts pack or unpack alternate Ritual Levels, not zones."
+    },
+    {
+      "script": "proc_ritual.lua",
+      "line": 171,
+      "expression": "local lv2=raw_level>>16",
+      "result": "Excluded: shifts pack or unpack alternate Ritual Levels, not zones."
+    },
+    {
+      "script": "proc_synchro.lua",
+      "line": 1127,
+      "expression": "local ntlv2=ntlv>>16",
+      "result": "Excluded: shifts unpack alternate Synchro Levels, not zones."
+    },
+    {
+      "script": "proc_synchro.lua",
+      "line": 1130,
+      "expression": "local tlv2=tlv>>16",
+      "result": "Excluded: shifts unpack alternate Synchro Levels, not zones."
+    },
+    {
+      "script": "proc_xyz.lua",
+      "line": 127,
+      "expression": "local comp=(te:GetValue()>>16)&0xffff",
+      "result": "Excluded: shifts unpack alternate Xyz Levels, not zones."
+    },
+    {
+      "script": "proc_xyz.lua",
+      "line": 138,
+      "expression": "local comp=(te:GetValue()>>16)&0xffff",
+      "result": "Excluded: shifts unpack alternate Xyz Levels, not zones."
+    },
+    {
+      "script": "rush/c160011064.lua",
+      "line": 17,
+      "expression": "return c:IsPreviousLocation(LOCATION_SZONE) and c:IsPreviousControler(tp) and c:GetPreviousSequence()<5 and c:IsReason(REASON_EFFECT)",
+      "result": "Excluded: this rush passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 160011064
+    },
+    {
+      "script": "skill/c300102004.lua",
+      "line": 59,
+      "expression": "local total=(ev&0xff)+(ev>>16)",
+      "result": "Excluded: skill event bits encode counts, not field geometry."
+    },
+    {
+      "script": "skill/c300303001.lua",
+      "line": 35,
+      "expression": "return aux.CanActivateSkill(tp) and ct<4 and Duel.IsPlayerCanDraw(tp,4-ct)",
+      "result": "Excluded: four minus the hand count sets a skill draw count. No field geometry is read."
+    },
+    {
+      "script": "skill/c300303001.lua",
+      "line": 42,
+      "expression": "local ct=4-Duel.GetFieldGroupCount(tp,LOCATION_HAND,0)",
+      "result": "Excluded: four minus the hand count sets a skill draw count. No field geometry is read."
+    },
+    {
+      "script": "unofficial/c100000554.lua",
+      "line": 44,
+      "expression": "local sc=setcard>>16",
+      "result": "Excluded: shifts unpack two set codes, not field geometry."
+    },
+    {
+      "script": "unofficial/c111215001.lua",
+      "line": 52,
+      "expression": "e1:SetLabel(tc:GetPreviousSequence())",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 111215001
+    },
+    {
+      "script": "unofficial/c153000011.lua",
+      "line": 91,
+      "expression": "Duel.MoveToField(tc,tp,1-tp,tc:GetPreviousLocation(),tc:GetPreviousPosition(),true,2^tc:GetPreviousSequence())",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 153000011
+    },
+    {
+      "script": "unofficial/c153000017.lua",
+      "line": 159,
+      "expression": "--11 - Transform",
+      "result": "Excluded: a comment for string number 11, not an executable expression."
+    },
+    {
+      "script": "unofficial/c511000369.lua",
+      "line": 183,
+      "expression": "tc:RegisterFlagEffect(id,RESET_PHASE|PHASE_END,0,1,tc:GetPreviousPosition()+(tc:GetPreviousSequence()<<4)+(tc:GetPreviousControler()<<8)+(pzone<<16))",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511000369
+    },
+    {
+      "script": "unofficial/c511000477.lua",
+      "line": 58,
+      "expression": "local seq=4-e:GetHandler():GetSequence()",
+      "result": "Excluded from current data: the unofficial passcode has no database row. Custom data must review its direct mirrored-zone condition.",
+      "requiresAbsentCode": 511000477
+    },
+    {
+      "script": "unofficial/c511001132.lua",
+      "line": 88,
+      "expression": "return Duel.CheckLocation(p,LOCATION_MZONE,c:GetPreviousSequence())",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511001132
+    },
+    {
+      "script": "unofficial/c511001132.lua",
+      "line": 93,
+      "expression": "and g:GetClassCount(Card.GetPreviousSequence)==#g and s[tp]>=1000 end",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511001132
+    },
+    {
+      "script": "unofficial/c511001132.lua",
+      "line": 100,
+      "expression": "and g:GetClassCount(Card.GetPreviousSequence)==#g then",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511001132
+    },
+    {
+      "script": "unofficial/c511001132.lua",
+      "line": 102,
+      "expression": "Duel.MoveToField(tc,tp,tp,LOCATION_MZONE,tc:GetPreviousPosition(),true,1<<tc:GetPreviousSequence())",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511001132
+    },
+    {
+      "script": "unofficial/c511001376.lua",
+      "line": 91,
+      "expression": "return Duel.CheckLocation(tp,c:GetPreviousLocation(),c:GetPreviousSequence())",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511001376
+    },
+    {
+      "script": "unofficial/c511001376.lua",
+      "line": 107,
+      "expression": "if tc:GetPreviousSequence()==7 or tc:GetPreviousSequence()==4 then seq=1 end",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511001376
+    },
+    {
+      "script": "unofficial/c511001376.lua",
+      "line": 110,
+      "expression": "Duel.MoveToField(tc,tp,tp,tc:GetPreviousLocation(),tc:GetPreviousPosition(),true,(1<<tc:GetPreviousSequence()))",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511001376
+    },
+    {
+      "script": "unofficial/c511001750.lua",
+      "line": 67,
+      "expression": "if rc:GetPreviousSequence()==7 or rc:GetPreviousSequence()==4 then seq=1 end",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511001750
+    },
+    {
+      "script": "unofficial/c511002005.lua",
+      "line": 44,
+      "expression": "return c:GetFlagEffect(id+seq)==0 and (not c:IsPreviousLocation(LOCATION_PZONE) or c:GetPreviousSequence()~=seq)",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511002005
+    },
+    {
+      "script": "unofficial/c511002947.lua",
+      "line": 24,
+      "expression": "if tc:IsControler(1-tp) then seq=seq+16 end",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511002947
+    },
+    {
+      "script": "unofficial/c511002986.lua",
+      "line": 36,
+      "expression": "return c:IsPreviousLocation(LOCATION_SZONE) and c:GetPreviousSequence()==5",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511002986
+    },
+    {
+      "script": "unofficial/c511009166.lua",
+      "line": 58,
+      "expression": "zone=zone<<16",
+      "result": "Excluded from current data: the unofficial passcode has no database row. Its numeric turn-player disable mask is C3/C4 scope in custom data.",
+      "requiresAbsentCode": 511009166
+    },
+    {
+      "script": "unofficial/c511009363.lua",
+      "line": 60,
+      "expression": "return c:GetFlagEffect(511002005+seq)==0 and (not c:IsPreviousLocation(LOCATION_PZONE) or c:GetPreviousSequence()~=seq)",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511009363
+    },
+    {
+      "script": "unofficial/c511009369.lua",
+      "line": 57,
+      "expression": "return c:GetFlagEffect(511002005+seq)==0 and (not c:IsPreviousLocation(LOCATION_PZONE) or c:GetPreviousSequence()~=seq)",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511009369
+    },
+    {
+      "script": "unofficial/c511009735.lua",
+      "line": 46,
+      "expression": "return (ec:GetLinkedZone(c:GetPreviousControler())&(1<<c:GetPreviousSequence()))~=0",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511009735
+    },
+    {
+      "script": "unofficial/c511010500.lua",
+      "line": 39,
+      "expression": "return c:IsPreviousLocation(LOCATION_SZONE) and (c:GetPreviousSequence()==6 or c:GetPreviousSequence()==7)",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511010500
+    },
+    {
+      "script": "unofficial/c511010507.lua",
+      "line": 46,
+      "expression": "and (c:IsLocation(LOCATION_SZONE|LOCATION_GRAVE|LOCATION_MZONE) or (c:IsLocation(LOCATION_REMOVED) and c:IsFaceup())) or (c:IsLocation(LOCATION_HAND|LOCATION_DECK) or (c:IsLocation(LOCATION_EXTRA) and c:IsFaceup())) and not Duel.GetFieldCard(tp,c:GetPreviousLocation(),c:GetPreviousSequence())",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511010507
+    },
+    {
+      "script": "unofficial/c511010507.lua",
+      "line": 54,
+      "expression": "if Duel.GetFieldCard(tp,tc:GetPreviousLocation(),tc:GetPreviousSequence()) then freezone=false end",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511010507
+    },
+    {
+      "script": "unofficial/c511010507.lua",
+      "line": 86,
+      "expression": "if tc:GetPreviousSequence()==7 or tc:GetPreviousSequence()==4 then seq=1 end",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511010507
+    },
+    {
+      "script": "unofficial/c511010507.lua",
+      "line": 89,
+      "expression": "Duel.MoveToField(tc,tp,tp,tc:GetPreviousLocation(),tc:GetPreviousPosition(),true,(1<<tc:GetPreviousSequence()))",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511010507
+    },
+    {
+      "script": "unofficial/c511015129.lua",
+      "line": 28,
+      "expression": "return c:GetSequence()==4-seq or (flag~=0 and c:IsLocation(LOCATION_MZONE) and (c:GetSequence()==4-seq+1 or c:GetSequence()==4-seq-1))",
+      "result": "Excluded from current data: the unofficial passcode has no database row. Custom data must review its direct mirrored-column filter.",
+      "requiresAbsentCode": 511015129
+    },
+    {
+      "script": "unofficial/c511027008.lua",
+      "line": 42,
+      "expression": "Duel.MoveSequence(tc,math.log(Duel.SelectDisableField(tp,1,0,LOCATION_MZONE,~zone<<16)>>16,2))",
+      "result": "Excluded from current data: the unofficial passcode has no database row. Its custom linked-zone selection needs a custom-data geometry review.",
+      "requiresAbsentCode": 511027008
+    },
+    {
+      "script": "unofficial/c511310034.lua",
+      "line": 25,
+      "expression": "local zone=2^(c:GetPreviousSequence())",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511310034
+    },
+    {
+      "script": "unofficial/c511310104.lua",
+      "line": 51,
+      "expression": "flag=((flag<<16)&0xffff)|((flag>>16)&0xffff)",
+      "result": "Excluded from current data: the unofficial passcode has no database row. This swaps a card-selection mask, not a physical column.",
+      "requiresAbsentCode": 511310104
+    },
+    {
+      "script": "unofficial/c511310105.lua",
+      "line": 51,
+      "expression": "flag=((flag<<16)&0xffff)|((flag>>16)&0xffff)",
+      "result": "Excluded from current data: the unofficial passcode has no database row. This swaps a card-selection mask, not a physical column.",
+      "requiresAbsentCode": 511310105
+    },
+    {
+      "script": "unofficial/c511310113.lua",
+      "line": 67,
+      "expression": "flag=((flag<<16)&0xffff)|((flag>>16)&0xffff)",
+      "result": "Excluded from current data: the unofficial passcode has no database row. This swaps a card-selection mask, not a physical column.",
+      "requiresAbsentCode": 511310113
+    },
+    {
+      "script": "unofficial/c511600203.lua",
+      "line": 69,
+      "expression": "and not c:IsPreviousControler(tp) and c:GetPreviousSequence()<5",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511600203
+    },
+    {
+      "script": "unofficial/c511600299.lua",
+      "line": 78,
+      "expression": "return lg:IsExists(s.cfilter2,1,nil,c,c:GetPreviousSequence(),tp)",
+      "result": "Excluded: this unofficial passcode has no row in the current cards.cdb. A supplied custom database can load it; custom scripts remain outside the official C6 corpus.",
+      "requiresAbsentCode": 511600299
+    },
+    {
+      "script": "unofficial/c511600435.lua",
+      "line": 38,
+      "expression": "zone=(ret[2]>>16)&0x7f",
+      "result": "Excluded from current data: the unofficial passcode has no database row. Extra-release values supply a declared tribute opponent's zone.",
+      "requiresAbsentCode": 511600435
+    },
+    {
+      "script": "unofficial/c511600435.lua",
+      "line": 52,
+      "expression": "zone=(ret[2]>>16)&0x7f",
+      "result": "Excluded from current data: the unofficial passcode has no database row. Extra-release values supply a declared tribute opponent's zone.",
+      "requiresAbsentCode": 511600435
+    },
+    {
+      "script": "unofficial/proc_unofficial.lua",
+      "line": 831,
+      "expression": "e1:SetCondition(function()return IcePillarZone[1]|(IcePillarZone[2]<<16)>0 end)",
+      "result": "Excluded: the custom Ice Pillar procedure supplies its own numeric summon zones; it is not a standard Link or column query."
+    },
+    {
+      "script": "unofficial/proc_unofficial.lua",
+      "line": 833,
+      "expression": "return IcePillarZone[1]|(IcePillarZone[2]<<16)",
+      "result": "Excluded: the custom Ice Pillar procedure supplies its own numeric summon zones; it is not a standard Link or column query."
+    },
+    {
+      "script": "utility.lua",
+      "line": 302,
+      "expression": "return c:GetPreviousSequence()==seq",
+      "result": "Excluded: generic equality test for a previous local sequence; no foreign mask."
+    },
+    {
+      "script": "utility.lua",
+      "line": 420,
+      "expression": "function Card.IsColumn(c,seq,tp,loc)",
+      "result": "C6 fixed: Card.IsColumn returns false for a side seat and keeps the stock own/across sequence test."
+    },
+    {
+      "script": "utility.lua",
+      "line": 441,
+      "expression": "return cseq==4-seq",
+      "result": "C6 fixed: Card.IsColumn returns false for a side seat and keeps the stock own/across sequence test."
+    },
+    {
+      "script": "utility.lua",
+      "line": 2252,
+      "expression": "local rzone = c:IsControler(tp) and (1 <<c:GetSequence()) or (1 << (16+c:GetSequence()))",
+      "result": "C3/C4: IsZone tests an explicit or bound numeric tribute/membership mask. The 11-seq term aliases the paired EMZ bit of that declared mask; it does not choose an opponent or read a new Link/column mask."
+    },
+    {
+      "script": "utility.lua",
+      "line": 2254,
+      "expression": "rzone = rzone | (c:IsControler(tp) and (1 << (16 + 11 - c:GetSequence())) or (1 << (11 - c:GetSequence())))",
+      "result": "C3/C4: IsZone tests an explicit or bound numeric tribute/membership mask. The 11-seq term aliases the paired EMZ bit of that declared mask; it does not choose an opponent or read a new Link/column mask."
+    },
+    {
+      "script": "utility.lua",
+      "line": 2348,
+      "expression": "return (ev>>16)&0xff",
+      "result": "Excluded: shifts unpack event metadata, not field geometry."
+    },
+    {
+      "script": "utility.lua",
+      "line": 2354,
+      "expression": "return (ev>>16)&0xffff",
+      "result": "Excluded: shifts unpack event metadata, not field geometry."
+    },
+    {
+      "script": "utility.lua",
+      "line": 2432,
+      "expression": "return not c:IsLocation(LOCATION_MZONE) and (ec:GetLinkedZone(c:GetPreviousControler())&(1<<c:GetPreviousSequence()))~=0",
+      "result": "Fixed: zptfilter uses PreviousFilter; live side/across proofs cover the departed-card branch."
+    }
+  ],
+  "overlay": [
+    {
+      "script": "c30010480.lua",
+      "line": 12,
+      "expression": "local relzone=-(1<<e:GetHandler():GetSequence()+16)",
+      "result": "C6 fixed: exact own/across seats guard this previous sequence or linked mask."
+    },
+    {
+      "script": "c42517468.lua",
+      "line": 37,
+      "expression": "zone=((zone&0xffff)<<16)|((zone>>16)&0xffff)",
+      "result": "C3/C4: an explicitly selected numeric disable mask keeps its declared-opponent origin."
+    },
+    {
+      "script": "c47810543.lua",
+      "line": 11,
+      "expression": "local nseq=4-seq",
+      "result": "C6 fixed: the mirrored lock is registered only if the selected opponent is the living across seat of the summoned monster."
+    },
+    {
+      "script": "c47810543.lua",
+      "line": 18,
+      "expression": "e1:SetLabel(nseq+16)",
+      "result": "C6 fixed: the mirrored lock is registered only if the selected opponent is the living across seat of the summoned monster."
+    },
+    {
+      "script": "c71095768.lua",
+      "line": 19,
+      "expression": "if s.mp_detach_seat~=Duel.MPSeatOf(c) then seq=seq+16 end",
+      "result": "C6 fixed: exact own/across seats guard this previous sequence or linked mask."
+    },
+    {
+      "script": "c81965543.lua",
+      "line": 12,
+      "expression": "and ie:GetHandler():IsColumn(te:GetCardSequence(),te:GetCardControler(),te:GetCardLocation(),te)",
+      "result": "C6 fixed: the incoming Effect supplies an exact chain or card seat; the immunity callback does not bind an opponent."
+    },
+    {
+      "script": "c94365540.lua",
+      "line": 11,
+      "expression": "if not tc:IsControler(tp) then seq=seq+16 end",
+      "result": "C6 fixed: exact own/across seats guard this previous sequence or linked mask."
+    },
+    {
+      "script": "mp-utility.lua",
+      "line": 364,
+      "expression": "if not same then mask=mask>>16 end",
+      "result": "C6 fixed: exact seats select the own/across comparison. The source effect or card supplies a non-binding origin; a numeric foreign origin needs an existing binding."
+    },
+    {
+      "script": "mp-utility.lua",
+      "line": 365,
+      "expression": "result=(mask&(1<<c:GetPreviousSequence()))~=0",
+      "result": "C6 fixed: exact seats select the own/across comparison. The source effect or card supplies a non-binding origin; a numeric foreign origin needs an existing binding."
+    },
+    {
+      "script": "mp-utility.lua",
+      "line": 410,
+      "expression": "local mp_is_column=Card.IsColumn",
+      "result": "C6 fixed: exact seats select the own/across comparison. The source effect or card supplies a non-binding origin; a numeric foreign origin needs an existing binding."
+    },
+    {
+      "script": "mp-utility.lua",
+      "line": 411,
+      "expression": "function Card.IsColumn(c,seq,tp,loc,source)",
+      "result": "C6 fixed: exact seats select the own/across comparison. The source effect or card supplies a non-binding origin; a numeric foreign origin needs an existing binding."
+    },
+    {
+      "script": "mp-utility.lua",
+      "line": 432,
+      "expression": "return mp_is_column(c,4-seq,c:GetControler(),loc)",
+      "result": "C6 fixed: exact seats select the own/across comparison. The source effect or card supplies a non-binding origin; a numeric foreign origin needs an existing binding."
+    }
+  ]
+}

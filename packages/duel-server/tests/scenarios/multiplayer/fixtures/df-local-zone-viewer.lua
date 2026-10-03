@@ -27,10 +27,10 @@ function s.cost(e,tp,eg,ep,ev,re,r,rp,chk)
   local mutual=c:GetMutualLinkedZone(1-tp)
   local column=c:GetColumnZone(LOCATION_MZONE,0,0,1-tp)
   if chk~=0 then
-   assert(linked==7,'opponent Link zone changed')
-   assert(free==5,'opponent free Link zone changed')
+   assert(linked==(s.expected_count==3 and 0x80007 or 7),'opponent Link zone changed')
+   assert(free==(s.expected_count==3 and 0x80005 or 5),'opponent free Link zone changed')
    assert(mutual==2,'opponent mutual Link zone changed')
-   assert(column==2,'opponent column zone changed')
+   assert(column==(s.expected_count==3 and 0x80002 or 2),'opponent column zone changed')
   end
  end
  if chk==0 then return true end

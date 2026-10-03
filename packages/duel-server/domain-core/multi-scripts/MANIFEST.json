@@ -258,6 +258,24 @@
       "note": "Script fix (R1 each opponent, R-COMMON-EACH-PLAYER, lead decision 2026-10-01): the flip effect registers an End Phase effect (Duel.RegisterEffect) that destroys the Defense Position monsters of the opponents and the stock operation lets ONE opponent (Duel.Damage(1-tp,ct*500)) take the damage for all of them. The operation groups the monsters by real controller seat (aux.MPForEachController): each opponent takes 500 for each of its OWN monsters destroyed. In Tag the opposing members share one LP pool, so the sum is the stock value. The flip effect is stock. Not part of R1 or R2 (a script fix, as Book of Eclipse)."
     },
     {
+      "code": 5043010,
+      "file": "c5043010.lua",
+      "name": "Firewall Dragon",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "5022d7c3ae215fc61bd4a07b4d2b7481fba6483bddaba7ede33aa7d792f11f21",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
+      "code": 5043020,
+      "file": "c5043020.lua",
+      "name": "Firewall Dragon (pre-errata)",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "f59c0f37b6aa14a5bb00996cae770418916a1fb5196434d367b19a935f5ff2d5",
+      "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
+    },
+    {
       "code": 5611760,
       "file": "c5611760.lua",
       "name": "Rainbow Bridge of Salvation",
@@ -284,6 +302,15 @@
       "compareIn": [
         "spcon"
       ]
+    },
+    {
+      "code": 5821478,
+      "file": "c5821478.lua",
+      "name": "Topologic Bomber Dragon",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "6590fb1ff291c51b855ab609843584d652ea1273568c3d0758ac18a7e561213a",
+      "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
     },
     {
       "code": 6783559,
@@ -555,6 +582,15 @@
       "stockSha256": "8b50857dfc4745fa75e0f02aa8076a1a56bfc88e4af17627ce41c103ee1b1707"
     },
     {
+      "code": 10045474,
+      "file": "c10045474.lua",
+      "kind": "fix",
+      "name": "Infinite Impermanence",
+      "classes": [],
+      "stockSha256": "3e7a6a44bfcc399b3f7d910930fa9144dbe0baf1ba4893a84c0afad94b5e5fc0",
+      "note": "FFA4: a side seat shares no column; own and living across seats keep the stock sequence mirror."
+    },
+    {
       "code": 10110717,
       "file": "c10110717.lua",
       "name": "Mecha Bunny",
@@ -607,6 +643,24 @@
       "r2Class": "LOOP",
       "stockSha256": "d994c293c62db60c813b0c9737f19651b8bd402624b82a7c13fbf74f0d18476a",
       "note": "the global check loops over the players 0 and 1; it loops over every living duelist (aux.MPForEachDuelist) and writes the flag for the real seat."
+    },
+    {
+      "code": 10552026,
+      "file": "c10552026.lua",
+      "name": "Gouki Heel Ogre",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "7c3c2f77ed819c91b2376bd5c5d067a08c36e7a0fb0ffadf44cbccf05003ac82",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
+      "code": 10852583,
+      "file": "c10852583.lua",
+      "kind": "fix",
+      "name": "Yajiro Invader",
+      "classes": [],
+      "stockSha256": "13954cde53a8dfccd563987cfd82f97aa0c6153e09d4d2181495f36d4676e061",
+      "note": "FFA4: a side seat shares no column; own and living across seats keep the stock sequence mirror."
     },
     {
       "code": 11110587,
@@ -907,6 +961,15 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "9a7744980d307f9cb9a0a2b81aa35cd1b475fa6396647dd1302bff68eae4ffc9"
+    },
+    {
+      "code": 15967552,
+      "name": "Small Scuffle",
+      "file": "c15967552.lua",
+      "kind": "fix",
+      "stockSha256": "e693b72ecce676e89c22959734008f501e80b3a8822e6764e5c1207f4070cfe5",
+      "classes": [],
+      "note": "The overlay restricts FFA4 column geometry to the exact own and across seats."
     },
     {
       "code": 16832845,
@@ -1414,6 +1477,15 @@
         "R1"
       ],
       "stockSha256": "4dd87d52ce8c79ebbe5e324f3633daad25c4759e972e84fb698be7997d6c9558"
+    },
+    {
+      "code": 21637210,
+      "file": "c21637210.lua",
+      "name": "Firewall Dragon Singularity",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "636bf035d64b2d6cf12360ef8f07266e9d64a8d09b4a343e677477bd456f4e65",
+      "note": "FFA4: Link and column filters use only the real across seat."
     },
     {
       "code": 21672573,
@@ -1935,6 +2007,15 @@
       "stockSha256": "cd3faa35089e9dcad8bd3d992e4c7b9d43b9766a2170c6e9e1241c7328811dae"
     },
     {
+      "code": 30010480,
+      "file": "c30010480.lua",
+      "name": "Gouki Thunder Ogre",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "63aa2b87c225f80e1f4423b6868a306249545db3a58638f9970a329746d8cfbd",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
       "code": 30109445,
       "file": "c30109445.lua",
       "name": "Clown Crew Dristy",
@@ -1992,6 +2073,15 @@
         "R1"
       ],
       "stockSha256": "5dd2460270bb911df0e8becec1dee0b0f9dd9e04535139ab769aaf8f04cd61ce"
+    },
+    {
+      "code": 30822527,
+      "file": "c30822527.lua",
+      "name": "Decode Talker Extended",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "70ecdfac038007e68f96378fdc2073d63c2fd5acfd9826949c1366812f6ec1f6",
+      "note": "FFA4: Link and column filters use only the real across seat."
     },
     {
       "code": 31036355,
@@ -3000,6 +3090,24 @@
       ]
     },
     {
+      "code": 47759571,
+      "file": "c47759571.lua",
+      "name": "Pitknight Earlie",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "8763bbfa3d8713cd29898f2a8e30c61bf6b9cab1c41822a7f5c23b0f01e44988",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
+      "code": 47810543,
+      "name": "Magical Musket - Crooked Crown",
+      "file": "c47810543.lua",
+      "kind": "fix",
+      "stockSha256": "88b6624990f30e33f52bb86c946541701c42626b2397f229b2a4c9d17cb461b9",
+      "classes": [],
+      "note": "The overlay restricts FFA4 column geometry to the exact own and across seats."
+    },
+    {
       "code": 48150362,
       "file": "c48150362.lua",
       "name": "Destiny HERO - Drawhand",
@@ -3505,6 +3613,15 @@
       "stockSha256": "29487b2a30b53a90d7e5a2ce9bbe7eccd25c77fd98ea0a3c75ee1cec196fa7b6"
     },
     {
+      "code": 56818742,
+      "file": "c56818742.lua",
+      "name": "Transcendosaurus Exaraptor",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "b49a91ca824e70d32e61d1d9410689bb668e3fafe1fc4b7d84d295df1671d896",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
       "code": 56830749,
       "file": "c56830749.lua",
       "name": "Share the Pain",
@@ -3623,6 +3740,15 @@
       "chooserClass": "CH-EACH",
       "stockSha256": "56d09211c1bf32d4ca6b981bb31ddabae4858936747f84d261dfe6881ac30137",
       "note": "The target stores the operation info for the activator when the group is not 2 cards (the core demands 2 for PLAYER_ALL); the operation Special Summons each target for the duelist whose Graveyard holds it (windows)."
+    },
+    {
+      "code": 58707981,
+      "file": "c58707981.lua",
+      "name": "Disablaster the Negation Fortress",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "abe3cc8ccc988ebbd2b4e4b4f1cb7bffb296db37aa79c3b8a66bc3f7d3181966",
+      "note": "FFA4: side-seat activations are outside the physical column."
     },
     {
       "code": 58720904,
@@ -3904,7 +4030,7 @@
     {
       "code": 62098216,
       "file": "c62098216.lua",
-      "name": "Evil\u2605Twins Ki-sikil & Lil-la",
+      "name": "Evil★Twins Ki-sikil & Lil-la",
       "kind": "chooser",
       "classes": [
         "CHOOSER"
@@ -4357,6 +4483,15 @@
       "seatTables": [
         "s.declared_types"
       ]
+    },
+    {
+      "code": 70709488,
+      "file": "c70709488.lua",
+      "name": "Shinobi Insect Hagakuremino",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "1e1b3381682262ec598467b852e9e8459159ea8f93bd2604e58920985089dad3",
+      "note": "FFA4: Link and column filters use only the real across seat."
     },
     {
       "code": 70914287,
@@ -4834,6 +4969,15 @@
       "stockSha256": "e216d9c5472d495c75aa60d9ffa834099683c559744d72e88594df621d5272aa"
     },
     {
+      "code": 77307161,
+      "file": "c77307161.lua",
+      "name": "Trickstar Bloom",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "cd57c6f92a185543ba7a4e47854b1a64293497167fbbacefff97386f2a140a03",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
       "code": 77462146,
       "file": "c77462146.lua",
       "name": "The Phantom Knights of Shadow Veil",
@@ -5053,6 +5197,15 @@
       ],
       "stockSha256": "9a8c4da3ced9fb531714ecad1a9fc256fd58cd4c3fcaffcf7dde44865341806a",
       "note": "Script fix (R1 target controller, R-COMMON-SEAT-STATE, lead decision 2026-10-01): \"your opponent gains 1000 LP\" reads the Lua value 1-tp, which at 3 or more seats is ONE opponent that the user chooses in a window (Choose an opponent), not the controller of the destroyed monster, so the user could give the 1000 LP to any opponent. The target and the operation now bind the value 1 to the controller of the target (aux.MPForEachController): the controller of the destroyed monster gains the LP, in Tag the team of that controller. Not part of R1 or R2 (a script fix)."
+    },
+    {
+      "code": 81965543,
+      "name": "Distrust Paranoia",
+      "file": "c81965543.lua",
+      "kind": "fix",
+      "stockSha256": "f132ecce34c9e9b0070e85167e01672f49bdc45419323846dabaa7e08fb654cd",
+      "classes": [],
+      "note": "The overlay restricts FFA4 column geometry to the exact own and across seats."
     },
     {
       "code": 82052602,
@@ -5453,6 +5606,15 @@
       "note": "The cost maximum (one detached material per kind of card of the opponent) is read in the window of the bound opponent, so the target never has more picks than options."
     },
     {
+      "code": 88086137,
+      "file": "c88086137.lua",
+      "name": "Broken Line",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "58ae8a5d50f16b72fc3f13eed069be570727423e7b3f377d382d03fdd925c653",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
       "code": 88406570,
       "file": "c88406570.lua",
       "name": "Gouki Destroy Ogre",
@@ -5824,6 +5986,15 @@
       "stockSha256": "dc0cfca2f59c7bd6b6adca735f4e58e7a8b7e6f1367569c1bde4ce0eb415c563"
     },
     {
+      "code": 93020401,
+      "file": "c93020401.lua",
+      "name": "Mekk-Knight Orange Sunset",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "553192518b6b67652a38036da22d3cb31f2fc5d3622ce6fc32643a5d96a3e756",
+      "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
+    },
+    {
       "code": 93053159,
       "file": "c93053159.lua",
       "name": "Alba System Dogmatikalamity",
@@ -5931,6 +6102,15 @@
       "note": "the check raises the event with a bit mask of the controller keys; the condition asks for any key except the own one (stock compared the value with 0, which is only the first seat at more than two seats)."
     },
     {
+      "code": 94365540,
+      "file": "c94365540.lua",
+      "name": "Tindangle Base Gardna",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "2e34643a09bf68c03e49a03875a559154a17fefdbfeceb13bd1a32ce8f3ac245",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
       "code": 94561645,
       "file": "c94561645.lua",
       "name": "Counter Gate",
@@ -5959,6 +6139,15 @@
       "r2Class": "EVENT-BITS",
       "stockSha256": "d63b0ffbda54bf4a889acc64d0e8f66c796eed5999494833f9042b4fb7908d96",
       "note": "the global check raises the event for the players 0 and 1 with the highest Level per controller; it raises it for every real seat with that seat as the event player."
+    },
+    {
+      "code": 94626871,
+      "file": "c94626871.lua",
+      "name": "Trickstar Black Catbat",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "2f2dd6a18374105c76a6e4ecbddb0f5b5b577a02df4e8ce50b0384f3f29c86dd",
+      "note": "FFA4: Link and column filters use only the real across seat."
     },
     {
       "code": 94641726,
@@ -6044,6 +6233,15 @@
       "note": "the end and win checks read the Final Countdown effects of one player and count them in t[0] and t[1] by the owner player (nil error for the owner seats 2 and 3); they read the effects of every living duelist once, count by the key of the owner (seat in FFA, team in Tag) and the best count wins (a tie is a draw)."
     },
     {
+      "code": 95372220,
+      "file": "c95372220.lua",
+      "name": "Flash Charge Dragon",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "8e5dd7281a1bf6c34f1f7a36858d60fe1eed8686eeeeb10907faa05cd0c77615",
+      "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
+    },
+    {
       "code": 95403418,
       "file": "c95403418.lua",
       "name": "Starduston",
@@ -6059,6 +6257,15 @@
         "descon"
       ],
       "stockSha256": "5bb7ac49251e64a76dc3c9b2fa2e25c52c892731c4ae070ad013741992739036"
+    },
+    {
+      "code": 95493471,
+      "file": "c95493471.lua",
+      "name": "Neo Super Quantal Mech King Blaster Magna",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "5a469f84521f6ece1890d5b7da7d71892d7bc87e43de9d1a71c127de6f80bf53",
+      "note": "FFA4: Link and column filters use only the real across seat."
     },
     {
       "code": 96148285,

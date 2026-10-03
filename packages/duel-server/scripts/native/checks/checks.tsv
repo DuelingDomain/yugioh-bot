@@ -64,6 +64,7 @@ tag-xyz-attach-review	tag-xyz-attach-review	-	ready	Tag: an effect can attach a 
 tag-grave-material-review	tag-grave-material-review	-	ready	Tag: extra Ritual and Fusion material effects include the partner Graveyard on both teams; FFA and n == 2 keep one seat (core patch 0065).
 tag-self-attack-review	tag-self-attack-review	-	ready	Tag: EFFECT_SELF_ATTACK permits attacks on own and partner monsters; the attacker stays excluded and EFFECT_ATTACK_ALL keeps its gate, with FFA and n == 2 controls (core patch 0066).
 hints-without-opponent-picks	hints-without-opponent-picks	-	ready	Duel.Hint recipients and unchanged scopes: 12 cases in FFA3, FFA4, Tag and stock two-seat duels; core patch 0067
+dead-across-zones	zones	dead-across	ready	FFA4 alive guard: a dead seat retains its EMZ card and used/disabled bits.
 rotate-control	rotate-control	-	ready	C7 atomic FFA rotation; full fields; invalid groups; stock Tag and two-seat guards
 declared-field-payments	declared-field-payments	-	ready	C3 field counts and saved payments
 bound-delayed-events	bound-delayed-events	-	ready	C4 saved opponent draw events

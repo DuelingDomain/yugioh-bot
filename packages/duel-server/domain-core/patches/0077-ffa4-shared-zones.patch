@@ -1,0 +1,614 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Release Check <release@localhost>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] A009 final route
+
+---
+diff --git a/card.cpp b/card.cpp
+index 88c81c9..a4dda72 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -1362,8 +1362,8 @@ uint32_t card::get_linked_zone(bool free) {
+ 		if(is_link_marker(LINK_MARKER_TOP, marker))
+ 			zones |= 1u << s;
+ 	}
+-	// More than two duelists: separate fields, nothing is mirrored. There is no high half (the zones of "the other field").
+-	if(pduel->game_field->n_duelists != 2)
++	// Only a living across field has a high half.
++	if(pduel->game_field->across_of(current.controler) == DUELIST_NONE)
+ 		zones &= 0xffff;
+ 	if(free) {
+ 		for(int i = 0; i < 8; ++i) {
+@@ -1376,14 +1376,14 @@ uint32_t card::get_linked_zone(bool free) {
+ 				zones &= ~(1u << (i + 8));
+ 			}
+ 		}
+-		if(pduel->game_field->n_duelists == 2) {
++		if(pduel->game_field->across_of(current.controler) != DUELIST_NONE) {
+ 			for(int i = 0; i < 8; ++i) {
+-				if(!pduel->game_field->is_location_useable(pduel->game_field->opponent_of(current.controler), LOCATION_MZONE, i)) {
++				if(!pduel->game_field->is_location_useable(pduel->game_field->across_of(current.controler), LOCATION_MZONE, i)) {
+ 					zones &= ~(1u << (i + 16));
+ 				}
+ 			}
+ 			for(int i = 0; i < 8; ++i) {
+-				if(!pduel->game_field->is_location_useable(pduel->game_field->opponent_of(current.controler), LOCATION_SZONE, i)) {
++				if(!pduel->game_field->is_location_useable(pduel->game_field->across_of(current.controler), LOCATION_SZONE, i)) {
+ 					zones &= ~(1u << (i + 24));
+ 				}
+ 			}
+@@ -1398,8 +1398,8 @@ void card::get_linked_cards(card_set* cset, uint32_t zones) {
+ 	int32_t p = current.controler;
+ 	uint32_t linked_zone = (zones) ? zones : get_linked_zone();
+ 	pduel->game_field->get_cards_in_zone(cset, linked_zone, p, LOCATION_ONFIELD);
+-	if(pduel->game_field->n_duelists == 2)
+-		pduel->game_field->get_cards_in_zone(cset, linked_zone >> 16, pduel->game_field->opponent_of(p), LOCATION_ONFIELD);
++	if(pduel->game_field->across_of(current.controler) != DUELIST_NONE)
++		pduel->game_field->get_cards_in_zone(cset, linked_zone >> 16, pduel->game_field->across_of(p), LOCATION_ONFIELD);
+ 	for(auto it = cset->begin(); it != cset->end();) {
+ 		if((*it)->current.location == LOCATION_SZONE && !((*it)->get_type() & TYPE_LINK)) {
+ 			it = cset->erase(it);
+@@ -1432,8 +1432,8 @@ void card::get_mutual_linked_cards(card_set* cset) {
+ 	int32_t p = current.controler;
+ 	uint32_t mutual_linked_zone = get_mutual_linked_zone();
+ 	pduel->game_field->get_cards_in_zone(cset, mutual_linked_zone, p, LOCATION_ONFIELD);
+-	if(pduel->game_field->n_duelists == 2)
+-		pduel->game_field->get_cards_in_zone(cset, mutual_linked_zone >> 16, pduel->game_field->opponent_of(p), LOCATION_ONFIELD);
++	if(pduel->game_field->across_of(current.controler) != DUELIST_NONE)
++		pduel->game_field->get_cards_in_zone(cset, mutual_linked_zone >> 16, pduel->game_field->across_of(p), LOCATION_ONFIELD);
+ }
+ int32_t card::is_link_state() {
+ 	if(!(current.location & LOCATION_ONFIELD))
+@@ -1470,8 +1470,9 @@ int32_t card::is_extra_link_state() {
+ 	uint32_t linked_zone = get_mutual_linked_zone();
+ 	const auto& list_mzone0 = pduel->game_field->player[current.controler].list_mzone;
+ 	const auto& list_szone0 = pduel->game_field->player[current.controler].list_szone;
+-	// More than two duelists: no mirrored field. linked_zone has no high half then, so list_mzone1 and list_szone1 are never read.
+-	const uint8_t other_field = (pduel->game_field->n_duelists == 2) ? pduel->game_field->opponent_of(current.controler) : current.controler;
++	// With no across field the high half is empty, so these fallback lists are not read.
++	const uint8_t across = pduel->game_field->across_of(current.controler);
++	const uint8_t other_field = across != DUELIST_NONE ? across : current.controler;
+ 	const auto& list_mzone1 = pduel->game_field->player[other_field].list_mzone;
+ 	const auto& list_szone1 = pduel->game_field->player[other_field].list_szone;
+ 	while(true) {
+@@ -1536,8 +1537,8 @@ uint32_t card::get_column_zone(int32_t loc1, int32_t left, int32_t right) {
+ 		for (int32_t s = seq1; s <= seq2; ++s)
+ 			zones |= (1u << (8 + s)) | (1u << (16 + 8 + (4 - s)));
+ 	}
+-	// More than two duelists: separate fields, so only the columns of the own field.
+-	if(pduel->game_field->n_duelists != 2)
++	// Separate fields keep only their own columns.
++	if(pduel->game_field->across_of(current.controler) == DUELIST_NONE)
+ 		zones &= 0xffff;
+ 	zones &= ~((1 << current.sequence) << ((loc2 == LOCATION_SZONE) ? 8 : 0));
+ 	return zones;
+@@ -1549,8 +1550,8 @@ void card::get_column_cards(card_set* cset, int32_t left, int32_t right) {
+ 	int32_t p = current.controler;
+ 	uint32_t column_zone = get_column_zone(LOCATION_ONFIELD, left, right);
+ 	pduel->game_field->get_cards_in_zone(cset, column_zone, p, LOCATION_ONFIELD);
+-	if(pduel->game_field->n_duelists == 2)
+-		pduel->game_field->get_cards_in_zone(cset, column_zone >> 16, pduel->game_field->opponent_of(p), LOCATION_ONFIELD);
++	if(pduel->game_field->across_of(current.controler) != DUELIST_NONE)
++		pduel->game_field->get_cards_in_zone(cset, column_zone >> 16, pduel->game_field->across_of(p), LOCATION_ONFIELD);
+ }
+ int32_t card::is_all_column() {
+ 	if(!(current.location & LOCATION_ONFIELD))
+diff --git a/effect.cpp b/effect.cpp
+index 75f77c2..1d7d036 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -838,6 +838,7 @@ uint8_t effect::get_client_mode() const {
+ }
+ lua_Integer effect::get_value(uint32_t extraargs) {
+ 	if(is_flag(EFFECT_FLAG_FUNC_VALUE)) {
++		field::zone_mask_scope zone_scope(pduel->game_field, this);
+ 		pduel->lua->add_param<LuaParam::EFFECT>(this, true);
+ 		lua_Integer res = pduel->lua->get_function_value(value, 1 + extraargs);
+ 		return res;
+diff --git a/effect.h b/effect.h
+index c4fafc5..afd28a3 100644
+--- a/effect.h
++++ b/effect.h
+@@ -43,6 +43,12 @@ public:
+ 	// n_duelists > 2, Tag only: a player flag effect (Duel.RegisterFlagEffect) that counts for the whole team of
+ 	// its owner, not for the owner seat alone.
+ 	bool team_key{ false };
++	// FFA4 masks: registration selections persist. Operation selections and
++	// geometry belong to one evaluation; cached numeric values keep that origin.
++	bool disfield_selected{ false };
++	uint8_t disfield_operation_opp{ DUELIST_NONE };
++	bool disfield_geometry{ false };
++	uint8_t disfield_geometry_opp{ DUELIST_NONE };
+ 	uint16_t type{};
+ 	uint16_t copy_id{};
+ 	uint16_t range{};
+diff --git a/field.cpp b/field.cpp
+index 13e01f5..c549045 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -1029,8 +1029,8 @@ int32_t field::is_location_useable(uint32_t playerid, uint32_t location, uint32_
+ 	if (location == LOCATION_MZONE) {
+ 		if(flag & (0x1u << sequence))
+ 			return FALSE;
+-		if(sequence >= 5 && n_duelists == 2) {
+-			uint32_t oppo = player[opponent_of(playerid)].disabled_location | player[opponent_of(playerid)].used_location;
++		if(const auto across = across_of(playerid); sequence >= 5 && across != DUELIST_NONE) {
++			uint32_t oppo = player[across].disabled_location | player[across].used_location;
+ 			if(oppo & (0x1u << (11 - sequence)))
+ 				return FALSE;
+ 		}
+@@ -1247,6 +1247,45 @@ uint32_t field::get_rule_zone_fromex(int32_t playerid, card* pcard) {
+ 		return 0x1f;
+ 	}
+ }
++field::zone_mask_scope::zone_mask_scope(field* field, effect* peffect, bool fresh)
++	: f(field), previous(field->evaluating_zone_mask) {
++	if(f->n_duelists == 4 && f->n_teams == f->n_duelists
++		&& (peffect->code == EFFECT_DISABLE_FIELD || peffect->code == EFFECT_BECOME_LINKED_ZONE)) {
++		f->evaluating_zone_mask = peffect;
++		if(fresh) {
++			peffect->disfield_geometry = false;
++			peffect->disfield_geometry_opp = DUELIST_NONE;
++			peffect->disfield_operation_opp = DUELIST_NONE;
++		}
++	}
++}
++field::zone_mask_scope::~zone_mask_scope() {
++	f->evaluating_zone_mask = previous;
++}
++uint8_t field::zone_opponent(effect* peffect) const {
++	const auto handler = peffect->get_handler_player();
++	if(!is_duelist(handler))
++		return DUELIST_NONE;
++	if(n_duelists == 4 && n_teams == n_duelists) {
++		if(peffect->disfield_selected)
++			return peffect->disfield_opp;
++		if(is_duelist(peffect->disfield_operation_opp))
++			return peffect->disfield_operation_opp;
++		if(peffect->disfield_geometry)
++			return peffect->disfield_geometry_opp;
++		if(is_duelist(peffect->disfield_opp))
++			return peffect->disfield_opp;
++		return across_of(handler);
++	}
++	if(is_duelist(peffect->disfield_opp))
++		return peffect->disfield_opp;
++	for(uint8_t i = 1; i < n_duelists; ++i) {
++		const auto q = static_cast<uint8_t>((handler + i) % n_duelists);
++		if(is_alive(q) && !same_team(handler, q))
++			return q;
++	}
++	return DUELIST_NONE;
++}
+ uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linked) {
+ 	uint32_t zones = 0;
+ 	for(auto& pcard : player[playerid].list_mzone) {
+@@ -1257,13 +1296,13 @@ uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linke
+ 		if(pcard)
+ 			zones |= pcard->get_linked_zone(free);
+ 	}
+-	if(n_duelists == 2) {
++	if(const auto across = across_of(playerid); across != DUELIST_NONE) {
+ 		uint32_t oppzones = 0;
+-		for(auto& pcard : player[opponent_of(playerid)].list_mzone) {
++		for(auto& pcard : player[across].list_mzone) {
+ 			if(pcard)
+ 				oppzones |= pcard->get_linked_zone(free);
+ 		}
+-		for(auto& pcard : player[opponent_of(playerid)].list_szone) {
++		for(auto& pcard : player[across].list_szone) {
+ 			if(pcard)
+ 				oppzones |= pcard->get_linked_zone(free);
+ 		}
+@@ -1286,7 +1325,8 @@ uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linke
+ 					const uint8_t handler = peff->get_handler_player();
+ 					if(handler == playerid)
+ 						zones |= value & 0x7f;
+-					else if(is_duelist(handler) && next_in_turn_order(handler) == playerid)
++					else if(is_duelist(handler) && ((n_duelists == 4 && n_teams == n_duelists)
++						? zone_opponent(peff) : next_in_turn_order(handler)) == playerid)
+ 						zones |= (value >> 16) & 0x7f;
+ 				}
+ 			}
+@@ -1296,8 +1336,8 @@ uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linke
+ }
+ void field::get_linked_cards(uint8_t self, uint8_t location1, uint8_t location2, card_set* cset) {
+ 	get_cards_in_zone(cset, get_linked_zone(self), self, location1);
+-	if(n_duelists == 2)
+-		get_cards_in_zone(cset, get_linked_zone(opponent_of(self)), opponent_of(self), location2);
++	if(const auto across = across_of(self); across != DUELIST_NONE)
++		get_cards_in_zone(cset, get_linked_zone(across), across, location2);
+ }
+ int32_t field::check_extra_link(int32_t playerid, card* pcard, int32_t sequence) {
+ 	if(!pcard)
+diff --git a/field.h b/field.h
+index dc7b117..b804f12 100644
+--- a/field.h
++++ b/field.h
+@@ -430,6 +430,16 @@ struct processor {
+ class field {
+ public:
+ 	duel* pduel;
++	// Only the active value/operation callback can annotate a geometry mask.
++	effect* evaluating_zone_mask{ nullptr };
++	struct zone_mask_scope {
++		field* f;
++		effect* previous;
++		zone_mask_scope(field* f, effect* peffect, bool fresh = true);
++		~zone_mask_scope();
++		zone_mask_scope(const zone_mask_scope&) = delete;
++		zone_mask_scope& operator=(const zone_mask_scope&) = delete;
++	};
+ 	// Indexed by absolute duelist id. Only [0, n_duelists) are in play. Never loop over the whole array.
+ 	std::array<player_info, MAX_DUELISTS> player;
+ 	uint8_t n_duelists{ 2 };
+@@ -498,6 +508,20 @@ public:
+ 	bool is_skipped_seat(int64_t p) const {
+ 		return n_duelists > 2 && !is_alive(p);
+ 	}
++	// The physical opposite field. FFA3 and Tag have separate fields.
++	uint8_t across_of(uint8_t p) const {
++		if(n_duelists == 2)
++			return opponent_of(p);
++		if(n_duelists == 4 && n_teams == n_duelists && is_alive(p)) {
++			const auto q = static_cast<uint8_t>((p + 2) % 4);
++			if(is_alive(q))
++				return q;
++		}
++		return DUELIST_NONE;
++	}
++	// The high half of a zone effect: explicit selection, geometry, bound seat,
++	// then the physical across field (FFA4) or the existing separate-field fallback.
++	uint8_t zone_opponent(effect* peffect) const;
+ 	uint8_t team_of(uint8_t p) const {
+ 		return player[p].team;
+ 	}
+diff --git a/fold_lib.h b/fold_lib.h
+index 6ad9d2e..edb6114 100644
+--- a/fold_lib.h
++++ b/fold_lib.h
+@@ -11,6 +11,7 @@
+ #include <cstdint>
+ #include <utility> //std::swap
+ #include "common.h"
++#include "card.h"
+ #include "duel.h"
+ #include "effect.h"
+ #include "field.h"
+@@ -101,11 +102,14 @@ inline void note_zone_prompt(duel* pduel, uint8_t chooser, uint8_t opp) {
+ // an opponent of the own team is not recorded.
+ inline void record_disfield_opp(duel* pduel, effect* peffect, uint8_t handler_player) {
+ 	const auto* s = active(pduel);
+-	if(!s || s->P != handler_player || peffect->code != EFFECT_DISABLE_FIELD)
++	if(!s || s->P != handler_player || (peffect->code != EFFECT_DISABLE_FIELD && peffect->code != EFFECT_BECOME_LINKED_ZONE))
+ 		return;
+ 	const auto& f = *pduel->game_field;
++	if(peffect->code == EFFECT_BECOME_LINKED_ZONE && (f.n_duelists != 4 || f.n_teams != f.n_duelists))
++		return;
+ 	auto usable = [&](uint8_t q) { return f.is_duelist(q) && !f.same_team(handler_player, q); };
+ 	uint8_t opp = zone_prompt_slot(pduel);
++	peffect->disfield_selected = usable(opp);
+ 	if(!usable(opp))
+ 		opp = pduel->lua->scope_bound_opp();
+ 	peffect->disfield_opp = usable(opp) ? opp : DUELIST_NONE;
+@@ -182,6 +186,79 @@ inline bool cp_is_controler(duel* pduel, lua_State* L, int idx, uint8_t cp, uint
+ 	return matches(pduel, cp, controler);
+ }
+ 
++// A mask's high half names one across seat, never a side seat. Reads bind that
++// seat without a prompt when no opponent is bound; an existing bind wins.
++// Duel mask queries retain their low-half query semantics. Their high half can
++// name only the acting seat's physical across field, with that seat bound.
++inline uint32_t player_zone_mask(duel* pduel, uint8_t viewer, uint32_t zone) {
++	const auto& f = *pduel->game_field;
++	const auto* s = active(pduel);
++	if(f.n_duelists != 4 || f.n_teams != f.n_duelists || !s || !(zone & 0xffff0000u))
++		return zone;
++	const auto across = f.across_of(s->P);
++	if(viewer == s->P) {
++		pduel->lua->scope_mark_touched();
++		if(across != DUELIST_NONE && pduel->lua->scope_bind(across)
++				&& pduel->lua->scope_bound_opp() == across)
++			return zone;
++	} else if(viewer == across && pduel->lua->scope_bound_opp() == across)
++		return zone;
++	return zone & 0xffffu;
++}
++
++inline uint32_t card_zone_mask(duel* pduel, lua_State* L, int idx, uint8_t cp, card* pcard, uint32_t zone) {
++	const auto& f = *pduel->game_field;
++	const auto controller = pcard->current.controler;
++	const auto across = f.across_of(controller);
++	bool own = cp_is_controler(pduel, L, idx, cp, controller);
++	bool mirrored = false;
++	if(!lua_isnoneornil(L, idx) && across != DUELIST_NONE) {
++		if(const auto* s = active(pduel)) {
++			if(is_own(f, s->P, cp))
++				mirrored = s->P == across;
++			else if(cp <= 1 && s->P == controller) {
++				pduel->lua->scope_mark_touched();
++				mirrored = pduel->lua->scope_bind(across)
++					&& pduel->lua->scope_bound_opp() == across;
++			}
++		} else
++			mirrored = cp == across;
++	}
++	// Own-view masks expose the same high half and must obey the same binding.
++	// Reads of foreign cards do not change the acting player's binding.
++	if(f.n_duelists == 4 && f.n_teams == f.n_duelists && own && (zone & 0xffff0000u)) {
++		if(const auto* s = active(pduel); s && s->P == controller) {
++			pduel->lua->scope_mark_touched();
++			if(across == DUELIST_NONE || !pduel->lua->scope_bind(across)
++				|| pduel->lua->scope_bound_opp() != across)
++				zone &= 0xffffu;
++		}
++	}
++	if(mirrored) {
++		zone = ((zone & 0xffff) << 16) | (zone >> 16);
++		if(f.n_duelists == 4 && f.n_teams == f.n_duelists) {
++			if(const auto* s = active(pduel); s && s->P == across && (zone & 0xffff0000u)) {
++				pduel->lua->scope_mark_touched();
++				if(!pduel->lua->scope_bind(controller) || pduel->lua->scope_bound_opp() != controller)
++					zone &= 0xffffu;
++			}
++		}
++		return zone;
++	}
++	if(!own)
++		return 0;
++	// A dynamic disable/linked-zone callback identifies the origin only when
++	// it reads its own handler's geometry. No general last-query state is kept.
++	if(f.n_duelists == 4 && f.n_teams == f.n_duelists) {
++		if(const auto* s = active(pduel); s && s->eff && f.evaluating_zone_mask == s->eff && s->eff->get_handler() == pcard
++			&& (s->eff->code == EFFECT_DISABLE_FIELD || s->eff->code == EFFECT_BECOME_LINKED_ZONE)) {
++			s->eff->disfield_geometry = true;
++			s->eff->disfield_geometry_opp = across;
++		}
++	}
++	return zone;
++}
++
+ // (player, location1 / self, location2 / oppo): the seat of the field side, with the two arguments
+ // exchanged when the Lua value is "1". INVALID when the value names no side.
+ template<typename T>
+diff --git a/libcard.cpp b/libcard.cpp
+index 1b161d8..994be19 100644
+--- a/libcard.cpp
++++ b/libcard.cpp
+@@ -234,7 +234,7 @@ LUA_FUNCTION(GetLinkedZone) {
+ 	uint32_t zone = self->get_linked_zone();
+ 	auto cp = lua_get<uint8_t>(L, 2, self->current.controler);
+ 	if(pduel->game_field->n_duelists != 2)
+-		lua_pushinteger(L, fold::cp_is_controler(pduel, L, 2, cp, self->current.controler) ? zone : 0u); // separate fields: no zones in the field of another duelist
++		lua_pushinteger(L, fold::card_zone_mask(pduel, L, 2, cp, self, zone)); // controller or across field, without a player prompt
+ 	else if(cp == pduel->game_field->opponent_of(self->current.controler))
+ 		lua_pushinteger(L, (((zone & 0xffff) << 16) | (zone >> 16)));
+ 	else
+@@ -245,7 +245,7 @@ LUA_FUNCTION(GetFreeLinkedZone) {
+ 	uint32_t zone = self->get_linked_zone(true);
+ 	auto cp = lua_get<uint8_t>(L, 2, self->current.controler);
+ 	if(pduel->game_field->n_duelists != 2)
+-		lua_pushinteger(L, fold::cp_is_controler(pduel, L, 2, cp, self->current.controler) ? zone : 0u); // separate fields: no zones in the field of another duelist
++		lua_pushinteger(L, fold::card_zone_mask(pduel, L, 2, cp, self, zone)); // controller or across field, without a player prompt
+ 	else if(cp == pduel->game_field->opponent_of(self->current.controler))
+ 		lua_pushinteger(L, (((zone & 0xffff) << 16) | (zone >> 16)));
+ 	else
+@@ -269,7 +269,7 @@ LUA_FUNCTION(GetMutualLinkedZone) {
+ 	uint32_t zone = self->get_mutual_linked_zone();
+ 	auto cp = lua_get<uint8_t>(L, 2, self->current.controler);
+ 	if(pduel->game_field->n_duelists != 2)
+-		lua_pushinteger(L, fold::cp_is_controler(pduel, L, 2, cp, self->current.controler) ? zone : 0u); // separate fields: no zones in the field of another duelist
++		lua_pushinteger(L, fold::card_zone_mask(pduel, L, 2, cp, self, zone)); // controller or across field, without a player prompt
+ 	else if(cp == pduel->game_field->opponent_of(self->current.controler))
+ 		lua_pushinteger(L, (((zone & 0xffff) << 16) | (zone >> 16)));
+ 	else
+@@ -309,7 +309,7 @@ LUA_FUNCTION(GetColumnZone) {
+ 	auto cp = lua_get<uint8_t>(L, 5, self->current.controler);
+ 	uint32_t zone = self->get_column_zone(loc, left, right);
+ 	if(pduel->game_field->n_duelists != 2)
+-		lua_pushinteger(L, fold::cp_is_controler(pduel, L, 5, cp, self->current.controler) ? zone : 0u); // separate fields: no zones in the field of another duelist
++		lua_pushinteger(L, fold::card_zone_mask(pduel, L, 5, cp, self, zone)); // controller or across field, without a player prompt
+ 	else if(cp == pduel->game_field->opponent_of(self->current.controler))
+ 		lua_pushinteger(L, (((zone & 0xffff) << 16) | (zone >> 16)));
+ 	else
+@@ -1670,10 +1670,41 @@ LUA_FUNCTION(IsControler) {
+ }
+ LUA_FUNCTION(IsPreviousControler) {
+ 	check_param_count(L, 2);
++	// C6 Card overload: compare exact seats for a departed Link event card.
++	// Player arguments and all other formats keep the stock folded predicate.
++	const auto& f = *pduel->game_field;
++	if(f.n_duelists == 4 && f.n_teams == f.n_duelists) {
++		if(const auto* origin = lua_get<card*>(L, 2)) {
++			lua_pushboolean(L, self->previous.controler == origin->current.controler);
++			return 1;
++		}
++	}
+ 	auto con = lua_get<uint8_t>(L, 2);
+ 	lua_pushboolean(L, fold::matches(pduel, con, self->previous.controler));
+ 	return 1;
+ }
++// Geometry tests compare real seats, so Lua's folded opponent value cannot
++// make an unrelated seat appear in the across field. No player prompt or bind.
++static uint8_t geometry_player(duel* pduel, uint8_t cp) {
++	const auto& f = *pduel->game_field;
++	if(const auto* s = fold::active(pduel))
++		return fold::is_own(f, s->P, cp) ? s->P : pduel->lua->scope_bound_opp();
++	return cp;
++}
++LUA_FUNCTION(IsAcross) {
++	check_param_count(L, 2);
++	const auto& f = *pduel->game_field;
++	const auto cp = geometry_player(pduel, lua_get<uint8_t>(L, 2));
++	lua_pushboolean(L, f.is_duelist(cp) && f.across_of(cp) != DUELIST_NONE && self->current.controler == f.across_of(cp));
++	return 1;
++}
++LUA_FUNCTION(IsPreviousAcross) {
++	check_param_count(L, 2);
++	const auto& f = *pduel->game_field;
++	const auto cp = geometry_player(pduel, lua_get<uint8_t>(L, 2));
++	lua_pushboolean(L, f.is_duelist(cp) && f.across_of(cp) != DUELIST_NONE && self->previous.controler == f.across_of(cp));
++	return 1;
++}
+ LUA_FUNCTION(IsOnField) {
+ 	if((self->current.location & LOCATION_ONFIELD)
+ 			&& !self->get_status(STATUS_SUMMONING | STATUS_SUMMON_DISABLED | STATUS_ACTIVATE_DISABLED | STATUS_SPSUMMON_STEP))
+diff --git a/libduel.cpp b/libduel.cpp
+index 9c296e2..493e1c1 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -2231,7 +2231,7 @@ LUA_STATIC_FUNCTION(GetLinkedZone) {
+ 		return fold::gone_int(L, pduel, lua_get<uint8_t>(L, 1));
+ 	uint32_t zones = 0;
+ 	for(uint8_t i = 0; i < count; ++i)
+-		zones |= pduel->game_field->get_linked_zone(who[i]);
++		zones |= fold::player_zone_mask(pduel, who[i], pduel->game_field->get_linked_zone(who[i]));
+ 	lua_pushinteger(L, zones);
+ 	return 1;
+ }
+@@ -2244,7 +2244,7 @@ LUA_STATIC_FUNCTION(GetFreeLinkedZone) {
+ 		return fold::gone_int(L, pduel, lua_get<uint8_t>(L, 1));
+ 	uint32_t zones = 0;
+ 	for(uint8_t i = 0; i < count; ++i)
+-		zones |= pduel->game_field->get_linked_zone(who[i], true);
++		zones |= fold::player_zone_mask(pduel, who[i], pduel->game_field->get_linked_zone(who[i], true));
+ 	lua_pushinteger(L, zones);
+ 	return 1;
+ }
+@@ -4826,6 +4826,35 @@ LUA_STATIC_FUNCTION(MPMode) {
+ 	lua_pushinteger(L, f.n_duelists <= 2 ? 0 : (f.n_teams == f.n_duelists ? 1 : 2));
+ 	return 1;
+ }
++// The absolute seat at activation remains valid after control changes. No fold or bind.
++LUA_STATIC_FUNCTION(MPChainSeat) {
++	check_param_count(L, 1);
++	const auto* ch = pduel->game_field->get_chain(lua_get<uint8_t>(L, 1));
++	lua_pushinteger(L, ch ? ch->triggering_controler : -1);
++	return 1;
++}
++// Read the temporary seat override so a geometry helper can restore it exactly.
++LUA_STATIC_FUNCTION(MPSeatBinding) {
++	const auto* s = fold::active(pduel);
++	lua_pushinteger(L, s ? s->seat_bind : DUELIST_NONE);
++	return 1;
++}
++// Report the shared-zone format even after a loss.
++LUA_STATIC_FUNCTION(MPSharedZones) {
++	const auto& f = *pduel->game_field;
++	lua_pushboolean(L, f.n_duelists == 4 && f.n_teams == f.n_duelists);
++	return 1;
++}
++// Absolute physical across seat, or -1. The argument is a real seat (MPSeatOf),
++// not a folded Lua player.
++LUA_STATIC_FUNCTION(MPAcrossSeat) {
++	check_param_count(L, 1);
++	const auto& f = *pduel->game_field;
++	const auto cp = lua_get<int64_t>(L, 1);
++	const auto across = f.is_duelist(cp) ? f.across_of(static_cast<uint8_t>(cp)) : DUELIST_NONE;
++	lua_pushinteger(L, across == DUELIST_NONE ? -1 : across);
++	return 1;
++}
+ // Duel.MPBound(): true when an opponent is bound in this scope or chain link.
+ LUA_STATIC_FUNCTION(MPBound) {
+ 	const auto* s = f7_scope(pduel);
+diff --git a/processor.cpp b/processor.cpp
+index 2fcbd85..56bae6e 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -129,6 +129,7 @@ bool field::process(Processors::ExecuteOperation& arg) {
+ 	core.reason_player = triggering_player;
+ 	uint32_t count = static_cast<uint32_t>(pduel->lua->params.size());
+ 	lua_Integer yield_value = 0;
++	zone_mask_scope zone_scope(this, triggering_effect, step == 0);
+ 	int32_t result = pduel->lua->call_coroutine(triggering_effect->operation, count, &yield_value, step, triggering_player, triggering_effect, true);
+ 	returns.set<int32_t>(0, static_cast<int32_t>(yield_value));
+ 	if (result != COROUTINE_YIELD) {
+@@ -4940,14 +4941,11 @@ void field::adjust_all() {
+ 	core.readjust_map.clear();
+ 	emplace_process<Processors::Adjust>();
+ }
+-// n_duelists > 2 only. An EFFECT_DISABLE_FIELD value is relative to the handler: the low 16 bits are the
+-// handler's own zones, the high 16 bits are the zones of the bound opponent (the next duelist in turn order).
+-// The Extra Monster Zones are not mirrored: every duelist has its own.
+-// The bound opponent is the one that the zone prompt of the registering link used (effect::disfield_opp, see
+-// fold::record_disfield_opp) or that the zone prompt of the operation used (Duel.SelectDisableField,
+-// Duel.SelectFieldZone). A recorded opponent that was eliminated since leaves the high half empty (F5: no fallback
+-// to another opponent). Without a record it is the next living opponent in turn order, as the zone prompts use
+-// without a binding.
++// n > 2: the low half names the handler's zones. zone_opponent chooses the
++// high half: explicit selection, current geometry, bound opponent, then the
++// format default. FFA4 defaults to the physical across seat and mirrors EMZs.
++// FFA3 and Tag keep their separate fields and next-living-opponent fallback.
++// A saved dead opponent never redirects the high half to another seat.
+ static void add_disabled_zones_n(field* f, uint8_t handler, uint32_t value, uint8_t bound = DUELIST_NONE) {
+ 	if(!f->is_duelist(handler))
+ 		return;
+@@ -4956,7 +4954,7 @@ static void add_disabled_zones_n(field* f, uint8_t handler, uint32_t value, uint
+ 	if(f->is_duelist(bound) && !f->same_team(handler, bound)) {
+ 		if(f->is_alive(bound))
+ 			opp = bound;
+-	} else {
++	} else if(f->n_duelists != 4 || f->n_teams != f->n_duelists) {
+ 		for(uint8_t i = 1; i < f->n_duelists && opp == DUELIST_NONE; ++i) {
+ 			const auto q = static_cast<uint8_t>((handler + i) % f->n_duelists);
+ 			if(f->is_alive(q) && !f->same_team(handler, q))
+@@ -4996,7 +4994,7 @@ void field::refresh_location_info_instant() {
+ 			player[0].disabled_location |= value & 0xff7f;
+ 			player[1].disabled_location |= (value >> 16) & 0xff7f;
+ 		} else
+-			add_disabled_zones_n(this, peff->get_handler_player(), value, peff->disfield_opp);
++			add_disabled_zones_n(this, peff->get_handler_player(), value, zone_opponent(peff));
+ 	}
+ 	eset.clear();
+ 	filter_field_effect(EFFECT_USE_EXTRA_MZONE, &eset);
+@@ -5016,6 +5014,13 @@ void field::refresh_location_info_instant() {
+ 		player[0].disabled_location |= (((player[1].disabled_location >> 5) & 1) << 6) | (((player[1].disabled_location >> 6) & 1) << 5);
+ 		player[1].disabled_location |= (((player[0].disabled_location >> 5) & 1) << 6) | (((player[0].disabled_location >> 6) & 1) << 5);
+ 	}
++	if(n_duelists == 4 && n_teams == n_duelists) {
++		for(uint8_t p = 0; p < n_duelists; ++p) {
++			if(const auto across = across_of(p); across != DUELIST_NONE)
++				player[p].disabled_location |= (((player[across].disabled_location >> 5) & 1) << 6)
++					| (((player[across].disabled_location >> 6) & 1) << 5);
++		}
++	}
+ 	uint32_t dis2 = player[0].disabled_location | (player[1].disabled_location << 16);
+ 	if(n_duelists == 2) {
+ 		if(dis1 != dis2) {
+@@ -5049,7 +5054,7 @@ bool field::process(Processors::RefreshLoc& arg) {
+ 					player[0].disabled_location |= value & 0xff7f;
+ 					player[1].disabled_location |= (value >> 16) & 0xff7f;
+ 				} else
+-					add_disabled_zones_n(this, peff->get_handler_player(), value, peff->disfield_opp);
++					add_disabled_zones_n(this, peff->get_handler_player(), value, zone_opponent(peff));
+ 			} else
+ 				core.disfield_effects.push_back(peff);
+ 		}
+@@ -5100,9 +5105,11 @@ bool field::process(Processors::RefreshLoc& arg) {
+ 			// The value stays relative to the handler: own zones low, the bound opponent high.
+ 			arg.current_disable_field_effect->value = disabled_locations;
+ 			// the value is kept, so the opponent of the prompt is kept with it
+-			if(arg.current_disable_field_effect->disfield_opp == DUELIST_NONE)
++			if(n_duelists == 4 && n_teams == n_duelists)
++				arg.current_disable_field_effect->disfield_operation_opp = core.zone_prompt_opp;
++			else if(arg.current_disable_field_effect->disfield_opp == DUELIST_NONE)
+ 				arg.current_disable_field_effect->disfield_opp = core.zone_prompt_opp;
+-			add_disabled_zones_n(this, arg.current_disable_field_effect->get_handler_player(), disabled_locations, arg.current_disable_field_effect->disfield_opp);
++			add_disabled_zones_n(this, arg.current_disable_field_effect->get_handler_player(), disabled_locations, zone_opponent(arg.current_disable_field_effect));
+ 		} else if(arg.current_disable_field_effect->get_handler_player() == 0) {
+ 			arg.current_disable_field_effect->value = disabled_locations;
+ 			player[0].disabled_location |= disabled_locations & 0xff7f;
+@@ -5195,6 +5202,13 @@ bool field::process(Processors::RefreshLoc& arg) {
+ 		return FALSE;
+ 	}
+ 	case 7: {
++		if(n_duelists == 4 && n_teams == n_duelists) {
++			for(uint8_t p = 0; p < n_duelists; ++p) {
++				if(const auto across = across_of(p); across != DUELIST_NONE)
++					player[p].disabled_location |= (((player[across].disabled_location >> 5) & 1) << 6)
++						| (((player[across].disabled_location >> 6) & 1) << 5);
++			}
++		}
+ 		if(n_duelists > 2) {
+ 			send_field_disabled_n(this, arg.previously_disabled_n);
+ 			return TRUE;
