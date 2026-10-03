@@ -216,6 +216,59 @@ describe("a deck made by hand for a draft", () => {
   });
 });
 
+describe("which finished drafts the backfill covers", () => {
+  function oldDrafts() {
+    const db = new Database(":memory:");
+    migrate(db);
+    seed(db);
+    const alice = addPlayer(db, "u1", "Alice");
+    const bob = addPlayer(db, "u2", "Bob");
+    const old = playDraft(db, [alice, bob], "u1").draftId;
+    const oldWithTournament = playDraft(db, [alice, bob], "u1").draftId;
+    const recent = playDraft(db, [alice, bob], "u1").draftId;
+    const tournament = createTournamentService(db).create("g1", "Cup", "round_robin", "u1");
+    db.prepare("update drafts set tournament_id = ? where id = ?").run(tournament.id, oldWithTournament);
+    const longAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    db.prepare("update drafts set ended_at = ? where id in (?, ?)").run(longAgo, old, oldWithTournament);
+    // Every draft finished before decks were saved.
+    db.prepare("delete from saved_decks").run();
+    db.prepare("update draft_players set deck_saved_at = null").run();
+    return { db, old, oldWithTournament, recent };
+  }
+
+  it("saves a recent draft and an older draft that has a tournament, not an older draft without one", () => {
+    const { db, old, oldWithTournament, recent } = oldDrafts();
+    expect(createDraftDeckService(db).ensureForUser("g1", "u1")).toEqual([oldWithTournament, recent].sort((a, b) => a - b));
+    const decks = createSavedDeckService(db);
+    expect(decks.findByDraft("g1", "u1", old)).toBeNull();
+    expect(decks.findByDraft("g1", "u1", oldWithTournament)).not.toBeNull();
+    expect(decks.findByDraft("g1", "u1", recent)).not.toBeNull();
+    db.close();
+  });
+
+  it("auto-registers the deck of an older draft that has a live tournament", () => {
+    const { db, oldWithTournament } = oldDrafts();
+    const tournamentId = (db.prepare("select tournament_id from drafts where id = ?").get(oldWithTournament) as { tournament_id: number }).tournament_id;
+    const alice = (db.prepare("select id from players where discord_user_id = 'u1'").get() as { id: number }).id;
+    db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)").run(tournamentId, alice);
+    createDraftDeckService(db).ensureForUser("g1", "u1");
+    expect(createTournamentDuelService(db).registration(tournamentId, alice)?.deck.main.length).toBeGreaterThan(0);
+    db.close();
+  });
+
+  it("the migration marks the rows of older drafts without a tournament as saved, and no others", () => {
+    const { db, old, oldWithTournament, recent } = oldDrafts();
+    migrate(db);
+    const savedAt = (draftId: number) =>
+      (db.prepare("select count(*) n from draft_players where draft_id = ? and deck_saved_at is not null").get(draftId) as { n: number }).n;
+    expect(savedAt(old)).toBe(2);
+    expect(savedAt(oldWithTournament)).toBe(0);
+    expect(savedAt(recent)).toBe(0);
+    expect(createDraftDeckService(db).ensureForUser("g1", "u1")).not.toContain(old);
+    db.close();
+  });
+});
+
 describe("a failure while saving one player's deck", () => {
   it("keeps the decks of the other players", () => {
     const db = new Database(":memory:");

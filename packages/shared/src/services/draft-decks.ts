@@ -12,6 +12,12 @@ export const DRAFT_DECK_SIDE_MAX = 15;
 /** The size a Main Deck is trimmed to; a bigger auto deck still plays. */
 export const DRAFT_DECK_MAIN_TARGET = 40;
 
+/**
+ * The backfill saves decks only for drafts that have a tournament made from them or that finished
+ * this many days ago or less. `migrate()` marks the older ones as saved (keep the number in sync).
+ */
+export const DRAFT_DECK_BACKFILL_DAYS = 14;
+
 /** Test bots join drafts and tournaments with this Discord id prefix. They never get a saved deck. */
 export const TEST_BOT_DISCORD_PREFIX = "bot_player_dev_";
 
@@ -142,8 +148,9 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
   const markSaved = db.prepare<[number, number]>(
     "update draft_players set deck_saved_at = current_timestamp where draft_id = ? and player_id = ? and deck_saved_at is null",
   );
-  // Finished drafts the user played in whose deck was never saved (this guild only). A deck the
-  // user deleted stays deleted: deck_saved_at is set when it is made.
+  // Finished drafts the user played in whose deck was never saved (this guild only), limited to
+  // drafts with a tournament or finished recently. A deck the user deleted stays deleted:
+  // deck_saved_at is set when it is made.
   const selectMissing = db.prepare<[string, string, string], { id: number }>(
     `select d.id
      from drafts d
@@ -151,6 +158,8 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
      inner join players p on p.id = dp.player_id
      where d.guild_id = ? and d.status = 'completed' and p.guild_id = d.guild_id and p.discord_user_id = ?
        and dp.deck_saved_at is null
+       and (d.tournament_id is not null
+         or julianday(coalesce(d.ended_at, d.created_at)) >= julianday('now') - ${DRAFT_DECK_BACKFILL_DAYS})
        and not exists (
          select 1 from saved_decks s
          where s.guild_id = d.guild_id and s.owner_user_id = ? and s.draft_id = d.id
