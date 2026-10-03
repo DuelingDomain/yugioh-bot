@@ -505,8 +505,8 @@ const timeSealCutShort = defineScenario({
   ],
 });
 
-// Appointer of the Red Lotus: pay 2000 LP, show your hand, pick one opponent (hand effect, R-COMMON-OPP-PICK), banish 1 card of its hand; the card
-// returns to the hand of that opponent in the End Phase of the NEXT opponent turn: the turn of p1 (turn order), not the turn of the picked p2.
+// Appointer of the Red Lotus: pay 2000 LP, show your hand, pick one opponent and banish one card from that hand.
+// In FFA, the card returns during the declared opponent's next End Phase. In Tag, it returns during the next opposing End Phase.
 const APPOINTER = "Appointer of the Red Lotus";
 const appointerTag = defineScenario({
   id: "r3-tag-appointer-of-the-red-lotus-card-returns-to-the-picked-opponent-at-the-end-of-the-next-opposing-turn",
@@ -543,10 +543,10 @@ const appointerTag = defineScenario({
   ],
 });
 const appointerFfa3 = defineScenario({
-  id: "r3-ffa3-appointer-of-the-red-lotus-card-returns-at-the-end-of-the-next-opponent-turn",
-  title: "FFA3: p0 pays 2000 and banishes the Axe Raider from the hand of the picked p2: the card returns to the hand of p2 at the end of the turn of p1 (the next opponent turn); p1 and p0 are unchanged",
-  source: `${R3_RULE} [R-COMMON-OPP-PICK] (a hand effect picks one opponent at activation)`,
-  rules: ["R-FFA-ORDER", "R-COMMON-OPP-PICK"],
+  id: "r3-ffa3-appointer-of-the-red-lotus-card-returns-during-the-declared-opponents-next-end-phase",
+  title: "FFA3: p0 pays 2000 and banishes Axe Raider from the hand of the declared p2: the card stays banished through p1's turn and returns to p2 during p2's next End Phase",
+  source: `${R3_RULE} [R-COMMON-OPP-PICK] [R-FFA-OPP-ONE]: Appointer banishes the card until the declared opponent's next End Phase`,
+  rules: ["R-FFA-ORDER", "R-COMMON-OPP-PICK", "R-FFA-OPP-ONE", "R-FFA-DECLARED-DURATION"],
   tags: ["multiplayer", "late-cards", "turn-count", "r3", "opp-pick", "ffa3", "card:43262273"],
   setup: {
     format: "ffa3",
@@ -559,20 +559,31 @@ const appointerFfa3 = defineScenario({
     expectPickSeats(["p1", "p2"], "p0"),
     pickOpponent("p2", "p0"),
     select({ card: AXE, owner: "p2" }),
-    expectBoard({
-      p0: { lp: 6000, hand: [ELF], monsters: [], spells: [], grave: [APPOINTER], banished: [] },
-      p1: { lp: 8000, hand: [RAT], monsters: [], spells: [], grave: [], banished: [] },
-      p2: { lp: 8000, hand: [FANG], monsters: [], spells: [], grave: [], banished: [AXE] },
+    everySeat("ffa3", {
+      p0: { lp: 6000, hand: [ELF], deckCount: 20, grave: [APPOINTER] },
+      p1: { hand: [RAT], deckCount: 20 },
+      p2: { hand: [FANG], deckCount: 20, banished: [AXE] },
     }),
     endTurn("p0"), expectTurn("p1", 2),
-    // Still banished during the turn of p1.
-    expectBoard({ p2: { hand: [FANG], banished: [AXE] } }),
+    // p1 draws. Axe Raider stays banished.
+    everySeat("ffa3", {
+      p0: { lp: 6000, hand: [ELF], deckCount: 20, grave: [APPOINTER] },
+      p1: { hand: [RAT, ELF], deckCount: 19 },
+      p2: { hand: [FANG], deckCount: 20, banished: [AXE] },
+    }),
     endTurn("p1"), expectTurn("p2", 3),
-    // The next opponent turn of p0 was the turn of p1: the card is back in the hand of its owner p2, the draw of p2 comes on top.
-    expectBoard({
-      p0: { lp: 6000, hand: [ELF], monsters: [], spells: [], grave: [APPOINTER], banished: [] },
-      p1: { lp: 8000, hand: [RAT, ELF], monsters: [], spells: [], grave: [], banished: [] },
-      p2: { lp: 8000, hand: [AXE, FANG, ELF], monsters: [], spells: [], grave: [], banished: [] },
+    // p2 draws. Its next End Phase has not started, so Axe Raider stays banished.
+    everySeat("ffa3", {
+      p0: { lp: 6000, hand: [ELF], deckCount: 20, grave: [APPOINTER] },
+      p1: { hand: [RAT, ELF], deckCount: 19 },
+      p2: { hand: [FANG, ELF], deckCount: 19, banished: [AXE] },
+    }),
+    endTurn("p2"), expectTurn("p0", 4),
+    // Axe Raider returns during p2's End Phase. Then p0 draws on turn 4.
+    everySeat("ffa3", {
+      p0: { lp: 6000, hand: [ELF, ELF], deckCount: 19, grave: [APPOINTER] },
+      p1: { hand: [RAT, ELF], deckCount: 19 },
+      p2: { hand: [AXE, FANG, ELF], deckCount: 19 },
     }),
   ],
 });
