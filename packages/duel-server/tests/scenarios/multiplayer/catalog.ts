@@ -76,6 +76,7 @@ const EXTRA_RULES: Record<number, string[]> = {
   41420027: ["R-TAG-PARTNER", "R-FFA-NEGATE"], // Solemn Judgment
   // Attacks.
   44095762: ["R-FFA-ATTACK", "R-FFA-OPP-RESPONSE"], // Mirror Force
+  88240808: ["R-FFA-OPP-RESPONSE"], // Kycoo binds the opponent that took the battle damage.
   56120475: ["R-FFA-ATTACK"], // Sakuretsu Armor
   70342110: ["R-FFA-ATTACK"], // Dimensional Prison
 };
@@ -385,12 +386,18 @@ export const GROUP_ONE: CatalogScenario[] = [
   }),
   one({
     card: "Kycoo the Ghost Destroyer", code: 88240808, ruleClass: "C", binding: "event-opponent",
-    oneVsOne: "Banishes up to 2 cards from the monster zone or GY of the opponent.",
-    results: { ffa3: "P0 picks up to 2 targets from the declared opponent field and GY.", ffa4: "P0 picks up to 2 targets from one declared opponent field and GY.", tag: "P0 picks up to 2 targets from both opposing members." },
+    // Card text: battle damage permits up to 2 monster targets in that opponent's GY.
+    // ADR 0002: R-FFA-OPP-RESPONSE binds that opponent; R-TAG-SHARED-CARDS joins the opposing GYs.
+    oneVsOne: "After battle damage, targets and banishes up to 2 monsters in the damaged opponent's GY.",
+    results: {
+      ffa3: "P0 targets and banishes up to 2 monsters from the GY of the opponent that took the battle damage.",
+      ffa4: "P0 targets and banishes up to 2 monsters from the GY of the opponent that took the battle damage.",
+      tag: "After battle damage to the opposing team, P0 targets and banishes up to 2 monsters from the GYs of its two members.",
+    },
     evidence: [ev(88240808, 22, "SetTargetRange(0,1)"), ev(88240808, 37, "IsExistingTarget(s.filter,tp,0,LOCATION_MZONE|LOCATION_GRAVE")],
-    setup: "P1 has a card in the GY. P2 controls one monster.",
-    action: "P0 activates Kycoo after damage to P1 and picks only cards of P1 in FFA; Tag can use both opposing fields.",
-    expected: "FFA: only the battle opponent supplies targets. Tag: both opposing members supply targets. The partner cards are never valid targets.",
+    setup: "P0 controls Kycoo. Each opponent has two monsters in the GY.",
+    action: "Kycoo inflicts battle damage to P1. P0 activates its effect and targets up to 2 monsters in P1's GY in FFA. Tag can use both opposing GYs.",
+    expected: "FFA: only the opponent that took the battle damage supplies GY monster targets. Tag: both opposing members supply GY monster targets. The partner's cards are never valid targets.",
   }),
 
   one({
@@ -851,6 +858,14 @@ export const SCENARIOS: CatalogScenario[] = [...GROUP_ALL, ...GROUP_ONE];
  * target cap of Ultimate Sky.
  */
 export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
+  88240808: [
+    "p3-catalog-ffa3-kycoo-battle-opponent",
+    "p3-catalog-ffa4-kycoo-battle-opponent",
+    "p3-catalog-tag-kycoo-battle-opponent",
+    "p3-catalog-ffa3-kycoo-battle-opponent-domain",
+    "p3-catalog-ffa4-kycoo-battle-opponent-domain",
+    "p3-catalog-tag-kycoo-battle-opponent-domain",
+  ],
   18144506: [
     "p3-catalog-ffa3-harpie-s-feather-duster",
     "p3-catalog-ffa4-harpie-s-feather-duster",
@@ -914,6 +929,12 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
   ], // Hinotama
   // Sketches that are also on the rule list.
   55063751: [
+    "p3-catalog-ffa3-gameciel-tribute-controller",
+    "p3-catalog-ffa4-gameciel-tribute-controller",
+    "p3-catalog-tag-gameciel-tribute-controller",
+    "p3-catalog-ffa3-gameciel-tribute-controller-domain",
+    "p3-catalog-ffa4-gameciel-tribute-controller-domain",
+    "p3-catalog-tag-gameciel-tribute-controller-domain",
     "procedures-ffa3-kaiju-tribute-goes-to-tributed-field",
     "procedures-ffa4-kaiju-tribute-goes-to-tributed-field",
     "procedures-tag-kaiju-tribute-goes-to-opposing-member",

@@ -83,6 +83,12 @@ describe("multiplayer card catalog", () => {
   it("binds Kycoo to the opponent that took the battle damage and registers both new proofs", () => {
     const kycoo = GROUP_ONE.find(row => row.code === 88240808)!;
     expect(kycoo.binding).toBe("event-opponent");
+    expect(kycoo.rules).toContain("R-FFA-OPP-RESPONSE");
+    for (const text of [kycoo.oneVsOne, ...Object.values(kycoo.results)]) {
+      expect(text).toContain("up to 2 monsters");
+      expect(text).toContain("GY");
+      expect(text).not.toContain("field");
+    }
     for (const format of ["ffa3", "ffa4"] as const) {
       expect(kycoo.results[format]).toContain("the opponent that took the battle damage");
       expect(kycoo.results[format]).not.toContain("declared");
