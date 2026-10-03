@@ -90,7 +90,8 @@ function swords(f: Format): Scenario {
     result[s] = { ...result[s], hand: Array(draws).fill("Mystical Elf"), deckCount: 20 - draws };
   }
   steps.push(board(f, result));
-  return proof(f, "swords-face-up-continuous-lock", setup, steps);
+  return proof(f, "swords-face-up-continuous-lock", setup, steps,
+    ["R-COMMON-ONGOING", f === "tag" ? "R-TAG-PARTNER" : "R-FFA-OPP-ONE"]);
 }
 function watchedLeave(f: Format): Scenario {
   const ghost = "Ghost Mourner & Moonlit Chill";
@@ -99,11 +100,13 @@ function watchedLeave(f: Format): Scenario {
   const steps: Step[] = [endTurn("p0"), activate("Monster Reborn", "p1"),
     pass("p2"), pass("p2"), activate(ghost, "p0"), pass("p2"), pass("p2"), activate("Sparks", "p1"),
     ...(f !== "tag" ? [pickOpponent("p0", "p1")] : []), activate("Raigeki Break", "p2"), select("Battle Ox")];
-  const result: BoardExpect = { p0: { grave: [ghost], lp: f === "tag" ? 15800 : 7800 },
-    p1: { hand: ["Mystical Elf"], deckCount: 19, grave: ["Monster Reborn", "Sparks", "Battle Ox"], lp: f === "tag" ? 14300 : 6300 },
-    p2: { grave: ["Raigeki Break", "Mystical Elf"], lp: f === "tag" ? 15800 : 8000 },
-    ...(f === "tag" ? { p3: { lp: 14300 } } : {}) };
+  const result: BoardExpect = Object.fromEntries(seats(f).map(s => [s, { hand: [], deckCount: 20 }]));
+  result.p0 = { ...result.p0, grave: [ghost], lp: f === "tag" ? 15800 : 7800 };
+  result.p1 = { hand: ["Mystical Elf"], deckCount: 19, grave: ["Monster Reborn", "Sparks", "Battle Ox"], lp: f === "tag" ? 14300 : 6300 };
+  result.p2 = { ...result.p2, grave: ["Raigeki Break", "Mystical Elf"], lp: f === "tag" ? 15800 : 8000 };
+  if (f === "tag") result.p3 = { ...result.p3, lp: 14300 };
   steps.push(board(f, result));
-  return proof(f, "watched-monster-leaves-by-third-seat", setup, steps);
+  return proof(f, "watched-monster-leaves-by-third-seat", setup, steps,
+    ["R-FFA-OPP-RESPONSE", "R-COMMON-CTRL", ...(f === "tag" ? ["R-TAG-LP"] : [])]);
 }
 export const BOUND_LASTING_SCENARIOS: Scenario[] = formats.flatMap(f => [damageLock(f), fieldLock(f), ongoing(f), swords(f), watchedLeave(f)]);
