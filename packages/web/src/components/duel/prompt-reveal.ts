@@ -12,6 +12,7 @@
  *   4. never longer than capMs in all. Reduced motion: one short fixed pause (reducedMs).
  * While the panel is hidden nothing answers the prompt: not right-click, Esc nor Enter.
  */
+import { duelFxClock } from "./fx-clock";
 import { useEffect, useState, type RefObject } from "react";
 import { GATE_TIMING } from "./duel-timing";
 
@@ -90,12 +91,12 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       resolve();
       return;
     }
-    const timer = setTimeout(() => {
+    const timer = duelFxClock.setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
       resolve();
     }, ms);
     function onAbort() {
-      clearTimeout(timer);
+      duelFxClock.clearTimeout(timer);
       resolve();
     }
     signal?.addEventListener("abort", onAbort, { once: true });
@@ -111,7 +112,7 @@ let boardHoldUntil = 0;
  * such as the battle layer, which renders in a portal with CSS animations. The cap still applies.
  */
 export function holdPromptReveal(ms: number): void {
-  boardHoldUntil = Math.max(boardHoldUntil, Date.now() + ms);
+  boardHoldUntil = Math.max(boardHoldUntil, duelFxClock.dateNow() + ms);
 }
 
 export function clearPromptRevealHold(): void {
@@ -120,7 +121,7 @@ export function clearPromptRevealHold(): void {
 
 /** Time left on the FX hold (see holdPromptReveal); 0 when no FX layer holds the board. */
 export function promptRevealHoldMs(): number {
-  return Math.max(0, boardHoldUntil - Date.now());
+  return Math.max(0, boardHoldUntil - duelFxClock.dateNow());
 }
 
 /**
@@ -129,7 +130,7 @@ export function promptRevealHoldMs(): number {
  */
 export async function waitForReveal(options: WaitForRevealOptions): Promise<boolean> {
   const timing = { ...REVEAL_TIMING, ...options.timing };
-  const now = options.now ?? (() => Date.now());
+  const now = options.now ?? (() => duelFxClock.dateNow());
   const { signal } = options;
   const aborted = () => signal?.aborted === true;
   const start = now();
@@ -149,7 +150,7 @@ export async function waitForReveal(options: WaitForRevealOptions): Promise<bool
     const budget = timing.capMs - timing.settleMs - elapsed();
     if (budget <= 0) break;
     const pending = (options.pendingAnimations ?? pendingBoardAnimations)(source());
-    const holdMs = Math.max(boardHoldUntil - Date.now(), options.holdMs?.() ?? 0);
+    const holdMs = Math.max(boardHoldUntil - duelFxClock.dateNow(), options.holdMs?.() ?? 0);
     if (pending.length === 0 && holdMs <= 0) break;
     const waits: Promise<unknown>[] = [sleep(holdMs > 0 ? Math.min(holdMs, budget) : budget, signal)];
     if (pending.length > 0 && holdMs <= 0) waits.push(Promise.allSettled(pending.map((animation) => animation.finished)));
