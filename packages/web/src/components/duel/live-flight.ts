@@ -1,3 +1,4 @@
+import { duelFxClock } from "./fx-clock";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { findMoveDestination, followMoveDestination, moveDestinationRect, moveDestinationRotation } from "./event-queue";
 
@@ -11,7 +12,7 @@ export function retargetFlight({ event, el, overlay, cx, cy, duration, fallback,
   fallback?: () => Rect | undefined;
   endRot?: number;
 }): { finish: () => Offset; stop: () => void } {
-  const start = performance.now();
+  const start = duelFxClock.now();
   const deadline = start + duration;
   let changedAt = start;
   let from: Pose = { dx: 0, dy: 0, rotation: 0 };
@@ -19,7 +20,7 @@ export function retargetFlight({ event, el, overlay, cx, cy, duration, fallback,
   const read = (destination: HTMLElement | null) => {
     const rect = destination ? moveDestinationRect(destination) : fallback?.();
     const layer = overlay.getBoundingClientRect();
-    return { now: performance.now(), target: rect ? {
+    return { now: duelFxClock.now(), target: rect ? {
       dx: rect.left - layer.left + rect.width / 2 - cx,
       dy: rect.top - layer.top + rect.height / 2 - cy,
       rotation: destination ? moveDestinationRotation(destination) - endRot : goal.rotation,
