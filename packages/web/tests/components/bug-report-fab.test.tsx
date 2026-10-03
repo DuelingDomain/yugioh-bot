@@ -63,6 +63,18 @@ describe("floating Report bug button", () => {
     expect(document.querySelector("[data-bug-fab]")).not.toBeNull();
   });
 
+  it("keeps an open dialog and its text when a duel header button mounts, and hides only the floating button", () => {
+    const room = FFA3_FIXTURES.states.main.room;
+    const view = render(<BugReportFab />);
+    fireEvent.click(screen.getByRole("button", { name: "Report bug" }));
+    fireEvent.change(screen.getByLabelText(/What went wrong\?/), { target: { value: "Typed before the duel started" } });
+    view.rerender(<><BugReportFab /><BugReportHeaderButton room={room} /></>);
+    expect(document.querySelector("[data-bug-fab]")).toBeNull();
+    expect((screen.getByLabelText(/What went wrong\?/) as HTMLTextAreaElement).value).toBe("Typed before the duel started");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog", { name: "Report a bug" })).toBeNull();
+  });
+
   it("keeps the header button red with important classes, because the Rooftop resets every button", () => {
     render(<BugReportHeaderButton room={FFA3_FIXTURES.states.main.room} />);
     const button = screen.getByRole("button", { name: "Report bug" });
