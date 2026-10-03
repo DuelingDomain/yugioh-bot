@@ -2,10 +2,8 @@
 
 import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, Check, FileUp, Loader2 } from "lucide-react";
+import { ArrowRight, Check, RotateCw, TriangleAlert, Upload } from "lucide-react";
 import type { DuelMode, SavedDeck } from "@yugidraft/shared/duels";
-import { cx, SheetButton, SheetSegmented } from "@/components/duel/sheet-ui";
-import ui from "@/components/duel/sheet-ui.module.css";
 import { createSavedDeck } from "./api";
 import { MAX_IMPORT_FILE_BYTES, prepareDeckImport } from "./import";
 import { modeLabel } from "./model";
@@ -80,19 +78,21 @@ export function DeckImportPanel({
   const finished = rows.length > 0 && !saving;
 
   return (
-    <section className={styles.importPanel} aria-labelledby="deck-import-title">
-      <div className={styles.importHead}>
-        <h2 id="deck-import-title" className={styles.importTitle}>Import YDK files</h2>
-        <SheetButton kind="quiet" size="sm" onClick={onClose}>Close</SheetButton>
+    <section className="panel dk-imp" aria-labelledby="deck-import-title">
+      <div className="dk-imp-h">
+        <h2 id="deck-import-title">Import YDK files</h2>
+        <button className="btn btn-quiet btn-sm" type="button" onClick={onClose}>
+          Close
+        </button>
       </div>
 
-      <div className={styles.importBody}>
-        <label className={styles.drop} data-dragging={dragging ? "true" : undefined}>
+      <div className="dk-imp-b">
+        <label className={`dk-drop ${styles.drop}`} data-dragging={dragging ? "" : undefined}>
           <input
             type="file"
             accept=".ydk,.txt,text/plain"
             multiple
-            className={ui.srOnly}
+            className={styles.srOnly}
             aria-label="YDK files"
             onChange={(event) => {
               const files = event.target.files;
@@ -100,55 +100,70 @@ export function DeckImportPanel({
               event.target.value = "";
             }}
           />
-          <FileUp size={22} strokeWidth={1.4} aria-hidden />
-          <span className={styles.dropTitle}>Drop .ydk files here</span>
-          <span className={styles.dropHint}>or click to choose. You can pick many at once.</span>
+          <Upload className="ic" aria-hidden="true" />
+          {dragging ? "Let go to import" : "Drop .ydk files here"}
+          <small>{dragging ? "Every file saves as its own deck." : "or click to choose. You can pick many at once."}</small>
         </label>
 
-        <div className={styles.importOptions}>
-          <SheetSegmented label="Save as" value={mode} choices={MODE_CHOICES} onChange={setMode} />
-          <p className={ui.hint}>
-            Each file becomes one saved deck, named after the file. A file with a #deckmaster section always
-            saves as Domain. For Domain, a single Side card becomes the Deck Master.
+        <div>
+          <span className="label">Save as</span>
+          <div className="seg" role="group" aria-label="Save as">
+            {MODE_CHOICES.map((choice) => (
+              <button
+                key={choice.value}
+                type="button"
+                aria-pressed={mode === choice.value}
+                onClick={() => setMode(choice.value)}
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
+          <p className="hint">
+            Each file becomes one saved deck, named after the file. A file with a #deckmaster section always saves as
+            Domain. For Domain, a single Side card becomes the Deck Master.
           </p>
         </div>
       </div>
 
       {rows.length > 0 ? (
-        <div className={styles.results}>
-          <ul className={styles.resultList} aria-live="polite">
+        <>
+          <ul className="dk-res" aria-live="polite">
             {rows.map((row) => (
-              <li key={row.key} className={styles.result} data-state={row.state}>
-                <span className={styles.resultIcon} aria-hidden>
-                  {row.state === "saving" ? <Loader2 size={15} className={ui.spin} /> : null}
-                  {row.state === "saved" ? <Check size={15} /> : null}
-                  {row.state === "failed" ? <AlertTriangle size={15} /> : null}
-                </span>
-                <span className={styles.resultMain}>
-                  <span className={styles.resultFile}>{row.fileName}</span>
-                  {row.state === "saving" ? <span className={styles.resultNote}>Saving…</span> : null}
+              <li key={row.key} data-st={row.state}>
+                {row.state === "saving" ? <RotateCw className={`ic ${styles.spin}`} aria-hidden="true" /> : null}
+                {row.state === "saved" ? <Check className="ic" aria-hidden="true" /> : null}
+                {row.state === "failed" ? <TriangleAlert className="ic" aria-hidden="true" /> : null}
+                <div>
+                  <p className="f">{row.fileName}</p>
+                  {row.state === "saving" ? <p className="s">Saving…</p> : null}
                   {row.state === "saved" ? (
-                    <span className={styles.resultNote}>
-                      Saved as {row.deck.name} · {modeLabel(row.deck.mode)} · Main{" "}
-                      <b className={ui.num}>{row.deck.deck.main.length}</b> · Extra{" "}
-                      <b className={ui.num}>{row.deck.deck.extra.length}</b>
-                    </span>
+                    <p className="s">
+                      Saved as {row.deck.name} · {modeLabel(row.deck.mode)} · Main <b>{row.deck.deck.main.length}</b> ·
+                      Extra <b>{row.deck.deck.extra.length}</b>
+                    </p>
                   ) : null}
-                  {row.state === "failed" ? <span className={cx(styles.resultNote, ui.alert)}>{row.error}</span> : null}
-                </span>
+                  {row.state === "failed" ? <p className="s">{row.error}</p> : null}
+                </div>
                 {row.state === "saved" ? (
-                  <Link href={`/decks/${row.deck.id}`} className={styles.resultOpen}>
+                  <Link href={`/decks/${row.deck.id}`} className="link">
                     Open
-                    <ArrowRight size={14} strokeWidth={1.6} aria-hidden />
+                    <ArrowRight className="ic sm" aria-hidden="true" />
                   </Link>
-                ) : null}
+                ) : (
+                  <span />
+                )}
               </li>
             ))}
           </ul>
           {finished ? (
-            <SheetButton kind="quiet" size="sm" onClick={clearFinished}>Clear list</SheetButton>
+            <div className="dk-res-f" style={{ padding: "0 18px 12px" }}>
+              <button className="btn btn-quiet btn-sm" type="button" onClick={clearFinished}>
+                Clear list
+              </button>
+            </div>
           ) : null}
-        </div>
+        </>
       ) : null}
     </section>
   );
