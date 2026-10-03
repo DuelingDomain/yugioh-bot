@@ -165,13 +165,14 @@ function diceJar(format: Format, ownerWins: boolean): Scenario {
 }
 
 // --- Cup of Ace (a coin toss with an effect on an opponent) ------------------------------------------------------------------------
-// "Toss a coin: heads, you draw 2 cards; tails, your opponent draws 2 cards." The stock script is used. The tails draw reaches ONE opponent: the
-// activator picks it when the script first reads "your opponent" (R-COMMON-OPP-PICK). The heads draw reaches only the activator and never reads
-// an opponent, so no pick is asked.
+// The stock script gives 2 cards to the activator on Heads and to one opponent on Tails.
+// In FFA, declare the opponent at activation for both results (R-COMMON-OPP-PICK).
+// The owner accepts this C4 declaration because Tails can make an opponent draw.
+// In Tag, the opponent choice occurs only on Tails. Heads changes only the hand and Deck of p0.
 // The coin is the first draw of the duel generator (xoshiro256**, no shuffle runs before it): its result is the lowest bit of rotl(5 * seed[1], 7),
 // that is bit 57 of 5 * seed[1]. A small seed word (5, 6, 7, 8) leaves that bit clear, so the first draw is even and the coin is tails; seed[1] = 2^57
 // sets the bit and gives heads. Both results come from the seed alone, so they are the same on every format and on both cores.
-const COIN = `${SOURCE} [R-COMMON-OPP-PICK], card decisions 2026-10-01 Q4: Cup of Ace (a coin toss; the draw goes to one picked opponent)`;
+const COIN = `${SOURCE} [R-COMMON-OPP-PICK], accepted C4 declaration: Cup of Ace (Heads draws for the activator; Tails draws for one declared opponent)`;
 const DECK_OF: Record<Seat, [string, string]> = { p0: [RAT, OX], p1: [OX, AXE], p2: [AXE, FANG], p3: [FANG, ELF] };
 const SEED_TAILS = ["5", "6", "7", "8"];
 const SEED_HEADS = ["5", "144115188075855872", "7", "8"];
@@ -185,16 +186,23 @@ function cupOfAce(format: Format, heads = false): Scenario {
   const spec: Partial<Record<Seat, DuelistExpect>> = {};
   for (const seat of seats) {
     const draws = heads ? seat === "p0" : seat === picked;
-    spec[seat] = { hand: draws ? [...DECK_OF[seat]] : [], grave: seat === "p0" ? [CUP] : [] };
+    spec[seat] = {
+      hand: draws ? [...DECK_OF[seat]] : [],
+      grave: seat === "p0" ? [CUP] : [],
+      // The board fixture fills each Deck to setup.deckSize, or 20 cards by default.
+      ...(heads ? { deckCount: (setup.deckSize ?? 20) - (draws ? 2 : 0) } : {}),
+    };
   }
-  const steps: Step[] = heads
-    // Heads: p0 draws 2 at once. No pick prompt comes up: the prompt after the activation is the main phase of p0.
-    ? [activate(CUP, "p0"), expectPrompt({ by: "p0", context: "action" }), everySeat(format, spec)]
-    : [activate(CUP, "p0"), expectPickSeats(PICKS[format], "p0"), pickOpponent(picked, "p0"), everySeat(format, spec)];
+  const steps: Step[] = [
+    activate(CUP, "p0"),
+    ...(!heads || format !== "tag" ? [expectPickSeats(PICKS[format], "p0"), pickOpponent(picked, "p0")] : []),
+    ...(heads ? [expectPrompt({ by: "p0", context: "action" })] : []),
+    everySeat(format, spec),
+  ];
   return defineScenario({
-    id: heads ? `late-${format}-cup-of-ace-heads-the-activator-draws-2-and-no-opponent-is-picked` : `late-${format}-cup-of-ace-tails-the-picked-opponent-draws-2`,
+    id: heads ? `late-${format}-cup-of-ace-heads-the-activator-draws-2-and-other-seats-keep-their-resources` : `late-${format}-cup-of-ace-tails-the-picked-opponent-draws-2`,
     title: heads
-      ? `${label}: p0 activates Cup of Ace: the coin is heads, so p0 draws 2 cards and is asked for no opponent; every other duelist (the Tag partner too) draws nothing`
+      ? `${label}: p0 activates Cup of Ace: Heads makes p0 draw 2 cards; every other duelist keeps its resources`
       : `${label}: p0 activates Cup of Ace and picks ${picked}: the coin is tails, so only ${picked} draws 2 cards; p0 and every other duelist draw nothing`,
     source: COIN,
     rules: ["R-COMMON-OPP-PICK", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
