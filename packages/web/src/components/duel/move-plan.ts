@@ -27,6 +27,7 @@ import {
 } from "./constants";
 import { battleBreakIs3d, battleDestroyAt, battleTakeover, BREAK_SETTLE_MS, HELD_CRACK_MS } from "./battle-hold";
 import { playsBigSummon } from "./big-summon";
+import { fieldPlacementMs, isFieldPlacementLocation } from "./placement-timing";
 import { MOVE_PACE } from "./duel-timing";
 import { isAddToHand, showcaseGateMs, showcaseOrigin, showcasePhases, type ShowcaseOrigin, type ShowcasePhases } from "./add-to-hand";
 import { chainEffectAt } from "./chain-beats";
@@ -176,7 +177,7 @@ export function moveStyleOf(event: DuelEvent, reduced: boolean): MoveStyle {
   return "place";
 }
 
-export function baseDuration(style: MoveStyle, distance: number, reduced = false): number {
+export function baseDuration(style: MoveStyle, distance: number, reduced = false, fieldPlacement = true): number {
   const d = Math.max(0, distance);
   switch (style) {
     case "fade":
@@ -188,7 +189,7 @@ export function baseDuration(style: MoveStyle, distance: number, reduced = false
     case "toss":
       return clamp(MOVE_TIMING.tossMin + d * 0.1, MOVE_TIMING.tossMin, MOVE_TIMING.tossMax);
     default:
-      return clamp(MOVE_TIMING.placeMin + d * 0.14, MOVE_TIMING.placeMin, MOVE_TIMING.placeMax);
+      return fieldPlacementMs(clamp(MOVE_TIMING.placeMin + d * 0.14, MOVE_TIMING.placeMin, MOVE_TIMING.placeMax), reduced || !fieldPlacement);
   }
 }
 
@@ -352,7 +353,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     if (lead > 0) silent = false;
     const source = resolveSource(from, event.id);
     const origin = style === "add" ? showcaseOrigin(event, now, source != null) : null;
-    candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance, reduced), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin });
+    candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance, reduced, isFieldPlacementLocation(to.location)), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin });
   }
   if (candidates.length === 0) {
     sequenceEffects(fresh, [...plans.values()], now, reduced);

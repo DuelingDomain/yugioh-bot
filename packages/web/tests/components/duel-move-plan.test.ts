@@ -31,9 +31,9 @@ beforeEach(() => resetMoveSchedule("t"));
 
 describe("baseDuration", () => {
   it("keeps placements between 700 and 860 ms", () => {
-    expect(baseDuration("place", 0)).toBe(700);
-    expect(baseDuration("place", 200)).toBeGreaterThan(700);
-    expect(baseDuration("place", 5000)).toBe(860);
+    expect(baseDuration("place", 0)).toBe(700 * 0.95);
+    expect(baseDuration("place", 200)).toBeGreaterThan(700 * 0.95);
+    expect(baseDuration("place", 5000)).toBe(860 * 0.95);
   });
   it("keeps tosses between 680 and 840 ms and makes draws about 10% quicker", () => {
     expect(baseDuration("toss", 0)).toBe(680);

@@ -63,6 +63,7 @@ import { getMovePlan, MOVE_TIMING, pairedMovePlan, planMoves, type MovePlan } fr
 import type { DuelShakePreference } from "./preferences";
 import styles from "./summon-fx.module.css";
 import { safeFxAnimate as safeAnimate } from "./safe-animate";
+import { FIELD_PLACEMENT_SCALE, fieldPlacementMs } from "./placement-timing";
 import { CARD_FX } from "./duel-timing";
 
 export type SummonFxProps = {
@@ -75,7 +76,7 @@ export type SummonFxProps = {
 };
 
 /** Milliseconds from the start of a heavy summon. Everything else is derived from these. */
-export const HEAVY_TIMELINE = {
+const HEAVY_AUTHORED = {
   rise: CARD_FX.heavyTimeline.riseMs,
   hoverEnd: CARD_FX.heavyTimeline.hoverEndMs,
   impact: CARD_FX.heavyTimeline.impactMs,
@@ -87,6 +88,9 @@ export const HEAVY_TIMELINE = {
   raysEnd: 1350,
   total: CARD_FX.heavyTimeline.totalMs,
 } as const;
+export const HEAVY_TIMELINE = Object.fromEntries(
+  Object.entries(HEAVY_AUTHORED).map(([key, ms]) => [key, fieldPlacementMs(ms)]),
+) as Record<keyof typeof HEAVY_AUTHORED, number>;
 
 /**
  * Peak vertical field shake in px for a Level 8 monster on a 1100px-wide board (horizontal is 0.45x).
@@ -112,7 +116,7 @@ const TYPED_AUTHORED: Record<SummonStyle, { handOver: number; total: number }> =
   ritual: { handOver: 820, total: 1350 },
   pendulum: { handOver: 1080, total: 1500 },
 };
-export const TYPED_SCALE = CARD_FX.typedScale;
+export const TYPED_SCALE = CARD_FX.typedScale * FIELD_PLACEMENT_SCALE;
 
 /** The same timeline as it plays: when the real card takes over, and when the effect is gone. */
 export const TYPED_TIMELINE = Object.fromEntries(
@@ -156,7 +160,7 @@ const CARD_ASPECT = 0.686;
 const STAGGER_MS = CARD_FX.summonStaggerMs;
 const MAX_STAGGER_STEPS = 5;
 /** A second slam waits this long after the first starts; the first one's aftermath overlaps it a little. */
-const HEAVY_LOCK_MS = CARD_FX.heavyLockMs;
+const HEAVY_LOCK_MS = fieldPlacementMs(CARD_FX.heavyLockMs);
 const MAX_ITEMS = 10;
 /** The WebGL summon holds the real card this much past its hand-over, in case the timer is late. */
 const HAND_OVER_MARGIN_MS = 400;
@@ -168,10 +172,10 @@ type FxKind = "heavy" | "typed" | "light" | "set" | "activate" | "destroy" | "im
 const SLAM_LOOK_MIN = 0.6;
 const SLAM_LOOK_MAX = 1.6;
 /** After the impact the field effects (cracks, aura, rings) last at most this long. */
-const IMPACT_LIFE_MAX = 700;
-const IMPACT_LIFE_MIN = 560;
+const IMPACT_LIFE_MAX = fieldPlacementMs(700);
+const IMPACT_LIFE_MIN = fieldPlacementMs(560);
 /** The whole slam (drop, impact and aftermath) stays under about this many ms from the start of the summon. */
-const SLAM_TOTAL_MS = 1300;
+const SLAM_TOTAL_MS = fieldPlacementMs(1300);
 
 type FxItem = {
   key: string;
@@ -572,6 +576,7 @@ function LightFx({ item, overlay, done }: EffectProps) {
   const anchor = useAnchor();
   const ring = useRef<HTMLSpanElement>(null);
   useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
+    track.pace(item.delayMs, FIELD_PLACEMENT_SCALE);
     if (anchor.current) placeAnchor(anchor.current, geo);
     const art = artOf(zone);
     const lift = geo.side === "opp" ? 1 : -1;
@@ -598,6 +603,7 @@ function SetFx({ item, overlay, done }: EffectProps) {
   const anchor = useAnchor();
   const shadow = useRef<HTMLSpanElement>(null);
   useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
+    track.pace(item.delayMs, FIELD_PLACEMENT_SCALE);
     if (anchor.current) placeAnchor(anchor.current, geo);
     const from = geo.side === "opp" ? -34 : 34;
     track.play(
@@ -855,7 +861,7 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
   const tribute = item.event.summonKind === "tribute";
   const cardInfo = item.card;
   const tone: FxTone = item.style ?? "gold";
-  const T = HEAVY_TIMELINE;
+  const T = HEAVY_AUTHORED;
 
   useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
     const d = item.delayMs;
@@ -892,7 +898,8 @@ function HeavyFx({ item, overlay, done }: EffectProps) {
     }
 
     // The real card waits underneath until the projection has landed.
-    holdHidden(track, zone, d + T.handOver);
+    holdHidden(track, zone, d + HEAVY_TIMELINE.handOver);
+    track.pace(d, FIELD_PLACEMENT_SCALE);
 
     const tilt = up ? 1 : -1;
     const at = (ms: number) => ms / T.handOver;
@@ -1841,6 +1848,7 @@ function PendulumFx(props: EffectProps) {
     if (!arc || !g) return undefined;
     const track = new Track();
     const { p0, ctrl, p2, d } = g;
+    track.pace(d, TYPED_SCALE);
     const draw = (el: Element | null) =>
       track.play(el, [{ strokeDashoffset: 1, opacity: 0 }, { strokeDashoffset: 0.6, opacity: 1, offset: 0.2 }, { strokeDashoffset: 0, opacity: 1, offset: 0.62 }, { strokeDashoffset: 0, opacity: 0.9, offset: 0.78 }, { strokeDashoffset: 0, opacity: 0 }], {
         duration: 1180,
@@ -2091,7 +2099,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
       const plan = pairedMovePlan(event.id);
       // A light summon or a set is the landing of its flight: no second animation of the same move.
       if (plan && (kind === "light" || kind === "set")) continue;
-      let delayMs = Math.min(step, MAX_STAGGER_STEPS) * STAGGER_MS;
+      let delayMs = Math.min(step, MAX_STAGGER_STEPS) * fieldPlacementMs(STAGGER_MS, prefsRef.current.reducedMotion || kind === "activate" || kind === "destroy");
       if (plan) {
         // Effects that belong after the card has landed wait for it; a destroy leads the flight.
         const at = kind === "destroy" ? plan.startAt - plan.leadMs : plan.landAt;

@@ -37,6 +37,7 @@ import { chainEffectAt } from "./chain-beats";
 import { getMovePlan, isMoveEvent } from "./move-plan";
 import styles from "./position-fx.module.css";
 import { Track } from "./summon-fx";
+import { FIELD_PLACEMENT_SCALE, isFlipSummonPlacement } from "./placement-timing";
 import { CARD_FX } from "./duel-timing";
 
 export type PositionFxProps = {
@@ -68,6 +69,7 @@ type Item = {
   card: DuelCardInfo | null;
   delayMs: number;
   reduced: boolean;
+  placement: boolean;
 };
 
 type Geo = { left: number; top: number; w: number; h: number; radius: number; side: "you" | "opp" };
@@ -129,6 +131,7 @@ function useSetup(
       return undefined;
     }
     const track = new Track();
+    if (!item.reduced && item.placement) track.pace(item.delayMs, FIELD_PLACEMENT_SCALE);
     let alive = true;
     setupRef.current({ track, zone, geo, d: item.delayMs });
     void track.settled().then(() => {
@@ -209,7 +212,7 @@ function FlipFx(props: EffectProps) {
     const total = FLIP_REVEAL_MS;
     const faceAt = FLIP_FACE_AT_MS / total;
     // The real card is invisible for exactly as long as the copy is on top of it.
-    track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: d + total, fill: "backwards" });
+    track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: total, delay: d, fill: "backwards" });
     track.play(
       anchor.current,
       [
@@ -366,6 +369,7 @@ export function PositionFx({ events, duelKey, reducedMotion }: PositionFxProps) 
         card: visibleCard(event),
         delayMs,
         reduced: reducedRef.current,
+        placement: isFlipSummonPlacement(event, fresh),
       });
     }
     if (planned.length === 0) return;
