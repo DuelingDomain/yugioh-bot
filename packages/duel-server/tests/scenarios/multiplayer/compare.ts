@@ -5,7 +5,7 @@
 // opponent only. Tag: the joined field of the two opposing duelists, and the picked opposing duelist chooses.
 
 import { activate, attack, changePhase, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, expectPrompt,
-  normalSummon, pass, pickOpponent, select, expectTurn, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+  no, normalSummon, pass, pickOpponent, select, expectTurn, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
@@ -315,12 +315,23 @@ export const COMPARE_SCENARIOS: Scenario[] = [
     steps: [
       // A Trap: p0 activates it on the turn of p1, in response to the Normal Summon of p1.
       endTurn("p0"),
+      // Decline the End Phase, pre-draw, post-draw and Standby Phase windows.
+      ...Array.from({ length: 4 }).flatMap(() => [
+        expectPrompt({ by: "p0", context: "chain" }),
+        expectOffered("activate", "Gigantic Thundercross", "p0"), pass("p0"),
+      ]),
       normalSummon(ELF, "p1"),
       activate("Gigantic Thundercross", "p0"),
       expectPickSeats(["p1", "p2"], "p0"),
       pickOpponent("p1", "p0"),
       select(OX, GUARDIAN),
-      expectBoard({ p1: { monsters: [ELF] }, p2: { monsters: [AXE] } }),
+      expectPrompt({ by: "p1", offers: ["yes", "no"] }),
+      no("p1"),
+      everySeat("ffa3", {
+        p0: { grave: ["Gigantic Thundercross"], banished: [ELF] },
+        p1: { monsters: [ELF], banished: [SANGAN, WITCH, BUG, OX, GUARDIAN] },
+        p2: { monsters: [AXE], banished: [FANG, RAT] },
+      }),
     ],
   }),
   defineScenario({
@@ -338,6 +349,11 @@ export const COMPARE_SCENARIOS: Scenario[] = [
     },
     steps: [
       endTurn("p0"),
+      // Decline the End Phase, pre-draw, post-draw and Standby Phase windows.
+      ...Array.from({ length: 4 }).flatMap(() => [
+        expectPrompt({ by: "p0", context: "chain" }),
+        expectOffered("activate", "Gigantic Thundercross", "p0"), pass("p0"),
+      ]),
       normalSummon(BEAVER, "p1"),
       activate("Gigantic Thundercross", "p0"),
       expectPickSeats(["p1", "p2"], "p0"),
