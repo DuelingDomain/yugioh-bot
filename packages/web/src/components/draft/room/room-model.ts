@@ -458,16 +458,19 @@ export function groupCopies<T extends { card: RoomCard }>(entries: T[]): T[][] {
 }
 
 export function mixGradient(counts: KindCounts, of: number): string {
+  const total = Number.isFinite(of) && of > 0 ? of : 1;
   let at = 0;
   const stops: string[] = [];
   for (const k of KINDS) {
-    if (!counts[k]) continue;
-    const a = (at / of) * 100;
-    const b = ((at + counts[k]) / of) * 100;
+    if (at >= total) break;
+    const count = Math.min(counts[k], total - at);
+    if (!(count > 0)) continue;
+    const a = (at / total) * 100;
+    at = Math.min(total, at + count);
+    const b = (at / total) * 100;
     stops.push(`var(--k-${k}) ${a}% ${b}%`);
-    at += counts[k];
   }
-  stops.push(`rgb(255 255 255 / 0.07) ${(at / of) * 100}% 100%`);
+  stops.push(`rgb(255 255 255 / 0.07) ${(at / total) * 100}% 100%`);
   return `conic-gradient(${stops.join(", ")})`;
 }
 
@@ -695,7 +698,7 @@ export function themeProgress(drafted: number, sizes: RoomSizes): ThemeProgress 
   return { inExtra: false, drafted: Math.min(drafted, sizes.cardsPerPlayer), of: sizes.cardsPerPlayer };
 }
 
-/** Counts that drive the dial and the kind tiles. In theme mode they follow the current phase. */
+/** Counts that drive the dial. In theme mode they follow the current phase. */
 export function dialModel(pool: RoomCard[], sizes: RoomSizes) {
   if (!sizes.theme) {
     return { done: pool.length, of: sizes.cardsPerPlayer, label: `of ${sizes.cardsPerPlayer}`, counts: countKinds(pool) };

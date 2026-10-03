@@ -332,6 +332,58 @@ describe("DraftRoom", () => {
     expect(document.body.querySelector(".dr")?.getAttribute("data-mode")).toBe("theme");
   });
 
+  it.each([
+    { extraPicks: 0, gradient: "conic-gradient(rgb(255 255 255 / 0.07) 0% 100%)" },
+    {
+      extraPicks: 5,
+      gradient: "conic-gradient(var(--k-extra) 0% 33.33333333333333%, rgb(255 255 255 / 0.07) 33.33333333333333% 100%)",
+    },
+  ])("uses only $extraPicks extra picks in the theme dial after forty main picks", async ({ extraPicks, gradient }) => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    load({
+      myPool: [
+        ...Array.from({ length: 40 }, (_, i) => mk(i + 100)),
+        ...Array.from({ length: extraPicks }, (_, i) => mk(i + 200, { type: "Fusion Monster", frameType: "fusion" })),
+      ],
+    });
+    renderRoom({ ...config, mode: "theme", cardsPerPlayer: 40, extraDeckSize: 15 });
+
+    const dial = await screen.findByRole("button", { name: `Your picks: ${extraPicks} of 15. Open your picks.` });
+    const face = dial.querySelector<HTMLElement>(".face")!;
+    expect(face.textContent).toBe(String(extraPicks));
+    expect(within(dial).getByText("of 15 extra")).toBeTruthy();
+    expect(face.style.getPropertyValue("--mix")).toBe(gradient);
+    expect(screen.getByRole("button", { name: "40 Monsters. Show them." })).toBeTruthy();
+    expect(screen.getByRole("button", { name: `${extraPicks} Extra deck. Show them.` })).toBeTruthy();
+  });
+
+  it.each([
+    { name: "booster", mode: "booster" as const },
+    { name: "cube", mode: undefined },
+  ])("preserves the whole-pool ring and counters in $name mode", async ({ mode }) => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    load({
+      myPool: [
+        mk(100),
+        mk(101, { type: "Spell Card", frameType: "spell" }),
+        mk(102, { type: "Trap Card", frameType: "trap" }),
+        mk(103, { type: "Fusion Monster", frameType: "fusion" }),
+      ],
+    });
+    renderRoom({ ...config, mode, cardsPerPlayer: 40 });
+
+    const dial = await screen.findByRole("button", { name: "Your picks: 4 of 40. Open your picks." });
+    const face = dial.querySelector<HTMLElement>(".face")!;
+    expect(face.textContent).toBe("4");
+    expect(within(dial).getByText("of 40")).toBeTruthy();
+    expect(face.style.getPropertyValue("--mix")).toBe(
+      "conic-gradient(var(--k-monster) 0% 2.5%, var(--k-spell) 2.5% 5%, var(--k-trap) 5% 7.5%, var(--k-extra) 7.5% 10%, rgb(255 255 255 / 0.07) 10% 100%)",
+    );
+    for (const label of ["Monsters", "Spells", "Traps", "Extra deck"]) {
+      expect(screen.getByRole("button", { name: `1 ${label}. Show them.` })).toBeTruthy();
+    }
+  });
+
   it("restores the page behind it on unmount", async () => {
     const { unmount } = renderRoom();
     await waitFor(() => expect(card(1)).toBeTruthy());

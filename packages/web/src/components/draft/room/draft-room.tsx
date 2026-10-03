@@ -507,7 +507,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   );
 
   const dial = dialModel(pool, sizes);
-  const counts = useMemo(() => countKinds(pool), [pool]);
+  const poolCounts = useMemo(() => countKinds(pool), [pool]);
   const last = useMemo(() => {
     const out: Partial<Record<Kind, RoomCard>> = {};
     for (const c of [...pool].reverse()) {
@@ -772,7 +772,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               done={dial.done}
               of={dial.of}
               label={dial.label}
-              counts={counts}
+              phaseCounts={dial.counts}
+              poolCounts={poolCounts}
               last={last}
               active={filter.kinds}
               landed={landed}
