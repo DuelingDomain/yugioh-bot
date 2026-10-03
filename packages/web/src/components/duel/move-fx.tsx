@@ -20,6 +20,7 @@
  *
  * Reduced motion: no travel, a 150 ms fade at the destination.
  */
+import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED } from "./constants";
@@ -605,7 +606,7 @@ export function flipHands(root: ParentNode, states: Map<string, HandState>, redu
         // The ghost brings an invisible arrival straight to its new engine slot. Only neighbours slide.
         if (!card || typeof card.animate !== "function" || card.querySelector('[style*="visibility: hidden"]')) continue;
         applied.set(card, { key: move.key, dx: move.dx, dy: move.dy });
-        card.animate(
+        duelFxClock.animate(card, 
           [{ translate: `${move.dx}px ${move.dy}px` }, { translate: "0px 0px" }],
           { duration: HAND_FLIP_MS, easing: HAND_FLIP_EASE, id: HAND_FLIP_ID },
         );
@@ -618,7 +619,7 @@ export function flipHands(root: ParentNode, states: Map<string, HandState>, redu
         if (!card || typeof card.animate !== "function") continue;
         if (card.querySelector('[style*="visibility"]')) continue; // a flight is bringing it
         const rise = reduced ? "0px 0px" : `0px ${Math.round(card.getBoundingClientRect().height * 0.22)}px`;
-        card.animate(
+        duelFxClock.animate(card, 
           [{ opacity: 0, translate: rise }, { opacity: 1, translate: "0px 0px" }],
           { duration: reduced ? 150 : HAND_ENTER_MS, easing: HAND_FLIP_EASE },
         );
@@ -695,7 +696,7 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
     });
 
   const clearAll = () => {
-    for (const timer of timersRef.current) window.clearTimeout(timer);
+    for (const timer of timersRef.current) duelFxClock.clearTimeout(timer);
     timersRef.current.clear();
     for (const release of releasesRef.current.values()) release();
     releasesRef.current.clear();
@@ -734,7 +735,7 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
     if (fresh.length === 0) return;
     if (typeof document !== "undefined" && document.hidden) return;
 
-    const now = performance.now();
+    const now = duelFxClock.now();
     planMoves(fresh, { now, reduced: reducedRef.current, duelKey });
     const started: MovePlan[] = [];
     for (const event of fresh) {
@@ -773,14 +774,14 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
       if (releases.length > 0) {
         const release = () => releases.forEach((fn) => fn());
         releasesRef.current.set(plan.id, release);
-        const failsafe = window.setTimeout(release, waitMs);
+        const failsafe = duelFxClock.setTimeout(release, waitMs);
         timersRef.current.add(failsafe);
       }
       const wait = plan.startAt - now;
       if (wait <= 16) {
         started.push(plan);
       } else {
-        const timer = window.setTimeout(() => {
+        const timer = duelFxClock.setTimeout(() => {
           timersRef.current.delete(timer);
           addItems([plan]);
         }, wait);
