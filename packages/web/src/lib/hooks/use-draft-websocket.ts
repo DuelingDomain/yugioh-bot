@@ -28,8 +28,27 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
     let disposed = false;
     let requestId = 0;
     let tokenRequest: AbortController | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryDelay = 1000;
+
+    function clearJoinRetry() {
+      if (retryTimer === null) return;
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+
+    function scheduleJoinRetry(currentRequest: number) {
+      if (disposed || !socket.connected || currentRequest !== requestId) return;
+      clearJoinRetry();
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        void joinDraftRoom();
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 15000);
+    }
 
     async function joinDraftRoom() {
+      clearJoinRetry();
       const currentRequest = ++requestId;
       tokenRequest?.abort();
       tokenRequest = new AbortController();
@@ -37,16 +56,26 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
         const response = await fetch(`/api/drafts/${encodeURIComponent(slug)}/connection`, {
           cache: "no-store", signal: tokenRequest.signal,
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+          if (response.status !== 403 && response.status !== 404) scheduleJoinRetry(currentRequest);
+          return;
+        }
         const data = await response.json();
         if (disposed || !socket.connected || currentRequest !== requestId) return;
         socket.emit("draft:join", { slug, token: data.token, userId: data.userId }, (result?: { error?: string }) => {
-          if (result?.error !== undefined || disposed || !socket.connected || currentRequest !== requestId) return;
+          if (disposed || !socket.connected || currentRequest !== requestId) return;
+          if (result?.error !== undefined) {
+            scheduleJoinRetry(currentRequest);
+            return;
+          }
+          clearJoinRetry();
+          retryDelay = 1000;
           optionsRef.current.onResync?.();
         });
       } catch (error) {
-        if (!disposed && currentRequest === requestId && !(error instanceof Error && error.name === "AbortError")) {
-          console.warn("Draft live feed is unavailable. Reconnect to try again.");
+        if (!disposed && socket.connected && currentRequest === requestId && !(error instanceof Error && error.name === "AbortError")) {
+          console.warn("Draft live feed is unavailable. Retrying.");
+          scheduleJoinRetry(currentRequest);
         }
       }
     }
@@ -57,6 +86,8 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
 
     socket.on("disconnect", () => {
       ++requestId;
+      clearJoinRetry();
+      retryDelay = 1000;
       tokenRequest?.abort();
     });
 
@@ -107,6 +138,7 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
     return () => {
       disposed = true;
       ++requestId;
+      clearJoinRetry();
       tokenRequest?.abort();
       socket.disconnect();
       socketRef.current = null;

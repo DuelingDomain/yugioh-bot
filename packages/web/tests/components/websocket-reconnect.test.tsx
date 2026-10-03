@@ -219,4 +219,119 @@ describe("draft reconnect", () => {
     act(() => sockets[1].emit.mock.calls[0][2]({}));
     expect(onResync).toHaveBeenCalledTimes(2);
   });
+
+  describe("join retries", () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    it("retries a token 500 after one second, joins, and resyncs after the acknowledgement", async () => {
+      const onResync = vi.fn();
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+      renderHook(() => useDraftWebsocket("cup", { onResync }));
+      await act(async () => connect());
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(sockets[0].emit).not.toHaveBeenCalled();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(999); });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(sockets[0].emit).toHaveBeenCalledExactlyOnceWith("draft:join", {
+        slug: "cup", token: "first-token", userId: "user-1",
+      }, expect.any(Function));
+      expect(onResync).not.toHaveBeenCalled();
+
+      act(() => sockets[0].emit.mock.calls[0][2]({}));
+      expect(onResync).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it("retries a join acknowledgement error and resyncs only after a successful acknowledgement", async () => {
+      const onResync = vi.fn();
+      renderHook(() => useDraftWebsocket("cup", { onResync }));
+      await act(async () => connect());
+      act(() => sockets[0].emit.mock.calls[0][2]({ error: "Temporarily unavailable" }));
+      expect(onResync).not.toHaveBeenCalled();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(999); });
+      expect(sockets[0].emit).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(sockets[0].emit).toHaveBeenCalledTimes(2);
+      expect(onResync).not.toHaveBeenCalled();
+      act(() => sockets[0].emit.mock.calls[1][2]({}));
+      expect(onResync).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([403, 404])("does not retry a token %i", async (status) => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status });
+      renderHook(() => useDraftWebsocket("cup"));
+      await act(async () => connect());
+      await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(sockets[0].emit).not.toHaveBeenCalled();
+    });
+
+    it("cancels a pending retry on disconnect", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+      renderHook(() => useDraftWebsocket("cup"));
+      await act(async () => connect());
+      expect(vi.getTimerCount()).toBe(1);
+
+      act(() => sockets[0].handlers.get("disconnect")!());
+      expect(vi.getTimerCount()).toBe(0);
+      await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(sockets[0].emit).not.toHaveBeenCalled();
+    });
+
+    it("cancels a pending retry when a new join starts", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+      renderHook(() => useDraftWebsocket("cup"));
+      await act(async () => connect());
+      expect(vi.getTimerCount()).toBe(1);
+
+      await act(async () => connect());
+      expect(vi.getTimerCount()).toBe(0);
+      await act(async () => { await vi.advanceTimersByTimeAsync(15000); });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(sockets[0].emit).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries a network error while the socket stays connected", async () => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      mockFetch.mockRejectedValueOnce(new TypeError("Network unavailable"));
+      renderHook(() => useDraftWebsocket("cup"));
+      await act(async () => connect());
+      expect(sockets[0].emit).not.toHaveBeenCalled();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(sockets[0].emit).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps retrying with a fifteen-second backoff cap until unmounted", async () => {
+      mockFetch.mockResolvedValue({ ok: false, status: 500 });
+      const { unmount } = renderHook(() => useDraftWebsocket("cup"));
+      await act(async () => connect());
+
+      let attempts = 1;
+      for (const delay of [1000, 2000, 4000, 8000, 15000, 15000]) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(delay - 1); });
+        expect(mockFetch).toHaveBeenCalledTimes(attempts);
+        await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+        expect(mockFetch).toHaveBeenCalledTimes(++attempts);
+        expect(vi.getTimerCount()).toBe(1);
+      }
+
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+      await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+      expect(mockFetch).toHaveBeenCalledTimes(attempts);
+    });
+  });
 });

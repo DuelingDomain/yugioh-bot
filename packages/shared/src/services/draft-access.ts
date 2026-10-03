@@ -1,4 +1,6 @@
 import Database from "better-sqlite3";
+import { readFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 export const DRAFT_READ_ACCESS_ERROR = "This draft is only open to its players.";
 
@@ -23,12 +25,32 @@ export function findDraftReadAccess(db: Database.Database, slug: string, guildId
   };
 }
 
+/** Relative database paths refer to the workspace root, even from a package cwd. */
+export function resolveDraftDatabasePath(databasePath = "./data/bot.sqlite", cwd = process.cwd()): string {
+  if (isAbsolute(databasePath)) return databasePath;
+  let directory = cwd;
+  while (true) {
+    try {
+      const manifest: unknown = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"));
+      if (typeof manifest === "object" && manifest !== null && "workspaces" in manifest) {
+        return resolve(directory, databasePath);
+      }
+    } catch {
+      // Keep walking past missing or unreadable package manifests.
+    }
+    const parent = dirname(directory);
+    if (parent === directory) return resolve(cwd, databasePath);
+    directory = parent;
+  }
+}
+
 /** The ws container already mounts this database; only read access is needed. */
 export function createDraftAccessReader(databasePath = process.env.DATABASE_PATH ?? "./data/bot.sqlite") {
+  const resolvedDatabasePath = resolveDraftDatabasePath(databasePath);
   let db: Database.Database | undefined;
   return {
     canReadDraft(claims: { slug: string; guildId: string; userId: string }): boolean {
-      db ??= new Database(databasePath, { readonly: true, fileMustExist: true });
+      db ??= new Database(resolvedDatabasePath, { readonly: true, fileMustExist: true });
       return findDraftReadAccess(db, claims.slug, claims.guildId, claims.userId)?.canRead ?? false;
     },
     close() {
