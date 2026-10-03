@@ -268,9 +268,9 @@ describe("the real repository", () => {
   });
 });
 
-it("counts the real host surrender proof", async () => {
+it("counts the real host immediate surrender proof", async () => {
   const { refs } = await collect();
   const proof = refs.find((entry) => entry.rule === "R-COMMON-SURRENDER-EOT" && entry.ref.kind === "host-outcome");
   expect(proof?.ref.test).toBe("tests/host-surrender-eot.test.ts");
-  expect(buildRows([{ id: "R-COMMON-SURRENDER-EOT", title: "Surrender at turn end" }], refs)[0]?.status).toBe("covered");
+  expect(buildRows([{ id: "R-COMMON-SURRENDER-EOT", title: "Immediate surrender" }], refs)[0]?.status).toBe("covered");
 });

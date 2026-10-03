@@ -177,7 +177,7 @@ export function renderTable(rows: RuleRow[], sketchEntries: number): string {
     "The forbidden-list rule has one host exception: `tests/host-rule-forbidden.test.ts`. It checks a forbidden deck at every seat",
     "through real lobby validation and start, then starts the legal table on the real Standard and Domain engine in all three formats.",
     "The surrender rule has a host proof too: `tests/host-surrender-eot.test.ts`. Real workers check all three formats on both cores,",
-    "with End Phase prompts, open chains, recovery, replay, pass answers, and spectator views after elimination.",
+    "with immediate removal, normal leaver links, action response windows, recovery, replay, automatic answers, and spectator views.",
     "",
     "A rule id is one unit: if a rule has several clauses, one tested clause is enough to mark it covered. The marker does not check",
     "which clauses a scenario proves, so read the scenario before you trust a rule that has more than one clause. When a covered rule",
@@ -301,7 +301,7 @@ export async function collect(root = packageRoot) {
   }
   const surrenderProof = "tests/host-surrender-eot.test.ts";
   const surrenderPath = join(root, surrenderProof);
-  if (existsSync(surrenderPath) && readFileSync(surrenderPath, "utf8").includes("R-COMMON-SURRENDER-EOT: %s stays through the End Phase and recovers the queue")) {
+  if (existsSync(surrenderPath) && readFileSync(surrenderPath, "utf8").includes("R-COMMON-SURRENDER-EOT: %s another-turn surrender removes the seat before any answer")) {
     refs.push({ rule: "R-COMMON-SURRENDER-EOT", ref: { test: surrenderProof, kind: "host-outcome" } });
   }
   for (const file of presetFiles(root)) {
