@@ -2,8 +2,6 @@ export type DraftStatusBroadcast = {
   kind: "status";
   slug: string;
   status: "active" | "cancelled" | "completed";
-  /** Theme-draft phase, when applicable, so clients can render the phase indicator. */
-  phase?: "main" | "extra";
 };
 
 export type DraftPickBroadcast = {
@@ -19,8 +17,6 @@ export type DraftResyncBroadcast = {
   slug: string;
   packRound: number;
   pickStep: number;
-  /** Theme-draft phase, when applicable, so clients can render the phase indicator. */
-  phase?: "main" | "extra";
 };
 
 export type DraftCompleteBroadcast = {

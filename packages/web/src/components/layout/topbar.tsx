@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { handleSignOut } from "@/lib/actions";
+import { signOut } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Menu, LogOut, PanelLeftClose, PanelLeft, User } from "lucide-react";
@@ -137,7 +137,7 @@ export function TopBar({ onMenuClick, onToggleSidebar, sidebarCollapsed }: TopBa
                   type="button"
                   onClick={() => {
                     setDropdownOpen(false);
-                    void handleSignOut();
+                    void signOut({ redirectTo: "/login" });
                   }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated hover:text-text-primary motion-safe:transition-colors"
                 >

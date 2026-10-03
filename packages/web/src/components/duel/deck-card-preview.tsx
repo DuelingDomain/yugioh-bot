@@ -60,7 +60,7 @@ export function DeckCardPreview({ code }: { code: number | null }) {
 
   return (
     <div className={styles.preview} aria-live="polite">
-      <div className={styles.art}>
+      <div className={`${styles.art} card-frame`}>
         <img key={code} src={cardArtUrl(code, "full")} alt={card?.name ?? `Card ${code}`} />
       </div>
       <div className={styles.body}>

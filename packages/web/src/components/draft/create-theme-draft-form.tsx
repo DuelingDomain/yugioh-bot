@@ -18,7 +18,7 @@ export function CreateThemeDraftForm() {
   const [extraDeckSize, setExtraDeckSize] = React.useState(15);
   const [burnUnpicked, setBurnUnpicked] = React.useState(false);
   const [uniqueThemes, setUniqueThemes] = React.useState(true);
-  const [themeSelection, setThemeSelection] = React.useState<"player_pick" | "random" | "host_assigned">("player_pick");
+  const [themeSelection, setThemeSelection] = React.useState<"player_pick" | "random">("player_pick");
   const [pickSeconds, setPickSeconds] = React.useState(45);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -114,7 +114,6 @@ export function CreateThemeDraftForm() {
           <select value={themeSelection} onChange={(e) => setThemeSelection(e.target.value as typeof themeSelection)} className={`native-select mt-1 ${inputCls}`}>
             <option value="player_pick">Players pick</option>
             <option value="random">Random</option>
-            <option value="host_assigned">Host assigned</option>
           </select>
         </label>
       </div>

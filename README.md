@@ -159,9 +159,10 @@ Source attribution: [ocgcore-wasm](https://github.com/n1xx1/ocgcore-wasm), [EDOP
 | `DISCORD_REMINDER_CHANNEL_ID` | No | Channel for daily tournament reminders |
 | `DISCORD_DEFAULT_CHANNEL_ID` | No | Default channel for web-created drafts/tournaments |
 | `NEXTAUTH_SECRET` | Yes (web) | Generate with `openssl rand -base64 32` |
-| `NEXTAUTH_URL` | Yes (web) | `http://localhost:3000` for local, `http://<VM_IP>` or `https://yourdomain.com` for production |
+| `SITE_DOMAIN` | Yes (Compose) | Caddy hostname; see [production environment setup](docs/deployment/vm-runbook.md#create-env) |
+| `NEXTAUTH_URL` | Yes (web) | `http://localhost:3000` locally; see [production environment setup](docs/deployment/vm-runbook.md#create-env) |
 | `WEB_URL` | Yes (bot) | Public web URL used in bot announcement links. Same value as `NEXTAUTH_URL` in production |
-| `NEXT_PUBLIC_WS_URL` | Yes (web) | WebSocket URL: `http://localhost:3001` local, `http://<VM_IP>` or `https://yourdomain.com` for production. Baked into the browser bundle at build time — rebuild the web image when this changes |
+| `NEXT_PUBLIC_WS_URL` | No (dev only) | Separate WebSocket URL for local development, e.g. `http://localhost:3001` |
 | `WS_INTERNAL_SECRET` | Yes (web + bot + duel + ws) | Shared HMAC secret for internal broadcasts and short-lived duel subscription tokens. Generate with `openssl rand -hex 32` |
 | `WS_INTERNAL_URL` | Yes (web + bot + duel) | Internal URL of the ws server. In Docker Compose this is `http://ws:4002` |
 | `BOT_ANNOUNCE_SECRET` | Yes | Shared bearer secret for web → bot announce endpoint. Generate with `openssl rand -hex 32` |
@@ -209,7 +210,7 @@ The stack runs 5 services:
 - **ws** — Socket.IO WebSocket server for real-time draft updates
 - **duel** — Private automated engine (`packages/duel-server/dist/server.js`, loopback 4003)
 - **web** — Next.js 16 dashboard (standalone `packages/web/server.js`)
-- **caddy** — Reverse proxy (HTTP on port 80, auto-HTTPS with a domain)
+- **caddy** — Reverse proxy ([HTTPS and redirects](docs/deployment/vm-runbook.md#deployment-pipeline))
 
 ## Deployment
 
@@ -217,10 +218,10 @@ The stack runs 5 services:
 
 The app runs on a VM via Docker Compose with Caddy as a reverse proxy. GitHub Actions deploys on every push to `main`.
 
-**SSH access:**
+**SSH access:** use the VM IP from the [runbook facts list](docs/deployment/vm-runbook.md#current-repository-state).
 
 ```bash
-ssh -i ~/.ssh/hetzner_deploy root@178.105.36.104
+ssh -i ~/.ssh/hetzner_deploy root@YOUR_VM_IP
 ```
 
 If you need to set or reset the root password after logging in:
@@ -233,30 +234,20 @@ passwd
 1. Create a VM (e.g., Hetzner CAX11, 4GB RAM, Ubuntu 24.04)
 2. Install Docker and Git on the VM
 3. Clone the repo to `/opt/yugioh-bot`
-4. Create `.env` on the VM (see Environment Variables above)
-5. Set Discord OAuth redirect URI: `http://<YOUR_IP>/api/auth/callback/discord`
-6. Run `docker compose -f docker-compose.yml up -d --build`
+4. Configure [DNS, firewall](docs/deployment/vm-runbook.md#create-the-server), and the [production environment](docs/deployment/vm-runbook.md#create-env)
+5. Set Discord OAuth redirect URI: `https://<SITE_DOMAIN>/api/auth/callback/discord` (see [runbook](docs/deployment/vm-runbook.md#discord-oauth-redirect))
+6. Follow the runbook's [first production start](docs/deployment/vm-runbook.md#build--run)
 7. Add GitHub Actions secrets (`VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`, `VM_PORT`)
 
-See `docs/deployment/vm-runbook.md` for the full step-by-step guide.
+See the [VM runbook](docs/deployment/vm-runbook.md) for the full step-by-step guide.
 
 **SSH into the production VM:**
 
 ```bash
-ssh -i ~/.ssh/hetzner_deploy root@178.105.36.104
+ssh -i ~/.ssh/hetzner_deploy root@YOUR_VM_IP
 ```
 
-### Adding a Custom Domain (Optional)
-
-For HTTPS with a custom domain:
-
-1. Point your domain's A record to the VM IP
-2. Edit `Caddyfile` — replace `:80` with `yourdomain.com`
-3. Add `"443:443"` to the caddy ports in `docker-compose.yml`
-4. Update `.env`: `NEXTAUTH_URL=https://yourdomain.com` and `NEXT_PUBLIC_WS_URL=https://yourdomain.com`
-5. Update Discord redirect URI to `https://yourdomain.com/api/auth/callback/discord`
-6. Open firewall port 443
-7. `docker compose -f docker-compose.yml up -d` — Caddy auto-provisions HTTPS via Let's Encrypt
+Production uses HTTPS by default. Follow the [VM runbook](docs/deployment/vm-runbook.md#vm-setup-hetzner-cax11-or-similar) for domain setup and deployment.
 
 ## Quality Checks
 
@@ -270,7 +261,7 @@ For focused duel checks, run `npx vitest run tests/host.test.ts` from `packages/
 
 ## Backups
 
-Run `./scripts/backup-sqlite.sh` to create a timestamped SQLite backup in `./backups`.
+See the [runbook's Backups section](docs/deployment/vm-runbook.md#backups) for automatic backups and restore instructions.
 
 ## Project Structure
 

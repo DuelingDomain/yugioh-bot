@@ -55,6 +55,24 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Large card previews (deck lobby, deck editor, duel inspector, pile viewer, draft). One rule, so no
+   preview crops the printed card frame: the true card ratio, the whole image shown (contain), and a
+   hairline radius, far under the card's own corner. Nothing clips the image (no overflow: hidden, no
+   scale); any glow or shadow goes on the frame and falls outside the card. */
+.card-frame {
+  position: relative;
+  aspect-ratio: 421 / 614;
+  border-radius: 2px;
+}
+.card-frame > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: contain;
+  transform: none;
+}
+
 .native-select {
   color-scheme: dark;
 }

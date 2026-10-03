@@ -53,7 +53,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "repair:ratings": "node dist/maintenance/repair-ratings.js"
   },
   "dependencies": {
     "better-sqlite3": "latest",

@@ -113,4 +113,16 @@ describe("POST /api/drafts/[slug]/join-bot", () => {
     const names = [firstBody.displayName, secondBody.displayName, thirdBody.displayName];
     expect(new Set(names).size).toBe(3);
   });
+
+  it("rejects anyone other than the draft host", async () => {
+    const draft = await createPendingDraftDb();
+    auth.mockResolvedValue({ user: { id: "other-member" } });
+    const { POST } = await import("../app/api/drafts/[slug]/join-bot/route");
+    const res = await POST(new Request("http://localhost", { method: "POST" }), {
+      params: Promise.resolve({ slug: draft.webSlug ?? "" }),
+    });
+    expect(res.status).toBe(403);
+    const { getDb } = await import("../src/lib/db");
+    expect(getDb().prepare("select count(*) as n from draft_players where draft_id = ?").get(draft.id)).toEqual({ n: 1 });
+  });
 });
