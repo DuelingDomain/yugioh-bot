@@ -495,3 +495,51 @@ describe("cube copies above the per-player cap", () => {
     expect(drafts.start(draft.id).status).toBe("active");
   });
 });
+
+describe("a draft that started under the old pack rotation", () => {
+  const unpicked = (db: Database.Database, draftId: number) =>
+    (db.prepare("select count(*) as n from draft_cards where draft_id = ? and picked_by_player_id is null").get(draftId) as { n: number }).n;
+
+  it("does not loop forever when packs stack on one seat and the first one is capped for everybody", () => {
+    const { db, drafts, draftId, a, b } = boosterDraft({ packSize: 4, packsPerPlayer: 1, cardsPerPlayer: 4 }, distinctCube(8));
+    // Old rotation let two packs end up on the same seat. A seat only offers the lowest pack id on it.
+    const packs = db.prepare("select id from draft_packs where draft_id = ? order by id").all(draftId) as Array<{ id: number }>;
+    db.prepare("update draft_packs set current_holder_seat_index = 0 where draft_id = ?").run(draftId);
+    const shadowing = db.prepare("select catalog_card_id as id from draft_cards where draft_pack_id = ?").all(packs[0].id) as Array<{ id: number }>;
+    for (const card of shadowing) {
+      grantCopies(db, draftId, a, card.id, MAX_COPIES_PER_PLAYER);
+      grantCopies(db, draftId, b, card.id, MAX_COPIES_PER_PLAYER);
+    }
+    const before = unpicked(db, draftId);
+
+    expireNow(db, draftId);
+    drafts.expireCurrentPickStep(draftId);
+
+    // The draft goes on (it is not ended), nothing was picked for anyone, and the stacked packs are on
+    // two different seats again, so pack 2 is where a player can take from it.
+    expect(drafts.findById(draftId).status).toBe("active");
+    expect(unpicked(db, draftId)).toBe(before);
+    const holders = db.prepare("select id, current_holder_seat_index as seat from draft_packs where draft_id = ? order by id").all(draftId) as Array<{ id: number; seat: number }>;
+    expect(new Set(holders.map((pack) => pack.seat)).size).toBe(2);
+    const pack2Seat = holders.find((pack) => pack.id === packs[1].id)!.seat;
+    const pack2Holder = pack2Seat === 0 ? a : b;
+    expect(drafts.pickOptions(draftId, pack2Holder).length).toBeGreaterThan(0);
+    db.close();
+  });
+
+  it("ends the wave when the table is still stuck after the packs go back to their origin seats", () => {
+    const { db, drafts, draftId, a, b } = boosterDraft({ packSize: 4, packsPerPlayer: 1, cardsPerPlayer: 4 }, distinctCube(8));
+    // A holds all their picks but is not marked finished, so A can never take a card. B holds three copies
+    // of every card. A card still looks pickable for A, and no pack order can give it to anyone.
+    db.prepare("update draft_players set pick_count = 4 where draft_id = ? and player_id = ?").run(draftId, a);
+    for (let id = 1; id <= 8; id += 1) grantCopies(db, draftId, b, id, MAX_COPIES_PER_PLAYER);
+    const before = unpicked(db, draftId);
+
+    expireNow(db, draftId);
+    drafts.expireCurrentPickStep(draftId);
+
+    expect(drafts.findById(draftId).status).toBe("completed");
+    expect(unpicked(db, draftId)).toBe(before);
+    db.close();
+  });
+});

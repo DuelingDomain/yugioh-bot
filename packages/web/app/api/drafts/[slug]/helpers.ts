@@ -21,7 +21,26 @@ function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
   return Math.max(0, Math.ceil(remainingMs / 1000));
 }
 
+/**
+ * Run one part of the draft response. If it throws, log it with the draft slug and use the fallback,
+ * so one bad row degrades that part of the page and the player still gets into the draft.
+ * SQLITE_BUSY errors are rethrown.
+ */
+function degrade<T>(slug: string, part: string, fallback: T, run: () => T): T {
+  try {
+    return run();
+  } catch (error) {
+    // A locked database is not a bad row. Fail the load so the room shows the error; a fallback here
+    // would show stale data (a frozen timer) while the database is busy.
+    const code = (error as { code?: unknown } | null)?.code;
+    if (typeof code === "string" && code.startsWith("SQLITE_BUSY")) throw error;
+    console.error(`[api/drafts/${slug}] ${part} failed:`, error);
+    return fallback;
+  }
+}
+
 function mapDraftCardDetails(
+  slug: string,
   db: ReturnType<typeof getDb>,
   cards: Array<{ draftCardId: number; catalogCardId: number }>,
   engineTypes: ReadonlyMap<number, EngineCardTypes> = new Map(),
@@ -31,7 +50,10 @@ function mapDraftCardDetails(
   }
 
   const catalog = createCardCatalogService(db);
-  const catalogCards = catalog.findByIds(cards.map((card) => card.catalogCardId));
+  // A catalog row that cannot be read shows as "Card <passcode>" instead of failing the whole draft.
+  const catalogCards = degrade(slug, "card catalog lookup", [] as ReturnType<typeof catalog.findByIds>, () =>
+    catalog.findByIds(cards.map((card) => card.catalogCardId)),
+  );
   const catalogById = new Map(catalogCards.map((card) => [card.ygoprodeckId, card]));
 
   return cards.map((card) => {
@@ -72,7 +94,10 @@ export async function buildDraftResponse(slug: string, userId: string) {
   }
 
   if (draftIdRow.status === "active") {
-    const { autoPickedPlayerIds } = drafts.expireCurrentPickStep(draftIdRow.id);
+    // The timeout sweep also runs in the bot timer. If it fails here, the page still loads the draft as it is.
+    const { autoPickedPlayerIds } = degrade(slug, "pick expiry", { autoPickedPlayerIds: [] as number[] }, () =>
+      drafts.expireCurrentPickStep(draftIdRow.id),
+    );
     if (autoPickedPlayerIds.length > 0) {
       const updated = drafts.findById(draftIdRow.id);
       if (updated.status === "completed") {
@@ -179,20 +204,25 @@ export async function buildDraftResponse(slug: string, userId: string) {
     }))
     .sort((a, b) => a.seatIndex - b.seatIndex);
 
+  // Only a seat in the draft has a pack. A viewer with a player row but no seat gets an empty one.
   const currentPackCards =
-    draft.status === "active" && currentPlayer
-      ? drafts.currentPackOptions(draft.id, currentPlayer.id).map((card) => ({
-          draftCardId: card.id,
-          catalogCardId: card.catalogCardId,
-        }))
+    draft.status === "active" && currentPlayer && isParticipant
+      ? degrade(slug, "current pack", [] as Array<{ draftCardId: number; catalogCardId: number }>, () =>
+          drafts.currentPackOptions(draft.id, currentPlayer.id).map((card) => ({
+            draftCardId: card.id,
+            catalogCardId: card.catalogCardId,
+          })),
+        )
       : [];
 
   const myPoolCards =
     currentPlayer && isParticipant
-      ? drafts.pool(draft.id, currentPlayer.id).map((card) => ({
-          draftCardId: card.draftCardId,
-          catalogCardId: card.catalogCardId,
-        }))
+      ? degrade(slug, "card pool", [] as Array<{ draftCardId: number; catalogCardId: number }>, () =>
+          drafts.pool(draft.id, currentPlayer.id).map((card) => ({
+            draftCardId: card.draftCardId,
+            catalogCardId: card.catalogCardId,
+          })),
+        )
       : [];
 
   // Monster type and spell/trap kind come from the duel engine. Without it (or without a seat to ask
@@ -206,14 +236,18 @@ export async function buildDraftResponse(slug: string, userId: string) {
   // The whole pack is sent. A card the viewer already holds the per-player maximum of is marked
   // blocked, with the copies held, so the room can show it as unavailable.
   const held =
-    draft.status === "active" && currentPlayer && isParticipant ? drafts.heldCopies(draft.id, currentPlayer.id) : {};
-  const currentPack = mapDraftCardDetails(db, currentPackCards, engineTypes).map((card) => {
+    draft.status === "active" && currentPlayer && isParticipant
+      ? degrade(slug, "held copies", {} as Record<number, number>, () => drafts.heldCopies(draft.id, currentPlayer.id))
+      : {};
+  const currentPack = mapDraftCardDetails(slug, db, currentPackCards, engineTypes).map((card) => {
     const copies = held[card.passcode] ?? 0;
     return { ...card, held: copies, blocked: copies >= MAX_COPIES_PER_PLAYER };
   });
   const passed =
-    draft.status === "active" && currentPlayer && isParticipant ? drafts.hasPassedStep(draft.id, currentPlayer.id) : false;
-  const myPool = mapDraftCardDetails(db, myPoolCards, engineTypes);
+    draft.status === "active" && currentPlayer && isParticipant
+      ? degrade(slug, "passed step", false, () => drafts.hasPassedStep(draft.id, currentPlayer.id))
+      : false;
+  const myPool = mapDraftCardDetails(slug, db, myPoolCards, engineTypes);
 
   // Theme-mode extras: derived phase, progress, and lobby theme previews.
   const isTheme = draftModel.config.mode === "theme";
@@ -273,8 +307,11 @@ export async function buildDraftResponse(slug: string, userId: string) {
     : undefined;
 
   // The viewer's saved draft deck, so the results page offers Edit deck instead of Create deck.
+  // A saved deck that cannot be read only hides that button; the results still load.
   const myDeckId = isParticipant && draft.status === "completed"
-    ? createSavedDeckService(db).findByDraft(draft.guild_id, userId, draft.id)?.id ?? null
+    ? degrade(slug, "saved deck lookup", null as number | null, () =>
+        createSavedDeckService(db).findByDraft(draft.guild_id, userId, draft.id)?.id ?? null,
+      )
     : null;
 
   return {

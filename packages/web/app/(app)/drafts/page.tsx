@@ -6,6 +6,8 @@ import { getDb } from "@/lib/db";
 import { FloorList, SectionHead, SvButton } from "@/components/sheet";
 import { DraftFrame } from "@/components/draft/draft-frame";
 import { LiveDraftRow, WaitingDraftRow } from "@/components/draft/list/draft-rows";
+import { RejoinDraftBanner } from "@/components/draft/rejoin-draft";
+import { findRejoinDrafts } from "@/lib/rejoin-drafts";
 import { FinishedLedger } from "@/components/draft/list/finished-ledger";
 import styles from "@/components/draft/list/drafts-list.module.css";
 import {
@@ -67,6 +69,7 @@ export default async function DraftsPage() {
       }));
   }
 
+  const rejoin = findRejoinDrafts(db, env.discordGuildId, discordUserId);
   const groups = groupDrafts(drafts);
   const summary = listSummaryParts(groups);
 
@@ -79,6 +82,7 @@ export default async function DraftsPage() {
 
   return (
     <DraftFrame title="Drafts" sub={summary.length > 0 ? summary.join(", ") : undefined} actions={newDraft}>
+      <RejoinDraftBanner drafts={rejoin} />
       {drafts.length === 0 ? (
         <div className={styles.empty}>
           <h2>No drafts yet</h2>
