@@ -1164,8 +1164,9 @@ export function createDuelHost(options: {
         return project(slug, guildId, playerId, undefined, spectate);
       }
     }
-    // A finished duel has no hidden information left. A seated actor keeps their own seat and result, so a loser who
-    // spectated during the duel still sees "lose" and their own row instead of the spectator copy.
+    // Per-seat snapshots of a finished duel still hold that seat's final hand. Returning the room is safe only because
+    // service.room picks the actor's OWN snapshot, so a loser who spectated during the duel still sees "lose" and their
+    // own row. Never return another seat's or a stored snapshot from this branch.
     if (spectate && room.mySeat !== null && (room.session.status === "completed" || room.session.status === "interrupted")) {
       return room;
     }
