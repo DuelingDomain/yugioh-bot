@@ -188,22 +188,28 @@
   white-space: nowrap;
 }
 .connectionStatus { display: inline-flex; align-items: center; gap: 6px; padding: 0 calc(9 * var(--duel-unit)); white-space: nowrap; color: var(--duel-chain-ink); }
-/* A live duel reads at a glance: red lamp, larger label. */
+/* A live duel reads at a glance: a small red lamp and a short label, sized like the Report bug button beside it
+   (24px high, 12px type) so the pill never outgrows the header row. */
 .connectionStatus[data-live="true"] {
-  gap: 8px;
-  margin-right: calc(6 * var(--duel-unit));
-  padding: 3px 12px 3px 10px;
-  border: 1px solid rgb(255 84 72 / 0.55);
+  box-sizing: border-box;
+  flex-shrink: 0;
+  height: 24px;
+  gap: 6px;
+  margin-right: calc(4 * var(--duel-unit));
+  padding: 0 9px 0 8px;
+  border: 1px solid rgb(255 84 72 / 0.28);
   border-radius: 999px;
-  background: rgb(255 84 72 / 0.08);
+  background: rgb(255 84 72 / 0.06);
   color: #ff8a80;
-  font-size: calc(var(--duel-t-body) * 1.15);
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.01em;
 }
 .liveDot {
-  width: 9px;
-  height: 9px;
+  flex: none;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #ff4a3d;
   box-shadow: 0 0 0 0 rgb(255 74 61 / 0.6);
@@ -211,14 +217,14 @@
 }
 @keyframes livePulse {
   0% { box-shadow: 0 0 0 0 rgb(255 74 61 / 0.55); }
-  70% { box-shadow: 0 0 0 7px rgb(255 74 61 / 0); }
+  70% { box-shadow: 0 0 0 5px rgb(255 74 61 / 0); }
   100% { box-shadow: 0 0 0 0 rgb(255 74 61 / 0); }
 }
 @media (prefers-reduced-motion: reduce) { .liveDot { animation: none; } }
 /* On a phone a live duel shows the red lamp alone: the words stay for screen readers and the header keeps its room.
    Any other state ("Reconnecting", "Offline") keeps its words, because they ask the player to act or wait. */
 @media (max-width: 600px) {
-  .connectionStatus[data-live="true"] { gap: 0; margin-right: 0; padding: 4px 8px; }
+  .connectionStatus[data-live="true"] { gap: 0; margin-right: 0; padding: 0 8px; }
   .connectionStatus[data-live="true"] .connectionText {
     position: absolute;
     width: 1px;
