@@ -100,6 +100,23 @@ describe("BetweenGamesScreen: Not ready button", () => {
     expect(api.readySeries).not.toHaveBeenCalled();
   });
 
+  it("shows the change at once when Not ready is clicked while an earlier un-ready is in flight", async () => {
+    const first = pending<unknown>();
+    api.unreadySeries.mockReturnValueOnce(first.promise).mockResolvedValue({ series: between(), nextSlug: null });
+    const view = setup({ sideReady: [true, false] });
+    fireEvent.click(screen.getByRole("button", { name: "Not ready" }));
+    expect(api.unreadySeries).toHaveBeenCalledTimes(1);
+    // Another tab readies the player while the request is still out.
+    view.rerender(view.element(between({ sideReady: [false, false] })));
+    view.rerender(view.element(between({ sideReady: [true, false] })));
+    fireEvent.click(await screen.findByRole("button", { name: "Not ready" }));
+    expect(screen.queryByRole("button", { name: "Not ready" })).toBeNull();
+    expect(status().textContent).toMatch(/You are no longer ready/);
+    await act(async () => first.resolve({ series: between(), nextSlug: null }));
+    // One more un-ready goes out once the first settles.
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
+  });
+
   it("shows Ready, not Not ready, for a player who is not ready", async () => {
     setup({ sideReady: [false, true] });
     await waitFor(() => expect(ready().disabled).toBe(false));

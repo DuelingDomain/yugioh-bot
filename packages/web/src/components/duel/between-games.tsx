@@ -264,16 +264,17 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
    * without this screen seeing it yet, and only the server knows.
    */
   function leaveReady() {
+    const wasReady = imReady;
+    const before = knownReady;
+    // Show the change at once, also when a request is already in flight (a Ready from another tab can show up meanwhile).
+    if (wasReady) {
+      setKnownReady(false);
+      setUnreadied(true);
+    }
     if (unreadying.current) {
       // A Ready from another tab may land after the request in flight: send one more when it settles.
       unreadyAgain.current = true;
       return;
-    }
-    const wasReady = imReady;
-    const before = knownReady;
-    if (wasReady) {
-      setKnownReady(false);
-      setUnreadied(true);
     }
     if (!autoSave) return;
     unreadying.current = unreadySeries(slug).then(
