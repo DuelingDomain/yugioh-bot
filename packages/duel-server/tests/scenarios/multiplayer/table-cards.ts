@@ -5,10 +5,9 @@
 // Every scenario ends with the state of every seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md and DECISIONS-2026-10-01 (Q3, Q6, Q9, OQ3).
 
 import {
-  activate, endTurn, expectBoard, expectEliminated, expectLp, expectPrompt, expectTurn, surrender, expectPickSeats, pickOpponent, specialSummon, yes, changePosition, select, changePhase, attack,
+  activate, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectPrompt, expectTurn, surrender, expectPickSeats, pickOpponent, specialSummon, yes, changePosition, select, changePhase, attack,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
-import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
@@ -354,9 +353,8 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
       changePhase("battle", "p1"),
       attack("Battle Ox", { card: "Giant Rat", owner: "p0" }, "p1"),
       activate("The Grave of Enkindling", "p0"),
-      selectBy("p0", "Mystical Elf"),
       selectBy("p1", "Mystical Elf"),
-      // 8000 - 300 (battle) - 500 (maintenance). p0 and p1 choose a card; p2 has one card. Each banishes one.
+      // 8000 - 300 (battle) - 500 (maintenance of the Curse). p1 chose its card; p0 and p2 had no choice. Each of the three banished exactly one.
       everySeat("ffa3", {
         p0: { lp: 7200, monsters: ["Giant Rat"], spells: ["Summoning Curse"], grave: ["The Grave of Enkindling"], banished: ["Mystical Elf"] },
         p1: { monsters: ["Battle Ox", "Celtic Guardian"], banished: ["Mystical Elf"] },

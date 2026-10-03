@@ -1,8 +1,7 @@
 import {
-  activate, endTurn, expectBoard, no, yes,
+  activate, defineScenario, endTurn, expectBoard, no, yes,
   type BoardExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
-import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 
 type Format = "1v1" | "ffa3" | "ffa4" | "tag";
 type Kind = "gnomes" | "circle" | "albalos" | "card-destruction" | "hand-destruction";
@@ -67,7 +66,6 @@ function zoneGap(kind: Kind, format: Format): Scenario {
     board.p1!.grave = ["Mystical Elf", "Dark Hole"];
     steps.push(endTurn("p0"), activate("Dark Hole", "p1"), yes("p0"));
   }
-  if (kind === "circle" && (format === "ffa3" || format === "ffa4")) board.p0!.banished = ["Mystical Elf"];
   steps.push(expectBoard(board));
   return defineScenario({
     id: `all-player-zone-gaps-${kind}-${format}`,
