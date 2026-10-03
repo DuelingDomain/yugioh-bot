@@ -182,6 +182,9 @@ const attackTurn = (by: Seat, monster: string, canAttack: boolean): Step[] => [
 
 function swordsFfa3(): Scenario {
   return defineScenario({
+    // In FFA, Swords protects its controller. Other opponents can attack each other.
+    // Each opponent turn counts toward the stock three-turn duration (R3).
+    // This case does not check expiry; the Swords expiry proof is separate.
     id: "rule-gaps-swords-protects-controller-ffa3",
     title: "FFA3: Swords protects p0 while p1 can attack p2 in turn 5; it is destroyed after opponent turns 2, 3 and 5 and p2 can attack in turn 6",
     source: `${SOURCE} [${ONGOING_RULE}]`,

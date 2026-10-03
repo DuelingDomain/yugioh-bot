@@ -1,7 +1,7 @@
 // Owner 2026-10-02 night: Swords protects its controller in FFA.
 // FFA protection uses the per-seat direct attack effect.
 import { activate, attack, changePhase, choose, defineScenario, endTurn, expectBoard, expectEliminated,
-  expectNotOffered, expectOffered, expectPickOptions, expectTurn, pickOpponent, select,
+  expectNotOffered, expectOffered, changePosition, expectPickOptions, expectTurn, pickOpponent, select,
   type BoardExpect, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
 import { domainVariant } from "./domain-variants.js";
 import { SEATS, type Seat } from "./seat-kit.js";
@@ -134,11 +134,33 @@ function stockControl(format: "tag" | "1v1"): Scenario {
   const seats: Seat[] = format === "tag" ? SEATS.tag : ["p0", "p1"];
   const fixture: Scenario["setup"] = { format, attackFirstTurn: true, skipOpeningDraw: true };
   seats.forEach(seat => { fixture[seat] = { monsters: [ELF], ...(seat === "p0" ? { spells: [SWORDS] } : {}) }; });
-  const steps: Step[] = [changePhase("battle", "p0"), expectOffered("attack", ELF, "p0"), endTurn("p0")];
-  for (const seat of seats.slice(1)) steps.push(changePhase("battle", seat), seat === "p2" ? expectOffered("attack", ELF, seat) : expectNotOffered("attack", ELF, seat),
-    expectBoard(Object.fromEntries(seats.map((owner, i) => [owner, { lp: format === "tag" ? 16000 : 8000, monsters: [ELF],
-      spells: owner === "p0" ? [SWORDS] : [], hand: i > 0 && i <= seats.indexOf(seat) ? [ELF] : [], grave: [], banished: [] }]))), endTurn(seat));
-  return proof(`${format}-stock-control`, `${format}: the stock Swords attack lock stays on the opponents`, fixture, steps);
+  const steps: Step[] = [];
+  if (format === "tag") {
+    fixture.p0 = { monsters: [ELF], hand: [SWORDS] };
+    fixture.p2 = { monsters: [{card: ELF, pos: "set"}] };
+    for (const seat of ["p1", "p3"] as const) fixture[seat] = {monsters: [OX, {card: "Axe Raider", pos: "set"}]};
+    // This checkpoint runs before the partner can change its monster position.
+    steps.push(activate(SWORDS, "p0"), expectBoard({
+      p0: {lp: 16000, monsters: [ELF], spells: [SWORDS], zones: {m0: {card: ELF, pos: "atk"}}, hand: [], deckCount: 20, grave: [], banished: [], extra: []},
+      p1: {lp: 16000, monsters: [OX, "Axe Raider"], spells: [], zones: {m0: {card: OX, pos: "atk"}, m1: {card: "Axe Raider", pos: "def"}}, hand: [], deckCount: 20, grave: [], banished: [], extra: []},
+      p2: {lp: 16000, monsters: [ELF], spells: [], zones: {m0: {card: ELF, pos: "set"}}, hand: [], deckCount: 20, grave: [], banished: [], extra: []},
+      p3: {lp: 16000, monsters: [OX, "Axe Raider"], spells: [], zones: {m0: {card: OX, pos: "atk"}, m1: {card: "Axe Raider", pos: "def"}}, hand: [], deckCount: 20, grave: [], banished: [], extra: []},
+    }));
+  }
+  steps.push(changePhase("battle", "p0"), expectOffered("attack", ELF, "p0"), endTurn("p0"));
+  for (const seat of seats.slice(1)) {
+    if (format === "tag" && seat === "p2") steps.push(changePosition(ELF, seat));
+    steps.push(changePhase("battle", seat), seat === "p2" ? expectOffered("attack", ELF, seat) : expectNotOffered("attack", format === "tag" ? OX : ELF, seat),
+      expectBoard(Object.fromEntries(seats.map((owner, i) => [owner, {
+        lp: format === "tag" ? 16000 : 8000,
+        monsters: format === "tag" && (owner === "p1" || owner === "p3") ? [OX, "Axe Raider"] : [ELF],
+        spells: owner === "p0" ? [SWORDS] : [], hand: i > 0 && i <= seats.indexOf(seat) ? [ELF] : [],
+        deckCount: i > 0 && i <= seats.indexOf(seat) ? 19 : 20, grave: [], banished: [], extra: [],
+      }]))), endTurn(seat));
+  }
+  const result=proof(`${format}-stock-control`, `${format}: the stock Swords attack lock stays on the opponents`, fixture, steps);
+  if (format==="tag") result.rules=["R-COMMON-ONGOING", "R-TAG-PARTNER"];
+  return result;
 }
 
 const standard: Scenario[] = [];
@@ -147,4 +169,10 @@ for (const format of ["ffa3", "ffa4"] as const) for (const holder of SEATS[forma
   standard.push(duration(format, holder), flipAll(format, holder), leaves(format, holder, false), leaves(format, holder, true), eliminated(format, holder), setSwords(format, holder));
 }
 standard.push(stockControl("tag"), stockControl("1v1"));
-export const SWORDS_PROTECT_SCENARIOS = standard.flatMap(scenario => [scenario, domainVariant(scenario)]);
+export const SWORDS_PROTECT_SCENARIOS = standard.flatMap(scenario => {
+  const domain=structuredClone(domainVariant(scenario));
+  if (scenario.id === "swords-protect-tag-stock-control") for (const step of domain.steps)
+    if (step.op === "expectBoard") for (const seat of SEATS.tag)
+      step.board[seat]={...step.board[seat], deckMaster: {inZone: true, returns: 0, nextCost: 0}};
+  return [scenario, domain];
+});
