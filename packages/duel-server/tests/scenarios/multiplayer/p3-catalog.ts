@@ -4,6 +4,8 @@ import {
   normalSummon, pickOpponent, select, type BoardExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 
+import { domainVariant } from "./domain-variants.js";
+
 type Format = "ffa3" | "ffa4" | "tag";
 type Seat = "p0" | "p1" | "p2" | "p3";
 const formats: Format[] = ["ffa3", "ffa4", "tag"];
@@ -158,7 +160,9 @@ function kycoo(format: Format): Scenario {
     select(...targets), allSeats(format, result),
   ]);
 }
-export const P3_CATALOG_SCENARIOS: Scenario[] = formats.flatMap(format => [
+const STANDARD_CATALOG_SCENARIOS: Scenario[] = formats.flatMap(format => [
   ...rows.map(row => wipe(format, row)), allWipe(format, "Dark Hole", 53129443), allWipe(format, "Heavy Storm", 19613556),
   mirror(format), torrential(format), gameciel(format), kycoo(format),
 ]);
+
+export const P3_CATALOG_SCENARIOS: Scenario[] = [...STANDARD_CATALOG_SCENARIOS, ...STANDARD_CATALOG_SCENARIOS.map(domainVariant)];

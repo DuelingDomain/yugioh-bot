@@ -75,7 +75,10 @@ describe("multiplayer card catalog", () => {
       expect(kycoo.results[format]).not.toContain("declared");
     }
     for (const [code, slug] of [[88240808, "kycoo-battle-opponent"], [55063751, "gameciel-tribute-controller"]] as const) {
-      for (const format of ["ffa3", "ffa4", "tag"]) expect(LIVE_PROOF[code]).toContain(`p3-catalog-${format}-${slug}`);
+      for (const format of ["ffa3", "ffa4", "tag"]) {
+        expect(LIVE_PROOF[code]).toContain(`p3-catalog-${format}-${slug}`);
+        expect(LIVE_PROOF[code]).toContain(`p3-catalog-${format}-${slug}-domain`);
+      }
     }
   });
 
