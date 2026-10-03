@@ -104,6 +104,30 @@ runtime manifest (and real-image behavior), or supply an already matching bundle
 Manual wrapper verification checks a temporary copy of the installed bytes against
 the checked-in patch, so borrowed dependency symlinks remain read only.
 
+## Refresh a branch-local strict snapshot
+
+Stop this worktree's slots first. Keep the donor snapshot unchanged. If
+`data/duel-engine-snap` already exists, move it aside before refreshing; the tool
+refuses to overwrite it. Use a legacy engine bundle containing
+`ocgcore.domain.legacy.wasm` and `card-scripts/domain.legacy.lua`:
+
+```bash
+E2E_SLOT=1 node packages/e2e/stack/refresh-snapshot.mjs \
+  /path/to/read-only/duel-engine-snap /path/to/legacy-engine-bundle
+export E2E_DUEL_DATA_DIR="$PWD/data/duel-engine-snap"
+env -u E2E_MANUAL E2E_SLOT=1 E2E_WORKERS=1 \
+  npm run e2e --workspace=packages/e2e -- tests/duel-presets-multi.spec.ts --retries=0
+```
+
+The tool copies the donor cores and card scripts into real directories, checks
+the legacy bytes against `legacy-1v1/expected-sha256.txt`, verifies the installed
+wrapper against the checked-in patch, and regenerates the manifest using
+`duel:prepare`. It refreshes the repo's multiplayer Lua overlay and verifies both
+pinned and legacy bundles before installing the snapshot. It requires fresh
+duel-server dist and never rebuilds the services. Directory symlinks must not be
+used for card scripts: the legality scanner skips them. `data/` is gitignored;
+keep this local snapshot for strict E2E runs without `E2E_MANUAL=1`.
+
 ## Start
 
 Keep the engine snapshot read only. Select it explicitly; adjust the path if it lives elsewhere:
