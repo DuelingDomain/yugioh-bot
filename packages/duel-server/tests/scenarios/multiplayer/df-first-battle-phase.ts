@@ -1,5 +1,6 @@
-import { activate, attack, changePhase, defineScenario, endTurn, expectBoard, expectEliminated, expectPrompt, expectTurn, pickOpponent, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, changePhase, endTurn, expectBoard, expectEliminated, expectPrompt, expectTurn, pickOpponent, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
 import { domainVariant } from "./domain-variants.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { everySeat, SEATS, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
@@ -24,13 +25,14 @@ function ffaFirstBattle(format: "ffa3" | "ffa4", earlyLoss: boolean): Scenario {
     everySeat(format, Object.fromEntries(seats.map((seat) => [seat, {
       lp: earlyLoss && seat === "p1" ? 0 : 8000,
       monsters: seat === "p0" || seat === last || earlyLoss && seat === "p1" ? [] : [ELF],
-      hand: earlyLoss && seat === "p1" ? [] : [ELF],
+      // ADR 0002, line 11: Standard MR3-MR5 skips the turn-1 draw.
+      hand: seat === "p0" || earlyLoss && seat === "p1" ? [] : [ELF],
       grave: seat === "p0" ? [...(earlyLoss ? ["Hinotama"] : []), ELF] : seat === last ? [ELF] : [],
-      spells: [], banished: [], extra: [], deckCount: earlyLoss && seat === "p1" ? 0 : 19,
+      spells: [], banished: [], extra: [], deckCount: earlyLoss && seat === "p1" ? 0 : seat === "p0" ? 20 : 19,
     }]))));
   return defineScenario({ id: `df-first-battle-phase-${format}-${earlyLoss ? "early-loss" : "all-live"}`,
     title: `${format}: ${last} battles on turn ${living.length}${earlyLoss ? " after p1 loses before its first turn" : " when the last duelist starts its first turn"}`,
-    source: `${SOURCE} [R-FFA-NO-ATTACK]`, rules: ["R-FFA-NO-ATTACK"], tags: ["multiplayer", format, "battle", "ffa-first-draw-included"], setup, steps });
+    source: `${SOURCE} [R-FFA-NO-ATTACK]`, rules: ["R-FFA-NO-ATTACK", "R-FFA-FIRST-DRAW"], tags: ["multiplayer", format, "battle"], setup, steps });
 }
 
 function stockControl(format: "tag" | "1v1"): Scenario {
