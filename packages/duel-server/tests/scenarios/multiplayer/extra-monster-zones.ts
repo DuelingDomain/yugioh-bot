@@ -157,20 +157,33 @@ function arrowViewer(format: Format, actor: Seat): Scenario {
   });
 }
 
-function extraLink(format: Format): Scenario {
+function extraLink(format: Format, blocked = false): Scenario {
   const TRI = "Tri-Gate Wizard";
   const BINARY = "Binary Sorceress";
   const setup: Scenario["setup"] = { format, p0: { monsters: [ELF, TRI, BINARY, TRI, null, SPIDER], extra: [SPIDER] } };
-  for (const seat of SEATS[format].slice(1)) setup[seat] = { monsters: emz(SPIDER) };
-  return defineScenario({ id: `emz-${format}-second-zone-by-extra-link`, title: `${format}: an Extra Link permits the second own EMZ`,
+  // A free second EMZ is required even with an Extra Link. Other pairs' EMZ do not block this pair.
+  for (const seat of SEATS[format].slice(1)) setup[seat] = {
+    monsters: format === "ffa4" && seat === "p2" && !blocked ? [] : emz(SPIDER),
+  };
+  return defineScenario({ id: `emz-${format}-${blocked ? "second-zone-blocked-by-across" : "second-zone-by-extra-link"}`,
+    title: blocked ? "ffa4: an across monster blocks the second EMZ even with an Extra Link"
+      : `${format}: an Extra Link permits the free second EMZ`,
     source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "link", "card:32617464"], setup,
     steps: [specialSummon(SPIDER, "p0"), select({ card: ELF, owner: "p0" }),
-      expectPickOptions({ include: [{ seat: "p0", label: "Extra Monster Zone (right)" }],
-        exclude: SEATS[format].slice(1).map((seat) => ({ seat })) }, "p0"), zone("p0", "emz1", "p0"),
+      ...(blocked ? [expectPickOptions([{ seat: "p0", label: "Monster Zone 1" }, { seat: "p0", label: "Monster Zone 5" }], "p0"),
+        zone("p0", "m0", "p0")]
+        : [expectPickOptions(format === "ffa4"
+          ? [{ seat: "p0", label: "Monster Zone 1" }, { seat: "p0", label: "Monster Zone 5" },
+            { seat: "p0", label: "Extra Monster Zone (right)" }]
+          : { include: [{ seat: "p0", label: "Extra Monster Zone (right)" }],
+            exclude: SEATS[format].slice(1).map((seat) => ({ seat })) }, "p0"), zone("p0", "emz1", "p0")]),
       everySeat(format, Object.fromEntries(SEATS[format].map((seat) => [seat, seat === "p0"
-        ? { monsters: [TRI, BINARY, TRI, SPIDER, SPIDER], extra: [], grave: [ELF], hand: [],
-          zones: { m0: null, m1: TRI, m2: BINARY, m3: TRI, emz0: SPIDER, emz1: SPIDER } }
-        : { monsters: [SPIDER], hand: [], zones: { emz0: SPIDER, emz1: null } }])) )],
+        ? { monsters: [TRI, BINARY, TRI, SPIDER, SPIDER], extra: [], grave: [ELF], hand: [], deckCount: 20,
+          zones: { m0: blocked ? SPIDER : null, m1: TRI, m2: BINARY, m3: TRI, m4: null,
+            emz0: SPIDER, emz1: blocked ? null : SPIDER } }
+        : { monsters: format === "ffa4" && seat === "p2" && !blocked ? [] : [SPIDER], hand: [], extra: [], deckCount: 20,
+          zones: { m0: null, m1: null, m2: null, m3: null, m4: null,
+            emz0: format === "ffa4" && seat === "p2" && !blocked ? null : SPIDER, emz1: null } }])) )],
   });
 }
 
@@ -178,5 +191,6 @@ const standard = (["ffa3", "ffa4", "tag"] as Format[]).flatMap((format) => [
   independentZones(format, false), independentZones(format, true), coLinks(format, "p0"),
   coLinks(format, format === "ffa3" ? "p2" : "p3"), columns(format), arrowViewer(format, "p0"),
   arrowViewer(format, format === "ffa3" ? "p2" : "p3"), extraLink(format),
+  ...(format === "ffa4" ? [extraLink(format, true)] : []),
 ]);
 export const EXTRA_MONSTER_ZONE_SCENARIOS: Scenario[] = [...standard, ...standard.map(domainVariant)];
