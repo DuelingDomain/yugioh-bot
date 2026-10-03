@@ -122,8 +122,8 @@ pass, and every board check includes all four seats.
 
 Three pending-loss chain view cases pass on P61. FFA preserves the response window
 of a living seat. The lost seat's Dust Tornado has no effect, Pot of Greed
-finishes, and the lost master's reported zone is removed. In Tag, the living
-partner keeps its response window until the loss is applied. The team result
+finishes, and the lost master's reported zone is removed. In Tag, p2, the living partner of the turn player p0,
+keeps its response window until the loss is applied. The team result
 then ends the duel, with the unfinished chain and final board preserved.
 Two direct core checks found a hidden P61 defect after the FFA chain cases:
 Dust Tornado returned to the lost owner's Graveyard. Elimination removed the
