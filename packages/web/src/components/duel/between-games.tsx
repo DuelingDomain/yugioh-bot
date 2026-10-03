@@ -481,7 +481,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
               </p>
             ) : null}
             <p className={styles.reason} id="between-reason" data-testid="ready-reason">
-              {readyReason ?? status}
+              {readyReason ?? (unreadied || (imReady && changed) ? null : status)}
             </p>
             <div className={styles.buttons}>
               <SheetButton kind="primary" size="lg" loading={busy && !confirmCancel} disabled={(imReady && !changed) || busy || moving || readyReason != null}

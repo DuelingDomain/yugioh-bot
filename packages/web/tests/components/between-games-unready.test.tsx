@@ -77,6 +77,17 @@ describe("BetweenGamesScreen: editing after Ready", () => {
     await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
   });
 
+  it("shows the un-ready explanation only once after completing a swap", async () => {
+    const view = setup({ sideReady: [true, false] });
+    await swap();
+    await waitFor(() => expect(view.onChanged).toHaveBeenCalled());
+    const explanation = "You are no longer ready. Finish your swaps, then click Ready again.";
+    expect(screen.getAllByText(explanation)).toHaveLength(1);
+    expect(status().textContent).toBe(explanation);
+    expect(screen.getByTestId("ready-reason").textContent).toBe("");
+    expect(ready().disabled).toBe(false);
+  });
+
   it("makes Ready wait for a queued trailing un-ready, so none lands after it", async () => {
     const first = pending<unknown>();
     const second = pending<unknown>();
