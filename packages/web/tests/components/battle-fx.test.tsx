@@ -167,23 +167,37 @@ describe("BattleFx", () => {
     expect(document.querySelector('[data-battle-stat="target"]')?.textContent).toBe("100 DEF");
   });
 
-  it.each([false, true])("hides active calculation plates outside the Damage Step (reduced motion: %s)", reducedMotion => {
-    const before = seatsOf(warrior, machine, 4);
+  it.each([false, true])("shows Cat's Ear's calculation in a live post-battle snapshot (reduced motion: %s)", reducedMotion => {
+    const elf = { code: 69140098, name: "Gemini Elf", attack: 1900, defense: 900 };
+    const cat = { code: 95841282, name: "Cat's Ear Tribe", attack: 200, defense: 100 };
+    const before = seatsOf(elf, cat);
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion={reducedMotion} seats={before} battleStep="battle" />);
+    rerender(<BattleFx events={[phase, attack]} reducedMotion={reducedMotion} seats={before} battleStep="battle" />);
+    expect(document.querySelector('[data-battle-stat]')).toBeNull();
     const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
-      battle: { attacker: { attack: 200, defense: 2100, position: 1 }, target: { attack: 2400, defense: 100, position: 4 } } };
-    const events = [phase, attack, calculation, { id: 4, kind: "destroy", text: "", zone: attack.target, cause: "battle" } as DuelEvent];
-    for (const battleStep of ["damage", "damage-calculation"] as const) {
-      rerender(<BattleFx events={events} reducedMotion={reducedMotion} seats={before} battleStep={battleStep} />);
-      expect(document.querySelector('[data-battle-stat="attacker"]')?.textContent).toBe("200 ATK");
-      expect(document.querySelector('[data-battle-stat="target"]')?.textContent).toBe("100 DEF");
-    }
-    // The same animation is still mounted when the next engine window returns to the Battle Step.
-    for (const battleStep of ["battle", "start", "end", null] as const) {
-      rerender(<BattleFx events={events} reducedMotion={reducedMotion} seats={before} battleStep={battleStep} />);
-      expect(playLayer()).not.toBeNull();
-      expect(document.querySelector('[data-battle-stat]')).toBeNull();
-    }
+      battle: { attacker: { attack: 200, defense: 900, position: 1 }, target: { attack: 200, defense: 100, position: 1 } } };
+    const events: DuelEvent[] = [phase, attack, calculation,
+      { id: 4, kind: "destroy", text: "", zone: attack.zone, cause: "battle" },
+      { id: 5, kind: "destroy", text: "", zone: attack.target, cause: "battle" },
+      { id: 6, kind: "battle-end", text: "End" }];
+    const after = seatsOf(elf, cat);
+    after[0].monsters[0] = null;
+    after[1].monsters[0] = null;
+    // Live rooms publish after DAMAGE_STEP_END, at SELECT_BATTLECMD again.
+    rerender(<BattleFx events={events} reducedMotion={reducedMotion} seats={after} battleStep="battle" />);
+    expect(document.querySelector('[data-battle-stat="attacker"]')?.textContent).toBe("200 ATK");
+  });
+
+  it.each(["attack", "phase"] as const)("clears playback calculation plates on a later %s", kind => {
+    const before = seatsOf(warrior, machine);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={before} battleStep="battle" />);
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 200, defense: 2100, position: 1 }, target: { attack: 2400, defense: 1500, position: 1 } } };
+    const events: DuelEvent[] = [phase, attack, calculation, { id: 4, kind: "battle-end", text: "End" }];
+    rerender(<BattleFx events={events} reducedMotion seats={before} battleStep="battle" />);
+    expect(document.querySelector('[data-battle-stat="attacker"]')).not.toBeNull();
+    rerender(<BattleFx events={[...events, { ...attack, id: 5, kind }]} reducedMotion seats={before} battleStep="battle" />);
+    expect(document.querySelector('[data-battle-stat]')).toBeNull();
   });
 
   it.each([0, 1, null])("uses the changed defender pose for DOM and canvas playback for viewer %s", viewer => {

@@ -73,7 +73,7 @@ export type BattleFxProps = {
   seats?: readonly DuelSeatView[];
   /** A terminal result removes calculation plates even if the core never ends the Damage Step. */
   result?: DuelEngineView["result"];
-  /** Engine window for plate visibility; standalone playback may omit window metadata. */
+  /** Current engine window; playback visibility follows the captured battle instead. */
   battleStep?: DuelEngineView["battleStep"];
 };
 
@@ -333,6 +333,7 @@ function battleCapture(capture: AttackCapture, events: readonly DuelEvent[], att
 
 type Play = {
   seq: number;
+  attackId: number;
   reduced: boolean;
   fx: AttackFxPlan;
   style: AttackStyleId;
@@ -447,7 +448,7 @@ function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events
     defender: defenderStyle ? { style: defenderStyle.style, signature: signatureOf(defenderStyle, capture.targetCard) } : null,
   };
   return {
-    seq, reduced, fx, style: attackerStyle.style,
+    seq, attackId: attack.id, reduced, fx, style: attackerStyle.style,
     counterStyle: hasCounterStrike(kind) && defenderStyle ? defenderStyle.style : null,
     kind, totalMs: timing.totalMs, sound, stats,
   };
@@ -651,7 +652,7 @@ function declaredAim(attack: DuelEvent): BattleAim | null {
   return { mode: "locked", from, to: { lpSeat: 1 - attack.zone.controller } };
 }
 
-export function BattleFx({ events, reducedMotion, active = true, aim = null, seats, result = null, battleStep }: BattleFxProps) {
+export function BattleFx({ events, reducedMotion, active = true, aim = null, seats, result = null }: BattleFxProps) {
   const [mounted, setMounted] = useState(false);
   const [play, setPlay] = useState<Play | null>(null);
   const [declared, setDeclared] = useState<BattleAim | null>(null);
@@ -805,7 +806,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     <div className={`${styles.layer} ${duelFontClasses}`} aria-hidden>
       {shownAim ? <AimLayer aim={shownAim} reduced={reducedMotion} /> : null}
       {play ? <AttackPlay key={play.seq} play={play}
-        showStats={active && result == null && (battleStep === undefined || battleStep === "damage" || battleStep === "damage-calculation")} /> : null}
+        showStats={active && result == null && !events.some(event => event.id > play.attackId && (event.kind === "attack" || event.kind === "phase"))} /> : null}
     </div>
   );
 }
