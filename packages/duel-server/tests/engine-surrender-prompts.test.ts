@@ -20,7 +20,7 @@ const cases: [string, DuelPrompt["kind"], string][] = [
   ["position", "choice", "Duel.SelectPosition(0,g:GetFirst(),POS_FACEUP)"],
   ["sum", "sum", "g:SelectWithSumEqual(0,function() return 1 end,1,1,1)"],
   ["nested sum check", "sum", "Group.FromCards(foreign):SelectWithSumEqual(0,function() return 1 end,1,1,1)"],
-  ["sort", "order", "Duel.SortDecktop(0,0,3)"],
+  ["sort", "order", "(function() Duel.SortDecktop(0,1,3); return Duel.GetDecktopGroup(1,1):GetFirst():GetCode() end)()"],
   ["race", "cards", "Duel.AnnounceRace(0,1,RACE_ALL)"],
   ["attribute", "cards", "Duel.AnnounceAttribute(0,1,ATTRIBUTE_ALL)"],
   ["card", "announce-card", "Duel.AnnounceCard(0)"],
@@ -30,7 +30,7 @@ const cases: [string, DuelPrompt["kind"], string][] = [
   ["counter target leaves", "counters", `Duel.RemoveCounter(0,1,0,0x1,1,REASON_EFFECT)`],
   ["counter fallback", "counters", `(function() Duel.MPWindow(1); local answer=Duel.RemoveCounter(0,0,1,0x1,1,REASON_EFFECT); Duel.MPWindowEnd(); return answer end)()`],
   ["retained token counters", "counters", `Duel.RemoveCounter(0,1,0,0x1,1,REASON_COST)`],
-  ["rock-paper-scissors", "choice", "Duel.RockPaperScissors()"],
+  ["rock-paper-scissors", "choice", "Duel.RockPaperScissors(false)"],
 ];
 
 function holder(game: EngineGame): number {
@@ -51,7 +51,7 @@ describeWithCores("surrender at each required prompt with return cleanup", [need
     it.each(cases)(`${mode}: %s accepts surrender and the next living answer`, async (_name, kind, call) => {
       const setup = compileBoard({ mode, format: "ffa4",
         p0: { hand: ["Mystical Elf", "Celtic Guardian", "Battle Ox"], monsters: ["Beaver Warrior", "Gemini Elf"], ...(mode === "domain" ? { deckMaster: "Axe Raider" } : {}) },
-        p1: { monsters: _name === "counter fallback" ? [] : Array(5).fill("Dark Magician"), ...(mode === "domain" ? { deckMaster: "Giant Soldier of Stone" } : {}) },
+        p1: { monsters: _name === "counter fallback" ? [] : Array(5).fill("Dark Magician"), ...(_name === "sort" ? { deck: ["Mystical Elf", "Celtic Guardian", "Battle Ox"] } : {}), ...(mode === "domain" ? { deckMaster: "Giant Soldier of Stone" } : {}) },
         p2: { ...(_name === "counter fallback" ? { monsters: Array(5).fill("Dark Magician") } : {}), ...(mode === "domain" ? { deckMaster: "Summoned Skull" } : {}) },
         p3: { ...(mode === "domain" ? { deckMaster: "Gemini Elf" } : {}) },
       });
@@ -107,6 +107,11 @@ e:SetOperation(function()
   end` : ""}
   local answer=${call}
   ${["yes-no", "effect yes-no", "option"].includes(_name) ? "Duel.SetLP(2,7000+(answer==true and 1 or type(answer)=='number' and answer or 0))" : ""}
+  ${["cards", "sum", "tribute"].includes(_name) ? "Duel.SetLP(2,7000+answer:GetFirst():GetCode()%1000)" : ""}
+  ${_name === "unselect" ? "Duel.SetLP(2,7000+(answer and answer:GetCode()%1000 or 0))" : ""}
+  ${["place", "disabled places", "position", "race", "attribute", "number", "rock-paper-scissors"].includes(_name) ? "Duel.SetLP(2,7000+answer)" : ""}
+  ${["sort", "card"].includes(_name) ? "Duel.SetLP(2,7000+answer%1000)" : ""}
+  ${_name === "counters" ? "Duel.SetLP(2,answer and 7001 or 7000)" : ""}
   ${_name === "nested card selection" ? "Duel.SetLP(2,7000+answer:GetFirst():GetCode()%1000)" : ""}
   ${["counter target leaves", "counter fallback", "retained token counters"].includes(_name) ? "Duel.SetLP(2,answer and 7001 or 7000)" : ""}
   ${_name === "nested sum check" ? "Duel.SetLP(2,7000+answer:GetCount())" : ""}
@@ -139,7 +144,14 @@ ${_name === "idle" ? "" : "Duel.RegisterEffect(e,0)"}` }],
           pass(game);
           return;
         }
-        const selectedCode = original.kind === "cards" ? original.options[0].card?.code : undefined;
+        const automatic = chooseSurrenderedAnswer(original, {
+          permittedCards: original.kind === "announce-card" ? game.searchCards("") : undefined,
+        });
+        const selected = original.options.find((o) => o.id === (automatic.selected?.[0] ?? automatic.choice));
+        // The other seat's Deck stays private in the view; its fixture pins the codes.
+        const selectedCode = _name === "sort"
+          ? setup.options.decks![1].main[Number(automatic.selected![0].split(":")[1])]
+          : selected?.card?.code;
         game.eliminate(0, 0);
         if (_name === "nested card selection") {
           expect(holder(game)).toBe(1);
@@ -153,8 +165,22 @@ ${_name === "idle" ? "" : "Duel.RegisterEffect(e,0)"}` }],
         expect(game.view(null).seats[1].graveyard.map((c) => c.code)).toContain(97017120);
         if (["yes-no", "effect yes-no", "option"].includes(_name)) expect(game.view(null).seats[2].lp).toBe(7000);
         if (_name === "nested sum check") expect(game.view(null).seats[2].lp).toBe(7001);
+        if (["cards", "sum", "tribute", "unselect", "sort"].includes(_name)) {
+          expect(selectedCode).toBeDefined();
+          expect(game.view(null).seats[2].lp).toBe(7000 + selectedCode! % 1000);
+        }
+        if (["place", "disabled places"].includes(_name)) {
+          expect(selected?.sequence).toBeDefined();
+          expect(game.view(null).seats[2].lp).toBe(7000 + 2 ** selected!.sequence!);
+        }
+        if (_name === "position") expect(game.view(null).seats[2].lp).toBe(7001);
+        if (["race", "attribute", "number"].includes(_name)) expect(game.view(null).seats[2].lp).toBe(7000 + selected!.values![0]);
+        if (_name === "card") expect(game.view(null).seats[2].lp).toBe(7000 + automatic.cardCode! % 1000);
+        if (_name === "counters") expect(game.view(null).seats[2].lp).toBe(7000);
+        if (_name === "idle") expect(game.view(null).turnSeat).toBe(1);
         expect(holder(game)).not.toBe(0);
         pass(game);
+        if (_name === "rock-paper-scissors") expect(game.view(null).seats[2].lp).toBe(7002);
         expect(game.view(null).result ?? null).toBeNull();
         expect(game.diagnostics().filter((d) => d.kind === "stderr")).toEqual([]);
       } finally { game.close(); }
