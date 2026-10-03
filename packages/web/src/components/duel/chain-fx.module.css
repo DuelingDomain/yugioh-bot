@@ -580,10 +580,12 @@
 .prioRow { display: block; flex: none; padding: 0; list-style: none; border-bottom: 1px solid rgb(228 182 79 / 0.16); }
 
 /*
- * A table of 3 or 4: the "Activate its effect?" bar sits in the lower-left lane, beside your own field. The chain
- * stack moves up, off that lane, so the two never cross. (Picks and card lists keep the middle.)
+ * A table of 3 or 4 (not Tag): the "Activate its effect?" bar sits in the lower-left lane, beside your own field.
+ * The chain stack moves up, off that lane, so the two never cross. (Picks and card lists keep the middle.) Tag
+ * keeps the 1v1 lane: its prompt opens in the middle, and a prompt that meets the stack turns it into chips.
  */
-.front[data-table] .panel {
+.front[data-table="ffa3"] .panel,
+.front[data-table="ffa4"] .panel {
   align-self: flex-start;
   /* Percentage margins resolve against the narrow dock's width, not the board height. */
   position: relative;
