@@ -17,7 +17,7 @@ import { SeriesBanner } from "../series-banner";
 import { useIsNarrow } from "../side-panel";
 import { hasNoLegalMoves, resolveBattleStep, StationTrack } from "../station-track";
 import { OpponentBar } from "../table/opponent-bar";
-import { attackLockAt, toneBySeat } from "../table/seat-state";
+import { toneBySeat } from "../table/seat-state";
 import { tableLayout } from "../table/geometry";
 import { useAimFlow } from "../table/use-aim-flow";
 import { useTableUi } from "../table/use-table-ui";
@@ -33,7 +33,7 @@ import { TagHeader } from "./tag-header";
 import { TagPileViewer, TagSide } from "./tag-side";
 import { TagStage } from "./tag-stage";
 import { TagTrack } from "./tag-track";
-import { useChainPasses } from "./use-chain-passes";
+import { chainDecidingSeat, useChainPasses } from "./use-chain-passes";
 import { useRoofKeys } from "./use-roof-keys";
 import styles from "./tag-shell.module.css";
 
@@ -167,11 +167,13 @@ export function TagShell(props: TagShellProps) {
   const tones = useMemo(() => toneBySeat(layout), [layout]);
   const toneOf = useCallback((seat: number) => SEAT_TONE_HEX[tones.get(seat) ?? "ice"], [tones]);
   const seatTones = useMemo(() => new Map([...tones].map(([seat, tone]) => [seat, SEAT_TONE_HEX[tone]])), [tones]);
-  const passes = useChainPasses(engine.chain, prompt);
+  // Every viewer reads the deciding seat from the engine view, not only the seat that holds the prompt.
+  const passes = useChainPasses(engine, prompt);
   const chainOpen = engine.chain.length > 0 && !terminal;
+  const decidingSeat = chainDecidingSeat(engine, prompt);
   const priority = useMemo(
-    () => (chainOpen ? tagPriority(engine, passes, prompt?.context?.type === "chain" ? prompt.seat : null) ?? undefined : undefined),
-    [chainOpen, engine, passes, prompt],
+    () => (chainOpen ? tagPriority(engine, passes, decidingSeat) ?? undefined : undefined),
+    [chainOpen, engine, passes, decidingSeat],
   );
 
   const battle = isBattlePhase(engine.phase);

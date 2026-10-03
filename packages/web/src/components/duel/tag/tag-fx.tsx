@@ -17,6 +17,7 @@ import { tableLayout } from "../table/geometry";
 import { toneBySeat } from "../table/seat-state";
 import { SEAT_TONE_HEX, type TableController } from "../table/types";
 import { tagResponseOrder } from "./live-tag";
+import { chainDecidingSeat } from "./use-chain-passes";
 
 /** The part of the live controller the effects read. `TableController` fits, so the shell passes its own. */
 export type TagFxController = Pick<TableController, "engine" | "room" | "viewerSeat" | "nameOf" | "prompt" | "reducedMotion">;
@@ -75,7 +76,7 @@ export function TagFx({ controller, preferences, fxActive = true, passedSeats = 
     [engine.seats.length, viewerSeat],
   );
   const seatTones = useMemo(() => new Map([...toneBySeat(layout)].map(([seat, tone]) => [seat, SEAT_TONE_HEX[tone]])), [layout]);
-  const choosing = prompt?.context?.type === "chain" ? prompt.seat : null;
+  const choosing = chainDecidingSeat(engine, prompt);
   const priority = useMemo(
     () => (room.session.status === "active" ? tagPriority(engine, passedSeats, choosing) ?? undefined : undefined),
     [engine, passedSeats, choosing, room.session.status],

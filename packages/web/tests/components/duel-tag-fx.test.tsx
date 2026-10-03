@@ -70,6 +70,26 @@ describe("TagFx", () => {
     expect((chain.props.priority as Array<{ seat: number }>).map((slot) => slot.seat)).toEqual([1, 3, 0, 2]);
   });
 
+  it("marks the deciding seat for a viewer who holds no prompt (a spectator or a partner)", () => {
+    seen.calls.length = 0;
+    const controller = { ...controllerWith([], { chain: chainOf(0), prioritySeat: 3 }), viewerSeat: null };
+    render(<TagFx controller={controller} preferences={prefs} passedSeats={[1]} />);
+    const chain = seen.calls.find((call) => call.name === "ChainFx")!;
+    expect(chain.props.priority).toEqual([
+      { seat: 1, choosing: false },
+      { seat: 3, choosing: true },
+      { seat: 0, choosing: false },
+      { seat: 2, choosing: false },
+    ]);
+  });
+
+  it("marks no seat while the engine processes and the viewer holds no prompt", () => {
+    seen.calls.length = 0;
+    render(<TagFx controller={controllerWith([], { chain: chainOf(0), prioritySeat: null })} preferences={prefs} />);
+    const chain = seen.calls.find((call) => call.name === "ChainFx")!;
+    expect((chain.props.priority as Array<{ choosing: boolean }>).some((slot) => slot.choosing)).toBe(false);
+  });
+
   it("passes the reduced motion flag on", () => {
     seen.calls.length = 0;
     render(<TagFx controller={controllerWith([], {}, true)} preferences={prefs} />);
