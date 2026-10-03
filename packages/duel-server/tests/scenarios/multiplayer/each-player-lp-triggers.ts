@@ -86,7 +86,8 @@ function lpTrigger(format: Format, actor: 0 | 1, [code, card]: typeof CARDS[numb
     // Traps can respond in p0's End Phase; the Normal Spell Koa'ki Ring waits for p1's Main Phase.
     if (actor === 1) { steps.push(endTurn("p0")); if (code === 46089249) (board.p1!.hand as string[]).push("Mystical Elf"); }
     steps.push(activate(card, seat(actor)));
-    // R-COMMON-OPP-PICK: Assault Overload reads opponent LP before the activator selects a monster.
+    // R-COMMON-EACH-PLAYER: Assault Overload damages every living duelist and has no opponent reference.
+    // The fix2 core still asks for an opponent before the Tribute. This is an open core/overlay item.
     if (code === 46089249) steps.push(select({card:"Iron Core of Koa'ki Meiru",nth:0}), select("Beaver Warrior"));
     if (code === 21219755) steps.push(select("Beaver Warrior"));
     if (code === 93469007) steps.push(...(format !== "tag" ? [pickOpponent(seat(enemy), seat(actor))] : []), select("Stardust Dragon/Assault Mode"));
