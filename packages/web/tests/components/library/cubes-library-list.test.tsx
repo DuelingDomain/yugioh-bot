@@ -27,6 +27,41 @@ afterEach(() => {
 });
 
 describe("CubesLibraryList", () => {
+  it("wraps template and pool facts with one dot per fact, including each set name", async () => {
+    const metadataCubes = [
+      cubes[0],
+      {
+        ...cubes[1],
+        setNames: ["Legend of Blue Eyes White Dragon", "Metal Raiders", "Spell Ruler", "Pharaoh's Servant", "Labyrinth of Nightmare"],
+      },
+      { ...cubes[0], id: 3, name: "Blank pool", archetype: null, banlist: null },
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ cubes: metadataCubes })));
+    render(<CubesLibraryList />);
+    await screen.findByRole("link", { name: "Blue-Eyes pool" });
+
+    const templateLines = screen.getByText("Weekend sets").closest("li")!.querySelectorAll(".mt");
+    const poolLine = screen.getByRole("link", { name: "Blue-Eyes pool" }).closest("li")!.querySelector(".mt")!;
+    const blankLine = screen.getByRole("link", { name: "Blank pool" }).closest("li")!.querySelector(".mt")!;
+    for (const [line, expected] of [
+      [templateLines[0]!, ["Draft template", "5 sets"]],
+      [templateLines[1]!, ["Legend of Blue Eyes White Dragon", "Metal Raiders", "Spell Ruler", "Pharaoh's Servant", "+1 more"]],
+      [poolLine, ["Seeded from Blue-Eyes", "TCG banlist"]],
+      [blankLine, ["Built by hand"]],
+    ] as const) {
+      expect(line.children).toHaveLength(1);
+      const items = Array.from(line.firstElementChild!.children);
+      expect(items.map((item) => item.textContent)).toEqual(expected);
+      expect(line.querySelectorAll(".dot")).toHaveLength(expected.length);
+      for (const item of items) {
+        expect(item.querySelectorAll(":scope > .dot")).toHaveLength(1);
+        expect(item.querySelector(".dot")).toHaveAttribute("aria-hidden", "true");
+      }
+    }
+    expect(poolLine.querySelector("b")).toHaveTextContent("Blue-Eyes");
+    expect(screen.queryByText("Labyrinth of Nightmare")).not.toBeInTheDocument();
+  });
+
   it("lists cubes, with a template row that has no editor link", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ cubes }) }) as Response));
     render(<CubesLibraryList />);
