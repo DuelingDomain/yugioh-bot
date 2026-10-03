@@ -1,6 +1,6 @@
 // Real-engine proofs for catalog rows changed by the declared-opponent rule.
 import {
-  activate, attack, changePhase, choose, defineScenario, endTurn, expectBoard, expectPickSeats, expectPrompt,
+  activate, attack, changePhase, choose, defineScenario, endTurn, expectBoard, expectPickSeats, expectPrompt, expectPickOptions, specialSummon, yes,
   normalSummon, pickOpponent, select, type BoardExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 
@@ -26,7 +26,7 @@ function proof(format: Format, slug: string, code: number, setup: Scenario["setu
     id: `p3-catalog-${format}-${slug}`, title: `${format}: ${slug}`,
     source: "docs/adr/0002-multiplayer-duel-rules.md; owner answers 2026-10-02",
     rules: all ? ["R-COMMON-ALL-BOTH"] : format === "tag" ? ["R-TAG-PARTNER", "R-TAG-SHARED-CARDS"]
-      : [code === 44095762 ? "R-FFA-OPP-RESPONSE" : "R-FFA-OPP-ONE"],
+      : [(code === 44095762 || code === 88240808) ? "R-FFA-OPP-RESPONSE" : "R-FFA-OPP-ONE"],
     tags: ["multiplayer", "p3-catalog", format, `card:${code}`, "ffa-first-draw-included"],
     setup: { format, deckSize: 8, ...setup }, steps,
   });
@@ -111,7 +111,54 @@ function torrential(format: Format): Scenario {
   return proof(format, "torrential-tribute", 53582587, setup, [endTurn("p0"), normalSummon(monsters.p1[0], "p1"),
     activate("Torrential Tribute", "p0"), allSeats(format, result)], true);
 }
+function gameciel(format: Format): Scenario {
+  const name = "Gameciel, the Sea Turtle Kaiju";
+  const target = opponent(format);
+  const setup: Scenario["setup"] = {};
+  const result: BoardExpect = {};
+  for (const seat of seatsOf(format)) {
+    const field = monsters[seat];
+    setup[seat] = { monsters: field, hand: seat === "p0" ? [name] : [], deck: Array(8).fill(filler) };
+    result[seat] = { monsters: seat === target ? [field[1], name] : field,
+      grave: seat === target ? [field[0]] : [], hand: seat === "p0" && format !== "tag" ? [filler] : [],
+      deckCount: seat === "p0" && format !== "tag" ? 7 : 8 };
+  }
+  return proof(format, "gameciel-tribute-controller", 55063751, setup, [
+    specialSummon({ card: name, nth: 0 }, "p0"),
+    expectPrompt({ by: "p0", context: "opponent" }), expectPickSeats(opposing(format), "p0"), pickOpponent(target, "p0"),
+    expectPickOptions({ count: 2, include: monsters[target].map(card => ({ card, seat: target })) }, "p0"),
+    select({ card: monsters[target][0], owner: target }), allSeats(format, result),
+  ]);
+}
+function kycoo(format: Format): Scenario {
+  const name = "Kycoo the Ghost Destroyer";
+  const target = opponent(format);
+  const setup: Scenario["setup"] = {};
+  const result: BoardExpect = {};
+  for (const seat of seatsOf(format)) {
+    const removed = format === "tag" ? seat === "p1" || seat === "p3" ? [monsters[seat][0]] : []
+      : seat === target ? monsters[seat] : [];
+    const draws = seat === "p0" ? format === "tag" ? 1 : 2 : 1;
+    setup[seat] = { monsters: seat === "p0" ? [name] : [], grave: monsters[seat], hand: [], deck: Array(8).fill(filler) };
+    result[seat] = { monsters: seat === "p0" ? [name] : [], grave: monsters[seat].filter(card => !removed.includes(card)),
+      banished: removed, hand: Array(draws).fill(filler), deckCount: 8 - draws,
+      lp: (format === "tag" ? 16000 : 8000) - (seat === target || format === "tag" && seat === "p1" ? 1800 : 0) };
+  }
+  const legal = format === "tag" ? ["p1", "p3"] as Seat[] : [target];
+  const targets = format === "tag" ? [{ card: monsters.p1[0], owner: "p1" as const, from: "grave" as const },
+    { card: monsters.p3[0], owner: "p3" as const, from: "grave" as const }]
+    : monsters[target].map(card => ({ card, owner: target, from: "grave" as const }));
+  return proof(format, "kycoo-battle-opponent", 88240808, setup, [
+    ...seatsOf(format).map(seat => endTurn(seat)), expectPrompt({ by: "p0" }), changePhase("battle", "p0"),
+    attack(name, "direct", "p0"), expectPickSeats(opposing(format), "p0"), pickOpponent(target, "p0"), yes("p0"),
+    expectPrompt({ by: "p0", kind: "cards" }),
+    expectPickOptions({ count: legal.reduce((count, seat) => count + monsters[seat].length, 0),
+      include: legal.flatMap(seat => monsters[seat].map(card => ({ card, seat }))),
+      exclude: seatsOf(format).filter(seat => !legal.includes(seat)).flatMap(seat => monsters[seat].map(card => ({ card, seat }))) }, "p0"),
+    select(...targets), allSeats(format, result),
+  ]);
+}
 export const P3_CATALOG_SCENARIOS: Scenario[] = formats.flatMap(format => [
   ...rows.map(row => wipe(format, row)), allWipe(format, "Dark Hole", 53129443), allWipe(format, "Heavy Storm", 19613556),
-  mirror(format), torrential(format),
+  mirror(format), torrential(format), gameciel(format), kycoo(format),
 ]);

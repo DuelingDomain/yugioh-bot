@@ -67,6 +67,18 @@ describe("multiplayer card catalog", () => {
     expect(MULTIPLAYER_FORBIDDEN.length).toBeGreaterThanOrEqual(25);
   });
 
+  it("binds Kycoo to the opponent that took the battle damage and registers both new proofs", () => {
+    const kycoo = GROUP_ONE.find(row => row.code === 88240808)!;
+    expect(kycoo.binding).toBe("event-opponent");
+    for (const format of ["ffa3", "ffa4"] as const) {
+      expect(kycoo.results[format]).toContain("the opponent that took the battle damage");
+      expect(kycoo.results[format]).not.toContain("declared");
+    }
+    for (const [code, slug] of [[88240808, "kycoo-battle-opponent"], [55063751, "gameciel-tribute-controller"]] as const) {
+      for (const format of ["ffa3", "ffa4", "tag"]) expect(LIVE_PROOF[code]).toContain(`p3-catalog-${format}-${slug}`);
+    }
+  });
+
   it("uses only passcodes that exist in cards.cdb and have an official script", () => {
     const codes = [
       ...SCENARIOS.map((scenario) => scenario.code),
