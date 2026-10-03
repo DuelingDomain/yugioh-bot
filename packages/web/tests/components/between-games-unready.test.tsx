@@ -73,6 +73,32 @@ describe("BetweenGamesScreen: editing after Ready", () => {
     expect(api.unreadySeries).toHaveBeenCalledTimes(1);
     await act(async () => request.resolve({ series: between(), nextSlug: null }));
     expect(view.onChanged).toHaveBeenCalled();
+    // The edit made while it was in flight sends one trailing un-ready (a Ready from another tab may follow the first).
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
+  });
+
+  it("makes Ready wait for a queued trailing un-ready, so none lands after it", async () => {
+    const first = pending<unknown>();
+    const second = pending<unknown>();
+    api.unreadySeries.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    setup({ sideReady: [true, false] });
+    await swap();
+    fireEvent.click(ready());
+    await act(async () => first.resolve({ series: between(), nextSlug: null }));
+    await waitFor(() => expect(api.unreadySeries).toHaveBeenCalledTimes(2));
+    expect(api.readySeries).not.toHaveBeenCalled();
+    await act(async () => second.resolve({ series: between(), nextSlug: null }));
+    await waitFor(() => expect(api.readySeries).toHaveBeenCalled());
+    expect(api.unreadySeries.mock.invocationCallOrder[1]).toBeLessThan(api.readySeries.mock.invocationCallOrder[0]);
+  });
+
+  it("trusts a refreshed room over its own Ready answer, even when the snapshot's Ready did not change", async () => {
+    // This tab readies; another tab takes it back before the refresh, so the room still says not ready.
+    setup({}, vi.fn().mockResolvedValue(undefined));
+    fireEvent.click(ready());
+    await waitFor(() => expect(api.readySeries).toHaveBeenCalled());
+    await waitFor(() => expect(ready().disabled).toBe(false));
+    expect(status().textContent).not.toMatch(/You are ready/);
   });
 
   it("waits for un-ready before saving and sending Ready again", async () => {

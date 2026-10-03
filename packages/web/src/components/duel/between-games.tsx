@@ -130,6 +130,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const [unreadied, setUnreadied] = useState(false);
   const unreadying = useRef<Promise<void> | null>(null);
   const unreadyFailed = useRef(false);
+  const unreadyAgain = useRef(false);
   const working = useRef(false);
   const [moving, setMoving] = useState(false);
   const advancing = useRef(false);
@@ -185,7 +186,14 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
     `${nameOf(code)}, ${section} Deck${tag === "out" ? ", going out" : tag === "in" ? ", coming in" : ""}${extra ? ", goes to the Extra Deck" : ""}`;
 
   async function refresh() {
-    try { await onChanged(); } catch { /* The next edit still sends un-ready after a failed refresh. */ }
+    try {
+      const pending = onChanged();
+      if (!pending) return;
+      await pending;
+      // The room now holds a snapshot newer than any of our requests: it is the truth, even when its Ready
+      // equals the last one seen (another tab may have changed it and changed it back meanwhile).
+      setKnownReady(null);
+    } catch { /* The next edit still sends un-ready after a failed refresh. */ }
   }
 
   function follow(nextSlug: string) {
@@ -199,7 +207,11 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
    * without this screen seeing it yet, and only the server knows.
    */
   function leaveReady() {
-    if (unreadying.current) return;
+    if (unreadying.current) {
+      // A Ready from another tab may land after the request in flight: send one more when it settles.
+      unreadyAgain.current = true;
+      return;
+    }
     const wasReady = imReady;
     const before = knownReady;
     if (wasReady) {
@@ -225,7 +237,13 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
         // A closed series rejects editing; let the room recover its current state.
         if (cause instanceof DuelRequestError && cause.status === 409) void refresh();
       },
-    ).finally(() => { unreadying.current = null; });
+    ).finally(() => {
+      unreadying.current = null;
+      if (unreadyAgain.current && !advancing.current) {
+        unreadyAgain.current = false;
+        leaveReady();
+      }
+    });
   }
 
   function edit(next: SideMarks) {
@@ -252,7 +270,8 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
 
   const ready = () => run(async () => {
     if (plan.reason) return;
-    await unreadying.current;
+    // Wait out every un-ready, a queued one included, so none can land after this Ready.
+    while (unreadying.current) await unreadying.current;
     if (advancing.current) return;
     if (changed) {
       const saved = await saveSeriesSideDeck(slug, plan.deck);
