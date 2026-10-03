@@ -813,6 +813,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
           <div className="binder-panel" ref={binderPanelRef} inert={!binderOpen} tabIndex={-1}>
             <Binder
               ref={binderRef}
+              draftName={name}
               tab={theme ? "mine" : tab}
               onTab={setTab}
               showGone={!theme}

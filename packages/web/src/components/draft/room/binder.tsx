@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { downloadYdk } from "@/lib/ydk";
 import { LevelsChart } from "./levels-chart";
 import {
   KINDS,
@@ -47,6 +48,7 @@ export interface BinderHandle {
 }
 
 export interface BinderProps {
+  draftName: string;
   tab: Tab;
   onTab: (tab: Tab) => void;
   showGone: boolean;
@@ -376,6 +378,17 @@ export const Binder = memo(
                 <option value="name">Name</option>
               </select>
             </label>
+            <button
+              type="button"
+              className="bd-export"
+              disabled={p.pool.length === 0}
+              onClick={() => {
+                const name = p.draftName.replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, "").trim() || "Draft";
+                downloadYdk(p.pool.map((card) => ({ id: card.passcode, frameType: card.frameType })), `${name} picks.ydk`);
+              }}
+            >
+              Export YDK
+            </button>
           </div>
           <div
             className="list"

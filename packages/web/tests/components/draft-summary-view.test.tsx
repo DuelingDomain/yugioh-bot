@@ -14,6 +14,7 @@ vi.mock("next/image", () => ({
 const samplePool = [
   {
     id: 89631139,
+    passcode: 89631139,
     name: "Blue-Eyes White Dragon",
     type: "Normal Monster",
     frameType: "normal",
@@ -27,6 +28,7 @@ const samplePool = [
   },
   {
     id: 46986414,
+    passcode: 53129443,
     name: "Dark Hole",
     type: "Spell Card",
     frameType: "spell",
@@ -37,6 +39,7 @@ const samplePool = [
   },
   {
     id: 77563800,
+    passcode: 44095762,
     name: "Mirror Force",
     type: "Trap Card",
     frameType: "trap",
@@ -50,6 +53,7 @@ const samplePool = [
 const subtypePool = [
   {
     id: 1,
+    passcode: 83764718,
     name: "Monster Reborn",
     type: "Quick-Play Spell Card",
     frameType: "spell",
@@ -60,6 +64,7 @@ const subtypePool = [
   },
   {
     id: 2,
+    passcode: 41420027,
     name: "Solemn Judgment",
     type: "Counter Trap Card",
     frameType: "trap",
@@ -70,6 +75,7 @@ const subtypePool = [
   },
   {
     id: 3,
+    passcode: 85742772,
     name: "Gravity Bind",
     type: "Continuous Trap Card",
     frameType: "trap",

@@ -6,6 +6,7 @@ import { useDraftStore, type DraftCardDetail } from "../../../src/lib/stores/dra
 
 const pack: DraftCardDetail[] = [1, 2].map((id) => ({
   id,
+  passcode: id + 100000,
   name: `Card ${id}`,
   type: "Effect Monster",
   frameType: "effect",

@@ -27,6 +27,7 @@ import {
 
 const card = (id: number, over: Partial<RoomCard> = {}): RoomCard => ({
   id,
+  passcode: id + 100000,
   name: `Card ${id}`,
   type: "Effect Monster",
   frameType: "effect",

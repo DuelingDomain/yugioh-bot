@@ -71,6 +71,7 @@ interface DraftData {
   isParticipant: boolean;
   currentPack?: Array<{
     id: number;
+    passcode: number;
     name: string;
     type: string;
     frameType: string;
@@ -84,6 +85,7 @@ interface DraftData {
   }>;
   myPool?: Array<{
     id: number;
+    passcode: number;
     name: string;
     type: string;
     frameType: string;

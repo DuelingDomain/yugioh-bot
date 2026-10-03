@@ -7,6 +7,7 @@ import { EMPTY_FILTER, type GoneCard, type RoomCard, type RoomFilter } from "../
 
 const card = (id: number, name: string, over: Partial<RoomCard> = {}): RoomCard => ({
   id,
+  passcode: id + 100000,
   name,
   type: "Effect Monster",
   frameType: "effect",
@@ -43,6 +44,7 @@ function Harness({ pool = [], gone = [], initialTab = "mine", initialFilter = EM
   const [filter, onFilter] = useState<RoomFilter>(initialFilter);
   return (
     <Binder
+      draftName="Friday cube"
       tab={tab}
       onTab={onTab}
       showGone
@@ -217,6 +219,7 @@ describe("binder monster subtype", () => {
   it("clears a subtype when the parent changes kinds outside the binder", () => {
     const onFilter = vi.fn();
     const props: BinderProps = {
+      draftName: "Friday cube",
       tab: "mine", onTab: () => {}, showGone: true, theme: false,
       pool: monstersPool, gone: [], packCards: monstersPool,
       filter: { ...EMPTY_FILTER, kinds: new Set(["monster"]), monsterSubtype: "effect" },
