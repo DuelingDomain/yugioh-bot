@@ -58,19 +58,25 @@ function coLinks(format: Format, actor: Seat): Scenario {
   for (const seat of SEATS[format]) {
     setup[seat] = seat === actor ? { monsters: [ELF, SECURITY], extra: [SPIDER] } : { monsters: [ELF, null, null, null, null, SPIDER] };
     state[seat] = { monsters: seat === actor ? [ELF, SECURITY] : [ELF, SPIDER], extra: seat === actor ? [SPIDER] : [],
-      hand: SEATS[format].indexOf(seat) > 0 && SEATS[format].indexOf(seat) <= SEATS[format].indexOf(actor) ? [ELF] : [] };
+      hand: SEATS[format].indexOf(seat) > 0 && SEATS[format].indexOf(seat) <= SEATS[format].indexOf(actor) ? [ELF] : [],
+      zones: seat === actor ? { m0: ELF, m1: SECURITY, emz0: null, emz1: null }
+        : { m0: ELF, m1: null, emz0: SPIDER, emz1: null } };
   }
   const target: Seat = actor === "p0" ? "p1" : "p0";
   const targets = SEATS[format].filter((seat) => seat !== actor && (format !== "tag" || Number(seat[1]) % 2 !== Number(actor[1]) % 2));
   const targetSeats: DuelistId[] = format !== "tag" ? [target] : targets;
   const before = everySeat(format, state);
-  state[actor] = { ...state[actor], monsters: [SECURITY, SPIDER], extra: [], grave: [ELF], zones: { m1: SECURITY, emz0: SPIDER } };
+  state[actor] = { ...state[actor], monsters: [SECURITY, SPIDER], extra: [], grave: [ELF],
+    zones: { m0: null, m1: SECURITY, emz0: SPIDER, emz1: null } };
   const linked = everySeat(format, state);
-  state[target] = { ...state[target], monsters: [SPIDER], hand: [...(state[target]!.hand as string[]), ELF] };
+  state[target] = { ...state[target], monsters: [SPIDER], hand: [...(state[target]!.hand as string[]), ELF],
+    zones: { ...state[target]!.zones, m0: null } };
   return defineScenario({ id: `emz-${format}-colink-is-local-${actor}`, title: `${format}: ${actor} gets a co-link only from its own EMZ Spider`,
     source: `${SOURCE} [${RULE}]`, rules: [RULE], tags: ["multiplayer", format, "link", "card:98978921", "card:99111753"], setup,
     steps: [...turnsBefore(format, actor), expectNotOffered("activate", SECURITY, actor), before,
-      specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }), zone(actor, "emz0", actor), linked,
+      specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }),
+      // In FFA4 the across seat's EMZ 0 blocks this seat's EMZ 1. The host answers the one-place prompt.
+      ...(format === "ffa4" ? [] : [zone(actor, "emz0", actor)]), linked,
       expectOffered("activate", SECURITY, actor), activate(SECURITY, actor),
       // R-FFA-OPP-ONE: declare the opponent before seeing only its legal target cards.
       ...(format !== "tag" ? [expectPickSeats(targets, actor), pickOpponent(target, actor)] : []),
