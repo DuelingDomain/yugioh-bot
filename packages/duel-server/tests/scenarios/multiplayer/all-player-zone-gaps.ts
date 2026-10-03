@@ -1,6 +1,7 @@
-import { activate, endTurn, expectBoard, no, pickOpponent, yes,
+import { activate, endTurn, expectBoard, expectPrompt, no, yes,
   type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
+import { domainVariant } from "./domain-variants.js";
 
 type Format = "1v1" | "ffa3" | "ffa4" | "tag";
 type Kind = "gnomes" | "circle" | "albalos" | "card-destruction" | "hand-destruction";
@@ -50,7 +51,9 @@ function zoneGap(kind: Kind, format: Format): Scenario {
       board[SEATS[i]]!.deckCount = 0;
     }
     // Own-GY yes/no is not an opponent declaration.
-    steps.push(activate("Underworld Circle", "p0"), no("p0"));
+    steps.push(activate("Underworld Circle", "p0"),
+      expectPrompt({ by: "p0", kind: "choice", title: "Special Summon 1 Normal Monster from your GY?" }),
+      no("p0"), expectPrompt({ by: "p0", context: "action" }));
   } else {
     setup.p0!.monsters = ["The Bystial Alba Los"];
     setup.p1!.hand!.push("Dark Hole");
@@ -66,7 +69,6 @@ function zoneGap(kind: Kind, format: Format): Scenario {
     board.p1!.grave = ["Mystical Elf", "Dark Hole"];
     steps.push(endTurn("p0"), activate("Dark Hole", "p1"), yes("p0"));
   }
-  if (kind === "circle" && (format === "ffa3" || format === "ffa4")) board.p0!.banished = ["Mystical Elf"];
   steps.push(expectBoard(board));
   return defineScenario({
     id: `all-player-zone-gaps-${kind}-${format}`,
@@ -83,3 +85,12 @@ export const ALL_PLAYER_ZONE_GAPS_SCENARIOS: Scenario[] = [
   ...(["card-destruction", "hand-destruction"] as const).flatMap((kind) =>
     (["1v1", "tag"] as const).map((format) => zoneGap(kind, format))),
 ];
+
+// Domain draws one Deck monster before Circle banishes the remaining monster.
+for (const format of ["1v1", "ffa3", "ffa4", "tag"] as const) {
+  const scenario = structuredClone(zoneGap("circle", format));
+  const final = scenario.steps.find((step) => step.op === "expectBoard");
+  if (final?.op !== "expectBoard") throw new Error("Circle needs a final board check");
+  final.board.p0!.banished = ["Mystical Elf"];
+  ALL_PLAYER_ZONE_GAPS_SCENARIOS.push(domainVariant(scenario));
+}
