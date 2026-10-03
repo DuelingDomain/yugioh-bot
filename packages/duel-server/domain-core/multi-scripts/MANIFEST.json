@@ -1238,7 +1238,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "d4558d29867411b26d965c8afffc6cb2afb223b913a5e31f5f97e4198a92fded",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "Declare the opponent before selecting its card. The target controller chooses the effect without another opponent pick; after the send to the Graveyard, the owner draws two cards."
     },
     {
       "code": 19491080,
