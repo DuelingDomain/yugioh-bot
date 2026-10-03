@@ -8,7 +8,7 @@
 // applyChainEvent folds one event into the state, so a player can play a batch out one beat at a
 // time. deriveChainState folds a whole window at once (first paint, reconnect, replay of a window).
 import type { DuelCardInfo, DuelChainLink, DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
-import { LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED, zoneKey } from "./constants";
+import { LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_REMOVED, LOCATION_SZONE, zoneKey } from "./constants";
 import { CHAIN_TIMING } from "./duel-timing";
 
 export type ChainLinkStatus = "pending" | "resolving" | "resolved";
@@ -24,6 +24,8 @@ export interface ChainLinkState {
   description?: string;
   /** Where the card was when it activated (hand slot, field zone, pile card, ...). null when unknown. */
   zone: DuelZoneRef | null;
+  /** Current public target coordinates; identities stay in the viewer's redacted board. */
+  targets: DuelZoneRef[];
   status: ChainLinkStatus;
   /** Negated or disabled. Stays set after the link resolves. */
   negated: boolean;
@@ -38,19 +40,19 @@ export interface ChainState {
 
 export const EMPTY_CHAIN: ChainState = { links: [], resolving: null };
 
-type ChainEventKind = "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end";
+type ChainEventKind = "activate" | "target" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end";
 
 /** True for an event that changes the chain. A plain "activate" without a chainIndex is not one. */
 export function isChainEvent(event: DuelEvent): boolean {
   if (event.kind === "chain-end") return true;
-  if (event.kind === "activate" || event.kind === "chain-resolving" || event.kind === "chain-resolved" || event.kind === "chain-negated") {
+  if (event.kind === "activate" || event.kind === "target" || event.kind === "chain-resolving" || event.kind === "chain-resolved" || event.kind === "chain-negated") {
     return typeof event.chainIndex === "number" && event.chainIndex >= 1;
   }
   return false;
 }
 
 function placeholder(index: number): ChainLinkState {
-  return { index, seat: 0, code: null, name: null, card: null, zone: null, status: "pending", negated: false };
+  return { index, seat: 0, code: null, name: null, card: null, zone: null, targets: [], status: "pending", negated: false };
 }
 
 /** Links 1..index, adding placeholders for any the window lost. Does not copy existing links. */
@@ -80,6 +82,7 @@ export function applyChainEvent(state: ChainState, event: DuelEvent): ChainState
       card,
       description: event.description,
       zone: event.zone ? { ...event.zone } : null,
+      targets: event.targets?.map((zone) => ({ ...zone })) ?? [],
       status: "pending",
       negated: false,
     });
@@ -89,6 +92,11 @@ export function applyChainEvent(state: ChainState, event: DuelEvent): ChainState
   const links = ensureLinks(state.links, index);
   const link = { ...links[index - 1] };
   links[index - 1] = link;
+  if (kind === "target") {
+    link.targets = event.targets?.map((zone) => ({ ...zone })) ?? [];
+    if (event.seat != null && link.code == null) link.seat = event.seat;
+    return { links, resolving: state.resolving };
+  }
   if (kind === "chain-resolving") {
     link.status = "resolving";
     if (event.seat != null && link.code == null) link.seat = event.seat;
@@ -110,7 +118,8 @@ function fromSnapshot(link: DuelChainLink): ChainLinkState {
     name: link.name ?? null,
     card: null,
     description: link.description,
-    zone: null,
+    zone: link.zone ? { ...link.zone } : null,
+    targets: link.targets?.map((zone) => ({ ...zone })) ?? [],
     status: "pending",
     negated: false,
   };
@@ -145,11 +154,17 @@ export function deriveChainState(events: readonly DuelEvent[], snapshot: readonl
   let links: ChainLinkState[] | null = state.links.length > top ? state.links.slice(0, top) : null;
   for (const entry of entries) {
     const current = (links ?? state.links)[entry.index - 1];
-    if (current && current.code != null) continue;
     links ??= state.links.slice();
     while (links.length < entry.index) links.push(placeholder(links.length + 1));
     const known = links[entry.index - 1];
-    links[entry.index - 1] = { ...entry, status: known.status, negated: known.negated, zone: known.zone };
+    // Current snapshot targets override stale events, including an explicit empty list. Older
+    // snapshots without the field still fall back to events. Preserve playback status and cards.
+    const hasTargets = snapshot.findLast((link) => link.index === entry.index)?.targets != null;
+    links[entry.index - 1] = {
+      ...(current && current.code != null ? current : entry),
+      status: known.status, negated: known.negated, zone: known.zone ?? entry.zone,
+      targets: hasTargets ? entry.targets : known.targets,
+    };
   }
   if (links) state = { links, resolving: state.resolving != null && state.resolving > links.length ? null : state.resolving };
   return state;
@@ -216,6 +231,7 @@ export function chainSeatLabel(seat: number, mySeat: number | null, playerName: 
  */
 const STEP_MS: Record<ChainEventKind, number> = {
   activate: CHAIN_TIMING.activateMs,
+  target: 0,
   "chain-resolving": CHAIN_TIMING.resolvingMs,
   "chain-resolved": CHAIN_TIMING.resolvedMs,
   "chain-negated": CHAIN_TIMING.negatedMs,
@@ -230,6 +246,7 @@ const EFFECT_LEAD_REDUCED_MS = CHAIN_TIMING.effectLeadReducedMs;
 
 /** How long to hold the board on a chain event before the next one plays. */
 export function chainStepDelay(kind: string, remaining: number, reducedMotion: boolean): number {
+  if (kind === "target") return 0;
   const base = STEP_MS[kind as ChainEventKind] ?? CHAIN_TIMING.fallbackMs;
   const length = reducedMotion ? Math.max(STEP_FLOOR_MS, Math.round(base * 0.8)) : base;
   if (remaining <= BACKLOG_BEATS) return length;
@@ -258,7 +275,8 @@ export function chainStateKey(state: ChainState): string {
   return state.links
     .map((link) => {
       const z = link.zone ? zoneKey(link.zone.controller, link.zone.location, link.zone.sequence) : "-";
-      return `${link.index}:${link.seat}:${link.code ?? 0}:${link.status}:${link.negated ? 1 : 0}:${z}`;
+      const targets = link.targets.map((zone) => zoneKey(zone.controller, zone.location, zone.sequence)).join(",");
+      return `${link.index}:${link.seat}:${link.code ?? 0}:${link.name ?? ""}:${link.description ?? ""}:${link.status}:${link.negated ? 1 : 0}:${z}:${targets}`;
     })
     .join("|");
 }
@@ -307,8 +325,30 @@ export function chainLinkLabel(
     if (link.negated) parts.push("negated");
     if (link.status === "resolved") parts.push("resolved");
   }
-  const text = `Chain Link ${link.index}: ${parts.join(", ")}`;
+  const targets = chainTargetLabel(link, mySeat, playerName);
+  const text = `Chain Link ${link.index}: ${parts.join(", ")}${targets ? `. ${targets}` : ""}`;
   return detail && link.description ? `${text}. ${link.description}` : text;
+}
+
+/** Coordinates only: looking up target names here could leak a face-down card's identity. */
+export function chainTargetLabel(link: ChainLinkState, mySeat: number | null, playerName: (seat: number) => string): string | null {
+  if (link.targets.length === 0) return null;
+  const places = link.targets.map((zone) => {
+    const whose = mySeat == null ? `${playerName(zone.controller)}'s ` : zone.controller === mySeat ? "your " : "opponent's ";
+    let place: string;
+    switch (zone.location) {
+      case LOCATION_MZONE: place = zone.sequence >= 5 ? `Extra Monster Zone ${zone.sequence - 4}` : `Monster Zone ${zone.sequence + 1}`; break;
+      case LOCATION_SZONE: place = zone.sequence === 5 ? "Field Zone" : zone.sequence >= 6 ? `Pendulum Zone ${zone.sequence - 5}` : `Spell & Trap Zone ${zone.sequence + 1}`; break;
+      case LOCATION_GRAVE: place = `Graveyard card ${zone.sequence + 1}`; break;
+      case LOCATION_REMOVED: place = `banished card ${zone.sequence + 1}`; break;
+      case LOCATION_HAND: place = `hand card ${zone.sequence + 1}`; break;
+      case LOCATION_DECK: place = "Deck"; break;
+      case LOCATION_EXTRA: place = "Extra Deck"; break;
+      default: place = `zone ${zone.location}:${zone.sequence}`;
+    }
+    return `${whose}${place}`;
+  });
+  return `Chain Link ${link.index} targets ${places.join(", ")}`;
 }
 
 /**
@@ -327,6 +367,8 @@ export function chainAnnouncement(
   if (!prevTop || prevTop.index !== top.index || prevTop.code !== top.code) {
     return chainLinkLabel(top, mySeat, playerName, false);
   }
+  const targeted = next.links.find((link) => JSON.stringify(link.targets) !== JSON.stringify(prev.links[link.index - 1]?.targets));
+  if (targeted) return chainTargetLabel(targeted, mySeat, playerName) ?? `Chain Link ${targeted.index} has no current targets`;
   const negated = next.links.find((link) => link.negated && !prev.links[link.index - 1]?.negated);
   if (negated) return `Chain Link ${negated.index} was negated`;
   if (next.resolving != null && next.resolving !== prev.resolving) {

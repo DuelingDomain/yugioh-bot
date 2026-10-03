@@ -70,7 +70,7 @@ describe("Start duel button", () => {
     room.myDeck = deck;
     const noop = vi.fn();
     render(<RoomLobby room={room} slug="t" busy={starting} starting={starting} actionError={null}
-      onJoin={noop} onAddBot={noop} onRemoveBot={noop} onReady={noop} onStart={noop} onCancel={noop} onLeave={noop} />);
+      onTakeSeat={noop} onAddBot={noop} onRemoveBot={noop} onReady={noop} onStart={noop} onCancel={noop} onLeave={noop} />);
   }
 
   it("is disabled with a Starting state while the request runs", () => {
