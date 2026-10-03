@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { auth } from "@/lib/auth";
 import { createPlayerService } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
+import { backfillDraftDecks, linkDraftDeck } from "@/lib/draft-decks";
 
 export const runtime = "nodejs";
 
@@ -49,6 +50,10 @@ export async function POST(
     db.prepare(
       "insert into tournament_participants (tournament_id, player_id) values (?, ?)"
     ).run(tournamentId, player.id);
+
+    // A draft tournament entry takes the player's drafted deck at once (a no-op for any other tournament).
+    backfillDraftDecks(guildId, session.user.id, db);
+    linkDraftDeck(tournamentId, player.id, db);
 
     void broadcaster.tournament(
       {

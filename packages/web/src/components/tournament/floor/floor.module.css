@@ -92,6 +92,7 @@
 .offsite button:hover { color: var(--ink); }
 .offsite button:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 .note { margin: 10px 0 0; color: var(--ink-3); font-size: 14.5px; }
+.notelink { color: var(--pen-ink); text-decoration: underline; text-underline-offset: 3px; }
 .deckline { margin: 10px 0 0; color: var(--ink-2); font-size: 14.5px; }
 .deckline a { color: var(--pen-ink); }
 .deckbtn { padding: 0; border: 0; background: none; color: var(--pen-ink); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }

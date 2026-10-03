@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -87,5 +87,24 @@ describe("Register a deck under your field", () => {
     unmount();
     live(withoutDeck(true));
     expect(screen.queryByRole("button", { name: /register a deck|change deck/i })).toBeNull();
+  });
+
+  it("shows the draft deck size note under your field with a link to edit the deck", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(deckState)));
+    live({
+      ...withoutDeck(),
+      draftId: 9,
+      draftSlug: "friday-cube",
+      deckNote: { level: "required", mainCount: 38, message: "Your draft deck has 38 main deck cards; edit it to 40." },
+    });
+    const note = screen.getByTestId("deck-note");
+    expect(note).toHaveTextContent("Your draft deck has 38 main deck cards; edit it to 40.");
+    expect(within(note).getByRole("link", { name: "Edit deck" })).toHaveAttribute("href", "/decks/draft/friday-cube");
+  });
+
+  it("shows no size note when the server sends none", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(deckState)));
+    live({ ...withoutDeck(), draftId: 9, draftSlug: "friday-cube", deckNote: null });
+    expect(screen.queryByTestId("deck-note")).toBeNull();
   });
 });

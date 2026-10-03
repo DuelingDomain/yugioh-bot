@@ -14,6 +14,7 @@ import { env } from "@/lib/env";
 import { callDuelHost } from "@/lib/duel-host";
 import { draftMainSizeError, loadDraftPool } from "@/lib/tournament-deck";
 import { broadcaster } from "@/lib/notify";
+import { backfillDraftDecks, draftDeckNoteFor, linkDraftDeck } from "@/lib/draft-decks";
 
 export const runtime = "nodejs";
 
@@ -55,6 +56,46 @@ async function loadCaller(slug: string) {
   return { ok: true as const, db, tournament, player, userId: session.user.id };
 }
 
+/**
+ * An auto-registered draft deck holds catalog ids. The host maps them to engine passcodes (about
+ * 1 in 100 differ); when the registered copy changes, register the mapped one so the duel start
+ * loads every card. An unlocked deck only; a host that is down or a deck with issues is left alone.
+ */
+async function healDraftRegistration(input: {
+  tournamentDuels: ReturnType<typeof createTournamentDuelService>;
+  tournament: TournamentRow;
+  player: { id: number };
+  rules: ReturnType<ReturnType<typeof createTournamentDuelService>["rules"]>;
+  registration: NonNullable<ReturnType<ReturnType<typeof createTournamentDuelService>["registration"]>>;
+}) {
+  const { tournamentDuels, tournament, player, rules, registration } = input;
+  if (registration.savedDeckId === null) return null;
+  try {
+    const checked = await callDuelHost({
+      op: "check-deck",
+      guildId: tournament.guild_id,
+      playerId: player.id,
+      deck: registration.deck,
+      mode: rules.mode,
+      masterRule: rules.masterRule,
+      settings: rules.settings,
+    });
+    if (!checked.ok) return null;
+    const { deck, report } = checked.data as { deck?: DuelDeck; report?: DuelDeckValidation };
+    if (!deck || !report || !Array.isArray(report.issues) || report.issues.length > 0) return null;
+    if (JSON.stringify(deck) === JSON.stringify(registration.deck)) return null;
+    return tournamentDuels.registerDeck({
+      tournamentId: tournament.id,
+      playerId: player.id,
+      savedDeckId: registration.savedDeckId,
+      deck,
+    });
+  } catch (error) {
+    console.warn("[api/tournaments/[slug]/deck] could not map the draft deck codes:", error);
+    return null;
+  }
+}
+
 export async function GET(_request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   try {
     const { slug } = await params;
@@ -64,7 +105,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
     const tournamentDuels = createTournamentDuelService(db);
     const rules = tournamentDuels.rules(tournament.id);
-    const registration = tournamentDuels.registration(tournament.id, player.id);
+    if (rules.draftId !== null) {
+      // The draft deck is saved when the draft ends; this catches an older draft or a missed save,
+      // and registers it for a player who has no deck in yet.
+      backfillDraftDecks(tournament.guild_id, userId, db);
+      linkDraftDeck(tournament.id, player.id, db);
+    }
+    let registration = tournamentDuels.registration(tournament.id, player.id);
+    if (rules.draftId !== null && registration && !registration.lockedAt) {
+      registration = (await healDraftRegistration({ tournamentDuels, tournament, player, rules, registration })) ?? registration;
+    }
 
     const savedDecks = createSavedDeckService(db);
     let decks = savedDecks.list(tournament.guild_id, userId).filter((deck) => deck.mode === rules.mode);
@@ -79,10 +129,20 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       draft = row?.web_slug ? { id: rules.draftId, slug: row.web_slug } : null;
     }
 
+    const deckNote =
+      rules.draftId !== null
+        ? draftDeckNoteFor(db, {
+            draftId: rules.draftId,
+            playerId: player.id,
+            deck: registration?.deck ?? decks[0]?.deck ?? { main: [], extra: [], side: [] },
+          })
+        : null;
+
     return NextResponse.json({
       registration,
       rules,
       draft,
+      deckNote: registration || decks.length > 0 ? deckNote : null,
       savedDeckOptions: decks.map((deck) => ({
         id: deck.id,
         name: deck.name,

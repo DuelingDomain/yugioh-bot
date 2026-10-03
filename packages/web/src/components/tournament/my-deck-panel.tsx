@@ -147,6 +147,9 @@ export function MyDeckPanel({
       ) : isDraft ? (
         <div className={styles.stack}>
           <p className={styles.note}>Your draft deck is used.</p>
+          {state.deckNote && (
+            <StatusLine tone={state.deckNote.level === "required" ? "warn" : "neutral"}>{state.deckNote.message}</StatusLine>
+          )}
           <div className={styles.row}>
             {editDeckId !== null ? (
               // The pool editor enforces the draft pool limits; the generic editor does not.

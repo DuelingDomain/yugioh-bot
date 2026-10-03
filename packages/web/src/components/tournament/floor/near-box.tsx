@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { BugFabLift } from "@/components/bug-report/fab-lift";
 import { DeckMark, DuelAction, SheetPortal, SvButton } from "@/components/sheet";
@@ -114,6 +115,17 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
           </>
         )}
       </p>
+      {tournament.deckNote && !me?.deckLocked && (
+        <p className={styles.note} data-testid="deck-note" data-level={tournament.deckNote.level}>
+          {tournament.deckNote.message}
+          {tournament.draftSlug && (
+            <>
+              {" "}
+              <Link href={`/decks/draft/${tournament.draftSlug}`} className={styles.notelink}>Edit deck</Link>
+            </>
+          )}
+        </p>
+      )}
       {deckOpen && !me?.deckLocked && (
         <div className={styles.panel}>
           <MyDeckPanel variant="floor" tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
