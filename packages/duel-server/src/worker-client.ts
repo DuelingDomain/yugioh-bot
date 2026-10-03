@@ -37,7 +37,7 @@ export interface DuelGameWorker {
   view(seat: number | null): Promise<DuelEngineView>;
   answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void>;
   search(query: string): Promise<DuelCardInfo[]>;
-  /** Flag a core loss, or queue it until the turn ends. New queued surrenders require this method. */
+  /** Flag a core loss. `atTurnEnd` identifies retired journal commands, which the engine refuses. */
   eliminate?(seat: number, reason: number, atTurnEnd?: boolean): Promise<void>;
   /** The engine's triage ring buffer (host report only). */
   diagnostics?(): Promise<EngineDiagnostic[]>;

@@ -207,8 +207,8 @@ export interface DuelSeatView {
   /** True after this seat (FFA) or its team (Tag) lost while the duel goes on. Its fields are empty. */
   eliminated?: boolean;
   /**
-   * True while this seat (FFA) or its team (Tag) is leaving: the elimination is requested, but the core applies
-   * the loss only after the open prompt is answered. Absent otherwise.
+   * True during the short FFA surrender window while the current chain finishes. It clears when the loss
+   * lands or the duel ends. Time-limit losses can also set it until the next safe Adjust. Absent otherwise.
    */
   pendingElimination?: boolean;
   /**

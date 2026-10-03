@@ -171,12 +171,13 @@ export function acceptsResult(current: DuelEngineView["result"]): boolean {
 }
 
 /**
- * A host loss uses `eliminate:<reason>` for the current Adjust rule, or `eliminate-eot:<reason>`
- * for a surrender at the end of the turn. Old commands keep their timing. Returns the code, or null for an ordinary answer. Every journal replayer uses this.
+ * A host loss uses `eliminate:<reason>` for immediate surrender or a time-limit loss, or `eliminate-eot:<reason>`
+ * for a retired turn-end surrender. Retired commands are detected and refused by eliminate().
+ * Returns the code, or null for an ordinary answer. Every journal replayer uses this.
  */
 export const ELIMINATE_PROMPT_PREFIX = "eliminate:";
 export const ELIMINATE_EOT_PROMPT_PREFIX = "eliminate-eot:";
-/** True only for a saved surrender that takes effect at the end of the turn. */
+/** True only for a retired saved surrender that used the turn-end rule. */
 export function eliminationAtTurnEnd(promptId: string): boolean {
   return promptId.startsWith(ELIMINATE_EOT_PROMPT_PREFIX);
 }
@@ -195,15 +196,11 @@ export interface EngineGame {
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
   searchCards(query: string): DuelCardInfo[];
   /**
-   * Eliminate a duelist (FFA surrender). Runs `Debug.EliminateDuelist(seat, reason)` between process calls.
-   * The core applies the loss at its next Adjust, so the loss is not instant:
-   * - The open prompt belongs to the leaving seat (or its Tag team): the engine answers for it (a pass, or the
-   *   first legal choice) until the core reports the loss. Those answers are not journaled; replay repeats them.
-   * - The open prompt belongs to another seat: that prompt stays open, the view marks the seat with
-   *   `pendingElimination`, and the loss lands after that seat answers.
-   * With `atTurnEnd`, queue the loss until EVENT_TURN_END. Keep the current prompt and seat alive.
-   * The host saves its pass answers as journal commands. Do not flag a core loss before the event.
-   * Throws when the core has no such function (or the duel has fewer than three seats).
+   * Surrender removes a duelist immediately through Debug.SurrenderDuelist, or flags the loss while the
+   * current chain finishes. Leaving seats auto-pass; required choices use the deterministic fallback.
+   * A living seat's current choice stays open. Debug.EliminateDuelist keeps time-limit timing unchanged.
+   * `atTurnEnd` identifies retired journal commands, which are refused instead of replayed at a new time.
+   * Throws when the core lacks the required function (or the duel has fewer than three seats).
    */
   eliminate(seat: number, reason: number, atTurnEnd?: boolean): void;
   /** The last entries (oldest first) of the triage ring buffer. For the host report only, never for a view. */
@@ -504,8 +501,6 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   let eliminationGroup: number[] | null = null;
   /** Seats (a whole team in Tag) after `eliminate()` whose loss the core has not reported yet. */
   const leaving = new Set<number>();
-  /** Queued surrenders stay alive until EVENT_TURN_END. */
-  const queuedSurrenders = new Set<number>();
   const isLeaving = (seat: number) => leaving.has(seat) && !eliminated.has(seat);
   /** The next living opponent of a seat in turn order (the core fold's fallback opponent). Never a Tag partner. */
   const nextLivingOpponent = (seat: number): number => nextLivingOpponentSeat(format, seatCount, seat, eliminated);
@@ -629,7 +624,6 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         }
         return;
       case OcgMessageType.NEW_TURN:
-        queuedSurrenders.clear();
         turn += 1;
         turnSeat = message.player;
         appendLog(`Turn ${turn} — Player ${message.player + 1}`);
@@ -747,8 +741,6 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       // FFA: the duelist. Tag: the whole team loses its cards and turns.
       const lost = format === "tag" ? seatsOfTeam(format, teamOfSeat(format, raw.duelist)) : [raw.duelist];
       const newlyLost = lost.filter((seat) => !eliminated.has(seat));
-      // A queued surrender has its own place, also when no card-removal message separates losses.
-      if (raw.reason === 0 && queuedSurrenders.has(raw.duelist)) eliminationGroup = null;
       if (newlyLost.length) {
         if (!eliminationGroup) {
           eliminationGroup = [];
@@ -867,8 +859,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     }
   };
 
-  /** Automatic answers for a leaving seat per call: the core reports the loss at its next Adjust, long before this. */
+  /** Bound automatic answers while the current chain or cut-short turn finishes. */
   const LEAVING_ANSWER_LIMIT = 200;
+
+  const mustPassCutShortTurn = () => format !== "tag" && eliminated.has(turnSeat) && liveChainSize === 0
+    && pending?.message.type === OcgMessageType.SELECT_CHAIN && !pending.message.forced;
 
   /**
    * While the open prompt belongs to a seat that is leaving, answer it for that seat (the answer that changes
@@ -876,7 +871,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
    * a journal replay of the same commands gives the same answers.
    */
   const answerForLeavingSeats = () => {
-    for (let step = 0; pending && !result && isLeaving(pending.seat); step += 1) {
+    for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustPassCutShortTurn()); step += 1) {
       const current = pending;
       if (step >= LEAVING_ANSWER_LIMIT) {
         throw new Error(`Seat ${current.seat} is still in the duel after ${LEAVING_ANSWER_LIMIT} automatic answers (open prompt ${current.id}, ${current.prompt.kind})`);
@@ -932,7 +927,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       if (multi) projected.eliminationOrder = eliminationOrder.map((group) => [...group]);
       for (const entry of projected.seats) {
         if (multi) entry.pendingElimination = !result && !eliminated.has(entry.seat)
-          && (isLeaving(entry.seat) || queuedSurrenders.has(entry.seat));
+          && isLeaving(entry.seat);
         const mask = disabledZones.get(entry.seat);
         if (mask) entry.disabledZones = mask;
       }
@@ -963,74 +958,47 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       if (!multi) throw new Error("Only duels with more than two seats can eliminate a duelist");
       if (!Number.isInteger(seat) || seat < 0 || seat >= seatCount) throw new Error("Invalid seat");
       if (eliminated.has(seat) || leaving.has(seat)) throw new EngineAnswerError("Seat is already eliminated");
-      if (queuedSurrenders.has(seat)) throw new EngineAnswerError("Seat has a queued surrender");
+      if (atTurnEnd) throw new EngineAnswerError("This saved duel uses the retired turn-end surrender rule");
       if (!Number.isInteger(reason) || reason < 0 || reason > 255) throw new Error("Invalid loss reason");
       // Check before the core is touched, so a throw cannot leave the duel half changed.
       if (!pending) throw new Error("The core waits for an answer but the engine has no open prompt");
-      if (!lib.loadScript(handle, "duel-probe-eliminate.lua", "assert(Debug.EliminateDuelist~=nil)")) {
+      const surrender = reason === 0;
+      if (!lib.loadScript(handle, "duel-probe-eliminate.lua", surrender
+        ? "assert(Debug.EliminateDuelist~=nil and Debug.SurrenderDuelist~=nil)"
+        : "assert(Debug.EliminateDuelist~=nil)")) {
         errors.length = 0;
-        throw new Error("This duel core has no Debug.EliminateDuelist");
+        throw new Error(surrender ? "This duel core has no Debug.EliminateDuelist immediate surrender support" : "This duel core has no Debug.EliminateDuelist");
       }
-      const finishQueuedTurn = !atTurnEnd && reason === 0 && seat === turnSeat && liveChainSize === 0 && queuedSurrenders.size > 0;
-      if (atTurnEnd || finishQueuedTurn) {
-        // Each loss has one effect, in queue order. DELAY makes the core run Adjust
-        // after each operation, so the last living seat wins before its loss can run.
-        // EVENT_TURN_END follows all End Phase actions, also when the turn ends early.
-        const script = `
-local immediate=${finishQueuedTurn}
-local late=immediate or (Duel.GetCurrentPhase()==PHASE_END and Duel.CheckEvent(EVENT_TURN_END))
-local queue=__yugidraft_surrender_eot or {}
-__yugidraft_surrender_eot=queue
-local entry={seat=${seat},reason=${reason}}
-table.insert(queue,entry)
-local function register(loss)
-local e=Effect.GlobalEffect()
-e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
-e:SetProperty(EFFECT_FLAG_DELAY)
-e:SetCountLimit(1)
-e:SetCode(late and EVENT_ADJUST or EVENT_TURN_END)
-if late then e:SetCondition(function() return queue[1]==loss end) end
-e:SetOperation(function(effect)
-  table.remove(queue,1)
-  if #queue==0 then __yugidraft_surrender_eot=nil end
-  local ok,err=pcall(Debug.EliminateDuelist,loss.seat,loss.reason)
-  if not ok and not tostring(err):find("Debug.EliminateDuelist: the duelist is not in the duel.",1,true) then error(err) end
-  effect:Reset()
-end)
-loss.effect=e
-Duel.RegisterEffect(e,0)
-end
-if immediate then
-  for _,loss in ipairs(queue) do
-    if loss.effect then loss.effect:Reset() end
-    register(loss)
-  end
-else register(entry) end`;
-        if (!lib.loadScript(handle, "duel-surrender-eot.lua", script)) {
-          const detail = errors.join("; ");
-          errors.length = 0;
-          throw new Error(`Failed to queue surrender of seat ${seat}: ${detail}`);
-        }
-        queuedSurrenders.add(seat);
-        diagnose(finishQueuedTurn ? "surrender-turn-end" : "surrender-eot", seat, `reason ${reason}`);
-        if (finishQueuedTurn) {
-          for (const gone of format === "tag" ? seatsOfTeam(format, teamOfSeat(format, seat)) : [seat]) leaving.add(gone);
-          answerForLeavingSeats();
-        }
-        revision += 1;
-        return;
-      }
-      if (!lib.loadScript(handle, "duel-eliminate.lua", `Debug.EliminateDuelist(${seat},${Math.trunc(reason)})`)) {
+      // LoadScript appends messages to the last process buffer. Read only the
+      // suffix it adds, so the old prompt and its events are not counted twice.
+      const oldMessages = tap ? withoutDuelistParseWarnings(() => lib.duelGetMessage(handle)) : lib.duelGetMessage(handle);
+      const oldBytes = tap?.take().at(-1)?.byteLength ?? 0;
+      if (!lib.loadScript(handle, "duel-eliminate.lua", surrender
+        ? `Debug.SurrenderDuelist(${seat})`
+        : `Debug.EliminateDuelist(${seat},${Math.trunc(reason)})`)) {
         const detail = errors.join("; ");
         errors.length = 0;
         throw new Error(`Failed to eliminate seat ${seat}${detail ? `: ${detail}` : ""}`);
       }
       diagnose("eliminate", seat, `reason ${Math.trunc(reason)}`);
-      // The loss is only flagged in the core. It lands at the next Adjust, which runs after the open prompt is answered.
       for (const gone of format === "tag" ? seatsOfTeam(format, teamOfSeat(format, seat)) : [seat]) leaving.add(gone);
+      const fresh = (tap ? withoutDuelistParseWarnings(() => lib.duelGetMessage(handle)) : lib.duelGetMessage(handle)).slice(oldMessages.length);
+      const extras = tap?.take().flatMap((buffer) => parseDuelistMessages(buffer.subarray(oldBytes)).extras) ?? [];
+      // Each call is a new loss window, also when an empty seat produces only message 200.
+      eliminationGroup = null;
+      let nextExtra = 0;
+      fresh.forEach((message, index) => {
+        while (nextExtra < extras.length && extras[nextExtra]!.after <= index) applyRaw(extras[nextExtra++]!);
+        applyMessage(message);
+        recordEvent(message);
+      });
+      while (nextExtra < extras.length) applyRaw(extras[nextExtra++]!);
+      flushDeferredDestroys();
+      if (result) pending = null;
       // Do not run the core here. A call with no new response is no no-op: the core takes the old response buffer as the answer
       // of the open prompt (a chain window gets a pass), so the prompt of ANOTHER seat would be answered without that seat.
-      // The open prompt stays. If its seat is the one that leaves, answerForLeavingSeats answers it with a real response.
+      // The living seat's prompt stays. The engine auto-answers a leaver's prompt and the optional
+      // response windows of a cut-short turn, until the next living turn or a required living choice.
       answerForLeavingSeats();
       revision += 1;
     },

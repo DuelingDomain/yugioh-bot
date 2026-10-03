@@ -18,7 +18,7 @@ import type {
   DuelSettings,
 } from "@yugidraft/shared/duels";
 import { multiplayerTableBlockReason, opponentSeatsOf, seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
-import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, ELIMINATE_EOT_PROMPT_PREFIX, eliminationCodeOf, eliminationAtTurnEnd } from "./engine.js";
+import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, eliminationAtTurnEnd } from "./engine.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
 import { inspectDeck, validateDeck } from "./deck-legality.js";
 import { normalizeImportedDeck } from "./deck-import.js";
@@ -458,7 +458,6 @@ export function createDuelHost(options: {
     game: DuelGameWorker,
     decidedAt: number,
     note?: string,
-    surrenderedSeats?: number[],
   ): Promise<void> {
     const state = service.privateState(slug, guildId);
     const view = await readClockView(game, seatCountFor(state.session.format), games.get(slug)?.surrendered);
@@ -474,7 +473,6 @@ export function createDuelHost(options: {
     // The journal keeps the reason of a scripted bot in `note`. Replay reads only promptId, revision and answer.
     options.db.transaction(() => {
       service.recordCommand(slug, guildId, seat, note ? ({ ...command, note } as DuelCommand) : command, clock);
-      if (surrenderedSeats) service.setSetup(slug, guildId, { ...(state.setup ?? {}), surrenderedSeats });
     })();
   }
 
@@ -882,10 +880,7 @@ export function createDuelHost(options: {
       game,
       lastRequestAt: now(),
       guildId,
-      surrendered: new Set([
-        ...(state.setup?.surrenderedSeats ?? []),
-        ...state.commands.filter((input) => eliminationAtTurnEnd(input.command.promptId)).map((input) => input.seat),
-      ]),
+      surrendered: new Set(state.setup?.surrenderedSeats ?? []),
       policies: policiesOf(state.setup),
       traces: new Map(),
     });
@@ -894,15 +889,15 @@ export function createDuelHost(options: {
   }
 
   /**
-   * Remove a seat from a duel with more than two seats through the core (`Debug.EliminateDuelist`).
+   * Remove a seat through Debug.SurrenderDuelist (surrender) or Debug.EliminateDuelist (time limit).
    * Returns false when the core cannot do it. Keep the old fallback for time losses;
-   * refuse a new queued surrender when the core has no loss function.
+   * refuse a new surrender when the core has no loss function.
    */
-  async function eliminateInCore(slug: string, guildId: string, game: DuelGameWorker, seat: number, code: number, atTurnEnd = false): Promise<boolean> {
+  async function eliminateInCore(slug: string, guildId: string, game: DuelGameWorker, seat: number, code: number): Promise<boolean> {
     if (typeof game.eliminate !== "function") return false;
     const before = await game.view(seat);
     try {
-      await game.eliminate(seat, code, atTurnEnd);
+      await game.eliminate(seat, code);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Engine rejected the elimination";
       if (/no Debug\.EliminateDuelist/.test(message)) return false;
@@ -910,10 +905,9 @@ export function createDuelHost(options: {
       if (!game.running) throw new RequestError(message, 503);
       throw new RequestError(message, 409);
     }
-    const command: DuelCommand = { promptId: `${atTurnEnd ? ELIMINATE_EOT_PROMPT_PREFIX : ELIMINATE_PROMPT_PREFIX}${code}`, revision: before.revision, answer: {} };
+    const command: DuelCommand = { promptId: `${ELIMINATE_PROMPT_PREFIX}${code}`, revision: before.revision, answer: {} };
     try {
-      const surrenderedSeats = atTurnEnd ? [...games.get(slug)!.surrendered].sort((a, b) => a - b) : undefined;
-      await persistAcceptedCommand(slug, guildId, seat, command, game, now(), undefined, surrenderedSeats);
+      await persistAcceptedCommand(slug, guildId, seat, command, game, now());
     } catch (error) {
       // Applied but not journaled: drop the worker so the next request rebuilds the duel from the journal.
       await disposeGame(slug);
@@ -924,9 +918,9 @@ export function createDuelHost(options: {
 
   /**
    * A seat gives up (surrender or time limit).
-   * 1v1 surrender and Tag time losses end the duel at once. A multiplayer surrender during another
-   * seat's turn and with no open chain is queued until that turn ends. Own-turn surrender flags the
-   * loss now. Tag surrender with an open chain ends the duel at once.
+   * 1v1 surrender and Tag time losses end the duel at once. Multiplayer surrender flags a loss now
+   * on any turn. In FFA, the current chain finishes before the loss lands. Tag surrender with an
+   * open chain ends the duel at once.
    */
   async function forfeitSeat(
     slug: string,
@@ -957,21 +951,6 @@ export function createDuelHost(options: {
       const winner = opponentSeatsOf(format, seat)[0];
       if (winner === undefined) throw new RequestError("Opponent is missing", 409);
       await persistComplete(slug, guildId, game, winner, reason);
-      return;
-    }
-    const atTurnEnd = reason !== TIME_LIMIT_REASON && before.turnSeat !== seat && (before.chain?.length ?? 0) === 0;
-    if (atTurnEnd) {
-      entry.surrendered.add(seat);
-      try {
-        if (!(await eliminateInCore(slug, guildId, game, seat, WIN_REASON_SURRENDER, true))) {
-          throw new RequestError("This engine cannot queue a surrender until the turn ends", 409);
-        }
-      } catch (error) {
-        entry.surrendered.delete(seat);
-        throw error;
-      }
-      await emitChange(slug, guildId);
-      if (drive) await driveBot(slug, guildId, game);
       return;
     }
     if (!entry.surrendered.has(seat) && (await eliminateInCore(slug, guildId, game, seat, reason === TIME_LIMIT_REASON ? WIN_REASON_TIME_LIMIT : WIN_REASON_SURRENDER))) {
@@ -1039,10 +1018,11 @@ export function createDuelHost(options: {
   async function project(slug: string, guildId: string, playerId: number, game?: DuelGameWorker): Promise<DuelRoom> {
     const room = stampRoomClock(service.room(slug, guildId, playerId), now());
     const setup = service.privateState(slug, guildId);
-    const queued = new Set(setup.commands.filter((input) => eliminationAtTurnEnd(input.command.promptId)).map((input) => input.seat));
+    // Retired commands identify old setup flags; they are not accepted for new surrender.
+    const retiredTurnEndSeats = new Set(setup.commands.filter((input) => eliminationAtTurnEnd(input.command.promptId)).map((input) => input.seat));
     const markLegacyLosses = (view: DuelEngineView | null) => {
       for (const gone of setup.setup?.surrenderedSeats ?? []) {
-        if (queued.has(gone)) continue;
+        if (retiredTurnEndSeats.has(gone)) continue;
         const seat = view?.seats.find((seat) => seat.seat === gone);
         if (seat) seat.eliminated = true;
       }
@@ -1074,7 +1054,7 @@ export function createDuelHost(options: {
       }
     }
     // The final loss ends play. Only earlier losses give the automatic spectator role.
-    const legacySpectator = room.mySeat !== null && !queued.has(room.mySeat)
+    const legacySpectator = room.mySeat !== null && !retiredTurnEndSeats.has(room.mySeat)
       && (setup.setup?.surrenderedSeats ?? []).includes(room.mySeat)
       && setup.commands.some((input) => input.seat === room.mySeat
         && (input.command as { note?: string }).note === SURRENDER_AUTOPILOT_NOTE);
