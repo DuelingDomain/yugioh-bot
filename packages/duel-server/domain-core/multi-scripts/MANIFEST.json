@@ -3872,6 +3872,21 @@
       "stockSha256": "bba517904b492d90fccdc1d5e2d9e32f5164bc4d8769d37286b3ec6e6863930b"
     },
     {
+      "code": 59581480,
+      "file": "c59581480.lua",
+      "name": "Elfnote Tinia",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "QUICK_O",
+      "wrap": {
+        "MPPick": [
+          "swtg"
+        ]
+      },
+      "stockSha256": "854202fc558e2a1630bb820e01a8b6d96392733c444e01a7de69183faabb997e",
+      "note": "In Tag, select one opponent at activation for the opponent-hand effect. The turn condition does not bind the turn player."
+    },
+    {
       "code": 59712426,
       "file": "c59712426.lua",
       "name": "Arcana Force XV - The Fiend",

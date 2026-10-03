@@ -206,3 +206,101 @@ export function proveTagOpponentHand(code: LateHandCard, name: string): void {
     }
   });
 }
+
+// Tinia is a free-chain effect. Its turn condition does not select the opponent.
+export function proveTiniaOpponentHand(): void {
+  const code = 59581480;
+  const cases: Array<{ format: 'tag' | 'ffa4' | '1v1'; actor: number; causer: number; opponent: number }> = [];
+  for (const actor of [0, 2]) for (const opponent of [1, 3]) {
+    cases.push({ format: 'tag', actor, causer: 3, opponent });
+  }
+  // The mirrored row detects a fixed opposing-seat default in the other team.
+  cases.push({ format: 'tag', actor: 1, causer: 2, opponent: 0 });
+  for (const opponent of [1, 3]) cases.push({ format: 'ffa4', actor: 0, causer: 3, opponent });
+  cases.push({ format: '1v1', actor: 0, causer: 1, opponent: 1 });
+  describeWithCores('Elfnote Tinia: opponent hand pick at activation', liveNseat, () => {
+    for (const domain of [false, true]) for (const { format, actor, causer, opponent } of cases) {
+      const id = `tinia-pick-${format}-p${actor}-causer-p${causer}-pick-p${opponent}-${domain ? 'domain' : 'standard'}`;
+      it(id, async () => {
+        const count = format === '1v1' ? 2 : 4;
+        const setup: Scenario['setup'] = { format, skipOpeningDraw: true, deckSize: 8,
+          ...(domain ? { mode: 'domain' } : {}) };
+        const board: BoardExpect = {};
+        for (let seat = 0; seat < count; ++seat) {
+          const drew = seat > 0 && seat <= causer;
+          const opposing = seat !== actor && (format !== 'tag' || seat % 2 !== actor % 2);
+          const card = opposing ? 'Battle Ox' : 'Giant Rat';
+          const hand = opposing ? Array(3 - Number(drew)).fill(card) : [card];
+          setup[SEATS[seat]] = { hand, monsters: seat === actor ? [code, null, 'Mystical Elf'] : ['Mystical Elf'],
+            deck: Array(8).fill(card), ...(domain ? { deckMaster: 'Blue-Eyes White Dragon' } : {}) };
+          board[SEATS[seat]] = { lp: format === 'tag' ? 16000 : 8000, hand: [...hand, ...(drew ? [card] : [])],
+            monsters: seat === actor ? [code, 'Mystical Elf'] : ['Mystical Elf'],
+            spells: [], grave: [], banished: [], extra: [], deckCount: 8 - Number(drew),
+            ...(domain ? { deckMaster: { inZone: true, returns: 0, nextCost: 0 } } : {}) };
+        }
+        const scenario = defineScenario({ id, title: id, source: 'docs/adr/0002-multiplayer-duel-rules.md',
+          rules: ['R-COMMON-OPP-PICK', ...(format === 'tag' ? ['R-TAG-SHARED-CARDS'] : format === 'ffa4' ? ['R-FFA-OPP-ONE'] : [])],
+          tags: ['multiplayer', 'tag-hand', format, `card:${code}`], setup, steps: [] });
+        const game = await createEngineGame({ ...compileBoard(setup).options, dataDirectory: engineDataDirectory,
+          multiWasmBinary: domain ? domainNseatWasmBinary() : nseatWasmBinary(), seed: ['1', '2', '3', '4'] });
+        const session = new Session(scenario, game);
+        let step = 1, armed = false, activated = 0, picked = 0, banished = 0;
+        const run = (s: Step) => session.run(s, step++);
+        const views = () => SEATS.slice(0, count).map((_, seat) => game.view(seat));
+        const prompt = () => views().find(view => view.prompt)?.prompt;
+        const pump = () => {
+          for (let guard = 0; guard < 60; ++guard) {
+            const p = prompt();
+            if (!p || p.context?.type === 'action') return;
+            if (p.context?.type === 'opponent') {
+              expect(++picked, 'Tinia must ask once at activation.').toBe(1);
+              run(expectPickSeats(SEATS.slice(0, count).filter((_, seat) => seat !== actor &&
+                (format !== 'tag' || seat % 2 !== actor % 2)), SEATS[actor]));
+              expect(views().some(view => view.events.some(event =>
+                event.kind === 'chain-resolving' && event.card?.code === code)), 'The pick must precede resolution.').toBe(false);
+              expect(views().some(view => view.events.some(event =>
+                event.kind === 'activate' && event.card?.code === code)), 'The pick must be part of activation.').toBe(false);
+              run(expectBoard(board));
+              expect(game.view(actor).seats[actor].monsters[0]?.code).toBe(code);
+              run(pickOpponent(SEATS[opponent], SEATS[actor]));
+            } else if (p.context?.type === 'chain') {
+              if (armed && p.seat === actor && p.options.some(option => option.card?.code === code)) {
+                ++activated; armed = false; run(activate({ card: code, owner: SEATS[actor] }, SEATS[actor]));
+              } else run(pass(SEATS[p.seat]));
+            } else if (p.kind === 'choice' && p.options.some(option => option.id === 'yes')) {
+              if (armed && p.seat === actor && p.title.includes('Elfnote Tinia')) {
+                ++activated; armed = false; run(yes(SEATS[actor]));
+              } else if (activated) {
+                expect(p.seat).toBe(actor);
+                expect(p.title).toContain("1 random card from your opponent's hand");
+                expect(++banished).toBe(1); run(yes(SEATS[actor]));
+              } else run(no(SEATS[p.seat]));
+            } else throw new Error(`Unexpected Tinia prompt: ${JSON.stringify(p)}`);
+          }
+          throw new Error('Tinia did not reach an action prompt.');
+        };
+        try {
+          session.reachMainPhase();
+          for (let seat = 0; seat < causer; ++seat) {
+            run(endTurn(SEATS[seat])); session.reachMainPhase(); pump();
+          }
+          session.startRecording(); armed = true; run(endTurn(SEATS[causer])); pump();
+          expect(activated).toBe(1); expect(banished).toBe(1);
+          expect(picked, 'Tag and FFA have one pick; 1v1 has none.').toBe(format === '1v1' ? 0 : 1);
+          board[SEATS[actor]]!.monsters = ['Mystical Elf', code];
+          board[SEATS[opponent]]!.hand = ['Battle Ox', 'Battle Ox'];
+          board[SEATS[opponent]]!.banished = ['Battle Ox'];
+          run(expectBoard(board)); run(expectPrompt({ by: SEATS[causer], context: 'action' }));
+          const monsters = game.view(actor).seats[actor].monsters;
+          expect(monsters[0]?.name).toBe('Mystical Elf'); expect(monsters[2]?.code).toBe(code);
+          expect(views().some(view => view.events.some(event =>
+            event.kind === 'chain-resolving' && event.card?.code === code))).toBe(true);
+        } catch (error) {
+          console.error(JSON.stringify({ id, prompt: prompt(), states: views().map((view, seat) => view.seats[seat]),
+            diagnostics: game.diagnostics() }));
+          throw error;
+        } finally { game.close(); }
+      }, 30000);
+    }
+  });
+}
