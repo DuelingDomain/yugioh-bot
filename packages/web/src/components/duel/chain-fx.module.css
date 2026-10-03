@@ -1,6 +1,6 @@
 /* The chain on the board: a numbered medallion (number + chain glyph) and a ring on each link's
-   card, a thin wire from badge N to badge N-1, and a small off-board strip for a link the board
-   cannot place. Nothing here takes pointer input. Only transform and opacity animate; positions
+   card, a thin wire from badge N to badge N-1, target marks, and the chain stack that lists every
+   link. Nothing here takes pointer input. Only transform and opacity animate; positions
    are set with the `translate` property from JS. */
 
 /* Screen readers only: the chain as a list, and the live announcement. */
@@ -38,6 +38,8 @@
 :global([data-duel-fx-speed-root]):has(:global([data-pile-viewer])) .front { visibility: hidden; }
 /* Portaled into the duel root: placed over the board box by the frame loop (translate, width, height). */
 .layer[data-portal="true"] { inset: auto; left: 0; top: 0; }
+/* The front layer is the board box, and nothing it draws leaves it: a badge at the top edge never paints over the room header. */
+.front[data-portal="true"] { overflow: clip; }
 
 /* ---------- badges ---------- */
 
@@ -400,7 +402,7 @@
 .wire[data-status="resolved"] { animation: chainFadeOut 0.6s ease-in both; }
 @keyframes chainWireIn { from { opacity: 0; } }
 
-/* ---------- off-board strip: only a link the board cannot place ---------- */
+/* ---------- the chain stack: every link, in a column or a row of chips ---------- */
 
 .dock {
   position: absolute;

@@ -9,17 +9,21 @@
  *    arc joins badge N to badge N-1, so the badges read as one chain. A link that activated from the
  *    hand, the GY, the Extra Deck or the banished pile sits on its slot, or on the hand / pile when
  *    the card has left that slot.
- *  - The off-board strip lists ONLY a link the board cannot place (no known zone, or its card and
- *    its hand / pile are not on screen). A link is a badge or a strip row, never both.
+ *  - The chain stack (a column in the free gutter left of the field, or a row of numbered chips when
+ *    there is no room or a prompt meets the column) lists EVERY link: its source, its effect and the
+ *    public places it targets. A badge a prompt covers, or a link whose card is off the board, is
+ *    still read there.
+ *  - A target is marked by coordinates only (a ring, "Target · N" and a dashed wire), never by a
+ *    card name, so a face-down or private card is not named.
  *  - Screen readers get a visually hidden list ("Chain Link 2: card, Opponent") and a polite live
  *    announcement for each new link, resolution, negation and the end of the chain.
- *  - Resolution: links resolve highest first, and this is the only place it is shown (there is no
- *    centre banner for it). The resolving link takes a gold ring burst on its badge and a soft gold
+ *  - Resolution: links resolve highest first, and it is shown on the badges and the stack rows (there
+ *    is no centre banner for it). The resolving link takes a gold ring burst on its badge and a soft gold
  *    wash on its card; then its number gives way to a tick, the badge shrinks away and the arc to
  *    it fades. The next link down is marked "up next" (data-next). A negated link is slashed and
  *    greyed before it clears.
  *
- * Events play one beat at a time (see chainStepDelay, about 0.5 to 0.9 s per link), so a chain that
+ * Events play one beat at a time (see chainStepDelay, about 1.9 s for a resolving link), so a chain that
  * resolves inside one engine batch is still readable. The beat times are planned in chain-beats.ts,
  * which the banner layer reads for its sounds and the effect layers read to play a link's move or
  * destroy while, or just after, its badge beat. A page that loads mid-chain starts from the chain
@@ -203,23 +207,30 @@ export function useChainPlayback(
   return state;
 }
 
-/** First element whose data-zones holds a key of this player and location (a pile keys each card). */
-function findPileElement(controller: number, location: number): HTMLElement | null {
-  const prefix = `${controller}:${location}:`;
+/**
+ * First element whose data-zones holds a key of this player and location (a pile keys each card). `found` holds
+ * the answers of one frame: several links on one pile scan the page once.
+ */
+function findPileElement(controller: number, location: number, found: Map<string, HTMLElement | null>): HTMLElement | null {
+  const key = `${controller}:${location}`;
+  if (found.has(key)) return found.get(key) ?? null;
+  const prefix = `${key}:`;
+  let hit: HTMLElement | null = null;
   for (const el of document.querySelectorAll<HTMLElement>("[data-zones]")) {
     const keys = (el.dataset.zones ?? "").split(" ");
-    if (keys.some((key) => key.startsWith(prefix))) return el;
+    if (keys.some((zone) => zone.startsWith(prefix))) { hit = el; break; }
   }
-  return null;
+  found.set(key, hit);
+  return hit;
 }
 
-function resolveAnchor(anchor: ChainAnchor): HTMLElement | null {
+function resolveAnchor(anchor: ChainAnchor, piles: Map<string, HTMLElement | null>): HTMLElement | null {
   const exact = findZoneElement(anchor.zone);
   if (exact) return exact;
   const fallback = anchor.fallback;
   if (!fallback) return null;
   if (fallback.kind === "hand") return document.querySelector<HTMLElement>(`[data-hand-seat="${fallback.controller}"]`);
-  return findPileElement(fallback.controller, fallback.location);
+  return findPileElement(fallback.controller, fallback.location, piles);
 }
 
 const OBSTACLES = "[data-prompt-panel], [data-prompt-surface], [data-feedback-cue]";
@@ -406,6 +417,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         chips = placeChips({ width: own.width, height: own.height }, { width: origin.width, height: origin.height }, obstacles);
       }
       const stacked = new Map<HTMLElement, number>();
+      const piles = new Map<string, HTMLElement | null>();
       const placed: PlacedLink[] = [];
       const centers = new Map<number, { x: number; y: number }>();
       let gap = MIN_BADGE;
@@ -413,7 +425,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         const slot = slotRefs.current.get(link.index);
         if (!slot) continue;
         const anchor = chainAnchor(link);
-        const zone = anchor ? resolveAnchor(anchor) : null;
+        const zone = anchor ? resolveAnchor(anchor, piles) : null;
         const box = zone ? cardBox(origin, zone) : null;
         if (!zone || !box) {
           placed.push({ link, slot, box: null, size: 0, shift: 0, half: "high", callout: null, covered: false });
@@ -573,7 +585,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const showStack = links.length > 0;
 
   // Front layer: the numbered badges, the callout and the chain stack. Above every other board layer (it is
-  // portaled into the duel root, see `host`), so a prompt, a banner or a pile cannot cover the chain.
+  // portaled into the duel root, see `host`), so a prompt or a banner cannot cover the chain. What it must not
+  // cover in turn (prompt surfaces, a pile viewer) the frame loop steps back from.
   const front = (
     <div ref={frontRef} className={`${styles.layer} ${styles.front}`} aria-hidden="true" data-chain-fx="front" data-chain-front="true"
       data-portal={host ? "true" : undefined} data-table={table}
@@ -683,7 +696,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         ) : null}
         <p role="status" aria-live="polite" aria-atomic="true" data-chain-live="true">{announcement}</p>
       </div>
-      {/* Back layer: the card ring and glow, the wires and the target marks. Under the prompt and the banners. */}
+      {/* Back layer: the card ring and glow and the badge wires. Under the prompt and the banners. */}
       <div ref={overlayRef} className={styles.layer} aria-hidden="true" data-chain-fx="true"
         data-open={links.length > 0 ? "true" : "false"} data-reduced={reducedMotion ? "true" : "false"}>
         {!reducedMotion ? (

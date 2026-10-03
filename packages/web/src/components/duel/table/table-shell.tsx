@@ -376,7 +376,7 @@ function TableShellBody({
         />
       ) : null}
       <div className={roomStyles.layout}>
-        <div className={roomStyles.notices}>
+        <div className={roomStyles.notices} data-prompt-surface="">
           <div className="pointer-events-auto">{notices}</div>
         </div>
         {narrow ? null : (

@@ -103,4 +103,10 @@ describe("chain stack placement", () => {
     for (const selector of [".layer", ".dock"]) expect(rule(chainCss, selector)).toMatch(/pointer-events:\s*none/);
     expect(chainCss).not.toMatch(/pointer-events:\s*auto/);
   });
+
+  it("keeps the front layer inside the board box, and treats the room notices as a prompt surface", () => {
+    expect(rule(chainCss, '.front[data-portal="true"]')).toMatch(/overflow:\s*clip/);
+    expect(readFileSync(join(duel, "room.tsx"), "utf8")).toMatch(/className=\{styles\.notices\} data-prompt-surface/);
+    expect(readFileSync(join(duel, "table/table-shell.tsx"), "utf8")).toMatch(/className=\{roomStyles\.notices\} data-prompt-surface/);
+  });
 });

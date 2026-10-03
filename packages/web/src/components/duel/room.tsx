@@ -988,7 +988,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {/* Notices float over the top of the layout. In flow they would take height from the board
             and shrink it for as long as the notice shows. */}
         {error || actionError || data.error || viewerLeaving ? (
-          <div className={styles.notices}>
+          <div className={styles.notices} data-prompt-surface="">
             {leavingNotice}
             {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
               <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
