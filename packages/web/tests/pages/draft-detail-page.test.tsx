@@ -157,7 +157,7 @@ describe("DraftDetailPage — completion transition", () => {
     act(() => {
       useDraftStore.setState({
         myPool: [
-          { id: 1, name: "A", type: "Effect Monster", frameType: "effect", effectText: "", imageUrl: "", imageUrlSmall: "" },
+          { id: 1, passcode: 100001, name: "A", type: "Effect Monster", frameType: "effect", effectText: "", imageUrl: "", imageUrlSmall: "" },
         ],
       });
     });
@@ -172,8 +172,8 @@ describe("DraftDetailPage — completion transition", () => {
   });
 
   it("uses the completed response pool including the final timer pick", async () => {
-    const firstCard = { id: 1, name: "First card", type: "Effect Monster", frameType: "effect", effectText: "", imageUrl: "", imageUrlSmall: "" };
-    const finalCard = { ...firstCard, id: 2, name: "Final timer card" };
+    const firstCard = { id: 1, passcode: 100001, name: "First card", type: "Effect Monster", frameType: "effect", effectText: "", imageUrl: "", imageUrlSmall: "" };
+    const finalCard = { ...firstCard, id: 2, passcode: 100002, name: "Final timer card" };
     let completed = false;
     global.fetch = vi.fn().mockImplementation((url: string) => {
       const body = url === "/api/auth/session"

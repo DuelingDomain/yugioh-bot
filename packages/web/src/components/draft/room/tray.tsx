@@ -7,7 +7,10 @@ export interface TrayProps {
   done: number;
   of: number;
   label: string;
-  counts: KindCounts;
+  /** Current phase counts for the dial's ring. */
+  phaseCounts: KindCounts;
+  /** Whole-pool counts for the kind filters. */
+  poolCounts: KindCounts;
   /** The latest pick of each kind, shown in its slot. */
   last: Partial<Record<Kind, RoomCard>>;
   active: ReadonlySet<Kind>;
@@ -21,7 +24,7 @@ export const Tray = memo(function Tray(p: TrayProps) {
   return (
     <div className="disk">
       <button className="dial" type="button" aria-controls="binder" aria-label={`Your picks: ${p.done} of ${p.of}. Open your picks.`} onClick={p.onDial}>
-        <span className="face" style={{ "--mix": mixGradient(p.counts, Math.max(1, p.of)) } as React.CSSProperties}>
+        <span className="face" style={{ "--mix": mixGradient(p.phaseCounts, p.of) } as React.CSSProperties}>
           <b>{p.done}</b>
         </span>
         <span className="lbl">
@@ -43,7 +46,7 @@ export const Tray = memo(function Tray(p: TrayProps) {
             data-kind={k}
             data-land={land ? "" : undefined}
             aria-pressed={p.active.has(k)}
-            aria-label={`${p.counts[k]} ${KIND_LABEL[k]}. Show them.`}
+            aria-label={`${p.poolCounts[k]} ${KIND_LABEL[k]}. Show them.`}
             onClick={() => p.onKind(k)}
           >
             <span className="win" key={`w${land}`}>
@@ -51,7 +54,7 @@ export const Tray = memo(function Tray(p: TrayProps) {
               {card ? <img src={card.imageUrlSmall || card.imageUrl} alt="" /> : null}
             </span>
             <b key={`b${land}`} className={land ? "bump" : undefined}>
-              {p.counts[k]}
+              {p.poolCounts[k]}
             </b>
             <small>
               <i />

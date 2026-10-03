@@ -24,12 +24,14 @@ function mapDraftCardDetails(
 
   const catalog = createCardCatalogService(db);
   const catalogCards = catalog.findByIds(cards.map((card) => card.catalogCardId));
+  const catalogById = new Map(catalogCards.map((card) => [card.ygoprodeckId, card]));
 
-  return cards.map((card, index) => {
-    const catalogCard = catalogCards[index];
+  return cards.map((card) => {
+    const catalogCard = catalogById.get(card.catalogCardId);
 
     return {
       id: card.draftCardId,
+      passcode: card.catalogCardId,
       name: catalogCard?.name ?? `Card ${card.catalogCardId}`,
       type: catalogCard?.type ?? "Unknown",
       frameType: catalogCard?.frameType ?? "normal",

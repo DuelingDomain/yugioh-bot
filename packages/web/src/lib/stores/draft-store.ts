@@ -1,7 +1,10 @@
 import { create } from "zustand";
 import type { CardSummary } from "@/lib/card-types";
 
-export type DraftCardDetail = CardSummary;
+export type DraftCardDetail = CardSummary & {
+  /** Catalog (YGOPRODeck) id, distinct from the draft card instance id. */
+  passcode: number;
+};
 
 export interface Seat {
   seatIndex: number;

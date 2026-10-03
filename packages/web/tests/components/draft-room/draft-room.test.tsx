@@ -19,6 +19,7 @@ import { DraftRoom } from "../../../src/components/draft/room/draft-room";
 
 const mk = (id: number, over: Record<string, unknown> = {}) => ({
   id,
+  passcode: id + 100000,
   name: `Card ${id}`,
   type: "Effect Monster",
   frameType: "effect",
@@ -83,11 +84,13 @@ const card = (id: number) => document.body.querySelector(`.tcard[data-id="${id}"
 describe("DraftRoom", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     global.fetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) } as Response);
     load();
   });
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -179,7 +182,7 @@ describe("DraftRoom", () => {
   );
 
   it.each([
-    { control: "binder tab", role: "tab", name: /Your picks/ },
+    { control: "binder breakdown toggle", role: "button", name: /Breakdown/ },
     { control: "tray counter", role: "button", name: "0 Monsters. Show them." },
     { control: "room link", role: "link", name: "Back to drafts" },
   ])("leaves arrow navigation alone when the $control has focus", async ({ role, name }) => {
@@ -439,12 +442,81 @@ describe("DraftRoom", () => {
     expect(document.body.querySelector(".dr")?.getAttribute("data-motion")).toBe("off");
   });
 
-  it("hides the wheel tab in a theme draft", async () => {
+  it.each([390, 1440])("never shows what other players took when a pack returns at %ipx", async (width) => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: width <= 900 && query === "(max-width: 900px)",
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    load({ currentPack: [mk(1), mk(2), mk(3)] });
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    expect(screen.queryByText(/back around/i)).not.toBeInTheDocument();
+
+    act(() => useDraftStore.setState({
+      currentPack: [], myPool: [mk(1)], isMyTurn: false,
+      seats: seats.map((s) => ({ ...s, hasPicked: s.isCurrentPlayer })),
+    }));
+    await waitFor(() => expect(card(1)).toBeNull());
+
+    act(() => useDraftStore.setState({ pickStep: 2, currentPack: [mk(4), mk(5)], isMyTurn: true, seats }));
+    await waitFor(() => expect(card(4)).toBeTruthy());
+    expect(screen.queryByText(/back around/i)).not.toBeInTheDocument();
+
+    act(() => useDraftStore.setState({
+      currentPack: [], myPool: [mk(1), mk(4)], isMyTurn: false,
+      seats: seats.map((s) => ({ ...s, hasPicked: s.isCurrentPlayer })),
+    }));
+    await waitFor(() => expect(card(4)).toBeNull());
+
+    // Card 3 returns from the first pack after another player took card 2.
+    act(() => useDraftStore.setState({ pickStep: 3, currentPack: [mk(3)], isMyTurn: true, seats }));
+    await waitFor(() => expect(card(3)).toBeTruthy());
+    expect(screen.queryByText(/back around/i)).not.toBeInTheDocument();
+    expect(document.body.querySelector(".dr .wheel")).toBeNull();
+    expect(screen.queryByRole("button", { name: "See what went" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /open your picks/i }));
+    const binder = screen.getByRole("complementary", { name: "Your picks" });
+    expect(Array.from(binder.querySelectorAll(".rn"), (el) => el.textContent)).toEqual(["Card 1", "Card 4"]);
+    expect(screen.queryByText(/taken by others/i)).not.toBeInTheDocument();
+  });
+
+  it("shows only your picks in a theme draft", async () => {
     load({ currentPack: [mk(1), mk(2)] });
     renderRoom({ ...config, mode: "theme", themePackSize: 2 });
     await waitFor(() => expect(card(1)).toBeTruthy());
     expect(screen.queryByText(/taken by others/i)).toBeNull();
     expect(document.body.querySelector(".dr")?.getAttribute("data-mode")).toBe("theme");
+  });
+
+  it.each([
+    { name: "booster", mode: "booster" as const },
+    { name: "cube", mode: undefined },
+  ])("preserves the whole-pool ring and counters in $name mode", async ({ mode }) => {
+    localStorage.setItem("yugidraft-room-motion", "off");
+    load({
+      myPool: [
+        mk(100),
+        mk(101, { type: "Spell Card", frameType: "spell" }),
+        mk(102, { type: "Trap Card", frameType: "trap" }),
+        mk(103, { type: "Fusion Monster", frameType: "fusion" }),
+      ],
+    });
+    renderRoom({ ...config, mode, cardsPerPlayer: 40 });
+
+    const dial = await screen.findByRole("button", { name: "Your picks: 4 of 40. Open your picks." });
+    const face = dial.querySelector<HTMLElement>(".face")!;
+    expect(face.textContent).toBe("4");
+    expect(within(dial).getByText("of 40")).toBeTruthy();
+    expect(face.style.getPropertyValue("--mix")).toBe(
+      "conic-gradient(var(--k-monster) 0% 2.5%, var(--k-spell) 2.5% 5%, var(--k-trap) 5% 7.5%, var(--k-extra) 7.5% 10%, rgb(255 255 255 / 0.07) 10% 100%)",
+    );
+    for (const label of ["Monsters", "Spells", "Traps", "Extra deck"]) {
+      expect(screen.getByRole("button", { name: `1 ${label}. Show them.` })).toBeTruthy();
+    }
   });
 
   it("resets the theme tray counts and dial mix for the Extra Deck phase", async () => {

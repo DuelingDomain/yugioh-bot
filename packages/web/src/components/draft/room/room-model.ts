@@ -1,6 +1,6 @@
 /**
  * Pure logic for the draft room: card kinds, level bands, filters, pass direction,
- * seat pack sizes, wheel tracking, step/deal bookkeeping and the edge-clock geometry.
+ * seat pack sizes, step/deal bookkeeping and the edge-clock geometry.
  * Nothing in here touches the DOM, so all of it is unit tested.
  */
 import type { DraftCardDetail } from "@/lib/stores/draft-store";
@@ -321,8 +321,12 @@ export function levelsModel(cards: RoomCard[]): LevelsModel {
 
 /* ---------- the filter: one lens for the binder and the table ---------- */
 
+export type MonsterSubtype = "all" | "effect" | "normal";
+
 export interface RoomFilter {
   kinds: ReadonlySet<Kind>;
+  /** Applies only when Monster is the sole selected kind. Omitted means all. */
+  monsterSubtype?: MonsterSubtype;
   q: string;
   lvl: ReadonlySet<TierKey>;
   attr: ReadonlySet<string>;
@@ -348,6 +352,10 @@ export function haystack(card: RoomCard): string {
 export function matchesFilter(card: RoomCard, f: RoomFilter): boolean {
   const kind = kindOf(card);
   if (f.kinds.size && !f.kinds.has(kind)) return false;
+  if (f.kinds.size === 1 && f.kinds.has("monster") && f.monsterSubtype && f.monsterSubtype !== "all") {
+    const frame = card.frameType.trim().toLowerCase();
+    if (frame !== f.monsterSubtype && frame !== `${f.monsterSubtype}_pendulum`) return false;
+  }
   if (f.q) {
     const h = haystack(card);
     if (!f.q.split(/\s+/).every((w) => h.includes(w))) return false;
@@ -363,7 +371,10 @@ export function matchesFilter(card: RoomCard, f: RoomFilter): boolean {
 
 export function filterWords(f: RoomFilter): string {
   const parts: string[] = [];
-  if (f.kinds.size) parts.push([...f.kinds].map((k) => KIND_LABEL[k]).join(" or "));
+  if (f.kinds.size) {
+    const subtype = f.kinds.size === 1 && f.kinds.has("monster") ? f.monsterSubtype : undefined;
+    parts.push(subtype && subtype !== "all" ? `${titleCase(subtype)} monsters` : [...f.kinds].map((k) => KIND_LABEL[k]).join(" or "));
+  }
   if (f.lvl.size) parts.push("Level " + [...f.lvl].map((k) => TIER_RANGE[k]).join(" or "));
   if (f.attr.size) parts.push([...f.attr].map(titleCase).join(" or "));
   if (f.q) parts.push(`“${f.q}”`);
@@ -395,6 +406,8 @@ export function attributeChips(list: RoomCard[], inPack: RoomCard[], selected: R
 }
 
 /* ---------- the pool: grouping, order, pick numbers ---------- */
+
+export type Order = "type" | "newest" | "oldest" | "name";
 
 export interface PoolEntry {
   card: RoomCard;
@@ -445,7 +458,18 @@ export function compareCards(a: RoomCard, b: RoomCard): number {
   return x[1].localeCompare(y[1]);
 }
 
-/** Copies of the same card (same name) share a row in the "By type" list. */
+/** Incoming entries are in pick order. Sorting preserves each entry's original index. */
+export function orderEntries<T extends { card: RoomCard }>(entries: T[], order: Order): T[] {
+  const sorted = [...entries];
+  if (order === "newest") return sorted.reverse();
+  if (order === "name") return sorted.sort((a, b) => a.card.name.localeCompare(b.card.name));
+  if (order === "type") {
+    return sorted.sort((a, b) => KINDS.indexOf(kindOf(a.card)) - KINDS.indexOf(kindOf(b.card)) || compareCards(a.card, b.card));
+  }
+  return sorted;
+}
+
+/** Copies of the same card (same name) share a row in the Type list. */
 export function groupCopies<T extends { card: RoomCard }>(entries: T[]): T[][] {
   const by = new Map<string, T[]>();
   for (const e of entries) {
@@ -458,75 +482,20 @@ export function groupCopies<T extends { card: RoomCard }>(entries: T[]): T[][] {
 }
 
 export function mixGradient(counts: KindCounts, of: number): string {
+  const total = Number.isFinite(of) && of > 0 ? of : 1;
   let at = 0;
   const stops: string[] = [];
   for (const k of KINDS) {
-    if (!counts[k]) continue;
-    const a = (at / of) * 100;
-    const b = ((at + counts[k]) / of) * 100;
+    if (at >= total) break;
+    const count = Math.min(counts[k], total - at);
+    if (!(count > 0)) continue;
+    const a = (at / total) * 100;
+    at = Math.min(total, at + count);
+    const b = (at / total) * 100;
     stops.push(`var(--k-${k}) ${a}% ${b}%`);
-    at += counts[k];
   }
-  stops.push(`rgb(255 255 255 / 0.07) ${(at / of) * 100}% 100%`);
+  stops.push(`rgb(255 255 255 / 0.07) ${(at / total) * 100}% 100%`);
   return `conic-gradient(${stops.join(", ")})`;
-}
-
-/* ---------- the wheel: a pack you held comes back ---------- */
-
-export interface SeenPack {
-  round: number;
-  step: number;
-  cards: RoomCard[];
-}
-
-export interface GoneCard {
-  card: RoomCard;
-  /** Pack round the card was taken from. */
-  round: number;
-  /** Pick number you last saw it at. */
-  seenAt: number;
-  /** Pick number at which you noticed it was gone. */
-  goneBy: number;
-}
-
-export interface WheelState {
-  history: SeenPack[];
-  gone: GoneCard[];
-}
-
-export interface Wheel {
-  cards: RoomCard[];
-  from: number;
-}
-
-export const EMPTY_WHEEL_STATE: WheelState = { history: [], gone: [] };
-
-/**
- * Called once for each pack you are dealt. Cards ids are unique per card, so a card keeps its id as it passes.
- * A pack is "back around" when it shares ids with a pack you held earlier this round. The cards that were in
- * that earlier pack, are gone now and are not in your picks are what your friends took.
- */
-export function trackWheel(
-  state: WheelState,
-  input: { round: number; step: number; cards: RoomCard[]; poolIds: ReadonlySet<number> },
-): { state: WheelState; wheel: Wheel | null } {
-  const { round, step, cards, poolIds } = input;
-  const history = state.history.filter((h) => h.round === round);
-  if (history.some((h) => h.step === step)) return { state: { ...state, history }, wheel: null };
-  const ids = new Set(cards.map((c) => c.id));
-  const prev = [...history].reverse().find((h) => h.step < step && h.cards.some((c) => ids.has(c.id)));
-  let gone = state.gone;
-  let wheel: Wheel | null = null;
-  if (prev) {
-    const taken = prev.cards.filter((c) => !ids.has(c.id) && !poolIds.has(c.id));
-    const known = new Set(gone.map((g) => g.card.id));
-    const fresh = taken.filter((c) => !known.has(c.id));
-    if (fresh.length) {
-      gone = [...gone, ...fresh.map((card) => ({ card, round, seenAt: prev.step, goneBy: step }))];
-    }
-    if (taken.length) wheel = { cards: taken, from: prev.step };
-  }
-  return { state: { history: [...history, { round, step, cards }], gone }, wheel };
 }
 
 /* ---------- what is on the table: the deal reducer ---------- */
@@ -695,7 +664,7 @@ export function themeProgress(drafted: number, sizes: RoomSizes): ThemeProgress 
   return { inExtra: false, drafted: Math.min(drafted, sizes.cardsPerPlayer), of: sizes.cardsPerPlayer };
 }
 
-/** Counts that drive the dial and the kind tiles. In theme mode they follow the current phase. */
+/** Counts that drive the dial. In theme mode they follow the current phase. */
 export function dialModel(pool: RoomCard[], sizes: RoomSizes) {
   if (!sizes.theme) {
     return { done: pool.length, of: sizes.cardsPerPlayer, label: `of ${sizes.cardsPerPlayer}`, counts: countKinds(pool) };

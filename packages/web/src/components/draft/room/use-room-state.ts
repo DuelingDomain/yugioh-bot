@@ -2,13 +2,12 @@
 
 /**
  * Everything the room derives from the live draft. The store and the one-second polling stay as they were;
- * this hook turns them into the mock's events (deal, pick, settle, wheel) so animations key on changes,
+ * this hook turns them into the mock's events (deal, pick, settle) so animations key on changes,
  * never on each fetch.
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useDraftStore } from "@/lib/stores/draft-store";
 import {
-  EMPTY_WHEEL_STATE,
   INITIAL_DEAL,
   dealReducer,
   everyoneIn,
@@ -17,36 +16,11 @@ import {
   roomSizes,
   stepKeyOf,
   tableCards,
-  trackWheel,
   turnState,
   type RoomConfigLike,
-  type Wheel,
-  type WheelState,
 } from "./room-model";
 
-const wheelKey = (slug: string) => `yugidraft-room-wheel:${slug}`;
-
-function loadWheel(slug: string): WheelState {
-  try {
-    const raw = window.sessionStorage.getItem(wheelKey(slug));
-    if (!raw) return EMPTY_WHEEL_STATE;
-    const parsed = JSON.parse(raw) as WheelState;
-    if (Array.isArray(parsed?.history) && Array.isArray(parsed?.gone)) return parsed;
-  } catch {
-    /* storage can be blocked: the room works without it */
-  }
-  return EMPTY_WHEEL_STATE;
-}
-
-function saveWheel(slug: string, state: WheelState) {
-  try {
-    window.sessionStorage.setItem(wheelKey(slug), JSON.stringify(state));
-  } catch {
-    /* ignore */
-  }
-}
-
-export function useRoomState(slug: string, config: RoomConfigLike, isParticipant: boolean) {
+export function useRoomState(config: RoomConfigLike, isParticipant: boolean) {
   const packRound = useDraftStore((s) => s.packRound);
   const pickStep = useDraftStore((s) => s.pickStep);
   const currentPack = useDraftStore((s) => s.currentPack);
@@ -86,28 +60,6 @@ export function useRoomState(slug: string, config: RoomConfigLike, isParticipant
     setSettle((n) => n + 1);
   }, [allIn, stepKey, completed]);
 
-  /* the wheel: packs you held this round, what came back around, what left */
-  const [wheelState, setWheelState] = useState<WheelState>(() => loadWheel(slug));
-  const [wheel, setWheel] = useState<Wheel | null>(null);
-  const tracked = useRef(0);
-  const stateRef = useRef(wheelState);
-  stateRef.current = wheelState;
-  useEffect(() => {
-    if (sizes.theme || deal.seq === 0 || deal.seq === tracked.current || deal.dealt.length === 0) return;
-    tracked.current = deal.seq;
-    const result = trackWheel(stateRef.current, {
-      round: packRound,
-      step: pickStep,
-      cards: deal.dealt,
-      poolIds: poolIds.current,
-    });
-    setWheelState(result.state);
-    setWheel(result.wheel);
-    saveWheel(slug, result.state);
-    // only a new deal changes the wheel
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deal.seq]);
-
   const picked = useCallback((cardId: number) => dispatch({ type: "picked", cardId }), []);
   const unpicked = useCallback(() => dispatch({ type: "unpicked" }), []);
 
@@ -125,8 +77,6 @@ export function useRoomState(slug: string, config: RoomConfigLike, isParticipant
     turn,
     direction,
     settle,
-    wheel,
-    gone: wheelState.gone,
     picked,
     unpicked,
     completed,
