@@ -1,6 +1,6 @@
 /**
  * Pure logic for the draft room: card kinds, level bands, filters, pass direction,
- * seat pack sizes, wheel tracking, step/deal bookkeeping and the edge-clock geometry.
+ * seat pack sizes, step/deal bookkeeping and the edge-clock geometry.
  * Nothing in here touches the DOM, so all of it is unit tested.
  */
 import type { DraftCardDetail } from "@/lib/stores/draft-store";
@@ -496,64 +496,6 @@ export function mixGradient(counts: KindCounts, of: number): string {
   }
   stops.push(`rgb(255 255 255 / 0.07) ${(at / total) * 100}% 100%`);
   return `conic-gradient(${stops.join(", ")})`;
-}
-
-/* ---------- the wheel: a pack you held comes back ---------- */
-
-export interface SeenPack {
-  round: number;
-  step: number;
-  cards: RoomCard[];
-}
-
-export interface GoneCard {
-  card: RoomCard;
-  /** Pack round the card was taken from. */
-  round: number;
-  /** Pick number you last saw it at. */
-  seenAt: number;
-  /** Pick number at which you noticed it was gone. */
-  goneBy: number;
-}
-
-export interface WheelState {
-  history: SeenPack[];
-  gone: GoneCard[];
-}
-
-export interface Wheel {
-  cards: RoomCard[];
-  from: number;
-}
-
-export const EMPTY_WHEEL_STATE: WheelState = { history: [], gone: [] };
-
-/**
- * Called once for each pack you are dealt. Cards ids are unique per card, so a card keeps its id as it passes.
- * A pack is "back around" when it shares ids with a pack you held earlier this round. The cards that were in
- * that earlier pack, are gone now and are not in your picks are what your friends took.
- */
-export function trackWheel(
-  state: WheelState,
-  input: { round: number; step: number; cards: RoomCard[]; poolIds: ReadonlySet<number> },
-): { state: WheelState; wheel: Wheel | null } {
-  const { round, step, cards, poolIds } = input;
-  const history = state.history.filter((h) => h.round === round);
-  if (history.some((h) => h.step === step)) return { state: { ...state, history }, wheel: null };
-  const ids = new Set(cards.map((c) => c.id));
-  const prev = [...history].reverse().find((h) => h.step < step && h.cards.some((c) => ids.has(c.id)));
-  let gone = state.gone;
-  let wheel: Wheel | null = null;
-  if (prev) {
-    const taken = prev.cards.filter((c) => !ids.has(c.id) && !poolIds.has(c.id));
-    const known = new Set(gone.map((g) => g.card.id));
-    const fresh = taken.filter((c) => !known.has(c.id));
-    if (fresh.length) {
-      gone = [...gone, ...fresh.map((card) => ({ card, round, seenAt: prev.step, goneBy: step }))];
-    }
-    if (taken.length) wheel = { cards: taken, from: prev.step };
-  }
-  return { state: { history: [...history, { round, step, cards }], gone }, wheel };
 }
 
 /* ---------- what is on the table: the deal reducer ---------- */

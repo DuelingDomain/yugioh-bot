@@ -11,7 +11,6 @@ import {
   facetCount,
   groupCopies,
   isFiltering,
-  kindOf,
   matchesFilter,
   orderEntries,
   pickInfo,
@@ -21,18 +20,15 @@ import {
   toggled,
   typeParts,
   cardText,
-  type GoneCard,
   type Kind,
   type MonsterSubtype,
   type Order,
   type PickConfig,
-  type PoolEntry,
   type RoomCard,
   type RoomFilter,
   type TierKey,
 } from "./room-model";
 
-export type Tab = "mine" | "gone";
 export type { Order } from "./room-model";
 
 const MONSTER_SUBTYPES: Array<[MonsterSubtype, string]> = [
@@ -47,12 +43,8 @@ export interface BinderHandle {
 }
 
 export interface BinderProps {
-  tab: Tab;
-  onTab: (tab: Tab) => void;
-  showGone: boolean;
   theme: boolean;
   pool: RoomCard[];
-  gone: GoneCard[];
   /** The pack on the table, so its attributes get a chip even before you hold one. */
   packCards: RoomCard[];
   filter: RoomFilter;
@@ -68,7 +60,7 @@ export interface BinderProps {
 
 interface Row {
   key: string;
-  group: Array<{ card: RoomCard; kind: Kind; info?: ReturnType<typeof pickInfo>; gone?: GoneCard }>;
+  group: Array<{ card: RoomCard; kind: Kind; info: ReturnType<typeof pickInfo> }>;
 }
 
 const canHover = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: hover)").matches;
@@ -120,14 +112,7 @@ export const Binder = memo(
       onFilter({ ...filterRef.current, q: "" });
     };
 
-    const mineEntries = useMemo(() => poolEntries(p.pool), [p.pool]);
-    const list: Array<{ card: RoomCard; kind: Kind; entry?: PoolEntry; gone?: GoneCard }> = useMemo(
-      () =>
-        p.tab === "gone"
-          ? p.gone.map((g) => ({ card: g.card, kind: kindOf(g.card), gone: g }))
-          : mineEntries.map((e) => ({ card: e.card, kind: e.kind, entry: e })),
-      [p.tab, p.gone, mineEntries],
-    );
+    const list = useMemo(() => poolEntries(p.pool), [p.pool]);
     const cards = useMemo(() => list.map((e) => e.card), [list]);
     const counts = useMemo(() => countKinds(cards), [cards]);
     const shown = useMemo(() => list.filter((e) => matchesFilter(e.card, filter)), [list, filter]);
@@ -138,14 +123,14 @@ export const Binder = memo(
     const rows = useMemo(() => {
       const out: Array<{ key: string; heading?: React.ReactNode; kind?: Kind; count: number; rows: Row[] }> = [];
       const sorted = orderEntries(shown, order);
-      const rowFor = (e: (typeof shown)[number], i: number): Row => ({
-        key: `${p.tab}:${e.card.id}:${e.entry?.index ?? i}`,
-        group: [{ card: e.card, kind: e.kind, gone: e.gone, info: e.entry ? pickInfo(e.entry.index, pickConfig) : undefined }],
+      const rowFor = (e: (typeof shown)[number]): Row => ({
+        key: `mine:${e.card.id}:${e.index}`,
+        group: [{ card: e.card, kind: e.kind, info: pickInfo(e.index, pickConfig) }],
       });
-      if ((order === "oldest" || order === "newest") && p.tab === "mine") {
+      if (order === "oldest" || order === "newest") {
         const groups = new Map<string, typeof shown>();
         sorted.forEach((e) => {
-          const info = pickInfo(e.entry!.index, pickConfig);
+          const info = pickInfo(e.index, pickConfig);
           const k = theme ? (info.phase === "extra" ? "Extra deck" : "Main deck") : `Pack ${info.round}`;
           if (!groups.has(k)) groups.set(k, []);
           groups.get(k)!.push(e);
@@ -164,25 +149,24 @@ export const Binder = memo(
       KINDS.forEach((k) => {
         const g = sorted.filter((e) => e.kind === k);
         if (!g.length) return;
-        const grouped = p.tab === "gone" ? g.map((e) => [e]) : groupCopies(g);
+        const grouped = groupCopies(g);
         out.push({
           key: k,
           heading: KIND_LABEL[k],
           kind: k,
           count: g.length,
           rows: grouped.map((grp, i) => ({
-            key: `${p.tab}:${grp[0].card.id}:${i}`,
+            key: `mine:${grp[0].card.id}:${i}`,
             group: grp.map((e) => ({
               card: e.card,
               kind: e.kind,
-              gone: e.gone,
-              info: e.entry ? pickInfo(e.entry.index, pickConfig) : undefined,
+              info: pickInfo(e.index, pickConfig),
             })),
           })),
         });
       });
       return out;
-    }, [shown, order, p.tab, theme, pickConfig]);
+    }, [shown, order, theme, pickConfig]);
 
     const toggleRow = (key: string) =>
       setOpen((cur) => {
@@ -200,8 +184,7 @@ export const Binder = memo(
     const peek = (row: Row["group"][number] | null) => {
       if (!canHover()) return;
       if (!row) return p.onPeek(null);
-      if (row.gone) return p.onPeek({ card: row.card, tag: `Gone from pack ${row.gone.round} by pick ${row.gone.goneBy}` });
-      if (row.info) p.onPeek({ card: row.card, tag: readerTag(row.info) });
+      p.onPeek({ card: row.card, tag: readerTag(row.info) });
     };
 
     const clearAll = useCallback(() => {
@@ -223,8 +206,6 @@ export const Binder = memo(
           Clear
         </button>
       </>
-    ) : p.tab === "gone" ? (
-      `${list.length} cards gone`
     ) : (
       `${list.length} of ${p.target} picked`
     );
@@ -236,18 +217,11 @@ export const Binder = memo(
     );
 
     return (
-      <aside className="binder" id="binder" aria-label="Your picks">
+      <aside className="binder" id="binder" aria-labelledby="binderTitle">
         <div className="bd-head">
-          <div className="tabs" role="tablist" aria-label="Lists">
-            <button type="button" role="tab" id="tabMine" aria-selected={p.tab === "mine"} aria-controls="list" onClick={() => { setOpen(new Set()); p.onTab("mine"); }}>
-              Your picks <b>{p.pool.length}</b>
-            </button>
-            {p.showGone ? (
-              <button type="button" role="tab" id="tabGone" aria-selected={p.tab === "gone"} aria-controls="list" onClick={() => { setOpen(new Set()); p.onTab("gone"); }}>
-                Taken by others <b>{p.gone.length}</b>
-              </button>
-            ) : null}
-          </div>
+          <h3 className="bd-title" id="binderTitle">
+            Your picks <b aria-hidden="true">{p.pool.length}</b>
+          </h3>
           <button type="button" className="bd-x" onClick={p.onClose}>
             Close
           </button>
@@ -380,9 +354,6 @@ export const Binder = memo(
           <div
             className="list"
             id="list"
-            role="tabpanel"
-            aria-labelledby={p.tab === "mine" ? "tabMine" : "tabGone"}
-            data-tab={p.tab}
             onPointerLeave={() => peek(null)}
           >
             {!shown.length && filtering ? (
@@ -393,11 +364,7 @@ export const Binder = memo(
                 </button>
               </p>
             ) : !list.length ? (
-              <p className="empty">
-                {p.tab === "gone"
-                  ? "Nothing yet. When a pack you've already seen comes back around, the cards your friends took from it show up here."
-                  : "Your picks land here as you draft."}
-              </p>
+              <p className="empty">Your picks land here as you draft.</p>
             ) : (
               rows.map((section) => (
                 <div key={section.key} style={{ display: "contents" }}>
@@ -418,17 +385,10 @@ export const Binder = memo(
                         .filter((_, j) => j !== 0 || e.kind === "spell" || e.kind === "trap")
                         .join(", ");
                       let right: React.ReactNode;
-                      if ((order === "oldest" || order === "newest") && p.tab === "mine" && e.info) {
+                      if (order === "oldest" || order === "newest") {
                         right = (
                           <span className="rs">
                             <span className="no">{theme ? `Round ${e.info.step}` : `Pick ${e.info.step}`}</span>
-                          </span>
-                        );
-                      } else if (p.tab === "gone" && e.gone) {
-                        right = (
-                          <span className="rs">
-                            <span className="no">Pack {e.gone.round}</span>
-                            <em>by pick {e.gone.goneBy}</em>
                           </span>
                         );
                       } else {
@@ -439,7 +399,7 @@ export const Binder = memo(
                           </span>
                         );
                       }
-                      const isNew = p.tab === "mine" && p.newId != null && row.group.some((g) => g.card.id === p.newId);
+                      const isNew = p.newId != null && row.group.some((g) => g.card.id === p.newId);
                       return (
                         <li key={row.key} data-new={isNew ? "" : undefined}>
                           <button

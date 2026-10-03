@@ -126,7 +126,7 @@ describe("Draft room panels", () => {
 
     expect(binderPanel()).not.toHaveAttribute("inert");
     expect(readerPanel()).toHaveAttribute("inert");
-    await waitFor(() => expect(within(binder()).getByRole("tab", { name: /your picks/i })).toHaveFocus());
+    await waitFor(() => expect(within(binder()).getByRole("button", { name: "Close" })).toHaveFocus());
 
     fireEvent.click(within(binder()).getByRole("button", { name: "Close" }));
 
@@ -187,10 +187,10 @@ describe("Draft room panels", () => {
 
       expect(binderPanel()).not.toHaveAttribute("inert");
       expect(readerPanel()).not.toHaveAttribute("inert");
-      const tab = within(binder()).getByRole("tab", { name: /your picks/i });
-      await waitFor(() => expect(tab).toHaveFocus());
+      const close = within(binder()).getByRole("button", { name: "Close" });
+      await waitFor(() => expect(close).toHaveFocus());
 
-      if (method === "Escape") fireEvent.keyDown(tab, { key: "Escape" });
+      if (method === "Escape") fireEvent.keyDown(close, { key: "Escape" });
       else if (method === "scrim") fireEvent.click(document.body.querySelector(".dr .scrim")!);
       else if (method === "dial") fireEvent.click(opener);
       else fireEvent.click(within(binder()).getByRole("button", { name: "Close" }));

@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useDraftStore } from "@/lib/stores/draft-store";
-import { Binder, type BinderHandle, type Tab } from "./binder";
+import { Binder, type BinderHandle } from "./binder";
 import { CardReader } from "./card-reader";
 import { Holo, type HoloTarget } from "./holo";
 import { FullscreenLayer } from "./layer";
@@ -65,7 +65,7 @@ const parseNumberKey = (key: string): number | null => {
 const inField = (t: EventTarget | null) => t instanceof Element && !!t.closest("input, textarea, select");
 
 export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps) {
-  const rs = useRoomState(slug, config, isParticipant);
+  const rs = useRoomState(config, isParticipant);
   const { sizes, deal, turn, direction } = rs;
   const [motion, setMotion] = useMotionSetting();
   const phone = useMedia(PHONE);
@@ -89,7 +89,6 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const sentPicks = useRef<{ stepKey: string | null; ids: Set<number> }>({ stepKey: null, ids: new Set() });
   const currentDeal = useRef(deal);
   currentDeal.current = deal;
-  const [tab, setTab] = useState<Tab>("mine");
   const [filter, setFilter] = useState<RoomFilter>(EMPTY_FILTER);
   const [sheet, setSheet] = useState<"card" | "binder" | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -634,23 +633,16 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   }, []);
 
   /* ---------- binder, tray and dial ---------- */
-  const showBinder = useCallback(
-    (which: Tab) => {
-      setTab(which);
-      openSheet("binder");
-    },
-    [openSheet],
-  );
   const onDial = () => {
     if (phone || drawer) {
       if (binderOpen) closeSheets();
-      else showBinder("mine");
+      else openSheet("binder");
     } else binderRef.current?.focusSearch();
   };
   const onKind = (k: Kind) => {
     const next = toggled(filter.kinds, k);
     setFilter({ ...filter, kinds: next });
-    if ((phone || drawer) && next.has(k) && !binderOpen) showBinder("mine");
+    if ((phone || drawer) && next.has(k) && !binderOpen) openSheet("binder");
   };
 
   const subline = theme
@@ -752,24 +744,6 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               <div className="status" role="status" data-on={status ? "" : undefined}>
                 {status}
               </div>
-              <div className="wheel" hidden={!rs.wheel || theme}>
-                {rs.wheel ? (
-                  <>
-                    <span className="lede">
-                      <b>Back around.</b> {rs.wheel.cards.length} gone since pick {rs.wheel.from}
-                    </span>
-                    <span className="thumbs">
-                      {rs.wheel.cards.slice(0, 6).map((c) => (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img key={c.id} src={c.imageUrlSmall || c.imageUrl} alt={c.name} title={c.name} />
-                      ))}
-                    </span>
-                    <button type="button" onClick={() => showBinder("gone")}>
-                      See what went
-                    </button>
-                  </>
-                ) : null}
-              </div>
             </div>
             <div className="lens" hidden={!lens}>
               <span>
@@ -813,12 +787,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
           <div className="binder-panel" ref={binderPanelRef} inert={!binderOpen} tabIndex={-1}>
             <Binder
               ref={binderRef}
-              tab={theme ? "mine" : tab}
-              onTab={setTab}
-              showGone={!theme}
               theme={theme}
               pool={pool}
-              gone={rs.gone}
               packCards={rs.cards}
               filter={filter}
               onFilter={setFilter}
