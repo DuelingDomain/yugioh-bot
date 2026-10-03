@@ -20,13 +20,13 @@ describe("MobileDrawer", () => {
   });
 
   it("is not mounted while closed", () => {
-    render(<MobileDrawer open={false} onClose={vi.fn()} account={ready} />);
+    render(<MobileDrawer open={false} onClose={vi.fn()} account={ready} live={null} />);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("link", { name: /dashboard/i })).toBeNull();
   });
 
   it("is a modal dialog portalled to the body, with focus on Close", () => {
-    const { container } = render(<MobileDrawer open={true} onClose={vi.fn()} account={ready} />);
+    const { container } = render(<MobileDrawer open={true} onClose={vi.fn()} account={ready} live={null} />);
     const dialog = screen.getByRole("dialog", { name: "Navigation" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(container.contains(dialog)).toBe(false);
@@ -35,22 +35,22 @@ describe("MobileDrawer", () => {
 
   it("closes from Close, the scrim and Escape", () => {
     const onClose = vi.fn();
-    render(<MobileDrawer open={true} onClose={onClose} account={ready} />);
+    render(<MobileDrawer open={true} onClose={onClose} account={ready} live={null} />);
     fireEvent.click(screen.getByRole("button", { name: "Close menu" }));
-    fireEvent.click(document.querySelector(".ns-scrim") as HTMLElement);
+    fireEvent.click(screen.getByRole("dialog").previousElementSibling as HTMLElement);
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(3);
   });
 
   it("closes when a page is picked", () => {
     const onClose = vi.fn();
-    render(<MobileDrawer open={true} onClose={onClose} account={ready} />);
+    render(<MobileDrawer open={true} onClose={onClose} account={ready} live={null} />);
     fireEvent.click(screen.getByRole("link", { name: /tournaments/i }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
   it("keeps Tab inside: last wraps to first, Shift+Tab on first wraps to last", () => {
-    render(<MobileDrawer open={true} onClose={vi.fn()} account={ready} />);
+    render(<MobileDrawer open={true} onClose={vi.fn()} account={ready} live={null} />);
     const dialog = screen.getByRole("dialog");
     const close = screen.getByRole("button", { name: "Close menu" });
     const accountBtn = screen.getByRole("button", { name: /account menu/i });
@@ -63,7 +63,7 @@ describe("MobileDrawer", () => {
 
   it("marks the current page", () => {
     mockUsePathname.mockReturnValue("/tournament/abc");
-    render(<MobileDrawer open={true} onClose={vi.fn()} account={ready} />);
+    render(<MobileDrawer open={true} onClose={vi.fn()} account={ready} live={null} />);
     const lit = screen.getAllByRole("link").filter((l) => l.getAttribute("aria-current") === "page");
     expect(lit).toHaveLength(1);
     expect(lit[0]).toHaveAccessibleName("Tournaments");
@@ -71,9 +71,9 @@ describe("MobileDrawer", () => {
   });
 
   it("locks page scroll while open and releases it on close", () => {
-    const { rerender } = render(<MobileDrawer open={true} onClose={vi.fn()} account={ready} />);
+    const { rerender } = render(<MobileDrawer open={true} onClose={vi.fn()} account={ready} live={null} />);
     expect(document.body.style.overflow).toBe("hidden");
-    rerender(<MobileDrawer open={false} onClose={vi.fn()} account={ready} />);
+    rerender(<MobileDrawer open={false} onClose={vi.fn()} account={ready} live={null} />);
     expect(document.body.style.overflow).toBe("");
   });
 });

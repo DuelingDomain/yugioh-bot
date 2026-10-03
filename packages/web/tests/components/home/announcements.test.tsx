@@ -59,7 +59,8 @@ describe("AnnouncementToggles", () => {
     render(<AnnouncementToggles />);
     const select = await screen.findByLabelText("Post to");
     fireEvent.change(select, { target: { value: "" } });
-    const banner = screen.getByText("Two kinds of post are skipped.").closest(".banner");
+    const banner = screen.getByText("Two kinds of post are skipped.").closest(".sv-status");
+    expect(banner).toHaveAttribute("data-tone", "warn");
     expect(banner?.textContent).toContain("skipped. Results");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([, i]) => i?.method === "PUT")).toBe(true));

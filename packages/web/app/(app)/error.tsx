@@ -1,33 +1,31 @@
 "use client";
 
-import Link from "next/link";
-import { CircleAlert, RotateCw } from "lucide-react";
-import { SheetRoot } from "@/components/sheet";
+import { RotateCw } from "lucide-react";
+import { EmptyField } from "@/components/layout/empty-field";
+import { SheetRoot, SvButton } from "@/components/sheet";
 
 export default function AppError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   return (
     <SheetRoot>
-      <div className="nf">
-        <p className="nf-code">
-          <CircleAlert className="ic" style={{ color: "var(--loss-ink)" }} aria-hidden="true" />
-          Error
-        </p>
-        <h1 className="t-title">This page hit a problem</h1>
-        <p>
-          Nothing you did caused it, and nothing was saved or lost. Try again, and if it keeps happening, send the
-          reference below to whoever runs the bot.
-        </p>
-        <div className="acts">
-          <button className="btn btn-primary" type="button" onClick={() => reset()}>
-            <RotateCw className="ic" aria-hidden="true" />
-            Try again
-          </button>
-          <Link className="btn btn-quiet" href="/dashboard">
-            Back to dashboard
-          </Link>
-        </div>
-        {error.digest ? <p className="ref">Reference {error.digest}</p> : null}
-      </div>
+      <EmptyField
+        code="Error"
+        title="This page hit a problem"
+        reference={error.digest}
+        actions={
+          <>
+            <SvButton variant="primary" onClick={() => reset()}>
+              <RotateCw size={16} aria-hidden="true" />
+              Try again
+            </SvButton>
+            <SvButton as="a" href="/dashboard" variant="ghost">
+              Back to dashboard
+            </SvButton>
+          </>
+        }
+      >
+        Nothing you did caused it, and nothing was saved or lost. Try again, and if it keeps happening, send the
+        reference below to whoever runs the bot.
+      </EmptyField>
     </SheetRoot>
   );
 }

@@ -70,3 +70,75 @@ export function pageTitle(pathname: string, playerId: number | null = null): str
   return (href && navItemByHref(href)?.label) || FALLBACK_TITLE;
 }
 export const PHONE_MAX_WIDTH = 820;
+
+/* ---- Live now ---- */
+
+export type LiveDuelState = "live" | "between" | "waiting";
+
+/** What `GET /api/live` returns. */
+export interface LiveNow {
+  yourDuel: { href: string; opponent: string; state: LiveDuelState } | null;
+  liveCount: number;
+}
+
+/** Checks the shape of an `/api/live` answer. Anything else counts as "no data" (null). */
+export function parseLiveNow(raw: unknown): LiveNow | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { yourDuel, liveCount } = raw as { yourDuel?: unknown; liveCount?: unknown };
+  if (typeof liveCount !== "number" || !Number.isFinite(liveCount) || liveCount < 0) return null;
+  if (yourDuel === null) return { yourDuel: null, liveCount: Math.floor(liveCount) };
+  if (!yourDuel || typeof yourDuel !== "object") return null;
+  const d = yourDuel as { href?: unknown; opponent?: unknown; state?: unknown };
+  if (typeof d.href !== "string" || !d.href.startsWith("/") || d.href.startsWith("//")) return null;
+  if (typeof d.opponent !== "string") return null;
+  if (d.state !== "live" && d.state !== "between" && d.state !== "waiting") return null;
+  return { yourDuel: { href: d.href, opponent: d.opponent, state: d.state }, liveCount: Math.floor(liveCount) };
+}
+
+export interface LiveRowModel {
+  kind: "you" | "live";
+  title: string;
+  sub: string;
+  /** The words on the right of the row, only for your own duel. */
+  action: string | null;
+  href: string;
+  /** Tooltip text on the collapsed rail. */
+  tip: string;
+  /** Accessible name of the row link. */
+  name: string;
+}
+
+function duels(n: number): string {
+  return `${n} ${n === 1 ? "duel" : "duels"}`;
+}
+
+/** Which Live now row to show, or null when nothing is live. Your own duel always wins. */
+export function liveRowModel(live: LiveNow | null): LiveRowModel | null {
+  if (!live) return null;
+  const { yourDuel } = live;
+  if (yourDuel) {
+    const opponent = yourDuel.opponent.trim() || "your opponent";
+    const sub = yourDuel.state === "between" ? `${opponent}, between games` : yourDuel.state === "waiting" ? `${opponent}, waiting` : opponent;
+    return {
+      kind: "you",
+      title: "Your duel",
+      sub,
+      action: "Open duel",
+      href: yourDuel.href,
+      tip: `Your duel against ${opponent}`,
+      name: `Your duel against ${sub}. Open duel`,
+    };
+  }
+  if (live.liveCount > 0) {
+    const count = duels(live.liveCount);
+    return { kind: "live", title: "Live now", sub: count, action: null, href: "/duels", tip: `Live now, ${count}`, name: `Live now, ${count}` };
+  }
+  return null;
+}
+
+/** The tournament page is wide: between these widths its sidebar starts collapsed. */
+export const ROOM_COLLAPSE_QUERY = "(min-width: 1024px) and (max-width: 1360px)";
+
+export function autoCollapseRoute(pathname: string): boolean {
+  return pathname === "/tournament" || pathname.startsWith("/tournament/");
+}
