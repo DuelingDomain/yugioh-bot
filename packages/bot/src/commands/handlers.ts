@@ -369,6 +369,10 @@ async function handleApprove(
   }
 
   const approved = deps.matches.approve(match.id, player.id);
+  if (approved.tournamentId) {
+    const tournament = deps.tournaments.findById(approved.tournamentId);
+    if (tournament.webSlug) void deps.broadcaster.tournament({ kind: "match-updated", slug: tournament.webSlug });
+  }
   if (approved.tournamentId && deps.matches.claimTournamentCompletionAnnouncement(approved.tournamentId)) {
     void deps.announceTournamentCompleted?.(approved.tournamentId);
   }
@@ -389,6 +393,10 @@ async function handleDeny(
   }
 
   deps.matches.deny(match.id, player.id);
+  if (match.tournamentId) {
+    const tournament = deps.tournaments.findById(match.tournamentId);
+    if (tournament.webSlug) void deps.broadcaster.tournament({ kind: "match-updated", slug: tournament.webSlug });
+  }
   await interaction.reply(`Denied match #${match.id}.`);
 }
 
@@ -533,6 +541,7 @@ async function handleEvent(
       requireEventCreator(tournament, interaction.user.id);
       deps.tournaments.start(tournament.id);
       const started = deps.tournaments.findById(tournament.id);
+      if (started.webSlug) void deps.broadcaster.tournament({ kind: "started", slug: started.webSlug });
       const webLink = started.webSlug ? `\nView bracket on web: ${WEB_URL}/tournament/${started.webSlug}` : "";
       await interaction.reply(`Started event: ${started.name}.${webLink}`);
       return;
@@ -560,6 +569,7 @@ async function handleEvent(
       const opponent = deps.players.upsert(guildId, opponentUser.id, displayName(opponentUser));
       const winnerId = winnerFromResult(result, reporter.id, opponent.id);
       const match = deps.tournaments.report(tournament.id, reporter.id, opponent.id, winnerId);
+      if (tournament.webSlug) void deps.broadcaster.tournament({ kind: "match-updated", slug: tournament.webSlug });
       await interaction.reply(
         `Event match reported as ${result}. ${opponent.displayName} must /approve or /deny it. Match #${match.id}`,
       );
@@ -570,6 +580,7 @@ async function handleEvent(
       const tournament = requireTournament(deps, guildId, name);
       requireEventCreator(tournament, interaction.user.id);
       const { changedDuelSlugs } = deps.tournaments.cancelWithChanges(tournament.id);
+      if (tournament.webSlug) void deps.broadcaster.tournament({ kind: "cancelled", slug: tournament.webSlug });
       for (const duelSlug of changedDuelSlugs) void deps.notifyDuelChange?.(duelSlug, guildId);
       await interaction.reply(`Cancelled event: ${tournament.name}.`);
       return;
@@ -692,6 +703,7 @@ async function handleDraft(
 
         throw error;
       }
+      if (draft.webSlug) void deps.broadcaster.draft({ kind: "seats", slug: draft.webSlug });
       await interaction.reply(`Joined draft: ${draft.name}.`);
       return;
     }
@@ -705,6 +717,7 @@ async function handleDraft(
         excludeNames: draft.config.excludeNames ?? [],
       });
       const startedDraft = deps.drafts.start(draft.id);
+      if (startedDraft.webSlug) void deps.broadcaster.draft({ kind: "status", slug: startedDraft.webSlug, status: "active" });
 
       await deps.messenger.postStatus(startedDraft);
 
@@ -731,6 +744,7 @@ async function handleDraft(
       const draft = requireDraft(deps, guildId, name);
       requireDraftCreator(draft, interaction.user.id);
       deps.drafts.cancel(draft.id);
+      if (draft.webSlug) void deps.broadcaster.draft({ kind: "status", slug: draft.webSlug, status: "cancelled" });
       const cancelledDraft = deps.drafts.findById(draft.id);
       await deps.messenger.updateStatus(cancelledDraft);
       await interaction.reply(`Cancelled draft: ${draft.name}.`);

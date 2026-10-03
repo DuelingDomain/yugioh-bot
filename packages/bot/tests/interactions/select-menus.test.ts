@@ -56,6 +56,7 @@ function setup() {
 
   return {
     db,
+    broadcaster: { draft: vi.fn().mockResolvedValue(undefined), tournament: vi.fn().mockResolvedValue(undefined) },
     players: createPlayerRepository(db),
     tournaments: createTournamentService(db),
     drafts: createDraftService(db),

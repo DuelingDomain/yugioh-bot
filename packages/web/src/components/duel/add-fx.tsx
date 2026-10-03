@@ -10,13 +10,13 @@
  * keeps the real hand card invisible until `landed` is called, so the card is never seen twice.
  *
  * Privacy: when the face is not known (the opponent searched their Deck) the card is shown as a card
- * back. If the engine reveals it while it is on screen (the hand slot gets a face), it turns over.
+ * back. A structured confirmation turns the showcase over independently of the live hand slot.
  *
  * Reduced motion: no travel. The card fades in at the showcase spot with the label, holds, and fades
  * out as the real card shows in the hand.
  */
-import { duelFxClock } from "./fx-clock";
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl, LOCATION_EXTRA } from "./constants";
 import { findMoveDestination, followMoveDestination, handArrivalTarget, moveDestinationRotation } from "./event-queue";
 import { artCodeOf } from "./destroy-hide";
@@ -28,19 +28,18 @@ import type { MovePlan } from "./move-plan";
 import fx from "./move-fx.module.css";
 import styles from "./add-fx.module.css";
 
-/** How often the hand slot is checked for a face while the card is on show (a reveal has no event). */
-const REVEAL_POLL_MS = 90;
 const REVEAL_FLIP_MS = 340;
 
 type Props = {
   plan: MovePlan;
+  confirmedCard?: DuelCardInfo;
   overlay: HTMLElement;
   /** The flight reached the hand: the real card may show. */
   landed: () => void;
   done: () => void;
 };
 
-export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
+export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const flipper = useRef<HTMLDivElement>(null);
   const aura = useRef<HTMLSpanElement>(null);
@@ -51,7 +50,10 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
   const doneRef = useRef(done);
   doneRef.current = done;
   const showcase = plan.showcase;
-  const known = plan.event.card != null && plan.event.card.code > 0 ? plan.event.card.code : 0;
+  const known = plan.event.card?.code || confirmedCard?.code || 0;
+  const initialCode = useRef(known);
+  const shownCode = useRef(known);
+  const showing = useRef(known > 0 ? 0 : 180);
   const [code, setCode] = useState(known);
   const [side, setSide] = useState<"you" | "opp">("you");
   const [fullReady, setFullReady] = useState(false);
@@ -112,33 +114,11 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
     const stageMs = phases.riseMs + phases.holdMs;
     const track = new Track();
     let alive = true;
-    let shownCode = known;
-    // The turn of the card as it shows now: 0 = face, 180 = back.
-    let showing = known > 0 ? 0 : 180;
     const first = frames();
     const opts = (duration: number): KeyframeAnimationOptions => ({ duration, easing: "linear", fill: "both" });
     track.play(el, first.stage, opts(stageMs));
     track.play(aura.current, first.aura, opts(stageMs));
     track.play(label, first.label, opts(stageMs));
-
-    // A reveal shows up as a face in the hand slot: turn the card over when it does.
-    const turnOver = (found: number) => {
-      shownCode = found;
-      showing = 0;
-      setCode(found);
-      if (reduced) {
-        if (flipper.current) flipper.current.style.transform = "rotateY(0deg)";
-        return;
-      }
-      track.play(flipper.current, [{ transform: "rotateY(180deg)" }, { transform: "rotateY(0deg)" }], { duration: REVEAL_FLIP_MS, easing: "ease-in-out", fill: "both" });
-    };
-    const poll = duelFxClock.setInterval(() => {
-      if (!alive || shownCode > 0) return;
-      const current = findMoveDestination(plan.event);
-      const found = current ? artCodeOf(current) : 0;
-      if (found > 0) turnOver(found);
-    }, REVEAL_POLL_MS);
-    track.onDispose(() => duelFxClock.clearInterval(poll));
 
     let landedOnce = false;
     const land = () => {
@@ -151,7 +131,6 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
     let liveFlight: ReturnType<typeof retargetFlight> | undefined;
     track.after(stageMs, () => {
       if (!alive) return;
-      duelFxClock.clearInterval(poll);
       const current = findMoveDestination(plan.event);
       const target = handArrivalTarget(plan.event);
       if (!target) { land(); doneRef.current(); return; }
@@ -168,11 +147,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
         flightEnd = { dx: 0, dy: 0 };
       }
       // A card goes into the opponent's hand face down unless the hand shows its face.
-      const found = shownCode > 0 ? shownCode : current ? artCodeOf(current) : 0;
-      if (found > 0 && shownCode === 0) {
-        shownCode = found;
-        setCode(found);
-      }
+      const found = shownCode.current;
       track.play(el, fly.fly, opts(phases.flyMs));
       if (!reduced) {
         liveFlight = retargetFlight({ event: plan.event, el, overlay, cx: flightCx, cy: flightCy,
@@ -186,7 +161,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
         return;
       }
       const faceAtEnd = found > 0 && (ownerSide === "you" || (current != null && artCodeOf(current) > 0));
-      const a = showing;
+      const a = showing.current;
       const b = faceAtEnd ? 0 : 180;
       if (a !== b) {
         track.play(
@@ -262,6 +237,23 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Confirmations may arrive in a later snapshot while the original showcase is still running.
+  useLayoutEffect(() => {
+    const found = confirmedCard?.code;
+    if (!found || shownCode.current > 0) return undefined;
+    shownCode.current = found;
+    showing.current = 0;
+    setCode(found);
+    setFullReady(false);
+    const track = new Track();
+    if (plan.reduced) {
+      if (flipper.current) flipper.current.style.transform = "rotateY(0deg)";
+    } else {
+      track.play(flipper.current, [{ transform: "rotateY(180deg)" }, { transform: "rotateY(0deg)" }], { duration: REVEAL_FLIP_MS, easing: "ease-in-out", fill: "both" });
+    }
+    return () => track.dispose();
+  }, [confirmedCard?.code, plan.reduced]);
+
   return (
     <>
       <div ref={ring} className={styles.ring} data-testid="added-ring" />
@@ -277,7 +269,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
       </div>
       <div ref={root} className={fx.ghost} data-style="add" data-testid="added-ghost" data-known={code > 0 ? "true" : "false"} style={{ opacity: 0 } as CSSProperties}>
         <span ref={aura} className={styles.aura} style={{ opacity: 0 } as CSSProperties} />
-        <div ref={flipper} className={fx.flipper} style={{ transform: `rotateY(${known > 0 ? 0 : 180}deg)` }}>
+        <div ref={flipper} className={fx.flipper} style={{ transform: `rotateY(${initialCode.current > 0 ? 0 : 180}deg)` }}>
           <div className={`${fx.face} ${styles.face}`}>
             {code > 0 ? (
               <>

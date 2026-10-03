@@ -7,6 +7,7 @@ import { analyzeCube, createCardCatalogService, createDraftService } from "@yugi
 import { buildDraftResponse } from "./helpers";
 import { announcer, broadcaster } from "@/lib/notify";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
+import { draftReadAccess } from "@/lib/draft-access";
 
 export const runtime = "nodejs";
 
@@ -27,6 +28,8 @@ export async function GET(
     }
 
     const { slug } = await params;
+    const denied = draftReadAccess(getDb(), slug, env.discordGuildId, session.user.id);
+    if (denied) return denied;
     const response = await buildDraftResponse(slug, session.user.id);
 
     if (!response) {
@@ -81,6 +84,7 @@ export async function DELETE(
         db.prepare("delete from draft_players where draft_id = ?").run(draft.id);
         db.prepare("delete from drafts where id = ?").run(draft.id);
       })();
+      void broadcaster.draft({ kind: "seats", slug });
       return NextResponse.json({ deleted: true });
     }
 
@@ -164,8 +168,6 @@ export async function PUT(
       if (existing) {
         return NextResponse.json({ error: "A draft with that name already exists" }, { status: 400 });
       }
-
-      db.prepare("update drafts set name = ? where id = ?").run(name, draft.id);
     }
 
     let analysisWarnings: ReturnType<typeof analyzeCube> | undefined;
@@ -219,14 +221,23 @@ export async function PUT(
       (mergedConfig as any).cubeCardIds = cubeCardIds;
     }
 
-    if (config !== undefined) {
-      db.prepare("update drafts set config_json = ? where id = ?").run(
-        JSON.stringify(mergedConfig),
-        draft.id,
-      );
-    }
+    // Apply edits together after validation, so a rejected pool edit cannot silently rename the draft.
+    db.transaction(() => {
+      if (name !== undefined) {
+        db.prepare("update drafts set name = ? where id = ?").run(name, draft.id);
+      }
+      if (config !== undefined) {
+        db.prepare("update drafts set config_json = ? where id = ?").run(
+          JSON.stringify(mergedConfig),
+          draft.id,
+        );
+      }
+    })();
 
     const updated = db.prepare("select * from drafts where id = ?").get(draft.id) as any;
+    if (name !== undefined || config !== undefined) {
+      void broadcaster.draft({ kind: "seats", slug });
+    }
 
     return NextResponse.json({
       id: updated.id,

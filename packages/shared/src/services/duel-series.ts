@@ -86,9 +86,20 @@ export interface DuelSeriesService {
    * already checked card types. The service checks: status between_games, the
    * same cards as the current deck (as a multiset over main+extra+side), the
    * Main, Extra and Side counts unchanged, main >= min(40, base main count)
-   * and <= 60, extra <= 15.
+   * and <= 60, extra <= 15. A deck that differs from the current one clears the player's
+   * Ready, so the next game never starts on a deck they did not confirm.
    */
   setSideDeck(seriesId: number, guildId: string, playerId: number, deck: DuelDeck): DuelSeriesSummary;
+  /**
+   * setSideDeck that also reports whether this save cleared the player's Ready, read inside the same
+   * transaction (a snapshot taken before the call can miss a Ready that landed in between).
+   */
+  saveSideDeck(
+    seriesId: number,
+    guildId: string,
+    playerId: number,
+    deck: DuelDeck,
+  ): { series: DuelSeriesSummary; readyCleared: boolean };
   /**
    * The loser of the last game chooses to go first or second in the next game. Only that player, only
    * between games. A later call changes the choice until the next game is made. When nobody chooses,
@@ -97,6 +108,11 @@ export interface DuelSeriesService {
   setFirstChoice(seriesId: number, guildId: string, playerId: number, choice: DuelFirstChoice): DuelSeriesSummary;
   /** Ready also fixes the default (first) for a chooser who has not chosen. */
   setSideReady(seriesId: number, guildId: string, playerId: number): DuelSeriesSummary;
+  /**
+   * Takes back the player's Ready between games, e.g. when they start editing their side deck.
+   * `readyCleared` is false when they were not ready.
+   */
+  clearSideReady(seriesId: number, guildId: string, playerId: number): { series: DuelSeriesSummary; readyCleared: boolean };
   /** between_games series whose deadline passed or whose players are both ready. */
   dueNextGames(nowMs: number, limit: number): Array<{ seriesId: number; guildId: string }>;
   /** Series games in lobby with two ready seats (auto-start recovery after a host restart). */
@@ -222,6 +238,13 @@ function sameCounts(a: Map<number, number>, b: Map<number, number>): boolean {
   if (a.size !== b.size) return false;
   for (const [code, count] of a) if (b.get(code) !== count) return false;
   return true;
+}
+
+/** Same cards in the same order in every section: anything else is a deck change. */
+function sameDeckLayout(a: DuelDeck, b: DuelDeck): boolean {
+  const sameList = (x: readonly number[], y: readonly number[]) => x.length === y.length && x.every((code, i) => code === y[i]);
+  return sameList(a.main, b.main) && sameList(a.extra, b.extra) && sameList(a.side, b.side)
+    && (a.deckMaster ?? null) === (b.deckMaster ?? null);
 }
 
 type InsertSeriesParams = [
@@ -784,8 +807,14 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
   const updateDeck1 = db.prepare<[string, number]>("update duel_series set deck1_json = ? where id = ?");
   const markSideReady0 = db.prepare<[number]>("update duel_series set side_ready0 = 1 where id = ?");
   const markSideReady1 = db.prepare<[number]>("update duel_series set side_ready1 = 1 where id = ?");
+  const clearSideReady0 = db.prepare<[number]>("update duel_series set side_ready0 = 0 where id = ?");
+  const clearSideReady1 = db.prepare<[number]>("update duel_series set side_ready1 = 0 where id = ?");
   const resetToActive = db.prepare<[number]>(
     "update duel_series set status = 'active', side_ready0 = 0, side_ready1 = 0, next_game_at = null, first_chooser = null, first_choice = null where id = ?",
+  );
+  const inheritInviteGrants = db.prepare<[number, number]>(
+    `insert or ignore into duel_invite_grants (duel_id, player_id)
+     select ?, player_id from duel_invite_grants where duel_id = ?`,
   );
   const updateFirstChoice = db.prepare<[string, number]>("update duel_series set first_choice = ? where id = ?");
   const selectDueNext = db.prepare<[string, number], { seriesId: number; guildId: string }>(
@@ -997,7 +1026,7 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
   );
 
   const setSideDeckTx = db.transaction(
-    (seriesId: number, guildId: string, playerId: number, deck: DuelDeck): DuelSeriesSummary => {
+    (seriesId: number, guildId: string, playerId: number, deck: DuelDeck): { series: DuelSeriesSummary; readyCleared: boolean } => {
       const row = store.requireSeries(seriesId, guildId);
       const index = store.requirePlayerIndex(row, playerId);
       if (row.status !== "between_games") {
@@ -1023,7 +1052,14 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
         throw new DuelServiceError(`Main deck must have between ${minMain} and ${SIDE_DECK_MAX_MAIN} cards`, 400);
       }
       (index === 0 ? updateDeck0 : updateDeck1).run(JSON.stringify(next), row.id);
-      return store.summarize(store.requireSeries(row.id));
+      const wasReady = (index === 0 ? row.side_ready0 : row.side_ready1) === 1;
+      const changed = !sameDeckLayout(next, state.currentDeck);
+      if (changed) {
+        // Ready confirmed the old deck. Cleared in the same transaction as the deck write, so no advance
+        // (the ready path or the tick sweep) can see the new deck together with the old Ready.
+        (index === 0 ? clearSideReady0 : clearSideReady1).run(row.id);
+      }
+      return { series: store.summarize(store.requireSeries(row.id)), readyCleared: wasReady && changed };
     },
   );
 
@@ -1036,6 +1072,17 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
     if (row.first_chooser === index && row.first_choice === null) updateFirstChoice.run("first", row.id);
     return store.summarize(store.requireSeries(row.id));
   });
+
+  const clearSideReadyTx = db.transaction(
+    (seriesId: number, guildId: string, playerId: number): { series: DuelSeriesSummary; readyCleared: boolean } => {
+      const row = store.requireSeries(seriesId, guildId);
+      const index = store.requirePlayerIndex(row, playerId);
+      if (row.status !== "between_games") throw new DuelServiceError("The series is not between games", 409);
+      const wasReady = (index === 0 ? row.side_ready0 : row.side_ready1) === 1;
+      if (wasReady) (index === 0 ? clearSideReady0 : clearSideReady1).run(row.id);
+      return { series: store.summarize(store.requireSeries(row.id)), readyCleared: wasReady };
+    },
+  );
 
   const setFirstChoiceTx = db.transaction(
     (seriesId: number, guildId: string, playerId: number, choice: DuelFirstChoice): DuelSeriesSummary => {
@@ -1109,6 +1156,8 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
         return { playerId: index === 0 ? row.player0_id : row.player1_id, deck: index === 0 ? deck0 : deck1, ready: true };
       }),
     });
+    // Admission follows the series, including grants inherited by the previous game.
+    if (latest) inheritInviteGrants.run(game.id, latest.id);
     resetToActive.run(row.id);
     return duels.get(game.slug, guildId);
   });
@@ -1137,6 +1186,9 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
       return state;
     },
     setSideDeck(seriesId, guildId, playerId, deck) {
+      return setSideDeckTx(seriesId, guildId, playerId, deck).series;
+    },
+    saveSideDeck(seriesId, guildId, playerId, deck) {
       return setSideDeckTx(seriesId, guildId, playerId, deck);
     },
     setFirstChoice(seriesId, guildId, playerId, choice) {
@@ -1144,6 +1196,9 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
     },
     setSideReady(seriesId, guildId, playerId) {
       return setSideReadyTx(seriesId, guildId, playerId);
+    },
+    clearSideReady(seriesId, guildId, playerId) {
+      return clearSideReadyTx(seriesId, guildId, playerId);
     },
     dueNextGames(nowMs, limit) {
       const cap = Math.min(Math.max(1, Math.floor(limit)), DUE_CAP);

@@ -189,6 +189,10 @@ export interface DuelPromptOption {
   location?: number;
   sequence?: number;
   values?: number[];
+  /** Current Level from this viewer's card projection; takes precedence over the printed Level. */
+  currentLevel?: number;
+  /** The card counts as another Level for a Synchro Summon (EFFECT_SYNCHRO_LEVEL), so its Level is not its contribution. */
+  synchroLevelVaries?: boolean;
   max?: number;
   selected?: boolean;
   /** Full printed text of the card this option is bound to (absent when the card is hidden from the viewer). */
@@ -231,6 +235,8 @@ export interface DuelPrompt {
   min?: number;
   max?: number;
   target?: number;
+  /** Sum requirement (also used for a Synchro toggle's Level target), independent of card-count bounds. */
+  sumMode?: "exact" | "at-least";
   mandatory?: string[];
   cancelable?: boolean;
   finishable?: boolean;
@@ -275,7 +281,7 @@ export interface DuelZoneRef {
 }
 
 export type DuelMoveReason =
-  | "summon" | "set" | "activate" | "destroy" | "send" | "return" | "banish" | "draw" | "discard" | "other";
+  | "summon" | "set" | "activate" | "destroy" | "send" | "return" | "banish" | "draw" | "add" | "discard" | "other";
 
 /**
  * How a monster arrived on the field. "tribute" is a Normal Summon that used Tributes. The Extra
@@ -305,19 +311,25 @@ export interface DuelBattleStats {
 export interface DuelEvent {
   id: number;
   kind:
-    | "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
-    | "attack" | "battle" | "battle-end" | "phase" | "damage" | "destroy" | "move" | "position" | "equip";
+    | "summon" | "set" | "activate" | "target" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
+    | "attack" | "battle" | "battle-end" | "phase" | "damage" | "destroy" | "move" | "position" | "equip" | "confirm";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
+  /** target: the link's complete current target list (including [] when cleared). Coordinates only;
+   * identities must come from the viewer's redacted board. Also accepted on activation events. */
+  targets?: DuelZoneRef[];
   text: string;
   description?: string;
+  /** confirm: the preceding move of this card, when known. Identity belongs to this confirmation only. */
+  moveId?: number;
   /**
    * summon / set / activate: the zone the card is in.
    * attack: the attacking monster's zone.
    * destroy: the zone the card left.
    * move: the destination zone (the card's controller after the move is `seat`).
    * equip: the zone of the card that was equipped (it has no `card`; read it from the board).
+   * confirm: where the confirmed card was at confirmation time. Does not expose its live slot.
    */
   zone?: DuelZoneRef;
   /** move: the zone the card left. Board positions are public even when the card is hidden. */
@@ -366,7 +378,7 @@ export interface DuelEvent {
    * 0x1 face-up Attack, 0x2 face-down Attack, 0x4 face-up Defense, 0x8 face-down Defense).
    * `zone` is the card's zone; `card` follows the move-event rule (present when the card is
    * face-up before or after the change, or the viewer controls it).
-   * move / destroy: `fromPosition` is the field position before departure, even when the
+   * move / destroy: `fromPosition` is the Monster Zone position before departure, even when the
    * destination snapshot already removed the card. A Graveyard position is not its battle pose.
    */
   fromPosition?: number;
@@ -381,6 +393,10 @@ export interface DuelChainLink {
   code?: number;
   name?: string;
   description?: string;
+  /** Where the source activated; retained when its activation leaves the event window. */
+  zone?: DuelZoneRef;
+  /** Current target coordinates, public to every viewer. No target names or passcodes. */
+  targets?: DuelZoneRef[];
 }
 
 export interface DuelEngineView {

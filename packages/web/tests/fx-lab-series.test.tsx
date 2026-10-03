@@ -45,6 +45,15 @@ describe("fx lab: Best of 3 scenarios", () => {
       "match-bot-side",
       "match-bot-won",
       "match-won",
+      "match-spectator-siding",
+      "match-spectator-next-live",
+      "match-spectator-private-siding",
+      "match-spectator-private-next-live",
+      "match-spectator-chose-second",
+      "match-spectator-bot-human-choosing",
+      "match-spectator-bot-chose-first",
+      "match-spectator-bot-won",
+      "match-spectator-won",
     ]);
     for (const id of ids) expect(findScenario(id)!.build().series).toBeDefined();
   });
@@ -162,6 +171,64 @@ describe("fx lab: Best of 3 scenarios", () => {
     const { room, spec } = open("match-side-opponent-ready");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
     expect(screen.getByTestId("opponent-side-status").textContent).toBe("Opponent ready");
+  });
+
+  it.each(["match-spectator-siding", "match-spectator-private-siding"])("shows side decking and normal follow behavior in %s", (id) => {
+    const { room, spec } = open(id);
+    expect(room.mySeat).toBeNull();
+    expect(room.session.settings.visibility).toBe(id.includes("private") ? "private" : "public");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByText("Side decking in progress")).toBeTruthy();
+    expect(screen.getAllByTestId("series-ready-row")).toHaveLength(2);
+    expect(screen.getByText(/You will move to game 2 when it starts/)).toBeTruthy();
+    expect(screen.getAllByText("Imran is choosing to go first or second…")).toHaveLength(1);
+    expect(screen.queryByTestId("opponent-first-status")).toBeNull();
+    expect(screen.getByTestId("between-games-info").textContent).not.toContain("goes first");
+    expect(screen.queryByTestId("between-games")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Ready/ })).toBeNull();
+  });
+
+  it("names the first player to a spectator after the loser chose second", () => {
+    const { room, spec } = open("match-spectator-chose-second");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByText("Sulman goes first (Imran chose to go second)")).toBeTruthy();
+    expect(screen.queryByTestId("opponent-first-status")).toBeNull();
+    expect(screen.queryByTestId("first-choice")).toBeNull();
+  });
+
+  it("shows a spectator the human's pending choice and the bot's Ready state", () => {
+    const { room, spec } = open("match-spectator-bot-human-choosing");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByText("Game 1 won by Practice Bot · 0–1")).toBeTruthy();
+    expect(screen.getAllByText("Sulman is choosing to go first or second…")).toHaveLength(1);
+    expect(screen.getAllByTestId("series-ready-row").map((row) => row.textContent)).toEqual(["SulmanSide decking…", "Practice BotReady"]);
+    expect(screen.queryByTestId("first-choice")).toBeNull();
+    expect(screen.getByText(/You will move to game 2 when it starts/)).toBeTruthy();
+  });
+
+  it("shows a spectator that the bot chose first after losing", () => {
+    const { room, spec } = open("match-spectator-bot-chose-first");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByText("Practice Bot goes first (Practice Bot chose to go first)")).toBeTruthy();
+    expect(screen.queryByTestId("opponent-first-status")).toBeNull();
+    expect(screen.getAllByTestId("series-ready-row")[1].getAttribute("data-ready")).toBe("true");
+  });
+
+  it("names the bot as the winner of a decided match for a spectator", () => {
+    const { room, spec } = open("match-spectator-bot-won");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByText("Practice Bot wins the series")).toBeTruthy();
+    expect(screen.getByText("Practice match. No result recorded")).toBeTruthy();
+    expect(screen.queryByTestId("series-ready-row")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Watch game/ })).toBeNull();
+  });
+
+  it.each(["match-spectator-next-live", "match-spectator-private-next-live"])("offers the live next game in %s", (id) => {
+    const { room, spec } = open(id);
+    expect(room.session.settings.visibility).toBe(id.includes("private") ? "private" : "public");
+    render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+    expect(screen.getByText("Game 2 of 3 is live")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Watch game 2" })).toBeTruthy();
   });
 
   it("ends the match with a result and no next game", () => {

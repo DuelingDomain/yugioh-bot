@@ -1,0 +1,127 @@
+/*
+ * Cubes (b16). The board classes (.cb-row, .ce-*, .ct, .step, .undo, ...) and their sheet
+ * finish come from match-sheet.css. These rules are only what the live app adds: rows
+ * without readiness data, fixed sheets, row links. Every selector is scoped under .ms.
+ */
+
+/* ---------- library rows ---------- */
+:global(.ms) .row { position: relative; }
+
+/* Without readiness data a row is the name block and its actions. */
+:global(.ms) .row.row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 20px;
+}
+:global(.ms) .row.row .acts { grid-row: auto; grid-column: auto; }
+:global(.ms) .row.row .confirm,
+:global(.ms) .row.row[data-confirm] .confirm { grid-column: 2; }
+
+@container (max-width: 800px) {
+  :global(.ms) .row.row .confirm,
+  :global(.ms) .row.row[data-confirm] .confirm { grid-column: 1 / -1; justify-content: flex-start; }
+}
+
+/* On phones the whole row opens the cube; Open drops away (match-sheet.css hides .btn). */
+@container (max-width: 520px) {
+  /* MetaLine needs the separator space even when a leading dot is clipped. */
+  :global(.ms) .row.row :global(.mt) :global(.dot) { display: inline-block; }
+  :global(.ms) .row.row { grid-template-columns: minmax(0, 1fr) 36px; }
+  :global(.ms) .row .openLink::after { content: ""; position: absolute; inset: 0; border-radius: 4px; }
+  :global(.ms) .row .acts { position: relative; z-index: 1; }
+}
+
+:global(.ms) .tmplNote { margin-top: 6px; color: var(--ink-3); font-size: 12.5px; }
+:global(.ms) .tmplNote code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--ink-2); }
+:global(.ms) .setNames { overflow-wrap: anywhere; }
+:global(.ms) .startActs { flex-wrap: wrap; }
+
+/* ---------- editor ---------- */
+:global(.ms) .ready :global(.fix) { margin: 0; }
+:global(.ms) .ready .fixSoft { background: none; border-top: 1px solid var(--rule-lo); }
+:global(.ms) .ready .fixSoft :global(.ic) { color: var(--ink-3); }
+:global(.ms) .ready .fixSoft b { color: var(--ink); }
+:global(.ms) .ready .fixOk { background: none; border-top: 1px solid var(--rule-lo); }
+:global(.ms) .ready .fixOk :global(.ic) { color: var(--ok); }
+:global(.ms) .ready .fixOk b { color: var(--ink); }
+
+:global(.ms) .tile { position: relative; }
+:global(.ms) .unknownArt {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--ink-3);
+  font: 400 12px/1.2 ui-monospace, Menlo, Consolas, monospace;
+  text-align: center;
+  padding: 6px;
+}
+:global(.ms) .emptyPool {
+  padding: 28px 16px;
+  border: 1px dashed var(--rule);
+  border-radius: 4px;
+  color: var(--ink-3);
+  font-size: 13.5px;
+  text-align: center;
+}
+:global(.ms) .noMatch { color: var(--ink-3); font-size: 13.5px; padding: 12px 0; }
+:global(.ms) .busy { color: var(--ink-3); font-size: 12.5px; }
+:global(.ms) .stat { margin: 0; }
+:global(.ms) .renameLabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+:global(.ms) .resText { min-width: 0; }
+:global(.ms) .resThumb {
+  width: 34px;
+  height: 50px;
+  border-radius: 3px;
+  background: #0b1222;
+  box-shadow: 0 0 0 1px rgb(239 231 213 / 0.1);
+  overflow: hidden;
+}
+:global(.ms) .cfmWrap { margin-bottom: 18px; }
+:global(.ms) .sugWrap { position: relative; }
+:global(.ms) .fileInput { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+:global(.ms) .err { margin-bottom: 16px; }
+
+/* ---------- fixed pieces (rendered through SheetPortal) ---------- */
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgb(3 5 10 / 0.6);
+}
+:global(.ms) .sheetFixed.sheetFixed {
+  position: fixed;
+  z-index: 61;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 88dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+:global(.ms) .sheetFixed:focus-visible { outline: none; }
+:global(.ms) .sheetHead { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+:global(.ms) .sheetHead h2 { font-size: 15px; font-weight: 450; }
+
+.toastWrap {
+  position: fixed;
+  z-index: 62;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+:global(.ms) .toast.toast {
+  pointer-events: auto;
+  width: min(100%, 520px);
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .scrim { animation: cubesFade 160ms ease-out; }
+  :global(.ms) .sheetFixed { animation: cubesRise 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+  :global(.ms) .toast { animation: cubesRise 200ms cubic-bezier(0.16, 1, 0.3, 1); }
+}
+@keyframes cubesFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cubesRise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }

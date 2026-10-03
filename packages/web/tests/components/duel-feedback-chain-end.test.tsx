@@ -30,6 +30,14 @@ const view = (events: DuelEvent[]) => (
   <DuelFeedback events={events} duelKey="t" soundEnabled reducedMotion={false} />
 );
 
+const confirmation = (location: number, extra: Partial<DuelEvent> = {}): DuelEvent => ({
+  ...ev("confirm", "Confirmed Kojikocy"), seat: 0,
+  zone: { controller: 0, location, sequence: 0 },
+  card: { code: 1184620, name: "Kojikocy", description: "", type: 17,
+    attack: 1500, defense: 1200, level: 4, attribute: 1, race: "warrior" },
+  ...extra,
+});
+
 beforeEach(() => {
   vi.useFakeTimers();
   play.mockClear();
@@ -41,6 +49,20 @@ afterEach(() => {
 });
 
 describe("DuelFeedback chain end", () => {
+  it.each([false, true])("keeps target updates out of banners and sound queues (reduced motion %s)", (reducedMotion) => {
+    const feedback = (events: DuelEvent[]) => <DuelFeedback events={events} duelKey="t" soundEnabled reducedMotion={reducedMotion} />;
+    const { container, rerender } = render(feedback([]));
+    const activate = ev("activate", "Mystical Space Typhoon", 1);
+    const target = { ...ev("target", "Chain Link 1 targets 1 card", 1), targets: [{ controller: 1, location: 8, sequence: 0 }] };
+    rerender(feedback([activate, target]));
+    expect(container.querySelector('[data-kind="activate"]')).not.toBeNull();
+    act(() => { vi.advanceTimersByTime(2100); });
+    expect(container.querySelector("[data-kind]")).toBeNull();
+    act(() => { vi.runAllTimers(); });
+    expect(container.textContent).toBe("");
+    expect(play).not.toHaveBeenCalledWith("target");
+  });
+
   it("shows no centre banner when the chain ends, but still plays its quiet cue", () => {
     const { container, rerender } = render(view([]));
     const end = ev("chain-end", "Chain ended");
@@ -107,5 +129,77 @@ describe("DuelFeedback chain end", () => {
     expect(container.querySelector('[data-kind="chain-negated"]')).not.toBeNull();
     act(() => { vi.advanceTimersByTime(chainStepDelay("chain-negated", 1, false) + 10); });
     expect(play).toHaveBeenCalledWith("chain-resolved");
+  });
+});
+
+describe("DuelFeedback confirmations", () => {
+  it.each([
+    { location: 2, reducedMotion: false },
+    { location: 2, reducedMotion: true },
+    { location: 8, reducedMotion: false },
+    { location: 8, reducedMotion: true },
+  ])("leaves confirmations to MoveFx without delaying other banners (location=$location, reduced=$reducedMotion)", ({ location, reducedMotion }) => {
+    const feedback = (events: DuelEvent[]) => <DuelFeedback events={events} duelKey="t" soundEnabled reducedMotion={reducedMotion} />;
+    const { container, rerender, getByRole } = render(feedback([]));
+    const confirm = confirmation(location, location === 2 ? { moveId: 17 } : {});
+    const activate = ev("activate", "Mirror Force", 1);
+    rerender(feedback([confirm, activate]));
+    expect(container.querySelector('[data-kind="confirm"]')).toBeNull();
+    expect(container.querySelector('[data-kind="activate"]')).not.toBeNull();
+    act(() => { vi.runAllTimers(); });
+    expect(container.querySelector("[data-kind]")).toBeNull();
+    expect(getByRole("log", { name: "Card confirmations" }).textContent).toBe("Confirmed Kojikocy");
+    expect(play).not.toHaveBeenCalledWith("confirm");
+  });
+
+  it("announces each public confirmation once, including a batch and repeated rolling windows", () => {
+    const feedback = render(view([]));
+    const live = feedback.getByRole("log", { name: "Card confirmations" });
+    expect(live.getAttribute("aria-live")).toBe("polite");
+    expect(live.getAttribute("aria-relevant")).toBe("additions");
+    expect(live.textContent).toBe("");
+    const first = confirmation(2, { moveId: 17 });
+    const second = confirmation(8, { text: "Confirmed Majespecter Tempest",
+      card: { ...first.card!, code: 2572890, name: "Majespecter Tempest" } });
+    feedback.rerender(view([first, second]));
+    const announcements = [...live.children];
+    expect(announcements.map((entry) => entry.textContent)).toEqual(["Confirmed Kojikocy", "Confirmed Majespecter Tempest"]);
+    feedback.rerender(view([{ ...first }, { ...second }, ev("move", "A card moved")]));
+    act(() => { vi.runAllTimers(); });
+    expect([...live.children]).toEqual(announcements);
+    expect(live.children).toHaveLength(2);
+    expect(feedback.container.querySelector('[data-kind="confirm"]')).toBeNull();
+  });
+
+  it("does not announce confirmation history or redacted identities", () => {
+    const historical = confirmation(2);
+    const feedback = render(view([historical]));
+    const live = feedback.getByRole("log", { name: "Card confirmations" });
+    expect(live.textContent).toBe("");
+    feedback.rerender(view([historical, confirmation(8, { card: undefined, text: "A card was confirmed" })]));
+    expect(live.textContent).toBe("");
+    expect(play).not.toHaveBeenCalledWith("confirm");
+  });
+
+  it("announces replay confirmations once and clears them when the duel changes", () => {
+    const confirm = confirmation(8);
+    const feedback = render(<DuelFeedback events={[confirm]} duelKey="t" soundEnabled reducedMotion replayFrom={0} />);
+    const live = feedback.getByRole("log", { name: "Card confirmations" });
+    expect(live.children).toHaveLength(1);
+    expect(live.textContent).toBe("Confirmed Kojikocy");
+    feedback.rerender(<DuelFeedback events={[confirm]} duelKey="t" soundEnabled reducedMotion replayFrom={0} />);
+    expect(live.children).toHaveLength(1);
+    feedback.rerender(<DuelFeedback events={[]} duelKey="next" soundEnabled reducedMotion />);
+    expect(live.textContent).toBe("");
+  });
+
+  it("does not repeat a replay confirmation when Strict Mode replays the effects", () => {
+    const confirm = confirmation(2, { moveId: 17 });
+    const feedback = render(<React.StrictMode>
+      <DuelFeedback events={[confirm]} duelKey="t" soundEnabled reducedMotion replayFrom={0} />
+    </React.StrictMode>);
+    const live = feedback.getByRole("log", { name: "Card confirmations" });
+    expect(live.children).toHaveLength(1);
+    expect(live.textContent).toBe("Confirmed Kojikocy");
   });
 });

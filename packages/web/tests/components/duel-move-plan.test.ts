@@ -101,6 +101,13 @@ describe("planMoves", () => {
     expect(a.durationMs).toBe(150);
   });
 
+  it("does not allocate a card flight for a board-only target update", () => {
+    const target: DuelEvent = { id: 1, kind: "target", chainIndex: 1,
+      text: "Chain Link 1 targets 1 card", targets: [z(1, SZONE, 0)] };
+    expect(planMoves([target], { now: 1000, reduced: false, duelKey: "t", geometry })).toEqual([]);
+    expect(pairedMovePlan(target.id)).toBeNull();
+  });
+
   it("styles moves by destination and pairs a summon with its flight", () => {
     const events: DuelEvent[] = [
       move(1, z(0, HAND, 2), z(0, MZONE, 1)),

@@ -13,6 +13,7 @@ import type { DraftImageService } from "../services/draft-images.js";
 import type { DraftService } from "../services/drafts.js";
 import { createDraftTournamentService } from "@yugidraft/shared/services";
 import type { TournamentService } from "@yugidraft/shared/services";
+import type { Broadcaster } from "@yugidraft/shared/notify";
 
 type SelectMenuDependencies = {
   tournaments: TournamentService;
@@ -21,6 +22,7 @@ type SelectMenuDependencies = {
   cards: CardCatalogService;
   messenger: DraftMessenger;
   db: Database.Database;
+  broadcaster: Broadcaster;
 };
 
 export type SelectMenuInteractionLike = {
@@ -82,17 +84,31 @@ export async function handleSelectMenu(
     const beforePickDraft = deps.drafts.findById(draftId);
     deps.drafts.pickCard(draftId, player.id, draftCardId);
 
+    const updatedDraft = deps.drafts.findById(draftId);
+    const advancedPickStep =
+      updatedDraft.currentPackRound !== beforePickDraft.currentPackRound ||
+      updatedDraft.currentPickStep !== beforePickDraft.currentPickStep;
+
+    if (updatedDraft.webSlug) {
+      void deps.broadcaster.draft({
+        kind: "pick", slug: updatedDraft.webSlug, playerId: player.id,
+        packRound: beforePickDraft.currentPackRound, pickStep: beforePickDraft.currentPickStep,
+      });
+      if (updatedDraft.status === "completed") {
+        void deps.broadcaster.draft({ kind: "complete", slug: updatedDraft.webSlug });
+      } else if (advancedPickStep) {
+        void deps.broadcaster.draft({
+          kind: "resync", slug: updatedDraft.webSlug,
+          packRound: updatedDraft.currentPackRound, pickStep: updatedDraft.currentPickStep,
+        });
+      }
+    }
+
     const pickedCard = options.find((card) => card.id === draftCardId);
     const catalogCards = deps.cards.findByIds(pickedCard ? [pickedCard.catalogCardId] : []);
     const cardName = catalogCards[0]?.name ?? "Unknown";
 
     await interaction.reply({ content: `You picked ${cardName}.`, ephemeral: true });
-
-    const updatedDraft = deps.drafts.findById(draftId);
-
-    const advancedPickStep =
-      updatedDraft.currentPackRound !== beforePickDraft.currentPackRound ||
-      updatedDraft.currentPickStep !== beforePickDraft.currentPickStep;
 
     if (updatedDraft.status === "active" && advancedPickStep) {
       await deps.messenger.updateStatus(updatedDraft);
@@ -134,6 +150,7 @@ export async function handleSelectMenu(
         format,
         createdByUserId: interaction.user.id,
       });
+      void deps.broadcaster.draft({ kind: "seats", slug: webSlug });
       const link = result.webSlug ? ` View: ${WEB_URL}/tournament/${result.webSlug}` : "";
       await interaction.reply({ content: `Tournament **${result.tournamentName}** created.${link}`, ephemeral: true });
     } catch (err) {

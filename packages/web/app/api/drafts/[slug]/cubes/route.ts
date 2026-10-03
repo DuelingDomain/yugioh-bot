@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createDraftService, createCubeService } from "@yugidraft/shared/services";
+import { broadcaster } from "@/lib/notify";
 
 export const runtime = "nodejs";
 
@@ -87,6 +88,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
 
     const allowedCubeIds = [...(draft.config.allowedCubeIds ?? []), cube.id];
     persistAllowedCubeIds(db, row.id, allowedCubeIds);
+    void broadcaster.draft({ kind: "seats", slug });
 
     const pools = cubes.getCubePools(cube.id);
     return NextResponse.json(
@@ -140,6 +142,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ s
 
   // Detach only — the cube stays in the library (delete it from its editor instead).
   db.prepare("delete from draft_player_cube where draft_id = ? and cube_id = ?").run(row.id, cubeId);
+  void broadcaster.draft({ kind: "seats", slug });
 
   return NextResponse.json({ ok: true, allowedCubeIds });
 }

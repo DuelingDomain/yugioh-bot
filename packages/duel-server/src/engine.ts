@@ -7,6 +7,7 @@ import createCore, {
   OcgMessageType,
   OcgPosition,
   OcgProcessResult,
+  OcgType,
   cardMatchesOpcode,
   type OcgCardData,
   type OcgCoreSync,
@@ -15,21 +16,26 @@ import createCore, {
   type OcgOpCode,
 } from "ocgcore-wasm";
 import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
-import { EngineAnswerError, autoResponse, isWaitingMessage, mapPrompt, recallPromptContext, resolveAnswer, type PendingPrompt } from "./prompts.js";
+import { EngineAnswerError, autoResponse, isWaitingMessage, mapPrompt, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
 import {
   DOMAIN_RECALL_DESC,
   LOCATION_DECKMASTER,
   clearRevealsAt,
+  confirmationAudience,
+  CHAIN_TARGET_NOTE_SCRIPT,
   createEventContext,
   createRevealMap,
   DESTROY_NOTE_SCRIPT,
   drainDeferredDestroys,
   moveReveals,
   nextBattleStep,
+  noteChainTargetLog,
   noteDestroyLog,
   noteReveal,
+  observeChainTargetEvents,
   observeDuelEvent,
   observeMoveEvents,
+  observeConfirmEvents,
   phaseName,
   projectView,
   resetEventBatch,
@@ -40,6 +46,7 @@ import {
 } from "./views.js";
 import { createDomainCore } from "./domain-core.js";
 import { fillPlaceholders } from "./text.js";
+import { destroyedAndBanishedLogText, destroyedLogText, moveLogLines, summonLogLines } from "./log-lines.js";
 
 export interface EngineGameOptions {
   mode: DuelMode;
@@ -186,7 +193,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     return content;
   };
   const errorHandler = (type: number, text: string) => {
-    if (noteDestroyLog(eventContext, text)) return;
+    if (noteDestroyLog(eventContext, text) || noteChainTargetLog(eventContext, text)) return;
     if (type === OcgLogType.ERROR || type === OcgLogType.UNDEFINED) errors.push(text);
   };
   const team = {
@@ -236,6 +243,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     loadScriptOrThrow(lib, handle, cards, "constant.lua");
     loadScriptOrThrow(lib, handle, cards, "utility.lua");
     if (!lib.loadScript(handle, "duel-events.lua", DESTROY_NOTE_SCRIPT)) throw new Error("Failed to register destruction reporter");
+    if (!lib.loadScript(handle, "chain-target-notes.lua", CHAIN_TARGET_NOTE_SCRIPT)) throw new Error("Failed to register chain target reporter");
     if (options.mode === "domain") {
       loadScriptOrThrow(lib, handle, cards, "domain.lua");
       // Card creation runs initial_effect; procedure libraries must be loaded first.
@@ -296,24 +304,60 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
   let lastSelectHint: string | undefined;
   /** Card named by the core's last HINT_CARD: the card whose effect the following prompts belong to. */
   let lastHintCard: number | undefined;
+  let synchroSummon: MapPromptExtras["synchroSummon"];
   let sawRetry = false;
   const hintCardName = () => (lastHintCard ? cards.get(lastHintCard)?.name : undefined);
 
-  const appendLog = (text: string, audience: "all" | number = "all") => {
-    log.push({ id: nextLogId++, text, audience });
+  const appendLog = (text: string, audience: "all" | number = "all"): LogEntry => {
+    const entry = { id: nextLogId++, text, audience };
+    log.push(entry);
     if (log.length > 400) log.splice(0, log.length - 400);
+    return entry;
+  };
+  // Lines for cards that left the field this batch (log-lines.ts LogLine.leftField). A destroy event for the same
+  // zone rewrites the line; the list is cleared with the event batch, before any view is built.
+  const leftFieldLines: Array<{ entry: LogEntry; zone: { controller: number; location: number; sequence: number }; code: number; destination: number }> = [];
+  const markDestroyedLine = (stored: StoredDuelEvent) => {
+    const zone = stored.zone;
+    if (stored.kind !== "destroy" || !zone) return;
+    // The latest card to leave that zone, and the same card when the event names one: a zone can be emptied by a
+    // Tribute and refilled within one batch. No match keeps the location-based text.
+    const code = stored.card?.code;
+    let index = -1;
+    for (let i = leftFieldLines.length - 1; i >= 0; i -= 1) {
+      const line = leftFieldLines[i]!;
+      if (line.zone.controller !== zone.controller || line.zone.location !== zone.location || line.zone.sequence !== zone.sequence) continue;
+      if (code !== undefined && line.code !== code) continue;
+      index = i;
+      break;
+    }
+    if (index < 0) return;
+    const [line] = leftFieldLines.splice(index, 1);
+    line!.entry.text = line!.destination === OcgLocation.REMOVED
+      ? destroyedAndBanishedLogText(cards, line!.code)
+      : destroyedLogText(cards, line!.code);
   };
 
   const recordEvent = (message: OcgMessage) => {
     // Moves first: a card's move precedes the summon/set/activate/destroy event it belongs to.
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
+    for (const confirm of observeConfirmEvents(message, cards, eventContext, nextEventId)) pushEvent(confirm);
     const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
+    // The summon line is written here, right after applyMessage, because the summon method is only known now.
+    if (
+      stored?.kind === "summon" &&
+      (message.type === OcgMessageType.SUMMONING || message.type === OcgMessageType.SPSUMMONING || message.type === OcgMessageType.FLIPSUMMONING)
+    ) {
+      for (const line of summonLogLines(message, cards, stored.summonKind)) appendLog(line.text, line.audience);
+    }
     if (stored) pushEvent(stored);
+    for (const target of observeChainTargetEvents(message, chainMemory, nextEventId, eventContext)) pushEvent(target);
   };
 
   const pushEvent = (stored: StoredDuelEvent) => {
     stored.id = nextEventId;
     nextEventId += 1;
+    markDestroyedLine(stored);
     events.push(stored);
     if (events.length > 400) events.splice(0, events.length - 400);
   };
@@ -342,6 +386,10 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       case OcgMessageType.CHAIN_SOLVED:
       case OcgMessageType.CHAIN_END:
         lastHintCard = undefined;
+        synchroSummon = undefined;
+        return;
+      case OcgMessageType.SPSUMMONED:
+        synchroSummon = undefined;
         return;
       case OcgMessageType.WIN: {
         const winnerSeat = message.player === 0 || message.player === 1 ? message.player : null;
@@ -383,18 +431,9 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         return;
       case OcgMessageType.SUMMONING:
       case OcgMessageType.SPSUMMONING:
-      case OcgMessageType.FLIPSUMMONING: {
-        const verb = message.type === OcgMessageType.SUMMONING ? "Normal Summons"
-          : message.type === OcgMessageType.SPSUMMONING ? "Special Summons" : "Flip Summons";
-        const text = `Player ${message.controller + 1} ${verb} ${cards.get(message.code)?.name ?? `Card ${message.code}`}`;
-        if ((message.position & OcgPosition.FACEDOWN) !== 0) {
-          appendLog(`Player ${message.controller + 1} ${verb} a face-down monster`);
-          appendLog(text, message.controller);
-        } else {
-          appendLog(text);
-        }
+      case OcgMessageType.FLIPSUMMONING:
+        // Logged by recordEvent once the summon method is known (log-lines.ts summonLogLines).
         return;
-      }
       case OcgMessageType.SET:
         appendLog(`Player ${message.controller + 1} Sets a card`);
         return;
@@ -428,8 +467,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       case OcgMessageType.CONFIRM_CARDS:
         for (const card of message.cards) {
           noteReveal(reveals, message.player, card.controller, card.location, card.sequence, card.code);
+          appendLog(`Confirmed ${cards.get(card.code)?.name ?? `Card ${card.code}`}`, confirmationAudience(card, message.player, eventContext));
         }
-        appendLog(`Confirmed ${message.cards.map((card) => cards.get(card.code)?.name ?? `Card ${card.code}`).join(", ")}`, message.player);
         return;
       case OcgMessageType.CONFIRM_DECKTOP:
       case OcgMessageType.CONFIRM_EXTRATOP:
@@ -440,8 +479,12 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         return;
       case OcgMessageType.MOVE:
         moveReveals(reveals, message.from, message.to, message.card);
-        if (message.to.location === OcgLocation.GRAVE || (message.to.location === OcgLocation.REMOVED && (message.to.position & OcgPosition.FACEDOWN) === 0)) {
-          appendLog(`${cards.get(message.card)?.name ?? `Card ${message.card}`} moved`);
+        for (const line of moveLogLines(message, cards)) {
+          const entry = appendLog(line.text, line.audience);
+          // Parsed overlay locations name the host's field zone, but the material itself was not on the field.
+          if (line.leftField && message.from.overlay_sequence == null) {
+            leftFieldLines.push({ entry, zone: message.from, code: message.card, destination: message.to.location });
+          }
         }
         return;
       case OcgMessageType.REMOVE_CARDS:
@@ -468,7 +511,10 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
 
   const processUntilWait = () => {
     if (closed) throw new Error("Engine is closed");
-    resetEventBatch(eventContext);
+    // Native materials move before position/place selection, so those prompts continue the same summon.
+    const continuingSummon = pending?.message.type === OcgMessageType.SELECT_POSITION || pending?.message.type === OcgMessageType.SELECT_PLACE;
+    resetEventBatch(eventContext, continuingSummon);
+    leftFieldLines.length = 0;
     while (!result) {
       const status = lib.duelProcess(handle);
       const messages = lib.duelGetMessage(handle);
@@ -500,7 +546,10 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
           : undefined;
       const recall = recallState ? recallPromptContext(recallState, cards) : undefined;
       // The main action prompts start a new play; a hint card from an earlier effect no longer applies.
-      if (waiting.type === OcgMessageType.SELECT_IDLECMD || waiting.type === OcgMessageType.SELECT_BATTLECMD) lastHintCard = undefined;
+      if (waiting.type === OcgMessageType.SELECT_IDLECMD || waiting.type === OcgMessageType.SELECT_BATTLECMD) {
+        lastHintCard = undefined;
+        synchroSummon = undefined;
+      }
       const next = mapPrompt(
         waiting,
         cards,
@@ -510,6 +559,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
           domain: domainState,
           recall: recall ? { card: recall.card, returns: recall.returns, nextCost: recall.nextCost } : undefined,
           hintCard: lastHintCard,
+          synchroSummon,
         },
       );
       lastSelectHint = undefined;
@@ -552,6 +602,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         promptSeat: pending?.seat ?? null,
         log,
         events,
+        chain: chainMemory,
         result,
         reveals,
         handIdentities: eventContext.handIdentities,
@@ -565,6 +616,20 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       if (!pending) throw new EngineAnswerError("No prompt is waiting");
       const response = resolveAnswer(pending, seat, promptId, answer, cards);
       const previous = pending;
+      const previousSummon = synchroSummon;
+      if (pending.message.type === OcgMessageType.SELECT_IDLECMD && answer.choice?.startsWith("spsummon:")) {
+        const option = pending.prompt.options.find((entry) => entry.id === answer.choice);
+        synchroSummon = undefined;
+        if (option?.card && (option.card.type & OcgType.SYNCHRO) !== 0 && option.location === OcgLocation.EXTRA) {
+          // Capture the selected card, not a guessed target from the material hint or other Extra Deck cards.
+          const card = game.view(seat).seats[seat].extra.find((entry) => entry.code === option.card!.code &&
+            entry.sequence === option.sequence && entry.controller === option.controller);
+          if (card?.code && card.level != null && card.level > 0) {
+            synchroSummon = { code: card.code, level: card.level, controller: card.controller,
+              location: card.location, sequence: card.sequence };
+          }
+        }
+      }
       sawRetry = false;
       // Stays set through the summon's follow-up prompts; observeDuelEvent clears it at SPSUMMONED.
       if (isPendulumSummonAnswer(pending, answer)) eventContext.pendulumSummon = true;
@@ -572,6 +637,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       processUntilWait();
       if (sawRetry) {
         pending = previous;
+        synchroSummon = previousSummon;
         sawRetry = false;
         throw new EngineAnswerError("Invalid answer");
       }

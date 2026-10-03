@@ -108,15 +108,22 @@ export function formatCountdown(seconds: number): string {
 }
 
 /**
- * The slug a seated series player should follow. Set when the series is still open and its latest
- * game is another duel than the one on screen. A finished series never moves anyone, so match
- * history can still open an old game.
+ * The slug the viewer should follow. Set when the series is still open and its latest game is
+ * another duel than the one on screen. A seated series player always follows. A spectator follows
+ * only with `followAsSpectator`: the room sets it once the spectator has watched this game while it
+ * was the series' current game, so someone who opens an older game from history stays on it. A
+ * finished series never moves anyone.
  */
-export function nextGameTarget(room: Pick<DuelRoom, "session" | "mySeat" | "series">, slug: string): string | null {
+export function nextGameTarget(
+  room: Pick<DuelRoom, "session" | "mySeat" | "series">,
+  slug: string,
+  options: { followAsSpectator?: boolean } = {},
+): string | null {
   const series = room.series;
   if (!series || !isSeriesOpen(series)) return null;
   if (!series.currentDuelSlug || series.currentDuelSlug === slug) return null;
-  return seriesPlayerIndex(room, series) == null ? null : series.currentDuelSlug;
+  if (seriesPlayerIndex(room, series) != null) return series.currentDuelSlug;
+  return options.followAsSpectator ? series.currentDuelSlug : null;
 }
 
 /** True when the side-deck window is open for this game: the series waits between games on this duel. */
@@ -193,7 +200,7 @@ export function betweenGamesInfo(room: Pick<DuelRoom, "session" | "mySeat" | "se
   if (session.status === "completed" && winnerIndex != null) {
     const won = index == null ? series.displayNames[winnerIndex] : winnerIndex === index ? "you" : series.displayNames[winnerIndex];
     result = `Game ${played} won by ${won} · ${score}`;
-    first = firstLine(series, index, played, winnerIndex === 0 ? 1 : 0);
+    first = firstLine(series, index, winnerIndex === 0 ? 1 : 0);
   } else {
     result = session.status === "completed" ? `Game ${played} was a draw · ${score}` : `Game ${played} did not finish · ${score}`;
     const secondIndex = seatSeriesIndex(series, session.seats.find((seat) => seat.seat === 1));
@@ -205,12 +212,12 @@ export function betweenGamesInfo(room: Pick<DuelRoom, "session" | "mySeat" | "se
 }
 
 /** Who goes first after a decided game; `loserIndex` is the loser, who chooses. */
-function firstLine(series: DuelSeriesSummary, index: 0 | 1 | null, played: number, loserIndex: 0 | 1): string {
+function firstLine(series: DuelSeriesSummary, index: 0 | 1 | null, loserIndex: 0 | 1): string {
   const chooser = series.firstChooser ?? loserIndex;
   if (series.firstChooser == null) {
     // A series saved before the choice existed: the loser goes first.
     const who = index != null && chooser === index ? "You go" : `${series.displayNames[chooser]} goes`;
-    return `${who} first (the loser of game ${played} goes first)`;
+    return `${who} first (default order)`;
   }
   const iChoose = index != null && chooser === index;
   if (series.firstChoice == null) {
@@ -263,4 +270,75 @@ export function opponentSideStatus(series: DuelSeriesSummary, index: 0 | 1 | nul
   if (series.sideReady[index === 0 ? 1 : 0]) return { text: "Opponent ready", ready: true };
   // No deadline: an interrupted game. Nobody is siding, the opponent has not clicked Ready.
   return { text: series.nextGameAt == null ? "Opponent is not ready" : "Opponent is siding…", ready: false };
+}
+
+export interface SeriesReadyRow {
+  name: string;
+  ready: boolean;
+  /** "Ready", "Side decking…" or, with no deadline running, "Not ready". */
+  text: string;
+}
+
+/** Both players' Ready state between games, in `playerIds` order. */
+export function seriesReadyRows(series: DuelSeriesSummary): SeriesReadyRow[] {
+  return ([0, 1] as const).map((index) => {
+    const ready = series.sideReady[index];
+    const text = ready ? "Ready" : series.nextGameAt == null ? "Not ready" : "Side decking…";
+    return { name: series.displayNames[index], ready, text };
+  });
+}
+
+export type SpectatorSeriesStatus =
+  | {
+      kind: "siding";
+      headline: string;
+      detail: string;
+      players: SeriesReadyRow[];
+      /** The spectator moves to the next game when it starts. */
+      follow: true;
+    }
+  | {
+      kind: "next-live";
+      headline: string;
+      nextSlug: string;
+      /** The spectator may open the next game; private admission carries over. */
+      follow: true;
+    };
+
+/**
+ * What a spectator's end screen says about an open series: side decking (or waiting for Ready) on
+ * this game, or that a later game is already being played. Null for a player, for a decided or
+ * cancelled series (`seriesOutcome` covers those) and while this game is still the one in play.
+ */
+export function spectatorSeriesStatus(
+  room: Pick<DuelRoom, "session" | "mySeat" | "series">,
+  slug: string,
+): SpectatorSeriesStatus | null {
+  const series = room.series;
+  if (!series || !isSeriesOpen(series) || seriesPlayerIndex(room, series) != null) return null;
+  if (isBetweenGames({ series }, slug)) {
+    const next = `Game ${series.gameNumber + 1} of ${series.bestOf}`;
+    const timed = series.nextGameAt != null;
+    const choosing = series.firstChooser != null && series.firstChoice == null;
+    return {
+      kind: "siding",
+      headline: timed ? "Side decking in progress" : "Waiting for both players",
+      detail: timed
+        ? choosing
+          ? `${next} starts when both players are ready and the first/second choice is made, or the timer runs out.`
+          : `${next} starts when both players are ready or the timer runs out.`
+        : `${next} starts when both players click Ready.`,
+      players: seriesReadyRows(series),
+      follow: true,
+    };
+  }
+  if (series.status === "active" && series.currentDuelSlug && series.currentDuelSlug !== slug) {
+    return {
+      kind: "next-live",
+      headline: `Game ${series.gameNumber} of ${series.bestOf} is live`,
+      nextSlug: series.currentDuelSlug,
+      follow: true,
+    };
+  }
+  return null;
 }

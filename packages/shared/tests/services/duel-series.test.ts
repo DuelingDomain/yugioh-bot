@@ -495,6 +495,72 @@ describe("series result recording", () => {
 });
 
 describe("Best of 3", () => {
+  it.each(["first", "second"] as const)("carries only admitted spectators into games 2 and 3 when the loser chooses %s, without sharing invite codes", (choice) => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    const spectator2 = insertPlayer(app.db, "g1", "u4", "Tea");
+    const uninvited = insertPlayer(app.db, "g1", "u5", "Tristan");
+    const laterSpectator = insertPlayer(app.db, "g1", "u6", "Bakura");
+    const inviteCode = (game: DuelSession) =>
+      (app.db.prepare("select invite_code from duels where id = ?").get(game.id) as { invite_code: string }).invite_code;
+    const grants = (game: DuelSession) =>
+      app.db.prepare("select player_id from duel_invite_grants where duel_id = ? order by player_id").all(game.id);
+    const unrelated = app.duels.create({
+      guildId: "g1", organizerPlayerId: app.p1, name: "Other table", mode: "normal", settings: { visibility: "private" },
+    });
+    app.duels.admit(unrelated.slug, "g1", uninvited, inviteCode(unrelated));
+    for (const playerId of [app.p3, spectator2]) {
+      app.duels.admit(duel.slug, "g1", playerId, inviteCode(duel));
+      expect(app.duels.room(duel.slug, "g1", playerId).role).toBe("spectator");
+    }
+    expectStatus(() => app.duels.room(duel.slug, "g1", uninvited), 403);
+
+    playGame(app, duel.slug, app.p1);
+    app.series.setFirstChoice(series.id, "g1", app.p2, choice);
+    const game2 = app.series.createNextGame(series.id, "g1");
+    expect(game2.seats.map((seat) => seat.playerId)).toEqual(choice === "first" ? [app.p2, app.p1] : [app.p1, app.p2]);
+    for (const playerId of [app.p3, spectator2]) {
+      expect(app.duels.room(game2.slug, "g1", playerId)).toMatchObject({ role: "spectator", mySeat: null });
+      expect(app.duels.room(game2.slug, "g1", playerId).inviteCode).toBeUndefined();
+    }
+    expect(grants(game2)).toEqual([{ player_id: app.p3 }, { player_id: spectator2 }]);
+    expectStatus(() => app.duels.room(game2.slug, "g1", uninvited), 403);
+    expectStatus(() => app.duels.room(game2.slug, "g1", laterSpectator), 403);
+    expectStatus(() => app.duels.admit(game2.slug, "g1", uninvited, inviteCode(duel)), 403);
+    expect(app.series.createNextGame(series.id, "g1").id).toBe(game2.id);
+
+    app.duels.admit(game2.slug, "g1", laterSpectator, inviteCode(game2));
+    playGame(app, game2.slug, app.p2);
+    app.series.setFirstChoice(series.id, "g1", app.p1, "second");
+    const game3 = app.series.createNextGame(series.id, "g1");
+    expect(game3.seats.map((seat) => seat.playerId)).toEqual([app.p2, app.p1]);
+    for (const playerId of [app.p3, spectator2, laterSpectator]) {
+      expect(app.duels.room(game3.slug, "g1", playerId)).toMatchObject({ role: "spectator", mySeat: null });
+      expect(app.duels.room(game3.slug, "g1", playerId).inviteCode).toBeUndefined();
+    }
+    expect(grants(game3)).toEqual([{ player_id: app.p3 }, { player_id: spectator2 }, { player_id: laterSpectator }]);
+    expectStatus(() => app.duels.room(game3.slug, "g1", uninvited), 403);
+    expect(new Set([inviteCode(duel), inviteCode(game2), inviteCode(game3)]).size).toBe(3);
+  });
+
+  it("rolls back the next game if carrying spectator grants fails", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    const code = (app.db.prepare("select invite_code from duels where id = ?").get(duel.id) as { invite_code: string }).invite_code;
+    app.duels.admit(duel.slug, "g1", app.p3, code);
+    playGame(app, duel.slug, app.p1);
+    app.db.exec(`
+      create temp trigger fail_grant_copy before insert on duel_invite_grants
+      begin select raise(abort, 'forced grant copy failure'); end;
+    `);
+    expect(() => app.series.createNextGame(series.id, "g1")).toThrow("forced grant copy failure");
+    expect(app.series.get(series.id, "g1")).toMatchObject({ status: "between_games", currentDuelSlug: duel.slug, gameNumber: 1 });
+    expect(app.db.prepare("select id from duels where series_id = ?").all(series.id)).toEqual([{ id: duel.id }]);
+    app.db.exec("drop trigger fail_grant_copy");
+    const next = app.series.createNextGame(series.id, "g1");
+    expect(app.duels.room(next.slug, "g1", app.p3).role).toBe("spectator");
+  });
+
   it("runs 2-0: the second win completes the series and records once", () => {
     const app = setup();
     const { duel, series } = challenge(app, 3, true);
@@ -649,8 +715,11 @@ describe("the loser chooses first or second", () => {
     const app = setup();
     const { duel, series } = challenge(app, 3);
     playGame(app, duel.slug, app.p1);
+    const readied = app.series.setSideReady(series.id, "g1", app.p2);
     app.series.setFirstChoice(series.id, "g1", app.p2, "second");
-    expect(app.series.setFirstChoice(series.id, "g1", app.p2, "first").firstChoice).toBe("first");
+    const changed = app.series.setFirstChoice(series.id, "g1", app.p2, "first");
+    expect(changed.firstChoice).toBe("first");
+    expect(changed.sideReady).toEqual(readied.sideReady);
     expect(seatOf(app.series.createNextGame(series.id, "g1"), app.p2)).toBe(0);
   });
 
@@ -801,6 +870,12 @@ describe("Best of 3 against the practice bot", () => {
     app.series.setFirstChoice(done.seriesId!, "g1", app.p1, "second");
     expect(app.series.setSideReady(done.seriesId!, "g1", app.p1)).toMatchObject({ sideReady: [true, true], firstChoice: "second" });
     expect(app.series.dueNextGames(Date.now(), 10)).toHaveLength(1);
+    // The human can take Ready back while editing; the bot stays ready with its unchanged deck.
+    const cleared = app.series.clearSideReady(done.seriesId!, "g1", app.p1);
+    expect(cleared).toMatchObject({ readyCleared: true, series: { vsBot: true, sideReady: [false, true] } });
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
+    expect(app.series.sideState(done.seriesId!, "g1", app.p1).currentDeck).toEqual(swapped);
+    app.series.setSideReady(done.seriesId!, "g1", app.p1);
     const game2 = app.series.createNextGame(done.seriesId!, "g1");
     expect(seatOf(game2, app.p1)).toBe(1);
     expect(botSeatOf(game2)).toBe(0);
@@ -955,6 +1030,69 @@ describe("side decking", () => {
     const priv = app.duels.privateState(next.slug, "g1");
     const seat = seatOf(next, app.p1);
     expect(priv.decks[seat]).toEqual(swapped);
+  });
+
+  it("clears the player's Ready when they change their deck after Ready", () => {
+    const app = setup();
+    const series = betweenGames(app);
+    const index = series.playerIds.indexOf(app.p1);
+    const deck = validDeck(1);
+    const swapped: DuelDeck = {
+      ...deck,
+      main: [...deck.main.slice(1), deck.side[0] as number],
+      side: [deck.main[0] as number, deck.side[1] as number],
+    };
+    app.series.setSideReady(series.id, "g1", app.p1);
+    app.series.setSideReady(series.id, "g1", app.p2);
+    expect(app.series.get(series.id, "g1").sideReady).toEqual([true, true]);
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([{ seriesId: series.id, guildId: "g1" }]);
+
+    // Saving the same deck again is not a change and keeps Ready.
+    expect(app.series.setSideDeck(series.id, "g1", app.p1, deck).sideReady).toEqual([true, true]);
+
+    const summary = app.series.setSideDeck(series.id, "g1", app.p1, swapped);
+    expect(summary.sideReady[index]).toBe(false);
+    expect(summary.sideReady[index === 0 ? 1 : 0]).toBe(true);
+    // The series is no longer due: neither the ready path nor the sweep may start the next game.
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
+  });
+
+  it("clears Ready on request while the player edits, before anything is saved", () => {
+    const app = setup();
+    expectStatus(() => app.series.clearSideReady(challenge(app, 3).series.id, "g1", app.p1), 409);
+    const series = betweenGames(app);
+    const index = series.playerIds.indexOf(app.p1);
+    expectStatus(() => app.series.clearSideReady(series.id, "g1", app.p3), 403);
+    app.series.setSideReady(series.id, "g1", app.p1);
+    app.series.setSideReady(series.id, "g1", app.p2);
+    expect(app.series.dueNextGames(Date.now(), 10)).toHaveLength(1);
+
+    const cleared = app.series.clearSideReady(series.id, "g1", app.p1);
+    expect(cleared.readyCleared).toBe(true);
+    expect(cleared.series.sideReady[index]).toBe(false);
+    expect(cleared.series.sideReady[index === 0 ? 1 : 0]).toBe(true);
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
+    expect(app.series.clearSideReady(series.id, "g1", app.p1).readyCleared).toBe(false);
+  });
+
+  it("reports whether a save cleared Ready, read inside the save", () => {
+    const app = setup();
+    const series = betweenGames(app);
+    const deck = validDeck(1);
+    const swapped: DuelDeck = {
+      ...deck,
+      main: [...deck.main.slice(1), deck.side[0] as number],
+      side: [deck.main[0] as number, deck.side[1] as number],
+    };
+    // Not ready: a change clears nothing.
+    expect(app.series.saveSideDeck(series.id, "g1", app.p1, swapped).readyCleared).toBe(false);
+    // Ready lands after any snapshot the caller took: the save still sees it.
+    app.series.setSideReady(series.id, "g1", app.p1);
+    expect(app.series.saveSideDeck(series.id, "g1", app.p1, swapped).readyCleared).toBe(false);
+    const saved = app.series.saveSideDeck(series.id, "g1", app.p1, deck);
+    expect(saved.readyCleared).toBe(true);
+    expect(saved.series.sideReady[series.playerIds.indexOf(app.p1)]).toBe(false);
+    expect(saved.series).toEqual(app.series.get(series.id, "g1"));
   });
 
   it("rejects different cards, a changed side count and a small main deck", () => {

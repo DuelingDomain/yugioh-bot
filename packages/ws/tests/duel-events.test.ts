@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createServer, type Server as HttpServer } from "node:http";
 import { Server as SocketIOServer } from "socket.io";
 import { io as ClientIO, type Socket as ClientSocket } from "socket.io-client";
-import { createDuelConnectionToken, type DuelConnectionTokenClaims } from "@yugidraft/shared/ws";
+import { createDraftRoomToken, createDuelConnectionToken, type DuelConnectionTokenClaims } from "@yugidraft/shared/ws";
 import { DraftRoomManager } from "../src/rooms.js";
 import {
   registerEventHandlers,
@@ -39,7 +39,7 @@ function mint(overrides: Partial<DuelConnectionTokenClaims> = {}) {
 async function setupTestServer(): Promise<Setup> {
   const httpServer = createServer();
   const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(httpServer);
-  registerEventHandlers(io, new DraftRoomManager());
+  registerEventHandlers(io, new DraftRoomManager(), { secret: SECRET, canReadDraft: () => true });
   registerDuelEventHandlers(io, { secret: SECRET });
   return new Promise<Setup>((resolve) => {
     httpServer.listen(0, () => {
@@ -63,7 +63,9 @@ function emitDuelJoin(client: TestClient, token: string): Promise<DuelJoinAck> {
 }
 
 function emitDraftJoin(client: TestClient, slug: string): Promise<unknown> {
-  return new Promise<unknown>((resolve) => client.emit("draft:join", { slug }, resolve));
+  const userId = "user-1";
+  const token = createDraftRoomToken({ slug, guildId: "g1", userId, expiresAt: Date.now() + 60_000 }, SECRET);
+  return new Promise<unknown>((resolve) => client.emit("draft:join", { slug, userId, token }, resolve));
 }
 
 function oncePresence(client: TestClient, match: (payload: Presence) => boolean): Promise<Presence> {

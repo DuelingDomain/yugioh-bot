@@ -161,7 +161,9 @@ describe("CreateDraftForm", () => {
 
     render(<CreateDraftForm />);
 
-    fireEvent.change(await screen.findByLabelText(/template name/i), { target: { value: "Goat Cube" } });
+    const poolName = await screen.findByLabelText(/save this pool as/i);
+    expect(poolName).toHaveAttribute("placeholder", "Goat cube");
+    fireEvent.change(poolName, { target: { value: "Goat Cube" } });
     fireEvent.change(screen.getByLabelText(/custom card ids/i), { target: { value: "46986414\n83764718" } });
     fireEvent.click(screen.getByRole("button", { name: /save pool/i }));
 
@@ -181,5 +183,69 @@ describe("CreateDraftForm", () => {
     expect(body.config).not.toHaveProperty("packSize");
     expect(body.config).not.toHaveProperty("packsPerPlayer");
     expect(body.config).not.toHaveProperty("pickSeconds");
+  });
+
+  it("keeps the summary in step with the fields and explains the pack sentence", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/discord/channels") return Response.json({ channels: [] });
+      if (String(input) === "/api/cubes") return Response.json({ cubes: [] });
+      return Response.json({}, { status: 404 });
+    }));
+    render(<CreateDraftForm />);
+
+    const summary = screen.getByRole("complementary", { name: /draft summary/i });
+    expect(screen.getByLabelText(/draft name/i)).toHaveAttribute("placeholder", "Friday cube night");
+    expect(screen.getByLabelText(/draft name/i).closest(".mk-secs")?.className).toMatch(/sections/);
+    expect(screen.getByRole("list", { name: "What happens next" }).className).toMatch(/next_/);
+    expect(screen.getByText("/draft join")).toHaveClass("cmd");
+    expect(summary).toHaveTextContent("Nothing yet");
+    expect(summary).toHaveTextContent("Shuffled at the start");
+    expect(summary).toHaveTextContent(/3 of 15/);
+    expect(summary).toHaveTextContent(/45 s/);
+    expect(screen.getByText(/the last 5 cards of pack 3 aren't picked/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/draft name/i), { target: { value: "Goat cube" } });
+    fireEvent.change(screen.getByLabelText(/custom card ids/i), { target: { value: "46986414\n83764718" } });
+    fireEvent.change(screen.getByLabelText(/cards drafted per player/i), { target: { value: "45" } });
+    expect(summary).toHaveTextContent("Goat cube");
+    expect(summary).toHaveTextContent("2 passcodes");
+    expect(summary).toHaveTextContent(/45 cards/);
+    expect(screen.queryByText(/aren't picked/i)).toBeNull();
+    expect(screen.getByText(/2 cards\./)).toBeInTheDocument();
+  });
+
+  it("shows the name problem at the top of the form and creates nothing", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(input) === "/api/discord/channels") return Response.json({ channels: [] });
+      return Response.json({}, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CreateDraftForm />);
+
+    fireEvent.click(screen.getByRole("button", { name: /create draft/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Draft name is required");
+    expect(screen.getByLabelText(/draft name/i)).toHaveAttribute("aria-invalid", "true");
+
+    fireEvent.change(screen.getByLabelText(/draft name/i), { target: { value: "Cube" } });
+    fireEvent.click(screen.getByRole("button", { name: /create draft/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Select at least one set or paste custom card IDs");
+    expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "POST")).toBe(false);
+  });
+
+  it("says what a loaded saved pool holds and offers named controls for the set list", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/discord/channels") return Response.json({ channels: [] });
+      if (String(input) === "/api/cubes") {
+        return Response.json({ cubes: [{ id: 1, name: "Goat", setNames: ["Metal Raiders"], customCardIds: [46986414, 83764718] }] });
+      }
+      return Response.json({}, { status: 404 });
+    }));
+    render(<CreateDraftForm />);
+
+    fireEvent.change(await screen.findByLabelText(/saved pool/i), { target: { value: "Goat" } });
+    expect(screen.getByText(/loaded goat: 1 set, 2 passcodes/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove Metal Raiders" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh the set list" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Sets")).toBeInTheDocument();
   });
 });
