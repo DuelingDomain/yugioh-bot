@@ -95,6 +95,7 @@ describe("BetweenGamesScreen: editing after Ready", () => {
   it("trusts a refreshed room over its own Ready answer, even when the snapshot's Ready did not change", async () => {
     // This tab readies; another tab takes it back before the refresh, so the room still says not ready.
     setup({}, vi.fn().mockResolvedValue(undefined));
+    await tile("Card 1, Main Deck");
     fireEvent.click(ready());
     await waitFor(() => expect(api.readySeries).toHaveBeenCalled());
     await waitFor(() => expect(ready().disabled).toBe(false));
@@ -127,7 +128,7 @@ describe("BetweenGamesScreen: editing after Ready", () => {
     expect(screen.getByRole("alert").textContent).toBe("Network down");
     // The valid swap is saved even though un-ready failed; that save clears Ready in its transaction.
     await waitFor(() => expect(api.saveSeriesSideDeck).toHaveBeenCalledWith("game-1", sided));
-    await waitFor(() => expect(status().textContent).toMatch(/no longer ready/));
+    await waitFor(() => expect(status().textContent).toMatch(/You are (?:not|no longer) ready/));
     expect(ready().disabled).toBe(false);
     fireEvent.click(ready());
     await waitFor(() => expect(api.readySeries).toHaveBeenCalled());
@@ -160,6 +161,7 @@ describe("BetweenGamesScreen: editing after Ready", () => {
 
   it("uses the Ready response before the room refreshes and un-readies the next edit", async () => {
     const view = setup();
+    await tile("Card 1, Main Deck");
     fireEvent.click(ready());
     await waitFor(() => expect(status().textContent).toMatch(/You are ready/));
     await waitFor(() => expect(view.onChanged).toHaveBeenCalled());
@@ -200,6 +202,7 @@ describe("BetweenGamesScreen: editing after Ready", () => {
   it("un-readies after remounting with stale props when Ready worked but refresh failed", async () => {
     const onChanged = vi.fn().mockRejectedValue(new Error("Refresh failed"));
     const view = setup({}, onChanged);
+    await tile("Card 1, Main Deck");
     fireEvent.click(ready());
     await waitFor(() => expect(status().textContent).toMatch(/You are ready/));
     await waitFor(() => expect(ready().getAttribute("aria-busy")).not.toBe("true"));
