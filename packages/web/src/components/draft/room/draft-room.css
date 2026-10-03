@@ -177,6 +177,12 @@
   grid-template-columns: var(--insp-w) minmax(0, 1fr) var(--bind-w);
   min-height: 0;
 }
+.dr .reader-panel, .dr .binder-panel {
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
 
 /* reader: same build as the duel inspector */
 .dr .insp {
@@ -1081,21 +1087,23 @@
 @media (max-width: 1359px) and (min-width: 901px) {
   .dr { --insp-w: 284px; }
   .dr .body { grid-template-columns: var(--insp-w) minmax(0, 1fr); }
-  .dr .binder {
+  .dr .binder-panel {
     position: fixed;
     top: var(--bar-h);
     right: 0;
     bottom: 0;
     z-index: 45;
     width: min(380px, 92vw);
+    transform: translateX(104%);
+    transition: transform 0.32s var(--ease);
+  }
+  .dr .binder {
     border: 1px solid var(--rule);
     border-right: 0;
     box-shadow: -20px 0 50px rgb(0 0 0 / 0.55);
     background: var(--panel-2);
-    transform: translateX(104%);
-    transition: transform 0.32s var(--ease);
   }
-  .dr[data-binder] .binder { transform: none; }
+  .dr[data-binder] .binder-panel { transform: none; }
   .dr .bd-bar { background: var(--panel-2); }
   .dr .bd-x { display: block; }
   .dr .scrim { display: block; position: fixed; inset: var(--bar-h) 0 0; z-index: 44; background: rgb(3 6 12 / 0.45); opacity: 0; pointer-events: none; transition: opacity 0.25s; }
@@ -1208,23 +1216,25 @@
   .dr .holo { display: none; }
 
   /* reader: a bottom sheet with a small hologram */
-  .dr .insp {
+  .dr .reader-panel {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 40;
     max-height: 86dvh;
+    transform: translateY(105%);
+    transition: transform 0.32s var(--ease);
+  }
+  .dr[data-sheet="card"] .reader-panel { transform: none; }
+  .dr .insp {
     padding: 14px 16px max(16px, env(safe-area-inset-bottom));
     border: 1px solid var(--rule);
     border-bottom: 0;
     border-radius: 16px 16px 0 0;
     background: var(--panel-2);
     box-shadow: 0 -20px 50px rgb(0 0 0 / 0.6);
-    transform: translateY(105%);
-    transition: transform 0.32s var(--ease);
   }
-  .dr[data-sheet="card"] .insp { transform: none; }
   .dr .scrim { display: block; position: fixed; inset: 0; z-index: 39; background: rgb(3 6 12 / 0.5); opacity: 0; pointer-events: none; transition: opacity 0.25s; }
   .dr[data-sheet] .scrim { opacity: 1; pointer-events: auto; }
   .dr .insp-art { display: none; }
@@ -1235,22 +1245,24 @@
   .dr .insp-text { max-height: 30dvh; }
 
   /* binder: a tall sheet over the table */
-  .dr .binder {
+  .dr .binder-panel {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 40;
     height: calc(100dvh - 44px);
+    transform: translateY(103%);
+    transition: transform 0.32s var(--ease);
+  }
+  .dr[data-sheet="binder"] .binder-panel { transform: none; }
+  .dr .binder {
     border: 1px solid var(--rule);
     border-bottom: 0;
     border-radius: 16px 16px 0 0;
     background: var(--panel-2);
     box-shadow: 0 -20px 50px rgb(0 0 0 / 0.6);
-    transform: translateY(103%);
-    transition: transform 0.32s var(--ease);
   }
-  .dr[data-sheet="binder"] .binder { transform: none; }
   .dr .bd-x { display: block; }
   .dr .bd-head { padding: 10px 10px 0; }
   .dr .tabs button { padding: 0 8px; font-size: 14px; }
