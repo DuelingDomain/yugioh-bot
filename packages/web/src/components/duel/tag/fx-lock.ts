@@ -27,8 +27,17 @@ function reasonOf(event: DuelEvent): CameraLockReason | null {
   }
 }
 
-/** Lock for the events with an id above `afterId`: the strongest reason, the longest time. Null when none locks. */
-export function lockForEvents(events: readonly DuelEvent[], afterId: number): FxLock | null {
+/** The newest event id, or `afterId` when there is none. A caller that skips the lock still moves its cursor with this. */
+export function lastEventId(events: readonly DuelEvent[], afterId: number): number {
+  return events.reduce((last, event) => Math.max(last, event.id), afterId);
+}
+
+/**
+ * Lock for the events with an id above `afterId`: the strongest reason, the longest time. Null when none locks.
+ * With reduced motion the camera never locks (no eased move, no input freeze); use `lastEventId` for the cursor.
+ */
+export function lockForEvents(events: readonly DuelEvent[], afterId: number, reducedMotion = false): FxLock | null {
+  if (reducedMotion) return null;
   let reason: CameraLockReason | null = null;
   let ms = 0;
   let lastId = afterId;

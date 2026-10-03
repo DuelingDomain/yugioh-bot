@@ -2,6 +2,7 @@ import { test, expect, type Seat } from "../helpers/fixtures";
 import { activateSingleResponse, attackWithFirstMonster, endTurn, expectOpponentBoards, handCard, pickLegalZone, startTable, useCard } from "../helpers/board";
 import { FILLER, withFiller } from "../helpers/decks";
 import { enterDuelRoom, surrender } from "../helpers/duel";
+import { expectAutoSpectating } from "../helpers/table";
 import type { Page } from "@playwright/test";
 import type { DuelRoom } from "@yugidraft/shared/duels";
 
@@ -75,7 +76,8 @@ test.describe("3-player live FFA table", () => {
     await surrender(carol.page);
     await expect(alice.page.getByTestId("seat-strip-leaving-2")).toBeVisible();
     await endTurn(alice.page, 5);
-    await expect(carol.page.getByTestId("self-eliminated")).toBeVisible();
+    // The eliminated duelist switches to spectating without a choice panel.
+    await expectAutoSpectating(carol.page, slug);
     await expect(alice.page.getByTestId("seat-strip-2")).toHaveAttribute("data-eliminated", "true");
     await surrender(bob.page);
     for (const seat of [...seats, spectator]) {

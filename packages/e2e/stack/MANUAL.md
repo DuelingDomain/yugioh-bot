@@ -159,7 +159,8 @@ Defaults:
 | Websocket | `http://localhost:3402` |
 | Internal websocket / duel host | `4402` / `4403` |
 | `E2E_DUEL_DATA_DIR` | `<worktree>/data/duel-engine-snap` |
-| `MULTIPLAYER_TABLES`, `DUEL_SCENARIOS`, `DUEL_FX_LAB` | `1` |
+| `MULTIPLAYER_TABLES`, `DUEL_SCENARIOS` | `1` |
+| `DUEL_FX_LAB` (web) | `1` here and in every ordinary e2e stack |
 | `DUEL_1V1_ENGINE` | `pinned` |
 | `DUEL_BOT_STEP_MS` | `900` (override with `E2E_BOT_STEP_MS`) |
 

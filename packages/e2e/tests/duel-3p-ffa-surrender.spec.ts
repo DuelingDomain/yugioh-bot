@@ -97,14 +97,16 @@ test.describe("FFA surrender and spectators", () => {
     await expectAutoSpectating(alice.page, slug);
     await surrender(bob.page);
     const result = alice.page.getByTestId("duel-result");
-    await expect(result).toHaveAttribute("data-outcome", "spectator");
+    // The eliminated seat spectated during the duel; once it ends the room shows its own loss and its own row.
+    await expect(result).toHaveAttribute("data-outcome", "lose");
+    await expect(result.locator("[data-tag='you']")).toHaveCount(1);
     const rows = result.getByRole("list", { name: "Final standings" }).getByRole("listitem");
     await expect(rows).toHaveCount(3);
     expect(await rows.evaluateAll(nodes => nodes.map(node => Number(node.getAttribute("data-seat"))))).toEqual([2, 1, 0]);
     await expect(result.locator("[data-place]")).toHaveText(["1st", "2nd", "3rd"]);
     await shot(alice.page, slug, info, "spectator-result");
     await alice.page.reload();
-    await expect(result).toHaveAttribute("data-outcome", "spectator");
+    await expect(result).toHaveAttribute("data-outcome", "lose");
     await expect(rows).toHaveCount(3);
     expect((await publicRoom(alice.page, slug)).engine!.prompt).toBeNull();
     expect(posts.count).toBe(0);
@@ -135,13 +137,15 @@ test.describe("FFA surrender and spectators", () => {
     await expect.poll(async () => (await readTable(bob.page, slug)).engine!.turnSeat).toBe(1);
     await surrender(bob.page);
     const result = alice.page.getByTestId("duel-result");
-    await expect(result).toHaveAttribute("data-outcome", "spectator");
+    // The eliminated seat spectated during the duel; once it ends the room shows its own loss and its own row.
+    await expect(result).toHaveAttribute("data-outcome", "lose");
+    await expect(result.locator("[data-tag='you']")).toHaveCount(1);
     const rows = result.getByRole("list", { name: "Final standings" }).getByRole("listitem");
     await expect(rows).toHaveCount(4);
     expect(await rows.evaluateAll(nodes => nodes.map(node => Number(node.getAttribute("data-seat"))))).toEqual([2, 1, 3, 0]);
     await expect(result.locator("[data-place]")).toHaveText(["1st", "2nd", "3rd", "4th"]);
     await alice.page.reload();
-    await expect(result).toHaveAttribute("data-outcome", "spectator");
+    await expect(result).toHaveAttribute("data-outcome", "lose");
     await expect(rows).toHaveCount(4);
     await evidence(carol.page, slug, info, "ffa4-spectator-live-turns", [watched]);
     expect(posts.count).toBe(0);

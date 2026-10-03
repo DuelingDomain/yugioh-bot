@@ -1164,6 +1164,11 @@ export function createDuelHost(options: {
         return project(slug, guildId, playerId, undefined, spectate);
       }
     }
+    // A finished duel has no hidden information left. A seated actor keeps their own seat and result, so a loser who
+    // spectated during the duel still sees "lose" and their own row instead of the spectator copy.
+    if (spectate && room.mySeat !== null && (room.session.status === "completed" || room.session.status === "interrupted")) {
+      return room;
+    }
     if (spectate) {
       if ((room.session.format !== "ffa3" && room.session.format !== "ffa4") ||
           (room.mySeat !== null && !room.engine?.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated))) {

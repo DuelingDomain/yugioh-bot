@@ -15,6 +15,15 @@ import { useFlyWorld } from "./use-fly-world";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
 import styles from "./table-stage.module.css";
 
+/**
+ * How many times larger the tilted world plane is laid out than drawn (see `.wstage` in table-stage.module.css).
+ * A layer under the perspective is rasterized at a low fixed density, so this is the texel density of the fly-in view:
+ * about two texels per screen pixel at the camera's home zoom, in steps of a quarter so a resize does not relayout every pixel.
+ */
+export function tiltSupersample(k: number): number {
+  return Math.min(4, Math.max(1.5, Math.round(k * 2 * 4) / 4));
+}
+
 /** What a click on a seat must leave alone: the controls and the legal targets inside a field. */
 const CLICK_PASS = "button, a, [data-legal='true'], [data-holo]";
 
@@ -122,10 +131,11 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     }
   };
 
-  const canvas: CSSProperties = {
+  const canvas: CSSProperties & Record<string, string | number> = {
     width: STAGE.width,
     height: canvasHeight,
     transform: `translate(${(box.width - STAGE.width * k) / 2}px, ${(box.height - canvasHeight * k) / 2}px) scale(${k})`,
+    "--ss": tiltSupersample(k),
   };
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
@@ -154,49 +164,51 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
             <div className={styles.fog} aria-hidden="true" />
           </>
         ) : null}
-        <div ref={worldRef} className={styles.world} data-world>
-          {threeWay && cityOn ? <FlyCity title={layout.format === "ffa4" ? "4-WAY DUEL" : undefined} /> : null}
-          <div className={styles.wstage} onClick={onSeatClick}>
-            <Plaza layout={layout} poses={poses} fly={fly} />
-            {ring && threeWay ? (
-              <TurnRing
-                layout={layout}
-                engine={engine}
-                angles={ringAngles(layout, camera)}
-                pose={ringAt}
-                promptSeat={promptSeat}
-                locked={locked}
-              />
-            ) : null}
-            {layout.slots.map((slot) => {
-              const pose = poses.get(slot.seat);
-              if (!pose) return null;
-              const place = layout.slots.indexOf(slot);
-              const self = slot.relation === "self";
-              const you = pose.slot ? pose.slot === "home" : place === 0;
-              const field: Omit<SeatFieldProps, "angleDeg" | "scale"> = {
-                engine,
-                seat: slot.seat,
-                viewerSeat,
-                masterRule,
-                side: you ? "you" : "opp",
-                upright: camera.upright,
-                tone: slot.tone,
-                density: you ? "full" : "rival",
-                hand: self && !looking ? "face" : "backs",
-                emz: "own",
-                showTally: false,
-                usable: !looking && (slot.relation === "self" || slot.relation === "opponent"),
-                name: nameOf(slot.seat),
-                legalKeys,
-                selectedKeys,
-                reducedMotion,
-                onActivate: controller.onActivate,
-                onInspect: controller.onInspect,
-                onHoverCard: controller.onHoverCard,
-              };
-              return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} />;
-            })}
+        <div className={styles.persp}>
+          <div ref={worldRef} className={styles.world} data-world>
+            {threeWay && cityOn ? <FlyCity title={layout.format === "ffa4" ? "4-WAY DUEL" : undefined} /> : null}
+            <div className={styles.wstage} onClick={onSeatClick}>
+              <Plaza layout={layout} poses={poses} fly={fly} />
+              {ring && threeWay ? (
+                <TurnRing
+                  layout={layout}
+                  engine={engine}
+                  angles={ringAngles(layout, camera)}
+                  pose={ringAt}
+                  promptSeat={promptSeat}
+                  locked={locked}
+                />
+              ) : null}
+              {layout.slots.map((slot) => {
+                const pose = poses.get(slot.seat);
+                if (!pose) return null;
+                const place = layout.slots.indexOf(slot);
+                const self = slot.relation === "self";
+                const you = pose.slot ? pose.slot === "home" : place === 0;
+                const field: Omit<SeatFieldProps, "angleDeg" | "scale"> = {
+                  engine,
+                  seat: slot.seat,
+                  viewerSeat,
+                  masterRule,
+                  side: you ? "you" : "opp",
+                  upright: camera.upright,
+                  tone: slot.tone,
+                  density: you ? "full" : "rival",
+                  hand: self && !looking ? "face" : "backs",
+                  emz: "own",
+                  showTally: false,
+                  usable: !looking && (slot.relation === "self" || slot.relation === "opponent"),
+                  name: nameOf(slot.seat),
+                  legalKeys,
+                  selectedKeys,
+                  reducedMotion,
+                  onActivate: controller.onActivate,
+                  onInspect: controller.onInspect,
+                  onHoverCard: controller.onHoverCard,
+                };
+                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} />;
+              })}
+            </div>
           </div>
         </div>
         <svg ref={tetherRef} className={styles.tethers} viewBox="0 0 1100 860" aria-hidden="true" />

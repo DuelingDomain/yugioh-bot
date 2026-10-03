@@ -34,7 +34,9 @@ import { RoomLobby } from "./room-lobby";
 import { ReportButton } from "./report-button";
 import { OpeningScreen } from "./opening";
 import { DeckMasterRail, DuelField } from "./field";
-import { TableShell } from "./table/table-shell";
+import { TableShell, type TableShellProps } from "./table/table-shell";
+import { TagShell } from "./tag/tag-shell";
+import { defaultTeamNames } from "./tag/live-tag";
 import { useLiveTableController } from "./table/use-live-table-controller";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { MultiSeatStage } from "./multi-seat-stage";
@@ -95,6 +97,7 @@ import {
 /** The attack target the player pointed at; only the confirm submits it. */
 type AimLock = { promptId: string; optionId: string; key: string; anchor: HTMLElement; name: string };
 
+
 export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage = false, spectate = false, actorPlayerId = null }: {
   slug: string; inviteCode?: string; windowed?: boolean; legacyStage?: boolean; spectate?: boolean; actorPlayerId?: number | null;
 }) {
@@ -139,7 +142,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom, spectate);
   const syncing = realtime.syncing || realtime.recovering;
   const liveFormat = engineFormat(data?.engine);
-  const liveTable = isMultiSeat(data?.engine) && (liveFormat === "ffa3" || liveFormat === "ffa4") && !legacyStage;
+  // Live tables: FFA mounts TableShell, Tag 2v2 mounts the Rooftop (TagShell). ?stage=legacy keeps MultiSeatStage for both.
+  const liveTagTable = isMultiSeat(data?.engine) && liveFormat === "tag" && !legacyStage;
+  const liveTable = (isMultiSeat(data?.engine) && (liveFormat === "ffa3" || liveFormat === "ffa4") && !legacyStage) || liveTagTable;
   const playerName = seatNamer(data?.session.seats ?? []);
   useDuelLeaveGuard({
     slug,
@@ -221,7 +226,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   });
   const viewerSeat = data?.engine?.seats.find((seat) => seat.seat === data.mySeat);
   const viewerLeaving = viewerOut && viewerSeat?.eliminated !== true && viewerSeat?.pendingElimination === true;
-  const viewerEliminated = (liveFormat === "ffa3" || liveFormat === "ffa4") && viewerSeat?.eliminated === true;
+  // Auto-spectate only watches the REMAINING duel; once it is over the eliminated seat keeps its own result screen.
+  const duelOver = data?.session.status !== "active" || data?.engine?.result != null;
+  const viewerEliminated = (liveFormat === "ffa3" || liveFormat === "ffa4") && viewerSeat?.eliminated === true && !duelOver;
   useEffect(() => {
     if (!viewerEliminated || spectate) return;
     const query = new URLSearchParams(window.location.search);
@@ -625,7 +632,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     else router.replace("/duels");
   };
   const surrenderOpen = confirmSurrender && canSurrender;
-  const surrenderModal = <SurrenderModal open={surrenderOpen} busy={busy} multiplayer={multi && (format === "ffa3" || format === "ffa4")}
+  const surrenderModal = <SurrenderModal open={surrenderOpen} busy={busy} multiplayer={multi && (format === "ffa3" || format === "ffa4")} tag={multi && format === "tag"}
     onClose={() => setConfirmSurrender(false)} onConfirm={() => {
       if (!canSurrender) return;
       setConfirmSurrender(false);
@@ -658,30 +665,35 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     );
   }
   if (liveTable && liveController) {
-    return <TableShell key={slug} controller={liveController} fillViewport boardRef={boardRef} pickContinuation={pick}
-      inputSuspended={surrenderOpen}
-      fxActive={!error && !realtime.recovering} busy={busy || Boolean(error) || catchingUp}
-      initialOutOrder={eliminationOrder(liveController.engine)}
-      connection={{ ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy }}
-      actions={{ onExit: exitDuel, onSeriesChanged: () => void refreshRoom(), onNavigate: goToGame }}
-      headerTools={<>
+    // One seam set for both live shells, so the room stays one code path.
+    const shellProps: TableShellProps = {
+      controller: liveController, fillViewport: true, boardRef, pickContinuation: pick,
+      inputSuspended: surrenderOpen,
+      fxActive: !error && !realtime.recovering, busy: busy || Boolean(error) || catchingUp,
+      initialOutOrder: eliminationOrder(liveController.engine),
+      connection: { ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy },
+      actions: { onExit: exitDuel, onSeriesChanged: () => void refreshRoom(), onNavigate: goToGame },
+      headerTools: <>
         <ReportButton slug={slug} />
         {leaveControl}
         {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error)}
           onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
-      </>}
-      settingsTools={canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
-        onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null}
-      notices={<>
+      </>,
+      settingsTools: canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
+        onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null,
+      notices: <>
         {leavingNotice}
         {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
           <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
         {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
         {data.error ? <div className={styles.error} role="alert">{data.error}</div> : null}
-      </>}
-      modals={<>
+      </>,
+      modals: <>
         {surrenderModal}
-      </>} />;
+      </>,
+    };
+    if (liveTagTable) return <TagShell key={slug} {...shellProps} teamNames={defaultTeamNames()} />;
+    return <TableShell key={slug} {...shellProps} />;
   }
   const connectionLabel = labelForConnection(terminal, { ...realtime, stale: roomStale, error });
   const domain = data.session.mode === "domain";

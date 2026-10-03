@@ -91,10 +91,10 @@ function always(ctx: Ctx, test: (step: StepRecord) => boolean, what: string): Hi
 const manual = (why: string): Check => () => ({ verdict: "unchecked", detail: `needs a human look: ${why}` });
 
 /** Uses debug-trace prompts when they exist; else unchecked. `bad` says which prompt breaks the rule. */
-function noHostPrompt(bad: (prompt: NonNullable<StepRecord["prompt"]>) => boolean, what: string): Check {
+function noHostPrompt(bad: (prompt: NonNullable<StepRecord["prompt"]>) => boolean, what: string, when: (step: StepRecord) => boolean = () => true): Check {
   return (ctx) => {
     if (!ctx.steps.some((step) => step.traceSeen)) return { verdict: "unchecked", detail: `needs debug-trace (host op) to see the prompts of the other seats: ${what}` };
-    const offender = ctx.steps.find((step) => step.hostPrompts.some(bad));
+    const offender = ctx.steps.find((step) => when(step) && step.hostPrompts.some(bad));
     return offender ? { verdict: "fail", step: offender, detail: `seen: ${what}` } : { verdict: "pass", step: ctx.steps.at(-1), detail: what };
   };
 }
@@ -165,7 +165,8 @@ const CHECKS: Record<string, Check[]> = {
       return { verdict: first.board.every((seat) => seat.lp === 16000) ? "pass" : "fail", step: first, detail: `LP: ${first.board.map((seat) => seat.lp).join(",")}` };
     },
     (ctx) => (did(ctx, "summon Celtic Guardian") ? { verdict: "pass", step: ctx.steps.find((step) => step.revision === did(ctx, "summon Celtic Guardian")!.revision), detail: "summon answered" } : { verdict: "not-reached", detail: "summon was not played" }),
-    noHostPrompt((prompt) => prompt.seat === 2 && prompt.options.some((option) => /Solemn/i.test(option)), "the partner (seat 2) was offered Solemn Judgment"),
+    // Once the rival's Solemn Judgment is on the chain, the partner may answer it. Only an empty chain is the partner's own summon.
+    noHostPrompt((prompt) => prompt.seat === 2 && prompt.options.some((option) => /Solemn/i.test(option)), "the partner (seat 2) was offered Solemn Judgment on the summon", (step) => step.chain.length === 0),
     (ctx) => expectState(ctx, ["summon Celtic Guardian"], (step) => seatOf(step, 1)?.lp === 8000 && seatOf(step, 3)?.lp === 8000, "LP of seats 1 and 3 is 8000"),
     (ctx) => (ctx.steps.length === 0 ? { verdict: "not-reached", detail: "no revision was seen" } : always(ctx, (step) => seatOf(step, 0)?.lp === 16000 && seatOf(step, 2)?.lp === 16000, "own team LP stays 16000")),
   ],

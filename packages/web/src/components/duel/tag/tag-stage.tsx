@@ -191,8 +191,9 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
   // End of an FX lock: the reducer restores the saved view on the first tick after the time.
   const lockUntil = camera.lock?.untilMs ?? null;
   useEffect(() => {
-    if (lockUntil == null) return;
-    const wait = Math.max(0, lockUntil - performance.now()) + 8;
+    // An open-ended lock (a preview lock, an infinite time) has no end to wait for. A timer over 2^31 ms would fire at once.
+    if (lockUntil == null || !Number.isFinite(lockUntil)) return;
+    const wait = Math.min(2 ** 31 - 1, Math.max(0, lockUntil - performance.now()) + 8);
     const timer = window.setTimeout(() => dispatchCamera({ type: "tick", nowMs: performance.now() }), wait);
     return () => window.clearTimeout(timer);
   }, [lockUntil, dispatchCamera]);
@@ -210,6 +211,8 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       viewerSeat,
       masterRule: room.session.masterRule,
       side: near ? "you" : "opp",
+      // `data-side="you"` is the viewer's own field only (e2e own-zone locators); a spectator has none.
+      dataSide: relation === "self" ? "you" : relation === "partner" ? "partner" : "opp",
       angleDeg: near ? 0 : 180,
       upright: camera.upright,
       tone: layout.slots.find((s) => s.seat === seat)?.tone ?? "violet",
@@ -218,7 +221,6 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       emz: "own",
       showTally: false,
       usable: relation === "self",
-      peekSetCards: relation === "partner",
       name: nameOf(seat),
       legalKeys,
       selectedKeys,
@@ -300,6 +302,7 @@ export function TagStage({ controller, layout, camera, dispatchCamera, renderSea
       ref={rootRef}
       className={`${styles.stage} ${duelFontClasses}`}
       style={rootStyle}
+      data-table-stage="tag"
       data-tag-stage
       data-battle={battle ? "true" : "false"}
       data-spectator={spectator ? "true" : undefined}

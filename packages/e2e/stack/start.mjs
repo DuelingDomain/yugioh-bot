@@ -203,7 +203,8 @@ run("web", process.execPath, ["server.js"], {
     DUEL_INTERNAL_SECRET: secrets.duel,
     // The preset and report routes answer 404 without this. E2E stack only.
     DUEL_SCENARIOS: "1",
-    DUEL_FX_LAB: manualMode ? "1" : "0",
+    // Every e2e stack (ordinary and manual) serves /dev/table-preview, which table-hand-label.spec.ts opens without a login.
+    DUEL_FX_LAB: "1",
     // Same flag as on the duel host. The web reads it at run time.
     MULTIPLAYER_TABLES: process.env.E2E_MULTIPLAYER_TABLES ?? "1",
     CARD_IMAGE_CACHE_DIR: cardImageDir,

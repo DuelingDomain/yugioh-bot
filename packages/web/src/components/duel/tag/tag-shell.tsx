@@ -1,395 +1,413 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from "react";
-import { Settings, Volume2, VolumeX } from "lucide-react";
-import { teamOfSeat, type DuelCard, type DuelCardInfo } from "@yugidraft/shared/duels";
-import { BattleFx } from "../battle-fx";
-import { centerKind, PromptCenter } from "../prompt-center";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { teamOfSeat } from "@yugidraft/shared/duels";
+import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
+import { isBattlePhase } from "../constants";
+import { DuelResultScreen } from "../duel-result";
 import { SeatField } from "../field";
-import { FxBoundary } from "../fx-boundary";
-import { CardInspector } from "../inspector";
-import { DuelHistoryRail } from "../history-rail";
-import { PileViewer } from "../pile-viewer";
-import { isAttackTargetPrompt, PromptTray } from "../prompts";
-import { StationTrack } from "../station-track";
-import { DuelSettingsSummary, DuelSoundControls } from "../room-settings";
-import { CardTabEmpty, DESKTOP_PANES, SidePanel, SideTabs, type SidePane } from "../side-panel";
-import { resolveEquipLinks } from "../equip-links";
-import { isBattlePhase, phaseLabel, zoneKey } from "../constants";
-import { formatClock } from "../table/holo-lp";
-import { hexToRgbTriplet } from "../table/seat-angle";
-import { tableLayout } from "../table/geometry";
-import { SEAT_TONE_HEX, type CameraState, type InspectTarget, type TableController } from "../table/types";
 import { duelFontClasses } from "../fonts";
-import { lockForEvents } from "./fx-lock";
+import { usePickContinuation } from "../pick-continuation";
+import { useDuelPreferences } from "../preferences";
+import { centerKind, PromptCenter } from "../prompt-center";
+import { PromptTray } from "../prompts";
+import { useResultGate } from "../result-reveal";
+import roomStyles from "../room.module.css";
+import { SeriesBanner } from "../series-banner";
+import { useIsNarrow } from "../side-panel";
+import { hasNoLegalMoves, resolveBattleStep, StationTrack } from "../station-track";
+import { OpponentBar } from "../table/opponent-bar";
+import { toneBySeat } from "../table/seat-state";
+import { tableLayout } from "../table/geometry";
+import { useAimFlow } from "../table/use-aim-flow";
+import { useTableUi } from "../table/use-table-ui";
+import { tableZoneAnchor } from "../table/zone-find";
+import { SEAT_TONE_HEX, type TableController } from "../table/types";
+import { lastEventId, lockForEvents } from "./fx-lock";
+import { resolveTagExtras, tagCameraYields, tagInputSuspended, type TagShellPreviewProps } from "./live-tag";
+import { initialRoofCamera, roofReducer } from "./roof-camera";
 import { CameraDock } from "./roof-map";
-import { initialRoofCamera, roofKeyAction, roofReducer } from "./roof-camera";
-import { batonOrder, firstInspectCard, passSummary, responseWindow, resultBanner, teamLp } from "./tag-logic";
+import { resultBanner, teamLp } from "./tag-logic";
+import { TagFx, tagPriority } from "./tag-fx";
+import { TagHeader } from "./tag-header";
+import { TagPileViewer, TagSide } from "./tag-side";
 import { TagStage } from "./tag-stage";
+import { TagTrack } from "./tag-track";
+import { chainDecidingSeat, useChainPasses } from "./use-chain-passes";
+import { useRoofKeys } from "./use-roof-keys";
 import styles from "./tag-shell.module.css";
 
-export interface TagShellProps {
-  controller: TableController;
-  teamNames?: readonly [string, string];
-  /** Starting camera (the preview passes what its URL asks for). */
-  initialCamera?: Partial<CameraState>;
-}
-
-const PANES: readonly SidePane[] = DESKTOP_PANES;
-const PHASE_TITLE: Record<string, string> = {
-  Draw: "Draw Phase",
-  Standby: "Standby Phase",
-  "Main 1": "Main Phase 1",
-  Battle: "Battle Phase",
-  Damage: "Battle Phase",
-  "Damage calculation": "Battle Phase",
-  "Main 2": "Main Phase 2",
-  End: "End Phase",
+/**
+ * What the Rooftop shell takes. The live room passes `TagShellLiveProps` (the seams of `TableShell` plus the team names).
+ * A preview may leave the team names out and sets `preview`, which keeps the Rooftop result banner in place of the shared
+ * result screen (a preview has no room to leave and no series to continue).
+ * `initialOutOrder` is accepted for parity with `TableShell` and unused: a team table ends at the team's LP, there are no placings.
+ */
+export type TagShellProps = TagShellPreviewProps & {
+  preview?: boolean;
 };
 
-interface PileView {
-  title: string;
-  cards: DuelCard[];
-  owner: "you" | "opp";
-  open: boolean;
-}
-
-function typing(target: EventTarget | null): boolean {
-  const node = target as HTMLElement | null;
-  if (!node || typeof node.tagName !== "string") return false;
-  return node.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(node.tagName);
-}
-
-const PASSIVE_ACTION_IDS: ReadonlySet<string> = new Set(["to_bp", "to_m2", "to_ep", "shuffle"]);
+/** A preview lock has no end: a time this far off never comes before the page reloads (and fits a timer). */
+const OPEN_LOCK_MS = 1_000_000_000;
 
 /**
- * The preview shell of the Rooftop: the header, the left sheet (card inspector, history, prompt tray), the roof stage,
- * the camera dock and the station track. A live room keeps its own shell and mounts `TagStage` in its board box.
- * It wires the roof camera: keys, the FX lock from engine events, and the inspector from hover and click.
+ * The live 2v2 table (the Rooftop): header, side panels, the roof stage, the camera dock, the turn track and station
+ * track, menus, the result screen and the FX. It takes the same room seams as `TableShell` and the same shared hooks
+ * (table UI, aim flow, reveal gate, pick continuation), and keeps the engine in the room: it only gets a controller.
  */
-export function TagShell({ controller, teamNames, initialCamera }: TagShellProps) {
-  const { engine, room, viewerSeat, nameOf, prompt, reducedMotion } = controller;
+export function TagShell(props: TagShellProps) {
+  const {
+    controller: supplied,
+    fillViewport = false,
+    initialCamera,
+    initialLock = null,
+    actions,
+    fxActive = true,
+    busy: roomBusy = false,
+    headerTools,
+    modals,
+    notices,
+    settingsTools,
+    connection,
+    pickContinuation,
+    inputSuspended = false,
+    boardRef: roomBoardRef,
+    preview = false,
+  } = props;
+  const { teamNames, mode } = resolveTagExtras(props, supplied);
+
+  // Field clicks use the same reveal gate as the centered prompt; hidden decisions must not answer early.
+  const given = useMemo(() => {
+    const blocked = roomBusy || supplied.busy || (centerKind(supplied.prompt) != null && !supplied.revealed);
+    return blocked ? { ...supplied, busy: true, canAct: false, seatPick: null } : supplied;
+  }, [roomBusy, supplied]);
+  const localPick = usePickContinuation(pickContinuation ? null : given.prompt);
+  const pick = pickContinuation ?? localPick;
+  const onAnswer = useCallback<TableController["onAnswer"]>((answer) => {
+    if (given.busy || !given.canAct || !given.prompt) return;
+    if (!pickContinuation) pick.noteAnswer(given.prompt, answer);
+    given.onAnswer(answer);
+  }, [given, pick.noteAnswer, pickContinuation]);
+  const tracked = useMemo(() => ({ ...given, onAnswer }), [given, onAnswer]);
+  const ui = useTableUi(tracked);
+  const base = ui.controller;
+  const { engine, room, viewerSeat, nameOf, prompt } = base;
   const layout = useMemo(
     () => tableLayout("tag", engine, viewerSeat),
     // The layout depends on who sits where, never on a card: the seat list is enough.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [engine.seats.length, viewerSeat],
   );
+  const rootRef = useRef<HTMLDivElement>(null);
+  const ownBoardRef = useRef<HTMLDivElement>(null);
+  const boardRef = roomBoardRef ?? ownBoardRef;
+  const narrow = useIsNarrow();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  // One flag for the aim flow and the camera keys. A seat pick or an aim does not suspend input: they need their keys.
+  const suspended = tagInputSuspended({ inputSuspended, menu: ui.menu, pile: ui.pile, narrow, sheetOpen });
+  const flow = useAimFlow(base, layout, rootRef, { suspended });
+  const controller = flow.controller;
+  const preferences = useDuelPreferences();
+  const [hideResult, setHideResult] = useState(false);
+
+  const session = room.session;
+  const domain = mode === "domain";
+  const spectator = viewerSeat == null;
+  const viewerOut = engine.seats.some((seat) => seat.seat === viewerSeat && (seat.eliminated || seat.pendingElimination));
+  const terminal = session.status !== "active";
+  const hasResult = engine.result != null || terminal;
+  const resultReady = useResultGate({
+    slug: session.slug,
+    status: session.status,
+    hasResult: engine.result != null,
+    reason: engine.result?.reason ?? session.resultReason,
+    reducedMotion: controller.reducedMotion,
+    board: boardRef,
+  });
+  const showResult = !hideResult && resultReady && hasResult;
+
+  // ---------- roof camera ----------
   const [camera, dispatchCamera] = useReducer(roofReducer, undefined, () =>
-    initialRoofCamera({ anchorSeat: layout.anchorSeat, camera: initialCamera }),
+    initialRoofCamera({
+      anchorSeat: layout.anchorSeat,
+      camera: { ...initialCamera, ...(initialLock ? { lock: { reason: initialLock, untilMs: performance.now() + OPEN_LOCK_MS } } : {}) },
+    }),
   );
 
-  // ---------- FX camera lock: engine events newer than the last one handled ----------
-  const lastEvent = useRef<number>(Math.max(0, ...engine.events.map((event) => event.id)));
+  // The FX lock follows engine events newer than the last one handled. With reduced motion, or while the connection is
+  // down (the FX replay nothing), no lock starts but the cursor still moves, so old events never lock the camera later.
+  const lastEvent = useRef<number>(lastEventId(engine.events, 0));
   useEffect(() => {
-    const lock = lockForEvents(engine.events, lastEvent.current);
+    const lock = fxActive ? lockForEvents(engine.events, lastEvent.current, controller.reducedMotion) : null;
     if (!lock) {
-      lastEvent.current = Math.max(lastEvent.current, ...engine.events.map((event) => event.id));
+      lastEvent.current = lastEventId(engine.events, lastEvent.current);
       return;
     }
     lastEvent.current = lock.lastId;
     dispatchCamera({ type: "lock", reason: lock.reason, nowMs: performance.now(), ms: lock.ms });
-  }, [engine.events]);
+  }, [engine.events, fxActive, controller.reducedMotion]);
 
-  // ---------- keys ----------
-  const answering = controller.canAct && prompt != null;
-  const [pile, setPile] = useState<PileView | null>(null);
-  const pileOpen = pile?.open === true;
+  // An aim holds the camera where it is (auto follow reads it).
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target) || pileOpen) return;
-      if (event.key === "Tab") return; // Tab keeps its job: it moves the focus
-      // Digits belong to the prompt (options, seat picks) while you answer one.
-      if (answering && /^[0-9]$/.test(event.key)) return;
-      const action = roofKeyAction(event.key, { anchorSeat: layout.anchorSeat, pinned: camera.pinned }, { shift: event.shiftKey });
-      if (!action) return;
-      event.preventDefault();
-      dispatchCamera(action);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [answering, camera.pinned, layout.anchorSeat, pileOpen]);
+    dispatchCamera({ type: "aiming", on: flow.aiming });
+  }, [flow.aiming]);
 
-  // ---------- inspector, piles ----------
-  const [pane, setPane] = useState<SidePane>("card");
-  const [inspect, setInspect] = useState<InspectTarget | null>(() => {
-    const card = firstInspectCard(engine, viewerSeat);
-    return card ? { type: "card", card } : null;
+  const promptMine = prompt != null && !spectator && !viewerOut && prompt.seat === viewerSeat && !terminal;
+  const centered = promptMine && centerKind(prompt) != null;
+  const centeredUnrevealed = centered && !controller.revealed;
+  useRoofKeys({
+    dispatch: dispatchCamera,
+    anchorSeat: layout.anchorSeat,
+    pinned: camera.pinned,
+    // The result screen owns the keys while it is shown.
+    suspended: suspended || showResult,
+    yields: tagCameraYields({ aiming: flow.aiming, seatKeys: flow.seatKeys, centeredUnrevealed }),
   });
-  const [logUnread, setLogUnread] = useState(0);
-  const [hideResult, setHideResult] = useState(false);
-  // The preview has no account preferences: the sound switch is local. A live room keeps its own.
-  const [soundOn, setSoundOn] = useState(true);
-  const [volume, setVolume] = useState(0.7);
 
-  const showCard = useCallback((card: DuelCard | DuelCardInfo) => {
-    setInspect("location" in card ? { type: "card", card } : { type: "info", card } as InspectTarget);
-    setPane("card");
-  }, []);
-  const onInspect = useCallback(
-    (target: InspectTarget) => {
-      if (target.type === "pile") {
-        const first = target.cards[0];
-        const owner = first && viewerSeat != null && teamOfSeat("tag", first.controller) === teamOfSeat("tag", viewerSeat) ? "you" : "opp";
-        setPile({ title: target.title, cards: target.cards, owner, open: true });
-        return;
-      }
-      setInspect(target);
-      setPane("card");
-      controller.onInspect(target);
-    },
-    [controller, viewerSeat],
-  );
-  const onHoverCard = useCallback(
-    (card: DuelCard | null) => {
-      if (!card) return;
-      setInspect((current) => (current?.type === "card" && current.card === card ? current : { type: "card", card }));
-    },
-    [],
-  );
-  const shellController = useMemo<TableController>(
-    () => ({ ...controller, onInspect, onHoverCard }),
-    [controller, onInspect, onHoverCard],
+  // ---------- derived ----------
+  const tones = useMemo(() => toneBySeat(layout), [layout]);
+  const toneOf = useCallback((seat: number) => SEAT_TONE_HEX[tones.get(seat) ?? "ice"], [tones]);
+  const seatTones = useMemo(() => new Map([...tones].map(([seat, tone]) => [seat, SEAT_TONE_HEX[tone]])), [tones]);
+  // Every viewer reads the deciding seat from the engine view, not only the seat that holds the prompt.
+  const passes = useChainPasses(engine, prompt);
+  const chainOpen = engine.chain.length > 0 && !terminal;
+  const decidingSeat = chainDecidingSeat(engine, prompt);
+  const priority = useMemo(
+    () => (chainOpen ? tagPriority(engine, passes, decidingSeat) ?? undefined : undefined),
+    [chainOpen, engine, passes, decidingSeat],
   );
 
-  // ---------- header, track ----------
-  const turnSeat = engine.turnSeat;
-  const spectator = viewerSeat == null;
-  const myTurn = !spectator && turnSeat === viewerSeat;
-  const label = phaseLabel(engine.phase);
   const battle = isBattlePhase(engine.phase);
-  const viewerTeam = viewerSeat == null ? 0 : teamOfSeat("tag", viewerSeat);
-  const names = teamNames ?? (["Team 1", "Team 2"] as const);
-  const turnTone = SEAT_TONE_HEX[layout.slots.find((slot) => slot.seat === turnSeat)?.tone ?? "violet"];
-  const chainWindow = prompt?.context?.type === "chain" ? responseWindow(engine, prompt, prompt.seat) : null;
-  const passLine = chainWindow ? passSummary(chainWindow, nameOf, viewerSeat == null ? null : viewerTeam) : null;
+  const battleStep = battle ? resolveBattleStep(engine.phase, engine.battleStep ?? null) : null;
+  const myTurn = !spectator && engine.turnSeat === viewerSeat;
+  const actionPrompt = prompt?.kind === "choice" && prompt.context?.type === "action";
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
-  const mine = controller.canAct;
-  const noLegalMoves = mine && actionOptions.length > 0 && actionOptions.every((option) => PASSIVE_ACTION_IDS.has(option.id));
-  // A chain response goes to the left tray (the board stays in view); other prompts keep the centre panel.
-  const chainPrompt = prompt?.context?.type === "chain" || isAttackTargetPrompt(prompt);
-  const centered = mine && !chainPrompt && centerKind(prompt) != null;
-  const trackCaption =
-    room.session.status !== "active"
-      ? "Duel finished"
-      : prompt == null
-        ? null
-        : mine
-          ? prompt.context?.type === "action"
-            ? null
-            : chainPrompt
-              ? (prompt.context?.type === "chain" ? "Respond to the chain" : prompt.title)
-              : prompt.title
-          : `${nameOf(prompt.seat)} is choosing…`;
-  const clockMs = room.clock?.remainingMs[turnSeat] ?? null;
-  const clockText = formatClock(clockMs);
+  const trackCaption = terminal ? "Duel finished" : prompt == null ? null : promptMine ? (actionPrompt ? null : prompt.title) : `${nameOf(prompt.seat)} is choosing…`;
+  const canAct = base.canAct && !base.busy;
   const outSeats = engine.seats.filter((seat) => seat.eliminated).map((seat) => seat.seat);
-  const banner = resultBanner(engine, viewerSeat, names);
 
-  const shellStyle = { "--turn": hexToRgbTriplet(turnTone.main) } as CSSProperties;
+  // The locked target of an attack: the confirm sits on the card. A locked seat keeps the opponent bar.
+  const lockKey = flow.pointed?.zoneKey ?? null;
+  const lockAnchor = lockKey && flow.bar?.kind === "confirm" ? tableZoneAnchor(lockKey, rootRef.current ?? document) : null;
+  const barShown = flow.bar != null && !(flow.bar.kind === "confirm" && lockAnchor);
+  const lockedOption = flow.pointed && prompt ? prompt.options.find((option) => option.id === flow.pointed?.optionId) : undefined;
+
+  const viewerTeam = viewerSeat == null ? 0 : teamOfSeat("tag", viewerSeat);
+  const banner = preview ? resultBanner(engine, viewerSeat, teamNames) : null;
+
+  const tray = (
+    <PromptTray
+      prompt={prompt}
+      mySeat={viewerSeat}
+      slug={session.slug}
+      busy={controller.busy}
+      draft={controller.draft}
+      onSubmit={controller.onAnswer}
+      menuOpen={suspended}
+      active={!terminal && !viewerOut}
+      aim={flow.promptAim ?? undefined}
+      headless={centered}
+      suspended={suspended || flow.seatKeys || centeredUnrevealed}
+      waitingName={prompt ? nameOf(prompt.seat) : null}
+    />
+  );
+  const side = (
+    <TagSide
+      controller={controller}
+      ui={ui}
+      preferences={preferences}
+      connection={connection}
+      settingsTools={settingsTools}
+      sheetOpen={sheetOpen}
+      onSheetOpenChange={setSheetOpen}
+      tray={tray}
+      leftClassName={styles.left}
+      mastersClassName={styles.masters}
+    />
+  );
 
   return (
     <div
+      ref={rootRef}
       className={`${duelFontClasses} ${styles.shell}`}
-      style={shellStyle}
-      data-tag-shell
+      data-table-shell="tag"
+      data-can-act={canAct ? "true" : "false"}
+      data-viewport={fillViewport ? "true" : undefined}
+      data-domain={domain}
       data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
+      data-reduced={controller.reducedMotion ? "true" : "false"}
     >
-      <header className={styles.header}>
-        <div className={styles.identity}>
-          <b>Yugidraft</b>
-          <i aria-hidden>/</i>
-          <span>Domain</span>
-          <em className={styles.format}>Tag duel (2v2)</em>
-        </div>
-        <div className={styles.turn}>
-          <strong>Turn {engine.turn} &middot; {PHASE_TITLE[label] ?? label}</strong>
-          <span className={styles.turnPill} data-mine={myTurn ? "true" : "false"}>
-            {spectator ? `${nameOf(turnSeat)} to play` : myTurn ? "Your turn" : `${nameOf(turnSeat)}'s turn`}
-            <small>&middot; {names[teamOfSeat("tag", turnSeat)]}</small>
-          </span>
-        </div>
-        <div className={styles.live}>
-          {spectator ? <span className={styles.spectatorTag}>Spectating</span> : null}
-          <span className={styles.liveDot}>Live</span>
-          <button
-            type="button"
-            className={styles.tool}
-            data-sound-toggle
-            aria-label={`Sound effects ${soundOn ? "on" : "off"}`}
-            aria-pressed={soundOn}
-            onClick={() => setSoundOn((on) => !on)}
-          >
-            {soundOn ? <Volume2 size={15} strokeWidth={1.75} aria-hidden /> : <VolumeX size={15} strokeWidth={1.75} aria-hidden />}
-          </button>
-          <button type="button" className={styles.tool} data-settings-toggle aria-label="Duel settings" onClick={() => setPane("settings")}>
-            <Settings size={15} strokeWidth={1.75} aria-hidden />
-          </button>
-        </div>
-      </header>
+      <TagHeader
+        session={session}
+        engine={engine}
+        viewerSeat={viewerSeat}
+        nameOf={nameOf}
+        teamNames={teamNames}
+        preferences={preferences}
+        connection={connection}
+        headerTools={headerTools}
+        onExit={hasResult && resultReady ? () => actions?.onExit?.() : undefined}
+        onShowResult={hasResult && hideResult ? () => setHideResult(false) : undefined}
+      />
+      {room.series && !showResult ? (
+        <SeriesBanner
+          room={room}
+          slug={session.slug}
+          onChanged={() => actions?.onSeriesChanged?.()}
+          onNavigate={(next) => actions?.onNavigate?.(next)}
+        />
+      ) : null}
 
-      <div className={styles.main}>
-        <aside className={styles.left} aria-label="Duel panels">
-          <SideTabs panes={PANES} selected={pane} unread={logUnread} onSelect={setPane} />
-          <div className={styles.sideContent}>
-            <SidePanel pane="card" selected={pane}>
-              {inspect ? (
-                <CardInspector
-                  target={inspect}
-                  onInspectCard={(card) => setInspect({ type: "card", card })}
-                  equipLinks={resolveEquipLinks(engine.seats)}
+      <div className={styles.main} data-masters={domain && !narrow ? "true" : "false"}>
+        <div className={roomStyles.notices}>
+          <div className="pointer-events-auto">{notices}</div>
+        </div>
+        {narrow ? null : side}
+        <section className={styles.board} aria-label="Duel field">
+          <div className={styles.boardBox} ref={boardRef}>
+            <TagStage
+              controller={controller}
+              layout={layout}
+              camera={camera}
+              dispatchCamera={dispatchCamera}
+              renderSeatField={(fieldProps) => <SeatField {...fieldProps} />}
+              teamNames={teamNames}
+              fx={<TagFx controller={controller} preferences={preferences} fxActive={fxActive} passedSeats={passes} />}
+              promptCenter={
+                <PromptCenter
+                  prompt={prompt ?? (!hasResult ? pick.waiting : null)}
+                  mySeat={viewerSeat}
+                  active={!terminal && !viewerOut}
+                  slug={session.slug}
+                  busy={controller.busy || (prompt == null && pick.waiting != null)}
+                  draft={controller.draft}
+                  onSubmit={controller.onAnswer}
+                  menuOpen={suspended}
+                  chain={engine.chain}
+                  aim={flow.promptAim ?? undefined}
+                  aimLocked={flow.locked}
+                  reducedMotion={controller.reducedMotion}
+                  revision={engine.revision}
+                  battleStep={battleStep}
+                  revealed={controller.revealed}
+                  onInspectCard={(card) => ui.setInspect({ type: "info", card })}
+                  nameOf={nameOf}
+                  seatTones={seatTones}
+                  priority={priority}
                 />
-              ) : (
-                <CardTabEmpty />
-              )}
-            </SidePanel>
-            <SidePanel pane="settings" selected={pane}>
-              <div className={styles.options}>
-                <DuelSettingsSummary session={room.session} />
-                <h2>Presentation</h2>
-                <DuelSoundControls enabled={soundOn} volume={volume} onEnabledChange={setSoundOn} onVolumeChange={setVolume} />
-              </div>
-            </SidePanel>
-            <SidePanel pane="log" selected={pane} keepMounted>
-              <DuelHistoryRail
-                events={engine.events}
-                engine={engine}
-                mySeat={viewerSeat}
-                playerName={nameOf}
-                onInspectCard={showCard}
-                reducedMotion={reducedMotion}
-                active={pane === "log"}
-                onUnread={setLogUnread}
-              />
-            </SidePanel>
-          </div>
-          <div className={styles.tray} data-tone={prompt?.context?.type === "chain" ? "chain" : "action"} data-idle={centered || !mine ? "true" : "false"}>
-            {passLine ? <p className={styles.pass} data-pass-status role="status">{passLine}</p> : null}
-            <PromptTray
-              prompt={prompt}
-              mySeat={viewerSeat}
-              slug={room.session.slug}
-              busy={controller.busy}
-              draft={controller.draft}
-              onSubmit={controller.onAnswer}
-              active={room.session.status === "active"}
-              headless={centered}
-              waitingName={prompt ? nameOf(prompt.seat) : null}
+              }
+              overlay={
+                <>
+                  {barShown && flow.bar ? (
+                    <OpponentBar
+                      kind={flow.bar.kind}
+                      title={flow.bar.title}
+                      targetLabel={flow.bar.targetLabel}
+                      entries={flow.bar.entries}
+                      onPick={(seat) => controller.seatPick?.onPick(seat)}
+                      onConfirm={flow.confirm}
+                      onCancel={flow.cancel}
+                    />
+                  ) : null}
+                  <TagPileViewer controller={controller} ui={ui} />
+                  {banner && !hideResult ? (
+                    <div className={styles.result} data-result={banner.outcome} role="dialog" aria-label="Duel result">
+                      <div className={styles.resultCard}>
+                        <p className={styles.resultKicker}>Tag duel finished</p>
+                        <h2>{banner.headline}</h2>
+                        <p className={styles.resultReason}>{engine.result?.reason ?? ""}</p>
+                        <ul className={styles.resultTeams}>
+                          {[0, 1].map((team) => (
+                            <li key={team} data-mine={team === viewerTeam ? "true" : "false"} data-won={engine.result?.winnerTeam === team ? "true" : "false"}>
+                              <span>{team === viewerTeam ? "◆" : "●"} {teamNames[team]}</span>
+                              <b>{teamLp(engine, team).toLocaleString("en-US")}</b>
+                            </li>
+                          ))}
+                        </ul>
+                        <button type="button" onClick={() => setHideResult(true)}>View the board</button>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              }
             />
           </div>
-        </aside>
-
-        <section className={styles.board} aria-label="Duel roof">
-          <TagStage
-            controller={shellController}
-            layout={layout}
-            camera={camera}
-            dispatchCamera={dispatchCamera}
-            renderSeatField={(props) => <SeatField {...props} />}
-            teamNames={names}
-            fx={
-              <FxBoundary>
-                <BattleFx events={engine.events} seats={engine.seats} reducedMotion={reducedMotion} aim={controller.aim} />
-              </FxBoundary>
-            }
-            promptCenter={
-              <PromptCenter
-                prompt={chainPrompt ? null : prompt}
-                mySeat={viewerSeat}
-                active={room.session.status === "active"}
-                slug={room.session.slug}
-                busy={controller.busy}
-                draft={controller.draft}
-                onSubmit={controller.onAnswer}
-                menuOpen={false}
-                chain={engine.chain}
-                aimLocked={false}
-                reducedMotion={reducedMotion}
-                revision={engine.revision}
-                battleStep={engine.battleStep}
-                revealed={controller.revealed}
-                onInspectCard={showCard}
-                nameOf={nameOf}
-              />
-            }
-            overlay={
-              <>
-                {pile ? (
-                  <PileViewer
-                    title={pile.title}
-                    cards={pile.cards}
-                    owner={pile.owner}
-                    open={pile.open}
-                    onClose={() => setPile((current) => (current ? { ...current, open: false } : null))}
-                    onInspectCard={(card) => setInspect({ type: "card", card })}
-                    onHoverCard={onHoverCard}
-                    onActivateCard={(card, anchor) => controller.onActivate([zoneKey(card.controller, card.location, card.sequence)], card, anchor)}
-                    legalKeys={controller.legalKeys}
-                    selectedKeys={controller.selectedKeys}
-                    reducedMotion={reducedMotion}
-                  />
-                ) : null}
-                {banner && !hideResult ? (
-                  <div className={styles.result} data-result={banner.outcome} role="dialog" aria-label="Duel result">
-                    <div className={styles.resultCard}>
-                      <p className={styles.resultKicker}>Tag duel finished</p>
-                      <h2>{banner.headline}</h2>
-                      <p className={styles.resultReason}>{engine.result?.reason ?? ""}</p>
-                      <ul className={styles.resultTeams}>
-                        {[0, 1].map((team) => (
-                          <li key={team} data-mine={team === viewerTeam ? "true" : "false"} data-won={engine.result?.winnerTeam === team ? "true" : "false"}>
-                            <span>{team === viewerTeam ? "◆" : "●"} {names[team]}</span>
-                            <b>{teamLp(engine, team).toLocaleString("en-US")}</b>
-                          </li>
-                        ))}
-                      </ul>
-                      <button type="button" onClick={() => setHideResult(true)}>View the board</button>
-                    </div>
-                  </div>
-                ) : null}
-              </>
-            }
-          />
         </section>
-
-        <aside className={styles.right} aria-label="Camera">
-          <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={turnSeat} outSeats={outSeats} />
-        </aside>
+        {narrow ? null : (
+          <aside className={styles.right} aria-label="Camera">
+            <CameraDock camera={camera} layout={layout} dispatch={dispatchCamera} nameOf={nameOf} turnSeat={engine.turnSeat} outSeats={outSeats} />
+          </aside>
+        )}
       </div>
 
-      <div className={styles.track}>
-        <ol className={styles.baton} aria-label="Turn order" data-baton-strip>
-          {batonOrder(turnSeat).map((stop, index) => {
-            const hex = SEAT_TONE_HEX[layout.slots.find((slot) => slot.seat === stop.seat)?.tone ?? "violet"];
-            const style = { ["--seat" as string]: hexToRgbTriplet(hex.main), ["--seat-ink" as string]: hex.ink } as CSSProperties;
-            return (
-              <li key={stop.seat} style={style} data-now={stop.now ? "true" : undefined} data-next={stop.next ? "true" : undefined}
-                data-out={outSeats.includes(stop.seat) ? "true" : undefined} aria-current={stop.now ? "step" : undefined}>
-                {index > 0 ? <span className={styles.batonArrow} aria-hidden="true">&rarr;</span> : null}
-                <b>{stop.code}</b>
-                <span>{nameOf(stop.seat).split(" ")[0]}</span>
-                {stop.now ? <em>now</em> : stop.next ? <em>next</em> : null}
-              </li>
-            );
-          })}
-        </ol>
+      <TagTrack
+        session={session}
+        engine={engine}
+        clock={room.clock?.activeSeat != null ? room.clock : null}
+        nameOf={nameOf}
+        prompt={prompt}
+        toneOf={toneOf}
+        reducedMotion={controller.reducedMotion}
+      >
         <StationTrack
           phase={engine.phase}
-          battleStep={engine.battleStep}
+          battleStep={battleStep}
           turn={engine.turn}
-          turnSeat={turnSeat}
+          turnSeat={engine.turnSeat}
           mySeat={viewerSeat}
           playerName={nameOf}
-          actionOptions={mine ? actionOptions : []}
-          canAct={mine}
-          noLegalMoves={noLegalMoves}
+          actionOptions={promptMine ? actionOptions : []}
+          canAct={canAct}
+          noLegalMoves={canAct && hasNoLegalMoves(actionOptions)}
           onChoose={(id) => controller.onAnswer({ choice: id })}
-          clock={clockText ? <span className={styles.clock}>{clockText}</span> : null}
+          clock={null}
           caption={trackCaption}
-          reducedMotion={reducedMotion}
+          reducedMotion={controller.reducedMotion}
         />
-      </div>
+      </TagTrack>
+      {narrow ? side : null}
+
+      {ui.menu ? (
+        <CardActionMenu
+          anchor={ui.menu.anchor}
+          title={ui.menu.title}
+          options={ui.menu.options}
+          busy={controller.busy}
+          onClose={ui.closeMenu}
+          tone={ui.menu.tone}
+          onOptionHover={ui.onMenuOptionHover}
+          onChoose={(option) => {
+            if (!ui.menu || ui.menu.promptId !== prompt?.id || ui.menu.revision !== engine.revision) return;
+            ui.closeMenu();
+            controller.onAnswer({ choice: option.id });
+          }}
+        />
+      ) : null}
+      {lockAnchor && flow.pointed && !controller.busy ? (
+        <AttackConfirm
+          anchor={lockAnchor}
+          targetName={lockedOption ? targetName(lockedOption) : flow.pointed.label}
+          busy={controller.busy}
+          prefer={confirmSide(ui.attackerKey, lockAnchor, rootRef.current ?? document)}
+          onConfirm={flow.confirm}
+          onBack={flow.cancel}
+        />
+      ) : null}
+      {ui.hover && !ui.menu && !ui.pile?.open && !sheetOpen ? <CardHoverInfo card={ui.hover.card} anchor={ui.hover.anchor} /> : null}
+      {showResult && !preview ? (
+        <DuelResultScreen
+          room={room}
+          slug={session.slug}
+          reducedMotion={controller.reducedMotion}
+          soundEnabled={preferences.soundEnabled}
+          onClose={() => setHideResult(true)}
+          onExit={() => actions?.onExit?.()}
+          onSeriesChanged={() => actions?.onSeriesChanged?.()}
+          onNavigate={(next) => actions?.onNavigate?.(next)}
+        />
+      ) : null}
+      {modals}
     </div>
   );
 }

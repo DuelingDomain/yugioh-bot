@@ -51,7 +51,7 @@ test("manual login rejects a callback that did not create the requested session"
 });
 
 test("login CLI rejects unknown players before opening a browser", () => {
-  const result = spawnSync(process.execPath, ["stack/login.mjs", "p5"], { cwd: new URL("../", import.meta.url), encoding: "utf8" });
+  const result = spawnSync(process.execPath, ["stack/login.mjs", "p6"], { cwd: new URL("../", import.meta.url), encoding: "utf8" });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /p1.*p2.*p3.*p4/);
+  assert.match(result.stderr, /p1.*p2.*p3.*p4.*p5/);
 });

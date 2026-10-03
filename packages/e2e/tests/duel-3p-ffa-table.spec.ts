@@ -341,7 +341,7 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(errors).toEqual([]);
   });
 
-  test("an API-driven human auto-pass simulation ends with a loss screen and engine placings", async ({ player }, info) => {
+  test("an API-driven human auto-pass simulation ends with a result screen and engine placings", async ({ player }, info) => {
     test.setTimeout(240_000);
     const alice = await player("p1");
     const errors = collectTableErrors(alice.page);
@@ -366,7 +366,10 @@ test.describe("FFA3 real-engine table rules", () => {
     expect(losers).toHaveLength(2);
     expect(new Set([...losers, engine.result!.winnerSeat]).size).toBe(3);
     const result = alice.page.getByTestId("duel-result");
-    await expect(result).toHaveAttribute("data-outcome", "lose");
+    // A seat that auto-spectated still reads its own loss once the duel is over.
+    const outcome = engine.result!.winnerSeat === 0 ? "win" : "lose";
+    await expect(result).toHaveAttribute("data-outcome", outcome);
+    await expect(result.locator("[data-tag='you']")).toHaveCount(1);
     await expect(result.locator("[data-place]")).toHaveText(["1st", "2nd", "3rd"]);
     const order = [engine.result!.winnerSeat!, ...[...engine.eliminationOrder!].reverse().flat()];
     const room = await readTable(alice.page, slug);

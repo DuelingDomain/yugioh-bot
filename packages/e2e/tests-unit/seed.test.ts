@@ -17,8 +17,8 @@ test("manual seed gives each player owned Standard and Domain saved decks", asyn
     await seedDatabase({ databasePath, savedDecks: [standard, domain] });
     const db = openDatabase(databasePath);
     try {
-      assert.equal((db.prepare("select count(*) as n from players").get() as { n: number }).n, 4);
-      assert.equal((db.prepare("select count(*) as n from saved_decks").get() as { n: number }).n, 8);
+      assert.equal((db.prepare("select count(*) as n from players").get() as { n: number }).n, players.length);
+      assert.equal((db.prepare("select count(*) as n from saved_decks").get() as { n: number }).n, players.length * 2);
       const service = createSavedDeckService(db);
       const ids = new Set<number>();
       for (const player of players) {
@@ -28,7 +28,7 @@ test("manual seed gives each player owned Standard and Domain saved decks", asyn
         assert.deepEqual(decks.find((deck) => deck.mode === "domain")?.deck, domain.deck);
         for (const deck of decks) ids.add(deck.id);
       }
-      assert.equal(ids.size, 8, "every player owns separate saved decks");
+      assert.equal(ids.size, players.length * 2, "every player owns separate saved decks");
       assert.deepEqual(service.list(guildId, "someone-else"), []);
     } finally { db.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
@@ -41,7 +41,7 @@ test("ordinary e2e seed keeps saved decks empty and resets only its database", a
     await seedDatabase({ databasePath });
     const db = openDatabase(databasePath);
     try {
-      assert.equal((db.prepare("select count(*) as n from players").get() as { n: number }).n, 4);
+      assert.equal((db.prepare("select count(*) as n from players").get() as { n: number }).n, players.length);
       assert.equal((db.prepare("select count(*) as n from saved_decks").get() as { n: number }).n, 0);
     } finally { db.close(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }

@@ -11,7 +11,7 @@ import type { TimelineEntry } from "../helpers/timeline";
 // Multi-seat scenario presets in a real browser (Layer 4). One test for each preset with more than 2 seats (FFA and Tag).
 // Seat 0 is the test user (p1); the other seats are scripted bots of the duel host. A spectator (p2) watches.
 // Every run leaves a full evidence folder: `.status/e2e-multi/<runId>/<presetId>/` (see README.md, "Multi-seat presets").
-// FFA presets must mount TableShell. Tag keeps MultiSeatStage until its separate UI work lands.
+// FFA presets must mount TableShell; Tag presets must mount the Rooftop shell (helpers/tag.ts).
 //
 // Run one preset:  E2E_WORKERS=1 npx playwright test duel-presets-multi -g "raigeki-dark-hole-ffa4"
 // Env: E2E_STALL_MS (default 60000), E2E_MULTI_TURNS (turn to reach), E2E_MULTI_MAX_MS, E2E_MULTI_MAX_SHOTS.
@@ -26,7 +26,6 @@ test.describe("multi-seat presets", () => {
   for (const preset of multi) {
     const current = ["raigeki-dark-hole-ffa4", "ffa3-table-battle", "ffa4-surrender-in-chain", "ffa3-third-response"].includes(preset.id);
     test(`${current ? "current engine: " : ""}preset ${preset.id} (${preset.format})`, async ({ browser }, testInfo) => {
-      test.skip(preset.format === "tag" && only.length === 0, "Tag engine rules are outside the FFA table proof; select E2E_PRESET explicitly to run them");
       const run = new PresetRun(browser, testInfo, preset.id, preset.format);
       await run.execute();
       await run.finish();
@@ -48,7 +47,6 @@ test.describe("visual set", () => {
   test.skip(only.length > 0, "E2E_PRESET is set: only the named presets run");
   for (const set of visualSets) {
     test(`visual ${set.format}: one screenshot per seat at the first prompt`, async ({ browser }, testInfo) => {
-      test.skip(set.format === "tag", "Tag keeps MultiSeatStage and is outside this FFA table proof");
       const startedAt = Date.now();
       const dir = join(runDir(), "visual", set.format);
       mkdirSync(dir, { recursive: true });
