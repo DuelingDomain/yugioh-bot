@@ -217,6 +217,7 @@ export async function PUT(
         2,
         (mergedConfig as any).packsPerPlayer ?? 5,
         (mergedConfig as any).packSize ?? 8,
+        (mergedConfig as any).cardsPerPlayer ?? 40,
       );
 
       (mergedConfig as any).cubeCardIds = cubeCardIds;

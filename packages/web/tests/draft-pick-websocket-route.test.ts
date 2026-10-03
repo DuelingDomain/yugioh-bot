@@ -69,7 +69,7 @@ async function createStartedDraftDb() {
     "guild-1",
     "channel-1",
     "socket draft",
-    { setNames: ["Metal Raiders"], packSize: 2, packsPerPlayer: 1, pickSeconds: 60 },
+    { setNames: ["Metal Raiders"], packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2, pickSeconds: 60 },
     "user-1",
     yugi.id,
   );

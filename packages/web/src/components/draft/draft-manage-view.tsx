@@ -123,6 +123,21 @@ export function DraftManageView({
   // own theme cube — so the pool preview / booster config don't apply.
   const isTheme = draft.config?.mode === "theme";
 
+  const [boosterPreflight, setBoosterPreflight] = React.useState<{ errors: string[]; warnings: string[] } | null>(null);
+  const boosterPreflightKey = JSON.stringify([draft.config, draft.players.map((player) => player.playerId)]);
+  React.useEffect(() => {
+    let live = true;
+    setBoosterPreflight(null);
+    if (!slug || isTheme) return;
+    fetch(`/api/drafts/${slug}/preflight`)
+      .then((res) => res.ok ? res.json() : { errors: [], warnings: [] })
+      .then((data) => {
+        if (live) setBoosterPreflight({ errors: data.errors ?? [], warnings: data.warnings ?? [] });
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [slug, isTheme, boosterPreflightKey]);
+
   // Card pool (booster only)
   const [poolCards, setPoolCards] = React.useState<CardSummary[] | null>(null);
   const [poolError, setPoolError] = React.useState(false);
@@ -396,6 +411,16 @@ export function DraftManageView({
       <div className="t-grid">
         <div className="t-main">
           {error && <div className="banner banner-bad" role="alert"><p>{error}</p></div>}
+          {!isTheme && Boolean(boosterPreflight?.errors.length) && (
+            <div className="banner banner-bad" role="alert">
+              {boosterPreflight!.errors.map((message) => <p key={message}>{message}</p>)}
+            </div>
+          )}
+          {!isTheme && Boolean(boosterPreflight?.warnings.length) && (
+            <div className="banner banner-warn" role="status">
+              {boosterPreflight!.warnings.map((message) => <p key={message}>{message}</p>)}
+            </div>
+          )}
 
           {!isCreator && !isParticipant && (
             <div className="join">

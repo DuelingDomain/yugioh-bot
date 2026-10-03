@@ -201,6 +201,7 @@ export async function POST(request: NextRequest) {
     expectedPlayers,
     config.packsPerPlayer ?? 5,
     config.packSize ?? 8,
+    config.cardsPerPlayer ?? 40,
   );
 
   const configWithPool: typeof config = { ...config, cubeCardIds };

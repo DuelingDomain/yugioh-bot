@@ -79,6 +79,22 @@ function boosterDraft(config: Partial<DraftConfig>, cubeCardIds: number[], cardC
 const distinctCube = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
 
 describe("per-player copy cap in booster drafts", () => {
+  it("refuses to start a booster deck exceeding the three-copy reachability", () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    seedCards(db, 8);
+    const drafts = createDraftService(db);
+    const players = [insertPlayer(db, "A"), insertPlayer(db, "B")];
+    const draft = drafts.create("g", "c", "too narrow", {
+      cubeCardIds: distinctCube(8), packSize: 4, packsPerPlayer: 10, cardsPerPlayer: 40,
+    }, "host", players[0]);
+    drafts.join(draft.id, players[1]);
+    expect(() => drafts.start(draft.id)).toThrow(/3 copies/);
+    expect(drafts.findById(draft.id).status).toBe("pending");
+    expect(db.prepare("select count(*) as n from draft_deal where draft_id = ?").get(draft.id)).toEqual({ n: 0 });
+    db.close();
+  });
+
   it("keeps the last takeable card moving after a player finishes (seed 15838)", () => {
     const db = new Database(":memory:");
     migrate(db);

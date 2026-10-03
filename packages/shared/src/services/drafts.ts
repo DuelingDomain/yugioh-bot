@@ -841,7 +841,7 @@ export function createDraftService(
 
     const players = playerIds.length;
     const waves = packsPerPlayer;
-    const analysis = analyzeCube(cubeCardIds, players, waves, packSize);
+    const analysis = analyzeCube(cubeCardIds, players, waves, packSize, draft.config.cardsPerPlayer);
     if (!analysis.ok) {
       throw new Error(analysis.errors.join(" "));
     }

@@ -42,6 +42,22 @@ const baseProps = {
 };
 
 describe("DraftManageView — setup rail", () => {
+  it("shows booster reachability errors on entering the lobby and refreshes them after edits", async () => {
+    let errors = ["This pool can give one player at most 24 cards (at most 3 copies of each card), but the deck needs 40."];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/preflight")
+      ? Response.json({ errors, warnings: [] })
+      : Response.json({ cards: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(<DraftManageView {...baseProps} slug="narrow" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("at most 3 copies");
+    errors = [];
+    rerender(<DraftManageView {...baseProps} slug="narrow" draft={{
+      ...baseDraft, config: { ...baseDraft.config, cardsPerPlayer: 20 },
+    }} />);
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/preflight"))).toHaveLength(2);
+  });
+
   it("shows the configured cards-per-player in the read-only setup", () => {
     render(<DraftManageView {...baseProps} />);
     expect(screen.getByText("Each player")).toBeInTheDocument();

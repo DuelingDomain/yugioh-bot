@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { MAX_COPIES_PER_PLAYER } from "./constants.js";
 
 /** Numeric seeds preserve existing test fixtures; production uses secret string seeds. */
 export type ShuffleSeed = number | string;
@@ -44,6 +45,7 @@ export function analyzeCube(
   players: number,
   waves: number,
   packSize: number,
+  cardsPerPlayer = waves * packSize,
 ): CubeAnalysis {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -58,6 +60,16 @@ export function analyzeCube(
     errors.push(
       `Cube needs at least ${cardsPerWave} distinct cards for ${players} players × ${packSize} per pack, but has ${distinct}. ` +
         `Add ${cardsPerWave - distinct} more distinct cards, or reduce pack size to ${maxPackSize}.`,
+    );
+  }
+
+  // A card occurs at most once per wave, and a player may take only three
+  // copies across the draft. Even routing every name to one player has this limit.
+  const reachable = distinct * Math.min(waves, MAX_COPIES_PER_PLAYER);
+  if (reachable < cardsPerPlayer) {
+    errors.push(
+      `This pool can give one player at most ${reachable} cards across ${waves} waves ` +
+      `(at most ${MAX_COPIES_PER_PLAYER} copies of each card), but the deck needs ${cardsPerPlayer}. Add more different cards or reduce the deck size.`,
     );
   }
 

@@ -36,6 +36,14 @@ describe("cube engine", () => {
     expect(r.errors).toEqual([]);
   });
 
+  it("rejects decks exceeding the cap-limited reachability across waves", () => {
+    const cube = Array.from({ length: 8 }, (_, i) => i + 1);
+    const r = analyzeCube(cube, 2, 10, 4);
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(" ")).toMatch(/24.*40/);
+    expect(r.errors.join(" ")).toMatch(/3 copies/);
+  });
+
   it("analyzeCube warns (not errors) when a card has more copies than waves", () => {
     // 2 players × 4 packSize => 8 distinct needed; card 1 has 6 copies, waves = 3
     const cube = [1, 1, 1, 1, 1, 1, ...Array.from({ length: 7 }, (_, i) => i + 2)];
