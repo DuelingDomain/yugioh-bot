@@ -428,8 +428,8 @@ interface PendingMove {
 export interface EventContext {
   /** Between a BATTLE message and the end of the damage step, DAMAGE is battle damage. */
   battle: boolean;
-  /** Monsters that left the field for the graveyard/banish without being destroyed, per controller, this batch. */
-  released: [number, number];
+  /** A MOVE carried RELEASE | SUMMON | MATERIAL for the pending Normal Summon or monster Set. */
+  summonTribute: boolean;
   /** Destruction notes printed by the startup script and not yet matched to a MOVE. */
   destroyNotes: string[];
   /** Coordinates and changed link numbers omitted from the core's BECOME_TARGET messages. */
@@ -446,7 +446,7 @@ export interface EventContext {
   arrivals: Map<string, number>;
   /** The answer that started the current summon was a Pendulum Summon (a Pendulum Zone card's summon action). */
   pendulumSummon: boolean;
-  /** Reason bits from material MOVE messages since the previous summon. Includes Xyz overlay moves. */
+  /** Material MOVE reason bits for the current summon group, until SPSUMMONED. Includes Xyz overlays. */
   materialReasons: number;
 }
 
@@ -459,7 +459,7 @@ interface TrackedMove {
 }
 
 export function createEventContext(): EventContext {
-  return { battle: false, released: [0, 0], destroyNotes: [], chainTargetNotes: [], resolving: null, pendingMoves: [], moves: [], handSize: [0, 0], arrivals: new Map(), pendulumSummon: false, materialReasons: 0 };
+  return { battle: false, summonTribute: false, destroyNotes: [], chainTargetNotes: [], resolving: null, pendingMoves: [], moves: [], handSize: [0, 0], arrivals: new Map(), pendulumSummon: false, materialReasons: 0 };
 }
 
 /** Internal notes arrive during core processing, before its buffered messages are consumed. */
@@ -550,7 +550,10 @@ function isFieldLocation(location: number): boolean {
 
 // Native reason bits from ygopro-core/ocgapi_constants.h and the pinned constant.lua. REASON_LINK differs
 // from TYPE_LINK (0x4000000): that bit in a MOVE reason is REASON_REDIRECT.
+const REASON_RELEASE = 0x2;
 const REASON_MATERIAL = 0x8;
+const REASON_SUMMON = 0x10;
+const TRIBUTE_MATERIAL_REASON = REASON_RELEASE | REASON_MATERIAL | REASON_SUMMON;
 const REASON_FUSION = 0x40000;
 const REASON_SYNCHRO = 0x80000;
 const REASON_RITUAL = 0x100000;
@@ -573,6 +576,11 @@ function specialSummonKind(ctx: EventContext, message: { controller: number; loc
   }
   if ((from === OcgLocation.HAND || master) && (type & OcgType.RITUAL) && (ctx.materialReasons & REASON_RITUAL)) return "ritual";
   return "special";
+}
+
+function clearSummonMaterials(ctx: EventContext): void {
+  ctx.materialReasons = 0;
+  ctx.summonTribute = false;
 }
 
 function destroyEvent(id: number, code: number, from: PendingMove["from"], cards: CardDatabase, detail?: DestroyDetail | true): StoredDuelEvent {
@@ -601,7 +609,6 @@ export function drainDeferredDestroys(ctx: EventContext, cards: CardDatabase, fi
   for (const move of ctx.pendingMoves) {
     const detail = takeDestroyNote(ctx, move.from, move.resolving);
     if (detail) {
-      if (move.from.location === OcgLocation.MZONE) ctx.released[move.from.controller === 1 ? 1 : 0] -= 1;
       out.push(destroyEvent(firstId + out.length, move.code, move.from, cards, detail));
     } else remaining.push(move);
   }
@@ -615,8 +622,7 @@ export function resetEventBatch(ctx: EventContext, continuingSummon = false): vo
   ctx.chainTargetNotes.length = 0;
   ctx.pendingMoves.length = 0;
   ctx.moves.length = 0;
-  ctx.released = [0, 0];
-  if (!continuingSummon) ctx.materialReasons = 0;
+  if (!continuingSummon) clearSummonMaterials(ctx);
 }
 
 export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null): DuelEvent {
@@ -891,6 +897,7 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
       // patches/ocgcore-wasm+0.1.2.patch parses the trailing reason; the published types do not declare it.
       const materialReason = (message as typeof message & { reason?: number }).reason ?? 0;
       if (materialReason & REASON_MATERIAL) ctx.materialReasons |= materialReason;
+      if ((materialReason & TRIBUTE_MATERIAL_REASON) === TRIBUTE_MATERIAL_REASON) ctx.summonTribute = true;
       if (from.location === OcgLocation.HAND) ctx.handSize[from.controller === 1 ? 1 : 0] = Math.max(0, ctx.handSize[from.controller === 1 ? 1 : 0] - 1);
       if (to.location === OcgLocation.HAND) ctx.handSize[to.controller === 1 ? 1 : 0] += 1;
       if (isFieldLocation(from.location)) ctx.arrivals.delete(slotKey(from.controller, from.location, from.sequence));
@@ -945,7 +952,7 @@ export function observeDuelEvent(
       case OcgMessageType.CHAIN_SOLVED:
       case OcgMessageType.CHAIN_END:
         ctx.resolving = null;
-        ctx.materialReasons = 0;
+        clearSummonMaterials(ctx);
         if (message.type === OcgMessageType.CHAIN_END) ctx.chainTargetNotes.length = 0;
         break;
       case OcgMessageType.DAMAGE_STEP_END:
@@ -958,12 +965,14 @@ export function observeDuelEvent(
         break;
     }
     switch (message.type) {
-      case OcgMessageType.SPSUMMONED:
       case OcgMessageType.SUMMONING:
+        ctx.pendulumSummon = false;
+        break;
+      case OcgMessageType.SPSUMMONED:
       case OcgMessageType.NEW_PHASE:
       case OcgMessageType.NEW_TURN:
         ctx.pendulumSummon = false;
-        ctx.materialReasons = 0;
+        clearSummonMaterials(ctx);
         break;
       default:
         break;
@@ -985,13 +994,12 @@ export function observeDuelEvent(
       let summonKind: DuelSummonKind =
         message.type === OcgMessageType.SUMMONING ? "normal" : message.type === OcgMessageType.SPSUMMONING ? "special" : "flip";
       if (summonKind === "normal") {
-        const released = ctx?.released[message.controller === 1 ? 1 : 0] ?? 0;
-        if (released > 0 || (info?.level ?? 0) >= 5) summonKind = "tribute";
-        if (ctx) ctx.released[message.controller === 1 ? 1 : 0] = 0;
+        if (ctx?.summonTribute) summonKind = "tribute";
       } else if (summonKind === "special" && ctx) {
         summonKind = specialSummonKind(ctx, message, info?.type ?? 0);
       }
-      if (ctx) ctx.materialReasons = 0;
+      // One procedure can announce multiple Special Summons before a single SPSUMMONED.
+      if (ctx && message.type !== OcgMessageType.SPSUMMONING) clearSummonMaterials(ctx);
       return {
         id, kind: "summon", seat: message.controller, card: info, text,
         publicText: hidden ? `Player ${message.controller + 1} ${verb} a face-down monster` : text,
@@ -1001,6 +1009,7 @@ export function observeDuelEvent(
       };
     }
     case OcgMessageType.SET: {
+      if (ctx && message.location === OcgLocation.MZONE) clearSummonMaterials(ctx);
       const info = cards.get(message.code);
       const publicText = `Player ${message.controller + 1} Sets a card`;
       const text = info ? `Player ${message.controller + 1} Sets ${info.name}` : publicText;
@@ -1109,7 +1118,6 @@ export function observeDuelEvent(
       };
       const detail = takeDestroyNote(ctx, from);
       if (detail) return destroyEvent(id, message.card, from, cards, detail);
-      if (message.from.location === OcgLocation.MZONE) ctx.released[from.controller === 1 ? 1 : 0] += 1;
       ctx.pendingMoves.push({ code: message.card, from, resolving: ctx.resolving });
       return null;
     }

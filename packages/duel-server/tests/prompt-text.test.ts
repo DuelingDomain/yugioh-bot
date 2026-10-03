@@ -393,11 +393,28 @@ describe("summon kinds", () => {
     expect(summonAfter(at(0, OcgLocation.HAND, 0), PALADIN, undefined, 0x8 | 0x40000).summonKind).toBe("special");
   });
 
-  it("consumes material reasons after every summon so a later effect summon stays plain", () => {
+  it.each([
+    { kind: "fusion", code: FLAME_SWORDSMAN, origin: OcgLocation.EXTRA, reason: 0x8 | 0x40000 },
+    { kind: "ritual", code: PALADIN, origin: OcgLocation.HAND, reason: 0x8 | 0x100000 },
+  ])("retains $kind material reasons for every monster until SPSUMMONED", ({ kind, code, origin, reason }) => {
+    const ctx = createEventContext();
+    observeMoveEvents(move(GIANT_RAT, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.GRAVE, 0), reason), cards, ctx, 1);
+    for (const sequence of [0, 1]) {
+      const arrival = move(code, at(0, origin, 0), at(0, OcgLocation.MZONE, sequence));
+      observeMoveEvents(arrival, cards, ctx, 2 + sequence * 2);
+      expect(observeDuelEvent(spsummon(code, sequence), cards, chain, 3 + sequence * 2, ctx)!.summonKind).toBe(kind);
+    }
+    observeDuelEvent({ type: OcgMessageType.SPSUMMONED }, cards, chain, 7, ctx);
+    // A separate effect summon in the same batch has no new materials.
+    expect(summonAfter(at(0, OcgLocation.EXTRA, 0), FLAME_SWORDSMAN, ctx).summonKind).toBe("special");
+  });
+
+  it("consumes material reasons when a summon completes so a later effect summon stays plain", () => {
     for (const type of [OcgMessageType.SPSUMMONING, OcgMessageType.SUMMONING, OcgMessageType.FLIPSUMMONING]) {
       const ctx = createEventContext();
       observeMoveEvents(move(GIANT_RAT, at(0, OcgLocation.HAND, 0), at(0, OcgLocation.GRAVE, 0), 0x8 | 0x40000), cards, ctx, 1);
       observeDuelEvent({ ...spsummon(GIANT_RAT), type } as OcgMessage, cards, chain, 2, ctx);
+      if (type === OcgMessageType.SPSUMMONING) observeDuelEvent({ type: OcgMessageType.SPSUMMONED }, cards, chain, 3, ctx);
       expect(summonAfter(at(0, OcgLocation.EXTRA, 0), FLAME_SWORDSMAN, ctx).summonKind).toBe("special");
     }
   });
