@@ -1,4 +1,3 @@
-import { appendFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { createEngineGame } from '../../../src/engine.js';
 import { compileBoard } from '../../support/board.js';
@@ -13,7 +12,7 @@ const CARD = 'Gold Pride - That Came Out of Nowhere!';
 const LEON = 'Gold Pride - Leon';
 const HAND = ['Giant Rat', 'Battle Ox', 'Axe Raider', 'Silver Fang'];
 const SEATS: DuelistId[] = ['p0', 'p1', 'p2', 'p3'];
-const domains = process.env.W25_MODE ? [process.env.W25_MODE === 'domain'] : [false, true];
+const domains = [false, true];
 const cases: Array<{ format: '1v1' | 'ffa3' | 'ffa4' | 'tag'; actor: number; opponent: number; accept: boolean; empty?: boolean; fromGrave?: boolean }> = [];
 for (let actor = 0; actor < 4; ++actor) {
   for (let opponent = 0; opponent < 4; ++opponent) {
@@ -80,8 +79,6 @@ describeWithCores('Gold Pride opponent selection at activation', liveNseat, () =
         const resolvingAtPick = atPick?.some(view => view.events.some(event => event.kind === 'chain-resolving' && event.card?.code === 91286284)) ?? false;
         const activatedAtPick = atPick?.some(view => view.events.some(event => event.kind === 'activate' && event.card?.code === 91286284)) ?? false;
         const leonAtPick = atPick?.[actor].seats[actor].monsters.some(card => card?.name === LEON) ?? false;
-        if (process.env.W25_TRACE) appendFileSync(process.env.W25_TRACE, JSON.stringify({ id, format, actor, opponent, accept, domain,
-          empty, fromGrave, activatedAtPick, resolvingAtPick, leonAtPick, atPick, final, core: game.coreInfo(), diagnostics: game.diagnostics() }) + '\n');
         if (format !== '1v1') {
           expect(resolvingAtPick, 'The opponent selection must occur before chain resolution.').toBe(false);
           expect(activatedAtPick, 'The opponent selection must be part of activation.').toBe(false);
