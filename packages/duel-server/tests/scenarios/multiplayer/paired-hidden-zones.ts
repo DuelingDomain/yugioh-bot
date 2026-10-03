@@ -50,17 +50,13 @@ function hiddenPair(kind:HiddenPair,format:'1v1'|'ffa3'|'ffa4'|'tag',reCoverOppo
  steps.push(expectBoard(board));
  // Re-Cover 1v1 has no matching ADR rule id. Tag proves the shared LP cost (R-TAG-LP).
  const rules=kind==='re-cover'
-  ? format==='tag'?['R-TAG-LP']:ffa&&reCoverOpponents===1?['R-FFA-OPP-ONE']:undefined
+  ? format==='tag'?['R-TAG-LP']:ffa?['R-FFA-OPP-ONE']:undefined
   : ['R-COMMON-OPP-PICK'];
  return defineScenario({
   id:`paired-hidden-zones-${kind}-${format}${reCoverOpponents===1?'-one-qualifying-opponent':''}`,
   title:reCoverOpponents===1?'Re-Cover: one qualifying opponent':kind,
   source:'docs/adr/0002-multiplayer-duel-rules.md [Q4]',
   ...(rules?{rules}:{}),
-  // The condition-only-pick core defect opens a pick with two qualifying opponents (R-FFA-OPP-ONE).
-  ...(kind==='re-cover'&&ffa&&reCoverOpponents===2
-   ? {knownBug:'condition-only-pick core defect: two qualifying opponents open a pick (R-FFA-OPP-ONE)'}
-   : {}),
   tags:['multiplayer','pair',`card:${HIDDEN_PAIR_CODES[kind]}`,kind,format],setup,steps
  });
 }
