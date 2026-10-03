@@ -251,20 +251,23 @@ const SPECS: EffectSpec[] = [
   {
     code: 8837932, name: "Cubic Mandala", slug: "cubic-mandala", does: "Special Summons a destroyed monster",
     p0: { hand: ["Raigeki"], monsters: ["Vijam the Cubic Seed"], spells: [set("Cubic Mandala")] },
-    steps: [activate("Raigeki", "p0"), activate("Cubic Mandala", "p0")],
-    // Raigeki sends the Elf of every opponent to the Graveyard (not the Tag partner). The Elf of p1 is the target; it comes to the field of the picked opponent.
-    then: [select({ card: ELF, owner: "p1" })],
+    // ADR 0002 R-FFA-OPP-ONE: declare for Raigeki; Mandala has only that opponent as a legal source.
+    noPick: (roles) => roles.format !== "tag",
+    steps: (roles) => [activate("Raigeki", "p0"), ...(roles.format !== "tag" ? [pickOpponent(roles.tgt, "p0")] : []), activate("Cubic Mandala", "p0")],
+    // In FFA Raigeki destroys only the declared opponent's Elf; Mandala returns that Elf. Tag uses the joined opposing field.
+    then: (roles) => roles.format === "tag" ? [select({ card: ELF, owner: "p1" })] : [],
     p0End: { monsters: ["Vijam the Cubic Seed"], spells: ["Cubic Mandala"], grave: ["Raigeki"] },
-    tgtEnd: { monsters: [ELF], grave: [ELF] },
-    othersEnd: { grave: [ELF] },
-    seatEnd: { p1: {} },
+    tgtEnd: (roles) => ({ monsters: [ELF], grave: roles.format === "tag" ? [ELF] : [] }),
+    othersEnd: (roles) => roles.format === "tag" ? { grave: [ELF] } : { monsters: [ELF] },
+    seatEnd: (roles) => roles.format === "tag" ? { p1: {} } : {},
   },
   {
     code: 96857854, name: "Diamond Duston", slug: "diamond-duston", does: "Special Summons a Duston monster",
     p0: { hand: ["Smashing Ground"], spells: [set("Diamond Duston")], deck: ["House Duston"] },
     tgt: { monsters: [MAGICIAN] },
     // Smashing Ground destroys the Dark Magician (highest DEF) of the picked-later opponent; Diamond Duston answers the destruction.
-    steps: [activate("Smashing Ground", "p0"), activate("Diamond Duston", "p0")],
+    // ADR 0002 R-FFA-OPP-ONE: Smashing Ground declares its opponent before the destruction response.
+    steps: (roles) => [activate("Smashing Ground", "p0"), ...(roles.format !== "tag" ? [pickOpponent(roles.tgt, "p0")] : []), activate("Diamond Duston", "p0")],
     then: [yes("p0")],
     p0End: { grave: ["Smashing Ground", "Diamond Duston"] },
     tgtEnd: { monsters: ["House Duston"], grave: [MAGICIAN] },
@@ -272,10 +275,12 @@ const SPECS: EffectSpec[] = [
   {
     code: 93983867, name: "Trick Box", slug: "trick-box", does: "takes control of a monster until the End Phase and Special Summons a Performage from the own Graveyard",
     p0: { hand: ["Offerings to the Doomed"], monsters: ["Performage Hat Tricker"], spells: [set("Trick Box")] },
-    steps: [activate("Offerings to the Doomed", "p0"), select("Performage Hat Tricker"), activate("Trick Box", "p0"), select({ card: ELF, owner: "p1" })],
+    // ADR 0002 R-FFA-OPP-ONE: Trick Box declares before its target; both transfers use that opponent.
+    noPick: (roles) => roles.format !== "tag",
+    steps: (roles) => [activate("Offerings to the Doomed", "p0"), select("Performage Hat Tricker"), activate("Trick Box", "p0"), ...(roles.format !== "tag" ? [pickOpponent(roles.tgt, "p0")] : [select({ card: ELF, owner: "p1" })])],
     p0End: { monsters: [ELF], grave: ["Offerings to the Doomed", "Trick Box"] },
-    gain: { monsters: ["Performage Hat Tricker"] },
-    seatEnd: { p1: {} },
+    tgtEnd: (roles) => ({ monsters: roles.format === "tag" ? [ELF, "Performage Hat Tricker"] : ["Performage Hat Tricker"] }),
+    seatEnd: (roles) => roles.format === "tag" ? { p1: {} } : {},
   },
   {
     code: 14283055, name: "Concours de Cuisine", slug: "concours-de-cuisine", does: "Special Summons a Nouvelles and a Patissciel Pendulum monster, one to the own field and one to the field of an opponent",
