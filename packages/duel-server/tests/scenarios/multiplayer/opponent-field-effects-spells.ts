@@ -1,7 +1,7 @@
 // Spell and Trap cards whose effect Special Summons a card or tokens to the field of an opponent (the table and the rule are in
-// opponent-field-effects.ts). Every card of this file is activated by p0, who then picks one opponent.
+// opponent-field-effects.ts). p0 activates each card. A declaration, one legal opponent or the event binds the opponent.
 
-import { activate, attack, choose, expectNoPrompt, expectPickSeats, no, normalSummon, pickOpponent, select, yes } from "../../support/dsl.js";
+import { activate, attack, choose, expectNoPrompt, expectPickSeats, expectPrompt, no, normalSummon, pickOpponent, select, yes } from "../../support/dsl.js";
 import { ELF } from "./nseat-scenarios.js";
 import { effectScenarios, type EffectSpec } from "./opponent-field-effects.js";
 
@@ -9,6 +9,7 @@ const set = (card: string) => ({ card, pos: "set" as const });
 const SKULL = "Summoned Skull";
 const MAGICIAN = "Dark Magician";
 
+// In FFA noPick rows, inspect the next action, card choice or yes/no prompt. An opponent prompt must fail that check.
 const SPECS: EffectSpec[] = [
   {
     code: 29843091, name: "Ojama Trio", slug: "ojama-trio", does: "Special Summons 3 Ojama Tokens",
@@ -111,7 +112,7 @@ const SPECS: EffectSpec[] = [
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
     // ADR 0002 R-FFA-OPP-ONE: only the last opponent has a legal target; the binding is automatic.
     noPick: (roles) => roles.format !== "tag",
-    steps: [activate("Two Toads with One Sting", "p0")],
+    steps: (roles) => [activate("Two Toads with One Sting", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", context: "action" })] : [])],
     p0End: { spells: ["Two Toads with One Sting"] },
     tgtEnd: { monsters: [ELF, MAGICIAN] },
   },
@@ -137,7 +138,7 @@ const SPECS: EffectSpec[] = [
     tgt: { monsters: [{ card: "Daigusto Emeral", materials: [ELF] }] },
     // ADR 0002 R-FFA-OPP-ONE: only the last opponent has a legal target; the binding is automatic.
     noPick: (roles) => roles.format !== "tag",
-    steps: [activate("Xyz Encore", "p0")],
+    steps: (roles) => [activate("Xyz Encore", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", context: "action" })] : [])],
     p0End: { grave: ["Xyz Encore"] },
     tgtEnd: { monsters: [ELF] },
   },
@@ -201,7 +202,7 @@ const SPECS: EffectSpec[] = [
     code: 63086455, name: "Terrors of the Overroot", slug: "terrors-of-the-overroot", does: "sends a card of an opponent to the Graveyard and Sets a monster of an opponent Graveyard",
     p0: { spells: [set("Terrors of the Overroot")] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
-    steps: [activate("Terrors of the Overroot", "p0")],
+    steps: (roles) => [activate("Terrors of the Overroot", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", kind: "toggle" })] : [])],
     // R-FFA-OPP-ONE: both targets and the Set destination must use the same declared opponent in FFA.
     // In FFA, both targets come from the last opponent, the only seat with a legal pair.
     // Tag uses the opposing-team field rule, R-TAG-SHARED-CARDS.
@@ -217,7 +218,7 @@ const SPECS: EffectSpec[] = [
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
     // ADR 0002 R-FFA-OPP-ONE: only the last opponent has a legal target; the binding is automatic.
     noPick: (roles) => roles.format !== "tag",
-    steps: [activate("Terrors of the Afterroot", "p0")],
+    steps: (roles) => [activate("Terrors of the Afterroot", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", offers: ["yes", "no"] })] : [])],
     then: [no("p0")],
     p0End: { grave: ["Terrors of the Afterroot"] },
     tgtEnd: { monsters: [ELF, MAGICIAN] },
@@ -253,7 +254,7 @@ const SPECS: EffectSpec[] = [
     p0: { hand: ["Raigeki"], monsters: ["Vijam the Cubic Seed"], spells: [set("Cubic Mandala")] },
     // ADR 0002 R-FFA-OPP-ONE: declare for Raigeki; Mandala has only that opponent as a legal source.
     noPick: (roles) => roles.format !== "tag",
-    steps: (roles) => [activate("Raigeki", "p0"), ...(roles.format !== "tag" ? [expectPickSeats(roles.opponents, "p0"), pickOpponent(roles.tgt, "p0")] : []), activate("Cubic Mandala", "p0")],
+    steps: (roles) => [activate("Raigeki", "p0"), ...(roles.format !== "tag" ? [expectPickSeats(roles.opponents, "p0"), pickOpponent(roles.tgt, "p0")] : []), activate("Cubic Mandala", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", context: "action" })] : [])],
     // In FFA Raigeki destroys only the declared opponent's Elf; Mandala returns that Elf. Tag uses the joined opposing field.
     then: (roles) => roles.format === "tag" ? [select({ card: ELF, owner: "p1" })] : [],
     p0End: { monsters: ["Vijam the Cubic Seed"], spells: ["Cubic Mandala"], grave: ["Raigeki"] },
@@ -277,7 +278,7 @@ const SPECS: EffectSpec[] = [
     p0: { hand: ["Offerings to the Doomed"], monsters: ["Performage Hat Tricker"], spells: [set("Trick Box")] },
     // ADR 0002 R-FFA-OPP-ONE: Trick Box declares before its target; both transfers use that opponent.
     noPick: (roles) => roles.format !== "tag",
-    steps: (roles) => [activate("Offerings to the Doomed", "p0"), select("Performage Hat Tricker"), activate("Trick Box", "p0"), ...(roles.format !== "tag" ? [expectPickSeats(roles.opponents, "p0"), pickOpponent(roles.tgt, "p0")] : [select({ card: ELF, owner: "p1" })])],
+    steps: (roles) => [activate("Offerings to the Doomed", "p0"), select("Performage Hat Tricker"), activate("Trick Box", "p0"), ...(roles.format !== "tag" ? [expectPickSeats(roles.opponents, "p0"), pickOpponent(roles.tgt, "p0"), expectPrompt({ by: "p0", context: "action" })] : [select({ card: ELF, owner: "p1" })])],
     p0End: { monsters: [ELF], grave: ["Offerings to the Doomed", "Trick Box"] },
     tgtEnd: (roles) => ({ monsters: roles.format === "tag" ? [ELF, "Performage Hat Tricker"] : ["Performage Hat Tricker"] }),
     seatEnd: (roles) => roles.format === "tag" ? { p1: {} } : {},
@@ -305,7 +306,7 @@ const GRAYDLE_PARASITE: EffectSpec = {
   opp: {},
   tgt: { grave: [MAGICIAN] },
   partner: {},
-  steps: (roles) => [attack("Graydle Cobra", "direct", "p0"), pickOpponent(roles.tgt, "p0"), yes("p0")],
+  steps: (roles) => [attack("Graydle Cobra", "direct", "p0"), pickOpponent(roles.tgt, "p0"), yes("p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", offers: ["yes", "no"] })] : [])],
   p0End: { monsters: ["Graydle Cobra"], spells: ["Graydle Parasite"] },
   tgtEnd: { monsters: [MAGICIAN] },
 };
