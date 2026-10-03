@@ -14,5 +14,5 @@ export async function requireWebAccess(level: WebAccessLevel = "member") {
       response: NextResponse.json({ error: webAccessError(decision.status) }, { status: decision.status }),
     };
   }
-  return { ok: true as const, userId: session.user.id };
+  return { ok: true as const, userId: session.user.id, userName: session.user.name ?? "Unknown" };
 }
