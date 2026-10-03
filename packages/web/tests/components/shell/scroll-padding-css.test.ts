@@ -24,9 +24,10 @@ describe("phone shell scroll padding", () => {
 
     const html = globalsMedia.nodes?.find((node) => node.type === "rule" && node.selector === "html");
     const padding = Number(/scroll-padding-top:\s*(\d+(?:\.\d+)?)px\b/.exec(html?.toString() ?? "")?.[1]);
-    const header = shellMedia.nodes?.find((node) =>
-      node.type === "rule" && node.selector === ".topWrap > header:global(.ns-top)",
-    );
+    // The bar is only ever shown inside the 820px block (.topWrap is display: none above it).
+    const header = postcss.parse(shell).nodes.find((node) => node.type === "rule" && node.selector === ".topBar");
+    const hiddenAbove = postcss.parse(shell).nodes.find((node) => node.type === "rule" && node.selector === ".topWrap");
+    expect(hiddenAbove?.toString()).toMatch(/display:\s*none/);
     const barHeight = Number(/\bheight:\s*(\d+(?:\.\d+)?)px\b/.exec(header?.toString() ?? "")?.[1]);
     expect(barHeight).toBe(56);
     expect(padding).toBeGreaterThanOrEqual(barHeight + 8);

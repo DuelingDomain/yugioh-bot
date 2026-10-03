@@ -1,0 +1,110 @@
+/*
+ * Empty and error pages: a dashed, unlit field with a centre line. The big word sits above the
+ * line, an empty card slot below it, and the explanation underneath. Static: nothing moves.
+ */
+.wrap {
+  display: grid;
+  gap: 28px;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 24px 0;
+}
+
+.field {
+  height: 220px;
+}
+
+.field > :global(.sv-field-body) {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  height: 100%;
+}
+
+.top {
+  display: grid;
+  align-items: end;
+  justify-items: center;
+  padding-bottom: 6px;
+}
+
+.code {
+  margin: 0;
+  color: var(--ink);
+  font: 600 64px/1 var(--f-display);
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 28px rgb(var(--beam) / 0.35);
+}
+
+.code[data-long="true"] {
+  font-size: 44px;
+}
+
+.bottom {
+  display: grid;
+  place-items: center;
+}
+
+.copy {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  color: var(--ink);
+  font: 600 26px/1.2 var(--f-display);
+}
+
+.body {
+  max-width: 44ch;
+  margin: 0;
+  color: var(--ink-2);
+  font: 400 15.5px/1.55 var(--f-ui);
+}
+
+.body p {
+  margin: 0;
+}
+
+.address {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 4px 10px;
+  border: 1px solid var(--rule-lo);
+  border-radius: 6px;
+  color: var(--ink-3);
+  font: 400 13px/1.3 var(--f-num);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.ref {
+  margin: 0;
+  color: var(--ink-3);
+  font: 400 13px/1.4 var(--f-num);
+}
+
+@media (max-width: 480px) {
+  .code {
+    font-size: 52px;
+  }
+
+  .code[data-long="true"] {
+    font-size: 38px;
+  }
+
+  .title {
+    font-size: 22px;
+  }
+}
