@@ -13,7 +13,7 @@ const openingHand = (): string[] => mode === "domain" ? [ELF] : [];
 const openingDeck = () => mode === "domain" ? 19 : 20;
 function scenario(id: string, format: Format, setup: Scenario["setup"], steps: Step[], rules: string[] = [rule]): Scenario {
   const result = defineScenario({ id: `df-shared-zones-${id}`, title: id.replaceAll("-", " "),
-    source: `${SOURCE} [${rule}]`, rules, tags: ["multiplayer", format, "link", "column", "ffa-first-draw-included"], setup: { ...setup, format, mode: mode === "domain" ? "domain" : "normal" }, steps });
+    source: rules.length ? `${SOURCE} [${rule}]` : SOURCE, rules, tags: ["multiplayer", format, "link", "column", "ffa-first-draw-included"], setup: { ...setup, format, mode: mode === "domain" ? "domain" : "normal" }, steps });
   return mode === "domain" ? domainVariant(result) : result;
 }
 function state(format: Format, actor: Seat): Record<Seat, DuelistExpect> {
