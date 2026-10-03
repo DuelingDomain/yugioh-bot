@@ -35,15 +35,16 @@ function Shell({ id }: { id: StateId }) {
 const ids = Object.keys(FFA3_FIXTURES.states) as StateId[];
 
 describe("TableShell on the 3-way fixtures: the whole table", () => {
-  it("renders every state without a console error", () => {
+  it.each(ids)("renders %s without a console error", (id) => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    for (const id of ids) {
+    try {
       const { container, unmount } = render(<Shell id={id} />);
       expect(container.querySelector("[data-table-shell]"), id).not.toBeNull();
       unmount();
+      expect(errors).not.toHaveBeenCalled();
+    } finally {
+      errors.mockRestore();
     }
-    expect(errors).not.toHaveBeenCalled();
-    errors.mockRestore();
   });
 
   it("keeps the FX hooks: one LP node per seat, zone keys, hands and card art", () => {
