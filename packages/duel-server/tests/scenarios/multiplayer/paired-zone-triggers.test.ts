@@ -6,7 +6,7 @@ import { engineDataDirectory } from "../../engine-data-dir.js";
 import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
-import { expectPrompt, expectNoEvent, pickOpponent, type DuelistId } from "../../support/dsl.js";
+import { expectPrompt } from "../../support/dsl.js";
 import { PAIRED_ZONE_TRIGGERS_SCENARIOS } from "./paired-zone-triggers.js";
 // The opening-draw skip is intentional: keep the card fixture hand and Deck counts fixed.
 // rule-proof-ffa-order.test.ts checks the first draw without this skip in the default test:engine gate.
@@ -44,6 +44,10 @@ describeWithCores("live paired zone trigger actions", liveNseat, () => {
           if (current?.context?.type === "action" || current?.source?.code === 14220547) continue;
         }
         session.run(step, at++);
+      }
+      for (let seat = 0; seat < count; seat++) {
+        expect(game.view(seat).prompt?.context?.type,
+          `${scenario.id}: p${seat} has an open opponent prompt`).not.toBe("opponent");
       }
       if (scenario.tags.includes("branded-fusion")) expect(game.view(0).seats[0].monsters.find(card => card?.code === 54541900)?.attack).toBe(3000);
     } finally { game.close(); }
