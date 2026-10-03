@@ -13,11 +13,13 @@ const cases: [string, DuelPrompt["kind"], string][] = [
   ["effect yes-no", "choice", "Duel.SelectEffectYesNo(0,g:GetFirst(),30)"],
   ["option", "choice", "Duel.SelectOption(0,30,31)"],
   ["cards", "cards", "g:Select(0,1,1,nil)"],
+  ["nested card selection", "cards", "g:Select(0,1,1,nil)"],
   ["unselect", "toggle", "g:SelectUnselect(Group.CreateGroup(),0,true,true,1,1)"],
   ["place", "places", "Duel.SelectFieldZone(0,1,LOCATION_MZONE,0,0)"],
   ["disabled places", "places", "Duel.SelectDisableField(0,1,LOCATION_MZONE,0,0)"],
   ["position", "choice", "Duel.SelectPosition(0,g:GetFirst(),POS_FACEUP)"],
   ["sum", "sum", "g:SelectWithSumEqual(0,function() return 1 end,1,1,1)"],
+  ["nested sum check", "sum", "Group.FromCards(foreign):SelectWithSumEqual(0,function() return 1 end,1,1,1)"],
   ["sort", "order", "Duel.SortDecktop(0,0,3)"],
   ["race", "cards", "Duel.AnnounceRace(0,1,RACE_ALL)"],
   ["attribute", "cards", "Duel.AnnounceAttribute(0,1,ATTRIBUTE_ALL)"],
@@ -59,6 +61,11 @@ local control=Effect.CreateEffect(foreign)
 control:SetType(EFFECT_TYPE_SINGLE); control:SetCode(EFFECT_SET_CONTROL); control:SetValue(0)
 control:SetProperty(EFFECT_FLAG_CANNOT_DISABLE); control:SetReset(RESET_EVENT|RESETS_STANDARD|RESET_CONTROL)
 foreign:RegisterEffect(control)
+${["nested card selection", "nested sum check"].includes(_name) ? `local nested=Effect.GlobalEffect()
+nested:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS); nested:SetCode(EVENT_TO_GRAVE)
+nested:SetCondition(function(e,tp,eg) return eg:IsExists(function(c) return c:GetCode()==97017120 end,1,nil) end)
+nested:SetOperation(function() ${_name === "nested card selection" ? "Duel.GetFieldGroup(1,LOCATION_MZONE,0):Select(1,1,1,nil)" : "Group.FromCards(foreign):CheckWithSumEqual(function() return 2 end,2,1,1)"} end)
+Duel.RegisterEffect(nested,1)` : ""}
 local e=Effect.GlobalEffect()
 e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
 e:SetCode(EVENT_PHASE_START|PHASE_MAIN1)
@@ -73,6 +80,8 @@ e:SetOperation(function()
   end` : ""}
   local answer=${call}
   ${["yes-no", "effect yes-no", "option"].includes(_name) ? "Duel.SetLP(2,7000+(answer==true and 1 or type(answer)=='number' and answer or 0))" : ""}
+  ${_name === "nested card selection" ? "Duel.SetLP(2,7000+answer:GetFirst():GetCode()%1000)" : ""}
+  ${_name === "nested sum check" ? "Duel.SetLP(2,7000+answer:GetCount())" : ""}
 end)
 ${_name === "idle" ? "" : "Duel.RegisterEffect(e,0)"}` }],
       });
@@ -88,11 +97,21 @@ ${_name === "idle" ? "" : "Duel.RegisterEffect(e,0)"}` }],
         expect(game.view(0).prompt?.kind).toBe(kind);
         if (_name === "idle") expect(game.view(0).prompt?.context).toEqual({ type: "action", phase: "main" });
         expect(game.view(null).chain ?? []).toHaveLength(0);
+        const original = game.view(0).prompt!;
+        const selectedCode = original.kind === "cards" ? original.options[0].card?.code : undefined;
         game.eliminate(0, 0);
+        if (_name === "nested card selection") {
+          expect(holder(game)).toBe(1);
+          expect(game.view(1).prompt?.kind).toBe("cards");
+          pass(game);
+          expect(selectedCode).toBeDefined();
+          expect(game.view(null).seats[2].lp).toBe(7000 + selectedCode! % 1000);
+        }
         expect(game.view(null).seats[0].eliminated).toBe(true);
         expect(game.view(0).prompt).toBeNull();
         expect(game.view(null).seats[1].graveyard.map((c) => c.code)).toContain(97017120);
         if (["yes-no", "effect yes-no", "option"].includes(_name)) expect(game.view(null).seats[2].lp).toBe(7000);
+        if (_name === "nested sum check") expect(game.view(null).seats[2].lp).toBe(7001);
         expect(holder(game)).not.toBe(0);
         pass(game);
         expect(game.view(null).result ?? null).toBeNull();

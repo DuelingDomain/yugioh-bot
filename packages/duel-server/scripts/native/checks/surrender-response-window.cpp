@@ -5,6 +5,7 @@
 #include "response-cursor.cpp"
 #undef main
 #include "card.h"
+#include "effect.h"
 
 static void surrender_phase(int leaver) {
 	OCG_Duel d = make_ffa4({{103}, {103}, {103}, {103}}, 0);
@@ -162,6 +163,9 @@ static void surrender_cancel_activation() {
 static void surrender_return_cleanup(bool living_window) {
 	OCG_Duel d = make_ffa4({{}, {}, {}, {}}, 0, "", {{1}, {1, 1, 1, 1, 1}});
 	F(d).player[0].list_mzone[0]->owner = 1;
+	EXPECT(run_lua(d, "local c=Duel.GetFieldCard(0," + std::to_string(LOCATION_MZONE) + ",0) "
+		"local e=Effect.CreateEffect(c) e:SetType(" + std::to_string(EFFECT_TYPE_SINGLE) + ") "
+		"e:SetCode(" + std::to_string(EFFECT_SET_CONTROL) + ") e:SetValue(0) c:RegisterEffect(e)"), "hold foreign control failed");
 	std::vector<Msg> msgs;
 	bool surrendered = false, reached_idle = false;
 	int retries = 0;
@@ -174,6 +178,7 @@ static void surrender_return_cleanup(bool living_window) {
 		const auto last = msgs.back();
 		if(!surrendered && ((living_window && last.id == MSG_SELECT_CHAIN && last.b1 == 2)
 			|| (!living_window && last.id == MSG_SELECT_IDLECMD && last.b1 == 0))) {
+			EXPECT(F(d).player[0].list_mzone[0] && F(d).player[1].list_grave.empty(), "cleanup already ran before surrender");
 			EXPECT(run_lua(d, "Debug.SurrenderDuelist(0)"), "cleanup surrender failed");
 			EXPECT(!F(d).is_alive(0), "cleanup surrender was not immediate");
 			surrendered = true;
@@ -194,6 +199,42 @@ static void surrender_return_cleanup(bool living_window) {
 	OCG_DestroyDuel(d);
 }
 
+// The mandatory chain selector has two options, so its response cannot be
+// replaced by the cleanup count (1), even though both indices would be valid.
+static void surrender_forced_chain_cleanup() {
+	OCG_Duel d = make_duel(0);
+	EXPECT(run_lua(d, "Debug.SetupDuelists(4,0,1,2,3)"), "forced-chain setup failed");
+	add_cards(d, 0, LOCATION_MZONE, 1, 1, POS_FACEUP_ATTACK);
+	add_cards(d, 1, LOCATION_MZONE, 5, 1, POS_FACEUP_ATTACK);
+	auto& f = F(d);
+	auto* card = f.player[0].list_mzone[0];
+	card->owner = 1;
+	for(int i = 0; i < 2; ++i) {
+		auto* e = static_cast<duel*>(d)->new_effect();
+		e->owner = e->handler = card;
+		e->description = 30 + i;
+		f.core.select_chains.emplace_back().triggering_effect = e;
+		f.core.select_chains.back().evt = f.nil_event;
+	}
+	f.emplace_process<Processors::SelectChain>(0, 0, true);
+	std::vector<Msg> msgs;
+	EXPECT(advance(d, msgs) == OCG_DUEL_STATUS_AWAITING && msgs.back().id == MSG_SELECT_CHAIN,
+		"mandatory chain prompt was not emitted");
+	EXPECT(run_lua(d, "Debug.SurrenderDuelist(0)"), "forced-chain surrender failed");
+	answer_i32(d, 0);
+	int retries = 0;
+	for(int steps = 0; steps < 4000; ++steps) {
+		const auto status = advance(d, msgs);
+		for(const auto& m : msgs) if(m.id == MSG_RETRY) ++retries;
+		if(retries || status == OCG_DUEL_STATUS_END) break;
+		EXPECT(status != OCG_DUEL_STATUS_AWAITING, "unexpected cleanup prompt");
+	}
+	EXPECT(retries == 0 && f.returns.at<int32_t>(0) == 0, "mandatory chain answer became %d (retries %d)", f.returns.at<int32_t>(0), retries);
+	EXPECT(!f.is_alive(0) && f.player[1].list_grave.size() == 1, "mandatory chain cleanup did not finish");
+	std::printf("Mandatory chain cleanup: selected %d; retries %d\n", f.returns.at<int32_t>(0), retries);
+	OCG_DestroyDuel(d);
+}
+
 int main() {
 	init_scripts();
 	// FX3: a seat which passed, and is not the turn player, is removed at seat 2's prompt.
@@ -205,6 +246,7 @@ int main() {
 	surrender_cancel_activation();
 	surrender_return_cleanup(false);
 	surrender_return_cleanup(true);
+	surrender_forced_chain_cleanup();
 	std::printf("%s: %d failure(s)\n", failures ? "FAIL" : "PASS", failures);
 	return failures ? 1 : 0;
 }

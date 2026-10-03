@@ -9,10 +9,59 @@ diff --git a/field.h b/field.h
  	uint32_t global_id{};
  	bool operator< (const tevent& v) const;
  };
-@@ -262,6 +263,13 @@
+@@ -216,7 +217,27 @@
+ using return_card = return_card_generic<card*>;
+ using return_card_code = return_card_generic<std::pair<uint32_t, uint32_t>>;
+ 
+-struct processor {
++// Only the shared inputs of a suspended prompt. Losses and event queues remain live.
++struct prompt_selection {
++	card_vector select_cards;
++	std::vector<std::pair<uint32_t, uint32_t>> select_cards_codes;
++	card_vector unselect_cards;
++	card_vector summonable_cards;
++	card_vector spsummonable_cards;
++	card_vector repositionable_cards;
++	card_vector msetable_cards;
++	card_vector ssetable_cards;
++	card_vector attackable_cards;
++	effect_vector select_effects;
++	std::vector<uint64_t> select_options;
++	card_vector must_select_cards;
++	chain_list select_chains;
++	bool to_bp;
++	bool to_m2;
++	bool to_ep;
++};
++
++struct processor : prompt_selection {
+ 	using option_vector = std::vector<uint64_t>;
+ 	using processor_list = std::list<processor_unit>;
+ 	// Ordered by effect registration and event content, never by address (see delayed_effect_sort in field.cpp).
+@@ -241,18 +262,6 @@
+ 	processor_list subunits;
+ 	std::optional<processor_unit> reserved;
+ 	card_set just_sent_cards;
+-	card_vector select_cards;
+-	std::vector<std::pair<uint32_t, uint32_t>> select_cards_codes;
+-	card_vector unselect_cards;
+-	card_vector summonable_cards;
+-	card_vector spsummonable_cards;
+-	card_vector repositionable_cards;
+-	card_vector msetable_cards;
+-	card_vector ssetable_cards;
+-	card_vector attackable_cards;
+-	effect_vector select_effects;
+-	option_vector select_options;
+-	card_vector must_select_cards;
+ 	event_list point_event;
+ 	event_list instant_event;
+ 	event_list queue_event;
+@@ -262,7 +271,13 @@
  	event_list single_event;
  	event_list solving_event;
  	event_list sub_solving_event;
+-	chain_list select_chains;
 +	// Snapshot the event participants before immediate surrender removes their cards.
 +	bool turn_surrendered{ false };
 +	uint8_t response_instant_seats{ 0 };
@@ -20,21 +69,44 @@ diff --git a/field.h b/field.h
 +	uint8_t response_window_seats{ 0 };
 +	uint8_t response_window_player{ DUELIST_NONE };
 +	bool response_window_optional{ false };
- 	chain_list select_chains;
  	chain_array current_chain;
  	int32_t real_chain_count;
-@@ -453,6 +461,10 @@
+ 	chain_list tpchain;
+@@ -361,9 +376,6 @@
+ 	uint8_t set_group_seq[7];
+ 	std::vector<uint8_t> dice_results;
+ 	std::vector<bool> coin_results;
+-	bool to_bp;
+-	bool to_m2;
+-	bool to_ep;
+ 	bool skip_m2;
+ 	bool chain_attack;
+ 	uint32_t chain_attacker_id;
+@@ -453,6 +465,23 @@
  	field_effect effects;
  	processor core{};
  	ProgressiveBuffer returns;
 +	// External loss cleanup runs before the suspended selector. Keep its response
 +	// until that same processor resumes, including cleanup that yields another prompt.
 +	bool capture_surrender_response{ false };
-+	std::vector<std::pair<const processor_unit*, ProgressiveBuffer>> surrender_responses;
++	struct prompt_card_values {
++		card* pcard;
++		uint32_t sum;
++		uint32_t release;
++	};
++	struct surrender_response {
++		const processor_unit* unit;
++		ProgressiveBuffer response;
++		prompt_selection selection;
++		return_card cards;
++		return_card_code card_codes;
++		std::vector<prompt_card_values> values;
++	};
++	std::vector<surrender_response> surrender_responses;
  	return_card return_cards;
  	return_card_code return_card_codes;
  	tevent nil_event;
-@@ -711,7 +723,9 @@
+@@ -711,7 +740,9 @@
  	// any body runs): then p is not "already out" and the body runs.
  	void eliminate(uint8_t p, uint8_t reason, bool marked = false);
  	// Applies the losses of a duel with more than 2 duelists (Adjust step 1). Sends MSG_WIN at the end.
@@ -45,7 +117,7 @@ diff --git a/field.h b/field.h
  	// Calls f(p) for p = 0 .. n_duelists - 1 in ascending order (the stock order: player 0, then 1).
  	template<typename F>
  	void for_each_duelist(F&& f) const {
-@@ -955,9 +969,9 @@
+@@ -955,9 +986,9 @@
  		emplace_process<T>(Step{ 0 }, std::forward<Args>(args)...);
  	}
  
@@ -733,7 +805,7 @@ diff --git a/processor_unit.h b/processor_unit.h
 diff --git a/processor_visit.cpp b/processor_visit.cpp
 --- a/processor_visit.cpp
 +++ b/processor_visit.cpp
-@@ -7,9 +7,26 @@
+@@ -7,9 +7,41 @@
  #include "field.h"
  
  OCG_DuelStatus field::process() {
@@ -745,16 +817,31 @@ diff --git a/processor_visit.cpp b/processor_visit.cpp
 +				if constexpr(Processors::IsProcess<decltype(arg)>) return waiting(arg);
 +				else return std::visit(waiting, arg);
 +			}, core.units.front());
-+			if(suspended)
-+				surrender_responses.emplace_back(&core.units.front(), returns);
++			if(suspended) {
++				surrender_response saved{ &core.units.front(), returns, core, return_cards, return_card_codes, {} };
++				// Sum and tribute selectors keep their offered values on the card objects.
++				// Nested selection/check calls may overwrite them without yielding a prompt.
++				for(const auto* cards : { &core.select_cards, &core.must_select_cards, &core.unselect_cards })
++					for(auto* c : *cards)
++						saved.values.push_back({ c, c->sum_param, c->release_param });
++				surrender_responses.push_back(std::move(saved));
++			}
 +		}
 +	}
  	core.units.splice(core.units.begin(), core.subunits);
  	if(core.units.empty())
  		return OCG_DUEL_STATUS_END;
 +
-+	if(!surrender_responses.empty() && surrender_responses.back().first == &core.units.front()) {
-+		returns = std::move(surrender_responses.back().second);
++	if(!surrender_responses.empty() && surrender_responses.back().unit == &core.units.front()) {
++		auto& saved = surrender_responses.back();
++		returns = std::move(saved.response);
++		static_cast<prompt_selection&>(core) = std::move(saved.selection);
++		return_cards = std::move(saved.cards);
++		return_card_codes = std::move(saved.card_codes);
++		for(const auto& value : saved.values) {
++			value.pcard->sum_param = value.sum;
++			value.pcard->release_param = value.release;
++		}
 +		surrender_responses.pop_back();
 +	}
  
