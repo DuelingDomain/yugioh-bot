@@ -52,15 +52,18 @@ function normalizeName(name: string) {
   return name.trim().toLowerCase();
 }
 
+/**
+ * Fusion, Synchro, Xyz and Link monsters live in the Extra Deck, Pendulum variants included
+ * (frame `synchro_pendulum`, type "Synchro Pendulum Effect Monster"). Mirrors the web
+ * `isExtraDeckMonster`.
+ */
 export function isExtraDeckFrame(card: { frameType: string; type: string }) {
-  return (
-    EXTRA_DECK_FRAME_TYPES.has(card.frameType) ||
-    card.type.includes("Fusion Monster") ||
-    card.type.includes("Synchro Monster") ||
-    card.type.includes("XYZ Monster") ||
-    card.type.includes("Xyz Monster") ||
-    card.type.includes("Link Monster")
-  );
+  const frameType = card.frameType.trim().toLowerCase();
+  if (EXTRA_DECK_FRAME_TYPES.has(frameType) || [...EXTRA_DECK_FRAME_TYPES].some((f) => frameType.startsWith(`${f}_`))) {
+    return true;
+  }
+  const type = card.type.toLowerCase();
+  return type.includes("monster") && /\b(fusion|synchro|xyz|link)\b/.test(type);
 }
 
 function isExtraDeckCard(card: YgoprodeckCard) {
