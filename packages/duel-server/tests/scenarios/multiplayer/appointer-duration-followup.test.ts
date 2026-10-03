@@ -83,7 +83,7 @@ function proof(format: Format, domain: boolean, kind: Case): Scenario {
   return defineScenario({ id: `appointer-followup-${format}-${kind}${domain ? "-domain" : ""}`,
     title: `${format}: ${dead ? "the declared seat leaves; the living owner gets its card at the next living opponent End Phase" : "activation in the declared seat End Phase waits for the next counted End Phase"}`,
     source: "Appointer card text; core-fix5 and appointer-lua reviews LOW-1/LOW-2; owner 2026-10-02 late fallback and 2026-10-03 declared duration",
-    rules: format.startsWith("ffa") ? ["R-FFA-OPP-ONE", "R-FFA-DECLARED-DURATION", ...(dead ? ["R-FFA-ELIMINATION", "R-FFA-RETURN-OWNED-CARDS", "R-FFA-ORDER"] : [])]
+    rules: format.startsWith("ffa") ? ["R-FFA-OPP-ONE", "R-FFA-DECLARED-DURATION", ...(dead ? ["R-FFA-ELIMINATION", "R-FFA-ORDER"] : [])]
       : format === "tag" ? ["R-TAG-ORDER", "R-COMMON-OPP-PICK", "R-TAG-PARTNER"] : ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "card:43262273", `fixture:${kind}`], setup, steps });
 }

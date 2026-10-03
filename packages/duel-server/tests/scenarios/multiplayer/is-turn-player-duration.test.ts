@@ -57,7 +57,7 @@ function proof(format: Format, domain: boolean, kind: Case): Scenario {
     title: `${format}: IsTurnPlayer in a ${kind} declared-duration callback recovers only on counted opponent turns`,
     source: "Core-fix5 review LOW-1; owner 2026-10-03 declared duration and 2026-10-02 late dead-seat fallback and card-effect scope",
     rules: ffa ? ["R-FFA-DECLARED-DURATION", ...(kind === "dead" ? ["R-FFA-ELIMINATION"] : []), ...(kind !== "live" ? ["R-FFA-ORDER"] : [])]
-      : format === "tag" ? ["R-TAG-ORDER", "R-TAG-LP"] : ["R-COMMON-OPP-PICK"],
+      : format === "tag" ? ["R-TAG-ORDER", "R-TAG-LP"] : [],
     tags: ["multiplayer", `fixture:${kind}`], setup, steps,
   });
 }
