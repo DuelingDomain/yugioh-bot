@@ -1,5 +1,5 @@
 // Book of Eclipse: the first flip affects every seat. In FFA, the End Phase flip and draw affect the opponent declared at activation.
-// Tag still flips and draws per opposing controller. Old IDs stay because LIVE_PROOF names them.
+// Tag still flips and draws per opposing controller. FFA IDs name the declared opponent; LIVE_PROOF uses the same IDs.
 // Reason for changed FFA expectations: owner decision 2026-10-02 replaces the each-opponent delayed result.
 
 import { activate, defineScenario, endTurn, expectBoard, expectPickSeats, expectPrompt, pass, pickOpponent, type BoardExpect, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
@@ -97,7 +97,7 @@ function eclipse(format: Format, actor: Seat, noMonsters = false): Scenario {
 
   const counts = opponents.map((seat) => `${seat} ${field[seat].length}`).join(", ");
   return defineScenario({
-    id: noMonsters ? "book-of-eclipse-ffa4-p0-declared-p2-has-no-monsters-no-other-opponent-flips-or-draws" : `book-of-eclipse-${format}-${actor}-each-opponent-flips-its-own-monsters-and-draws-for-them`,
+    id: noMonsters ? "book-of-eclipse-ffa4-p0-declared-p2-has-no-monsters-no-other-opponent-flips-or-draws" : `book-of-eclipse-${format}-${actor}-${tag ? "each-opponent" : "declared-opponent"}-flips-its-own-monsters-and-draws-for-them`,
     title: `${labelOf(format)}: ${actor} activates Book of Eclipse; all monsters turn face-down, then ${tag ? "each opposing member" : `only declared ${declared}`} flips its monsters and draws for them (${counts})`,
     source: `${SOURCE} ${tag ? "[R-COMMON-EACH-PLAYER]" : "[R-FFA-OPP-ONE]"}, owner decision 2026-10-02: Book of Eclipse`,
     rules: tag ? ["R-COMMON-EACH-PLAYER", "R-TAG-PARTNER", "R-COMMON-ALL-BOTH"] : ["R-FFA-OPP-ONE", "R-COMMON-ALL-BOTH"],
@@ -144,7 +144,7 @@ function eclipseOffTurn(): Scenario {
     p2: { monsters: field.p2, zones: faceUpDefense("p2"), hand: [HAND.p2, ...draws("p2", 3 + 1)], deckCount: 16 },
   };
   return defineScenario({
-    id: "book-of-eclipse-ffa3-p0-activates-in-the-turn-of-p1-each-opponent-flips-its-own-monsters-and-draws-for-them",
+    id: "book-of-eclipse-ffa3-p0-activates-in-the-turn-of-p1-declared-opponent-flips-its-own-monsters-and-draws-for-them",
     title: "FFA3: p0 activates Set Book of Eclipse in p1 turn, declares p2, and only p2 flips and draws in p1 End Phase",
     source: `${SOURCE} [R-FFA-OPP-ONE], owner decision 2026-10-02: Book of Eclipse off-turn binding`,
     rules: ["R-FFA-OPP-ONE", "R-COMMON-ALL-BOTH"],
