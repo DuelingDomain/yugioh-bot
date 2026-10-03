@@ -15,6 +15,7 @@
  * Reduced motion: no travel. The card fades in at the showcase spot with the label, holds, and fades
  * out as the real card shows in the hand.
  */
+import { duelFxClock } from "./fx-clock";
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { cardArtUrl, LOCATION_EXTRA } from "./constants";
 import { findMoveDestination, followMoveDestination, handArrivalTarget, moveDestinationRotation } from "./event-queue";
@@ -131,13 +132,13 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
       }
       track.play(flipper.current, [{ transform: "rotateY(180deg)" }, { transform: "rotateY(0deg)" }], { duration: REVEAL_FLIP_MS, easing: "ease-in-out", fill: "both" });
     };
-    const poll = window.setInterval(() => {
+    const poll = duelFxClock.setInterval(() => {
       if (!alive || shownCode > 0) return;
       const current = findMoveDestination(plan.event);
       const found = current ? artCodeOf(current) : 0;
       if (found > 0) turnOver(found);
     }, REVEAL_POLL_MS);
-    track.onDispose(() => window.clearInterval(poll));
+    track.onDispose(() => duelFxClock.clearInterval(poll));
 
     let landedOnce = false;
     const land = () => {
@@ -150,7 +151,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
     let liveFlight: ReturnType<typeof retargetFlight> | undefined;
     track.after(stageMs, () => {
       if (!alive) return;
-      window.clearInterval(poll);
+      duelFxClock.clearInterval(poll);
       const current = findMoveDestination(plan.event);
       const target = handArrivalTarget(plan.event);
       if (!target) { land(); doneRef.current(); return; }
