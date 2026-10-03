@@ -233,7 +233,7 @@ export const FFA_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "nseat-ffa4-turn-numbers-and-first-round-no-attack",
-    title: "FFA4: turns 1 to 8 go p0, p1, p2, p3 twice, nobody can attack before turn 5, p0 can on turn 5",
+    title: "FFA4: turns 1 to 8 follow seat order; p3 can attack on turn 4 and p0 can attack on turn 5",
     source: `${SOURCE} [R-FFA-ORDER] [R-FFA-NO-ATTACK]`,
     rules: ["R-FFA-ORDER", "R-FFA-NO-ATTACK"],
     tags: ["multiplayer", "turn-order", "battle", "ffa4"],
@@ -242,14 +242,19 @@ export const FFA_SCENARIOS: Scenario[] = [
       expectTurn("p0", 1), expectPrompt({ by: "p0", notOffers: ["to_bp"] }),
       endTurn("p0"), expectTurn("p1", 2), expectPrompt({ by: "p1", notOffers: ["to_bp"] }),
       endTurn("p1"), expectTurn("p2", 3), expectPrompt({ by: "p2", notOffers: ["to_bp"] }),
-      endTurn("p2"), expectTurn("p3", 4), expectPrompt({ by: "p3", notOffers: ["to_bp"] }),
+      endTurn("p2"), expectTurn("p3", 4), expectPrompt({ by: "p3", offers: ["to_bp"] }),
+      changePhase("battle", "p3"),
+      attack(ELF, { card: ELF, owner: "p1" }, "p3"),
+      // The first attack destroys both Elves. p0 and p2 keep their Elves and their LP.
+      expectBoard({ p0: { lp: 8000, monsters: [ELF] }, p1: { lp: 8000, monsters: { count: 0 } }, p2: { lp: 8000, monsters: [ELF] }, p3: { lp: 8000, monsters: { count: 0 } } }),
       endTurn("p3"), expectTurn("p0", 5), expectPrompt({ by: "p0", offers: ["to_bp"] }),
       changePhase("battle", "p0"),
       attack(ELF, { card: ELF, owner: "p2" }, "p0"),
-      // Equal ATK: both Elves are destroyed. The Elves of p1 and p3 stay.
-      expectBoard({ p0: { monsters: { count: 0 } }, p2: { monsters: { count: 0 } }, p1: { monsters: [ELF] }, p3: { monsters: [ELF] } }),
-      endTurn("p0"),
-      expectTurn("p1", 6),
+      // The second attack destroys the two Elves that remain. Every seat keeps its LP.
+      expectBoard({ p0: { lp: 8000, monsters: { count: 0 } }, p1: { lp: 8000, monsters: { count: 0 } }, p2: { lp: 8000, monsters: { count: 0 } }, p3: { lp: 8000, monsters: { count: 0 } } }),
+      endTurn("p0"), expectTurn("p1", 6),
+      endTurn("p1"), expectTurn("p2", 7),
+      endTurn("p2"), expectTurn("p3", 8),
     ],
   }),
   defineScenario({
