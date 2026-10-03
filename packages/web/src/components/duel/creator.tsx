@@ -33,6 +33,7 @@ const MASTER_RULES: readonly Choice<DuelMasterRule>[] = [
   { value: 2, label: "Master Rules 2 (2011)" },
   { value: 1, label: "Master Rules 1 (2008)" },
 ];
+const MULTIPLAYER_MASTER_RULES = MASTER_RULES.filter((choice) => choice.value === 5);
 const VISIBILITY: readonly Choice<DuelSettings["visibility"]>[] = [
   { value: "public", label: "Public", icon: <Globe size={15} strokeWidth={1.6} aria-hidden /> },
   { value: "private", label: "Private", icon: <Lock size={15} strokeWidth={1.6} aria-hidden /> },
@@ -264,7 +265,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                     <p className={cx(ui.hint, styles.below)} data-testid="domain-blocked">{domainBlocked}</p>
                   ) : null}
                 </div>
-                <SheetSelect label="Master Rules" value={masterRule} choices={MASTER_RULES} onChange={setMasterRule} disabled={format !== "1v1"} />
+                <SheetSelect label="Master Rules" value={masterRule} choices={format === "1v1" ? MASTER_RULES : MULTIPLAYER_MASTER_RULES} onChange={setMasterRule} disabled={format !== "1v1"} />
                 <SheetSelect label="Game engine" value="automatic" choices={[{ value: "automatic", label: "Automatic" }]} disabled />
               </div>
             </section>
@@ -322,7 +323,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                         {customDomain ? " — these overrides differ from official Domain rules." : " — 60 singleton Main Deck cards, a separate Deck Master, up to 15 Extra Deck cards, no Side Deck."}
                         {/* The host does not send its 1v1 engine choice to the creator. */}
                         {format !== "1v1"
-                          ? " In Domain, every duelist draws on their first turn."
+                          ? " Tag and free-for-all duels use Master Rule 5. In Domain, every duelist draws on their first turn."
                           : " In 1v1 Domain, the duelist who goes first draws at Master Rule 1 and 2; at Master Rule 3 to 5 this depends on the server engine. The second duelist always draws."}
                       </span>
                     </p>
@@ -330,7 +331,9 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                     <p className={styles.note}>
                       <Info size={16} strokeWidth={1.6} aria-hidden />
                       <span>
-                        Master Rules use the current card catalog, not a historical card pool. First-turn draws follow the selected Master Rule.
+                        {format === "1v1"
+                          ? "Master Rules use the current card catalog, not a historical card pool. First-turn draws follow the selected Master Rule."
+                          : "Tag and free-for-all duels use Master Rule 5 and the current card catalog. First-turn draws follow Master Rule 5."}
                       </span>
                     </p>
                   )}
