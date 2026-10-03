@@ -119,6 +119,19 @@ describe("POST /api/bug-reports/precheck", () => {
     expect(github).not.toHaveBeenCalled();
   });
 
+  it("only reads: a player with no row is not created, and nothing is saved", async () => {
+    auth.mockResolvedValue({ user: { id: "123456789012345678", name: "Newcomer" } });
+    vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", "");
+    await addReport({ player: 3, slug: "duel-a", turn: 3, description: "The chain froze and the duel never went on after my effect", issue: 8 });
+    const { getDb } = await import("../src/lib/db");
+    const count = (table: string) => (getDb().prepare(`select count(*) as n from ${table}`).get() as { n: number }).n;
+    const before = { players: count("players"), reports: count("bug_reports") };
+    const res = await (await route())(post(body()));
+    expect(res.status).toBe(200);
+    expect((await res.json()).duplicates.map((d: { number: number; sameDuel: boolean }) => [d.number, d.sameDuel])).toEqual([[8, true]]);
+    expect({ players: count("players"), reports: count("bug_reports") }).toEqual(before);
+  });
+
   it("returns a known limit that matches the text and the format", async () => {
     const POST = await route();
     const res = await POST(post(body({ description: "I surrendered in the 3-way duel but my monsters stayed on the field", expected: "My monsters should leave at once" })));

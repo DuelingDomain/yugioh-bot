@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createBugReportService, createPlayerService, type BugReport } from "@yugidraft/shared/services";
+import { createBugReportService, type BugReport } from "@yugidraft/shared/services";
 import { parseBugReportRequest } from "@/lib/bug-report";
 import { listOpenFromAppIssues } from "@/lib/bug-report-github";
 import { candidateFromRow, isSameDuelMoment, takePrecheckSlot } from "@/lib/bug-reports/precheck";
@@ -40,10 +40,11 @@ export async function POST(request: Request) {
   const knownLimits = matchKnownLimits(text, { format, duelMode: report.context.duelMode });
 
   const db = getDb();
-  const player = createPlayerService(db).findOrCreate(guildId, actor.userId, actor.userName);
+  // A read only look-up: a player with no row has no reports, and a check must not create the row. -1 matches no player.
+  const playerId = (db.prepare("select id from players where guild_id = ? and discord_user_id = ?").get(guildId, actor.userId) as { id: number } | undefined)?.id ?? -1;
   const reports = createBugReportService(db);
   const sameDuelRows: BugReport[] = report.duelSlug
-    ? reports.listWithIssueInDuel(guildId, report.duelSlug, player.id).filter((row) => isSameDuelMoment(row, { turn: report.context.turn }))
+    ? reports.listWithIssueInDuel(guildId, report.duelSlug, playerId).filter((row) => isSameDuelMoment(row, { turn: report.context.turn }))
     : [];
   const sameDuelNumbers = new Set(sameDuelRows.map((row) => row.githubIssueNumber!));
 
