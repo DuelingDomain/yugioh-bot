@@ -148,11 +148,19 @@ export const FFA_SCENARIOS: Scenario[] = [
     source: `${SOURCE} [R-FFA-WINNER]`,
     rules: ["R-FFA-ELIMINATION", "R-FFA-WINNER"],
     tags: ["multiplayer", "elimination", "draw", "ffa3"],
-    setup: { format: "ffa3", deckSize: 1 },
+    setup: { format: "ffa3", masterRule: 5, deckSize: 2, p0: { hand: ["Pot of Greed"] } },
     steps: [
-      // Every seat draws its only card on its first turn. p0 loses on turn 4, then p1 loses on turn 5. p2 wins.
+      // Standard MR5 skips p0's turn-1 draw. Pot of Greed empties its Deck before the turn-4 draw.
+      activate("Pot of Greed", "p0"),
+      expectBoard({ p0: { hand: { count: 2 }, deckCount: 0 }, p1: { deckCount: 2 }, p2: { deckCount: 2 } }),
       ...passTurns("p0", "p1", "p2"),
+      expectEliminated("p0"),
+      expectTurn("p1", 5),
+      expectBoard({ p0: { lp: 8000, ...VIEW_EMPTY }, p1: { hand: { count: 2 }, deckCount: 0 }, p2: { hand: { count: 1 }, deckCount: 1 } }),
+      // p2 draws its last card on turn 6. p1 must draw from an empty Deck on turn 7, so p2 wins.
+      ...passTurns("p1", "p2"),
       expectEliminated("p0", "p1"),
+      expectBoard({ p0: { lp: 8000, ...VIEW_EMPTY }, p1: { lp: 8000, ...VIEW_EMPTY }, p2: { lp: 8000, hand: { count: 2 }, deckCount: 0 } }),
       expectResult({ seat: "p2" }),
     ],
   }),
