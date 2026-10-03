@@ -2,7 +2,7 @@
 // Tag still flips and draws per opposing controller. FFA IDs name the declared opponent; LIVE_PROOF uses the same IDs.
 // Reason for changed FFA expectations: owner decision 2026-10-02 replaces the each-opponent delayed result.
 
-import { activate, defineScenario, endTurn, expectBoard, expectPickSeats, expectPrompt, pass, pickOpponent, type BoardExpect, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, defineScenario, endTurn, expectBoard, expectEliminated, expectPickSeats, expectPrompt, pass, pickOpponent, surrender, type BoardExpect, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
@@ -40,7 +40,7 @@ function everySeat(format: Format, spec: Partial<Record<Seat, DuelistExpect>>): 
   return expectBoard(board);
 }
 
-function eclipse(format: Format, actor: Seat, noMonsters = false): Scenario {
+function eclipse(format: Format, actor: Seat, noMonsters = false, eliminated = false): Scenario {
   const tag = format === "tag";
   const seats = seatsOf(format);
   const actorIndex = seats.indexOf(actor);
@@ -83,7 +83,7 @@ function eclipse(format: Format, actor: Seat, noMonsters = false): Scenario {
   // The End Phase uses the activation binding in FFA; Tag still flips and draws per opposing controller.
   const afterEndPhase: Partial<Record<Seat, DuelistExpect>> = {};
   for (const seat of seats) {
-    const opponent = opponents.includes(seat);
+    const opponent = !eliminated && opponents.includes(seat);
     const normal = seat === next ? 1 : 0;
     afterEndPhase[seat] = {
       monsters: field[seat],
@@ -93,12 +93,16 @@ function eclipse(format: Format, actor: Seat, noMonsters = false): Scenario {
       grave: seat === actor ? [BOOK] : [],
     };
   }
-  steps.push(endTurn(actor), everySeat(format, afterEndPhase));
+  if (eliminated) {
+    steps.push(surrender(declared));
+    afterEndPhase[declared] = { monsters: [], hand: [], grave: [], banished: [], zones: {} };
+  }
+  steps.push(endTurn(actor), ...(eliminated ? [expectEliminated(declared)] : []), everySeat(format, afterEndPhase));
 
   const counts = opponents.map((seat) => `${seat} ${field[seat].length}`).join(", ");
   return defineScenario({
-    id: noMonsters ? "book-of-eclipse-ffa4-p0-declared-p2-has-no-monsters-no-other-opponent-flips-or-draws" : `book-of-eclipse-${format}-${actor}-${tag ? "each-opponent" : "declared-opponent"}-flips-its-own-monsters-and-draws-for-them`,
-    title: `${labelOf(format)}: ${actor} activates Book of Eclipse; all monsters turn face-down, then ${tag ? "each opposing member" : `only declared ${declared}`} flips its monsters and draws for them (${counts})`,
+    id: eliminated ? "book-of-eclipse-ffa4-p0-declared-p3-eliminated-before-end-phase" : noMonsters ? "book-of-eclipse-ffa4-p0-declared-p2-has-no-monsters-no-other-opponent-flips-or-draws" : `book-of-eclipse-${format}-${actor}-${tag ? "each-opponent" : "declared-opponent"}-flips-its-own-monsters-and-draws-for-them`,
+    title: eliminated ? "FFA4: p0 activates Book of Eclipse and declares p3; p3 is eliminated before the End Phase; no seat flips or draws" : `${labelOf(format)}: ${actor} activates Book of Eclipse; all monsters turn face-down, then ${tag ? "each opposing member" : `only declared ${declared}`} flips its monsters and draws for them (${counts})`,
     source: `${SOURCE} ${tag ? "[R-COMMON-EACH-PLAYER]" : "[R-FFA-OPP-ONE]"}, owner decision 2026-10-02: Book of Eclipse`,
     rules: tag ? ["R-COMMON-EACH-PLAYER", "R-TAG-PARTNER", "R-COMMON-ALL-BOTH"] : ["R-FFA-OPP-ONE", "R-COMMON-ALL-BOTH"],
     tags: ["multiplayer", "book-of-eclipse", "declared-opponent", "draw", "delayed", format, `actor:${actor}`, "card:35480699"],
@@ -174,4 +178,6 @@ export const BOOK_OF_ECLIPSE_SCENARIOS: Scenario[] = [
   eclipseOffTurn(),
   // Reason: an empty declared field must not send the delayed effect to a different opponent.
   eclipse("ffa4", "p0", true),
+  // An eliminated declared opponent must never transfer the delayed result to another seat.
+  eclipse("ffa4", "p0", false, true),
 ];
