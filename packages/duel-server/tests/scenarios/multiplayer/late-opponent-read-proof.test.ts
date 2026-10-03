@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect } from "vitest";
 import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,7 @@ import { describeWithCores, needs } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { Session, domainNseatWasmBinary, nseatWasmBinary } from "../../support/session.js";
 import type { Scenario } from "../../support/dsl.js";
+import { runScenarios } from "../../support/runner.js";
 import { LATE_OPPONENT_READ_SCENARIOS, LATE_OPPONENT_DOMAIN_SCENARIOS, LEGACY_PAIR_BEAR_SCENARIOS } from "./late-opponent-read-proof.js";
 
 const SKIP_OPENING_DRAW = `
@@ -56,10 +57,7 @@ async function runProof(scenario: Scenario, legacyPair = false): Promise<void> {
 }
 
 describeWithCores("late opponent reads on both real cores", [liveNseat, ...needs.domainMulti()], () => {
-  for (const scenario of [...LATE_OPPONENT_READ_SCENARIOS, ...LATE_OPPONENT_DOMAIN_SCENARIOS]) {
-    it(scenario.id, () => runProof(scenario));
-  }
-  for (const scenario of LEGACY_PAIR_BEAR_SCENARIOS) {
-    it(scenario.id, () => runProof(scenario, true));
-  }
+  runScenarios("multiplayer/late-opponent-read", LATE_OPPONENT_READ_SCENARIOS, runProof);
+  runScenarios("multiplayer/late-opponent-domain", LATE_OPPONENT_DOMAIN_SCENARIOS, runProof);
+  runScenarios("multiplayer/legacy-pair-bear", LEGACY_PAIR_BEAR_SCENARIOS, (scenario) => runProof(scenario, true));
 });
