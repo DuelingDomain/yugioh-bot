@@ -35,6 +35,7 @@
   --duel-z-fx: 10;              /* board FX: aim arrow, equip links, chain badges, card flights, wipe canvas */
   --duel-z-fx-front: 14;        /* FX that must clear the rest: attack play, Deck Master return, destroy ghosts */
   --duel-z-prompt: 20;          /* what the player must read or click: prompt panel, card strip, bars, prompt dock */
+  --duel-z-chain: 22;           /* the chain: numbered badges, the card callout and the chain stack, over the prompt */
   --duel-z-prompt-front: 24;    /* the pile viewer, opened over a prompt */
   --duel-z-tooltip: 90;         /* hover card info (portal) */
   --duel-z-menu: 100;           /* anchored card action menu (portal) */

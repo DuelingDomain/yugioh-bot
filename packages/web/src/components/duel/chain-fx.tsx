@@ -38,15 +38,17 @@ import {
   badgeCenter,
   chainAnchor,
   chainAnnouncement,
+  chainCallout,
+  chainFocusLink,
   chainLinkLabel,
   chainSeatLabel,
+  chainStackRows,
   chainStateKey,
   chainWirePath,
   deriveChainState,
   EMPTY_CHAIN,
   isChainEvent,
   nextToResolve,
-  strayLinks,
   type ChainAnchor,
   type ChainLinkState,
   type ChainState,
@@ -209,8 +211,8 @@ function resolveAnchor(anchor: ChainAnchor): HTMLElement | null {
   return findPileElement(fallback.controller, fallback.location);
 }
 
-const MIN_BADGE = 22;
-const MAX_BADGE = 38;
+const MIN_BADGE = 28;
+const MAX_BADGE = 46;
 
 type Box = { left: number; top: number; width: number; height: number };
 
@@ -246,8 +248,6 @@ function ChainGlyph() {
   );
 }
 
-const NO_LINKS: ReadonlySet<number> = new Set();
-
 export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority }: ChainFxProps) {
   const named = seatTones != null;
   const state = useChainPlayback(events, chain, duelKey, reducedMotion);
@@ -260,12 +260,11 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   targetLinksRef.current = targetLinks;
   const overlayRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef(new Map<number, HTMLElement>());
+  const ringRefs = useRef(new Map<number, HTMLElement>());
   const wireRefs = useRef(new Map<number, SVGPathElement>());
   const targetRefs = useRef(new Map<string, HTMLElement>());
   const targetWireRefs = useRef(new Map<string, SVGPathElement>());
   const arrowId = useId();
-  const [lost, setLost] = useState<ReadonlySet<number>>(NO_LINKS);
-  const lostKeyRef = useRef("");
   const links = state.links;
   const linksKey = useMemo(() => chainStateKey(state), [state]);
   const linksRef = useRef(links);
@@ -273,13 +272,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
 
   // Keep every badge on its card: layout can move under us (resize, a hovered hand card, a summon).
   useLayoutEffect(() => {
-    if (links.length === 0 && targetLinks.length === 0) {
-      if (lostKeyRef.current !== "") {
-        lostKeyRef.current = "";
-        setLost(NO_LINKS);
-      }
-      return undefined;
-    }
+    if (links.length === 0 && targetLinks.length === 0) return undefined;
     let raf = 0;
     const measure = () => {
       const overlay = overlayRef.current;
@@ -287,34 +280,51 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       const origin = overlay.getBoundingClientRect();
       const stacked = new Map<HTMLElement, number>();
       const centers = new Map<number, { x: number; y: number }>();
-      const gone: number[] = [];
       let gap = MIN_BADGE;
       for (const link of linksRef.current) {
         const slot = slotRefs.current.get(link.index);
+        const ring = ringRefs.current.get(link.index);
         if (!slot) continue;
         const anchor = chainAnchor(link);
         const zone = anchor ? resolveAnchor(anchor) : null;
         const box = zone ? cardBox(origin, zone) : null;
         if (!zone || !box) {
-          gone.push(link.index);
           if (slot.dataset.placed !== "false") slot.dataset.placed = "false";
+          if (ring && ring.dataset.placed !== "false") ring.dataset.placed = "false";
           continue;
         }
         const shift = stacked.get(zone) ?? 0;
         stacked.set(zone, shift + 1);
-        const size = Math.round(Math.min(MAX_BADGE, Math.max(MIN_BADGE, box.width * 0.4)));
+        const size = Math.round(Math.min(MAX_BADGE, Math.max(MIN_BADGE, box.width * 0.46)));
         gap = Math.max(gap, size);
         centers.set(link.index, badgeCenter(box, size, shift));
-        const geo = `${Math.round(box.left)},${Math.round(box.top)},${Math.round(box.width)},${Math.round(box.height)},${size},${shift}`;
-        if (slot.dataset.geo !== geo) {
-          slot.dataset.geo = geo;
-          slot.style.width = `${box.width}px`;
-          slot.style.height = `${box.height}px`;
-          slot.style.translate = `${box.left}px ${box.top}px`;
-          slot.style.setProperty("--b", `${size}px`);
-          slot.style.setProperty("--shift", String(shift));
+        // The callout tag opens away from the nearer board edge, so it stays on screen.
+        const half = box.top + box.height / 2 > origin.height / 2 ? "low" : "high";
+        const geo = `${Math.round(box.left)},${Math.round(box.top)},${Math.round(box.width)},${Math.round(box.height)},${size},${shift},${half}`;
+        // The badge (front layer) and the card ring and glow (back layer) share one box.
+        for (const el of ring ? [slot, ring] : [slot]) {
+          if (el.dataset.geo !== geo) {
+            el.dataset.geo = geo;
+            el.style.width = `${box.width}px`;
+            el.style.height = `${box.height}px`;
+            el.style.translate = `${box.left}px ${box.top}px`;
+            el.style.setProperty("--b", `${size}px`);
+            el.style.setProperty("--shift", String(shift));
+            el.dataset.half = half;
+          }
+          if (el.dataset.placed !== "true") el.dataset.placed = "true";
         }
-        if (slot.dataset.placed !== "true") slot.dataset.placed = "true";
+        // Keep the callout tag inside the board: it is centred on its card, so near an edge it slides in.
+        const tag = slot.querySelector<HTMLElement>("[data-chain-callout]");
+        if (tag) {
+          const half = tag.offsetWidth / 2;
+          const centre = box.left + box.width / 2;
+          const dx = Math.round(Math.max(4 + half - centre, Math.min(0, origin.width - 4 - half - centre)));
+          if (tag.dataset.dx !== String(dx)) {
+            tag.dataset.dx = String(dx);
+            tag.style.translate = `calc(-50% + ${dx}px) 0`;
+          }
+        }
       }
       // The wire from badge N to badge N-1: only when both badges are on the board and apart.
       for (const [index, wire] of wireRefs.current) {
@@ -355,11 +365,6 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           }
         }
       }
-      const key = gone.join(",");
-      if (key !== lostKeyRef.current) {
-        lostKeyRef.current = key;
-        setLost(gone.length > 0 ? new Set(gone) : NO_LINKS);
-      }
     };
     const tick = () => {
       measure();
@@ -382,9 +387,18 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
     if (said != null) setAnnouncement(said);
   }, [state, mySeat, playerName, named]);
 
-  const rows = strayLinks(state, lost);
+  const rows = chainStackRows(state);
+  const focus = chainFocusLink(state);
   const topIndex = links.length;
   const nextIndex = nextToResolve(state);
+  const attrs = (link: ChainLinkState) => ({
+    "data-status": link.status,
+    "data-negated": link.negated ? "true" : "false",
+    "data-top": link.index === topIndex ? "true" : "false",
+    "data-next": link.index === nextIndex ? "true" : "false",
+    "data-focus": focus?.index === link.index ? "true" : "false",
+  });
+  const showStack = links.length > 0;
 
   return (
     <>
@@ -398,6 +412,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         ) : null}
         <p role="status" aria-live="polite" aria-atomic="true" data-chain-live="true">{announcement}</p>
       </div>
+      {/* Back layer: the card ring and glow, the wires and the target marks. Under the prompt and the banners. */}
       <div ref={overlayRef} className={styles.layer} aria-hidden="true" data-chain-fx="true"
         data-open={links.length > 0 ? "true" : "false"} data-reduced={reducedMotion ? "true" : "false"}>
         {!reducedMotion ? (
@@ -432,27 +447,17 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           <div
             key={link.index}
             ref={(el) => {
-              if (el) slotRefs.current.set(link.index, el);
-              else slotRefs.current.delete(link.index);
+              if (el) ringRefs.current.set(link.index, el);
+              else ringRefs.current.delete(link.index);
             }}
             className={styles.slot}
-            style={{ zIndex: link.index }}
             data-placed="false"
-            data-status={link.status}
-            data-negated={link.negated ? "true" : "false"}
-            data-top={link.index === topIndex ? "true" : "false"}
-            data-next={link.index === nextIndex ? "true" : "false"}
-            data-chain-link={link.index}
+            data-chain-card={link.index}
+            {...attrs(link)}
           >
+            <span className={styles.glow} />
             <span className={styles.ring} />
             <span className={styles.wash} />
-            <span className={styles.badge}>
-              <span className={styles.num} data-chain-num="true">{link.index}</span>
-              <svg className={styles.tick} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <span className={styles.chip}><ChainGlyph /></span>
-            </span>
           </div>
         ))}
         {targetLinks.flatMap((link) => link.targets.map((target) => {
@@ -467,37 +472,79 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
             <span className={styles.targetTag}>Target · {link.index}</span>
           </div>;
         }))}
-        {rows.length > 0 || (links.length > 0 && priority && priority.length > 0) ? (
+      </div>
+      {/* Front layer: the numbered badges, the callout and the chain stack. Above every other board layer,
+          so a prompt, a banner or a pile cannot cover the chain. */}
+      <div className={`${styles.layer} ${styles.front}`} aria-hidden="true" data-chain-front="true"
+        data-open={links.length > 0 ? "true" : "false"} data-reduced={reducedMotion ? "true" : "false"}>
+        {links.map((link) => {
+          const callout = chainCallout(link, mySeat, playerName, named);
+          return (
+            <div
+              key={link.index}
+              ref={(el) => {
+                if (el) slotRefs.current.set(link.index, el);
+                else slotRefs.current.delete(link.index);
+              }}
+              className={styles.slot}
+              style={{ zIndex: link.index }}
+              data-placed="false"
+              data-chain-link={link.index}
+              {...attrs(link)}
+            >
+              <span className={styles.badge}>
+                <span className={styles.num} data-chain-num="true">{link.index}</span>
+                <svg className={styles.tick} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <span className={styles.chip}><ChainGlyph /></span>
+              </span>
+              {focus?.index === link.index ? (
+                <span className={styles.tag} data-chain-callout={link.index} data-callout-key={`${link.index}:${link.status}`}>
+                  <b>{callout.label}</b>
+                  <span className={styles.tagName}>{callout.title}</span>
+                  <span className={styles.tagAction}>{callout.action}</span>
+                </span>
+              ) : null}
+            </div>
+          );
+        })}
+        {showStack ? (
           <div className={styles.dock}>
             <ol className={styles.panel} data-chain-panel="true" data-priority={priority?.length ? "true" : undefined}>
               <li className={styles.head}>
                 <span>Chain</span>
-                <small>{rows.length > 0 ? "off board" : "response order"}</small>
+                <small>{links.length} {links.length === 1 ? "link" : "links"}</small>
               </li>
               {priority && priority.length > 0 ? (
                 <li className={styles.prioRow}>
                   <PriorityChips order={priority} mySeat={mySeat} nameOf={playerName} seatTones={seatTones} compact />
                 </li>
               ) : null}
-              {rows.map((link) => (
-                <li
-                  key={link.index}
-                  className={styles.row}
-                  data-status={link.status}
-                  data-negated={link.negated ? "true" : "false"}
-                  data-mine={mySeat != null && link.seat === mySeat ? "true" : "false"}
-                  data-chain-row={link.index}
-                  data-toned={seatTones?.has(link.seat) ? "true" : undefined}
-                  style={toneVars(seatTones, link.seat)}
-                >
-                  <b className={styles.rowNum}>{link.index}</b>
-                  <span className={styles.thumb} style={artStyle(link.code)} />
-                  <span className={styles.text}>
-                    <span className={styles.name}>{linkLabel(link)}</span>
-                    <small className={styles.who}>{chainSeatLabel(link.seat, mySeat, playerName, named)}</small>
-                  </span>
-                </li>
-              ))}
+              {rows.map((link) => {
+                const callout = chainCallout(link, mySeat, playerName, named);
+                return (
+                  <li
+                    key={link.index}
+                    className={styles.row}
+                    data-status={link.status}
+                    data-negated={link.negated ? "true" : "false"}
+                    data-focus={focus?.index === link.index ? "true" : "false"}
+                    data-mine={mySeat != null && link.seat === mySeat ? "true" : "false"}
+                    data-chain-row={link.index}
+                    data-toned={seatTones?.has(link.seat) ? "true" : undefined}
+                    style={toneVars(seatTones, link.seat)}
+                  >
+                    <b className={styles.rowNum}>{link.index}</b>
+                    <span className={styles.thumb} style={artStyle(link.code)} />
+                    <span className={styles.text}>
+                      <span className={styles.name}>{linkLabel(link)}</span>
+                      <small className={styles.who}>{callout.owner} · {callout.action}</small>
+                      {focus?.index === link.index && callout.effect ? <small className={styles.effect}>{callout.effect}</small> : null}
+                    </span>
+                  </li>
+                );
+              })}
             </ol>
           </div>
         ) : null}

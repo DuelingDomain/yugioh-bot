@@ -27,6 +27,11 @@
   contain: layout style;
 }
 
+/* The front layer: badges, the card callout and the chain stack. Above the prompt, the banners and the
+   piles (--duel-z-chain), so nothing on the board covers the chain. The hover card is a portal outside
+   the board and is the one thing that can still sit over it. */
+.front { z-index: var(--duel-z-chain); }
+
 /* ---------- badges ---------- */
 
 /* Placed on the card's box (translate, width, height set in JS); --b is the badge size. */
@@ -89,6 +94,31 @@
   box-shadow: 0 0 0 1px rgb(0 0 0 / 0.55);
   animation: chainStrike 0.7s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
+/* The activation glow: a gold halo around the card of the newest link, so the eye goes there first.
+   Static shadow, only its opacity animates. */
+.glow {
+  position: absolute;
+  inset: -2px;
+  border-radius: 7px;
+  box-shadow: 0 0 0 2px rgb(244 214 144 / 0.9), 0 0 16px 4px rgb(228 182 79 / 0.75), 0 0 34px 8px rgb(228 182 79 / 0.35);
+  opacity: 0;
+}
+.slot[data-status="pending"] .glow { opacity: 0.45; }
+.slot[data-status="pending"][data-top="true"] .glow { opacity: 0.85; animation: chainGlowIn 1.2s ease-out backwards; }
+.slot[data-status="resolving"] .glow {
+  box-shadow: 0 0 0 2px rgb(198 182 255 / 0.9), 0 0 16px 4px rgb(155 126 255 / 0.7), 0 0 34px 8px rgb(155 126 255 / 0.3);
+  opacity: 0.8;
+}
+.slot[data-negated="true"] .glow {
+  box-shadow: 0 0 0 2px rgb(255 148 137 / 0.85), 0 0 16px 4px rgb(228 90 77 / 0.6);
+  opacity: 0.7;
+}
+.slot[data-status="resolved"] .glow { animation: chainFadeOut 0.6s ease-in both; }
+@keyframes chainGlowIn {
+  from { opacity: 1; transform: scale(1.12); }
+  35% { opacity: 1; transform: scale(1); }
+}
+
 /* The newest link: its card is the one to look at. */
 .slot[data-top="true"] .ring { opacity: 0.7; }
 /* Up next: the highest link still waiting, once the chain has started to resolve. */
@@ -150,6 +180,39 @@
   font-variant-numeric: tabular-nums lining-nums;
   font-weight: 700;
   line-height: 1;
+}
+
+/* The callout on the focus card: "Chain 1 · Dark Dust Spirit · activates its effect". It opens below a card in the
+   upper half of the board and above a card in the lower half. */
+.tag {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  translate: -50% 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(340px, 94vw);
+  padding: 4px 9px 5px;
+  border: 1px solid var(--duel-chain, #e4b64f);
+  border-radius: 6px;
+  background: rgb(14 11 24 / 0.94);
+  color: var(--duel-ink, #efe7d5);
+  font: 600 var(--duel-t-sm, 12px)/1.25 var(--duel-f-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6), 0 4px 14px rgb(0 0 0 / 0.55);
+  animation: chainTagIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.slot[data-half="low"] .tag { top: auto; bottom: calc(100% + 8px); }
+.tag b { flex: none; color: var(--duel-chain-ink, #f4d690); letter-spacing: 0.04em; text-transform: uppercase; }
+.tagName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tagAction { flex: none; color: var(--duel-pen-ink, #c6b6ff); font-weight: 500; }
+.slot[data-negated="true"] .tag { border-color: var(--duel-loss, #e45a4d); }
+.slot[data-negated="true"] .tagAction { color: var(--duel-loss-ink, #ff9489); }
+@keyframes chainTagIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.94); }
+  to { opacity: 1; transform: none; }
 }
 
 /* The chain-link glyph: a small chip on the lower left of the ring. */
@@ -413,13 +476,24 @@
   white-space: nowrap;
 }
 .who { color: var(--duel-pen-ink, #c6b6ff); font-size: var(--duel-t-xs, 11px); }
+/* The engine's effect text for the focus link. */
+.effect {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--duel-ink-2, #c3bba8);
+  font-size: var(--duel-t-xs, 11px);
+  font-style: italic;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.row[data-focus="true"] { background: rgb(228 182 79 / 0.1); }
 .row[data-mine="true"] .who { color: var(--duel-ink-2, #c3bba8); }
 /* A table of 3 or 4: the owner's seat tone marks the row (a small edge and the name), never the chain gold. */
 .row[data-toned="true"] { box-shadow: inset 2px 0 0 var(--seat-main); }
 .row[data-toned="true"] .who { color: var(--seat-ink); }
 
 /* The link that is resolving. */
-.row[data-status="resolving"] { background: rgb(228 182 79 / 0.16); }
+.row[data-status="resolving"], .row[data-status="resolving"][data-focus="true"] { background: rgb(228 182 79 / 0.16); }
 .row[data-status="resolving"]::before {
   content: "";
   position: absolute;
@@ -451,6 +525,8 @@
 .layer[data-reduced="true"] .badge::after,
 .layer[data-reduced="true"] .chip,
 .layer[data-reduced="true"] .ring,
+.layer[data-reduced="true"] .glow,
+.layer[data-reduced="true"] .tag,
 .layer[data-reduced="true"] .wash,
 .layer[data-reduced="true"] .slot,
 .layer[data-reduced="true"] .panel,
@@ -465,7 +541,7 @@
 .layer[data-reduced="true"] .wires { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .badge, .badge::before, .badge::after, .chip, .ring, .wash, .slot, .panel, .row, .wire { animation: none !important; }
+  .badge, .badge::before, .badge::after, .chip, .ring, .glow, .tag, .wash, .slot, .panel, .row, .wire { animation: none !important; }
   .badge::after { display: none; }
   .badge { transition: none; }
   .wires { display: none; }
@@ -477,3 +553,14 @@
 
 /* The priority chips sit under the panel head; the list item itself carries no marker or padding. */
 .prioRow { display: block; flex: none; padding: 0; list-style: none; border-bottom: 1px solid rgb(228 182 79 / 0.16); }
+
+/* A narrow board has no side gutter: the stack becomes a small strip in the top left corner. */
+@media (max-width: 760px) {
+  .dock { inset: 58px auto auto 6px; align-items: flex-start; }
+  .panel { width: min(190px, 52vw); max-height: 40%; }
+  .row { gap: 5px; padding: 3px 6px 3px 5px; }
+  .thumb { width: 24px; height: 24px; }
+  .rowNum { width: 20px; height: 20px; font-size: 13px; }
+  .effect { display: none; }
+  .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
