@@ -26,6 +26,10 @@
 .sections > * { min-width: 0; }
 
 @container (max-width: 620px) {
+  /* The kit's phone grid names its areas; the cells take their place only here, so a desktop row reads in DOM order. */
+  .aId { grid-area: id; } .aProg { grid-area: prog; } .aAct { grid-area: act; } .aN { grid-area: n; }
+  .aNm { grid-area: nm; } .aEnd { grid-area: end; } .aKind { grid-area: kind; } .aPlayers { grid-area: players; }
+  .chevron { display: none; }
   /* The phone row: name and room button on one line, the stage line under, the kind and count under that. */
   :global(.ms) .act:global(.sv-btn) { height: 32px; padding: 0 12px; font-size: 14px; }
   .row .prog { margin-top: 12px; }

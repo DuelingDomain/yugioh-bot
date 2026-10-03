@@ -38,6 +38,7 @@ describe("drafts page frame", () => {
 
   it("is a flex column on a phone where the actions are a flex item that sticks to the bottom", () => {
     expect(declarations(frame, ".layout", narrow)).toMatchObject({ display: "flex", "flex-direction": "column" });
+    expect(declarations(frame, ".layout", narrow)["align-items"]).toBe("stretch");
     expect(declarations(frame, ".side", narrow).display).toBe("contents");
     expect(declarations(frame, ".actions", narrow)).toMatchObject({ position: "sticky", bottom: "0" });
     expect(declarations(frame, ".actions", narrow).padding).toContain("env(safe-area-inset-bottom)");
@@ -45,6 +46,12 @@ describe("drafts page frame", () => {
 });
 
 describe("draft list", () => {
+  it("places the cells in their kit phone areas only on a phone, so desktop rows read left to right", () => {
+    expect(declarations(list, ".aId")["grid-area"]).toBeUndefined();
+    expect(declarations(list, ".aId", "(max-width: 620px)")["grid-area"]).toBe("id");
+    expect(declarations(list, ".chevron", "(max-width: 620px)").display).toBe("none");
+  });
+
   const phone = "(max-width: 620px)";
   it("lets the whole row be one link and keeps the room button out of the tab order", () => {
     expect(declarations(list, ".act")["pointer-events"]).toBe("none");

@@ -37,14 +37,20 @@
 
 /* The card pool: the same panel, re-drawn. Filters become quiet underlined tabs; the scroll box loses its fill. */
 .poolWrap { min-width: 0; }
-:global(.ms) .poolWrap :global(.seg) { display: flex; flex-wrap: wrap; gap: 4px 18px; border: 0; border-radius: 0; overflow: visible; }
-:global(.ms) .poolWrap :global(.seg) button { min-height: 32px; padding: 0 2px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--ink-3); font-size: 14px; }
-:global(.ms) .poolWrap :global(.seg) button + button { border-left: 0; }
-:global(.ms) .poolWrap :global(.seg) button:hover { color: var(--ink); background: none; }
-:global(.ms) .poolWrap :global(.seg) button[aria-pressed="true"] { border-bottom-color: var(--pen); background: none; color: var(--ink); font-weight: 600; }
-:global(.ms) .poolWrap :global(.seg) button:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
-:global(.ms) .poolWrap :global(.seg) :global(.n) { color: var(--ink-3); }
-:global(.ms) .poolWrap :global(.seg) button[aria-pressed="true"] :global(.n) { color: var(--pen-ink); }
+:global(.ms) .poolWrap :global(.panel-t) { display: none; }
+.poolHead { margin-bottom: 4px; }
+:global(.ms) .poolWrap.poolWrap :global(.panel) { border-top: 0; }
+:global(.ms) .poolWrap.poolWrap :global(.panel-pad) { padding-top: 12px; }
+/* Each filter row is one line that scrolls inside its own box, never the page. */
+:global(.ms) .poolWrap.poolWrap :global(.seg)[role="group"] { display: flex; flex-wrap: nowrap; gap: 0 18px; flex: 0 1 auto; max-width: 100%; min-width: 0; border: 0; border-radius: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+:global(.ms) .poolWrap.poolWrap :global(.seg)[role="group"]::-webkit-scrollbar { display: none; }
+:global(.ms) .poolWrap.poolWrap :global(.seg)[role="group"] button { min-height: 32px; flex: none; white-space: nowrap; padding: 0 2px; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--ink-3); font-size: 14px; }
+:global(.ms) .poolWrap.poolWrap :global(.seg)[role="group"] button + button { border-left: 0; }
+:global(.ms) .poolWrap.poolWrap :global(.seg)[role="group"] button:hover { color: var(--ink); background: none; }
+:global(.ms) .poolWrap.poolWrap :global(.seg)[role="group"] button[aria-pressed="true"] { border-bottom-color: var(--pen); background: none; color: var(--ink); font-weight: 600; }
+:global(.ms) .poolWrap.poolWrap :global(.seg)[role="group"] button:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+:global(.ms) .poolWrap.poolWrap :global(.seg)[role="group"] :global(.n) { color: var(--ink-3); }
+:global(.ms) .poolWrap.poolWrap :global(.seg)[role="group"] button[aria-pressed="true"] :global(.n) { color: var(--pen-ink); }
 .poolWrap [class*="scroll"] { border-color: var(--rule-lo); border-radius: 8px; background: transparent; }
 
 /* Rail */

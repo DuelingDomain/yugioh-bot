@@ -22,10 +22,10 @@ export function FinishedLedger({ items, labelledBy }: { items: DraftListItem[]; 
             phoneCols="minmax(0, 1fr) auto"
             phoneAreas={'"nm end" "kind players"'}
           >
-            <span className={`sv-cell-name ${styles.name}`} style={{ gridArea: "nm" }}>{d.name}</span>
-            <span className={`sv-cell-mute ${styles.kind}`} style={{ gridArea: "kind" }}>{kindLabel(d.config)}</span>
-            <span className={`sv-cell-mute ${styles.players}`} style={{ gridArea: "players" }}>{playersLabel(d.playerCount)}</span>
-            <span className={`sv-cell-end ${styles.end}`} style={{ gridArea: "end" }}>
+            <span className={`sv-cell-name ${styles.name} ${styles.aNm}`}>{d.name}</span>
+            <span className={`sv-cell-mute ${styles.kind} ${styles.aKind}`}>{kindLabel(d.config)}</span>
+            <span className={`sv-cell-mute ${styles.players} ${styles.aPlayers}`}>{playersLabel(d.playerCount)}</span>
+            <span className={`sv-cell-end ${styles.end} ${styles.aEnd}`}>
               {d.status === "cancelled" ? (
                 <span className={styles.cancelled}>Cancelled</span>
               ) : (

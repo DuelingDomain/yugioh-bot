@@ -164,7 +164,8 @@ describe("DraftManageView — header, players, start", () => {
     const onStart = vi.fn().mockResolvedValue(undefined);
     const draft = { ...baseDraft, players, playerCount: 2, seats };
     render(<DraftManageView {...baseProps} draft={draft} onStart={onStart} />);
-    expect(screen.getByText("3 packs of 5")).toBeInTheDocument();
+    // The Start sentence and the Setup row both say it.
+    expect(screen.getAllByText("3 packs of 5")).toHaveLength(2);
     await userEvent.click(screen.getByRole("button", { name: "Start draft" }));
     expect(onStart).toHaveBeenCalledOnce();
   });
@@ -414,7 +415,7 @@ describe("DraftManageView — card pool section", () => {
       return Response.json({}, { status: 404 });
     }));
     render(<DraftManageView draft={baseDraft} slug="my-slug" isCreator isParticipant={false} onStart={noop} onCancel={noop} onUpdate={noop} onJoin={noop} />);
-    await waitFor(() => expect(screen.getByRole("heading", { level: 2, name: /card pool/i })).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByRole("heading", { level: 2, name: /card pool/i }).length).toBeGreaterThan(0));
     await waitFor(() => expect(screen.getByRole("button", { name: /preview dark magician/i })).toBeTruthy());
     // The kind tally sits at the top of the pool.
     expect(screen.getByText("Monsters")).toBeTruthy();
@@ -472,12 +473,12 @@ describe("DraftManageView — editing config syncs the card pool pane", () => {
     // The duplicate inline "Pool preview" grid is gone — only the left pane remains.
     expect(screen.queryByText(/pool preview/i)).toBeNull();
     // 3 copies before removal.
-    await waitFor(() => expect(screen.getByText(/3 copies/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText(/3 copies/i).length).toBeGreaterThan(0));
 
     await userEvent.click(screen.getByRole("button", { name: /remove dark magician from pool/i }));
 
     // Removal is local (no save) and the synced pane updates to 2 copies.
-    await waitFor(() => expect(screen.queryByText(/3 copies/i)).toBeNull());
+    await waitFor(() => expect(screen.queryAllByText(/3 copies/i)).toHaveLength(0));
     expect(onUpdate).not.toHaveBeenCalled();
   });
 });

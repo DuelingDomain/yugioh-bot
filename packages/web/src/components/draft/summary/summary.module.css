@@ -4,8 +4,6 @@
 .next { display: grid; gap: 6px; max-width: 62ch; }
 .nextT { margin: 0; font: 600 24px/1.2 var(--f-display); color: var(--ink); overflow-wrap: anywhere; }
 .nextP { margin: 0; color: var(--ink-3); font-size: 15px; line-height: 1.5; }
-.cancelled { display: flex; align-items: center; gap: 16px; min-width: 0; }
-.cancelled > :global(.sv-zone) { --zw: 40px; }
 .empty { margin: 14px 0 0; color: var(--ink-3); font-size: 14.5px; }
 
 .poolHead { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 330px); grid-template-rows: auto 1fr; gap: 16px 28px; margin: 18px 0; }

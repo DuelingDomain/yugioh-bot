@@ -26,7 +26,7 @@ export function LiveDraftRow({ draft }: { draft: DraftListItem }) {
       phoneCols="minmax(0, 1fr) auto"
       phoneAreas={'"id act" "prog prog"'}
     >
-      <div className={styles.id} style={{ gridArea: "id" }}>
+      <div className={`${styles.id} ${styles.aId}`}>
         <p className={`sv-cell-name ${styles.name}`}>{draft.name}</p>
         <Pieces
           items={[
@@ -37,12 +37,12 @@ export function LiveDraftRow({ draft }: { draft: DraftListItem }) {
           ]}
         />
       </div>
-      <div className={styles.prog} style={{ gridArea: "prog" }}>
+      <div className={`${styles.prog} ${styles.aProg}`}>
         <StageLine steps={stages.steps} label={`Progress of ${draft.name}`} />
         <p className={styles.cap}>{stages.caption}</p>
       </div>
       {href && (
-        <span className={styles.actCell} style={{ gridArea: "act" }}>
+        <span className={`${styles.actCell} ${styles.aAct}`}>
           <span className={`${svButtonClass("ghost")} ${styles.act}`}>Open draft room</span>
         </span>
       )}
@@ -62,7 +62,7 @@ export function WaitingDraftRow({ draft }: { draft: DraftListItem }) {
       phoneCols="minmax(0, 1fr) auto"
       phoneAreas={'"id n"'}
     >
-      <div className={styles.id} style={{ gridArea: "id" }}>
+      <div className={`${styles.id} ${styles.aId}`}>
         <p className={`sv-cell-name ${styles.name}`}>{draft.name}</p>
         <Pieces
           items={[
@@ -72,7 +72,7 @@ export function WaitingDraftRow({ draft }: { draft: DraftListItem }) {
           ]}
         />
       </div>
-      <span className={styles.joined} style={{ gridArea: "n" }}>
+      <span className={`${styles.joined} ${styles.aN}`}>
         <b className="sv-cell-num">{draft.playerCount}</b> joined
       </span>
       {href && <ChevronRight className={styles.chevron} aria-hidden="true" />}

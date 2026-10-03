@@ -11,7 +11,6 @@ import {
   SvButton,
   SheetPortal,
   YouPill,
-  Zone,
   ringColour,
   svButtonClass,
   type StageStep,
@@ -340,7 +339,7 @@ export function DraftSummaryView({
   } else {
     const each = cfg.cardsPerPlayer ?? (cfg.packSize && cfg.packsPerPlayer ? cfg.packSize * cfg.packsPerPlayer : undefined);
     if (each) setupRows.push(["Each player", plural(each, "card")]);
-    if (cfg.packsPerPlayer && cfg.packSize) setupRows.push(["Packs", `${cfg.packsPerPlayer} of ${cfg.packSize}`]);
+    if (cfg.packsPerPlayer && cfg.packSize) setupRows.push(["Packs", `${plural(cfg.packsPerPlayer, "pack")} of ${cfg.packSize}`]);
   }
   if (cfg.pickSeconds) setupRows.push(["Pick duration", formatPickSeconds(cfg.pickSeconds)]);
   if (draft.startedAt) setupRows.push(["Started", formatStamp(draft.startedAt)]);
@@ -389,10 +388,7 @@ export function DraftSummaryView({
               ]}
             />
             {!isCompleted && (
-              <div className={styles.cancelled}>
-                <Zone state="lost" label="Cancelled draft" />
-                <p className={styles.nextP}>The host cancelled this draft before it finished.</p>
-              </div>
+              <StatusLine tone="neutral">The host cancelled this draft before it finished.</StatusLine>
             )}
             {canBuildDeck && (
               <div className={styles.next} role="group" aria-labelledby="df-next-t">
