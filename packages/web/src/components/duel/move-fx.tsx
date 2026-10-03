@@ -545,7 +545,7 @@ function isFlipAnimation(anim: Animation): boolean {
 
 /** Where an animated hand card is right now, relative to its resting place: what is left of its slide. */
 function residualOf(el: Element, applied: { dx: number; dy: number }): { dx: number; dy: number } {
-  for (const anim of el.getAnimations()) {
+  for (const anim of el.getAnimations?.() ?? []) {
     if (!isFlipAnimation(anim)) continue;
     const progress = anim.effect?.getComputedTiming().progress;
     const left = typeof progress === "number" ? 1 - clamp(progress, 0, 1) : 1;
@@ -593,7 +593,7 @@ export function flipHands(root: ParentNode, states: Map<string, HandState>, redu
       }
     }
     for (const card of cards) {
-      for (const anim of card.getAnimations()) if (isFlipAnimation(anim)) anim.cancel();
+      for (const anim of card.getAnimations?.() ?? []) if (isFlipAnimation(anim)) anim.cancel();
     }
 
     const applied = new Map<Element, { key: string; dx: number; dy: number }>();
@@ -654,7 +654,7 @@ function useHandFlip(boardOf: () => HTMLElement | null, reducedRef: { current: b
     return () => {
       observer.disconnect();
       board.querySelectorAll<HTMLElement>("[data-hand-seat] > *").forEach((card) => {
-        for (const anim of card.getAnimations()) if (isFlipAnimation(anim)) anim.cancel();
+        for (const anim of card.getAnimations?.() ?? []) if (isFlipAnimation(anim)) anim.cancel();
       });
     };
     // The board element and the ref are stable for the layer's life.
