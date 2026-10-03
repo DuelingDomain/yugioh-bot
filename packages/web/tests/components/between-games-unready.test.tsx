@@ -77,6 +77,29 @@ describe("BetweenGamesScreen: Not ready button", () => {
     await waitFor(() => expect(api.readySeries).toHaveBeenCalledTimes(1));
   });
 
+  it("does not ready the player again on a double click while the un-ready request is in flight", async () => {
+    const request = pending<unknown>();
+    api.unreadySeries.mockReturnValue(request.promise);
+    setup({ sideReady: [true, false] });
+    // Let the card types load, so only the pending un-ready can keep Ready off.
+    await waitFor(() => expect(api.getDuelCards).toHaveBeenCalled());
+    await act(async () => { await Promise.resolve(); });
+    const button = screen.getByRole("button", { name: "Not ready" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    // The button that replaces it stays disabled until the request settles.
+    expect(ready().disabled).toBe(true);
+    fireEvent.click(ready());
+    await act(async () => { await Promise.resolve(); });
+    expect(api.readySeries).not.toHaveBeenCalled();
+    expect(api.unreadySeries).toHaveBeenCalledTimes(1);
+    await act(async () => request.resolve({ series: between(), nextSlug: null }));
+    await waitFor(() => expect(ready().disabled).toBe(false));
+    // A Ready queued behind the un-ready would send now; give it time to do so.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+    expect(api.readySeries).not.toHaveBeenCalled();
+  });
+
   it("shows Ready, not Not ready, for a player who is not ready", async () => {
     setup({ sideReady: [false, true] });
     await waitFor(() => expect(ready().disabled).toBe(false));

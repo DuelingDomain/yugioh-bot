@@ -131,6 +131,8 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   // Local request results bridge polling delays; every edit still asks the server to clear Ready.
   const [knownReady, setKnownReady] = useState<boolean | null>(null);
   const [unreadied, setUnreadied] = useState(false);
+  // Set from the Not ready click until its request settles, so a double click cannot ready the player again.
+  const [unreadyPending, setUnreadyPending] = useState(false);
   const unreadying = useRef<Promise<void> | null>(null);
   const unreadyFailed = useRef(false);
   const unreadyAgain = useRef(false);
@@ -335,7 +337,11 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   function notReady() {
     if (busy || moving || advancing.current || !imReady) return;
     setError(null);
+    setUnreadyPending(true);
     leaveReady();
+    const pending = unreadying.current;
+    if (pending) void pending.finally(() => setUnreadyPending(false));
+    else setUnreadyPending(false);
   }
 
   const ready = () => run(async () => {
@@ -494,11 +500,11 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
             </p>
             <div className={styles.buttons}>
               {imReady && !changed ? (
-                <SheetButton kind="secondary" size="lg" disabled={busy || moving} aria-describedby="between-reason" onClick={notReady}>
+                <SheetButton key="not-ready" kind="secondary" size="lg" disabled={busy || moving} aria-describedby="between-reason" onClick={notReady}>
                   Not ready
                 </SheetButton>
               ) : (
-                <SheetButton kind="primary" size="lg" loading={busy && !confirmCancel} disabled={busy || moving || readyReason != null}
+                <SheetButton key="ready" kind="primary" size="lg" loading={busy && !confirmCancel} disabled={busy || moving || unreadyPending || readyReason != null}
                   aria-describedby="between-reason" onClick={() => void ready()}>
                   Ready
                 </SheetButton>
