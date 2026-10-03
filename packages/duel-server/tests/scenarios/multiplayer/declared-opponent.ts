@@ -121,10 +121,13 @@ function anyCondition(f: Format): Scenario {
     ...(f === "tag" ? { hand: [card] } : {}) },
     ...(f === "tag" ? { p1: { hand: ["Mystical Elf"], deckCount: 19 } } : {}) };
   for (const s of opponents(f)) { setup[s] = { monsters: [mon[s], "Silver Fang"] }; result[s] = { ...result[s], monsters: [mon[s], "Silver Fang"] }; }
+  // R-FFA-OPP-ONE: the condition reads one opponent; the continuous limits affect both sides.
   const steps: Step[] = f === "tag" ? [expectNotOffered("activate", card, "p0"), endTurn("p0")]
-    : [activate(card, "p0"), expectPickSeats(opponents(f), "p0"), pickOpponent("p1", "p0")];
+    : [activate(card, "p0"), expectPrompt({ by: "p0", context: "action" })];
   steps.push(board(f, result));
-  return scenario(f, "condition-only-one-opponent-is-enough", setup, steps);
+  const resultScenario = scenario(f, "condition-only-one-opponent-is-enough", setup, steps);
+  if (f !== "tag") resultScenario.rules = ["R-FFA-OPP-ONE"];
+  return resultScenario;
 }
 function bothMaterials(f: Format): Scenario {
   const card = "Night Papilloperative";
