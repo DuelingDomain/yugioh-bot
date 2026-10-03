@@ -51,6 +51,7 @@ function seedThemeCards(
 function makeThemeDraft(opts: {
   players?: number;
   random?: () => number;
+  seedSource?: () => number | string;
   config: Partial<DraftConfig>;
   themes: Array<{ main: number; extra: number }>;
   /** Theme index assigned to each player (forces host_assigned selection). */
@@ -58,7 +59,7 @@ function makeThemeDraft(opts: {
 }) {
   const db = new Database(":memory:");
   migrate(db);
-  const drafts = createDraftService(db, { random: opts.random });
+  const drafts = createDraftService(db, { random: opts.random, seedSource: opts.seedSource });
   const themesService = createCubeService(db, emptyCatalog(db));
   const guildId = "g";
 
@@ -123,6 +124,92 @@ describe("theme draft — config normalization", () => {
 });
 
 describe("theme draft — start & assignment", () => {
+  it("uses the injected seed for random assignments and persists them for later service instances", () => {
+    let seed = "a".repeat(64);
+    const { db, drafts, draftId, playerIds } = makeThemeDraft({
+      seedSource: () => seed,
+      config: { themeSelection: "random", extraDeckEnabled: false, cardsPerPlayer: 2 },
+      themes: Array.from({ length: 8 }, () => ({ main: 6, extra: 0 })),
+    });
+    try {
+      const config = drafts.findById(draftId).config;
+      const assignments = (id: number) => db.prepare(
+        "select player_id, cube_id from draft_player_cube where draft_id = ? order by player_id",
+      ).all(id);
+      drafts.start(draftId);
+      const first = assignments(draftId);
+
+      const repeat = drafts.create("g", "c", "same seed", config, "host", playerIds[0]);
+      drafts.join(repeat.id, playerIds[1]);
+      drafts.start(repeat.id);
+      expect(assignments(repeat.id)).toEqual(first);
+
+      seed = "b".repeat(64);
+      const different = drafts.create("g", "c", "different seed", config, "host", playerIds[0]);
+      drafts.join(different.id, playerIds[1]);
+      drafts.start(different.id);
+      expect(assignments(different.id)).not.toEqual(first);
+
+      const resumed = createDraftService(db, { seedSource: () => { throw new Error("Reads must not reshuffle"); } });
+      for (const playerId of playerIds) {
+        expect(resumed.currentPackOptions(draftId, playerId)).toEqual(drafts.currentPackOptions(draftId, playerId));
+      }
+      expect(assignments(draftId)).toEqual(first);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("uses fresh seeds when opening theme packs and reads their persisted cards afterwards", () => {
+    let seed = "a".repeat(64);
+    const { db, drafts, draftId, playerIds } = makeThemeDraft({
+      seedSource: () => seed,
+      config: { extraDeckEnabled: false, cardsPerPlayer: 2, themePackSize: 3 },
+      themes: [{ main: 12, extra: 0 }, { main: 12, extra: 0 }],
+      assign: [0, 1],
+    });
+    try {
+      const config = drafts.findById(draftId).config;
+      drafts.start(draftId);
+      const first = drafts.currentPackOptions(draftId, playerIds[0]);
+      const resumed = createDraftService(db, { seedSource: () => { throw new Error("Reads must not redeal"); } });
+      expect(resumed.currentPackOptions(draftId, playerIds[0])).toEqual(first);
+
+      const repeat = drafts.create("g", "c", "same pack seed", config, "host", playerIds[0]);
+      drafts.join(repeat.id, playerIds[1]);
+      drafts.start(repeat.id);
+      expect(drafts.currentPackOptions(repeat.id, playerIds[0]).map((card) => card.catalogCardId))
+        .toEqual(first.map((card) => card.catalogCardId));
+
+      seed = "b".repeat(64);
+      const different = drafts.create("g", "c", "different pack seed", config, "host", playerIds[0]);
+      drafts.join(different.id, playerIds[1]);
+      drafts.start(different.id);
+      expect(drafts.currentPackOptions(different.id, playerIds[0]).map((card) => card.catalogCardId))
+        .not.toEqual(first.map((card) => card.catalogCardId));
+
+      // The next round draws new seeds, then another instance reads the stored pack.
+      const nextSeeds = ["c".repeat(64), "d".repeat(64)];
+      const advancing = createDraftService(db, { seedSource: () => {
+        const next = nextSeeds.shift();
+        if (!next) throw new Error("Unexpected extra shuffle");
+        return next;
+      } });
+      for (const playerId of playerIds) {
+        advancing.pickCard(draftId, playerId, advancing.currentPackOptions(draftId, playerId)[0].id, "manual");
+      }
+      expect(advancing.findById(draftId).currentPackRound).toBe(2);
+      for (const playerId of playerIds) {
+        const nextPack = advancing.currentPackOptions(draftId, playerId);
+        expect(nextPack).toHaveLength(3);
+        expect(resumed.currentPackOptions(draftId, playerId)).toEqual(nextPack);
+      }
+      expect(JSON.stringify(drafts.findById(draftId).config)).not.toContain(seed);
+    } finally {
+      db.close();
+    }
+  });
+
   it.each(["detached", "deleted", "duplicate"])("ignores an unjoined player's %s host assignment at start", (staleAssignment) => {
     const { db, drafts, draftId, playerIds, themeIds } = makeThemeDraft({
       config: { extraDeckEnabled: false },

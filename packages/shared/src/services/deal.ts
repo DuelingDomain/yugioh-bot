@@ -1,3 +1,8 @@
+import { createHmac } from "node:crypto";
+
+/** Numeric seeds preserve existing test fixtures; production uses secret string seeds. */
+export type ShuffleSeed = number | string;
+
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return function () {
@@ -9,9 +14,18 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
-export function seededShuffle<T>(items: T[], seed: number): T[] {
+function seededRandom(seed: ShuffleSeed): () => number {
+  if (typeof seed === "number") return mulberry32(seed);
+
+  // Do not reduce the secret to a 32-bit PRNG state: visible packs would let a
+  // participant brute-force that state and reconstruct the rest of the deal.
+  let counter = 0;
+  return () => createHmac("sha256", seed).update(String(counter++)).digest().readUInt32BE(0) / 4294967296;
+}
+
+export function seededShuffle<T>(items: T[], seed: ShuffleSeed): T[] {
   const result = items.slice();
-  const rand = mulberry32(seed);
+  const rand = seededRandom(seed);
   for (let i = result.length - 1; i > 0; i -= 1) {
     const j = Math.floor(rand() * (i + 1));
     [result[i], result[j]] = [result[j], result[i]];
@@ -60,9 +74,9 @@ export function analyzeCube(
 
 export function buildDeal(
   cubeCardIds: number[],
-  opts: { players: number; waves: number; packSize: number; draftId: number },
+  opts: { players: number; waves: number; packSize: number; seed: ShuffleSeed },
 ): number[][] {
-  const { players, waves, packSize, draftId } = opts;
+  const { players, waves, packSize, seed } = opts;
   const totalPacks = players * waves;
   const cardsPerWave = players * packSize; // C
   const slots = totalPacks * packSize; // S
@@ -72,7 +86,7 @@ export function buildDeal(
   for (const id of cubeCardIds) counts.set(id, (counts.get(id) ?? 0) + 1);
 
   // deterministic order
-  const distinctIds = seededShuffle([...counts.keys()], draftId);
+  const distinctIds = seededShuffle([...counts.keys()], seed);
 
   // 2. budgets: start at min(count, waves), then trim/pad to exactly `slots`
   const budget = new Map<number, number>();
@@ -136,7 +150,8 @@ export function buildDeal(
   // 4. within each wave, round-robin its C distinct cards into P packs of packSize
   const packs: number[][] = Array.from({ length: totalPacks }, () => []);
   for (let w = 0; w < waves; w += 1) {
-    const shuffled = seededShuffle(waveCards[w], draftId + w + 1);
+    const waveSeed = typeof seed === "number" ? seed + w + 1 : `${seed}:wave:${w + 1}`;
+    const shuffled = seededShuffle(waveCards[w], waveSeed);
     shuffled.forEach((id, i) => {
       const seat = i % players;
       packs[w * players + seat].push(id);

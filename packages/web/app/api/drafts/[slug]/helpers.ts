@@ -94,6 +94,10 @@ export async function buildDraftResponse(slug: string, userId: string) {
   }
 
   const draftModel = drafts.findById(draft.id);
+  const config = { ...draftModel.config };
+  if (userId !== draft.created_by_user_id) {
+    delete config.themeAssignments;
+  }
 
   const players = db
     .prepare(
@@ -179,8 +183,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
   let themeProgress: { main: number; mainTotal: number; extra: number; extraTotal: number } | undefined;
   if (isTheme) {
     const ids = draftModel.config.allowedCubeIds ?? [];
-    // The pool of theme cubes is always shown (the host builds it openly here);
-    // only per-player random *assignment* is hidden until reveal, handled client-side.
+    // The host's allowed theme pool is public; per-player assignments stay private.
     if (ids.length > 0) {
       const placeholders = ids.map(() => "?").join(",");
       const rows = db
@@ -234,7 +237,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
     name: draft.name,
     status: draft.status,
     createdByUserId: draft.created_by_user_id,
-    config: draftModel.config,
+    config,
     currentPackRound: draftModel.currentPackRound,
     currentPickStep: draftModel.currentPickStep,
     pickDeadlineAt: draft.pick_deadline_at ?? undefined,
