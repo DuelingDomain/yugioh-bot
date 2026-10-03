@@ -77,7 +77,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const binderRef = useRef<BinderHandle>(null);
   const readerPanelRef = useRef<HTMLDivElement>(null);
   const binderPanelRef = useRef<HTMLDivElement>(null);
-  const panelOpenerRef = useRef<HTMLElement | null>(null);
+  const panelFocusRef = useRef<{ opener: HTMLElement | null; panel: HTMLDivElement } | null>(null);
   const [stage, setStage] = useState<HTMLElement | null>(null);
 
   /* ---------- state ---------- */
@@ -181,10 +181,13 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   }, []);
   const closeCardSheet = useCallback(() => setSheet((s) => (s === "card" ? null : s)), []);
   useLayoutEffect(() => {
-    const opener = panelOpenerRef.current;
-    panelOpenerRef.current = null;
+    const previous = panelFocusRef.current;
+    panelFocusRef.current = null;
+    const opener = previous?.opener;
+    // Leave focus alone when it stayed on the table or moved outside the closing panel.
+    const needsRestore = previous && (previous.panel.contains(document.activeElement) || document.activeElement === document.body);
     // React restores pre-commit focus after layout cleanups. Restore here, after that and the inert updates.
-    if (opener?.isConnected && !opener.closest("[inert]")) {
+    if (needsRestore && opener?.isConnected && !opener.closest("[inert]")) {
       // Focusing a table card normally opens the reader. Restoration only moves focus.
       const wasClicking = clicking.current;
       clicking.current = true;
@@ -194,7 +197,10 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     if (!openPanel) return;
     const panel = openPanel === "card" ? readerPanelRef.current : binderPanelRef.current;
     if (!panel) return;
-    panelOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const nextOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    panelFocusRef.current = { opener: nextOpener, panel };
+    // The reader previews the focused table card without taking focus away from it.
+    if (openPanel === "card" && nextOpener?.matches(".tcard")) return;
     const first = panel.querySelector<HTMLElement>(
       'button:not(:disabled):not([hidden]), input:not(:disabled):not([hidden]), a[href], [tabindex]:not([tabindex="-1"])',
     );
