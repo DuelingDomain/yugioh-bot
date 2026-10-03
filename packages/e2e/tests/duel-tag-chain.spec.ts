@@ -37,10 +37,15 @@ async function expectNoLeak(page: Page, slug: string, secret: Iterable<number>, 
   const seated = JSON.stringify(await readTable(page, slug));
   const response = await page.request.get(`/api/duels/${slug}?spectate=1`);
   expect(response.status(), `${label}: a seated Tag player has no spectate view`).toBe(409);
+  expectCodesAbsent(seated, secret, own, `${label}: seated room JSON`);
+}
+
+/** Fails when a secret passcode appears as a whole number in the JSON text. */
+function expectCodesAbsent(json: string, secret: Iterable<number>, own: Set<number>, label: string): void {
   for (const code of secret) {
     if (own.has(code)) continue;
     const pattern = new RegExp(`(?<![0-9])${code}(?![0-9])`);
-    expect(pattern.test(seated), `${label}: seated room JSON leaks code ${code}`).toBe(false);
+    expect(pattern.test(json), `${label} leaks code ${code}`).toBe(false);
   }
 }
 
@@ -52,7 +57,9 @@ test.describe("Tag chain and visibility", () => {
     test.setTimeout(300_000);
     const seats = await Promise.all((["p1", "p2", "p3", "p4"] as const).map((key) => player(key)));
     const [alice, bob, carol, dave] = seats as [Seat, Seat, Seat, Seat];
-    await Promise.all(seats.map((seat) => seat.context.addInitScript(() => {
+    // The fifth player never takes a seat: an unseated watcher of the full table.
+    const watcher = await player("p5");
+    await Promise.all([...seats, watcher].map((seat) => seat.context.addInitScript(() => {
       for (const name of ["AudioContext", "webkitAudioContext"]) Object.defineProperty(window, name, { value: undefined, configurable: true });
     })));
     const errors = collectTableErrors(alice.page, [bob.page, carol.page, dave.page]);
@@ -123,6 +130,19 @@ test.describe("Tag chain and visibility", () => {
         if (team === 0) own.add(cardCode("Mirror Force"));
         await expectNoLeak(seat.page, slug, rivalCodes, own, `${seat.key} (team ${team})`);
       }
+    });
+
+    await test.step("an unseated watcher gets no hand or Set card code in the plain room read", async () => {
+      const rooms = await Promise.all(seats.map((seat) => readTable(seat.page, slug)));
+      const secret = new Set([...rooms.flatMap((room, seat) => handCodes(room, seat)), cardCode("Mirror Force")]);
+      secret.delete(cardCode(FILLER));
+      // The watcher holds no seat, so the plain read is already the public view.
+      const view = await readTable(watcher.page, slug);
+      expect(view).toMatchObject({ role: "spectator", mySeat: null, myDeck: null, engine: { prompt: null } });
+      const set = view.engine!.seats.find((entry) => entry.seat === 0)!.spells.find((card) => card != null);
+      expect(set, "the Set card is on the board for the watcher").toBeDefined();
+      expect(secret.size, "the check covers every non-filler hand card and the Set card").toBeGreaterThanOrEqual(10);
+      expectCodesAbsent(JSON.stringify(view), secret, new Set(), "watcher room JSON");
     });
 
     await test.step("the opposing team answers first and the chips follow it", async () => {
