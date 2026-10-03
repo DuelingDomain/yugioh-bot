@@ -33,6 +33,11 @@ async function seed() {
   db.close();
 }
 
+/** What GitHub answers to "create issue": the labels are part of it. */
+const created = (number: number, labels: string[] = ["bug", "needs-triage", "from-app"]) => ({
+  number, html_url: `https://github.com/imran443/yugioh-bot/issues/${number}`, labels: labels.map((name) => ({ name })),
+});
+
 const body = (extra: Record<string, unknown> = {}) => ({
   description: "Seraphina Quill here: the turn never ended",
   expected: "It should end",
@@ -68,7 +73,7 @@ describe("POST /api/bug-reports", () => {
     auth.mockResolvedValue({ user: { id: DISCORD_ID, name: "Seraphina Quill" } });
     discord = mockDiscordAccess();
     const discordFetch = globalThis.fetch;
-    github = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({ number: 77, html_url: "https://github.com/imran443/yugioh-bot/issues/77" }, { status: 201 }));
+    github = vi.fn(async (_url: string, _init?: RequestInit) => Response.json(created(77), { status: 201 }));
     vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : discordFetch(url as never)));
     vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", TOKEN);
     vi.stubEnv("BUG_REPORT_GITHUB_REPO", "");
@@ -186,16 +191,39 @@ describe("POST /api/bug-reports", () => {
     expect(row!.github_error).not.toContain(TOKEN);
   });
 
-  it("retries once without labels when GitHub refuses them", async () => {
+  it("retries once without labels when GitHub refuses them (422), and records a warning", async () => {
     github
       .mockResolvedValueOnce(Response.json({ message: "Validation Failed" }, { status: 422 }))
-      .mockResolvedValueOnce(Response.json({ number: 78, html_url: "https://github.com/imran443/yugioh-bot/issues/78" }, { status: 201 }));
+      .mockResolvedValueOnce(Response.json(created(78, []), { status: 201 }));
     const POST = await route();
     expect(await (await POST(post(body()))).json()).toMatchObject({ issue: { number: 78 } });
     const calls = githubCalls();
     expect(calls).toHaveLength(2);
     expect(calls[0]!.payload.labels).toBeDefined();
     expect(calls[1]!.payload.labels).toBeUndefined();
+    expect((await rows())[0]).toMatchObject({ github_issue_number: 78, github_error: expect.stringContaining("without them") });
+  });
+
+  it("does not retry without labels on a 403 (often a rate limit): one call, no issue, the error is kept", async () => {
+    github.mockResolvedValue(Response.json({ message: "API rate limit exceeded" }, { status: 403 }));
+    const POST = await route();
+    expect(await (await POST(post(body()))).json()).toEqual({ id: 1, issue: null });
+    expect(github).toHaveBeenCalledTimes(1);
+    expect((await rows())[0]).toMatchObject({ github_issue_number: null, github_error: expect.stringContaining("403") });
+  });
+
+  it("records a warning when GitHub made the issue without the from-app label", async () => {
+    github.mockResolvedValue(Response.json(created(79, ["bug"]), { status: 201 }));
+    const POST = await route();
+    expect(await (await POST(post(body()))).json()).toMatchObject({ issue: { number: 79 } });
+    expect((await rows())[0]).toMatchObject({ github_issue_number: 79, github_error: expect.stringContaining("from-app label") });
+  });
+
+  it("records a warning when the answer holds no labels at all", async () => {
+    github.mockResolvedValue(Response.json({ number: 80, html_url: "https://github.com/imran443/yugioh-bot/issues/80" }, { status: 201 }));
+    const POST = await route();
+    await POST(post(body()));
+    expect((await rows())[0]!.github_error).toContain("from-app label");
   });
 
   it("uses BUG_REPORT_GITHUB_REPO when it is valid", async () => {
@@ -244,7 +272,7 @@ describe("POST /api/bug-reports with duplicateOf", () => {
   function serve(issue: Record<string, unknown> | number = raw(), commentStatus = 201) {
     github.mockImplementation(async (url: string, init?: RequestInit) => {
       if (String(url).endsWith("/comments")) return Response.json(commentStatus === 201 ? { id: 1 } : { message: `no ${TOKEN}` }, { status: commentStatus });
-      if (init?.method === "POST") return Response.json({ number: 77, html_url: "https://github.com/imran443/yugioh-bot/issues/77" }, { status: 201 });
+      if (init?.method === "POST") return Response.json(created(77), { status: 201 });
       return typeof issue === "number" ? Response.json({ message: "Not Found" }, { status: issue }) : Response.json(issue);
     });
   }

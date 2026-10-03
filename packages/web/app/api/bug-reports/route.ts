@@ -117,6 +117,11 @@ export async function POST(request: Request) {
   const issue = await createGithubIssue(issueInput, redact);
   if (issue.ok) {
     reports.recordIssue(saved.id, guildId, { number: issue.number, url: issue.url });
+    if (issue.warning) {
+      // The issue exists, so the player gets it; the note is for the triage owner.
+      reports.recordIssueError(saved.id, guildId, issue.warning);
+      console.warn(`[api/bug-reports] report ${saved.id} opened issue #${issue.number}: ${issue.warning}`);
+    }
     return NextResponse.json({ id: saved.id, issue: { number: issue.number, url: issue.url } });
   }
   reports.recordIssueError(saved.id, guildId, issue.error);

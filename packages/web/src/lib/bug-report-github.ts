@@ -5,7 +5,8 @@ const ISSUE_LABELS = ["bug", "needs-triage", "from-app"];
 const TIMEOUT_MS = 10_000;
 
 export type IssueResult =
-  | { ok: true; number: number; url: string }
+  /** `warning`: the issue exists but is not as asked (for example the from-app label is missing); the route records it. */
+  | { ok: true; number: number; url: string; warning?: string }
   | { ok: false; error: string };
 
 function githubHeaders(token: string): Record<string, string> {
@@ -24,10 +25,16 @@ export function bugReportRepo(): string {
   return configured && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(configured) ? configured : DEFAULT_REPO;
 }
 
+function hasFromAppLabel(labels: unknown): boolean {
+  return Array.isArray(labels) && labels.some((label) => (typeof label === "string" ? label : (label as { name?: unknown } | null)?.name) === "from-app");
+}
+
 /**
  * Opens one GitHub issue for a saved report. Never throws: a missing token, a network error or a GitHub refusal comes
  * back as `{ ok: false, error }` so the report stays saved. The error text never holds the token. If GitHub refuses the
- * labels (422 or 403), the issue is sent once more without them.
+ * labels (422), the issue is sent once more without them. A 403 is not retried: it is often a rate limit, and a second
+ * call would only use more quota. The labels in the answer are checked: with no from-app label the issue is still
+ * reported as made, with a `warning`, because duplicate checks only list issues that have that label.
  */
 export async function createGithubIssue(input: IssueBodyInput, redact: readonly string[]): Promise<IssueResult> {
   const token = process.env.BUG_REPORT_GITHUB_TOKEN?.trim();
@@ -49,17 +56,26 @@ export async function createGithubIssue(input: IssueBodyInput, redact: readonly 
 
   try {
     let response = await post(ISSUE_LABELS);
-    if (response.status === 422 || response.status === 403) response = await post(null);
+    let retriedWithoutLabels = false;
+    if (response.status === 422) {
+      response = await post(null);
+      retriedWithoutLabels = true;
+    }
     if (!response.ok) {
       const detail = await response.json().then((json: unknown) =>
         json && typeof json === "object" && "message" in json && typeof json.message === "string" ? json.message : "", () => "");
       return { ok: false, error: scrub(`GitHub answered ${response.status}${detail ? `: ${detail}` : ""}`) };
     }
-    const issue = (await response.json()) as { number?: unknown; html_url?: unknown };
+    const issue = (await response.json()) as { number?: unknown; html_url?: unknown; labels?: unknown };
     if (typeof issue.number !== "number" || typeof issue.html_url !== "string") {
       return { ok: false, error: "GitHub answered without an issue number" };
     }
-    return { ok: true, number: issue.number, url: issue.html_url };
+    const warning = hasFromAppLabel(issue.labels)
+      ? undefined
+      : retriedWithoutLabels
+        ? "GitHub refused the labels, so the issue was made without them (no from-app label)"
+        : "The issue was made without the from-app label, so duplicate checks will not list it";
+    return { ok: true, number: issue.number, url: issue.html_url, ...(warning ? { warning } : {}) };
   } catch (error) {
     const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
     return { ok: false, error: timedOut ? "GitHub did not answer within 10 seconds" : scrub(`GitHub request failed: ${error instanceof Error ? error.message : "unknown error"}`) };
