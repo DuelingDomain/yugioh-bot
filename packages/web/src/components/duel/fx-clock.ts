@@ -36,35 +36,40 @@ export function createDuelFxClock(preference = getAnimationSpeed, realNow = () =
     if (Number.isFinite(ms) && ms > 0) leases.set(key, real + ms / rate);
     return () => { leases.delete(key); };
   };
-  const timers = new Map<number, () => void>();
+  type TimerHandle = ReturnType<typeof globalThis.setTimeout>;
+  const timers = new Map<number, { release: () => void; handle: TimerHandle }>();
+  let timerId = 0;
   const setTimeout = (fn: () => void, ms = 0): number => {
     const delay = Math.max(0, ms);
     const wait = realMs(delay);
     const release = retain(delay);
-    const id = window.setTimeout(() => { release(); timers.delete(id); fn(); }, wait);
-    timers.set(id, release);
+    const id = ++timerId;
+    const handle = globalThis.setTimeout(() => { release(); timers.delete(id); fn(); }, wait);
+    timers.set(id, { release, handle });
     return id;
   };
   const clearTimeout = (id: number | undefined) => {
     if (id == null) return;
-    timers.get(id)?.(); timers.delete(id);
-    window.clearTimeout(id);
+    const timer = timers.get(id);
+    if (!timer) return;
+    timer.release(); timers.delete(id);
+    globalThis.clearTimeout(timer.handle);
   };
-  const intervals = new Map<number, number>();
+  const intervals = new Map<number, TimerHandle>();
   let intervalId = 0;
   const setInterval = (fn: () => void, ms: number): number => {
     const id = ++intervalId;
     const tick = () => {
       if (!intervals.has(id)) return;
       fn();
-      if (intervals.has(id)) intervals.set(id, window.setTimeout(tick, realMs(ms)));
+      if (intervals.has(id)) intervals.set(id, globalThis.setTimeout(tick, realMs(ms)));
     };
-    intervals.set(id, window.setTimeout(tick, realMs(ms)));
+    intervals.set(id, globalThis.setTimeout(tick, realMs(ms)));
     return id;
   };
   const clearInterval = (id: number) => {
     const timer = intervals.get(id);
-    if (timer != null) window.clearTimeout(timer);
+    if (timer != null) globalThis.clearTimeout(timer);
     intervals.delete(id);
   };
   const rateAnimation = (animation: Animation | null, ms: number): Animation | null => {
@@ -83,7 +88,10 @@ export function createDuelFxClock(preference = getAnimationSpeed, realNow = () =
   };
   return {
     now, factor, realMs, retain, animate, rateAnimation, setTimeout, clearTimeout, setInterval, clearInterval,
-    dateNow: () => Date.now() + now() - realNow(),
+    dateNow: () => {
+      const real = sync();
+      return Date.now() + virtualBase + (real - realBase) * rate - real;
+    },
     requestAnimationFrame: (fn: FrameRequestCallback): number => window.requestAnimationFrame(() => fn(now())),
     cancelAnimationFrame: (id: number) => window.cancelAnimationFrame(id),
     setReducedMotion: (value: boolean) => { reduced = value; },

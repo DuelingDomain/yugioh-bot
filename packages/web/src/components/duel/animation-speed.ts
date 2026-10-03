@@ -21,7 +21,8 @@ export function saveAnimationSpeed(value: number): void {
   catch { /* The preference still works for this tab when storage is unavailable. */ }
 }
 
-let speed = 1;
+// Read before the opening deal's layout effects; the server snapshot stays at 1x for hydration.
+let speed = loadAnimationSpeed();
 const listeners = new Set<() => void>();
 export const getAnimationSpeed = (): number => speed;
 export function subscribeAnimationSpeed(listener: () => void): () => void {

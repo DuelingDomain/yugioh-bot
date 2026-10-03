@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ANIMATION_SPEED_KEY, loadAnimationSpeed, normalizeAnimationSpeed, saveAnimationSpeed, setAnimationSpeed } from "@/components/duel/animation-speed";
 import { createDuelFxClock } from "@/components/duel/fx-clock";
-import { DuelAnimationSpeedControl } from "@/components/duel/animation-speed-control";
+import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "@/components/duel/animation-speed-control";
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -92,5 +92,43 @@ describe("scoped FX clock", () => {
     fx.setReducedMotion(true);
     expect(fx.factor()).toBe(1);
     expect(fx.realMs(150)).toBe(150);
+  });
+  it("captures DOM animation playback and frame timestamps at the same speed", () => {
+    let real = 0;
+    let speed = 2;
+    const fx = createDuelFxClock(() => speed, () => real);
+    const anim = { playbackRate: 1, finished: new Promise(() => {}) } as unknown as Animation;
+    const el = document.createElement("div");
+    el.animate = vi.fn(() => anim);
+    fx.animate(el, [{ opacity: 0 }, { opacity: 1 }], { duration: 1000 });
+    expect(anim.playbackRate).toBe(2);
+    speed = 0.5;
+    real = 250;
+    expect(fx.now()).toBe(500);
+    expect(fx.factor()).toBe(2);
+    expect(anim.playbackRate).toBe(2);
+    real = 500;
+    expect(fx.factor()).toBe(0.5);
+    expect(fx.now()).toBe(1000);
+  });
+  it("rates CSS effects on a board mounted after loading, without touching effects outside the room", () => {
+    function Scope() { useDuelAnimationSpeed(); return null; }
+    const css = { playbackRate: 1, effect: { getComputedTiming: () => ({ endTime: 500 }) } };
+    class FakeCSSAnimation {}
+    Object.setPrototypeOf(css, FakeCSSAnimation.prototype);
+    vi.stubGlobal("CSSAnimation", FakeCSSAnimation);
+    render(<Scope />);
+    act(() => setAnimationSpeed(2));
+    const board = document.createElement("div"); board.setAttribute("data-duel-fx-speed-root", "");
+    const target = document.createElement("div"); board.append(target); document.body.append(board);
+    target.getAnimations = () => [css as unknown as Animation];
+    fireEvent(target, new Event("animationstart", { bubbles: true }));
+    expect(css.playbackRate).toBe(2);
+    board.remove();
+    css.playbackRate = 1;
+    document.body.append(target);
+    fireEvent(target, new Event("animationstart", { bubbles: true }));
+    expect(css.playbackRate).toBe(1);
+    target.remove(); vi.unstubAllGlobals();
   });
 });

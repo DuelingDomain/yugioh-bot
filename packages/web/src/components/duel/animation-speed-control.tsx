@@ -11,17 +11,26 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
   duelFxClock.setReducedMotion(reducedMotion);
   useEffect(() => { setAnimationSpeed(loadAnimationSpeed()); }, []);
   useEffect(() => {
-    const onStart = (event: Event) => {
-      if (!(event.target instanceof Element)) return;
-      for (const anim of event.target.getAnimations?.() ?? []) {
-        if (typeof CSSAnimation === "undefined" || !(anim instanceof CSSAnimation)) continue;
+    const retime = (target: Element) => {
+      for (const anim of target.getAnimations?.() ?? []) {
+        const cssAnimation = typeof CSSAnimation !== "undefined" && anim instanceof CSSAnimation;
+        const cssTransition = typeof CSSTransition !== "undefined" && anim instanceof CSSTransition;
+        if (!cssAnimation && !cssTransition) continue;
         const timing = anim.effect?.getComputedTiming();
         duelFxClock.rateAnimation(anim, Number(timing?.endTime ?? 0));
       }
     };
-    const roots = document.querySelectorAll("[data-duel-fx-speed-root]");
-    for (const root of roots) root.addEventListener("animationstart", onStart, true);
-    return () => { for (const root of roots) root.removeEventListener("animationstart", onStart, true); };
+    const onStart = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest("[data-duel-fx-speed-root]")) retime(event.target);
+    };
+    // The room may initially render a loading state. Delegation also covers its later board mount.
+    document.addEventListener("animationstart", onStart, true);
+    document.addEventListener("transitionrun", onStart, true);
+    for (const target of document.querySelectorAll("[data-duel-fx-speed-root], [data-duel-fx-speed-root] *")) retime(target);
+    return () => {
+      document.removeEventListener("animationstart", onStart, true);
+      document.removeEventListener("transitionrun", onStart, true);
+    };
   }, []);
   return speed;
 }
