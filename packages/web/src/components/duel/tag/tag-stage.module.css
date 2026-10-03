@@ -157,12 +157,14 @@
  * smaller (scale). Both act about the world origin, because a hold has left/top 0 and places itself by its inline
  * transform: `scale` composes after that transform, and `zoom` multiplies its lengths. Same picture and same 3D
  * position, --roof-ss squared times the texels. Only the holds that carry text and card art get it; the city and
- * the slab are big and plain. 3 on a high-density screen, where the same camera zoom needs more texels.
- * Guarded by @supports: a browser without `zoom` keeps the 1x layout.
+ * the slab are big and plain. 3 on a high-density screen with a fine pointer and room (3x is about 87 MB of tiles for
+ * the four holds), 2 on a phone or tablet. Guarded by @supports: a browser without `zoom` keeps the 1x layout.
+ * MouseEvent.offsetX/Y of an event inside a hold are scaled by the zoom; use client coordinates or bounding rects.
+ * The FFA table (table/table-stage.module.css) applies the same cap to its own factor.
  */
 .world { --roof-ss: 2; }
 
-@media (min-resolution: 1.5dppx) {
+@media (min-resolution: 1.5dppx) and (min-width: 900px) and (pointer: fine) {
   .world { --roof-ss: 3; }
 }
 

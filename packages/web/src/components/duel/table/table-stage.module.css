@@ -104,8 +104,9 @@
 /*
  * A tilted plane is still rasterized at a low fixed density whatever the camera does. So the plane is laid out --ss
  * times larger (zoom) and drawn --ss times smaller (scale about the world origin): the same picture with --ss
- * squared times the texels. --ss follows the stage scale k (table-stage.tsx).
- * Guarded by @supports: a browser without `zoom` keeps the 1x layout.
+ * squared times the texels. --ss follows the stage scale k (table-stage.tsx) and is capped at 2 on a phone or
+ * tablet, like --roof-ss of the Rooftop. Guarded by @supports: a browser without `zoom` keeps the 1x layout.
+ * MouseEvent.offsetX/Y of an event inside the plane are scaled by the zoom; use client coordinates or bounding rects.
  */
 .board[data-fly="true"] .wstage,
 .canvas[data-tilted] .wstage {
@@ -116,9 +117,14 @@
   .board[data-fly="true"] .wstage,
   .canvas[data-tilted] .wstage {
     transform-origin: 550px 410px;
-    zoom: var(--ss, 1);
-    scale: calc(1 / var(--ss, 1)) calc(1 / var(--ss, 1)) calc(1 / var(--ss, 1));
+    --ss-use: min(var(--ss, 1), var(--ss-cap, 4));
+    zoom: var(--ss-use);
+    scale: calc(1 / var(--ss-use)) calc(1 / var(--ss-use)) calc(1 / var(--ss-use));
   }
+}
+
+@media (max-width: 899px), (pointer: coarse) {
+  .canvas { --ss-cap: 2; }
 }
 
 .sky,
