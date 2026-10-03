@@ -370,8 +370,9 @@ export const PROCEDURE_TAG_SCENARIOS: Scenario[] = [
   defineScenario({
     id: "procedures-tag-lava-golem-split-rejected",
     title: "Tag: p1 and p3 control one monster each: Lava Golem is not offered (2 Tributes of ONE opposing member are not possible)",
-    source: `${SOURCE} [R-TAG-PARTNER]`,
-    rules: ["R-TAG-PARTNER", "R-TAG-SHARED-CARDS"],
+    source: `${SOURCE} [R-TAG-PARTNER] [Q8]: Kaiju, Lava Golem and Ra card decision; all Tributes come from one opposing member`,
+    // Q8 (rule R5) requires one opposing member for these Tributes.
+    rules: ["R-TAG-PARTNER"],
     tags: ["multiplayer", "summon", "procedure", "lava", "tag", "card:102380"],
     setup: { format: "tag", p0: { hand: [LAVA] }, p1: { monsters: [ELF] }, p3: { monsters: [RAT] } },
     steps: [
@@ -506,8 +507,9 @@ export const PROCEDURE_TAG_SCENARIOS: Scenario[] = [
   defineScenario({
     id: "procedures-tag-ra-sphere-mode-split-rejected",
     title: "Tag: p1 and p3 control 2 monsters each (4 in all): Ra Sphere Mode is not offered (3 Tributes of ONE opposing member are not possible)",
-    source: `${SOURCE} [R-TAG-PARTNER] [Q8]`,
-    rules: ["R-TAG-PARTNER", "R-TAG-SHARED-CARDS"],
+    source: `${SOURCE} [R-TAG-PARTNER] [Q8]: Kaiju, Lava Golem and Ra card decision; all Tributes come from one opposing member`,
+    // Q8 (rule R5) requires one opposing member for these Tributes.
+    rules: ["R-TAG-PARTNER"],
     tags: ["multiplayer", "summon", "procedure", "ra", "q8", "tag", "card:10000080"],
     setup: { format: "tag", p0: { hand: [RA] }, p1: { monsters: [ELF, RAT] }, p3: { monsters: [OX, AXE] } },
     steps: [
