@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from "@playwright/test";
+import { readTable } from "./table";
 
 // Helpers for the live Tag 2v2 table (the "Rooftop"). The DOM hooks are the TAG_DOM contract in
 // packages/web/src/components/duel/tag/live-tag.ts: stage `data-table-stage="tag"` (and `data-tag-stage`), a
@@ -61,4 +62,15 @@ export async function turnNumber(page: Page): Promise<number> {
   const match = /\bTurn (\d+)\b/.exec(text);
   expect(match, `no "Turn N" text in the header: "${text}"`).not.toBeNull();
   return Number(match![1]);
+}
+
+/**
+ * Answers a zone prompt by clicking the first free legal zone of a kind on your own field. It waits for the engine
+ * prompt, then for the shell to accept answers (`data-can-act`): the shell shows legal zones while the previous answer is
+ * still in flight or the prompt is not revealed yet, and a click in that window is dropped without a request.
+ */
+export async function pickLegalZone(page: Page, slug: string, kind: "mz" | "st"): Promise<void> {
+  await expect.poll(async () => (await readTable(page, slug)).engine!.prompt?.kind).toBe("places");
+  await expect(tagShell(page)).toHaveAttribute("data-can-act", "true");
+  await tagField(page, "self").locator(`[data-kind="${kind}"][data-legal="true"][data-occupied="false"] button`).first().click();
 }

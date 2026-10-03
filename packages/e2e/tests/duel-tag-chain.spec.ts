@@ -3,7 +3,7 @@ import { expectReadyToAct, handCard, startTable, useCard } from "../helpers/boar
 import { cardCode } from "../helpers/cards";
 import { FILLER, withFiller } from "../helpers/decks";
 import { collectTableErrors, expectRealCore, readTable, tableShot } from "../helpers/table";
-import { expectRooftop, tagField, tagPriorityChips, teamLpValue, turnNumber } from "../helpers/tag";
+import { expectRooftop, pickLegalZone, tagField, tagPriorityChips, teamLpValue, turnNumber } from "../helpers/tag";
 import type { DuelRoom } from "@yugidraft/shared/duels";
 import type { Page } from "@playwright/test";
 
@@ -23,30 +23,24 @@ const decks = HANDS.map((hand) => ({ main: withFiller(hand, 40) }));
 const partnerHand = (page: Page) => page.getByRole("group", { name: /hand \(partner\)/i });
 const chainNo = (page: Page) => page.locator("[data-prompt-panel]").getByRole("button", { name: "No", exact: true }).or(page.getByRole("button", { name: "No", exact: true })).first();
 
-async function pickLegalZone(page: Page, slug: string, kind: "mz" | "st"): Promise<void> {
-  await expect.poll(async () => (await readTable(page, slug)).engine!.prompt?.kind).toBe("places");
-  await tagField(page, "self").locator(`[data-kind="${kind}"][data-legal="true"][data-occupied="false"] button`).first().click();
-}
-
 /** Codes of the cards a seat holds in hand, as that seat sees them. */
 function handCodes(room: DuelRoom, seat: number): number[] {
   return room.engine!.seats.find((entry) => entry.seat === seat)!.hand.map((card) => card.code).filter((code): code is number => code != null);
 }
 
 /**
- * Looks for the codes in the room JSON that the viewer gets (its seated view and the public spectate view).
- * A code in the viewer's own deck or hand is never a leak, so `own` removes those.
+ * Looks for the codes in the room JSON that the viewer gets. A code in the viewer's own deck or hand is never a leak,
+ * so `own` removes those. All four humans hold a seat, and a seated Tag player has no public spectate view (nobody is
+ * eliminated in Tag), so that request must be refused. The unseated public view is covered in duel-tag-surrender-spectator.
  */
 async function expectNoLeak(page: Page, slug: string, secret: Iterable<number>, own: Set<number>, label: string): Promise<void> {
   const seated = JSON.stringify(await readTable(page, slug));
   const response = await page.request.get(`/api/duels/${slug}?spectate=1`);
-  expect(response.ok(), `${label}: ${response.status()}`).toBe(true);
-  const publicJson = await response.text();
+  expect(response.status(), `${label}: a seated Tag player has no spectate view`).toBe(409);
   for (const code of secret) {
     if (own.has(code)) continue;
     const pattern = new RegExp(`(?<![0-9])${code}(?![0-9])`);
     expect(pattern.test(seated), `${label}: seated room JSON leaks code ${code}`).toBe(false);
-    expect(pattern.test(publicJson), `${label}: public room JSON leaks code ${code}`).toBe(false);
   }
 }
 
@@ -54,7 +48,7 @@ test.describe("Tag chain and visibility", () => {
   // Four live boards can render slowly when other stack slots share headless Chromium resources.
   test.use({ actionTimeout: 60_000, navigationTimeout: 60_000 });
 
-  test("partners see hand and Set cards, rivals see none, the opposing team answers first, digits pick a rival", async ({ player }, info) => {
+  test("partners see hand and Set cards, rivals see none, the opposing team answers first, a burn card needs no rival pick", async ({ player }, info) => {
     test.setTimeout(300_000);
     const seats = await Promise.all((["p1", "p2", "p3", "p4"] as const).map((key) => player(key)));
     const [alice, bob, carol, dave] = seats as [Seat, Seat, Seat, Seat];
@@ -77,7 +71,9 @@ test.describe("Tag chain and visibility", () => {
       // p3 (seat 2) is the partner of p1 (seat 0).
       const room = await readTable(carol.page, slug);
       const seatZero = room.engine!.seats.find((entry) => entry.seat === 0)!;
-      expect(seatZero.hand.map((card) => card.name).sort()).toEqual([...HANDS[0]!].sort());
+      // The room JSON carries passcodes only. Mirror Force is Set now, so the hand holds the other four cards.
+      const inHand = HANDS[0]!.filter((name) => name !== "Mirror Force").map(cardCode).sort((a, b) => a - b);
+      expect(handCodes(room, 0).sort((a, b) => a - b)).toEqual(inHand);
       const set = seatZero.spells.find((card) => card != null);
       expect(set?.code).toBe(cardCode("Mirror Force"));
       await expect(partnerHand(carol.page)).toBeVisible();
@@ -113,7 +109,7 @@ test.describe("Tag chain and visibility", () => {
       await tableShot(bob.page, slug, info, "tag-chain-rival-view");
     });
 
-    await test.step("no rival hand card code in any room JSON", async () => {
+    await test.step("no rival hand card code in the seated room JSON", async () => {
       const rooms = await Promise.all(seats.map((seat) => readTable(seat.page, slug)));
       // The codes each seat holds in hand, from that seat's own view, plus the Set Mirror Force.
       const hand = seats.map((_, seat) => handCodes(rooms[seat]!, seat));
@@ -160,32 +156,19 @@ test.describe("Tag chain and visibility", () => {
       await expect(tagPriorityChips(alice.page)).toHaveCount(0);
     });
 
-    await test.step("digit keys choose the rival seat during a seat pick", async () => {
+    await test.step("a burn card needs no rival pick: the opposing team LP is one shared value", async () => {
+      // In Tag the engine takes "your opponent" as the opposing team, so Hinotama asks for no seat (the digit-key pick is covered by the battle spec).
       await expectReadyToAct(alice.page);
       await useCard(alice.page, handCard(alice.page, "Hinotama"), "Activate");
       await pickLegalZone(alice.page, slug, "st");
-      await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("opponent");
-      const prompt = (await readTable(alice.page, slug)).engine!.prompt!;
-      const chips = alice.page.locator("[data-lp-seat][data-pickable='true']");
-      await expect(chips).toHaveCount(2);
-      // Each pickable rival shows its digit; read which seat holds "2" and expect that seat's option in the answer.
-      const hotkeys = await chips.evaluateAll((nodes) => nodes.map((node) => ({
-        seat: Number(node.getAttribute("data-lp-seat")),
-        key: node.querySelector("kbd")?.textContent?.trim() ?? "",
-      })));
-      expect(hotkeys.map((entry) => entry.key).sort()).toEqual(["1", "2"]);
-      const second = hotkeys.find((entry) => entry.key === "2")!;
-      const expected = prompt.options.find((option) => option.controller === second.seat);
-      expect(expected, `option for seat ${second.seat}`).toBeDefined();
-      await tableShot(alice.page, slug, info, "tag-chain-seat-pick");
-      const posted = alice.page.waitForRequest((request) => request.method() === "POST" && new URL(request.url()).pathname === `/api/duels/${slug}/actions`);
-      await alice.page.keyboard.press("2");
-      const body = (await posted).postDataJSON() as { promptId?: string; answer?: { choice?: unknown } };
-      expect(body.promptId).toBe(prompt.id);
-      expect(body.answer?.choice).toBe(expected!.id);
-      // Hinotama hits the rival team's shared LP once: 16,000 - 500.
+      // Hinotama hits the rival team's shared LP once: 16,000 - 500. No seat pick is shown on any page.
       for (const seat of seats) await expect.poll(() => teamLpValue(seat.page, 1)).toBe(15_500);
-      for (const seat of seats) expect(await teamLpValue(seat.page, 0)).toBe(16_000);
+      for (const seat of seats) {
+        expect(await teamLpValue(seat.page, 0)).toBe(16_000);
+        await expect(seat.page.locator("[data-lp-seat][data-pickable='true']")).toHaveCount(0);
+      }
+      expect((await readTable(alice.page, slug)).engine!.prompt?.context?.type).not.toBe("opponent");
+      await tableShot(alice.page, slug, info, "tag-chain-burn-no-pick");
     });
     expect(errors).toEqual([]);
   });

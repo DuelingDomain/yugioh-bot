@@ -3,7 +3,7 @@ import { expectReadyToAct, handCard, startTable, useCard, yourHand } from "../he
 import { enterDuelRoom } from "../helpers/duel";
 import { FILLER, withFiller } from "../helpers/decks";
 import { collectTableErrors, expectRealCore, readTable, readTableTrace, tableShot } from "../helpers/table";
-import { expectRooftop, tagField, tagShell, teamLpPlate, teamLpValue, turnNumber } from "../helpers/tag";
+import { expectRooftop, pickLegalZone, tagField, tagShell, teamLpPlate, teamLpValue, turnNumber } from "../helpers/tag";
 import type { Page } from "@playwright/test";
 
 // Tag 2v2 table (the Rooftop) with one human and three practice bots. Seats 0 and 2 are team 0, seats 1 and 3 are team 1.
@@ -14,11 +14,6 @@ const normalDeck = () => ({ main: withFiller([FILLER], 40) });
 
 /** The baton codes in strip order. The strip is the ordered list named "Turn order". */
 const batonCodes = (page: Page) => page.getByRole("list", { name: "Turn order" }).first().locator("li b").allTextContents();
-
-async function pickLegalZone(page: Page, slug: string, kind: "mz" | "st"): Promise<void> {
-  await expect.poll(async () => (await readTable(page, slug)).engine!.prompt?.kind).toBe("places");
-  await tagField(page, "self").locator(`[data-kind="${kind}"][data-legal="true"][data-occupied="false"] button`).first().click();
-}
 
 test.describe("Tag Rooftop table", () => {
   // Four live boards and three bot turns can render slowly when other stack slots share headless Chromium resources.
