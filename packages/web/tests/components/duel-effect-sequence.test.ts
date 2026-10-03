@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { chainBeatAt, chainEffectAt, planChainBeats, resetChainBeats } from "@/components/duel/chain-beats";
-import { planMoves, resetMoveSchedule } from "@/components/duel/move-plan";
+import { MOVE_TIMING, planMoves, resetMoveSchedule } from "@/components/duel/move-plan";
 import { armBattleDestroy, BREAK_SETTLE_MS, clearBattleHolds } from "@/components/duel/battle-hold";
 import { CARDS as C } from "@/components/duel/fx-lab/cards";
 import { registerDestroyScene } from "@/components/duel/destroy-scene-hold";
@@ -158,6 +158,71 @@ describe("spell/trap destruction presentation", () => {
       expect(cleanup == null).toBe(stays);
     });
   }
+
+  it.each(["draw", "destroy"] as const)("keeps a later %s batch behind the existing move queue", kind => {
+    const earlier: DuelEvent[] = Array.from({ length: 8 }, (_, i) => ({ id: i + 1, kind: "move", text: "mill",
+      card: C.celtic, from: zone(0, 1), zone: zone(0, 16, i), reason: "send" }));
+    const first = planMoves(earlier, options(false));
+    const last = first.at(-1)!;
+    const queueStart = last.startAt + Math.max(last.durationMs * MOVE_TIMING.overlap, MOVE_TIMING.minGapMs);
+    const batch: DuelEvent[] = kind === "draw" ? [
+      { id: 20, kind: "activate", text: "Pot of Greed", card: C.potOfGreed, zone: zone(0, 8), chainIndex: 1 },
+      { id: 21, kind: "chain-resolving", text: "resolve", chainIndex: 1 },
+      { id: 22, kind: "move", text: "draw", card: C.kuriboh, from: zone(0, 1), zone: zone(0, 2), reason: "draw" },
+      { id: 23, kind: "chain-resolved", text: "resolved", chainIndex: 1 },
+      { id: 24, kind: "move", text: "cleanup", card: C.potOfGreed, from: zone(0, 8), zone: zone(0, 16), reason: "send" },
+      { id: 25, kind: "chain-end", text: "end" },
+    ] : sequence(C.mst, 3, false).slice(0, 10).map((event, i) => ({ ...event, id: i + 20 }));
+    planChainBeats(batch, options(false, 1100));
+    const second = planMoves(batch, options(false, 1100));
+    for (const move of second) expect(move.startAt).toBeGreaterThanOrEqual(queueStart);
+    if (kind === "destroy") {
+      for (const marker of batch.filter(event => event.kind === "destroy")) {
+        expect(chainEffectAt(marker.id)).toBeGreaterThanOrEqual(queueStart);
+      }
+    }
+    const [next] = planMoves([{ ...earlier[0], id: 100 }], options(false, 1200));
+    expect(next.startAt).toBeGreaterThanOrEqual(second.at(-1)!.startAt);
+  });
+
+  it.each([false, true])("preserves capped, overlapping mill flights between activation and cleanup (reduced=%s)", reduced => {
+    const batch: DuelEvent[] = [
+      { id: 1, kind: "activate", text: "spell", card: C.potOfGreed, zone: zone(0, 8), chainIndex: 1 },
+      { id: 2, kind: "chain-resolving", text: "resolve", chainIndex: 1 },
+      ...Array.from({ length: 10 }, (_, i): DuelEvent => ({ id: i + 3, kind: "move", text: "mill", card: C.celtic,
+        from: zone(0, 1), zone: zone(0, 16, i), reason: "send" })),
+      { id: 13, kind: "chain-resolved", text: "resolved", chainIndex: 1 },
+      { id: 14, kind: "move", text: "cleanup", card: C.potOfGreed, from: zone(0, 8), zone: zone(0, 16, 10), reason: "send" },
+      { id: 15, kind: "chain-end", text: "end" },
+      { id: 16, kind: "activate", text: "later", card: C.sangan, zone: zone(0, 16), chainIndex: 1 },
+    ];
+    planChainBeats(batch, options(reduced));
+    const plans = planMoves(batch, options(reduced));
+    const mill = plans.filter(move => move.id < 14);
+    for (let i = 1; i < mill.length; i++) {
+      expect(mill[i].startAt - mill[i - 1].startAt).toBeCloseTo(Math.max(mill[i - 1].durationMs * MOVE_TIMING.overlap, MOVE_TIMING.minGapMs));
+    }
+    expect(mill.at(-1)!.landAt - mill[0].startAt).toBeLessThanOrEqual(MOVE_TIMING.queueCapMs);
+    const cleanup = plans.find(move => move.id === 14)!;
+    expect(cleanup.startAt).toBeGreaterThanOrEqual(Math.max(...mill.map(move => move.landAt + move.holdMs)));
+    expect(chainBeatAt(16)).toBeGreaterThanOrEqual(cleanup.landAt);
+  });
+
+  it("preserves the later effect's queue layout after target destruction and source cleanup", () => {
+    const batch = sequence(C.mst);
+    const addedIndex = batch.findIndex(event => event.addedToHand);
+    batch.splice(addedIndex, 1, ...Array.from({ length: 10 }, (_, i): DuelEvent => ({ id: 0, kind: "move", text: "mill",
+      card: C.celtic, from: zone(1, 1), zone: zone(1, 16, i), reason: "send" })));
+    batch.forEach((event, i) => { event.id = i + 1; });
+    planChainBeats(batch, options(false));
+    const plans = planMoves(batch, options(false));
+    const cleanup = plans.find(move => move.event.card?.code === C.mst.code && move.event.reason === "send")!;
+    const mill = plans.filter(move => move.event.text === "mill");
+    expect(mill[0].startAt).toBeGreaterThanOrEqual(cleanup.landAt);
+    for (let i = 1; i < mill.length; i++) {
+      expect(mill[i].startAt - mill[i - 1].startAt).toBeCloseTo(Math.max(mill[i - 1].durationMs * MOVE_TIMING.overlap, MOVE_TIMING.minGapMs));
+    }
+  });
 
   it("keeps an activation's complete hold when resolution arrives in a later batch", () => {
     const events = sequence(C.mst);
