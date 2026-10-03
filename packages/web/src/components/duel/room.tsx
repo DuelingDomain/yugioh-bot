@@ -898,7 +898,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           <SeriesGameLabel room={data} />
           <span className={styles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
             {connectionLabel === "Live" ? <i className={styles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
-            {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
+            <span className={styles.connectionText}>
+              {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
+            </span>
           </span>
           <BugReportHeaderButton room={data} />
           <ReportButton slug={slug} />

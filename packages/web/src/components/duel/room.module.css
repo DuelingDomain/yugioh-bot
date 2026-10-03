@@ -215,6 +215,19 @@
   100% { box-shadow: 0 0 0 0 rgb(255 74 61 / 0); }
 }
 @media (prefers-reduced-motion: reduce) { .liveDot { animation: none; } }
+/* On a phone a live duel shows the red lamp alone: the words stay for screen readers and the header keeps its room.
+   Any other state ("Reconnecting", "Offline") keeps its words, because they ask the player to act or wait. */
+@media (max-width: 600px) {
+  .connectionStatus[data-live="true"] { gap: 0; margin-right: 0; padding: 4px 8px; }
+  .connectionStatus[data-live="true"] .connectionText {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
 .tool {
   display: inline-flex;
   align-items: center;
