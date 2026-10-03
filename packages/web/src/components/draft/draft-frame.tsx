@@ -19,18 +19,18 @@ export function DraftFrame({
     <SheetRoot className={styles.root}>
       <OwnsPageBar />
       <PageBar {...bar} actions={<>{actions}<ShellMenuButton /></>} />
-      <div className={cn(styles.body, bodyClassName)}>{children}</div>
+      <div className={cn(styles.body, styles.skin, bodyClassName)}>{children}</div>
     </SheetRoot>
   );
 }
 
 /**
- * The body grid: main column, a 340px rail with a left hairline, and an action block under the rail. On a phone
- * it is a column and the action block sticks to the bottom of the screen. Render `DraftMain`, `DraftRail` and
- * `DraftActions` as direct children. Use `as="form"` when the whole layout is one form.
+ * The body grid: main column and a 340px rail with an action block under it. On a phone it is a column and the action
+ * block sticks to the bottom of the screen. Render `DraftMain` and `DraftRail` as direct children. Use `as="form"` when
+ * the whole layout is one form.
  */
-export function DraftLayout({ as = "div", className, children, ...rest }: { as?: "div" | "form" } & ComponentPropsWithoutRef<"div"> & ComponentPropsWithoutRef<"form">) {
-  const Tag = as;
+export function DraftLayout({ as = "div", className, children, ...rest }: { as?: "div" | "form" } & ComponentPropsWithoutRef<"form">) {
+  const Tag = as as "form";
   return <Tag {...rest} className={cn(styles.layout, className)}>{children}</Tag>;
 }
 
@@ -38,13 +38,18 @@ export function DraftMain({ children, className }: { children: ReactNode; classN
   return <div className={cn(styles.main, className)}>{children}</div>;
 }
 
-export function DraftRail({ children, className, tall = false, ...rest }: { children: ReactNode; className?: string; tall?: boolean } & ComponentPropsWithoutRef<"aside">) {
-  return <aside {...rest} className={cn(styles.rail, tall && styles.railTall, className)}>{children}</aside>;
-}
-
-/** The action block (the one primary button). Sticky at the bottom of a phone screen. Keep it a direct child of `DraftLayout`. */
-export function DraftActions({ children, className, ...rest }: { children: ReactNode; className?: string } & ComponentPropsWithoutRef<"div">) {
-  return <div {...rest} className={cn(styles.actions, className)}>{children}</div>;
+/**
+ * The rail (340px, a left hairline) plus, under it, the action block: the one primary button of the page. Pass the button
+ * as `actions`. On a phone the rail follows the main column and the actions stick to the bottom of the screen. Keep this a
+ * direct child of `DraftLayout`.
+ */
+export function DraftRail({ children, className, actions, ...rest }: { children: ReactNode; className?: string; actions?: ReactNode } & ComponentPropsWithoutRef<"aside">) {
+  return (
+    <div className={styles.side}>
+      <aside {...rest} className={cn(styles.rail, className)}>{children}</aside>
+      {actions != null && actions !== false && <div className={styles.actions}>{actions}</div>}
+    </div>
+  );
 }
 
 /** A rail section: a sentence-case heading, then content, split from the next by a light line. */
@@ -69,6 +74,11 @@ export function Rules({ rows, className }: { rows: Array<{ label: ReactNode; val
       ))}
     </dl>
   );
+}
+
+/** A number in the number font, for use inside a sentence or a rail value. */
+export function Num({ children }: { children: ReactNode }) {
+  return <span className={styles.num}>{children}</span>;
 }
 
 /** Short separate pieces in a row with a gap and no separator (kind, players, time per pick). */

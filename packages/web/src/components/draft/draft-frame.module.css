@@ -15,22 +15,22 @@
 }
 .body > * { min-width: 0; }
 
-/* Main column plus the 340px rail. On a phone it is one column, the rail follows the main column, and the
-   action block (Create draft, Start draft, Join draft) sticks to the bottom of the screen. It is a flex item there
-   because a sticky grid item can only move inside its own grid area. */
+/* Main column plus the 340px rail. The rail and the action block (Create draft, Start draft, Join draft) share one
+   "side" column that sticks to the top on a desktop screen. On a phone the layout is a flex column, the side wrapper
+   disappears (display: contents), the rail follows the main column and the action block sticks to the bottom of the
+   screen. It has to be a flex item there: a sticky grid item can only move inside its own grid area. */
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
-  grid-template-rows: auto 1fr;
   column-gap: 40px;
   align-items: start;
   min-width: 0;
 }
-.main { grid-column: 1; grid-row: 1 / span 2; display: grid; gap: clamp(24px, 3.4cqi, 40px); align-content: start; min-width: 0; }
+.main { grid-column: 1; display: grid; gap: clamp(24px, 3.4cqi, 40px); align-content: start; min-width: 0; }
 .main > * { min-width: 0; }
-.rail { grid-column: 2; grid-row: 1; min-width: 0; padding: 0 0 0 28px; border-left: 1px solid var(--rule-lo); align-self: stretch; }
-.rail.railTall { grid-row: 1 / span 2; }
-.actions { grid-column: 2; grid-row: 2; min-width: 0; padding: 4px 0 0 28px; border-left: 1px solid var(--rule-lo); align-self: stretch; display: grid; gap: 10px; align-content: start; }
+.side { grid-column: 2; grid-row: 1; position: sticky; top: 20px; display: flex; flex-direction: column; min-width: 0; max-height: calc(100dvh - 40px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--rule) transparent; }
+.rail { min-width: 0; padding: 0 0 0 28px; border-left: 1px solid var(--rule-lo); }
+.actions { min-width: 0; padding: 4px 0 0 28px; border-left: 1px solid var(--rule-lo); display: grid; gap: 10px; align-content: start; }
 .actions > * { min-width: 0; }
 
 .railSec { padding: 20px 0; border-bottom: 1px solid var(--rule-lo); min-width: 0; }
@@ -57,7 +57,8 @@
 @container (max-width: 900px) {
   .layout { display: flex; flex-direction: column; gap: 28px; }
   .main { gap: 28px; }
-  .rail, .rail.railTall { padding: 0; border-left: 0; border-top: 1px solid var(--rule-lo); padding-top: 24px; align-self: auto; }
+  .side { display: contents; }
+  .rail { padding: 24px 0 0; border-left: 0; border-top: 1px solid var(--rule-lo); }
   .actions {
     position: sticky;
     bottom: 0;
@@ -67,10 +68,38 @@
     border-left: 0;
     border-top: 1px solid var(--rule);
     background: var(--panel);
-    align-self: auto;
   }
   .actions > * { width: 100%; }
 }
 @container (max-width: 620px) {
   .body { padding: 20px 16px 48px; gap: 24px; }
 }
+
+/* ---- The skin ----
+   Pieces this branch does not own (the cube lobby panel, the cube draft builder, the pool browser, the set picker)
+   still use the old Match Sheet classes. Inside a drafts page those classes are re-drawn the Solid Vision way: fields
+   on the floor with a thin outline and a violet focus ring, no boxed panels, no tinted banners, quiet outlined chips.
+   The doubled selector (.ms .skin .x) beats the sheet's own `.ms .x`. */
+:global(.ms) .skin :global(.input) { background-color: var(--floor); border-color: var(--rule-lo); border-radius: 8px; }
+:global(.ms) .skin :global(.input):hover { border-color: var(--rule); }
+:global(.ms) .skin :global(.input:focus-visible) { outline: none; border-color: var(--pen); box-shadow: 0 0 0 1px var(--pen); }
+:global(.ms) .skin :global(.input.bad) { border-color: rgb(228 90 77 / 0.7); }
+:global(.ms) .skin :global(.input:disabled) { opacity: 0.5; }
+:global(.ms) .skin :global(.label) { margin-bottom: 7px; color: var(--ink-2); font-size: 14px; }
+:global(.ms) .skin :global(.hint) { margin-top: 8px; color: var(--ink-3); font-size: 14px; line-height: 1.5; }
+:global(.ms) .skin :global(.ferr) { margin-top: 8px; font-size: 14px; }
+:global(.ms) .skin :global(.chip) { height: 28px; padding: 0 11px; border-color: var(--rule); background: transparent; color: var(--ink-2); font-size: 13.5px; }
+:global(.ms) .skin :global(.chip-pen), :global(.ms) .skin :global(.chip-gold), :global(.ms) .skin :global(.chip-ok) { border-color: var(--rule); background: transparent; color: var(--ink-2); }
+:global(.ms) .skin :global(.banner) { padding: 10px 0 0; border: 0; border-top: 1px solid var(--rule-lo); border-radius: 0; background: transparent; font-size: 14.5px; }
+:global(.ms) .skin :global(.banner-warn) { color: var(--warn-ink); }
+:global(.ms) .skin :global(.banner-warn) :global(.ic) { color: var(--warn-ink); }
+:global(.ms) .skin :global(.banner-bad) { color: var(--loss-ink); }
+:global(.ms) .skin :global(.panel) { border: 0; border-top: 1px solid var(--rule-lo); border-radius: 0; background: transparent; }
+:global(.ms) .skin :global(.panel-pad) { padding: 18px 0 0; }
+:global(.ms) .skin :global(.panel-t) { font: 600 18px/1.2 var(--f-display); }
+:global(.ms) .skin :global(.panel-t) small { font: 400 14px var(--f-ui); }
+:global(.ms) .skin :global(.btn) { border-radius: 8px; font-weight: 600; font-size: 15px; }
+:global(.ms) .skin :global(.btn:active) { translate: none; }
+:global(.ms) .skin :global(.btn-quiet) { color: var(--ink-2); }
+:global(.ms) .skin :global(.sec-t) { font: 600 18px/1.2 var(--f-display); }
+:global(.ms) .skin :global(.sec-aux) { font-size: 14px; }
