@@ -72,7 +72,9 @@ function coLinks(format: Format, actor: Seat): Scenario {
     steps: [...turnsBefore(format, actor), expectNotOffered("activate", SECURITY, actor), before,
       specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }), zone(actor, "emz0", actor), linked,
       expectOffered("activate", SECURITY, actor), activate(SECURITY, actor),
-      expectPickOptions({ include: targets.map((seat) => ({ seat, card: ELF })), exclude: [{ seat: actor }] }, actor),
+      // R-FFA-OPP-ONE: declare the opponent before seeing only its legal target cards.
+      ...(format !== "tag" ? [expectPickSeats(targets, actor), pickOpponent(target, actor)] : []),
+      expectPickOptions({ include: targetSeats.map((seat) => ({ seat, card: ELF })), exclude: [{ seat: actor }] }, actor),
       select({ card: ELF, owner: target }), everySeat(format, state)],
   });
 }
