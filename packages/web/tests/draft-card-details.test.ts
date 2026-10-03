@@ -55,4 +55,19 @@ describe("draft card details", () => {
       { id: 3, passcode: 46986414, name: "Card 46986414", type: "Unknown", imageUrl: "" },
     ]);
   });
+  it("sends each card's archetype, or null when the catalog has none", async () => {
+    const fixture = await setup([46986414, 53183600]);
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(join(fixture.dir, "test.sqlite"));
+    db.prepare("update card_catalog set archetype = 'Dark Magician' where ygoprodeck_id = ?").run(46986414);
+    db.close();
+    const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
+
+    const response = await buildDraftResponse("slug-1", "drafter");
+
+    expect(response?.myPool).toMatchObject([
+      { passcode: 46986414, archetype: "Dark Magician" },
+      { passcode: 53183600, archetype: null },
+    ]);
+  });
 });

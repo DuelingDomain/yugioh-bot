@@ -4,8 +4,10 @@ import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useMemo,
 import { downloadYdk } from "@/lib/ydk";
 import { LevelsChart } from "./levels-chart";
 import {
+  EMPTY_FILTER,
   KINDS,
   KIND_LABEL,
+  archetypeChips,
   attributeChips,
   attributeTint,
   countKinds,
@@ -121,6 +123,7 @@ export const Binder = memo(
     const filtering = isFiltering(filter);
     const active = facetCount(filter);
     const chips = useMemo(() => attributeChips(cards, p.packCards, filter.attr), [cards, p.packCards, filter.attr]);
+    const archChips = useMemo(() => archetypeChips(cards, p.packCards, filter.arch), [cards, p.packCards, filter.arch]);
 
     const rows = useMemo(() => {
       const out: Array<{ key: string; heading?: React.ReactNode; kind?: Kind; count: number; rows: Row[] }> = [];
@@ -192,7 +195,7 @@ export const Binder = memo(
     const clearAll = useCallback(() => {
       clearTimeout(timer.current);
       setText("");
-      onFilter({ kinds: new Set(), q: "", lvl: new Set(), attr: new Set() });
+      onFilter(EMPTY_FILTER);
     }, [onFilter]);
 
     // a new pick flashes in the list
@@ -335,6 +338,27 @@ export const Binder = memo(
                       >
                         <i style={{ "--dot": attributeTint(c.key) } as React.CSSProperties} />
                         {titleCase(c.key)} <b>{c.n}</b>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {archChips.length ? (
+                <div className="fg">
+                  <span>Archetype</span>
+                  <div className="chips">
+                    {archChips.map((c) => (
+                      <button
+                        key={c.key}
+                        type="button"
+                        className="chip"
+                        data-g="arch"
+                        data-k={c.key}
+                        aria-pressed={filter.arch.has(c.key)}
+                        data-zero={c.n ? undefined : ""}
+                        onClick={() => onFilter({ ...filter, arch: toggled(filter.arch, c.key) })}
+                      >
+                        {c.key} <b>{c.n}</b>
                       </button>
                     ))}
                   </div>

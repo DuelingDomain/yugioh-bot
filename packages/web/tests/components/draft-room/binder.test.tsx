@@ -374,6 +374,7 @@ describe("binder empty filters", () => {
     q: "normal",
     lvl: new Set(["low"]),
     attr: new Set(["DARK"]),
+    arch: new Set(),
   };
 
   it("shows the filtered empty message and clears every filter while retaining sort", () => {
@@ -402,5 +403,37 @@ describe("binder empty filters", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(screen.queryByText("No cards match these filters.")).not.toBeInTheDocument();
     expect(pickList()).toHaveTextContent("Your picks land here as you draft.");
+  });
+});
+
+describe("binder archetype row", () => {
+  const archPool = [
+    card(1, "Magician of Dark Illusion", { archetype: "Dark Magician" }),
+    card(2, "Blue-Eyes White Dragon", { archetype: "Blue-Eyes" }),
+    card(3, "Dark Magic Attack", { type: "Normal Spell Card", frameType: "spell", archetype: "Dark Magician" }),
+    card(4, "Plain card"),
+  ];
+  const chip = (name: RegExp) => screen.getByRole("button", { name });
+
+  it("shows one chip per archetype with counts, and filters the list when switched on", () => {
+    render(<Harness pool={archPool} />);
+    expect(chip(/^Dark Magician 2$/)).toHaveAttribute("aria-pressed", "false");
+    expect(chip(/^Blue-Eyes 1$/)).toBeInTheDocument();
+    fireEvent.click(chip(/^Dark Magician 2$/));
+    expect(chip(/^Dark Magician 2$/)).toHaveAttribute("aria-pressed", "true");
+    expect(names()).toEqual(["Magician of Dark Illusion", "Dark Magic Attack"]);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(names()).toHaveLength(4);
+  });
+
+  it("hides the row when no card has an archetype", () => {
+    render(<Harness pool={[card(1, "Plain")]} />);
+    expect(screen.queryByText("Archetype")).not.toBeInTheDocument();
+  });
+
+  it("finds picks by archetype name in the search box", () => {
+    render(<Harness pool={archPool} />);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "blue-eyes" } });
+    return waitFor(() => expect(names()).toEqual(["Blue-Eyes White Dragon"]));
   });
 });

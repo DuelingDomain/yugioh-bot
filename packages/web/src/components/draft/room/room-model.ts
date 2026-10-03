@@ -330,20 +330,22 @@ export interface RoomFilter {
   q: string;
   lvl: ReadonlySet<TierKey>;
   attr: ReadonlySet<string>;
+  /** Archetype names, as the card catalog spells them. */
+  arch: ReadonlySet<string>;
 }
 
-export const EMPTY_FILTER: RoomFilter = { kinds: new Set(), q: "", lvl: new Set(), attr: new Set() };
+export const EMPTY_FILTER: RoomFilter = { kinds: new Set(), q: "", lvl: new Set(), attr: new Set(), arch: new Set() };
 
 export function isFiltering(f: RoomFilter): boolean {
-  return f.kinds.size > 0 || f.q !== "" || f.lvl.size > 0 || f.attr.size > 0;
+  return f.kinds.size > 0 || f.q !== "" || f.lvl.size > 0 || f.attr.size > 0 || f.arch.size > 0;
 }
 
 export function facetCount(f: RoomFilter): number {
-  return f.lvl.size + f.attr.size;
+  return f.lvl.size + f.attr.size + f.arch.size;
 }
 
 export function haystack(card: RoomCard): string {
-  return [card.name, card.effectText, card.type, card.attribute, KIND_ONE[kindOf(card)], ...typeParts(card)]
+  return [card.name, card.effectText, card.type, card.attribute, card.archetype, KIND_ONE[kindOf(card)], ...typeParts(card)]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -366,6 +368,7 @@ export function matchesFilter(card: RoomCard, f: RoomFilter): boolean {
     if (![...f.lvl].some((k) => tierMatches(k, level))) return false;
   }
   if (f.attr.size && !(card.attribute && f.attr.has(card.attribute))) return false;
+  if (f.arch.size && !(card.archetype && f.arch.has(card.archetype))) return false;
   return true;
 }
 
@@ -377,6 +380,7 @@ export function filterWords(f: RoomFilter): string {
   }
   if (f.lvl.size) parts.push("Level " + [...f.lvl].map((k) => TIER_RANGE[k]).join(" or "));
   if (f.attr.size) parts.push([...f.attr].map(titleCase).join(" or "));
+  if (f.arch.size) parts.push([...f.arch].join(" or "));
   if (f.q) parts.push(`“${f.q}”`);
   return parts.join(", ");
 }
@@ -393,16 +397,46 @@ export interface FacetChip {
   n: number;
 }
 
-/** Attribute chips: counts come from the list shown, but any attribute in this pack gets a chip too. */
-export function attributeChips(list: RoomCard[], inPack: RoomCard[], selected: ReadonlySet<string>): FacetChip[] {
+/**
+ * One row of filter chips. Counts come from the list shown; any key found in this pack gets a chip
+ * too (greyed at zero), and so does anything already selected. Most cards first, then A to Z.
+ * With a limit, the first `limit` stay and a selected chip is never cut.
+ */
+export function facetChips(opts: {
+  list: RoomCard[];
+  inPack: RoomCard[];
+  selected: ReadonlySet<string>;
+  keyOf: (card: RoomCard) => string | null | undefined;
+  limit?: number;
+}): FacetChip[] {
   const counts = new Map<string, number>();
-  for (const c of list) if (c.attribute) counts.set(c.attribute, (counts.get(c.attribute) ?? 0) + 1);
+  for (const c of opts.list) {
+    const k = opts.keyOf(c);
+    if (k) counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
   const keys = new Set<string>(counts.keys());
-  for (const c of inPack) if (c.attribute) keys.add(c.attribute);
-  selected.forEach((k) => keys.add(k));
-  return [...keys]
+  for (const c of opts.inPack) {
+    const k = opts.keyOf(c);
+    if (k) keys.add(k);
+  }
+  opts.selected.forEach((k) => keys.add(k));
+  const sorted = [...keys]
     .map((key) => ({ key, n: counts.get(key) ?? 0 }))
     .sort((a, b) => b.n - a.n || a.key.localeCompare(b.key));
+  if (!opts.limit || sorted.length <= opts.limit) return sorted;
+  const kept = sorted.slice(0, opts.limit);
+  return [...kept, ...sorted.slice(opts.limit).filter((c) => opts.selected.has(c.key))];
+}
+
+/** Attribute chips: counts come from the list shown, but any attribute in this pack gets a chip too. */
+export function attributeChips(list: RoomCard[], inPack: RoomCard[], selected: ReadonlySet<string>): FacetChip[] {
+  return facetChips({ list, inPack, selected, keyOf: (c) => c.attribute });
+}
+
+/** Archetype chips: the eight biggest, plus any you have switched on. */
+export const ARCHETYPE_CHIP_LIMIT = 8;
+export function archetypeChips(list: RoomCard[], inPack: RoomCard[], selected: ReadonlySet<string>): FacetChip[] {
+  return facetChips({ list, inPack, selected, keyOf: (c) => c.archetype, limit: ARCHETYPE_CHIP_LIMIT });
 }
 
 /* ---------- the pool: grouping, order, pick numbers ---------- */

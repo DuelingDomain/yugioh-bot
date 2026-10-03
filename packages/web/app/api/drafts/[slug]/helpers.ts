@@ -36,6 +36,7 @@ function mapDraftCardDetails(
       type: catalogCard?.type ?? "Unknown",
       frameType: catalogCard?.frameType ?? "normal",
       attribute: catalogCard?.attribute,
+      archetype: catalogCard?.archetype ?? null,
       level: catalogCard?.level,
       effectText: catalogCard?.effectText ?? "",
       atk: catalogCard?.atk,

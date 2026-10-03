@@ -4,6 +4,12 @@ import type { CardSummary } from "@/lib/card-types";
 export type DraftCardDetail = CardSummary & {
   /** Catalog (YGOPRODeck) id, distinct from the draft card instance id. */
   passcode: number;
+  /** Archetype from the card catalog, when it has one. */
+  archetype?: string | null;
+  /** Monster type from the duel engine ("Dragon"). Absent when the engine could not be reached. */
+  race?: string | null;
+  /** Spell or trap kind from the duel engine ("Quick-Play", "Counter"). Absent when the engine could not be reached. */
+  spellTrapType?: string | null;
 };
 
 export interface Seat {
