@@ -1059,6 +1059,8 @@
 .dr .fin-note { margin: 0; color: var(--ink-3); font-size: 14px; }
 .dr .fin-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 6px; }
 .dr .fin-actions .pick-btn { width: auto; justify-content: center; }
+.dr .fin-actions button:disabled { opacity: 0.5; cursor: wait; }
+.dr .fin-error { min-width: 0; max-width: 100%; margin: 0; color: var(--loss-ink); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .dr .btn-2 {
   display: inline-flex;
   align-items: center;
