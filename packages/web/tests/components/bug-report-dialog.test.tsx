@@ -41,26 +41,16 @@ describe("collectBugContext", () => {
     expect(Object.keys(context).sort()).toEqual(["timestamp", "userAgent", "viewport"]);
   });
 
-  it("with a 4-way room holds the public facts and passes the server check", () => {
-    const room = FFA4_FIXTURES.states.main.room;
+  it("with a room holds the slug, the animation speed and browser details, and no duel facts or log", () => {
+    const room = structuredClone(FFA4_FIXTURES.states.main.room);
+    room.engine!.log = [{ id: 1, text: "You added Dark Magician to your hand" }, { id: 2, text: "Turn 3" }];
     const { path, duelSlug, context } = collectBugContext(room);
     expect(duelSlug).toBe(room.session.slug);
-    expect(context).toMatchObject({ format: "ffa4", duelMode: room.session.mode, seat: room.mySeat, turn: room.engine!.turn, phase: room.engine!.phase, turnSeat: room.engine!.turnSeat });
-    expect(context.livingPlayers).toBeGreaterThan(0);
     expect(context.animationSpeed).toBe(1);
-    expect(context.log!.length).toBeLessThanOrEqual(15);
+    expect(Object.keys(context).sort()).toEqual(["animationSpeed", "timestamp", "userAgent", "viewport"]);
+    expect(JSON.stringify(context)).not.toContain("Dark Magician");
     const parsed = parseBugReportRequest({ description: "The duel froze on my turn", expected: "It should go on", path, duelSlug, context });
     expect(parsed.ok).toBe(true);
-  });
-
-  it("drops private log lines over the whole log before it keeps the last 15", () => {
-    const room = structuredClone(FFA4_FIXTURES.states.main.room);
-    const lines = Array.from({ length: 30 }, (_, i) => (i % 2 ? `You added Card ${i} to your hand` : `Public line ${i}`));
-    room.engine!.log = lines.map((text, i) => ({ id: i, text }));
-    const log = collectBugContext(room).context.log!;
-    expect(log).toHaveLength(15);
-    expect(log.every((line) => line.startsWith("Public line"))).toBe(true);
-    expect(log.at(-1)).toBe("Public line 28");
   });
 });
 

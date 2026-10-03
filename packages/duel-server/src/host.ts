@@ -86,6 +86,22 @@ const DEFAULT_DEBUG_READ_TIMEOUT_MS = 2000;
 /** A report or a room read waits this long in a blocked duel queue before it answers without the core. */
 const DEFAULT_QUEUE_BLOCKED_MS = 3000;
 const TRACE_LIMIT = 40;
+/** The log lines a bug report keeps (the newest). */
+const BUG_CONTEXT_LOG_LINES = 15;
+
+/** What the `bug-context` op answers: public duel facts only. */
+interface BugDuelContext {
+  format: DuelFormat;
+  mode: DuelMode;
+  /** The asking player's seat, or null for a spectator. */
+  seat: number | null;
+  turn: number | null;
+  phase: string | null;
+  turnSeat: number | null;
+  livingPlayers: number | null;
+  /** The newest spectator-view log lines, oldest first. */
+  log: string[];
+}
 
 function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
@@ -1672,6 +1688,40 @@ export function createDuelHost(options: {
     return buildDebugTrace(slug, guildId);
   }
 
+  /**
+   * The public facts of one duel for a bug report, read from the spectator view (audience "all" log lines only) so no
+   * private line can reach a public GitHub issue. Never waits in the duel queue and never starts a core, so it answers
+   * for a stuck duel too: when the core does not answer in time it uses the last spectator view, or gives no log.
+   */
+  async function bugContext(slug: string, guildId: string, actor: number): Promise<BugDuelContext> {
+    const room = service.room(slug, guildId, actor);
+    const { format, mode } = room.session;
+    const out: BugDuelContext = { format, mode, seat: room.mySeat, turn: null, phase: null, turnSeat: null, livingPlayers: null, log: [] };
+    let view: DuelEngineView | null = null;
+    const live = games.get(slug);
+    if (room.session.status === "active" && live?.game.running) {
+      try {
+        view = await withTimeout(live.game.view(null), debugReadTimeoutMs, "view spectator");
+        rememberView(slug, null, view);
+      } catch {
+        view = lastViews.get(slug)?.get(-1) ?? null;
+      }
+    } else if (room.session.status === "completed" || room.session.status === "interrupted") {
+      const saved = options.db.prepare<[string, string], { snapshot_public_json: string | null }>(
+        "select snapshot_public_json from duels where web_slug = ? and guild_id = ?",
+      ).get(slug, guildId);
+      try { view = saved?.snapshot_public_json ? JSON.parse(saved.snapshot_public_json) as DuelEngineView : null; } catch { view = null; }
+    }
+    if (!view) return out;
+    const gone = live?.surrendered ?? new Set<number>();
+    out.turn = view.turn;
+    out.phase = view.phase;
+    out.turnSeat = view.turnSeat;
+    out.livingPlayers = view.seats.filter((seat) => !seat.eliminated && !seat.pendingElimination && !gone.has(seat.seat)).length;
+    out.log = view.log.slice(-BUG_CONTEXT_LOG_LINES).map((entry) => entry.text);
+    return out;
+  }
+
   // Stall watchdog: revision unchanged for `stallMs` while a bot seat or the core must act.
   const stallWatch = new Map<string, { revision: number | null; since: number; reported: boolean }>();
   let stallChecking = false;
@@ -2130,6 +2180,7 @@ export function createDuelHost(options: {
     }
     if (op === "report") return writeReport(slug, guildId, actor, body.note, ctl);
     if (op === "debug-trace") return debugTrace(slug, guildId, actor);
+    if (op === "bug-context") return bugContext(slug, guildId, actor);
     if (op === "replay") return replay(slug, guildId, room);
     if (op === "series-side" || op === "series-ready" || op === "series-unready" || op === "series-first") {
       const seriesId = room.session.seriesId ?? null;
@@ -2400,9 +2451,9 @@ export function createDuelHost(options: {
         try { body = JSON.parse(raw); } catch { throw new RequestError("Invalid JSON", 400); }
         if (!body || typeof body !== "object" || Array.isArray(body)) throw new RequestError("Invalid request", 400);
         const key = typeof body.slug === "string" ? body.slug : "catalog";
-        // debug-trace must answer while the duel queue is stuck inside the core, so it skips the queue.
+        // debug-trace and bug-context must answer while the duel queue is stuck inside the core, so they skip the queue.
         const ctl = { abandoned: false };
-        const queued = (body.op === "debug-trace" ? operate(body) : enqueue(key, () => operate(body, ctl)));
+        const queued = (body.op === "debug-trace" || body.op === "bug-context" ? operate(body) : enqueue(key, () => operate(body, ctl)));
         const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
         return Response.json(answer, { headers: { "cache-control": "no-store" } });
       } catch (error) {

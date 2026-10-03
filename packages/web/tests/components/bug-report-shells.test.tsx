@@ -68,7 +68,8 @@ async function reportFromMenu(expected: { format: string; seat: number | null; s
   const [, init] = calls[0]!;
   const body = JSON.parse(init.body as string);
   expect(body).toMatchObject({ description: "The chain froze after my Quick-Play.", expected: "The chain resolves.", duelSlug: expected.slug });
-  expect(body.context).toMatchObject({ format: expected.format, seat: expected.seat });
+  // The duel facts and the log are read by the server from the duel host; the browser sends browser data only.
+  for (const key of Object.keys(body.context)) expect(["animationSpeed", "userAgent", "viewport", "timestamp"]).toContain(key);
   expect(Object.keys(body).sort()).toEqual(["context", "description", "duelSlug", "expected", "path"]);
   expect(JSON.stringify(body)).not.toMatch(/hand|Dark Magician|You added/i);
 
@@ -90,15 +91,14 @@ describe("Report bug in the table shell", () => {
     return <TableShell fxActive={false} controller={controller} connection={connection} />;
   }
 
-  it("opens from the Settings menu, sends public context only, shows the issue and closes on Escape", async () => {
+  it("opens from the Settings menu, sends browser context only, shows the issue and closes on Escape", async () => {
     render(<Shell />);
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
     const opener = screen.getByRole("button", { name: "Report bug" });
     opener.focus();
     const body = await reportFromMenu({ format: "ffa3", seat: FFA3_FIXTURES.states.main.room.mySeat, slug: FFA3_FIXTURES.states.main.room.session.slug });
-    expect(body.context.log).toEqual(["Ren Arata Normal Summons Blue-Eyes White Dragon", "Ren Arata draws a card"]);
-    expect(body.context.livingPlayers).toBeGreaterThan(0);
-    expect(typeof body.context.turn).toBe("number");
+    expect(body.context.log).toBeUndefined();
+    expect(body.context.turn).toBeUndefined();
     await waitFor(() => expect(document.activeElement).toBe(opener));
   });
 
@@ -146,22 +146,24 @@ describe("Report bug in the 1v1 room", () => {
       log: [{ id: 1, text: "Sulman draws a card" }, { id: 2, text: "You added Dark Magician to your hand" }] } as NonNullable<DuelRoom["engine"]>;
   });
 
-  it("opens from the Settings menu, sends the context and closes on Escape", async () => {
+  it("opens from the Settings menu, sends browser context only and closes on Escape", async () => {
     render(<DuelRoomView slug="game-1" windowed />);
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
     const menuEntry = screen.getAllByRole("button", { name: "Report bug" }).find((button) => !button.hasAttribute("data-bug-header-button"))!;
     const body = await reportFromMenu({ format: "1v1", seat: 0, slug: "game-1" }, menuEntry);
-    expect(body.context).toMatchObject({ duelMode: "normal", turn: 2, phase: "main1", turnSeat: 1, livingPlayers: 2, log: ["Sulman draws a card"] });
+    expect(body.context).toMatchObject({ animationSpeed: 1 });
+    expect(JSON.stringify(body.context)).not.toMatch(/Sulman|Dark Magician/);
   });
 
-  it("has a red Report bug button in the header, next to the other header buttons, that sends the same context", async () => {
+  it("has a red Report bug button in the header, next to the other header buttons, that sends browser context only", async () => {
     render(<DuelRoomView slug="game-1" windowed />);
     const header = document.querySelector("header")!;
     const button = within(header).getByRole("button", { name: "Report bug" });
     expect(button.className).toContain("bg-accent-cta");
     expect(button.hasAttribute("data-bug-header-button")).toBe(true);
     const body = await reportFromMenu({ format: "1v1", seat: 0, slug: "game-1" }, button);
-    expect(body.context).toMatchObject({ turn: 2, log: ["Sulman draws a card"] });
+    expect(body.context).toMatchObject({ animationSpeed: 1 });
+    expect(JSON.stringify(body.context)).not.toMatch(/Sulman|Dark Magician/);
     // The floating button is not in the app shell here, and a header button is the only one on screen.
     expect(document.querySelector("[data-bug-fab]")).toBeNull();
   });

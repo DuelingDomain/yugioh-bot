@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildIssueBody, fence, issueTitle, parseBugReportRequest, publicLogLines, validateBugText, redactText, sanitizeText,
+  browserLabel, buildCommentBody, buildIssueBody, fence, issueTitle, parseBugReportRequest, validateBugText, redactText, sanitizeText,
 } from "@/lib/bug-report";
 
 const ZW = "​";
@@ -28,31 +28,6 @@ describe("fence", () => {
     const block = fence(text);
     expect(block.startsWith("`````text\n")).toBe(true);
     expect(block.endsWith("\n`````")).toBe(true);
-  });
-});
-
-describe("publicLogLines", () => {
-  it("drops lines only the reporter sees", () => {
-    const log = [
-      "Turn 2",
-      "Player 1 Normal Summons a face-down monster",
-      "Player 1 Normal Summons Dark Magician",
-      "Player 2 added a card to their hand",
-      "You added Blue-Eyes White Dragon to your hand",
-      "A face-down card returned to Player 1's hand",
-      "Pot of Greed returned to your hand",
-      "Confirmed Exodia the Forbidden One",
-      "Player 2 Special Summons Summoned Skull",
-      "Player 1 takes 500 damage",
-    ];
-    expect(publicLogLines(log)).toEqual([
-      "Turn 2",
-      "Player 1 Normal Summons a face-down monster",
-      "Player 2 added a card to their hand",
-      "A face-down card returned to Player 1's hand",
-      "Player 2 Special Summons Summoned Skull",
-      "Player 1 takes 500 damage",
-    ]);
   });
 });
 
@@ -91,15 +66,10 @@ describe("parseBugReportRequest", () => {
   ])("refuses %s", (_name, body) => {
     expect(parseBugReportRequest(body).ok).toBe(false);
   });
-  it("keeps at most the last 15 public log lines", () => {
-    const log = Array.from({ length: 60 }, (_, i) => `Player 1 draws card ${i}`);
+  it("never keeps a log the browser sent: the server builds the log", () => {
+    const log = ["You added Dark Magician to your hand", "Turn 3"];
     const parsed = parseBugReportRequest({ ...valid, context: { log } });
-    expect(parsed.ok && parsed.value.context.log).toHaveLength(15);
-    expect(parsed.ok && parsed.value.context.log?.[14]).toBe("Player 1 draws card 59");
-  });
-  it("filters private log lines again on the server", () => {
-    const parsed = parseBugReportRequest({ ...valid, context: { log: ["You added Dark Magician to your hand", "Turn 3"] } });
-    expect(parsed.ok && parsed.value.context.log).toEqual(["Turn 3"]);
+    expect(parsed.ok && parsed.value.context.log).toBeUndefined();
   });
 });
 
@@ -184,5 +154,65 @@ describe("issueTitle", () => {
 describe("redactText", () => {
   it("skips values shorter than 3 characters", () => {
     expect(redactText("al is here", ["al"])).toBe("al is here");
+  });
+  it("ignores case and needs a word boundary", () => {
+    expect(redactText("SERAPHINA quill and seraphina, but not Seraphinas", ["Seraphina", "Quill"])).toBe("[removed] [removed] and [removed], but not Seraphinas");
+    expect(redactText("Darkness and Dark", ["dark"])).toBe("Darkness and [removed]");
+  });
+  it("removes the longer value first and a value made of symbols", () => {
+    expect(redactText("Seraphina Quill wrote this", ["Seraphina", "Seraphina Quill"])).toBe("[removed] wrote this");
+    expect(redactText("I am ```x``` ok", ["```x```"])).toBe("I am [removed] ok");
+  });
+  it("never removes a bare Unknown or a common name", () => {
+    expect(redactText("Unknown error, the player is a user", ["Unknown", "player", "user"])).toBe("Unknown error, the player is a user");
+  });
+});
+
+describe("redaction inside the issue", () => {
+  const base = {
+    reportId: 7,
+    description: "Dark Magician did not attack and the Turn counter stayed at 3",
+    expected: "The attack should go through",
+    path: "/duels/abc",
+    duelSlug: "abc",
+    context: { format: "1v1" as const, turn: 3, phase: "Dark World", log: ["Turn 3 — Player 1", "Dark Magician attacks"] },
+    baseUrl: "https://duel.example.com",
+  };
+  it("leaves headings, table labels, log lines and the Unknown fallback alone when a name is Dark or Turn", () => {
+    const body = buildIssueBody(base, ["Dark", "Turn", "Unknown"]);
+    expect(body).toContain("| Turn | `3` |");
+    expect(body).toContain("| Phase | `Dark World` |");
+    expect(body).toContain("Dark Magician attacks");
+    expect(body).toContain("Turn 3 — Player 1");
+    for (const heading of ["## Description", "## Expected", "## Context", "## Recent log"]) expect(body).toContain(heading);
+    // The player's own text is redacted.
+    expect(body).toContain("[removed] Magician did not attack and the [removed] counter stayed at 3");
+  });
+  it("keeps the code fences whole when a name is made of backticks", () => {
+    const body = buildIssueBody({ ...base, description: "I am ```Zed``` and the chain froze after my Quick-Play" }, ["```Zed```", "a`b`c"]);
+    expect(body).toContain("```text\nI am [removed] and the chain froze after my Quick-Play\n```");
+    expect(body.match(/^```text$/gm)).toHaveLength(3);
+    expect(body).not.toContain("Zed");
+  });
+  it("removes the names from the title and the +1 comment too", () => {
+    expect(issueTitle("Seraphina Quill saw the chain freeze", {}, ["seraphina quill"])).toBe("[Bug] [removed] saw the chain freeze");
+    expect(buildCommentBody(base, ["Magician"])).not.toMatch(/Dark Magician did/);
+  });
+});
+
+describe("browserLabel", () => {
+  it.each([
+    ["Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.55 Safari/537.36", "Chrome 126"],
+    ["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/125.0.2535.51", "Edge 125"],
+    ["Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0", "Firefox 127"],
+    ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15", "Safari 17"],
+    ["curl/8.0", "Other browser"],
+  ])("%s", (agent, label) => {
+    expect(browserLabel(agent)).toBe(label);
+  });
+  it("is what the issue shows, not the full user agent", () => {
+    const body = buildIssueBody({ reportId: 1, description: "x".repeat(30), path: "/", context: { userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/126.0.6478.55 Safari/537.36" }, baseUrl: "https://a.b" });
+    expect(body).toContain("| Browser | `Chrome 126` |");
+    expect(body).not.toContain("X11");
   });
 });

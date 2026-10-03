@@ -10,6 +10,14 @@ let discord: ReturnType<typeof mockDiscordAccess>;
 let github: Mock<(url: string, init?: RequestInit) => Promise<Response>>;
 vi.mock("@/lib/auth", () => ({ auth }));
 vi.mock("@/lib/notify", () => ({ announcer: { announce: vi.fn() }, broadcaster: {} }));
+// The duel host's public view of the duel: only audience "all" lines, as the host reads them from the spectator view.
+const callDuelHost = vi.fn();
+vi.mock("@/lib/duel-host", () => ({ callDuelHost }));
+const PUBLIC_LOG = ["Turn 3 — Player 2", "Player 1 Normal Summons a face-down monster", "Player 2 drew 1 card(s)"];
+const hostAnswer = () => ({
+  ok: true as const,
+  data: { format: "ffa3", mode: "normal", seat: 0, turn: 3, phase: "Main Phase 1", turnSeat: 1, livingPlayers: 3, log: PUBLIC_LOG },
+});
 
 const GUILD = "guild-1";
 const DISCORD_ID = "810293847561029384";
@@ -27,7 +35,7 @@ async function seed() {
   const db = new Database(process.env.DATABASE_PATH);
   migrate(db);
   db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (1, ?, ?, 'Seraphina Quill')").run(GUILD, DISCORD_ID);
-  db.prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status) values (?, 'duel-a', 'T', 1, 'normal', 'active')").run(GUILD);
+  db.prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status, format) values (?, 'duel-a', 'T', 1, 'normal', 'active', 'ffa3')").run(GUILD);
   db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (2, 'guild-2', 'x', 'X')").run();
   db.prepare("insert into duels (guild_id, web_slug, name, organizer_player_id, mode, status) values ('guild-2', 'duel-other', 'T', 2, 'normal', 'active')").run();
   db.close();
@@ -71,6 +79,8 @@ describe("POST /api/bug-reports", () => {
     vi.resetModules();
     auth.mockReset();
     auth.mockResolvedValue({ user: { id: DISCORD_ID, name: "Seraphina Quill" } });
+    callDuelHost.mockReset();
+    callDuelHost.mockResolvedValue(hostAnswer());
     discord = mockDiscordAccess();
     const discordFetch = globalThis.fetch;
     github = vi.fn(async (_url: string, _init?: RequestInit) => Response.json(created(77), { status: 201 }));
@@ -195,11 +205,37 @@ describe("POST /api/bug-reports", () => {
     expect(text).not.toMatch(/@[A-Za-z]/);
     // Public lines are still there.
     expect(text).toContain("Player 1 Normal Summons a face-down monster");
-    expect(text).toContain("Player 2 draws 1 card");
+    expect(text).toContain("Player 2 drew 1 card(s)");
     // The database keeps the reporter and the full text.
     const [row] = await rows();
     expect(row!.player_id).toBe(1);
     expect(row!.description).toContain(DISCORD_ID);
+  });
+
+  it("builds the log and the duel facts on the server and ignores the browser's copy", async () => {
+    const POST = await route();
+    await POST(post(body({ context: { ...body().context, format: "ffa4", turn: 99, phase: "Fake phase", livingPlayers: 1, log: [`You added ${HAND[1]} to your hand`, "Forged line"] } })));
+    expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "bug-context", slug: "duel-a", guildId: GUILD, playerId: 1 }));
+    const [call] = githubCalls();
+    const issue = call!.payload.body as string;
+    for (const line of PUBLIC_LOG) expect(issue).toContain(line);
+    expect(issue).not.toContain("Forged line");
+    expect(issue).not.toContain(HAND[1]);
+    expect(issue).not.toContain("Fake phase");
+    expect(issue).toContain("| Turn | `3` |");
+    expect(issue).toContain("| Format | `3-player FFA` |");
+    const [row] = await rows();
+    expect(JSON.parse(row!.context_json)).toMatchObject({ format: "ffa3", turn: 3, log: PUBLIC_LOG });
+  });
+
+  it("takes the format, rules and seat from the database and leaves the log empty when the duel host cannot answer", async () => {
+    callDuelHost.mockResolvedValue({ ok: false, response: Response.json({ error: "down" }, { status: 503 }) });
+    const POST = await route();
+    expect((await POST(post(body()))).status).toBe(200);
+    const issue = githubCalls()[0]!.payload.body as string;
+    expect(issue).toContain("| Format | `3-player FFA` |");
+    expect(issue).toContain("_No duel log._");
+    expect(issue).not.toContain(HAND[1]);
   });
 
   it("returns issue null and records the error when the token is missing", async () => {
@@ -342,6 +378,8 @@ describe("POST /api/bug-reports with duplicateOf", () => {
     vi.resetModules();
     auth.mockReset();
     auth.mockResolvedValue({ user: { id: DISCORD_ID, name: "Seraphina Quill" } });
+    callDuelHost.mockReset();
+    callDuelHost.mockResolvedValue(hostAnswer());
     discord = mockDiscordAccess();
     const discordFetch = globalThis.fetch;
     github = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({}));
@@ -369,7 +407,7 @@ describe("POST /api/bug-reports with duplicateOf", () => {
     const [comment] = comments();
     expect(comment!.body.body.startsWith("**+1** from `Report #1`")).toBe(true);
     expect(comment!.body.body).toContain("https://duel.example.com/duels/duel-a/replay");
-    expect(comment!.body.body).toContain("Player 2 draws 1 card");
+    expect(comment!.body.body).toContain("Player 2 drew 1 card(s)");
   });
 
   it("leaves the replay link out of the +1 comment when no public URL is configured", async () => {

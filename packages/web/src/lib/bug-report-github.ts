@@ -1,4 +1,4 @@
-import { buildCommentBody, buildIssueBody, issueTitle, redactText, type IssueBodyInput } from "./bug-report";
+import { buildCommentBody, buildIssueBody, issueTitle, type IssueBodyInput } from "./bug-report";
 
 const DEFAULT_REPO = "imran443/yugioh-bot";
 const ISSUE_LABELS = ["bug", "needs-triage", "from-app"];
@@ -55,7 +55,7 @@ export async function createGithubIssue(input: IssueBodyInput, redact: readonly 
   const token = process.env.BUG_REPORT_GITHUB_TOKEN?.trim();
   if (!token) return { ok: false, error: "BUG_REPORT_GITHUB_TOKEN is not set" };
   const url = `https://api.github.com/repos/${bugReportRepo()}/issues`;
-  const title = redactText(issueTitle(input.description, input.context), redact);
+  const title = issueTitle(input.description, input.context, redact);
   const body = buildIssueBody(input, redact);
   const signal = AbortSignal.timeout(TIMEOUT_MS);
   const scrub = (text: string) => text.split(token).join("[token]").slice(0, 300);

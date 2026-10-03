@@ -3,8 +3,9 @@
  * Pure (no Node or React imports) so the browser and the route share it.
  *
  * Privacy: the GitHub repo is public. An issue only ever holds fields this file lists, the public log lines and the
- * report id. It never holds a hand, a Discord id or name, an email or the guild id. `buildIssueBody` takes the values
- * it must scrub as a last line of defence (`redact`).
+ * report id. It never holds a hand, a Discord id or name, an email or the guild id. The duel facts and the log come
+ * from the server (the duel host's public view), never from the browser. `buildIssueBody` takes the values it must
+ * scrub from the text the player wrote (`redact`).
  */
 
 export const BUG_TEXT_MAX = 4000;
@@ -17,7 +18,11 @@ export const BUG_DUEL_MODES = ["normal", "domain"] as const;
 
 export type BugFormat = (typeof BUG_FORMATS)[number];
 
-/** What the browser sends alongside the text. Everything here is public duel information or browser data. */
+/**
+ * The context of a report. The browser may send only path-level browser data (viewport, animation speed, browser,
+ * time). The route replaces everything else with what the server reads from the duel host (see
+ * `lib/bug-reports/server-context.ts`), so the duel facts and the log never come from the client.
+ */
 export interface BugReportContext {
   format?: BugFormat;
   duelMode?: (typeof BUG_DUEL_MODES)[number];
@@ -28,7 +33,7 @@ export interface BugReportContext {
   turnSeat?: number | null;
   livingPlayers?: number;
   animationSpeed?: number;
-  /** The last public log lines, oldest first. */
+  /** The last public log lines, oldest first. Set by the server from the duel host's public view. */
   log?: string[];
   userAgent?: string;
   viewport?: { width: number; height: number };
@@ -125,33 +130,6 @@ export function fence(text: string, language = "text"): string {
   return `${ticks}${language}\n${text}\n${ticks}`;
 }
 
-/**
- * Keeps only the log lines every player at the table sees. The engine log a player receives also holds lines meant for
- * that player alone: "You added X to your hand", "X returned to your hand", "Confirmed X", and the card name of a
- * face-down summon (it follows the public "... a face-down monster" line). The client cannot tell them apart by a flag,
- * so this drops those shapes. The route runs it again on whatever the browser sent.
- */
-export function publicLogLines(lines: readonly string[]): string[] {
-  const out: string[] = [];
-  let hiddenPrefix: string | null = null;
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) continue;
-    const faceDown = /^(.*? (?:Normal|Special|Flip) Summons) a face-down monster$/.exec(line);
-    if (faceDown) {
-      out.push(line);
-      hiddenPrefix = faceDown[1]!;
-      continue;
-    }
-    const prefix = hiddenPrefix;
-    hiddenPrefix = null;
-    if (prefix && line.startsWith(`${prefix} `)) continue;
-    if (/^You /.test(line) || /\bto your hand$/.test(line) || /^Confirmed\b/.test(line)) continue;
-    out.push(line);
-  }
-  return out;
-}
-
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -217,13 +195,9 @@ function parseContext(raw: unknown): ParseResult<BugReportContext> {
     if (!isObject(v) || width === null || height === null || Object.keys(v).length !== 2) return { ok: false, error: "context.viewport is not valid" };
     out.viewport = { width, height };
   }
-  if (raw.log !== undefined) {
-    if (!Array.isArray(raw.log) || raw.log.length > 200 || raw.log.some((line) => typeof line !== "string")) {
-      return { ok: false, error: "context.log must be a list of text lines" };
-    }
-    out.log = publicLogLines((raw.log as string[]).map((line) => clean(line).slice(0, LOG_LINE_MAX * 2)))
-      .slice(-BUG_LOG_LINES)
-      .map((line) => sanitizeLine(line, LOG_LINE_MAX));
+  // `log` is still accepted so an older page does not get a 400, but it is never kept: the server builds the log.
+  if (raw.log !== undefined && (!Array.isArray(raw.log) || raw.log.length > 200 || raw.log.some((line) => typeof line !== "string"))) {
+    return { ok: false, error: "context.log must be a list of text lines" };
   }
   return { ok: true, value: out };
 }
@@ -271,19 +245,34 @@ export function parseBugReportRequest(raw: unknown): ParseResult<BugReportReques
 const FORMAT_TAG: Record<BugFormat, string> = { "1v1": "1v1", ffa3: "FFA3", ffa4: "FFA4", tag: "Tag" };
 const FORMAT_TEXT: Record<BugFormat, string> = { "1v1": "1v1", ffa3: "3-player FFA", ffa4: "4-player FFA", tag: "Tag 2v2" };
 
-/** Removes every occurrence of the given private values (Discord id, display name, guild id). Values under 3 characters are skipped. */
-export function redactText(text: string, redact: readonly string[]): string {
+/** Names that tell nothing about a person. A display name that is only one of these is not worth removing (and "Unknown" is the session fallback). */
+const COMMON_NAMES = new Set(["unknown", "user", "player", "guest", "admin", "anonymous", "duelist", "null", "undefined", "none", "the", "and"]);
+const WORD_CHAR = "\\p{L}\\p{N}_";
+
+/**
+ * Removes the given private values (Discord id, session name, stored display name, handle, guild id) from text the player
+ * wrote. Matching ignores case and needs a word boundary on each side, so "Dark" does not hit "Darkness" and a name with
+ * backticks or other symbols still matches. Values under 3 characters, and bare common names such as "Unknown", are skipped.
+ * Run it on the player's text BEFORE `fence`, never on the finished markdown.
+ */
+export function redactText(text: string, redact: readonly string[], replacement = "[removed]"): string {
+  const values = [...new Set(redact.map((value) => value.trim()))]
+    .filter((value) => value.length >= 3 && !COMMON_NAMES.has(value.toLowerCase()))
+    // Longest first, so "Seraphina Quill" goes before "Seraphina".
+    .sort((a, b) => b.length - a.length);
   let out = text;
-  for (const secret of redact) {
-    const value = secret.trim();
-    if (value.length >= 3) out = out.split(value).join("[removed]");
+  for (const value of values) {
+    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`(?<![${WORD_CHAR}])${escaped}(?![${WORD_CHAR}])`, "giu"), () => replacement);
   }
   return out;
 }
 
-export function issueTitle(description: string, context: BugReportContext): string {
+export function issueTitle(description: string, context: BugReportContext, redact: readonly string[] = []): string {
   const tag = context.format ? ` [${FORMAT_TAG[context.format]}]` : "";
-  return `[Bug]${tag} ${sanitizeInline(description, 70) || "Bug report"}`;
+  // `sanitizeInline` strips brackets, so the removal mark is swapped in after it.
+  const text = sanitizeInline(redactText(limitText(description), redact, "\uE000"), 70).replace(/\uE000/g, "[removed]");
+  return `[Bug]${tag} ${text || "Bug report"}`;
 }
 
 export interface IssueBodyInput {
@@ -297,17 +286,27 @@ export interface IssueBodyInput {
   baseUrl?: string;
 }
 
+/** The browser name and major version only ("Chrome 126"): the full user agent is not published. */
+export function browserLabel(userAgent: string | undefined): string | undefined {
+  if (!userAgent) return undefined;
+  const found = /(Edg|EdgA|EdgiOS)\/(\d+)/.exec(userAgent) ?? /(OPR|Opera)\/(\d+)/.exec(userAgent) ?? /(Firefox|FxiOS)\/(\d+)/.exec(userAgent)
+    ?? /(Chrome|CriOS|Chromium)\/(\d+)/.exec(userAgent) ?? (/Safari\//.test(userAgent) ? /(Version)\/(\d+)/.exec(userAgent) : null);
+  if (!found) return "Other browser";
+  const name = { Edg: "Edge", EdgA: "Edge", EdgiOS: "Edge", OPR: "Opera", Opera: "Opera", Firefox: "Firefox", FxiOS: "Firefox", Chrome: "Chrome", CriOS: "Chrome", Chromium: "Chromium", Version: "Safari" }[found[1]!];
+  return `${name} ${found[2]}`;
+}
+
 const cell = (value: string | number | null | undefined) =>
   value === null || value === undefined || value === "" ? "-" : `\`${sanitizeLine(String(value), 300).replace(/`/g, "").replace(/\|/g, "\\|")}\``;
 
 /**
- * The public issue text. `redact` holds values that must never appear (Discord id, display name, guild id): any
- * occurrence in the finished text is removed, whatever field it came from.
+ * The public issue text. `redact` holds values that must never appear (Discord id, names, guild id): they are removed
+ * from the two texts the player wrote, before the code fence is built. The other fields come from the server.
  */
 export function buildIssueBody(input: IssueBodyInput, redact: readonly string[] = []): string {
-  const sections = reportSections(input);
+  const sections = reportSections(input, redact);
   sections.push("---", `\`Report #${input.reportId}\` · sent from the in-app Report bug button`);
-  return redactText(sections.join("\n\n"), redact);
+  return sections.join("\n\n");
 }
 
 /**
@@ -315,12 +314,12 @@ export function buildIssueBody(input: IssueBodyInput, redact: readonly string[] 
  * first line that names the report. No new issue is made.
  */
 export function buildCommentBody(input: IssueBodyInput, redact: readonly string[] = []): string {
-  const sections = [`**+1** from \`Report #${input.reportId}\`: another player hit the same bug.`, ...reportSections(input)];
+  const sections = [`**+1** from \`Report #${input.reportId}\`: another player hit the same bug.`, ...reportSections(input, redact)];
   sections.push("---", `\`Report #${input.reportId}\` · sent from the in-app Report bug button`);
-  return redactText(sections.join("\n\n"), redact);
+  return sections.join("\n\n");
 }
 
-function reportSections(input: IssueBodyInput): string[] {
+function reportSections(input: IssueBodyInput, redact: readonly string[]): string[] {
   const { context } = input;
   const seat = context.seat === undefined ? undefined : context.seat === null ? "spectator" : `seat ${context.seat + 1}`;
   const rows: Array<[string, string]> = [
@@ -335,16 +334,16 @@ function reportSections(input: IssueBodyInput): string[] {
     ["Players alive", cell(context.livingPlayers)],
     ["Animation speed", cell(context.animationSpeed === undefined ? undefined : `${context.animationSpeed}x`)],
     ["Viewport", cell(context.viewport ? `${context.viewport.width}x${context.viewport.height}` : undefined)],
-    ["Browser", cell(context.userAgent)],
+    ["Browser", cell(browserLabel(context.userAgent))],
     ["Sent at", cell(context.timestamp)],
   ];
   const table = ["| Field | Value |", "| --- | --- |", ...rows.filter(([, value]) => value !== "-").map(([key, value]) => `| ${key} | ${value} |`)].join("\n");
-  const log = publicLogLines(context.log ?? []).slice(-BUG_LOG_LINES).map((line) => sanitizeLine(line, LOG_LINE_MAX));
+  const log = (context.log ?? []).slice(-BUG_LOG_LINES).map((line) => sanitizeLine(line, LOG_LINE_MAX));
   const sections = [
     "## Description",
-    fence(sanitizeText(input.description)),
+    fence(sanitizeText(redactText(limitText(input.description), redact))),
     "## Expected",
-    input.expected ? fence(sanitizeText(input.expected)) : "_Not given._",
+    input.expected ? fence(sanitizeText(redactText(limitText(input.expected), redact))) : "_Not given._",
     "## Context",
     table,
     "## Recent log",

@@ -82,7 +82,8 @@ describe("floating Report bug button", () => {
     await screen.findByTestId("bug-report-done");
     const body = JSON.parse(fetchMock.mock.calls.filter(([url]) => url === "/api/bug-reports")[0]![1].body as string);
     expect(body.duelSlug).toBe(room.session.slug);
-    expect(body.context).toMatchObject({ format: "ffa3", seat: room.mySeat });
+    expect(body.context).toMatchObject({ animationSpeed: 1 });
+    expect(body.context.format).toBeUndefined();
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     view.rerender(<BugReportFab />);

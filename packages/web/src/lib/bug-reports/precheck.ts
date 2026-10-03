@@ -55,12 +55,12 @@ export function isSameDuelMoment(row: BugReport, current: { turn?: number }, now
  */
 export function candidateFromRow(row: BugReport, issueUrl: string, redact: readonly string[]): DuplicateCandidate {
   const context = (row.context ?? {}) as Parameters<typeof issueTitle>[1];
-  const title = redactText(issueTitle(row.description, context), redact);
+  const title = issueTitle(row.description, context, redact);
   return {
     number: row.githubIssueNumber!,
     url: issueUrl,
     title,
-    text: redactText(`${title} ${row.description.slice(0, 500)}`, redact),
+    text: `${title} ${redactText(row.description.slice(0, 500), redact)}`,
     ...(context.format ? { format: context.format } : {}),
   };
 }

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { BugReportServiceError, createBugReportService, createPlayerService } from "@yugidraft/shared/services";
+import { BugReportServiceError, createBugReportService, createDuelService, createPlayerService } from "@yugidraft/shared/services";
 import { parseBugReportRequest } from "@/lib/bug-report";
 import { bugReportBaseUrl, bugReportRepo, commentOnIssue, createGithubIssue, getOpenFromAppIssue, resetGithubIssueCache } from "@/lib/bug-report-github";
 import { takeDuplicateCheckSlot } from "@/lib/bug-reports/precheck";
 import { readJsonBody } from "@/lib/bug-reports/read-body";
+import { buildReportContext } from "@/lib/bug-reports/server-context";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
@@ -71,6 +72,9 @@ export async function POST(request: Request) {
     }
   }
 
+  // The duel facts and the log come from the server, never from the browser's copy.
+  report.context = await buildReportContext({ guildId, playerId: player.id, duels: createDuelService(db), duelSlug: report.duelSlug, client: report.context });
+
   let saved;
   try {
     saved = reports.create({
@@ -98,8 +102,9 @@ export async function POST(request: Request) {
     context: report.context,
     baseUrl: bugReportBaseUrl(),
   };
-  // Last line of defence: nothing that names the reporter or the guild may reach the public issue.
-  const redact = [actor.userId, actor.userName, guildId];
+  // Removed from the text the player wrote (not from the whole issue): the Discord id, the session name, the stored
+  // display name and the guild id. Bare "Unknown" and values under 3 characters are skipped by `redactText`.
+  const redact = [actor.userId, actor.userName, player.displayName, guildId];
 
   if (target) {
     reports.recordIssue(saved.id, guildId, { number: target.number, url: target.url });
