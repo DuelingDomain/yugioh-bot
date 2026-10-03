@@ -186,7 +186,8 @@ export function SeriesNextControls({ room, slug, tone, onChanged, onNavigate }: 
       {siding ? <SeriesReadyRows players={siding.players} /> : null}
       <p className={styles.status} role="status">{status}</p>
       <OpponentSideChip series={series} index={index} />
-      <OpponentFirstChip series={series} index={index} />
+      {/* A spectator already reads who is choosing, or who goes first, under "Up next". */}
+      {index != null ? <OpponentFirstChip series={series} index={index} /> : null}
       {choosing ? (
         <FirstChoiceGroup series={series} busy={busy} onChoose={(choice) => void choose(choice)} />
       ) : null}

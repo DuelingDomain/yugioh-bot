@@ -221,7 +221,7 @@ const browser = await chromium.launch({
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 async function openRoom(scenario: string, world: World, slug: string) {
-  const page: any = await browser.newPage({ viewport: { width: 1440, height: 900 }, colorScheme: "dark", reducedMotion: "reduce" });
+  const page: any = await browser.newPage({ viewport: { width: Number(process.env.PROOF_WIDTH ?? 1440), height: Number(process.env.PROOF_WIDTH ?? 1440) < 600 ? 844 : 900 }, colorScheme: "dark", reducedMotion: "reduce" });
   const errors: string[] = [];
   const unexpected: string[] = [];
   const roomGets: string[] = [];
@@ -356,9 +356,9 @@ await scenarioBlock("spectator-public", async (scenario) => {
     await visible(room.result().getByText("Side decking in progress"), "\"Side decking in progress\"");
   });
   await check(scenario, "2. Imran is choosing first or second; no first player announced yet", async () => {
-    const choice = room.result().getByTestId("opponent-first-status");
-    await visible(choice, "Imran's pending choice");
-    expectEqual(await choice.textContent(), "Imran is choosing to go first or second…", "choice status");
+    const choice = room.result().getByText("Imran is choosing to go first or second…", { exact: true });
+    await visible(choice.first(), "Imran's pending choice");
+    expectEqual(await choice.count(), 1, "choice status shown once");
     const info = await room.result().getByTestId("between-games-info").textContent();
     expectEqual(info.includes("goes first"), false, "order announced before the choice");
   });
@@ -379,7 +379,7 @@ await scenarioBlock("spectator-public", async (scenario) => {
   });
   await check(scenario, "3. Imran chose second: Sulman goes first in game 2", async () => {
     await visible(room.result().getByText("Sulman goes first (Imran chose to go second)"), "chosen order", POLL_WINDOW);
-    expectEqual(await room.result().getByTestId("opponent-first-status").textContent(), "Imran chose to go second", "choice status");
+    expectEqual(await room.result().getByText(/chose to go second/).count(), 1, "choice shown once");
   });
   await room.screenshot("imran-ready");
 

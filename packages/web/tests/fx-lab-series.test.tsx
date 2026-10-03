@@ -154,7 +154,8 @@ describe("fx lab: Best of 3 scenarios", () => {
     expect(screen.getByText("Side decking in progress")).toBeTruthy();
     expect(screen.getAllByTestId("series-ready-row")).toHaveLength(2);
     expect(screen.getByText(/You will move to game 2 when it starts/)).toBeTruthy();
-    expect(screen.getByTestId("opponent-first-status").textContent).toBe("Imran is choosing to go first or second…");
+    expect(screen.getAllByText("Imran is choosing to go first or second…")).toHaveLength(1);
+    expect(screen.queryByTestId("opponent-first-status")).toBeNull();
     expect(screen.getByTestId("between-games-info").textContent).not.toContain("goes first");
     expect(screen.queryByTestId("between-games")).toBeNull();
     expect(screen.queryByRole("button", { name: /Ready/ })).toBeNull();
@@ -164,7 +165,7 @@ describe("fx lab: Best of 3 scenarios", () => {
     const { room, spec } = open("match-spectator-chose-second");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
     expect(screen.getByText("Sulman goes first (Imran chose to go second)")).toBeTruthy();
-    expect(screen.getByTestId("opponent-first-status").textContent).toBe("Imran chose to go second");
+    expect(screen.queryByTestId("opponent-first-status")).toBeNull();
     expect(screen.queryByTestId("first-choice")).toBeNull();
   });
 
@@ -172,7 +173,7 @@ describe("fx lab: Best of 3 scenarios", () => {
     const { room, spec } = open("match-spectator-bot-human-choosing");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
     expect(screen.getByText("Game 1 won by Practice Bot · 0–1")).toBeTruthy();
-    expect(screen.getByTestId("opponent-first-status").textContent).toBe("Sulman is choosing to go first or second…");
+    expect(screen.getAllByText("Sulman is choosing to go first or second…")).toHaveLength(1);
     expect(screen.getAllByTestId("series-ready-row").map((row) => row.textContent)).toEqual(["SulmanSide decking…", "Practice BotReady"]);
     expect(screen.queryByTestId("first-choice")).toBeNull();
     expect(screen.getByText(/You will move to game 2 when it starts/)).toBeTruthy();
@@ -182,7 +183,7 @@ describe("fx lab: Best of 3 scenarios", () => {
     const { room, spec } = open("match-spectator-bot-chose-first");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
     expect(screen.getByText("Practice Bot goes first (Practice Bot chose to go first)")).toBeTruthy();
-    expect(screen.getByTestId("opponent-first-status").textContent).toBe("Practice Bot chose to go first");
+    expect(screen.queryByTestId("opponent-first-status")).toBeNull();
     expect(screen.getAllByTestId("series-ready-row")[1].getAttribute("data-ready")).toBe("true");
   });
 
