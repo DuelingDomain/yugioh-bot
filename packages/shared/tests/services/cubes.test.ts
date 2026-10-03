@@ -233,6 +233,41 @@ describe("cube service core", () => {
     });
   });
 
+  describe("save over an existing cube", () => {
+    const raw = (db: Database.Database, id: number) =>
+      JSON.parse((db.prepare("select config_json from cubes where id = ?").get(id) as { config_json: string }).config_json);
+
+    it("replaces the draft config but keeps the cube type", () => {
+      const { db, cubes } = setup();
+      const cube = cubes.save("g", "Pool", { customCardIds: [1, 2], packSize: 9 }, "u");
+      db.prepare("update cubes set config_json = ? where id = ?").run(
+        JSON.stringify({ customCardIds: [1, 2], packSize: 9, draftType: "theme" }),
+        cube.id,
+      );
+      const again = cubes.save("g", "Pool", { setNames: ["LOB"], packSize: 12 }, "u2");
+      expect(again.id).toBe(cube.id);
+      expect(raw(db, cube.id)).toEqual({ setNames: ["LOB"], packSize: 12, draftType: "theme" });
+    });
+
+    it("lets a config that names a type win, and adds nothing to a cube that had none", () => {
+      const { db, cubes } = setup();
+      const cube = cubes.save("g", "Pool", { packSize: 9 }, "u");
+      cubes.save("g", "Pool", { packSize: 10 }, "u");
+      expect(raw(db, cube.id)).toEqual({ packSize: 10 });
+      cubes.save("g", "Pool", { packSize: 10, draftType: "booster" }, "u");
+      cubes.save("g", "Pool", { packSize: 11, draftType: "any" }, "u");
+      expect(raw(db, cube.id)).toEqual({ packSize: 11, draftType: "any" });
+    });
+
+    it("survives an unreadable old config", () => {
+      const { db, cubes } = setup();
+      const cube = cubes.save("g", "Pool", { packSize: 9 }, "u");
+      db.prepare("update cubes set config_json = 'not json' where id = ?").run(cube.id);
+      cubes.save("g", "Pool", { packSize: 10 }, "u");
+      expect(raw(db, cube.id)).toEqual({ packSize: 10 });
+    });
+  });
+
   it("seedArchetypeInto additively pulls an archetype into an existing cube", async () => {
     const db = new Database(":memory:");
     migrate(db);

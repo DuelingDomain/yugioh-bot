@@ -50,6 +50,9 @@ function mapCubeCard(row: any): CubeCard {
   };
 }
 
+/** Config keys that describe the cube itself, not a draft. Saving a draft config over a cube keeps them. */
+const CUBE_META_KEYS = ["draftType"] as const;
+
 export function createCubeService(db: Database.Database, catalog: CardCatalogService) {
   const touch = db.prepare("update cubes set updated_at = ? where id = ?");
   const bump = (cubeId: number) => touch.run(new Date().toISOString(), cubeId);
@@ -362,6 +365,21 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
 
     save(guildId: string, name: string, config: DraftConfig, createdByUserId: string): Cube {
       const trimmed = name.trim();
+      // Saving over an existing cube replaces its draft config but keeps what the cube is for.
+      const previous = db.prepare("select config_json from cubes where guild_id = ? and name = ?").get(guildId, trimmed) as
+        | { config_json: string | null }
+        | undefined;
+      if (previous) {
+        let old: Record<string, unknown> = {};
+        try {
+          old = JSON.parse(previous.config_json ?? "{}") as Record<string, unknown>;
+        } catch {
+          // An unreadable old config has nothing to keep.
+        }
+        const kept: Record<string, unknown> = {};
+        for (const key of CUBE_META_KEYS) if (old[key] !== undefined && !(key in config)) kept[key] = old[key];
+        config = { ...kept, ...config };
+      }
       db.prepare(
         `
           insert into cubes (guild_id, name, config_json, created_by_user_id)
