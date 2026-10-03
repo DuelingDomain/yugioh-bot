@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildIssueBody, fence, issueTitle, parseBugReportRequest, publicLogLines, redactText, sanitizeText,
+  buildIssueBody, fence, issueTitle, parseBugReportRequest, publicLogLines, validateBugText, redactText, sanitizeText,
 } from "@/lib/bug-report";
 
 const ZW = "​";
@@ -57,7 +57,8 @@ describe("publicLogLines", () => {
 });
 
 const valid = {
-  description: "The turn never ended",
+  description: "The turn never ended after my attack",
+  expected: "The turn should end normally",
   path: "/duels/abc?x=1#top",
   duelSlug: "abc",
   context: { format: "ffa3", seat: 1, turn: 4, phase: "main1", livingPlayers: 3, log: ["Turn 4"], viewport: { width: 1200, height: 800 }, timestamp: "2026-10-03T10:00:00Z" },
@@ -66,7 +67,12 @@ const valid = {
 describe("parseBugReportRequest", () => {
   it("accepts a full request and drops the query and hash from the path", () => {
     const parsed = parseBugReportRequest(valid);
-    expect(parsed).toMatchObject({ ok: true, value: { path: "/duels/abc", duelSlug: "abc", description: "The turn never ended" } });
+    expect(parsed).toMatchObject({ ok: true, value: { path: "/duels/abc", duelSlug: "abc", description: "The turn never ended after my attack", expected: "The turn should end normally" } });
+  });
+  it("keeps a valid duplicateOf and refuses a bad one", () => {
+    expect(parseBugReportRequest({ ...valid, duplicateOf: 12 })).toMatchObject({ ok: true, value: { duplicateOf: 12 } });
+    expect(parseBugReportRequest(valid)).toMatchObject({ ok: true });
+    for (const bad of [0, -1, 1.5, "12", 2_000_000_000]) expect(parseBugReportRequest({ ...valid, duplicateOf: bad }).ok).toBe(false);
   });
   it("refuses unknown fields at every level", () => {
     expect(parseBugReportRequest({ ...valid, playerId: 3 }).ok).toBe(false);
@@ -94,6 +100,31 @@ describe("parseBugReportRequest", () => {
   it("filters private log lines again on the server", () => {
     const parsed = parseBugReportRequest({ ...valid, context: { log: ["You added Dark Magician to your hand", "Turn 3"] } });
     expect(parsed.ok && parsed.value.context.log).toEqual(["Turn 3"]);
+  });
+});
+
+describe("validateBugText", () => {
+  it("accepts a clear description and expectation", () => {
+    expect(validateBugText({ description: "The turn never ended after my attack", expected: "The turn should end" })).toEqual({});
+  });
+  it("needs 20 characters and 4 words in the description", () => {
+    expect(validateBugText({ description: "It broke", expected: "It should work fine" }).description).toMatch(/at least 20 characters and 4 words/);
+    expect(validateBugText({ description: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaa bbbbbbbbb", expected: "It should work fine" }).description).toBeDefined();
+    expect(validateBugText({ description: "Chain froze on my turn", expected: "It should work fine" })).toEqual({});
+    expect(validateBugText({ description: "... ... ... ... ... ... ...", expected: "It should work fine" }).description).toBeDefined();
+  });
+  it("needs a description and an expectation", () => {
+    expect(validateBugText({})).toEqual({ description: "Tell us what went wrong.", expected: "Tell us what you expected to happen." });
+    expect(validateBugText({ description: "   ", expected: "   " })).toMatchObject({ description: expect.any(String), expected: expect.any(String) });
+  });
+  it("needs 10 characters in the expectation", () => {
+    expect(validateBugText({ description: "The turn never ended after my attack", expected: "Work" }).expected).toMatch(/at least 10 characters/);
+    expect(validateBugText({ description: "The turn never ended after my attack", expected: "Should move on" }).expected).toBeUndefined();
+  });
+  it("is what the parser returns as field errors", () => {
+    const parsed = parseBugReportRequest({ ...valid, description: "short", expected: "x" });
+    expect(parsed.ok).toBe(false);
+    expect(!parsed.ok && parsed.fieldErrors).toMatchObject({ description: expect.any(String), expected: expect.any(String) });
   });
 });
 

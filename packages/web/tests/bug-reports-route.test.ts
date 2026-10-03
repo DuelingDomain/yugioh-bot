@@ -110,6 +110,17 @@ describe("POST /api/bug-reports", () => {
     expect(github).not.toHaveBeenCalled();
   });
 
+  it("400 with a field error for a short description and a missing expectation, and nothing is saved", async () => {
+    const POST = await route();
+    const res = await POST(post(body({ description: "It broke", expected: "" })));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.fieldErrors).toMatchObject({ description: expect.stringContaining("at least 20 characters"), expected: expect.any(String) });
+    expect(json.error).toBe(json.fieldErrors.description);
+    expect(await rows()).toHaveLength(0);
+    expect(github).not.toHaveBeenCalled();
+  });
+
   it("saves the report with the player id and opens a GitHub issue", async () => {
     const POST = await route();
     const res = await POST(post(body()));
@@ -213,10 +224,10 @@ describe("POST /api/bug-reports", () => {
 
   it("accepts a report with no duel (a general page)", async () => {
     const POST = await route();
-    const res = await POST(post({ description: "The leaderboard is blank", path: "/leaderboard", context: {} }));
+    const res = await POST(post({ description: "The leaderboard is blank for everyone", expected: "It should list the players", path: "/leaderboard", context: {} }));
     expect(res.status).toBe(200);
     const [call] = githubCalls();
-    expect(call!.payload.title).toBe("[Bug] The leaderboard is blank");
+    expect(call!.payload.title).toBe("[Bug] The leaderboard is blank for everyone");
     expect(call!.payload.body).not.toContain("## Replay");
   });
 });

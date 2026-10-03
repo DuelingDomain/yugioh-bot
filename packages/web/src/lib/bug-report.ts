@@ -37,19 +37,49 @@ export interface BugReportContext {
 
 export interface BugReportRequest {
   description: string;
-  expected?: string;
+  expected: string;
   /** Page path only, no query or hash. */
   path: string;
   duelSlug?: string;
   context: BugReportContext;
+  /** The open from-app issue number the player says is the same bug. The report joins it instead of opening an issue. */
+  duplicateOf?: number;
 }
 
-export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string };
+export type BugTextField = "description" | "expected";
+export type BugFieldErrors = Partial<Record<BugTextField, string>>;
+
+export type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string; fieldErrors?: BugFieldErrors };
+
+export const BUG_DESCRIPTION_MIN_CHARS = 20;
+export const BUG_DESCRIPTION_MIN_WORDS = 4;
+export const BUG_EXPECTED_MIN_CHARS = 10;
+
+function wordCount(text: string): number {
+  return (text.match(/\S+/g) ?? []).filter((word) => /[\p{L}\p{N}]/u.test(word)).length;
+}
+
+/**
+ * The quality rules for the two text fields, shared by the dialog (inline messages) and the routes (400 with the same
+ * messages). Both fields are required. Returns an empty object when the text is good enough to send.
+ */
+export function validateBugText(input: { description?: unknown; expected?: unknown }): BugFieldErrors {
+  const errors: BugFieldErrors = {};
+  const description = typeof input.description === "string" ? limitText(input.description) : "";
+  if (!description) errors.description = "Tell us what went wrong.";
+  else if (description.length < BUG_DESCRIPTION_MIN_CHARS || wordCount(description) < BUG_DESCRIPTION_MIN_WORDS) {
+    errors.description = `Write a bit more: at least ${BUG_DESCRIPTION_MIN_CHARS} characters and ${BUG_DESCRIPTION_MIN_WORDS} words, so the team can find the problem.`;
+  }
+  const expected = typeof input.expected === "string" ? limitText(input.expected) : "";
+  if (!expected) errors.expected = "Tell us what you expected to happen.";
+  else if (expected.length < BUG_EXPECTED_MIN_CHARS) errors.expected = `Write a bit more: at least ${BUG_EXPECTED_MIN_CHARS} characters.`;
+  return errors;
+}
 
 const CONTEXT_KEYS = new Set([
   "format", "duelMode", "seat", "turn", "phase", "turnSeat", "livingPlayers", "animationSpeed", "log", "userAgent", "viewport", "timestamp",
 ]);
-const REQUEST_KEYS = new Set(["description", "expected", "path", "duelSlug", "context"]);
+const REQUEST_KEYS = new Set(["description", "expected", "path", "duelSlug", "context", "duplicateOf"]);
 
 /** Strips control characters and unpaired formatting noise; keeps newlines and tabs. */
 function clean(text: string): string {
@@ -209,14 +239,22 @@ function parsePath(raw: unknown): string | null {
 export function parseBugReportRequest(raw: unknown): ParseResult<BugReportRequest> {
   if (!isObject(raw)) return { ok: false, error: "Body must be a JSON object" };
   for (const key of Object.keys(raw)) if (!REQUEST_KEYS.has(key)) return { ok: false, error: `Unknown field: ${key.slice(0, 40)}` };
-  if (typeof raw.description !== "string") return { ok: false, error: "Tell us what went wrong" };
+  if (typeof raw.description !== "string") return { ok: false, error: "Tell us what went wrong", fieldErrors: { description: "Tell us what went wrong." } };
   if (raw.description.length > BUG_TEXT_MAX * 2) return { ok: false, error: "The description is too long" };
+  if (raw.expected !== undefined && raw.expected !== null && (typeof raw.expected !== "string" || raw.expected.length > BUG_TEXT_MAX * 2)) {
+    return { ok: false, error: "The expected text is not valid" };
+  }
+  const fieldErrors = validateBugText({ description: raw.description, expected: raw.expected });
+  if (fieldErrors.description || fieldErrors.expected) {
+    return { ok: false, error: fieldErrors.description ?? fieldErrors.expected ?? "The report is not valid", fieldErrors };
+  }
   const description = limitText(raw.description);
-  if (!description) return { ok: false, error: "Tell us what went wrong" };
-  let expected: string | undefined;
-  if (raw.expected !== undefined && raw.expected !== null) {
-    if (typeof raw.expected !== "string" || raw.expected.length > BUG_TEXT_MAX * 2) return { ok: false, error: "The expected text is not valid" };
-    expected = limitText(raw.expected) || undefined;
+  const expected = limitText(raw.expected as string);
+  let duplicateOf: number | undefined;
+  if (raw.duplicateOf !== undefined && raw.duplicateOf !== null) {
+    const n = intIn(raw.duplicateOf, 1, 1_000_000_000);
+    if (n === null) return { ok: false, error: "duplicateOf is not valid" };
+    duplicateOf = n;
   }
   const path = parsePath(raw.path);
   if (!path) return { ok: false, error: "path is not valid" };
@@ -227,7 +265,7 @@ export function parseBugReportRequest(raw: unknown): ParseResult<BugReportReques
   }
   const context = parseContext(raw.context);
   if (!context.ok) return context;
-  return { ok: true, value: { description, ...(expected ? { expected } : {}), path, ...(duelSlug ? { duelSlug } : {}), context: context.value } };
+  return { ok: true, value: { description, expected, path, ...(duelSlug ? { duelSlug } : {}), context: context.value, ...(duplicateOf ? { duplicateOf } : {}) } };
 }
 
 const FORMAT_TAG: Record<BugFormat, string> = { "1v1": "1v1", ffa3: "FFA3", ffa4: "FFA4", tag: "Tag" };

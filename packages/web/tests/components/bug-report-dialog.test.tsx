@@ -42,7 +42,7 @@ describe("collectBugContext", () => {
     expect(context.livingPlayers).toBeGreaterThan(0);
     expect(context.animationSpeed).toBe(1);
     expect(context.log!.length).toBeLessThanOrEqual(15);
-    const parsed = parseBugReportRequest({ description: "x", path, duelSlug, context });
+    const parsed = parseBugReportRequest({ description: "The duel froze on my turn", expected: "It should go on", path, duelSlug, context });
     expect(parsed.ok).toBe(true);
   });
 
