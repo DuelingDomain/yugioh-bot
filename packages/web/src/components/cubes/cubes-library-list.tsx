@@ -214,7 +214,7 @@ export function CubesLibraryList() {
         <div>
           <h1 className="t-title">Cubes</h1>
           <p className="page-sub">
-            Reusable card pools for cube drafts and Theme Drafts. Anyone on the server can edit them.
+            Reusable card pools for cube drafts and Theme Drafts. Anyone on the server can use them; only the creator or an admin can edit one.
           </p>
         </div>
         <button className="btn btn-primary" type="button" disabled={busy || loading} onClick={() => addCube()}>
