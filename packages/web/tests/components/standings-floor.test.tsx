@@ -46,10 +46,10 @@ describe("standings on the floor", () => {
     expect(within(mine).getByText("You")).toBeInTheDocument();
   });
 
-  it("flags who is playing now and who owes a reply", () => {
+  it("has no live or owes-a-reply column; the tables and the rail carry that", () => {
     show();
-    expect(screen.getAllByRole("img", { name: /^Live/ }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Owes a reply").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Owes a reply")).toBeNull();
+    expect(screen.queryAllByRole("img", { name: /^Live/ })).toHaveLength(0);
   });
 
   it("shows no tier line for a player without a rating", () => {

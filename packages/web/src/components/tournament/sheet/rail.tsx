@@ -10,6 +10,13 @@ import { RailSection } from "./rail-section";
 import { RulesPanel } from "./rules-panel";
 import styles from "./rail.module.css";
 
+/** "A beat B 2–1" with the score held together on one line. */
+function FeedText({ text }: { text: string }) {
+  const match = /^(.*) (\d+–\d+)$/.exec(text);
+  if (!match) return <>{text}</>;
+  return <>{match[1]} <span className={styles.nowrap}>{match[2]}</span></>;
+}
+
 function ResultsFeed({ tournament }: { tournament: TournamentDetail }) {
   const items = resultsFeed(tournament);
   if (items.length === 0) return <p className={styles.none}>No results yet.</p>;
@@ -18,7 +25,7 @@ function ResultsFeed({ tournament }: { tournament: TournamentDetail }) {
       {items.map((item) => (
         <li key={item.key}>
           <span className={styles.when}>{formatRecent(item.at) ?? ""}</span>
-          <span>{item.text}</span>
+          <span><FeedText text={item.text} /></span>
         </li>
       ))}
     </ul>

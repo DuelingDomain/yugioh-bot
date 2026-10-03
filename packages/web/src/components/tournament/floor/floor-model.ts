@@ -1,5 +1,5 @@
 import { isSeriesOpen, seriesScore } from "../duel-rules";
-import { matchScore, winnerScore } from "../matches/match-model";
+import { matchScore, tournamentRecord, winnerScore } from "../matches/match-model";
 import { parseDbTime } from "../sheet-dates";
 import { buildStandings } from "../standings/standings-model";
 import type { Match, TournamentDetail, ViewerStakes } from "../types";
@@ -76,6 +76,17 @@ export function currentRound(tournament: Pick<TournamentDetail, "matches">): num
   const open = tournament.matches.filter((match) => match.status !== "completed" && !isByeMatch(match));
   if (open.length > 0) return Math.min(...open.map((match) => match.roundNumber));
   return tournament.matches.reduce((top, match) => Math.max(top, match.roundNumber), 0);
+}
+
+/**
+ * The one round the whole page is about, for the bar, the strip, the grid heading and the field caption.
+ * A player with an open match: the round of the match on their field (the lowest of their own open rounds,
+ * unless a reply they owe comes first). Anyone else: the lowest round with an open match, else the last round.
+ * Rounds of a round robin are not gated, so open matches can sit in rounds 1, 4 and 5 at once.
+ */
+export function pageRound(tournament: TournamentDetail, viewerId: number | null): number {
+  const mine = heroMatch(tournament, viewerId);
+  return mine ? mine.roundNumber : currentRound(tournament);
 }
 
 export function roundName(tournament: Pick<TournamentDetail, "format" | "participants" | "matches">, round: number): string {
@@ -268,8 +279,19 @@ export function tableStatus(tournament: Pick<TournamentDetail, "participants" | 
     const waiting = otherId === viewerId ? "you" : otherId === null ? "the other player" : playerName(tournament, [match], otherId);
     return `Reported by ${reporter}. Waiting for ${waiting}.`;
   }
-  if (match.status === "completed") return "Final";
+  if (match.status === "completed") {
+    if (match.winnerId === null) return "Final";
+    const winner = match.winnerId === match.playerOneId ? match.playerOneName : match.playerTwoName ?? "Opponent";
+    const score = winnerScore(match);
+    return `${winner} won${score ? ` ${score}` : ""}.`;
+  }
   return "Not started";
+}
+
+/** "2–0 so far": a player's decided matches in this tournament. */
+export function recordLine(tournament: Pick<TournamentDetail, "matches">, playerId: number): string {
+  const record = tournamentRecord(tournament.matches as Match[], playerId);
+  return `${record.wins}–${record.losses} so far`;
 }
 
 /* ---------- confirm, waiting, feed ---------- */

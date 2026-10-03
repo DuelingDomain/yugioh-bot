@@ -54,7 +54,8 @@ describe("TournamentDetailPage one sheet", () => {
     setup(threeMatchTournament);
     render(<TournamentDetailPage />);
     expect(await screen.findByRole("heading", { name: "Friday Night Duels #12" })).toBeInTheDocument();
-    expect(screen.getByText(/Round robin\. Best of 3\. Round \d of \d\./)).toBeInTheDocument();
+    expect(screen.getByText("Round robin, best of 3.")).toBeInTheDocument();
+    expect(document.querySelector("header")?.textContent).toMatch(/Round\d+of \d+/);
     for (const name of ["Your match", "Tables", "Standings", "Event details"]) expect(screen.getByLabelText(name)).toBeInTheDocument();
     expect(screen.queryByRole("tablist")).toBeNull();
     expect(screen.getByRole("link", { name: "All tournaments" })).toHaveAttribute("href", "/tournaments");
@@ -64,7 +65,8 @@ describe("TournamentDetailPage one sheet", () => {
   it("derives elimination progress from participants", async () => {
     setup({ ...threeMatchTournament, format: "single_elim" });
     render(<TournamentDetailPage />);
-    expect(await screen.findByText(/Round 2 of 3/)).toBeInTheDocument();
+    await screen.findByRole("heading", { name: "Friday Night Duels #12" });
+    expect(document.querySelector("header")?.textContent).toContain("Round2of 3");
   });
 
   it("shows the host the deck states and the You pill in the host tools", async () => {

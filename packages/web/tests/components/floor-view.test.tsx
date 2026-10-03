@@ -86,3 +86,61 @@ describe("the tables of a round", () => {
     expect(slots[0].getAttribute("data-slot")).toMatch(/^\d+:\d+$/);
   });
 });
+
+describe("the field as drawn in the mock", () => {
+  it("puts the tables of the round above the field, and both name the same round", () => {
+    live(sheetTournament);
+    const strip = screen.getByTestId("table-strip");
+    const field = screen.getByTestId("duel-field");
+    expect(strip.compareDocumentPosition(field) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(strip).getByRole("heading", { level: 2 })).toHaveTextContent("Round 1. 3 tables.");
+    expect(field).toHaveTextContent("Round 1. Not started.");
+  });
+
+  it("shows the record so far under each seat", () => {
+    live(sheetTournament);
+    const field = screen.getByTestId("duel-field");
+    expect(within(field).getAllByText(/^\d+–\d+ so far$/)).toHaveLength(2);
+    expect(within(field).queryByText(/here$/)).toBeNull();
+  });
+
+  it("always shows the big score and the game dots, 0 to 0 before it starts", () => {
+    live(sheetTournament);
+    const field = screen.getByTestId("duel-field");
+    expect(within(field).getByLabelText("Games 0 to 0")).toHaveTextContent("0 – 0");
+    expect(within(field).getByRole("img", { name: "Best of 3, 0 to 0" }).querySelectorAll("i")).toHaveLength(3);
+  });
+
+  it("labels the zones: Beat, Lost to, this round, and R-numbers with the opponent dim inside", () => {
+    live({ ...sheetTournament, matches: sheetTournament.matches.map((m) => (m.id === 8 ? { ...m, roundNumber: 1 } : m)) });
+    const field = screen.getByTestId("duel-field");
+    expect(within(field).getAllByText("Round 1").length).toBeGreaterThan(0);
+    expect(within(field).getAllByText(/^R\d$/).length).toBeGreaterThan(0);
+    expect(within(field).getAllByText(/^Beat [A-Z][a-z]$/).length).toBeGreaterThan(0);
+    expect(within(field).getAllByText(/^Lost to [A-Z][a-z]$/).length).toBeGreaterThan(0);
+  });
+
+  it("reads a finished table as who won and the score, and a live one with a dot and Watch", () => {
+    const { container } = render(<SheetRoot><TableStrip tournament={sheetTournament} round={1} viewerId={5} /></SheetRoot>);
+    expect(container).toHaveTextContent("Kestrel won 2–1.");
+    expect(container).not.toHaveTextContent("Final Kestrel");
+  });
+
+  it("shows the live table with Game N in progress and a Watch link", () => {
+    const { container } = render(<SheetRoot><TableStrip tournament={sheetTournament} round={2} viewerId={5} /></SheetRoot>);
+    expect(container).toHaveTextContent("Game 2 in progress");
+    expect(screen.getByRole("link", { name: "Watch" })).toHaveAttribute("href", "/duels/duel-4");
+    expect(container.querySelector(".sv-ldot")).not.toBeNull();
+  });
+
+  it("gives each spectator table both players' round slots beside their names, the dots, and the status under it", () => {
+    const { container } = render(<SheetRoot><SpectatorGrid tournament={sheetTournament} round={2} viewerId={null} /></SheetRoot>);
+    const tables = container.querySelectorAll('[data-st]');
+    expect(tables.length).toBe(3);
+    for (const table of Array.from(tables)) {
+      expect(table.querySelectorAll('[role="group"][aria-label$=", rounds"]')).toHaveLength(2);
+      expect(table.querySelector('[role="img"][aria-label^="Best of"]')).not.toBeNull();
+    }
+    expect(container).toHaveTextContent("Game 2 in progress");
+  });
+});

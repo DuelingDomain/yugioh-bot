@@ -95,9 +95,9 @@ export function TournamentSheet({ tournament, tournamentSlug, isHost, ratings, o
           <TournamentLobby tournament={tournament} tournamentSlug={tournamentSlug} isCreator={isHost} currentUserId={tournament.createdByUserId} onChanged={onChanged} ratings={ratings} />
         ) : (
           <>
-            <LiveView tournament={tournament} tournamentSlug={tournamentSlug} ratings={ratings} isHost={isHost} onChanged={onChanged} narrow={narrow} />
             <div className={styles.body}>
               <div className={styles.main}>
+                <LiveView tournament={tournament} tournamentSlug={tournamentSlug} ratings={ratings} isHost={isHost} onChanged={onChanged} narrow={narrow} />
                 {tournament.format === "single_elim"
                   ? <Road {...section} final={!active && ending !== "cancelled"} />
                   : <StandingsFloor {...section} final={!active && ending !== "cancelled"} />}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   byeNames, champion, confirmLine, currentRound, finishedSeries, finishLine, heroCase, heroMatch, initials, nameList, ordinal,
-  pickMoment, rangeText, resultsFeed, roundName, roundWindow, signed, stakesFor, tableNumber, tableStatus, totalRounds,
+  pageRound, pickMoment, rangeText, recordLine, resultsFeed, roundName, roundWindow, signed, stakesFor, tableNumber, tableStatus, totalRounds,
   tournamentEnding, waitingList, zoneFor, zonesFor, zoneLabel,
 } from "@/components/tournament/floor/floor-model";
 import type { Match, TournamentDetail } from "@/components/tournament/types";
@@ -161,6 +161,59 @@ describe("zones", () => {
   });
 });
 
+// Rounds of a round robin are not gated: rounds 1, 4 and 5 can have open matches at once.
+describe("the round the page is about", () => {
+  const open = (id: number, one: number, two: number, round: number) => slot(id, one, two, { roundNumber: round });
+  function scattered(): TournamentDetail {
+    return tournament({
+      participants: [1, 5, 2, 3].map((playerId) => ({ playerId, displayName: `P${playerId}` })),
+      matches: [
+        open(1, 2, 3, 1),
+        done(2, 2, 5, 1, 5, { roundNumber: 2 }), done(3, 3, 5, 3, 5, { roundNumber: 3 }),
+        open(4, 5, 1, 4), open(5, 2, 3, 4),
+        open(6, 5, 2, 5), open(7, 1, 3, 5),
+      ],
+    });
+  }
+
+  it("is the lowest round among a player's own open matches", () => {
+    const t = scattered();
+    expect(currentRound(t)).toBe(1);
+    expect(pageRound(t, 5)).toBe(4);
+  });
+
+  it("is the lowest round with an open match for a spectator or someone not in the event", () => {
+    expect(pageRound({ ...scattered(), isParticipant: false, currentUserPlayerId: null }, null)).toBe(1);
+    expect(pageRound({ ...scattered(), isParticipant: false }, 5)).toBe(1);
+  });
+
+  it("is the lowest open round for a player with nothing open of their own", () => {
+    const t = scattered();
+    t.matches = t.matches.filter((m) => m.playerOneId !== 5 || m.status === "completed");
+    expect(pageRound(t, 5)).toBe(1);
+  });
+
+  it("is the last round once everything is decided", () => {
+    const t = fourPlayers({ matches: [done(1, 1, 5, 1, 5), done(2, 2, 5, 2, 5)] });
+    expect(pageRound(t, 5)).toBe(2);
+    expect(pageRound(t, null)).toBe(2);
+  });
+
+  it("follows the match on the field when a reply owed comes before an earlier open match", () => {
+    const t = scattered();
+    t.matches = t.matches.map((m) => (m.id === 6 ? { ...m, status: "pending_approval", reporterId: 2, winnerId: 2 } : m));
+    expect(heroMatch(t, 5)?.roundNumber).toBe(5);
+    expect(pageRound(t, 5)).toBe(5);
+  });
+});
+
+describe("record line", () => {
+  it("counts decided matches only", () => {
+    expect(recordLine(fourPlayers(), 5)).toBe("1–0 so far");
+    expect(recordLine(fourPlayers(), 1)).toBe("0–1 so far");
+  });
+});
+
 describe("table status", () => {
   it("reads the series, the report, and the result", () => {
     const live = slot(1, 5, 1, { roundNumber: 1 });
@@ -172,7 +225,10 @@ describe("table status", () => {
     const reported = slot(2, 5, 1, { status: "pending_approval", reporterId: 1, winnerId: 1 });
     expect(tableStatus(t, reported, 5)).toBe("Reported by Kestrel. Waiting for you.");
     expect(tableStatus(t, reported, 9)).toBe("Reported by Kestrel. Waiting for Imran.");
-    expect(tableStatus(t, done(3, 1, 5, 1, 5), 5)).toBe("Final");
+    expect(tableStatus(t, done(3, 1, 5, 1, 5), 5)).toBe("Imran won.");
+    const played = done(5, 1, 5, 1, 1);
+    played.series = seriesFor(played, { status: "completed", wins: [1, 2] });
+    expect(tableStatus(t, played, 5)).toMatch(/^Kestrel won 2–1\.$/);
     expect(tableStatus(t, slot(4, 5, 1), 5)).toBe("Not started");
   });
 });

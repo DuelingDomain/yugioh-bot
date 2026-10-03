@@ -3,7 +3,7 @@
 import type { CSSProperties } from "react";
 import { Zone, type ZoneState } from "@/components/sheet";
 import type { TournamentDetail } from "../types";
-import { initials, roundWindow, rangeText, zoneLabel, zonesFor, type ZoneInfo, type ZoneKind } from "./floor-model";
+import { initials, roundName, roundWindow, rangeText, zoneLabel, zonesFor, type ZoneInfo, type ZoneKind } from "./floor-model";
 import styles from "./floor.module.css";
 
 export function zoneState(kind: ZoneKind): ZoneState {
@@ -18,18 +18,47 @@ export function zoneState(kind: ZoneKind): ZoneState {
   }
 }
 
-/** What the card itself shows: the other player's initials once it is played, the round number before that. */
-function cardText(zone: ZoneInfo): string {
-  if (zone.kind === "win" || zone.kind === "loss" || zone.kind === "pwin" || zone.kind === "ploss") return initials(zone.opponentName);
-  if (zone.kind === "bye") return "";
-  return String(zone.round);
+/**
+ * What the card itself shows. A won round shows the other player's initials on a gold card, a lost round shows
+ * a bare card back. A round still to play shows the other player's initials dim inside the empty slot.
+ */
+function cardText(zone: ZoneInfo): string | undefined {
+  switch (zone.kind) {
+    case "win":
+    case "pwin":
+    case "now":
+    case "open": return initials(zone.opponentName);
+    default: return undefined;
+  }
 }
 
-/** The small caption under a zone. */
+/** The label under a zone: "Beat DJ", "Lost to MM", "Round 3" for this one, "R4" for the ones to come. */
 function captionText(zone: ZoneInfo): string {
-  if (zone.kind === "bye") return "Bye";
-  if (zone.kind === "none") return "Not drawn";
-  return zone.opponentName;
+  const mono = initials(zone.opponentName);
+  switch (zone.kind) {
+    case "win":
+    case "pwin": return `Beat ${mono}`;
+    case "loss":
+    case "ploss": return `Lost to ${mono}`;
+    case "bye": return "Bye";
+    case "now": return `Round ${zone.round}`;
+    default: return `R${zone.round}`;
+  }
+}
+
+/** Single elimination names its rounds (Semifinal, Final), so the label is two lines: the round, then what happened. */
+function eliminationCaption(tournament: Pick<TournamentDetail, "format" | "participants" | "matches">, zone: ZoneInfo): [string, string] {
+  const mono = initials(zone.opponentName);
+  const round = roundName(tournament, zone.round);
+  switch (zone.kind) {
+    case "win":
+    case "pwin": return [round, `Beat ${mono}`];
+    case "loss":
+    case "ploss": return [round, `Lost to ${mono}`];
+    case "bye": return [round, "Bye"];
+    case "now": return [round, "Now"];
+    default: return [round, ""];
+  }
 }
 
 /**
@@ -55,7 +84,7 @@ export function SlotZone({ tournament, zone, playerId, viewerId, size, width, fo
         focusable={focusable}
         style={width ? ({ "--zw": width } as CSSProperties) : undefined}
       >
-        {size === "xs" ? undefined : cardText(zone) || undefined}
+        {size === "xs" ? undefined : cardText(zone)}
       </Zone>
     </span>
   );
@@ -86,11 +115,43 @@ export function ZoneRow({ tournament, playerId, viewerId, heroId, total, current
         <div key={zone.round} className={styles.zn}>
           <SlotZone tournament={tournament} zone={zone} playerId={playerId} viewerId={viewerId} width="var(--field-zw)" />
           <span className={styles.zl}>
-            <span className={zone.kind === "now" ? styles.zlNow : styles.zlName}>{captionText(zone)}</span>
+            {tournament.format === "single_elim" ? (() => {
+              const [round, sub] = eliminationCaption(tournament, zone);
+              return <><span className={styles.zlName}>{round}</span><span className={zone.kind === "now" ? styles.zlNow : undefined}>{sub}</span></>;
+            })() : (
+              <span className={zone.kind === "now" ? styles.zlNow : zone.kind === "open" || zone.kind === "none" ? undefined : styles.zlName}>{captionText(zone)}</span>
+            )}
           </span>
         </div>
       ))}
       {after && <span className={styles.rcount}>{after.full}</span>}
     </div>
+  );
+}
+
+/**
+ * A player's rounds as a compact row of small cards, for the tables of the spectator grid. At most 5 show, with
+ * a short counter ("2 wins") at each end for the rest. `heroId` is the table the row sits on, so its round is lit.
+ */
+export function ZoneStrip({ tournament, playerId, viewerId, heroId, total, current, name }: {
+  tournament: TournamentDetail;
+  playerId: number;
+  viewerId: number | null;
+  heroId: number | null;
+  total: number;
+  current: number;
+  name: string;
+}) {
+  const zones = zonesFor(tournament, playerId, total, heroId);
+  const win = roundWindow(total, current);
+  const shown = win ? zones.filter((z) => z.round >= win.lo && z.round <= win.hi) : zones;
+  const before = win && win.lo > 1 ? rangeText(zones, 1, win.lo - 1) : null;
+  const after = win && win.hi < total ? rangeText(zones, win.hi + 1, total) : null;
+  return (
+    <span className={styles.zstrip} role="group" aria-label={`${name}, rounds`}>
+      {before && <span className={styles.rcount} title={before.full}>{before.short}</span>}
+      {shown.map((zone) => <SlotZone key={zone.round} tournament={tournament} zone={zone} playerId={playerId} viewerId={viewerId} size="sm" />)}
+      {after && <span className={styles.rcount} title={after.full}>{after.short}</span>}
+    </span>
   );
 }

@@ -5,7 +5,7 @@ import { matchAnchorId, type PlayerRatings } from "../sheet-contracts";
 import type { TournamentDetail } from "../types";
 import { ClosingNote } from "../sheet/closing-notes";
 import { ChampionField, DuelField } from "./duel-field";
-import { champion, confirmLine, currentRound, heroCase, tournamentEnding } from "./floor-model";
+import { champion, confirmLine, heroCase, pageRound, tournamentEnding } from "./floor-model";
 import { NearBox } from "./near-box";
 import { SpectatorGrid, TableStrip } from "./tables";
 import styles from "./floor.module.css";
@@ -30,8 +30,8 @@ function ClosedConfirm({ tournament, tournamentSlug, ratings, isHost, onChanged 
 }
 
 /**
- * The top of the page while a tournament is under way or just closed: your field and the tables of your
- * round, the grid of every table for someone who is not playing, or the champion.
+ * The top of the page while a tournament is under way or just closed: the tables of your round and then
+ * your field, the grid of every table for someone who is not playing, or the champion.
  */
 export function LiveView({ tournament, tournamentSlug, ratings, isHost, onChanged, narrow }: {
   tournament: TournamentDetail;
@@ -63,12 +63,12 @@ export function LiveView({ tournament, tournamentSlug, ratings, isHost, onChange
 
   const hero = heroCase(tournament, viewerId);
   if (hero.kind === "spectator" || viewerId === null) {
-    return <SpectatorGrid tournament={tournament} round={currentRound(tournament)} viewerId={viewerId} />;
+    return <SpectatorGrid tournament={tournament} round={pageRound(tournament, viewerId)} viewerId={viewerId} />;
   }
 
-  const stripRound = hero.kind === "match" ? hero.match.roundNumber : hero.kind === "bye" ? hero.round : hero.kind === "waitdraw" ? hero.last.roundNumber : currentRound(tournament);
   return (
     <>
+      <TableStrip tournament={tournament} round={pageRound(tournament, viewerId)} viewerId={viewerId} />
       <section
         className={styles.hero}
         id={hero.kind === "match" ? matchAnchorId(hero.match.id) : "duel-field"}
@@ -78,7 +78,6 @@ export function LiveView({ tournament, tournamentSlug, ratings, isHost, onChange
       >
         <DuelField tournament={tournament} tournamentSlug={tournamentSlug} hero={hero} viewerId={viewerId} ratings={ratings} isHost={isHost} onChanged={onChanged} narrow={narrow} />
       </section>
-      <TableStrip tournament={tournament} round={stripRound} viewerId={viewerId} />
     </>
   );
 }

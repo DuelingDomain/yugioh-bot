@@ -13,6 +13,9 @@
 .name { font: 600 20px/1.2 var(--f-ui); color: var(--ink); }
 .seatEmpty .name { color: var(--ink-3); font-weight: 500; font-size: 17px; }
 .seatChamp .name { color: var(--chain-ink); }
+.nmrow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.nmrow .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 14.5px; white-space: nowrap; }
 .rec { color: var(--ink-3); font-size: 14px; }
 
 .stage { perspective: 1700px; perspective-origin: 50% 85%; margin: -104px 0 -2px; }
@@ -61,7 +64,7 @@
 .mid::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgb(var(--beam) / 0.3); }
 .centre { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; padding: 10px 26px; background: var(--floor); text-align: center; }
 .score { font: 700 66px/1 var(--f-display); letter-spacing: 0.02em; color: var(--ink); text-shadow: 0 0 18px rgb(var(--beam) / 0.5); white-space: nowrap; }
-.dash { color: var(--ink-3); font-weight: 500; }
+.dash { color: var(--ink-3); font-weight: 500; white-space: pre; }
 .marks { display: inline-flex; gap: 9px; margin-top: 8px; }
 .mk { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--ink-3); }
 .mk[data-on] { background: var(--c); border-color: var(--c); }
@@ -157,11 +160,11 @@ a.tc:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 .tmid::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgb(var(--beam) / 0.3); }
 .tbl .tscore { font-size: 38px; }
 .tbl[data-st="reported"] .tscore { color: var(--chain-ink); }
-.tmid .marks { position: relative; z-index: 1; margin: 0; gap: 5px; padding: 0 12px 0 5px; background: var(--floor); }
+.tmid .marks { position: relative; z-index: 1; margin: 0; gap: 5px; padding: 0 10px 0 4px; background: var(--floor); }
 .tmid .mk { width: 9px; height: 9px; }
 .tfoot { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 32px; margin-top: 10px; }
-.tslots { flex: none; display: flex; align-items: flex-start; gap: 4px; }
-.tslots .rcount { align-self: center; width: auto; padding: 0 2px; font-size: 11.5px; white-space: nowrap; }
+.zstrip { flex: none; display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
+.zstrip .rcount { align-self: center; width: auto; padding: 0 2px; font-size: 11.5px; white-space: nowrap; }
 
 /* ---------- motion: the light drifts and the live zone breathes only on Full ---------- */
 @keyframes svDrift { 0%, 100% { opacity: 0.34; } 50% { opacity: 0.62; } }

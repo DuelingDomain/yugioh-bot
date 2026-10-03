@@ -6,7 +6,15 @@
 }
 .barButton:hover, .barButton[aria-expanded="true"] { color: var(--ink); border-color: var(--rule-hi); }
 .barButton:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+.where { display: inline-flex; align-items: baseline; gap: 6px; margin-right: 6px; white-space: nowrap; }
+.where b { font: 600 24px/1 var(--f-num); color: var(--ink); }
+.where small { font-size: 14.5px; color: var(--ink-3); }
 @container (max-width: 760px) {
+  /* The title takes what is left, so the round, the buttons and the title share one line on a phone. */
+  :global(.ms) .bar :global(.sv-bar-id) { flex-basis: 96px; }
+  .where { gap: 4px; margin-right: 2px; }
+  .where b { font-size: 19px; }
+  .where small { font-size: 12.5px; }
   .barButton { width: 38px; padding: 0; justify-content: center; }
   .barLabel { display: none; }
 }

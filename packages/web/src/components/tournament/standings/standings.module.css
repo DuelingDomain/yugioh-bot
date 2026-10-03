@@ -10,8 +10,6 @@
 .tier { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 14px; white-space: nowrap; }
 .tier em { font: 500 15px/1 var(--f-num); font-style: normal; color: var(--ink); }
 .strip { display: flex; align-items: center; }
-.flag { display: flex; align-items: center; justify-content: flex-end; min-width: 0; font-size: 13.5px; }
-.owes { color: var(--warn-ink); }
 .recd { font: 600 28px/1 var(--f-num); color: var(--ink); text-align: right; white-space: nowrap; }
 
 @container (max-width: 620px) {
@@ -25,8 +23,6 @@
   .nm { font-size: 15.5px; }
   .recd { font-size: 22px; }
   .strip :global(.sv-zone[data-size]) { --zw: 16px; }
-  /* The phone grid has no column for the flag, so the live dot sits after the name. */
-  .flag { display: none; }
 }
 
 .gridWho { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }

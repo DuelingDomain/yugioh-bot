@@ -2,11 +2,12 @@
 
 import type { CSSProperties } from "react";
 import Link from "next/link";
-import { Mono, ringColour } from "@/components/sheet";
+import { LiveDot, Mono, ringColour } from "@/components/sheet";
 import { isSeriesOpen } from "../duel-rules";
 import type { Match, TournamentDetail } from "../types";
-import { bestOfFor, byeNames, gameWins, isDecided, nameList, tableMatches, tableNumber, tableStatus, totalRounds, zoneFor } from "./floor-model";
-import { SlotZone } from "./zones";
+import { byeNames, isDecided, nameList, tableMatches, tableNumber, tableStatus, totalRounds } from "./floor-model";
+import { GameDots, scoreOf } from "./game-dots";
+import { ZoneStrip } from "./zones";
 import styles from "./floor.module.css";
 
 type TableState = "live" | "reported" | "done" | "open";
@@ -22,29 +23,28 @@ function watchHref(match: Match): string | null {
   return isSeriesOpen(match.series) && match.series?.currentDuelSlug ? `/duels/${match.series.currentDuelSlug}` : null;
 }
 
-/** "2 – 1" for the games of a series, or a dim dash when no online games back the table. */
+/** "2 – 1" for the games of a series, "0 – 0" before it starts, or a dim dash when no online games back the table. */
 function TableScore({ match, flip = false }: { match: Match; flip?: boolean }) {
-  const wins = gameWins(match);
+  const wins = scoreOf(match);
   if (!wins) return <span className={styles.tscore} data-table-score={match.id}><span className={styles.dash}>– –</span></span>;
   const [a, b] = flip ? [wins[1], wins[0]] : wins;
-  return <span className={styles.tscore} data-table-score={match.id} aria-label={`Games ${a} to ${b}`}>{a} – {b}</span>;
+  return <span className={styles.tscore} data-table-score={match.id} aria-label={`Games ${a} to ${b}`}>{a}<span className={styles.dash}> – </span>{b}</span>;
 }
 
-function Marks({ match, tournament }: { match: Match; tournament: TournamentDetail }) {
-  const wins = gameWins(match);
-  if (!wins) return null;
-  const need = Math.ceil(bestOfFor(tournament, match) / 2);
-  const side = (count: number, colour: string) => (
-    <span style={{ display: "inline-flex", gap: 4 }}>
-      {Array.from({ length: need }, (_, i) => <i key={i} className={styles.mk} data-on={i < count ? "true" : undefined} style={{ "--c": colour } as CSSProperties} />)}
-    </span>
+/** The status line of a table: a live dot while a game is on, then the words. */
+function TableLine({ tournament, match, viewerId }: { tournament: TournamentDetail; match: Match; viewerId: number | null }) {
+  return (
+    <>
+      {isSeriesOpen(match.series) && <LiveDot />}
+      <span>{tableStatus(tournament, match, viewerId)}</span>
+    </>
   );
-  return <span className={styles.marks} aria-hidden="true">{side(wins[0], ringColour(match.playerOneId))}<span style={{ width: 8 }} />{side(wins[1], ringColour(match.playerTwoId ?? 0))}</span>;
 }
 
-/** The tables of a round as small strips, under your own field. */
+/** The tables of a round as small strips, above your own field. Your table comes first. */
 export function TableStrip({ tournament, round, viewerId }: { tournament: TournamentDetail; round: number; viewerId: number | null }) {
-  const matches = tableMatches(tournament, round);
+  const isMine = (match: Match) => viewerId !== null && (match.playerOneId === viewerId || match.playerTwoId === viewerId);
+  const matches = tableMatches(tournament, round).sort((a, b) => Number(isMine(b)) - Number(isMine(a)) || a.id - b.id);
   const byes = byeNames(tournament, round);
   if (matches.length === 0 && byes.length === 0) return null;
   const total = totalRounds(tournament);
@@ -57,33 +57,39 @@ export function TableStrip({ tournament, round, viewerId }: { tournament: Tourna
       <ul className={styles.tgrid}>
         {matches.map((match) => {
           const state = tableState(match);
-          const mine = viewerId !== null && (match.playerOneId === viewerId || match.playerTwoId === viewerId);
+          const mine = isMine(match);
+          // On your own table you are on the left.
+          const flip = mine && match.playerTwoId === viewerId;
+          const left = flip ? { id: match.playerTwoId ?? 0, name: match.playerTwoName ?? "Opponent" } : { id: match.playerOneId, name: match.playerOneName };
+          const right = flip ? { id: match.playerOneId, name: match.playerOneName } : { id: match.playerTwoId ?? 0, name: match.playerTwoName ?? "Opponent" };
           const href = watchHref(match);
-          const oneWon = match.winnerId === match.playerOneId;
           return (
             <li key={match.id}>
               <div
                 className={styles.tc}
                 data-mine={mine ? "true" : undefined}
                 data-st={state}
-                style={{ "--ca": mine && match.playerOneId === viewerId ? "rgb(var(--beam))" : ringColour(match.playerOneId), "--cb": mine && match.playerTwoId === viewerId ? "rgb(var(--beam))" : ringColour(match.playerTwoId ?? 0) } as CSSProperties}
-                aria-label={`Table ${tableNumber(tournament, match)}, ${match.playerOneName} against ${match.playerTwoName}`}
+                style={{ "--ca": left.id === viewerId ? "rgb(var(--beam))" : ringColour(left.id), "--cb": right.id === viewerId ? "rgb(var(--beam))" : ringColour(right.id) } as CSSProperties}
+                aria-label={`Table ${tableNumber(tournament, match)}, ${left.name} against ${right.name}`}
               >
                 <div className={styles.tcl}>
                   <span className={styles.tp}>
-                    <Mono name={match.playerOneName} size="sm" ring={ringColour(match.playerOneId)} you={match.playerOneId === viewerId} />
-                    <b>{match.playerOneName}</b>
+                    <Mono name={left.name} size="sm" ring={ringColour(left.id)} you={left.id === viewerId} />
+                    <b>{left.name}</b>
                   </span>
-                  <span className={styles.tcs}><TableScore match={match} /><Marks match={match} tournament={tournament} /></span>
+                  <span className={styles.tcs}>
+                    <TableScore match={match} flip={flip} />
+                    <GameDots match={match} tournament={tournament} firstId={left.id} viewerId={viewerId} size="sm" />
+                  </span>
                   <span className={styles.tp} data-r="true">
-                    <b>{match.playerTwoName}</b>
-                    <Mono name={match.playerTwoName ?? ""} size="sm" ring={ringColour(match.playerTwoId ?? 0)} you={match.playerTwoId === viewerId} />
+                    <b>{right.name}</b>
+                    <Mono name={right.name} size="sm" ring={ringColour(right.id)} you={right.id === viewerId} />
                   </span>
                 </div>
                 <div className={styles.tcf}>
                   <p className={styles.tstat}>
                     {mine && <span className={styles.ytag}>Your table</span>}
-                    <span>{tableStatus(tournament, match, viewerId)}{state === "done" && match.winnerId !== null ? ` ${oneWon ? match.playerOneName : match.playerTwoName} won.` : ""}</span>
+                    <TableLine tournament={tournament} match={match} viewerId={viewerId} />
                   </p>
                   {href && !mine && <Link className={styles.watch} href={href}>Watch</Link>}
                 </div>
@@ -97,7 +103,7 @@ export function TableStrip({ tournament, round, viewerId }: { tournament: Tourna
   );
 }
 
-/** For anyone who is not playing: every table of the round as a medium field. */
+/** For anyone who is not playing: every table of the round as a medium field with each player's rounds beside their name. */
 export function SpectatorGrid({ tournament, round, viewerId }: { tournament: TournamentDetail; round: number; viewerId: number | null }) {
   const matches = tableMatches(tournament, round);
   const byes = byeNames(tournament, round);
@@ -113,37 +119,28 @@ export function SpectatorGrid({ tournament, round, viewerId }: { tournament: Tou
           const state = tableState(match);
           const href = watchHref(match);
           const decided = isDecided(match);
-          const sides: Array<{ id: number; name: string; pos: "top" | "bot" }> = [
-            { id: match.playerOneId, name: match.playerOneName, pos: "top" },
-            { id: match.playerTwoId ?? 0, name: match.playerTwoName ?? "Opponent", pos: "bot" },
-          ];
+          const one = { id: match.playerOneId, name: match.playerOneName };
+          const two = { id: match.playerTwoId ?? 0, name: match.playerTwoName ?? "Opponent" };
+          const half = (side: { id: number; name: string }, pos: "top" | "bot") => (
+            <div className={styles.th} data-pos={pos} style={{ "--hc": ringColour(side.id) } as CSSProperties}>
+              <Mono name={side.name} size="sm" ring={ringColour(side.id)} you={side.id === viewerId} />
+              <span className={styles.tn}><b>{side.name}</b>{decided && match.winnerId === side.id && <Star />}</span>
+              <ZoneStrip tournament={tournament} playerId={side.id} viewerId={viewerId} heroId={match.id} total={total} current={round} name={side.name} />
+            </div>
+          );
           return (
             <li key={match.id} className={styles.tbl} data-st={state}>
               <p className={styles.tnum}>Table {tableNumber(tournament, match)}</p>
               <div className={styles.tfield}>
-                {sides.slice(0, 1).map((side) => (
-                  <div key={side.id} className={styles.th} data-pos={side.pos} style={{ "--hc": ringColour(side.id) } as CSSProperties}>
-                    <Mono name={side.name} size="sm" ring={ringColour(side.id)} you={side.id === viewerId} />
-                    <span className={styles.tn}><b>{side.name}</b>{decided && match.winnerId === side.id && <Star />}</span>
-                  </div>
-                ))}
-                <div className={styles.tmid}><TableScore match={match} /></div>
-                {sides.slice(1).map((side) => (
-                  <div key={side.id} className={styles.th} data-pos={side.pos} style={{ "--hc": ringColour(side.id) } as CSSProperties}>
-                    <Mono name={side.name} size="sm" ring={ringColour(side.id)} you={side.id === viewerId} />
-                    <span className={styles.tn}><b>{side.name}</b>{decided && match.winnerId === side.id && <Star />}</span>
-                  </div>
-                ))}
+                {half(one, "top")}
+                <div className={styles.tmid}>
+                  <TableScore match={match} />
+                  <GameDots match={match} tournament={tournament} firstId={one.id} viewerId={viewerId} size="sm" />
+                </div>
+                {half(two, "bot")}
               </div>
               <div className={styles.tfoot}>
-                <p className={styles.tstat}>{tableStatus(tournament, match, viewerId)}</p>
-                <ul className={styles.tslots} aria-label="This round">
-                  {sides.map((side) => (
-                    <li key={side.id}>
-                      <SlotZone tournament={tournament} zone={zoneFor(tournament, side.id, round, null)} playerId={side.id} viewerId={viewerId} size="xs" focusable={false} />
-                    </li>
-                  ))}
-                </ul>
+                <p className={styles.tstat}><TableLine tournament={tournament} match={match} viewerId={viewerId} /></p>
                 {href && <Link className={styles.watch} href={href}>Watch</Link>}
               </div>
             </li>

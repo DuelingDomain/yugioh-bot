@@ -2,16 +2,18 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
-import { Mono, Seat, ringColour } from "@/components/sheet";
+import { Mono, TierName, YouPill, ringColour } from "@/components/sheet";
+import { isSeriesOpen } from "../duel-rules";
 import { BetweenGames } from "../matches/match-state";
-import { opponent, tournamentRecord, winnerScore } from "../matches/match-model";
+import { opponent, winnerScore } from "../matches/match-model";
 import type { PlayerRatings } from "../sheet-contracts";
 import type { Match, TournamentDetail } from "../types";
 import { NearBox } from "./near-box";
 import {
-  bestOfFor, currentRound, finishLine, gameWins, nameList, otherPlayer, roundName, tableStatus, totalRounds,
+  finishLine, nameList, otherPlayer, pageRound, recordLine, roundName, tableStatus, totalRounds,
   type Champion, type HeroCase,
 } from "./floor-model";
+import { GameDots, scoreOf } from "./game-dots";
 import { ZoneRow } from "./zones";
 import styles from "./floor.module.css";
 
@@ -33,26 +35,27 @@ function DeckZone({ registered, label }: { registered: boolean; label: string })
   );
 }
 
-function PlayerSeat({ tournament, ratings, playerId, name, viewerId, className }: {
+/** A big monogram, the name, the tier line and the record so far, as in the mock. */
+function PlayerSeat({ tournament, ratings, playerId, name, viewerId }: {
   tournament: TournamentDetail;
   ratings: PlayerRatings;
   playerId: number;
   name: string;
   viewerId: number | null;
-  className?: string;
 }) {
   const rating = ratings.get(playerId);
-  const record = tournamentRecord(tournament.matches, playerId);
+  const you = playerId === viewerId;
   return (
-    <Seat
-      className={className}
-      name={name}
-      you={playerId === viewerId}
-      ring={ringColour(playerId)}
-      tier={rating?.rank}
-      elo={rating?.rating}
-      trailing={<span className={styles.rec}>{record.wins}–{record.losses} here</span>}
-    />
+    <div className={styles.seat} data-you={you ? "true" : undefined}>
+      <Mono name={name} size="big" ring={ringColour(playerId)} you={you} />
+      <span className={styles.seatText}>
+        <span className={styles.nmrow}><b className={styles.name}>{name}</b>{you && <YouPill />}</span>
+        {rating && (
+          <span className={styles.tl}><TierName tier={rating.rank} /><em className="sv-elo">{rating.rating}</em></span>
+        )}
+        <span className={styles.rec}>{recordLine(tournament, playerId)}</span>
+      </span>
+    </div>
   );
 }
 
@@ -60,26 +63,11 @@ function deckIn(tournament: TournamentDetail, playerId: number | null): boolean 
   return playerId !== null && tournament.participants.find((p) => p.playerId === playerId)?.deckRegistered === true;
 }
 
-function GameMarks({ match, viewerId, tournament }: { match: Match; viewerId: number; tournament: TournamentDetail }) {
-  const wins = gameWins(match);
-  if (!wins) return null;
-  const need = Math.ceil(bestOfFor(tournament, match) / 2);
-  const mine = match.playerOneId === viewerId ? wins[0] : wins[1];
-  const theirs = match.playerOneId === viewerId ? wins[1] : wins[0];
-  const theirColour = ringColour(opponent(match, viewerId).id ?? 0);
-  const row = (count: number, colour: string, who: string) => (
-    <span role="img" aria-label={`${who}: ${count} of ${need} games`} style={{ display: "inline-flex", gap: 6 }}>
-      {Array.from({ length: need }, (_, i) => <i key={i} className={styles.mk} data-on={i < count ? "true" : undefined} style={{ "--c": colour } as CSSProperties} />)}
-    </span>
-  );
-  return <span className={styles.marks}>{row(mine, YOU_HC, "You")}<span style={{ width: 14 }} />{row(theirs, theirColour, "Them")}</span>;
-}
-
 function MatchCentre({ tournament, match, viewerId }: { tournament: TournamentDetail; match: Match; viewerId: number }) {
-  const wins = gameWins(match);
-  const status = tableStatus(tournament, match, viewerId);
+  const wins = scoreOf(match);
   const reported = match.status === "pending_approval" && match.reporterId !== null;
-  const between = match.series?.status === "between_games" && wins !== null;
+  const between = match.series?.status === "between_games";
+  const live = isSeriesOpen(match.series);
   if (reported) {
     const reporterName = match.reporterId === match.playerOneId ? match.playerOneName : match.playerTwoName ?? "Opponent";
     const mine = match.winnerId === viewerId;
@@ -89,19 +77,20 @@ function MatchCentre({ tournament, match, viewerId }: { tournament: TournamentDe
           <span className={styles.score}>{mine ? "You won" : "You lost"}</span>
         </div>
         <p className={styles.rline}>{reporterName} reported this by hand.</p>
-        <p className={styles.cstat}>{status}</p>
+        <p className={styles.cstat}>{tableStatus(tournament, match, viewerId)}</p>
       </div>
     );
   }
   const mineWins = wins ? (match.playerOneId === viewerId ? wins[0] : wins[1]) : 0;
   const theirWins = wins ? (match.playerOneId === viewerId ? wins[1] : wins[0]) : 0;
+  const caption = between ? <BetweenGames match={match} /> : live ? tableStatus(tournament, match, viewerId) : `${roundName(tournament, match.roundNumber)}. Not started.`;
   return (
     <div className={styles.centre} data-fly-source="centre">
-      <span className={styles.score} aria-label={wins ? `Games ${mineWins} to ${theirWins}` : "No games yet"}>
-        {wins ? <>{mineWins} – {theirWins}</> : <span className={styles.dash}>– –</span>}
+      <span className={styles.score} aria-label={`Games ${mineWins} to ${theirWins}`}>
+        {mineWins}<span className={styles.dash}> – </span>{theirWins}
       </span>
-      <GameMarks match={match} viewerId={viewerId} tournament={tournament} />
-      <p className={styles.cstat}>{between ? <BetweenGames match={match} /> : status}</p>
+      <GameDots match={match} tournament={tournament} firstId={viewerId} viewerId={viewerId} />
+      <p className={styles.cstat}>{caption}</p>
     </div>
   );
 }
@@ -175,7 +164,7 @@ function IdleField({ tournament, hero, viewerId, ratings, narrow }: {
   void narrow;
   const total = totalRounds(tournament);
   const me = tournament.participants.find((p) => p.playerId === viewerId)?.displayName ?? "You";
-  const round = hero.kind === "bye" ? hero.round : hero.kind === "waitdraw" ? hero.last.roundNumber : currentRound(tournament);
+  const round = pageRound(tournament, viewerId);
   const eliminated = hero.kind === "waitdraw" && !hero.won;
   const farText =
     hero.kind === "bye" ? `${nameList(hero.rivals)} play ${roundName(tournament, round).toLowerCase()}.`
@@ -185,7 +174,7 @@ function IdleField({ tournament, hero, viewerId, ratings, narrow }: {
     <>
       <div className={styles.seatrow}>
         <div className={`${styles.seat} ${styles.seatEmpty}`}>
-          <Mono name="" dashed />
+          <Mono name="" size="big" dashed />
           <span className={styles.name}>No opponent right now</span>
         </div>
       </div>
