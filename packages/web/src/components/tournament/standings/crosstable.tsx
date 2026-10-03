@@ -3,13 +3,18 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { Mono, YouPill, ringColour } from "@/components/sheet";
-import { matchAnchorId } from "../sheet-contracts";
+import { requestMatch } from "../floor/select-match";
 import type { CrosstableRow } from "./standings-model";
 import styles from "./standings.module.css";
 
-/** Scrolls to a match (the field carries the anchor of your own match) and moves focus there. */
+/**
+ * Puts a match on your field and moves focus there. The field has one stable id (`duel-field`) whichever match
+ * it shows, so the scroll never depends on the match. A match that is not an open match of yours is ignored
+ * by the field; the page still scrolls to the field, or to the tables when there is no field.
+ */
 export function goToMatch(matchId: number) {
-  const node = document.getElementById(matchAnchorId(matchId)) ?? document.getElementById("duel-field");
+  requestMatch(matchId);
+  const node = document.getElementById("duel-field") ?? document.getElementById("matches");
   if (!node) return;
   node.scrollIntoView({ behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
   if (!node.hasAttribute("tabindex")) node.setAttribute("tabindex", "-1");

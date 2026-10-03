@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  byeNames, champion, liveElsewhere, confirmLine, currentRound, finishedSeries, finishLine, heroCase, heroMatch, initials, nameList, ordinal,
+  byeNames, champion, liveElsewhere, confirmLine, currentRound, finishedSeries, finishLine, heroCase, heroMatch, initials, nameList, openMatchesOf, ordinal,
   pageRound, pickMoment, rangeText, recordLine, resultsFeed, roundName, roundWindow, signed, stakesFor, tableNumber, tableStatus, totalRounds,
   tournamentEnding, waitingList, zoneFor, zonesFor, zoneLabel,
 } from "@/components/tournament/floor/floor-model";
@@ -368,5 +368,34 @@ describe("liveElsewhere", () => {
     });
     expect(liveElsewhere(t, 1).map((x) => x.id)).toEqual([3, 2]);
     expect(liveElsewhere(t, 2).map((x) => x.id)).toEqual([4, 2]);
+  });
+});
+
+describe("a viewer with several open matches", () => {
+  const open = slot(1, 5, 1, { roundNumber: 1 });
+  const live = slot(2, 5, 2, { roundNumber: 2 });
+  const later = slot(3, 5, 3, { roundNumber: 3 });
+  const t = () => fourPlayers({ matches: [open, live, later] });
+
+  it("lists all of them with the default match first", () => {
+    expect(openMatchesOf(t(), 5).map((m) => m.id)).toEqual([1, 2, 3]);
+    const owes = slot(4, 5, 3, { roundNumber: 4, status: "pending_approval", reporterId: 3, winnerId: 3 });
+    expect(openMatchesOf(fourPlayers({ matches: [open, later, owes] }), 5).map((m) => m.id)).toEqual([4, 1, 3]);
+    expect(openMatchesOf(fourPlayers({ isParticipant: false }), 5)).toEqual([]);
+    expect(openMatchesOf(t(), null)).toEqual([]);
+  });
+
+  it("draws the field for the preferred match, the round of the page with it", () => {
+    expect(heroMatch(t(), 5, 3)?.id).toBe(3);
+    expect(heroCase(t(), 5, 3)).toMatchObject({ kind: "match", match: { id: 3 } });
+    expect(pageRound(t(), 5, 3)).toBe(3);
+  });
+
+  it("ignores a preferred match that is decided, not theirs or unknown", () => {
+    const decided = fourPlayers({ matches: [open, { ...later, status: "completed", winnerId: 5 }, slot(4, 1, 3, { roundNumber: 2 })] });
+    expect(heroMatch(decided, 5, 3)?.id).toBe(1);
+    expect(heroMatch(decided, 5, 4)?.id).toBe(1);
+    expect(heroMatch(decided, 5, 99)?.id).toBe(1);
+    expect(pageRound(decided, 5, 4)).toBe(1);
   });
 });

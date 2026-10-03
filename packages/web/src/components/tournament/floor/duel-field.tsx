@@ -96,7 +96,7 @@ function MatchCentre({ tournament, match, viewerId }: { tournament: TournamentDe
 }
 
 /** One of the viewer's own matches, drawn as a field with the opponent across the table. */
-function MatchField({ tournament, tournamentSlug, match, viewerId, ratings, isHost, onChanged, narrow }: {
+function MatchField({ tournament, tournamentSlug, match, viewerId, ratings, isHost, onChanged, narrow, onPick }: {
   tournament: TournamentDetail;
   tournamentSlug: string;
   match: Match;
@@ -105,6 +105,7 @@ function MatchField({ tournament, tournamentSlug, match, viewerId, ratings, isHo
   isHost: boolean;
   onChanged: () => void;
   narrow: boolean;
+  onPick?: (matchId: number) => void;
 }) {
   const opp = opponent(match, viewerId);
   const oppId = opp.id ?? 0;
@@ -123,7 +124,7 @@ function MatchField({ tournament, tournamentSlug, match, viewerId, ratings, isHo
             <MatchCentre tournament={tournament} match={match} viewerId={viewerId} />
           </div>
           <div className={styles.half} data-side="near" data-kind="lit" style={hc(YOU_HC)}>
-            <ZoneRow tournament={tournament} playerId={viewerId} viewerId={viewerId} heroId={match.id} total={total} current={match.roundNumber} name={me} />
+            <ZoneRow tournament={tournament} playerId={viewerId} viewerId={viewerId} heroId={match.id} total={total} current={match.roundNumber} name={me} onPick={onPick} />
             <DeckZone registered={deckIn(tournament, viewerId)} label={deckIn(tournament, viewerId) ? "Deck" : "No deck yet"} />
           </div>
         </div>
@@ -230,7 +231,7 @@ export function ChampionField({ tournament, champ, viewerId }: { tournament: Tou
   );
 }
 
-export function DuelField({ tournament, tournamentSlug, hero, viewerId, ratings, isHost, onChanged, narrow }: {
+export function DuelField({ tournament, tournamentSlug, hero, viewerId, ratings, isHost, onChanged, narrow, onPick }: {
   tournament: TournamentDetail;
   tournamentSlug: string;
   hero: Exclude<HeroCase, { kind: "spectator" }>;
@@ -239,9 +240,11 @@ export function DuelField({ tournament, tournamentSlug, hero, viewerId, ratings,
   isHost: boolean;
   onChanged: () => void;
   narrow: boolean;
+  /** Puts another open match of the viewer on the field. */
+  onPick?: (matchId: number) => void;
 }) {
   if (hero.kind === "match") {
-    return <MatchField tournament={tournament} tournamentSlug={tournamentSlug} match={hero.match} viewerId={viewerId} ratings={ratings} isHost={isHost} onChanged={onChanged} narrow={narrow} />;
+    return <MatchField tournament={tournament} tournamentSlug={tournamentSlug} match={hero.match} viewerId={viewerId} ratings={ratings} isHost={isHost} onChanged={onChanged} narrow={narrow} onPick={onPick} />;
   }
   return <IdleField tournament={tournament} hero={hero} viewerId={viewerId} ratings={ratings} narrow={narrow} />;
 }
