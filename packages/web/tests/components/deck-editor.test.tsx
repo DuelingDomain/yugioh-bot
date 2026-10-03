@@ -245,7 +245,7 @@ describe("SavedDeckEditor", () => {
   });
 
   it("hides Import, Delete, the more menu, format and banlist in pool mode", async () => {
-    render(<SavedDeckEditor pool={{ slug: "retro", draftId: 3, draftName: "Retro draft", cards: [{ code: BLUE_EYES.code, count: 2 }, { code: POT.code, count: 1 }], mainPoolCount: 3, unresolved: [], savedDeckId: null }} />);
+    render(<SavedDeckEditor pool={{ slug: "retro", draftId: 3, draftName: "Retro draft", cards: [{ code: BLUE_EYES.code, count: 2 }, { code: POT.code, count: 1 }], mainPoolCount: 3, unresolved: [], savedDeckId: null, registration: null }} />);
     const tile = await screen.findByRole("button", { name: "Blue-Eyes White Dragon, 2 copies left in your pool" });
     expect(screen.queryByRole("button", { name: "Import" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
@@ -263,7 +263,7 @@ describe("SavedDeckEditor", () => {
     fireEvent.doubleClick(full);
     expect(mainCards()).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(screen.getByText("A draft deck needs at least 3 Main Deck cards.")).toBeInTheDocument();
+    expect(screen.getByText("A draft deck needs at least 3 main deck cards.")).toBeInTheDocument();
   });
 
   it("measures the draft host in both the loading screen and the loaded editor", async () => {
@@ -272,7 +272,7 @@ describe("SavedDeckEditor", () => {
       return new DOMRect(0, this.hasAttribute("data-pool") ? 56 : 118, 1204, 788);
     });
     try {
-      const { container } = render(<SavedDeckEditor deckId="7" pool={{ slug: "retro", draftId: 3, draftName: "Retro draft", cards: [{ code: BLUE_EYES.code, count: 2 }], mainPoolCount: 2, unresolved: [], savedDeckId: 7 }} />);
+      const { container } = render(<SavedDeckEditor deckId="7" pool={{ slug: "retro", draftId: 3, draftName: "Retro draft", cards: [{ code: BLUE_EYES.code, count: 2 }], mainPoolCount: 2, unresolved: [], savedDeckId: 7, registration: null }} />);
       expect(screen.getByText("Loading deck…")).toBeInTheDocument();
       expect(container.querySelector<HTMLElement>("[data-pool]")?.style.getPropertyValue("--de-top")).toBe("56px");
       await screen.findByRole("button", { name: /Blue-Eyes White Dragon, Main Deck card/ });
@@ -423,9 +423,40 @@ describe("SavedDeckEditor", () => {
     const summary = screen.getByText("How to build");
     expect(summary.closest("details")).toHaveAttribute("open");
     const main = screen.getByRole("region", { name: "Main Deck" });
-    expect(within(main).getByRole("img", { name: "Main 0 cards. Tables want 40 to 60." })).toHaveAttribute("data-s", "under");
+    expect(within(main).getByRole("meter", { name: "Main 0 cards. Tables want 40 to 60." })).toHaveAttribute("data-state", "short");
     expect(within(main).getByText("40 short")).toBeInTheDocument();
     expect(within(main).getByText("Add cards from the list on the right.")).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "Extra Deck" })).getByText("Fusion, Synchro, Xyz and Link Monsters go here.")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Extra Deck" })).getByText("Fusion, Synchro, Xyz and Link monsters go here.")).toBeInTheDocument();
+  });
+});
+
+describe("SavedDeckEditor registration", () => {
+  const registration = (locked: boolean) => ({ tournament: { id: 4, slug: "autumn-cup", name: "Autumn cup", status: "active" }, locked });
+
+  it("shows where the deck is in and says nothing about locking while it can still change", async () => {
+    stored = { ...savedDeck([BLUE_EYES.code]), registration: registration(false) } as SavedDeck;
+    render(<SavedDeckEditor deckId="7" />);
+    const link = await screen.findByRole("link", { name: "Autumn cup" });
+    expect(link).toHaveAttribute("href", "/tournament/autumn-cup");
+    expect(screen.getByText(/Deck in/)).toBeInTheDocument();
+    expect(screen.queryByText("Locked")).toBeNull();
+    expect(screen.queryByText(/Changes to this deck will not reach/)).toBeNull();
+  });
+
+  it("says in one line that a locked deck's changes will not reach the tournament, and keeps editing open", async () => {
+    stored = { ...savedDeck([BLUE_EYES.code]), registration: registration(true) } as SavedDeck;
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findByRole("link", { name: "Autumn cup" });
+    expect(screen.getByText("Locked")).toBeInTheDocument();
+    expect(screen.getAllByText(/Changes to this deck will not reach Autumn cup/)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+    expect(screen.getByLabelText("Deck name")).toBeEnabled();
+  });
+
+  it("shows no mark for a deck that is not registered", async () => {
+    stored = savedDeck([BLUE_EYES.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findByRole("button", { name: /Blue-Eyes White Dragon, Main Deck card/ });
+    expect(screen.queryByText(/Deck in/)).toBeNull();
   });
 });

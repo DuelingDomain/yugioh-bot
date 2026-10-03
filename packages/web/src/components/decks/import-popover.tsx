@@ -3,9 +3,8 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { FileUp } from "lucide-react";
 import type { DuelMode } from "@yugidraft/shared/duels";
-import { SheetPortal } from "@/components/sheet";
+import { SheetPortal, SvButton, svButtonClass } from "@/components/sheet";
 import { cn } from "@/lib/utils";
-import { DeckButton } from "./controls";
 import styles from "./editor.module.css";
 
 /** Anchored to its trigger, but portalled outside the editor's size container. */
@@ -78,7 +77,7 @@ export function Popover({ label, icon, open, onOpenChange, kind = "secondary", d
 
   return (
     <div className={cn(styles.popoverRoot, className)}>
-      <button ref={trigger} type="button" className={iconOnly ? styles["de-ib"] : cn("btn btn-sm", `btn-${kind}`)} disabled={disabled} aria-label={iconOnly ? label : undefined} aria-expanded={open} aria-haspopup={role} aria-controls={open ? id : undefined} onClick={() => onOpenChange(!open)}>
+      <button ref={trigger} type="button" className={iconOnly ? styles["de-ib"] : svButtonClass(kind === "danger" ? "danger" : "quiet")} disabled={disabled} aria-label={iconOnly ? label : undefined} aria-expanded={open} aria-haspopup={role} aria-controls={open ? id : undefined} onClick={() => onOpenChange(!open)}>
         {icon}{iconOnly ? null : label}
       </button>
       {open ? (
@@ -126,7 +125,7 @@ export function DeckImportPopover({ open, onOpenChange, disabled, mode, fileName
         <small>{fileName ? "Choose another file to replace it" : "or click to choose one"}</small>
       </label>
       <label><span className="label">Or paste YDK text or a ydke:// link</span><textarea value={paste} rows={3} spellCheck={false} className={cn("input", styles["de-paste"])} placeholder="#main" onChange={(event) => setPaste(event.target.value)} /></label>
-      <div className={styles["de-pop-a"]}><DeckButton kind="primary" disabled={!paste.trim()} onClick={() => onPaste(paste)}>Load paste</DeckButton></div>
+      <div className={styles["de-pop-a"]}><SvButton variant="ghost" disabled={!paste.trim()} onClick={() => onPaste(paste)}>Load paste</SvButton></div>
       {mode === "domain" ? <p className="small">Domain: when the file has no #deckmaster and only one Side card, that card becomes the Deck Master.</p> : null}
       {error ? <p role="alert" className={styles.errorText}>{error}</p> : null}
     </Popover>

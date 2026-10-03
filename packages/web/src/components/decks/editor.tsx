@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -18,10 +18,9 @@ import {
 import {
   AlertTriangle,
   ArrowDownUp,
-  ArrowLeft,
   Check,
   ChevronDown,
-  Crown,
+  ChevronLeft,
   Download,
   Hand,
   MoreHorizontal,
@@ -33,16 +32,16 @@ import {
 } from "lucide-react";
 import { TYPE_MONSTER } from "@/components/duel/constants";
 import { parseDeckText, selectDomainMaster, type DeckMasterSelection } from "@/components/duel/ydk";
-import { SheetRoot } from "@/components/sheet";
+import { SheetRoot, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { cn } from "@/lib/utils";
 import { useNavigationLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
-import { createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, saveDraftDeck, updateSavedDeck } from "./api";
+import { createSavedDeck, deleteSavedDeck, getDeckCardFacets, getDeckCards, getSavedDeck, readRegistration, saveDraftDeck, updateSavedDeck, type DeckRegistrationMark, type SavedDeckView } from "./api";
 import { CardActions, CardCopyCount } from "./card-actions";
 import { CardArt } from "./card-art";
 import { CardBrowser } from "./card-browser";
 import { CardBottomSheet } from "./card-bottom-sheet";
 import { CardPreview } from "./card-preview";
-import { DeckButton, DeckSegmented, DeckSelect } from "./controls";
+import { DeckSegmented, DeckSelect } from "./controls";
 import { DeckSummary, type DeckCheckProps } from "./deck-check";
 import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
 import { useEditorViewport } from "./editor-viewport";
@@ -55,6 +54,7 @@ import {
 } from "./filter-model";
 import { deckNameFromFile, MAX_IMPORT_FILE_BYTES } from "./import";
 import { DeckImportPopover, Popover } from "./import-popover";
+import { RegistrationMark, lockedNote } from "./registration";
 import {
   DEFAULT_NAME,
   EMPTY_DECK,
@@ -167,6 +167,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const routeId = parseRouteId(deckId ?? (/^\/decks\/(\d+)$/.exec(pathname)?.[1]));
 
   const [savedId, setSavedId] = useState<number | null>(null);
+  // The tournament this deck is registered for, if any. A draft deck's mark comes with its pool.
+  const [registration, setRegistration] = useState<DeckRegistrationMark | null>(pool?.registration ?? null);
   const startName = pool ? draftDeckName(pool.draftName) : DEFAULT_NAME;
   const [name, setName] = useState(startName);
   const [mode, setMode] = useState<DuelMode>("normal");
@@ -365,8 +367,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     });
   }, []);
 
-  function applyRecord(record: SavedDeck) {
+  function applyRecord(record: SavedDeckView) {
     setSavedId(record.id);
+    setRegistration(readRegistration(record.registration));
     setName(record.name);
     setMode(record.mode);
     setSelection({ deck: cloneDeck(record.deck), masterOrigin: null });
@@ -480,7 +483,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     const to = sectionFor(source.code, wanted);
     // A card dropped on the wrong section of its own home stays where it is.
     if (to !== wanted && source.from === to) {
-      setNotice(`${cardName(source.code)} goes in the ${to === "extra" ? "Extra" : "Main"} Deck.`);
+      setNotice(`${cardName(source.code)} goes in the ${to === "extra" ? "extra" : "main"} deck.`);
       return;
     }
     if (source.from === "list") {
@@ -491,7 +494,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     setSelected({ section: to, code: source.code });
     setInspectCode(source.code);
     if (to !== wanted) {
-      setNotice(`${cardName(source.code)} goes in the ${to === "extra" ? "Extra" : "Main"} Deck.`);
+      setNotice(`${cardName(source.code)} goes in the ${to === "extra" ? "extra" : "main"} deck.`);
     }
   }
 
@@ -594,14 +597,14 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       return;
     }
     if (pool && deck.main.length < draftMainMinimum(pool.mainPoolCount)) {
-      setSaveError(`A draft deck needs at least ${draftMainMinimum(pool.mainPoolCount)} Main Deck cards.`);
+      setSaveError(`A draft deck needs at least ${draftMainMinimum(pool.mainPoolCount)} main deck cards.`);
       return;
     }
     setSaveBusy(true);
     setSaveError(null);
     const body = { name: trimmed, mode, deck: cloneDeck(deck) };
     try {
-      let record: SavedDeck;
+      let record: SavedDeckView;
       if (pool) {
         const saved = await saveDraftDeck(savedId, { ...body, draftId: pool.draftId });
         record = saved.deck;
@@ -610,6 +613,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
         record = savedId == null ? await createSavedDeck(body) : await updateSavedDeck(savedId, body);
       }
       flushSync(() => {
+        // A save that does not say keeps the mark it had.
+        if (record.registration !== undefined) setRegistration(readRegistration(record.registration));
         setName(record.name);
         setMode(record.mode);
         setSelection({ deck: cloneDeck(record.deck), masterOrigin });
@@ -696,15 +701,15 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   if (routeId === "invalid" || (loadError && savedId == null)) {
     return (
       <SheetRoot className={cn(styles.host, styles.center)} data-pool={pool ? "" : undefined}>
-        <p ref={editorRef} role="alert" className="banner banner-bad">{loadError ?? "That deck id is not valid."}</p>
-        <Link href={backHref} className="btn btn-secondary">{pool ? "Back to the draft" : "Back to decks"}</Link>
+        <div ref={editorRef} role="alert" className={styles["de-fail"]}><StatusLine tone="block">{loadError ?? "That deck id is not valid."}</StatusLine></div>
+        <SvButton as="a" href={backHref} variant="ghost">{pool ? "Back to the draft" : "Back to decks"}</SvButton>
       </SheetRoot>
     );
   }
   if (loading) {
     return (
       <SheetRoot className={cn(styles.host, styles.center)} data-pool={pool ? "" : undefined}>
-        <p ref={editorRef} className="small">Loading deck…</p>
+        <p ref={editorRef} className={styles["de-wait"]} role="status">Loading deck…</p>
       </SheetRoot>
     );
   }
@@ -731,18 +736,18 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     onDrop: dropCard,
   };
   const clearButton = (section: DeckSection, label: string) => (
-    <DeckButton
-      kind="quiet"
+    <SvButton
+      variant="quiet"
       disabled={deck[section].length === 0 || busy}
       aria-label={`Remove every card from the ${label} Deck`}
       onClick={() => {
         commit(clearSection(selection, section));
-        setNotice(`${label} Deck cleared. Press Ctrl+Z to undo.`);
+        setNotice(`${label} deck cleared. Press Ctrl+Z to undo.`);
       }}
     >
       <Trash2 className="ic sm" aria-hidden />
       <span>Clear</span>
-    </DeckButton>
+    </SvButton>
   );
   const historyControls = (
     <span className={styles["de-hist"]}>
@@ -779,8 +784,8 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
     <SheetRoot className={styles.host} data-pool={pool ? "" : undefined} aria-hidden={isPhone && cardSheetOpen ? true : undefined}>
       <div ref={editorRef} className={styles.de} data-tab={phoneTab}>
         <header className={styles["de-bar"]}>
-          <Link href={backHref} className={cn("btn btn-quiet btn-sm", styles["de-back"])} aria-label={pool ? "Back to the draft" : "Back to decks"}>
-            <ArrowLeft className="ic" aria-hidden />
+          <Link href={backHref} className={styles["de-back"]} aria-label={pool ? "Back to the draft" : "Back to decks"}>
+            <ChevronLeft size={18} strokeWidth={2} aria-hidden />
             <span>{pool ? "Draft" : "Decks"}</span>
           </Link>
           <label className={styles["de-namef"]}>
@@ -804,7 +809,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                   <b>Draft deck from {pool.draftName}</b>
                   <span>{draftRuleText(pool.mainPoolCount)}</span>
                 </p>
-                {isPhone ? <DeckButton onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</DeckButton> : null}
+                {isPhone ? <SvButton variant="quiet" onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
               </>
             ) : (
               <>
@@ -819,7 +824,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
               </>
             )}
           </div>
-          <p className={styles["de-status"]} data-tone={statusTone} aria-live="polite"><span className="lamp" aria-hidden />{statusText}</p>
+          <p className={styles["de-status"]} data-tone={statusTone} aria-live="polite"><span className={styles["de-dot"]} aria-hidden="true" />{statusText}</p>
           <div className={styles["de-acts"]}>
             {!isPhone ? historyControls : null}
             {!pool ? (
@@ -835,7 +840,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onPaste={onPaste}
               />
             ) : null}
-            {!isPhone ? <DeckButton className={styles["de-export"]} onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</DeckButton> : null}
+            {!isPhone ? <SvButton variant="quiet" className={styles["de-export"]} onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
             {!pool ? (
               <Popover
                 label="More deck actions"
@@ -855,21 +860,21 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                     <p className="small">You cannot undo this.</p>
                     {deleteError ? <p role="alert" className={styles.errorText}>{deleteError}</p> : null}
                     <div className={styles["de-pop-a"]}>
-                      <DeckButton kind="quiet" data-autofocus disabled={deleteBusy} onClick={() => { setDeleteOpen(false); setMoreOpen(false); }}>Keep</DeckButton>
-                      <DeckButton kind="danger" loading={deleteBusy} onClick={() => void confirmDelete()}>Delete deck</DeckButton>
+                      <SvButton variant="quiet" data-autofocus disabled={deleteBusy} onClick={() => { setDeleteOpen(false); setMoreOpen(false); }}>Keep</SvButton>
+                      <SvButton variant="danger" aria-busy={deleteBusy || undefined} disabled={deleteBusy} onClick={() => void confirmDelete()}>Delete deck</SvButton>
                     </div>
                   </>
                 ) : (
                   <>
-                    {isPhone ? <><DeckButton kind="quiet" role="menuitem" onClick={() => { setMoreOpen(false); setParseError(null); setImportOpen(true); }}>Import</DeckButton><DeckButton kind="quiet" role="menuitem" onClick={() => { setMoreOpen(false); downloadYdkFile(name, deck); }}>Export YDK</DeckButton></> : null}
-                    <DeckButton kind="quiet" role="menuitem" disabled={savedId == null || busy} className={styles.errorText} onClick={() => { setMoreOpen(false); setDeleteOpen(true); setDeleteError(null); }}>
+                    {isPhone ? <><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); setParseError(null); setImportOpen(true); }}>Import</SvButton><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); downloadYdkFile(name, deck); }}>Export YDK</SvButton></> : null}
+                    <SvButton variant="danger" role="menuitem" disabled={savedId == null || busy} onClick={() => { setMoreOpen(false); setDeleteOpen(true); setDeleteError(null); }}>
                       <Trash2 className="ic sm" aria-hidden />Delete
-                    </DeckButton>
+                    </SvButton>
                   </>
                 )}
               </Popover>
             ) : null}
-            <DeckButton kind="primary" className={styles["de-save"]} loading={saveBusy} disabled={busy} title="Save (Ctrl+S)" onClick={() => void save()}><Save className="ic sm" aria-hidden />Save</DeckButton>
+            <SvButton variant="primary" className={styles["de-save"]} aria-busy={saveBusy || undefined} disabled={busy} title="Save (Ctrl+S)" onClick={() => void save()}><Save className="ic sm" aria-hidden />Save</SvButton>
           </div>
         </header>
         <div className={cn("seg", styles["de-tabs"])} role="tablist" aria-label="Editor" onKeyDown={(event) => {
@@ -888,20 +893,26 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
             {cardControls}
           </aside>
           <main className={styles["de-deck"]} aria-label="Deck" id="deck-editor-deck">
+            {registration ? (
+              <div className={styles["de-reg"]}>
+                <RegistrationMark registration={registration} />
+                {lockedNote(registration) ? <StatusLine tone="warn">{lockedNote(registration)}</StatusLine> : null}
+              </div>
+            ) : null}
             {isPhone ? <details className={styles["de-pchk"]} data-s={tone}><summary>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}<span>{flag}</span><ChevronDown className="ic sm" aria-hidden /></summary><DeckSummary {...checkProps} deck={deck} catalog={catalog} emptyNew={savedId == null && allCodes(deck).length === 0} /></details> : null}
             <div className={styles["de-dbar"]}>
               {!isPhone ? <button className={styles["de-flag"]} type="button" data-s={tone} onClick={() => { window.clearTimeout(hoverTimer.current); setHover(null); setSelected(null); setInspectCode(null); inspectScrollRef.current?.scrollTo?.({ top: 0 }); }}>{tone === "ok" ? <Check className="ic sm" aria-hidden /> : <AlertTriangle className="ic sm" aria-hidden />}{flag}</button> : null}
-              <span className={styles["de-tools"]}><DeckButton kind="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</DeckButton><DeckButton kind="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</DeckButton></span>
+              <span className={styles["de-tools"]}><SvButton variant="quiet" disabled={busy || allCodes(deck).length === 0} onClick={() => commit(sortDeck(selection, catalog))}><ArrowDownUp className="ic sm" aria-hidden />Sort</SvButton><SvButton variant="quiet" disabled={deck.main.length === 0} aria-pressed={hand != null} onClick={() => hand ? setHand(null) : dealHand()}><Hand className="ic sm" aria-hidden />Test hand</SvButton></span>
               {isPhone ? historyControls : null}
             </div>
             {notice ? <p className={styles.notice} role="status">{notice}<button type="button" className={styles["de-ib"]} aria-label="Close message" onClick={() => setNotice(null)}><X className="ic sm" aria-hidden /></button></p> : null}
-            {facetsError ? <div className="banner banner-bad"><AlertTriangle className="ic" aria-hidden /><div><strong>Filters and banlists are not available</strong><p>{pool ? "Archetype filters do not load." : "Archetype filters do not load and the editor does not check banlist limits."}</p><DeckButton onClick={() => setFacetsRetry((value) => value + 1)}>Try again</DeckButton></div></div> : null}
-            {pool && pool.unresolved.length > 0 ? <div className="banner banner-bad"><AlertTriangle className="ic" aria-hidden /><div><strong>{pool.unresolved.length} {pool.unresolved.length === 1 ? "card" : "cards"} cannot be used</strong><p>The duel engine does not know {pool.unresolved.length === 1 ? "this card" : "these cards"}, so {pool.unresolved.length === 1 ? "it is" : "they are"} not in the list.</p></div></div> : null}
-            {poolError ? <div className="banner banner-bad"><AlertTriangle className="ic" aria-hidden /><div><strong>Your draft pool is not available</strong><p>{poolError}</p><DeckButton onClick={() => setPoolRetry((value) => value + 1)}>Try again</DeckButton></div></div> : null}
-            {metaError ? <div className="banner banner-bad"><AlertTriangle className="ic" aria-hidden /><div><strong>Card details are not available</strong><p>{metaError} The passcodes stay in the deck.</p><DeckButton onClick={() => { setBlocked(new Set()); setMetaRetry((value) => value + 1); }}>Try again</DeckButton></div></div> : null}
+            {facetsError ? <div className={styles["de-alert"]}><StatusLine tone="warn"><b>Filters and banlists are not available.</b> {pool ? "Archetype filters do not load." : "Archetype filters do not load and the editor does not check banlist limits."}</StatusLine><SvButton variant="quiet" onClick={() => setFacetsRetry((value) => value + 1)}>Try again</SvButton></div> : null}
+            {pool && pool.unresolved.length > 0 ? <div className={styles["de-alert"]}><StatusLine tone="warn"><b>{pool.unresolved.length} {pool.unresolved.length === 1 ? "card" : "cards"} cannot be used.</b> The duel engine does not know {pool.unresolved.length === 1 ? "this card" : "these cards"}, so {pool.unresolved.length === 1 ? "it is" : "they are"} not in the list.</StatusLine></div> : null}
+            {poolError ? <div className={styles["de-alert"]}><StatusLine tone="block"><b>Your draft pool is not available.</b> {poolError}</StatusLine><SvButton variant="quiet" onClick={() => setPoolRetry((value) => value + 1)}>Try again</SvButton></div> : null}
+            {metaError ? <div className={styles["de-alert"]}><StatusLine tone="warn"><b>Card details are not available.</b> {metaError} The passcodes stay in the deck.</StatusLine><SvButton variant="quiet" onClick={() => { setBlocked(new Set()); setMetaRetry((value) => value + 1); }}>Try again</SvButton></div> : null}
             {hand ? (
               <section className={styles["de-hand"]} aria-label="Test hand">
-                <header className={styles["de-sh"]}><h2 className={styles["de-st"]}>Test hand</h2><span className={cn("num", styles["de-tg"])}>{hand.drawn.length} {hand.drawn.length === 1 ? "card" : "cards"}, {hand.pile.length} left</span><span className={styles["de-tools"]}><DeckButton kind="quiet" disabled={hand.pile.length === 0} onClick={() => setHand({ drawn: [...hand.drawn, hand.pile[0]!], pile: hand.pile.slice(1) })}>Draw</DeckButton><DeckButton kind="quiet" onClick={dealHand}>New hand</DeckButton><button type="button" className={styles["de-ib"]} aria-label="Close test hand" onClick={() => setHand(null)}><X className="ic sm" aria-hidden /></button></span></header>
+                <header className={styles["de-sh"]}><h2 className={styles["de-st"]}>Test hand</h2><span className={cn("num", styles["de-tg"])}>{hand.drawn.length} {hand.drawn.length === 1 ? "card" : "cards"}, {hand.pile.length} left</span><span className={styles["de-tools"]}><SvButton variant="quiet" disabled={hand.pile.length === 0} onClick={() => setHand({ drawn: [...hand.drawn, hand.pile[0]!], pile: hand.pile.slice(1) })}>Draw</SvButton><SvButton variant="quiet" onClick={dealHand}>New hand</SvButton><button type="button" className={styles["de-ib"]} aria-label="Close test hand" onClick={() => setHand(null)}><X className="ic sm" aria-hidden /></button></span></header>
                 <ul className={cn(styles["de-grid"], styles["de-hand-g"])}>{hand.drawn.map((code, index) => <li key={`${index}-${code}`}><button type="button" className={styles["de-c"]} aria-label={cardName(code)} title={cardName(code)} onClick={(event) => { event.currentTarget.focus(); inspect(code); }} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code, from: "hand", index }); }} onPointerLeave={() => pointAt(null)}><CardArt code={code} name={cardName(code)} /></button></li>)}</ul>
               </section>
             ) : null}
@@ -910,12 +921,12 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onDragOver={(event) => { if (hasCardDrag(event)) { event.preventDefault(); setMasterDropping(true); } }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMasterDropping(false); }}
                 onDrop={(event) => { setMasterDropping(false); const drag = readCardDrag(event); if (!drag || drag.from === "master") return; event.preventDefault(); makeMaster(drag.code, drag.from === "list" ? undefined : drag.from); }}>
-                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}`} aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable onClick={(event) => { event.currentTarget.focus(); inspect(deck.deckMaster!); }} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => writeCardDrag(event, { code: deck.deckMaster!, from: "master" })} onContextMenu={(event) => { event.preventDefault(); commit(selectDomainMaster(selection, undefined)); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /></button> : <Crown className="ic" aria-hidden />}</div>
-                <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, or select one and press Use as Deck Master.</p>{deck.deckMaster != null ? <DeckButton kind="quiet" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>Clear</DeckButton> : null}</div>
+                <div className={styles["de-mslot"]}>{deck.deckMaster != null ? <button type="button" className={styles["de-c"]} aria-label={`Deck Master: ${cardName(deck.deckMaster)}`} aria-pressed={inspectCode === deck.deckMaster && selected == null} title={cardName(deck.deckMaster)} draggable onClick={(event) => { event.currentTarget.focus(); inspect(deck.deckMaster!); }} onPointerEnter={(event) => { if (event.pointerType !== "touch") pointAt({ code: deck.deckMaster!, from: "master" }); }} onPointerLeave={() => pointAt(null)} onDragStart={(event) => writeCardDrag(event, { code: deck.deckMaster!, from: "master" })} onContextMenu={(event) => { event.preventDefault(); commit(selectDomainMaster(selection, undefined)); }}><CardArt code={deck.deckMaster} name={cardName(deck.deckMaster)} /></button> : <Zone state="dashed" size="md" style={{ "--zw": "58px" } as CSSProperties} />}</div>
+                <div className={styles.masterText}><h2 className={styles["de-st"]}>Deck Master</h2><p className="small">{deck.deckMaster != null ? `${cardName(deck.deckMaster)}. ` : ""}Drag a monster here, or select one and press Use as Deck Master.</p>{deck.deckMaster != null ? <SvButton variant="quiet" disabled={busy} onClick={() => commit(selectDomainMaster(selection, undefined))}>Clear</SvButton> : null}</div>
               </section>
             ) : null}
             <DeckSectionGrid {...sectionProps} title="Main" section="main" codes={deck.main} minimum={mainLow} maximum={DRAFT_MAIN_MAX} target={mode === "domain" ? "60" : `${mainLow}–${DRAFT_MAIN_MAX}`} emptyHint="Add cards from the list on the right." actions={clearButton("main", "Main")} />
-            <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link Monsters go here." actions={clearButton("extra", "Extra")} />
+            <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} />
             <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, or use Side on a selected card." actions={clearButton("side", "Side")} />
           </main>
           <CardBrowser id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, card.code), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code), 0) } : undefined} query={query} onQueryChange={setQuery} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />

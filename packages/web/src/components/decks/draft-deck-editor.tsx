@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { SheetRoot } from "@/components/sheet";
+import { SheetRoot, StatusLine, SvButton } from "@/components/sheet";
 import { getDraftDeckPool } from "./api";
 import { SavedDeckEditor } from "./editor";
 import { useEditorViewport } from "./editor-viewport";
@@ -35,15 +34,15 @@ export function DraftDeckEditor({ slug }: { slug: string }) {
   if (error) {
     return (
       <SheetRoot className={cn(styles.host, styles.center)} data-pool>
-        <p ref={editorRef} role="alert" className="banner banner-bad">{error}</p>
-        <Link href={`/draft/${slug}`} className="btn btn-secondary">Back to the draft</Link>
+        <div ref={editorRef} role="alert" className={styles["de-fail"]}><StatusLine tone="block">{error}</StatusLine></div>
+        <SvButton as="a" href={`/draft/${slug}`} variant="ghost">Back to the draft</SvButton>
       </SheetRoot>
     );
   }
   if (!pool) {
     return (
       <SheetRoot className={cn(styles.host, styles.center)} data-pool>
-        <p ref={editorRef} className="small">Loading your draft pool…</p>
+        <p ref={editorRef} className={styles["de-wait"]} role="status">Loading your draft pool…</p>
       </SheetRoot>
     );
   }

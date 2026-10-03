@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, type DragEvent, type ReactNode } from "react";
+import { Zone } from "@/components/sheet";
 import { cn } from "@/lib/utils";
 import { CardArt } from "./card-art";
 import { hasCardDrag, readCardDrag, writeCardDrag } from "./drag";
@@ -113,7 +114,7 @@ export function DeckSectionGrid({
     >
       <header className={styles["de-sh"]} data-off={unused ? "" : undefined}>
         <h2 className={styles["de-st"]}>{title}</h2>
-        <span className={cn("num", styles["de-n"])} data-s={state}>{codes.length}</span>
+        <span className={cn("num", styles["de-n"])} data-s={state} data-zero={codes.length === 0 ? "" : undefined}>{codes.length}</span>
         {unused ? null : <DeckSizeMeter title={title} count={codes.length} minimum={minimum} maximum={maximum} />}
         <span className={styles["de-tg"]}>{target}</span>
         {state !== "ok" ? <span className={styles["de-off"]} data-s={state}>{difference} {state === "under" ? "short" : "over"}</span> : null}
@@ -123,7 +124,14 @@ export function DeckSectionGrid({
       {children}
 
       {codes.length === 0 ? (
-        <p className={styles["de-empty"]}><span className={styles["de-empty-wide"]}>{emptyHint}</span><span className={styles["de-empty-phone"]}>Add cards from the Cards tab.</span></p>
+        <div className={styles["de-empty"]}>
+          <span className={styles["de-empty-zones"]} aria-hidden="true">
+            <Zone state="empty" size="md" />
+            <Zone state="empty" size="md" />
+            <Zone state="empty" size="md" />
+          </span>
+          <p><span className={styles["de-empty-wide"]}>{emptyHint}</span><span className={styles["de-empty-phone"]}>Add cards from the Cards tab.</span></p>
+        </div>
       ) : (
         <ul ref={listRef} className={styles["de-grid"]}>
           {codes.map((code, index) => {

@@ -1,4 +1,5 @@
 import { deckCardCounts, type DuelDeck } from "@yugidraft/shared/duels";
+import type { DeckRegistrationMark } from "@yugidraft/shared/services";
 
 /** A finished draft and the caller's pool, as the deck editor uses it (from GET /api/drafts/[slug]/deck-pool). */
 export interface DraftDeckPool {
@@ -7,11 +8,13 @@ export interface DraftDeckPool {
   draftName: string;
   /** Engine passcodes with the copies the player drafted. */
   cards: Array<{ code: number; count: number }>;
-  /** Pool cards that belong in the Main Deck. */
+  /** Pool cards that belong in the main deck. */
   mainPoolCount: number;
   /** YGOPRODeck ids the duel engine does not know; they are not in `cards`. */
   unresolved: number[];
   savedDeckId: number | null;
+  /** The tournament this draft's deck is registered for, if any. */
+  registration: DeckRegistrationMark | null;
 }
 
 export const DRAFT_MAIN_MIN = 40;
@@ -48,8 +51,8 @@ export function draftMainMinimum(mainPoolCount: number): number {
 export function draftRuleText(mainPoolCount: number): string {
   const minimum = draftMainMinimum(mainPoolCount);
   return mainPoolCount < DRAFT_MAIN_MIN
-    ? `Main Deck: all ${minimum} main-deck cards from your pool, up to ${DRAFT_MAIN_MAX}. Extra Deck: up to ${DRAFT_EXTRA_MAX}.`
-    : `Main Deck: ${minimum} to ${DRAFT_MAIN_MAX} cards. Extra Deck: up to ${DRAFT_EXTRA_MAX}.`;
+    ? `Main deck: all ${minimum} main deck cards from your pool, up to ${DRAFT_MAIN_MAX}. Extra deck: up to ${DRAFT_EXTRA_MAX}.`
+    : `Main deck: ${minimum} to ${DRAFT_MAIN_MAX} cards. Extra deck: up to ${DRAFT_EXTRA_MAX}.`;
 }
 
 export function draftDeckNotes(deck: DuelDeck, mainPoolCount: number): string[] {

@@ -18,7 +18,7 @@ export const FILTER_OPTIONS: Array<{ value: PoolFilter; label: string }> = [
   { value: "all", label: "All cards" },
   { value: "effect", label: "Effect Monsters" },
   { value: "normal", label: "Normal Monsters" },
-  { value: "extra", label: "Extra Deck" },
+  { value: "extra", label: "Extra deck" },
   { value: "spell", label: "Spells" },
   { value: "trap", label: "Traps" },
 ];

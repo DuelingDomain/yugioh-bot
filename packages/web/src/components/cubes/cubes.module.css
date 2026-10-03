@@ -5,44 +5,68 @@
  */
 
 /* ---------- library rows ---------- */
-:global(.ms) .row { position: relative; }
-
-/* Without readiness data a row is the name block and its actions. */
-:global(.ms) .row.row {
+:global(.ms) .lede { margin: 0; max-width: 62ch; color: var(--ink-3); font-size: 14.5px; line-height: 1.5; }
+:global(.ms) .row:hover { border-bottom-color: rgb(var(--beam) / 0.3); }
+:global(.ms) .row :global(.sv-row-in) {
+  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px 20px;
+  grid-template-areas: "main acts" "confirm confirm";
+  align-items: center;
+  gap: 0 18px;
+  padding: 14px 12px;
 }
-:global(.ms) .row.row .acts { grid-row: auto; grid-column: auto; }
-:global(.ms) .row.row .confirm,
-:global(.ms) .row.row[data-confirm] .confirm { grid-column: 2; }
+.main { grid-area: main; display: grid; gap: 5px; min-width: 0; }
+.name { margin: 0; color: var(--ink); font: 600 17px/1.3 var(--f-ui); overflow-wrap: anywhere; }
+.openLink { color: inherit; text-decoration: none; }
+/* The whole row opens the cube: the name link stretches over it, and the controls sit above. */
+.openLink::after { content: ""; position: absolute; inset: 0; }
+.openLink:focus-visible { outline: none; }
+.openLink:focus-visible::after { outline: 2px solid var(--pen-ink); outline-offset: -2px; border-radius: 4px; }
+.facts { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 0; color: var(--ink-3); font-size: 13.5px; }
+.facts b { color: var(--ink-2); font-weight: 500; }
+.counts { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 16px; margin: 0; color: var(--ink-3); font-size: 13.5px; }
+.counts b { margin: 0 2px 0 4px; color: var(--ink); font: 600 17px/1 var(--f-num); font-variant-numeric: tabular-nums lining-nums; }
+.acts { grid-area: acts; position: relative; z-index: 2; display: flex; align-items: center; gap: 8px; }
+.openBtn { position: relative; z-index: 2; }
+.trash { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px; background: none; color: var(--ink-3); cursor: pointer; }
+.trash:hover { color: var(--loss-ink); background: rgb(228 90 77 / 0.1); }
+.trash:disabled { opacity: 0.4; cursor: not-allowed; }
+.trash:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+.confirm { grid-area: confirm; position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 0 2px; color: var(--ink); font-size: 14.5px; }
+.confirmActs { display: inline-flex; gap: 8px; }
 
-@container (max-width: 800px) {
-  :global(.ms) .row.row .confirm,
-  :global(.ms) .row.row[data-confirm] .confirm { grid-column: 1 / -1; justify-content: flex-start; }
+/* On phones the whole row opens the cube; Open drops away and the trash stays. */
+@container (max-width: 620px) {
+  :global(.ms) .row :global(.sv-row-in) { grid-template-columns: minmax(0, 1fr) 36px; gap: 6px 10px; padding: 12px 4px; }
+  .acts { align-self: start; }
+  .openBtn { display: none; }
 }
 
-/* On phones the whole row opens the cube; Open drops away (match-sheet.css hides .btn). */
-@container (max-width: 520px) {
-  /* MetaLine needs the separator space even when a leading dot is clipped. */
-  :global(.ms) .row.row :global(.mt) :global(.dot) { display: inline-block; }
-  :global(.ms) .row.row { grid-template-columns: minmax(0, 1fr) 36px; }
-  :global(.ms) .row .openLink::after { content: ""; position: absolute; inset: 0; border-radius: 4px; }
-  :global(.ms) .row .acts { position: relative; z-index: 1; }
-}
+.skeleton { display: block; margin: 0; padding: 0; list-style: none; }
+.skeleton li { display: grid; gap: 10px; padding: 16px 12px; border-bottom: 1px solid var(--rule-lo); }
+.alert { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.alert > :first-child { flex: 1 1 260px; }
+.empty { display: flex; flex-wrap: wrap; align-items: center; gap: 20px 28px; padding: 28px 0; border-top: 1px solid var(--rule-lo); border-bottom: 1px solid var(--rule-lo); }
+.emptyZones { display: inline-flex; gap: 12px; }
+.empty > div:last-child { flex: 1 1 280px; min-width: 0; }
+.empty h2 { margin: 0 0 6px; font: 600 19px/1.25 var(--f-display); color: var(--ink); }
+.empty p { margin: 0; max-width: 56ch; color: var(--ink-3); font-size: 14.5px; line-height: 1.5; }
+.emptyActs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
 
-:global(.ms) .tmplNote { margin-top: 6px; color: var(--ink-3); font-size: 12.5px; }
-:global(.ms) .tmplNote code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--ink-2); }
+:global(.ms) .tmplNote { margin: 2px 0 0; color: var(--ink-3); font-size: 13px; }
+:global(.ms) .tmplNote code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; color: var(--ink-2); }
 :global(.ms) .setNames { overflow-wrap: anywhere; }
-:global(.ms) .startActs { flex-wrap: wrap; }
 
 /* ---------- editor ---------- */
-:global(.ms) .ready :global(.fix) { margin: 0; }
-:global(.ms) .ready .fixSoft { background: none; border-top: 1px solid var(--rule-lo); }
-:global(.ms) .ready .fixSoft :global(.ic) { color: var(--ink-3); }
-:global(.ms) .ready .fixSoft b { color: var(--ink); }
-:global(.ms) .ready .fixOk { background: none; border-top: 1px solid var(--rule-lo); }
-:global(.ms) .ready .fixOk :global(.ic) { color: var(--ok); }
-:global(.ms) .ready .fixOk b { color: var(--ink); }
+:global(.ms) .head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 20px 40px; }
+.headFacts { display: grid; gap: 8px; min-width: 0; }
+:global(.ms) .check { display: grid; gap: 12px; width: min(100%, 420px); }
+.rdRow { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 12px; color: var(--ink-2); font-size: 14px; }
+.rdVal { color: var(--ink-3); font-size: 13.5px; white-space: nowrap; }
+.rdVal b { color: var(--ink); font: 600 17px/1 var(--f-num); font-variant-numeric: tabular-nums lining-nums; }
+.rdVal[data-short] b { color: var(--warn-ink); }
+/* The size bar names itself for assistive tech; the numbers sit beside it, so its own header is hidden. */
+:global(.ms) .rdSize :global(.sv-size-top) { display: none; }
 
 :global(.ms) .tile { position: relative; }
 :global(.ms) .unknownArt {
@@ -56,15 +80,19 @@
   padding: 6px;
 }
 :global(.ms) .emptyPool {
-  padding: 28px 16px;
-  border: 1px dashed var(--rule);
-  border-radius: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 22px;
+  padding: 24px 0;
+  border-top: 1px solid var(--rule-lo);
+  border-bottom: 1px solid var(--rule-lo);
   color: var(--ink-3);
-  font-size: 13.5px;
-  text-align: center;
+  font-size: 14.5px;
 }
+:global(.ms) .emptyPool p { margin: 0; flex: 1 1 220px; }
 :global(.ms) .noMatch { color: var(--ink-3); font-size: 13.5px; padding: 12px 0; }
-:global(.ms) .busy { color: var(--ink-3); font-size: 12.5px; }
+:global(.ms) .busy { color: var(--ink-3); }
 :global(.ms) .stat { margin: 0; }
 :global(.ms) .renameLabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 :global(.ms) .resText { min-width: 0; }
@@ -125,3 +153,10 @@
 }
 @keyframes cubesFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes cubesRise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+/* The rail holds "add cards" on wide screens; below it, this button opens the same panel as a sheet.
+   It matches the match-sheet's container breakpoint for the rail. */
+:global(.ms) :global(.sv-btn).addBtn { display: none; }
+@container (max-width: 980px) {
+  :global(.ms) :global(.sv-btn).addBtn { display: inline-flex; }
+}
