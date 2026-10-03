@@ -13,7 +13,7 @@ const SECURITY = "Security Dragon";
 const ELF = "Mystical Elf";
 const OX = "Battle Ox";
 const KNIGHT = "Mekk-Knight Purple Nightfall";
-const RULE = "R-COMMON-EMZ";
+const emzRule = (format: Format) => format === "ffa4" ? "R-FFA-ACROSS-EMZ" : "R-COMMON-EMZ";
 // The Tag column and Link Infra-Flier controls require C1 on installed P68:
 // domain-core/.build/phase1/df-zones/out/01-local-zone-viewer.patch. The integration route includes C1.
 // FFA4 shared geometry is proved by df-shared-zones.ts after the current C6 export is installed.
@@ -49,7 +49,7 @@ function independentZones(format: Format, right: boolean): Scenario {
   }
   return defineScenario({ id: `emz-${format}-every-seat-${right ? "right" : "left"}-and-own-link-arrow`,
     title: `${format}: every seat uses its own ${right ? "right" : "left"} EMZ and its own linked main zone`,
-    source: `${SOURCE} [${RULE}]`, rules: [RULE], tags: ["multiplayer", format, "link", "card:98978921", "card:31226177"], setup, steps });
+    source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "link", "card:98978921", "card:31226177"], setup, steps });
 }
 
 function coLinks(format: Format, actor: Seat): Scenario {
@@ -72,7 +72,7 @@ function coLinks(format: Format, actor: Seat): Scenario {
   state[target] = { ...state[target], monsters: [SPIDER], hand: [...(state[target]!.hand as string[]), ELF],
     zones: { ...state[target]!.zones, m0: null } };
   return defineScenario({ id: `emz-${format}-colink-is-local-${actor}`, title: `${format}: ${actor} gets a co-link only from its own EMZ Spider`,
-    source: `${SOURCE} [${RULE}]`, rules: [RULE], tags: ["multiplayer", format, "link", "card:98978921", "card:99111753"], setup,
+    source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "link", "card:98978921", "card:99111753"], setup,
     steps: [...turnsBefore(format, actor), expectNotOffered("activate", SECURITY, actor), before,
       specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }),
       // In FFA4 the across seat's EMZ 0 blocks this seat's EMZ 1. The host answers the one-place prompt.
@@ -105,7 +105,7 @@ function columns(format: Format): Scenario {
     if (index < SEATS[format].length - 1) steps.push(endTurn(seat));
   }
   return defineScenario({ id: `emz-${format}-columns-stay-on-each-seat`, title: `${format}: column summons use two cards of the same seat`,
-    source: `${SOURCE} [${RULE}]`, rules: [RULE], tags: ["multiplayer", format, "column", "card:28692962"], setup, steps });
+    source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "column", "card:28692962"], setup, steps });
 }
 
 function arrowViewer(format: Format, actor: Seat): Scenario {
@@ -124,7 +124,7 @@ function arrowViewer(format: Format, actor: Seat): Scenario {
   state[actor] = { ...state[actor], monsters: [SPIDER, FLIER], grave: [ELF], extra: [],
     hand: actor === "p0" ? [] : [ELF], zones: { emz0: SPIDER, m1: FLIER, emz1: null } };
   return defineScenario({ id: `emz-${format}-arrow-viewer-${actor}`, title: `${format}: ${actor} cannot use another seat's Link arrow`,
-    source: `${SOURCE} [${RULE}]`, rules: [RULE], tags: ["multiplayer", format, "link", "card:65100616"], setup,
+    source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "link", "card:65100616"], setup,
     steps: [...turnsBefore(format, actor), expectNotOffered("specialSummon", FLIER, actor), before,
       specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }),
       // FFA4 has one free EMZ. The host answers that zone prompt automatically.
@@ -139,7 +139,7 @@ function extraLink(format: Format): Scenario {
   const setup: Scenario["setup"] = { format, p0: { monsters: [ELF, TRI, BINARY, TRI, null, SPIDER], extra: [SPIDER] } };
   for (const seat of SEATS[format].slice(1)) setup[seat] = { monsters: emz(SPIDER) };
   return defineScenario({ id: `emz-${format}-second-zone-by-extra-link`, title: `${format}: an Extra Link permits the second own EMZ`,
-    source: `${SOURCE} [${RULE}]`, rules: [RULE], tags: ["multiplayer", format, "link", "card:32617464"], setup,
+    source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "link", "card:32617464"], setup,
     steps: [specialSummon(SPIDER, "p0"), select({ card: ELF, owner: "p0" }),
       expectPickOptions({ include: [{ seat: "p0", label: "Extra Monster Zone (right)" }],
         exclude: SEATS[format].slice(1).map((seat) => ({ seat })) }, "p0"), zone("p0", "emz1", "p0"),
