@@ -38,7 +38,7 @@ function setup(data: TournamentDetail = sheetTournament, userId = "host") {
 const ready = () => screen.findByRole("region", { name: "Standings" });
 const openHostTools = async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Host tools" }));
-  return screen.findByRole("complementary", { name: "Host tools" });
+  return screen.findByRole("dialog", { name: "Host tools" });
 };
 const detailFetches = (fetchMock: ReturnType<typeof setup>) => fetchMock.mock.calls.filter(([url, init]) => String(url) === SLUG && !init?.method);
 function deferred() {
@@ -89,13 +89,26 @@ describe("TournamentDetailPage one sheet", () => {
     expect(screen.queryByTestId("player-deck-marker-3")).toBeNull();
   });
 
+  it("keeps Tab inside the host tools dialog", async () => {
+    setup();
+    render(<TournamentDetailPage />);
+    await ready();
+    const tools = await openHostTools();
+    expect(tools).toHaveAttribute("aria-modal", "true");
+    const close = within(tools).getByRole("button", { name: "Close host tools" });
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(tools.contains(document.activeElement)).toBe(true);
+    expect(document.activeElement).not.toBe(close);
+  });
+
   it("closes the host tools with Escape", async () => {
     setup();
     render(<TournamentDetailPage />);
     await ready();
     await openHostTools();
     fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("complementary", { name: "Host tools" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Host tools" })).toBeNull());
   });
 
   it("ends the event only after confirmation and refreshes the same sheet", async () => {

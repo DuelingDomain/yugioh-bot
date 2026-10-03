@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Mono, ringColour } from "@/components/sheet";
 import { isSeriesOpen } from "../duel-rules";
 import type { Match, TournamentDetail } from "../types";
-import { bestOfFor, byeNames, gameWins, isDecided, nameList, roundName, tableMatches, tableNumber, tableStatus, totalRounds, zoneFor } from "./floor-model";
+import { bestOfFor, byeNames, gameWins, isDecided, nameList, tableMatches, tableNumber, tableStatus, totalRounds, zoneFor } from "./floor-model";
 import { SlotZone } from "./zones";
 import styles from "./floor.module.css";
 
@@ -98,7 +98,7 @@ export function TableStrip({ tournament, round, viewerId }: { tournament: Tourna
 }
 
 /** For anyone who is not playing: every table of the round as a medium field. */
-export function SpectatorGrid({ tournament, round, viewerId, finalGrid = false }: { tournament: TournamentDetail; round: number; viewerId: number | null; finalGrid?: boolean }) {
+export function SpectatorGrid({ tournament, round, viewerId }: { tournament: TournamentDetail; round: number; viewerId: number | null }) {
   const matches = tableMatches(tournament, round);
   const byes = byeNames(tournament, round);
   const total = totalRounds(tournament);
@@ -107,7 +107,7 @@ export function SpectatorGrid({ tournament, round, viewerId, finalGrid = false }
     : `Round ${round} of ${total}. Every table.`;
   return (
     <section className={styles.gridHero} aria-label="Tables" id="matches" data-testid="spectator-grid">
-      <h2 className={styles.gh}>{finalGrid ? `${roundName(tournament, round)}. Every table.` : heading}</h2>
+      <h2 className={styles.gh}>{heading}</h2>
       <ul className={styles.tgridMd}>
         {matches.map((match) => {
           const state = tableState(match);
