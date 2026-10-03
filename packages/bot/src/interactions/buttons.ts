@@ -497,6 +497,7 @@ export async function handleButton(
 
       throw error;
     }
+    if (draft.webSlug) void deps.broadcaster.draft({ kind: "seats", slug: draft.webSlug });
     await interaction.reply(`${displayName(interaction.user)} joined draft: ${draft.name}.`);
     return;
   }
@@ -518,6 +519,7 @@ export async function handleButton(
       excludeNames: draft.config.excludeNames ?? [],
     });
     const startedDraft = deps.drafts.start(draft.id);
+    if (startedDraft.webSlug) void deps.broadcaster.draft({ kind: "status", slug: startedDraft.webSlug, status: "active" });
     const webLink = startedDraft.webSlug ? `\nPick cards here: ${WEB_URL}/draft/${startedDraft.webSlug}` : "";
 
     await interaction.reply({ content: `Started draft: ${startedDraft.name}.${webLink}`, ephemeral: true });
@@ -803,6 +805,7 @@ export async function handleButton(
     requireEventCreator(tournament, interaction.user.id);
     deps.tournaments.start(tournament.id);
     const started = deps.tournaments.findById(tournament.id);
+    if (started.webSlug) void deps.broadcaster.tournament({ kind: "started", slug: started.webSlug });
     const webLink = started.webSlug ? `\nView bracket on web: ${WEB_URL}/tournament/${started.webSlug}` : "";
     await interaction.reply({ content: `Started event: ${started.name}.${webLink}`, ephemeral: true });
     return;
@@ -820,6 +823,7 @@ export async function handleButton(
 
     requireEventCreator(tournament, interaction.user.id);
     const { changedDuelSlugs } = deps.tournaments.cancelWithChanges(tournament.id);
+    if (tournament.webSlug) void deps.broadcaster.tournament({ kind: "cancelled", slug: tournament.webSlug });
     for (const duelSlug of changedDuelSlugs) void deps.notifyDuelChange?.(duelSlug, guildId);
     await interaction.reply({ content: `Cancelled event: ${tournament.name}.`, ephemeral: true });
     return;
