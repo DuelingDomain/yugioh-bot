@@ -231,3 +231,145 @@ describe("POST /api/bug-reports", () => {
     expect(call!.payload.body).not.toContain("## Replay");
   });
 });
+
+describe("POST /api/bug-reports with duplicateOf", () => {
+  const ISSUE = 50;
+  const issueUrl = `https://github.com/imran443/yugioh-bot/issues/${ISSUE}`;
+  const raw = (extra: Record<string, unknown> = {}) => ({
+    number: ISSUE, html_url: issueUrl, title: "[Bug] [FFA3] Chain froze", state: "open", labels: [{ name: "bug" }, { name: "from-app" }], ...extra,
+  });
+  const calls = () => github.mock.calls.map(([url, init]) => ({ url: String(url), method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null }));
+  const comments = () => calls().filter((c) => c.url.endsWith("/comments"));
+
+  function serve(issue: Record<string, unknown> | number = raw(), commentStatus = 201) {
+    github.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/comments")) return Response.json(commentStatus === 201 ? { id: 1 } : { message: `no ${TOKEN}` }, { status: commentStatus });
+      if (init?.method === "POST") return Response.json({ number: 77, html_url: "https://github.com/imran443/yugioh-bot/issues/77" }, { status: 201 });
+      return typeof issue === "number" ? Response.json({ message: "Not Found" }, { status: issue }) : Response.json(issue);
+    });
+  }
+  async function ownIssueFromAnotherReport() {
+    const { getDb } = await import("../src/lib/db");
+    getDb().prepare(
+      "insert into bug_reports (guild_id, player_id, created_at, path, description, context_json, github_issue_number, github_issue_url) values (?, 1, '2026-10-03T00:00:00.000Z', '/', 'older', '{}', ?, ?)",
+    ).run(GUILD, ISSUE, issueUrl);
+  }
+
+  beforeEach(async () => {
+    vi.resetModules();
+    auth.mockReset();
+    auth.mockResolvedValue({ user: { id: DISCORD_ID, name: "Seraphina Quill" } });
+    discord = mockDiscordAccess();
+    const discordFetch = globalThis.fetch;
+    github = vi.fn(async (_url: string, _init?: RequestInit) => Response.json({}));
+    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => (String(url).startsWith("https://api.github.com/") ? github(url, init) : discordFetch(url as never)));
+    vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", TOKEN);
+    vi.stubEnv("BUG_REPORT_GITHUB_REPO", "");
+    await seed();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    for (const key of ["DATABASE_PATH", "DISCORD_GUILD_ID", "NEXTAUTH_URL"]) delete process.env[key];
+    while (tempDirs.length) { const d = tempDirs.pop(); if (d) rmSync(d, { recursive: true, force: true }); }
+  });
+
+  it("saves the report linked to the issue and adds a +1 comment, with no new issue", async () => {
+    serve();
+    const POST = await route();
+    const res = await POST(post(body({ duplicateOf: ISSUE })));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: 1, issue: { number: ISSUE, url: issueUrl }, duplicate: true });
+    const [row] = await rows();
+    expect(row).toMatchObject({ player_id: 1, duplicate_of: ISSUE, github_issue_number: ISSUE, github_issue_url: issueUrl, github_error: null });
+    expect(calls().map((c) => `${c.method} ${c.url.replace("https://api.github.com/repos/imran443/yugioh-bot", "")}`)).toEqual([`GET /issues/${ISSUE}`, `POST /issues/${ISSUE}/comments`]);
+    const [comment] = comments();
+    expect(comment!.body.body.startsWith("**+1** from `Report #1`")).toBe(true);
+    expect(comment!.body.body).toContain("https://duel.example.com/duels/duel-a/replay");
+    expect(comment!.body.body).toContain("Player 2 draws 1 card");
+  });
+
+  it("keeps private data out of the comment", async () => {
+    serve();
+    const POST = await route();
+    await POST(post(body({ duplicateOf: ISSUE, description: `Seraphina Quill (${DISCORD_ID}) in ${GUILD} cc @octocat #9` })));
+    const text = String(comments()[0]!.body.body);
+    for (const secret of [DISCORD_ID, "Seraphina Quill", "Seraphina", GUILD, TOKEN, ...HAND]) expect(text).not.toContain(secret);
+    expect(text).not.toMatch(/@[A-Za-z]/);
+    expect(text).not.toMatch(/#9\b/);
+    expect((await rows())[0]!.description).toContain(DISCORD_ID);
+  });
+
+  it.each([
+    ["a closed issue", raw({ state: "closed" })],
+    ["an issue that is not from the app", raw({ labels: [{ name: "bug" }] })],
+    ["a pull request", raw({ pull_request: {} })],
+    ["an issue that does not exist", 404],
+  ])("409 for %s, and nothing is saved or commented", async (_name, issue) => {
+    serve(issue);
+    const POST = await route();
+    const res = await POST(post(body({ duplicateOf: 12 })));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toMatch(/not open for reports/);
+    expect(await rows()).toHaveLength(0);
+    expect(comments()).toHaveLength(0);
+    expect(calls().filter((c) => c.method === "POST")).toHaveLength(0);
+  });
+
+  it("400 for a duplicateOf that is not a positive whole number", async () => {
+    const POST = await route();
+    for (const bad of ["12", 0, -3, 1.5]) expect((await POST(post(body({ duplicateOf: bad })))).status).toBe(400);
+    expect(await rows()).toHaveLength(0);
+    expect(github).not.toHaveBeenCalled();
+  });
+
+  it("still applies the quality rules to a +1", async () => {
+    serve();
+    const POST = await route();
+    expect((await POST(post(body({ duplicateOf: ISSUE, description: "same" })))).status).toBe(400);
+    expect(github).not.toHaveBeenCalled();
+  });
+
+  it("without a token, accepts only an issue that one of our reports opened, and adds no comment", async () => {
+    vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", "");
+    const POST = await route();
+    expect((await POST(post(body({ duplicateOf: ISSUE })))).status).toBe(409);
+    expect(await rows()).toHaveLength(0);
+    await ownIssueFromAnotherReport();
+    const res = await POST(post(body({ duplicateOf: ISSUE })));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ id: 2, issue: { number: ISSUE, url: issueUrl }, duplicate: true });
+    expect((await rows())[1]).toMatchObject({ duplicate_of: ISSUE, github_issue_number: ISSUE });
+    expect(github).not.toHaveBeenCalled();
+  });
+
+  it("does not take a +1 for an issue that only another +1 pointed at", async () => {
+    vi.stubEnv("BUG_REPORT_GITHUB_TOKEN", "");
+    const { getDb } = await import("../src/lib/db");
+    getDb().prepare(
+      "insert into bug_reports (guild_id, player_id, created_at, path, description, context_json, github_issue_number, github_issue_url, duplicate_of) values (?, 1, '2026-10-03T00:00:00.000Z', '/', 'older', '{}', ?, ?, ?)",
+    ).run(GUILD, ISSUE, issueUrl, ISSUE);
+    const POST = await route();
+    expect((await POST(post(body({ duplicateOf: ISSUE })))).status).toBe(409);
+  });
+
+  it("keeps the report linked when the comment fails, and stores the error without the token", async () => {
+    serve(raw(), 403);
+    const POST = await route();
+    const res = await POST(post(body({ duplicateOf: ISSUE })));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ duplicate: true, issue: { number: ISSUE } });
+    const [row] = await rows();
+    expect(row).toMatchObject({ duplicate_of: ISSUE, github_issue_number: ISSUE });
+    expect(row!.github_error).toContain("403");
+    expect(row!.github_error).not.toContain(TOKEN);
+  });
+
+  it("counts a +1 in the same limit of 5 reports in 10 minutes", async () => {
+    serve();
+    const POST = await route();
+    for (let i = 0; i < 5; i += 1) expect((await POST(post(body({ duplicateOf: ISSUE })))).status).toBe(200);
+    expect((await POST(post(body({ duplicateOf: ISSUE })))).status).toBe(429);
+    expect(comments()).toHaveLength(5);
+  });
+});

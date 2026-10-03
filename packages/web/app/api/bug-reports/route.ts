@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { BugReportServiceError, createBugReportService, createPlayerService } from "@yugidraft/shared/services";
 import { webBaseUrl } from "@/lib/announce-bot";
 import { parseBugReportRequest } from "@/lib/bug-report";
-import { createGithubIssue } from "@/lib/bug-report-github";
+import { bugReportRepo, commentOnIssue, createGithubIssue, getOpenFromAppIssue } from "@/lib/bug-report-github";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { requireWebAccess } from "@/lib/web-access";
@@ -13,6 +13,9 @@ export const runtime = "nodejs";
  * Saves a bug report and opens a GitHub issue for it. The full report (with the reporter's player id) stays in the
  * database. The public issue gets only the report id and the public context. A GitHub failure never loses the report:
  * the answer is still 200 with `issue: null`.
+ *
+ * With `duplicateOf` the player said an open issue is the same bug. The report is saved and linked to that issue and a
+ * "+1" comment (the same public context) is added to it: no new issue. The issue must be open and filed by the app.
  */
 export async function POST(request: Request) {
   const actor = await requireWebAccess();
@@ -33,6 +36,20 @@ export async function POST(request: Request) {
   const db = getDb();
   const player = createPlayerService(db).findOrCreate(guildId, actor.userId, actor.userName);
   const reports = createBugReportService(db);
+
+  // Check the target before anything is saved, so a refused +1 costs the player nothing.
+  let target: { number: number; url: string; verified: boolean } | null = null;
+  if (report.duplicateOf !== undefined) {
+    const checked = await getOpenFromAppIssue(report.duplicateOf);
+    if (checked.ok) target = { number: checked.issue.number, url: checked.issue.url, verified: true };
+    else if (checked.reason === "unavailable" && reports.ownsIssue(guildId, report.duplicateOf)) {
+      // GitHub cannot be asked (no token, or it failed): accept only an issue one of our reports opened, and do not comment.
+      target = { number: report.duplicateOf, url: `https://github.com/${bugReportRepo()}/issues/${report.duplicateOf}`, verified: false };
+    } else {
+      return NextResponse.json({ error: "That issue is not open for reports. Send your report as a new one." }, { status: 409 });
+    }
+  }
+
   let saved;
   try {
     saved = reports.create({
@@ -43,6 +60,7 @@ export async function POST(request: Request) {
       description: report.description,
       expected: report.expected ?? null,
       context: report.context,
+      duplicateOf: target?.number ?? null,
     });
   } catch (error) {
     if (error instanceof BugReportServiceError) {
@@ -53,19 +71,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Could not save the report" }, { status: 500 });
   }
 
-  const issue = await createGithubIssue(
-    {
-      reportId: saved.id,
-      description: saved.description,
-      expected: saved.expected,
-      path: saved.path,
-      duelSlug: saved.duelSlug,
-      context: report.context,
-      baseUrl: webBaseUrl(request),
-    },
-    // Last line of defence: nothing that names the reporter or the guild may reach the public issue.
-    [actor.userId, actor.userName, guildId],
-  );
+  const issueInput = {
+    reportId: saved.id,
+    description: saved.description,
+    expected: saved.expected,
+    path: saved.path,
+    duelSlug: saved.duelSlug,
+    context: report.context,
+    baseUrl: webBaseUrl(request),
+  };
+  // Last line of defence: nothing that names the reporter or the guild may reach the public issue.
+  const redact = [actor.userId, actor.userName, guildId];
+
+  if (target) {
+    reports.recordIssue(saved.id, guildId, { number: target.number, url: target.url });
+    const commented = target.verified ? await commentOnIssue(target.number, issueInput, redact) : { ok: false as const, error: "GitHub could not check the issue, so no comment was added" };
+    if (!commented.ok) {
+      reports.recordIssueError(saved.id, guildId, commented.error);
+      console.warn(`[api/bug-reports] report ${saved.id} saved as +1 for #${target.number} without a comment: ${commented.error}`);
+    }
+    return NextResponse.json({ id: saved.id, issue: { number: target.number, url: target.url }, duplicate: true });
+  }
+
+  const issue = await createGithubIssue(issueInput, redact);
   if (issue.ok) {
     reports.recordIssue(saved.id, guildId, { number: issue.number, url: issue.url });
     return NextResponse.json({ id: saved.id, issue: { number: issue.number, url: issue.url } });
