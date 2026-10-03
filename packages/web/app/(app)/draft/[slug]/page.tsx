@@ -2,6 +2,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { AlertTriangle, Compass, Lock, RotateCw } from "lucide-react";
+import { SheetRoot } from "@/components/sheet";
 import { DraftManageView } from "@/components/draft/draft-manage-view";
 import { DraftSummaryView } from "@/components/draft/draft-summary-view";
 import { DraftRoom } from "@/components/draft/room/draft-room";
@@ -116,8 +119,7 @@ export default function DraftDetailPage() {
   const slug = typeof params.slug === "string" ? params.slug : "";
 
   const [draft, setDraft] = useState<DraftData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ status: number | null } | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // The room is shown while the draft is active; finishing it from the room ends on the finale.
@@ -136,12 +138,12 @@ export default function DraftDetailPage() {
     try {
       const res = await fetch(`/api/drafts/${slug}`);
       if (!res.ok) {
-        if (res.status === 404) throw new Error("Draft not found");
         if (res.status === 401) {
           router.push("/login");
           return;
         }
-        throw new Error("Failed to load draft");
+        setError({ status: res.status });
+        return;
       }
       const data = await res.json();
       if (data.status === DRAFT_STATUS.active) {
@@ -159,10 +161,9 @@ export default function DraftDetailPage() {
         });
       }
       setDraft(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load draft");
-    } finally {
-      setLoading(false);
+      setError(null);
+    } catch {
+      setError({ status: null });
     }
   }, [setFromServer, slug, router]);
 
@@ -256,27 +257,50 @@ export default function DraftDetailPage() {
     return res.text();
   };
 
-  if (loading) {
-    return (
-      <div>
-        <div className="mx-auto max-w-4xl p-6">
-          <div className="flex items-center justify-center py-20">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-accent-primary border-t-transparent" />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   if (error || !draft) {
+    const forbidden = error?.status === 403;
+    const missing = error?.status === 404;
     return (
-      <div>
-        <div className="mx-auto max-w-4xl p-6">
-          <div className="rounded-lg border border-accent-cta/20 bg-accent-cta/10 p-6 text-accent-cta">
-            {error ?? "Draft not found"}
-          </div>
+      <SheetRoot>
+        <div className="nf">
+          {error ? (
+            <>
+              <p className="nf-code">
+                {forbidden ? (
+                  <Lock className="ic" aria-hidden="true" />
+                ) : missing ? (
+                  <Compass className="ic" aria-hidden="true" />
+                ) : (
+                  <AlertTriangle className="ic" style={{ color: "var(--loss-ink)" }} aria-hidden="true" />
+                )}
+                {forbidden ? "403" : missing ? "404" : "Error"}
+              </p>
+              <h1 className="t-title">
+                {forbidden ? "This draft is only open to its players" : missing ? "No draft at this address" : "This draft didn't load"}
+              </h1>
+              {forbidden ? (
+                <p>Once a draft starts, only its host and the people drafting can open it.</p>
+              ) : missing ? (
+                <p>Nothing on this server matches{" "}<code>/draft/{slug}</code>.{" "}It may have been deleted, or the link has a typo.</p>
+              ) : (
+                <p>Nothing was changed. Try again, and if it keeps happening, tell whoever runs the bot.</p>
+              )}
+              <div className="acts">
+                {forbidden || missing ? (
+                  <Link className="btn btn-primary" href="/drafts">All drafts</Link>
+                ) : (
+                  <button className="btn btn-primary" type="button" onClick={() => void fetchDraft()}>
+                    <RotateCw className="ic" aria-hidden="true" />Try again
+                  </button>
+                )}
+                <Link className="btn btn-quiet" href="/dashboard">Dashboard</Link>
+              </div>
+            </>
+          ) : (
+            <p className="ref" role="status" aria-label="Loading draft">Loading draft…</p>
+          )}
         </div>
-      </div>
+      </SheetRoot>
     );
   }
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDraftStore } from "../../src/lib/stores/draft-store";
 
@@ -394,5 +394,58 @@ describe("DraftDetailPage — completion transition", () => {
     await waitFor(() => {
       expect(draftApiCallCount).toBe(2);
     });
+  });
+});
+
+describe("DraftDetailPage — load failures", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useDraftStore.setState(baseStoreState);
+  });
+
+  const respondWith = (status: number, body: unknown) =>
+    vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/auth/session") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-2" } }) } as Response);
+      }
+      return Promise.resolve({ ok: false, status, json: () => Promise.resolve(body) } as Response);
+    });
+
+  it("shows a private-draft sheet on 403, not a load failure", async () => {
+    global.fetch = respondWith(403, { error: "This draft is only open to its players." });
+
+    render(<DraftDetailPage />);
+
+    expect(await screen.findByRole("heading", { name: "This draft is only open to its players" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "All drafts" }).getAttribute("href")).toBe("/drafts");
+    expect(screen.getByRole("link", { name: "Dashboard" }).getAttribute("href")).toBe("/dashboard");
+    expect(screen.queryByText(/Failed to load draft/)).toBeNull();
+  });
+
+  it("shows a not-found sheet on 404 with the slug in the code element", async () => {
+    global.fetch = respondWith(404, { error: "Draft not found" });
+
+    render(<DraftDetailPage />);
+
+    expect(await screen.findByRole("heading", { name: "No draft at this address" })).toBeTruthy();
+    expect(document.querySelector("code")?.textContent).toBe("/draft/test-draft");
+    expect(screen.getByRole("link", { name: "All drafts" })).toBeTruthy();
+  });
+
+  it("shows a retry sheet on 500 and refetches when Try again is clicked", async () => {
+    const fetchMock = respondWith(500, { error: "boom" });
+    global.fetch = fetchMock;
+    const draftCalls = () => fetchMock.mock.calls.filter(([url]) => url === "/api/drafts/test-draft").length;
+
+    render(<DraftDetailPage />);
+
+    expect(await screen.findByRole("heading", { name: "This draft didn't load" })).toBeTruthy();
+    const before = draftCalls();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
+    });
+
+    await waitFor(() => expect(draftCalls()).toBe(before + 1));
   });
 });
