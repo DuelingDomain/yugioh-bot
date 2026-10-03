@@ -2855,6 +2855,21 @@
       "note": "Script fix (Q7, Q10): at:IsControler(tp) in the condition. Not part of R1."
     },
     {
+      "code": 43632709,
+      "file": "c43632709.lua",
+      "name": "Cerynemesia, Mystical Beast of the Forest",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "SINGLE+TRIGGER_O",
+      "wrap": {
+        "MPPick": [
+          "sptg"
+        ]
+      },
+      "stockSha256": "47219af7b4263d1ee90a7d7882c99783cf0f627d2f3bfdedc9d5013f79af4de1",
+      "note": "In Tag, select one opponent at activation for the opponent-hand effect. Keep the joined team field."
+    },
+    {
       "code": 44046281,
       "file": "c44046281.lua",
       "name": "Dimension Gate",
