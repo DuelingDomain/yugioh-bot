@@ -14,9 +14,11 @@ import {
   seriesKindLabel,
   seriesOutcome,
   seriesPlayerIndex,
+  seriesReadyRows,
   seriesRecordLabel,
   seriesScoreForViewer,
   seriesScoreText,
+  spectatorSeriesStatus,
   seriesWinnerIndex,
 } from "../src/components/duel/series-model";
 import { makeSeries, makeSeriesRoom } from "./helpers/duel-series";
@@ -99,11 +101,32 @@ describe("following the series", () => {
     expect(nextGameTarget(makeSeriesRoom({ series }), "game-2")).toBeNull();
   });
 
-  it("does not move a spectator, nor anyone once the series is over", () => {
-    const open = makeSeries({ currentDuelSlug: "game-2" });
+  it("moves a spectator who watched this game while it was the series' current game", () => {
+    const open = makeSeries({ status: "active", currentDuelSlug: "game-2" });
+    const room = makeSeriesRoom({ series: open, mySeat: null });
+    expect(nextGameTarget(room, "game-1", { followAsSpectator: true })).toBe("game-2");
+    expect(nextGameTarget(room, "game-2", { followAsSpectator: true })).toBeNull();
+  });
+
+  it("leaves a spectator who opened an older game of an open series where they are", () => {
+    const open = makeSeries({ status: "active", currentDuelSlug: "game-2" });
     expect(nextGameTarget(makeSeriesRoom({ series: open, mySeat: null }), "game-1")).toBeNull();
+    expect(nextGameTarget(makeSeriesRoom({ series: open, mySeat: null }), "game-1", { followAsSpectator: false })).toBeNull();
+  });
+
+  it("moves a spectator of a private table to the next game", () => {
+    const room = makeSeriesRoom({ series: makeSeries({ status: "active", currentDuelSlug: "game-2" }), mySeat: null });
+    room.session.settings = { visibility: "private" } as typeof room.session.settings;
+    expect(nextGameTarget(room, "game-1", { followAsSpectator: true })).toBe("game-2");
+    expect(nextGameTarget(room, "game-1")).toBeNull();
+  });
+
+  it("moves nobody once the series is over", () => {
     const done = makeSeries({ status: "completed", currentDuelSlug: "game-2" });
     expect(nextGameTarget(makeSeriesRoom({ series: done }), "game-1")).toBeNull();
+    expect(nextGameTarget(makeSeriesRoom({ series: done, mySeat: null }), "game-1", { followAsSpectator: true })).toBeNull();
+    const cancelled = makeSeries({ status: "cancelled", currentDuelSlug: "game-2" });
+    expect(nextGameTarget(makeSeriesRoom({ series: cancelled, mySeat: null }), "game-1", { followAsSpectator: true })).toBeNull();
   });
 
   it("finds the side deck window for this game only", () => {
@@ -191,10 +214,22 @@ describe("betweenGamesInfo", () => {
     expect(betweenGamesInfo(room, "game-1")?.first).toBe("You go first (the opponent chose to go second)");
   });
 
-  it("keeps the old wording for a series saved before the choice existed", () => {
+  it("labels the default order for a series saved before the choice existed", () => {
     const room = makeSeriesRoom({ series: between({ wins: [0, 1] }) });
     room.session.winnerSeat = 1;
-    expect(betweenGamesInfo(room, "game-1")?.first).toBe("You go first (the loser of game 1 goes first)");
+    expect(betweenGamesInfo(room, "game-1")?.first).toBe("You go first (default order)");
+  });
+
+  it.each(["first", "second"] as const)("names who goes first for a spectator after the loser chooses %s", (choice) => {
+    const room = makeSeriesRoom({ series: between({ firstChooser: 1, firstChoice: choice }), mySeat: null });
+    expect(betweenGamesInfo(room, "game-1")?.first).toBe(
+      `${choice === "first" ? "Imran" : "Sulman"} goes first (Imran chose to go ${choice})`,
+    );
+  });
+
+  it("names the chooser to a spectator without announcing the order before the choice", () => {
+    const room = makeSeriesRoom({ series: between({ firstChooser: 1 }), mySeat: null });
+    expect(betweenGamesInfo(room, "game-1")?.first).toBe("Imran is choosing to go first or second…");
   });
 
   it("uses the winner's player id when the session has one", () => {
@@ -240,6 +275,91 @@ describe("opponentSideStatus", () => {
     const series = makeSeries({ status: "between_games", nextGameAt: null });
     expect(opponentSideStatus(series, 0)).toEqual({ text: "Opponent is not ready", ready: false });
     expect(opponentSideStatus(series, null)).toBeNull();
+  });
+});
+
+describe("seriesReadyRows", () => {
+  it("lists both players by name with their Ready state while the side deck window runs", () => {
+    const series = makeSeries({ status: "between_games", nextGameAt: "2026-10-01T10:00:00.000Z", sideReady: [true, false] });
+    expect(seriesReadyRows(series)).toEqual([
+      { name: "Sulman", ready: true, text: "Ready" },
+      { name: "Imran", ready: false, text: "Side decking…" },
+    ]);
+  });
+
+  it("says not ready instead of side decking when no deadline runs", () => {
+    const series = makeSeries({ status: "between_games", nextGameAt: null, sideReady: [false, true] });
+    expect(seriesReadyRows(series)).toEqual([
+      { name: "Sulman", ready: false, text: "Not ready" },
+      { name: "Imran", ready: true, text: "Ready" },
+    ]);
+  });
+});
+
+describe("spectatorSeriesStatus", () => {
+  const spectator = (overrides: Parameters<typeof makeSeries>[0], slug = "game-1") =>
+    spectatorSeriesStatus(makeSeriesRoom({ series: makeSeries(overrides), mySeat: null }), slug);
+
+  it("tells a spectator that the players are side decking, with both Ready states", () => {
+    const status = spectator({ status: "between_games", wins: [1, 0], nextGameAt: "2026-10-01T10:00:00.000Z", sideReady: [false, true] });
+    expect(status).toEqual({
+      kind: "siding",
+      headline: "Side decking in progress",
+      detail: "Game 2 of 3 starts when both players are ready or the timer runs out.",
+      players: [
+        { name: "Sulman", ready: false, text: "Side decking…" },
+        { name: "Imran", ready: true, text: "Ready" },
+      ],
+      follow: true,
+    });
+  });
+
+  it("waits for both players after an interrupted game", () => {
+    const status = spectator({ status: "between_games", nextGameAt: null });
+    expect(status).toMatchObject({
+      kind: "siding",
+      headline: "Waiting for both players",
+      detail: "Game 2 of 3 starts when both players click Ready.",
+    });
+  });
+
+  it("waits for the first/second choice even when both players are ready", () => {
+    expect(spectator({ status: "between_games", nextGameAt: "2030-01-01T00:00:00.000Z", sideReady: [true, true], firstChooser: 1 })).toMatchObject({
+      detail: "Game 2 of 3 starts when both players are ready and the first/second choice is made, or the timer runs out.",
+    });
+    expect(spectator({ status: "between_games", nextGameAt: "2030-01-01T00:00:00.000Z", sideReady: [true, true], firstChooser: 1, firstChoice: "second" })).toMatchObject({
+      detail: "Game 2 of 3 starts when both players are ready or the timer runs out.",
+    });
+  });
+
+  it("points at the next game once it is being played", () => {
+    expect(spectator({ status: "active", wins: [1, 0], gameNumber: 2, currentDuelSlug: "game-2" })).toEqual({
+      kind: "next-live",
+      headline: "Game 2 of 3 is live",
+      nextSlug: "game-2",
+      follow: true,
+    });
+  });
+
+  it("offers to follow into the next private game", () => {
+    const room = makeSeriesRoom({ series: makeSeries({ status: "active", gameNumber: 2, currentDuelSlug: "game-2" }), mySeat: null });
+    room.session.settings = { visibility: "private" } as typeof room.session.settings;
+    expect(spectatorSeriesStatus(room, "game-1")).toMatchObject({ kind: "next-live", follow: true });
+  });
+
+  it("tells a private spectator they will follow after side decking", () => {
+    const room = makeSeriesRoom({ series: makeSeries({ status: "between_games", nextGameAt: "2026-10-01T10:00:00.000Z" }), mySeat: null });
+    room.session.settings = { visibility: "private" } as typeof room.session.settings;
+    expect(spectatorSeriesStatus(room, "game-1")).toMatchObject({ kind: "siding", follow: true });
+  });
+
+  it("is null for a player, a decided series and a game still in play", () => {
+    const between = makeSeries({ status: "between_games", nextGameAt: "2026-10-01T10:00:00.000Z" });
+    expect(spectatorSeriesStatus(makeSeriesRoom({ series: between }), "game-1")).toBeNull();
+    expect(spectator({ status: "completed", winnerPlayerId: 1, wins: [2, 1] })).toBeNull();
+    expect(spectator({ status: "cancelled" })).toBeNull();
+    expect(spectator({ status: "active", currentDuelSlug: "game-1" })).toBeNull();
+    expect(spectatorSeriesStatus(makeSeriesRoom({ series: null, mySeat: null }), "game-1")).toBeNull();
   });
 });
 
