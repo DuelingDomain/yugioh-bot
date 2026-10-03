@@ -9,6 +9,8 @@ import { engineDataDirectory } from "./engine-data-dir.js";
 // cannot be destroyed. Its chain count resets after each chain. The action is
 // legal and has no result. Repeating it is a driver loop; two passes advance
 // the phase. NChecker reads every seat and spectator after every real answer.
+// The seed fixes this game only without the Domain first-turn draw: a draw
+// changes the Deck order and the seed no longer reaches the loop. Pin the flag.
 describeWithCores("Domain fuzz can leave an optional chain loop", [liveNseat, ...needs.domainMulti()], () => {
   it("Tag seed 60 reaches a result after repeated effects with no result", async () => {
     const bytes = readFileSync(currentDomainMultiWasm());
@@ -16,6 +18,7 @@ describeWithCores("Domain fuzz can leave an optional chain loop", [liveNseat, ..
     Date.now = () => Date.UTC(2026, 0, 1);
     try {
       const result = await playDuel({ format: "tag", seed: 60, mode: "domain", masterRule: 5, maxSteps: 1000, eliminateRate: 0.5 }, {
+        firstTurnDraw: false,
         dataDirectory: engineDataDirectory,
         multiWasmBinary: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
       });
