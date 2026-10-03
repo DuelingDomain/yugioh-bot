@@ -43,6 +43,11 @@
   --duel-z-result: 200;         /* the result screen */
 }
 
+/* The floating Report bug button sits bottom-left. The duel side columns pad their bottom by this much so it covers
+   nothing; the narrow layout (<= 900px, bottom bar) lifts the button instead. */
+:root { --bug-fab-clear: 3.25rem; }
+@media (width <= 900px) { :root { --bug-fab-clear: 0px; } }
+
 html {
   background-color: var(--color-bg-deep);
   color: var(--color-text-primary);

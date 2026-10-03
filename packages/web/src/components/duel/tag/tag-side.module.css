@@ -8,6 +8,8 @@
   min-height: 0;
   border-right: 1px solid var(--duel-rule);
   background: linear-gradient(180deg, rgb(10 17 32 / 0.92), rgb(7 11 21 / 0.92));
+  /* The bottom-left corner stays free for the floating Report bug button (globals.css sets the clearance). */
+  padding-bottom: var(--bug-fab-clear, 0px);
 }
 .left > :first-child { flex: none; }
 .sideContent { position: relative; flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; }

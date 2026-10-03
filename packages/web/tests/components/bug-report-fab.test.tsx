@@ -1,0 +1,68 @@
+// @vitest-environment jsdom
+import React from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const nav = vi.hoisted(() => ({ path: "/leaderboard" }));
+vi.mock("next/navigation", () => ({ usePathname: () => nav.path }));
+
+import { BugReportFab } from "@/components/bug-report/bug-report-fab";
+import { getBugReportRoom, useBugReportRoom } from "@/components/bug-report/room-store";
+import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
+
+const fetchMock = vi.fn();
+beforeEach(() => {
+  vi.clearAllMocks();
+  fetchMock.mockImplementation(async () => new Response(JSON.stringify({ id: 4, issue: { number: 77, url: "https://github.com/imran443/yugioh-bot/issues/77" } }), { status: 200 }));
+  vi.stubGlobal("fetch", fetchMock);
+  nav.path = "/leaderboard";
+  window.history.replaceState(null, "", "/leaderboard");
+});
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+function Room({ room }: { room: typeof FFA3_FIXTURES.states.main.room }) {
+  useBugReportRoom(room);
+  return <p>room</p>;
+}
+
+describe("floating Report bug button", () => {
+  it("is a red button fixed at the bottom-left, using the design tokens", () => {
+    render(<BugReportFab />);
+    const button = screen.getByRole("button", { name: "Report bug" });
+    expect(button.className).toContain("fixed");
+    expect(button.className).toContain("bottom-3 left-3");
+    expect(button.className).toContain("bg-accent-cta");
+    expect(button.className).not.toMatch(/#[0-9a-fA-F]{3,6}/);
+  });
+
+  it("sends a page report with the path only outside a duel", async () => {
+    render(<BugReportFab />);
+    fireEvent.click(screen.getByRole("button", { name: "Report bug" }));
+    fireEvent.change(screen.getByLabelText(/What went wrong\?/), { target: { value: "Page is slow" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send report" })); });
+    expect(await screen.findByRole("link", { name: "#77" })).toBeTruthy();
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body).toMatchObject({ description: "Page is slow", path: "/leaderboard" });
+    expect(body.duelSlug).toBeUndefined();
+    expect(body.context.format).toBeUndefined();
+  });
+
+  it("sends the duel on screen, and forgets it when the room goes away", async () => {
+    nav.path = `/duels/${FFA3_FIXTURES.states.main.room.session.slug}`;
+    const room = FFA3_FIXTURES.states.main.room;
+    const view = render(<><Room room={room} /><BugReportFab /></>);
+    expect(getBugReportRoom()).toBe(room);
+    expect(screen.getByRole("button", { name: "Report bug" })).toHaveAttribute("data-in-duel", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Report bug" }));
+    fireEvent.change(screen.getByLabelText(/What went wrong\?/), { target: { value: "Chain froze" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send report" })); });
+    await screen.findByTestId("bug-report-done");
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.duelSlug).toBe(room.session.slug);
+    expect(body.context).toMatchObject({ format: "ffa3", seat: room.mySeat });
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    view.rerender(<BugReportFab />);
+    expect(getBugReportRoom()).toBeNull();
+  });
+});

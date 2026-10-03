@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { BugReportMenuButton } from "../../bug-report/bug-report-menu-button";
 import type { DuelWebsocketState } from "@/lib/hooks/use-duel-websocket";
 import fxStyles from "../battle-fx.module.css";
 import { DuelAnimationSpeedControl } from "../animation-speed-control";
@@ -86,6 +87,7 @@ export function TableSettings({ controller, preferences, connection, tools }: {
           </div> : null}
         </>
       ) : null}
+      {connection ? <BugReportMenuButton room={room} /> : null}
       {tools}
       {room.session.status === "completed" || room.session.status === "interrupted" ? <>
         <p>Finished. This duel is in Match history.</p>

@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { PhoneTopBar } from "./phone-top-bar";
 import { MobileDrawer } from "./mobile-drawer";
+import { BugReportDialog } from "../bug-report/bug-report-dialog";
+import { collectBugContext } from "../bug-report/context";
 import { useShellAccount } from "./use-shell-account";
 import { PHONE_MAX_WIDTH } from "./shell-model";
 import styles from "./shell.module.css";
@@ -30,6 +32,7 @@ function writeCollapsed(value: boolean) {
 function ShellFrame({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   const wasOpen = useRef(false);
@@ -54,6 +57,10 @@ function ShellFrame({ children }: { children: ReactNode }) {
   }, []);
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
+  const openReport = useCallback(() => setReportOpen(true), []);
+  const closeReport = useCallback(() => setReportOpen(false), []);
+  // A page report has no room: the path and the browser details only.
+  const collectPage = useCallback(() => collectBugContext(null), []);
 
   // Close the phone menu when the window grows past phone width.
   useEffect(() => {
@@ -83,13 +90,14 @@ function ShellFrame({ children }: { children: ReactNode }) {
         className={`${styles.frame} min-h-screen bg-bg-deep text-text-primary`}
         data-sidebar-collapsed={sidebarCollapsed ? "true" : "false"}
       >
-        <PhoneTopBar ref={menuButtonRef} account={account} menuOpen={drawerOpen} onMenuClick={() => setDrawerOpen(true)} />
-        <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} account={account} />
+        <PhoneTopBar ref={menuButtonRef} account={account} menuOpen={drawerOpen} onMenuClick={() => setDrawerOpen(true)} onReportBug={openReport} />
+        <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} account={account} onReportBug={openReport} />
         <main className={styles.main}>
           <div className="mx-auto p-4 sm:p-6 lg:p-8">{children}</div>
         </main>
       </div>
-      <MobileDrawer open={drawerOpen} onClose={closeDrawer} account={account} />
+      <MobileDrawer open={drawerOpen} onClose={closeDrawer} account={account} onReportBug={openReport} />
+      <BugReportDialog open={reportOpen} onClose={closeReport} collect={collectPage} />
     </>
   );
 }

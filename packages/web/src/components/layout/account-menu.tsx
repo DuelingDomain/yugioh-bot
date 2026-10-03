@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { ChevronsUpDown, LogOut, User } from "lucide-react";
+import { Bug, ChevronsUpDown, LogOut, User } from "lucide-react";
 import type { ShellAccount } from "./use-shell-account";
 import { isOwnProfile } from "./shell-model";
 import styles from "./shell.module.css";
@@ -15,6 +15,8 @@ interface AccountMenuProps {
   variant: "side" | "phone";
   /** Called when a menu choice navigates, so a surrounding drawer can close. */
   onNavigate?: () => void;
+  /** Opens the Report bug dialog, which the shell owns so it outlives this menu and a surrounding drawer. */
+  onReportBug?: () => void;
 }
 
 function Avatar({ account }: { account: ShellAccount }) {
@@ -31,7 +33,7 @@ function Avatar({ account }: { account: ShellAccount }) {
   );
 }
 
-export function AccountMenu({ account, pathname, variant, onNavigate }: AccountMenuProps) {
+export function AccountMenu({ account, pathname, variant, onNavigate, onReportBug }: AccountMenuProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -197,6 +199,22 @@ export function AccountMenu({ account, pathname, variant, onNavigate }: AccountM
             </>
           )}
           <div className="menu-sep" role="separator" />
+          {onReportBug ? (
+            <button
+              className="ns-mi"
+              role="menuitem"
+              type="button"
+              onClick={() => {
+                // Focus goes back to the trigger first, so the dialog gives it back there when it closes.
+                closeToTrigger();
+                onReportBug();
+                onNavigate?.();
+              }}
+            >
+              <Bug className="ic" aria-hidden="true" />
+              Report bug
+            </button>
+          ) : null}
           <button
             className="ns-mi"
             role="menuitem"
