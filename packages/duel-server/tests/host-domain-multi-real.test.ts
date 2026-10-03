@@ -45,7 +45,7 @@ async function table(format: DuelFormat, humans = 1, drawPerTurn = 1) {
       headers: { "x-announce-signature": "sha256=" + createHmac("sha256", SECRET).update(raw).digest("hex") } }));
     return { status: response.status, data: await response.json() as DuelRoom & { error?: string } };
   };
-  for (const player of players.slice(1)) duels.join(session.slug, "g", player);
+  for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
   const deck = buildPracticeBotDeck("domain", DATA);
   for (let seat = 0; seat < humans; seat++) expect((await post("deck", { deck }, seat)).status).toBe(200);
   for (let seat = humans; seat < seatCountFor(format); seat++) expect((await post("add-bot", { seat })).status).toBe(200);

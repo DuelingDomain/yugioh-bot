@@ -75,7 +75,7 @@ describe("GET /api/tournaments/[slug]", () => {
     seedDb.prepare("insert into tournament_participants (tournament_id, player_id) values (1, 2)").run();
     seedDb
       .prepare(
-        "insert into matches (id, guild_id, player_one_id, player_two_id, status, winner_id, reporter_id, source, resolved_at) values (500, 'guild-1', 1, 2, 'completed', 1, 1, 'tournament', '2026-05-03T14:30:00Z')",
+        "insert into matches (id, guild_id, player_one_id, player_two_id, status, winner_id, reporter_id, source, resolved_at) values (500, 'guild-1', 1, 2, 'approved', 1, 1, 'tournament', '2026-05-03T14:30:00Z')",
       )
       .run();
     seedDb

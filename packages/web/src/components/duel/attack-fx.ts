@@ -1008,8 +1008,10 @@ function runReduced(cx: Ctx, plan: AttackFxPlan): void {
   };
   const fade = (cut: FxCut | null, role: string, at: number) => {
     if (!cut) return;
+    // The card stands whole until the break and is gone in the next frame: the flight to the pile starts at
+    // `at`, so a slow fade here would show the card twice (on the field and in the air).
     fragments(cx, cut, role, [[[0, 0], [100, 0], [100, 100], [0, 100]]], (piece) => {
-      add(cx, piece, [{ opacity: 1 }, { opacity: 1, offset: 0.4 }, { opacity: 0 }], { at, dur: 560 });
+      add(cx, piece, [{ opacity: 1 }, { opacity: 0 }], { at, dur: 1 });
     });
   };
   if (attacker.caption) caption(cx, geoFor(attacker, plan.hit, null, attacker.tint, plan.seed, !defender, cx.u), attacker.caption, attacker.tint, 0);

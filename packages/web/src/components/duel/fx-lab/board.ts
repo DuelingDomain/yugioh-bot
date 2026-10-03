@@ -1,4 +1,4 @@
-import type { DuelCard, DuelCardInfo, DuelChainLink, DuelEvent, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelCardInfo, DuelChainLink, DuelEvent, DuelMasterRule, DuelPrompt, DuelSeatView, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
   LOCATION_DECK,
   LOCATION_EXTRA,
@@ -11,6 +11,7 @@ import {
   POS_FACEDOWN_DEFENSE,
   POS_FACEUP_ATTACK,
 } from "../constants";
+import type { BattleStep } from "../station-track";
 
 /**
  * The scripted board of one FX lab scenario: pure data and pure functions, no React and no DOM.
@@ -23,6 +24,8 @@ export type LabBoard = {
   chain: DuelChainLink[];
   phase: string;
   turnSeat: number;
+  /** Public prompt ownership; no prompt contents are needed to preview opponent priority. */
+  prioritySeat?: number | null;
 };
 
 /** An engine event before the runner gives it an id. */
@@ -53,13 +56,57 @@ export type LabScript = {
   legalKeys?: string[];
   /** The aim arrow BattleFx draws while a player chooses a target. Static for the whole run. */
   aim?: LabAim;
+  /** A prompt for the bottom player, drawn by the real PromptCenter over the effect layers. Static for the whole run. */
+  prompt?: {
+    prompt: DuelPrompt;
+    battleStep?: BattleStep;
+    /** Option ids shown as already picked. */
+    selected?: string[];
+    /** Clicks on the legal cards toggle the pick, as in a duel (nothing is ever sent). */
+    interactive?: boolean;
+  };
   /** Show the Deck Master rail (a Domain duel). */
   domain?: boolean;
   /** Whose view: seat 0 is the bottom player. */
   mySeat?: number;
+  /** The Master Rule the board is drawn for (default 5): it decides the Extra Monster and Pendulum zones. */
+  masterRule?: DuelMasterRule;
+  /** A Best of 3 game: the header shows the game label; `screen` opens a between-games or match screen over the board. */
+  series?: LabSeries;
+  /** The rock-paper-scissors opening: the screen opens over the board, in a lobby room. */
+  opening?: LabOpening;
 };
 
-export type LabCategory = "Attacks" | "Destroy" | "Summons" | "Card moves" | "Chain" | "LP" | "Banners" | "Board states";
+/** What the opening part of a lab scenario shows. The buttons call the real API, which fails in the lab. */
+export type LabOpening = {
+  stage: "pick" | "pick-chosen" | "reveal-win" | "reveal-lose" | "reveal-tie" | "choose" | "wait-choose" | "start";
+  /** Opponent already played this round. */
+  opponentChose?: boolean;
+};
+
+/** What the series part of a Best of 3 lab scenario shows. Static for the whole run. */
+export type LabSeries = {
+  /** The score after the game on screen, you first. */
+  wins: [number, number];
+  /** Game number of the duel on screen. */
+  game: number;
+  /** Which screen opens over the board; "label" shows the board with the header label only. */
+  screen: "label" | "side" | "ready" | "won";
+  /** The player in seat 1 has not clicked Ready, or has. */
+  opponentReady?: boolean;
+  /** Seconds left in the side deck window (ready and side screens). */
+  secondsLeft?: number;
+  /** What the loser of the last game chose for the next game; absent while they are still choosing. */
+  choice?: "first" | "second";
+  /** The opponent is the practice bot: no player id, ready at once, no side deck. */
+  vsBot?: boolean;
+  /** Side deck screen: siding already in progress. "even" takes 2 cards out and brings 2 in; "uneven" takes 2 out and brings 1 in. */
+  marks?: "even" | "uneven";
+  /** Side deck screen: the player's deck has no Side Deck. */
+  noSide?: boolean;
+};
+
+export type LabCategory = "Attacks" | "Destroy" | "Summons" | "Card moves" | "Chain" | "LP" | "Banners" | "Board states" | "Match";
 
 export type LabScenario = {
   id: string;

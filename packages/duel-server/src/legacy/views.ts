@@ -239,8 +239,13 @@ export function phaseName(phase: OcgPhase): string {
   return ocgPhaseString.get(phase) ?? String(phase);
 }
 
+/** Announce the turn-start phases so the client can pace Draw, Standby and Main Phase 1. */
 function announcedPhaseTitle(phase: OcgPhase): string | null {
   switch (phase) {
+    case OcgPhase.DRAW:
+      return "Draw Phase";
+    case OcgPhase.STANDBY:
+      return "Standby Phase";
     case OcgPhase.MAIN1:
       return "Main Phase 1";
     case OcgPhase.BATTLE_START:
@@ -1137,6 +1142,7 @@ export function projectView(args: {
     battleStep: args.battleStep ?? null,
     seats,
     prompt: projectPrompt(args.prompt, args.viewer, args.promptSeat, seats, args.reveals),
+    prioritySeat: args.prompt && !args.result ? args.promptSeat : null,
     chain,
     events: args.events.map((event) => projectStoredEvent(event, args.viewer)),
     log: args.log

@@ -1,5 +1,5 @@
-import type { DuelCardInfo } from "@yugidraft/shared/duels";
-import { POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../constants";
+import type { DuelCardInfo, DuelMasterRule } from "@yugidraft/shared/duels";
+import { LOCATION_HAND, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../constants";
 import {
   BANISHED,
   DECK,
@@ -21,6 +21,8 @@ import {
   type SeatOptions,
 } from "./board";
 import { CARDS } from "./cards";
+import { SERIES_SCENARIOS } from "./series-scenarios";
+import { PRIORITY_SCENARIOS } from "./priority-scenarios";
 
 /**
  * The scenario catalog of the FX lab. Every scenario is a pure builder: it returns a start board and
@@ -1093,6 +1095,63 @@ const BANNERS: LabScenario[] = [
 
 /* ---------- board states ---------- */
 
+/** The "discard 2" pick bar over a board with hand cards to pick; `selected` are the option ids shown as picked. */
+function selectScenario(id: string, name: string, description: string, selected: string[], interactive = false): LabScenario {
+  const hand = [C.sangan, C.kuriboh, C.potOfGreed, C.monsterReborn];
+  return {
+    id,
+    category: "Board states",
+    name,
+    description,
+    build: () =>
+      script(board((e) => e.push(edit.monster(ME, 2, C.celtic), edit.monster(OPP, 2, C.harpie))), [], 2400, {
+        legalKeys: hand.map((_, index) => `0:${LOCATION_HAND}:${index}`),
+        prompt: {
+          selected,
+          interactive,
+          prompt: {
+            id: "lab-select",
+            seat: ME,
+            kind: "cards",
+            title: "Select the card(s) to discard",
+            min: 2,
+            max: 2,
+            options: hand.map((card, index) => ({
+              id: `card:${index}`,
+              label: card.name,
+              card,
+              controller: ME,
+              location: LOCATION_HAND,
+              sequence: index,
+            })),
+          },
+        },
+      }),
+  };
+}
+
+/** A field as a given Master Rule draws it: Extra Monster Zones from MR4, Pendulum Zones from MR3 (apart under MR3). */
+function fieldRuleScenario(rule: DuelMasterRule, name: string, description: string): LabScenario {
+  return {
+    id: `state-field-mr${rule}`,
+    category: "Board states",
+    name,
+    description,
+    build: () =>
+      script(
+        board((e) => {
+          e.push(edit.monster(ME, 1, C.celtic), edit.monster(ME, 3, C.blueEyes), edit.monster(OPP, 2, C.harpie), edit.setSpell(ME, 2, C.solemn), edit.hiddenSpell(OPP, 3));
+          if (rule >= 4) e.push(edit.monster(ME, 5, C.decodeTalker), edit.monster(OPP, 5, C.decodeTalker));
+          if (rule === 3) e.push(edit.spell(ME, 6, C.oddEyes), edit.spell(OPP, 7, C.oddEyes));
+          if (rule >= 4) e.push(edit.spell(ME, 0, C.oddEyes), edit.spell(OPP, 4, C.oddEyes));
+        }),
+        [],
+        2400,
+        { masterRule: rule },
+      ),
+  };
+}
+
 const STATES: LabScenario[] = [
   {
     id: "state-equip",
@@ -1150,6 +1209,42 @@ const STATES: LabScenario[] = [
         { aim: { mode: "aim", from: "0:4:2", to: { zones: ["1:4:2"] } } },
       ),
   },
+  {
+    id: "state-aim-prompt",
+    category: "Board states",
+    name: "Aim arrow under a prompt",
+    description: "The Battle Step response bar while an attack is aimed. The bar draws above the arrow; the arrow still shows over the board.",
+    build: () =>
+      script(
+        board((e) => e.push(edit.monster(ME, 2, C.blueEyes), edit.monster(OPP, 2, C.celtic), edit.monster(OPP, 4, C.harpie)), myHand, oppHand, "battle"),
+        [],
+        2400,
+        {
+          aim: { mode: "locked", from: "0:4:2", to: { zones: ["1:4:4"] } },
+          prompt: {
+            battleStep: "battle",
+            prompt: {
+              id: "lab-prompt",
+              seat: ME,
+              kind: "choice",
+              title: "Activate its effect?",
+              cancelable: true,
+              context: { type: "chain", forced: false },
+              options: [{ id: "card:0", label: "Blue-Eyes Spirit Dragon", card: C.blueSpirit }],
+            },
+          },
+        },
+      ),
+  },
+  selectScenario("state-select-discard", "Select prompt: discard 2", "The on-board pick bar with nothing picked yet. Confirm is off.", []),
+  selectScenario(
+    "state-select-discard-try",
+    "Select prompt: discard 2, try it",
+    "Click the hand cards to pick two. Hover and leave: a card is large only under the pointer, also after a click. A third card shakes with a hint; click a picked card to undo it.",
+    [],
+    true,
+  ),
+  selectScenario("state-select-discard-done", "Select prompt: discard 2, done", "The same bar with 2 of 2 picked. Confirm is the gold button.", ["card:0", "card:2"]),
   {
     id: "state-aim-direct",
     category: "Board states",
@@ -1214,13 +1309,17 @@ const STATES: LabScenario[] = [
     description: "The result screen when the duel ends with no winner.",
     build: () => script(board(), [{ at: 0, result: { winnerSeat: null, reason: "Both players ran out of time" } }], 3600),
   },
+
+  fieldRuleScenario(5, "Master Rule 5: Extra Monster Zones", "Two Extra Monster Zones between the fields (a Link monster each) and the Pendulum Zones in the outer Spell/Trap Zones."),
+  fieldRuleScenario(3, "Master Rule 3: no Extra Monster Zones", "No Extra Monster Zones. The two Pendulum Zones are separate zones beside each field, so the board is wider."),
+  fieldRuleScenario(1, "Master Rule 1: plain field", "No Extra Monster Zones and no Pendulum Zones: five monster zones, five Spell/Trap Zones and a Field Zone."),
 ];
 
 /* ---------- catalog ---------- */
 
-export const LAB_CATEGORIES: readonly LabCategory[] = ["Attacks", "Destroy", "Summons", "Card moves", "Chain", "LP", "Banners", "Board states"];
+export const LAB_CATEGORIES: readonly LabCategory[] = ["Attacks", "Destroy", "Summons", "Card moves", "Chain", "LP", "Banners", "Board states", "Match"];
 
-export const LAB_SCENARIOS: readonly LabScenario[] = [...ATTACKS, ...DESTROY, ...SUMMONS, ...MOVES, ...CHAIN, ...LP, ...BANNERS, ...STATES];
+export const LAB_SCENARIOS: readonly LabScenario[] = [...ATTACKS, ...DESTROY, ...SUMMONS, ...MOVES, ...CHAIN, ...LP, ...BANNERS, ...STATES, ...PRIORITY_SCENARIOS, ...SERIES_SCENARIOS];
 
 export function scenariosIn(category: LabCategory): LabScenario[] {
   return LAB_SCENARIOS.filter((scenario) => scenario.category === category);

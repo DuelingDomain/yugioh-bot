@@ -17,6 +17,7 @@ import {
   LP_TIMING,
   MIN_VISIBLE_MS,
   MOVE_PACE,
+  PHASE_TIMING,
   VISIBLE_EFFECT_MS,
 } from "../../src/components/duel/duel-timing";
 import { rollDurationMs } from "../../src/components/duel/life-points";
@@ -110,5 +111,13 @@ describe("duel pace minimums", () => {
     expect(REVEAL_TIMING.reducedMs).toBeGreaterThan(0);
     expect(REVEAL_TIMING.reducedMs).toBeLessThan(REVEAL_TIMING.beatMs);
     expect(MOVE_TIMING.reduced).toBeLessThan(MIN_VISIBLE_MS);
+  });
+});
+
+describe("phase beats", () => {
+  it("shows an empty phase for 0.8 to 1.2 seconds", () => {
+    expect(PHASE_TIMING.beatMs).toBeGreaterThanOrEqual(800);
+    expect(PHASE_TIMING.beatMs).toBeLessThanOrEqual(1200);
+    expect(VISIBLE_EFFECT_MS["phase ribbon"]).toBe(PHASE_TIMING.beatMs);
   });
 });

@@ -1,3 +1,4 @@
+// Draw/Standby integration cases mirrored from main cec00380 (included in afd5f228).
 // MAIN'S TEST, run against the legacy 1v1 engine (src/legacy). A copy of packages/duel-server/tests/engine-events.test.ts from origin/main (78b8caa)
 // with only the import paths changed: engine, views and prompts come from ../../src/legacy, the other sources from ../../src, and
 // the data dir helper from ../engine-data-dir.js. Do not edit it to make the legacy engine pass: the legacy engine must equal main. See legacy-1v1/README.md.
@@ -709,5 +710,91 @@ describe("event observer messages", () => {
       expect(run(move(4, at(0, OcgLocation.MZONE, 0), at(0, OcgLocation.OVERLAY, 0)))).toEqual([]);
       expect(run(move(4, at(0, OcgLocation.MZONE, 0), at(1, OcgLocation.MZONE, 1)))).toHaveLength(1);
     });
+  });
+});
+
+describe("duel start and turn start phases", () => {
+  const RUSH_RECKLESSLY = 70046172;
+
+  async function openQuiet(a: number[]): Promise<EngineGame> {
+    const fill = (head: number[]) => ({ main: [...head, ...weak.slice(10, 45 - head.length)], extra: [], side: [] });
+    return createEngineGame({
+      mode: "normal",
+      decks: [fill(a), fill([])],
+      seed,
+      dataDirectory,
+      settings: {
+        visibility: "public",
+        banlist: "none",
+        cardPool: "both",
+        turnSeconds: 240,
+        startingLP: 8000,
+        startingHand: 5,
+        drawPerTurn: 1,
+        timeout: "loss",
+        validateDeck: false,
+        shuffleDeck: false,
+        stopAtEveryWindow: false,
+      },
+    });
+  }
+
+  it("announces the opening deal, then Draw, Standby and Main Phase 1 of turn 1", async () => {
+    const game = await openGame([], []);
+    try {
+      const events = game.view(0).events;
+      const draws = events.filter((event) => event.kind === "move" && event.reason === "draw");
+      expect(draws).toHaveLength(10);
+      const phases = events.filter((event) => event.kind === "phase").map((event) => event.text);
+      expect(phases).toEqual(["Draw Phase", "Standby Phase", "Main Phase 1"]);
+      const lastDraw = Math.max(...draws.map((event) => event.id));
+      const firstPhase = events.find((event) => event.kind === "phase")!;
+      expect(firstPhase.id).toBeGreaterThan(lastDraw);
+    } finally {
+      game.close();
+    }
+  });
+
+  it("announces Draw, the draw, Standby and Main Phase 1 on a later turn", async () => {
+    const game = await openGame([], []);
+    try {
+      const after = game.view(0).events.at(-1)!.id;
+      drive(game, ({ view }) => (view.turn >= 2 ? "stop" : null));
+      const fresh = game.view(game.view(0).prompt ? 0 : 1).events.filter((event) => event.id > after);
+      const sequence = fresh.filter((event) => event.kind === "phase" || (event.kind === "move" && event.reason === "draw"));
+      const labels = sequence.map((event) => (event.kind === "phase" ? event.text : "draw"));
+      expect(labels.slice(-4)).toEqual(["Draw Phase", "draw", "Standby Phase", "Main Phase 1"]);
+    } finally {
+      game.close();
+    }
+  });
+
+  it("offers a Quick-Play Spell in the opponent's Draw Phase even with quiet windows on", async () => {
+    const game = await openQuiet([RUSH_RECKLESSLY, RUSH_RECKLESSLY, RUSH_RECKLESSLY]);
+    try {
+      const reached = drive(game, ({ view, prompt }) => {
+        if (view.turn >= 2 && view.phase === "draw" && prompt.context?.type === "chain") return "stop";
+        // Rush Recklessly needs a monster to target: summon one, then set the spells.
+        if (view.turn !== 1) return null;
+        const pick = prompt.options.find((option) => option.id.startsWith("summon:")) ?? prompt.options.find((option) => option.id.startsWith("sset:"));
+        return pick ? { choice: pick.id } : null;
+      });
+      expect(reached.seat).toBe(0);
+      expect(reached.prompt.context?.type).toBe("chain");
+      expect(reached.view.turn).toBe(2);
+    } finally {
+      game.close();
+    }
+  });
+
+  it("still passes an empty Draw Phase window by itself", async () => {
+    const game = await openQuiet([]);
+    try {
+      const reached = drive(game, ({ view }) => (view.turn >= 3 ? "stop" : null));
+      expect(reached.prompt.context?.type).toBe("action");
+      expect(reached.view.phase).toBe("main1");
+    } finally {
+      game.close();
+    }
   });
 });

@@ -28,3 +28,4 @@ packages/duel-server/tests/fuzz-n/failures/
 .env.staging
 data-staging/
 .deploy-duel-engine/
+__pycache__/

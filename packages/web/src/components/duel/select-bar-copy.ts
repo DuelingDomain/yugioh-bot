@@ -44,6 +44,12 @@ export interface BarCopy {
   detail: string | null;
   /** "Pick 2 · 1/2 selected". */
   progress: string;
+  /** The ask part of the progress: "Pick 2". Empty when the progress is only a count. */
+  instruction: string;
+  /** The count part of the progress, shown as a chip: "1/2 selected". Null when the progress has none. */
+  counter: string | null;
+  /** Cards still to pick before Confirm works ("Select 1 more"), or null when that is not a plain card count. */
+  remaining: number | null;
   /** Second line: detail and progress. */
   sub: string;
   /** The engine title as it came. */
@@ -74,19 +80,26 @@ function classify(input: BarCopyInput): BarKind {
   return "cards";
 }
 
-function progressLine(input: BarCopyInput, kind: BarKind): string {
+function progressParts(input: BarCopyInput): { instruction: string; counter: string | null } {
   const { min, max, count, values, target } = input;
-  if (input.aiming) return "Point at a target, then confirm";
-  if (input.kind === "sum" && target != null) return `Total ${target}${values ? ` · ${values}` : ""}`;
-  if (input.kind === "tribute") return `${count} selected`;
-  if (input.kind === "order") return `${count} of ${max} ordered`;
+  if (input.aiming) return { instruction: "Point at a target, then confirm", counter: null };
+  if (input.kind === "sum" && target != null) return { instruction: `Total ${target}`, counter: values || null };
+  if (input.kind === "tribute") return { instruction: "", counter: `${count} selected` };
+  if (input.kind === "order") return { instruction: "", counter: `${count} of ${max} ordered` };
   if (!input.openEnded && min === max) {
     const steps = max > 1 || input.toggling || count > 0;
-    return `Pick ${max}${steps ? ` · ${count}/${max} selected` : ""}`;
+    return { instruction: `Pick ${max}`, counter: steps ? `${count}/${max} selected` : null };
   }
-  if (min <= 0) return `Pick up to ${max} · ${count} selected`;
-  if (input.openEnded) return `Pick ${min} or more · ${count} selected`;
-  return `Pick ${min} to ${max} · ${count} selected`;
+  if (min <= 0) return { instruction: `Pick up to ${max}`, counter: `${count} selected` };
+  if (input.openEnded) return { instruction: `Pick ${min} or more`, counter: `${count} selected` };
+  return { instruction: `Pick ${min} to ${max}`, counter: `${count} selected` };
+}
+
+/** Cards still needed to reach the minimum. Not for tribute (a value), sum, order or an aim: those have no plain count. */
+function remainingCards(input: BarCopyInput): number | null {
+  if (input.aiming || input.kind === "tribute" || input.kind === "sum" || input.kind === "order") return null;
+  const left = input.min - input.count;
+  return left > 0 ? left : null;
 }
 
 export function selectBarCopy(input: BarCopyInput): BarCopy {
@@ -148,13 +161,17 @@ export function selectBarCopy(input: BarCopyInput): BarCopy {
     }
   }
 
-  const progress = progressLine(input, kind);
+  const { instruction, counter } = progressParts(input);
+  const progress = [instruction, counter].filter(Boolean).join(" · ");
   const description = input.description?.trim();
   return {
     kind,
     title,
     detail,
     progress,
+    instruction,
+    counter,
+    remaining: remainingCards(input),
     sub: detail ? `${detail} · ${progress}` : progress,
     full,
     tooltip: [full, description].filter(Boolean).join("\n"),

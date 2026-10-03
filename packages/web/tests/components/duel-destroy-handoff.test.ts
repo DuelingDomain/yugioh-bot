@@ -18,7 +18,8 @@ import {
 import { pieceFrames, pieceMotion } from "../../src/components/duel/move-fx";
 import { BREAK_SETTLE_MS } from "../../src/components/duel/battle-hold";
 import { MOVE_TIMING, planMoves, resetMoveSchedule } from "../../src/components/duel/move-plan";
-import { SHARDS } from "../../src/components/duel/summon-fx";
+import { destroyWholeFrames, heldDestroyTiming, SHARDS } from "../../src/components/duel/summon-fx";
+import { battleDestroyAt, HELD_CRACK_MS } from "../../src/components/duel/battle-hold";
 
 const MZONE = 0x04;
 const GRAVE = 0x10;
@@ -227,5 +228,69 @@ describe("the zone and the pile in the DOM", () => {
     expect(zone.contains(wrap)).toBe(true);
     stop();
     reconcileDestroyHides();
+  });
+});
+
+/** Where the whole card of a destroy stops showing, as SummonFx plans it (performance.now() time). */
+function ghostGoneAt(zone: DuelZoneRef, now: number): number {
+  const heldAt = battleDestroyAt(zone, now);
+  const { breakMs, delayMs } = heldDestroyTiming(heldAt, now);
+  return now + delayMs + breakMs;
+}
+
+describe("a card a fight destroyed disappears at the moment its pieces start", () => {
+  const attacker = z(0, MZONE, 2);
+  const defender = z(1, MZONE, 2);
+  const pair = (zone: DuelZoneRef, to: DuelZoneRef, base: number): DuelEvent[] => [
+    { id: base, kind: "destroy", text: "d", zone, card, cause: "battle" },
+    { id: base + 1, kind: "move", text: "m", seat: zone.controller, from: zone, zone: to, card, reason: "destroy" },
+  ];
+
+  it("ends the stand-in of the losing attacker at its break, not when the flight is planned", () => {
+    for (const claim3d of [true, false]) {
+      resetMoveSchedule("t");
+      clearBattleHolds();
+      armBattleDestroy("7:attacker", attacker, 1120, 100, claim3d);
+      const plans = planMoves(pair(attacker, z(0, GRAVE, 0), 1), { now: 100, reduced: false, duelKey: "t", geometry });
+      expect(ghostGoneAt(attacker, 100)).toBe(1220);
+      // the flight to the pile never starts before the card is gone
+      expect(plans[0].startAt).toBeGreaterThanOrEqual(1220);
+    }
+  });
+
+  it("breaks both cards of a tie at their own break times, whatever the flights are queued behind", () => {
+    for (const claim3d of [true, false]) {
+      resetMoveSchedule("t");
+      clearBattleHolds();
+      armBattleDestroy("7:target", defender, 900, 100, claim3d);
+      armBattleDestroy("7:attacker", attacker, 1120, 100, claim3d);
+      planMoves([...pair(defender, z(1, GRAVE, 0), 1), ...pair(attacker, z(0, GRAVE, 0), 3)], { now: 100, reduced: false, duelKey: "t", geometry });
+      expect(ghostGoneAt(defender, 100)).toBe(1000);
+      expect(ghostGoneAt(attacker, 100)).toBe(1220);
+    }
+  });
+
+  it("does the same with reduced motion", () => {
+    armBattleDestroy("7:attacker", attacker, 1120, 100);
+    const [plan] = planMoves(pair(attacker, z(0, GRAVE, 0), 1), { now: 100, reduced: true, duelKey: "t", geometry });
+    expect(ghostGoneAt(attacker, 100)).toBe(1220);
+    expect(plan.startAt).toBeGreaterThanOrEqual(1220);
+  });
+
+  it("cracks for at most the crack lead, and starts at once when the break is nearer", () => {
+    expect(heldDestroyTiming(1220, 100)).toEqual({ breakMs: HELD_CRACK_MS, delayMs: 1120 - HELD_CRACK_MS });
+    expect(heldDestroyTiming(150, 100)).toEqual({ breakMs: 50, delayMs: 0 });
+    expect(heldDestroyTiming(90, 100)).toEqual({ breakMs: 1, delayMs: 0 });
+  });
+
+  it("drops the whole card in one step at the break: never the card and the pieces together", () => {
+    const frames = destroyWholeFrames(HELD_CRACK_MS, HELD_CRACK_MS + 400);
+    const at = HELD_CRACK_MS / (HELD_CRACK_MS + 400);
+    const last = frames.findLastIndex((f) => f.opacity === 1);
+    expect(frames[last].offset).toBeCloseTo(at, 6);
+    expect(frames[last + 1].opacity).toBe(0);
+    expect(frames[last + 1].offset).toBeCloseTo(at, 6);
+    const offsets = frames.map((f, i) => (f.offset as number | undefined) ?? (i === 0 ? 0 : 1));
+    expect(offsets).toEqual([...offsets].sort((a, b) => a - b));
   });
 });

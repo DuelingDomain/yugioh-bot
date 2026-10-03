@@ -39,7 +39,7 @@ async function table(mode: DuelMode, format: DuelFormat, masterRule: DuelMasterR
   ).run("g", `u${seat}`, `P${seat}`).lastInsertRowid));
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Draw rule pin", mode, format, masterRule,
     settings: { validateDeck: false, shuffleDeck: false, turnSeconds: 0 } });
-  for (const player of players.slice(1)) duels.join(session.slug, "g", player);
+  for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
   const decks = Array.from({ length: count }, () => ({ main: Array(40).fill(15025844), extra: [], side: [],
     ...(mode === "domain" ? { deckMaster: 48305365 } : {}) }));
   for (let seat = 0; seat < count; seat++) duels.setDeck(session.slug, "g", players[seat]!, decks[seat]!);

@@ -164,7 +164,7 @@ async function table(format: DuelFormat, humans: number, botSeats: number[], clo
   for (const seat of botSeats) {
     expect((await post(host, { op: "add-bot", ...organizer, seat })).status).toBe(200);
   }
-  for (const player of players.slice(1)) duels.join(session.slug, "g1", player);
+  for (const player of players.slice(1)) duels.takeSeat(session.slug, "g1", player);
   const base = buildPracticeBotDeck("normal", DATA);
   players.forEach((player, index) => duels.setDeck(session.slug, "g1", player, rotated(base, index + 1)));
   const respond = (playerId: number, answer: DuelAnswer = { choice: "to_ep" }) =>

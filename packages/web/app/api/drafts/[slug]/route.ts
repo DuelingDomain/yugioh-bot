@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
+import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
 import { analyzeCube, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "./helpers";
 import { announcer, broadcaster } from "@/lib/notify";
+import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
 
 export const runtime = "nodejs";
 
@@ -137,6 +139,17 @@ export async function PUT(
     const body = await request.json();
     const { name, config } = body as { name?: string; config?: unknown };
 
+    const drafts = createDraftService(db);
+    const existing = drafts.findById(draft.id);
+    const mergedConfig = { ...existing.config, ...(config as object) };
+    // Edits can retain library cubes deleted since attachment, including in the request body.
+    const denied = cubeReferenceAccess(db, mergedConfig.allowedCubeIds, { allowMissing: true });
+    if (denied) return denied;
+    const assignmentError = hostThemeAssignmentError(db, existing.guildId, mergedConfig, drafts.players(draft.id).map((p) => p.playerId));
+    if (assignmentError) {
+      return NextResponse.json({ error: assignmentError }, { status: 400 });
+    }
+
     if (name !== undefined) {
       if (!name.trim()) {
         return NextResponse.json({ error: "Name cannot be empty" }, { status: 400 });
@@ -146,7 +159,7 @@ export async function PUT(
         .prepare(
           "select id from drafts where guild_id = (select guild_id from drafts where id = ?) and name = ? and status in ('pending', 'active') and id != ?"
         )
-        .get(draft.id, name) as { id: number } | undefined;
+        .get(draft.id, name, draft.id) as { id: number } | undefined;
 
       if (existing) {
         return NextResponse.json({ error: "A draft with that name already exists" }, { status: 400 });
@@ -157,11 +170,7 @@ export async function PUT(
 
     let analysisWarnings: ReturnType<typeof analyzeCube> | undefined;
 
-    if (config !== undefined) {
-      const drafts = createDraftService(db);
-      const existing = drafts.findById(draft.id);
-      const mergedConfig = { ...existing.config, ...(config as object) };
-
+    if (config !== undefined && mergedConfig.mode !== "theme") {
       // The submitted config redefines the pool (sets + custom passcodes), so
       // any previously materialized ids are stale. Drop them before resolving —
       // otherwise resolveCubeCardIds returns the old snapshot and edits like
@@ -208,7 +217,9 @@ export async function PUT(
       );
 
       (mergedConfig as any).cubeCardIds = cubeCardIds;
+    }
 
+    if (config !== undefined) {
       db.prepare("update drafts set config_json = ? where id = ?").run(
         JSON.stringify(mergedConfig),
         draft.id,
@@ -263,6 +274,19 @@ export async function POST(
 
     const drafts = createDraftService(db);
     const draftModel = drafts.findById(draft.id);
+    // The service drops deleted library cubes; surviving references must stay in this guild.
+    const denied = cubeReferenceAccess(db, draftModel.config.allowedCubeIds, { allowMissing: true });
+    if (denied) return denied;
+    if (draftModel.config.mode === "theme" && (draftModel.config.themeSelection ?? "player_pick") === "player_pick") {
+      const claims = db.prepare("select cube_id from draft_player_cube where draft_id = ?")
+        .all(draft.id) as Array<{ cube_id: number }>;
+      const claimedCubeIds = claims.map((claim) => claim.cube_id);
+      const deniedClaim = cubeReferenceAccess(db, claimedCubeIds);
+      if (deniedClaim) return deniedClaim;
+      if (claimedCubeIds.some((id) => !(draftModel.config.allowedCubeIds ?? []).includes(id))) {
+        return NextResponse.json({ error: "Claimed cube is not allowed in this draft" }, { status: 400 });
+      }
+    }
     const cards = createCardCatalogService(db);
 
     if (!draftModel.config.cubeCardIds?.length && !draftModel.config.poolCardIds?.length) {

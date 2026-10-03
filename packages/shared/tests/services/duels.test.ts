@@ -61,6 +61,7 @@ function board(viewer: 0 | 1 | null): DuelEngineView {
         banished: [],
       },
     ],
+    prioritySeat: 0,
     prompt: { id: "strip-me", seat: 0, kind: "choice", title: "Go", options: [] },
     chain: [],
     events: [],
@@ -81,7 +82,7 @@ function setup() {
 
 function readyDuel(app: ReturnType<typeof setup>, mode: "normal" | "domain" = "normal") {
   const session = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Duel", mode });
-  app.duels.join(session.slug, "g1", app.p2);
+  app.duels.takeSeat(session.slug, "g1", app.p2);
   app.duels.setDeck(session.slug, "g1", app.p1, validDeck(1));
   app.duels.setDeck(session.slug, "g1", app.p2, validDeck(1000, 12345678));
   return session;
@@ -117,15 +118,15 @@ describe("duel persistence invariants", () => {
     expect(created.seats[0]?.isBot).toBe(false);
     expect(created.masterRule).toBe(5);
 
-    const joined = app.duels.join(created.slug, "g1", app.p2);
+    const joined = app.duels.takeSeat(created.slug, "g1", app.p2);
     expect(joined.seats.map((seat) => [seat.seat, seat.playerId])).toEqual([
       [0, app.p1],
       [1, app.p2],
     ]);
-    expect(app.duels.join(created.slug, "g1", app.p2).seats).toHaveLength(2);
+    expect(app.duels.takeSeat(created.slug, "g1", app.p2).seats).toHaveLength(2);
 
     try {
-      app.duels.join(created.slug, "g1", app.p3);
+      app.duels.takeSeat(created.slug, "g1", app.p3);
       throw new Error("expected join to fail");
     } catch (error) {
       expect(error).toBeInstanceOf(DuelServiceError);
@@ -168,7 +169,7 @@ describe("duel persistence invariants", () => {
   it("lets only the seated owner set a shaped deck before start and marks ready", () => {
     const app = setup();
     const session = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Decks", mode: "domain" });
-    app.duels.join(session.slug, "g1", app.p2);
+    app.duels.takeSeat(session.slug, "g1", app.p2);
 
     try {
       app.duels.setDeck(session.slug, "g1", app.p3, validDeck());
@@ -204,7 +205,7 @@ describe("duel persistence invariants", () => {
       expect((error as DuelServiceError).message).toMatch(/two ready players/);
     }
 
-    app.duels.join(session.slug, "g1", app.p2);
+    app.duels.takeSeat(session.slug, "g1", app.p2);
     app.duels.setDeck(session.slug, "g1", app.p1, validDeck(1));
 
     try {
@@ -253,7 +254,7 @@ describe("duel persistence invariants", () => {
     }
 
     try {
-      app.duels.join(session.slug, "g1", app.outsider);
+      app.duels.takeSeat(session.slug, "g1", app.outsider);
       throw new Error("expected outsider join to fail");
     } catch (error) {
       expect((error as DuelServiceError).status).toBe(400);
@@ -281,15 +282,15 @@ describe("duel persistence invariants", () => {
       expect((error as DuelServiceError).status).toBe(400);
     }
 
-    const reentered = app.duels.join(session.slug, "g1", app.p1);
+    const reentered = app.duels.room(session.slug, "g1", app.p1).session;
     expect(reentered.status).toBe("active");
     expect(reentered.seats.map((seat) => seat.playerId)).toEqual([app.p1, app.p2]);
 
     try {
-      app.duels.join(session.slug, "g1", app.p3);
-      throw new Error("expected unseated active join to fail");
+      app.duels.takeSeat(session.slug, "g1", app.p3);
+      throw new Error("expected unseated active claim to fail");
     } catch (error) {
-      expect((error as DuelServiceError).status).toBe(400);
+      expect((error as DuelServiceError).status).toBe(409);
     }
 
     const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Open", mode: "normal" });
@@ -394,7 +395,7 @@ describe("practice bot seats", () => {
     expect(bot?.seat).not.toBe(human?.seat);
 
     try {
-      app.duels.join(session.slug, "g1", app.p2);
+      app.duels.takeSeat(session.slug, "g1", app.p2);
       throw new Error("expected join to fail");
     } catch (error) {
       expect(error).toBeInstanceOf(DuelServiceError);
@@ -413,7 +414,7 @@ describe("practice bot seats", () => {
       expect((error as DuelServiceError).status).toBe(403);
     }
 
-    app.duels.join(session.slug, "g1", app.p2);
+    app.duels.takeSeat(session.slug, "g1", app.p2);
     try {
       app.duels.addPracticeBot(session.slug, "g1", app.p1, validDeck(9000));
       throw new Error("expected occupied add to fail");
@@ -450,7 +451,7 @@ describe("practice bot seats", () => {
     expect(without.seats[0].playerId).toBe(app.p1);
     expect(app.db.prepare<[], { n: number }>("select count(*) as n from duel_seats where is_bot = 1").get()?.n).toBe(0);
 
-    const joined = app.duels.join(session.slug, "g1", app.p2);
+    const joined = app.duels.takeSeat(session.slug, "g1", app.p2);
     expect(joined.seats).toHaveLength(2);
     app.duels.leave(session.slug, "g1", app.p2);
     expect(app.duels.addPracticeBot(session.slug, "g1", app.p1, validDeck(8000)).seats.some((seat) => seat.isBot)).toBe(true);
@@ -524,6 +525,12 @@ describe("duel snapshots archive and cancel", () => {
     expect(p1.role).toBe("player");
     expect(p1.metadataOnly).toBe(false);
     expect(p1.engine?.prompt).toBeNull();
+    for (const playerId of [app.p1, app.p2, app.p3]) {
+      expect(app.duels.room(session.slug, "g1", playerId).engine?.prioritySeat).toBeNull();
+    }
+    const stored = app.db.prepare("select snapshot_public_json, snapshot_seat0_json, snapshot_seat1_json from duels where web_slug = ?")
+      .get(session.slug) as Record<string, string>;
+    for (const raw of Object.values(stored)) expect(JSON.parse(raw).prioritySeat).toBeNull();
     expect(p1.engine?.result).toEqual({ winnerSeat: 1, reason: "Surrender" });
     expect(p1.engine?.seats[0]?.hand[0]?.code).toBe(111);
     expect(p1.engine?.seats[1]?.hand[0]?.code).toBeUndefined();
@@ -547,6 +554,20 @@ describe("duel snapshots archive and cancel", () => {
     });
     expect(overwritten.winnerSeat).toBe(1);
     expect(app.duels.room(session.slug, "g1", app.p1).engine?.result?.reason).toBe("Surrender");
+  });
+
+  it("clears stale priority when reading legacy saved snapshots", () => {
+    const app = setup();
+    const session = readyDuel(app);
+    start(app, session.slug);
+    app.duels.complete(session.slug, "g1", 1, "Surrender", { public: board(null), seat0: board(0), seat1: board(1) });
+    // A previously saved snapshot may still have public priority metadata after its prompt was stripped.
+    const legacy = JSON.stringify({ ...board(null), prompt: null, prioritySeat: 1 });
+    app.db.prepare("update duels set snapshot_public_json = ?, snapshot_seat0_json = ?, snapshot_seat1_json = ? where web_slug = ?")
+      .run(legacy, legacy, legacy, session.slug);
+    for (const playerId of [app.p1, app.p2, app.p3]) {
+      expect(app.duels.room(session.slug, "g1", playerId).engine?.prioritySeat).toBeNull();
+    }
   });
 
   it("keeps live listing separate from archived history and forbids active archive", () => {
@@ -621,13 +642,13 @@ describe("duel snapshots archive and cancel", () => {
     expect(cancelled.endedAt).toBeTruthy();
     expect(app.duels.cancel(lobby.slug, "g1", app.p1).status).toBe("cancelled");
 
-    const seated = app.duels.join(lobby.slug, "g1", app.p1);
+    const seated = app.duels.room(lobby.slug, "g1", app.p1).session;
     expect(seated.status).toBe("cancelled");
     try {
-      app.duels.join(lobby.slug, "g1", app.p2);
-      throw new Error("expected join after cancel to fail");
+      app.duels.takeSeat(lobby.slug, "g1", app.p2);
+      throw new Error("expected claim after cancel to fail");
     } catch (error) {
-      expect((error as DuelServiceError).status).toBe(400);
+      expect((error as DuelServiceError).status).toBe(409);
     }
 
     const active = readyDuel(app);
@@ -719,10 +740,10 @@ describe("creator settings persistence", () => {
     app.duels.setDeck(session.slug, "g1", app.p1, { main: [7, 8, 9], extra: [], side: [] });
     expect(app.duels.room(session.slug, "g1", app.p1).myDeck?.main).toEqual([7, 8, 9]);
 
-    app.duels.join(session.slug, "g1", app.p2);
+    app.duels.takeSeat(session.slug, "g1", app.p2);
     app.duels.setDeck(session.slug, "g1", app.p2, { main: [11], extra: [], side: [] });
     start(app, session.slug);
-    expect(app.duels.join(session.slug, "g1", app.p1).settings.startingLP).toBe(4000);
+    expect(app.duels.room(session.slug, "g1", app.p1).session.settings.startingLP).toBe(4000);
 
     app.duels.complete(session.slug, "g1", 0, "life points");
     const archived = app.duels.archive(session.slug, "g1", app.p1);
@@ -754,7 +775,7 @@ describe("private invite access", () => {
       expect((error as DuelServiceError).status).toBe(403);
     }
     try {
-      app.duels.join(session.slug, "g1", app.p3);
+      app.duels.takeSeat(session.slug, "g1", app.p3);
       throw new Error("expected nonmember join to fail");
     } catch (error) {
       expect((error as DuelServiceError).status).toBe(403);
@@ -769,14 +790,14 @@ describe("private invite access", () => {
     expect(app.duels.list("g1", app.p3).map((row) => row.slug)).not.toContain(session.slug);
 
     app.duels.admit(session.slug, "g1", app.p3, organizerRoom.inviteCode!);
-    expect(app.duels.list("g1", app.p3).map((row) => row.slug)).not.toContain(session.slug);
+    expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toContain(session.slug);
     const admitted = app.duels.room(session.slug, "g1", app.p3);
     expect(admitted.role).toBe("spectator");
     expect(admitted.inviteCode).toBeUndefined();
 
-    const seated = app.duels.join(session.slug, "g1", app.p3);
+    const seated = app.duels.takeSeat(session.slug, "g1", app.p3);
     expect(seated.seats.some((seat) => seat.playerId === app.p3)).toBe(true);
-    expect(app.duels.join(session.slug, "g1", app.p3).seats).toHaveLength(2);
+    expect(app.duels.takeSeat(session.slug, "g1", app.p3).seats).toHaveLength(2);
     expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toContain(session.slug);
 
     app.duels.setDeck(session.slug, "g1", app.p1, validDeck(1));
@@ -874,13 +895,57 @@ describe("duel lobby listing, history and leave", () => {
     expect(stamp()).not.toBe("2000-01-01 00:00:00");
   });
 
-  it("hides other players' lobbies and idle duels but keeps own tables", () => {
+  it("shows recently active foreign lobbies and hides idle ones", () => {
+    const app = setup();
+    const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
+    app.db.prepare("update duels set last_activity_at = datetime('now', '-14 minutes') where web_slug = ?").run(lobby.slug);
+    expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toEqual([lobby.slug]);
+
+    app.db.prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where web_slug = ?").run(lobby.slug);
+    expect(app.duels.list("g1", app.p3)).toEqual([]);
+  });
+
+  it("uses creation time for foreign lobbies with no activity stamp", () => {
+    const app = setup();
+    const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
+    app.db.prepare("update duels set last_activity_at = null, created_at = datetime('now', '-14 minutes') where web_slug = ?").run(lobby.slug);
+    expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toEqual([lobby.slug]);
+
+    app.db.prepare("update duels set created_at = datetime('now', '-16 minutes') where web_slug = ?").run(lobby.slug);
+    expect(app.duels.list("g1", app.p3)).toEqual([]);
+  });
+
+  it("keeps idle lobbies visible to their owner and seated players", () => {
+    const app = setup();
+    const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
+    app.duels.takeSeat(lobby.slug, "g1", app.p2, 1);
+    app.db.prepare("update duels set last_activity_at = '2000-01-01 00:00:00' where web_slug = ?").run(lobby.slug);
+    expect(app.duels.list("g1", app.p1).map((row) => row.slug)).toEqual([lobby.slug]);
+    expect(app.duels.list("g1", app.p2).map((row) => row.slug)).toEqual([lobby.slug]);
+    expect(app.duels.list("g1", app.p3)).toEqual([]);
+  });
+
+  it.each(["take", "leave"] as const)("refreshes lobby activity when a guest performs a seat %s", (action) => {
+    const app = setup();
+    const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
+    if (action === "leave") app.duels.takeSeat(lobby.slug, "g1", app.p2, 1);
+    app.db.prepare("update duels set last_activity_at = '2000-01-01 00:00:00' where web_slug = ?").run(lobby.slug);
+
+    if (action === "take") app.duels.takeSeat(lobby.slug, "g1", app.p2, 1);
+    else app.duels.leave(lobby.slug, "g1", app.p2);
+
+    const refreshed = app.duels.list("g1", app.p3).find((row) => row.slug === lobby.slug);
+    expect(refreshed).toBeDefined();
+    expect(refreshed?.lastActivityAt).not.toBe("2000-01-01 00:00:00");
+  });
+
+  it("shows accessible lobbies and hides idle duels but keeps own tables", () => {
     const app = setup();
     const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });
     const active = readyDuel(app);
     start(app, active.slug);
 
-    expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toEqual([active.slug]);
+    expect(app.duels.list("g1", app.p3).map((row) => row.slug).sort()).toEqual([active.slug, lobby.slug].sort());
     expect(app.duels.list("g1", app.p1).map((row) => row.slug).sort()).toEqual([active.slug, lobby.slug].sort());
     expect(app.duels.list("g1", app.p3).find((row) => row.slug === active.slug)?.mySeat).toBeNull();
     expect(app.duels.list("g1", app.p2)[0]?.mySeat).toBe(1);
@@ -888,10 +953,10 @@ describe("duel lobby listing, history and leave", () => {
     app.db
       .prepare("update duels set last_activity_at = datetime('now', '-16 minutes') where web_slug = ?")
       .run(active.slug);
-    expect(app.duels.list("g1", app.p3)).toEqual([]);
+    expect(app.duels.list("g1", app.p3).map((row) => row.slug)).toEqual([lobby.slug]);
     expect(app.duels.list("g1", app.p1).map((row) => row.slug)).toContain(active.slug);
-    expect(app.duels.list("g1", app.p2).map((row) => row.slug)).toEqual([active.slug]);
-    expect(app.duels.list("g1", app.p3, { idleAfterMs: 20 * 60 * 1000 }).map((row) => row.slug)).toEqual([active.slug]);
+    expect(app.duels.list("g1", app.p2).map((row) => row.slug)).toEqual([active.slug, lobby.slug]);
+    expect(app.duels.list("g1", app.p3, { idleAfterMs: 20 * 60 * 1000 }).map((row) => row.slug).sort()).toEqual([active.slug, lobby.slug].sort());
     expect(DUEL_LIVE_IDLE_AFTER_MS).toBe(15 * 60 * 1000);
   });
 
@@ -928,7 +993,7 @@ describe("duel lobby listing, history and leave", () => {
       settings: { visibility: "private" },
     });
     app.duels.admit(secret.slug, "g1", app.p2, app.duels.room(secret.slug, "g1", app.p1).inviteCode!);
-    app.duels.join(secret.slug, "g1", app.p2);
+    app.duels.takeSeat(secret.slug, "g1", app.p2);
     app.duels.setDeck(secret.slug, "g1", app.p1, validDeck(1));
     app.duels.setDeck(secret.slug, "g1", app.p2, validDeck(1000));
     start(app, secret.slug);
@@ -940,7 +1005,7 @@ describe("duel lobby listing, history and leave", () => {
   it("lets a guest leave a lobby but enforces leave rules", () => {
     const app = setup();
     const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "L", mode: "normal" });
-    app.duels.join(lobby.slug, "g1", app.p2);
+    app.duels.takeSeat(lobby.slug, "g1", app.p2);
     const status = (fn: () => unknown) => {
       try {
         fn();
@@ -958,5 +1023,115 @@ describe("duel lobby listing, history and leave", () => {
     const active = readyDuel(app);
     start(app, active.slug);
     expect(status(() => app.duels.leave(active.slug, "g1", app.p2))).toBe(409);
+  });
+});
+
+describe("rock-paper-scissors opening", () => {
+  function lobby() {
+    const { db, duels, p1, p2 } = setup();
+    const room = duels.create({ guildId: "g1", organizerPlayerId: p1, name: "T", mode: "normal" });
+    duels.takeSeat(room.slug, "g1", p2);
+    duels.setDeck(room.slug, "g1", p1, validDeck(1));
+    duels.setDeck(room.slug, "g1", p2, validDeck(500));
+    return { db, duels, p1, p2, slug: room.slug };
+  }
+
+  it("starts only for the organizer with two ready seats", () => {
+    const { duels, p1, p2, slug } = lobby();
+    expect(() => duels.startOpening(slug, "g1", p2, 1000)).toThrow(/Only the organizer/);
+    const state = duels.startOpening(slug, "g1", p1, 1000);
+    expect(state.phase).toBe("rps");
+    expect(duels.startOpening(slug, "g1", p1, 2000)).toEqual(state);
+  });
+
+  it("refuses to start with an empty seat", () => {
+    const { db, duels, p1 } = setup();
+    const room = duels.create({ guildId: "g1", organizerPlayerId: p1, name: "T", mode: "normal" });
+    duels.setDeck(room.slug, "g1", p1, validDeck(1));
+    expect(() => duels.startOpening(room.slug, "g1", p1, 1000)).toThrow(DuelServiceError);
+    db.close();
+  });
+
+  it("freezes seats and decks while the opening runs", () => {
+    const { duels, p1, p2, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 1000);
+    expect(() => duels.setDeck(slug, "g1", p2, validDeck(900))).toThrow(/fixed/);
+    expect(() => duels.markReady(slug, "g1", p2)).toThrow(/fixed/);
+    expect(() => duels.leave(slug, "g1", p2)).toThrow(/fixed/);
+  });
+
+  it("never shows a pick to the other player in the room", () => {
+    const { duels, p1, p2, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 1000);
+    duels.submitOpeningPick(slug, "g1", 0, "rock", 1100);
+    expect(duels.room(slug, "g1", p1).opening?.myPick).toBe("rock");
+    const other = duels.room(slug, "g1", p2).opening;
+    expect(other?.myPick).toBeNull();
+    expect(other?.picked).toEqual([true, false]);
+    expect(JSON.stringify(other)).not.toContain("rock");
+  });
+
+  it("swaps the seats when the winner chooses to go second", () => {
+    const { duels, p1, p2, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 1000);
+    duels.submitOpeningPick(slug, "g1", 0, "rock", 1100);
+    duels.submitOpeningPick(slug, "g1", 1, "scissors", 1200);
+    const state = duels.submitOpeningChoice(slug, "g1", 0, "second", 1300);
+    expect(state.phase).toBe("start");
+    const seats = duels.get(slug, "g1").seats;
+    expect(seats.find((seat) => seat.seat === 0)?.playerId).toBe(p2);
+    expect(seats.find((seat) => seat.seat === 1)?.playerId).toBe(p1);
+    // The decks follow the players: seat 0 is now the second player's deck.
+    expect(duels.privateState(slug, "g1").decks[0]?.main[0]).toBe(500);
+    // The room shows the result in the new seat numbers.
+    const view = duels.room(slug, "g1", p1).opening;
+    expect(view?.winnerSeat).toBe(1);
+    expect(view?.reveal?.picks).toEqual(["scissors", "rock"]);
+  });
+
+  it("keeps the seats when the winner chooses to go first", () => {
+    const { duels, p1, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 1000);
+    duels.submitOpeningPick(slug, "g1", 0, "scissors", 1100);
+    duels.submitOpeningPick(slug, "g1", 1, "rock", 1200);
+    duels.submitOpeningChoice(slug, "g1", 1, "first", 1300);
+    const seats = duels.get(slug, "g1").seats;
+    expect(seats.find((seat) => seat.seat === 0)?.playerId).not.toBe(p1);
+  });
+
+  it("settles timeouts and lists due openings", () => {
+    const { duels, p1, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 0);
+    expect(duels.dueOpenings(29_999, 10)).toEqual([]);
+    expect(duels.dueOpenings(30_000, 10)).toEqual([{ slug, guildId: "g1" }]);
+    const randoms = [0, 0.5];
+    const settled = duels.settleOpening(slug, "g1", 30_000, () => randoms.shift() ?? 0);
+    expect(settled?.phase).toBe("choose");
+    const chosen = duels.settleOpening(slug, "g1", settled!.deadline);
+    expect(chosen?.phase).toBe("start");
+    expect(chosen?.choice).toBe("first");
+  });
+
+  it("drops a settled opening so the lobby can change again", () => {
+    const { duels, p1, p2, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 0);
+    expect(() => duels.leave(slug, "g1", p2)).toThrow(/Seats and decks are fixed/);
+    duels.abortOpening(slug, "g1");
+    expect(duels.openingState(slug, "g1")).toBeNull();
+    expect(duels.room(slug, "g1", p1).opening).toBeNull();
+    expect(() => duels.leave(slug, "g1", p2)).not.toThrow();
+    // Nothing to drop: no error.
+    duels.abortOpening(slug, "g1");
+  });
+
+  it("clears the opening when the duel activates", () => {
+    const { duels, p1, slug } = lobby();
+    duels.startOpening(slug, "g1", p1, 0);
+    duels.submitOpeningPick(slug, "g1", 0, "rock", 1);
+    duels.submitOpeningPick(slug, "g1", 1, "paper", 2);
+    duels.submitOpeningChoice(slug, "g1", 1, "first", 3);
+    duels.activate(slug, "g1", p1, ["1", "2", "3", "4"], "bundle", null);
+    expect(duels.openingState(slug, "g1")).toBeNull();
+    expect(duels.room(slug, "g1", p1).opening).toBeNull();
   });
 });

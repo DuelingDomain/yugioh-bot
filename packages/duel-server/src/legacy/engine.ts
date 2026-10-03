@@ -535,7 +535,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         },
       );
       lastSelectHint = undefined;
-      const automated = autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow });
+      const automated = autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, phase });
       if (automated) {
         lib.duelSetResponse(handle, automated);
         continue;

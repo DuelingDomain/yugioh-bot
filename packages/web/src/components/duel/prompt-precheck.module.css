@@ -1,8 +1,8 @@
 /* Compact yes/no pre-check for an effect you may activate.
    A bar in the middle of the board, the same family as the on-board select bar (prompt-center.module.css): it
-   reads the --pc-* tokens of the prompt layer (dark blurred surface, hairline border, soft shadow, 14px radius,
-   semibold title over a muted line, 8px buttons). Purple marks the Yes of an effect question, gold of a chain
-   response. Only the bar takes pointer events. */
+   reads the --pc-* tokens of the prompt layer (lifted navy surface, gold edge and top bar, strong shadow with a
+   soft dim around it, 14px radius, bright bold title over a high-contrast line, 8px buttons). The Yes of an
+   effect question is the solid gold button. Only the bar takes pointer events. */
 
 /* The pop-in says "something is going off". Reduced motion only fades. */
 @keyframes pop {
@@ -61,8 +61,9 @@
 
 .text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 2px; }
 .text b {
-  font-size: var(--pc-title, 15px);
-  font-weight: 600;
+  color: #fff8e6;
+  font-size: var(--pc-title, 17px);
+  font-weight: 700;
   line-height: 1.25;
   overflow-wrap: break-word;
   text-wrap: balance;
@@ -73,8 +74,8 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  color: var(--duel-ink-2, #c3bba8);
-  font-size: var(--pc-sub, 12.5px);
+  color: #ebe3d0;
+  font-size: var(--pc-sub, 13.5px);
   line-height: 1.35;
   overflow-wrap: break-word;
 }
@@ -83,7 +84,7 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  color: var(--duel-ink-3, #958f81);
+  color: #c3bba8;
   font-size: var(--duel-t-xs, 11px);
   overflow-wrap: break-word;
 }
@@ -93,7 +94,7 @@
   min-width: 64px;
   min-height: var(--pc-btn-h, 32px);
   padding: 0 14px;
-  border: 1px solid var(--duel-rule, rgb(181 153 99 / 0.34));
+  border: 1px solid rgb(239 231 213 / 0.5);
   border-radius: var(--pc-btn-radius, 8px);
   background: transparent;
   color: var(--duel-ink, #efe7d5);
@@ -107,11 +108,13 @@
 .btn:focus-visible { outline: 2px solid var(--duel-ink, #efe7d5); outline-offset: 2px; }
 .btn:disabled { border-style: dashed; cursor: not-allowed; opacity: 0.5; }
 .btn[data-kind="primary"] {
-  border-color: var(--duel-pen, #9b7eff);
-  background: var(--duel-pen-fill, #5733d1);
-  color: #fff;
+  border-color: var(--pc-accent, #e4b64f);
+  background: var(--pc-accent, #e4b64f);
+  color: #1a1204;
+  font-weight: 600;
+  box-shadow: 0 0 14px rgb(228 182 79 / 0.4);
 }
-.btn[data-kind="primary"]:hover:not(:disabled) { background: #6440e0; }
+.btn[data-kind="primary"]:hover:not(:disabled) { background: #f0c463; }
 .bar[data-tone="chain"] .btn[data-kind="primary"] {
   border-color: var(--duel-chain, #e4b64f);
   background: var(--duel-chain, #e4b64f);

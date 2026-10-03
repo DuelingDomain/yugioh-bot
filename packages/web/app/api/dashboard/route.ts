@@ -1,3 +1,4 @@
+import { env } from "@/lib/env";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
@@ -14,10 +15,10 @@ export async function GET() {
     const discordUserId = session.user.id;
     const db = getDb();
 
-    // Find all player records for this Discord user across all guilds
+    // Find the player records for this Discord user in the configured guild
     const playerRows = db
-      .prepare("select id, guild_id from players where discord_user_id = ?")
-      .all(discordUserId) as Array<{ id: number; guild_id: string }>;
+      .prepare("select id, guild_id from players where discord_user_id = ? and guild_id = ?")
+      .all(discordUserId, env.discordGuildId) as Array<{ id: number; guild_id: string }>;
 
     const playerIds = playerRows.map((r) => r.id);
 
@@ -44,13 +45,13 @@ export async function GET() {
         from tournaments t
         inner join tournament_participants tp on tp.tournament_id = t.id
         left join tournament_participants tp2 on tp2.tournament_id = t.id
-        where tp.player_id in (${playerIds.map(() => "?").join(",")})
+        where t.guild_id = ? and tp.player_id in (${playerIds.map(() => "?").join(",")})
           and t.status in ('pending', 'active')
         group by t.id
         order by case t.status when 'active' then 0 else 1 end, t.created_at desc
       `
       )
-      .all(...playerIds)
+      .all(env.discordGuildId, ...playerIds)
       .map((row: any) => ({
         id: row.id,
         guildId: row.guild_id,
@@ -77,13 +78,13 @@ export async function GET() {
         from drafts d
         inner join draft_players dp on dp.draft_id = d.id
         left join draft_players dp2 on dp2.draft_id = d.id
-        where dp.player_id in (${playerIds.map(() => "?").join(",")})
+        where d.guild_id = ? and dp.player_id in (${playerIds.map(() => "?").join(",")})
           and d.status in ('pending', 'active')
         group by d.id
         order by case d.status when 'active' then 0 else 1 end, d.created_at desc
       `
       )
-      .all(...playerIds)
+      .all(env.discordGuildId, ...playerIds)
       .map((row: any) => ({
         id: row.id,
         guildId: row.guild_id,
@@ -107,7 +108,7 @@ export async function GET() {
               and winner_id not in (${playerIds.map(() => "?").join(",")})
             then 1 else 0 end) as losses
         from matches
-        where status = 'approved'
+        where guild_id = ? and status = 'approved'
           and (player_one_id in (${playerIds.map(() => "?").join(",")}) or player_two_id in (${playerIds.map(() => "?").join(",")}))
       `
       )
@@ -116,6 +117,7 @@ export async function GET() {
         ...playerIds,
         ...playerIds,
         ...playerIds,
+        env.discordGuildId,
         ...playerIds,
         ...playerIds
       ) as { wins: number | null; losses: number | null } | undefined;

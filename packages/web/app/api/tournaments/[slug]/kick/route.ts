@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
+import { env } from "@/lib/env";
 import { auth } from "@/lib/auth";
 import { createTournamentService } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
@@ -25,8 +26,8 @@ export async function POST(
 
     const db = getDb();
     const tournament = db
-      .prepare("select id, created_by_user_id, status from tournaments where web_slug = ?")
-      .get(slug) as { id: number; created_by_user_id: string; status: string } | undefined;
+      .prepare("select id, created_by_user_id, status from tournaments where web_slug = ? and guild_id = ?")
+      .get(slug, env.discordGuildId) as { id: number; created_by_user_id: string; status: string } | undefined;
 
     if (!tournament) {
       return NextResponse.json({ error: "Tournament not found" }, { status: 404 });

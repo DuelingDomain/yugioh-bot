@@ -50,7 +50,7 @@ describe("deck check when the duel starts", () => {
         return new Promise<DuelDeckValidation>((done) => { resolve = done; });
       });
       const noop = vi.fn();
-      const props = { slug: "t", busy: false, actionError: null, onJoin: noop, onAddBot: noop, onRemoveBot: noop, onReady: noop, onStart: noop, onCancel: noop, onLeave: noop };
+      const props = { slug: "t", busy: false, actionError: null, onTakeSeat: noop, onAddBot: noop, onRemoveBot: noop, onReady: noop, onStart: noop, onCancel: noop, onLeave: noop };
       const { rerender, unmount } = render(<RoomLobby room={room} {...props} />);
       await act(() => vi.advanceTimersByTimeAsync(151));
       expect(signal?.aborted).toBe(false);
@@ -110,7 +110,7 @@ describe("Start duel button", () => {
     room.myDeck = deck;
     const noop = vi.fn();
     render(<RoomLobby room={room} slug="t" busy={starting} starting={starting} actionError={null}
-      onJoin={noop} onAddBot={noop} onRemoveBot={noop} onReady={noop} onStart={noop} onCancel={noop} onLeave={noop} />);
+      onTakeSeat={noop} onAddBot={noop} onRemoveBot={noop} onReady={noop} onStart={noop} onCancel={noop} onLeave={noop} />);
   }
 
   it("is disabled with a Starting state while the request runs", () => {

@@ -49,6 +49,7 @@
 .seatRemove:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
 .seatRemove:disabled { opacity: 0.5; cursor: default; }
 .seatOpen { border-style: dashed; border-color: var(--duel-rule-lo); background: none; }
+.seatAction { grid-area: status; justify-self: start; }
 .avatar { grid-area: avatar; display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid var(--duel-rule); border-radius: 50%; background: var(--duel-panel-3); color: var(--duel-ink); font-size: 18px; font-weight: 400; }
 .seatOpen .avatar { border-style: dashed; background: none; color: var(--duel-ink-4); }
 .seat[data-mine="true"] .avatar { border-color: rgb(155 126 255 / 0.6); color: var(--duel-pen-ink); }

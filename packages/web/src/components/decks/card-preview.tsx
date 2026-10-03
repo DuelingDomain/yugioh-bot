@@ -29,7 +29,7 @@ export function CardPreview({ card }: { card: DeckCardInfo }) {
 
   return (
     <article className={styles.preview}>
-      <div className={styles.art}>
+      <div className={`${styles.art} card-frame`}>
         <CardArt code={card.code} name={card.name} />
         {failed.has(card.code) ? null : (
           <img

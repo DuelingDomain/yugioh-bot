@@ -37,7 +37,7 @@
 
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: var(--duel-z-result);
   display: grid;
   place-items: center;
   overflow: hidden;

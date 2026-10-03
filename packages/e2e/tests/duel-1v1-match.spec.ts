@@ -11,7 +11,7 @@ test("two players join, duel, surrender, and find the match in history and repla
 
   await bob.page.goto(`/duels/${slug}`);
   await expect(bob.page.getByRole("heading", { level: 1, name: table })).toBeVisible();
-  await bob.page.getByRole("button", { name: "Join table" }).click();
+  await bob.page.getByRole("button", { name: "Take seat 2" }).click();
 
   await importDeckAndReady(bob.page);
   await importDeckAndReady(alice.page);

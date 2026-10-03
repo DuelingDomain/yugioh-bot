@@ -60,7 +60,6 @@ export interface TableShellActions {
   onExit?: () => void;
   onSeriesChanged?: () => void;
   onNavigate?: (slug: string) => void;
-  onOpenSide?: () => void;
 }
 
 export interface TableShellProps {
@@ -84,7 +83,7 @@ export interface TableShellProps {
    * `fxActive`: false while the connection is down or recovering, so no FX replays old events (room: `!error && !recovering`).
    * `busy`: the room is working or catching up; it blocks answers like the controller's own `busy` does.
    * `headerTools`: extra header controls, such as the Surrender button.
-   * `modals`: dialogs the room owns, such as the surrender confirm and the side deck.
+   * `modals`: dialogs the room owns, such as the surrender confirm.
    */
   fxActive?: boolean;
   busy?: boolean;
@@ -356,11 +355,12 @@ export function TableShell({
           slug={session.slug}
           onChanged={() => actions?.onSeriesChanged?.()}
           onNavigate={(next) => actions?.onNavigate?.(next)}
-          onOpenSide={() => actions?.onOpenSide?.()}
         />
       ) : null}
-      {notices}
       <div className={roomStyles.layout}>
+        <div className={roomStyles.notices}>
+          <div className="pointer-events-auto">{notices}</div>
+        </div>
         {narrow ? null : (
           <aside className={roomStyles.inspector}>
             <HistoryStrip
@@ -561,7 +561,6 @@ export function TableShell({
           soundEnabled={preferences.soundEnabled}
           onClose={() => setHideResult(true)}
           onExit={() => actions?.onExit?.()}
-          onOpenSide={() => { setHideResult(true); actions?.onOpenSide?.(); }}
           onSeriesChanged={() => actions?.onSeriesChanged?.()}
           onNavigate={(next) => actions?.onNavigate?.(next)}
           placings={standings.map((entry) => ({ seat: entry.seat, place: entry.place, label: placeLabel(entry.place) }))}

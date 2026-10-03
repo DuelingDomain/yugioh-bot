@@ -23,7 +23,7 @@ function InfoBody({ card }: { card: DuelCard | DuelCardInfo }) {
   if (isHiddenCard(card) || code == null) {
     return (
       <div className={styles.root}>
-        <div className={styles.art}>
+        <div className={`${styles.art} card-frame`}>
           <CardBack className={styles.artBack} />
         </div>
         <p className={styles.details}>Face-down card.</p>
@@ -38,7 +38,7 @@ function InfoBody({ card }: { card: DuelCard | DuelCardInfo }) {
 
   return (
     <div className={styles.root}>
-      <div className={styles.art}>
+      <div className={`${styles.art} card-frame`}>
         <img src={cardArtUrl(code, "full")} alt="" />
       </div>
       <div className={styles.body}>

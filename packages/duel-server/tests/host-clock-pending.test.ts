@@ -66,7 +66,7 @@ async function table(format: DuelFormat, humans: number, board: BoardSpec) {
   const time = { now: 1_000_000 };
   const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000, createWorker: () => worker, now: () => time.now });
   hosts.push(host);
-  for (const player of players.slice(1)) duels.join(session.slug, "g1", player);
+  for (const player of players.slice(1)) duels.takeSeat(session.slug, "g1", player);
   const deck = buildPracticeBotDeck("normal", DATA);
   for (const player of players) duels.setDeck(session.slug, "g1", player, deck);
   const organizer = { slug: session.slug, guildId: "g1", playerId: players[0]! };

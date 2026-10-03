@@ -27,7 +27,7 @@
   --pv-pad: 12px;
   position: absolute;
   inset: 0;
-  z-index: 30;
+  z-index: var(--duel-z-prompt-front);
   display: grid;
   place-items: center;
   box-sizing: border-box;
@@ -185,29 +185,20 @@
   background: linear-gradient(180deg, rgb(9 15 29 / 0.6), transparent);
 }
 
+/* .previewArt also carries the global card-frame rule (app/globals.css): the whole card frame shows, no crop. */
 .previewArt {
-  position: relative;
   box-sizing: border-box;
   width: 100%;
   height: var(--pv-art-h);
-  overflow: hidden;
-  border-radius: 6px;
   background: #06080e;
   box-shadow: 0 10px 26px rgb(0 0 0 / 0.5);
 }
 
-.previewArt img,
 .previewBack {
   display: block;
   box-sizing: border-box;
   width: 100%;
   height: 100%;
-  object-fit: cover;
-}
-
-/* Crop the printed card border, as the field and inspector do. */
-.previewArt img {
-  transform: scale(1.075);
 }
 
 .previewBody {
@@ -451,7 +442,7 @@
 @media (max-width: 900px) {
   .root {
     position: fixed;
-    z-index: 40;
+    z-index: var(--duel-z-prompt-front);
     padding: 12px;
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }

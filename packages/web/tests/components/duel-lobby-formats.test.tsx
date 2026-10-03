@@ -43,7 +43,7 @@ function room(format: DuelFormat, seats: Array<{ seat: number; ready?: boolean; 
   };
 }
 
-const handlers = { onJoin: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
+const handlers = { onTakeSeat: vi.fn(), onRemoveBot: vi.fn(), onReady: vi.fn(), onStart: vi.fn(), onCancel: vi.fn(), onLeave: vi.fn() };
 
 describe("table format helpers", () => {
   it("counts seats and groups Tag into teams", () => {

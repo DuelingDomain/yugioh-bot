@@ -12,20 +12,20 @@ vi.mock("@/lib/duel-host", async (importOriginal) => ({
 vi.mock("@/lib/auth", () => ({ auth: vi.fn() }));
 vi.mock("@/lib/notify-duel", () => ({ notifyDuelChange: notify }));
 
-import { POST } from "../app/api/duels/[slug]/join/route";
+import { POST } from "../app/api/duels/[slug]/seat/route";
 
 let db: Database.Database;
 let duels: DuelService;
 let organizerPlayerId: number;
 let playerId: number;
-let joinSpy: MockInstance<DuelService["join"]>;
+let joinSpy: MockInstance<DuelService["takeSeat"]>;
 
 function lobby(format?: DuelFormat, mode: DuelMode = "normal") {
   return duels.create({ guildId: "g1", organizerPlayerId, name: "T", mode, format });
 }
 
 function join(slug: string) {
-  return POST(new Request(`http://localhost/api/duels/${slug}/join`, { method: "POST" }), {
+  return POST(new Request(`http://localhost/api/duels/${slug}/seat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ seat: 1 }) }), {
     params: Promise.resolve({ slug }),
   });
 }
@@ -38,7 +38,7 @@ beforeEach(() => {
   organizerPlayerId = Number(insert.run("organizer", "Yugi").lastInsertRowid);
   playerId = Number(insert.run("joiner", "Kaiba").lastInsertRowid);
   duels = createDuelService(db);
-  joinSpy = vi.spyOn(duels, "join");
+  joinSpy = vi.spyOn(duels, "takeSeat");
   actor.mockReset().mockResolvedValue({ ok: true, guildId: "g1", playerId, duels });
   notify.mockReset().mockResolvedValue(undefined);
 });
@@ -47,7 +47,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe("POST /api/duels/[slug]/join with MULTIPLAYER_TABLES", () => {
+describe("POST /api/duels/[slug]/seat with MULTIPLAYER_TABLES", () => {
   it.each([undefined, "", "0", "off", "false"])("refuses multiplayer joins with 403 when the flag is %j", async (flag) => {
     vi.stubEnv("MULTIPLAYER_TABLES", flag);
     for (const mode of ["normal", "domain"] as const) {

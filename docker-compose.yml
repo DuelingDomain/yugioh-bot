@@ -1,10 +1,12 @@
+x-user: &user "${UID:-0}:${GID:-0}"  # Host UID/GID in dev; root by default.
+
 services:
   bot:
     build:
       context: .
       target: bot
     restart: unless-stopped
-    user: "${UID}:${GID}"
+    user: *user
     env_file:
       - .env
     command: sh -c "node packages/bot/dist/deploy-commands.js && node packages/bot/dist/index.js"
@@ -16,7 +18,7 @@ services:
       context: .
       target: ws
     restart: unless-stopped
-    user: "${UID}:${GID}"
+    user: *user
     environment:
       - WEB_URL=${NEXTAUTH_URL:-http://localhost}
       - WS_PORT=3001
@@ -33,7 +35,7 @@ services:
       context: .
       target: duel-bundled
     restart: unless-stopped
-    user: "${UID}:${GID}"
+    user: *user
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
       - DUEL_DATA_DIR=/app/data/duel-engine
@@ -59,7 +61,7 @@ services:
       context: .
       target: web
     restart: unless-stopped
-    user: "${UID}:${GID}"
+    user: *user
     env_file:
       - .env
     environment:
@@ -79,10 +81,12 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    environment:
+      - SITE_DOMAIN=${SITE_DOMAIN:?Set SITE_DOMAIN in .env (localhost for local dev)}
     ports:
       - "80:80"
-      # To enable HTTPS: add "443:443", replace :80 with your domain in Caddyfile,
-      # and ensure caddy_data volume persists (stores Let's Encrypt certs).
+      - "443:443"
+      - "443:443/udp"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

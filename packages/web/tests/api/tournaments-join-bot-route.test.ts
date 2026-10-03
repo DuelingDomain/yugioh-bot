@@ -43,6 +43,7 @@ async function createPendingTournamentDb() {
 describe("POST /api/tournaments/[slug]/join-bot", () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.stubEnv("DISCORD_GUILD_ID", "g1");
     auth.mockReset();
     broadcaster.tournament.mockReset();
     auth.mockResolvedValue({ user: { id: "u-org", name: "Organizer" } });

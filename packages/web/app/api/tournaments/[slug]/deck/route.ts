@@ -10,6 +10,7 @@ import {
 } from "@yugidraft/shared/services";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
+import { env } from "@/lib/env";
 import { callDuelHost } from "@/lib/duel-host";
 import { draftMainSizeError, loadDraftPool } from "@/lib/tournament-deck";
 
@@ -32,7 +33,7 @@ async function loadCaller(slug: string) {
     return { ok: false as const, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   }
   const db = getDb();
-  const tournament = db.prepare("select id, guild_id from tournaments where web_slug = ?").get(slug) as
+  const tournament = db.prepare("select id, guild_id from tournaments where web_slug = ? and guild_id = ?").get(slug, env.discordGuildId) as
     | TournamentRow
     | undefined;
   if (!tournament) {
@@ -71,7 +72,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       // A draft tournament takes only the player's deck of that draft.
       const draftDeck = savedDecks.findByDraft(tournament.guild_id, userId, rules.draftId);
       decks = draftDeck ? [draftDeck] : [];
-      const row = db.prepare("select web_slug from drafts where id = ?").get(rules.draftId) as
+      const row = db.prepare("select web_slug from drafts where id = ? and guild_id = ?").get(rules.draftId, tournament.guild_id) as
         | { web_slug: string | null }
         | undefined;
       draft = row?.web_slug ? { id: rules.draftId, slug: row.web_slug } : null;

@@ -125,7 +125,7 @@
 .caption code { font-size: 12px; color: #d9b45a; }
 .status { font-variant-numeric: tabular-nums; }
 
-.row { display: flex; height: 100%; min-height: 0; }
+.row { display: flex; flex: 1 1 0; min-height: 0; }
 .boardWrap {
   flex: 1;
   min-width: 0;

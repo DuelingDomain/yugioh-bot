@@ -43,7 +43,8 @@ describe("select bar", () => {
     expect(bar.getAttribute("role")).toBe("group");
     expect(bar.getAttribute("aria-label")).toBe(title);
     expect(screen.getByText("Choose a zone").tagName).toBe("B");
-    expect(screen.getByText("Blue-Eyes White Dragon · Pick 1")).toBeTruthy();
+    expect(screen.getByText("Blue-Eyes White Dragon")).toBeTruthy();
+    expect(screen.getByText("Pick 1")).toBeTruthy();
     expect(bar.querySelector("[title]")?.getAttribute("title")).toBe(title);
     expect(bar.getAttribute("data-actions")).toBe("false");
     expect(screen.queryByText(/…|\.\.\./)).toBeNull();
@@ -55,7 +56,8 @@ describe("select bar", () => {
       ...({ source: { code: 89631139, name: "Blue-Eyes White Dragon", seat: 0, text: "x" } } as object),
     });
     expect(document.querySelector("img")).not.toBeNull();
-    expect(screen.getByText("Blue-Eyes White Dragon · Pick 1")).toBeTruthy();
+    expect(screen.getByText("Blue-Eyes White Dragon")).toBeTruthy();
+    expect(screen.getByText("Pick 1")).toBeTruthy();
   });
 
   it("shows Select materials with a progress line and Undo / Finish buttons for a one-at-a-time pick", () => {
@@ -69,7 +71,9 @@ describe("select bar", () => {
       ],
     }, onSubmit);
     expect(screen.getByText("Select materials")).toBeTruthy();
-    expect(screen.getByText("Synchro material · Pick 2 · 1/2 selected")).toBeTruthy();
+    expect(screen.getByText("Synchro material")).toBeTruthy();
+    expect(screen.getByText("Pick 2")).toBeTruthy();
+    expect(screen.getByText("1/2 selected")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(onSubmit).toHaveBeenCalledWith({ choice: "unselect:0" });
     expect((document.querySelector("[data-actions]") as HTMLElement).getAttribute("data-actions")).toBe("true");
@@ -85,7 +89,10 @@ describe("select bar", () => {
       ],
     }, onSubmit);
     expect(screen.getByText("Discard 2")).toBeTruthy();
-    expect(screen.getByText("Pick 2 · 0/2 selected")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Confirm" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Pick 2")).toBeTruthy();
+    expect(screen.getByText("0/2 selected")).toBeTruthy();
+    const confirm = screen.getByRole("button", { name: "Confirm" }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    expect(confirm.title).toBe("Select 2 more");
   });
 });

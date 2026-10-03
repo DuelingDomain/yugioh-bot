@@ -7,9 +7,7 @@ import type { DuelEngineView, DuelFormat } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
-import { resolve } from "node:path";
-
-const DATA = resolve(import.meta.dirname, "../../../data/duel-engine-snap");
+import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 const SECRET = "spectator-test";
 const hosts: DuelHost[] = [];
 const databases: Database.Database[] = [];
@@ -21,7 +19,7 @@ async function table(format: DuelFormat = "ffa3", eliminated = true) {
     Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(`u${seat}`, `P${seat}`).lastInsertRowid));
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "watch", mode: "normal", format });
-  for (const player of players.slice(1)) duels.join(session.slug, "g", player);
+  for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
   const deck = buildPracticeBotDeck("normal", DATA);
   for (const player of players) duels.setDeck(session.slug, "g", player, deck);
   let running = true;
@@ -64,7 +62,7 @@ it("rejects a living or merely Leaving player's spectator switch", async () => {
 
 it("restores the saved public final view instead of a private seat snapshot", async () => {
   const t = await table();
-  const publicView = { ...t.view(null), result: { winnerSeat: 2, reason: "Surrender" }, eliminationOrder: [[0], [1]] };
+  const publicView = { ...t.view(null), prioritySeat: null, result: { winnerSeat: 2, reason: "Surrender" }, eliminationOrder: [[0], [1]] };
   t.duels.complete(t.session.slug, "g", 2, "Surrender", { public: publicView, seats: [t.view(0), t.view(1), t.view(2)] });
   const result = await t.post({ op: "view", spectate: true });
   expect(result.status, JSON.stringify(result.data)).toBe(200);

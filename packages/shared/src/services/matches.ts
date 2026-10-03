@@ -73,10 +73,11 @@ function mapMatch(row: any): Match {
 
 export function createMatchService(db: Database.Database) {
   const scoring = createScoringService(db);
-  const safe = (fn: () => void) => {
+  const safe = (fn: () => void, strictScoring = false) => {
     try {
       fn();
     } catch (err) {
+      if (strictScoring) throw err;
       console.error("[scoring] failed", err);
     }
   };
@@ -104,7 +105,7 @@ export function createMatchService(db: Database.Database) {
     }
   };
 
-  const completeTournamentMatch = (match: Match) => {
+  const completeTournamentMatch = (match: Match, strictScoring = false) => {
     if (match.tournamentId === null || match.winnerId === null) {
       return;
     }
@@ -140,7 +141,7 @@ export function createMatchService(db: Database.Database) {
         db.prepare(
           "update tournaments set status = 'completed', ended_at = current_timestamp where id = ?",
         ).run(match.tournamentId);
-        safe(() => scoring.recordTournamentResult(match.tournamentId!));
+        safe(() => scoring.recordTournamentResult(match.tournamentId!), strictScoring);
       }
       return;
     }
@@ -198,7 +199,7 @@ export function createMatchService(db: Database.Database) {
       db.prepare(
         "update tournaments set status = 'completed', ended_at = current_timestamp where id = ?",
       ).run(match.tournamentId);
-      safe(() => scoring.recordTournamentResult(match.tournamentId!));
+      safe(() => scoring.recordTournamentResult(match.tournamentId!), strictScoring);
       return;
     }
 
@@ -325,7 +326,8 @@ export function createMatchService(db: Database.Database) {
       return findById(matchId);
     },
 
-    recordConfirmedResult(input: ConfirmedResultInput): Match {
+    /** Strict scoring propagates errors to the caller's recording transaction. */
+    recordConfirmedResult(input: ConfirmedResultInput, options: { strictScoring?: boolean } = {}): Match {
       if (input.playerOneId === input.playerTwoId) {
         throw new Error("Players cannot play matches against themselves");
       }
@@ -378,13 +380,13 @@ export function createMatchService(db: Database.Database) {
 
         if (slot) {
           db.prepare("update tournament_matches set match_id = ? where id = ?").run(matchId, slot.id);
-          completeTournamentMatch(findById(matchId));
+          completeTournamentMatch(findById(matchId), options.strictScoring);
         }
         return matchId;
       });
 
       const matchId = insertAndAdvance();
-      safe(() => scoring.recordMatchResult(matchId));
+      safe(() => scoring.recordMatchResult(matchId), options.strictScoring);
       return findById(matchId);
     },
 

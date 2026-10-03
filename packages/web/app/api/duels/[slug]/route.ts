@@ -11,7 +11,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
 
   try {
     const room = actor.duels.room(slug, actor.guildId, actor.playerId);
-    if (room.session.status !== "active" && !spectate) {
+    // A lobby with a timed-out rock-paper-scissors opening goes to the host, which settles it.
+    const openingDue = room.session.status === "lobby" && room.opening != null
+      && Date.parse(room.opening.deadlineAt) <= Date.now();
+    if (room.session.status !== "active" && !openingDue && !spectate) {
       return NextResponse.json(room);
     }
   } catch (error) {

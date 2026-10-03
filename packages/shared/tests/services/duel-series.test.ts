@@ -1,8 +1,8 @@
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
-import type { DuelDeck, DuelSession } from "../../src/duels/index.js";
-import { createDuelSeriesService, SERIES_SIDE_WINDOW_MS } from "../../src/services/duel-series.js";
+import type { DuelDeck, DuelEngineView, DuelSession } from "../../src/duels/index.js";
+import { createDuelSeriesService, createSeriesStore, SERIES_SIDE_WINDOW_MS } from "../../src/services/duel-series.js";
 import { createDuelService, DuelServiceError } from "../../src/services/duels.js";
 import { createTournamentDuelService, TournamentDuelError } from "../../src/services/tournament-duels.js";
 import { createTournamentService } from "../../src/services/tournaments.js";
@@ -132,8 +132,8 @@ describe("createChallenge", () => {
     expect(duel.seats.every((seat) => !seat.ready)).toBe(true);
     const row = app.db.prepare("select invite_code from duels where id = ?").get(duel.id) as { invite_code: string | null };
     expect(row.invite_code).toBeTruthy();
-    // The opponent already has a seat, so the link seats them.
-    expect(app.duels.join(duel.slug, "g1", app.p2).seats).toHaveLength(2);
+    // The named opponent already has a seat; entry preserves it.
+    expect(app.duels.room(duel.slug, "g1", app.p2).session.seats).toHaveLength(2);
     expect(app.series.forDuel(duel.id)?.id).toBe(series.id);
   });
 
@@ -145,10 +145,10 @@ describe("createChallenge", () => {
     expectStatus(() => app.series.createChallenge({ ...base, bestOf: 5 as 1 }), 400);
   });
 
-  it("does not let a third player join the fixed seats", () => {
+  it("does not let an uninvited third player take the fixed seats", () => {
     const app = setup();
     const { duel } = challenge(app, 1);
-    expectStatus(() => app.duels.join(duel.slug, "g1", app.p3), 409);
+    expectStatus(() => app.duels.takeSeat(duel.slug, "g1", app.p3), 403);
     expectStatus(() => app.duels.leave(duel.slug, "g1", app.p2), 409);
   });
 });
@@ -161,7 +161,7 @@ describe("system start and ready", () => {
     expect(active.status).toBe("active");
 
     const open = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Open", mode: "normal" });
-    app.duels.join(open.slug, "g1", app.p2);
+    app.duels.takeSeat(open.slug, "g1", app.p2);
     app.duels.setDeck(open.slug, "g1", app.p1, validDeck(1));
     app.duels.setDeck(open.slug, "g1", app.p2, validDeck(1000));
     expectStatus(() => start(app, open.slug, null), 403);
@@ -210,7 +210,7 @@ describe("open table attach", () => {
     expect(open.bestOf).toBe(3);
     expect(open.ranked).toBe(true);
     expect(open.seriesId).toBeNull();
-    app.duels.join(open.slug, "g1", app.p2);
+    app.duels.takeSeat(open.slug, "g1", app.p2);
     app.duels.setDeck(open.slug, "g1", app.p1, validDeck(1));
     app.duels.setDeck(open.slug, "g1", app.p2, validDeck(1000));
     const active = start(app, open.slug, app.p1);
@@ -254,6 +254,9 @@ describe("Best of 1", () => {
     expect(done).toMatchObject({ status: "completed", wins: [0, 1], winnerPlayerId: app.p2 });
     expect(matchRows(app)).toHaveLength(0);
     expect(awardCount(app)).toBe(0);
+    const store = createSeriesStore(app.db);
+    expect(store.listUnrecordedResults("g1")).toEqual([]);
+    expect(store.retryResult(series.id, "g1")).toMatchObject({ ok: false, error: expect.any(String) });
   });
 
   it("ranked: the win writes one approved match and scoring", () => {
@@ -263,8 +266,13 @@ describe("Best of 1", () => {
     const rows = matchRows(app);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ status: "approved", source: "casual", winner_id: app.p1, tournament_id: null, approver_id: null });
-    expect(seriesRow(app, series.id).match_id).toBe(rows[0]?.id);
+    expect(seriesRow(app, series.id)).toMatchObject({ status: "completed", wins0: 1, wins1: 0, winner_player_id: app.p1, match_id: rows[0]?.id });
     expect(awardCount(app)).toBeGreaterThan(0);
+    const awards = awardCount(app);
+    app.duels.complete(duel.slug, "g1", seatOf(duel, app.p1), "done");
+    createSeriesStore(app.db).onGameFinished({ id: duel.id, series_id: series.id, game_number: 1 }, "completed", app.p1);
+    expect(matchRows(app)).toHaveLength(1);
+    expect(awardCount(app)).toBe(awards);
   });
 
   it("a casual draw completes the series with no winner and no match", () => {
@@ -273,6 +281,9 @@ describe("Best of 1", () => {
     playGame(app, duel.slug, null);
     expect(app.series.get(series.id, "g1")).toMatchObject({ status: "completed", winnerPlayerId: null, wins: [0, 0] });
     expect(matchRows(app)).toHaveLength(0);
+    const store = createSeriesStore(app.db);
+    expect(store.listUnrecordedResults("g1")).toEqual([]);
+    expect(store.retryResult(series.id, "g1")).toMatchObject({ ok: false, error: expect.any(String) });
   });
 
   it("an interrupted game waits for both players to ready", () => {
@@ -287,6 +298,199 @@ describe("Best of 1", () => {
     expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
     app.series.setSideReady(series.id, "g1", app.p2);
     expect(app.series.dueNextGames(Date.now(), 10)).toEqual([{ seriesId: series.id, guildId: "g1" }]);
+  });
+});
+
+describe("series result recording", () => {
+  it("rolls back failed ranked scoring, including season creation, and retries it once", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 1, true);
+    start(app, duel.slug);
+    app.db.exec(`
+      create temp trigger fail_scoring before insert on point_awards
+      when new.kind = 'match_win'
+      begin select raise(abort, 'forced scoring failure'); end;
+    `);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => app.duels.complete(duel.slug, "g1", seatOf(duel, app.p1), "done")).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(app.duels.get(duel.slug, "g1")).toMatchObject({ status: "completed", winnerPlayerId: app.p1, archivedAt: expect.any(String) });
+    expect(seriesRow(app, series.id)).toMatchObject({ status: "completed", winner_player_id: app.p1, match_id: null });
+    const store = createSeriesStore(app.db);
+    expect(store.listUnrecordedResults("g1").map((row) => row.id)).toEqual([series.id]);
+    expect(store.retryResult(series.id, "g1")).toEqual({ ok: false, error: "forced scoring failure" });
+    expect(matchRows(app)).toEqual([]);
+    for (const table of ["point_awards", "player_ratings", "season_standings", "seasons", "player_achievements"]) {
+      expect(app.db.prepare(`select * from ${table}`).all()).toEqual([]);
+    }
+    app.db.exec("drop trigger fail_scoring");
+    const repaired = store.retryResult(series.id, "g1");
+    expect(repaired).toMatchObject({ ok: true, match: { winnerId: app.p1 } });
+    expect(awardCount(app)).toBe(1);
+    const ratings = app.db.prepare("select * from player_ratings order by player_id").all();
+    expect(ratings).toHaveLength(2);
+    expect(store.retryResult(series.id, "g1")).toEqual(repaired);
+    expect(awardCount(app)).toBe(1);
+    expect(app.db.prepare("select * from player_ratings order by player_id").all()).toEqual(ratings);
+    expect(store.listUnrecordedResults("g1")).toEqual([]);
+  });
+
+  it.each([1, 3] as const)("keeps a ranked Bo%i completion when recording fails and repairs it once", (bestOf) => {
+    const app = setup();
+    const { duel, series } = challenge(app, bestOf, true);
+    let finalGame = duel;
+    if (bestOf === 3) {
+      playGame(app, duel.slug, app.p1);
+      finalGame = app.series.createNextGame(series.id, "g1");
+    }
+    start(app, finalGame.slug);
+    const store = createSeriesStore(app.db);
+    app.db.exec(`
+      create temp trigger fail_match_save before insert on matches
+      begin
+        select raise(abort, 'forced match save failure');
+      end;
+    `);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => app.duels.complete(finalGame.slug, "g1", seatOf(finalGame, app.p1), "done"))
+        .not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(seriesRow(app, series.id)).toMatchObject({
+      status: "completed", wins0: bestOf === 3 ? 2 : 1, wins1: 0, winner_player_id: app.p1, match_id: null, ended_at: expect.any(String),
+    });
+    expect(app.duels.get(finalGame.slug, "g1")).toMatchObject({
+      status: "completed", winnerPlayerId: app.p1, resultReason: "done", endedAt: expect.any(String), archivedAt: expect.any(String),
+    });
+    expect(matchRows(app)).toHaveLength(0);
+    expect(awardCount(app)).toBe(0);
+    expect(app.db.prepare("select * from player_ratings").all()).toEqual([]);
+    expect(store.listUnrecordedResults("g1").map((row) => row.id)).toEqual([series.id]);
+    expect(store.listUnrecordedResults("g2")).toEqual([]);
+    expect(store.retryResult(series.id, "g1")).toEqual({ ok: false, error: "forced match save failure" });
+    expect(store.retryResult(series.id, "g2")).toEqual({ ok: false, error: "Duel series not found" });
+    expect(store.retryResult(9999, "g1")).toEqual({ ok: false, error: "Duel series not found" });
+    // Repeating completion cannot replace the saved winner or repair the result.
+    app.duels.complete(finalGame.slug, "g1", seatOf(finalGame, app.p2), "different result");
+    expect(matchRows(app)).toHaveLength(0);
+
+    app.db.exec("drop trigger fail_match_save");
+    const terminalSeries = seriesRow(app, series.id);
+    const terminalDuel = app.duels.get(finalGame.slug, "g1");
+    const repaired = store.retryResult(series.id, "g1");
+    const match = matchRows(app)[0]!;
+    expect(repaired).toMatchObject({ ok: true, match: { id: match.id, winnerId: app.p1, status: "approved", source: "casual" } });
+    expect(seriesRow(app, series.id)).toEqual({ ...terminalSeries, match_id: match.id });
+    expect(app.duels.get(finalGame.slug, "g1")).toEqual(terminalDuel);
+    expect(awardCount(app)).toBe(1);
+    const ratings = app.db.prepare("select * from player_ratings order by player_id").all();
+    expect(ratings).toHaveLength(2);
+    expect(store.retryResult(series.id, "g1")).toEqual(repaired);
+    expect(matchRows(app)).toHaveLength(1);
+    expect(awardCount(app)).toBe(1);
+    expect(app.db.prepare("select * from player_ratings order by player_id").all()).toEqual(ratings);
+    expect(store.listUnrecordedResults("g1")).toEqual([]);
+  });
+
+  it("rolls back the match and scoring when linking fails, while keeping completion", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 1, true);
+    start(app, duel.slug);
+    const store = createSeriesStore(app.db);
+    app.db.exec(`
+      create temp trigger fail_series_link before update of match_id on duel_series
+      when new.match_id is not null
+      begin
+        select raise(abort, 'forced series link failure');
+      end;
+    `);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => app.duels.complete(duel.slug, "g1", seatOf(duel, app.p1), "done")).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(seriesRow(app, series.id)).toMatchObject({ status: "completed", winner_player_id: app.p1, match_id: null });
+    expect(app.duels.get(duel.slug, "g1").status).toBe("completed");
+    expect(matchRows(app)).toHaveLength(0);
+    expect(awardCount(app)).toBe(0);
+    for (const table of ["player_ratings", "season_standings", "seasons", "player_achievements"]) {
+      expect(app.db.prepare(`select * from ${table}`).all()).toEqual([]);
+    }
+    expect(store.listUnrecordedResults("g1").map((row) => row.id)).toEqual([series.id]);
+
+    app.db.exec("drop trigger fail_series_link");
+    expect(store.retryResult(series.id, "g1")).toMatchObject({ ok: true });
+    expect(matchRows(app)).toHaveLength(1);
+    expect(seriesRow(app, series.id).match_id).toBe(matchRows(app)[0]?.id);
+  });
+
+  it.each(["Surrender", "Time limit"])("preserves a %s outcome, snapshots and the stopped clock when recording fails", (reason) => {
+    const app = setup();
+    const { duel, series } = challenge(app, 1, true);
+    start(app, duel.slug);
+    const loserSeat = seatOf(duel, app.p1) === 0 ? 0 : 1;
+    app.duels.setClock(duel.slug, "g1", {
+      turn: 1, remainingMs: loserSeat === 0 ? [0, 1000] : [1000, 0], activeSeat: loserSeat, startedAt: Date.now(),
+    });
+    const board: DuelEngineView = {
+      revision: 4, turn: 1, turnSeat: 0, phase: "end",
+      seats: [0, 1].map((seat) => ({ seat, lp: 1000, hand: [], deckCount: 30, extraCount: 0, extra: [], monsters: [], spells: [], graveyard: [], banished: [] })),
+      prompt: null, chain: [], events: [], log: [], result: null,
+    };
+    app.db.exec(`
+      create temp trigger fail_match_save before insert on matches
+      begin select raise(abort, 'forced match save failure'); end;
+    `);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => app.duels.complete(duel.slug, "g1", seatOf(duel, app.p2), reason, { public: board, seat0: board, seat1: board }))
+        .not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(app.duels.get(duel.slug, "g1")).toMatchObject({ status: "completed", winnerPlayerId: app.p2, resultReason: reason });
+    expect(app.series.get(series.id, "g1")).toMatchObject({ status: "completed", wins: [0, 1], winnerPlayerId: app.p2 });
+    for (const playerId of [app.p1, app.p2]) {
+      expect(app.duels.room(duel.slug, "g1", playerId).engine?.result).toEqual({ winnerSeat: seatOf(duel, app.p2), reason });
+    }
+    const row = app.db.prepare("select clock_json, snapshot_public_json from duels where id = ?").get(duel.id) as Record<string, any>;
+    expect(row.clock_json).toBeNull();
+    expect(JSON.parse(row.snapshot_public_json).result).toEqual({ winnerSeat: seatOf(duel, app.p2), reason });
+    expect(app.duels.dueClocks(Date.now() + 1000, 10)).toEqual([]);
+    expect(createSeriesStore(app.db).listUnrecordedResults("g1").map((row) => row.id)).toEqual([series.id]);
+    expect(matchRows(app)).toHaveLength(0);
+  });
+
+  it("an interrupted ranked Bo3 at 1-1 still waits for readiness without recording", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3, true);
+    playGame(app, duel.slug, app.p1);
+    const game2 = app.series.createNextGame(series.id, "g1");
+    playGame(app, game2.slug, app.p2);
+    const game3 = app.series.createNextGame(series.id, "g1");
+    start(app, game3.slug);
+    app.db.exec(`
+      create temp trigger fail_match_save before insert on matches
+      begin select raise(abort, 'forced match save failure'); end;
+    `);
+    app.duels.interrupt(game3.slug, "g1", "host restart");
+    expect(app.duels.get(game3.slug, "g1")).toMatchObject({ status: "interrupted", winnerPlayerId: null, resultReason: "host restart" });
+    expect(app.series.get(series.id, "g1")).toMatchObject({ status: "between_games", wins: [1, 1], winnerPlayerId: null, sideReady: [false, false], nextGameAt: null });
+    expect(app.series.dueNextGames(Date.now() + 10 * SERIES_SIDE_WINDOW_MS, 10)).toEqual([]);
+    expect(createSeriesStore(app.db).listUnrecordedResults("g1")).toEqual([]);
+    expect(createSeriesStore(app.db).retryResult(series.id, "g1")).toMatchObject({ ok: false, error: expect.any(String) });
+    expect(matchRows(app)).toHaveLength(0);
+    app.series.setSideReady(series.id, "g1", app.p1);
+    app.series.setSideReady(series.id, "g1", app.p2);
+    const next = app.series.createNextGame(series.id, "g1");
+    expect(next.seats.map((seat) => seat.playerId)).toEqual([game3.seats[1]?.playerId, game3.seats[0]?.playerId]);
+    expect(app.series.get(series.id, "g1").wins).toEqual([1, 1]);
   });
 });
 
@@ -405,6 +609,265 @@ describe("Best of 3", () => {
     ).run(app.p1, JSON.stringify(duel.settings), series.id);
     app.duels.complete(duel.slug, "g1", 0, "done");
     expect(app.series.get(series.id, "g1")).toMatchObject({ status: "active", wins: [0, 0] });
+  });
+});
+
+describe("the loser chooses first or second", () => {
+  it("names the loser as the chooser after a decided game, and nobody after a draw or an interrupt", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    expect(app.series.get(series.id, "g1")).toMatchObject({ firstChooser: null, firstChoice: null });
+    playGame(app, duel.slug, app.p1);
+    const index = (playerId: number) => app.series.get(series.id, "g1").playerIds.indexOf(playerId);
+    expect(app.series.get(series.id, "g1")).toMatchObject({ firstChooser: index(app.p2), firstChoice: null });
+
+    const game2 = app.series.createNextGame(series.id, "g1");
+    expect(app.series.get(series.id, "g1")).toMatchObject({ firstChooser: null, firstChoice: null });
+    playGame(app, game2.slug, null);
+    expect(app.series.get(series.id, "g1")).toMatchObject({ status: "between_games", firstChooser: null });
+    expectStatus(() => app.series.setFirstChoice(series.id, "g1", app.p1, "second"), 409);
+  });
+
+  it("puts the loser in seat 1 when they choose second, and in seat 0 when they choose first", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    playGame(app, duel.slug, app.p1);
+    const summary = app.series.setFirstChoice(series.id, "g1", app.p2, "second");
+    expect(summary.firstChoice).toBe("second");
+    const game2 = app.series.createNextGame(series.id, "g1");
+    expect(seatOf(game2, app.p2)).toBe(1);
+    expect(seatOf(game2, app.p1)).toBe(0);
+
+    playGame(app, game2.slug, app.p2);
+    app.series.setFirstChoice(series.id, "g1", app.p1, "second");
+    app.series.setFirstChoice(series.id, "g1", app.p1, "first");
+    const game3 = app.series.createNextGame(series.id, "g1");
+    expect(seatOf(game3, app.p1)).toBe(0);
+  });
+
+  it("lets the loser change the choice until the next game is made", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    playGame(app, duel.slug, app.p1);
+    app.series.setFirstChoice(series.id, "g1", app.p2, "second");
+    expect(app.series.setFirstChoice(series.id, "g1", app.p2, "first").firstChoice).toBe("first");
+    expect(seatOf(app.series.createNextGame(series.id, "g1"), app.p2)).toBe(0);
+  });
+
+  it("goes first by default when the window ends without a choice", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    playGame(app, duel.slug, app.p1);
+    expect(app.series.dueNextGames(Date.now() + SERIES_SIDE_WINDOW_MS + 1000, 10)).toHaveLength(1);
+    expect(seatOf(app.series.createNextGame(series.id, "g1"), app.p2)).toBe(0);
+  });
+
+  it("refuses the winner, a stranger, a bad value and a series that is not between games", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    expectStatus(() => app.series.setFirstChoice(series.id, "g1", app.p2, "first"), 409);
+    playGame(app, duel.slug, app.p1);
+    expectStatus(() => app.series.setFirstChoice(series.id, "g1", app.p1, "second"), 403);
+    expectStatus(() => app.series.setFirstChoice(series.id, "g1", app.p3, "second"), 403);
+    expectStatus(() => app.series.setFirstChoice(series.id, "g1", app.p2, "third" as never), 400);
+    app.series.createNextGame(series.id, "g1");
+    expectStatus(() => app.series.setFirstChoice(series.id, "g1", app.p2, "second"), 409);
+  });
+
+  it("keeps the next game back until the loser has chosen, even when both are ready", () => {
+    const app = setup();
+    const started = app.series.createChallenge({ guildId: "g1", challengerPlayerId: app.p1, opponentPlayerId: app.p2, bestOf: 3, ranked: false, mode: "normal" });
+    app.duels.setDeck(started.duel.slug, "g1", app.p1, validDeck(1, 0));
+    app.duels.setDeck(started.duel.slug, "g1", app.p2, validDeck(1000, 0));
+    playGame(app, started.duel.slug, app.p1);
+    // Neither has side cards: both are ready at once, but the loser still has to choose.
+    expect(app.series.get(started.series.id, "g1").sideReady).toEqual([true, true]);
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
+    app.series.setFirstChoice(started.series.id, "g1", app.p2, "second");
+    expect(app.series.dueNextGames(Date.now(), 10)).toHaveLength(1);
+  });
+
+  it("Ready from the loser keeps the default and releases the game", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    playGame(app, duel.slug, app.p1);
+    app.series.setSideReady(series.id, "g1", app.p1);
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
+    const summary = app.series.setSideReady(series.id, "g1", app.p2);
+    expect(summary.firstChoice).toBe("first");
+    expect(app.series.dueNextGames(Date.now(), 10)).toHaveLength(1);
+  });
+
+  it("Ready after a choice keeps the choice", () => {
+    const app = setup();
+    const { duel, series } = challenge(app, 3);
+    playGame(app, duel.slug, app.p1);
+    app.series.setFirstChoice(series.id, "g1", app.p2, "second");
+    expect(app.series.setSideReady(series.id, "g1", app.p2).firstChoice).toBe("second");
+  });
+});
+
+describe("Best of 3 against the practice bot", () => {
+  /** An open Best of 3 table with the bot in the other seat and the human's deck set. */
+  function botTable(app: App, bestOf: 1 | 3 = 3, ranked = false) {
+    const open = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Practice", mode: "normal", bestOf, ranked });
+    app.duels.addPracticeBot(open.slug, "g1", app.p1, validDeck(1000, 0));
+    app.duels.setDeck(open.slug, "g1", app.p1, validDeck(1, 0));
+    return open;
+  }
+  /** Starts a game of the bot series and ends it; `humanWins` false means the bot wins. */
+  function playBotGame(app: App, slug: string, humanWins: boolean | null) {
+    const active = start(app, slug, app.p1);
+    const humanSeat = seatOf(active, app.p1);
+    const winnerSeat = humanWins === null ? null : humanWins ? humanSeat : humanSeat === 0 ? 1 : 0;
+    return app.duels.complete(slug, "g1", winnerSeat, "done");
+  }
+  const botSeatOf = (session: DuelSession) => session.seats.find((seat) => seat.isBot)!.seat;
+
+  it("makes a series with the human at index 0 and the bot at index 1", () => {
+    const app = setup();
+    const open = botTable(app);
+    const active = start(app, open.slug, app.p1);
+    expect(active.seriesId).not.toBeNull();
+    const summary = app.series.get(active.seriesId!, "g1");
+    expect(summary).toMatchObject({
+      bestOf: 3, ranked: false, status: "active", wins: [0, 0], gameNumber: 1, vsBot: true,
+      playerIds: [app.p1, 0], displayNames: ["Yugi", "Practice Bot"],
+    });
+    expect(summary.hasSide).toEqual([false, false]);
+  });
+
+  it("is never ranked, even on a ranked table, and records no match", () => {
+    const app = setup();
+    const open = botTable(app, 3, true);
+    const active = start(app, open.slug, app.p1);
+    expect(app.series.get(active.seriesId!, "g1").ranked).toBe(false);
+    expect(app.duels.get(open.slug, "g1").ranked).toBe(false);
+    app.duels.complete(open.slug, "g1", seatOf(active, app.p1), "done");
+    const game2 = app.series.createNextGame(active.seriesId!, "g1");
+    expect(game2.ranked).toBe(false);
+    playBotGame(app, game2.slug, true);
+    expect(app.series.get(active.seriesId!, "g1")).toMatchObject({ status: "completed", wins: [2, 0], winnerPlayerId: app.p1 });
+    expect(matchRows(app)).toHaveLength(0);
+    expect(awardCount(app)).toBe(0);
+  });
+
+  it("keeps a Best of 1 against the bot a lone duel", () => {
+    const app = setup();
+    const open = botTable(app, 1);
+    expect(start(app, open.slug, app.p1).seriesId).toBeNull();
+  });
+
+  it("after a human win the bot is ready at once and chose to go first", () => {
+    const app = setup();
+    const open = botTable(app);
+    const done = playBotGame(app, open.slug, true);
+    const summary = app.series.get(done.seriesId!, "g1");
+    expect(summary).toMatchObject({ status: "between_games", wins: [1, 0], sideReady: [true, true], firstChooser: 1, firstChoice: "first" });
+    expect(summary.nextGameAt).not.toBeNull();
+    // Nobody has a side deck, so the series is due at once (the bot already chose).
+    expect(app.series.dueNextGames(Date.now(), 10)).toHaveLength(1);
+    const game2 = app.series.createNextGame(done.seriesId!, "g1");
+    expect(game2.seats.find((seat) => seat.isBot)).toMatchObject({ seat: 0, isBot: true, displayName: "Practice Bot" });
+    expect(seatOf(game2, app.p1)).toBe(1);
+    expect(game2.seriesId).toBe(done.seriesId);
+    expect(game2.gameNumber).toBe(2);
+  });
+
+  it("after a bot win the human chooses; the bot is ready and does not side", () => {
+    const app = setup();
+    const open = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Practice", mode: "normal", bestOf: 3 });
+    app.duels.addPracticeBot(open.slug, "g1", app.p1, validDeck(1000, 0));
+    app.duels.setDeck(open.slug, "g1", app.p1, validDeck(1, 3));
+    const done = playBotGame(app, open.slug, false);
+    const summary = app.series.get(done.seriesId!, "g1");
+    expect(summary).toMatchObject({ status: "between_games", wins: [0, 1], sideReady: [false, true], hasSide: [true, false], firstChooser: 0, firstChoice: null });
+    // The bot is ready, the human is not: the window decides.
+    expect(app.series.dueNextGames(Date.now(), 10)).toEqual([]);
+    expect(app.series.dueNextGames(Date.now() + SERIES_SIDE_WINDOW_MS + 1000, 10)).toHaveLength(1);
+
+    // The human sides and picks second; the bot keeps its deck.
+    const state = app.series.sideState(done.seriesId!, "g1", app.p1);
+    const swapped = { main: [...state.currentDeck.main.slice(1), state.currentDeck.side[0]!], extra: state.currentDeck.extra, side: [state.currentDeck.main[0]!, ...state.currentDeck.side.slice(1)] };
+    app.series.setSideDeck(done.seriesId!, "g1", app.p1, swapped);
+    app.series.setFirstChoice(done.seriesId!, "g1", app.p1, "second");
+    expect(app.series.setSideReady(done.seriesId!, "g1", app.p1)).toMatchObject({ sideReady: [true, true], firstChoice: "second" });
+    expect(app.series.dueNextGames(Date.now(), 10)).toHaveLength(1);
+    const game2 = app.series.createNextGame(done.seriesId!, "g1");
+    expect(seatOf(game2, app.p1)).toBe(1);
+    expect(botSeatOf(game2)).toBe(0);
+    // The bot plays the same deck every game; the human plays the sided deck.
+    const decks = app.db.prepare("select is_bot, deck_json from duel_seats where duel_id = (select id from duels where web_slug = ?)").all(game2.slug) as Array<{ is_bot: number; deck_json: string }>;
+    expect(JSON.parse(decks.find((seat) => seat.is_bot === 1)!.deck_json)).toEqual(validDeck(1000, 0));
+    expect(JSON.parse(decks.find((seat) => seat.is_bot === 0)!.deck_json)).toEqual(swapped);
+  });
+
+  it("refuses a side deck or a choice from anyone but the human", () => {
+    const app = setup();
+    const open = botTable(app);
+    const done = playBotGame(app, open.slug, false);
+    expectStatus(() => app.series.setFirstChoice(done.seriesId!, "g1", app.p2, "second"), 403);
+    expectStatus(() => app.series.setSideReady(done.seriesId!, "g1", app.p2), 403);
+  });
+
+  it("goes first by default when the human loses and the window ends", () => {
+    const app = setup();
+    const open = botTable(app);
+    const done = playBotGame(app, open.slug, false);
+    const game2 = app.series.createNextGame(done.seriesId!, "g1");
+    expect(seatOf(game2, app.p1)).toBe(0);
+    expect(botSeatOf(game2)).toBe(1);
+  });
+
+  it("ends at 2 wins: the bot can win the match and the series records nothing", () => {
+    const app = setup();
+    const open = botTable(app);
+    let slug = open.slug;
+    for (let game = 1; game <= 2; game += 1) {
+      const done = playBotGame(app, slug, false);
+      if (game === 1) {
+        expect(app.series.get(done.seriesId!, "g1")).toMatchObject({ status: "between_games", wins: [0, 1] });
+        slug = app.series.createNextGame(done.seriesId!, "g1").slug;
+      } else {
+        expect(app.series.get(done.seriesId!, "g1")).toMatchObject({ status: "completed", wins: [0, 2], winnerPlayerId: null, vsBot: true });
+      }
+    }
+    expect(matchRows(app)).toHaveLength(0);
+  });
+
+  it("plays to a third game at 1-1", () => {
+    const app = setup();
+    const open = botTable(app);
+    let slug = open.slug;
+    let seriesId = 0;
+    for (const humanWins of [true, false]) {
+      const done = playBotGame(app, slug, humanWins);
+      seriesId = done.seriesId!;
+      slug = app.series.createNextGame(seriesId, "g1").slug;
+    }
+    expect(app.series.get(seriesId, "g1")).toMatchObject({ status: "active", wins: [1, 1], gameNumber: 3 });
+    const done = playBotGame(app, slug, true);
+    expect(app.series.get(done.seriesId!, "g1")).toMatchObject({ status: "completed", wins: [2, 1], winnerPlayerId: app.p1 });
+  });
+
+  it("swaps the seats after a draw and is ready at once", () => {
+    const app = setup();
+    const open = botTable(app);
+    const before = start(app, open.slug, app.p1);
+    const firstBot = botSeatOf(before);
+    app.duels.complete(open.slug, "g1", null, "draw");
+    const summary = app.series.get(before.seriesId!, "g1");
+    expect(summary).toMatchObject({ status: "between_games", wins: [0, 0], firstChooser: null, sideReady: [true, true] });
+    const game2 = app.series.createNextGame(before.seriesId!, "g1");
+    expect(botSeatOf(game2)).toBe(firstBot === 0 ? 1 : 0);
+  });
+
+  it("offers the next game from dueStarts, because the bot seat is ready", () => {
+    const app = setup();
+    const open = botTable(app);
+    const done = playBotGame(app, open.slug, true);
+    const game2 = app.series.createNextGame(done.seriesId!, "g1");
+    expect(app.series.dueStarts(10)).toEqual([{ slug: game2.slug, guildId: "g1" }]);
   });
 });
 
@@ -630,9 +1093,9 @@ describe("tournament series", () => {
 });
 
 describe("tournament series guards", () => {
-  function guardSetup(bestOf: 1 | 3 = 3) {
+  function guardSetup(bestOf: 1 | 3 = 3, format: "single_elim" | "round_robin" = "single_elim") {
     const app = setup();
-    const t = app.tournaments.create("g1", "Cup", "single_elim", "u3", { bestOf });
+    const t = app.tournaments.create("g1", "Cup", format, "u3", { bestOf });
     app.tournaments.join(t.id, app.p1);
     app.tournaments.join(t.id, app.p2);
     app.tournaments.start(t.id);
@@ -734,15 +1197,18 @@ describe("tournament series guards", () => {
     expect(app.db.prepare("select count(*) as c from duels where series_id = ?").get(started.series.id)).toEqual({ c: 1 });
   });
 
-  it("logs the series, slot and duel when recording the result fails", () => {
+  it("logs a tournament result failure and preserves the completed duel and series", () => {
     const { app, slot, started, ready } = guardSetup(1);
     ready();
     start(app, started.duel.slug);
     app.db.prepare("update tournament_matches set status = 'completed' where id = ?").run(slot.id);
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      app.duels.complete(started.duel.slug, "g1", 0, "done");
-      expect(app.series.get(started.series.id, "g1").status).toBe("completed");
+      expect(() => app.duels.complete(started.duel.slug, "g1", seatOf(started.duel, app.p1), "done")).not.toThrow();
+      expect(seriesRow(app, started.series.id)).toMatchObject({ status: "completed", wins0: 1, wins1: 0, winner_player_id: app.p1, match_id: null, ended_at: expect.any(String) });
+      expect(duelRow(app, started.duel.slug)).toMatchObject({ status: "completed", archived_at: expect.any(String) });
+      expect(matchRows(app)).toHaveLength(0);
+      expect(app.series.openForTournamentMatch(slot.id)).toBeNull();
       expect(spy).toHaveBeenCalledTimes(1);
       const logged = spy.mock.calls[0]!
         .map((arg) => JSON.stringify(arg, (_key, value) => (value instanceof Error ? value.message : value)))
@@ -754,6 +1220,386 @@ describe("tournament series guards", () => {
     } finally {
       spy.mockRestore();
     }
+    app.db.prepare("update tournament_matches set status = 'open' where id = ?").run(slot.id);
+    const store = createSeriesStore(app.db);
+    expect(store.listUnrecordedResults("g1").map((row) => row.id)).toEqual([started.series.id]);
+    expect(store.retryResult(started.series.id, "g1")).toMatchObject({ ok: true });
+    const match = matchRows(app)[0]!;
+    expect(seriesRow(app, started.series.id)).toMatchObject({ status: "completed", match_id: match.id });
+    expect(app.db.prepare("select status, match_id from tournament_matches where id = ?").get(slot.id))
+      .toEqual({ status: "completed", match_id: match.id });
+    expect(store.retryResult(started.series.id, "g1")).toMatchObject({ ok: true, match: { id: match.id } });
+    expect(matchRows(app)).toHaveLength(1);
+  });
+
+  it("a failed series link rolls back slot completion, tournament progression and scoring", () => {
+    const { app, t, slot, started, ready } = guardSetup(1);
+    ready();
+    start(app, started.duel.slug);
+    const beforeSlot = app.db.prepare("select * from tournament_matches where id = ?").get(slot.id);
+    const beforeTournament = app.db.prepare("select * from tournaments where id = ?").get(t.id);
+    app.db.exec(`
+      create temp trigger fail_series_link before update of match_id on duel_series
+      when new.match_id is not null
+      begin select raise(abort, 'forced series link failure'); end;
+    `);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => app.duels.complete(started.duel.slug, "g1", seatOf(started.duel, app.p1), "done")).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(app.duels.get(started.duel.slug, "g1").status).toBe("completed");
+    expect(seriesRow(app, started.series.id)).toMatchObject({ status: "completed", winner_player_id: app.p1, match_id: null });
+    expect(app.db.prepare("select * from tournament_matches where id = ?").get(slot.id)).toEqual(beforeSlot);
+    expect(app.db.prepare("select * from tournaments where id = ?").get(t.id)).toEqual(beforeTournament);
+    expect(matchRows(app)).toHaveLength(0);
+    expect(awardCount(app)).toBe(0);
+    expect(app.db.prepare("select * from player_ratings").all()).toEqual([]);
+    const store = createSeriesStore(app.db);
+    expect(store.listUnrecordedResults("g1").map((row) => row.id)).toEqual([started.series.id]);
+    app.db.exec("drop trigger fail_series_link");
+    expect(() => app.series.startTournamentMatch({ guildId: "g1", tournamentMatchId: slot.id, actorPlayerId: app.p2 }))
+      .toThrow(/awaiting.*record/);
+    expect(app.db.prepare("select count(*) as c from duel_series where tournament_match_id = ?").get(slot.id)).toEqual({ c: 1 });
+    const repaired = store.retryResult(started.series.id, "g1");
+    const match = matchRows(app)[0]!;
+    expect(repaired).toMatchObject({ ok: true, match: { id: match.id, winnerId: app.p1, source: "tournament" } });
+    expect(app.db.prepare("select status, match_id from tournament_matches where id = ?").get(slot.id)).toEqual({ status: "completed", match_id: match.id });
+    expect((app.db.prepare("select status from tournaments where id = ?").get(t.id) as { status: string }).status).toBe("completed");
+    const awards = app.db.prepare("select * from point_awards").all();
+    const ratings = app.db.prepare("select * from player_ratings").all();
+    expect(awards.length).toBeGreaterThan(0);
+    expect(store.retryResult(started.series.id, "g1")).toEqual(repaired);
+    expect(matchRows(app)).toHaveLength(1);
+    expect(app.db.prepare("select * from point_awards").all()).toEqual(awards);
+    expect(app.db.prepare("select * from player_ratings").all()).toEqual(ratings);
+  });
+
+  it.each(["single_elim", "round_robin"] as const)("rolls back failed %s placement scoring and season creation", (format) => {
+    const { app, t, slot, started, ready } = guardSetup(1, format);
+    ready();
+    start(app, started.duel.slug);
+    const beforeSlot = app.db.prepare("select * from tournament_matches where id = ?").get(slot.id);
+    const beforeTournament = app.db.prepare("select * from tournaments where id = ?").get(t.id);
+    app.db.exec(`
+      create temp trigger fail_scoring before insert on point_awards
+      when new.kind = 'placement'
+      begin select raise(abort, 'forced placement failure'); end;
+    `);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => app.duels.complete(started.duel.slug, "g1", seatOf(started.duel, app.p1), "done")).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(app.duels.get(started.duel.slug, "g1").status).toBe("completed");
+    expect(seriesRow(app, started.series.id)).toMatchObject({ status: "completed", winner_player_id: app.p1, match_id: null });
+    expect(app.db.prepare("select * from tournament_matches where id = ?").get(slot.id)).toEqual(beforeSlot);
+    expect(app.db.prepare("select * from tournaments where id = ?").get(t.id)).toEqual(beforeTournament);
+    const store = createSeriesStore(app.db);
+    expect(store.listUnrecordedResults("g1").map((row) => row.id)).toEqual([started.series.id]);
+    expect(store.retryResult(started.series.id, "g1")).toEqual({ ok: false, error: "forced placement failure" });
+    expect(matchRows(app)).toEqual([]);
+    for (const table of ["point_awards", "player_ratings", "season_standings", "seasons", "player_achievements"]) {
+      expect(app.db.prepare(`select * from ${table}`).all()).toEqual([]);
+    }
+    app.db.exec("drop trigger fail_scoring");
+    const repaired = store.retryResult(started.series.id, "g1");
+    expect(repaired).toMatchObject({ ok: true, match: { winnerId: app.p1 } });
+    expect(app.db.prepare("select status from tournaments where id = ?").get(t.id)).toEqual({ status: "completed" });
+    expect(app.db.prepare("select kind from point_awards order by id").all()).toEqual([{ kind: "placement" }, { kind: "match_win" }]);
+    const ratings = app.db.prepare("select * from player_ratings order by player_id").all();
+    expect(store.retryResult(started.series.id, "g1")).toEqual(repaired);
+    expect(awardCount(app)).toBe(2);
+    expect(app.db.prepare("select * from player_ratings order by player_id").all()).toEqual(ratings);
+    expect(store.listUnrecordedResults("g1")).toEqual([]);
+  });
+
+  it.each([
+    ["organizer", false], ["manual report", false],
+    ["organizer", true], ["manual report", true],
+  ] as const)("retry retires an existing %s result without changing it (legacy: %s)", (resultKind, legacy) => {
+    const { app, slot, started, ready } = guardSetup(1);
+    ready();
+    start(app, started.duel.slug);
+    app.db.exec(`
+      create temp trigger fail_match_save before insert on matches
+      begin select raise(abort, 'forced match save failure'); end;
+    `);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => app.duels.complete(started.duel.slug, "g1", seatOf(started.duel, app.p1), "done")).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    app.db.exec("drop trigger fail_match_save");
+    if (legacy) {
+      app.db.prepare("update duel_series set settings_json = json_remove(settings_json, '$.resultMatchIdWatermark') where id = ?")
+        .run(started.series.id);
+    }
+    if (resultKind === "organizer") {
+      createTournamentDuelService(app.db).setResultByOrganizer({ tournamentMatchId: slot.id, organizerUserId: "u3", winnerPlayerId: app.p2 });
+    } else {
+      app.tournaments.reportTournamentMatch(slot.id, app.p2, app.p2);
+    }
+    const existingSlot = app.db.prepare("select * from tournament_matches where id = ?").get(slot.id);
+    const existingMatches = matchRows(app);
+    const existingAwards = app.db.prepare("select * from point_awards").all();
+    const existingRatings = app.db.prepare("select * from player_ratings").all();
+    const store = createSeriesStore(app.db);
+    expect(store.retryResult(started.series.id, "g1")).toEqual({
+      ok: false,
+      error: "superseded",
+      code: "superseded",
+    });
+    expect(app.db.prepare("select * from tournament_matches where id = ?").get(slot.id)).toEqual(existingSlot);
+    expect(matchRows(app)).toEqual(existingMatches);
+    expect(app.db.prepare("select * from point_awards").all()).toEqual(existingAwards);
+    expect(app.db.prepare("select * from player_ratings").all()).toEqual(existingRatings);
+    expect(seriesRow(app, started.series.id)).toMatchObject({ status: "completed", winner_player_id: app.p1, match_id: null });
+    expect(store.listUnrecordedResults("g1")).toEqual([]);
+  });
+
+  it.each([false, true])("retires a pending result when a newer series exists, even if the newer series was cancelled (legacy: %s)", (legacy) => {
+    const { app, slot, started, ready } = guardSetup(1);
+    ready();
+    app.db.exec(`
+      create temp trigger fail_match_save before insert on matches
+      begin select raise(abort, 'forced match save failure'); end;
+    `);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      playGame(app, started.duel.slug, app.p1);
+    } finally {
+      spy.mockRestore();
+    }
+    app.db.exec("drop trigger fail_match_save");
+    if (legacy) {
+      app.db.prepare("update duel_series set settings_json = json_remove(settings_json, '$.resultMatchIdWatermark') where id = ?")
+        .run(started.series.id);
+    }
+    const store = createSeriesStore(app.db);
+    const terminalSeries = seriesRow(app, started.series.id);
+    expect(store.listUnrecordedResults("g1").map((row) => row.id)).toEqual([started.series.id]);
+    // Seed a later cancelled replay to exercise supersession without a manual match.
+    store.insertSeries("g1", 1, 0, app.p1, app.p2, "cancelled", "normal", 5, terminalSeries.settings_json,
+      null, null, null, null, app.p1, slot.id);
+    expect(store.listUnrecordedResults("g1")).toEqual([]);
+    expect(store.retryResult(started.series.id, "g1")).toEqual({ ok: false, error: "superseded", code: "superseded" });
+    expect(seriesRow(app, started.series.id)).toEqual(terminalSeries);
+    expect(matchRows(app)).toEqual([]);
+    expect(awardCount(app)).toBe(0);
+    expect(app.db.prepare("select status, match_id from tournament_matches where id = ?").get(slot.id)).toEqual({ status: "open", match_id: null });
+  });
+
+  it("retries a legacy result when the slot has no match history", () => {
+    const { app, slot, started, ready } = guardSetup(1);
+    ready();
+    app.db.exec(`
+      create temp trigger fail_match_save before insert on matches
+      begin select raise(abort, 'forced match save failure'); end;
+    `);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      playGame(app, started.duel.slug, app.p1);
+    } finally {
+      spy.mockRestore();
+    }
+    app.db.exec("drop trigger fail_match_save");
+    app.db.prepare("update duel_series set settings_json = json_remove(settings_json, '$.resultMatchIdWatermark') where id = ?")
+      .run(started.series.id);
+    expect(matchRows(app)).toEqual([]);
+    const store = createSeriesStore(app.db);
+    expect(store.listUnrecordedResults("g1").map((row) => row.id)).toEqual([started.series.id]);
+    const repaired = store.retryResult(started.series.id, "g1");
+    expect(repaired).toMatchObject({ ok: true, match: { winnerId: app.p1, status: "approved" } });
+    const match = matchRows(app)[0]!;
+    expect(seriesRow(app, started.series.id).match_id).toBe(match.id);
+    expect(app.db.prepare("select status, match_id from tournament_matches where id = ?").get(slot.id))
+      .toEqual({ status: "completed", match_id: match.id });
+    expect(store.retryResult(started.series.id, "g1")).toEqual(repaired);
+    expect(matchRows(app)).toHaveLength(1);
+    expect(store.listUnrecordedResults("g1")).toEqual([]);
+  });
+
+  it.each(["-1 day", "+0 seconds", "+1 day"])("keeps a legacy result visible for reconciliation after resolve and reopen (match timestamp: %s)", (offset) => {
+    const { app, slot, started, ready } = guardSetup(1, "round_robin");
+    ready();
+    app.db.exec(`
+      create temp trigger fail_match_save before insert on matches
+      begin select raise(abort, 'forced match save failure'); end;
+    `);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      playGame(app, started.duel.slug, app.p1);
+    } finally {
+      spy.mockRestore();
+    }
+    app.db.exec("drop trigger fail_match_save");
+    app.db.prepare("update duel_series set settings_json = json_remove(settings_json, '$.resultMatchIdWatermark') where id = ?")
+      .run(started.series.id);
+    createTournamentDuelService(app.db).setResultByOrganizer({ tournamentMatchId: slot.id, organizerUserId: "u3", winnerPlayerId: app.p2 });
+    app.tournaments.reopenTournamentMatch(slot.id, "u3");
+    const terminalSeries = seriesRow(app, started.series.id);
+    app.db.prepare("update matches set created_at = datetime(?, ?), resolved_at = datetime(?, ?)")
+      .run(terminalSeries.ended_at, offset, terminalSeries.ended_at, offset);
+    const beforeRetry = {
+      matches: matchRows(app),
+      awards: app.db.prepare("select * from point_awards").all(),
+      ratings: app.db.prepare("select * from player_ratings").all(),
+      slots: app.db.prepare("select * from tournament_matches").all(),
+    };
+    expect(beforeRetry.matches[0]).toMatchObject({ status: "denied", winner_id: app.p2 });
+    const store = createSeriesStore(app.db);
+    expect(store.listUnrecordedResults("g1")).toEqual([{ ...terminalSeries, needsReconciliation: true }]);
+    expect(store.retryResult(started.series.id, "g1")).toEqual({ ok: false, error: "needs_reconciliation", code: "needs_reconciliation" });
+    expect({
+      matches: matchRows(app),
+      awards: app.db.prepare("select * from point_awards").all(),
+      ratings: app.db.prepare("select * from player_ratings").all(),
+      slots: app.db.prepare("select * from tournament_matches").all(),
+    }).toEqual(beforeRetry);
+    expect(seriesRow(app, started.series.id)).toEqual(terminalSeries);
+    expect(() => app.series.startTournamentMatch({ guildId: "g1", tournamentMatchId: slot.id, actorPlayerId: app.p1 }))
+      .toThrow(/awaiting.*record/);
+  });
+
+  it.each([[false, false], [true, false], [false, true], [true, true]] as const)("allows an organizer to resolve, reopen and replay a failed result (replay recording fails: %s, legacy: %s)", (failReplay, legacy) => {
+    const { app, t, slot, started, ready } = guardSetup(1, "round_robin");
+    ready();
+    app.db.exec(`
+      create temp trigger fail_match_save before insert on matches
+      begin select raise(abort, 'forced match save failure'); end;
+    `);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      playGame(app, started.duel.slug, app.p1);
+    } finally {
+      spy.mockRestore();
+    }
+    app.db.exec("drop trigger fail_match_save");
+    const terminalSeries = seriesRow(app, started.series.id);
+    const terminalDuel = app.duels.get(started.duel.slug, "g1");
+    const store = createSeriesStore(app.db);
+    createTournamentDuelService(app.db).setResultByOrganizer({ tournamentMatchId: slot.id, organizerUserId: "u3", winnerPlayerId: app.p2 });
+    app.tournaments.reopenTournamentMatch(slot.id, "u3");
+    if (legacy) {
+      app.db.prepare("update matches set created_at = ?, resolved_at = ?")
+        .run(terminalSeries.ended_at, terminalSeries.ended_at);
+    }
+    expect(matchRows(app)[0]).toMatchObject({ status: "denied", winner_id: app.p2 });
+    const reconciledMatches = matchRows(app);
+    expect(store.listUnrecordedResults("g1")).toEqual([]);
+    expect(store.retryResult(started.series.id, "g1")).toEqual({ ok: false, error: "superseded", code: "superseded" });
+    expect(matchRows(app)).toEqual(reconciledMatches);
+    expect(app.db.prepare("select status, match_id from tournament_matches where id = ?").get(slot.id)).toEqual({ status: "open", match_id: null });
+    const replay = app.series.startTournamentMatch({ guildId: "g1", tournamentMatchId: slot.id, actorPlayerId: app.p1 });
+    expect(replay.created).toBe(true);
+    expect(replay.series.id).not.toBe(started.series.id);
+    app.duels.markReady(replay.duel.slug, "g1", app.p1);
+    app.duels.markReady(replay.duel.slug, "g1", app.p2);
+    if (failReplay) {
+      app.db.exec(`
+        create temp trigger fail_replay_scoring before insert on point_awards
+        when new.kind = 'match_win'
+        begin select raise(abort, 'forced replay scoring failure'); end;
+      `);
+    }
+    const replaySpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      playGame(app, replay.duel.slug, failReplay && legacy ? app.p1 : app.p2);
+    } finally {
+      replaySpy.mockRestore();
+    }
+    if (legacy) {
+      // Simulate a replay completed before result watermarks were introduced.
+      app.db.prepare("update duel_series set settings_json = json_remove(settings_json, '$.resultMatchIdWatermark') where id = ?")
+        .run(replay.series.id);
+    }
+    if (failReplay) {
+      // Equal timestamps must not make the earlier denied result supersede the replay.
+      const endedAt = seriesRow(app, replay.series.id).ended_at;
+      app.db.prepare("update matches set created_at = ?, resolved_at = ? where id = ?").run(endedAt, endedAt, reconciledMatches[0]!.id);
+      expect(store.listUnrecordedResults("g1").map((row) => row.id)).toEqual([replay.series.id]);
+      app.db.exec("drop trigger fail_replay_scoring");
+      if (legacy) {
+        const terminalReplay = seriesRow(app, replay.series.id);
+        expect(terminalReplay).toMatchObject({ status: "completed", winner_player_id: app.p1, match_id: null });
+        const beforeRetry = {
+          matches: matchRows(app),
+          awards: app.db.prepare("select * from point_awards").all(),
+          ratings: app.db.prepare("select * from player_ratings").all(),
+          slots: app.db.prepare("select * from tournament_matches").all(),
+        };
+        expect(store.listUnrecordedResults("g1")).toEqual([{ ...terminalReplay, needsReconciliation: true }]);
+        expect(store.retryResult(replay.series.id, "g1")).toEqual({ ok: false, error: "needs_reconciliation", code: "needs_reconciliation" });
+        expect({
+          matches: matchRows(app),
+          awards: app.db.prepare("select * from point_awards").all(),
+          ratings: app.db.prepare("select * from player_ratings").all(),
+          slots: app.db.prepare("select * from tournament_matches").all(),
+        }).toEqual(beforeRetry);
+        expect(seriesRow(app, replay.series.id)).toEqual(terminalReplay);
+        expect(app.db.prepare("select status, match_id from tournament_matches where id = ?").get(slot.id)).toEqual({ status: "open", match_id: null });
+        expect(store.retryResult(started.series.id, "g1")).toEqual({ ok: false, error: "superseded", code: "superseded" });
+        expect(seriesRow(app, started.series.id)).toEqual(terminalSeries);
+        expect(app.duels.get(started.duel.slug, "g1")).toEqual(terminalDuel);
+        return;
+      }
+      expect(store.retryResult(replay.series.id, "g1")).toMatchObject({ ok: true, match: { winnerId: app.p2 } });
+    }
+    expect(app.series.get(replay.series.id, "g1")).toMatchObject({ status: "completed", winnerPlayerId: app.p2 });
+    expect(app.db.prepare("select status from tournaments where id = ?").get(t.id)).toEqual({ status: "completed" });
+    const recordedMatchId = seriesRow(app, replay.series.id).match_id;
+    expect(recordedMatchId).not.toBeNull();
+    expect(app.db.prepare("select status, match_id from tournament_matches where id = ?").get(slot.id)).toEqual({ status: "completed", match_id: recordedMatchId });
+    const beforeRetry = {
+      matches: matchRows(app),
+      awards: app.db.prepare("select * from point_awards").all(),
+      ratings: app.db.prepare("select * from player_ratings").all(),
+      slots: app.db.prepare("select * from tournament_matches").all(),
+    };
+    expect(store.retryResult(started.series.id, "g1")).toEqual({ ok: false, error: "superseded", code: "superseded" });
+    expect({
+      matches: matchRows(app),
+      awards: app.db.prepare("select * from point_awards").all(),
+      ratings: app.db.prepare("select * from player_ratings").all(),
+      slots: app.db.prepare("select * from tournament_matches").all(),
+    }).toEqual(beforeRetry);
+    expect(seriesRow(app, started.series.id)).toEqual(terminalSeries);
+    expect(app.duels.get(started.duel.slug, "g1")).toEqual(terminalDuel);
+    expect(store.listUnrecordedResults("g1")).toEqual([]);
+  });
+
+  it("retries a saved winner after corrupt bracket metadata is repaired", () => {
+    const { app, t, started, ready } = guardSetup(1);
+    ready();
+    start(app, started.duel.slug);
+    // A completed bye in the same round supplies a winner through metadata.
+    const bye = app.db.prepare(`
+      insert into tournament_matches (tournament_id, player_one_id, round_number, status, metadata_json)
+      values (?, ?, 1, 'completed', 'not json')
+    `).run(t.id, app.p3);
+    const beforeSlots = app.db.prepare("select * from tournament_matches order by id").all();
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(() => app.duels.complete(started.duel.slug, "g1", seatOf(started.duel, app.p1), "done")).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(app.duels.get(started.duel.slug, "g1").status).toBe("completed");
+    expect(app.db.prepare("select * from tournament_matches order by id").all()).toEqual(beforeSlots);
+    expect(matchRows(app)).toHaveLength(0);
+    expect(awardCount(app)).toBe(0);
+    const store = createSeriesStore(app.db);
+    expect(store.retryResult(started.series.id, "g1")).toMatchObject({ ok: false, error: expect.any(String) });
+    app.db.prepare("update tournament_matches set metadata_json = ? where id = ?")
+      .run(JSON.stringify({ bye: true, winnerId: app.p3 }), Number(bye.lastInsertRowid));
+    expect(store.retryResult(started.series.id, "g1")).toMatchObject({ ok: true, match: { winnerId: app.p1 } });
+    expect(matchRows(app)).toHaveLength(1);
+    expect(app.db.prepare("select count(*) as c from tournament_matches where tournament_id = ? and round_number = 2").get(t.id)).toEqual({ c: 1 });
+    expect(store.listUnrecordedResults("g1")).toEqual([]);
   });
 
   it("a corrupt series deck does not stop a game from finishing", () => {

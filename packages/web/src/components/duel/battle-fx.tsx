@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import { createPortal } from "react-dom";
 import type { DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
 import { LOCATION_DMZONE, isDefense, zoneKey } from "./constants";
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
@@ -22,7 +21,7 @@ import { ATTACK_TIMING, paceAttack } from "./duel-timing";
 import styles from "./battle-fx.module.css";
 
 /**
- * Battle effects, drawn in one fixed overlay above the board (pointer-events: none).
+ * Battle effects, drawn in one fixed overlay over the field and under the prompts (pointer-events: none).
  *
  *  - Attack playback: engine "attack" events, for both players and the bot. An attack event only
  *    DECLARES the attack: it marks the attacker and its target (the aim arrow and rings stay up
@@ -681,11 +680,14 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
 
   if (!mounted) return null;
   const shownAim = aim ?? declared;
-  return createPortal(
+  // Rendered where it is mounted, inside the board box, not in a portal at the page root. A fixed layer
+  // there sits above the whole board stacking context, so it would cover the prompt panels, which live
+  // inside it. In the board context the layer takes --duel-z-fx-front, below --duel-z-prompt. The board
+  // has no transformed ancestor, so `position: fixed` still measures against the viewport.
+  return (
     <div className={`${styles.layer} ${duelFontClasses}`} aria-hidden>
       {shownAim ? <AimLayer aim={shownAim} reduced={reducedMotion} /> : null}
       {play ? <AttackPlay key={play.seq} play={play} /> : null}
-    </div>,
-    document.body,
+    </div>
   );
 }
