@@ -101,7 +101,7 @@ describe("createDuelFeedbackAudio", () => {
     duelFxClock.resetReviewTimeline(); setAnimationSpeed(0.5);
     const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
     audio.play("destroy");
-    const noiseNodes = created[0]!.sourceNodes.filter((node) => "buffer" in node) as Array<typeof created[0]["sourceNodes"][number] & { loop: boolean }>;
+    const noiseNodes = created[0]!.sourceNodes.filter((node) => "buffer" in node && "loop" in node);
     expect(noiseNodes.length).toBeGreaterThan(0);
     expect(noiseNodes.every((node) => node.loop)).toBe(true);
     setAnimationSpeed(2);
