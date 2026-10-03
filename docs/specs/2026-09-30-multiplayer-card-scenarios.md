@@ -37,7 +37,7 @@ These rules come from ADR-0002 and spec section 4.2.
 8. **Count and compare cards (owner answer to triage question 2, 2026-10-01).** A card that compares field, hand or card counts ("your opponent controls more ...", Evenly Matched, Pineapple Blast, about 50 cards) does not add all opponents together. In FFA the activator picks ONE opponent when they activate it, and the card compares with that opponent only. In Tag the card compares with the combined field or hand of the two opposing duelists.
 9. **One opponent chooses (owner answer to triage question 5, 2026-10-01).** When the card says "your opponent chooses" in the singular, ONE opponent chooses: the picked (bound) opponent, in FFA and in Tag. All opponents choose only when the card text says "all" or "each". This replaces the old proposal "each affected opponent chooses from their own cards".
 10. **Tribute of an opponent monster (owner answer to triage question 8, 2026-10-01).** A Tribute of a monster of an opponent works for the monsters of any opponent, not only seat 1. This includes the Kaiju, Lava Golem and The Winged Dragon of Ra - Sphere Mode. For Ra Sphere Mode, all Tributed monsters come from ONE opponent, and it goes to the field of that opponent.
-11. **Turn count (owner answer to triage question 1, 2026-10-01).** Every turn of any opponent counts as one opponent turn (in Tag, only a turn of the two opposing duelists). The turn-count review found no card to ban. The 5 free-for-all turn-count bans in group (c) stay.
+11. **Turn count (owner answer to triage question 1, 2026-10-01).** Every turn of any opponent counts as one opponent turn (in Tag, only a turn of the two opposing duelists). The turn-count review found no card to ban. The 4 free-for-all turn-count bans in group (c) stay. Swords of Revealing Light is legal and protects only its controller in FFA (R-FFA-SWORDS-PROTECT).
 
 ## Corpus counts
 
@@ -258,7 +258,6 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 | Kaiser Colosseum | 35059553 | symmetry | It compares the monster count of two sides to limit summons. | `c35059553.lua:16`, `c35059553.lua:30` | 3-FFA, 4-FFA | no |
 | Skull Invitation | 98139712 | symmetry | Damage goes by card owner to 'you' and 'the opponent' only. | `c98139712.lua:19`, `c98139712.lua:27` | 3-FFA, 4-FFA | no |
 | Ring of Destruction | 83555666 | symmetry | It damages the activator and one opponent. The opponent LP check reads one player. | `c83555666.lua:25`, `c83555666.lua:41` | 3-FFA, 4-FFA | no |
-| Swords of Revealing Light | 72302403 | turn-count | It lasts for 3 'opponent turns'. In FFA, one round has more than one opponent turn. | `c72302403.lua:41`, `c72302403.lua:63` | 3-FFA, 4-FFA | no |
 | Doom Virus Dragon | 22804644 | turn-count | Its effect lasts 3 'opponent turns'. | `c22804644.lua:48`, `c22804644.lua:56` | 3-FFA, 4-FFA | no |
 | The Wicked Avatar | 21208154 | turn-count | Its effect lasts 2 'opponent turns'. | `c21208154.lua:62`, `c21208154.lua:71` | 3-FFA, 4-FFA | no |
 | Grisaille Prison | 22888900 | turn-count | Its effect lasts 2 'opponent turns'. | `c22888900.lua:28`, `c22888900.lua:45` | 3-FFA, 4-FFA | no |
@@ -297,9 +296,9 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 | Dummy Golem | 13532663 | control-swap | The script swaps control between the activator and a monster chosen by one named opponent. | `c13532663.lua:25`, `c13532663.lua:26` | 3-FFA, 4-FFA | no |
 | Life Equalizer | 17178486 | lp-reset | It sets the LP of one named opponent and compares two LP totals. | `c17178486.lua:18` | 3-FFA, 4-FFA | no |
 
-Turn-count rows: these 5 bans stay (owner answer 2026-10-01). Other cards with an opponent-turn count are legal and follow rule 11; the review is in `.status/multiplayer-turncount-review.md`.
+Turn-count rows: these 4 bans stay. Swords of Revealing Light is legal under R-FFA-SWORDS-PROTECT (owner correction, 2026-10-02 night). Other cards with an opponent-turn count are legal and follow rule 11; the review is in `.status/multiplayer-turncount-review.md`.
 
-Total: 47 cards. 3-FFA and 4-FFA: 47 cards (24 only in free-for-all). Tag: 23 cards.
+Total: 45 cards. 3-FFA and 4-FFA: 45 cards (22 only in free-for-all). Tag: 23 cards.
 
 Error message format: `<card> is forbidden in 4-player free-for-all: <reason>`. The table name is "3-player free-for-all", "4-player free-for-all" or "2v2 Tag Duel".
 

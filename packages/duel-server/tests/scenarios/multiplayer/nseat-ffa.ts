@@ -345,7 +345,7 @@ export const FFA_SCENARIOS: Scenario[] = [
     source: `${SOURCE} [R-FFA-ELIMINATION]`,
     rules: ["R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "ongoing", "ffa3", "card:72302403", "card:46130346"],
-    // The next scenario has the same board with p1 alive: there Swords holds p0 back. Here p1 is out and the attack goes through.
+    // The next scenario keeps p1 alive. Swords protects p1 only; p2 is open in both cases.
     setup: { format: "ffa3", p0: { monsters: [ELF], hand: ["Hinotama"] }, p1: { lp: 500, spells: [{ card: "Swords of Revealing Light", pos: "up" }] } },
     steps: [
       ...passTurns("p0", "p1", "p2"),
@@ -360,7 +360,7 @@ export const FFA_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "nseat-ffa3-living-seat-ongoing-effect-holds",
-    title: "FFA3 control: the same Swords of Revealing Light of a living seat gives p0 no attack",
+    title: "FFA3 control: Swords of a living p1 stops attacks at p1; p0 can attack p2",
     source: `${SOURCE} [R-FFA-ELIMINATION]`,
     rules: ["R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "ongoing", "ffa3", "card:72302403", "card:46130346"],
@@ -370,9 +370,12 @@ export const FFA_SCENARIOS: Scenario[] = [
       activate("Hinotama", "p0"),
       pickOpponent("p1", "p0"),
       expectBoard({ p1: { lp: 4500 } }),
-      // p1 lives, so Swords holds: the Battle Phase opens but the Elf has no attack.
+      // p1 lives. Its Swords protects p1 only. p2 remains open.
       changePhase("battle", "p0"),
-      expectNotOffered("attack", ELF, "p0"),
+      attack(ELF, "direct", "p0"),
+      expectBoard({ p0: { lp: 8000, monsters: [ELF], grave: ["Hinotama"] },
+        p1: { lp: 4500, spells: ["Swords of Revealing Light"], monsters: [] },
+        p2: { lp: 7200, monsters: [], spells: [] } }),
     ],
   }),
   defineScenario({
@@ -435,6 +438,7 @@ export const FFA_SCENARIOS: Scenario[] = [
       activate("Change of Heart", "p0"),
       expectBoard({ p0: { monsters: [ELF] }, p1: { monsters: { count: 0 } } }),
       activate("Hinotama", "p0"),
+      pickOpponent("p1", "p0"),
       expectEliminated("p1"),
       // The Elf belongs to p1: it is gone from the field of p0, who controls it.
       expectBoard({ p0: { monsters: { count: 0 }, lp: 8000 } }),

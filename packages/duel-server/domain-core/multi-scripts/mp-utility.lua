@@ -454,3 +454,6 @@ function Card.IsColumn(c,seq,tp,loc,source)
 	elseif seq==6 then seq=5 end
 	return mp_is_column(c,4-seq,c:GetControler(),loc)
 end
+
+-- Fork-private player effect. Keep the C++ constant equal.
+EFFECT_CANNOT_BE_DIRECT_ATTACKED=0x7F000101

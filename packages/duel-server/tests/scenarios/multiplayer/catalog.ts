@@ -11,10 +11,10 @@ export type RuleClass = "U" | "C" | "O";
 export type Binding = "explicit-pick" | "event-opponent" | "target-controller";
 
 export interface Evidence {
-  /** Path relative to data/duel-engine-next/card-scripts. */
+  /** Stock script path; overlay/ names an overlay file, manifest/CODE names its entry. */
   file: string;
   line: number;
-  /** Text that the script line must contain. */
+  /** Text on the script line, or kind:KIND for a manifest entry (line 0). */
   token: string;
 }
 
@@ -55,6 +55,7 @@ const EXTRA_RULES: Record<number, string[]> = {
   42703248: ["R-COMMON-ALL-BOTH"], // Giant Trunade
   53582587: ["R-COMMON-ALL-BOTH"], // Torrential Tribute
   // Ongoing effects on "your opponent".
+  72302403: ["R-COMMON-ONGOING", "R-FFA-SWORDS-PROTECT"], // Swords: owner exception, 2026-10-02 night.
   85742772: ["R-COMMON-ONGOING"], // Gravity Bind
   44947065: ["R-COMMON-ONGOING"], // Burden of the Mighty
   51452091: ["R-COMMON-ONGOING", "R-COMMON-CONT-NEG"], // Royal Decree
@@ -115,6 +116,21 @@ const U = "Same as 1v1.";
 
 /** Group (a): all-seat effects, face-up ongoing effects and no-resource checks. */
 export const GROUP_ALL: CatalogScenario[] = [
+  all({
+    card: "Swords of Revealing Light", code: 72302403, ruleClass: "O",
+    oneVsOne: "The opponent cannot attack for three opponent turns. Its face-down monsters are flipped.",
+    results: {
+      ffa3: "Protects its controller and their monsters. Other opponents can attack each other. Each opponent turn counts.",
+      ffa4: "Protects its controller and their monsters. Other opponents can attack each other. Each opponent turn counts.",
+      tag: "Keeps the stock attack lock on both opponents. The partner can attack. Each opposing turn counts.",
+    },
+    evidence: [ev(72302403, 41, "RESET_OPPO_TURN,3"), ev(72302403, 63, "IsTurnPlayer(1-tp)"),
+      { file: "overlay/c72302403.lua", line: 24, token: "EFFECT_CANNOT_BE_DIRECT_ATTACKED" },
+      { file: "manifest/72302403", line: 0, token: "kind:fix" }],
+    setup: "Every seat has a monster. Repeat with an empty controller field.",
+    action: "Activate Swords. Check each opponent's attack targets and the third opponent End Phase.",
+    expected: "In FFA, only attacks against the controller and their monsters are refused. Swords goes to the GY after three opponent turns.",
+  }),
   all({
     card: "Creature Swap", code: 31036355, ruleClass: "O",
     oneVsOne: "Each player picks 1 monster. The players swap control of them.",
@@ -743,7 +759,6 @@ export const FORBIDDEN_EVIDENCE: Record<number, Evidence[]> = {
   35059553: [ev(35059553, 16, "SetTargetRange(0,1)"), ev(35059553, 30, "GetFieldGroupCount(e:GetHandlerPlayer(),LOCATION_MZONE,0)")],
   98139712: [ev(98139712, 19, "c:GetOwner()==1-tp"), ev(98139712, 27, "Duel.Damage(1-tp,d1")],
   83555666: [ev(83555666, 25, "Duel.GetLP(1-tp)"), ev(83555666, 41, "Duel.Damage(1-tp,val")],
-  72302403: [ev(72302403, 41, "RESET_OPPO_TURN,3"), ev(72302403, 63, "IsTurnPlayer(1-tp)")],
   22804644: [ev(22804644, 48, "RESET_OPPO_TURN,3"), ev(22804644, 56, "RESET_OPPO_TURN,3")],
   21208154: [ev(21208154, 62, "RESET_OPPO_TURN,2"), ev(21208154, 71, "RESET_OPPO_TURN,2")],
   22888900: [ev(22888900, 28, "RESET_OPPO_TURN,2"), ev(22888900, 45, "RESET_OPPO_TURN,2")],
@@ -868,6 +883,8 @@ export const SCENARIOS: CatalogScenario[] = [...GROUP_ALL, ...GROUP_ONE];
  * target cap of Ultimate Sky.
  */
 export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
+  72302403: ["rule-gaps-swords-protects-controller-ffa3", "swords-protect-ffa4-p0-p1-direct-targets",
+    "rule-gaps-swords-opponents-not-partner-tag", "swords-protect-ffa4-p0-p1-direct-targets-domain"],
   88240808: [
     "p3-catalog-ffa3-kycoo-battle-opponent",
     "p3-catalog-ffa4-kycoo-battle-opponent",

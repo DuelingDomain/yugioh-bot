@@ -1,5 +1,5 @@
 // Owner decision 2026-10-02: an activated lasting effect keeps its declared opponent.
-import { activate, attack, changePhase, defineScenario, endTurn, expectBoard, expectNotOffered, expectPickSeats, pickOpponent, select, pass,
+import { activate, defineScenario, endTurn, expectBoard, expectPickSeats, pickOpponent, select, pass,
   type BoardExpect, type Scenario, type Step } from "../../support/dsl.js";
 import { withDomainProof } from "./proof-domain.js";
 type Format = "ffa3" | "ffa4" | "tag";
@@ -72,27 +72,6 @@ function ongoing(f: Format): Scenario {
     monsters: ["Battle Ox"], zones: { m0: { card: "Battle Ox", attack: f === "tag" && s === "p2" ? 1700 : 1300 } } }; }
   return proof(f, "face-up-continuous-still-affects-all-opponents", setup, [endTurn("p0"), board(f, result)], ["R-COMMON-ONGOING"]);
 }
-function swords(f: Format): Scenario {
-  const card = "Swords of Revealing Light";
-  const setup: Scenario["setup"] = { p0: { hand: [card], monsters: ["Mystical Elf"] } };
-  for (const s of opps(f)) setup[s] = { monsters: ["Battle Ox"] };
-  if (f === "tag") setup.p2 = { monsters: ["Mystical Elf"] };
-  const steps: Step[] = [...seats(f).map(s => endTurn(s)), activate(card, "p0")];
-  // Swords registers its attack restriction in initial_effect. It is a face-up continuous control.
-  if (f !== "tag") steps.push(expectPickSeats(opps(f), "p0"), pickOpponent("p1", "p0"));
-  steps.push(endTurn("p0"), changePhase("battle", "p1"), expectNotOffered("attack", "Battle Ox", "p1"));
-  if (f !== "tag") steps.push(endTurn("p1"), changePhase("battle", "p2"), expectNotOffered("attack", "Battle Ox", "p2"));
-  const result: BoardExpect = { p0: { monsters: ["Mystical Elf"], spells: [card] } };
-  for (const s of opps(f)) result[s] = { monsters: ["Battle Ox"] };
-  if (f === "tag") result.p2 = { monsters: ["Mystical Elf"] };
-  for (const s of seats(f)) {
-    const draws = s === "p0" ? 1 : f === "tag" ? (s === "p1" ? 2 : 1) : s === "p3" ? 1 : 2;
-    result[s] = { ...result[s], hand: Array(draws).fill("Mystical Elf"), deckCount: 20 - draws };
-  }
-  steps.push(board(f, result));
-  return proof(f, "swords-face-up-continuous-lock", setup, steps,
-    ["R-COMMON-ONGOING", ...(f === "tag" ? [] : ["R-FFA-OPP-ONE"])]);
-}
 function watchedLeave(f: Format): Scenario {
   const ghost = "Ghost Mourner & Moonlit Chill";
   const setup: Scenario["setup"] = { p0: { hand: [ghost] }, p1: { hand: ["Monster Reborn", "Sparks"], grave: ["Battle Ox"] },
@@ -109,4 +88,4 @@ function watchedLeave(f: Format): Scenario {
   return proof(f, "watched-monster-leaves-by-third-seat", setup, steps,
     ["R-FFA-OPP-RESPONSE", "R-COMMON-CTRL", ...(f === "tag" ? ["R-TAG-LP"] : [])]);
 }
-export const BOUND_LASTING_SCENARIOS: Scenario[] = formats.flatMap(f => [damageLock(f), fieldLock(f), ongoing(f), swords(f), watchedLeave(f)]);
+export const BOUND_LASTING_SCENARIOS: Scenario[] = formats.flatMap(f => [damageLock(f), fieldLock(f), ongoing(f), watchedLeave(f)]);

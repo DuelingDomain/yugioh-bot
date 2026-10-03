@@ -47,7 +47,6 @@ export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   { code: 98139712, name: "Skull Invitation", category: "symmetry", reason: "Damage goes by card owner to 'you' and 'the opponent' only.", formats: FFA },
   { code: 83555666, name: "Ring of Destruction", category: "symmetry", reason: "It damages the activator and one opponent. The opponent LP check reads one player.", formats: FFA },
   // --- turn-count
-  { code: 72302403, name: "Swords of Revealing Light", category: "turn-count", reason: "It lasts for 3 'opponent turns'. In FFA, one round has more than one opponent turn.", formats: FFA },
   { code: 22804644, name: "Doom Virus Dragon", category: "turn-count", reason: "Its effect lasts 3 'opponent turns'.", formats: FFA },
   { code: 21208154, name: "The Wicked Avatar", category: "turn-count", reason: "Its effect lasts 2 'opponent turns'.", formats: FFA },
   { code: 22888900, name: "Grisaille Prison", category: "turn-count", reason: "Its effect lasts 2 'opponent turns'.", formats: FFA },

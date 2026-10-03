@@ -4777,6 +4777,15 @@
       ]
     },
     {
+      "code": 72302403,
+      "file": "c72302403.lua",
+      "name": "Swords of Revealing Light",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "bc01d3f0fb565f720141be2bf6f0b9d025d230c882df261f0fced7ef83c4dd2c",
+      "note": "FFA only: protect the controller and its monsters. Flip every opponent. Keep the stock R3 timer; Tag and 1v1 stock."
+    },
+    {
       "code": 72402069,
       "file": "c72402069.lua",
       "name": "D/D/D Super Doom King Bright Armageddon",

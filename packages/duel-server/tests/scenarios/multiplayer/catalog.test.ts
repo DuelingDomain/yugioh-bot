@@ -30,11 +30,13 @@ const cardName = (code: number): string | undefined =>
   (db.prepare("SELECT t.name AS name FROM datas d JOIN texts t USING (id) WHERE d.id = ?").get(code) as { name: string } | undefined)
     ?.name;
 
+const overlay = join(__dirname, "../../../domain-core/multi-scripts");
+const evidenceFile = (file: string) => file.startsWith("overlay/") ? join(overlay, file.slice(8)) : join(scripts, file);
 const fileLines = new Map<string, string[]>();
 function linesOf(file: string): string[] {
   let lines = fileLines.get(file);
   if (!lines) {
-    lines = readFileSync(join(scripts, file), "utf8").split(/\r?\n/);
+    lines = readFileSync(evidenceFile(file), "utf8").split(/\r?\n/);
     fileLines.set(file, lines);
   }
   return lines;
@@ -43,7 +45,14 @@ function linesOf(file: string): string[] {
 function evidenceProblems(evidence: Evidence[]): string[] {
   const problems: string[] = [];
   for (const item of evidence) {
-    if (!existsSync(join(scripts, item.file))) {
+    if (item.file.startsWith("manifest/")) {
+      const code = Number(item.file.slice(9));
+      const manifest = JSON.parse(readFileSync(join(overlay, "MANIFEST.json"), "utf8")) as { cards: { code: number; kind: string }[] };
+      const entry = manifest.cards.find((card) => card.code === code);
+      if (!entry || `kind:${entry.kind}` !== item.token) problems.push(`${item.file} does not contain "${item.token}"`);
+      continue;
+    }
+    if (!existsSync(evidenceFile(item.file))) {
       problems.push(`${item.file} does not exist`);
       continue;
     }
@@ -61,8 +70,8 @@ const formatOf = async () =>
   new Map(((await loadScenarios()) as (ScenarioLike & { setup?: { format?: string } })[]).map((scenario) => [scenario.id, scenario.setup?.format ?? "1v1"]));
 
 describe("multiplayer card catalog", () => {
-  it("keeps 20 all-seat or ongoing cards and 44 one-opponent cards after the FFA rule change", () => {
-    expect(GROUP_ALL).toHaveLength(20);
+  it("keeps 21 all-seat or ongoing cards and 44 one-opponent cards after the FFA rule change", () => {
+    expect(GROUP_ALL).toHaveLength(21);
     expect(GROUP_ONE).toHaveLength(44);
     expect(MULTIPLAYER_FORBIDDEN.length).toBeGreaterThanOrEqual(25);
   });

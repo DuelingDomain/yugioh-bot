@@ -30,9 +30,9 @@ describe("rule gap scenario list", () => {
     }
   });
 
-  it("proves each of the 4 rules in Free-for-all and, where the rule is about the partner, in Tag", () => {
+  it("proves each of the 5 rules in Free-for-all and, where the rule is about the partner, in Tag", () => {
     const rules = new Set(RULE_GAP_SCENARIOS.flatMap((s) => s.rules ?? []));
-    expect([...rules].sort()).toEqual(["R-COMMON-ALL-BOTH", "R-COMMON-CONT-NEG", "R-COMMON-ONGOING", "R-FFA-NEGATE"]);
+    expect([...rules].sort()).toEqual(["R-COMMON-ALL-BOTH", "R-COMMON-CONT-NEG", "R-COMMON-ONGOING", "R-FFA-NEGATE", "R-FFA-SWORDS-PROTECT"]);
     const tagRules = new Set(RULE_GAP_SCENARIOS.filter((s) => s.setup.format === "tag").flatMap((s) => s.rules ?? []));
     for (const rule of ["R-COMMON-ALL-BOTH", "R-COMMON-CONT-NEG", "R-COMMON-ONGOING"]) expect(tagRules.has(rule), rule).toBe(true);
   });

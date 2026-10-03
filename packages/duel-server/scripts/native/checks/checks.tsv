@@ -71,3 +71,9 @@ rotate-control	rotate-control	-	ready	C7 atomic FFA rotation; full fields; inval
 declared-field-payments	declared-field-payments	-	ready	C3 field counts and saved payments
 bound-delayed-events	bound-delayed-events	-	ready	C4 saved opponent draw events
 df-first-battle-phase	df-first-battle-phase	-	ready	First Battle Phase on the first turn of the last living FFA duelist; early loss, Tag and two-seat controls
+swords-mask	swords-direct	mask	ready	Swords FFA controller protection; Tag and 1v1 stock.
+swords-only-open	swords-direct	only-open	ready	Swords FFA controller protection; Tag and 1v1 stock.
+swords-forced	swords-direct	forced	ready	Swords FFA controller protection; Tag and 1v1 stock.
+swords-replay	swords-direct	replay	ready	Swords FFA controller protection; Tag and 1v1 stock.
+swords-redirect	swords-direct	redirect	ready	Swords FFA controller protection; Tag and 1v1 stock.
+swords-leaves	swords-direct	leaves	ready	Swords FFA controller protection; Tag and 1v1 stock.
