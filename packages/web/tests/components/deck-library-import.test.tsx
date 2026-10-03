@@ -100,6 +100,6 @@ describe("SavedDeckLibrary", () => {
     const list = screen.getAllByRole("list").find((el) => el.querySelector("a[href='/decks/1']") && el.textContent?.includes("Updated"));
     expect(list).toBeDefined();
     expect(within(list!).getByText("Blue Eyes")).toBeInTheDocument();
-    expect(within(list!).getByText("Master")).toBeInTheDocument();
+    expect(within(list!).getByRole("link", { name: "Master" })).toBeInTheDocument();
   });
 });
