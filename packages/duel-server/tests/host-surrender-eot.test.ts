@@ -796,16 +796,17 @@ Duel.RegisterEffect(e,0)`]);
       expect(replayed.spectator.eliminationOrder).toEqual(final.eliminationOrder);
     }, 60_000);
 
-    it("R-COMMON-SURRENDER-EOT: the first Tag team loses when its seat queues first", async () => {
+    it.each([[2, 3], [3, 2]])("R-COMMON-SURRENDER-EOT: Tag queue %s then %s loses its first team", async (first, second) => {
       const t = await table(mode, "tag");
       await t.view();
-      await t.post("surrender", 2);
-      await t.post("surrender", 3);
+      await t.post("surrender", first);
+      await t.post("surrender", second);
       await t.answer(0, { choice: "to_ep" });
       await t.answer(0, { choice: "no" });
       const final = await t.view(1);
-      expect(final.result?.winnerSeat).toBe(1);
-      expect(states(final)).toEqual(["out", "in", "out", "in"]);
+      expect(final.result?.winnerSeat).toBe(1 - teamOfSeat("tag", first));
+      expect(states(final)).toEqual(Array.from({ length: t.count }, (_, seat) =>
+        teamOfSeat("tag", seat) === teamOfSeat("tag", first) ? "out" : "in"));
       const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
       expect(states(replayed.spectator)).toEqual(states(final));
     }, 60_000);
