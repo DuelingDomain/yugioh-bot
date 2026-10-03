@@ -1,5 +1,5 @@
 // A summon to the partner's field uses the actor's private source cards.
-import { activate, expectNotOffered, expectPrompt, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, expectNotOffered, expectOffered, expectPrompt, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { domainVariant } from "./domain-variants.js";
 import { baseSetup, everySeat, SEATS, turnsBefore, type Seat } from "./seat-kit.js";
@@ -10,7 +10,8 @@ function source(actor: "p0" | "p1", files: boolean, positive: boolean): Scenario
   const partner: Seat = actor === "p0" ? "p2" : "p3", card = files ? FILES : SOUL;
   const own = files
     ? { spells: [FILES], deck: positive ? (actor === "p1" ? [ELF, GAMECIEL] : [GAMECIEL]) : [ELF], hand: positive ? [] : ["Pot of Greed"] }
-    : { hand: positive ? [SOUL, DOLPHIN] : [SOUL, "Pot of Greed"] };
+    : { hand: positive ? [SOUL, DOLPHIN] : [SOUL, "Pot of Greed"],
+        ...(!positive ? { deck: actor === "p1" ? [ELF, DOLPHIN] : [DOLPHIN] } : {}) };
   const other = files
     ? { monsters: [DOGORAN], deck: positive ? [ELF] : [GAMECIEL] }
     : { monsters: [OX], hand: positive ? [] : [DOLPHIN] };
@@ -18,8 +19,8 @@ function source(actor: "p0" | "p1", files: boolean, positive: boolean): Scenario
   for (const seat of SEATS.tag) spec[seat] = { hand: [], deckCount: 20 };
   const drawn = actor === "p1" ? [ELF] : [];
   spec[actor] = {
-    ...(files || positive ? { spells: [card] } : {}),
-    hand: [...(!files && !positive ? [SOUL] : []), ...drawn, ...(!positive ? [ELF, ELF] : [])],
+    spells: [card],
+    hand: [...drawn, ...(!positive ? (files ? [ELF, ELF] : [ELF]) : [])],
     grave: positive ? [] : ["Pot of Greed"],
     deckCount: 20 - drawn.length - (positive ? (files ? 1 : 0) : 2),
   };
@@ -27,16 +28,20 @@ function source(actor: "p0" | "p1", files: boolean, positive: boolean): Scenario
     deckCount: 20,
     ...(files
       ? { monsters: [positive ? GAMECIEL : DOGORAN], grave: positive ? [DOGORAN] : [], hand: [] }
-      : positive
-        ? { monsters: [OX, DOLPHIN], zones: { m0: { card: OX, attack: 2300 } }, hand: [] }
-        : { monsters: [OX], hand: [DOLPHIN] }),
+      : { monsters: [OX, DOLPHIN], zones: { m0: { card: OX, attack: 2300 } }, hand: positive ? [] : [DOLPHIN] }),
   };
   const steps: Step[] = [...turnsBefore("tag", actor)];
   if (positive) steps.push(activate(card, actor));
   else {
-    // A real draw changes only the actor's hand. The partner's source stays private.
+    // The partner's source stays private. Common Soul needs a source in the actor's hand.
     steps.push(expectNotOffered("activate", card, actor), activate("Pot of Greed", actor),
-      expectPrompt({ by: actor, context: "action" }), expectNotOffered("activate", card, actor));
+      expectPrompt({ by: actor, context: "action" }));
+    if (files) steps.push(expectNotOffered("activate", card, actor));
+    else steps.push(everySeat("tag", {
+      ...spec,
+      [actor]: { ...spec[actor], spells: [], hand: [SOUL, DOLPHIN, ...drawn, ELF] },
+      [partner]: { deckCount: 20, monsters: [OX], hand: [DOLPHIN] },
+    }), expectOffered("activate", card, actor), activate(card, actor));
   }
   steps.push(expectPrompt({ by: actor, context: "action" }), everySeat("tag", spec));
   return defineScenario({
