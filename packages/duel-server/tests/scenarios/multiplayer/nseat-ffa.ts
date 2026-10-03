@@ -774,8 +774,7 @@ export const FFA_SCENARIOS: Scenario[] = [
       surrender("p3"),
       surrender("p1"),
       surrender("p2"),
-      // The three losses land at the next check of the core: the turn player ends its turn.
-
+      // Each surrender lands at once. The third loss completes the duel.
       expectEliminated("p1", "p2", "p3"),
       expectResult({ seat: "p0" }),
       // A seat that gives up keeps its LP: it loses by the surrender, not at 0 LP.
