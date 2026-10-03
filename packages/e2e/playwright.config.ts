@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { ensureSecrets, htmlReportDir, jsonReportFile, resultsDir, webUrl } from "./stack/env.mjs";
+import { e2eSlot, ensureSecrets, htmlReportDir, jsonReportFile, resultsDir, webUrl } from "./stack/env.mjs";
 
 // Fresh throwaway secrets for this run. Workers and the stack inherit them from this process.
 ensureSecrets();
@@ -52,7 +52,8 @@ export default defineConfig({
     url: `${webUrl}/login`,
     // Never reuse: a stale stack would hold old secrets and a stale database.
     reuseExistingServer: false,
-    timeout: 120_000,
+    // Slot startup can queue behind other slots' serialized web builds.
+    timeout: e2eSlot === undefined ? 120_000 : 15 * 60_000,
     gracefulShutdown: { signal: "SIGTERM", timeout: 8_000 },
     stdout: "pipe",
     stderr: "pipe",
