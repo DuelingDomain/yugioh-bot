@@ -176,7 +176,6 @@ const SPECS: EffectSpec[] = [
     code: 41141943, name: "Superheavy Samurai Transporter", slug: "superheavy-samurai-transporter", does: "Special Summons a monster from the hand of its controller in Defense Position",
     p0: { monsters: ["Superheavy Samurai Transporter"], hand: ["Giant Rat"] },
     steps: [activate("Superheavy Samurai Transporter", "p0")],
-    then: (roles) => roles.format === "tag" ? [] : [select("Giant Rat")],
     p0End: { hand: ["Mystical Elf"], grave: ["Superheavy Samurai Transporter"] },
     gain: { monsters: ["Giant Rat"] },
   },
