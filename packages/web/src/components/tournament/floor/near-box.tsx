@@ -1,12 +1,14 @@
 "use client";
 
-import type { ReactNode } from "react";
+import Link from "next/link";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { BugFabLift } from "@/components/bug-report/fab-lift";
 import { DeckMark, DuelAction, SheetPortal, SvButton } from "@/components/sheet";
-import { SECTION_IDS, type PlayerRatings } from "../sheet-contracts";
+import type { PlayerRatings } from "../sheet-contracts";
 import type { Match, TournamentDetail } from "../types";
 import { MatchError } from "../matches/match-controls";
 import { matchProjection, matchView, opponent } from "../matches/match-model";
+import { MyDeckPanel } from "../my-deck-panel";
 import { ReportPanel } from "../matches/report-panel";
 import { useMatchActions } from "../matches/use-match-actions";
 import { signed, stakesFor } from "./floor-model";
@@ -34,6 +36,20 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
   const hours = tournament.reportConfirmWindowHours ?? 24;
   const me = tournament.participants.find((p) => p.playerId === viewerId);
   const disabled = actions.loading !== null;
+  // "Register a deck" opens the deck panel right here: the old link jumped to a rail section that
+  // is already on screen on a wide page and empty until its own request finished.
+  const [deckOpen, setDeckOpen] = useState(false);
+  // Focus moves into the panel each time it is asked to open (the counter also covers a panel
+  // that is already open, such as "My deck" in an error message).
+  const [focusTick, setFocusTick] = useState(0);
+  const deckHost = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focusTick > 0) deckHost.current?.focus();
+  }, [focusTick]);
+  const openDeck = () => {
+    setDeckOpen(true);
+    setFocusTick((tick) => tick + 1);
+  };
 
   // The server's numbers when it sent them, else the same projection the old card used.
   const stakes = stakesFor(tournament, match);
@@ -91,12 +107,44 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
     </div>
   ) : null;
 
-  const deck = view.state === "your-open" || view.state === "live" || view.state === "between-games" ? (
-    <p className={styles.deckline}>
-      {me?.deckRegistered
-        ? <DeckMark state="in" locked={me.deckLocked} />
-        : <><DeckMark state="none" /> <a href={`#${SECTION_IDS.myDeck}`}>Register a deck</a></>}
-    </p>
+  const deckBlock = view.state === "your-open" || view.state === "live" || view.state === "between-games" ? (
+    <>
+      <p className={styles.deckline}>
+        {me?.deckRegistered ? <DeckMark state="in" locked={me.deckLocked} /> : <DeckMark state="none" />}
+        {!me?.deckLocked && (
+          <>
+            {" "}
+            <button
+              type="button"
+              className={styles.deckbtn}
+              aria-expanded={deckOpen}
+              aria-controls={deckOpen ? "floor-my-deck" : undefined}
+              onClick={() => (deckOpen ? setDeckOpen(false) : openDeck())}
+            >
+              {me?.deckRegistered ? "Change deck" : "Register a deck"}
+            </button>
+          </>
+        )}
+      </p>
+      {tournament.deckNote && !me?.deckLocked && (
+        <p className={styles.note} data-testid="deck-note" data-level={tournament.deckNote.level}>
+          {tournament.deckNote.message}
+          {tournament.draftSlug && (
+            <>
+              {" "}
+              <Link href={`/decks/draft/${tournament.draftSlug}`} className={styles.notelink}>Edit deck</Link>
+            </>
+          )}
+        </p>
+      )}
+      <div id="floor-my-deck" ref={deckHost} tabIndex={-1} className={styles.deckhost}>
+        {deckOpen && !me?.deckLocked && (
+          <div className={styles.panel}>
+            <MyDeckPanel variant="floor" tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
+          </div>
+        )}
+      </div>
+    </>
   ) : null;
 
   const useBar = narrow && bar !== null;
@@ -105,13 +153,13 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
       {stakesLine}
       {useBar ? <SheetPortal><BugFabLift className={styles.actionBar}>{bar}</BugFabLift></SheetPortal> : bar}
       {note && <p className={styles.note}>{note}</p>}
-      {deck}
+      {deckBlock}
       {actions.reporting && view.canReport && projection && (
         <div className={styles.panel}>
           <ReportPanel projection={projection} opponentName={opp.name} confirmWindowHours={hours} loading={disabled} onReport={actions.report} />
         </div>
       )}
-      <MatchError error={actions.error} />
+      <MatchError error={actions.error} onOpenDeck={deckBlock && !me?.deckLocked ? openDeck : undefined} />
       {useBar && <div className={styles.spacer} aria-hidden="true" />}
     </div>
   );

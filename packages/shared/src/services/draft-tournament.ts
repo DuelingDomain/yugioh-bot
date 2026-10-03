@@ -2,8 +2,8 @@ import type Database from "better-sqlite3";
 import type { DraftConfig } from "../types/index.js";
 import type { TournamentFormat } from "./tournaments.js";
 import { generateWebSlug } from "../util/web-slug.js";
-import { createSavedDeckService } from "./saved-decks.js";
-import { createTournamentDuelService, TournamentDuelError } from "./tournament-duels.js";
+import { createDraftDeckService } from "./draft-decks.js";
+import { TournamentDuelError } from "./tournament-duels.js";
 
 export type CreateTournamentFromDraftInput = {
   draftId: number;
@@ -113,21 +113,13 @@ export function createDraftTournamentService(db: Database.Database) {
 
         db.prepare("update drafts set tournament_id = ? where id = ?").run(tournamentId, draft.id);
 
-        // Register each player's existing draft deck (players without one register later).
-        const savedDecks = createSavedDeckService(db);
-        const tournamentDuels = createTournamentDuelService(db);
-        const discordUser = db.prepare("select discord_user_id from players where id = ?");
-        for (const { player_id } of players) {
-          const owner = discordUser.get(player_id) as { discord_user_id: string } | undefined;
-          if (!owner) continue;
-          const deck = savedDecks.findByDraft(draft.guild_id, owner.discord_user_id, draft.id);
-          if (!deck) continue;
-          tournamentDuels.registerDeck({
-            tournamentId,
-            playerId: player_id,
-            savedDeckId: deck.id,
-            deck: deck.deck,
-          });
+        // Every human player's drafted deck becomes their entry's deck, so Start duel works at once.
+        // A draft that finished before decks were saved automatically gets them here.
+        // A deck error must not undo the tournament: the player can still register a deck by hand.
+        try {
+          createDraftDeckService(db).saveForDraft(draft.id);
+        } catch (error) {
+          console.error(`[draft-tournament] could not save the draft decks for draft ${draft.id}:`, error);
         }
 
         const tournament = db

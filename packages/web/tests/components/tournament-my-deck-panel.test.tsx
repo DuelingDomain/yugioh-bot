@@ -172,4 +172,28 @@ describe("MyDeckPanel", () => {
     renderPanel({ ...tournament, draftId: 3, draftSlug: "dr1" });
     expect(await screen.findByRole("link", { name: /build your deck/i })).toHaveAttribute("href", "/draft/dr1");
   });
+
+  it("shows the draft deck size note and an edit link for a draft tournament", async () => {
+    stub({
+      registration: { savedDeckId: 4, deck, lockedAt: null },
+      draft: { id: 9, slug: "friday-cube" },
+      savedDeckOptions: [{ id: 4, name: "Friday cube draft, 2026-10-03" }],
+      deckNote: { level: "optional", mainCount: 52, message: "Your draft deck has 52 main deck cards. It plays as it is; you can trim it to 40." },
+    });
+    renderPanel({ ...tournament, draftId: 9, draftSlug: "friday-cube" });
+    expect(await screen.findByText(/your draft deck has 52 main deck cards/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Edit draft deck" })).toHaveAttribute("href", "/decks/draft/friday-cube");
+    expect(screen.queryByRole("button", { name: "Register" })).toBeNull();
+  });
+
+  it("shows no size note when the server sends none", async () => {
+    stub({
+      registration: { savedDeckId: 4, deck, lockedAt: null },
+      draft: { id: 9, slug: "friday-cube" },
+      savedDeckOptions: [{ id: 4, name: "Draft deck" }],
+    });
+    renderPanel({ ...tournament, draftId: 9, draftSlug: "friday-cube" });
+    await screen.findByText(/your draft deck is used/i);
+    expect(screen.queryByText(/main deck cards/i)).toBeNull();
+  });
 });

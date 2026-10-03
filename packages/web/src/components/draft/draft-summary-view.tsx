@@ -342,7 +342,7 @@ export function DraftSummaryView({
         </div>
       )}
       {canBuildDeck && (
-        <SvButton as="a" href={`/decks/draft/${slug}`} variant="primary" big wide>
+        <SvButton as="a" href={`/decks/draft/${slug}`} variant={hasDeck ? "ghost" : "primary"} big wide>
           <Layers size={18} aria-hidden="true" />
           {hasDeck ? "Edit your deck" : "Build your deck"}
         </SvButton>
@@ -376,15 +376,15 @@ export function DraftSummaryView({
             {canBuildDeck && (
               <div className={styles.next} role="group" aria-labelledby="df-next-t">
                 <h2 className={styles.nextT} id="df-next-t">
-                  {hasDeck ? "Your deck is built" : `Your ${plural(participantPickCount, "card")} ${participantPickCount === 1 ? "is" : "are"} ready`}
+                  {hasDeck ? "Your deck is ready" : `Your ${plural(participantPickCount, "card")} ${participantPickCount === 1 ? "is" : "are"} ready`}
                 </h2>
                 <p className={styles.nextP}>
                   {canExportYdk
                     ? hasDeck
-                      ? `Keep tuning it, or export ${ydkCards} as a YDK file.`
+                      ? `It is saved in My decks. Editing it is optional. You can also export ${ydkCards} as a YDK file.`
                       : `Build a deck from them on the web, or take ${ydkCards === "your picks" ? "them" : ydkCards} to another sim as a YDK file.`
                     : hasDeck
-                      ? `Export needs at least 40 picks. You made ${participantPickCount}.`
+                      ? `It is saved in My decks. Editing it is optional. Export needs at least 40 picks. You made ${participantPickCount}.`
                       : `Export needs at least 40 picks. You made ${participantPickCount}, so build your deck here instead.`}
                 </p>
               </div>

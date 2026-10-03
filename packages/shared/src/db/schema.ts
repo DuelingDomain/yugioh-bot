@@ -297,6 +297,8 @@ export function migrate(db: Database.Database) {
     }
   }
   addColumnIfMissing(db, "draft_players", "seat_index", "integer");
+  // Set when the player's draft deck was saved. A player who deletes that deck does not get it back.
+  addColumnIfMissing(db, "draft_players", "deck_saved_at", "text");
   addColumnIfMissing(db, "draft_cards", "draft_pack_id", "integer references draft_packs(id)");
   addColumnIfMissing(db, "draft_cards", "position", "integer");
   addColumnIfMissing(db, "draft_picks", "pick_method", "text not null default 'manual'");
@@ -648,6 +650,25 @@ export function migrate(db: Database.Database) {
 
   // A deck built from a player's draft pool. One per owner per draft.
   addColumnIfMissing(db, "saved_decks", "draft_id", "integer references drafts(id) on delete set null");
+  // Decks saved before deck_saved_at existed count as saved.
+  db.exec(`
+    update draft_players set deck_saved_at = current_timestamp
+    where deck_saved_at is null and exists (
+      select 1 from saved_decks s
+      inner join players p on p.id = draft_players.player_id
+      where s.draft_id = draft_players.draft_id and s.owner_user_id = p.discord_user_id and s.guild_id = p.guild_id
+    )
+  `);
+  // The backfill covers only drafts with a tournament made from them or finished in the last 14 days
+  // (see DRAFT_DECK_BACKFILL_DAYS in services/draft-decks.ts). Older finished drafts never backfill.
+  db.exec(`
+    update draft_players set deck_saved_at = current_timestamp
+    where deck_saved_at is null and draft_id in (
+      select d.id from drafts d
+      where d.status = 'completed' and d.tournament_id is null
+        and julianday(coalesce(d.ended_at, d.created_at)) < julianday('now') - 14
+    )
+  `);
   db.exec(`
     create unique index if not exists saved_decks_owner_draft_idx
       on saved_decks (guild_id, owner_user_id, draft_id)

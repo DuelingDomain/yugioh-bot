@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { Check, FileUp, Plus, Trash2, TriangleAlert } from "lucide-react";
-import { FloorList, FloorRow, StatusLine, SvButton, Zone } from "@/components/sheet";
+import { FloorList, FloorRow, SectionHead, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { cardArtUrl } from "@/components/duel/constants";
 import { deleteSavedDeck, listSavedDecks, type SavedDeckView } from "./api";
 import { DeckImportPanel, useDeckImport } from "./import-panel";
@@ -158,6 +158,31 @@ export function SavedDeckLibrary() {
     }
   }
 
+  const myDecks = decks?.filter((deck) => deck.draftId == null) ?? [];
+  const draftDecks = decks?.filter((deck) => deck.draftId != null) ?? [];
+  const renderList = (list: SavedDeckView[], label: string) => (
+    <FloorList aria-label={label}>
+      {list.map((deck) => (
+        <DeckRow
+          key={deck.id}
+          deck={deck}
+          confirming={pendingId === deck.id}
+          busy={busyId != null}
+          deleteError={pendingId === deck.id ? deleteError : null}
+          onAskDelete={() => {
+            setPendingId(deck.id);
+            setDeleteError(null);
+          }}
+          onDelete={() => void confirmDelete(deck)}
+          onKeep={() => {
+            setPendingId(null);
+            setDeleteError(null);
+          }}
+        />
+      ))}
+    </FloorList>
+  );
+
   return (
     <PageFrame
       title="Decks"
@@ -248,26 +273,18 @@ export function SavedDeckLibrary() {
 
       {decks && decks.length > 0 ? (
         <>
-          <FloorList aria-label="Saved decks">
-            {decks.map((deck) => (
-              <DeckRow
-                key={deck.id}
-                deck={deck}
-                confirming={pendingId === deck.id}
-                busy={busyId != null}
-                deleteError={pendingId === deck.id ? deleteError : null}
-                onAskDelete={() => {
-                  setPendingId(deck.id);
-                  setDeleteError(null);
-                }}
-                onDelete={() => void confirmDelete(deck)}
-                onKeep={() => {
-                  setPendingId(null);
-                  setDeleteError(null);
-                }}
+          {myDecks.length > 0 ? renderList(myDecks, "Saved decks") : null}
+          {draftDecks.length > 0 ? (
+            // Every finished draft saves each player's pool here; a draft tournament uses it as is.
+            <section aria-labelledby="decks-draft-t">
+              <SectionHead
+                title="Draft decks"
+                id="decks-draft-t"
+                note="Saved for you when a draft ends. Editing them is optional."
               />
-            ))}
-          </FloorList>
+              {renderList(draftDecks, "Draft decks")}
+            </section>
+          ) : null}
           <p className={styles.foot}>Sizes only. The table checks the banlist and copy limits when you ready up.</p>
         </>
       ) : null}

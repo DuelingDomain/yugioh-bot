@@ -382,6 +382,13 @@ describe("DraftSummaryView", () => {
     expect(screen.queryByRole("link", { name: /build your deck/i })).toBeNull();
   });
 
+  it("makes editing optional once the automatic deck is saved", () => {
+    renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7 });
+    expect(screen.getByRole("link", { name: /edit your deck/i })).toHaveClass("sv-btn", "ghost");
+    expect(screen.getByText("Your deck is ready")).toBeInTheDocument();
+    expect(screen.getByText(/editing it is optional/i)).toBeInTheDocument();
+  });
+
   it("hides the deck link for a spectator and for a player with no picks", () => {
     renderView({ ...baseDraft, participantPickCount: 15 }, { isParticipant: false });
     expect(screen.queryByRole("link", { name: /(build|edit) your deck/i })).toBeNull();
@@ -470,7 +477,7 @@ describe("DraftSummaryView", () => {
 
   it("says the YDK holds the first 40 picks when there are more", () => {
     renderView({ ...baseDraft, participantPickCount: 45, myDeckId: 3 });
-    expect(screen.getByText("Keep tuning it, or export your first 40 picks as a YDK file.")).toBeTruthy();
+    expect(screen.getByText("It is saved in My decks. Editing it is optional. You can also export your first 40 picks as a YDK file.")).toBeTruthy();
   });
 
   it("marks the viewer's seat and shows the duration as short pieces", () => {

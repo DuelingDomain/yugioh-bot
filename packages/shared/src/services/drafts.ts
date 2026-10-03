@@ -3,6 +3,7 @@ import type Database from "better-sqlite3";
 import type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../types/index.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { MAX_COPIES_PER_PLAYER } from "./constants.js";
+import { createDraftDeckService } from "./draft-decks.js";
 import { analyzeCube, buildDeal, seededShuffle, type ShuffleSeed } from "./deal.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
@@ -149,6 +150,26 @@ export function createDraftService(
   const random = options.random ?? Math.random;
   // Deals, assignments and theme packs are persisted; their seeds stay in memory.
   const seedSource = options.seedSource ?? (() => randomBytes(32).toString("hex"));
+
+  // Every path that ends a draft goes through here, so Discord and web drafts both leave each human
+  // player a saved deck of their picks. A failure must not undo the last pick; the decks are
+  // saved later, when the player opens My decks or the tournament page.
+  const completeDraft = (draftId: number, now: Date, waveNumber?: number) => {
+    if (waveNumber === undefined) {
+      db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(now.toISOString(), draftId);
+    } else {
+      db.prepare("update drafts set status = 'completed', current_wave_number = ?, ended_at = ? where id = ?").run(
+        waveNumber,
+        now.toISOString(),
+        draftId,
+      );
+    }
+    try {
+      createDraftDeckService(db).saveForDraft(draftId);
+    } catch (error) {
+      console.error(`[drafts] could not save the draft decks for draft ${draftId}:`, error);
+    }
+  };
   const seatOrder = (playerIds: number[], config: DraftConfig): number[] => {
     if (!config.randomizeSeats) return playerIds;
 
@@ -628,11 +649,7 @@ export function createDraftService(
     }
     if (dealtThisRound === 0) {
       // Nothing left to deal anywhere — complete.
-      db.prepare("update drafts set status = 'completed', current_wave_number = ?, ended_at = ? where id = ?").run(
-        round,
-        now.toISOString(),
-        draftId,
-      );
+      completeDraft(draftId, now, round);
       return;
     }
     db.prepare(
@@ -932,7 +949,7 @@ export function createDraftService(
 
       const active = activePlayerRows(draftId);
       if (active.length === 0) {
-        db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(now.toISOString(), draftId);
+        completeDraft(draftId, now);
         return;
       }
 
@@ -964,7 +981,7 @@ export function createDraftService(
       }
       if (stuck || !waveHasPickableCard(draftId, currentPackRound, active)) {
         if (currentPackRound >= (draft.config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer)) {
-          db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(now.toISOString(), draftId);
+          completeDraft(draftId, now);
           return;
         }
         const seatCount = allSeatIndexes(draftId).length;
@@ -1087,7 +1104,7 @@ export function createDraftService(
 
     if (picked.n >= dealt.n) {
       if (draft.currentPackRound >= total) {
-        db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(now.toISOString(), draftId);
+        completeDraft(draftId, now);
       } else {
         const nextRound = draft.currentPackRound + 1;
         const dealtNext = openThemeRound(draftId, nextRound, config);

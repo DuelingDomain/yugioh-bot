@@ -36,6 +36,13 @@ export interface ViewerStakes {
   loss: number;
 }
 
+/** A size note for a draft deck. `optional`: it plays as it is. `required`: the duel start would refuse it. */
+export interface DeckNote {
+  level: "optional" | "required";
+  mainCount: number;
+  message: string;
+}
+
 export interface TournamentDetail {
   id: number;
   name: string;
@@ -57,6 +64,8 @@ export interface TournamentDetail {
   /** Set for a tournament made from a draft. */
   draftId?: number | null;
   draftSlug?: string | null;
+  /** How the viewer's draft deck stands against the size rules; null when it needs no note. */
+  deckNote?: DeckNote | null;
   /** The viewer's Elo stakes. Older payloads (and tests) omit it. */
   stakes?: ViewerStakes | null;
 }

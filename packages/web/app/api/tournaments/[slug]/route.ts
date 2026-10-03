@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import {
   createDuelSeriesService,
+  createSavedDeckService,
   createTournamentDuelService,
   createTournamentService,
   TournamentDuelError,
@@ -12,6 +13,7 @@ import type { DuelBestOf, DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { announcer, broadcaster } from "@/lib/notify";
 import { notifyDuelChange } from "@/lib/notify-duel";
 import { viewerStakes } from "@/lib/tournament-stakes";
+import { backfillDraftDecks, draftDeckNoteFor, linkDraftDeck } from "@/lib/draft-decks";
 
 export const runtime = "nodejs";
 
@@ -51,6 +53,22 @@ export async function GET(
     }
 
     const tournamentId = tournament.id;
+
+    // A draft tournament entry uses the player's draft deck: save a missing one and register it
+    // before the participants are read, so the viewer sees the deck in.
+    const session = await auth();
+    if (session?.user?.id) {
+      const viewer = db
+        .prepare("select id from players where guild_id = ? and discord_user_id = ?")
+        .get(tournament.guild_id, session.user.id) as { id: number } | undefined;
+      const draftRow = viewer
+        ? db.prepare("select id from drafts where tournament_id = ? and guild_id = ?").get(tournamentId, tournament.guild_id)
+        : undefined;
+      if (viewer && draftRow) {
+        backfillDraftDecks(tournament.guild_id, session.user.id, db);
+        linkDraftDeck(tournamentId, viewer.id, db);
+      }
+    }
 
     const participants = db
       .prepare(
@@ -144,7 +162,6 @@ export async function GET(
       playerTwoName: match.playerTwoId ? (playerMap.get(match.playerTwoId) ?? `Player ${match.playerTwoId}`) : null,
     }));
 
-    const session = await auth();
     let isParticipant = false;
     let currentUserPlayerId: number | null = null;
     if (session?.user?.id) {
@@ -155,6 +172,15 @@ export async function GET(
         currentUserPlayerId = currentPlayer.id;
         isParticipant = participants.some((p) => p.playerId === currentPlayer.id);
       }
+    }
+
+    // The size note for the viewer's draft deck: the registered deck, else the saved draft deck.
+    let deckNote = null;
+    if (isParticipant && currentUserPlayerId !== null && duelRules.draftId && session?.user?.id) {
+      const deck =
+        tournamentDuels.registration(tournamentId, currentUserPlayerId)?.deck ??
+        createSavedDeckService(db).findByDraft(tournament.guild_id, session.user.id, duelRules.draftId)?.deck;
+      if (deck) deckNote = draftDeckNoteFor(db, { draftId: duelRules.draftId, playerId: currentUserPlayerId, deck });
     }
 
     return NextResponse.json({
@@ -178,6 +204,7 @@ export async function GET(
       matches: matchesWithNames,
       isParticipant,
       currentUserPlayerId,
+      deckNote,
       // Elo for the viewer's current or next match; null for non-players and when nothing is left to play.
       stakes: viewerStakes({
         db,

@@ -19,15 +19,20 @@ export function MatchButton({ variant = "secondary", small: _small = false, chil
   return <button type="button" className={buttonClass(variant)} {...props}>{children}</button>;
 }
 
-/** Report errors show inline under the row, never in alert(). */
-export function MatchError({ error }: { error: string | null }) {
+/**
+ * Report errors show inline under the row, never in alert(). "My deck" in a message opens the deck
+ * panel through `onOpenDeck` when the page has one; otherwise it jumps to the My deck section.
+ */
+export function MatchError({ error, onOpenDeck }: { error: string | null; onOpenDeck?: () => void }) {
   if (!error) return null;
   const parts = error.split("My deck");
   return (
     <div role="alert" className={styles.error}>
       <StatusLine tone="block">
         {parts.map((part, index) => (
-          <span key={index}>{index > 0 && <a className="link" href={`#${SECTION_IDS.myDeck}`}>My deck</a>}{part}</span>
+          <span key={index}>{index > 0 && (onOpenDeck
+            ? <button type="button" className={`link ${styles.deckLink}`} onClick={onOpenDeck}>My deck</button>
+            : <a className="link" href={`#${SECTION_IDS.myDeck}`}>My deck</a>)}{part}</span>
         ))}
       </StatusLine>
     </div>

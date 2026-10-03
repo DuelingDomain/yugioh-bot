@@ -26,3 +26,6 @@
 .reportActs { display: flex; flex-wrap: wrap; gap: 12px; }
 .up { font-family: var(--f-num); color: var(--chain-ink); }
 .dn { font-family: var(--f-num); color: var(--loss-ink); }
+
+/* "My deck" inside an error that opens the deck panel: a button that reads as the same link. */
+.deckLink { padding: 0; border: 0; background: none; font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }

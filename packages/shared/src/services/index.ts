@@ -24,6 +24,17 @@ export * from "../scoring/rank.js";
 export * from "../scoring/achievements.js";
 export { createDuelService, DuelServiceError, DUEL_LIVE_IDLE_AFTER_MS } from "./duels.js";
 export type { DuelService, DuelPrivateState, DuelFinalSnapshots } from "./duels.js";
+export {
+  buildDraftDeck,
+  createDraftDeckService,
+  draftDeckName,
+  draftDeckNote,
+  isTestBotDiscordId,
+  DRAFT_DECK_MAIN_MAX,
+  DRAFT_DECK_MAIN_TARGET,
+  TEST_BOT_DISCORD_PREFIX,
+} from "./draft-decks.js";
+export type { DraftDeckNote, DraftDeckService } from "./draft-decks.js";
 export { createSavedDeckService, SavedDeckServiceError } from "./saved-decks.js";
 export type { SavedDeckService, SavedDeckWrite } from "./saved-decks.js";
 export { createDuelSeriesService, SERIES_SIDE_WINDOW_MS } from "./duel-series.js";

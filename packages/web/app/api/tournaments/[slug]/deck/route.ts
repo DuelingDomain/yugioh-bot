@@ -14,6 +14,7 @@ import { env } from "@/lib/env";
 import { callDuelHost } from "@/lib/duel-host";
 import { draftMainSizeError, loadDraftPool } from "@/lib/tournament-deck";
 import { broadcaster } from "@/lib/notify";
+import { backfillDraftDecks, draftDeckNoteFor, linkDraftDeck } from "@/lib/draft-decks";
 
 export const runtime = "nodejs";
 
@@ -64,6 +65,12 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
     const tournamentDuels = createTournamentDuelService(db);
     const rules = tournamentDuels.rules(tournament.id);
+    if (rules.draftId !== null) {
+      // The draft deck is saved when the draft ends; this catches an older draft or a missed save,
+      // and registers it for a player who has no deck in yet.
+      backfillDraftDecks(tournament.guild_id, userId, db);
+      linkDraftDeck(tournament.id, player.id, db);
+    }
     const registration = tournamentDuels.registration(tournament.id, player.id);
 
     const savedDecks = createSavedDeckService(db);
@@ -79,10 +86,20 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       draft = row?.web_slug ? { id: rules.draftId, slug: row.web_slug } : null;
     }
 
+    const deckNote =
+      rules.draftId !== null
+        ? draftDeckNoteFor(db, {
+            draftId: rules.draftId,
+            playerId: player.id,
+            deck: registration?.deck ?? decks[0]?.deck ?? { main: [], extra: [], side: [] },
+          })
+        : null;
+
     return NextResponse.json({
       registration,
       rules,
       draft,
+      deckNote: registration || decks.length > 0 ? deckNote : null,
       savedDeckOptions: decks.map((deck) => ({
         id: deck.id,
         name: deck.name,

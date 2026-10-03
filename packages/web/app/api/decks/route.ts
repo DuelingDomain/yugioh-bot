@@ -8,6 +8,7 @@ import {
   savedDeckErrorResponse,
   withRegistration,
 } from "@/lib/saved-decks";
+import { backfillDraftDecks } from "@/lib/draft-decks";
 import { checkDraftDeckWrite, readDraftId, registerDraftDeck } from "./draft-deck";
 
 export const runtime = "nodejs";
@@ -16,6 +17,8 @@ export async function GET() {
   const actor = await requireSavedDeckActor();
   if (!actor.ok) return actor.response;
   try {
+    // Draft decks are saved when a draft ends; this saves any a finished draft is missing.
+    backfillDraftDecks(actor.guildId, actor.ownerUserId);
     const registrations = loadDeckRegistrations(actor.guildId, actor.ownerUserId);
     return NextResponse.json({
       decks: actor.decks.list(actor.guildId, actor.ownerUserId).map((deck) => withRegistration(deck, registrations)),

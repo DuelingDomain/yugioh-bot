@@ -1,4 +1,5 @@
 import type { DuelDeck } from "@yugidraft/shared/duels";
+import type { DeckNote } from "./types";
 
 export interface DeckOption {
   id: number;
@@ -11,6 +12,8 @@ export interface MyDeckState {
   registration: { savedDeckId: number | null; deck: DuelDeck; lockedAt: string | null } | null;
   draft: { id: number; slug: string } | null;
   savedDeckOptions: DeckOption[];
+  /** The size note for the draft deck; null when it needs none. */
+  deckNote: DeckNote | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -19,6 +22,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function cardList(value: unknown): number[] {
   return Array.isArray(value) ? value.filter((code): code is number => typeof code === "number") : [];
+}
+
+/** Reads a size note from an API payload; anything unusable gives null. */
+export function parseDeckNote(value: unknown): DeckNote | null {
+  if (!isRecord(value) || typeof value.message !== "string" || !value.message) return null;
+  if (value.level !== "optional" && value.level !== "required") return null;
+  return { level: value.level, mainCount: typeof value.mainCount === "number" ? value.mainCount : 0, message: value.message };
 }
 
 /** Reads the deck response defensively; anything unusable gives null. */
@@ -51,7 +61,7 @@ export function parseMyDeckState(data: unknown): MyDeckState | null {
           : [],
       )
     : [];
-  return { registration, draft, savedDeckOptions };
+  return { registration, draft, savedDeckOptions, deckNote: parseDeckNote(data.deckNote) };
 }
 
 /** "Name, 40 main, 15 extra, 15 side". */
