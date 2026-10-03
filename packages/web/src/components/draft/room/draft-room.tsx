@@ -29,7 +29,6 @@ import {
   tint,
   toggled,
   urgencyFor,
-  countKinds,
   type Kind,
   type RoomCard,
   type RoomConfigLike,
@@ -507,7 +506,6 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   );
 
   const dial = dialModel(pool, sizes);
-  const counts = useMemo(() => countKinds(pool), [pool]);
   const last = useMemo(() => {
     const out: Partial<Record<Kind, RoomCard>> = {};
     for (const c of [...pool].reverse()) {
@@ -553,15 +551,20 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const pickable = !!reading && turn === "picking";
 
   /* ---------- keys: 1-9 choose, arrows move, Enter picks, / searches, Esc closes ---------- */
-  const latest = useRef({ rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen, doPick, select, openSheet, closeSheets });
-  latest.current = { rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen, doPick, select, openSheet, closeSheets };
+  const latest = useRef({ rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets });
+  latest.current = { rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const L = latest.current;
       if (inField(e.target)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const num = parseNumberKey(e.key);
-      if (num != null || e.key.startsWith("Arrow")) setKbd(true);
+      if (num != null || e.key.startsWith("Arrow")) {
+        if (L.motionOpen || L.sheet != null || L.drawerOpen) return;
+        if (e.key.startsWith("Arrow") && e.target instanceof Element && !e.target.closest(".tcard") &&
+          e.target.closest('button, a[href], [role="button"], [role="tab"], [contenteditable="true"]')) return;
+        setKbd(true);
+      }
       if (e.key === "/") {
         e.preventDefault();
         if (L.phone || L.drawer) L.openSheet("binder");
@@ -772,7 +775,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               done={dial.done}
               of={dial.of}
               label={dial.label}
-              counts={counts}
+              counts={dial.counts}
               last={last}
               active={filter.kinds}
               landed={landed}
