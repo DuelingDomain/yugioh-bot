@@ -17,6 +17,7 @@ export function CardBottomSheet({ label, onClose, children }: { label: string; o
     document.body.style.overflow = "hidden";
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close.current(); return; }
+      if (event.key === "/") { event.preventDefault(); event.stopPropagation(); return; }
       if (event.key !== "Tab") return;
       const items = panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]');
       const first = items?.[0];

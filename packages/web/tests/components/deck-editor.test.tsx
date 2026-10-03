@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CardQuery, DeckCardInfo, SavedDeck } from "@yugidraft/shared/duels";
 import { SavedDeckEditor } from "../../src/components/decks/editor";
@@ -341,6 +341,62 @@ describe("SavedDeckEditor", () => {
     fireEvent.keyDown(window, { key: "/" });
     await waitFor(() => expect(screen.getByRole("searchbox")).toHaveFocus());
     expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("keeps slash shortcut focus inside the open card sheet", async () => {
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: (entries: Array<{ contentRect: { width: number } }>) => void) {}
+      observe() { this.callback([{ contentRect: { width: 390 } }]); }
+      disconnect() {}
+    });
+    render(<SavedDeckEditor />);
+    fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
+    const search = screen.getByRole("searchbox");
+    const tile = await screen.findByRole("button", { name: "Blue-Eyes White Dragon" });
+    fireEvent.click(tile);
+    const sheet = await screen.findByRole("dialog", { name: "Blue-Eyes White Dragon" });
+    const close = within(sheet).getByRole("button", { name: "Close card" });
+    await waitFor(() => expect(close).toHaveFocus());
+
+    fireEvent.keyDown(close, { key: "/" });
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    expect(close).toHaveFocus();
+    expect(search).not.toHaveFocus();
+    expect(sheet).toBeInTheDocument();
+
+    fireEvent.keyDown(close, { key: "Escape" });
+    expect(tile).toHaveFocus();
+    fireEvent.keyDown(tile, { key: "/" });
+    await waitFor(() => expect(search).toHaveFocus());
+  });
+
+  it.each(["list", "deck"] as const)("keeps the card sheet closed when dragging from the %s below 960px", async (source) => {
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private callback: (entries: Array<{ contentRect: { width: number } }>) => void) {}
+      observe() { this.callback([{ contentRect: { width: 959 } }]); }
+      disconnect() {}
+    });
+    stored = savedDeck([BLUE_EYES.code]);
+    const { container } = render(<SavedDeckEditor deckId="7" />);
+    await screen.findByRole("button", { name: /Blue-Eyes White Dragon, Main Deck card/ });
+    fireEvent.click(screen.getByRole("tab", { name: source === "list" ? "Cards" : /^Deck/ }));
+    const tile = await screen.findByRole("button", { name: source === "list" ? "Blue-Eyes White Dragon, 1 in deck" : /Blue-Eyes White Dragon, Main Deck card/ });
+    const data = new Map<string, string>();
+    const transfer = { types: [] as string[], effectAllowed: "copyMove", dropEffect: "move", setData(type: string, value: string) { data.set(type, value); this.types = [...data.keys()]; }, getData(type: string) { return data.get(type) ?? ""; } };
+
+    fireEvent.dragStart(tile, { dataTransfer: transfer });
+    expect(tile).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(container.firstElementChild).not.toHaveAttribute("aria-hidden", "true");
+    const side = screen.getByRole("region", { name: "Side Deck" });
+    fireEvent.drop(side, { dataTransfer: transfer });
+    expect(mainCards()).toHaveLength(source === "list" ? 1 : 0);
+    const moved = within(side).getByRole("button", { name: /Blue-Eyes White Dragon, Side Deck card/ });
+
+    fireEvent.dragStart(moved, { dataTransfer: transfer });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.drop(screen.getByRole("complementary", { name: "Card list" }), { dataTransfer: transfer });
+    expect(within(side).queryByRole("button", { name: /Side Deck card/ })).toBeNull();
   });
 
   it("keeps drag moves between sections and drag removal to the card list", async () => {

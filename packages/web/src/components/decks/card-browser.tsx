@@ -70,7 +70,7 @@ export function CardBrowser({
   /** Copies of this card (by name) already in the deck. */
   deckCount: (card: DeckCardInfo) => number;
   inspectCode: number | null;
-  onInspect: (card: DeckCardInfo) => void;
+  onInspect: (card: DeckCardInfo, openSheet?: boolean) => void;
   /** The card under the pointer, or null when the pointer leaves it. */
   onHover: (card: DeckCardInfo | null) => void;
   onAdd: (card: DeckCardInfo) => void;
@@ -368,7 +368,7 @@ export function CardBrowser({
                   onDoubleClick: () => onAdd(card),
                   onContextMenu: (event: MouseEvent) => { event.preventDefault(); onAdd(card); },
                   onKeyDown: (event: KeyboardEvent) => onTileKey(event, card),
-                  onDragStart: (event: DragEvent) => { onInspect(card); writeCardDrag(event, { code: card.code, from: "list" }); },
+                  onDragStart: (event: DragEvent) => { onInspect(card, false); writeCardDrag(event, { code: card.code, from: "list" }); },
                 };
                 if (view === "grid") {
                   return (

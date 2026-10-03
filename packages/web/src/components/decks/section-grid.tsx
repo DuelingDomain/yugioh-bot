@@ -60,7 +60,7 @@ export function DeckSectionGrid({
   actions?: ReactNode;
   emptyHint: string;
   children?: ReactNode;
-  onSelect: (stack: SelectedStack) => void;
+  onSelect: (stack: SelectedStack, openSheet?: boolean) => void;
   onHover: (copy: HoveredCopy | null) => void;
   onRemove: (source: CardSource) => void;
   onDrop: (source: CardSource, section: DeckSection, at?: number) => void;
@@ -148,7 +148,7 @@ export function DeckSectionGrid({
                   data-over={isOver ? "true" : undefined}
                   draggable
                   onDragStart={(event) => {
-                    onSelect({ section, code });
+                    onSelect({ section, code }, false);
                     writeCardDrag(event, { code, from: section, index });
                   }}
                   onClick={(event) => { event.currentTarget.focus(); onSelect({ section, code }); }}
