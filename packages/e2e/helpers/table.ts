@@ -21,10 +21,26 @@ export function actionPosts(page: Page, slug: string): { count: number } {
   return tally;
 }
 
-export async function readTable(page: Page, slug: string): Promise<DuelRoom> {
-  const response = await page.request.get(`/api/duels/${slug}`);
+export async function readTable(page: Page, slug: string, spectate = false): Promise<DuelRoom> {
+  const response = await page.request.get(`/api/duels/${slug}${spectate ? "?spectate=1" : ""}`);
   expect(response.ok(), await response.text()).toBe(true);
   return response.json();
+}
+
+/** A lost FFA seat switches without a choice panel and receives only spectator data. */
+export async function expectAutoSpectating(page: Page, slug: string): Promise<DuelRoom> {
+  await expect(page).toHaveURL(/spectate=1/);
+  await expect(page.getByText("You are spectating", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "You are eliminated" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Stay and watch" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Leave room", exact: true })).toBeVisible();
+  await expect(page.locator("[data-table-shell]")).toHaveAttribute("data-can-act", "false");
+  await expect(page.getByRole("group", { name: "Your hand" })).toHaveCount(0);
+  await expect(page.locator("[data-prompt-panel]")).toHaveCount(0);
+  const room = await readTable(page, slug, true);
+  expect(room).toMatchObject({ role: "spectator", mySeat: null, myDeck: null, mySide: null, engine: { prompt: null } });
+  for (const seat of room.engine!.seats) expect(seat.hand.every(card => card.code == null && card.name == null)).toBe(true);
+  return room;
 }
 
 export interface TableTrace {
