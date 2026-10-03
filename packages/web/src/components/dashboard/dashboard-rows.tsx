@@ -1,8 +1,8 @@
-import Link from "next/link";
-import { ChevronRight } from "lucide-react";
-import { MetaLine } from "@/components/meta-line/meta-line";
-import { LivePill, StationTrack } from "@/components/sheet";
-import { draftProgressLabel, draftStatus, plural, tournamentFormatLabel } from "./dashboard-model";
+import { FloorRow, LiveDot, svButtonClass } from "@/components/sheet";
+import { TournamentRow as TournamentFloorRow } from "@/components/tournament/tournament-row";
+import { draftProgressLabel, draftStatus, plural } from "./dashboard-model";
+import type { TournamentRounds } from "./tournament-rounds";
+import styles from "./dashboard.module.css";
 
 export type DashboardTournament = {
   id: number;
@@ -23,39 +23,24 @@ export type DashboardDraft = {
   playerCount: number;
 };
 
-const STATIONS = [
-  { code: "LB", name: "Lobby" },
-  { code: "PL", name: "Playing" },
-  { code: "FN", name: "Final" },
-];
-
-/** Every row on the dashboard is one you play in, so every row carries the purple edge. */
-export function TournamentRow({ tournament }: { tournament: DashboardTournament }) {
-  const active = tournament.status === "active";
+/** Every row on the dashboard is one you play in, so every row carries the "you" underlay. */
+export function TournamentRow({
+  tournament,
+  rounds,
+  viewerId,
+}: {
+  tournament: DashboardTournament;
+  rounds?: TournamentRounds;
+  viewerId?: number | null;
+}) {
   return (
-    <Link href={`/tournament/${tournament.webSlug ?? tournament.id}`} className={"db-row"} data-you>
-      <div>
-        <p className="nm">{tournament.name}</p>
-        <MetaLine
-          className="mt"
-          items={[
-            { content: active ? <LivePill>In progress</LivePill> : <span className="status">Open to join</span> },
-            { content: tournamentFormatLabel(tournament.format) },
-            { content: active ? plural(tournament.participantCount, "player") : `${tournament.participantCount} joined` },
-          ]}
-        />
-      </div>
-      <div className="rt">
-        <StationTrack
-          stations={STATIONS}
-          current={active ? 1 : 0}
-          tone="mine"
-          size="sm"
-          label={`${tournament.name} progress`}
-        />
-        <ChevronRight className="ic sm" aria-hidden="true" />
-      </div>
-    </Link>
+    <TournamentFloorRow
+      tournament={tournament}
+      variant={tournament.status === "active" ? "running" : "open"}
+      rounds={rounds}
+      viewerId={viewerId}
+      you
+    />
   );
 }
 
@@ -64,32 +49,25 @@ export function DraftRow({ draft }: { draft: DashboardDraft }) {
   const progress = draftProgressLabel(draft.status, draft.currentPackRound, draft.currentPickStep);
   const body = (
     <>
-      <div>
-        <p className="nm">{draft.name}</p>
-        <MetaLine
-          className="mt"
-          items={[
-            { content: stage.live ? <LivePill>{stage.label}</LivePill> : <span className="status">{stage.label}</span> },
-            ...(progress ? [{ content: progress }] : []),
-            { content: plural(draft.playerCount, "player") },
-          ]}
-        />
+      <div className={styles.draftId}>
+        <p className={styles.draftName}>{draft.name}</p>
+        <p className={styles.draftMeta}>
+          {stage.live ? <LiveDot you label={stage.label} /> : <span>{stage.label}</span>}
+          {progress && <span>{progress}</span>}
+          <span>{plural(draft.playerCount, "player")}</span>
+        </p>
       </div>
-      <div className="rt">
-        {stage.live ? (
-          <span className="btn btn-secondary btn-sm">Back to draft</span>
-        ) : (
-          <ChevronRight className="ic sm" aria-hidden="true" />
-        )}
-      </div>
+      {stage.live && <span className={`${svButtonClass("ghost")} ${styles.draftGo}`}>Back to draft</span>}
     </>
   );
-  if (!draft.webSlug) {
-    return <div className="db-row" data-you>{body}</div>;
-  }
-  return (
-    <Link href={`/draft/${draft.webSlug}`} className={"db-row"} data-you>
+  const cols = "minmax(0, 1fr) auto";
+  return draft.webSlug ? (
+    <FloorRow you href={`/draft/${draft.webSlug}`} cols={cols} phoneCols={cols}>
       {body}
-    </Link>
+    </FloorRow>
+  ) : (
+    <FloorRow you cols={cols} phoneCols={cols}>
+      {body}
+    </FloorRow>
   );
 }

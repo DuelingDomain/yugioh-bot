@@ -1,9 +1,58 @@
-:global(.ms) .cols:global(.db-cols) :global(.db-row .nm) {
-  overflow-wrap: break-word;
+/* Dashboard: your tournaments first and widest, standing and drafts beside them. */
+.cols {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  grid-template-areas:
+    "tournaments standing"
+    "tournaments drafts";
+  align-items: start;
+  gap: clamp(28px, 4cqi, 44px) clamp(28px, 4cqi, 52px);
+  min-width: 0;
 }
+.cols > * { min-width: 0; }
+.tournaments { grid-area: tournaments; }
+.standing { grid-area: standing; }
+.drafts { grid-area: drafts; }
 
 @container (max-width: 900px) {
-  :global(.ms) .cols:global(.db-cols) {
+  .cols {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "tournaments"
+      "standing"
+      "drafts";
   }
 }
+
+.none { margin: 16px 0 0; color: var(--ink-2); line-height: 1.55; max-width: 58ch; }
+
+/* draft rows */
+.draftId { min-width: 0; }
+.draftName { margin: 0; font: 600 17px/1.3 var(--f-display); color: var(--ink); overflow-wrap: anywhere; }
+.draftMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 14px; margin: 3px 0 0; color: var(--ink-3); font-size: 14px; }
+.draftGo { pointer-events: none; }
+
+/* your standing */
+.stand { display: grid; gap: 18px; }
+.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.elo { font: 600 40px/1 var(--f-display); font-variant-numeric: tabular-nums lining-nums; color: var(--ink); }
+.tierWord { font: 600 18px/1.2 var(--f-display); }
+.toNext { color: var(--ink-3); font-size: 14px; }
+.nums { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 0; padding-top: 16px; border-top: 1px solid var(--rule-lo); }
+.nums > div { min-width: 0; }
+.nums dt { margin: 0 0 4px; color: var(--ink-3); font-size: 13.5px; }
+.nums dd { margin: 0; font: 600 30px/1 var(--f-num); font-variant-numeric: tabular-nums lining-nums; color: var(--ink); }
+.nums dd small { font-size: 0.7em; color: var(--ink-3); font-weight: 500; }
+.nums .sub { display: block; margin-top: 5px; color: var(--ink-3); font: 400 13px/1.3 var(--f-ui); }
+.flame { width: 0.7em; height: 0.7em; margin-right: 4px; color: var(--chain-ink); vertical-align: 0; }
+
+/* no player yet */
+.hello { display: grid; gap: 22px; max-width: 760px; }
+.hello p { margin: 0; color: var(--ink-2); line-height: 1.55; }
+.steps { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; counter-reset: s; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px 12px; padding: 14px 0; border-bottom: 1px solid var(--rule-lo); color: var(--ink); font-weight: 600; }
+.steps li::before { content: counter(s); font: 600 22px/1 var(--f-num); color: var(--ink-3); grid-row: span 2; }
+.steps small { grid-column: 2; color: var(--ink-3); font-size: 14px; font-weight: 400; }
+.start { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; }
+.start .startElo { font: 600 34px/1 var(--f-display); }
+.start p { flex-basis: 100%; }

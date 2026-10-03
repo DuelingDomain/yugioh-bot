@@ -3,26 +3,38 @@ import path from "node:path";
 import postcss from "postcss";
 import { describe, expect, it } from "vitest";
 
-const file = path.resolve(__dirname, "../../../src/components/dashboard/dashboard.module.css");
-const root = postcss.parse(readFileSync(file, "utf8"));
+const read = (rel: string) => postcss.parse(readFileSync(path.resolve(__dirname, "../../../src/components", rel), "utf8"));
+const dashboard = read("dashboard/dashboard.module.css");
+const row = read("tournament/tournament-row.module.css");
 
 describe("dashboard responsive styles", () => {
-  it("stacks the dashboard columns at a 900px sheet width with a selector stronger than the foundation", () => {
-    let columns: string | undefined;
-    root.walkAtRules("container", (query) => {
+  it("puts tournaments first and widest, then stacks the columns at a 900px sheet width", () => {
+    let wide: string | undefined;
+    dashboard.walkRules(".cols", (rule) => {
+      if (rule.parent?.type === "root") rule.walkDecls("grid-template-columns", (decl) => { wide = decl.value; });
+    });
+    expect(wide).toBe("minmax(0, 2fr) minmax(0, 1fr)");
+
+    let stacked: string | undefined;
+    dashboard.walkAtRules("container", (query) => {
       if (query.params.replace(/\s/g, "") !== "(max-width:900px)") return;
-      query.walkRules(":global(.ms) .cols:global(.db-cols)", (rule) => {
-        rule.walkDecls("grid-template-columns", (decl) => { columns = decl.value; });
+      query.walkRules(".cols", (rule) => {
+        rule.walkDecls("grid-template-columns", (decl) => { stacked = decl.value; });
       });
     });
-    expect(columns).toBe("minmax(0, 1fr)");
+    expect(stacked).toBe("minmax(0, 1fr)");
   });
 
-  it("wraps dashboard row names between words with a selector stronger than the foundation", () => {
+  it("wraps row names between words and keeps the whole row as one link", () => {
     let wrapping: string | undefined;
-    root.walkRules(":global(.ms) .cols:global(.db-cols) :global(.db-row .nm)", (rule) => {
+    let cover: string | undefined;
+    row.walkRules(".name", (rule) => {
       rule.walkDecls("overflow-wrap", (decl) => { wrapping = decl.value; });
     });
-    expect(wrapping).toBe("break-word");
+    row.walkRules(".name::after", (rule) => {
+      rule.walkDecls("inset", (decl) => { cover = decl.value; });
+    });
+    expect(wrapping).toBe("anywhere");
+    expect(cover).toBe("0");
   });
 });
