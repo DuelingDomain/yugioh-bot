@@ -39,7 +39,8 @@ function wipe(f: Format, card: string): Scenario {
       spells: st && hit ? [] : [spell], grave: [...(s === "p0" ? [card] : []), ...(hit ? [st ? spell : mon[s]] : [])] };
   }
   steps.push(board(f, result));
-  return scenario(f, card.toLowerCase().replace(/[^a-z0-9]+/g, "-"), setup, steps);
+  return scenario(f, card.toLowerCase().replace(/[^a-z0-9]+/g, "-"), setup, steps,
+    f === "tag" ? ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER"] : ["R-FFA-OPP-ONE"]);
 }
 function allWipe(f: Format, card: string): Scenario {
   const st = card === "Heavy Storm" || card === "Giant Trunade";
@@ -86,7 +87,7 @@ function mirror(f: Format): Scenario {
     result[s] = { hand: Array(draws).fill("Mystical Elf"), deckCount: 20 - draws, monsters: hit ? [] : [mon[s]], grave: [...(hit ? [mon[s]] : []), ...(s === "p1" ? ["Mirror Force"] : [])] }; }
   steps.push(board(f, result));
   return scenario(f, "mirror-force-by-third-duelist-only-hits-attacker", setup, steps,
-    [f === "tag" ? "R-TAG-SHARED-CARDS" : "R-FFA-OPP-RESPONSE"]);
+    f === "tag" ? ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER"] : ["R-FFA-OPP-RESPONSE"]);
 }
 function torrential(f: Format): Scenario {
   const setup: Scenario["setup"] = { p0: { spells: [{ card: "Torrential Tribute", pos: "set" }] }, p1: { hand: [mon.p1] } };
