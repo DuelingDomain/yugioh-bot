@@ -13,7 +13,7 @@ const LEON = 'Gold Pride - Leon';
 const HAND = ['Giant Rat', 'Battle Ox', 'Axe Raider', 'Silver Fang'];
 const SEATS: DuelistId[] = ['p0', 'p1', 'p2', 'p3'];
 const domains = [false, true];
-const cases: Array<{ format: '1v1' | 'ffa3' | 'ffa4' | 'tag'; actor: number; opponent: number; accept: boolean; empty?: boolean; fromGrave?: boolean }> = [];
+const cases: Array<{ format: '1v1' | 'ffa3' | 'ffa4' | 'tag'; actor: number; opponent: number; accept: boolean; empty?: boolean; fromGrave?: boolean; fromPartnerGrave?: boolean }> = [];
 for (let actor = 0; actor < 4; ++actor) {
   for (let opponent = 0; opponent < 4; ++opponent) {
     if (actor % 2 === opponent % 2) continue;
@@ -28,19 +28,23 @@ for (const opponent of [1, 3]) {
   cases.push({ format: 'tag', actor: 0, opponent, accept: true, fromGrave: true });
 }
 
+for (let actor = 0; actor < 4; ++actor) for (let opponent = 0; opponent < 4; ++opponent) {
+  if (actor % 2 !== opponent % 2) cases.push({ format: 'tag', actor, opponent, accept: true, fromPartnerGrave: true });
+}
+
 describeWithCores('Gold Pride opponent selection at activation', liveNseat, () => {
-  for (const domain of domains) for (const { format, actor, opponent, accept, empty, fromGrave } of cases) {
-    const id = `gold-pride-${format}-p${actor}-p${opponent}-${empty ? 'empty' : fromGrave ? 'grave' : accept ? 'yes' : 'no'}-${domain ? 'domain' : 'standard'}`;
+  for (const domain of domains) for (const { format, actor, opponent, accept, empty, fromGrave, fromPartnerGrave } of cases) {
+    const id = `gold-pride-${format}-p${actor}-p${opponent}-${empty ? 'empty' : fromPartnerGrave ? 'partner-grave' : fromGrave ? 'grave' : accept ? 'yes' : 'no'}-${domain ? 'domain' : 'standard'}`;
     it(id, async () => {
       const count = format === '1v1' ? 2 : format === 'ffa3' ? 3 : 4;
       const setup: Scenario['setup'] = { format, skipOpeningDraw: true, deckSize: 8, ...(domain ? { mode: 'domain' } : {}) };
       for (let i = 0; i < count; ++i) setup[SEATS[i]] = {
-        hand: [...(i === opponent && (empty || fromGrave) ? [] : [HAND[i]]), ...(i === actor ? [CARD] : [])], monsters: ['Mystical Elf'],
-        grave: i === actor ? [LEON] : i === opponent && fromGrave ? [HAND[i]] : [], deck: Array(8).fill('Mystical Elf'),
+        hand: [...(i === opponent && (empty || fromGrave || fromPartnerGrave) ? [] : [HAND[i]]), ...(i === actor ? [CARD] : [])], monsters: ['Mystical Elf'],
+        grave: i === actor ? [LEON] : i === opponent && fromGrave ? [HAND[i]] : fromPartnerGrave && i === (opponent + 2) % 4 ? [HAND[opponent]] : [], deck: Array(8).fill('Mystical Elf'),
         ...(domain ? { deckMaster: 'Blue-Eyes White Dragon' } : {}),
       };
       const scenario = defineScenario({ id, title: id, source: 'docs/adr/0002-multiplayer-duel-rules.md',
-        rules: ['R-COMMON-OPP-PICK', ...(format === 'tag' ? ['R-TAG-PARTNER'] : format === '1v1' ? [] : ['R-FFA-OPP-ONE'])],
+        rules: ['R-COMMON-OPP-PICK', ...(format === 'tag' ? ['R-TAG-PARTNER', ...(fromPartnerGrave ? ['R-TAG-SHARED-CARDS'] : [])] : format === '1v1' ? [] : ['R-FFA-OPP-ONE'])],
         tags: ['multiplayer', 'gold-pride', format], setup, steps: [] });
       const compiled = compileBoard(setup);
       const game = await createEngineGame({ ...compiled.options, dataDirectory: engineDataDirectory,
@@ -62,12 +66,12 @@ describeWithCores('Gold Pride opponent selection at activation', liveNseat, () =
         }
         if (!empty) run(accept ? yes(SEATS[opponent]) : no(SEATS[opponent]));
         const prompt = snapshot().find(view => view.prompt)?.prompt;
-        if (accept && prompt?.kind === 'cards') run(select({ card: HAND[opponent], owner: SEATS[opponent] }));
+        if (accept && prompt?.kind === 'cards') run(select({ card: HAND[opponent], owner: SEATS[fromPartnerGrave ? (opponent + 2) % 4 : opponent] }));
         const board: BoardExpect = {};
         for (let i = 0; i < count; ++i) {
           const drew = i > 0 && i <= actor ? 1 : 0;
           board[SEATS[i]] = { lp: format === 'tag' ? 16000 : 8000,
-            hand: [...(i === opponent && (accept || empty || fromGrave) ? [] : [HAND[i]]), ...Array(drew).fill('Mystical Elf')],
+            hand: [...(i === opponent && (accept || empty || fromGrave || fromPartnerGrave) ? [] : [HAND[i]]), ...Array(drew).fill('Mystical Elf')],
             monsters: ['Mystical Elf', ...(i === actor ? [LEON] : []), ...(accept && i === opponent ? [HAND[i]] : [])],
             spells: [], grave: i === actor ? [CARD] : [], banished: [], extra: [], deckCount: 8 - drew,
             ...(domain ? { deckMaster: { inZone: true, returns: 0, nextCost: 0 } } : {}),
