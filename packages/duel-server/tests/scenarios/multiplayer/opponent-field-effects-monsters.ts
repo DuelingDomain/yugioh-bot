@@ -391,6 +391,7 @@ const SPECS: EffectSpec[] = [
   {
     code: 47126872, name: "Space-Time Police", slug: "space-time-police", does: "Sets the monster it banished (of p1) on the field of the opponent that destroyed it, when it leaves the field",
     binding: "event-opponent",
+    extraFfaRules: ["R-FFA-OPP-ONE"],
     attackFirstTurn: true,
     noPick: true,
     p0: { hand: ["Monster Reborn"], grave: ["Space-Time Police"] },

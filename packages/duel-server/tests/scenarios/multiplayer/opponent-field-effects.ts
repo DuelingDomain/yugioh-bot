@@ -76,6 +76,8 @@ export interface EffectSpec {
   noPick?: boolean | ((roles: Roles) => boolean);
   /** The trigger or response binds the opponent that caused it (R-FFA-OPP-RESPONSE). */
   binding?: "event-opponent";
+  /** Additional rules proved by the FFA steps. Tag does not use these rules. */
+  extraFfaRules?: string[];
   /** The seat that picks. Default p0. */
   pickBy?: Seat;
   /** The seats offered. Default: all opponents of p0. */
@@ -158,6 +160,7 @@ export function effectScenarios(spec: EffectSpec): Scenario[] {
     const by = spec.pickBy ?? "p0";
     const noPick = typeof spec.noPick === "function" ? spec.noPick(roles) : spec.noPick;
     const ffaRule = noPick && spec.binding === "event-opponent" ? "R-FFA-OPP-RESPONSE" : "R-FFA-OPP-ONE";
+    const ffaRules = [ffaRule, ...(spec.extraFfaRules ?? [])];
     const pick: Step[] = noPick
       ? []
       : [expectPickSeats((spec.offered ? spec.offered(roles) : roles.opponents) as Seat[], by), pickOpponent(roles.tgt, by)];
@@ -165,8 +168,8 @@ export function effectScenarios(spec: EffectSpec): Scenario[] {
     return defineScenario({
       id: `opponent-field-effects-${format}-${spec.slug}-goes-to-${format === "tag" ? "an-opposing-member" : "the-picked-opponent"}`,
       title: `${FORMAT_LABEL[format]}: ${spec.name} ${spec.does} on the field of ${where} (${roles.tgt}) only; the other seats are unchanged`,
-      source: `${SOURCE} [R-COMMON-OPP-PICK] ${format === "tag" ? "[R-TAG-SHARED-CARDS]" : `[${ffaRule}]`}`,
-      rules: format === "tag" ? ["R-COMMON-OPP-PICK", "R-TAG-SHARED-CARDS", "R-TAG-PARTNER"] : ["R-COMMON-OPP-PICK", ffaRule],
+      source: `${SOURCE} [R-COMMON-OPP-PICK] ${format === "tag" ? "[R-TAG-SHARED-CARDS]" : ffaRules.map((rule) => `[${rule}]`).join(" ")}`,
+      rules: format === "tag" ? ["R-COMMON-OPP-PICK", "R-TAG-SHARED-CARDS", "R-TAG-PARTNER"] : ["R-COMMON-OPP-PICK", ...ffaRules],
       tags: ["multiplayer", "opponent-field-summon", format, `card:${spec.code}`],
       setup: setup as never,
       steps: [...steps, ...pick, ...then, everySeat(format, Object.fromEntries(Object.entries(seatSpec).map(([seat, zones]) => [seat, expectOf(zones)])))],
