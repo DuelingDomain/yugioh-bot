@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DuelCard, DuelChainLink, DuelEngineView, DuelEvent, DuelRoom } from "@yugidraft/shared/duels";
 import { DeckMasterRail, DuelField } from "../field";
+import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "../animation-speed-control";
 import { BattleFx } from "../battle-fx";
 import { DestroyFx } from "../destroy-fx";
 import { DuelFeedback } from "../feedback";
@@ -127,6 +128,8 @@ export function FxLab() {
   const [selectedId, setSelectedId] = useState<string>(LAB_SCENARIOS[0].id);
   const [speed, setSpeed] = useState<Speed>(1);
   const [reduced, setReduced] = useState(false);
+  const animationSpeed = useDuelAnimationSpeed(reduced);
+  const playbackSpeed = reduced ? 1 : speed * animationSpeed;
   const [loop, setLoop] = useState(false);
   const [sound, setSound] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
@@ -146,8 +149,8 @@ export function FxLab() {
   const nextId = useRef(0);
   const boardRef = useRef<LabBoard>(live.board);
   const stageRef = useRef<HTMLDivElement>(null);
-  const optionsRef = useRef({ speed, reduced, loop });
-  optionsRef.current = { speed, reduced, loop };
+  const optionsRef = useRef({ speed: playbackSpeed, reduced, loop });
+  optionsRef.current = { speed: playbackSpeed, reduced, loop };
 
   const scenario = findScenario(selectedId) ?? LAB_SCENARIOS[0];
   const script = useMemo<LabScript>(() => scenario.build(), [scenario]);
@@ -222,6 +225,7 @@ export function FxLab() {
       const begin = () => {
         if (!started()) return;
         shim.setFactor(rate);
+        shim.resetTimeline();
         setStatus("playing");
         for (const { step, events } of numbered) {
           later(step.at / rate, () => {
@@ -240,7 +244,6 @@ export function FxLab() {
         }
         later(scriptDurationMs(built) / rate, () => {
           if (!started()) return;
-          shim.setFactor(1);
           setStatus("done");
           if (optionsRef.current.loop) later(900, () => started() && play(target));
         });
@@ -340,7 +343,7 @@ export function FxLab() {
             <button type="button" className={fx.btn} onClick={() => play(scenario)}>
               {status === "idle" ? "Play" : "Replay"}
             </button>
-            <span className={fx.seg} role="group" aria-label="Speed">
+            <span className={fx.seg} role="group" aria-label="Review speed">
               {SPEEDS.map((value) => (
                 <button key={value} type="button" aria-pressed={speed === value} onClick={() => setSpeed(value)}>
                   {value}x
@@ -354,15 +357,16 @@ export function FxLab() {
               <input type="checkbox" checked={loop} onChange={(event) => setLoop(event.target.checked)} /> Loop
             </label>
             <label className={fx.check}>
-              <input type="checkbox" checked={sound} onChange={(event) => setSound(event.target.checked)} /> Sound (normal speed)
+              <input type="checkbox" checked={sound} onChange={(event) => setSound(event.target.checked)} /> Sound
             </label>
           </div>
+          <div className={fx.pace}><DuelAnimationSpeedControl /></div>
           <div className={fx.caption} aria-live="polite">
             <strong>{scenario.name}</strong>
             <p>{scenario.description}</p>
             <p>
               Scenario <code>{scenario.id}</code> · about {seconds(expectedMs)} at 1x
-              {speed !== 1 ? ` (${seconds(expectedMs / speed)} at ${speed}x)` : ""} ·{" "}
+              {playbackSpeed !== 1 ? ` (${seconds(expectedMs / playbackSpeed)} at ${playbackSpeed.toFixed(2)}x)` : ""} ·{" "}
               <span className={fx.status}>
                 {status === "idle" ? "Ready" : status === "preparing" ? "Preparing" : status === "playing" ? "Playing" : "Done"}
               </span>
@@ -373,6 +377,7 @@ export function FxLab() {
           <div
             className={`${styles.shell} ${duelFontClasses}`}
             style={{ height: stageHeight, borderRadius: 8, border: "1px solid rgb(181 153 99 / 0.25)" }}
+            data-duel-fx-speed-root
             data-domain={script.domain ? "true" : "false"}
             data-fit="true"
             data-phase={battle ? "battle" : undefined}
