@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { BUG_TEXT_MAX, validateBugText, type BugFieldErrors } from "@/lib/bug-report";
@@ -32,11 +33,14 @@ async function failureText(response: Response): Promise<string> {
 /**
  * Asks the server whether the report is a known problem or the same as an open issue. Never throws and never blocks the
  * report: a timeout (5 seconds), a network error or any server answer except a good one gives `null`, and the report is
- * then sent without the check. A 400 comes back as its field errors.
+ * then sent without the check. A 400 comes back as its field errors. `cancel` stops the request when the dialog closes.
  */
-async function precheck(payload: unknown): Promise<{ knownLimits: KnownLimit[]; duplicates: Duplicate[] } | { fieldErrors: BugFieldErrors } | null> {
+async function precheck(payload: unknown, cancel: AbortSignal): Promise<{ knownLimits: KnownLimit[]; duplicates: Duplicate[] } | { fieldErrors: BugFieldErrors } | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PRECHECK_TIMEOUT_MS);
+  const onCancel = () => controller.abort();
+  if (cancel.aborted) onCancel();
+  else cancel.addEventListener("abort", onCancel, { once: true });
   try {
     const response = await fetch("/api/bug-reports/precheck", {
       method: "POST",
@@ -58,6 +62,7 @@ async function precheck(payload: unknown): Promise<{ knownLimits: KnownLimit[]; 
     return null;
   } finally {
     clearTimeout(timer);
+    cancel.removeEventListener("abort", onCancel);
   }
 }
 
@@ -72,14 +77,30 @@ function ReportForm({ collect, onClose }: { collect: () => CollectedContext; onC
   const [result, setResult] = useState<Result | null>(null);
   const [found, setFound] = useState<{ knownLimits: KnownLimit[]; duplicates: Duplicate[] }>({ knownLimits: [], duplicates: [] });
   const sending = useRef(false);
+  // Set at the start of submit, so two fast Enter presses send one request before the step state changes.
+  const submitting = useRef(false);
+  // Closing the dialog stops a running check and keeps the report from being sent afterwards.
+  const closed = useRef(false);
+  const cancelCheck = useRef<AbortController | null>(null);
+  const reviewHeading = useRef<HTMLHeadingElement>(null);
   // The context is read once, when the player presses Send, and the same snapshot is checked and sent.
   const snapshot = useRef<CollectedContext | null>(null);
 
   const quality = validateBugText({ description, expected });
   const fieldErrors: BugFieldErrors = tried ? { ...serverErrors, ...quality } : {};
 
+  useEffect(() => {
+    closed.current = false;
+    return () => { closed.current = true; cancelCheck.current?.abort(); };
+  }, []);
+
+  // Screen readers should land on the new step, not on the removed form.
+  useEffect(() => {
+    if (step === "review") reviewHeading.current?.focus();
+  }, [step]);
+
   async function post(duplicateOf?: number) {
-    if (sending.current) return;
+    if (sending.current || closed.current) return;
     sending.current = true;
     setBusy(true);
     setError(null);
@@ -111,24 +132,31 @@ function ReportForm({ collect, onClose }: { collect: () => CollectedContext; onC
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (sending.current || step !== "write") return;
+    if (submitting.current || sending.current || step !== "write") return;
     setTried(true);
     setError(null);
     if (quality.description || quality.expected) return;
-    snapshot.current = collect();
-    setStep("checking");
-    const checked = await precheck({ description, expected, ...snapshot.current });
-    if (checked && "fieldErrors" in checked) {
-      setServerErrors(checked.fieldErrors);
-      setStep("write");
-      return;
+    submitting.current = true;
+    try {
+      snapshot.current = collect();
+      setStep("checking");
+      cancelCheck.current = new AbortController();
+      const checked = await precheck({ description, expected, ...snapshot.current }, cancelCheck.current.signal);
+      if (closed.current) return;
+      if (checked && "fieldErrors" in checked) {
+        setServerErrors(checked.fieldErrors);
+        setStep("write");
+        return;
+      }
+      if (checked && (checked.knownLimits.length > 0 || checked.duplicates.length > 0)) {
+        setFound(checked);
+        setStep("review");
+        return;
+      }
+      await post();
+    } finally {
+      submitting.current = false;
     }
-    if (checked && (checked.knownLimits.length > 0 || checked.duplicates.length > 0)) {
-      setFound(checked);
-      setStep("review");
-      return;
-    }
-    await post();
   }
 
   if (step === "done" && result) {
@@ -163,7 +191,7 @@ function ReportForm({ collect, onClose }: { collect: () => CollectedContext; onC
       <div className="grid gap-4" data-testid="bug-report-review">
         {known ? (
           <section className="grid gap-2" data-testid="bug-report-known" aria-labelledby="bug-known-title">
-            <h3 id="bug-known-title" className="text-sm font-semibold text-text-primary">This is already known</h3>
+            <h3 id="bug-known-title" ref={reviewHeading} tabIndex={-1} className="text-sm font-semibold text-text-primary outline-none">This is already known</h3>
             <ul className="grid gap-2">
               {found.knownLimits.map((limit) => (
                 <li key={limit.id} className="rounded-md border border-border p-2 text-sm">
@@ -176,7 +204,7 @@ function ReportForm({ collect, onClose }: { collect: () => CollectedContext; onC
         ) : null}
         {found.duplicates.length > 0 ? (
           <section className="grid gap-2" data-testid="bug-report-duplicates" aria-labelledby="bug-dup-title">
-            <h3 id="bug-dup-title" className="text-sm font-semibold text-text-primary">Is it one of these?</h3>
+            <h3 id="bug-dup-title" ref={known ? undefined : reviewHeading} tabIndex={-1} className="text-sm font-semibold text-text-primary outline-none">Is it one of these?</h3>
             <ul className="grid gap-2">
               {found.duplicates.map((issue) => (
                 <li key={issue.number} className="grid gap-1 rounded-md border border-border p-2 text-sm">
@@ -240,14 +268,34 @@ function OpenDialog({ collect, onClose }: { collect: () => CollectedContext; onC
     onClose();
     queueMicrotask(() => { if (opener?.isConnected) opener.focus(); });
   };
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  // Escape closes this dialog only. Listening on window in the capture phase runs before the document listeners of a
+  // parent Sheet or Modal, and stopping the event keeps them from closing too.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      closeRef.current();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+  // React events pass through a portal to the parent components. A swipe in this dialog must not close a parent Sheet.
+  const keepTouch = (event: React.SyntheticEvent) => event.stopPropagation();
   return (
-    <Modal open onClose={close} title="Report a bug">
-      <div ref={body}><ReportForm collect={collect} onClose={close} /></div>
-    </Modal>
+    <div onTouchStart={keepTouch} onTouchEnd={keepTouch}>
+      <Modal open onClose={close} title="Report a bug">
+        <div ref={body}><ReportForm collect={collect} onClose={close} /></div>
+      </Modal>
+    </div>
   );
 }
 
-/** The small "Report bug" dialog. `collect` runs at send time, so the context is fresh. */
+/**
+ * The small "Report bug" dialog. `collect` runs at send time, so the context is fresh. It renders in document.body:
+ * inside a phone Sheet the translate and overflow of the Sheet would move and clip the fixed dialog.
+ */
 export function BugReportDialog({ open, onClose, collect }: { open: boolean; onClose: () => void; collect: () => CollectedContext }) {
-  return open ? <OpenDialog collect={collect} onClose={onClose} /> : null;
+  return open && typeof document !== "undefined" ? createPortal(<OpenDialog collect={collect} onClose={onClose} />, document.body) : null;
 }
