@@ -595,7 +595,11 @@ Duel.RegisterEffect(e,${actor})`]);
         const after = await t.view(responder);
         expect(states(after)).toEqual(["out", ...Array(t.count - 1).fill("in")]);
         if (closes) {
-          expect(after.prompt?.id).not.toBe(before.prompt!.id);
+          expect(after.prompt).toBeNull();
+          expect((await t.view(1)).prompt).toMatchObject({
+            kind: "choice", seat: 1, cancelable: true, context: { type: "chain", forced: false },
+            options: [{ id: "card:0", card: { code: 60082869 }, controller: 1, location: 8, sequence: 0 }],
+          });
           await reachMain(t, 1);
         } else {
           expect(after).toMatchObject({ turn: 1, turnSeat: 0, phase: "main1", chain: [] });
@@ -646,7 +650,10 @@ Duel.RegisterEffect(e,1)`]);
         await t.post("surrender", 0);
         const after = await t.view(1);
         expect(states(after)).toEqual(["out", ...Array(t.count - 1).fill("in")]);
-        if (owner === 0) expect(after.prompt?.id).not.toBe(before.prompt!.id);
+        if (owner === 0) expect(after.prompt).toMatchObject({
+          kind: "choice", seat: 1, cancelable: true, context: { type: "chain", forced: false },
+          options: [{ id: "card:0", card: { code: 60082869 }, controller: 1, location: 8, sequence: 0 }],
+        });
         else {
           expect(after.prompt).toEqual(before.prompt);
           await t.recover();
@@ -718,7 +725,13 @@ Duel.RegisterEffect(e,1)`]);
         await t.post("surrender", 0);
         const after = await t.view(responder);
         expect(states(after)).toEqual(["out", ...Array(t.count - 1).fill("in")]);
-        if (closes) expect(after.prompt?.id).not.toBe(before.prompt!.id);
+        if (closes) {
+          expect(after.prompt).toBeNull();
+          expect((await t.view(1)).prompt).toMatchObject({
+            kind: "choice", seat: 1, cancelable: true, context: { type: "chain", forced: false },
+            options: [{ id: "card:0", card: { code: 60082869 }, controller: 1, location: 8, sequence: 0 }],
+          });
+        }
         else {
           expect(after.prompt).toEqual(before.prompt);
           await t.recover();
@@ -730,6 +743,66 @@ Duel.RegisterEffect(e,1)`]);
         expect(await t.view(1)).toMatchObject({ turn: 2, turnSeat: 1, result: null });
       }, 60_000);
     }
+
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s closes a living optional destroyed trigger after the leaver's chain resolves", async (format) => {
+      // First prove that the same destroyed-card trigger opens and resolves without surrender.
+      for (const surrender of [false, true]) {
+        const t = await table(mode, format, true, [`local victim=Duel.GetFieldCard(1,LOCATION_MZONE,0)
+local trigger=Effect.CreateEffect(victim)
+trigger:SetType(EFFECT_TYPE_SINGLE|EFFECT_TYPE_TRIGGER_O)
+trigger:SetCode(EVENT_DESTROYED)
+trigger:SetProperty(EFFECT_FLAG_DELAY)
+trigger:SetOperation(function() Duel.Recover(Duel.MPActionSeat(1),321,REASON_EFFECT) end)
+victim:RegisterEffect(trigger)
+local source=Duel.GetFieldCard(0,LOCATION_HAND,0)
+for _,e in ipairs({source:GetCardEffect(EVENT_FREE_CHAIN)}) do
+  if (e:GetType()&EFFECT_TYPE_ACTIVATE)~=0 then
+    e:SetOperation(function() Duel.Destroy(victim,REASON_EFFECT) end)
+  end
+end`]);
+        await reachMain(t);
+        const activate = (await t.view()).prompt!.options.find((option) => option.card?.code === 55144522 && option.id.startsWith("activate:"));
+        expect(activate).toBeDefined();
+        await t.answer(0, { choice: activate!.id });
+        for (let step = 0; step < 10 && !(await t.view()).chain?.length; step++) await passPrompt(t);
+        const before = await t.view(1);
+        expect(before.chain?.map((link) => link.seat)).toEqual([0]);
+        expect(before.seats[1]!.monsters.filter(Boolean).map((card) => card!.code)).toContain(32452818);
+        if (surrender) {
+          await t.post("surrender", 0);
+          const pending = await t.view(1);
+          expect(states(pending)).toEqual(["pending", ...Array(t.count - 1).fill("in")]);
+          expect(pending.chain?.map((link) => link.seat)).toEqual([0]);
+          expect(pending.seats[1]!.monsters.filter(Boolean).map((card) => card!.code)).toContain(32452818);
+        }
+        // Stop when this chain ends. Never pass the later trigger to make it close.
+        for (let step = 0; step < 25 && (await t.view()).chain?.length; step++) await passPrompt(t);
+        const after = await t.view(1);
+        expect(after.chain).toEqual([]);
+        expect(after.seats[1]!.monsters.filter(Boolean)).toHaveLength(0);
+        expect(after.seats[1]!.graveyard.map((card) => card.code)).toContain(32452818);
+        expect(after.seats[1]!.lp).toBe(before.seats[1]!.lp);
+        if (surrender) {
+          expect(states(after)).toEqual(["out", ...Array(t.count - 1).fill("in")]);
+          expect(after).toMatchObject({ turn: 2, turnSeat: 1, result: null });
+          expect(after.prompt).toMatchObject({
+            kind: "choice", seat: 1, cancelable: true, context: { type: "chain", forced: false },
+            options: [{ id: "card:0", card: { code: 60082869 }, controller: 1, location: 8, sequence: 0 }],
+          });
+          await t.recover();
+          expect(await t.view(1)).toEqual(after);
+          expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[1]).toEqual(after);
+        } else {
+          expect(states(after)).toEqual(Array(t.count).fill("in"));
+          expect(after).toMatchObject({ turn: 1, turnSeat: 0, result: null });
+          expect(after.prompt).toMatchObject({ kind: "choice", seat: 1, source: { code: 32452818 },
+            options: [{ id: "yes" }, { id: "no" }] });
+          await t.answer(1, { choice: "yes" });
+          await reachMain(t);
+          expect((await t.view(1)).seats[1]!.lp).toBe(before.seats[1]!.lp + 321);
+        }
+      }
+    }, 60_000);
 
     it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s own-turn chain resolves before the next living turn", async (format) => {
       const t = await table(mode, format, true);
