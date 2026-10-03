@@ -83,7 +83,7 @@
 .tally span { display: inline-flex; align-items: baseline; gap: 6px; color: var(--ink-3); font-size: 13px; }
 .tally span::before { content: ""; align-self: center; width: 7px; height: 7px; border-radius: 2px; background: var(--k); }
 .tally b { color: var(--ink); font: 400 21px/1 var(--f-num); }
-.poolSheet { min-width: 0; }
+.poolSheet { min-width: 0; container-type: inline-size; }
 
 @container (max-width: 560px) {
   .browseText { display: none; }
