@@ -142,6 +142,25 @@ function s.initial_effect(c)
 	e1:SetTarget(s.tg)
 	e1:SetOperation(s.op)
 	c:RegisterEffect(e1)
+	-- R-COMMON-ONGOING: independent helper, registered before the A003 declaration.
+	if V=="w16" then
+		local e1=Effect.CreateEffect(c)
+		e1:SetType(EFFECT_TYPE_FIELD)
+		e1:SetCode(EFFECT_CANNOT_REMOVE)
+		e1:SetProperty(EFFECT_FLAG_PLAYER_TARGET)
+		e1:SetTargetRange(1,0)
+		e1:SetCondition(function(e2) Debug.Message("CHK w16cond "..Duel.GetFieldGroupCount(e2:GetHandlerPlayer(),0,LOCATION_MZONE)) return false end)
+		e1:SetRange(LOCATION_SZONE)
+		c:RegisterEffect(e1)
+		local e3=Effect.CreateEffect(c)
+		e3:SetType(EFFECT_TYPE_FIELD)
+		e3:SetCode(EFFECT_CANNOT_REMOVE)
+		e3:SetProperty(EFFECT_FLAG_PLAYER_TARGET)
+		e3:SetTargetRange(1,0)
+		e3:SetCondition(function(e2) Duel.MPWindow(1) error("boom") end)
+		e3:SetRange(LOCATION_SZONE)
+		c:RegisterEffect(e3)
+	end
 end
 local function msg(...)
 	local t={}
@@ -152,7 +171,7 @@ local function cnt(tp) return Duel.GetFieldGroupCount(tp,0,LOCATION_MZONE) end
 local function cmp_gt(tp,own) return cnt(tp)>own end
 local function cmp_lt(tp,own) return own>cnt(tp) end
 function s.con(e,tp,eg,ep,ev,re,r,rp)
-	if V=="window" or V=="err" or V=="errt" or V=="w16" or V=="assertb" or V=="coerr" or V=="nested" then
+	if V=="window" or V=="err" or V=="errt" or V=="w16" or V=="w16bound" or V=="assertb" or V=="coerr" or V=="nested" then
 		Duel.MPNeedPick()
 		return true
 	end
@@ -271,9 +290,11 @@ function s.op(e,tp,eg,ep,ev,re,r,rp)
 	elseif V=="assertu" or V=="assertb" then
 		local ok=pcall(Duel.MPAssertBound)
 		msg("assert",tostring(ok),tostring(Duel.MPBound()))
-	elseif V=="w16" then
+	elseif V=="w16" or V=="w16bound" then
 		Duel.MPBindOpponent(true)
 		Duel.MPWindow(0)
+		-- R-FFA-ACTIVATED-LOCK (A004): an operation-created helper has its own saved binding.
+		if V=="w16bound" then
 		local e1=Effect.CreateEffect(e:GetHandler())
 		e1:SetType(EFFECT_TYPE_FIELD)
 		e1:SetCode(EFFECT_CANNOT_REMOVE)
@@ -288,6 +309,7 @@ function s.op(e,tp,eg,ep,ev,re,r,rp)
 		e3:SetTargetRange(1,0)
 		e3:SetCondition(function(e2) Duel.MPWindow(1) error("boom") end)
 		Duel.RegisterEffect(e3,tp)
+		end
 		local a=cnt(tp)
 		Duel.IsPlayerCanRemove(tp)
 		local b=cnt(tp)
@@ -599,18 +621,25 @@ static void flow_assert() {
 	}
 }
 
-static void flow_w16() {
-	Plan pl = ffa3(); pl.mon[1] = 1; pl.mon[2] = 3;
-	const Result r = play(pl, "w16");
-	const auto cond = find_lines(r, "w16cond");
-	const auto l = find_line(r, "w16");
-	EXPECT(!cond.empty(), "w16: the condition of the other effect never ran (IsPlayerCanRemove)");
-	for(const auto& c : cond)
-		EXPECT(c.size() == 2 && c[1] == "4", "w16: another card's condition read %s, want 4 (a closed window: every opponent)", c.size() == 2 ? c[1].c_str() : "?");
-	EXPECT(l.size() == 3 && l[1] == "3" && l[2] == "3", "w16: window reads '%s', want 'w16 3 3' (the window is still open after the error)", join(l).c_str());
-	EXPECT(r.stray >= 1, "w16: the Lua error of the test card was not logged (the error path did not run)");
-	EXPECT(r.map_empty && r.scopes_empty, "w16: map or scopes not empty at the end");
-	std::printf("ok   w16: the window is not copied into another card's condition; an error there leaves it open for the caller\n");
+static void flow_w16(bool bound_helper = false) {
+	for(Plan pl : { ffa3(), ffa4(), tag4() }) {
+		pl.mon[1] = 1; pl.mon[2] = 3; if(pl.n == 4) pl.mon[3] = 2;
+		const Result r = play(pl, bound_helper ? "w16bound" : "w16");
+		const auto cond = find_lines(r, "w16cond");
+		const auto l = find_line(r, "w16");
+		// R-COMMON-ONGOING: independent helper sees every opponent. R-FFA-ACTIVATED-LOCK:
+		// operation-created helper sees the declared seat (p2). Tag keeps its combined field.
+		const std::string want = std::to_string(pl.tag || bound_helper ? 3 : pl.n == 3 ? 4 : 6);
+		EXPECT(r.done && !cond.empty(), "w16 %s: helper never ran or the duel did not finish", label(pl).c_str());
+		for(const auto& c : cond)
+			EXPECT(c.size() == 2 && c[1] == want, "w16 %s: helper read %s, want %s", label(pl).c_str(), c.size() == 2 ? c[1].c_str() : "?", want.c_str());
+		EXPECT(l.size() == 3 && l[1] == "3" && l[2] == "3", "w16 %s: caller reads '%s', want 'w16 3 3'", label(pl).c_str(), join(l).c_str());
+		EXPECT(r.stray >= 1, "w16 %s: the helper error was not logged", label(pl).c_str());
+		EXPECT(r.map_empty && r.scopes_empty, "w16 %s: map or scopes not empty at the end", label(pl).c_str());
+		for(int seat = 0; seat < pl.n; ++seat)
+			EXPECT(r.mon[seat] == pl.mon[seat], "w16 %s: monster count changed at seat %d", label(pl).c_str(), seat);
+		std::printf("ok   %s %s: helper reads %s; caller reads 3 before and after the error\n", bound_helper ? "w16bound" : "w16", label(pl).c_str(), want.c_str());
+	}
 }
 
 static void flow_err() {
@@ -1124,6 +1153,7 @@ int main() {
 	flow_raigeki();
 	flow_assert();
 	flow_w16();
+	flow_w16(true);
 	flow_err();
 	flow_coerr();
 	flow_probe_checks();
