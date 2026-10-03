@@ -22,8 +22,8 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
     const retime = (target: Element) => {
       for (const anim of target.getAnimations?.() ?? []) {
         const cssAnimation = typeof CSSAnimation !== "undefined" && anim instanceof CSSAnimation;
-        const cssTransition = typeof CSSTransition !== "undefined" && anim instanceof CSSTransition;
-        if (!cssAnimation && !cssTransition) continue;
+        // UI hover, focus and input transitions keep real-time feedback and take no FX lease.
+        if (!cssAnimation) continue;
         const endTime = Number(anim.effect?.getComputedTiming().endTime ?? 0);
         if (endTime === Infinity) {
           if (!loops.has(anim)) {
@@ -42,7 +42,6 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
     };
     // The room may initially render a loading state. Delegation also covers its later board mount.
     document.addEventListener("animationstart", onStart, true);
-    document.addEventListener("transitionrun", onStart, true);
     const scan = (node: Node) => {
       if (!(node instanceof Element)) return;
       if (node.closest("[data-duel-fx-speed-root]")) {
@@ -66,7 +65,6 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
       loops.clear();
       observer.disconnect();
       document.removeEventListener("animationstart", onStart, true);
-      document.removeEventListener("transitionrun", onStart, true);
     };
   }, []);
   return speed;

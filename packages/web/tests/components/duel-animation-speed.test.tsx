@@ -171,6 +171,26 @@ describe("scoped FX clock", () => {
     expect(css.playbackRate).toBe(1);
     target.remove(); vi.unstubAllGlobals();
   });
+  it.each(["button", "handCard", "fieldWash"])("keeps %s UI transitions at real speed without a lease", async (kind) => {
+    function Scope() { useDuelAnimationSpeed(); return null; }
+    class FakeCSSTransition {}
+    vi.stubGlobal("CSSTransition", FakeCSSTransition);
+    const transition = Object.assign(new FakeCSSTransition(), {
+      playbackRate: 1, playState: "running", finished: new Promise(() => {}),
+      effect: { getComputedTiming: () => ({ endTime: 480 }) },
+    });
+    render(<Scope />);
+    act(() => setAnimationSpeed(0.5));
+    const board = document.createElement("div"); board.setAttribute("data-duel-fx-speed-root", "");
+    const target = document.createElement(kind === "button" ? "button" : "div"); target.className = kind;
+    target.getAnimations = () => [transition as unknown as Animation]; board.append(target);
+    await act(async () => { document.body.append(board); });
+    fireEvent(target, new Event("transitionrun", { bubbles: true }));
+    expect(transition.playbackRate).toBe(1);
+    act(() => setAnimationSpeed(2));
+    expect(duelFxClock.factor()).toBe(2);
+    board.remove(); vi.unstubAllGlobals();
+  });
   it("updates continuous CSS pulses after captured finite effects finish", async () => {
     function Scope() { useDuelAnimationSpeed(); return null; }
     class FakeCSSAnimation {}
