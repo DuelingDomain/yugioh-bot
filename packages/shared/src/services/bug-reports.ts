@@ -26,6 +26,8 @@ export interface BugReport {
   githubIssueNumber: number | null;
   githubIssueUrl: string | null;
   githubError: string | null;
+  /** The issue number this report was added to as a +1, or null. */
+  duplicateOf: number | null;
 }
 
 export interface BugReportInput {
@@ -36,6 +38,8 @@ export interface BugReportInput {
   description: string;
   expected?: string | null;
   context: unknown;
+  /** Set when the player said an open issue is the same bug: the report is saved and linked, no new issue. */
+  duplicateOf?: number | null;
 }
 
 export interface BugReportLimit {
@@ -61,6 +65,7 @@ function mapReport(row: any): BugReport {
     githubIssueNumber: row.github_issue_number ?? null,
     githubIssueUrl: row.github_issue_url ?? null,
     githubError: row.github_error ?? null,
+    duplicateOf: row.duplicate_of ?? null,
   };
 }
 
@@ -70,10 +75,20 @@ export function createBugReportService(db: Database.Database) {
     "select created_at from bug_reports where guild_id = ? and player_id = ? and created_at > ? order by created_at asc",
   );
   const insert = db.prepare(`
-    insert into bug_reports (guild_id, player_id, created_at, path, duel_slug, description, expected, context_json)
-    values (?, ?, ?, ?, ?, ?, ?, ?)
+    insert into bug_reports (guild_id, player_id, created_at, path, duel_slug, description, expected, context_json, duplicate_of)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const selectOne = db.prepare("select * from bug_reports where id = ? and guild_id = ?");
+  // Reports that own an issue (a +1 shares the issue of the report it joined, so it is left out).
+  const withIssue = db.prepare(
+    "select * from bug_reports where guild_id = ? and github_issue_number is not null and duplicate_of is null order by id desc limit ?",
+  );
+  const withIssueInDuel = db.prepare(
+    "select * from bug_reports where guild_id = ? and duel_slug = ? and player_id <> ? and github_issue_number is not null and duplicate_of is null order by id desc limit ?",
+  );
+  const issueOwner = db.prepare(
+    "select 1 from bug_reports where guild_id = ? and github_issue_number = ? and duplicate_of is null",
+  );
   const setIssue = db.prepare(
     "update bug_reports set github_issue_number = ?, github_issue_url = ?, github_error = null where id = ? and guild_id = ?",
   );
@@ -116,10 +131,26 @@ export function createBugReportService(db: Database.Database) {
           input.description,
           input.expected ?? null,
           JSON.stringify(input.context ?? {}),
+          input.duplicateOf ?? null,
         );
         return Number(info.lastInsertRowid);
       });
       return get(run(), input.guildId);
+    },
+
+    /** The newest reports that own a GitHub issue. The local source of duplicate candidates when GitHub cannot be read. */
+    listWithIssue(guildId: string, limit = 200): BugReport[] {
+      return (withIssue.all(guildId, limit) as unknown[]).map(mapReport);
+    },
+
+    /** Reports with an issue from other players in one duel, newest first. */
+    listWithIssueInDuel(guildId: string, duelSlug: string, exceptPlayerId: number, limit = 50): BugReport[] {
+      return (withIssueInDuel.all(guildId, duelSlug, exceptPlayerId, limit) as unknown[]).map(mapReport);
+    },
+
+    /** True when a saved report opened this issue number: only those issues may take a +1 when GitHub is unreadable. */
+    ownsIssue(guildId: string, issueNumber: number): boolean {
+      return issueOwner.get(guildId, issueNumber) !== undefined;
     },
 
     recordIssue(id: number, guildId: string, issue: { number: number; url: string }): BugReport {

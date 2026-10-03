@@ -87,3 +87,32 @@ describe("bug reports", () => {
     expect(reports.get(report.id, "guild-a").githubError).toBeNull();
   });
 });
+
+describe("bug report duplicates", () => {
+  it("links a +1 to an issue and keeps it out of the issue lists", () => {
+    const { reports } = setup();
+    const t0 = Date.UTC(2026, 9, 3);
+    const first = reports.create({ ...base, duelSlug: "duel-a" }, { now: t0 });
+    reports.recordIssue(first.id, "guild-a", { number: 5, url: "https://github.com/o/r/issues/5" });
+    const second = reports.create({ ...base, playerId: 2, duelSlug: "duel-a", duplicateOf: 5 }, { now: t0 + 1000 });
+    reports.recordIssue(second.id, "guild-a", { number: 5, url: "https://github.com/o/r/issues/5" });
+    expect(reports.get(second.id, "guild-a")).toMatchObject({ duplicateOf: 5, githubIssueNumber: 5 });
+    expect(reports.get(first.id, "guild-a").duplicateOf).toBeNull();
+    expect(reports.listWithIssue("guild-a").map((r) => r.id)).toEqual([first.id]);
+    expect(reports.ownsIssue("guild-a", 5)).toBe(true);
+    expect(reports.ownsIssue("guild-a", 6)).toBe(false);
+    expect(reports.ownsIssue("guild-b", 5)).toBe(false);
+  });
+
+  it("lists the issues of other players in one duel and nothing from other guilds", () => {
+    const { reports } = setup();
+    const a = reports.create({ ...base, duelSlug: "duel-a" });
+    reports.recordIssue(a.id, "guild-a", { number: 7, url: "u7" });
+    const none = reports.create({ ...base, playerId: 2, duelSlug: "duel-a" });
+    expect(none.githubIssueNumber).toBeNull();
+    expect(reports.listWithIssueInDuel("guild-a", "duel-a", 2).map((r) => r.githubIssueNumber)).toEqual([7]);
+    expect(reports.listWithIssueInDuel("guild-a", "duel-a", 1)).toEqual([]);
+    expect(reports.listWithIssueInDuel("guild-b", "duel-a", 2)).toEqual([]);
+    expect(reports.listWithIssue("guild-b")).toEqual([]);
+  });
+});

@@ -661,4 +661,7 @@ export function migrate(db: Database.Database) {
     );
     create index if not exists bug_reports_player_idx on bug_reports (guild_id, player_id, created_at);
   `);
+  // The open from-app issue this report was added to instead of opening a new one (null for a report with its own issue).
+  addColumnIfMissing(db, "bug_reports", "duplicate_of", "integer");
+  db.exec("create index if not exists bug_reports_duel_idx on bug_reports (guild_id, duel_slug, created_at)");
 }
