@@ -266,7 +266,7 @@ export const FFA_SCENARIOS: Scenario[] = [
       activate("Heavy Storm", "p0"),
       pass("p1"),
       activate("Dust Tornado", "p2"),
-      // R-COMMON-OPP-ONE: declare the owner before selecting its Spell.
+      // R-FFA-OPP-ONE: declare the owner before selecting its Spell.
       pickOpponent("p0", "p2"),
       select({ card: "Swords of Revealing Light", nth: 0 }),
       expectChain("Heavy Storm", "Dust Tornado"),
@@ -301,17 +301,17 @@ export const FFA_SCENARIOS: Scenario[] = [
     steps: [
       activate("Heavy Storm", "p0"),
       activate("Dust Tornado", "p1"),
-      // R-COMMON-OPP-ONE: declare the owner before selecting its Spell.
+      // R-FFA-OPP-ONE: declare the owner before selecting its Spell.
       pickOpponent("p0", "p1"),
       select({ card: "Swords of Revealing Light", nth: 0 }),
       activate("Dust Tornado", "p2"),
-      // R-COMMON-OPP-ONE: declare the owner before selecting its Spell.
+      // R-FFA-OPP-ONE: declare the owner before selecting its Spell.
       pickOpponent("p0", "p2"),
       select({ card: "Swords of Revealing Light", nth: 1 }),
       // p3 has the window with three links on the chain.
       expectChain("Heavy Storm", "Dust Tornado", "Dust Tornado"),
       activate("Dust Tornado", "p3"),
-      // R-COMMON-OPP-ONE: declare the owner before selecting its Spell.
+      // R-FFA-OPP-ONE: declare the owner before selecting its Spell.
       pickOpponent("p0", "p3"),
       select({ card: "Swords of Revealing Light", nth: 2 }),
       // p0 has no card to answer with, so it gets no prompt: the chain resolves.
@@ -469,7 +469,7 @@ export const FFA_SCENARIOS: Scenario[] = [
     steps: [
       activate("Pot of Greed", "p0"),
       activate("Dust Tornado", "p1"),
-      // R-COMMON-OPP-ONE: declare the opponent before selecting its card.
+      // R-FFA-OPP-ONE: declare the opponent before selecting its card.
       pickOpponent("p0", "p1"),
       select({ card: "Swords of Revealing Light" }),
       expectPrompt({ by: "p2", context: "chain" }),
@@ -500,7 +500,7 @@ export const FFA_SCENARIOS: Scenario[] = [
     steps: [
       activate("Pot of Greed", "p0"),
       activate("Dust Tornado", "p1"),
-      // R-COMMON-OPP-ONE: declare the opponent before selecting its card.
+      // R-FFA-OPP-ONE: declare the opponent before selecting its card.
       pickOpponent("p0", "p1"),
       expectPrompt({ by: "p1", kind: "cards" }),
       surrender("p1"),
@@ -550,12 +550,12 @@ export const FFA_SCENARIOS: Scenario[] = [
     steps: [
       activate("Pot of Greed", "p0"),
       activate("Dust Tornado", "p1"),
-      // R-COMMON-OPP-ONE: declare the opponent before selecting its card.
+      // R-FFA-OPP-ONE: declare the opponent before selecting its card.
       pickOpponent("p0", "p1"),
       select({ card: "Swords of Revealing Light", nth: 0 }),
       pass("p1"),
       activate("Dust Tornado", "p2"),
-      // R-COMMON-OPP-ONE: declare the opponent before selecting its card.
+      // R-FFA-OPP-ONE: declare the opponent before selecting its card.
       pickOpponent("p0", "p2"),
       select({ card: "Swords of Revealing Light", nth: 1 }),
       expectChain("Pot of Greed", "Dust Tornado", "Dust Tornado"),
@@ -868,7 +868,7 @@ export const FFA_SCENARIOS: Scenario[] = [
     },
     steps: [
       activate("Raigeki", "p0"),
-      // R-COMMON-OPP-ONE: declare the opponent before the response window.
+      // R-FFA-OPP-ONE: declare the opponent before the response window.
       pickOpponent("p1", "p0"),
       expectPrompt({ by: "p3", context: "chain" }),
       activate("Solemn Judgment", "p3"),
