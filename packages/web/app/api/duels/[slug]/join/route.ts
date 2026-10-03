@@ -11,7 +11,7 @@ export async function POST(_request: Request, { params }: { params: Promise<{ sl
   const { slug } = await params;
 
   try {
-    const { format } = actor.duels.get(slug, actor.guildId);
+    const { session: { format } } = actor.duels.room(slug, actor.guildId, actor.playerId);
     const blocked = multiplayerSeatsBlockReason(seatCountFor(format), multiplayerTablesEnabled());
     if (blocked) return NextResponse.json({ error: blocked }, { status: 403 });
     const session = actor.duels.join(slug, actor.guildId, actor.playerId);

@@ -116,9 +116,41 @@ describe("POST /api/duels/[slug]/join with MULTIPLAYER_TABLES", () => {
   it("requires authentication before reading the duel", async () => {
     actor.mockResolvedValue({ ok: false, response: Response.json({ error: "Unauthorized" }, { status: 401 }) });
     const get = vi.spyOn(duels, "get");
+    const room = vi.spyOn(duels, "room");
     expect((await join("missing")).status).toBe(401);
     expect(get).not.toHaveBeenCalled();
+    expect(room).not.toHaveBeenCalled();
     expect(joinSpy).not.toHaveBeenCalled();
+  });
+
+  it.each(["0", "1"])("checks private room access before the format gate when the flag is %j", async (flag) => {
+    vi.stubEnv("MULTIPLAYER_TABLES", flag);
+    const room = vi.spyOn(duels, "room");
+    const get = vi.spyOn(duels, "get");
+    for (const format of ["tag", "ffa3", "ffa4", "1v1"] as const) {
+      const session = duels.create({
+        guildId: "g1", organizerPlayerId, name: "Private", mode: "normal", format,
+        settings: { visibility: "private" },
+      });
+      const response = await join(session.slug);
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ error: "Duel is invite-only" });
+      expect(room).toHaveBeenCalledWith(session.slug, "g1", playerId);
+    }
+    expect(get).not.toHaveBeenCalled();
+    expect(joinSpy).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("lets an admitted player join a private room", async () => {
+    const session = duels.create({
+      guildId: "g1", organizerPlayerId, name: "Private", mode: "normal",
+      settings: { visibility: "private" },
+    });
+    const inviteCode = duels.room(session.slug, "g1", organizerPlayerId).inviteCode!;
+    duels.admit(session.slug, "g1", playerId, inviteCode);
+    expect((await join(session.slug)).status).toBe(200);
+    expect(duels.get(session.slug, "g1").seats.map((seat) => seat.playerId)).toEqual([organizerPlayerId, playerId]);
   });
 
   it("keeps a successful join when notification fails", async () => {
