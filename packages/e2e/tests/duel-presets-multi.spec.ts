@@ -14,7 +14,7 @@ import type { TimelineEntry } from "../helpers/timeline";
 // FFA presets must mount TableShell. Tag keeps MultiSeatStage until its separate UI work lands.
 //
 // Run one preset:  E2E_WORKERS=1 npx playwright test duel-presets-multi -g "raigeki-dark-hole-ffa4"
-// Env: E2E_STALL_MS (default 20000), E2E_MULTI_TURNS (turn to reach), E2E_MULTI_MAX_MS, E2E_MULTI_MAX_SHOTS.
+// Env: E2E_STALL_MS (default 60000), E2E_MULTI_TURNS (turn to reach), E2E_MULTI_MAX_MS, E2E_MULTI_MAX_SHOTS.
 
 // E2E_PRESET=<id>[,<id>] runs only those presets. E2E_SEED=<a,b,c,d | n> starts them with that seed (see README).
 const only = (process.env.E2E_PRESET ?? "").split(",").map((id) => id.trim()).filter(Boolean);

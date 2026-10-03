@@ -16,7 +16,7 @@ type Fixtures = {
   player: (key: PlayerKey) => Promise<Seat>;
   /**
    * How long an active duel may keep the same revision before the stall detector fails the test, in ms.
-   * Default 20000, or `E2E_STALL_MS`. `test.use({ stallMs: 0 })` turns it off for a test that waits on purpose.
+   * Default 60000, or `E2E_STALL_MS`. `test.use({ stallMs: 0 })` turns it off for a test that waits on purpose.
    */
   stallMs: number;
 };

@@ -71,6 +71,7 @@ The pin is rebuilt from main's scripts and checked again by the proof in the mer
 
 ### Known differences from main in legacy mode
 
+- Ordered card and chain picks use the shared raw-index response encoder. The wrapper's length prefix made the legacy core reject valid orders; this fixes wire encoding without changing sort rules.
 - The pendulum summon log line is "Special Summon" in legacy mode and "Pendulum Summon" in the merged engine. The legacy engine is main's, so it prints main's text. The e2e spec `card-pendulum-summon.spec.ts` accepts this in legacy mode (`E2E_1V1_ENGINE=legacy`).
 - Counters: the legacy engine reads a counter from the core as main does (count first). `tests/ocgcore-wrapper-abi.test.ts` checks both layouts for `duelQuery` and `duelQueryLocation`.
 - The host answers a blocked `view` or `report` with a stale view only when `DUEL_SCENARIOS=1` (the scenario runner). In production, the host waits for the real answer as main does.

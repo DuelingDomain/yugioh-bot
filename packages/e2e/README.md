@@ -77,7 +77,7 @@ After each run, `test-results/index.md` (and `index.json`) lists every failed te
 
 ### Stall detector
 
-A timer in the `player` fixture (`helpers/watch.ts`) reads the room JSON of every player every 0.5 to 2 seconds (the same `/api/duels/<slug>` read as the recorder). While a duel is `active` and its revision does not change for `E2E_STALL_MS` (default 20000), it writes `stall-<slug>-<iso time>.json` (with `kind: "stall"`) at once: who holds the open prompt, each player's prompt and last log lines, the last answers of each seat, the last 30 stack log lines, and a screenshot of every page of every player. Then it writes the normal evidence, closes the browser contexts (so the test's waits end at once) and fails the test with a message such as `Duel abc stalled: revision 12 did not change for 20 s. Open prompt held by p2 (seat 1) "Choose an action".` Tests contain no fixed sleeps for this. A test that waits on purpose (a clock test) turns it off with `test.use({ stallMs: 0 })`. `E2E_STALL_MS=0` turns it off for a run. To see it work, run a spec with `E2E_STALL_MS=1500`.
+A timer in the `player` fixture (`helpers/watch.ts`) reads the room JSON of every player every 0.5 to 2 seconds (the same `/api/duels/<slug>` read as the recorder). While a duel is `active` and its revision does not change for `E2E_STALL_MS` (default 60000), it writes `stall-<slug>-<iso time>.json` (with `kind: "stall"`) at once: who holds the open prompt, each player's prompt and last log lines, the last answers of each seat, the last 30 stack log lines, and a screenshot of every page of every player. Then it writes the normal evidence, closes the browser contexts (so the test's waits end at once) and fails the test with a message such as `Duel abc stalled: revision 12 did not change for 60 s. Open prompt held by p2 (seat 1) "Choose an action".` The 60-second default allows slower parallel runs to finish table setup and inspection without changing the duel revision, while still firing before the 120-second Playwright test timeout. Tests contain no fixed sleeps for this. A test that waits on purpose (a clock test) turns it off with `test.use({ stallMs: 0 })`. `E2E_STALL_MS=0` turns it off for a run. To see it work, run a spec with `E2E_STALL_MS=1500`.
 
 ### Leak scan
 
@@ -169,7 +169,7 @@ What a test does for each preset:
 2. Opens the room page of seat 0 and a spectator page.
 3. Plays seat 0 over `POST /api/duels/<slug>/actions`: it picks the cards of the checklist (the `PLANS` table in `helpers/multi.ts`, else the checklist text) and passes at every other prompt. It stops when the checklist moves are done and the turn is `seats + 1` (or `E2E_MULTI_TURNS`), or when the duel ends.
 4. At every revision change it saves a snapshot: screenshots of seat 0 and of the spectator, both room JSON files, the prompt (kind, seat, options), LP of every seat and the eliminated flags.
-5. Stall rule: the revision does not change for `E2E_STALL_MS` (default 20000) while seat 0 has no prompt to answer. Then `stall.json` is written and the test fails with its path.
+5. Stall rule: the revision does not change for `E2E_STALL_MS` (default 60000) while seat 0 has no prompt to answer. Then `stall.json` is written and the test fails with its path.
 6. At the end (pass, fail or stall) it calls the host `report` op and copies the folder, then writes the normal evidence (console, page errors, failed requests, every WebSocket frame including binary, journal, stack log slice, merged timeline).
 
 Output: `.status/e2e-multi/<runId>/<presetId>/` (`.status/` is outside git):

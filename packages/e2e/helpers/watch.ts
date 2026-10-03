@@ -9,10 +9,12 @@ import type { TimelineEntry } from "./timeline";
  * uses). While a duel is `active` and its revision does not change for `stallMs`, it writes `stall-<n>.json`
  * at once (not at the end of the test) and calls `onStall`, which the fixture uses to stop the test.
  * It also writes one timeline note for each revision change, so timeline.md can name the last progress point.
- * `E2E_STALL_MS` sets the limit (default 20000). 0 turns the watcher off. A test that waits on purpose can call
+ * `E2E_STALL_MS` sets the limit (default 60000). 0 turns the watcher off. A test that waits on purpose can call
  * `test.use({ stallMs: 0 })`.
  */
-export const DEFAULT_STALL_MS = 20_000;
+// Multi-browser setup and inspection can exceed 20 s without answering a prompt, especially across parallel slots.
+// Leave room for those steps while still detecting a stuck duel before Playwright's 120 s test timeout.
+export const DEFAULT_STALL_MS = 60_000;
 
 export function stallMsFromEnv(): number {
   const value = process.env.E2E_STALL_MS;

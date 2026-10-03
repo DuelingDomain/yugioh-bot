@@ -23,6 +23,7 @@ import type { CardDatabase } from "../cards.js";
 import { cardInfoLabel } from "../cards.js";
 import { attributeName, fillPlaceholders, locationLabel, positionLabel, raceName, type TemplateValue } from "../text.js";
 import { DOMAIN_LEAVE_TAX_STEP, LOCATION_DECKMASTER, type DomainSeatState } from "./views.js";
+import { sortCardResponse } from "../sort-response.js";
 
 export interface MapPromptExtras {
   recall?: { card: DuelCardInfo; returns: number; nextCost: number };
@@ -785,7 +786,7 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
       return null;
     case OcgMessageType.SORT_CARD:
     case OcgMessageType.SORT_CHAIN:
-      if (message.cards.length <= 1) return { type: OcgResponseType.SORT_CARD, order: message.cards.map((_, index) => index) };
+      if (message.cards.length <= 1) return sortCardResponse(null);
       return null;
     case OcgMessageType.SELECT_IDLECMD:
     case OcgMessageType.SELECT_BATTLECMD:
@@ -959,7 +960,7 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
       if (ids.length !== message.cards.length) throw new EngineAnswerError("Invalid answer");
       const order = uniqueIndices(ids, "card:");
       if (order.some((index) => index >= message.cards.length)) throw new EngineAnswerError("Invalid answer");
-      return { type: OcgResponseType.SORT_CARD, order };
+      return sortCardResponse(order);
     }
     case OcgMessageType.ANNOUNCE_RACE: {
       const ids = selectedIds(prompt, answer);

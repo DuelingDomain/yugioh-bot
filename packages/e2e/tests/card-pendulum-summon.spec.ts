@@ -41,7 +41,10 @@ test("a Pendulum Summon is shown as a Pendulum Summon on every screen", async ({
   await expect(choice).toHaveCount(0);
   await startPendulumSummon(alice.page);
   // The cards of a hand pick are chosen on the board; the bar holds Finish and Cancel.
-  await handCard(alice.page, FILLER).click();
+  const warwolf = handCard(alice.page, FILLER);
+  await warwolf.click();
+  // Toggle picks round-trip through the engine. Wait for the chosen card before finishing the summon.
+  await expect(warwolf).toHaveAttribute("aria-pressed", "true");
   await choice.getByRole("button", { name: "Finish" }).click();
   await pickLegalZone(alice.page, "mz");
   await alice.page.getByRole("button", { name: /Face-up Defense/ }).click();
@@ -65,4 +68,9 @@ async function startPendulumSummon(page: Page): Promise<void> {
   await expectReadyToAct(page);
   await page.locator('[data-kind="st"][data-side="you"][data-occupied="true"] button').first().click();
   await page.getByRole("menu").getByRole("menuitem", { name: /^Special Summon/ }).click();
+  // The menu click sends an asynchronous action. Hand cards still accept clicks while that action is busy,
+  // but those clicks do not select anything until the summon prompt is ready (including after Cancel).
+  const choice = page.getByRole("group", { name: "Select the card(s) to Special Summon" });
+  await expect(choice).toBeVisible();
+  await expect(choice.getByRole("button", { name: "Cancel" })).toBeEnabled();
 }
