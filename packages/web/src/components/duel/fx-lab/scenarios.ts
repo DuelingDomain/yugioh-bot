@@ -1057,9 +1057,15 @@ function chainScenario(id: string, name: string, description: string, links: num
         { info: C.mst, seat: OPP, zone: SZ(OPP, 1) },
         { info: C.solemn, seat: ME, zone: SZ(ME, 2) },
         { info: C.magicCylinder, seat: OPP, zone: SZ(OPP, 3) },
+        { info: C.recklessGreed, seat: ME, zone: SZ(ME, 3) },
+        { info: C.myBodyAsAShield, seat: OPP, zone: SZ(OPP, 4) },
+        { info: C.magicCylinder, seat: ME, zone: SZ(ME, 4) },
       ].slice(0, links);
       const start = board((e) => {
         e.push(edit.setSpell(ME, 2, C.solemn), edit.hiddenSpell(OPP, 1), edit.hiddenSpell(OPP, 3));
+        // Links 4 to 6 (the long chain) stand on their own Set cards.
+        if (links > 3) e.push(edit.setSpell(ME, 3, C.recklessGreed), edit.hiddenSpell(OPP, 4));
+        if (links > 5) e.push(edit.setSpell(ME, 4, C.magicCylinder));
         e.push(edit.monster(ME, 2, C.celtic), edit.monster(OPP, 2, C.harpie));
       });
       const flow = chainFlow(cards);
@@ -1189,6 +1195,7 @@ const CHAIN: LabScenario[] = [
   chainScenario("chain-two", "Chain of two", "Two links. The last link resolves first.", 2),
   chainScenario("chain-three", "Chain of three", "Three links, the full resolution beat by beat.", 3),
   chainScenario("chain-negated", "Negated link", "Link 1 is negated: slash on the badge and the Negated banner.", 2, 1),
+  chainScenario("chain-long", "Chain of six", "Six links from both players: on a narrow screen the chips wrap to a second line and keep Chain Link 1 and the resolving link visible.", 6),
   triggerChain("chain-trigger", "Trigger and a response", "Dark Dust Spirit's effect is Chain Link 1, My Body as a Shield answers as link 2. The callout names the card, the stack lists both links, and the rows light up as they resolve.", false),
   triggerChain("chain-trigger-prompt", "Chain stack under a response prompt", "The same chain with the Activate its effect? prompt open. The prompt must not cover a badge, the callout tag or the stack; the tag flips to the far side of its card when the prompt would sit over it.", true),
   targetSelectChain("chain-target-select", "Chain with a target under a card pick", "Link 2 targets a monster while a card pick is open. On a narrow screen the stack is numbered chips and the target ring stays visible."),
