@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useSyncExternalStore } from "react";
-import { ANIMATION_SPEED_STEP, getAnimationSpeed, loadAnimationSpeed, MAX_ANIMATION_SPEED, MIN_ANIMATION_SPEED, setAnimationSpeed, subscribeAnimationSpeed } from "./animation-speed";
+import { ANIMATION_SPEED_STEP, getAnimationSpeed, MAX_ANIMATION_SPEED, MIN_ANIMATION_SPEED, setAnimationSpeed, subscribeAnimationSpeed } from "./animation-speed";
 import { duelFxClock } from "./fx-clock";
 import styles from "./animation-speed-control.module.css";
 
@@ -9,7 +9,6 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
   const speed = useSyncExternalStore(subscribeAnimationSpeed, getAnimationSpeed, () => 1);
   // Configuration only: the clock defers changes until the running presentation is finished.
   duelFxClock.setReducedMotion(reducedMotion);
-  useEffect(() => { setAnimationSpeed(loadAnimationSpeed()); }, []);
   useEffect(() => { duelFxClock.factor(); }, [speed, reducedMotion]);
   useEffect(() => {
     const loops = new Set<Animation>();
@@ -76,7 +75,6 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
 export function DuelAnimationSpeedControl() {
   const id = useId();
   const speed = useSyncExternalStore(subscribeAnimationSpeed, getAnimationSpeed, () => 1);
-  useEffect(() => { setAnimationSpeed(loadAnimationSpeed()); }, []);
   return <div className={styles.control}>
     <div className={styles.heading}>
       <label htmlFor={id}>Animation speed <span>{speed.toFixed(2)}x</span></label>

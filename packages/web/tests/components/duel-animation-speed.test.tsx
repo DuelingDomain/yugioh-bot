@@ -33,6 +33,13 @@ describe("local animation speed", () => {
     expect(loadAnimationSpeed()).toBe(1);
     expect(() => saveAnimationSpeed(2)).not.toThrow();
   });
+  it("keeps the in-memory preference when another control mounts with storage blocked", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked"); });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("blocked"); });
+    setAnimationSpeed(1.5);
+    render(<DuelAnimationSpeedControl />);
+    expect(screen.getByRole("slider", { name: /Animation speed/ })).toHaveValue("1.5");
+  });
   it("exposes a labelled stepped slider, saves locally, and resets", () => {
     render(<DuelAnimationSpeedControl />);
     const slider = screen.getByRole("slider", { name: /Animation speed/ });
