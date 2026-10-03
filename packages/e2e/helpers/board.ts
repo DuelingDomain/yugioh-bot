@@ -164,15 +164,16 @@ export async function startTable(
 ): Promise<Table> {
   if (humans.length !== decks.length) throw new Error(`startTable: ${humans.length} players but ${decks.length} decks`);
   const [host, ...guests] = humans as [Seat, ...Seat[]];
-  // The host is seat 0 (the creator takes it) and a table has at most 8 seats; the seat labels below rely on both.
-  if (humans.length + (options.bots?.length ?? 0) > 8) throw new Error("startTable: a table has at most 8 seats");
-  for (const seat of options.bots ?? []) if (seat < 1 || seat > 7) throw new Error(`startTable: bot seat ${seat} is outside 1-7 (seat 0 is the host)`);
+  // The host is seat 0 (the creator takes it) and a table has at most 4 seats; the seat labels below rely on both.
+  if (humans.length + (options.bots?.length ?? 0) > 4) throw new Error("startTable: a table has at most 4 seats");
+  for (const seat of options.bots ?? []) if (seat < 1 || seat > 3) throw new Error(`startTable: bot seat ${seat} is outside 1-3 (seat 0 is the host)`);
+  if (new Set(options.bots).size !== (options.bots?.length ?? 0)) throw new Error(`startTable: bot seats ${JSON.stringify(options.bots)} repeat a seat`);
   const table = uniqueTableName(label);
   const slug = await createTable(host.page, table, options);
   for (const seat of options.bots ?? []) await addBotToSeat(host.page, slug, seat);
   // Guests take the free seats in numeric order. The lobby lists Tag seats by team (1, 3, 2, 4), so "first open seat" would not be seat order.
   const botSeats = new Set(options.bots ?? []);
-  const freeSeats = Array.from({ length: 8 }, (_, seat) => seat).filter((seat) => seat > 0 && !botSeats.has(seat));
+  const freeSeats = Array.from({ length: 4 }, (_, seat) => seat).filter((seat) => seat > 0 && !botSeats.has(seat));
   for (const [index, guest] of guests.entries()) {
     await guest.page.goto(`/duels/${slug}`);
     await expect(guest.page.getByRole("heading", { level: 1, name: table })).toBeVisible();

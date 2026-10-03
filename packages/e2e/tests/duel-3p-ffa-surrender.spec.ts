@@ -38,7 +38,8 @@ async function shot(page: Page, slug: string, info: TestInfo, name: string) {
     copyFileSync(info.outputPath(`live-ffa3-r3-surrender-${name}.png`), join(directory, `surrender-${name}.png`));
   }
 }
-const publicRoom = (page: Page, slug: string) => readTable(page, slug, true);
+// After the duel ends, spectate=1 returns the seated reader's own seat room, not the spectator copy.
+const ownSeatRoomAfterSpectate = (page: Page, slug: string) => readTable(page, slug, true);
 
 // Real-core surrender state, automatic spectator data and owner timing contracts.
 test.describe("FFA surrender and spectators", () => {
@@ -108,7 +109,9 @@ test.describe("FFA surrender and spectators", () => {
     await alice.page.reload();
     await expect(result).toHaveAttribute("data-outcome", "lose");
     await expect(rows).toHaveCount(3);
-    expect((await publicRoom(alice.page, slug)).engine!.prompt).toBeNull();
+    const ownRoom = await ownSeatRoomAfterSpectate(alice.page, slug);
+    expect(ownRoom).toMatchObject({ role: "player", mySeat: 0 });
+    expect(ownRoom.engine!.prompt).toBeNull();
     expect(posts.count).toBe(0);
     expect(errors).toEqual([]);
   });
