@@ -340,7 +340,7 @@ const SPECS: EffectSpec[] = [
     noPick: true,
     p0: { pendulum: ["Abyss Actor - Liberty Dramatist", null], monsters: ["Battle Ox"], hand: ["Giant Rat"] },
     tgt: { monsters: [{ card: "Kuriboh", pos: "def" }] },
-    steps: (roles) => [attack("Battle Ox", { card: "Kuriboh", owner: roles.tgt }, "p0"), yes("p0"), ...(roles.format === "tag" ? [] : [select("Giant Rat")]), yes("p0"), select("Kuriboh")],
+    steps: (roles) => [attack("Battle Ox", { card: "Kuriboh", owner: roles.tgt }, "p0"), yes("p0"), yes("p0"), select("Kuriboh")],
     p0End: { monsters: ["Battle Ox"], spells: [], hand: [], grave: ["Giant Rat"] },
     tgtEnd: { monsters: ["Abyss Actor - Liberty Dramatist"], grave: ["Kuriboh"] },
   },
