@@ -102,7 +102,7 @@ describe("Sidebar structure", () => {
     expect(container.querySelector("aside")).toHaveAttribute("data-rail", "true");
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-label", "Dashboard");
     expect(screen.queryByText("Compete")).toBeNull();
-    expect(screen.queryByText("YugiDraft")).toBeNull();
+    expect(screen.queryByText("Duelists Kingdom")).toBeNull();
   });
 
   it("collapsed: each link has a tooltip; expanded has none for links", () => {

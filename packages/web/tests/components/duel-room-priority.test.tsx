@@ -61,6 +61,14 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const live = () => screen.getByTestId("priority").getAttribute("data-live");
 
+describe("room header", () => {
+  it("links the duel menu as Duelists Kingdom", () => {
+    render(<DuelRoomView slug="game-1" windowed />);
+    expect(screen.getByRole("link", { name: "Duelists Kingdom" }).getAttribute("href")).toBe("/duels");
+    expect(screen.queryByText(/yugidraft/i)).toBeNull();
+  });
+});
+
 describe("room priority gate", () => {
   it("keeps the opening pending until Open here instead mounts the card layers", () => {
     state.room!.engine!.revision = 0;
