@@ -1,12 +1,29 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Release Check <release@localhost>
+From 3dfd25426f4dcd5f40118c0ace06cd72af43c95a Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
-Subject: [PATCH] A003 final route
+Subject: [PATCH] Bind activated FFA effects to one declared opponent
 
 ---
+ card.cpp         |  2 +-
+ effect.cpp       | 70 +++++++++++++++++++++++++++++++++--
+ effect.h         |  2 +
+ field.cpp        | 96 ++++++++++++++++++++++++++++++++++--------------
+ field.h          | 10 +++--
+ fold.h           | 30 +++++++++++----
+ fold_lib.h       |  2 +-
+ interpreter.cpp  | 51 +++++++++++++++++++++----
+ interpreter.h    | 17 +++++++--
+ libduel.cpp      | 32 +++++++++++++---
+ operations.cpp   | 15 +++++---
+ playerop.cpp     |  2 +-
+ processor_unit.h | 15 +++++---
+ 13 files changed, 272 insertions(+), 72 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index 890feb1..ab310a4 100644
 --- a/card.cpp
 +++ b/card.cpp
-@@ -3229,7 +3229,7 @@
+@@ -3229,7 +3229,7 @@ int32_t card::is_spsummonable(effect* peffect) {
  		pduel->lua->add_param<LuaParam::INT>(pduel->game_field->core.forced_summon_maxc);
  		param_count += 2;
  	}
@@ -15,15 +32,15 @@ Subject: [PATCH] A003 final route
  		result = TRUE;
  	pduel->game_field->restore_lp_cost();
  	pduel->game_field->core.reason_effect = oreason;
+diff --git a/effect.cpp b/effect.cpp
+index 6bb8b94..ded0671 100644
 --- a/effect.cpp
 +++ b/effect.cpp
-@@ -362,9 +362,42 @@
+@@ -362,9 +362,42 @@ int32_t effect::is_activate_ready(effect* reason_effect, uint8_t playerid, const
  		pduel->lua->add_param<LuaParam::EFFECT>(e.reason_effect);
  		pduel->lua->add_param<LuaParam::INT>(e.reason);
  		pduel->lua->add_param<LuaParam::PLAYER>(e.reason_player);
 -		if(!pduel->lua->check_condition(condition, 8, nullptr, playerid)) {
--			return FALSE;
--		}
 +		// R-FFA-OPP-ONE: condition reads test eligibility, not declaration.
 +		// Keep an explicit causal binding, but do not pass read touches to the cost/target probe.
 +		auto* I = pduel->lua;
@@ -59,11 +76,12 @@ Subject: [PATCH] A003 final route
 +			return ready;
 +		};
 +		if(!check())
-+			return FALSE;
+ 			return FALSE;
+-		}
  	}
  	if(!neglect_cost && cost && !(type & EFFECT_TYPE_CONTINUOUS)) {
  		pduel->lua->add_param<LuaParam::EFFECT>(reason_effect);
-@@ -417,6 +450,23 @@
+@@ -417,6 +450,23 @@ int32_t effect::probe_bind(uint8_t playerid, const tevent& e, int32_t neglect_co
  	auto* s = S();
  	if(f.n_duelists <= 2 || !s || !s->pinned || s->eff != this || s->bound || !f.is_duelist(playerid) || s->P != playerid)
  		return is_activate_ready(this, playerid, e, neglect_cond, neglect_cost, neglect_target);
@@ -87,7 +105,7 @@ Subject: [PATCH] A003 final route
  	// the event opponent: the damaged player, the activator of the chain link that is answered, ...
  	// Rule: when the event names an opponent, only that one is tried. If the checks fail for it, the effect is not
  	// activateable. No other opponent is tried (the event decides, not the activator).
-@@ -432,7 +482,18 @@
+@@ -432,7 +482,18 @@ int32_t effect::probe_bind(uint8_t playerid, const tevent& e, int32_t neglect_co
  	// first run: nothing bound. A check that never asked for "an opponent" does not depend on one.
  	S()->touched = false;
  	const int32_t first = is_activate_ready(this, playerid, e, neglect_cond, neglect_cost, neglect_target);
@@ -107,7 +125,7 @@ Subject: [PATCH] A003 final route
  		S()->touched = false;
  		return first;
  	}
-@@ -472,6 +533,9 @@
+@@ -472,6 +533,9 @@ void effect::probe_chain(uint8_t playerid, const tevent& e, uint8_t& bound, uint
  }
  // check functions: condition
  int32_t effect::is_condition_check(uint8_t playerid, const tevent& e) {
@@ -117,9 +135,11 @@ Subject: [PATCH] A003 final route
  	card* phandler = get_handler();
  	if(!(type & EFFECT_TYPE_ACTIVATE) && (phandler->current.location & (LOCATION_ONFIELD | LOCATION_REMOVED)) && !phandler->is_position(POS_FACEUP))
  		return FALSE;
+diff --git a/effect.h b/effect.h
+index 2fe3d57..be2d7ab 100644
 --- a/effect.h
 +++ b/effect.h
-@@ -34,6 +34,8 @@
+@@ -34,6 +34,8 @@ public:
  	// n_duelists > 2 (F7 part P2, R2 core rule). A global effect: registered by Duel.RegisterEffect while a card
  	// script runs initial_effect (the GlobalCheck pattern), or made by Effect.GlobalEffect. It belongs to no seat:
  	// its Lua runs without a perspective fold, so it sees the real rp, ep and tp of the event.
@@ -128,9 +148,11 @@ Subject: [PATCH] A003 final route
  	bool global_effect{ false };
  	// n_duelists > 2, Tag only: a player flag effect (Duel.RegisterFlagEffect) that counts for the whole team of
  	// its owner, not for the owner seat alone.
+diff --git a/field.cpp b/field.cpp
+index 3978d71..3c1c773 100644
 --- a/field.cpp
 +++ b/field.cpp
-@@ -1834,35 +1834,55 @@
+@@ -1834,36 +1834,56 @@ void field::build_range_list(range_list& rl, uint8_t self, uint32_t loc1, uint32
  	// oppo side. F5: a summon procedure scope (Lava Golem) with one bound opponent reads that opponent only. F7: an open
  	// one-opponent window does the same (also for a dead or missing seat: the side is empty, never widened)
  	uint8_t seat = DUELIST_NONE;
@@ -177,12 +199,9 @@ Subject: [PATCH] A003 final route
 -					if(is_alive(q) && !same_team(self, q))
 -						add(q, loc2 & individual);
 -				}
--			}
--		}
--	}
 +				all_single = true;
-+			}
-+		}
+ 			}
+ 		}
 +		for(uint8_t q = 0; q < n_duelists; ++q) {
 +			if(!is_alive(q) || same_team(self, q))
 +				continue;
@@ -192,8 +211,8 @@ Subject: [PATCH] A003 final route
 +			if(locations)
 +				add(q, locations);
 +		}
-+	}
-+}
+ 	}
+ }
 +bool field::implicit_all_fields(bool self, bool oppo) const {
 +	const auto* scope = pduel->lua->current_scope();
 +	return n_duelists > 2 && n_teams == n_duelists && self && oppo && scope && scope->mp.implicit;
@@ -204,14 +223,14 @@ Subject: [PATCH] A003 final route
 +		|| !opp_restrict(playerid, seat))
 +		return 0xff;
 +	return is_duelist(seat) ? static_cast<uint8_t>(1u << seat) : 0;
- }
++}
  bool field::opp_restrict(uint8_t self, uint8_t& seat, uint8_t use) {
  	seat = DUELIST_NONE;
-@@ -1877,6 +1897,15 @@
- 			// first run of an activation probe: nothing is bound yet, the check errs to yes (every opponent)
+ 	if(n_duelists <= 2)
+@@ -1878,6 +1898,15 @@ bool field::opp_restrict(uint8_t self, uint8_t& seat, uint8_t use) {
  			pduel->lua->scope_mark_touched();
  			return false;
-+		}
+ 		}
 +		// A late read must select one opponent too. The Lua library call resumes after the
 +		// lazy prompt. A callback that cannot yield has an empty side, never a broad read.
 +		if(sc->mp.implicit && pduel->lua->scope_raw_bound(sc) == DUELIST_NONE) {
@@ -220,10 +239,11 @@ Subject: [PATCH] A003 final route
 +				pduel->lua->fold_trap('e', "opp_restrict");
 +				return true;
 +			}
- 		}
++		}
  		const uint8_t w = pduel->lua->window_seat(sc);
  		if(w == DUELIST_NONE)
-@@ -2466,7 +2495,18 @@
+ 			pduel->lua->fold_trap('W', "opp_restrict");
+@@ -2466,7 +2495,18 @@ void field::get_ritual_material(uint8_t playerid, effect* peffect, card_set* mat
  		if(pcard && mzonecheck(pcard) && pcard->is_releasable_by_nonsummon(playerid, REASON_EFFECT))
  			material->insert(pcard);
  	}
@@ -243,7 +263,7 @@ Subject: [PATCH] A003 final route
  		if(pcard && pcard->is_position(POS_FACEUP) && mzonecheck(pcard) && pcard->is_releasable_by_nonsummon(playerid, REASON_EFFECT) && pcard->is_affected_by_effect(EFFECT_EXTRA_RELEASE))
  			material->insert(pcard);
  	}
-@@ -2533,7 +2573,7 @@
+@@ -2533,7 +2573,7 @@ void field::ritual_release(const card_set& material, bool release_deck) {
  	release(std::move(rel), core.reason_effect, REASON_RITUAL + REASON_EFFECT + REASON_MATERIAL, core.reason_player);
  	send_to(std::move(rem), core.reason_effect, REASON_RITUAL + REASON_EFFECT + REASON_MATERIAL, core.reason_player, none_id(), LOCATION_REMOVED, 0, POS_FACEUP);
  }
@@ -252,7 +272,7 @@ Subject: [PATCH] A003 final route
  	if(pgroup) {
  		for(auto& pcard : pgroup->container) {
  			if(pcard && !pcard->get_status(STATUS_SUMMONING | STATUS_SPSUMMON_STEP))
-@@ -2542,10 +2582,10 @@
+@@ -2542,10 +2582,10 @@ void field::get_overlay_group(uint8_t playerid, uint8_t self, uint8_t oppo, card
  	} else {
  		// F7: an open one-opponent window reads one opponent only (n > 2)
  		uint8_t seat = DUELIST_NONE;
@@ -265,7 +285,7 @@ Subject: [PATCH] A003 final route
  				for(auto& pcard : player[i].list_mzone) {
  					if(pcard && !pcard->get_status(STATUS_SUMMONING | STATUS_SPSUMMON_STEP))
  						pset->insert(pcard->xyz_materials.begin(), pcard->xyz_materials.end());
-@@ -2554,7 +2594,7 @@
+@@ -2554,7 +2594,7 @@ void field::get_overlay_group(uint8_t playerid, uint8_t self, uint8_t oppo, card
  		}
  	}
  }
@@ -274,7 +294,7 @@ Subject: [PATCH] A003 final route
  	size_t count = 0;
  	if(pgroup) {
  		for(auto& pcard : pgroup->container) {
-@@ -2565,10 +2605,10 @@
+@@ -2565,10 +2605,10 @@ int32_t field::get_overlay_count(uint8_t playerid, uint8_t self, uint8_t oppo, g
  	}
  	// F7: an open one-opponent window reads one opponent only (n > 2)
  	uint8_t seat = DUELIST_NONE;
@@ -287,7 +307,7 @@ Subject: [PATCH] A003 final route
  			for(auto& pcard : player[i].list_mzone) {
  				if(pcard && !pcard->get_status(STATUS_SUMMONING | STATUS_SPSUMMON_STEP))
  					count += pcard->xyz_materials.size();
-@@ -2939,17 +2979,17 @@
+@@ -2939,17 +2979,17 @@ void field::restore_lp_cost() {
  	}
  }
  */
@@ -308,9 +328,11 @@ Subject: [PATCH] A003 final route
  				continue;
  			for(auto& pcard : player[q].list_mzone) {
  				if(pcard)
+diff --git a/field.h b/field.h
+index 430dc5e..d83714d 100644
 --- a/field.h
 +++ b/field.h
-@@ -561,7 +561,7 @@
+@@ -561,7 +561,7 @@ public:
  	// battle steps, leaving the field) or the turn player (the start of a phase, the end of the turn): those name nobody.
  	static bool event_player_is_subject(uint32_t code) {
  		switch(code) {
@@ -319,7 +341,7 @@ Subject: [PATCH] A003 final route
  		case EVENT_BE_BATTLE_TARGET: case EVENT_ATTACK_ANNOUNCE: case EVENT_PAY_LPCOST:
  		case EVENT_CHAINING: case EVENT_CHAIN_ACTIVATING: case EVENT_CHAIN_SOLVING: case EVENT_CHAIN_SOLVED:
  		case EVENT_CHAIN_NEGATED: case EVENT_CHAIN_DISABLED:
-@@ -775,6 +775,8 @@
+@@ -775,6 +775,8 @@ public:
  	// first run of an activation probe: a ONE window with nothing bound marks `touched` and reads every opponent
  	// there (the check errs to yes, probe_bind then runs it once per opponent).
  	bool opp_restrict(uint8_t self, uint8_t& seat, uint8_t use = OPP_BOTH);
@@ -328,7 +350,7 @@ Subject: [PATCH] A003 final route
  	// The cards of one list of the team of p (oppo = false) or of every living opponent of p
  	// (oppo = true). With 2 duelists this is the list of p or of opponent_of(p) itself, no copy.
  	const card_vector& side_cards(uint8_t p, bool oppo, card_vector player_info::* list, card_vector& tmp);
-@@ -848,8 +850,8 @@
+@@ -848,8 +850,8 @@ public:
  	void get_ritual_material(uint8_t playerid, effect* peffect, card_set* material, bool check_level);
  	void get_fusion_material(uint8_t playerid, card_set* material);
  	void ritual_release(const card_set& material, bool release_deck);
@@ -339,7 +361,7 @@ Subject: [PATCH] A003 final route
  	void update_disable_check_list(effect* peffect);
  	void add_to_disable_check_list(card* pcard);
  	void adjust_disable_check_list();
-@@ -873,7 +875,7 @@
+@@ -873,7 +875,7 @@ public:
  	void restore_lp_cost() {}
  	bool process(Processors::PayLPCost& arg);
  
@@ -348,6 +370,8 @@ Subject: [PATCH] A003 final route
  	int32_t effect_replace_check(uint32_t code, const tevent& e);
  	int32_t get_attack_target(card* pcard, card_vector* v, bool chain_attack = false, bool select_target = true, std::multimap<effect*, card*>* must_attack_map = nullptr);
  	bool confirm_attack_target();
+diff --git a/fold.h b/fold.h
+index 2dfa2ff..6c13237 100644
 --- a/fold.h
 +++ b/fold.h
 @@ -20,6 +20,7 @@
@@ -358,7 +382,7 @@ Subject: [PATCH] A003 final route
  #include "field.h"
  #include "interpreter.h"
  #include "scriptlib.h"
-@@ -56,13 +57,13 @@
+@@ -56,13 +57,13 @@ inline uint8_t next_opponent(const field& f, uint8_t P) {
  }
  
  // Class "individual action" (Draw, Damage, Recover, hand and Deck moves, a player that acts): the Lua value
@@ -375,7 +399,7 @@ Subject: [PATCH] A003 final route
  	const auto* s = active(pduel);
  	if(!s)
  		return v;
-@@ -84,13 +85,18 @@
+@@ -84,14 +85,19 @@ inline uint8_t unfold_action(duel* pduel, uint8_t v, const char* fn, bool team_l
  		// another opponent, no prompt and no record: the function gives its empty result, the link does nothing.
  		return (f.is_alive(bound) && !f.same_team(P, bound)) ? bound : INVALID;
  	}
@@ -388,26 +412,27 @@ Subject: [PATCH] A003 final route
  		const uint8_t b = pduel->lua->scope_bound_opp();
  		if(f.is_alive(b) && !f.same_team(P, b))
  			return b;
-+	}
+ 	}
 +	// A resolving implicit ONE window cannot fall back to a different opponent.
 +	if(s->mp.implicit && s->operation && !pduel->lua->scope_probing(s)) {
 +		pduel->lua->fold_trap('e', fn);
 +		return INVALID;
- 	}
++	}
  	const uint8_t next = next_opponent(f, P);
  	if(next == DUELIST_NONE)
-@@ -156,6 +162,10 @@
- 			out[0] = b;
+ 		return INVALID;
+@@ -157,6 +163,10 @@ inline uint8_t query_list(duel* pduel, uint8_t v, uint8_t (&out)[MAX_DUELISTS],
  			return 1;
  		}
-+	}
+ 	}
 +	if(s->mp.implicit && s->operation && !pduel->lua->scope_probing(s)) {
 +		pduel->lua->fold_trap('e', fn);
 +		return 0;
- 	}
++	}
  	pduel->lua->scope_mark_touched();
  	uint8_t count = 0;
-@@ -273,8 +283,14 @@
+ 	for(uint8_t q = 0; q < f.n_duelists; ++q) {
+@@ -273,8 +283,14 @@ inline void push_player(lua_State* L, duel* pduel, uint8_t d, bool bind = true)
  	if(bind) {
  		if(const auto* s = active(pduel)) {
  			const auto& f = *pduel->game_field;
@@ -424,9 +449,11 @@ Subject: [PATCH] A003 final route
  		}
  	}
  	lua_pushinteger(L, pduel->lua->fold_out(d));
+diff --git a/fold_lib.h b/fold_lib.h
+index 5dbd656..f949ffc 100644
 --- a/fold_lib.h
 +++ b/fold_lib.h
-@@ -116,7 +116,7 @@
+@@ -116,7 +116,7 @@ inline void record_disfield_opp(duel* pduel, effect* peffect, uint8_t handler_pl
  // The player that chooses: unfold_action, and at n > 2 a chooser that is not a living duelist gives INVALID
  // (the caller returns the stock result of an invalid player: a prompt never goes to an eliminated seat).
  inline uint8_t chooser(duel* pduel, uint8_t v, const char* fn) {
@@ -435,9 +462,11 @@ Subject: [PATCH] A003 final route
  	const auto& f = *pduel->game_field;
  	if(f.n_duelists > 2 && playerid != INVALID && !f.is_alive(playerid))
  		return INVALID;
+diff --git a/interpreter.cpp b/interpreter.cpp
+index 655b251..4dbf482 100644
 --- a/interpreter.cpp
 +++ b/interpreter.cpp
-@@ -313,6 +313,14 @@
+@@ -313,6 +313,14 @@ bool interpreter::scope_guard::push(uint8_t P, uint8_t* bound, bool yieldable, b
  	if(!unfolded && !gf->is_duelist(P))
  		return false;
  	I->push_scope(unfolded ? DUELIST_NONE : P, bound, yieldable, probe, eff, pinned);
@@ -452,7 +481,7 @@ Subject: [PATCH] A003 final route
  	pushed = true;
  	return true;
  }
-@@ -371,7 +379,7 @@
+@@ -371,7 +379,7 @@ uint8_t interpreter::scope_bound_opp() {
  	const uint8_t w = window_seat(&s);
  	if(w != DUELIST_NONE)
  		return w;
@@ -461,7 +490,7 @@ Subject: [PATCH] A003 final route
  		return DUELIST_NONE;
  	fold_trap('W', "scope_bound_opp");
  	return DUELIST_WINDOW_EMPTY;
-@@ -511,7 +519,7 @@
+@@ -511,7 +519,7 @@ static int lazy_continue(lua_State* L, int /*status*/, lua_KContext ctx) {
  	lua_settop(L, I.lazy_top);
  	return reinterpret_cast<lua_CFunction>(static_cast<intptr_t>(ctx))(L);
  }
@@ -470,7 +499,7 @@ Subject: [PATCH] A003 final route
  	const auto* gf = pduel->game_field;
  	auto* s = current_scope();
  	if(!s || !gf || gf->n_duelists <= 2 || !gf->is_duelist(s->P))
-@@ -546,7 +554,9 @@
+@@ -546,7 +554,9 @@ bool interpreter::lazy_bind(const char* fn) {
  	}
  	if(!running)
  		return false;
@@ -481,7 +510,7 @@ Subject: [PATCH] A003 final route
  		fold_trap('c', fn);
  	lazy_mask = legal;
  	lazy_P = s->P;
-@@ -676,15 +686,18 @@
+@@ -676,15 +686,18 @@ bool interpreter::call_function_scoped(int param_count, int ret_count, effect* s
  		const uint8_t parent_bound = (copy_window && cur->mp.open && cur->mp.kind == MPW_ONE) ? scope_raw_bound(cur) : DUELIST_NONE;
  		// F7 P2: the MPBindSeat bind goes with the window (same effect, same P)
  		const uint8_t parent_seat_bind = copy_window ? cur->seat_bind : DUELIST_NONE;
@@ -502,7 +531,7 @@ Subject: [PATCH] A003 final route
  				if(proc) {
  					current_scope()->exclusive = true;
  					if(!slot)
-@@ -756,7 +769,7 @@
+@@ -756,7 +769,7 @@ bool interpreter::call_code_function(uint32_t code, const char* function_name, u
  	init_depth -= is_init ? 1 : 0;
  	return ok;
  }
@@ -511,11 +540,12 @@ Subject: [PATCH] A003 final route
  	if(!function) {
  		params.clear();
  		return true;
-@@ -777,8 +790,32 @@
+@@ -777,8 +790,32 @@ bool interpreter::check_condition(int32_t function, uint32_t param_count, effect
  			const auto saved = params;
  			uint8_t mask = 0;
  			for(uint8_t i = 0; i < n; ++i) {
-+				proc_seed = opp[i];
+-				params = saved;
+ 				proc_seed = opp[i];
 +				auto& gf = *pduel->game_field;
 +				if(gf.n_duelists > 2) {
 +					// Procedure picks must also pass the summon restriction for this field.
@@ -540,14 +570,15 @@ Subject: [PATCH] A003 final route
 +						continue;
 +					}
 +				}
- 				params = saved;
--				proc_seed = opp[i];
++				params = saved;
  				const bool ok = call_function(function, param_count, 1, scope_eff, scope_P);
  				proc_seed = DUELIST_NONE;
  				if(ok) {
+diff --git a/interpreter.h b/interpreter.h
+index a3bcb7e..e6b3d8a 100644
 --- a/interpreter.h
 +++ b/interpreter.h
-@@ -74,6 +74,7 @@
+@@ -74,6 +74,7 @@ public:
  	enum : uint8_t { MPW_ONE = 0, MPW_SEAT = 1 };
  	struct mp_window {
  		bool open{ false };
@@ -555,7 +586,7 @@ Subject: [PATCH] A003 final route
  		uint8_t kind{ MPW_ONE };
  		uint8_t seat{ DUELIST_NONE };
  	};
-@@ -93,6 +94,8 @@
+@@ -93,6 +94,8 @@ public:
  		bool yieldable{ false };
  		bool probe{ false };
  		bool touched{ false };
@@ -564,7 +595,7 @@ Subject: [PATCH] A003 final route
  		bool pinned{ false };
  		effect* eff{ nullptr };
  		// The bound opponent of a scope that has no chain link (`bound` is nullptr then).
-@@ -102,7 +105,8 @@
+@@ -102,7 +105,8 @@ public:
  		// F5: a summon procedure scope. With a bound opponent the field reads of the other side see only
  		// that opponent (Lava Golem: both Tributes come from one opponent).
  		bool exclusive{ false };
@@ -574,7 +605,7 @@ Subject: [PATCH] A003 final route
  		mp_window mp;
  		// F7 P2: Duel.MPBindSeat. The real seat that "1" means in this scope, DUELIST_WINDOW_EMPTY for "no opponent
  		// side" (a dead seat, or a seat of the own team), DUELIST_NONE for no seat bind. It wins over `bound`.
-@@ -204,12 +208,18 @@
+@@ -204,12 +208,18 @@ public:
  		if(!scopes.empty())
  			scopes.back().touched = true;
  	}
@@ -594,7 +625,7 @@ Subject: [PATCH] A003 final route
  	// What lazy_bind asked: the seats of the question (bit q = seat q) and the size of the stack of the
  	// library function that asked (its own arguments).
  	uint8_t lazy_mask{ 0 };
-@@ -284,6 +294,7 @@
+@@ -284,6 +294,7 @@ public:
  	// Fold trap record. Trap build (YGO_N_TRAP) only: one stderr line
  	// "NFOLD <kind> card=<code> P=<seat> fn=<name>"; it never aborts. Other builds write nothing.
  	// kind: a unbound fallback, b binding conflict, c pick during the operation step, d bad player value,
@@ -602,7 +633,7 @@ Subject: [PATCH] A003 final route
  	// W (F7) an open window with no seat (empty side), U (F7) an operation that needed a bound opponent
  	// and had none.
  	void fold_trap(char kind, const char* fn);
-@@ -324,7 +335,7 @@
+@@ -324,7 +335,7 @@ public:
  	bool call_function(int32_t f, uint32_t param_count, int32_t ret_count, effect* scope_eff = nullptr, uint8_t scope_P = DUELIST_NONE);
  	bool call_card_function(card* pcard, const char* f, uint32_t param_count, int32_t ret_count, bool forced = true);
  	bool call_code_function(uint32_t code, const char* f, uint32_t param_count, int32_t ret_count);
@@ -611,9 +642,11 @@ Subject: [PATCH] A003 final route
  	bool check_matching(card* pcard, int32_t findex, int32_t extraargs);
  	bool check_matching_table(card* pcard, int32_t findex, int32_t table_index);
  	lua_Integer get_operation_value(card* pcard, int32_t findex, int32_t extraargs);
+diff --git a/libduel.cpp b/libduel.cpp
+index 4997c0f..e516e17 100644
 --- a/libduel.cpp
 +++ b/libduel.cpp
-@@ -66,7 +66,19 @@
+@@ -66,7 +66,19 @@ LUA_STATIC_FUNCTION(GetTurnPlayer) {
  LUA_STATIC_FUNCTION(IsTurnPlayer) {
  	check_param_count(L, 1);
  	const auto playerid = lua_get<uint8_t>(L, 1);
@@ -634,7 +667,7 @@ Subject: [PATCH] A003 final route
  	return 1;
  }
  LUA_STATIC_FUNCTION(GetTurnCount) {
-@@ -4786,7 +4798,7 @@
+@@ -4786,7 +4798,7 @@ LUA_STATIC_FUNCTION(MPOppCount) {
  // per living opponent and the activator is asked at activation. Harmless when an opponent is bound already.
  LUA_STATIC_FUNCTION(MPNeedPick) {
  	if(f7_scope(pduel))
@@ -643,7 +676,7 @@ Subject: [PATCH] A003 final route
  	return 0;
  }
  // Duel.MPBindOpponent(needs_pick): binds ONE opponent to the scope or chain link (lazy_bind: asks P in a yieldable
-@@ -4816,7 +4828,7 @@
+@@ -4816,7 +4828,7 @@ LUA_STATIC_FUNCTION(MPBindOpponent) {
  	uint8_t opp[MAX_DUELISTS];
  	if(f.living_opponents(s->P, opp) != 0) {
  		if(f7_first_run(s)) {
@@ -652,7 +685,7 @@ Subject: [PATCH] A003 final route
  			lua_pushboolean(L, TRUE);
  			return 1;
  		} else {
-@@ -4842,6 +4854,7 @@
+@@ -4842,6 +4854,7 @@ LUA_STATIC_FUNCTION(MPWindow) {
  		lua_pushboolean(L, FALSE);
  		return 1;
  	}
@@ -660,7 +693,7 @@ Subject: [PATCH] A003 final route
  	if(i == 0) {
  		s->mp.open = true;
  		s->mp.kind = interpreter::MPW_ONE;
-@@ -4867,8 +4880,13 @@
+@@ -4867,8 +4880,13 @@ LUA_STATIC_FUNCTION(MPWindow) {
  }
  // Duel.MPWindowEnd(): closes the window.
  LUA_STATIC_FUNCTION(MPWindowEnd) {
@@ -675,7 +708,7 @@ Subject: [PATCH] A003 final route
  	return 0;
  }
  // Duel.MPAssertBound(): the operation (or a value that the operation uses) needs the bound opponent. True when one
-@@ -5038,8 +5056,12 @@
+@@ -5038,8 +5056,12 @@ LUA_STATIC_FUNCTION(MPTurnOwns) {
  	const uint8_t owner = pcard->owner;
  	const bool yes = owner == f.infos.turn_player && (f.n_duelists <= 2 || f.is_alive(owner));
  	if(yes) {
@@ -689,9 +722,11 @@ Subject: [PATCH] A003 final route
  	}
  	lua_pushboolean(L, yes);
  	return 1;
+diff --git a/operations.cpp b/operations.cpp
+index 5cd0a0c..5edc965 100644
 --- a/operations.cpp
 +++ b/operations.cpp
-@@ -151,10 +151,13 @@
+@@ -151,10 +151,13 @@ void field::change_target_param(uint8_t chaincount, int32_t param) {
  	core.current_chain[chaincount - 1].target_param = param;
  }
  void field::remove_counter(uint32_t reason, card* pcard, uint32_t rplayer, uint8_t self, uint8_t oppo, uint32_t countertype, uint32_t count) {
@@ -707,7 +742,7 @@ Subject: [PATCH] A003 final route
  }
  void field::xyz_overlay(card* target, card_set materials, bool send_materials_to_grave) {
  	auto ng = pduel->new_group(std::move(materials));
-@@ -860,7 +863,7 @@
+@@ -860,7 +863,7 @@ bool field::process(Processors::RemoveCounter& arg) {
  	case 0: {
  		core.select_options.clear();
  		core.select_effects.clear();
@@ -716,7 +751,7 @@ Subject: [PATCH] A003 final route
  			core.select_options.push_back(10);
  			core.select_effects.push_back(nullptr);
  		}
-@@ -910,7 +913,7 @@
+@@ -910,7 +913,7 @@ bool field::process(Processors::RemoveCounter& arg) {
  			arg.step = 3;
  			return FALSE;
  		}
@@ -725,7 +760,7 @@ Subject: [PATCH] A003 final route
  		return FALSE;
  	}
  	case 2: {
-@@ -943,7 +946,7 @@
+@@ -943,7 +946,7 @@ bool field::process(Processors::RemoveOverlay& arg) {
  	case 0: {
  		core.select_options.clear();
  		core.select_effects.clear();
@@ -734,7 +769,7 @@ Subject: [PATCH] A003 final route
  			core.select_options.push_back(12);
  			core.select_effects.push_back(nullptr);
  		}
-@@ -1005,7 +1008,7 @@
+@@ -1005,7 +1008,7 @@ bool field::process(Processors::RemoveOverlay& arg) {
  		}
  		core.select_cards.clear();
  		card_set cset;
@@ -743,9 +778,11 @@ Subject: [PATCH] A003 final route
  		for(auto& xcard : cset)
  			core.select_cards.push_back(xcard);
  		auto message = pduel->new_message(MSG_HINT);
+diff --git a/playerop.cpp b/playerop.cpp
+index 429ad51..7a6fe3e 100644
 --- a/playerop.cpp
 +++ b/playerop.cpp
-@@ -802,7 +802,7 @@
+@@ -802,7 +802,7 @@ bool field::process(Processors::SelectCounter& arg) {
  		if(n_duelists > 2 && !is_alive(playerid))
  			return TRUE;
  		for(int p = 0; p < n_duelists; ++p) {
@@ -754,9 +791,11 @@ Subject: [PATCH] A003 final route
  				for(auto& pcard : player[fp].list_mzone) {
  					if(pcard && pcard->get_counter(countertype)) {
  						core.select_cards.push_back(pcard);
+diff --git a/processor_unit.h b/processor_unit.h
+index 744fc11..446901b 100644
 --- a/processor_unit.h
 +++ b/processor_unit.h
-@@ -152,10 +152,11 @@
+@@ -152,10 +152,11 @@ struct SelectCounter : public Process<true> {
  	uint8_t playerid;
  	uint8_t self;
  	uint8_t oppo;
@@ -770,7 +809,7 @@ Subject: [PATCH] A003 final route
  };
  struct SelectSum : public Process<true> {
  	uint8_t playerid;
-@@ -632,13 +633,14 @@
+@@ -632,13 +633,14 @@ struct RemoveCounter : public Process<false> {
  	uint8_t rplayer;
  	uint8_t self;
  	uint8_t oppo;
@@ -787,7 +826,7 @@ Subject: [PATCH] A003 final route
  		reason(reason_), pcard(pcard_) {}
  };
  struct AttackDisable : public Process<false> {
-@@ -740,13 +742,14 @@
+@@ -740,13 +742,14 @@ struct RemoveOverlay : public Process<false> {
  	uint8_t rplayer;
  	uint8_t self;
  	uint8_t oppo;
@@ -804,3 +843,6 @@ Subject: [PATCH] A003 final route
  };
  struct XyzOverlay : public Process<false> {
  	bool send_materials_to_grave;
+-- 
+2.43.0
+

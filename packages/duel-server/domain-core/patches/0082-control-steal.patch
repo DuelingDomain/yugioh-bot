@@ -1,11 +1,17 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Release Check <release@localhost>
+From 82bdb6b65f4f28a5ffe180ff73fd35bdf94789e0 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
-Subject: [PATCH] control-steal-core final route
+Subject: [PATCH] Resolve control effects to the intended real duelist seat
 
 ---
+ card.cpp      |  2 +-
+ effect.cpp    | 26 ++++++++++++++++++++++++++
+ effect.h      |  4 ++++
+ libeffect.cpp |  5 +++++
+ 4 files changed, 36 insertions(+), 1 deletion(-)
+
 diff --git a/card.cpp b/card.cpp
-index 79654ac1..b0375ef0 100644
+index 79654ac..b0375ef 100644
 --- a/card.cpp
 +++ b/card.cpp
 @@ -2124,7 +2124,7 @@ std::pair<uint8_t, effect*> card::refresh_control_status() {
@@ -18,7 +24,7 @@ index 79654ac1..b0375ef0 100644
  			if(pduel->game_field->n_duelists == 2 || pduel->game_field->is_alive(controler)) {
  				final = controler;
 diff --git a/effect.cpp b/effect.cpp
-index c99d94f8..29319c71 100644
+index c99d94f..29319c7 100644
 --- a/effect.cpp
 +++ b/effect.cpp
 @@ -11,6 +11,7 @@
@@ -62,7 +68,7 @@ index c99d94f8..29319c71 100644
  	if(is_flag(EFFECT_FLAG_FUNC_VALUE)) {
  		field::zone_mask_scope zone_scope(pduel->game_field, this);
 diff --git a/effect.h b/effect.h
-index 3c0fa36a..7945f1e8 100644
+index 3c0fa36..7945f1e 100644
 --- a/effect.h
 +++ b/effect.h
 @@ -71,6 +71,9 @@ public:
@@ -84,7 +90,7 @@ index 3c0fa36a..7945f1e8 100644
  	lua_Integer get_value(card* pcard, uint32_t extraargs = 0);
  	lua_Integer get_value(effect* peffect, uint32_t extraargs = 0);
 diff --git a/libeffect.cpp b/libeffect.cpp
-index 6a3064c0..31363da5 100644
+index 6a3064c..31363da 100644
 --- a/libeffect.cpp
 +++ b/libeffect.cpp
 @@ -260,6 +260,11 @@ LUA_FUNCTION(SetCost) {
@@ -99,3 +105,6 @@ index 6a3064c0..31363da5 100644
  	if(self->value && self->is_flag(EFFECT_FLAG_FUNC_VALUE))
  		ensure_luaL_stack(luaL_unref, L, LUA_REGISTRYINDEX, self->value);
  	if (lua_isfunction(L, 2)) {
+-- 
+2.43.0
+

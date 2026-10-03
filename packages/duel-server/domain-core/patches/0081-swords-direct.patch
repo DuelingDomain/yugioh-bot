@@ -1,13 +1,19 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Release Check <release@localhost>
+From 4a17c687766ab8e30ce1c0a83bcfd141451987c7 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
-Subject: [PATCH] F03-core final route
+Subject: [PATCH] Respect protected FFA seats during direct attacks
 
 ---
+ effect_constants.h |  2 ++
+ field.cpp          |  8 ++++++--
+ libduel.cpp        | 26 ++++++++++++++++++++++++++
+ 3 files changed, 34 insertions(+), 2 deletions(-)
+
 diff --git a/effect_constants.h b/effect_constants.h
+index 87f3bcb..b0fdf94 100644
 --- a/effect_constants.h
 +++ b/effect_constants.h
-@@ -174,6 +174,8 @@
+@@ -174,6 +174,8 @@ inline effect_flag operator|(effect_flag flag1, effect_flag flag2)
  #define EFFECT_CANNOT_BE_EFFECT_TARGET      71
  #define EFFECT_IGNORE_BATTLE_TARGET         72
  #define EFFECT_CANNOT_DIRECT_ATTACK         73
@@ -17,9 +23,10 @@ diff --git a/effect_constants.h b/effect_constants.h
  #define EFFECT_GEMINI_STATUS                75
  #define EFFECT_EQUIP_LIMIT                  76
 diff --git a/field.cpp b/field.cpp
+index 9abd4a0..8ca1e1e 100644
 --- a/field.cpp
 +++ b/field.cpp
-@@ -3162,7 +3162,8 @@
+@@ -3308,7 +3308,8 @@ int32_t field::get_attack_target(card* pcard, card_vector* v, bool chain_attack,
  	if(n_duelists > 2) {
  		const bool any_side = pcard->is_affected_by_effect(EFFECT_DIRECT_ATTACK) || core.attack_player;
  		for(uint8_t oi = 0; oi < opp_count; ++oi)
@@ -29,7 +36,7 @@ diff --git a/field.cpp b/field.cpp
  				dmask |= 1u << opps[oi];
  	}
  	if((n_duelists == 2 ? (mcount == 0 || pcard->is_affected_by_effect(EFFECT_DIRECT_ATTACK) || core.attack_player) : dmask != 0)
-@@ -3178,7 +3179,10 @@
+@@ -3324,7 +3325,10 @@ bool field::confirm_attack_target() {
  	card_vector cv;
  	get_attack_target(core.attacker, &cv, core.chain_attack, false);
  	return (core.attack_target && std::find(cv.begin(), cv.end(), core.attack_target) != cv.end())
@@ -42,9 +49,10 @@ diff --git a/field.cpp b/field.cpp
  // update the validity for EFFECT_ATTACK_ALL (approximate solution)
  void field::attack_all_target_check() {
 diff --git a/libduel.cpp b/libduel.cpp
+index c549e15..25976df 100644
 --- a/libduel.cpp
 +++ b/libduel.cpp
-@@ -1675,6 +1675,30 @@
+@@ -1724,6 +1724,30 @@ LUA_STATIC_FUNCTION(ChangeAttackTarget) {
  	}
  	card_vector cv;
  	pduel->game_field->get_attack_target(attacker, &cv, pduel->game_field->core.chain_attack);
@@ -75,7 +83,7 @@ diff --git a/libduel.cpp b/libduel.cpp
  	if(((target && std::find(cv.begin(), cv.end(), target) != cv.end()) || ignore) ||
  		(!target && !attacker->is_affected_by_effect(EFFECT_CANNOT_DIRECT_ATTACK))) {
  		pduel->game_field->core.attack_target = target;
-@@ -1700,6 +1724,8 @@
+@@ -1749,6 +1773,8 @@ LUA_STATIC_FUNCTION(ChangeAttackTarget) {
  			// attack) the defender stays if it is still a living opponent, else the first living opponent.
  			if(target) {
  				gf.core.battle_defender = target->current.controler;
@@ -84,3 +92,6 @@ diff --git a/libduel.cpp b/libduel.cpp
  			} else if(!(gf.is_alive(gf.core.battle_defender) && !gf.same_team(turnp, gf.core.battle_defender))) {
  				gf.core.battle_defender = DUELIST_NONE;
  				for(uint8_t i = 1; i < gf.n_duelists && gf.core.battle_defender == DUELIST_NONE; ++i) {
+-- 
+2.43.0
+

@@ -1,9 +1,12 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Release Check <release@localhost>
+From 57ef4d90119b803a783a2b4fe36f40e2c44e4858 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
-Subject: [PATCH] A001 final route
+Subject: [PATCH] Resolve local zone queries against the real controller
 
 ---
+ fold_lib.h | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
 diff --git a/fold_lib.h b/fold_lib.h
 index d721be2..5dbd656 100644
 --- a/fold_lib.h
@@ -21,3 +24,6 @@ index d721be2..5dbd656 100644
  }
  
  // (player, location1 / self, location2 / oppo): the seat of the field side, with the two arguments
+-- 
+2.43.0
+

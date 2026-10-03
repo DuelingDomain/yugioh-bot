@@ -1,11 +1,16 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Release Check <release@localhost>
+From 27107d243fbfcf26259ecd1b5a24765281361522 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
-Subject: [PATCH] A005 final route
+Subject: [PATCH] Return foreign cards to living owners on FFA elimination
 
 ---
+ card.cpp      |  5 +++
+ field.cpp     | 88 ++++++++++++++++++++++++++++++++++++++++++++++++---
+ processor.cpp |  3 ++
+ 3 files changed, 92 insertions(+), 4 deletions(-)
+
 diff --git a/card.cpp b/card.cpp
-index 890feb1..88c81c9 100644
+index ab310a4..378a031 100644
 --- a/card.cpp
 +++ b/card.cpp
 @@ -2109,6 +2109,11 @@ void card::refresh_disable_status() {
@@ -21,7 +26,7 @@ index 890feb1..88c81c9 100644
  	uint32_t last_id = 0;
  	if(pduel->game_field->core.remove_brainwashing && is_affected_by_effect(EFFECT_REMOVE_BRAINWASHING))
 diff --git a/field.cpp b/field.cpp
-index 173f9fb..13e01f5 100644
+index 6890976..1a43603 100644
 --- a/field.cpp
 +++ b/field.cpp
 @@ -174,18 +174,28 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
@@ -162,3 +167,6 @@ index 7bd6d6c..2fcbd85 100644
  						if(p != pcard->owner && pcard->is_capable_change_control()) {
  							core.control_adjust_set[p].insert(pcard);
  							if(n_duelists > 2) {
+-- 
+2.43.0
+

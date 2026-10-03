@@ -1,14 +1,17 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Release Check <release@localhost>
+From aab0349c51ad9cdc57ee49dc2806600a9bdf7391 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
-Subject: [PATCH] A010 final route
+Subject: [PATCH] Expose the real turn seat and controller turn checks
 
 ---
+ libduel.cpp | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
 diff --git a/libduel.cpp b/libduel.cpp
-index 493e1c1..ae1c9e4 100644
+index dfa74e1..807e67c 100644
 --- a/libduel.cpp
 +++ b/libduel.cpp
-@@ -5164,6 +5164,20 @@ LUA_STATIC_FUNCTION(MPTurnOwns) {
+@@ -5172,6 +5172,20 @@ LUA_STATIC_FUNCTION(MPTurnOwns) {
  	lua_pushboolean(L, yes);
  	return 1;
  }
@@ -29,3 +32,6 @@ index 493e1c1..ae1c9e4 100644
  // Duel.MPAttackedSeat(): the real seat of the duelist that the current attack goes at (the controller of the attack target, or the
  // defender of a direct attack), or nil when there is no attack, no such seat, or the seat is not alive. More than two duelists
  // only: with two duelists it gives nil (the Lua player of the attacked side is always 1 - the attacker's, so it is not needed).
+-- 
+2.43.0
+

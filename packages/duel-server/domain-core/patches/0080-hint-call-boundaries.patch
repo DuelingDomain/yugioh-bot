@@ -1,14 +1,18 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Release Check <release@localhost>
+From e6d0fef64917cd28ea7ae01953935fb7f53137c0 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
-Subject: [PATCH] A012 final route
+Subject: [PATCH] Mark multiplayer hint calls before recipient messages
 
 ---
+ libduel.cpp        | 21 ++++++++++++++++-----
+ ocgapi_constants.h |  2 ++
+ 2 files changed, 18 insertions(+), 5 deletions(-)
+
 diff --git a/libduel.cpp b/libduel.cpp
-index c773bdd..f68f470 100644
+index 711391f..c549e15 100644
 --- a/libduel.cpp
 +++ b/libduel.cpp
-@@ -3531,12 +3531,9 @@ LUA_STATIC_FUNCTION(Hint) {
+@@ -3539,12 +3539,9 @@ LUA_STATIC_FUNCTION(Hint) {
  		const auto value=lua_get<uint8_t>(L,2);
  		const auto desc=lua_get<uint64_t>(L,3);
  		const auto* scope=fold::active(pduel);
@@ -23,7 +27,7 @@ index c773bdd..f68f470 100644
  		};
  		auto opponents=[&](uint8_t actor) {
  			if(!gf.is_duelist(actor)) return;
-@@ -3559,6 +3556,20 @@ LUA_STATIC_FUNCTION(Hint) {
+@@ -3567,6 +3564,20 @@ LUA_STATIC_FUNCTION(Hint) {
  		} else if(gf.is_duelist(value)) {
  			send(value);
  		}
@@ -57,3 +61,6 @@ index 9f23cef..1f85a43 100644
  #define HINT_EVENT      1
  #define HINT_MESSAGE    2
  #define HINT_SELECTMSG  3
+-- 
+2.43.0
+

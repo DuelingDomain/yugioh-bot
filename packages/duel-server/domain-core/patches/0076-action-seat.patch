@@ -1,11 +1,16 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Release Check <release@localhost>
+From db716f08a77a5baa499dea3eda165d5668f1642a Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
-Subject: [PATCH] A008 final route
+Subject: [PATCH] Preserve the action seat independently of the recipient
 
 ---
+ fold.h      |  5 +++++
+ fold_lib.h  | 12 ++++++++++++
+ libduel.cpp | 35 +++++++++++++++++++++++++++++++----
+ 3 files changed, 48 insertions(+), 4 deletions(-)
+
 diff --git a/fold.h b/fold.h
-index ca544ac..2f7160d 100644
+index 6c13237..1c00bea 100644
 --- a/fold.h
 +++ b/fold.h
 @@ -68,6 +68,11 @@ inline uint8_t unfold_action(duel* pduel, uint8_t v, const char* fn, bool team_l
@@ -21,7 +26,7 @@ index ca544ac..2f7160d 100644
  		return f.none_id();
  	if(v == PLAYER_ALL)
 diff --git a/fold_lib.h b/fold_lib.h
-index 5dbd656..6ad9d2e 100644
+index f949ffc..08e5397 100644
 --- a/fold_lib.h
 +++ b/fold_lib.h
 @@ -209,6 +209,18 @@ inline int32_t can_any(lua_State* L, duel* pduel, uint8_t v, const char* fn, F&&
@@ -44,10 +49,10 @@ index 5dbd656..6ad9d2e 100644
  
  #endif /* FOLD_LIB_H_ */
 diff --git a/libduel.cpp b/libduel.cpp
-index bcb9117..9c296e2 100644
+index 1b34bf4..69a6e16 100644
 --- a/libduel.cpp
 +++ b/libduel.cpp
-@@ -992,7 +992,16 @@ LUA_STATIC_FUNCTION(ConfirmCards) {
+@@ -1000,7 +1000,16 @@ LUA_STATIC_FUNCTION(ConfirmCards) {
  	// broadcast: the cards go to every duelist the Lua value names (0 = the own side, 1 = every living
  	// opponent). With 2 duelists that is the one duelist of the stock call: one message, same bytes.
  	uint8_t viewers[MAX_DUELISTS];
@@ -65,7 +70,7 @@ index bcb9117..9c296e2 100644
  	if(viewer_count == 0)
  		return 0;
  	const uint8_t playerid = viewers[0];
-@@ -3534,7 +3543,11 @@ LUA_STATIC_FUNCTION(Hint) {
+@@ -3542,7 +3551,11 @@ LUA_STATIC_FUNCTION(Hint) {
  			for(uint8_t seat=0;seat<gf.n_duelists;++seat)
  				if(!gf.same_team(actor,seat)) send(seat);
  		};
@@ -78,7 +83,7 @@ index bcb9117..9c296e2 100644
  			// In a card effect, its controller selected the operation. Outside a
  			// scope the argument is the real caller seat, as in the existing API.
  			opponents(scope ? scope->P : value);
-@@ -4277,7 +4290,7 @@ LUA_STATIC_FUNCTION(CanPlayerSetSpellTrap) {
+@@ -4285,7 +4298,7 @@ LUA_STATIC_FUNCTION(CanPlayerSetSpellTrap) {
  }
  LUA_STATIC_FUNCTION(IsPlayerCanSpecialSummon) {
  	check_param_count(L, 1);
@@ -87,7 +92,7 @@ index bcb9117..9c296e2 100644
  		if(lua_gettop(L) == 1)
  			return pduel->game_field->is_player_can_spsummon(playerid);
  		check_param_count(L, 5);
-@@ -4303,7 +4316,7 @@ LUA_STATIC_FUNCTION(IsPlayerCanFlipSummon) {
+@@ -4311,7 +4324,7 @@ LUA_STATIC_FUNCTION(IsPlayerCanFlipSummon) {
  }
  LUA_STATIC_FUNCTION(IsPlayerCanSpecialSummonMonster) {
  	check_param_count(L, 2);
@@ -96,7 +101,7 @@ index bcb9117..9c296e2 100644
  		auto code = lua_get<uint32_t>(L, 2);
  		card_data dat = pduel->read_card(code);
  		dat.code = code;
-@@ -5051,6 +5064,20 @@ LUA_STATIC_FUNCTION(MPSeatOf) {
+@@ -5059,6 +5072,20 @@ LUA_STATIC_FUNCTION(MPSeatOf) {
  	lua_pushinteger(L, (f.n_duelists <= 2 || f.is_duelist(c)) ? c : -1);
  	return 1;
  }
@@ -117,3 +122,6 @@ index bcb9117..9c296e2 100644
  // Duel.MPOwnerSeat(c): the real owner seat, even when the card is controlled by another duelist.
  // At n == 2 this gives the same owner value as the stock GetOwner call.
  LUA_STATIC_FUNCTION(MPOwnerSeat) {
+-- 
+2.43.0
+

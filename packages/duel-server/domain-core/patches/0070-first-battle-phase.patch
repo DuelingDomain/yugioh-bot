@@ -1,9 +1,12 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Release Check <release@localhost>
+From 2d0a1b3d134b70cb1af8bb91170023c8c7d20519 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
-Subject: [PATCH] A002 final route
+Subject: [PATCH] Allow the last living FFA seat to battle on its first turn
 
 ---
+ field.h | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
 diff --git a/field.h b/field.h
 index 3616ec5..430dc5e 100644
 --- a/field.h
@@ -27,3 +30,6 @@ index 3616ec5..430dc5e 100644
  	}
  	// Phase 3 (F5): true when the event code raises its event_player as a real subject (the damaged player, the player
  	// of a chain link, the summoner, the player that draws). Many events pass a literal 0 there (the chain end, the
+-- 
+2.43.0
+

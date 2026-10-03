@@ -1,14 +1,17 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Release Check <release@localhost>
+From aea0798513cbdbd8024919615ff6f76bf3f1a1a2 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
-Subject: [PATCH] A007 final route
+Subject: [PATCH] Expose the real owner seat of a card
 
 ---
+ libduel.cpp | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
 diff --git a/libduel.cpp b/libduel.cpp
-index 9704428..bcb9117 100644
+index cd5e08b..1b34bf4 100644
 --- a/libduel.cpp
 +++ b/libduel.cpp
-@@ -5051,6 +5051,16 @@ LUA_STATIC_FUNCTION(MPSeatOf) {
+@@ -5059,6 +5059,16 @@ LUA_STATIC_FUNCTION(MPSeatOf) {
  	lua_pushinteger(L, (f.n_duelists <= 2 || f.is_duelist(c)) ? c : -1);
  	return 1;
  }
@@ -25,3 +28,6 @@ index 9704428..bcb9117 100644
  // Duel.MPBindSeat(seat): in this scope the Lua value 1 (the opponent) means the real seat `seat`, whatever the chain
  // link has bound (a window wins over it). A seat that is not a living opponent of the scope player (a dead seat, the
  // own team, no duelist) gives an EMPTY other side, never another opponent. Gives true when an opponent is bound.
+-- 
+2.43.0
+

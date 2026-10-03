@@ -1,9 +1,15 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Release Check <release@localhost>
+From 8fa87a319fe67316d12076d3d6eb8318597a062b Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
-Subject: [PATCH] A006 final route
+Subject: [PATCH] Rotate monster control atomically through living FFA seats
 
 ---
+ field.h          |   1 +
+ libduel.cpp      |  19 +++++++
+ operations.cpp   | 135 +++++++++++++++++++++++++++++++++++++++++++++++
+ processor_unit.h |  13 ++++-
+ 4 files changed, 167 insertions(+), 1 deletion(-)
+
 diff --git a/field.h b/field.h
 index 12db739..dc7b117 100644
 --- a/field.h
@@ -17,10 +23,10 @@ index 12db739..dc7b117 100644
  	bool process(Processors::SelfDestroyUnique& arg);
  	bool process(Processors::SelfDestroy& arg);
 diff --git a/libduel.cpp b/libduel.cpp
-index 409e2dd..9704428 100644
+index e4a5285..cd5e08b 100644
 --- a/libduel.cpp
 +++ b/libduel.cpp
-@@ -1480,6 +1480,25 @@ LUA_STATIC_FUNCTION(SwapControl) {
+@@ -1488,6 +1488,25 @@ LUA_STATIC_FUNCTION(SwapControl) {
  		return 1;
  	});
  }
@@ -223,3 +229,6 @@ index 446901b..6e21e1d 100644
  	ControlAdjust, SelfDestroyUnique, SelfDestroy, SelfToGrave, TrapMonsterAdjust,
  	PayLPCost, RemoveCounter, AttackDisable, AnnounceRace, AnnounceAttribute,
  	AnnounceCard, AnnounceNumber, TossCoin, TossDice, RockPaperScissors,
+-- 
+2.43.0
+

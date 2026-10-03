@@ -1,11 +1,22 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Release Check <release@localhost>
+From 22be6eec687348f3e5ae8e78ea866c39339691e8 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
-Subject: [PATCH] A009 final route
+Subject: [PATCH] Share FFA4 zones and geometry with the across seat
 
 ---
+ card.cpp      | 31 ++++++++++----------
+ effect.cpp    |  1 +
+ effect.h      |  6 ++++
+ field.cpp     | 56 ++++++++++++++++++++++++++++++------
+ field.h       | 24 ++++++++++++++++
+ fold_lib.h    | 79 ++++++++++++++++++++++++++++++++++++++++++++++++++-
+ libcard.cpp   | 39 ++++++++++++++++++++++---
+ libduel.cpp   | 33 +++++++++++++++++++--
+ processor.cpp | 40 +++++++++++++++++---------
+ 9 files changed, 266 insertions(+), 43 deletions(-)
+
 diff --git a/card.cpp b/card.cpp
-index 88c81c9..a4dda72 100644
+index 378a031..79654ac 100644
 --- a/card.cpp
 +++ b/card.cpp
 @@ -1362,8 +1362,8 @@ uint32_t card::get_linked_zone(bool free) {
@@ -94,10 +105,10 @@ index 88c81c9..a4dda72 100644
  int32_t card::is_all_column() {
  	if(!(current.location & LOCATION_ONFIELD))
 diff --git a/effect.cpp b/effect.cpp
-index 75f77c2..1d7d036 100644
+index d88fe29..c99d94f 100644
 --- a/effect.cpp
 +++ b/effect.cpp
-@@ -838,6 +838,7 @@ uint8_t effect::get_client_mode() const {
+@@ -890,6 +890,7 @@ uint8_t effect::get_client_mode() const {
  }
  lua_Integer effect::get_value(uint32_t extraargs) {
  	if(is_flag(EFFECT_FLAG_FUNC_VALUE)) {
@@ -106,7 +117,7 @@ index 75f77c2..1d7d036 100644
  		lua_Integer res = pduel->lua->get_function_value(value, 1 + extraargs);
  		return res;
 diff --git a/effect.h b/effect.h
-index c4fafc5..afd28a3 100644
+index edc5130..3c0fa36 100644
 --- a/effect.h
 +++ b/effect.h
 @@ -43,6 +43,12 @@ public:
@@ -123,10 +134,10 @@ index c4fafc5..afd28a3 100644
  	uint16_t copy_id{};
  	uint16_t range{};
 diff --git a/field.cpp b/field.cpp
-index 13e01f5..c549045 100644
+index 1a43603..9abd4a0 100644
 --- a/field.cpp
 +++ b/field.cpp
-@@ -1029,8 +1029,8 @@ int32_t field::is_location_useable(uint32_t playerid, uint32_t location, uint32_
+@@ -1032,8 +1032,8 @@ int32_t field::is_location_useable(uint32_t playerid, uint32_t location, uint32_
  	if (location == LOCATION_MZONE) {
  		if(flag & (0x1u << sequence))
  			return FALSE;
@@ -137,7 +148,7 @@ index 13e01f5..c549045 100644
  			if(oppo & (0x1u << (11 - sequence)))
  				return FALSE;
  		}
-@@ -1247,6 +1247,45 @@ uint32_t field::get_rule_zone_fromex(int32_t playerid, card* pcard) {
+@@ -1250,6 +1250,45 @@ uint32_t field::get_rule_zone_fromex(int32_t playerid, card* pcard) {
  		return 0x1f;
  	}
  }
@@ -183,7 +194,7 @@ index 13e01f5..c549045 100644
  uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linked) {
  	uint32_t zones = 0;
  	for(auto& pcard : player[playerid].list_mzone) {
-@@ -1257,13 +1296,13 @@ uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linke
+@@ -1260,13 +1299,13 @@ uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linke
  		if(pcard)
  			zones |= pcard->get_linked_zone(free);
  	}
@@ -200,7 +211,7 @@ index 13e01f5..c549045 100644
  			if(pcard)
  				oppzones |= pcard->get_linked_zone(free);
  		}
-@@ -1286,7 +1325,8 @@ uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linke
+@@ -1289,7 +1328,8 @@ uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linke
  					const uint8_t handler = peff->get_handler_player();
  					if(handler == playerid)
  						zones |= value & 0x7f;
@@ -210,7 +221,7 @@ index 13e01f5..c549045 100644
  						zones |= (value >> 16) & 0x7f;
  				}
  			}
-@@ -1296,8 +1336,8 @@ uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linke
+@@ -1299,8 +1339,8 @@ uint32_t field::get_linked_zone(int32_t playerid, bool free, bool actually_linke
  }
  void field::get_linked_cards(uint8_t self, uint8_t location1, uint8_t location2, card_set* cset) {
  	get_cards_in_zone(cset, get_linked_zone(self), self, location1);
@@ -264,7 +275,7 @@ index dc7b117..b804f12 100644
  		return player[p].team;
  	}
 diff --git a/fold_lib.h b/fold_lib.h
-index 6ad9d2e..edb6114 100644
+index 08e5397..271bcd7 100644
 --- a/fold_lib.h
 +++ b/fold_lib.h
 @@ -11,6 +11,7 @@
@@ -454,10 +465,10 @@ index 1b161d8..994be19 100644
  	if((self->current.location & LOCATION_ONFIELD)
  			&& !self->get_status(STATUS_SUMMONING | STATUS_SUMMON_DISABLED | STATUS_ACTIVATE_DISABLED | STATUS_SPSUMMON_STEP))
 diff --git a/libduel.cpp b/libduel.cpp
-index 9c296e2..493e1c1 100644
+index 69a6e16..dfa74e1 100644
 --- a/libduel.cpp
 +++ b/libduel.cpp
-@@ -2231,7 +2231,7 @@ LUA_STATIC_FUNCTION(GetLinkedZone) {
+@@ -2239,7 +2239,7 @@ LUA_STATIC_FUNCTION(GetLinkedZone) {
  		return fold::gone_int(L, pduel, lua_get<uint8_t>(L, 1));
  	uint32_t zones = 0;
  	for(uint8_t i = 0; i < count; ++i)
@@ -466,7 +477,7 @@ index 9c296e2..493e1c1 100644
  	lua_pushinteger(L, zones);
  	return 1;
  }
-@@ -2244,7 +2244,7 @@ LUA_STATIC_FUNCTION(GetFreeLinkedZone) {
+@@ -2252,7 +2252,7 @@ LUA_STATIC_FUNCTION(GetFreeLinkedZone) {
  		return fold::gone_int(L, pduel, lua_get<uint8_t>(L, 1));
  	uint32_t zones = 0;
  	for(uint8_t i = 0; i < count; ++i)
@@ -475,7 +486,7 @@ index 9c296e2..493e1c1 100644
  	lua_pushinteger(L, zones);
  	return 1;
  }
-@@ -4826,6 +4826,35 @@ LUA_STATIC_FUNCTION(MPMode) {
+@@ -4834,6 +4834,35 @@ LUA_STATIC_FUNCTION(MPMode) {
  	lua_pushinteger(L, f.n_duelists <= 2 ? 0 : (f.n_teams == f.n_duelists ? 1 : 2));
  	return 1;
  }
@@ -612,3 +623,6 @@ index 2fcbd85..56bae6e 100644
  		if(n_duelists > 2) {
  			send_field_disabled_n(this, arg.previously_disabled_n);
  			return TRUE;
+-- 
+2.43.0
+
