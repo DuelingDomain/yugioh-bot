@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { stackFixture } from "./stack-fixture.ts";
@@ -46,6 +47,8 @@ test("supervisor claims its pid after preparation and removes it after shutdown"
     while (!["ws", "duel", "web"].every((name) => existsSync(fixture.at(`${name}.ready`))) && child.exitCode === null && Date.now() < deadline) await delay(20);
     assert.ok(["ws", "duel", "web"].every((name) => existsSync(fixture.at(`${name}.ready`))), output);
     assert.equal(readFileSync(pidFile, "utf8"), String(child.pid));
+    const duel = JSON.parse(readFileSync(fixture.at("duel.ready"), "utf8"));
+    assert.equal(duel.issuesDir, resolve(fixture.root, ".status/issues"), "slots must read the shared preset issue inbox");
     const duplicate = spawnSync(process.execPath, [fixture.at("packages/e2e/stack/start.mjs")], {
       cwd: fixture.root, env: fixture.env, encoding: "utf8", timeout: 4000,
     });

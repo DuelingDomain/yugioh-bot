@@ -152,7 +152,8 @@ run("duel", process.execPath, [resolve(repoRoot, "packages/duel-server/dist/serv
     DUEL_FX_LAB: manualMode ? "1" : "0",
     // The duel host report op writes here, not into the repo .status/manual. Keeps the real manual reports apart.
     DUEL_REPORT_DIR: resolve(stackDir, "reports"),
-    ...(e2eSlot === undefined ? {} : { DUEL_ISSUES_DIR: resolve(stackDir, "issues") }),
+    // Preset issues are a shared read-only inbox; reports still belong to this stack.
+    DUEL_ISSUES_DIR: resolve(repoRoot, ".status/issues"),
     // Tag, 3-player and 4-player tables. On for the E2E stack so the multi-seat specs run; E2E_MULTIPLAYER_TABLES=0 turns it off.
     MULTIPLAYER_TABLES: process.env.E2E_MULTIPLAYER_TABLES ?? "1",
     // The engine of new 1v1 duels. The E2E stack tests the merged engine (pinned) unless E2E_1V1_ENGINE=legacy asks for the
