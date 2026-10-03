@@ -205,14 +205,14 @@ describe("the R2 entries (state per seat: Q6, the key is the seat in FFA and the
       expect(card.classes, card.file).toEqual(["R2"]);
       expect(card.r2Class, card.file).toBeTruthy();
       expect(card.note, card.file).toBeTruthy();
-      expect(text(card).split("\n")[0], card.file).toBe("if not aux.MPKey then return end");
+      expect(["if not aux.MPKey then return end", "if not aux.MPForEachController then return end", "if not Duel.MPOwnerSeat then return end"], card.file).toContain(text(card).split("\n")[0]);
     }
   });
 
-  it("count 103 suffixes (38 generated seat tables, 65 hand files) and 44 cards that work without change", () => {
-    expect(r2Cards).toHaveLength(103);
+  it("count 111 suffixes (38 generated seat tables, 73 hand files) and 44 cards that work without change", () => {
+    expect(r2Cards).toHaveLength(111);
     expect(seatCards).toHaveLength(38);
-    expect(handCards).toHaveLength(65);
+    expect(handCards).toHaveLength(73);
     expect(R2_NO_CHANGE).toHaveLength(44);
     expect(new Set(R2_NO_CHANGE).size).toBe(R2_NO_CHANGE.length);
   });
@@ -312,7 +312,7 @@ describe("the overlay files", () => {
     for (const card of cards) {
       const first = text(card).split("\n")[0];
       if (card.replace) expect(first, card.file).toBe("--@replace");
-      else expect(first.startsWith("--@replace") || first === "if not aux.MPAny then return end" || first === "if not aux.MPForEachDuelist then return end" || first === "if not aux.MPKey then return end" || card.kind === "fix", `${card.file}: ${first}`).toBe(true);
+      else expect(first.startsWith("--@replace") || first === "if not aux.MPAny then return end" || first === "if not aux.MPForEachDuelist then return end" || first === "if not aux.MPKey then return end" || first === "if not aux.MPForEachController then return end" || first === "if not Duel.MPOwnerSeat then return end" || card.kind === "fix", `${card.file}: ${first}`).toBe(true);
     }
   });
 
@@ -322,6 +322,8 @@ describe("the overlay files", () => {
 
   it("uses only helpers that mp-utility.lua defines and core functions of the F7 window", () => {
     const coreApi = new Set(["MPMode", "MPBound", "MPOppCount", "MPNeedPick", "MPBindOpponent", "MPWindow", "MPWindowEnd", "MPAssertBound", "MPTurnOwns", "MPAttackedSeat", "MPSeatOf", "MPBindSeat", "MPNthDuelist", "MPSeat"]);
+    coreApi.add("MPActionSeat");
+    coreApi.add("MPOwnerSeat");
     for (const card of cards) {
       for (const [, helper] of text(card).matchAll(/\baux\.(MP\w+)/g)) {
         expect(helperText, `${card.file}: aux.${helper}`).toContain(`function aux.${helper}(`);

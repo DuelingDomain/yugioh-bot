@@ -627,6 +627,18 @@
       ]
     },
     {
+      "code": 11163040,
+      "file": "c11163040.lua",
+      "name": "The Kaiju Files",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "4b2fb2b2086b360296dbd6bd82998c5726769aeed7f17da5938a3c5974ddffca",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
+    },
+    {
       "code": 12210097,
       "file": "c12210097.lua",
       "name": "Mitsurugi Sacred Boundary",
@@ -814,6 +826,18 @@
       "classes": [],
       "stockSha256": "f51bab6244f67e17c50f1c54d5679072e9019ce02938ae6024a1291a938ad4b1",
       "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
+      "code": 14772491,
+      "file": "c14772491.lua",
+      "name": "Common Soul",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "4dae4b6862b1c1a8439a73ee3a115669532bd01b77e271cccc7e0efd77bd766f",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
     },
     {
       "code": 14989021,
@@ -1564,6 +1588,18 @@
       "compareIn": [
         "condition"
       ]
+    },
+    {
+      "code": 24649931,
+      "name": "Materialization",
+      "classes": [
+        "R2"
+      ],
+      "kind": "hand",
+      "file": "c24649931.lua",
+      "stockSha256": "a0aa9bb3f19c167d90022fc7aeab290b16030b209499c80b8abcf249adb39bd6",
+      "note": "Use the real owner and action seats.",
+      "r2Class": "EACH-CONTROLLER"
     },
     {
       "code": 24731453,
@@ -2771,6 +2807,18 @@
       "stockSha256": "9ca56d4fca7239fd8881054a4a240a992d6e3014026cb58525da1e48fc593103"
     },
     {
+      "code": 45112597,
+      "file": "c45112597.lua",
+      "name": "Worldsea Dragon Zealantis",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "b8dc0f1a453430b0133fb44ff989e0e446d4bc20bdc2c53c63bca2db198c9368",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
+    },
+    {
       "code": 45148985,
       "file": "c45148985.lua",
       "name": "Metaphys Executor",
@@ -3529,6 +3577,15 @@
       "note": "Numeron Dragon: desop loops over every living duelist with aux.MPForEachDuelist (Tag partners included): each chooses from its own scope (in Tag the Graveyard of the team, the card of the partner is not offered again), then each Sets its card in a second pass. spcon in FFA counts only a direct attack that can only go to you (no other seat without a monster): the core has no read of the attacked duelist."
     },
     {
+      "code": 57809669,
+      "file": "c57809669.lua",
+      "kind": "fix",
+      "name": "Hecahands Tartaros",
+      "classes": [],
+      "stockSha256": "455272f159de7d185db71cfb4e5b1c2d126fd25a158b39f331e23229db9cd754",
+      "note": "Use real owner and handler seats for Fusion materials."
+    },
+    {
       "code": 57847269,
       "file": "c57847269.lua",
       "name": "Clown Crew Matinee Operatics",
@@ -4157,6 +4214,18 @@
       "stockSha256": "055f3d9ec000dd4ba2e8861206c7cb680e7274ca4e02e8f683bd1afdbc98c6b8"
     },
     {
+      "code": 68223137,
+      "file": "c68223137.lua",
+      "name": "One-Kuri-Way",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "70c46fa9bb8cf78206226d427c16510ce69f3f600ede4f42aa11ec3861fab447",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
+    },
+    {
       "code": 68831625,
       "file": "c68831625.lua",
       "name": "DoomZ Command \"D.O.O.M.D.U.R.G.\"",
@@ -4709,6 +4778,18 @@
       "r2Class": "FLAG-L0",
       "stockSha256": "c643d795ba92d490c7446ad22dd42e6a268483bd5303bffa13d952f70e33173f",
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
+    },
+    {
+      "code": 76524506,
+      "file": "c76524506.lua",
+      "name": "Garden Rose Flora",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "938f3039797fceb2e7ef988c9f225f43b06328bf1ad381f8c2ecd6961b9a87c6",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
     },
     {
       "code": 76636978,
@@ -5558,6 +5639,18 @@
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
     },
     {
+      "code": 90500169,
+      "file": "c90500169.lua",
+      "name": "Level Down!?",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "00e3d2514b3078afde4fcca1994d2609756a158c1fc7ad4ce08bb6857438397c",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
+    },
+    {
       "code": 90669991,
       "file": "c90669991.lua",
       "name": "Pineapple Blast",
@@ -5640,6 +5733,18 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "2f0d2680f42f1509f377e7f74b62cfd9c28c8ca10eb6c717a50c0b3afd6e756d"
+    },
+    {
+      "code": 91742238,
+      "file": "c91742238.lua",
+      "name": "Return of the Zombies",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "e1d0ba83a7b5c3e4e72cf826c0e4ae0021656274cbff3e207b5771df6fb96e47",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
     },
     {
       "code": 91870448,

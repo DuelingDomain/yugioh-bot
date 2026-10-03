@@ -1,0 +1,119 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Release Check <release@localhost>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] A008 final route
+
+---
+diff --git a/fold.h b/fold.h
+index ca544ac..2f7160d 100644
+--- a/fold.h
++++ b/fold.h
+@@ -68,6 +68,11 @@ inline uint8_t unfold_action(duel* pduel, uint8_t v, const char* fn, bool team_l
+ 	if(!s)
+ 		return v;
+ 	const auto& f = *pduel->game_field;
++	// An explicit action seat names an actor without changing the bound recipient.
++	if(v >= 0x80 && v < 0x80 + MAX_DUELISTS) {
++		const uint8_t seat = v - 0x80;
++		return f.is_alive(seat) ? seat : INVALID;
++	}
+ 	if(v == PLAYER_NONE)
+ 		return f.none_id();
+ 	if(v == PLAYER_ALL)
+diff --git a/fold_lib.h b/fold_lib.h
+index 5dbd656..6ad9d2e 100644
+--- a/fold_lib.h
++++ b/fold_lib.h
+@@ -209,6 +209,18 @@ inline int32_t can_any(lua_State* L, duel* pduel, uint8_t v, const char* fn, F&&
+ 	return 1;
+ }
+ 
++// A summon permission check can name the exact actor while its recipient stays bound.
++// Ordinary query values keep the existing query path, including two-player behavior.
++template<typename F>
++inline int32_t can_actor(lua_State* L, duel* pduel, uint8_t v, const char* fn, F&& pred) {
++	if(active(pduel) && v >= 0x80 && v < 0x80 + MAX_DUELISTS) {
++		const auto actor = unfold_action(pduel, v, fn);
++		lua_pushboolean(L, actor != INVALID && pred(actor));
++		return 1;
++	}
++	return can_any(L, pduel, v, fn, std::forward<F>(pred));
++}
++
+ } // namespace fold
+ 
+ #endif /* FOLD_LIB_H_ */
+diff --git a/libduel.cpp b/libduel.cpp
+index bcb9117..9c296e2 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -992,7 +992,16 @@ LUA_STATIC_FUNCTION(ConfirmCards) {
+ 	// broadcast: the cards go to every duelist the Lua value names (0 = the own side, 1 = every living
+ 	// opponent). With 2 duelists that is the one duelist of the stock call: one message, same bytes.
+ 	uint8_t viewers[MAX_DUELISTS];
+-	const auto viewer_count = fold::field_list(pduel, lua_get<uint8_t>(L, 1), viewers, "ConfirmCards");
++	const auto value = lua_get<uint8_t>(L, 1);
++	uint8_t viewer_count = 0;
++	if(fold::active(pduel) && value >= 0x80 && value < 0x80 + MAX_DUELISTS) {
++		const auto viewer = fold::unfold_action(pduel, value, "ConfirmCards");
++		if(pduel->game_field->is_duelist(viewer)) {
++			viewers[0] = viewer;
++			viewer_count = 1;
++		}
++	} else
++		viewer_count = fold::field_list(pduel, value, viewers, "ConfirmCards");
+ 	if(viewer_count == 0)
+ 		return 0;
+ 	const uint8_t playerid = viewers[0];
+@@ -3534,7 +3543,11 @@ LUA_STATIC_FUNCTION(Hint) {
+ 			for(uint8_t seat=0;seat<gf.n_duelists;++seat)
+ 				if(!gf.same_team(actor,seat)) send(seat);
+ 		};
+-		if(htype==HINT_OPSELECTED) {
++		if(scope && value>=0x80 && value<0x80+MAX_DUELISTS) {
++			const auto actor=fold::unfold_action(pduel,value,"Hint");
++			if(htype==HINT_OPSELECTED) opponents(actor);
++			else send(actor);
++		} else if(htype==HINT_OPSELECTED) {
+ 			// In a card effect, its controller selected the operation. Outside a
+ 			// scope the argument is the real caller seat, as in the existing API.
+ 			opponents(scope ? scope->P : value);
+@@ -4277,7 +4290,7 @@ LUA_STATIC_FUNCTION(CanPlayerSetSpellTrap) {
+ }
+ LUA_STATIC_FUNCTION(IsPlayerCanSpecialSummon) {
+ 	check_param_count(L, 1);
+-	return fold::can_any(L, pduel, lua_get<uint8_t>(L, 1), "IsPlayerCanSpecialSummon", [&](uint8_t playerid) -> bool {
++	return fold::can_actor(L, pduel, lua_get<uint8_t>(L, 1), "IsPlayerCanSpecialSummon", [&](uint8_t playerid) -> bool {
+ 		if(lua_gettop(L) == 1)
+ 			return pduel->game_field->is_player_can_spsummon(playerid);
+ 		check_param_count(L, 5);
+@@ -4303,7 +4316,7 @@ LUA_STATIC_FUNCTION(IsPlayerCanFlipSummon) {
+ }
+ LUA_STATIC_FUNCTION(IsPlayerCanSpecialSummonMonster) {
+ 	check_param_count(L, 2);
+-	return fold::can_any(L, pduel, lua_get<uint8_t>(L, 1), "IsPlayerCanSpecialSummonMonster", [&](uint8_t playerid) -> bool {
++	return fold::can_actor(L, pduel, lua_get<uint8_t>(L, 1), "IsPlayerCanSpecialSummonMonster", [&](uint8_t playerid) -> bool {
+ 		auto code = lua_get<uint32_t>(L, 2);
+ 		card_data dat = pduel->read_card(code);
+ 		dat.code = code;
+@@ -5051,6 +5064,20 @@ LUA_STATIC_FUNCTION(MPSeatOf) {
+ 	lua_pushinteger(L, (f.n_duelists <= 2 || f.is_duelist(c)) ? c : -1);
+ 	return 1;
+ }
++// Duel.MPActionSeat([real_seat]): the optional argument is a REAL seat, never folded tp.
++// In a card effect use no argument for the original actor. No argument keeps the original
++// scope player after a Tag rebind. This call does not change the recipient or scope.
++// With two duelists the returned player value follows the stock path.
++LUA_STATIC_FUNCTION(MPActionSeat) {
++	const auto& f = *pduel->game_field;
++	const auto* scope = fold::active(pduel);
++	const auto seat = lua_isnoneornil(L, 1)
++		? static_cast<int64_t>(scope ? (scope->rb.active ? scope->rb.P0 : scope->P) : f.core.reason_player)
++		: lua_get<int64_t>(L, 1);
++	const bool valid = seat >= 0 && seat < f.n_duelists;
++	lua_pushinteger(L, valid ? (scope ? 0x80 + seat : seat) : (scope ? PLAYER_NONE : f.none_id()));
++	return 1;
++}
+ // Duel.MPOwnerSeat(c): the real owner seat, even when the card is controlled by another duelist.
+ // At n == 2 this gives the same owner value as the stock GetOwner call.
+ LUA_STATIC_FUNCTION(MPOwnerSeat) {

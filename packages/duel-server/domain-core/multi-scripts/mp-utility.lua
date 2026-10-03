@@ -332,3 +332,8 @@ function aux.MPGlobalFlagOperation(op)
 		return table.unpack(result,2,result.n)
 	end
 end
+
+-- Duel.MPActionSeat() keeps the original actor through a recipient rebind.
+-- Its optional argument is a REAL seat from MPSeatOf/MPOwnerSeat or the host.
+-- Never pass folded tp or 1-tp. In a card effect use no argument for the actor.
+-- The marker can name a chooser, a ConfirmCards viewer, or a summon player/destination.
