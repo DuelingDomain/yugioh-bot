@@ -8,8 +8,11 @@ import { Session, domainNseatWasmBinary, nseatWasmBinary } from "../../support/s
 import { ALL_PLAYER_ZONE_GAPS_SCENARIOS } from "./all-player-zone-gaps.js";
 import { runScenarios } from "../../support/runner.js";
 
-describeWithCores("live remaining all-player zone actions", [liveNseat, ...needs.domainMulti()], () => {
-  runScenarios("multiplayer/all-player-zone-gaps", ALL_PLAYER_ZONE_GAPS_SCENARIOS, async (scenario) => {
+for (const mode of ["normal", "domain"] as const) {
+  const required = mode === "domain" ? [liveNseat, ...needs.domainMulti()] : liveNseat;
+  describeWithCores(`live remaining all-player zone actions (${mode})`, required, () => {
+    const scenarios = ALL_PLAYER_ZONE_GAPS_SCENARIOS.filter((scenario) => (scenario.setup.mode ?? "normal") === mode);
+    runScenarios(`multiplayer/all-player-zone-gaps (${mode})`, scenarios, async (scenario) => {
       const game = await createEngineGame({
         ...compileBoard(scenario.setup).options, seed: ["1", "2", "3", "4"],
         dataDirectory: engineDataDirectory,
@@ -28,5 +31,6 @@ describeWithCores("live remaining all-player zone actions", [liveNseat, ...needs
       } finally {
         game.close();
       }
+    });
   });
-});
+}
