@@ -21,8 +21,11 @@ import {
   statParts,
   titleCase,
   toggled,
+  typeChips,
+  typeKeyName,
   typeParts,
   cardText,
+  type FacetChip,
   type Kind,
   type MonsterSubtype,
   type Order,
@@ -68,6 +71,49 @@ interface Row {
 }
 
 const canHover = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: hover)").matches;
+
+/** One labelled row of filter chips. A row with no chips (no data for it yet) is not drawn. */
+function ChipRow({
+  label,
+  group,
+  chips,
+  selected,
+  nameOf = (k) => k,
+  dotOf,
+  onToggle,
+}: {
+  label: string;
+  group: "type" | "attr" | "arch";
+  chips: FacetChip[];
+  selected: ReadonlySet<string>;
+  nameOf?: (key: string) => string;
+  dotOf?: (key: string) => string;
+  onToggle: (key: string) => void;
+}) {
+  if (!chips.length) return null;
+  return (
+    <div className="fg">
+      <span>{label}</span>
+      <div className="chips">
+        {chips.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            className="chip"
+            data-g={group}
+            data-k={c.key}
+            aria-pressed={selected.has(c.key)}
+            data-zero={c.n ? undefined : ""}
+            onClick={() => onToggle(c.key)}
+          >
+            {dotOf ? <i style={{ "--dot": dotOf(c.key) } as React.CSSProperties} /> : null}
+            {nameOf(c.key)} <b>{c.n}</b>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function statText(card: RoomCard): string {
   const sp = statParts(card);
@@ -123,6 +169,10 @@ export const Binder = memo(
     const filtering = isFiltering(filter);
     const active = facetCount(filter);
     const chips = useMemo(() => attributeChips(cards, p.packCards, filter.attr), [cards, p.packCards, filter.attr]);
+    const monsterTypeChips = useMemo(() => typeChips("monster", cards, p.packCards, filter.type), [cards, p.packCards, filter.type]);
+    const spellTypeChips = useMemo(() => typeChips("spell", cards, p.packCards, filter.type), [cards, p.packCards, filter.type]);
+    const trapTypeChips = useMemo(() => typeChips("trap", cards, p.packCards, filter.type), [cards, p.packCards, filter.type]);
+    const toggleType = (k: string) => onFilter({ ...filter, type: toggled(filter.type, k) });
     const archChips = useMemo(() => archetypeChips(cards, p.packCards, filter.arch), [cards, p.packCards, filter.arch]);
 
     const rows = useMemo(() => {
@@ -321,49 +371,25 @@ export const Binder = memo(
               Breakdown <span>{!facetsOpen && active ? `${active} on` : ""}</span>
             </button>
             <div className="facets" id="facets" hidden={!facetsOpen}>
-              {chips.length ? (
-                <div className="fg">
-                  <span>Attribute</span>
-                  <div className="chips">
-                    {chips.map((c) => (
-                      <button
-                        key={c.key}
-                        type="button"
-                        className="chip"
-                        data-g="attr"
-                        data-k={c.key}
-                        aria-pressed={filter.attr.has(c.key)}
-                        data-zero={c.n ? undefined : ""}
-                        onClick={() => onFilter({ ...filter, attr: toggled(filter.attr, c.key) })}
-                      >
-                        <i style={{ "--dot": attributeTint(c.key) } as React.CSSProperties} />
-                        {titleCase(c.key)} <b>{c.n}</b>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {archChips.length ? (
-                <div className="fg">
-                  <span>Archetype</span>
-                  <div className="chips">
-                    {archChips.map((c) => (
-                      <button
-                        key={c.key}
-                        type="button"
-                        className="chip"
-                        data-g="arch"
-                        data-k={c.key}
-                        aria-pressed={filter.arch.has(c.key)}
-                        data-zero={c.n ? undefined : ""}
-                        onClick={() => onFilter({ ...filter, arch: toggled(filter.arch, c.key) })}
-                      >
-                        {c.key} <b>{c.n}</b>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+              <ChipRow label="Monster type" group="type" chips={monsterTypeChips} selected={filter.type} nameOf={typeKeyName} onToggle={toggleType} />
+              <ChipRow
+                label="Attribute"
+                group="attr"
+                chips={chips}
+                selected={filter.attr}
+                nameOf={titleCase}
+                dotOf={attributeTint}
+                onToggle={(k) => onFilter({ ...filter, attr: toggled(filter.attr, k) })}
+              />
+              <ChipRow label="Spells" group="type" chips={spellTypeChips} selected={filter.type} nameOf={typeKeyName} onToggle={toggleType} />
+              <ChipRow label="Traps" group="type" chips={trapTypeChips} selected={filter.type} nameOf={typeKeyName} onToggle={toggleType} />
+              <ChipRow
+                label="Archetype"
+                group="arch"
+                chips={archChips}
+                selected={filter.arch}
+                onToggle={(k) => onFilter({ ...filter, arch: toggled(filter.arch, k) })}
+              />
             </div>
           </div>
           <div className="bd-bar">

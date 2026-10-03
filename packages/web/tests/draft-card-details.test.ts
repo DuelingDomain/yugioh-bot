@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { seedDraftDeck } from "./helpers/draft-deck-fixture";
 
 const tempDirs: string[] = [];
+// The room asks the duel host for card types; these tests have no host.
+vi.mock("@/lib/duel-host", () => ({ callDuelHost: async () => ({ ok: false, response: { status: 503 } }) }));
 
 beforeEach(() => vi.resetModules());
 afterEach(async () => {

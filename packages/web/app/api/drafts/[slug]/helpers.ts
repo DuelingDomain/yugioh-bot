@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { createCardCatalogService, createDraftService, createSavedDeckService } from "@yugidraft/shared/services";
 import { toUtcIso } from "@/lib/utils";
 import { broadcaster } from "@/lib/notify";
+import { lookupDraftCardTypes, type EngineCardTypes } from "@/lib/draft-engine-types";
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
   if (!pickDeadlineAt) {
@@ -16,7 +17,8 @@ function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
 
 function mapDraftCardDetails(
   db: ReturnType<typeof getDb>,
-  cards: Array<{ draftCardId: number; catalogCardId: number }>
+  cards: Array<{ draftCardId: number; catalogCardId: number }>,
+  engineTypes: ReadonlyMap<number, EngineCardTypes> = new Map(),
 ) {
   if (cards.length === 0) {
     return [];
@@ -28,6 +30,7 @@ function mapDraftCardDetails(
 
   return cards.map((card) => {
     const catalogCard = catalogById.get(card.catalogCardId);
+    const engine = engineTypes.get(card.catalogCardId);
 
     return {
       id: card.draftCardId,
@@ -37,6 +40,8 @@ function mapDraftCardDetails(
       frameType: catalogCard?.frameType ?? "normal",
       attribute: catalogCard?.attribute,
       archetype: catalogCard?.archetype ?? null,
+      race: engine?.race ?? null,
+      spellTrapType: engine?.spellTrapType ?? null,
       level: catalogCard?.level,
       effectText: catalogCard?.effectText ?? "",
       atk: catalogCard?.atk,
@@ -177,8 +182,16 @@ export async function buildDraftResponse(slug: string, userId: string) {
         }))
       : [];
 
-  const currentPack = mapDraftCardDetails(db, currentPackCards);
-  const myPool = mapDraftCardDetails(db, myPoolCards);
+  // Monster type and spell/trap kind come from the duel engine. Without it (or without a seat to ask
+  // it as) the cards carry no types and the room hides those chip rows.
+  const engineTypes = currentPlayer && isParticipant
+    ? await lookupDraftCardTypes(
+        [...currentPackCards, ...myPoolCards].map((card) => card.catalogCardId),
+        { guildId: draft.guild_id, playerId: currentPlayer.id },
+      )
+    : new Map<number, EngineCardTypes>();
+  const currentPack = mapDraftCardDetails(db, currentPackCards, engineTypes);
+  const myPool = mapDraftCardDetails(db, myPoolCards, engineTypes);
 
   // Theme-mode extras: derived phase, progress, and lobby theme previews.
   const isTheme = draftModel.config.mode === "theme";

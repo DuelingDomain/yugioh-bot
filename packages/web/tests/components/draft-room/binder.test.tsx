@@ -375,6 +375,7 @@ describe("binder empty filters", () => {
     lvl: new Set(["low"]),
     attr: new Set(["DARK"]),
     arch: new Set(),
+    type: new Set(),
   };
 
   it("shows the filtered empty message and clears every filter while retaining sort", () => {
@@ -435,5 +436,43 @@ describe("binder archetype row", () => {
     render(<Harness pool={archPool} />);
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "blue-eyes" } });
     return waitFor(() => expect(names()).toEqual(["Blue-Eyes White Dragon"]));
+  });
+});
+
+describe("binder type rows", () => {
+  // The kind buttons also say "Spells" and "Traps"; the facet rows label themselves in .fg > span.
+  const rowLabels = () => [...document.querySelectorAll(".fg > span")].map((n) => n.textContent);
+  const typed = [
+    card(1, "Blue-Eyes White Dragon", { race: "Dragon" }),
+    card(2, "Red-Eyes Black Dragon", { race: "Dragon" }),
+    card(3, "Dark Magician", { race: "Spellcaster" }),
+    card(4, "Mystical Space Typhoon", { type: "Spell Card", frameType: "spell", spellTrapType: "Quick-Play" }),
+    card(5, "Magic Jammer", { type: "Trap Card", frameType: "trap", spellTrapType: "Counter" }),
+  ];
+  const chip = (name: RegExp) => screen.getByRole("button", { name });
+
+  it("shows Monster type, Spells and Traps rows and filters by the chip", () => {
+    render(<Harness pool={typed} />);
+    expect(rowLabels()).toEqual(expect.arrayContaining(["Monster type", "Spells", "Traps"]));
+    fireEvent.click(chip(/^Dragon 2$/));
+    expect(chip(/^Dragon 2$/)).toHaveAttribute("aria-pressed", "true");
+    expect(names()).toEqual(["Blue-Eyes White Dragon", "Red-Eyes Black Dragon"]);
+    fireEvent.click(chip(/^Counter 1$/));
+    expect(names()).toEqual(["Blue-Eyes White Dragon", "Red-Eyes Black Dragon", "Magic Jammer"]);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(names()).toHaveLength(5);
+  });
+
+  it("hides all three rows when the engine gave no types", () => {
+    render(<Harness pool={[card(1, "Plain"), card(2, "Other")]} />);
+    expect(rowLabels()).not.toEqual(expect.arrayContaining(["Monster type"]));
+    expect(rowLabels()).not.toContain("Spells");
+    expect(rowLabels()).not.toContain("Traps");
+  });
+
+  it("finds picks by monster type in the search box", () => {
+    render(<Harness pool={typed} />);
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "spellcaster" } });
+    return waitFor(() => expect(names()).toEqual(["Dark Magician"]));
   });
 });

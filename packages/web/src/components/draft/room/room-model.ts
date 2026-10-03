@@ -52,13 +52,17 @@ function titleCase(s: string): string {
 }
 export { titleCase };
 
-/** Type, attribute and level only: the draft API does not send race. */
+/**
+ * Type, attribute, monster type and level. The monster type and the spell or trap kind come from the
+ * duel engine; when the engine could not be reached they are missing and the line is just "Spell" or "Trap".
+ */
 export function typeParts(card: RoomCard): string[] {
   const kind = kindOf(card);
-  if (kind === "spell") return ["Spell"];
-  if (kind === "trap") return ["Trap"];
+  if (kind === "spell") return [card.spellTrapType ? `${card.spellTrapType} Spell` : "Spell"];
+  if (kind === "trap") return [card.spellTrapType ? `${card.spellTrapType} Trap` : "Trap"];
   const parts = [card.type.replace(/ Card$/, "")];
   if (card.attribute) parts.push(card.attribute);
+  if (card.race) parts.push(card.race);
   const frame = card.frameType.trim().toLowerCase();
   if (card.level) {
     if (frame.startsWith("xyz")) parts.push(`Rank ${card.level}`);
@@ -332,20 +336,49 @@ export interface RoomFilter {
   attr: ReadonlySet<string>;
   /** Archetype names, as the card catalog spells them. */
   arch: ReadonlySet<string>;
+  /** Monster types, and spell and trap kinds, as `monster:Dragon`, `spell:Quick-Play`, `trap:Counter`. */
+  type: ReadonlySet<string>;
 }
 
-export const EMPTY_FILTER: RoomFilter = { kinds: new Set(), q: "", lvl: new Set(), attr: new Set(), arch: new Set() };
+export const EMPTY_FILTER: RoomFilter = {
+  kinds: new Set(),
+  q: "",
+  lvl: new Set(),
+  attr: new Set(),
+  arch: new Set(),
+  type: new Set(),
+};
 
 export function isFiltering(f: RoomFilter): boolean {
-  return f.kinds.size > 0 || f.q !== "" || f.lvl.size > 0 || f.attr.size > 0 || f.arch.size > 0;
+  return f.kinds.size > 0 || f.q !== "" || f.lvl.size > 0 || f.attr.size > 0 || f.arch.size > 0 || f.type.size > 0;
 }
 
 export function facetCount(f: RoomFilter): number {
-  return f.lvl.size + f.attr.size + f.arch.size;
+  return f.lvl.size + f.attr.size + f.arch.size + f.type.size;
+}
+
+export type TypeRow = "monster" | "spell" | "trap";
+
+/** The chip key for a card's monster type or spell/trap kind, or null when the engine did not say. */
+export function typeKey(card: RoomCard): string | null {
+  const kind = kindOf(card);
+  if (kind === "spell") return card.spellTrapType ? `spell:${card.spellTrapType}` : null;
+  if (kind === "trap") return card.spellTrapType ? `trap:${card.spellTrapType}` : null;
+  return card.race ? `monster:${card.race}` : null;
+}
+
+/** "monster:Dragon" reads as Dragon; "spell:Quick-Play" as Quick-Play. */
+export function typeKeyName(key: string): string {
+  return key.slice(key.indexOf(":") + 1);
+}
+
+function typeKeyWords(key: string): string {
+  const name = typeKeyName(key);
+  return key.startsWith("spell:") ? `${name} Spell` : key.startsWith("trap:") ? `${name} Trap` : name;
 }
 
 export function haystack(card: RoomCard): string {
-  return [card.name, card.effectText, card.type, card.attribute, card.archetype, KIND_ONE[kindOf(card)], ...typeParts(card)]
+  return [card.name, card.effectText, card.type, card.attribute, card.race, card.archetype, KIND_ONE[kindOf(card)], ...typeParts(card)]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -367,6 +400,10 @@ export function matchesFilter(card: RoomCard, f: RoomFilter): boolean {
     const level = card.level ?? 0;
     if (![...f.lvl].some((k) => tierMatches(k, level))) return false;
   }
+  if (f.type.size) {
+    const key = typeKey(card);
+    if (!key || !f.type.has(key)) return false;
+  }
   if (f.attr.size && !(card.attribute && f.attr.has(card.attribute))) return false;
   if (f.arch.size && !(card.archetype && f.arch.has(card.archetype))) return false;
   return true;
@@ -379,6 +416,7 @@ export function filterWords(f: RoomFilter): string {
     parts.push(subtype && subtype !== "all" ? `${titleCase(subtype)} monsters` : [...f.kinds].map((k) => KIND_LABEL[k]).join(" or "));
   }
   if (f.lvl.size) parts.push("Level " + [...f.lvl].map((k) => TIER_RANGE[k]).join(" or "));
+  if (f.type.size) parts.push([...f.type].map(typeKeyWords).join(" or "));
   if (f.attr.size) parts.push([...f.attr].map(titleCase).join(" or "));
   if (f.arch.size) parts.push([...f.arch].join(" or "));
   if (f.q) parts.push(`“${f.q}”`);
@@ -431,6 +469,23 @@ export function facetChips(opts: {
 /** Attribute chips: counts come from the list shown, but any attribute in this pack gets a chip too. */
 export function attributeChips(list: RoomCard[], inPack: RoomCard[], selected: ReadonlySet<string>): FacetChip[] {
   return facetChips({ list, inPack, selected, keyOf: (c) => c.attribute });
+}
+
+/**
+ * Type chips for one row: Monster type (monsters and the extra deck), Spells or Traps. Keys look like
+ * `monster:Dragon`. With no engine data there are no keys, so the row is empty and hides.
+ */
+export function typeChips(row: TypeRow, list: RoomCard[], inPack: RoomCard[], selected: ReadonlySet<string>): FacetChip[] {
+  const mine = new Set([...selected].filter((k) => k.startsWith(`${row}:`)));
+  return facetChips({
+    list,
+    inPack,
+    selected: mine,
+    keyOf: (c) => {
+      const key = typeKey(c);
+      return key && key.startsWith(`${row}:`) ? key : null;
+    },
+  });
 }
 
 /** Archetype chips: the eight biggest, plus any you have switched on. */

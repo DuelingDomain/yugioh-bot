@@ -8,6 +8,10 @@ import {
   filterWords,
   isFiltering,
   matchesFilter,
+  typeChips,
+  typeKey,
+  typeKeyName,
+  typeParts,
   type RoomCard,
 } from "../../../src/components/draft/room/room-model";
 
@@ -76,5 +80,59 @@ describe("chip rows", () => {
     expect(archetypeChips([card(1)], [card(2)], new Set())).toEqual([]);
     expect(attributeChips([card(1)], [], new Set())).toEqual([{ key: "DARK", n: 1 }]);
     expect(facetChips({ list: [], inPack: [], selected: new Set(), keyOf: () => "x" })).toEqual([]);
+  });
+});
+
+describe("monster type and spell/trap type", () => {
+  const dragon = card(1, { name: "Blue-Eyes", race: "Dragon" });
+  const mage = card(2, { name: "Dark Magician", race: "Spellcaster" });
+  const quick = card(3, { name: "Mystical Space Typhoon", type: "Spell Card", frameType: "spell", spellTrapType: "Quick-Play" });
+  const counter = card(4, { name: "Magic Jammer", type: "Trap Card", frameType: "trap", spellTrapType: "Counter" });
+  const noData = card(5, { name: "Mystery" });
+  const all = [dragon, mage, quick, counter, noData];
+
+  it("keys cards by row and type, and nothing without engine data", () => {
+    expect([dragon, quick, counter, noData].map(typeKey)).toEqual(["monster:Dragon", "spell:Quick-Play", "trap:Counter", null]);
+    expect(typeKeyName("spell:Quick-Play")).toBe("Quick-Play");
+  });
+
+  it("matches the chosen types, across rows as any-of", () => {
+    const f = { ...EMPTY_FILTER, type: new Set(["monster:Dragon"]) };
+    expect(all.filter((c) => matchesFilter(c, f)).map((c) => c.id)).toEqual([1]);
+    const either = { ...EMPTY_FILTER, type: new Set(["monster:Dragon", "trap:Counter"]) };
+    expect(all.filter((c) => matchesFilter(c, either)).map((c) => c.id)).toEqual([1, 4]);
+  });
+
+  it("counts as a facet, as filtering, and reads in the filter words", () => {
+    const f = { ...EMPTY_FILTER, type: new Set(["spell:Quick-Play"]) };
+    expect(facetCount(f)).toBe(1);
+    expect(isFiltering(f)).toBe(true);
+    expect(filterWords(f)).toContain("Quick-Play Spell");
+  });
+
+  it("searches by monster type and by spell or trap kind", () => {
+    const hit = (q: string) => all.filter((c) => matchesFilter(c, { ...EMPTY_FILTER, q })).map((c) => c.id);
+    expect(hit("dragon")).toContain(1);
+    expect(hit("spellcaster")).toEqual([2]);
+    expect(hit("quick-play")).toEqual([3]);
+    expect(hit("counter")).toEqual([4]);
+  });
+
+  it("shows the types on the card's type line when the engine gave them", () => {
+    expect(typeParts(dragon)).toContain("Dragon");
+    expect(typeParts(quick)).toEqual(["Quick-Play Spell"]);
+    expect(typeParts(counter)).toEqual(["Counter Trap"]);
+    expect(typeParts(card(6, { type: "Spell Card", frameType: "spell" }))).toEqual(["Spell"]);
+  });
+
+  it("builds a chip row per kind, biggest first, and no chips without data", () => {
+    const list = [dragon, card(6, { race: "Dragon" }), mage, quick, counter, noData];
+    expect(typeChips("monster", list, [], new Set()).map((c) => [c.key, c.n])).toEqual([
+      ["monster:Dragon", 2],
+      ["monster:Spellcaster", 1],
+    ]);
+    expect(typeChips("spell", list, [], new Set()).map((c) => c.key)).toEqual(["spell:Quick-Play"]);
+    expect(typeChips("trap", list, [], new Set()).map((c) => c.key)).toEqual(["trap:Counter"]);
+    expect(typeChips("monster", [noData, quick], [], new Set())).toEqual([]);
   });
 });
