@@ -3,6 +3,7 @@ import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BugReportDialog } from "@/components/bug-report/bug-report-dialog";
+import { Sheet } from "@/components/ui/sheet";
 import { collectBugContext } from "@/components/bug-report/context";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import { parseBugReportRequest } from "@/lib/bug-report";
@@ -298,5 +299,123 @@ describe("BugReportDialog pre-check", () => {
     await send();
     await screen.findByTestId("bug-report-done");
     expect(screen.getByRole("link", { name: "#7" })).toBeInTheDocument();
+  });
+});
+
+describe("BugReportDialog inside a Sheet", () => {
+  function SheetHarness({ onSheetClose }: { onSheetClose: () => void }) {
+    const [open, setOpen] = React.useState(false);
+    return (
+      <Sheet open onClose={onSheetClose} title="Settings">
+        <button type="button" onClick={() => setOpen(true)}>Open report</button>
+        <BugReportDialog open={open} onClose={() => setOpen(false)} collect={() => collectBugContext(null)} />
+      </Sheet>
+    );
+  }
+  const openInSheet = (onSheetClose = vi.fn()) => {
+    render(<SheetHarness onSheetClose={onSheetClose} />);
+    screen.getByRole("button", { name: "Open report" }).focus();
+    fireEvent.click(screen.getByRole("button", { name: "Open report" }));
+    return onSheetClose;
+  };
+
+  it("renders in document.body, outside the sheet", () => {
+    openInSheet();
+    const dialog = screen.getByRole("dialog", { name: "Report a bug" });
+    const sheet = screen.getByRole("dialog", { name: "Settings" });
+    expect(dialog.parentElement?.parentElement).toBe(document.body);
+    expect(sheet.contains(dialog)).toBe(false);
+  });
+
+  it("closes only the dialog on Escape, and the sheet on the next Escape", () => {
+    const onSheetClose = openInSheet();
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Report a bug" })).toBeNull();
+    expect(onSheetClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onSheetClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a swipe down in the dialog from closing the sheet", () => {
+    const onSheetClose = openInSheet();
+    const field = screen.getByLabelText(/What went wrong\?/);
+    fireEvent.touchStart(field, { touches: [{ clientY: 10 }] });
+    fireEvent.touchEnd(field, { changedTouches: [{ clientY: 300 }] });
+    expect(onSheetClose).not.toHaveBeenCalled();
+  });
+
+  it("still traps Tab and gives focus back to the button that opened it", async () => {
+    openInSheet();
+    const dialog = screen.getByRole("dialog", { name: "Report a bug" });
+    screen.getByRole("button", { name: "Cancel" }).focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close modal" }));
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Open report" })));
+  });
+});
+
+describe("BugReportDialog cancel and double send", () => {
+  it("stops the check and sends nothing when the dialog closes during 'Checking…'", async () => {
+    let signal: AbortSignal | null | undefined;
+    let release: (() => void) | undefined;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (!String(url).endsWith("/precheck")) return Promise.resolve(json({ id: 1, issue: null }));
+      signal = init?.signal;
+      return new Promise<Response>((resolve, reject) => {
+        release = () => resolve(json({ knownLimits: [], duplicates: [] }));
+        signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+      });
+    });
+    open();
+    write();
+    await send();
+    expect(screen.getByTestId("bug-report-checking")).toBeInTheDocument();
+    await act(async () => { fireEvent.keyDown(document, { key: "Escape" }); });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(signal?.aborted).toBe(true);
+    // Even a check that still answers cannot start the report.
+    await act(async () => { release?.(); await Promise.resolve(); });
+    expect(reportBodies()).toHaveLength(0);
+    expect(urls()).toEqual(["/api/bug-reports/precheck"]);
+  });
+
+  it("makes one request when Send is pressed twice fast", async () => {
+    let release: (() => void) | undefined;
+    precheckAnswer = () => new Promise<Response>((resolve) => { release = () => resolve(json({ knownLimits: [], duplicates: [] })); });
+    open();
+    write();
+    const form = screen.getByRole("button", { name: "Send report" }).closest("form")!;
+    await act(async () => { fireEvent.submit(form); fireEvent.submit(form); });
+    expect(urls()).toEqual(["/api/bug-reports/precheck"]);
+    await act(async () => { release?.(); });
+    await screen.findByTestId("bug-report-done");
+    expect(urls()).toEqual(["/api/bug-reports/precheck", "/api/bug-reports"]);
+  });
+
+  it("can send again after a check that found a known problem and a Back", async () => {
+    precheckAnswer = async () => json({ knownLimits: [{ id: "a", title: "Known thing", explanation: "Explained." }], duplicates: [] });
+    open();
+    write();
+    await send();
+    await screen.findByText("This is already known");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await send();
+    await screen.findByText("This is already known");
+    expect(urls().filter((u) => u.endsWith("/precheck"))).toHaveLength(2);
+  });
+
+  it.each([
+    ["known problem", { knownLimits: [{ id: "a", title: "Known thing", explanation: "Explained." }], duplicates: [] }, "This is already known"],
+    ["similar issues", { knownLimits: [], duplicates: [{ number: 12, url: "https://github.com/o/r/issues/12", title: "Chain froze", sameDuel: false }] }, "Is it one of these?"],
+  ])("moves focus to the heading of the review step (%s)", async (_name, answer, heading) => {
+    precheckAnswer = async () => json(answer);
+    open();
+    write();
+    await send();
+    const title = await screen.findByRole("heading", { name: heading });
+    expect(title).toHaveAttribute("tabindex", "-1");
+    expect(document.activeElement).toBe(title);
   });
 });
