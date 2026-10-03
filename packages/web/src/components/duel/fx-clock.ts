@@ -15,6 +15,7 @@ export function createDuelFxClock(preference = getAnimationSpeed, realNow = () =
   let virtualBase = 0;
   let lastReal = 0;
   const leases = new Map<object, number>();
+  const rateListeners = new Set<(rate: number) => void>();
 
   const sync = () => {
     const real = realNow();
@@ -28,6 +29,7 @@ export function createDuelFxClock(preference = getAnimationSpeed, realNow = () =
       realBase = real;
       previousRate = rate;
       rate = wanted;
+      for (const listener of rateListeners) listener(rate);
     }
     return real;
   };
@@ -38,7 +40,7 @@ export function createDuelFxClock(preference = getAnimationSpeed, realNow = () =
     const real = sync();
     const key = {};
     if (Number.isFinite(ms) && ms > 0) leases.set(key, real + ms / rate);
-    return () => { leases.delete(key); };
+    return () => { leases.delete(key); sync(); };
   };
   type TimerHandle = ReturnType<typeof globalThis.setTimeout>;
   const timers = new Map<number, { release: () => void; handle: TimerHandle }>();
@@ -91,7 +93,8 @@ export function createDuelFxClock(preference = getAnimationSpeed, realNow = () =
     return anim;
   };
   return {
-    now, factor, realMs, retain, animate, rateAnimation, setTimeout, clearTimeout, setInterval, clearInterval,
+    now, factor, realMs, retain, animate,
+    subscribeRate: (listener: (rate: number) => void) => { rateListeners.add(listener); return () => { rateListeners.delete(listener); }; }, rateAnimation, setTimeout, clearTimeout, setInterval, clearInterval,
     dateNow: () => {
       const real = sync();
       return Date.now() + virtualBase + (real - realBase) * rate - real;
@@ -113,6 +116,7 @@ export function createDuelFxClock(preference = getAnimationSpeed, realNow = () =
       lastFrame = realBase;
       rate = reduced ? 1 : reviewSpeed ?? preference();
       previousRate = rate;
+      for (const listener of rateListeners) listener(rate);
     },
   };
 }

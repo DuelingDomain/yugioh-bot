@@ -10,16 +10,32 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
   // Configuration only: the clock defers changes until the running presentation is finished.
   duelFxClock.setReducedMotion(reducedMotion);
   useEffect(() => { setAnimationSpeed(loadAnimationSpeed()); }, []);
+  useEffect(() => { duelFxClock.factor(); }, [speed, reducedMotion]);
   useEffect(() => {
+    const loops = new Set<Animation>();
+    const unsubscribe = duelFxClock.subscribeRate((rate) => {
+      for (const animation of loops) {
+        if (animation.playState === "idle" || animation.playState === "finished") loops.delete(animation);
+        else animation.playbackRate = rate;
+      }
+    });
     const rated = new WeakSet<Animation>();
     const retime = (target: Element) => {
       for (const anim of target.getAnimations?.() ?? []) {
         const cssAnimation = typeof CSSAnimation !== "undefined" && anim instanceof CSSAnimation;
         const cssTransition = typeof CSSTransition !== "undefined" && anim instanceof CSSTransition;
-        if ((!cssAnimation && !cssTransition) || rated.has(anim)) continue;
-        rated.add(anim);
-        const timing = anim.effect?.getComputedTiming();
-        duelFxClock.rateAnimation(anim, Number(timing?.endTime ?? 0));
+        if (!cssAnimation && !cssTransition) continue;
+        const endTime = Number(anim.effect?.getComputedTiming().endTime ?? 0);
+        if (endTime === Infinity) {
+          if (!loops.has(anim)) {
+            loops.add(anim);
+            void anim.finished?.then(() => loops.delete(anim), () => loops.delete(anim));
+          }
+          anim.playbackRate = duelFxClock.factor();
+        } else if (!rated.has(anim)) {
+          rated.add(anim);
+          duelFxClock.rateAnimation(anim, endTime);
+        }
       }
     };
     const onStart = (event: Event) => {
@@ -47,6 +63,8 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-status", "data-reduced"] });
     scan(document.body);
     return () => {
+      unsubscribe();
+      loops.clear();
       observer.disconnect();
       document.removeEventListener("animationstart", onStart, true);
       document.removeEventListener("transitionrun", onStart, true);

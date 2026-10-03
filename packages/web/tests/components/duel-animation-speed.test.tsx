@@ -96,6 +96,15 @@ describe("scoped FX clock", () => {
     expect(fx.factor()).toBe(1);
     expect(fx.realMs(150)).toBe(150);
   });
+  it("keeps an active reduced fade at 1x when the slider changes", () => {
+    let speed = 0.5;
+    const fx = createDuelFxClock(() => speed, () => 0);
+    fx.setReducedMotion(true);
+    fx.retain(150);
+    speed = 2;
+    expect(fx.factor()).toBe(1);
+    expect(fx.realMs(150)).toBe(150);
+  });
   it("captures DOM animation playback and frame timestamps at the same speed", () => {
     let real = 0;
     let speed = 2;
@@ -154,6 +163,25 @@ describe("scoped FX clock", () => {
     fireEvent(target, new Event("animationstart", { bubbles: true }));
     expect(css.playbackRate).toBe(1);
     target.remove(); vi.unstubAllGlobals();
+  });
+  it("updates continuous CSS pulses after captured finite effects finish", async () => {
+    function Scope() { useDuelAnimationSpeed(); return null; }
+    class FakeCSSAnimation {}
+    vi.stubGlobal("CSSAnimation", FakeCSSAnimation);
+    let finish!: () => void;
+    const finite = Object.assign(new FakeCSSAnimation(), { playbackRate: 1, playState: "running", finished: new Promise<void>((resolve) => { finish = resolve; }), effect: { getComputedTiming: () => ({ endTime: 1000 }) } });
+    const loop = Object.assign(new FakeCSSAnimation(), { playbackRate: 1, playState: "running", effect: { getComputedTiming: () => ({ endTime: Infinity }) } });
+    render(<Scope />);
+    const board = document.createElement("div"); board.setAttribute("data-duel-fx-speed-root", "");
+    board.getAnimations = () => [finite, loop] as unknown as Animation[];
+    await act(async () => { document.body.append(board); });
+    act(() => setAnimationSpeed(2));
+    expect(finite.playbackRate).toBe(1);
+    expect(loop.playbackRate).toBe(1);
+    await act(async () => { finish(); });
+    expect(finite.playbackRate).toBe(1);
+    expect(loop.playbackRate).toBe(2);
+    board.remove(); vi.unstubAllGlobals();
   });
   it("scales pending CSS delays before animationstart", async () => {
     function Scope() { useDuelAnimationSpeed(); return null; }
