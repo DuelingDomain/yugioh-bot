@@ -317,7 +317,7 @@ function TableShellBody({
     >
       <header className={roomStyles.header}>
         <div className={roomStyles.identity}>
-          <Link href="/duels">Yugidraft</Link>
+          <Link href="/duels">Duelists Kingdom</Link>
           {spectator ? (
             <strong className={roomStyles.viewerRole} title="You are watching. Hidden cards stay private.">
               <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating

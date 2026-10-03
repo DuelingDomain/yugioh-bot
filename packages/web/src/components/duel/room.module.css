@@ -129,6 +129,10 @@
 }
 .identity, .turn { display: flex; align-items: center; gap: calc(10 * var(--duel-unit)); min-width: 0; white-space: nowrap; }
 .identity a {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: calc(20 * var(--duel-unit));
   font-weight: 600;
   letter-spacing: -0.01em;
