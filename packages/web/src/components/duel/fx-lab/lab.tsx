@@ -305,11 +305,16 @@ export function FxLab() {
   // Between games and opening RPS are not live engine decisions.
   if (script.opening || script.series?.screen) engine.turn = 0;
   const duelKey = `lab-${live.runKey}`;
+  const viewerSeat = script.mySeat === undefined ? 0 : script.mySeat;
   const stageHeight = "clamp(560px, calc(100dvh - 250px), 900px)";
   const battle = isBattlePhase(live.board.phase);
   const canvasReady = Boolean(getSharedFx3d());
   // A Best of 3 scenario: the header label always shows; the between-games or match screen opens once it plays.
-  const seriesRoom = useMemo(() => (script.series ? labSeriesRoom(script.initial, script.series) : null), [script, live.runKey]);
+  const seriesRoom = useMemo(() => script.series ? {
+    ...labSeriesRoom(script.initial, script.series),
+    mySeat: viewerSeat,
+    role: viewerSeat == null ? "spectator" as const : "player" as const,
+  } : null, [script, live.runKey, viewerSeat]);
 
   return (
     <div className={fx.page}>
@@ -371,7 +376,7 @@ export function FxLab() {
             data-domain={script.domain ? "true" : "false"}
             data-fit="true"
             data-phase={battle ? "battle" : undefined}
-            data-turn={live.board.turnSeat === 0 ? "you" : "opp"}
+            data-turn={live.board.turnSeat === (viewerSeat ?? 0) ? "you" : "opp"}
             data-reduced={reduced ? "true" : "false"}
           >
             {seriesRoom ? <SeriesLabHeader room={seriesRoom} /> : null}
@@ -381,15 +386,15 @@ export function FxLab() {
                   <MoveSourceBoundary key={live.runKey} events={engine.events} duelKey={duelKey} root={stageRef}>
                     <DuelField
                       engine={engine}
-                      mySeat={script.mySeat ?? 0}
+                      mySeat={viewerSeat}
                       masterRule={script.masterRule ?? 5}
                       reducedMotion={reduced}
                       legalKeys={legalKeys as Set<string>}
                       selectedKeys={pickedKeys as Set<string>}
                       onActivate={onActivate}
                       onInspect={noop}
-                      bottomName="You"
-                      topName="Practice Bot"
+                      bottomName={viewerSeat == null ? "Seat 0" : "You"}
+                      topName={viewerSeat == null ? "Seat 1" : "Practice Bot"}
                     />
                     <FxBoundary>
                       <DuelFeedback events={engine.events} duelKey={duelKey} soundEnabled={sound} soundVolume={0.6} reducedMotion={reduced} />
@@ -404,7 +409,7 @@ export function FxLab() {
                     {script.prompt ? (
                       <PromptCenter
                         prompt={script.prompt.prompt}
-                        mySeat={script.mySeat ?? 0}
+                        mySeat={viewerSeat}
                         active
                         slug="fx-lab"
                         busy={false}
