@@ -108,7 +108,7 @@ async function run(scenario: Scenario) {
     startupScripts: [...compiled.options.startupScripts!, { name: "condition-actions-draw-control.lua", content: skip }], seed: ["1", "2", "3", "4"] });
   try { const session = new Session(scenario, game); session.reachMainPhase(); session.startRecording();
     scenario.steps.forEach((step, i) => session.run(step, i + 1));
-  } catch (error) { if (process.env.CONDITION_ACTIONS_TRACE === "1") console.log(scenario.id, JSON.stringify(game.view(0))); throw error; } finally { game.close(); rmSync(overlay, { recursive: true, force: true }); }
+  } finally { game.close(); rmSync(overlay, { recursive: true, force: true }); }
 }
 describeWithCores("condition opponent actions", [liveNseat, ...needs.domainMulti()], () =>
   runScenarios("condition-opponent-actions", [false, true].flatMap(domain => (['ffa3', 'ffa4', 'tag'] as const).flatMap(format =>

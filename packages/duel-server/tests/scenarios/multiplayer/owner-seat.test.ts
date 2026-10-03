@@ -76,6 +76,6 @@ describeWithCores("owner seat proofs", liveNseat, () => {
         expect(game.view(0).events.filter(e => e.kind === "move" && e.reason === "banish" && e.card?.code === 5053103 && e.seat === seat)).toHaveLength(1);
         expect(game.view(0).events.filter(e => e.kind === "move" && e.reason === "summon" && e.card?.code === 5053103 && e.seat === seat)).toHaveLength(1);
       }
-    } finally { if (process.env.SEAT_PROBE_OVERLAY) console.log(game.diagnostics().map(d => d.detail).filter(d => d.includes("HECA_")).join("\n")); game.close(); }
+    } finally { game.close(); }
   });
 });

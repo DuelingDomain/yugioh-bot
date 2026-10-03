@@ -14,9 +14,9 @@ const ELF = "Mystical Elf";
 const OX = "Battle Ox";
 const KNIGHT = "Mekk-Knight Purple Nightfall";
 const emzRule = (format: Format) => format === "ffa4" ? "R-FFA-ACROSS-EMZ" : "R-COMMON-EMZ";
-// The Tag column and Link Infra-Flier controls require C1 on installed P68:
-// domain-core/.build/phase1/df-zones/out/01-local-zone-viewer.patch. The integration route includes C1.
-// C6 proves FFA4 shared geometry. W21 also keeps FFA4 rows and the occupied Extra Link outcome here.
+// Local Link and column queries follow R-COMMON-EMZ in docs/adr/0002-multiplayer-duel-rules.md.
+// Patch 0069 implements the local zone viewer rule. FFA4 shared geometry follows R-FFA-ACROSS-EMZ.
+// This file also checks the occupied Extra Link outcome.
 const emz = (card: string) => [null, null, null, null, null, card];
 
 function independentZones(format: Format, right: boolean): Scenario {

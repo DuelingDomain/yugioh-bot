@@ -1,5 +1,5 @@
 import { expect } from "vitest";
-import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createEngineGame, type EngineGame } from "../../../src/engine.js";
@@ -49,8 +49,6 @@ async function runProof(scenario: Scenario, legacyPair = false): Promise<void> {
     const unexpected = [...traps].filter(line => new RegExp(`^NFOLD [UcW] card=${code}\\b`).test(line) || line.startsWith("YGO_N_TRAP"));
     expect(unexpected, `${scenario.id}: an opponent read must bind or keep its explicit broad scope`).toEqual([]);
   } finally {
-    if (game && process.env.LATE_OPPONENT_TRACE) appendFileSync(process.env.LATE_OPPONENT_TRACE,
-      JSON.stringify({ id: scenario.id, legacyPair, traps: [...traps], seats: game.view(0).seats }) + "\n");
     game?.close();
     if (temporary) rmSync(temporary, { recursive: true, force: true });
   }
