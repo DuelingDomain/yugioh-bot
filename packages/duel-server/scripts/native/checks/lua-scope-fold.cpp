@@ -8,17 +8,10 @@
 // The test card is a mandatory trigger on EVENT_PHASE+PHASE_STANDBY. It fires in the Standby Phase of every duelist,
 // so ep (the event player) is the turn player: the own side on its own turn, an opponent on the others.
 // SetCountLimit(1) is needed: the core offers a phase trigger again after each resolution.
-// F5 (opponent binding, core 29fff80): "1" is one opponent, bound for the whole chain link. The test card reads "1" first
-// in its operation (GetLocationCount), after the turn player is read. On the turn of an opponent that read binds that
-// opponent. On a turn of the own team nothing is bound, so the core asks the activator to pick one (MSG_SELECT_OPTION,
-// every desc 0xFFFE0000|seat, ascending, living opponents only; the pick happens in the operation step, kind (c)
-// record). The harness answers option k % options for pick number k, so the bound seat changes from firing to firing and a
-// core that ignores the answer fails. With one living opponent the bind is silent (no
-// prompt, no record). Scope: the test card has no target or cost, so every pick here is the fallback pick of the operation step;
-// the pick at activation is covered by opponent-pick, and a bound opponent that is eliminated after the bind by zone-seat-sset. No guess is ever made: no kind (a) record (unbound fallback), no kind (b) (conflict).
-//   ffa3e               FFA3 with seat 2 eliminated: every seat has one living opponent, so no pick prompt at all
-// Its operation logs through Debug.Message ("F1 ..." lines, tagged with s=<seat of the card>), asks for a Select
-// prompt (SelectYesNo after Duel.Damage, which yields too) and logs again after the resume.
+// A003 declaration rules: R-FFA-OPP-ONE and R-FFA-OPP-RESPONSE. FFA phase triggers that name no
+// opponent's turn declare at activation. The driver varies the real answer and records it for each activation.
+// A later GetTurnPlayer read keeps the declared seat and logs a conflict when the seats differ.
+// A004 saved range binding: R-FFA-ACTIVATED-LOCK. Tag and two-seat paths keep their stock behavior.
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -460,12 +453,12 @@ struct Model {
 			if(q != eliminate && !same_team(P, q)) r.push_back(q);
 		return r;
 	}
-	// the opponent that "1" means during the operation of the card of seat P on the turn of seat T (F5): the turn
-	// player when it is an opponent (the read binds it); the only living opponent (silent bind); else the one that the
-	// last pick prompt of seat P bound (chosen[P], the option that the harness answered)
+	// R-FFA-OPP-ONE, R-FFA-OPP-RESPONSE: this phase trigger names no opponent's turn.
+	// In FFA, the activation answer fixes the seat. A later turn-player read cannot replace it.
+	// Rec::chosen stores the answered seat for each activation. Tag keeps the stock turn/read rule.
 	int bound(int P, int T, const int* chosen) const {
 		if(!fold()) return 1 - P;
-		if(!same_team(P, T)) return T;
+		if(tag && !same_team(P, T)) return T;
 		const auto o = opponents(P);
 		if(o.empty()) return -1;
 		return o.size() == 1 ? o[0] : chosen[P];
@@ -539,7 +532,7 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 		} else if(k == "lp0" || k == "lp1") {
 			const int B = M.bound(P, T, r.chosen);
 			if(B < 0) { EXPECT(false, "%s: %s seat %d turn %d: no bound opponent in the model", sc.name, k.c_str(), P, T); continue; }
-			// the opponent is the bound one on every turn (F5 binds it at the first read, before any LP read); the own
+			// R-FFA-OPP-ONE: the opponent is the declared seat on every turn; the own
 			// value is the own team's LP
 			int lpv[MAX_DUELISTS];
 			std::memcpy(lpv, r.lp, sizeof(lpv));
@@ -567,12 +560,19 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 	EXPECT(out.depth_bad == 0, "%s: scope depth not 0 at %zu of %zu prompts", sc.name, out.depth_bad, out.prompts);
 	EXPECT(g_errors == 0, "%s: %ld Lua errors, first: %s", sc.name, g_errors, g_error_text.empty() ? "" : g_error_text[0].c_str());
 	if(M.fold()) {
-		// Valid bound FFA operations are not kind (c) diagnostics. Tag keeps its stock count.
-		// The actual opponent prompt count remains checked independently.
-		const int want_picks = M.eliminate >= 0 ? 0 : own_firings;
+		// R-FFA-OPP-ONE: one declaration per FFA activation with two or more legal opponents.
+		const int want_picks = M.eliminate >= 0 ? 0 : (M.tag ? own_firings : firings);
 		const int want_c = M.tag ? want_picks : 0;
+		int want_b = 0;
+		for(const auto& r : g_recs) {
+			auto m = fields(r.text);
+			if(m["kind"] != "op1") continue;
+			const int P = std::atoi(m["s"].c_str()), T = r.turn_player;
+			// Two GetTurnPlayer calls per operation. The first declared opponent stays bound.
+			if(!M.tag && !M.same_team(P, T) && M.bound(P, T, r.chosen) != T) want_b += 2;
+		}
 		EXPECT(count_kind(nfold, 'a') == 0, "%s: %d kind (a) records (an unbound fallback), want 0", sc.name, count_kind(nfold, 'a'));
-		EXPECT(count_kind(nfold, 'b') == 0, "%s: %d kind (b) records (a binding conflict), want 0", sc.name, count_kind(nfold, 'b'));
+		EXPECT(count_kind(nfold, 'b') == want_b && count_kind(nfold, 'b', "push_player") == want_b, "%s: %d kind (b) records from conflicting turn reads, want %d", sc.name, count_kind(nfold, 'b'), want_b);
 		EXPECT(count_kind(nfold, 'c') == want_c, "%s: %d kind (c) records, want %d", sc.name, count_kind(nfold, 'c'), want_c);
 		EXPECT(out.picks == static_cast<size_t>(want_picks), "%s: %zu pick prompts, want %d", sc.name, out.picks, want_picks);
 		EXPECT(out.pick_bad.empty(), "%s: a pick prompt is wrong: %s", sc.name, out.pick_bad.empty() ? "" : out.pick_bad[0].c_str());
