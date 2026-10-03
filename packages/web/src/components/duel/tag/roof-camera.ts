@@ -298,7 +298,10 @@ export interface RoofKeyMods {
   alt?: boolean;
 }
 
-/** Keyboard map. Returns null for keys the roof camera does not use. */
+/**
+ * Keyboard map. Returns null for keys the roof camera does not use. It is pure: it does not know about open picks,
+ * aims or dialogs. The live table binds it through `useRoofKeys` (use-roof-keys.ts), which pauses it with `tagKeysPaused`.
+ */
 export function roofKeyAction(key: string, ctx: RoofKeyContext, mods: RoofKeyMods = {}): CameraAction | null {
   if (mods.ctrl || mods.meta || mods.alt) return null;
   const k = key.length === 1 ? key.toLowerCase() : key;
