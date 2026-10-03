@@ -332,9 +332,12 @@ const SPECS: EffectSpec[] = [
   {
     code: 59900655, name: "Gold Pride - Nytro Head", slug: "gold-pride-nytro-head", does: "Special Summons a Nytro Token in the Standby Phase of an opponent",
     p0: { monsters: ["Gold Pride - Nytro Head"] },
+    // ADR 0002 R-FFA-OPP-RESPONSE: the opponent whose Standby Phase caused the trigger receives the token.
+    noPick: (roles) => roles.format !== "tag",
     steps: [endTurn("p0"), yes("p0")],
     p0End: { monsters: ["Gold Pride - Nytro Head"] },
-    gain: { tokens: { count: 1 } },
+    tgtEnd: (roles) => roles.format === "tag" ? { monsters: [ELF], tokens: { count: 1 } } : { monsters: [ELF] },
+    seatEnd: (roles) => roles.format === "tag" ? {} : { p1: { monsters: [ELF], tokens: { count: 1 } } },
   },
   {
     code: 63013339, name: "Sky Striker Ace - Camellia", slug: "sky-striker-ace-camellia", does: "Special Summons itself when it is sent to the Graveyard",
