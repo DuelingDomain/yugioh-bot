@@ -1169,19 +1169,13 @@ export function createDuelHost(options: {
         frames.push({
           step,
           actorSeat: null,
-          view: {
-            ...lastView,
-            prompt: null,
-            log: [],
-            events: [],
-            result: {
-              winnerSeat: session.winnerSeat,
-              ...(session.format === "tag"
-                ? { winnerTeam: session.winnerSeat === null ? null : teamOfSeat(session.format, session.winnerSeat) }
-                : {}),
-              reason: session.resultReason ?? "Duel ended",
-            },
-          },
+          view: freezeView({ ...lastView, log: [], events: [] }, {
+            winnerSeat: session.winnerSeat,
+            ...(session.format === "tag"
+              ? { winnerTeam: session.winnerSeat === null ? null : teamOfSeat(session.format, session.winnerSeat) }
+              : {}),
+            reason: session.resultReason ?? "Duel ended",
+          }),
         });
       }
     }

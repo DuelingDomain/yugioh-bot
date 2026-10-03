@@ -476,6 +476,8 @@ Duel.RegisterEffect(e,0)`]);
       expect(room.myDeck).not.toBeNull();
       const replay = await t.post("replay", 3) as unknown as DuelReplay;
       expect(replay).toMatchObject({ role: "player", mySeat: 3 });
+      expect(replay.frames.at(-1)!.view.result).not.toBeNull();
+      expect(replay.frames.at(-1)!.view.seats.every((seat) => seat.pendingElimination === false)).toBe(true);
     }, 60_000);
 
     it("R-COMMON-SURRENDER-EOT: an interrupted room stays available when replay cannot check the loss", async () => {
