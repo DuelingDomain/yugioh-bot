@@ -20,11 +20,12 @@ import createCore, {
   type OcgOpCode,
 } from "ocgcore-wasm";
 import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
-import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, isWaitingMessage, mapPrompt, nextLivingOpponentSeat, placeSeatHint, recallPromptContext, resolveAnswer, type PendingPrompt } from "./prompts.js";
+import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, isWaitingMessage, mapPrompt, nextLivingOpponentSeat, placeSeatHint, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
 import {
   DOMAIN_RECALL_DESC,
   LOCATION_DECKMASTER,
   clearRevealsAt,
+  CHAIN_TARGET_NOTE_SCRIPT,
   createEventContext,
   createRevealMap,
   DESTROY_NOTE_SCRIPT,
@@ -32,8 +33,10 @@ import {
   isNoDuelist,
   moveReveals,
   nextBattleStep,
+  noteChainTargetLog,
   noteDestroyLog,
   noteReveal,
+  observeChainTargetEvents,
   observeDuelEvent,
   observeMoveEvents,
   phaseName,
@@ -348,7 +351,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     return content;
   };
   const errorHandler = (type: number, text: string) => {
-    if (noteDestroyLog(eventContext, text)) return;
+    if (noteDestroyLog(eventContext, text) || noteChainTargetLog(eventContext, text)) return;
     if (type === OcgLogType.ERROR || type === OcgLogType.UNDEFINED) errors.push(text);
   };
   const team = {
@@ -439,6 +442,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     if (overlay && !lib.loadScript(handle, MP_UTILITY_FILE, overlay.utility)) {
       throw new Error(`Failed to load ${MP_UTILITY_FILE}${errors.length > 0 ? `: ${errors.join("; ")}` : ""}`);
     }
+    if (!lib.loadScript(handle, "chain-target-notes.lua", CHAIN_TARGET_NOTE_SCRIPT)) throw new Error("Failed to register chain target reporter");
     if (options.mode === "domain") {
       // Card creation runs initial_effect; procedure libraries must be loaded first.
       for (let teamSeat = 0; teamSeat < seatCount; teamSeat += 1) {
@@ -527,6 +531,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   let lastHintCard: number | undefined;
   /** Seat of the core's last HINT_PLACE_SEAT: the owner of the high half of the next place mask. One prompt only. */
   let lastPlaceSeat: number | undefined;
+  let synchroSummon: MapPromptExtras["synchroSummon"];
   let sawRetry = false;
   const hintCardName = () => (lastHintCard ? cards.get(lastHintCard)?.name : undefined);
 
@@ -540,6 +545,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     for (const move of observeMoveEvents(message, cards, eventContext, nextEventId)) pushEvent(move);
     const stored = observeDuelEvent(message, cards, chainMemory, nextEventId, eventContext);
     if (stored) pushEvent(stored);
+    for (const target of observeChainTargetEvents(message, chainMemory, nextEventId, eventContext)) pushEvent(target);
   };
 
   const pushEvent = (stored: StoredDuelEvent) => {
@@ -576,11 +582,15 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       case OcgMessageType.CHAIN_SOLVED:
       case OcgMessageType.CHAIN_END:
         lastHintCard = undefined;
+        synchroSummon = undefined;
         liveChainSize = message.type === OcgMessageType.CHAIN_SOLVED ? Math.max(0, message.chain_size - 1) : 0;
         return;
       case OcgMessageType.CHAINING:
         liveChainSize = message.chain_size;
         appendLog(`${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
+        return;
+      case OcgMessageType.SPSUMMONED:
+        synchroSummon = undefined;
         return;
       case OcgMessageType.WIN: {
         // The core repeats MSG_WIN after the win. The first result stands.
@@ -815,7 +825,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           : undefined;
       const recall = recallState ? recallPromptContext(recallState, cards) : undefined;
       // The main action prompts start a new play; a hint card from an earlier effect no longer applies.
-      if (waiting.type === OcgMessageType.SELECT_IDLECMD || waiting.type === OcgMessageType.SELECT_BATTLECMD) lastHintCard = undefined;
+      if (waiting.type === OcgMessageType.SELECT_IDLECMD || waiting.type === OcgMessageType.SELECT_BATTLECMD) {
+        lastHintCard = undefined;
+        synchroSummon = undefined;
+      }
       const next = mapPrompt(
         waiting,
         cards,
@@ -828,6 +841,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           ...(multi && "player" in waiting ? { placeOpponent: nextLivingOpponent(waiting.player) } : {}),
           ...(multi && lastPlaceSeat != null ? { placeSeat: lastPlaceSeat } : {}),
           ...(multi ? { livingSeats: Array.from({ length: seatCount }, (_, seat) => seat).filter((seat) => !eliminated.has(seat) && !isLeaving(seat)) } : {}),
+          synchroSummon,
         },
       );
       lastSelectHint = undefined;
@@ -902,6 +916,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         promptSeat: pending?.seat ?? null,
         log,
         events,
+        chain: chainMemory,
         result,
         reveals,
         mode: options.mode,
@@ -922,6 +937,20 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       if (!pending) throw new EngineAnswerError("No prompt is waiting");
       const response = resolveAnswer(pending, seat, promptId, answer, cards);
       const previous = pending;
+      const previousSummon = synchroSummon;
+      if (pending.message.type === OcgMessageType.SELECT_IDLECMD && answer.choice?.startsWith("spsummon:")) {
+        const option = pending.prompt.options.find((entry) => entry.id === answer.choice);
+        synchroSummon = undefined;
+        if (option?.card && (option.card.type & OcgType.SYNCHRO) !== 0 && option.location === OcgLocation.EXTRA) {
+          // Capture the selected card, not a guessed target from the material hint or other Extra Deck cards.
+          const card = game.view(seat).seats[seat].extra.find((entry) => entry.code === option.card!.code &&
+            entry.sequence === option.sequence && entry.controller === option.controller);
+          if (card?.code && card.level != null && card.level > 0) {
+            synchroSummon = { code: card.code, level: card.level, controller: card.controller,
+              location: card.location, sequence: card.sequence };
+          }
+        }
+      }
       sawRetry = false;
       // Stays set through the summon's follow-up prompts; observeDuelEvent clears it at SPSUMMONED.
       if (isPendulumSummonAnswer(pending, answer)) eventContext.pendulumSummon = true;
@@ -929,6 +958,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       processUntilWait();
       if (sawRetry) {
         pending = previous;
+        synchroSummon = previousSummon;
         sawRetry = false;
         throw new EngineAnswerError("Invalid answer");
       }

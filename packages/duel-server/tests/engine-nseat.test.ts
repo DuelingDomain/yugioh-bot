@@ -188,9 +188,11 @@ describe("N-seat views", () => {
   });
 
   it("takes the chain from the engine state", () => {
-    const chain: StoredChainLink[] = [{ index: 1, seat: 2, code: 55, description: "Do it" }];
+    const zone = { controller: 2, location: OcgLocation.SZONE, sequence: 0 };
+    const targets = [{ controller: 1, location: OcgLocation.MZONE, sequence: 0 }];
+    const chain: StoredChainLink[] = [{ index: 1, seat: 2, code: 55, description: "Do it", zone, targets }];
     const view = project("ffa3", 0, { chain });
-    expect(view.chain).toEqual([{ index: 1, seat: 2, code: 55, name: "Card 55", description: "Do it" }]);
+    expect(view.chain).toEqual([{ index: 1, seat: 2, code: 55, name: "Card 55", description: "Do it", zone, targets }]);
   });
 
   it("leaves a 1v1 view without format, team or eliminated", () => {

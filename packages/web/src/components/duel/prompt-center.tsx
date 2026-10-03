@@ -40,7 +40,7 @@ import { optionNotes } from "./option-strip";
 import { battleStepLabel, type BattleStep } from "./station-track";
 import { PrecheckBar } from "./prompt-precheck";
 import { placeSelectBar, samePlace, type BarPlace, type BarRect } from "./select-bar-place";
-import { selectBarCopy, type BarCopy } from "./select-bar-copy";
+import { selectBarCopy, sumSelectionValues, synchroSelectionValues, type BarCopy } from "./select-bar-copy";
 import { backOutAnswer, backOutLabel } from "./pick-backout";
 import base from "./prompts.module.css";
 import styles from "./prompt-center.module.css";
@@ -434,13 +434,6 @@ export function pickCopy(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean
   const toggling = prompt.kind === "toggle";
   // A one-at-a-time pick keeps its chosen cards on the options, not in the draft.
   const count = toggling ? prompt.options.filter((option) => option.selected).length : draft.selected.length;
-  const values =
-    prompt.kind === "sum"
-      ? draft.selected
-          .map((id) => prompt.options.find((option) => option.id === id)?.values?.join("/"))
-          .filter(Boolean)
-          .join(" + ")
-      : undefined;
   return selectBarCopy({
     kind: prompt.kind,
     title: fillPlaceholders(prompt.title, source?.name),
@@ -449,8 +442,10 @@ export function pickCopy(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean
     max,
     openEnded: prompt.max == null,
     count,
-    values,
+    ...(prompt.kind === "sum" ? sumSelectionValues(prompt, draft.selected) : {}),
+    ...(toggling ? synchroSelectionValues(prompt) : {}),
     target: prompt.target,
+    sumMode: prompt.sumMode,
     toggling,
     aiming,
     sourceName: source?.name,
@@ -1500,7 +1495,7 @@ export function PromptCenter(props: PromptCenterProps) {
             <span className={styles.barSub}>
               {copy.detail ? <span className={styles.barDetail}>{copy.detail}</span> : null}
               {copy.instruction ? <span className={styles.barAsk}>{copy.instruction}</span> : null}
-              {copy.counter ? <span className={styles.barCount} data-done={ok ? "true" : "false"}>{copy.counter}</span> : null}
+              {copy.counter ? <span className={styles.barCount} data-done={(copy.met ?? ok) ? "true" : "false"}>{copy.counter}</span> : null}
             </span>
           </div>
         </div>

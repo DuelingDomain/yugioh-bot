@@ -48,6 +48,8 @@ export interface MapPromptExtras {
    * left out of the prompt. When that would leave no option, the full list stays so that the duel cannot deadlock.
    */
   livingSeats?: readonly number[];
+  /** The Synchro monster explicitly chosen for an inherent summon, with its queried Level. */
+  synchroSummon?: DuelZoneRef & { code: number; level: number };
 }
 
 /** strings.conf: `Use the effect of "%ls" from [%ls]?` — the core's default for a SELECT_EFFECTYN without a description. */
@@ -319,6 +321,18 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
   const hint = selectHint ? fillPlaceholders(selectHint, [subjectName]).trim() : undefined;
   // Prompts raised while an effect resolves inherit that effect's card as their source.
   const hinted = (built: PendingPrompt): PendingPrompt => {
+    const summon = extras?.synchroSummon;
+    if (summon && summon.controller === built.seat && built.prompt.kind === "toggle" &&
+      /\bsynchro material\b/i.test(built.prompt.title)) {
+      built.prompt.target = summon.level;
+      built.prompt.sumMode = "exact";
+      built.prompt.source = sourceOf(cards, summon.code, built.seat, zoneRef(summon));
+      // A material with its own Synchro Level (Road Synchron) adds a value the core does not report.
+      for (const option of built.prompt.options) {
+        const code = option.card?.code;
+        if (code && cards.readScript(`c${code}.lua`)?.includes("EFFECT_SYNCHRO_LEVEL")) option.synchroLevelVaries = true;
+      }
+    }
     if (!built.prompt.source && extras?.hintCard) {
       const source = sourceOf(cards, extras.hintCard, built.seat);
       if (source) built.prompt.source = source;
@@ -620,11 +634,12 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
           id,
           seat: message.player,
           kind: "sum",
-          title: hint || `Select cards totaling ${message.amount}`,
+          title: hint || `Select cards totaling ${message.select_max ? "at least " : ""}${message.amount}`,
           options: [...must, ...optional],
           min: must.length + message.min,
           max: must.length + (message.select_max ? message.selects.length : message.max),
           target: message.amount,
+          sumMode: message.select_max ? "at-least" : "exact",
           mandatory: must.map((option) => option.id),
         },
         message,

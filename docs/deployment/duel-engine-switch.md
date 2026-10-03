@@ -90,7 +90,7 @@ Run the 1v1 specs with `E2E_1V1_ENGINE=legacy` to check the production default.
 
 ## What is checked
 
-- The legacy regression pin is main `afd5f228`: Draw/Standby prompt, view and engine pacing cases from `cec00380`, plus main's public-priority projection tests, run against `src/legacy/` in `packages/duel-server/tests/legacy-main/` (12 files, 142 tests). The remaining baseline cases are still from `78b8caa`; this is a selective port, not a claim that all newer main engine changes were copied. Import paths and temporary legacy-wasm links select the legacy engine.
+- The legacy regression pin is main `b1e20054`: Draw/Standby prompt, view and engine pacing cases from `cec00380`, public-priority privacy tests, material-count cases, and chain-target response/tracking cases run against `src/legacy/` in `packages/duel-server/tests/legacy-main/` (15 test files). The remaining baseline cases are still from `78b8caa`; this is a selective port, not a claim that all newer main engine changes were copied. Import paths and temporary legacy-wasm links select the legacy engine.
 - The merged duel-server suites pass in both modes (`DUEL_1V1_ENGINE=legacy` and `pinned`). CI runs both: the `engine` and the `engine-legacy` job.
 - `tests/legacy-engine-identity.test.ts`: the legacy Standard core is the npm file byte for byte. The legacy Domain wasm has the manifest sha.
 - `tests/host-engine-switch.test.ts`: dispatch, the saved engine, recover and replay across a switch change.

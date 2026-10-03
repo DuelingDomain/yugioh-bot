@@ -38,6 +38,43 @@
   visibility: hidden;
 }
 .slot[data-placed="true"] { visibility: visible; }
+
+/* Effect targets stay marked while the response prompt is open. Purple separates the target
+   from its gold activation badge; the link number associates multiple targets with their source. */
+.target {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.target[data-placed="true"] { visibility: visible; }
+.targetRing {
+  position: absolute;
+  inset: -3px;
+  border: 3px solid var(--duel-pen-ink, #c6b6ff);
+  border-radius: 7px;
+  box-shadow: 0 0 0 1px #171020, 0 0 12px rgb(155 126 255 / 0.55);
+}
+.targetTag {
+  position: absolute;
+  bottom: var(--target-offset, 0px);
+  left: -3px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: #241a38;
+  color: var(--duel-pen-ink, #c6b6ff);
+  font: 700 10px/1.2 var(--duel-f-ui, "Arial Narrow"), sans-serif;
+  white-space: nowrap;
+  box-shadow: 0 0 0 1px var(--duel-pen-ink, #c6b6ff);
+}
+.targetWire {
+  fill: none;
+  stroke: var(--duel-pen-ink, #c6b6ff);
+  stroke-opacity: 0.85;
+  stroke-width: 2;
+  stroke-dasharray: 4 4;
+}
 /* A link that has resolved leaves the board once its tick has been seen: the badge shrinks and the
    card ring fades (below), then the whole slot is gone. The step that plays it is held for 520 ms
    (chainStepDelay), so the next link starts as this one is gone. The panel keeps its row. */

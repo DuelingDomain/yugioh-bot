@@ -13,6 +13,7 @@ vi.mock("next/font/google", () => {
 
 const api = vi.hoisted(() => ({
   readySeries: vi.fn(),
+  unreadySeries: vi.fn(),
   chooseSeriesFirst: vi.fn(),
   saveSeriesSideDeck: vi.fn(),
   cancelSeries: vi.fn(),
@@ -30,6 +31,7 @@ import { BetweenGamesScreen } from "../../src/components/duel/between-games";
 const soon = () => new Date(Date.now() + 42_000).toISOString();
 
 beforeEach(() => {
+  api.unreadySeries.mockReset().mockResolvedValue({ series: makeSeries(), nextSlug: null });
   api.chooseSeriesFirst.mockReset().mockResolvedValue({ series: makeSeries(), nextSlug: null });
   api.readySeries.mockReset().mockResolvedValue({ series: makeSeries(), nextSlug: null });
   api.saveSeriesSideDeck.mockReset().mockResolvedValue({ series: makeSeries() });
@@ -255,12 +257,12 @@ describe("BetweenGamesScreen: Ready", () => {
     expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
   });
 
-  it("locks the deck and says so once the player is ready", async () => {
+  it("lets a ready player edit and explains that it takes Ready back", async () => {
     screenFor({ series: { sideReady: [true, false] } });
     fireEvent.click(await card("Card 2, Main Deck"));
-    expect(counter()).toContain("0 out · 0 in");
-    expect(readyButton().disabled).toBe(true);
-    expect(screen.getByTestId("ready-reason").textContent).toBe("You are ready. Waiting for your opponent.");
+    expect(counter()).toContain("1 out · 0 in");
+    expect(screen.getByTestId("my-side-status").textContent).toMatch(/no longer ready/);
+    expect(api.unreadySeries).toHaveBeenCalledWith("game-1");
   });
 
   it("shows an error from the server", async () => {

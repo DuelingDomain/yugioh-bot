@@ -30,6 +30,19 @@ function tiles(state: ReturnType<typeof ingestHistory>): HistoryTile[] {
 }
 
 describe("history model", () => {
+  it("consumes target updates without creating history tiles or changing the activation tile", () => {
+    const activation: DuelEvent = { id: 1, kind: "activate", chainIndex: 1, seat: 0, text: "MST is activating" };
+    const before = ingestHistory(emptyHistory(), [activation], ctx());
+    const targets: DuelEvent[] = [
+      { id: 2, kind: "target", chainIndex: 1, seat: 0, text: "Chain Link 1 targets 1 card", targets: [zone(1, 0)] },
+      { id: 3, kind: "target", chainIndex: 1, seat: 0, text: "Chain Link 1 targets 0 cards", targets: [] },
+    ];
+    const after = ingestHistory(before, [activation, ...targets], ctx({ revision: 2 }));
+    expect(after.items).toEqual(before.items);
+    expect(after.lastId).toBe(3);
+    expect(ingestHistory(emptyHistory(), targets, ctx()).items).toEqual([]);
+  });
+
   it("merges attack + battle damage + destroy into one tile", () => {
     const events: DuelEvent[] = [
       { id: 10, kind: "attack", seat: 0, text: "Player 1 declares an attack", zone: zone(0, 0), target: zone(1, 0) },

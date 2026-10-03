@@ -211,6 +211,10 @@ export interface DuelPromptOption {
   location?: number;
   sequence?: number;
   values?: number[];
+  /** Current Level from this viewer's card projection; takes precedence over the printed Level. */
+  currentLevel?: number;
+  /** The card counts as another Level for a Synchro Summon (EFFECT_SYNCHRO_LEVEL), so its Level is not its contribution. */
+  synchroLevelVaries?: boolean;
   max?: number;
   selected?: boolean;
   /** Full printed text of the card this option is bound to (absent when the card is hidden from the viewer). */
@@ -255,6 +259,8 @@ export interface DuelPrompt {
   min?: number;
   max?: number;
   target?: number;
+  /** Sum requirement (also used for a Synchro toggle's Level target), independent of card-count bounds. */
+  sumMode?: "exact" | "at-least";
   mandatory?: string[];
   cancelable?: boolean;
   finishable?: boolean;
@@ -342,11 +348,14 @@ export type DuelBattleStep = "start" | "battle" | "damage" | "damage-calculation
 export interface DuelEvent {
   id: number;
   kind:
-    | "summon" | "set" | "activate" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
+    | "summon" | "set" | "activate" | "target" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
     | "attack" | "phase" | "damage" | "destroy" | "move" | "position" | "equip";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
+  /** target: the link's complete current target list (including [] when cleared). Coordinates only;
+   * identities must come from the viewer's redacted board. Also accepted on activation events. */
+  targets?: DuelZoneRef[];
   text: string;
   description?: string;
   /**
@@ -410,6 +419,10 @@ export interface DuelChainLink {
   code?: number;
   name?: string;
   description?: string;
+  /** Where the source activated; retained when its activation leaves the event window. */
+  zone?: DuelZoneRef;
+  /** Current target coordinates, public to every viewer. No target names or passcodes. */
+  targets?: DuelZoneRef[];
 }
 
 export interface DuelEngineView {
