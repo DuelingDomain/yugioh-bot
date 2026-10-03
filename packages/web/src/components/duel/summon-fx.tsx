@@ -195,7 +195,7 @@ type FxItem = {
   life: number;
   /** destroy: ms the card cracks in place before it breaks; set when a battle holds the destroy. */
   breakMs?: number;
-  /** A resolved source stays visible until its cleanup flight takes over. */
+  /** A resolved source stays visible until cleanup; undefined awaits an open chain, zero finishes normally. */
   activationHoldMs?: number;
   activationAt?: number;
   /** The 3D layer draws the break of this card (shards and flash), so the DOM only holds the ghost. */
@@ -2169,7 +2169,8 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
     }
     setItems((current) => [...current, ...planned].map((item) => {
       if (item.kind !== "activate" || item.activationAt == null) return item;
-      const cleanup = events.find((other) => other.kind === "move" && other.id > item.event.id && other.from && item.event.zone &&
+      const chainEnd = events.reduce((end, other) => other.kind === "chain-end" && other.id > item.event.id ? Math.min(end, other.id) : end, Infinity);
+      const cleanup = events.find((other) => other.kind === "move" && other.id > item.event.id && other.id < chainEnd && other.from && item.event.zone &&
         other.from.controller === item.event.zone.controller && other.from.location === item.event.zone.location &&
         other.from.sequence === item.event.zone.sequence && other.card?.code === item.event.card?.code);
       const departure = cleanup ? getMovePlan(cleanup.id) : null;
@@ -2177,7 +2178,9 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
       // other victim. Keeping the activation copy until its flight would cover the shards.
       const destroyed = departure && events.find((other) => other.kind === "destroy" && departure.pairedIds.includes(other.id));
       const handoffAt = departure ? destroyed ? chainEffectAt(destroyed.id) || departure.startAt - departure.leadMs : departure.startAt : null;
-      const hold = handoffAt != null ? Math.max(0, handoffAt - item.activationAt) : undefined;
+      // With the chain complete, a staying source (or an unplanned cleanup) has no
+      // handoff to wait for. Finish its normal activation instead of retaining a stale ghost.
+      const hold = handoffAt != null ? Math.max(0, handoffAt - item.activationAt) : Number.isFinite(chainEnd) ? 0 : undefined;
       return hold === item.activationHoldMs ? item : { ...item, activationHoldMs: hold };
     }).slice(-MAX_ITEMS - 4));
   }, [duelKey, events]);

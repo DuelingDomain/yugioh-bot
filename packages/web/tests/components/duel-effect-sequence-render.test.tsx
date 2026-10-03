@@ -154,3 +154,35 @@ it("starts a resolved Spell's Graveyard flight upright", () => {
   expect(flight).toBeDefined();
   expect(flight![0][0].transform).toContain("rotate(0.00deg)");
 });
+
+it.each([0x20000, 0x80000, 0x40000])("finishes a staying S/T activation after its chain ends (subtype=%s)", async subtype => {
+  const finish: Array<() => void> = [];
+  animate.mockImplementation(() => ({ finished: new Promise<void>(resolve => finish.push(resolve)), cancel: vi.fn() }));
+  const activation: DuelEvent = { id: 1, kind: "activate", text: "stays", card: { ...C.mst, type: 2 | subtype }, zone: source, chainIndex: 1 };
+  const view = render(<Board events={[]} reduced={false} live />);
+  view.rerender(<Board events={[activation]} reduced={false} live />);
+  await act(async () => { finish.splice(0).forEach(resolve => resolve()); });
+  // The open chain may still send a cleanup in its next response snapshot.
+  expect(view.container.querySelector('img[src*="size=small"]')).not.toBeNull();
+  view.rerender(<Board events={[activation, { id: 2, kind: "chain-end", text: "end" }]} reduced={false} live />);
+  await act(async () => { finish.splice(0).forEach(resolve => resolve()); });
+  expect(view.container.querySelector('img[src*="size=small"]')).toBeNull();
+});
+
+it("does not extend an old activation with another chain's departure", () => {
+  const activation: DuelEvent = { id: 1, kind: "activate", text: "continuous", card: { ...C.mst, type: 2 | 0x20000 }, zone: source, chainIndex: 1 };
+  const initial: DuelEvent[] = [activation, { id: 2, kind: "chain-end", text: "end" }];
+  const view = render(<Board events={[]} reduced={false} live />);
+  view.rerender(<Board events={initial} reduced={false} live />);
+  const ghost = view.container.querySelector('img[src*="size=small"]')!.parentElement;
+  const before = animate.mock.contexts.filter(context => context === ghost).length;
+  vi.mocked(performance.now).mockReturnValue(120000);
+  const later: DuelEvent[] = [...initial,
+    { id: 3, kind: "activate", text: "later", card: C.mirrorForce, zone: { controller: 1, location: 8, sequence: 0 }, chainIndex: 1 },
+    { id: 4, kind: "chain-resolving", text: "resolve", chainIndex: 1 },
+    { id: 5, kind: "move", text: "destroy", card: C.mst, from: source, zone: { controller: 0, location: 16, sequence: 0 }, reason: "destroy" },
+    { id: 6, kind: "destroy", text: "destroy", card: C.mst, zone: source, cause: "effect", sourceCode: C.mirrorForce.code, sourceKind: "trap", sourceSeat: 1 },
+    { id: 7, kind: "chain-end", text: "end" }];
+  view.rerender(<Board events={later} reduced={false} />);
+  expect(animate.mock.contexts.filter(context => context === ghost)).toHaveLength(before);
+});
