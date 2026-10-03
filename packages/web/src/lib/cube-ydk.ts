@@ -21,28 +21,29 @@ const totalCopies = (pools: CubePools): number =>
 /**
  * Merge a YDK file into a cube through the passcode import. Main and side lines go to the main
  * pool unless the card is an Extra Deck monster; `#extra` lines go to the extra pool. Copies
- * add to the ones the cube already holds, up to 99.
+ * add to the ones the cube already holds, up to 99. Both groups are looked up before anything
+ * is written, and written together, so a failed lookup leaves the cube as it was.
  */
 export async function importYdkIntoCube(cubes: CubeService, cubeId: number, text: string): Promise<YdkImportResult> {
   const ydk = parseDeckText(text.replace(/^\uFEFF/, ""));
   const before = totalCopies(cubes.getCubePools(cubeId));
-  const unknown = new Set<number>();
-  const touched = new Set<number>();
+  const existing = copiesById(cubes.getCubePools(cubeId));
   const groups: Array<{ codes: number[]; pool?: "extra" }> = [
     { codes: [...ydk.main, ...ydk.side, ...(ydk.deckMaster != null ? [ydk.deckMaster] : [])] },
     { codes: ydk.extra, pool: "extra" },
-  ];
-  for (const { codes, pool } of groups) {
-    if (codes.length === 0) continue;
-    // Read the cube again for each group, so a card in both sections adds up.
-    const merged = mergeCopies(codes, copiesById(cubes.getCubePools(cubeId)));
-    const result = await cubes.importPasscodes(cubeId, merged, { pool });
-    for (const code of result.unknown) unknown.add(code);
-    for (const code of merged) if (!result.unknown.includes(code)) touched.add(code);
-  }
+  ].filter((g) => g.codes.length > 0);
+  const merged = groups.map(({ codes, pool }) => {
+    const withExisting = mergeCopies(codes, existing);
+    // A card in both sections adds up: the next group starts from this group's totals.
+    const totals = new Map<number, number>();
+    for (const code of withExisting) totals.set(code, (totals.get(code) ?? 0) + 1);
+    for (const [code, total] of totals) existing.set(code, total);
+    return { codes: withExisting, pool };
+  });
+  const result = await cubes.importPasscodeGroups(cubeId, merged);
   return {
-    added: touched.size,
+    added: result.added,
     copies: totalCopies(cubes.getCubePools(cubeId)) - before,
-    unknown: [...unknown],
+    unknown: result.unknown,
   };
 }

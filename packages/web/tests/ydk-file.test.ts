@@ -6,7 +6,7 @@ import { importYdkIntoCube } from "@/lib/cube-ydk";
 import { parseDeckText } from "@/components/duel/ydk";
 import { mergeCopies, serializeYdk, ydkFileName } from "@/lib/ydk-file";
 
-function setup() {
+function setup(fetchImpl?: (input: RequestInfo | URL) => Promise<Response>) {
   const db = new Database(":memory:");
   migrate(db);
   const seed = db.prepare(
@@ -18,7 +18,7 @@ function setup() {
   seed.run(3, "Spell C", "Spell Card", "spell", "i", "i", "[]", "t");
   // A catalog that knows nothing more: an unknown passcode stays unknown, with no network call.
   const catalog = createCardCatalogService(db, {
-    fetch: async () => ({ ok: true, async json() { return { data: [] }; } }) as Response,
+    fetch: fetchImpl ?? (async () => ({ ok: true, async json() { return { data: [] }; } }) as Response),
   });
   const cubes = createCubeService(db, catalog);
   const cube = cubes.createBlank("g", "Pool", "u");
@@ -115,5 +115,26 @@ describe("importYdkIntoCube", () => {
     expect(res.added).toBe(1);
     expect(res.copies).toBe(1);
     expect(pairs(cubes.getCubePools(cube.id).main)).toEqual([[1, 1]]);
+  });
+
+  it("treats a passcode the card database rejects with HTTP 400 as unknown, and writes nothing twice", async () => {
+    const { cubes, cube } = setup(async () => ({ ok: false, status: 400, async json() { return {}; } }) as Response);
+    const text = "#main\n1\n1\n777\n#extra\n2\n888\n";
+    const res = await importYdkIntoCube(cubes, cube.id, text);
+    expect(res.unknown).toEqual([777, 888]);
+    expect(pairs(cubes.getCubePools(cube.id).main)).toEqual([[1, 2]]);
+    expect(pairs(cubes.getCubePools(cube.id).extra)).toEqual([[2, 1]]);
+    // Retrying the same file adds the copies once more, never a half-written extra.
+    await importYdkIntoCube(cubes, cube.id, text);
+    expect(pairs(cubes.getCubePools(cube.id).main)).toEqual([[1, 4]]);
+    expect(pairs(cubes.getCubePools(cube.id).extra)).toEqual([[2, 2]]);
+  });
+
+  it("writes nothing when the card database cannot be reached", async () => {
+    const { cubes, cube } = setup(async () => {
+      throw new Error("fetch failed");
+    });
+    await expect(importYdkIntoCube(cubes, cube.id, "#main\n1\n999\n#extra\n2\n")).rejects.toThrow(/Could not reach/);
+    expect(cubes.getCubePools(cube.id)).toEqual({ main: [], extra: [] });
   });
 });
