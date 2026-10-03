@@ -13,6 +13,7 @@ import {
   LOCATION_DECK,
   LOCATION_EXTRA,
   LOCATION_GRAVE,
+  LOCATION_HAND,
   LOCATION_REMOVED,
   TYPE_LINK,
   TYPE_MONSTER,
@@ -169,7 +170,8 @@ export function CompactChips({ engine, seat, tone, name, rotateDeg, scale, usabl
       <div className={styles.head}>
         <i />
         <span>{name}</span>
-        <small>
+        {/* The hand cards of a compact seat leave from this count (the move effects read `data-zones`). The board's own hand is hidden. */}
+        <small data-side="opp" data-zones={view.hand.map((_, sequence) => zoneKey(seat, LOCATION_HAND, sequence)).join(" ") || undefined}>
           <Hand aria-hidden="true" /> {view.hand.length}
         </small>
       </div>

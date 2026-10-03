@@ -6,6 +6,7 @@ import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName }
 import { isBattlePhase } from "../constants";
 import { DuelResultScreen } from "../duel-result";
 import { SeatField } from "../field";
+import { MoveSourceBoundary } from "../fx-boundary";
 import { duelFxClock } from "../fx-clock";
 import { duelFontClasses } from "../fonts";
 import { usePickContinuation } from "../pick-continuation";
@@ -278,72 +279,74 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
         {narrow ? null : side}
         <section className={styles.board} aria-label="Duel field">
           <div className={styles.boardBox} ref={boardRef}>
-            <TagStage
-              controller={controller}
-              layout={layout}
-              camera={camera}
-              dispatchCamera={dispatchCamera}
-              renderSeatField={(fieldProps) => <SeatField {...fieldProps} />}
-              teamNames={teamNames}
-              fx={<TagFx controller={controller} preferences={preferences} fxActive={fxActive} passedSeats={passes} />}
-              promptCenter={
-                <PromptCenter
-                  prompt={prompt ?? (!hasResult ? pick.waiting : null)}
-                  mySeat={viewerSeat}
-                  active={!terminal && !viewerOut}
-                  slug={session.slug}
-                  busy={controller.busy || (prompt == null && pick.waiting != null)}
-                  draft={controller.draft}
-                  onSubmit={controller.onAnswer}
-                  menuOpen={suspended}
-                  chain={engine.chain}
-                  aim={flow.promptAim ?? undefined}
-                  aimLocked={flow.locked}
-                  reducedMotion={controller.reducedMotion}
-                  revision={engine.revision}
-                  battleStep={battleStep}
-                  revealed={controller.revealed}
-                  onInspectCard={(card) => ui.setInspect({ type: "info", card })}
-                  nameOf={nameOf}
-                  seatTones={seatTones}
-                  priority={priority}
-                />
-              }
-              overlay={
-                <>
-                  {barShown && flow.bar ? (
-                    <OpponentBar
-                      kind={flow.bar.kind}
-                      title={flow.bar.title}
-                      targetLabel={flow.bar.targetLabel}
-                      entries={flow.bar.entries}
-                      onPick={(seat) => controller.seatPick?.onPick(seat)}
-                      onConfirm={flow.confirm}
-                      onCancel={flow.cancel}
-                    />
-                  ) : null}
-                  <TagPileViewer controller={controller} ui={ui} />
-                  {banner && !hideResult ? (
-                    <div className={styles.result} data-result={banner.outcome} role="dialog" aria-label="Duel result">
-                      <div className={styles.resultCard}>
-                        <p className={styles.resultKicker}>Tag duel finished</p>
-                        <h2>{banner.headline}</h2>
-                        <p className={styles.resultReason}>{engine.result?.reason ?? ""}</p>
-                        <ul className={styles.resultTeams}>
-                          {[0, 1].map((team) => (
-                            <li key={team} data-mine={team === viewerTeam ? "true" : "false"} data-won={engine.result?.winnerTeam === team ? "true" : "false"}>
-                              <span>{team === viewerTeam ? "◆" : "●"} {teamNames[team]}</span>
-                              <b>{teamLp(engine, team).toLocaleString("en-US")}</b>
-                            </li>
-                          ))}
-                        </ul>
-                        <button type="button" onClick={() => setHideResult(true)}>View the board</button>
+            <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
+              <TagStage
+                controller={controller}
+                layout={layout}
+                camera={camera}
+                dispatchCamera={dispatchCamera}
+                renderSeatField={(fieldProps) => <SeatField {...fieldProps} />}
+                teamNames={teamNames}
+                fx={<TagFx controller={controller} preferences={preferences} fxActive={fxActive} passedSeats={passes} />}
+                promptCenter={
+                  <PromptCenter
+                    prompt={prompt ?? (!hasResult ? pick.waiting : null)}
+                    mySeat={viewerSeat}
+                    active={!terminal && !viewerOut}
+                    slug={session.slug}
+                    busy={controller.busy || (prompt == null && pick.waiting != null)}
+                    draft={controller.draft}
+                    onSubmit={controller.onAnswer}
+                    menuOpen={suspended}
+                    chain={engine.chain}
+                    aim={flow.promptAim ?? undefined}
+                    aimLocked={flow.locked}
+                    reducedMotion={controller.reducedMotion}
+                    revision={engine.revision}
+                    battleStep={battleStep}
+                    revealed={controller.revealed}
+                    onInspectCard={(card) => ui.setInspect({ type: "info", card })}
+                    nameOf={nameOf}
+                    seatTones={seatTones}
+                    priority={priority}
+                  />
+                }
+                overlay={
+                  <>
+                    {barShown && flow.bar ? (
+                      <OpponentBar
+                        kind={flow.bar.kind}
+                        title={flow.bar.title}
+                        targetLabel={flow.bar.targetLabel}
+                        entries={flow.bar.entries}
+                        onPick={(seat) => controller.seatPick?.onPick(seat)}
+                        onConfirm={flow.confirm}
+                        onCancel={flow.cancel}
+                      />
+                    ) : null}
+                    <TagPileViewer controller={controller} ui={ui} />
+                    {banner && !hideResult ? (
+                      <div className={styles.result} data-result={banner.outcome} role="dialog" aria-label="Duel result">
+                        <div className={styles.resultCard}>
+                          <p className={styles.resultKicker}>Tag duel finished</p>
+                          <h2>{banner.headline}</h2>
+                          <p className={styles.resultReason}>{engine.result?.reason ?? ""}</p>
+                          <ul className={styles.resultTeams}>
+                            {[0, 1].map((team) => (
+                              <li key={team} data-mine={team === viewerTeam ? "true" : "false"} data-won={engine.result?.winnerTeam === team ? "true" : "false"}>
+                                <span>{team === viewerTeam ? "◆" : "●"} {teamNames[team]}</span>
+                                <b>{teamLp(engine, team).toLocaleString("en-US")}</b>
+                              </li>
+                            ))}
+                          </ul>
+                          <button type="button" onClick={() => setHideResult(true)}>View the board</button>
+                        </div>
                       </div>
-                    </div>
-                  ) : null}
-                </>
-              }
-            />
+                    ) : null}
+                  </>
+                }
+              />
+            </MoveSourceBoundary>
           </div>
         </section>
         {narrow ? null : (
