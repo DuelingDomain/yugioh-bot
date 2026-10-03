@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import type { Card, Cube, CubeCard, CubePool, CubePools, DraftConfig } from "../types/index.js";
 import { isExtraDeckFrame, type CardCatalogService } from "./card-catalog.js";
 import type { CubeAnalysis } from "./deal.js";
-import { DEFAULT_CUBE_COPIES, MAX_CUBE_COPIES, MIN_CUBE_COPIES } from "./constants.js";
+import { DEFAULT_CUBE_COPIES, MAX_COPIES_PER_PLAYER, MAX_CUBE_COPIES, MIN_CUBE_COPIES } from "./constants.js";
 
 export interface AnalyzeCubePoolsConfig {
   themePackSize: number;
@@ -14,6 +14,11 @@ export interface AnalyzeCubePoolsConfig {
 
 function requiredPoolSize(rounds: number, themePackSize: number, burnUnpicked: boolean): number {
   return burnUnpicked ? rounds * themePackSize : rounds + (themePackSize - 1);
+}
+
+/** Cards one player can take from a pool: the per-player cap limits each card, whatever the cube holds. */
+function playerReachableSize(cards: Array<{ maxCopies: number }>): number {
+  return cards.reduce((sum, c) => sum + Math.min(c.maxCopies, MAX_COPIES_PER_PLAYER), 0);
 }
 
 /** Copies of one card in a cube: any whole number from 1 to MAX_CUBE_COPIES. */
@@ -236,6 +241,15 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         errors.push(
           `Main pool has ${mainSize} cards but needs at least ${mainNeeded} for a ${config.cardsPerPlayer}-card main deck (${config.themePackSize} choices/pick${config.burnUnpicked ? ", burn on" : ""}).`,
         );
+      } else {
+        // A player never gets more than 3 copies of one card, so a few card names with many copies cannot fill a deck.
+        const mainReachable = playerReachableSize(pools.main);
+        const mainReachableNeeded = config.burnUnpicked ? config.cardsPerPlayer : mainNeeded;
+        if (mainReachable < mainReachableNeeded) {
+          errors.push(
+            `A player can take at most ${MAX_COPIES_PER_PLAYER} copies of a card, so this main pool gives ${mainReachable} cards but a ${config.cardsPerPlayer}-card main deck needs ${mainReachableNeeded}. Add more different cards.`,
+          );
+        }
       }
 
       if (config.extraDeckEnabled) {

@@ -9,3 +9,7 @@ export const MAX_REPORT_CONFIRM_HOURS = 720;
 export const MIN_CUBE_COPIES = 1;
 export const MAX_CUBE_COPIES = 99;
 export const DEFAULT_CUBE_COPIES = 3;
+
+// The deck rule: one player may hold at most this many copies of a passcode from one draft
+// (main and extra picks together). Drafts never serve a card the player already has this many of.
+export const MAX_COPIES_PER_PLAYER = 3;

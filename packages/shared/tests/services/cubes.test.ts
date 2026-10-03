@@ -195,6 +195,24 @@ describe("cube service core", () => {
     expect(a.errors[0]).toMatch(/main/i);
   });
 
+  it("flags a cube that is big by copies but too narrow for the three-copy limit", () => {
+    const { db, cubes } = setup();
+    const t = cubes.createBlank("g", "Narrow", "u");
+    for (const id of [100, 101]) {
+      seedCard(db, id, `C${id}`, "Normal Monster", "normal");
+      cubes.addCard(t.id, id, "main", 99); // 198 cards in the cube, but a player can take only 6
+    }
+    const a = cubes.analyzeCubePools(t.id, {
+      themePackSize: 3,
+      cardsPerPlayer: 40,
+      extraDeckSize: 15,
+      burnUnpicked: false,
+      extraDeckEnabled: false,
+    });
+    expect(a.ok).toBe(false);
+    expect(a.errors[0]).toMatch(/at most 3 copies/);
+  });
+
   it("passes a main-sufficient cube and skips extra when extra disabled", () => {
     const { db, cubes } = setup();
     const t = cubes.createBlank("g", "Big", "u");

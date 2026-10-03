@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../types/index.js";
 import { generateWebSlug } from "../util/web-slug.js";
+import { MAX_COPIES_PER_PLAYER } from "./constants.js";
 import { analyzeCube, buildDeal, seededShuffle, type ShuffleSeed } from "./deal.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
@@ -238,6 +239,51 @@ export function createDraftService(
         .get(draftId, playerId, packRound, pickStep),
     );
 
+  const hasPassedStep = (draftId: number, playerId: number, packRound: number, pickStep: number) =>
+    Boolean(
+      db
+        .prepare(
+          `
+            select 1 from draft_passes
+            where draft_id = ? and player_id = ? and wave_number = ? and pick_step = ?
+          `,
+        )
+        .get(draftId, playerId, packRound, pickStep),
+    );
+
+  // A step is done for a player once they picked a card or passed.
+  const hasActedCurrentStep = (draftId: number, playerId: number, packRound: number, pickStep: number) =>
+    hasPickedCurrentStep(draftId, playerId, packRound, pickStep) ||
+    hasPassedStep(draftId, playerId, packRound, pickStep);
+
+  // Copies of each passcode a player holds in this draft (main and extra picks together).
+  const heldCopies = (draftId: number, playerId: number): Map<number, number> => {
+    const rows = db
+      .prepare(
+        `
+          select dc.catalog_card_id as catalog_card_id, count(*) as n
+          from draft_picks pk
+          inner join draft_cards dc on dc.id = pk.draft_card_id
+          where pk.draft_id = ? and pk.player_id = ?
+          group by dc.catalog_card_id
+        `,
+      )
+      .all(draftId, playerId) as Array<{ catalog_card_id: number; n: number }>;
+    return new Map(rows.map((row) => [row.catalog_card_id, row.n]));
+  };
+
+  const isCapped = (held: Map<number, number>, catalogCardId: number) =>
+    (held.get(catalogCardId) ?? 0) >= MAX_COPIES_PER_PLAYER;
+
+  const assertUnderCopyCap = (draftId: number, playerId: number, draftCardId: number) => {
+    const card = db
+      .prepare("select catalog_card_id from draft_cards where id = ? and draft_id = ?")
+      .get(draftCardId, draftId) as { catalog_card_id: number } | undefined;
+    if (card && isCapped(heldCopies(draftId, playerId), card.catalog_card_id)) {
+      throw new Error(`You already have ${MAX_COPIES_PER_PLAYER} copies of this card`);
+    }
+  };
+
   const playerSeatIndex = (draftId: number, playerId: number): number => {
     const row = db
       .prepare(
@@ -261,13 +307,21 @@ export function createDraftService(
     }
   };
 
-  const activeSeatIndexes = (draftId: number): number[] =>
-    activePlayerRows(draftId)
-      .map((row) => row.seat_index)
-      .filter((seatIndex): seatIndex is number => seatIndex !== null)
-      .sort((a, b) => a - b);
+  const allSeatIndexes = (draftId: number): number[] =>
+    (
+      db
+        .prepare("select seat_index from draft_players where draft_id = ? and seat_index is not null order by seat_index")
+        .all(draftId) as Array<{ seat_index: number }>
+    ).map((row) => row.seat_index);
 
-  const advanceSeatIndex = (seatIndexes: number[], currentSeatIndex: number, direction: number): number => {
+  // Walks to the next seat that still has an active player. A pack held by a finished seat
+  // moves on too, so a player who passed some picks can still receive it.
+  const advanceSeatIndex = (
+    seatIndexes: number[],
+    activeSeats: ReadonlySet<number>,
+    currentSeatIndex: number,
+    direction: number,
+  ): number => {
     const currentIndex = seatIndexes.indexOf(currentSeatIndex);
 
     if (currentIndex === -1 || seatIndexes.length === 0) {
@@ -275,8 +329,13 @@ export function createDraftService(
     }
 
     const offset = direction >= 0 ? 1 : -1;
-    const nextIndex = (currentIndex + offset + seatIndexes.length) % seatIndexes.length;
-    return seatIndexes[nextIndex];
+    for (let step = 1; step <= seatIndexes.length; step += 1) {
+      const nextIndex = (((currentIndex + offset * step) % seatIndexes.length) + seatIndexes.length) % seatIndexes.length;
+      if (activeSeats.has(seatIndexes[nextIndex])) {
+        return seatIndexes[nextIndex];
+      }
+    }
+    return currentSeatIndex;
   };
 
   const pool = (draftId: number, playerId: number): DraftPoolCard[] => {
@@ -536,7 +595,11 @@ export function createDraftService(
         }
       }
 
-      const candidates = [...remaining.entries()].filter(([, count]) => count > 0).map(([id]) => id);
+      // A player never gets a card they already hold the maximum copies of.
+      const held = heldCopies(draftId, player.player_id);
+      const candidates = [...remaining.entries()]
+        .filter(([id, count]) => count > 0 && !isCapped(held, id))
+        .map(([id]) => id);
       if (candidates.length === 0) {
         markFinished.run(nowIso, draftId, player.player_id);
         continue;
@@ -655,18 +718,29 @@ export function createDraftService(
 
     const rows = db
       .prepare(
-        `select dpt.cube_id as cube_id, coalesce(sum(tc.max_copies), 0) as main_size
+        `select dpt.cube_id as cube_id,
+                coalesce(sum(tc.max_copies), 0) as main_size,
+                coalesce(sum(min(tc.max_copies, ${MAX_COPIES_PER_PLAYER})), 0) as reachable_size
            from draft_player_cube dpt
            left join cube_cards tc on tc.cube_id = dpt.cube_id and tc.pool = 'main'
           where dpt.draft_id = ?
           group by dpt.cube_id`,
       )
-      .all(draftId) as Array<{ cube_id: number; main_size: number }>;
+      .all(draftId) as Array<{ cube_id: number; main_size: number; reachable_size: number }>;
+
+    // A player never gets more than MAX_COPIES_PER_PLAYER of one card, so a cube with many
+    // copies of a few cards cannot fill a deck even when the raw count looks big enough.
+    const requiredReachable = burnUnpicked ? cardsPerPlayer : requiredMain;
 
     for (const row of rows) {
       if (row.main_size < requiredMain) {
         throw new Error(
           `Cube ${row.cube_id} has only ${row.main_size} main-pool cards but needs ${requiredMain} to fill a ${cardsPerPlayer}-card main deck.`,
+        );
+      }
+      if (row.reachable_size < requiredReachable) {
+        throw new Error(
+          `Cube ${row.cube_id} gives one player only ${row.reachable_size} main-pool cards (at most ${MAX_COPIES_PER_PLAYER} copies of a card) but needs ${requiredReachable} to fill a ${cardsPerPlayer}-card main deck.`,
         );
       }
     }
@@ -803,6 +877,142 @@ export function createDraftService(
     return findById(draftId);
   });
 
+  // Whether any active player can still take a card left in the wave (not capped for them).
+  const waveHasPickableCard = (draftId: number, waveNumber: number, active: DraftPlayerProgressRow[]): boolean => {
+    const catalogIds = (
+      db
+        .prepare(
+          `
+            select distinct catalog_card_id from draft_cards
+            where draft_id = ? and wave_number = ? and picked_by_player_id is null
+          `,
+        )
+        .all(draftId, waveNumber) as Array<{ catalog_card_id: number }>
+    ).map((row) => row.catalog_card_id);
+
+    if (catalogIds.length === 0) {
+      return false;
+    }
+
+    return active.some((row) => {
+      const held = heldCopies(draftId, row.player_id);
+      return catalogIds.some((id) => !isCapped(held, id));
+    });
+  };
+
+  // Booster step bookkeeping, run after every pick. A player who cannot pick (every card in
+  // the pack is capped for them, or the pack is empty) passes on their own: a pass row, no card.
+  // The step closes once every active player picked or passed. The wave ends when no active
+  // player can take any card left in it. Steps where nobody can pick are skipped in a loop.
+  const settleBoosterStep = (draftId: number, now: Date) => {
+    const insertPass = db.prepare(
+      `
+        insert or ignore into draft_passes (draft_id, player_id, wave_number, pick_step, passed_at)
+        values (?, ?, ?, ?, ?)
+      `,
+    );
+    const updatePackHolder = db.prepare("update draft_packs set current_holder_seat_index = ? where id = ?");
+    let passOnlySteps = 0;
+
+    for (;;) {
+      const draft = findById(draftId);
+      if (draft.status !== "active") {
+        return;
+      }
+
+      const active = activePlayerRows(draftId);
+      if (active.length === 0) {
+        db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(now.toISOString(), draftId);
+        return;
+      }
+
+      const { currentPackRound, currentPickStep } = draft;
+      for (const row of active) {
+        if (
+          !hasActedCurrentStep(draftId, row.player_id, currentPackRound, currentPickStep) &&
+          currentPackOptionsInternal(draftId, row.player_id, true).length === 0
+        ) {
+          insertPass.run(draftId, row.player_id, currentPackRound, currentPickStep, now.toISOString());
+        }
+      }
+
+      if (active.some((row) => !hasActedCurrentStep(draftId, row.player_id, currentPackRound, currentPickStep))) {
+        return;
+      }
+
+      // Every active player acted. After more rotations than there are players with nobody
+      // able to pick, no card can reach a player who may take it, so the wave is over.
+      const stuck = passOnlySteps > active.length + 2;
+      if (stuck || !waveHasPickableCard(draftId, currentPackRound, active)) {
+        if (currentPackRound >= (draft.config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer)) {
+          db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(now.toISOString(), draftId);
+          return;
+        }
+        const seatCount = allSeatIndexes(draftId).length;
+        openWave(draftId, currentPackRound + 1, seatCount, draft.config);
+        db.prepare(
+          `
+            update drafts
+            set current_wave_number = ?, current_pick_step = 1, pick_deadline_at = ?
+            where id = ?
+          `,
+        ).run(
+          currentPackRound + 1,
+          deadlineIso(now, draft.config.pickSeconds ?? defaultDraftConfig.pickSeconds),
+          draftId,
+        );
+        passOnlySteps = 0;
+        continue;
+      }
+
+      const seatIndexes = allSeatIndexes(draftId);
+      const activeSeats = new Set(
+        active.map((row) => row.seat_index).filter((seatIndex): seatIndex is number => seatIndex !== null),
+      );
+      const currentPacks = db
+        .prepare(
+          `
+            select id, current_holder_seat_index, pass_direction
+            from draft_packs
+            where draft_id = ? and wave_number = ?
+            order by id asc
+          `,
+        )
+        .all(draftId, currentPackRound) as Array<{
+        id: number;
+        current_holder_seat_index: number;
+        pass_direction: number;
+      }>;
+
+      for (const pack of currentPacks) {
+        const hasUnpickedCards = db
+          .prepare("select 1 from draft_cards where draft_pack_id = ? and picked_by_player_id is null limit 1")
+          .get(pack.id);
+
+        if (!hasUnpickedCards) {
+          continue;
+        }
+
+        updatePackHolder.run(
+          advanceSeatIndex(seatIndexes, activeSeats, pack.current_holder_seat_index, pack.pass_direction),
+          pack.id,
+        );
+      }
+
+      db.prepare(
+        `
+          update drafts
+          set current_pick_step = current_pick_step + 1,
+              pick_deadline_at = ?
+          where id = ?
+        `,
+      ).run(deadlineIso(now, draft.config.pickSeconds ?? defaultDraftConfig.pickSeconds), draftId);
+
+      // The next step only needs a loop pass when nobody can pick in it; a real pick leaves the loop.
+      passOnlySteps += 1;
+    }
+  };
+
   // Theme-mode pick: validate the card is in the player's private pack, record it,
   // and advance the global round once every player dealt a pack this round has picked.
   // Does NOT run the booster pass-the-pack logic.
@@ -846,6 +1056,7 @@ export function createDraftService(
     if (cardRow.picked_by_player_id !== null) {
       throw new Error("Card has already been picked");
     }
+    assertUnderCopyCap(draftId, playerId, draftCardId);
 
     db.prepare("update draft_cards set picked_by_player_id = ?, picked_at = ? where id = ?").run(
       playerId,
@@ -911,6 +1122,9 @@ export function createDraftService(
     if (hasPickedCurrentStep(draftId, playerId, draft.currentPackRound, draft.currentPickStep)) {
       throw new Error("Player has already picked this step");
     }
+    if (hasPassedStep(draftId, playerId, draft.currentPackRound, draft.currentPickStep)) {
+      throw new Error("Player has no card to pick this step");
+    }
 
     const cardRow = db
       .prepare("select wave_number, draft_pack_id, picked_by_player_id from draft_cards where id = ? and draft_id = ?")
@@ -942,6 +1156,7 @@ export function createDraftService(
     if (cardRow.picked_by_player_id !== null) {
       throw new Error("Card has already been picked");
     }
+    assertUnderCopyCap(draftId, playerId, draftCardId);
 
     db.prepare(
       `
@@ -969,122 +1184,7 @@ export function createDraftService(
       `,
     ).run(cardsPerPlayer, now.toISOString(), draftId, playerId);
 
-    const currentStepPickCountRow = db
-      .prepare(
-        `
-          select count(*) as count from draft_picks
-          where draft_id = ? and wave_number = ? and pick_step = ?
-        `,
-      )
-      .get(draftId, draft.currentPackRound, draft.currentPickStep) as { count: number };
-
-    const remainingPlayers = activePlayerRows(draftId);
-
-    if (remainingPlayers.length === 0) {
-      db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(now.toISOString(), draftId);
-    } else {
-      const pendingCurrentStepPlayerCountRow = db
-        .prepare(
-          `
-            select count(*) as count
-            from draft_players dp
-            where dp.draft_id = ?
-              and dp.finished_at is null
-              and not exists (
-                select 1 from draft_picks picks
-                where picks.draft_id = dp.draft_id
-                  and picks.player_id = dp.player_id
-                  and picks.wave_number = ?
-                  and picks.pick_step = ?
-              )
-          `,
-        )
-        .get(draftId, draft.currentPackRound, draft.currentPickStep) as { count: number };
-
-      if (currentStepPickCountRow.count > 0 && pendingCurrentStepPlayerCountRow.count === 0) {
-        const unpickedWaveCardCountRow = db
-          .prepare(
-            `
-              select count(*) as count from draft_cards
-              where draft_id = ? and wave_number = ? and picked_by_player_id is null
-            `,
-          )
-          .get(draftId, draft.currentPackRound) as { count: number };
-
-        if (unpickedWaveCardCountRow.count === 0) {
-          if (draft.currentPackRound >= (draft.config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer)) {
-            db.prepare("update drafts set status = 'completed', ended_at = ? where id = ?").run(now.toISOString(), draftId);
-          } else {
-            openWave(draftId, draft.currentPackRound + 1, remainingPlayers.length, draft.config);
-            db.prepare(
-              `
-                update drafts
-                set current_wave_number = ?, current_pick_step = 1, pick_deadline_at = ?
-                where id = ?
-              `,
-            ).run(
-              draft.currentPackRound + 1,
-              deadlineIso(now, draft.config.pickSeconds ?? defaultDraftConfig.pickSeconds),
-              draftId,
-            );
-          }
-        } else {
-          const seatIndexes = activeSeatIndexes(draftId);
-          const currentPacks = db
-            .prepare(
-              `
-                select id, current_holder_seat_index, pass_direction
-                from draft_packs
-                where draft_id = ? and wave_number = ?
-                order by id asc
-              `,
-            )
-            .all(draftId, draft.currentPackRound) as Array<{
-            id: number;
-            current_holder_seat_index: number;
-            pass_direction: number;
-          }>;
-
-          const updatePackHolder = db.prepare(
-            `
-              update draft_packs
-              set current_holder_seat_index = ?
-              where id = ?
-            `,
-          );
-
-          for (const pack of currentPacks) {
-            const hasUnpickedCards = db
-              .prepare(
-                `
-                  select 1 from draft_cards
-                  where draft_pack_id = ? and picked_by_player_id is null
-                  limit 1
-                `,
-              )
-              .get(pack.id);
-
-            if (!hasUnpickedCards) {
-              continue;
-            }
-
-            updatePackHolder.run(
-              advanceSeatIndex(seatIndexes, pack.current_holder_seat_index, pack.pass_direction),
-              pack.id,
-            );
-          }
-
-          db.prepare(
-            `
-              update drafts
-              set current_pick_step = current_pick_step + 1,
-                  pick_deadline_at = ?
-              where id = ?
-            `,
-          ).run(deadlineIso(now, draft.config.pickSeconds ?? defaultDraftConfig.pickSeconds), draftId);
-        }
-      }
-    }
+    settleBoosterStep(draftId, now);
 
     const pickRow = db.prepare("select * from draft_picks where id = ?").get(Number(result.lastInsertRowid));
     return mapDraftPick(pickRow);
@@ -1111,12 +1211,13 @@ export function createDraftService(
     }
 
     const pendingPlayers = activePlayerRows(draftId)
-      .filter((row) => !hasPickedCurrentStep(draftId, row.player_id, draft.currentPackRound, draft.currentPickStep))
+      .filter((row) => !hasActedCurrentStep(draftId, row.player_id, draft.currentPackRound, draft.currentPickStep))
       .map((row) => row.player_id);
     const autoPickedPlayerIds: number[] = [];
 
     for (const playerId of pendingPlayers) {
-      const options = currentPackOptionsInternal(draftId, playerId);
+      // Only cards the player may take: a card they hold the maximum copies of is never auto-picked.
+      const options = currentPackOptionsInternal(draftId, playerId, true);
 
       if (options.length === 0) {
         continue;
@@ -1127,10 +1228,16 @@ export function createDraftService(
       autoPickedPlayerIds.push(playerId);
     }
 
+    // A player with nothing to pick passes; this closes the step if they were the last one waited on.
+    if (draft.config.mode !== "theme") {
+      settleBoosterStep(draftId, now);
+    }
+
     return { autoPickedPlayerIds };
   });
 
-  const currentPackOptionsInternal = (draftId: number, playerId: number): DraftCard[] => {
+  // pickableOnly drops cards the player holds the maximum copies of; without it the whole pack is returned.
+  const currentPackOptionsInternal = (draftId: number, playerId: number, pickableOnly = false): DraftCard[] => {
     const draft = findById(draftId);
     if (draft.status === "completed") {
       return [];
@@ -1148,7 +1255,7 @@ export function createDraftService(
       return [];
     }
 
-    if (hasPickedCurrentStep(draftId, playerId, draft.currentPackRound, draft.currentPickStep)) {
+    if (hasActedCurrentStep(draftId, playerId, draft.currentPackRound, draft.currentPickStep)) {
       return [];
     }
 
@@ -1167,7 +1274,7 @@ export function createDraftService(
       return [];
     }
 
-    return db
+    const cards = db
       .prepare(
         `
           select * from draft_cards
@@ -1177,6 +1284,13 @@ export function createDraftService(
       )
       .all(pack.id)
       .map(mapDraftCard);
+
+    if (!pickableOnly) {
+      return cards;
+    }
+
+    const held = heldCopies(draftId, playerId);
+    return cards.filter((card) => !isCapped(held, card.catalogCardId));
   };
 
   return {
@@ -1328,8 +1442,21 @@ export function createDraftService(
         .map(mapDraftCard);
     },
 
+    /** The cards the player may take now: the pack without cards they hold the maximum copies of. */
     pickOptions(draftId: number, playerId: number): DraftCard[] {
-      return currentPackOptionsInternal(draftId, playerId);
+      return currentPackOptionsInternal(draftId, playerId, true);
+    },
+
+    /** Copies of each passcode the player holds in this draft, for showing the per-player cap. */
+    heldCopies(draftId: number, playerId: number): Record<number, number> {
+      assertJoinedPlayer(draftId, playerId);
+      return Object.fromEntries(heldCopies(draftId, playerId));
+    },
+
+    /** True when the player has no card to pick this step and passed (or must pass) it. */
+    hasPassedStep(draftId: number, playerId: number): boolean {
+      const draft = findById(draftId);
+      return hasPassedStep(draftId, playerId, draft.currentPackRound, draft.currentPickStep);
     },
 
     pickCard(
