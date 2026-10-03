@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { test, expect } from "../helpers/fixtures";
 import { createStandardTable, enterDuelRoom, importDeckAndReady, uniqueTableName } from "../helpers/duel";
+import { expectReadyToAct } from "../helpers/board";
 
 // Flow b: solo table with the practice bot, one played action, then a spectator joins.
 test("host plays one action against the practice bot and a spectator sees no hand faces", async ({ player }) => {
@@ -40,6 +41,7 @@ async function playOneAction(page: Page): Promise<void> {
   const myMonsters = page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"]');
   await expect(myMonsters).toHaveCount(0);
 
+  await expectReadyToAct(page);
   await handCards.first().click();
   await page.getByRole("menu").getByRole("menuitem", { name: /Normal Summon/ }).click();
   // The prompt now asks for a zone: pick the first legal monster zone.

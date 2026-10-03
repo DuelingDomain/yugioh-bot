@@ -703,7 +703,7 @@
 /* Keep the elimination decision above the field without changing its height. */
 .eliminatedChoice {
   position: absolute;
-  z-index: 50;
+  z-index: var(--duel-z-modal);
   left: 50%;
   bottom: max(24px, env(safe-area-inset-bottom));
   transform: translateX(-50%);

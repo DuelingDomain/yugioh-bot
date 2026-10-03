@@ -66,6 +66,7 @@ describe("duel layers use the tokens", () => {
     ["room.module.css", ".cardTooltip", "var(--duel-z-tooltip)"],
     ["battle-fx.module.css", ".confirm", "var(--duel-z-confirm)"],
     ["series.module.css", ".sideSheet", "var(--duel-z-modal)"],
+    ["room.module.css", ".eliminatedChoice", "var(--duel-z-modal)"],
     ["duel-result.module.css", ".root", "var(--duel-z-result)"],
   ];
 
