@@ -45,6 +45,22 @@ describe("baseDuration", () => {
 });
 
 describe("planMoves", () => {
+  it("chains a known arrival discarded from a different slot after an unreported engine shuffle", () => {
+    const events = [move(1, z(0, DECK, 0), z(0, HAND, 4), { reason: "draw", handId: "departed-1" }),
+      move(2, z(0, HAND, 1), z(0, GRAVE, 0), { reason: "discard" })];
+    const [incoming, outgoing] = planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry });
+    expect(incoming.handoff).toBe(outgoing.id);
+    expect(outgoing.handoffFrom?.id).toBe(incoming.id);
+    expect(outgoing.startAt).toBe(incoming.landAt);
+  });
+
+  it("keeps a surviving identical arrival separate from an older card's departure", () => {
+    const events = [move(1, z(0, DECK, 0), z(0, HAND, 2), { reason: "draw", handId: "hand-survivor" }),
+      move(2, z(0, HAND, 2), z(0, GRAVE, 0), { reason: "discard" })];
+    const [incoming, outgoing] = planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry });
+    expect(incoming.handoff).toBeUndefined();
+    expect(outgoing.handoffFrom).toBeUndefined();
+  });
   it("makes the whole opening deal about 10% quicker, including a compressed queue", () => {
     const opening = Array.from({ length: 10 }, (_, i) => move(i + 1, z(Math.floor(i / 5), DECK, 0), z(Math.floor(i / 5), HAND, i % 5), { reason: "draw" }));
     const plans = planMoves(opening, { now: 0, reduced: false, duelKey: "t", geometry });

@@ -360,17 +360,23 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     const item = byId.get(event.id);
     if (from.location === LOCATION_HAND) {
       const hand = pending.get(from.controller) ?? new Map<number, Candidate>();
-      const previous = hand.get(from.sequence);
-      const beforeCode = previous?.event.card?.code;
+      let previous = hand.get(from.sequence);
       const afterCode = event.card?.code;
-      if (item && previous && (beforeCode == null || afterCode == null || beforeCode === afterCode)) {
+      if (afterCode != null && (previous == null || (previous.event.card?.code != null && previous.event.card.code !== afterCode))) {
+        // SHUFFLE_HAND is not an animation event. Only an explicitly retired arrival may
+        // follow its known code across that permutation; an older identical copy can also leave.
+        previous = [...hand.values()].find((arrival) => arrival.event.handId?.startsWith("departed-") && arrival.event.card?.code === afterCode);
+      }
+      const beforeCode = previous?.event.card?.code;
+      if (item && previous && (!previous.event.handId || previous.event.handId.startsWith("departed-")) &&
+        (beforeCode == null || afterCode == null || beforeCode === afterCode)) {
         item.predecessor = previous;
         chained.add(previous);
         const target = handArrivalTarget(previous.event);
         if (target) item.source = { ...target, faceUp: (previous.event.card?.code ?? 0) > 0, defense: false };
       }
       pending.set(from.controller, new Map([...hand]
-        .filter(([sequence]) => sequence !== from.sequence)
+        .filter(([sequence, arrival]) => previous ? arrival !== previous : sequence !== from.sequence)
         .map(([sequence, arrival]) => [sequence > from.sequence ? sequence - 1 : sequence, arrival])));
     }
     if (to.location === LOCATION_HAND) {
