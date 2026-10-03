@@ -1,0 +1,76 @@
+/* The drafts pages in Solid Vision. The page bar runs edge to edge on the floor (the shell drops its padding for
+   OwnsPageBar), so the body takes the side padding itself: 32px, 16px on a phone. Everything inside is on the
+   floor, split by light lines. No boxes. */
+:global(.ms).root {
+  padding: 0;
+  background: var(--floor);
+  min-height: 100%;
+}
+.body {
+  display: grid;
+  gap: clamp(24px, 3.4cqi, 40px);
+  align-content: start;
+  min-width: 0;
+  padding: 28px 32px 56px;
+}
+.body > * { min-width: 0; }
+
+/* Main column plus the 340px rail. On a phone it is one column, the rail follows the main column, and the
+   action block (Create draft, Start draft, Join draft) sticks to the bottom of the screen. It is a flex item there
+   because a sticky grid item can only move inside its own grid area. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-rows: auto 1fr;
+  column-gap: 40px;
+  align-items: start;
+  min-width: 0;
+}
+.main { grid-column: 1; grid-row: 1 / span 2; display: grid; gap: clamp(24px, 3.4cqi, 40px); align-content: start; min-width: 0; }
+.main > * { min-width: 0; }
+.rail { grid-column: 2; grid-row: 1; min-width: 0; padding: 0 0 0 28px; border-left: 1px solid var(--rule-lo); align-self: stretch; }
+.rail.railTall { grid-row: 1 / span 2; }
+.actions { grid-column: 2; grid-row: 2; min-width: 0; padding: 4px 0 0 28px; border-left: 1px solid var(--rule-lo); align-self: stretch; display: grid; gap: 10px; align-content: start; }
+.actions > * { min-width: 0; }
+
+.railSec { padding: 20px 0; border-bottom: 1px solid var(--rule-lo); min-width: 0; }
+.railSec:first-child { padding-top: 0; }
+.railSec:last-child { border-bottom: 0; }
+.railH { margin: 0 0 12px; font: 600 18px/1.2 var(--f-display); color: var(--ink); }
+.railNote { margin: 8px 0 0; color: var(--ink-3); font-size: 14px; line-height: 1.5; }
+.railNote strong { color: var(--ink-2); font-weight: 600; }
+
+/* A definition list: quiet label on the left, the value on the right in the number font. */
+.rules { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px 18px; margin: 0; font-size: 14.5px; }
+.rules dt { color: var(--ink-3); }
+.rules dd { margin: 0; min-width: 0; color: var(--ink); text-align: right; overflow-wrap: anywhere; }
+.rules dd.num, .num { font-family: var(--f-num); font-variant-numeric: tabular-nums lining-nums; font-weight: 600; }
+
+/* Short separate pieces under a title, with a gap and no dot between them. */
+.pieces { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; margin: 0; padding: 0; list-style: none; color: var(--ink-3); font-size: 14.5px; line-height: 1.4; min-width: 0; }
+.pieces > li { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.pieces .strong { color: var(--ink-2); }
+.gem { flex: none; display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--ink-3); background: transparent; }
+.gem[data-fill="true"] { background: var(--ink-2); border-color: var(--ink-2); }
+.gem[data-tone="dim"] { border-color: var(--ink-4); }
+
+@container (max-width: 900px) {
+  .layout { display: flex; flex-direction: column; gap: 28px; }
+  .main { gap: 28px; }
+  .rail, .rail.railTall { padding: 0; border-left: 0; border-top: 1px solid var(--rule-lo); padding-top: 24px; align-self: auto; }
+  .actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin: 0 -16px;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    border-left: 0;
+    border-top: 1px solid var(--rule);
+    background: var(--panel);
+    align-self: auto;
+  }
+  .actions > * { width: 100%; }
+}
+@container (max-width: 620px) {
+  .body { padding: 20px 16px 48px; gap: 24px; }
+}
