@@ -10,7 +10,7 @@ import { migrate } from "@yugidraft/shared/db";
 import { seatCountFor, teamOfSeat, type DuelAnswer, type DuelEngineView, type DuelFormat, type DuelMode, type DuelRoom, type DuelReplay } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
-import { GameWorker } from "../src/worker-client.js";
+import { GameWorker, type GameOptions } from "../src/worker-client.js";
 import { buildPracticeBotDeck, chooseSurrenderedAnswer } from "../src/practice-bot.js";
 import { resolveCard } from "../src/presets/catalog.js";
 import { compileBoard, type BoardSpec } from "../src/presets/board.js";
@@ -24,7 +24,13 @@ import { describeWithCores, needs } from "./support/cores.js";
 const SECRET = "surrender-eot-test";
 class TestWorker extends GameWorker {
   holdViews = false;
+  failCreate = false;
   private readonly heldViews: Array<() => void> = [];
+
+  override async create(options: GameOptions) {
+    if (this.failCreate) throw new Error("Replay worker unavailable");
+    return super.create(options);
+  }
 
   override async view(seat: number | null): Promise<DuelEngineView> {
     if (this.holdViews) await new Promise<void>((resolve) => this.heldViews.push(resolve));
@@ -75,9 +81,10 @@ Duel.RegisterEffect(e,0)`);
     { turn: 1, remainingMs: Array(count).fill(60_000), activeSeat: 0, startedAt: Date.now() },
     { startupScripts: scripts, firstTurnDraw: mode === "domain" });
   const workers: TestWorker[] = [];
+  let failReplays = false;
   const makeHost = () => {
     const host = createDuelHost({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000,
-      queueBlockedMs, createWorker: () => { const worker = new TestWorker(); workers.push(worker); return worker; } });
+      queueBlockedMs, createWorker: () => { const worker = new TestWorker(); worker.failCreate = failReplays; workers.push(worker); return worker; } });
     hosts.push(host);
     return host;
   };
@@ -104,6 +111,7 @@ Duel.RegisterEffect(e,0)`);
       commands: state.commands.map(({ seat, command }) => ({ seat, ...command })) };
   };
   return { db, service, session, count, players, post, view, answer, source, workers,
+    failReplays: () => { failReplays = true; },
     recover: async () => { await host.close(); host = makeHost(); return view(); } };
 }
 
@@ -522,6 +530,35 @@ Duel.RegisterEffect(e,0)`]);
       await t.recover();
       expect((await t.post("view", earlier)).role).toBe("spectator");
       expect((await t.post("view", 1)).role).toBe("player");
+    }, 60_000);
+
+    it.each(["ffa3", "ffa4", "tag"] as const)("%s room reads do not replay a journal with no loss", async (format) => {
+      const t = await table(mode, format);
+      await t.view();
+      t.service.interrupt(t.session.slug, "g", "Test interruption");
+      t.failReplays();
+      const workers = t.workers.length;
+      for (let read = 0; read < 2; read++) for (let seat = 0; seat < t.count; seat++) {
+        const room = await t.post("view", seat);
+        expect(room).toMatchObject({ role: "player", mySeat: seat, engine: null });
+        expect(t.workers).toHaveLength(workers);
+      }
+    }, 60_000);
+
+    it.each(["ffa3", "ffa4", "tag"] as const)("%s room reads replay a failed loss check only for that seat or team", async (format) => {
+      const t = await table(mode, format);
+      const leaver = t.count - 1;
+      await t.view();
+      await t.post("surrender", leaver);
+      t.service.interrupt(t.session.slug, "g", "Test interruption");
+      t.failReplays();
+      let workers = t.workers.length;
+      for (let read = 0; read < 2; read++) for (let seat = 0; seat < t.count; seat++) {
+        const room = await t.post("view", seat);
+        expect(room).toMatchObject({ role: "player", mySeat: seat, engine: null });
+        if (seat === leaver || (format === "tag" && teamOfSeat(format, seat) === teamOfSeat(format, leaver))) workers++;
+        expect(t.workers).toHaveLength(workers);
+      }
     }, 60_000);
 
     it("R-COMMON-SURRENDER-EOT: an interrupted queue that did not land keeps the player role", async () => {

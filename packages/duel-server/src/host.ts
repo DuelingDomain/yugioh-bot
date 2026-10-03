@@ -1055,7 +1055,12 @@ export function createDuelHost(options: {
     }
     // With no final board, replay the journal to check that the loss did land.
     let noBoardLoss = false;
-    if (room.mySeat !== null && room.engine === null && room.session.status === "interrupted" && room.session.format !== "1v1") {
+    const lossForViewer = room.mySeat !== null && [
+      ...(setup.setup?.surrenderedSeats ?? []),
+      ...setup.commands.filter((input) => eliminationReasonOf(input.command) !== null).map((input) => input.seat),
+    ].some((seat) => seat === room.mySeat || (room.session.format === "tag"
+      && teamOfSeat("tag", seat) === teamOfSeat("tag", room.mySeat!)));
+    if (lossForViewer && room.engine === null && room.session.status === "interrupted" && room.session.format !== "1v1") {
       try {
         const publicReplay = await replay(slug, guildId, { ...room, role: "spectator", mySeat: null, myDeck: null });
         const last = publicReplay.frames.at(-1)?.view ?? null;
