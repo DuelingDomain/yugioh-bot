@@ -386,9 +386,10 @@ function foolishRevivalOtherGrave(format: "ffa3" | "tag"): Scenario {
 }
 
 // --- R3 (Q1): cards that last "until the end of your opponent's next turn" or for N opponent turns ------------------------------------
-// Every turn of an opposing duelist counts, in turn order; a partner turn does not count; a seat that lost takes no turn. The stock scripts are
-// used (the core counts the turns, patch 0048). The state of EVERY living seat is asserted after each step that matters.
-const R3_RULE = `${SOURCE} [R-FFA-ORDER] Q1 R3: every turn of any opponent counts; in Tag only a turn of an opposing duelist; a seat that lost takes no turn`;
+// In FFA, RESET_OPPO_TURN without RESET_SELF_TURN counts only the declared opponent's turns when the effect binds one opponent.
+// Effects with no declared opponent keep R3: every opponent turn counts. Tag keeps its opposing-duelist count; a partner turn does not count.
+// A seat that lost takes no turn. The state of every living seat is checked after each step that matters.
+const R3_RULE = `${SOURCE} [R-FFA-ORDER] Q1 R3: with no declared opponent, every opponent turn counts. [R-FFA-DECLARED-DURATION]: in FFA, RESET_OPPO_TURN without RESET_SELF_TURN counts only the declared opponent's turns. Tag keeps its opposing-duelist count; a seat that lost takes no turn`;
 const TIME_SEAL = "Time Seal";
 
 /** The table of the living `seats`: every seat has the hand size of `hands` (0 when it is missing), p0 has the Graveyard and Spell/Trap zones given. */
@@ -404,12 +405,12 @@ function table(seats: Seat[], hands: Partial<Record<Seat, number>>, p0: { grave?
 }
 
 const timeSealSetup = { spells: [{ card: TIME_SEAL, pos: "set" as const }] };
-const TIME_SEAL_RULE = `${SOURCE} [R-FFA-OPP-ONE] [R-FFA-ACTIVATED-LOCK] [R-FFA-FIRST-DRAW]: Time Seal skips the declared opponent's next Draw Phase; all first draws follow the duel mode and Master Rule`;
+const TIME_SEAL_RULE = `${SOURCE} [R-FFA-OPP-ONE] [R-FFA-ACTIVATED-LOCK] [R-FFA-DECLARED-DURATION] [R-FFA-FIRST-DRAW]: Time Seal skips the declared opponent's next Draw Phase; other opponents' turns do not end the lock; all first draws follow the duel mode and Master Rule`;
 const timeSealFfa3 = defineScenario({
   id: "r3-ffa3-time-seal-skips-the-draw-of-the-declared-opponent",
   title: "FFA3: p0 declares p1 for Time Seal: p1 skips its next Draw Phase, p2 draws on its turn, and p1 draws on its second turn",
   source: TIME_SEAL_RULE,
-  rules: ["R-FFA-ORDER", "R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-FIRST-DRAW"],
+  rules: ["R-FFA-ORDER", "R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-DECLARED-DURATION", "R-FFA-FIRST-DRAW"],
   tags: ["multiplayer", "late-cards", "turn-count", "r3", "ffa3", "card:35316708"],
   setup: { format: "ffa3", p0: timeSealSetup },
   steps: [
@@ -437,7 +438,7 @@ const timeSealFfa3P2 = defineScenario({
   id: "r3-ffa3-time-seal-declares-p2-and-skips-only-its-next-draw",
   title: "FFA3: p0 declares p2 for Time Seal: p1 draws on both turns, p2 skips its first draw and draws on its second turn",
   source: TIME_SEAL_RULE,
-  rules: ["R-FFA-ORDER", "R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-FIRST-DRAW"],
+  rules: ["R-FFA-ORDER", "R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-DECLARED-DURATION", "R-FFA-FIRST-DRAW"],
   tags: ["multiplayer", "late-cards", "turn-count", "r3", "ffa3", "card:35316708"],
   setup: { format: "ffa3", p0: timeSealSetup },
   steps: [
@@ -480,7 +481,7 @@ const timeSealCutShort = defineScenario({
   id: "r3-ffa3-time-seal-declared-opponent-leaves-the-lock-does-not-move",
   title: "FFA3: p0 declares p1 for Time Seal, then p1 gives up: p1 takes no turn; the lock stays bound to p1 and p2 draws on both of its turns",
   source: `${TIME_SEAL_RULE}. [R-FFA-ELIMINATION]: p1 leaves the duel. [R-FFA-OPP-ONE] [R-FFA-ACTIVATED-LOCK]: the lock applies only to p1 and does not move to p2`,
-  rules: ["R-FFA-ORDER", "R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-ELIMINATION", "R-FFA-FIRST-DRAW"],
+  rules: ["R-FFA-ORDER", "R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-DECLARED-DURATION", "R-FFA-ELIMINATION", "R-FFA-FIRST-DRAW"],
   tags: ["multiplayer", "late-cards", "turn-count", "r3", "elimination", "ffa3", "card:35316708"],
   setup: { format: "ffa3", p0: timeSealSetup },
   steps: [
