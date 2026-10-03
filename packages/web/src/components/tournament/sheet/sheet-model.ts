@@ -1,3 +1,4 @@
+import { buildBracket } from "../bracket/bracket-model";
 import { isSeriesOpen } from "../duel-rules";
 import type { PlayerRating, PlayerRatings } from "../sheet-contracts";
 import type { TournamentDetail } from "../types";
@@ -37,11 +38,12 @@ export function getTournamentProgress(tournament: TournamentDetail) {
   const roundNumbers = tournament.matches.map((match) => match.roundNumber);
   const maxRound = roundNumbers.length > 0 ? Math.max(...roundNumbers) : 0;
   const incompleteRounds = tournament.matches.filter((match) => match.status !== "completed").map((match) => match.roundNumber);
-  const hasRounds = tournament.format === "single_elim" && maxRound > 0;
+  const rounds = tournament.format === "single_elim" ? buildBracket(tournament) : null;
+  const hasRounds = rounds !== null && rounds.length > 0 && maxRound > 0;
   return {
-    done, total: tournament.matches.length, live, toConfirm, yours, notStarted,
+    done, total: rounds ? rounds.reduce((total, round) => total + round.slots.length, 0) : tournament.matches.length, live, toConfirm, yours, notStarted,
     currentRound: hasRounds ? (incompleteRounds.length > 0 ? Math.min(...incompleteRounds) : maxRound) : null,
-    totalRounds: hasRounds ? maxRound : null,
+    totalRounds: hasRounds ? rounds.length : null,
   };
 }
 export type TournamentProgress = ReturnType<typeof getTournamentProgress>;

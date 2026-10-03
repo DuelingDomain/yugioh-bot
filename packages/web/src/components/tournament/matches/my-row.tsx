@@ -3,6 +3,7 @@
 import { useId } from "react";
 import { buildStandings } from "../standings/standings-model";
 import { goToMatch } from "../standings/crosstable";
+import { isSeriesOpen } from "../duel-rules";
 import { formatRecent } from "../sheet-dates";
 import type { YourMatchProps } from "../sheet-contracts";
 import type { Match } from "../types";
@@ -42,7 +43,7 @@ export function MyRow({ tournament, currentUserPlayerId, ratings }: YourMatchPro
           const score = done ? winnerScore(match) : matchScore(match);
           // winnerScore reads from the winner's side; the row wants the viewer's.
           const mineScore = done && score && !won ? score.split("–").reverse().join("–") : score;
-          const open = match.status === "open";
+          const open = match.status === "open" && !isSeriesOpen(match.series);
           const projection = open && opp.id !== null ? matchProjection(match, playerId, ratings) : null;
           const pending = match.status === "pending_approval" || match.status === "pending";
           return (

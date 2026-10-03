@@ -1,6 +1,25 @@
 import { describe, expect, it } from "vitest";
+import { generateSingleElimFirstRound } from "@yugidraft/shared/tournaments";
 import { buildPlayerRatings, getTournamentProgress, statusPresentation } from "@/components/tournament/sheet/sheet-model";
+import type { TournamentDetail } from "@/components/tournament/types";
 import { sheetRatings, sheetTournament, threeMatchTournament } from "./fixtures/tournament-sheet";
+
+function eliminationTournament(count: number): TournamentDetail {
+  const participants = Array.from({ length: count }, (_, i) => ({ playerId: i + 1, displayName: `Player ${i + 1}` }));
+  const { byes, pairings } = generateSingleElimFirstRound(participants.map((player) => player.playerId));
+  return {
+    ...sheetTournament, format: "single_elim", participants,
+    matches: [
+      ...byes.map((playerOneId) => ({ playerOneId, playerTwoId: null })),
+      ...pairings,
+    ].map((pairing, i) => ({
+      ...sheetTournament.matches[0], ...pairing, id: i + 1, roundNumber: 1,
+      playerOneName: `Player ${pairing.playerOneId}`, playerTwoName: pairing.playerTwoId === null ? null : `Player ${pairing.playerTwoId}`,
+      status: pairing.playerTwoId === null ? "completed" : "open", winnerId: pairing.playerTwoId === null ? pairing.playerOneId : null,
+      metadata: pairing.playerTwoId === null ? { bye: true, winnerId: pairing.playerOneId } : {},
+    })),
+  };
+}
 
 describe("tournament sheet model", () => {
   it("maps all-time leaderboard rows by player id", () => {
@@ -37,9 +56,23 @@ describe("tournament sheet model", () => {
     expect(getTournamentProgress({ ...sheetTournament, matches: [] })).toMatchObject({ done: 0, total: 0, live: 0, toConfirm: 0, yours: 0, notStarted: 0 });
   });
   it("keeps round numbers only for single elimination and uses the first incomplete round", () => {
+    const elimination = { ...threeMatchTournament, format: "single_elim", participants: threeMatchTournament.participants.filter((player) => [1, 5, 2, 3].includes(player.playerId)) };
     expect(getTournamentProgress(threeMatchTournament)).toMatchObject({ done: 2, total: 3, currentRound: null });
-    expect(getTournamentProgress({ ...threeMatchTournament, format: "single_elim" })).toMatchObject({ currentRound: 2, totalRounds: 2 });
-    expect(getTournamentProgress({ ...threeMatchTournament, format: "single_elim", matches: threeMatchTournament.matches.map((match) => ({ ...match, status: "completed" })) })).toMatchObject({ currentRound: 2, totalRounds: 2 });
+    expect(getTournamentProgress(elimination)).toMatchObject({ currentRound: 2, totalRounds: 2 });
+    expect(getTournamentProgress({ ...elimination, matches: elimination.matches.map((match) => ({ ...match, status: "completed" })) })).toMatchObject({ currentRound: 2, totalRounds: 2 });
+  });
+  it.each([
+    { players: 8, done: 0, total: 7, totalRounds: 3 },
+    { players: 5, done: 1, total: 6, totalRounds: 3 },
+  ])("uses full bracket totals for $players players before later rounds are generated", ({ players, done, total, totalRounds }) => {
+    expect(getTournamentProgress(eliminationTournament(players))).toMatchObject({ done, total, currentRound: 1, totalRounds });
+  });
+  it("keeps elimination totals stable when the next round is generated", () => {
+    const tournament = eliminationTournament(8);
+    const firstRound = tournament.matches.map((match) => ({ ...match, status: "completed", winnerId: match.playerOneId }));
+    const { pairings } = generateSingleElimFirstRound(firstRound.map((match) => match.winnerId));
+    const secondRound = pairings.map((pairing, i) => ({ ...tournament.matches[0], ...pairing, id: i + 5, roundNumber: 2 }));
+    expect(getTournamentProgress({ ...tournament, matches: [...firstRound, ...secondRound] })).toMatchObject({ done: 4, total: 7, currentRound: 2, totalRounds: 3 });
   });
   it.each([
     ["active", "live", "In progress"], ["completed", "done", "Completed"], ["cancelled", "off", "Cancelled"],

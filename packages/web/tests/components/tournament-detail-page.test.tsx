@@ -63,10 +63,11 @@ describe("TournamentDetailPage one sheet", () => {
     expect(screen.getByTestId("tournament-page-shell")).toBeInTheDocument();
   });
 
-  it("preserves the single elimination round computation", async () => {
+  it("derives elimination progress totals from participants", async () => {
     setup({ ...threeMatchTournament, format: "single_elim" });
     render(<TournamentDetailPage />);
-    expect(await screen.findByText("Round 2 of 2")).toBeInTheDocument();
+    expect(await screen.findByText("Round 2 of 3")).toBeInTheDocument();
+    expect(screen.getByText("2 of 6 decided")).toBeInTheDocument();
   });
 
   it("shows the Decks sheet, deck states and the YOU tag to the host", async () => {
