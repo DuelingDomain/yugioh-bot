@@ -1,0 +1,12 @@
+/* Positioning and focus for the deadline picker; the look comes from the board classes
+   (.dtf, .dtf-b, .dtf-x, .dtp, .dtp-h, .dtp-g, .dtp-f, .dtp-t) in match-sheet.css. */
+.wrap { position: relative; }
+.pop { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; max-width: calc(100cqi - 8px); }
+.focus:focus-visible { outline: 2px solid var(--pen); outline-offset: 1px; }
+.times { display: grid; max-height: 280px; overflow-y: auto; outline: none; }
+.times:focus-visible { border-color: var(--pen); box-shadow: 0 0 0 3px rgb(155 126 255 / 0.22), 0 24px 60px -24px rgb(0 0 0 / 0.95); }
+.opt { cursor: pointer; }
+.opt:hover { background: rgb(239 231 213 / 0.06); }
+.opt[data-active="true"] { box-shadow: inset 0 0 0 1px var(--rule-hi); }
+.opt[aria-selected="true"][data-active="true"] { box-shadow: inset 2px 0 0 var(--pen), inset 0 0 0 1px var(--pen); }
+.day:disabled { color: var(--ink-4); cursor: default; }

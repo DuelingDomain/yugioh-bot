@@ -1,0 +1,8 @@
+/* The sheet's invite row is a fixed two-column grid. With two buttons it squeezed the link to nothing
+   on a phone, so let the buttons drop under the link when there isn't room beside it. */
+:global(.ms) .inviteRow.inviteRow { display: flex; flex-wrap: wrap; gap: 8px; }
+:global(.ms) .inviteRow > :global(.input) { flex: 1 1 260px; }
+:global(.ms) .inviteRow > :global(.acts) { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Breathing room under the seat grid for the pairing note and the host's note. */
+:global(.ms) .pairNote.pairNote { margin: 10px 0 0; }
+:global(.ms) .seatsSec > :global(.inline-note) { margin-top: 12px; }

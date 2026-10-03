@@ -334,7 +334,7 @@ export async function PUT(
       }
       throw err;
     }
-    if (Object.keys(patch).length > 0 || rulesChange) {
+    if (name !== undefined || Object.keys(patch).length > 0 || rulesChange) {
       void broadcaster.tournament({ kind: "match-updated", slug });
     }
 

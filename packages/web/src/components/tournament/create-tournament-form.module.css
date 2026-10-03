@@ -1,0 +1,7 @@
+/* Pieces of the new tournament form that the board draws but the foundation stylesheet lacks. */
+.fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.fieldset legend { padding: 0; }
+.opt:has(input:focus-visible) { outline: 2px solid var(--pen); outline-offset: 2px; }
+.hours { display: flex; align-items: center; gap: 10px; color: var(--ink-3); }
+.unnamed { color: var(--ink-3); }
+.sumBanner { margin: 0; }
