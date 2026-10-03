@@ -27,7 +27,9 @@ export function seasonDay(startedAt: string, now: number = Date.now()): number {
 }
 
 function seasonTitle(season: Season) {
-  return season.name ? `Season ${season.number} · ${season.name}` : `Season ${season.number}`;
+  const title = `Season ${season.number}`;
+  const name = season.name?.trim();
+  return name && name.toLowerCase() !== title.toLowerCase() ? `${title} · ${name}` : title;
 }
 
 export function SeasonControl() {
@@ -122,7 +124,8 @@ export function SeasonControl() {
       <div className="banner banner-bad" role="alert">
         <AlertTriangle className="ic" aria-hidden="true" />
         <div>
-          <b>Couldn&apos;t load the season.</b> Nothing has changed. Try again in a moment.
+          <b>Couldn&apos;t load the season.</b>{" "}
+          Nothing has changed. Try again in a moment.
         </div>
         <button className="btn btn-secondary btn-sm" type="button" style={{ marginLeft: "auto" }} onClick={retry}>
           <RotateCw className="ic sm" aria-hidden="true" />
@@ -159,16 +162,17 @@ export function SeasonControl() {
           <ul className="endlist">
             <li>
               <Lock className="ic sm" aria-hidden="true" />
-              <span><b>Standings freeze.</b> They&apos;re kept as Season {season.number}&apos;s final table.</span>
+              <span><b>Standings freeze.</b>{" "}They&apos;re kept as Season {season.number}&apos;s final table.</span>
             </li>
             <li>
               <RefreshCw className="ic sm" aria-hidden="true" />
-              <span><b>Nothing resets.</b> Elo, tiers, career winnings and achievements carry on.</span>
+              <span><b>Nothing resets.</b>{" "}Elo, tiers, career winnings and achievements carry on.</span>
             </li>
             <li>
               <AlertTriangle className="ic sm" aria-hidden="true" />
               <span>
-                <b>Season {season.number + 1} starts by itself</b> on the next approved match, with no name, unless you start it here first.
+                <b>Season {season.number + 1} starts by itself</b>{" "}
+                on the next approved match, with no name, unless you start it here first.
               </span>
             </li>
           </ul>

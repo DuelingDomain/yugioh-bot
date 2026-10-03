@@ -5,6 +5,7 @@ import { SheetRoot } from "@/components/sheet";
 import { DraftRow, TournamentRow, type DashboardDraft, type DashboardTournament } from "@/components/dashboard/dashboard-rows";
 import { YourStanding, type StandingProfile } from "@/components/dashboard/your-standing";
 import { WelcomePanel } from "@/components/dashboard/welcome-panel";
+import styles from "@/components/dashboard/dashboard.module.css";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { createScoringService } from "@yugidraft/shared/services";
@@ -142,7 +143,7 @@ export default async function DashboardPage() {
       ) : (
         <div className="db">
           <YourStanding profile={profileData} record={stats} />
-          <div className="db-cols">
+          <div className={`db-cols ${styles.cols}`}>
             <section aria-label="Your tournaments">
               <div className="sec-h">
                 <h2 className="sec-t">Your tournaments</h2>

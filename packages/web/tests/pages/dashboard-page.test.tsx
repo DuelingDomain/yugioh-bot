@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "../../../shared/src/db/schema";
 import DashboardPage from "../../app/(app)/dashboard/page";
+import styles from "@/components/dashboard/dashboard.module.css";
 
 const { auth, getDb } = vi.hoisted(() => ({ auth: vi.fn(), getDb: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth }));
@@ -100,6 +101,7 @@ describe("DashboardPage", () => {
     render(await DashboardPage());
 
     const section = screen.getByRole("region", { name: "Your tournaments" });
+    expect(section.parentElement).toHaveClass("db-cols", styles.cols);
     const rows = within(section).getAllByRole("link").filter((a) => a.classList.contains("db-row"));
     expect(rows.map((r) => r.querySelector(".nm")?.textContent)).toEqual(["Running Cup", "Open Cup"]);
     rows.forEach((r) => expect(r).toHaveAttribute("data-you"));

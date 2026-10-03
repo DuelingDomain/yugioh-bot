@@ -130,7 +130,8 @@ export function AnnouncementToggles() {
       <div className="banner banner-bad" role="alert">
         <AlertTriangle className="ic" aria-hidden="true" />
         <div>
-          <b>Couldn&apos;t load announcement settings.</b> Try again in a moment.
+          <b>Couldn&apos;t load announcement settings.</b>{" "}
+          Try again in a moment.
         </div>
         <button className="btn btn-secondary btn-sm" type="button" style={{ marginLeft: "auto" }} onClick={() => setAttempt((n) => n + 1)}>
           <RotateCw className="ic sm" aria-hidden="true" />
@@ -212,7 +213,8 @@ export function AnnouncementToggles() {
             <div className="banner banner-warn">
               <AlertTriangle className="ic" aria-hidden="true" />
               <div>
-                <b>Two kinds of post are skipped.</b> Results waiting for approval and finished tournaments aren&apos;t posted anywhere until you choose a channel.
+                <b>Two kinds of post are skipped.</b>{" "}
+                Results waiting for approval and finished tournaments aren&apos;t posted anywhere until you choose a channel.
               </div>
             </div>
           )}
