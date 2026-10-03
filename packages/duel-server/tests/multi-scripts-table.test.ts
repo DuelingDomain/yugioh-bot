@@ -54,16 +54,18 @@ export interface TableCard {
   name: string;
 }
 
-/**
- * Cards of a manifest by class, in the order compare, chooser, R1, R2, fix. A card of several classes (Evenly Matched, Pineapple
- * Blast) is listed once, in the first group. A "fix" entry has no class (a fix of one script that the scan does not flag) and is
- * listed in its own group. Mirror Gate is never listed (Q7).
- */
 // The pre-errata card is outside the current corpus. Keep its C6 geometry audit.
 // Add it to the live table only after its database row and official script are supplied.
 const TABLE_EXCLUSIONS: Record<number, string> = {
   5043020: "Firewall Dragon (pre-errata): the corpus has no database row or official script. The live table cannot load this card.",
 };
+
+/**
+ * Cards of a manifest by class, in the order compare, chooser, R1, R2, fix. A card of several classes (Evenly Matched, Pineapple
+ * Blast) is listed once, in the first group. A "fix" entry has no class (a fix of one script that the scan does not flag) and is
+ * listed in its own group. Mirror Gate is never listed (Q7).
+ */
+
 
 export function tableCardsOf(source: Manifest): TableCard[] {
   const rows: TableCard[] = [];
