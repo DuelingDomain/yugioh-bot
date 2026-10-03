@@ -1,9 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, Lock, RotateCw, RefreshCw } from "lucide-react";
-import { ConfirmPanel, DangerRow, DangerZone, SheetPanel } from "@/components/sheet";
+import { AlertTriangle, Lock, RefreshCw } from "lucide-react";
+import { ConfirmPanel, FloorList, FloorRow, SectionHead, StatusLine, SvButton } from "@/components/sheet";
 import { toUtcIso } from "@/lib/utils";
+import styles from "./settings.module.css";
 
 type Season = {
   id: number;
@@ -30,7 +31,7 @@ export function seasonDay(startedAt: string, now: number = Date.now()): number {
 function seasonTitle(season: Season) {
   const title = `Season ${season.number}`;
   const name = season.name?.trim();
-  return name && name.toLowerCase() !== title.toLowerCase() ? `${title} · ${name}` : title;
+  return name && name.toLowerCase() !== title.toLowerCase() ? `${title}, ${name}` : title;
 }
 
 export function SeasonControl() {
@@ -122,29 +123,23 @@ export function SeasonControl() {
   let body: React.ReactNode;
   if (loadError && season === undefined) {
     body = (
-      <div className="banner banner-bad" role="alert">
-        <AlertTriangle className="ic" aria-hidden="true" />
-        <div>
-          <b>Couldn&apos;t load the season.</b>{" "}
-          Nothing has changed. Try again in a moment.
+      <div className={styles.loadError}>
+        <div role="alert">
+          <StatusLine tone="block">
+            <b>Couldn&apos;t load the season.</b> Nothing has changed. Try again in a moment.
+          </StatusLine>
         </div>
-        <button className="btn btn-secondary btn-sm" type="button" style={{ marginLeft: "auto" }} onClick={retry}>
-          <RotateCw className="ic sm" aria-hidden="true" />
+        <SvButton variant="quiet" onClick={retry}>
           Retry
-        </button>
+        </SvButton>
       </div>
     );
   } else if (season === undefined) {
     body = (
-      <div className="panel panel-pad season-card" aria-busy="true" aria-label="Loading season">
-        <div style={{ display: "grid", gap: 10 }}>
-          <span className="sk" style={{ width: "22%" }} />
-          <span className="sk" style={{ width: "46%", height: 22 }} />
-        </div>
-        <div style={{ display: "grid", gap: 10, paddingTop: 14, borderTop: "1px solid var(--rule-lo)" }}>
-          <span className="sk" style={{ width: "58%" }} />
-          <span className="sk" style={{ width: "40%" }} />
-        </div>
+      <div className={styles.block} aria-busy="true" aria-label="Loading season">
+        <span className="sk" style={{ width: "22%" }} />
+        <span className="sk" style={{ width: "46%", height: 22 }} />
+        <span className="sk" style={{ width: "58%" }} />
       </div>
     );
   } else if (season?.status === "active") {
@@ -178,59 +173,47 @@ export function SeasonControl() {
             </li>
           </ul>
           {endError && (
-            <p className="ferr" role="alert">
-              <AlertTriangle className="ic sm" aria-hidden="true" />
-              {endError}
-            </p>
+            <div role="alert">
+              <StatusLine tone="block">{endError}</StatusLine>
+            </div>
           )}
       </ConfirmPanel>
     ) : (
-      <SheetPanel
-        className="season-card"
-        headingLevel={3}
-        title={seasonTitle(season)}
-        aside={<small className="ssn">{`running · day ${seasonDay(season.startedAt)}`}</small>}
-        bodyClassName="stack"
-      >
-        <dl className="rows">
-          <div>
-            <dt>Started</dt>
-            <dd>{formatDate(season.startedAt)}</dd>
-          </div>
-        </dl>
-        <DangerZone className="in-sheet">
-          <DangerRow
-            title={`End Season ${season.number}`}
-            description="Freezes the standings as its final table. Nothing resets."
-            action={
-              <button
-                className="btn btn-danger btn-sm"
-                type="button"
-                onClick={() => {
-                  setEndError(null);
-                  setConfirmEnd(true);
-                }}
-              >
-                End season
-              </button>
-            }
-          />
-        </DangerZone>
-      </SheetPanel>
+      <div className={styles.block}>
+        <SectionHead as="h3" title={seasonTitle(season)} note={`running, day ${seasonDay(season.startedAt)}`} />
+        <FloorList>
+          <FloorRow>
+            <span className="sv-cell-mute">Started</span>
+            <span className="sv-cell-end">{formatDate(season.startedAt)}</span>
+          </FloorRow>
+          <FloorRow className={styles.dangerRow}>
+            <div className="sv-cell-grow">
+              <p className={styles.rowTitle}>{`End Season ${season.number}`}</p>
+              <p className={styles.rowNote}>Freezes the standings as its final table. Nothing resets.</p>
+            </div>
+            <SvButton
+              variant="danger"
+              onClick={() => {
+                setEndError(null);
+                setConfirmEnd(true);
+              }}
+            >
+              End season
+            </SvButton>
+          </FloorRow>
+        </FloorList>
+      </div>
     );
   } else {
     body = (
-      <div className="panel panel-pad season-card">
-        <p style={{ color: "var(--ink-3)", fontSize: 13 }}>No season running</p>
-        <form
-          onSubmit={(e) => void handleStart(e)}
-          style={{ display: "grid", gap: 12, paddingTop: 14, borderTop: "1px solid var(--rule-lo)" }}
-        >
+      <div className={styles.block}>
+        <p className={styles.rowNote}>No season running</p>
+        <form className={styles.startForm} onSubmit={(e) => void handleStart(e)}>
           <div>
             <label className="label" htmlFor="season-name">
               Name for the next season <span style={{ color: "var(--ink-3)" }}>optional</span>
             </label>
-            <div style={{ display: "flex", gap: 10 }}>
+            <div className={styles.inline}>
               <input
                 className="input"
                 id="season-name"
@@ -239,19 +222,16 @@ export function SeasonControl() {
                 onChange={(e) => setSeasonName(e.target.value)}
                 placeholder="e.g. Autumn Circuit"
               />
-              <button className="btn btn-primary" type="submit" style={{ flex: "none" }} disabled={startLoading} aria-busy={startLoading || undefined}>
+              <SvButton variant="primary" type="submit" disabled={startLoading} aria-busy={startLoading || undefined}>
                 Start season
-              </button>
+              </SvButton>
             </div>
           </div>
-          <p className="small" style={{ color: "var(--ink-3)" }}>
-            Or leave it. The next approved match starts a new season with no name.
-          </p>
+          <p className={styles.rowNote}>Or leave it. The next approved match starts a new season with no name.</p>
           {startError && (
-            <p className="ferr" role="alert">
-              <AlertTriangle className="ic sm" aria-hidden="true" />
-              {startError}
-            </p>
+            <div role="alert">
+              <StatusLine tone="block">{startError}</StatusLine>
+            </div>
           )}
         </form>
       </div>

@@ -11,11 +11,14 @@ export interface ShellAccount {
   playerId: number | null;
   /** True after a successful lookup or a confirmed 404; false on failure. */
   profileSettled: boolean;
+  /** Tier name and Elo, from the profile. null until it answers, and when it cannot be read. */
+  tier: string | null;
+  elo: number | null;
 }
 
-const INITIAL: ShellAccount = { status: "loading", name: "", image: null, playerId: null, profileSettled: false };
+const INITIAL: ShellAccount = { status: "loading", name: "", image: null, playerId: null, profileSettled: false, tier: null, elo: null };
 
-/** Same two requests the old top bar made, once for the whole shell. */
+/** The two requests the old top bar made, plus the profile for the tier and Elo line, once for the whole shell. */
 export function useShellAccount(): ShellAccount {
   const [account, setAccount] = useState<ShellAccount>(INITIAL);
 
@@ -38,7 +41,19 @@ export function useShellAccount(): ShellAccount {
       })
       .then((d: { playerId?: number } | null) => {
         if (!live) return;
-        setAccount((a) => ({ ...a, playerId: d?.playerId ? d.playerId : null, profileSettled: true }));
+        const playerId = d?.playerId ? d.playerId : null;
+        setAccount((a) => ({ ...a, playerId, profileSettled: true }));
+        if (playerId === null) return;
+        // The seat's second line. Quiet on failure: the seat then shows the name alone.
+        fetch(`/api/player/${playerId}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((p: { rating?: unknown; rank?: { name?: unknown } } | null) => {
+            if (!live || !p) return;
+            const elo = typeof p.rating === "number" && Number.isFinite(p.rating) ? Math.round(p.rating) : null;
+            const tier = typeof p.rank?.name === "string" ? p.rank.name : null;
+            setAccount((a) => ({ ...a, tier, elo }));
+          })
+          .catch(() => {});
       })
       .catch(() => {
         // A failed lookup leaves profile availability unknown.

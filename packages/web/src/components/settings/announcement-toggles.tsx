@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle, Check, RotateCw } from "lucide-react";
+import { Check } from "lucide-react";
+import { FloorList, FloorRow, SectionHead, StatusLine, SvButton } from "@/components/sheet";
 import { botPosts, type PostDestination } from "./announcement-posts";
+import styles from "./settings.module.css";
 
 type GuildSettings = {
   guildId: string;
@@ -22,13 +24,13 @@ type Channel = {
 function Destination({ to }: { to: PostDestination }) {
   switch (to.kind) {
     case "channel":
-      return <span className="chan">#{to.name}</span>;
+      return <span className={styles.dest}>#{to.name}</span>;
     case "default":
-      return <span className="chan def">{to.text}</span>;
+      return <span className={styles.dest}>{to.text}</span>;
     case "none":
-      return <span className="chan none">Not posted</span>;
+      return <span className={styles.destOff}>Not posted</span>;
     case "off":
-      return <span className="chan off">Not posted</span>;
+      return <span className={styles.destOff}>Not posted</span>;
   }
 }
 
@@ -113,30 +115,25 @@ export function AnnouncementToggles() {
   let body: React.ReactNode;
   if (loading) {
     body = (
-      <div className="panel panel-pad an" aria-busy="true" aria-label="Loading announcement settings">
-        <div style={{ display: "grid", gap: 10 }}>
-          <span className="sk" style={{ width: "30%" }} />
-          <span className="sk" style={{ width: "62%", height: 36 }} />
-        </div>
-        <div style={{ display: "grid", gap: 12, paddingTop: 16, borderTop: "1px solid var(--rule-lo)" }}>
-          <span className="sk" style={{ width: "70%" }} />
-          <span className="sk" style={{ width: "56%" }} />
-          <span className="sk" style={{ width: "64%" }} />
-        </div>
+      <div className={styles.block} aria-busy="true" aria-label="Loading announcement settings">
+        <span className="sk" style={{ width: "30%" }} />
+        <span className="sk" style={{ width: "62%", height: 36 }} />
+        <span className="sk" style={{ width: "70%" }} />
+        <span className="sk" style={{ width: "56%" }} />
+        <span className="sk" style={{ width: "64%" }} />
       </div>
     );
   } else if (loadFailed || !settings) {
     body = (
-      <div className="banner banner-bad" role="alert">
-        <AlertTriangle className="ic" aria-hidden="true" />
-        <div>
-          <b>Couldn&apos;t load announcement settings.</b>{" "}
-          Try again in a moment.
+      <div className={styles.loadError}>
+        <div role="alert">
+          <StatusLine tone="block">
+            <b>Couldn&apos;t load announcement settings.</b> Try again in a moment.
+          </StatusLine>
         </div>
-        <button className="btn btn-secondary btn-sm" type="button" style={{ marginLeft: "auto" }} onClick={() => setAttempt((n) => n + 1)}>
-          <RotateCw className="ic sm" aria-hidden="true" />
+        <SvButton variant="quiet" onClick={() => setAttempt((n) => n + 1)}>
           Retry
-        </button>
+        </SvButton>
       </div>
     );
   } else {
@@ -147,96 +144,80 @@ export function AnnouncementToggles() {
     const knownIds = new Set(channels.map((c) => c.id));
     const posts = botPosts(channelId ? (shownName ?? "the chosen channel") : null);
     body = (
-      <div className="panel msheet an">
-        <header className="sheet-cap">
-          <h3>Announcement channel</h3>
-          <small>one per server</small>
-        </header>
-        <div className="sheet-body" style={{ display: "grid", gap: 18 }}>
-          <div className="an-ch">
-            <label className="label" htmlFor="an-ch">Post to</label>
-            <div className="row">
-              <select
-                className="input select"
-                id="an-ch"
-                value={channelId ?? ""}
-                aria-describedby={saveFailed ? "an-ch-err" : undefined}
-                onChange={(e) => {
-                  setChannelId(e.target.value || null);
-                  setSaved(false);
-                  setSaveFailed(false);
-                }}
-              >
-                <option value="">None</option>
-                {channelId && !knownIds.has(channelId) && <option value={channelId}>Current channel</option>}
-                {channels.map((ch) => (
-                  <option key={ch.id} value={ch.id}>
-                    #{ch.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                className="btn btn-primary"
-                type="button"
-                disabled={!changed || saving}
-                aria-busy={saving || undefined}
-                onClick={() => void handleSave()}
-              >
-                Save
-              </button>
-              {saved && (
-                <span className="an-saved" role="status">
-                  <Check className="ic" aria-hidden="true" />
-                  Saved
-                </span>
-              )}
-            </div>
-            {changed && !saveFailed && (
-              <p className="hint">
-                Was {savedId ? `#${savedName ?? "the current channel"}` : "none"}. Nothing moves until you save.
-              </p>
-            )}
-            {!changed && !saved && channelId && (
-              <p className="hint">
-                Results waiting for approval, finished tournaments and tournament announcements post here.
-              </p>
-            )}
-            {saveFailed && (
-              <p className="ferr" id="an-ch-err" role="alert">
-                <AlertTriangle className="ic sm" aria-hidden="true" />
-                Couldn&apos;t save. {savedId ? `Posts still go to #${savedName ?? "the current channel"}.` : "Nothing has changed."}
-              </p>
+      <div className={styles.block}>
+        <SectionHead as="h3" title="Announcement channel" note="one per server" />
+        <div className={styles.channel}>
+          <label className="label" htmlFor="an-ch">Post to</label>
+          <div className={styles.inline}>
+            <select
+              className="input select"
+              id="an-ch"
+              value={channelId ?? ""}
+              aria-describedby={saveFailed ? "an-ch-err" : undefined}
+              onChange={(e) => {
+                setChannelId(e.target.value || null);
+                setSaved(false);
+                setSaveFailed(false);
+              }}
+            >
+              <option value="">None</option>
+              {channelId && !knownIds.has(channelId) && <option value={channelId}>Current channel</option>}
+              {channels.map((ch) => (
+                <option key={ch.id} value={ch.id}>
+                  #{ch.name}
+                </option>
+              ))}
+            </select>
+            <SvButton variant="primary" disabled={!changed || saving} aria-busy={saving || undefined} onClick={() => void handleSave()}>
+              Save
+            </SvButton>
+            {saved && (
+              <span className={styles.saved} role="status">
+                <Check size={15} aria-hidden="true" />
+                Saved
+              </span>
             )}
           </div>
-
-          {!channelId && (
-            <div className="banner banner-warn">
-              <AlertTriangle className="ic" aria-hidden="true" />
-              <div>
-                <b>Two kinds of post are skipped.</b>{" "}
-                Results waiting for approval and finished tournaments aren&apos;t posted anywhere until you choose a channel.
-              </div>
+          {changed && !saveFailed && (
+            <p className={styles.rowNote}>
+              Was {savedId ? `#${savedName ?? "the current channel"}` : "none"}. Nothing moves until you save.
+            </p>
+          )}
+          {!changed && !saved && channelId && (
+            <p className={styles.rowNote}>
+              Results waiting for approval, finished tournaments and tournament announcements post here.
+            </p>
+          )}
+          {saveFailed && (
+            <div id="an-ch-err" role="alert">
+              <StatusLine tone="block">
+                Couldn&apos;t save. {savedId ? `Posts still go to #${savedName ?? "the current channel"}.` : "Nothing has changed."}
+              </StatusLine>
             </div>
           )}
-
-          <div className="an-h">
-            <h3>What the bot posts</h3>
-            <small>and where</small>
-          </div>
-          <ul className="an-list">
-            {posts.map((post) => (
-              <li key={post.key}>
-                <div>
-                  <p className="e">{post.title}</p>
-                  <p className="w">{post.when}</p>
-                </div>
-                <span className="to">
-                  <Destination to={post.to} />
-                </span>
-              </li>
-            ))}
-          </ul>
         </div>
+
+        {!channelId && (
+          <StatusLine tone="warn">
+            <b>Two kinds of post are skipped.</b>{" "}
+            Results waiting for approval and finished tournaments aren&apos;t posted anywhere until you choose a channel.
+          </StatusLine>
+        )}
+
+        <SectionHead as="h3" title="What the bot posts" note="and where" className={styles.postsHead} />
+        <FloorList>
+          {posts.map((post) => (
+            <FloorRow key={post.key} className={styles.postRow}>
+              <div className="sv-cell-grow">
+                <p className={styles.rowTitle}>{post.title}</p>
+                <p className={styles.rowNote}>{post.when}</p>
+              </div>
+              <span className={`sv-cell-end ${styles.destCell}`}>
+                <Destination to={post.to} />
+              </span>
+            </FloorRow>
+          ))}
+        </FloorList>
       </div>
     );
   }
