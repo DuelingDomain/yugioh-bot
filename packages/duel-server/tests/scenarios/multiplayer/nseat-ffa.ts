@@ -129,15 +129,16 @@ export const FFA_SCENARIOS: Scenario[] = [
     source: `${SOURCE} [R-FFA-ELIMINATION]`,
     rules: ["R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "draw", "ffa3", "card:55144522"],
-    // Deck of 3. The turn 1 draw and Pot of Greed empty p0's Deck. The draw on turn 4 eliminates p0.
-    setup: { format: "ffa3", deckSize: 3, p0: { hand: ["Pot of Greed"] } },
+    // Standard MR5 skips p0's turn-1 draw. Pot of Greed draws both cards. The turn-4 draw eliminates p0.
+    setup: { format: "ffa3", masterRule: 5, deckSize: 2, p0: { hand: ["Pot of Greed"] } },
     steps: [
+      expectBoard({ p0: { hand: ["Pot of Greed"], deckCount: 2 } }),
       activate("Pot of Greed", "p0"),
-      expectBoard({ p0: { hand: { count: 2 }, deckCount: 1 } }),
+      expectBoard({ p0: { hand: { count: 2 }, deckCount: 0 } }),
       ...passTurns("p0", "p1", "p2"),
       expectEliminated("p0"),
-      // Deck-out does not change p0's LP. After p0 loses on turn 4, p1 draws its second card on turn 5.
-      expectBoard({ p0: VIEW_EMPTY, p1: { deckCount: 1 }, p2: { deckCount: 2 } }),
+      // Deck-out keeps p0's LP. p1 draws its second card on turn 5; p2 has drawn one card.
+      expectBoard({ p0: { lp: 8000, ...VIEW_EMPTY }, p1: { lp: 8000, hand: { count: 2 }, deckCount: 0 }, p2: { lp: 8000, hand: { count: 1 }, deckCount: 1 } }),
       expectTurn("p1", 5),
     ],
   }),
