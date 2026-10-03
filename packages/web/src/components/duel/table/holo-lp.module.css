@@ -218,7 +218,7 @@
   rotate: -8deg;
 }
 
-/* A panel the viewer can choose: the whole panel is one button, with a dashed ring and a key hint. */
+/* A panel the viewer can choose: the whole panel is one button, with a glow and a key hint. */
 .pick {
   position: relative;
   display: block;
@@ -236,16 +236,15 @@
   position: absolute;
   inset: -6px;
   z-index: 2;
-  border: 2px dashed var(--pen);
   border-radius: 10px 10px 10px 18px;
+  box-shadow: 0 0 7px rgb(155 126 255 / 0.85), 0 0 14px rgb(155 126 255 / 0.4);
   pointer-events: none;
   animation: ring 1.4s ease-in-out infinite;
 }
 
 .pick:hover .ring,
 .pick:focus-visible .ring {
-  border-style: solid;
-  box-shadow: 0 0 16px rgb(155 126 255 / 0.6);
+  box-shadow: 0 0 5px 1px rgb(244 214 144 / 0.85), 0 0 12px 2px rgb(155 126 255 / 1), 0 0 20px 3px rgb(155 126 255 / 0.55);
 }
 
 .key {

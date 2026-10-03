@@ -37,6 +37,10 @@ function idle(slug: string, flags: Pick<Snapshot, "syncing" | "recovering">): Sn
  * Coalesces overlapping GETs: invalidations trail; polls never trail on an in-flight GET.
  * Owns visible+online polling through that coalescer: 1s when not Live, 10s when Live.
  *
+ * `quiet` (optional): when it returns true as a change notice arrives, the notice is the echo of the player's own answer.
+ * The room is still read again (a trailing read is kept), but the `syncing` flag stays down, so prompts and zones stay
+ * clickable. A failed read still raises `recovering`.
+ *
  * Parent SWR: initial load and action mutate only. No `refreshInterval`.
  * `revalidateOnFocus: false`, `revalidateOnReconnect: false`.
  * Gate prompts with `syncing || recovering`. Hide/remount DuelFeedback only while `recovering`.
@@ -47,9 +51,12 @@ export function useDuelWebsocket(
   seat: number | null | undefined,
   onChange: () => Promise<unknown>,
   spectate = false,
+  quiet?: () => boolean,
 ): DuelWebsocketState {
   const changeRef = useRef(onChange);
   changeRef.current = onChange;
+  const quietRef = useRef(quiet);
+  quietRef.current = quiet;
   const roomKey = `${slug}:${String(seat)}:${spectate}`;
   const roomKeyRef = useRef(roomKey);
   roomKeyRef.current = roomKey;
@@ -165,14 +172,14 @@ export function useDuelWebsocket(
       }
     };
 
-    const refresh = (opts: { recovery?: boolean; poll?: boolean } = {}) => {
+    const refresh = (opts: { recovery?: boolean; poll?: boolean; quiet?: boolean } = {}) => {
       if (!isCurrent()) return Promise.resolve();
       if (opts.poll && inFlight) return inFlight;
       trailing = true;
       // Routine polls leave the flags alone: raising them every second in Polling mode
       // closed card menus, blocked answers and remounted DuelFeedback on each tick.
       // A failed poll still ends with `recovering: true` (see pump).
-      if (!opts.poll) {
+      if (!opts.poll && !opts.quiet) {
         patch((current) => ({
           ...current,
           slug,
@@ -288,7 +295,7 @@ export function useDuelWebsocket(
     socket.on("disconnect", disconnected);
     socket.on("connect_error", disconnected);
     socket.on("duel:changed", (event: DuelChangedPayload) => {
-      if (event.slug === slug) void refresh().catch(() => {});
+      if (event.slug === slug) void refresh({ quiet: quietRef.current?.() === true }).catch(() => {});
     });
     socket.on("duel:presence", (event: DuelPresencePayload) => {
       if (event.slug !== slug || !isCurrent()) return;

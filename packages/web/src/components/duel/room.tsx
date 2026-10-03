@@ -14,6 +14,8 @@ import { useBugReportRoom } from "../bug-report/room-store";
 import { connectionLabel as labelForConnection } from "./connection-label";
 import { Sheet } from "@/components/ui/sheet";
 import { useDuelWebsocket } from "@/lib/hooks/use-duel-websocket";
+import { createEchoWindow } from "@/lib/duel-echo-window";
+import { applyAnswerResult } from "./answer-result";
 import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import {
   acceptDuelInvite,
@@ -86,7 +88,7 @@ import { ChainFx } from "./chain-fx";
 import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
 import { centerKind, PromptCenter } from "./prompt-center";
-import { usePickContinuation } from "./pick-continuation";
+import { skipsAnswerableWait, usePickContinuation } from "./pick-continuation";
 import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
 import { useResultGate } from "./result-reveal";
 import { PileViewer } from "./pile-viewer";
@@ -142,7 +144,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     const timer = setInterval(() => void refreshRoom(), 2000);
     return () => clearInterval(timer);
   }, [roomStale, refreshRoom]);
-  const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom, spectate);
+  // The change notice that an answer of this player causes is not a reason to shut the prompts (see duel-echo-window.ts).
+  const echo = useMemo(() => createEchoWindow(), []);
+  const realtime = useDuelWebsocket(slug, data?.mySeat, refreshRoom, spectate, echo.quiet);
   const syncing = realtime.syncing || realtime.recovering;
   const liveFormat = engineFormat(data?.engine);
   // Live tables: FFA mounts TableShell, Tag 2v2 mounts the Rooftop (TagShell). ?stage=legacy keeps MultiSeatStage for both.
@@ -285,9 +289,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // is disabled, so a panel shown early looks ready and is dead.
   // A follow-up of the player's own material pick skips both waits and shows at once (its buttons stay off while busy).
   // Between the click and that prompt the last bar stays up (pick.waiting), buttons off.
-  const pick = usePickContinuation(prompt);
+  const pick = usePickContinuation(prompt, data?.engine?.revision);
   const revealBeat = usePromptReveal({ promptId: centered ? prompt.id : null, board: boardRef, reducedMotion: preferences.reducedMotion, skip: pick.continuing });
-  const answerable = usePromptAnswerable(centered ? prompt.id : null, !busy && !error && !catchingUp, pick.continuing);
+  const answerable = usePromptAnswerable(centered ? prompt.id : null, !busy && !error && !catchingUp, skipsAnswerableWait(pick.continuing, catchingUp));
   const revealed = revealBeat && answerable;
   const activeMenu = !viewerOut && !busy && !error && !catchingUp && menu?.promptId === prompt?.id &&
     menu?.revision === data?.engine?.revision ? menu : null;
@@ -389,23 +393,24 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       // React's busy state alone cannot reject two clicks within one render.
       if (inFlight.current) return;
       inFlight.current = true;
+      echo.begin();
       setBusy(true);
       setMenu(null);
       setHover(null);
       setActionError(null);
       try {
         const result = await work();
-        if (result && "engine" in result) await mutate(result, { revalidate: true });
-        else await mutate();
+        await applyAnswerResult(mutate, result);
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Action failed");
         await mutate();
       } finally {
         inFlight.current = false;
+        echo.end();
         setBusy(false);
       }
     },
-    [mutate],
+    [mutate, echo],
   );
 
   // A series moves on to its next game by itself: follow it, keeping the duel window. Players always
