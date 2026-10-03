@@ -453,7 +453,13 @@ export function MasterReturnFx({ events, seats, duelKey, reducedMotion, mySeat }
         timing,
       };
       // The real picture waits invisible until the copy lands on it.
-      const release = hideImages(images);
+      const reveal = hideImages(images);
+      const release = () => {
+        duelFxClock.clearTimeout(failsafe);
+        timersRef.current.delete(failsafe);
+        releasesRef.current.delete(id);
+        reveal();
+      };
       releasesRef.current.set(id, release);
       const failsafe = duelFxClock.setTimeout(release, Math.max(0, timing.landAt - now) + HIDE_FAILSAFE_MS);
       timersRef.current.add(failsafe);
