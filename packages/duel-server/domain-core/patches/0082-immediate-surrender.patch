@@ -330,7 +330,7 @@ diff --git a/processor.cpp b/processor.cpp
 +	if(core.chain_solving || (!surrenders_only && !pduel->lua->coroutines.empty()))
  		return;
 +	// Surrenders wait for the whole chain. Other loss reasons keep their timing.
-+	if(!core.current_chain.empty()) {
++	if(n_teams == n_duelists && !core.current_chain.empty()) {
 +		for(uint8_t p = 0; p < n_duelists; ++p)
 +			if(player[p].pending_loss == 0x200)
 +				return;
