@@ -67,6 +67,7 @@ const EXTRA_RULES: Record<number, string[]> = {
   30241314: ["R-COMMON-EACH-PLAYER"], // Macro Cosmos
   72405967: ["R-COMMON-EACH-PLAYER"], // Royal Tribute
   35480699: ["R-COMMON-ALL-BOTH"], // Book of Eclipse first flips every seat
+  5010422: ["R-TAG-PARTNER", "R-TAG-LP"], // Astromorrigan keeps the Tag fields and shared LP.
   // Partner cards count for "you control".
   2314238: ["R-TAG-SHARED-CARDS"], // Dark Magic Attack
   // A card that works only on an opponent (or negates one activation) never hits the partner.
@@ -356,6 +357,15 @@ export const GROUP_ONE: CatalogScenario[] = [
     setup: "Each seat controls one face-up monster.",
     action: "P0 activates Book of Eclipse. The turn ends.",
     expected: "All face-up monsters become face-down. FFA: only the declared opponent flips and draws in the End Phase. Tag: each opposing member flips and draws for its own monsters.",
+  }),
+  one({
+    card: "Prediction Princess Astromorrigan", code: 5010422, ruleClass: "O", binding: "explicit-pick",
+    oneVsOne: "When flipped, it destroys the opponent's Defense Position monsters in the End Phase and deals 500 damage for each monster destroyed.",
+    results: { ffa3: "The End Phase destruction and damage affect only the opponent declared when the flip effect enters the chain (overlay c5010422.lua).", ffa4: "Same as 3-FFA.", tag: "The Defense Position monsters of both opposing members are destroyed. Their shared LP takes 500 damage for each monster destroyed." },
+    evidence: [ev(5010422, 26, "GetMatchingGroup(s.desfilter,tp,0,LOCATION_MZONE"), ev(5010422, 30, "Duel.Damage(1-tp,ct*500")],
+    setup: "P0 controls face-down Astromorrigan. Each opponent controls Defense Position monsters.",
+    action: "P0 flips Astromorrigan and declares one opponent in FFA. The turn ends.",
+    expected: "FFA: only the declared opponent loses Defense Position monsters and takes 500 damage for each. Tag: both opposing fields lose Defense Position monsters and their shared LP takes the damage.",
   }),
   one({
     card: "Gameciel, the Sea Turtle Kaiju", code: 55063751, ruleClass: "O", binding: "target-controller",
@@ -1482,6 +1492,16 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "book-of-eclipse-ffa4-p0-declared-p2-has-no-monsters-no-other-opponent-flips-or-draws",
     "book-of-eclipse-ffa4-p0-declared-p3-eliminated-before-end-phase",
   ], // Book of Eclipse
+  5010422: [
+    "astromorrigan-ffa3-p0-declared-opponent-takes-damage-for-its-own-destroyed-monsters",
+    "astromorrigan-ffa3-p1-declared-opponent-takes-damage-for-its-own-destroyed-monsters",
+    "astromorrigan-ffa4-p0-declared-opponent-takes-damage-for-its-own-destroyed-monsters",
+    "astromorrigan-ffa4-p2-declared-opponent-takes-damage-for-its-own-destroyed-monsters",
+    "astromorrigan-tag-p0-each-opponent-takes-damage-for-its-own-destroyed-monsters",
+    "astromorrigan-tag-p1-each-opponent-takes-damage-for-its-own-destroyed-monsters",
+    "astromorrigan-ffa3-p0-flipped-in-the-turn-of-p1-declared-opponent-takes-damage-for-its-own-destroyed-monsters",
+    "astromorrigan-ffa4-p0-declared-p2-has-no-defense-monsters-no-other-opponent-destroyed-or-damaged",
+  ], // Prediction Princess Astromorrigan
   76922029: [
     "don-zaloog-ffa3-p1-damages-p2-deck-effect-hits-only-p2",
     "don-zaloog-ffa3-p1-damages-p0-hand-effect-hits-only-p0",

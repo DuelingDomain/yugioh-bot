@@ -1,5 +1,5 @@
 // Astromorrigan: declare one opponent when the flip effect enters the chain in FFA; destroy and damage that same opponent in the End Phase.
-// Tag keeps both opposing fields and their shared LP. Old IDs stay because coverage records can name them.
+// Tag keeps both opposing fields and their shared LP. FFA IDs name the declared opponent; LIVE_PROOF uses the same IDs.
 // Reason for changed FFA expectations: owner decision 2026-10-02 replaces the each-opponent delayed result.
 
 import { changePhase, changePosition, defineScenario, endTurn, expectBoard, expectPickSeats, expectPrompt, pickOpponent, raw, type BoardExpect, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
@@ -100,7 +100,7 @@ function astromorrigan(format: Format, actor: Seat, noDefense = false): Scenario
 
   const counts = opponents.map((seat) => `${seat} ${field[seat].filter((m) => m.pos === "def").length}`).join(", ");
   return defineScenario({
-    id: noDefense ? "astromorrigan-ffa4-p0-declared-p2-has-no-defense-monsters-no-other-opponent-destroyed-or-damaged" : `astromorrigan-${format}-${actor}-each-opponent-takes-damage-for-its-own-destroyed-monsters`,
+    id: noDefense ? "astromorrigan-ffa4-p0-declared-p2-has-no-defense-monsters-no-other-opponent-destroyed-or-damaged" : `astromorrigan-${format}-${actor}-${tag ? "each-opponent" : "declared-opponent"}-takes-damage-for-its-own-destroyed-monsters`,
     title: tag
       ? `Tag: ${actor} flips Astromorrigan, then in its End Phase the Defense Position monsters of both opposing members are destroyed (${counts}) and the opposing team takes 500 for each (one LP pool, the sum is the stock value); the partner and ${actor} keep their monsters`
       : `${labelOf(format)}: ${actor} flips Astromorrigan and declares ${declared}; only that opponent loses Defense Position monsters (${counts}) and takes 500 damage for each`,
@@ -157,7 +157,7 @@ function astromorriganOffTurn(): Scenario {
     }),
   );
   return defineScenario({
-    id: "astromorrigan-ffa3-p0-flipped-in-the-turn-of-p1-each-opponent-takes-damage-for-its-own-destroyed-monsters",
+    id: "astromorrigan-ffa3-p0-flipped-in-the-turn-of-p1-declared-opponent-takes-damage-for-its-own-destroyed-monsters",
     title: "FFA3: battle flips p0 Astromorrigan in p1 turn; p0 declares p2 and only p2 loses monsters and takes damage in the End Phase",
     source: `${SOURCE} [R-FFA-OPP-ONE], owner decision 2026-10-02: Astromorrigan off-turn binding`,
     rules: ["R-FFA-OPP-ONE"],
