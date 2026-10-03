@@ -13,6 +13,7 @@ function probe(format: Format, actor: 0 | 1, [code,card]: typeof CARDS[number]):
  if(code===75249652){
   setup[seat(actor)]!.spells=[{card,pos:"set"}]; setup[seat(actor)]!.monsters=[{card:"Beaver Warrior",pos:"def"}];setup[seat(other)]!.monsters=["Battle Ox"];setup[seat(late)]!.monsters=["Luster Dragon"];
   if(format==="ffa4")setup.p2!.monsters=["Silver Fang"];
+  if(format==="tag"){const partner=actor+2;setup[seat(partner)]!.monsters=["Silver Fang"];board[seat(partner)]!.monsters=["Silver Fang"];}
   const turns=actor===0?n+1:n;for(let j=0;j<turns;j++)turn(j%n);
   steps.push(attack("Battle Ox",{card:"Beaver Warrior",owner:seat(actor)},seat(other)),activate(card,seat(actor)));
   board[seat(actor)]!.monsters=["Beaver Warrior"];board[seat(actor)]!.grave=[card];board[seat(other)]!.grave=["Battle Ox"];// R-COMMON-OPP-ONE: the battle event binds destruction and damage to the attacker.
@@ -36,6 +37,6 @@ function probe(format: Format, actor: 0 | 1, [code,card]: typeof CARDS[number]):
   for(let j=0;j<n;j++)turn((actor+j)%n);damage(late,500);
  }
  steps.push(expectBoard(board));
- return defineScenario({id:`local-controller-lp-${code}-${format}-p${actor}`,title:`${card}: the real card controller receives the stated damage`,source:`${SOURCE} [R-COMMON-CTRL]`,rules:["R-COMMON-CTRL"],tags:["multiplayer","local-controller-lp",format,`card:${code}`],setup,steps});
+ return defineScenario({id:`local-controller-lp-${code}-${format}-p${actor}`,title:`${card}: the real card controller receives the stated damage`,source:SOURCE + " [R-COMMON-SEP-FIELDS]" + (format === "tag" ? " [R-TAG-LP]" : "") + (format === "tag" && code === 75249652 ? " [R-TAG-PARTNER]" : ""),rules:["R-COMMON-SEP-FIELDS",...(format === "tag" ? ["R-TAG-LP"] : []),...(format === "tag" && code === 75249652 ? ["R-TAG-PARTNER"] : [])],tags:["multiplayer","local-controller-lp",format,`card:${code}`],setup,steps});
 }
 export const LOCAL_CONTROLLER_LP_SCENARIOS=CARDS.flatMap(card=>([["ffa3",0],["ffa4",0],["tag",0],["tag",1]] as const).map(([format,actor])=>probe(format,actor,card)));
