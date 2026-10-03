@@ -354,6 +354,18 @@ describe("ChainFx", () => {
       expect(rows(container)[1].textContent).not.toContain("Field Zone");
     });
 
+    it("names a target place by its owner: a rival by name at a table, the partner as partner's on Tag", () => {
+      placeZones("0:4:2", "1:8:0");
+      const first = dust();
+      const withTarget = { ...shield(), targets: [z(2, SZONE, 5), z(1, SZONE, 5)] } as DuelEvent;
+      const tones = new Map([0, 1, 2, 3].map((seat) => [seat, { main: "#fff", ink: "#000" }] as const));
+      const ffa = render(<ChainFx events={[first, withTarget]} chain={[]} duelKey="t" reducedMotion={false} mySeat={0} playerName={names} seatTones={tones} table="ffa4" />);
+      expect(rows(ffa.container)[0].textContent).toContain("→ Player 3's Field Zone, Player 2's Field Zone");
+      ffa.unmount();
+      const tag = render(<ChainFx events={[first, withTarget]} chain={[]} duelKey="t2" reducedMotion={false} mySeat={0} playerName={names} seatTones={tones} table="tag" />);
+      expect(rows(tag.container)[0].textContent).toContain("→ partner's Field Zone, Player 2's Field Zone");
+    });
+
     it("highlights each row as it resolves, then clears the stack at the end of the chain", () => {
       placeZones("0:4:2", "1:8:0");
       const first = [dust(), shield()];

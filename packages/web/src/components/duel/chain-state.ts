@@ -485,6 +485,7 @@ export function chainLinkLabel(
   playerName: (seat: number) => string,
   detail = true,
   named = false,
+  partner: number | null = null,
 ): string {
   const parts = [chainCardName(link), chainSeatLabel(link.seat, mySeat, playerName, named)];
   if (detail) {
@@ -492,18 +493,35 @@ export function chainLinkLabel(
     if (link.negated) parts.push("negated");
     if (link.status === "resolved") parts.push("resolved");
   }
-  const targets = chainTargetLabel(link, mySeat, playerName);
+  const targets = chainTargetLabel(link, mySeat, playerName, { named, partner });
   const text = `Chain Link ${link.index}: ${parts.join(", ")}${targets ? `. ${targets}` : ""}`;
   return detail && link.description ? `${text}. ${link.description}` : text;
 }
 
+/** Who stands behind the words "your", "partner's" and "opponent's" when a target place is named. */
+export type TargetNaming = {
+  /** A table of 3 or 4: a rival reads by name, never "opponent's". */
+  named?: boolean;
+  /** The viewer's Tag partner: their zones read "partner's". */
+  partner?: number | null;
+};
+
 /**
- * Where a link's targets are, as short place names ("your Field Zone", "opponent's Monster Zone 2"). Coordinates
+ * Where a link's targets are, as short place names ("your Field Zone", "Ryo Sato's Monster Zone 2"). Coordinates
  * only: looking up target names here could leak a face-down card's identity.
  */
-export function chainTargetPlaces(link: ChainLinkState, mySeat: number | null, playerName: (seat: number) => string): string[] {
+export function chainTargetPlaces(
+  link: ChainLinkState,
+  mySeat: number | null,
+  playerName: (seat: number) => string,
+  naming: TargetNaming = {},
+): string[] {
   return link.targets.map((zone) => {
-    const whose = mySeat == null ? `${playerName(zone.controller)}'s ` : zone.controller === mySeat ? "your " : "opponent's ";
+    let whose: string;
+    if (mySeat == null) whose = `${playerName(zone.controller)}'s `;
+    else if (zone.controller === mySeat) whose = "your ";
+    else if (naming.partner != null && zone.controller === naming.partner) whose = "partner's ";
+    else whose = naming.named ? `${playerName(zone.controller)}'s ` : "opponent's ";
     let place: string;
     switch (zone.location) {
       case LOCATION_MZONE: place = zone.sequence >= 5 ? `Extra Monster Zone ${zone.sequence - 4}` : `Monster Zone ${zone.sequence + 1}`; break;
@@ -519,9 +537,14 @@ export function chainTargetPlaces(link: ChainLinkState, mySeat: number | null, p
   });
 }
 
-export function chainTargetLabel(link: ChainLinkState, mySeat: number | null, playerName: (seat: number) => string): string | null {
+export function chainTargetLabel(
+  link: ChainLinkState,
+  mySeat: number | null,
+  playerName: (seat: number) => string,
+  naming: TargetNaming = {},
+): string | null {
   if (link.targets.length === 0) return null;
-  return `Chain Link ${link.index} targets ${chainTargetPlaces(link, mySeat, playerName).join(", ")}`;
+  return `Chain Link ${link.index} targets ${chainTargetPlaces(link, mySeat, playerName, naming).join(", ")}`;
 }
 
 export type ChainFlow = {
@@ -538,12 +561,12 @@ export type ChainFlow = {
  * (the card is face-up on the chain once it activates), and target coordinates. An unknown card shows no effect
  * text, and a target never shows a card name.
  */
-export function chainFlow(link: ChainLinkState, mySeat: number | null, playerName: (seat: number) => string): ChainFlow {
+export function chainFlow(link: ChainLinkState, mySeat: number | null, playerName: (seat: number) => string, naming: TargetNaming = {}): ChainFlow {
   const known = link.name != null && link.name.trim() !== "";
   return {
     source: chainCardName(link),
     effect: known ? link.description?.trim() || null : null,
-    targets: chainTargetPlaces(link, mySeat, playerName),
+    targets: chainTargetPlaces(link, mySeat, playerName, naming),
   };
 }
 
@@ -557,15 +580,16 @@ export function chainAnnouncement(
   mySeat: number | null,
   playerName: (seat: number) => string,
   named = false,
+  partner: number | null = null,
 ): string | null {
   if (next.links.length === 0) return prev.links.length > 0 ? "Chain ended" : null;
   const top = next.links[next.links.length - 1];
   const prevTop = prev.links[prev.links.length - 1];
   if (!prevTop || prevTop.index !== top.index || prevTop.code !== top.code) {
-    return chainLinkLabel(top, mySeat, playerName, false, named);
+    return chainLinkLabel(top, mySeat, playerName, false, named, partner);
   }
   const targeted = next.links.find((link) => JSON.stringify(link.targets) !== JSON.stringify(prev.links[link.index - 1]?.targets));
-  if (targeted) return chainTargetLabel(targeted, mySeat, playerName) ?? `Chain Link ${targeted.index} has no current targets`;
+  if (targeted) return chainTargetLabel(targeted, mySeat, playerName, { named, partner }) ?? `Chain Link ${targeted.index} has no current targets`;
   const negated = next.links.find((link) => link.negated && !prev.links[link.index - 1]?.negated);
   if (negated) return `Chain Link ${negated.index} was negated`;
   if (next.resolving != null && next.resolving !== prev.resolving) {

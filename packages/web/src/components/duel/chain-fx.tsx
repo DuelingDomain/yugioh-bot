@@ -31,7 +31,7 @@
 import { duelFxClock } from "./fx-clock";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import type { DuelChainLink, DuelEvent } from "@yugidraft/shared/duels";
+import { partnerSeatOf, type DuelChainLink, type DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, zoneKey } from "./constants";
 import { collectFreshEvents, findZoneElement, maxEventId } from "./event-queue";
 import {
@@ -276,6 +276,8 @@ function ChainGlyph() {
 
 export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority, ended = false, table }: ChainFxProps) {
   const named = seatTones != null;
+  // On Tag the partner's zones read "partner's"; every other seat that is not yours reads by name or "opponent's".
+  const partner = table === "tag" && mySeat != null ? partnerSeatOf("tag", mySeat) : null;
   const played = useChainPlayback(events, chain, duelKey, reducedMotion);
   // A duel that ends mid-chain sends no "chain-end": nothing is left to resolve, so nothing stays on the board.
   const state = ended ? EMPTY_CHAIN : played;
@@ -498,10 +500,10 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const prevRef = useRef<ChainState>(EMPTY_CHAIN);
   const [announcement, setAnnouncement] = useState("");
   useEffect(() => {
-    const said = chainAnnouncement(prevRef.current, state, mySeat, playerName, named);
+    const said = chainAnnouncement(prevRef.current, state, mySeat, playerName, named, partner);
     prevRef.current = state;
     if (said != null) setAnnouncement(said);
-  }, [state, mySeat, playerName, named]);
+  }, [state, mySeat, playerName, named, partner]);
 
   const rows = chainStackRows(state);
   const focus = chainFocusLink(state);
@@ -585,7 +587,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
             ) : null}
             {rows.map((link) => {
               const callout = chainCallout(link, mySeat, playerName, named);
-              const flow = chainFlow(link, mySeat, playerName);
+              const flow = chainFlow(link, mySeat, playerName, { named, partner });
               return (
                 <li
                   key={link.index}
@@ -621,7 +623,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         {links.length > 0 ? (
           <ol aria-label="Current chain" data-chain-sr-list="true">
             {links.map((link) => (
-              <li key={link.index} data-chain-sr-link={link.index}>{chainLinkLabel(link, mySeat, playerName, true, named)}</li>
+              <li key={link.index} data-chain-sr-link={link.index}>{chainLinkLabel(link, mySeat, playerName, true, named, partner)}</li>
             ))}
           </ol>
         ) : null}

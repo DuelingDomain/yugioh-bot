@@ -472,6 +472,13 @@ describe("chain stack and callout", () => {
     expect(flow.source).toBe("My Body as a Shield");
     expect(flow.targets).toEqual(["your Field Zone", "opponent's Monster Zone 2"]);
     expect(chainFlow(fold([dust(), withTarget]).links[1], null, you).targets[0]).toBe("You's Field Zone");
+    // A table of 3 or 4 names every rival; Tag calls the partner "partner's" and still names the rivals.
+    const mixed: DuelEvent = { ...shield(), targets: [z(1, MZONE, 1), z(2, SZONE, 5), z(3, MZONE, 0)] };
+    const link = fold([dust(), mixed]).links[1];
+    const name = (seat: number) => ["You", "Ryo", "Corvin", "Juniper"][seat];
+    expect(chainFlow(link, 0, name, { named: true }).targets).toEqual(["Ryo's Monster Zone 2", "Corvin's Field Zone", "Juniper's Monster Zone 1"]);
+    expect(chainFlow(link, 0, name, { named: true, partner: 2 }).targets).toEqual(["Ryo's Monster Zone 2", "partner's Field Zone", "Juniper's Monster Zone 1"]);
+    expect(chainFlow(link, 0, name).targets[0]).toBe("opponent's Monster Zone 2");
     expect(chainFlow(fold([dust()]).links[0], 0, you).targets).toEqual([]);
   });
 
