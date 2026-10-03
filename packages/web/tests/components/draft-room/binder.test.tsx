@@ -1,9 +1,17 @@
 // @vitest-environment jsdom
 import React, { useState } from "react";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Binder, type BinderProps, type Tab } from "../../../src/components/draft/room/binder";
+import { DraftRoom } from "../../../src/components/draft/room/draft-room";
 import { EMPTY_FILTER, type GoneCard, type RoomCard, type RoomFilter } from "../../../src/components/draft/room/room-model";
+import { useDraftStore } from "../../../src/lib/stores/draft-store";
+
+vi.mock("../../../src/components/duel/fonts", () => ({ duelFontClasses: "" }));
+vi.mock("next/link", () => ({
+  default: ({ children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => <a {...props}>{children}</a>,
+}));
 
 const card = (id: number, name: string, over: Partial<RoomCard> = {}): RoomCard => ({
   id,
@@ -68,6 +76,142 @@ const spells = () => screen.getByRole("button", { name: /Spells$/ });
 const traps = () => screen.getByRole("button", { name: /Traps$/ });
 
 afterEach(cleanup);
+
+describe.each([390, 1100, 1440])("binder panel keyboard at %ipx", (width) => {
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    localStorage.setItem("yugidraft-room-motion", "off");
+    vi.stubGlobal("innerWidth", width);
+    vi.stubGlobal("matchMedia", (query: string) => {
+      const min = query.match(/min-width:\s*(\d+)px/);
+      const max = query.match(/max-width:\s*(\d+)px/);
+      return {
+        matches: !!(min || max) && (!min || width >= Number(min[1])) && (!max || width <= Number(max[1])),
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    useDraftStore.setState({
+      ...useDraftStore.getInitialState(),
+      slug: "binder-keys",
+      currentPack: [card(7, "Pack one"), card(8, "Pack two"), card(9, "Pack three")],
+      myPool: pool,
+      seats: [
+        { seatIndex: 0, playerId: 1, displayName: "Ann", hasPicked: false, isCurrentPlayer: true },
+        { seatIndex: 1, playerId: 2, displayName: "Bo", hasPicked: false, isCurrentPlayer: false },
+      ],
+      timerSeconds: 40,
+      isMyTurn: true,
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    localStorage.clear();
+    sessionStorage.clear();
+    useDraftStore.setState(useDraftStore.getInitialState());
+  });
+
+  const panelAttribute = width === 390 ? "data-sheet" : "data-binder";
+  const openBinder = () => {
+    fireEvent.click(screen.getByRole("button", { name: /Open your picks/ }));
+    const room = screen.getByRole("dialog", { name: "Draft room" });
+    if (width < 1440) expect(room).toHaveAttribute(panelAttribute, width === 390 ? "binder" : "");
+    return room;
+  };
+  const renderRoom = () => render(
+    <DraftRoom slug="binder-keys" name="Friday" config={{ packSize: 3, packsPerPlayer: 2, cardsPerPlayer: 6 }} isParticipant />,
+  );
+
+  if (width < 1440) {
+    it("closes the binder on Escape from the collapsed Sort select", async () => {
+      const user = userEvent.setup();
+      renderRoom();
+      const room = openBinder();
+      const sort = screen.getByRole("combobox", { name: "Sort" });
+      // Tab to the select without clicking to open the native dropdown.
+      sort.focus();
+      await user.tab({ shift: true });
+      await user.tab();
+      expect(sort).toHaveFocus();
+      await user.keyboard("{Escape}");
+      expect(room).not.toHaveAttribute(panelAttribute);
+    });
+
+    it("closes the binder on Escape from empty search", async () => {
+      const user = userEvent.setup();
+      renderRoom();
+      const room = openBinder();
+      const search = screen.getByRole("searchbox");
+      search.focus();
+      expect(search).toHaveValue("");
+      await user.keyboard("{Escape}");
+      expect(search).not.toHaveFocus();
+      expect(room).not.toHaveAttribute(panelAttribute);
+    });
+
+    it("clears search on the first Escape and closes the binder on the second", async () => {
+      const user = userEvent.setup();
+      renderRoom();
+      const room = openBinder();
+      const search = screen.getByRole("searchbox");
+      await user.type(search, "beta");
+      await waitFor(() => expect(names()).toEqual(["Beta normal"]));
+      await user.keyboard("{Escape}");
+      expect(search).toHaveValue("");
+      expect(search).toHaveFocus();
+      expect(names()).toEqual(["Omega effect", "Beta normal", "Delta effect", "Zulu spell", "Alpha trap", "Gamma fusion"]);
+      expect(room).toHaveAttribute(panelAttribute, width === 390 ? "binder" : "");
+      await user.keyboard("{Escape}");
+      expect(search).not.toHaveFocus();
+      expect(room).not.toHaveAttribute(panelAttribute);
+    });
+  } else {
+    it.each(["search", "Sort"])("keeps the selected card on Escape from the %s field", async (field) => {
+      const user = userEvent.setup();
+      renderRoom();
+      fireEvent.keyDown(document, { key: "2" });
+      const selected = document.querySelector('.tcard[data-id="8"]');
+      expect(selected).toHaveAttribute("data-sel");
+      openBinder();
+      const input = field === "search" ? screen.getByRole("searchbox") : screen.getByRole("combobox", { name: "Sort" });
+      input.focus();
+      if (field === "search") await user.type(input, "beta");
+      await user.keyboard("{Escape}");
+      expect(selected).toHaveAttribute("data-sel");
+      expect(input).toHaveFocus();
+      if (field === "search") {
+        expect(input).toHaveValue("");
+        await user.keyboard("{Escape}");
+        expect(input).not.toHaveFocus();
+        expect(selected).toHaveAttribute("data-sel");
+      }
+    });
+  }
+
+  it.each(["search", "Sort"])("keeps number keys, arrows, Enter and / in the %s field without picking cards", async (field) => {
+    const user = userEvent.setup();
+    renderRoom();
+    fireEvent.keyDown(document, { key: "2" });
+    const selected = document.querySelector('.tcard[data-id="8"]');
+    expect(selected).toHaveAttribute("data-sel");
+    const room = openBinder();
+    const input = field === "search" ? screen.getByRole("searchbox") : screen.getByRole("combobox", { name: "Sort" });
+    input.focus();
+    await user.keyboard("123456789/{ArrowLeft}{ArrowRight}{ArrowUp}{ArrowDown}{Enter}");
+    expect(input).toHaveFocus();
+    if (field === "search") expect(input).toHaveValue("123456789/");
+    expect(selected).toHaveAttribute("data-sel");
+    if (width < 1440) expect(room).toHaveAttribute(panelAttribute, width === 390 ? "binder" : "");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(useDraftStore.getState().currentPack.map((c) => c.id)).toEqual([7, 8, 9]);
+    expect(useDraftStore.getState().myPool.map((c) => c.id)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+});
 
 describe("binder sorting", () => {
   const orders = [
