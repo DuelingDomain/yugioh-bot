@@ -108,7 +108,7 @@ describe("TagShell seams for the room", () => {
     const { container } = render(
       <Shell headerTools={<button type="button">Surrender</button>} notices={<p data-testid="room-notice">Connection lost</p>} modals={<div data-testid="room-modal" />} />,
     );
-    expect(container.querySelector("header")?.textContent).toContain("Surrender");
+    expect(container.querySelector("[data-tag-header]")?.textContent).toContain("Surrender");
     expect(container.querySelector("[data-testid='room-notice']")).not.toBeNull();
     expect(container.querySelector("[data-testid='room-modal']")).not.toBeNull();
   });
@@ -121,17 +121,20 @@ describe("TagShell seams for the room", () => {
 
   it("offers the phase moves until the room says it is busy", () => {
     const open = render(<Shell />);
-    expect(open.container.querySelector("button[aria-label='Battle Phase']")).not.toBeNull();
+    expect(open.container.querySelector("button[aria-label='Go to the Battle Phase']")).not.toBeNull();
     open.unmount();
     const busy = render(<Shell busy />);
-    expect(busy.container.querySelector("button[aria-label='Battle Phase']")).toBeNull();
+    expect(busy.container.querySelector("button[aria-label='Go to the Battle Phase']")).toBeNull();
     expect(busy.container.querySelector("[data-table-shell]")?.getAttribute("data-can-act")).toBe("false");
   });
 
   it("blocks the field while a centered prompt is not revealed yet", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const { container } = render(<Shell id="target-pick" tweak={(controller) => ({ ...controller, revealed: false })} />);
     expect(container.querySelector("[data-table-shell]")?.getAttribute("data-can-act")).toBe("false");
-    expect(container.querySelector("[data-zones][data-legal='true']")).toBeNull();
+    const zone = container.querySelector("[data-zones][data-legal='true']") as HTMLElement;
+    act(() => void fireEvent.click(zone.querySelector("button") ?? zone));
+    expect(answers(info)).toHaveLength(0);
   });
 
   it("lets the field answer once the centered prompt is revealed", () => {
@@ -143,7 +146,7 @@ describe("TagShell seams for the room", () => {
     vi.spyOn(console, "info").mockImplementation(() => {});
     const noteAnswer = vi.fn();
     const { container } = render(<Shell pickContinuation={{ continuing: false, waiting: null, noteAnswer }} />);
-    const card = container.querySelector("[data-hand-seat='0'] [data-zones][data-legal='true']") as HTMLElement;
+    const card = container.querySelector("[data-hand-seat='0'] [data-zones][data-usable='true']") as HTMLElement;
     act(() => void fireEvent.click(card.querySelector("button") ?? card));
     act(() => void fireEvent.click(document.body.querySelector("[role='menu'] [role='menuitem']") as HTMLElement));
     expect(noteAnswer).not.toHaveBeenCalled();
@@ -151,8 +154,7 @@ describe("TagShell seams for the room", () => {
 
   it("mounts one header, one turn track with the station track inside, and no second clock", () => {
     const { container } = render(<Shell />);
-    expect(container.querySelectorAll("header")).toHaveLength(1);
-    expect(container.querySelectorAll("[data-tag-header]")).toHaveLength(1);
+        expect(container.querySelectorAll("[data-tag-header]")).toHaveLength(1);
     expect(container.textContent).toContain("Turn 5");
     const track = container.querySelector("[data-tag-track]") as HTMLElement;
     expect(track.querySelector("[data-baton-strip]")).not.toBeNull();
@@ -198,7 +200,7 @@ describe("TagShell camera keys", () => {
 
   it("leaves the camera alone while the card menu is open", () => {
     const { container } = render(<Shell />);
-    const card = container.querySelector("[data-hand-seat='0'] [data-zones][data-legal='true']") as HTMLElement;
+    const card = container.querySelector("[data-hand-seat='0'] [data-zones][data-usable='true']") as HTMLElement;
     expect(card).not.toBeNull();
     act(() => void fireEvent.click(card.querySelector("button") ?? card));
     expect(document.body.querySelector("[role='menu']")).not.toBeNull();
@@ -261,7 +263,7 @@ describe("TagShell clicks", () => {
   it("main: a usable hand card opens its menu, and choosing an action answers {choice}", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const { container } = render(<Shell />);
-    const card = container.querySelector("[data-hand-seat='0'] [data-zones][data-legal='true']") as HTMLElement;
+    const card = container.querySelector("[data-hand-seat='0'] [data-zones][data-usable='true']") as HTMLElement;
     expect(card).not.toBeNull();
     act(() => void fireEvent.click(card.querySelector("button") ?? card));
     const items = document.body.querySelectorAll("[role='menu'] [role='menuitem']");
@@ -274,7 +276,7 @@ describe("TagShell clicks", () => {
 
   it("attack-target: the aimed target shows the confirm, and Attack answers with the selected target", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
-    const { container } = render(<Shell id="attack-target" />);
+    const { container } = render(<Shell id="battle-aim" />);
     const target = container.querySelector("[data-zones][data-legal='true']") as HTMLElement;
     expect(target).not.toBeNull();
     act(() => void fireEvent.click(target.querySelector("button") ?? target));

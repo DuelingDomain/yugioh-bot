@@ -1,5 +1,6 @@
-/* The Rooftop preview shell: header, left sheet, roof stage, camera dock and station track.
-   Tokens are the Match Sheet ones of the room shell (obsidian ground, antique-gold hairlines). */
+/* The Rooftop shell: it owns the tokens (--duel-*) and the grid. The header, the side columns and the turn track
+   dress themselves (tag-header, tag-side, tag-track modules) and read these tokens. The camera dock and the result
+   banner of the preview live here. Tokens are the Match Sheet ones of the room shell (obsidian ground, antique-gold hairlines). */
 
 .shell {
   --duel-unit: clamp(0.94px, min(0.0764vw, 0.1222dvh), 1.75px);
@@ -57,113 +58,45 @@
     radial-gradient(70% 60% at 52% 46%, rgb(22 34 62 / 0.55), transparent 72%),
     linear-gradient(180deg, #0a1122 0%, #070b15 55%, #05080f 100%);
 }
+.shell[data-viewport="true"] { position: fixed; inset: 0; height: 100dvh; }
 .shell[data-turn="opp"] { --duel-rule-a: 0.24; }
 .shell * { scrollbar-width: thin; scrollbar-color: rgb(var(--duel-rule-rgb) / 0.45) transparent; }
 .shell button { cursor: pointer; font: inherit; color: inherit; background: none; border: 0; }
 .shell button:disabled { cursor: default; }
 
-/* ---------- header ---------- */
-.header {
-  flex: none;
-  position: relative;
-  z-index: 3;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  height: 34px;
-  padding: 0 14px 0 16px;
-  border-bottom: 1px solid var(--duel-rule);
-  background: linear-gradient(180deg, rgb(12 19 36 / 0.95), rgb(8 13 25 / 0.95));
-}
-.identity { display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; color: var(--duel-ink-3); font-size: var(--duel-t-sm); }
-.identity b { color: var(--duel-ink); font-weight: 600; }
-.identity i { font-style: normal; color: var(--duel-ink-4); }
-.format {
-  font-style: normal;
-  padding: 1px 8px;
-  border: 1px solid var(--duel-rule);
-  border-radius: 999px;
-  color: var(--duel-ink-2);
-  font-size: var(--duel-t-xs);
-}
-.turn { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
-.turn strong { font-size: var(--duel-t-head); font-weight: 500; letter-spacing: 0.01em; }
-.turnPill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 10px 2px 8px;
-  border: 1px solid rgb(var(--turn) / 0.55);
-  border-radius: 999px;
-  background: rgb(var(--turn) / 0.12);
-  color: var(--duel-ink);
-  font-size: var(--duel-t-sm);
-}
-.turnPill::before {
-  content: "";
-  width: 8px;
-  height: 8px;
-  rotate: 45deg;
-  background: rgb(var(--turn));
-  box-shadow: 0 0 8px rgb(var(--turn) / 0.8);
-}
-.turnPill small { color: var(--duel-ink-3); font-size: var(--duel-t-xs); }
-.live { display: flex; justify-content: flex-end; align-items: center; gap: 12px; color: var(--duel-ink-3); font-size: var(--duel-t-xs); }
-.liveDot { display: inline-flex; align-items: center; gap: 6px; letter-spacing: 0.1em; text-transform: uppercase; }
-.liveDot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--duel-loss); box-shadow: 0 0 8px rgb(228 90 77 / 0.7); }
-.tool {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 24px;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  color: var(--duel-ink-2);
-}
-.tool:hover { border-color: var(--duel-rule); color: var(--duel-ink); }
-.tool:focus-visible { outline: 2px solid var(--duel-pen-ink); outline-offset: 1px; }
-.options { display: flex; flex-direction: column; gap: 12px; padding: 14px; font-size: var(--duel-t-body); }
-.options h2 { margin: 0; color: var(--duel-ink-3); font-size: var(--duel-t-xs); font-weight: 400; letter-spacing: 0.14em; text-transform: uppercase; }
-.options p, .options dt { color: var(--duel-ink-2); font-size: var(--duel-t-sm); }
-.spectatorTag { padding: 1px 8px; border: 1px solid var(--duel-rule); border-radius: 999px; color: var(--duel-ink-2); letter-spacing: 0.06em; text-transform: uppercase; }
-
-/* ---------- three columns ---------- */
+/* ---------- grid ---------- */
+/* Wide: side column | board | right column. The right column holds the Deck Masters (Domain) over the camera dock. */
 .main {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: grid;
   grid-template-columns: var(--left-w) minmax(0, 1fr) var(--right-w);
+  grid-template-rows: minmax(0, 1fr) auto;
 }
-.left {
+.left { grid-column: 1; grid-row: 1 / -1; }
+.masters { grid-column: 3; grid-row: 1; }
+.board {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border-right: 1px solid var(--duel-rule);
-  background: linear-gradient(180deg, rgb(10 17 32 / 0.92), rgb(7 11 21 / 0.92));
 }
-.left > :first-child { flex: none; }
-.sideContent { position: relative; flex: 1; min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto; }
-.tray {
-  flex: none;
-  max-height: 50%;
-  overflow-y: auto;
-  padding: 10px 12px 12px;
-  border-top: 1px solid var(--duel-rule);
-}
-.pass { margin: 0 0 8px; color: var(--duel-ink-2); font-size: var(--duel-t-sm); line-height: 1.35; }
-.tray[data-idle="true"] { display: none; }
-.tray[data-tone="chain"]:not([data-idle="true"]) { border-top-color: rgb(228 182 79 / 0.55); background: var(--duel-chain-soft); }
-
-.board {
+/* The stage measures this box: it stays definite and never scrolls. */
+.boardBox {
   position: relative;
+  z-index: var(--duel-z-board);
+  flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
 .right {
+  grid-column: 3;
+  grid-row: 2;
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
@@ -171,41 +104,7 @@
   border-left: 1px solid var(--duel-rule);
   background: linear-gradient(180deg, rgb(10 17 32 / 0.92), rgb(7 11 21 / 0.92));
 }
-
-.track { flex: none; position: relative; z-index: 2; }
-.baton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  margin: 0;
-  padding: 3px 12px;
-  list-style: none;
-  font-size: var(--duel-t-xs);
-  color: var(--duel-ink-3);
-  border-top: 1px solid var(--duel-rule);
-  background: var(--duel-lamp);
-}
-.baton li { display: inline-flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 999px; border: 1px solid transparent; }
-.baton b { font-weight: 600; letter-spacing: 0.08em; color: var(--seat-ink); }
-.baton em { font-style: normal; font-size: 0.85em; letter-spacing: 0.1em; text-transform: uppercase; }
-.baton li[data-now="true"] {
-  color: var(--duel-ink);
-  border-color: rgb(var(--seat) / 0.7);
-  background: rgb(var(--seat) / 0.16);
-  box-shadow: 0 0 10px rgb(var(--seat) / 0.35);
-}
-.baton li[data-next="true"] { color: var(--duel-ink-2); }
-.baton li[data-out="true"] { text-decoration: line-through; opacity: 0.6; }
-.batonArrow { margin-right: 4px; color: var(--duel-ink-4); }
-.clock {
-  font-family: var(--duel-f-num);
-  font-size: var(--duel-t-num);
-  font-weight: 500;
-  letter-spacing: 0.03em;
-  font-variant-numeric: tabular-nums;
-  color: var(--duel-ink);
-}
+.main[data-masters="false"] .right { grid-row: 1 / -1; }
 
 /* ---------- camera dock ---------- */
 .dock {
@@ -330,6 +229,7 @@
 .resultCard > button:hover { background: rgb(var(--duel-rule-rgb) / 0.22); }
 
 @media (max-width: 900px) {
-  .main { grid-template-columns: minmax(0, 1fr); }
-  .left, .right { display: none; }
+  .main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  .board { grid-column: 1; grid-row: 1; }
+  .right { display: none; }
 }

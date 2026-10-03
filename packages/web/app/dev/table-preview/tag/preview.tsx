@@ -17,13 +17,14 @@ export function TagPreview({ stateId, cam, lock }: { stateId: string | null; cam
         <TagShell
           key={`${state.id}:${preview.cam.mode}:${preview.cam.focusSeat}:${preview.cam.lookSeat}:${preview.lock ?? ""}`}
           controller={controller}
-          teamNames={TAG_TEAM_NAMES}
+          teamNames={[...TAG_TEAM_NAMES]}
+          preview
+          initialLock={preview.lock}
           initialCamera={{
             mode: preview.cam.mode,
             focusSeat: preview.cam.focusSeat,
             lookSeat: preview.cam.lookSeat,
             ...(state.ui?.camera ?? {}),
-            ...(preview.lock ? { lock: { reason: preview.lock, untilMs: performance.now() + 1_000_000_000 } } : {}),
           }}
         />
       )}
