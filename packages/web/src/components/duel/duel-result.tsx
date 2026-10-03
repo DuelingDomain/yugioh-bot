@@ -377,6 +377,7 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
       aria-describedby={model.reason ? reasonId : undefined}
       tabIndex={-1}
       data-testid="duel-result"
+      data-duel-fx-speed-root
       data-outcome={outcome}
       data-phase={settled ? "settled" : "play"}
       data-reduced={reducedMotion ? "true" : "false"}
