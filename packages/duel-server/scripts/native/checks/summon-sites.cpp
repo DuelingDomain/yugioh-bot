@@ -2,7 +2,7 @@
 // one battle site. Each mode prints what it saw and a line "RESULT <mode> PASS|FAIL". A trap build aborts with
 // "YGO_N_TRAP opponent_of file:line" when the code calls opponent_of at n > 2 (the "before" proof for the trap modes).
 //   chooser  EFFECT_OPPO_CHOOSES_SPSUMMON_ZONE at seat 0 (n=3): the chooser of the zone must be seat 1
-//   oath     old-rule summon oath with CATEGORY_SPECIAL_SUMMON and PLAYER_ALL (n=3, seat 0): counter of seat 1
+//   oath     old-rule flags and MR1-MR4 are refused in FFA3, FFA4 and Tag; stock oath counters at n=2
 //   faceup   DUEL_1_FACEUP_FIELD (n=3): a Field Spell is activated, the Field Spells of the other seats go
 //   pass     ChangePos at n=3 (MR4 without the old-rule flags): seat 0 done, seat 0 eliminated at the prompt of seat 1; seat 2 must still get its pass
 //   battle   a direct attack of seat 0 against seat 1 (n=3): the battle damage
@@ -69,10 +69,10 @@ static std::string prelude() {
 	std::snprintf(b, sizeof(b),
 	              "EFFECT_TYPE_ACTIVATE=%d EFFECT_TYPE_FIELD=%d EVENT_FREE_CHAIN=%d LOCATION_HAND=%d LOCATION_MZONE=%d\n"
 	              "EFFECT_FLAG_PLAYER_TARGET=%d EFFECT_OPPO_CHOOSES_SPSUMMON_ZONE=%d POS_FACEUP_ATTACK=%d POS_FACEDOWN_DEFENSE=%d\n"
-	              "REASON_EFFECT=%d CATEGORY_SPECIAL_SUMMON=%d\n",
+	              "REASON_EFFECT=%d CATEGORY_SPECIAL_SUMMON=%d PLAYER_ALL=%d\n",
 	              EFFECT_TYPE_ACTIVATE, EFFECT_TYPE_FIELD, EVENT_FREE_CHAIN, LOCATION_HAND, LOCATION_MZONE,
 	              static_cast<int>(EFFECT_FLAG_PLAYER_TARGET), EFFECT_OPPO_CHOOSES_SPSUMMON_ZONE, POS_FACEUP_ATTACK, POS_FACEDOWN_DEFENSE,
-	              REASON_EFFECT, 0x200);
+	              REASON_EFFECT, 0x200, PLAYER_ALL);
 	std::string r = b;
 	char c[512];
 	std::snprintf(c, sizeof(c),
@@ -108,11 +108,11 @@ static void init_scripts() {
 	    " Duel.RegisterEffect(e2,tp)"
 	    " local tc=Duel.GetFirstMatchingCard(function(c) return c:IsCode(111) end,tp,LOCATION_HAND,0,nil)"
 	    " Debug.Message('c110 summon '..Duel.SpecialSummon(tc,0,tp,tp,false,false,POS_FACEUP_ATTACK)) end");
-	// 112: a chain link with CATEGORY_SPECIAL_SUMMON and PLAYER_ALL (254 at more than 2 duelists) for exactly 2 cards.
+	// 112: a two-seat chain link with CATEGORY_SPECIAL_SUMMON and symbolic PLAYER_ALL for exactly 2 cards.
 	g_scripts[112] = activate_spell(112,
 	    "function(e,tp,eg,ep,ev,re,r,rp,chk) if chk==0 then return true end"
 	    " local g=Duel.GetFieldGroup(tp,LOCATION_HAND,0):Filter(function(c) return c:IsCode(111) end,nil)"
-	    " Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,g,2,254,0) end",
+	    " Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,g,2,PLAYER_ALL,0) end",
 	    "function(e,tp) Debug.Message('c112 resolves') end");
 	// 114: a Field Spell that is activated from the hand. 113 is the face-up Field Spell on the other fields.
 	g_scripts[114] = activate_spell(114, "", "function(e,tp) Debug.Message('c114 resolves') end");
@@ -129,7 +129,7 @@ static void init_scripts() {
 	g_scripts[118] = summon_proc(118, "EFFECT_SUMMON_PROC", "EFFECT_TYPE_SINGLE");
 	g_scripts[120] = summon_proc(120, "EFFECT_SPSUMMON_PROC", "EFFECT_TYPE_FIELD");
 }
-static OCG_Duel make_duel(uint32_t flags) {
+static OCG_Duel make_duel(uint64_t flags) {
 	OCG_DuelOptions options;
 	std::memset(&options, 0, sizeof(options));
 	options.seed[0] = 1; options.seed[1] = 2; options.seed[2] = 3; options.seed[3] = 4;
@@ -169,14 +169,14 @@ struct Setup {
 	std::vector<std::vector<std::pair<uint32_t, uint32_t>>> mzone;                // (code, count) face-up attack per seat
 	std::vector<std::vector<std::pair<uint32_t, uint32_t>>> szone;                // (code, count) face-up per seat
 };
-// An n = 3 duel (seats 0, 1, 2; every seat alone on its team) with 40 filler cards per seat.
-static OCG_Duel make_ffa3(uint32_t flags, const Setup& s, uint64_t late_flags = 0) {
+// One setup path for two-seat and FFA3 duels, with 40 filler cards per seat.
+static OCG_Duel make_seats(uint64_t flags, const Setup& s, uint8_t n, const char* setup_lua, uint64_t late_flags = 0) {
 	OCG_Duel d = make_duel(flags);
-	if(!run_lua(d, "Debug.SetupDuelists(3,0,1,2)") || !run_lua(d, prelude())) {
+	if((setup_lua && !run_lua(d, setup_lua)) || !run_lua(d, prelude())) {
 		std::printf("FAIL: setup\n");
 		std::exit(2);
 	}
-	for(uint8_t seat = 0; seat < 3; ++seat) {
+	for(uint8_t seat = 0; seat < n; ++seat) {
 		add_cards(d, seat, LOCATION_DECK, 40, 1);
 		if(seat < s.hand.size())
 			for(uint32_t code : s.hand[seat])
@@ -200,6 +200,10 @@ static OCG_Duel make_ffa3(uint32_t flags, const Setup& s, uint64_t late_flags = 
 	F(d).core.duel_options |= late_flags;
 	OCG_StartDuel(d);
 	return d;
+}
+// An FFA3 duel: each seat has its own team.
+static OCG_Duel make_ffa3(uint64_t flags, const Setup& s, uint64_t late_flags = 0) {
+	return make_seats(flags, s, 3, "Debug.SetupDuelists(3,0,1,2)", late_flags);
 }
 struct Msg { uint8_t id; uint8_t b1; uint8_t b2; std::vector<uint8_t> raw; };
 static int advance(OCG_Duel d, std::vector<Msg>& msgs) {
@@ -362,39 +366,69 @@ static void mode_chooser() {
 	OCG_DestroyDuel(d);
 }
 
-// ---- oath: old-rule oath with PLAYER_ALL
-static void mode_oath() {
+// ---- oath: stock two-seat counters and refused multi-seat flags
+static void mode_oath_n2() {
+	g_log.clear();
 	Setup s;
-	s.hand = {{112, 111, 111}, {}, {}};
-	OCG_Duel d = make_ffa3(DUEL_MODE_MR5, s, DUEL_SPSUMMON_ONCE_OLD_NEGATE | DUEL_CANNOT_SUMMON_OATH_OLD);
+	s.hand = {{112, 111, 111}, {}};
+	// No Debug.SetupDuelists call: this is the stock two-seat setup.
+	OCG_Duel d = make_seats(DUEL_MODE_MR4, s, 2, nullptr);
 	Play p;
 	std::vector<int> counts;
 	bool sampled = false;
 	play(d, p, [&](const Msg& m) {
 		if(m.id == MSG_SELECT_CHAIN && p.activated && !sampled) {
 			sampled = true;
-			auto& f = F(d);
-			for(int q = 0; q < 3; ++q)
-				counts.push_back(static_cast<int>(f.core.spsummon_state_count[q]));
+			for(int q = 0; q < 2; ++q)
+				counts.push_back(static_cast<int>(F(d).core.spsummon_state_count[q]));
 		}
 		return false;
 	});
-	std::printf("n=3, old-rule oath flags, seat 0 chains a CATEGORY_SPECIAL_SUMMON(PLAYER_ALL, 2 cards) link. spsummon counter of seats 0 1 2 while the link is open: %s (want seat 0 >= 1, seat 1 >= 1, seat 2 = 0)\n",
+	std::printf("n=2, MR4, seat 0 chains CATEGORY_SPECIAL_SUMMON(PLAYER_ALL, 2 cards). Open-chain counters: %s (want both >= 1)\n",
 	            seats(counts).c_str());
 	EXPECT(sampled, "no prompt with the chain open");
-	bool ok = false;
+	bool ok = sampled && p.done && logged("c112 resolves");
 	if(sampled) {
-		EXPECT(counts[0] >= 1, "summon player counter %d", counts[0]);
-		EXPECT(counts[1] >= 1, "first living opponent (seat 1) counter %d", counts[1]);
-		EXPECT(counts[2] == 0, "seat 2 counter %d", counts[2]);
-		ok = counts[0] >= 1 && counts[1] >= 1 && counts[2] == 0 && logged("c112 resolves");
+		EXPECT(counts[0] >= 1, "seat 0 counter %d", counts[0]);
+		EXPECT(counts[1] >= 1, "seat 1 counter %d", counts[1]);
+		ok = ok && counts[0] >= 1 && counts[1] >= 1;
 	}
-	EXPECT(logged("c112 resolves"), "the link did not resolve");
-	std::printf("RESULT oath %s\n", ok ? "PASS" : "FAIL");
+	EXPECT(p.done && logged("c112 resolves"), "the link did not finish");
+	std::printf("RESULT oath-n2 %s\n", ok ? "PASS" : "FAIL");
 	OCG_DestroyDuel(d);
+}
+static void mode_oath() {
+	struct Layout { const char* name; const char* lua; } layouts[] = {
+	    {"FFA3", "Debug.SetupDuelists(3,0,1,2)"},
+	    {"FFA4", "Debug.SetupDuelists(4,0,1,2,3)"},
+	    {"Tag", "Debug.SetupDuelists(4,0,1,0,1)"}};
+	struct Flag { uint64_t flags; const char* name; const char* label; } flags[] = {
+	    {DUEL_MODE_MR5 | DUEL_CANNOT_SUMMON_OATH_OLD, "DUEL_CANNOT_SUMMON_OATH_OLD", "OATH_OLD"},
+	    {DUEL_MODE_MR5 | DUEL_SPSUMMON_ONCE_OLD_NEGATE, "DUEL_SPSUMMON_ONCE_OLD_NEGATE", "ONCE_OLD_NEGATE"},
+	    {DUEL_MODE_MR5 | DUEL_1_FACEUP_FIELD, "DUEL_1_FACEUP_FIELD", "1_FACEUP_FIELD"},
+	    {DUEL_MODE_MR1, nullptr, "MR1"}, {DUEL_MODE_MR2, nullptr, "MR2"},
+	    {DUEL_MODE_MR3, nullptr, "MR3"}, {DUEL_MODE_MR4, nullptr, "MR4"}};
+	bool ok = true;
+	for(const auto& l : layouts)
+		for(const auto& fl : flags) {
+			g_log.clear();
+			OCG_Duel d = make_duel(fl.flags);
+			const bool ran = run_lua(d, l.lua);
+			const bool msg = logged("is not supported with more than 2 duelists") && (!fl.name || logged(fl.name));
+			EXPECT(!ran, "%s with %s: setup must fail", l.name, fl.label);
+			EXPECT(msg, "%s with %s: refusal message", l.name, fl.label);
+			EXPECT(F(d).n_duelists == 2, "%s with %s: state must stay at 2 duelists", l.name, fl.label);
+			const bool refused = !ran && msg && F(d).n_duelists == 2;
+			ok = ok && refused;
+			std::printf("DATA oath-refused %s %s: refused=%d n=%d\n", l.name, fl.label, refused, F(d).n_duelists);
+			OCG_DestroyDuel(d);
+		}
+	std::printf("RESULT oath-refused %s\n", ok ? "PASS" : "FAIL");
+	mode_oath_n2();
 }
 
 // ---- faceup: DUEL_1_FACEUP_FIELD
+// Synthetic site check: this mode forces a flag that Debug.SetupDuelists refuses at n > 2.
 static void mode_faceup() {
 	Setup s;
 	s.hand = {{114}, {}, {}};

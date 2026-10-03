@@ -38,7 +38,7 @@ link-column-zones	link-column-zones	extralink 3	ready	Link and column zones (ext
 absolute-range-unique	absolute-range-unique	all	ready	ABSOLUTE_TARGET effects, unique cards, summon procedures to the opponent
 lua-sites	lua-sites	all	ready	Lua library checks; global absolute ranges use the set owner; every target seat, Tag and two-seat controls are checked
 field-sites	field-sites	all	ready	field.cpp, card.cpp, effect.cpp, ocgapi.cpp sites at n>2
-summon-sites	summon-sites	all	stale	stale: old summon-oath flags have no recorded seat rule; literal 254 is invalid in a card scope; the Trap Monster pass fixture is fixed
+summon-sites	summon-sites	all	ready	summon sites at n=3; old-rule oath/once/1-faceup flags and MR1-MR4 are refused by Debug.SetupDuelists at 3-4 seats (FFA3, FFA4, Tag); stock oath counters checked at n=2
 opponent-pick	opponent-pick	-	ready	F5: one opponent bound at activation (0xFFFE pick); needs a core with 29fff80 or later
 place-seat-hint	place-seat-hint	-	ready	F8 x F5: seat hint of a place prompt (HINT 0xF0); the hint names the opponent that the F5 pick bound (option 0 = lowest living opponent on an own-team turn, the turn player on an opponent turn); needs core 5edcc84 or later
 domain-multi	domain-multi	ffa3	domain	D1 (run.sh --domain): Domain at ffa3: every seat has a Deck Master, tax from own LP, each seat recalls (turn order) and summons its Deck Master and pays 500, a dead seat is skipped, its Deck Master leaves play, the Deck Master zone is an individual location (own seat, living or bound opponents)
