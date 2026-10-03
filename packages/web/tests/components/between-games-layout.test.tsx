@@ -25,8 +25,8 @@ const css = readFileSync(`${root}duel/between-games.module.css`, "utf8");
 describe("between-games grid sizing", () => {
   it("sizes cards to be readable: a growing minimum width, never the old 40 px thumbnails", () => {
     const cards = css.match(/^\.cards\s*\{([^}]+)\}/m)![1]!;
-    // 64 px on a phone, up to 120 px on a wide window (about 12 cards a row at 2000 px).
-    expect(cards).toMatch(/--tile:\s*clamp\(64px,\s*6vw,\s*120px\)/);
+    // 64 px at least (phones), 120 px at most, and capped by the window height so all sections fit on a 1080p screen.
+    expect(cards).toMatch(/--tile:\s*clamp\(64px,\s*min\(6vw,\s*8\.5dvh\),\s*120px\)/);
     expect(cards).toMatch(/grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(var\(--tile\),\s*1fr\)\)/);
     expect(cards).toMatch(/width:\s*100%/);
     expect(cards).toMatch(/min-width:\s*0/);

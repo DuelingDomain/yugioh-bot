@@ -87,8 +87,9 @@
 .sectionTarget, .sectionHint { color: var(--duel-ink-3); font-size: 12px; font-weight: 400; }
 .empty { color: var(--duel-ink-2); font-size: 13px; }
 .cards {
-  /* 64 px on a phone, about 76 px at 1280 and 120 px from 2000 px wide. */
-  --tile: clamp(64px, 6vw, 120px);
+  /* Grows with the width (6vw) but is also capped by the height (8.5dvh), so on a 1920x1080 screen Main,
+     Extra and Side all fit beside the controls. 64 px at least (phones), 120 px at most. */
+  --tile: clamp(64px, min(6vw, 8.5dvh), 120px);
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--tile), 1fr));
   width: 100%;
