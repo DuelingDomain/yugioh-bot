@@ -25,6 +25,7 @@ import { buildLevelsModel } from "./summary/levels";
 import { groupPool, kindTally, type PoolGroup } from "./summary/groups";
 import { formatDuration, formatEnded, formatStamp, plural } from "./summary/format";
 import styles from "./summary/summary.module.css";
+import { getPopupPosition } from "@/lib/card-popup-position";
 import { DangerConfirm } from "./danger-confirm";
 import { DraftFrame, DraftLayout, DraftMain, DraftRail, Gem, Pieces, RailNote, RailSection, Rules } from "./draft-frame";
 import { useInlineConfirm } from "./use-inline-confirm";
@@ -193,32 +194,14 @@ export function DraftSummaryView({
     }
   }, [poolOpen, fullPool, slug]);
 
-  const popupAt = React.useCallback((rect: DOMRect) => {
-    const POPUP_WIDTH = 288;
-    const POPUP_HEIGHT = 560;
-    const MARGIN = 16;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const rightLeft = rect.right + MARGIN;
-    const leftLeft = rect.left - POPUP_WIDTH - MARGIN;
-    const left =
-      rightLeft + POPUP_WIDTH + MARGIN <= vw ? rightLeft : Math.max(MARGIN, leftLeft);
-    // Short screens: pin to the top; the popup scrolls inside its own max height.
-    const top = Math.max(
-      MARGIN,
-      Math.min(vh - POPUP_HEIGHT - MARGIN, rect.top + rect.height / 2 - POPUP_HEIGHT / 2),
-    );
-    return { left, top };
-  }, []);
-
   const handleCardHover = React.useCallback((card: CardSummary, rect: DOMRect) => {
     setHoveredCard(card);
-    setPopupPosition(popupAt(rect));
-  }, [popupAt]);
+    setPopupPosition(getPopupPosition(rect));
+  }, []);
 
   const handleCardTap = React.useCallback((card: CardSummary, rect: DOMRect) => {
-    setTapped({ card, position: popupAt(rect) });
-  }, [popupAt]);
+    setTapped({ card, position: getPopupPosition(rect) });
+  }, []);
 
   const handleCardLeave = React.useCallback(() => {
     setHoveredCard(null);

@@ -2,7 +2,8 @@
 import React from "react";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CardPoolGrid, getPopupPosition } from "../../src/components/cards/card-pool-grid";
+import { CardPoolGrid } from "../../src/components/cards/card-pool-grid";
+import { getPopupPosition, popupWidthFor, POPUP_HEIGHT, POPUP_MARGIN, POPUP_WIDTH } from "../../src/lib/card-popup-position";
 import sheetStyles from "../../src/components/cards/card-pool-sheet.module.css";
 import { installVirtualizerJsdomEnv } from "../helpers/virtualizer-jsdom";
 
@@ -261,9 +262,7 @@ describe("CardPoolGrid column math in cube edit mode", () => {
   });
 });
 
-const POPUP_W = 288;
-const POPUP_H = 560;
-const MARGIN = 16;
+const MARGIN = POPUP_MARGIN;
 
 function setViewport(width: number, height: number): void {
   Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
@@ -281,16 +280,26 @@ function rect(r: { left: number; right: number; top: number; height: number }): 
   } as DOMRect;
 }
 
+/** The whole panel (its width on this viewport, its tallest height) must be inside the viewport. */
+function expectInside(pos: { left: number; top: number }, vw: number, vh: number): void {
+  const w = popupWidthFor(vw);
+  const h = Math.min(POPUP_HEIGHT, vh - MARGIN * 2);
+  expect(pos.left).toBeGreaterThanOrEqual(MARGIN);
+  expect(pos.top).toBeGreaterThanOrEqual(MARGIN);
+  expect(pos.left + w).toBeLessThanOrEqual(vw - MARGIN);
+  expect(pos.top + h).toBeLessThanOrEqual(vh - MARGIN);
+}
+
 describe("getPopupPosition", () => {
   it("places the popup to the left of the card when there is room", () => {
     setViewport(1600, 900);
     const card = rect({ left: 900, right: 1044, top: 300, height: 200 });
 
-    const { left } = getPopupPosition(card);
+    const pos = getPopupPosition(card);
 
     // Popup sits entirely to the left of the card, on-screen.
-    expect(left + POPUP_W).toBeLessThanOrEqual(card.left);
-    expect(left).toBeGreaterThanOrEqual(MARGIN);
+    expect(pos.left + POPUP_WIDTH).toBeLessThanOrEqual(card.left);
+    expectInside(pos, 1600, 900);
   });
 
   it("flips the popup to the right of the card when the left has no room (sidebar case)", () => {
@@ -299,42 +308,50 @@ describe("getPopupPosition", () => {
     // clamp to the viewport edge and land under the sidebar.
     const card = rect({ left: 120, right: 264, top: 300, height: 200 });
 
-    const { left } = getPopupPosition(card);
+    const pos = getPopupPosition(card);
 
     // Popup is placed to the right of the card, clear of the left edge.
-    expect(left).toBeGreaterThanOrEqual(card.right);
+    expect(pos.left).toBeGreaterThanOrEqual(card.right);
+    expectInside(pos, 1600, 900);
   });
 
-  it("keeps the popup on-screen even when neither side fully fits", () => {
-    setViewport(360, 640);
-    const card = rect({ left: 80, right: 224, top: 200, height: 200 });
+  it("puts the popup above or below the card when neither side fits, still inside the viewport", () => {
+    setViewport(390, 844);
+    const card = rect({ left: 120, right: 264, top: 500, height: 200 });
 
-    const { left } = getPopupPosition(card);
+    const pos = getPopupPosition(card);
 
-    expect(left).toBeGreaterThanOrEqual(MARGIN);
-    expect(left).toBeLessThanOrEqual(360 - POPUP_W - MARGIN);
+    expectInside(pos, 390, 844);
+    // It no longer sits beside the card: it clears the card vertically or is clamped to the edge.
+    expect(pos.top + POPUP_HEIGHT <= card.top || pos.top >= card.bottom || pos.top === 844 - POPUP_HEIGHT - MARGIN).toBe(true);
   });
 
-  it("vertically centers on the card and clamps to the viewport", () => {
-    setViewport(1600, 900);
-    const card = rect({ left: 900, right: 1044, top: 400, height: 200 });
+  it("starts level with the card top and clamps so a card near the bottom keeps the panel in the window", () => {
+    setViewport(1440, 800);
+    const mid = getPopupPosition(rect({ left: 900, right: 1044, top: 200, height: 200 }));
+    expect(mid.top).toBe(200);
 
-    const { top } = getPopupPosition(card);
-
-    // Popup's vertical center aligns with the card's center when unclamped.
-    expect(top + POPUP_H / 2).toBe(card.top + card.height / 2);
-    expect(top).toBeGreaterThanOrEqual(MARGIN);
-    expect(top).toBeLessThanOrEqual(900 - POPUP_H - MARGIN);
+    const low = getPopupPosition(rect({ left: 900, right: 1044, top: 740, height: 200 }));
+    expect(low.top).toBe(800 - POPUP_HEIGHT - MARGIN);
+    expectInside(low, 1440, 800);
   });
 
-  it("clamps the popup within the viewport when the card sits near the bottom", () => {
-    setViewport(1600, 700);
-    const card = rect({ left: 900, right: 1044, top: 660, height: 200 });
+  it("stays inside a short viewport by shrinking the height it assumes", () => {
+    setViewport(1440, 300);
+    const pos = getPopupPosition(rect({ left: 900, right: 1044, top: 250, height: 200 }));
+    expectInside(pos, 1440, 300);
+    expect(pos.top).toBe(MARGIN);
+  });
 
-    const { top } = getPopupPosition(card);
-
-    expect(top).toBeLessThanOrEqual(700 - POPUP_H - MARGIN);
-    expect(top).toBeGreaterThanOrEqual(MARGIN);
+  it("never lets any placement leave the viewport (grid of cards and viewports)", () => {
+    for (const [vw, vh] of [[1920, 1080], [1440, 900], [1280, 720], [768, 1024], [390, 844], [360, 640]]) {
+      setViewport(vw, vh);
+      for (const left of [0, 100, 400, vw - 150]) {
+        for (const top of [0, 200, vh - 220]) {
+          expectInside(getPopupPosition(rect({ left, right: left + 144, top, height: 200 })), vw, vh);
+        }
+      }
+    }
   });
 });
 

@@ -1,0 +1,70 @@
+/*
+ * The card preview popover: art on the left, details on the right. Compact, so it fits next to the pool without
+ * running off the window. Tokens come from the Solid Vision sheet (.ms); the fallbacks are the same values, so it also
+ * looks right where it renders outside a sheet.
+ */
+.panel {
+  position: relative;
+  display: flex;
+  gap: 14px;
+  box-sizing: border-box;
+  /* Keep in step with POPUP_HEIGHT in lib/card-popup-position.ts. */
+  max-height: min(360px, calc(100vh - 32px));
+  max-height: min(360px, calc(100dvh - 32px)); /* dvh follows the phone's visible height; vh above is the fallback */
+  overflow: hidden;
+  padding: 12px;
+  border: 1px solid var(--rule-hi, rgb(239 231 213 / 0.2));
+  border-radius: 10px;
+  background: var(--panel-2, #0e1729);
+  color: var(--ink, #efe7d5);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 0.5);
+  font-family: var(--f-ui, inherit);
+  animation: fade 120ms ease-out;
+}
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .panel { animation: none; } }
+
+.art { position: relative; flex: none; align-self: flex-start; width: 120px; }
+.qty {
+  position: absolute; right: 4px; top: 4px; z-index: 1;
+  padding: 1px 6px; border-radius: 4px;
+  background: rgb(0 0 0 / 0.8); color: #fff;
+  font: 700 12px/1.4 var(--f-num, inherit); font-variant-numeric: tabular-nums;
+}
+.noImage {
+  display: flex; height: 100%; align-items: center; justify-content: center;
+  color: var(--ink-3, #958f81); font-size: 12px;
+}
+
+/* The details column grows with the text up to the panel's max height; the text then scrolls inside it. */
+.details { display: flex; min-width: 0; min-height: 0; flex: 1 1 auto; flex-direction: column; gap: 8px; }
+.name {
+  margin: 0; padding-right: 22px;
+  font: 600 15px/1.25 var(--f-display, var(--f-ui, inherit)); color: var(--ink, #efe7d5);
+  overflow-wrap: anywhere;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.chips li {
+  padding: 2px 7px; border: 1px solid var(--rule-lo, rgb(239 231 213 / 0.1)); border-radius: 4px;
+  color: var(--ink-2, #c3bba8); font-size: 11.5px; line-height: 1.4;
+}
+.stats { display: flex; gap: 14px; margin: 0; font: 600 12.5px/1.2 var(--f-num, inherit); font-variant-numeric: tabular-nums; color: var(--ink, #efe7d5); }
+.text {
+  flex: 0 1 auto; min-height: 0; margin: 0; padding-right: 6px;
+  overflow-y: auto; overscroll-behavior: contain;
+  color: var(--ink-2, #c3bba8); font-size: 12.5px; line-height: 1.55; white-space: pre-line;
+  scrollbar-width: thin; scrollbar-color: var(--rule-hi, rgb(239 231 213 / 0.25)) transparent;
+}
+
+.close {
+  position: absolute; right: 8px; top: 8px; z-index: 2;
+  display: flex; width: 28px; height: 28px; align-items: center; justify-content: center;
+  border: 0; border-radius: 6px; background: transparent; color: var(--ink-3, #958f81); cursor: pointer;
+}
+.close:hover { color: var(--ink, #efe7d5); background: rgb(239 231 213 / 0.08); }
+.close:focus-visible { outline: 2px solid var(--pen-ink, #c6b6ff); outline-offset: 1px; }
+
+@media (max-width: 480px) {
+  .panel { gap: 10px; padding: 10px; }
+  .art { width: 92px; }
+}
