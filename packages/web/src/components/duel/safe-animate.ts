@@ -1,3 +1,5 @@
+import { duelFxClock } from "./fx-clock";
+
 /**
  * Keyframe offsets must be in [0, 1] and never go down, or `Element.animate` throws. Timings in the
  * duel effects are computed (break times, holds, scaled tracks), so an edge case can break that
@@ -42,4 +44,11 @@ export function safeAnimate(el: Element, frames: Keyframe[], options: KeyframeAn
     if (process.env.NODE_ENV !== "production") console.warn("[duel fx] animation skipped", error);
     return null;
   }
+}
+
+/** Presentation animations share the FX clock; hover and input feedback keep safeAnimate. */
+export function safeFxAnimate(el: Element, frames: Keyframe[], options: KeyframeAnimationOptions): Animation | null {
+  const animation = safeAnimate(el, frames, options);
+  const ms = Number(options.delay ?? 0) + Number(options.duration ?? 0) * Number(options.iterations ?? 1) + Number(options.endDelay ?? 0);
+  return duelFxClock.rateAnimation(animation, ms);
 }
