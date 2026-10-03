@@ -115,4 +115,23 @@ describe("starting a draft tournament series", () => {
     expect(locked(s.db)).toBe(0);
   });
 
+  it("checks who may start before it maps any deck", async () => {
+    const s = seed();
+    const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
+    auth.mockResolvedValue({ user: { id: "u-x", name: "Outsider" } });
+    expect((await POST(post(), ctx(s.tmId))).status).toBe(403);
+    expect(callDuelHost).not.toHaveBeenCalled();
+    // The organizer may start it.
+    callDuelHost.mockResolvedValue({ ok: true, data: { deck: MAPPED, report: { issues: [] } } });
+    auth.mockResolvedValue({ user: { id: "u-org", name: "Organizer" } });
+    const res = await POST(post(), ctx(s.tmId));
+    expect(res.status).toBe(201);
+  });
+
+  it("does not touch the decks of a tournament that has not started", async () => {
+    const s = seed({ status: "pending" });
+    const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
+    expect((await POST(post(), ctx(s.tmId))).status).toBe(404);
+    expect(callDuelHost).not.toHaveBeenCalled();
+  });
 });

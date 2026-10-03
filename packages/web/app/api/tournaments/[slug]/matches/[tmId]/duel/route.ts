@@ -23,9 +23,9 @@ export async function POST(
   try {
     const db = getDb();
     const tournament = db
-      .prepare("select id, name from tournaments where web_slug = ? and guild_id = ?")
+      .prepare("select id, name, status, created_by_user_id from tournaments where web_slug = ? and guild_id = ?")
       .get(slug, actor.guildId) as
-      | { id: number; name: string }
+      | { id: number; name: string; status: string; created_by_user_id: string }
       | undefined;
     if (!tournament) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     const slot = Number.isInteger(tournamentMatchId)
@@ -37,6 +37,20 @@ export async function POST(
       : undefined;
     if (!slot || slot.tournament_id !== tournament.id) {
       return NextResponse.json({ error: "Match not found" }, { status: 404 });
+    }
+
+    // The same checks the series start makes, before any deck is read or written: a bystander
+    // must not make the server link or map the players' decks.
+    if (slot.player_two_id === null) return NextResponse.json({ error: "A bye has no duel to play" }, { status: 400 });
+    const isPlayer = actor.playerId === slot.player_one_id || actor.playerId === slot.player_two_id;
+    const actorRow = db.prepare("select discord_user_id from players where id = ? and guild_id = ?").get(actor.playerId, actor.guildId) as
+      | { discord_user_id: string }
+      | undefined;
+    if (!isPlayer && actorRow?.discord_user_id !== tournament.created_by_user_id) {
+      return NextResponse.json({ error: "Only a match player or the tournament organizer can start this duel" }, { status: 403 });
+    }
+    if (tournament.status !== "active") {
+      return NextResponse.json({ error: "Tournament is not active" }, { status: 409 });
     }
 
     const playerIds = [slot.player_one_id, slot.player_two_id];
