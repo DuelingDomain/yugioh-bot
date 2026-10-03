@@ -19,47 +19,42 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
       }
     });
     const rated = new WeakSet<Animation>();
-    const retime = (target: Element) => {
-      for (const anim of target.getAnimations?.() ?? []) {
-        const cssAnimation = typeof CSSAnimation !== "undefined" && anim instanceof CSSAnimation;
-        // UI hover, focus and input transitions keep real-time feedback and take no FX lease.
-        if (!cssAnimation) continue;
-        const endTime = Number(anim.effect?.getComputedTiming().endTime ?? 0);
-        if (endTime === Infinity) {
-          if (!loops.has(anim)) {
-            loops.add(anim);
-            void anim.finished?.then(() => loops.delete(anim), () => loops.delete(anim));
-          }
-          anim.playbackRate = duelFxClock.factor();
-        } else if (!rated.has(anim)) {
-          rated.add(anim);
-          duelFxClock.rateAnimation(anim, endTime);
+    const retimeAnimation = (anim: Animation) => {
+      const cssAnimation = typeof CSSAnimation !== "undefined" && anim instanceof CSSAnimation;
+      // UI hover, focus and input transitions keep real-time feedback and take no FX lease.
+      if (!cssAnimation) return;
+      const endTime = Number(anim.effect?.getComputedTiming().endTime ?? 0);
+      if (endTime === Infinity) {
+        if (!loops.has(anim)) {
+          loops.add(anim);
+          void anim.finished?.then(() => loops.delete(anim), () => loops.delete(anim));
         }
+        anim.playbackRate = duelFxClock.factor();
+      } else if (!rated.has(anim)) {
+        rated.add(anim);
+        duelFxClock.rateAnimation(anim, endTime);
       }
+    };
+    const retime = (target: Element) => {
+      for (const anim of target.getAnimations?.() ?? []) retimeAnimation(anim);
     };
     const onStart = (event: Event) => {
       if (event.target instanceof Element && event.target.closest("[data-duel-fx-speed-root]")) retime(event.target);
     };
     // The room may initially render a loading state. Delegation also covers its later board mount.
     document.addEventListener("animationstart", onStart, true);
-    const scan = (node: Node) => {
-      if (!(node instanceof Element)) return;
-      if (node.closest("[data-duel-fx-speed-root]")) {
-        retime(node);
-        for (const target of node.querySelectorAll("*")) retime(target);
-      } else {
-        for (const target of node.querySelectorAll("[data-duel-fx-speed-root], [data-duel-fx-speed-root] *")) retime(target);
+    // Element.getAnimations() walks every document animation, so asking per element is quadratic. One document sweep per batch is enough.
+    const sweep = () => {
+      for (const anim of document.getAnimations?.() ?? []) {
+        if (rated.has(anim) || loops.has(anim)) continue;
+        const target = (anim.effect as KeyframeEffect | null)?.target;
+        if (target?.closest("[data-duel-fx-speed-root]")) retimeAnimation(anim);
       }
     };
     // Capture positive CSS delays when styles are created, before animationstart fires.
-    const observer = new MutationObserver((records) => {
-      for (const record of records) {
-        if (record.type === "attributes") scan(record.target);
-        else for (const node of record.addedNodes) scan(node);
-      }
-    });
+    const observer = new MutationObserver(sweep);
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-status", "data-reduced"] });
-    scan(document.body);
+    sweep();
     return () => {
       unsubscribe();
       loops.clear();

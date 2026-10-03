@@ -183,24 +183,26 @@ describe("scoped FX clock", () => {
     act(() => setAnimationSpeed(0.5));
     const board = document.createElement("div"); board.setAttribute("data-duel-fx-speed-root", "");
     const target = document.createElement(kind === "button" ? "button" : "div"); target.className = kind;
-    target.getAnimations = () => [transition as unknown as Animation]; board.append(target);
+    Object.assign(transition.effect, { target }); board.append(target);
+    document.getAnimations = () => [transition as unknown as Animation];
     await act(async () => { document.body.append(board); });
     fireEvent(target, new Event("transitionrun", { bubbles: true }));
     expect(transition.playbackRate).toBe(1);
     act(() => setAnimationSpeed(2));
     expect(duelFxClock.factor()).toBe(2);
-    board.remove(); vi.unstubAllGlobals();
+    board.remove(); delete (document as { getAnimations?: unknown }).getAnimations; vi.unstubAllGlobals();
   });
   it("updates continuous CSS pulses after captured finite effects finish", async () => {
     function Scope() { useDuelAnimationSpeed(); return null; }
     class FakeCSSAnimation {}
     vi.stubGlobal("CSSAnimation", FakeCSSAnimation);
     let finish!: () => void;
-    const finite = Object.assign(new FakeCSSAnimation(), { playbackRate: 1, playState: "running", finished: new Promise<void>((resolve) => { finish = resolve; }), effect: { getComputedTiming: () => ({ endTime: 1000 }) } });
-    const loop = Object.assign(new FakeCSSAnimation(), { playbackRate: 1, playState: "running", effect: { getComputedTiming: () => ({ endTime: Infinity }) } });
+    const finite = Object.assign(new FakeCSSAnimation(), { playbackRate: 1, playState: "running", finished: new Promise<void>((resolve) => { finish = resolve; }), effect: { target: undefined as Element | undefined, getComputedTiming: () => ({ endTime: 1000 }) } });
+    const loop = Object.assign(new FakeCSSAnimation(), { playbackRate: 1, playState: "running", effect: { target: undefined as Element | undefined, getComputedTiming: () => ({ endTime: Infinity }) } });
     render(<Scope />);
     const board = document.createElement("div"); board.setAttribute("data-duel-fx-speed-root", "");
-    board.getAnimations = () => [finite, loop] as unknown as Animation[];
+    finite.effect.target = board; loop.effect.target = board;
+    document.getAnimations = () => [finite, loop] as unknown as Animation[];
     await act(async () => { document.body.append(board); });
     act(() => setAnimationSpeed(2));
     expect(finite.playbackRate).toBe(1);
@@ -208,7 +210,7 @@ describe("scoped FX clock", () => {
     await act(async () => { finish(); });
     expect(finite.playbackRate).toBe(1);
     expect(loop.playbackRate).toBe(2);
-    board.remove(); vi.unstubAllGlobals();
+    board.remove(); delete (document as { getAnimations?: unknown }).getAnimations; vi.unstubAllGlobals();
   });
   it("scales pending CSS delays before animationstart", async () => {
     function Scope() { useDuelAnimationSpeed(); return null; }
@@ -216,11 +218,12 @@ describe("scoped FX clock", () => {
     vi.stubGlobal("CSSAnimation", FakeCSSAnimation);
     render(<Scope />);
     act(() => setAnimationSpeed(2));
-    const anim = Object.assign(new FakeCSSAnimation(), { playbackRate: 1, effect: { getComputedTiming: () => ({ endTime: 850 }) } });
+    const anim = Object.assign(new FakeCSSAnimation(), { playbackRate: 1, effect: { target: undefined as Element | undefined, getComputedTiming: () => ({ endTime: 850 }) } });
     const board = document.createElement("div"); board.setAttribute("data-duel-fx-speed-root", "");
-    board.getAnimations = () => [anim as unknown as Animation];
+    anim.effect.target = board;
+    document.getAnimations = () => [anim as unknown as Animation];
     await act(async () => { document.body.append(board); });
     expect(anim.playbackRate).toBe(2);
-    board.remove(); vi.unstubAllGlobals();
+    board.remove(); delete (document as { getAnimations?: unknown }).getAnimations; vi.unstubAllGlobals();
   });
 });
