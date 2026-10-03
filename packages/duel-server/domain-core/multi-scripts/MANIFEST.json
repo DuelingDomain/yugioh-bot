@@ -4825,6 +4825,21 @@
       "stockSha256": "12358eff25253775fd3cf467e8692e77df0b5cbf2b0e6f811db4aff59a28fe72"
     },
     {
+      "code": 74271714,
+      "file": "c74271714.lua",
+      "name": "Fish and Bids",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPPick": [
+          "rmtgtg"
+        ]
+      },
+      "stockSha256": "7a82c1d97ab6bf236b46d17e6416ba1bf314fd042a2549c58705171d3312bd9f",
+      "note": "In Tag, select one opponent at activation for the opponent-hand effect. Keep the joined team field."
+    },
+    {
       "code": 74426895,
       "file": "c74426895.lua",
       "name": "Awakening of the Possessed - Gagigobyte",
