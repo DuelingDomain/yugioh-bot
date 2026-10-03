@@ -587,7 +587,7 @@
 .ms .ladder .rng { font-family: var(--f-num); font-size: 15px; color: var(--ink-3); }
 .ms .ladder li.here { position: relative; }
 .ms .ladder li.here .tier::after { content: "you"; margin-left: 8px; color: var(--ink-3); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
-.ms .meter { position: relative; height: 4px; border-radius: 2px; background: rgb(239 231 213 / 0.08); }
+.ms .meter { display: block; width: 100%; position: relative; height: 4px; border-radius: 2px; background: rgb(239 231 213 / 0.08); }
 .ms .meter i { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: var(--t-gold); }
 .ms .howto { width: 100%; border-collapse: collapse; font-size: 13px; }
 .ms .howto th { padding: 0 0 7px; color: var(--ink-3); font-weight: 400; font-size: 12px; text-align: right; border-bottom: 1px solid var(--rule-lo); }
@@ -1963,6 +1963,7 @@
 }
 .ms .hr-turn::after { content: ""; flex: 1; height: 1px; background: var(--rule-lo); }
 .ms .hr-row { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 46px; padding: 6px 14px 6px 17px; font-size: 13.5px; color: var(--ink-2); }
+.ms .hr-row:has(> .hr-th):has(> .hr-sc) { grid-template-columns: auto auto minmax(0, 1fr) auto; }
 .ms .hr-row::before { content: ""; position: absolute; left: 6px; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; border-left: 3px dashed rgb(149 143 129 / 0.55); }
 .ms .hr-row[data-own="me"]::before { border-left: 3px solid var(--pen); }
 .ms .hr-row[data-own="none"]::before { display: none; }

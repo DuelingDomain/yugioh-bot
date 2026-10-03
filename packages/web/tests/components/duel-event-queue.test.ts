@@ -39,6 +39,14 @@ const threeLinkResolution: DuelEvent[] = [
 ];
 
 describe("collectFreshEvents", () => {
+  it("consumes board-only target updates without allocating a banner duration", () => {
+    const target = { ...event(18, "target", 1), targets: [] };
+    expect(collectFreshEvents([target], 17)).toEqual({ nextCursor: 18, fresh: [target] });
+    expect(hasCentreBanner("target")).toBe(false);
+    expect(cueDuration("target", false)).toBe(0);
+    expect(cueDuration("target", true)).toBe(0);
+  });
+
   it("keeps a three-link resolution batch in engine id order", () => {
     const { nextCursor, fresh } = collectFreshEvents(threeLinkResolution, 10);
 
