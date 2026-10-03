@@ -366,6 +366,8 @@ export interface DuelEvent {
    * 0x1 face-up Attack, 0x2 face-down Attack, 0x4 face-up Defense, 0x8 face-down Defense).
    * `zone` is the card's zone; `card` follows the move-event rule (present when the card is
    * face-up before or after the change, or the viewer controls it).
+   * move / destroy: `fromPosition` is the field position before departure, even when the
+   * destination snapshot already removed the card. A Graveyard position is not its battle pose.
    */
   fromPosition?: number;
   toPosition?: number;

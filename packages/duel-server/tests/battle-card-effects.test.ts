@@ -38,6 +38,63 @@ function drive(game: EngineGame, policy: (w: Waiting) => DuelAnswer | "stop" | n
 const option = (w: Waiting, prefix: string, code: number) => w.prompt.options.find(o => o.id.startsWith(prefix) && o.card?.code === code)?.id;
 
 describe.each(["normal", "domain"] as const)("%s battle card effects", mode => {
+  it.each([0, 1])("keeps an Enemy Controller defender sideways until seat %s destroys it", async attackerSeat => {
+    const defenderSeat = 1 - attackerSeat;
+    const game = await openGame(mode, attackerSeat === 0
+      ? [[DD_WARRIOR_LADY, ENEMY_CONTROLLER], [BECKONED]]
+      : [[BECKONED], [DD_WARRIOR_LADY, ENEMY_CONTROLLER]], true);
+    try {
+      let activated = false, attacked = false, defendedWindows = 0;
+      const attackTurn = attackerSeat === 0 ? 3 : 2;
+      drive(game, w => {
+        for (const viewer of [0, 1, null]) {
+          const view = game.view(viewer);
+          if (!view.events.some(e => e.kind === "position" && e.card?.code === BECKONED)) continue;
+          const defender = view.seats[defenderSeat].monsters.find(c => c?.code === BECKONED);
+          if (defender) {
+            expect(defender.position).toBe(OcgPosition.FACEUP_DEFENSE);
+            if (attacked) defendedWindows++;
+          }
+        }
+        if (w.view.turn === w.seat + 1) {
+          const summon = option(w, "summon:", w.seat === attackerSeat ? DD_WARRIOR_LADY : BECKONED);
+          if (summon) return { choice: summon };
+        }
+        if (w.view.turn === attackTurn && w.seat === attackerSeat) {
+          if (!activated) {
+            const activation = option(w, "activate:", ENEMY_CONTROLLER);
+            if (activation) { activated = true; return { choice: activation }; }
+          }
+          if (activated && w.prompt.options.some(o => o.id === "opt:0")) return { choice: "opt:0" };
+          if (w.prompt.kind === "cards") {
+            const target = w.prompt.options.find(o => o.card?.code === BECKONED);
+            if (target) return { selected: [target.id] };
+          }
+          if (w.prompt.options.some(o => o.id === "to_bp")) return { choice: "to_bp" };
+          if (!attacked) {
+            const attack = option(w, "attack:", DD_WARRIOR_LADY);
+            if (attack) { attacked = true; return { choice: attack }; }
+          }
+          if (attacked && w.prompt.options.some(o => o.id === "to_m2")) return "stop";
+        }
+        return null;
+      });
+      expect(activated && attacked).toBe(true);
+      expect(defendedWindows).toBeGreaterThan(0);
+      for (const viewer of [0, 1, null]) {
+        const view = game.view(viewer);
+        expect(view.events.find(e => e.kind === "battle")?.battle).toEqual({
+          attacker: { attack: 1500, defense: 1600, position: 1 }, target: { attack: 1800, defense: 0, position: 4 } });
+        expect(view.events.find(e => e.kind === "move" && e.reason === "destroy")).toMatchObject({
+          cause: "battle", card: { code: BECKONED }, fromPosition: 4 });
+        expect(view.events.find(e => e.kind === "destroy")).toMatchObject({
+          cause: "battle", card: { code: BECKONED }, fromPosition: 4 });
+        expect(view.seats[defenderSeat].graveyard.some(c => c.code === BECKONED)).toBe(true);
+        expect(view.seats.map(s => s.lp)).toEqual([8000, 8000]);
+      }
+    } finally { game.close(); }
+  });
+
   it("changes an opposing attacker to defense during the Battle Phase for both seats and spectators", async () => {
     const game = await openGame(mode, [[ENEMY_CONTROLLER], [GEMINI_ELF]]);
     try {

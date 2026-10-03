@@ -549,6 +549,7 @@ function destroyEvent(id: number, code: number, from: PendingMove["from"], cards
     publicText: hidden ? "A face-down card was destroyed" : text,
     revealCardTo: hidden ? from.controller : "all",
     zone: { controller: from.controller, location: from.location, sequence: from.sequence },
+    fromPosition: from.position,
   };
   if (detail && detail !== true) applyDestroyDetail(event, detail);
   return event;
@@ -712,6 +713,7 @@ function trackMove(
     from: fromZone,
     reason,
   };
+  if (isFieldLocation(from.location)) event.fromPosition = from.position;
   if (to.location === OcgLocation.MZONE || to.location === OcgLocation.SZONE || to.location === OcgLocation.REMOVED || to.location === LOCATION_DECKMASTER) {
     event.faceDown = isFacedownPosition(to.position);
   }
