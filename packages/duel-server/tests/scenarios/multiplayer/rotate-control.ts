@@ -1,4 +1,4 @@
-import { activate, defineScenario, endTurn, expectBoard, expectEliminated, expectNotOffered, zone, expectPrompt, expectPickOptions, select, specialSummon, surrender, pickOpponent, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, defineScenario, endTurn, expectBoard, expectEliminated, expectNotOffered, expectOffered, zone, expectPrompt, expectPickOptions, select, normalSummon, specialSummon, surrender, pickOpponent, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
 
 const cards = ["Giant Rat", "Dark Magician", "Summoned Skull", "Blue-Eyes White Dragon"];
 type RotationScenario = Scenario & { fixture?: string; drawn: Record<DuelistId, number> };
@@ -27,7 +27,37 @@ for (const format of ["ffa3", "ffa4"] as const) {
     steps.push(expectBoard(board), expectNotOffered("changePosition",cards[count-1],"p0"));
     ROTATE_CONTROL_SCENARIOS.push(rotationScenario({ id: `rotate-control-${format}-${full ? "full" : "open"}-fields`, title: "Each duelist gives one monster to the next living duelist", source: "ADR-0002; owner answers 2026-10-02", rules: ["R-FFA-RESOURCE-ROTATION","R-COMMON-EACH-PLAYER"], tags: ["multiplayer",format,"card:31036355"], setup, steps }));
   }
-  ROTATE_CONTROL_SCENARIOS.push(rotationScenario({ id: `rotate-control-${format}-one-empty-seat`, title: "Creature Swap needs a monster at every living seat", source: "Owner answers 2026-10-02", rules: ["R-FFA-RESOURCE-ROTATION"], tags: ["multiplayer",format,"card:31036355"], setup: { format, p0: { hand: ["Creature Swap"], monsters: [cards[0]] }, p1: { monsters: [cards[1]] }, ...(count===4 ? { p3: { monsters: [cards[3]] } } : {}) }, steps: [expectNotOffered("activate","Creature Swap","p0"),expectBoard({ p0: { monsters: [cards[0]], hand: { include: ["Creature Swap"] }, grave: [] }, p1: { monsters: [cards[1]], grave: [] }, p2: { monsters: [], grave: [] }, ...(count===4 ? { p3: { monsters: [cards[3]], grave: [] } } : {}) })] }));
+  const emptySetup: Scenario["setup"] = {
+    format,
+    p0: { hand: ["Creature Swap"], monsters: [cards[0], "Mystical Elf"] },
+    p1: { monsters: [cards[1], "Mystical Elf"] },
+    p2: { hand: ["Mystical Elf"] },
+    ...(count === 4 ? { p3: { monsters: [cards[3], "Mystical Elf"] } } : {}),
+  };
+  const emptySteps: Step[] = [expectNotOffered("activate", "Creature Swap", "p0"),
+    endTurn("p0"), endTurn("p1"), normalSummon("Mystical Elf", "p2"), zone("p2", "m0", "p2"), endTurn("p2"),
+    ...(count === 4 ? [endTurn("p3")] : []), expectOffered("activate", "Creature Swap", "p0"), activate("Creature Swap", "p0")];
+  const emptyBoard: Parameters<typeof expectBoard>[0] = {};
+  const selected = [cards[0], cards[1], "Mystical Elf", cards[3]];
+  for (let seat = 0; seat < count; seat++) {
+    const id = `p${seat}` as DuelistId;
+    if (seat !== 2) emptySteps.push(expectPrompt({ by: id, kind: "cards" }), select({ card: selected[seat], owner: id }));
+    emptyBoard[id] = { monsters: [selected[(seat + count - 1) % count], ...(seat === 2 ? [] : ["Mystical Elf"])], grave: seat === 0 ? ["Creature Swap"] : [] };
+  }
+  for (let seat = 0; seat < count; seat++) {
+    const id = `p${seat}` as DuelistId;
+    emptySteps.push(expectPrompt({ by: id, kind: "places" }), zone(id, "m0", id));
+    emptyBoard[id]!.zones = { m0: selected[(seat + count - 1) % count] };
+  }
+  emptySteps.push(expectBoard(emptyBoard));
+  ROTATE_CONTROL_SCENARIOS.push(rotationScenario({
+    id: `rotate-control-${format}-one-empty-seat`,
+    title: "Creature Swap is legal after the empty seat summons a monster",
+    source: "Owner answers 2026-10-02; ADR-0002 [R-FFA-RESOURCE-ROTATION]",
+    rules: ["R-FFA-RESOURCE-ROTATION"], tags: ["multiplayer", format, "card:31036355"],
+    setup: emptySetup, steps: emptySteps,
+    drawn: { p0: 1, p1: 1, p2: 1, p3: count === 4 ? 1 : 0 },
+  }));
 }
 ROTATE_CONTROL_SCENARIOS.push(rotationScenario({
   id: "rotate-control-ffa4-p2-turn",

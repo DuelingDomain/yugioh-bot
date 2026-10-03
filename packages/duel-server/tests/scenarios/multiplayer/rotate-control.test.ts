@@ -52,7 +52,7 @@ for (const mode of ["normal", "domain"] as const) {
             hand.push(resolveCard(scenario.setup[id]?.deck?.[draw] ?? FILLER_CARD));
           }
           for (const action of scenario.steps) {
-            if ((action.op !== "activate" && action.op !== "specialSummon") || (action.by ?? "p0") !== id) continue;
+            if ((action.op !== "activate" && action.op !== "specialSummon" && action.op !== "normalSummon") || (action.by ?? "p0") !== id) continue;
             const code = resolveCard(typeof action.sel === "object" ? action.sel.card : action.sel);
             const index = hand.indexOf(code);
             if (index < 0) throw new Error(`${scenario.id}: ${id} uses a card absent from its expected hand`);
