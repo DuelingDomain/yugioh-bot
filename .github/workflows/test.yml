@@ -237,6 +237,11 @@ jobs:
       - name: Engine tests
         run: npm run test:engine
 
+      # Web tests that run a real stock-core duel. The unit job has no engine bundle, so they skip there.
+      # DUEL_REQUIRE_CORES=1 (from the job env) makes a missing bundle a failure here.
+      - name: Web tests with the engine
+        run: npm exec --workspace=packages/web -- vitest run tests/components/material-count.test.ts tests/e2e/bug-proof-cases.test.ts
+
       # tests/*.smoke.ts are plain assert scripts (vitest does not match them); one failing script fails the step.
       - name: Engine smoke scripts
         run: npm run test:smoke --workspace=packages/duel-server
