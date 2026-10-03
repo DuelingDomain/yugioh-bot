@@ -282,7 +282,7 @@ async function hostCall(body: Record<string, unknown>, timeoutMs = 6000): Promis
   }
 }
 
-type AnyView = { revision?: number; seats?: Array<Record<string, unknown>>; chain?: Array<{ seat: number; name?: string }>; turn?: number; turnSeat?: number; phase?: string; result?: unknown; prompt?: Prompt | null };
+type AnyView = { revision?: number; seats?: Array<Record<string, unknown>>; chain?: Array<{ seat: number; name?: string }>; events?: StepRecord["events"]; turn?: number; turnSeat?: number; phase?: string; result?: unknown; prompt?: Prompt | null };
 
 function boardOf(view: AnyView | null | undefined): BoardSeat[] {
   const names = (list: unknown) => (Array.isArray(list) ? list : []).filter(Boolean).map((card) => String((card as { name?: string; code?: number }).name ?? (card as { code?: number }).code ?? "?"));
@@ -581,6 +581,7 @@ export class PresetRun {
             step: this.records.length + 1, revision: view.revision, turn: view.turn ?? null,
             turnSeat: view.turnSeat ?? null, phase: view.phase ?? null, status: "active", result: view.result,
             board: boardOf(view), chain: (view.chain ?? []).map((link) => ({ seat: link.seat, name: link.name })),
+            events: view.events ?? [],
             prompt: null, hostPrompts: this.hostOpen, traceSeen: true, screenshot: null,
           });
         }
@@ -671,6 +672,7 @@ export class PresetRun {
       result: engine?.result ?? null,
       board: boardOf(engine as AnyView),
       chain: ((engine as AnyView | null)?.chain ?? []).map((link) => ({ seat: link.seat, name: link.name })),
+      events: (engine as AnyView | null)?.events ?? [],
       prompt: prompt && { seat: prompt.seat, kind: prompt.kind, title: prompt.title, options: prompt.options.map((option) => option.label) },
       hostPrompts,
       traceSeen: trace !== null,
