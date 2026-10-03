@@ -181,6 +181,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
     });
     const settle = () => {
       if (!alive) return;
+      if (plan.handoff) { el.style.visibility = "hidden"; land(); doneRef.current(); return; }
       const current = findMoveDestination(plan.event);
       const target = handArrivalTarget(plan.event);
       if (!target) { land(); doneRef.current(); return; }

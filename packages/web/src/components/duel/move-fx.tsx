@@ -24,7 +24,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED } from "./constants";
-import { collectFreshEvents, findMoveDestination, followMoveDestination, maxEventId, moveDestinationRect } from "./event-queue";
+import { collectFreshEvents, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect } from "./event-queue";
 import {
   getMovePlan,
   planMoves,
@@ -322,13 +322,14 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   useLayoutEffect(() => {
     const dest = findMoveDestination(plan.event);
     const el = root.current;
-    if (!dest || !el) {
+    const target = handArrivalTarget(plan.event);
+    if (!target || !el) {
       landedRef.current();
       doneRef.current();
       return undefined;
     }
     const o = overlay.getBoundingClientRect();
-    const z = moveDestinationRect(dest);
+    const z = target.rect;
     if (z.width < 4 || z.height < 4 || o.width < 4) {
       landedRef.current();
       doneRef.current();
@@ -346,8 +347,8 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
 
     const track = new Track();
     let alive = true;
-    const endDefense = dest.dataset.defense === "true";
-    const endTurn = cardTurn(dest.dataset.side === "opp" ? "opp" : "you", endDefense);
+    const endDefense = dest?.dataset.defense === "true";
+    const endTurn = cardTurn(target.side, endDefense);
 
     if (plan.style === "fade" || !source) {
       track.play(el, [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }], {
@@ -400,6 +401,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
       if (!alive) return;
       const finish = () => {
         if (!alive) return;
+        if (plan.handoff) { el.style.visibility = "hidden"; landedRef.current(); doneRef.current(); return; }
         // The real card takes over under the ghost, which dissolves: no pop, no gap between the two.
         landedRef.current();
         const tail = plan.style === "fade" || !source ? plan.holdMs : Math.max(plan.holdMs, LAND_FADE_MS);
@@ -692,7 +694,8 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
   const addItems = (list: MovePlan[]) =>
     setItems((current) => {
       const have = new Set(current.map((item) => item.id));
-      return [...current, ...list.filter((item) => !have.has(item.id))].slice(-MAX_GHOSTS);
+      const starting = new Set(list.map((item) => item.id));
+      return [...current.filter((item) => !item.handoff || !starting.has(item.handoff)), ...list.filter((item) => !have.has(item.id))].slice(-MAX_GHOSTS);
     });
 
   const clearAll = () => {

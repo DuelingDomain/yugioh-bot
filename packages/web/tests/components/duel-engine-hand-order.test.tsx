@@ -241,6 +241,25 @@ describe("engine hand order on the board", () => {
     expect(animations.some((record) => (record.el as HTMLElement).dataset.testid === "added-ring")).toBe(false);
   });
 
+  it.each([1, 16])("chains an arrival from %s into a same-batch departure with one ghost", async (from) => {
+    const added = { ...arrival(from), handId: "departed-10", zone: HAND(0, 2) };
+    const departure: DuelEvent = { ...added, id: 11, handId: undefined, addedToHand: undefined, reason: "discard",
+      from: added.zone, zone: { controller: 0, location: 16, sequence: 0 } };
+    const view = render(<Board fx view={engine(hand(["a", "b"]))} />);
+    captureZoneSnapshots(view.container);
+    view.rerender(<Board fx view={engine(hand(["a", "b"]), [], [added, departure])} />);
+    const incoming = getMovePlan(10)!; const outgoing = getMovePlan(11)!;
+    expect(incoming).not.toBeNull();
+    expect(outgoing.startAt).toBe(incoming.landAt);
+    expect(outgoing.source?.rect.left).toBe(700);
+    for (let elapsed = 0; elapsed < outgoing.landAt + 300; elapsed += 16) {
+      await advance(16);
+      expect(view.container.querySelectorAll('[data-style]')).toHaveLength(elapsed + 16 < outgoing.landAt + 220 ? 1 : 0);
+      expect(view.container.querySelector('[style*="visibility: hidden"]')).toBeNull();
+    }
+    expect(view.queryByTestId("added-ring")).toBeNull();
+  });
+
   it.each([false, true])("still presents a departed add when the final hand is empty (reduced=%s)", async (reduced) => {
     const event = { ...arrival(16), handId: "departed-10", zone: HAND(0, 0) };
     const view = render(<Board fx reduced={reduced} view={engine([])} />);

@@ -99,6 +99,8 @@ export type MovePlan = {
   source: ZoneSnapshot | null;
   /** An effect added the card to a hand (style "add"): the showcase, then the flight into the hand. */
   showcase: ShowcasePlan | null;
+  /** Same-batch hand departure: replace this ghost at landing, without a duplicate or glow. */
+  handoff?: number;
 };
 
 export type MoveGeometry = { distance: number };
@@ -202,6 +204,7 @@ type Candidate = {
   index: number;
   /** The showcase starts here (style "add"). */
   origin: ShowcaseOrigin | null;
+  predecessor?: Candidate;
 };
 
 /** Where a card was: the last snapshot of its anchor, else the anchor as it is now. */
@@ -223,7 +226,7 @@ export function resolveSource(zone: DuelZoneRef): ZoneSnapshot | null {
 /** Distance between the source and destination anchors, from the live board. */
 export function measureGeometry(event: DuelEvent): MoveGeometry | null {
   const to = findMoveDestination(event);
-  const toRect = to ? moveDestinationRect(to) : isAddToHand(event) ? handArrivalTarget(event)?.rect : undefined;
+  const toRect = to ? moveDestinationRect(to) : event.zone?.location === LOCATION_HAND ? handArrivalTarget(event)?.rect : undefined;
   if (!toRect || toRect.width < 4) return null;
   const fromRect = event.from ? resolveSource(event.from)?.rect : null;
   if (!fromRect) return { distance: 240 };
@@ -340,6 +343,17 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance, reduced), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin });
   }
   if (candidates.length === 0) return [];
+  const chained = new Set<Candidate>();
+  for (let i = 1; i < candidates.length; i++) {
+    const item = candidates[i];
+    const previous = candidates[i - 1];
+    if (previous.event.zone?.location !== LOCATION_HAND || previous.event.from?.location === LOCATION_HAND ||
+      !sameZone(previous.event.zone, item.event.from) || previous.event.card?.code !== item.event.card?.code || chained.has(previous)) continue;
+    item.predecessor = previous;
+    chained.add(previous);
+    const target = handArrivalTarget(previous.event);
+    if (target) item.source = { ...target, faceUp: (previous.event.card?.code ?? 0) > 0, defense: false };
+  }
   // The showcase of a run goes first: the card the player cares about is shown, then the rest of the
   // effect (the other cards to the Graveyard) plays. A run is moves with no other event between them.
   const runs: Candidate[][] = [];
@@ -367,7 +381,9 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       // A showcase has fixed legs (the hold stays long enough to read); the rest of the queue gives way.
       const phases = item.style === "add" ? showcasePhases(speed, reduced) : null;
       const dur = phases ? phases.totalMs : item.base * speed;
-      const start = Math.max(cursor + item.lead, item.notBefore);
+      const predecessorIndex = item.predecessor ? candidates.indexOf(item.predecessor) : -1;
+      const predecessor = out[predecessorIndex];
+      const start = Math.max(cursor + item.lead, item.notBefore, predecessor ? predecessor.start + predecessor.dur : 0);
       out.push({ start, dur, phases });
       // The next card of the effect starts as the showcase card sets off for the hand.
       const minGap = item.event.zone?.location === LOCATION_HAND ? MOVE_TIMING.handMinGapMs : MOVE_TIMING.minGapMs;
@@ -403,7 +419,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       durationMs: dur,
       leadMs: item.lead,
       // After a showcase lands, the ring of light plays on the hand card.
-      holdMs: phases ? phases.glowMs : item.hold,
+      holdMs: chained.has(item) ? 0 : phases ? phases.glowMs : item.hold,
       destroy: item.destroy,
       takeover: item.takeover,
       pieces: item.pieces,
@@ -412,6 +428,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       reduced,
       source: item.source,
       showcase: phases && item.origin ? { origin: item.origin, phases } : null,
+      handoff: candidates.find((candidate) => candidate.predecessor === item)?.event.id,
     };
     plans.set(plan.id, plan);
     for (const id of item.paired) pairs.set(id, plan.id);
