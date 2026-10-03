@@ -192,11 +192,52 @@ describe("match actions and inline failures", () => {
 });
 
 describe("online match states", () => {
-  it("starts a duel and navigates to the existing destination", async () => {
+  it("starts a duel and, when the pop-up is blocked, opens it in this window", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
     const fetchMock = vi.fn(async () => Response.json({ duel: { slug: "new-duel" } }, { status: 201 })); vi.stubGlobal("fetch", fetchMock);
     renderRow(); fireEvent.click(screen.getByRole("button", { name: "Start duel" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/duels/new-duel"));
+    expect(open).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/friday-night-duels-12/matches/1/duel", { method: "POST" });
+  });
+
+  it("opens the duel window in the click, then sends it to the duel after the server answers", async () => {
+    const popup = { closed: false, name: "", location: { href: "about:blank" }, focus: vi.fn(), close: vi.fn(),
+      document: { title: "", body: { style: { cssText: "" }, textContent: "" } } };
+    const open = vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+    let answer!: (res: Response) => void;
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { answer = resolve; })); vi.stubGlobal("fetch", fetchMock);
+    const onChanged = vi.fn(); renderRow(openMatch, { onChanged });
+    fireEvent.click(screen.getByRole("button", { name: "Start duel" }));
+    // Before the server answers: the window exists and is blank; nothing navigated yet.
+    expect(open).toHaveBeenCalledWith("", "yugidraft-duel-pending");
+    expect(popup.location.href).toBe("about:blank");
+    answer(Response.json({ duel: { slug: "new-duel" } }, { status: 201 }));
+    await waitFor(() => expect(popup.location.href).toBe("/duels/new-duel?window=1"));
+    expect(popup.name).toBe("yugidraft-duel-new-duel");
+    expect(popup.close).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    expect(onChanged).toHaveBeenCalledOnce();
+  });
+
+  it("opens the duel here when the window was closed before the server answered", async () => {
+    const popup = { closed: false, name: "", location: { href: "about:blank" }, focus: vi.fn(), close: vi.fn(),
+      document: { title: "", body: { style: { cssText: "" }, textContent: "" } } };
+    vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+    vi.stubGlobal("fetch", vi.fn(async () => { popup.closed = true; return Response.json({ duel: { slug: "new-duel" } }, { status: 201 }); }));
+    renderRow(); fireEvent.click(screen.getByRole("button", { name: "Start duel" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/duels/new-duel"));
+    expect(popup.location.href).toBe("about:blank");
+  });
+
+  it("closes the blank window when the server refuses to start the duel", async () => {
+    const popup = { closed: false, name: "", location: { href: "about:blank" }, focus: vi.fn(), close: vi.fn(),
+      document: { title: "", body: { style: { cssText: "" }, textContent: "" } } };
+    vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: "Marik_Mains has not registered a deck" }, { status: 409 })));
+    renderRow(); fireEvent.click(screen.getByRole("button", { name: "Start duel" }));
+    await waitFor(() => expect(popup.close).toHaveBeenCalledOnce());
+    expect(push).not.toHaveBeenCalled();
   });
 
   it("links the missing-deck guidance inline to My deck", async () => {

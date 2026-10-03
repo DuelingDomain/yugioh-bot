@@ -12,12 +12,17 @@ describe("deck check while the duel starts", () => {
 describe("own-window screen", () => {
   const base = { status: "lobby", mySeat: 0, inDuelWindow: false, playHere: false, hasResult: false, starting: false, windowOpened: false };
 
-  it("shows for a seated player of a live duel outside the duel window", () => {
-    expect(ownWindowGateVisible({ ...base, status: "active" })).toBe(true);
-    expect(ownWindowGateVisible({ ...base, status: "active", inDuelWindow: true })).toBe(false);
-    expect(ownWindowGateVisible({ ...base, status: "active", playHere: true })).toBe(false);
+  it("never shows for someone who landed on a live duel without opening a window", () => {
+    expect(ownWindowGateVisible({ ...base, status: "active" })).toBe(false);
     expect(ownWindowGateVisible({ ...base, status: "active", mySeat: null })).toBe(false);
-    expect(ownWindowGateVisible({ ...base, status: "active", hasResult: true })).toBe(false);
+  });
+
+  it("shows for a live duel while the window this tab opened is open", () => {
+    expect(ownWindowGateVisible({ ...base, status: "active", windowOpened: true })).toBe(true);
+    expect(ownWindowGateVisible({ ...base, status: "active", windowOpened: true, inDuelWindow: true })).toBe(false);
+    expect(ownWindowGateVisible({ ...base, status: "active", windowOpened: true, playHere: true })).toBe(false);
+    expect(ownWindowGateVisible({ ...base, status: "active", windowOpened: true, mySeat: null })).toBe(false);
+    expect(ownWindowGateVisible({ ...base, status: "active", windowOpened: true, hasResult: true })).toBe(false);
   });
 
   it("shows at once after Start duel when the window opened, before the server answers", () => {

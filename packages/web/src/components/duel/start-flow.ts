@@ -9,9 +9,11 @@ export function shouldCheckDeck(sessionStatus: string): boolean {
 }
 
 /**
- * True when the tab shows the "Duel is open in its own window" screen. That is any live duel for a
- * seated player outside the duel window, and also the lobby from the click on Start duel when the
- * pop-up opened (the request itself takes a moment; the pop-up already has the duel).
+ * True when the tab shows the "Duel is open in its own window" screen. That is only the tab that
+ * opened the duel window itself (`windowOpened`), while that window is open: for a live duel, and for
+ * the lobby from the click on Start duel (the request takes a moment; the pop-up already has the
+ * duel). Anyone else who lands on a live duel, or whose pop-up was blocked or closed, gets the board
+ * in this tab.
  */
 export function ownWindowGateVisible(input: {
   status: string;
@@ -22,9 +24,9 @@ export function ownWindowGateVisible(input: {
   starting: boolean;
   windowOpened: boolean;
 }): boolean {
-  if (input.inDuelWindow || input.playHere || input.mySeat == null) return false;
+  if (input.inDuelWindow || input.playHere || input.mySeat == null || !input.windowOpened) return false;
   if (input.status === "active") return !input.hasResult;
-  return input.status === "lobby" && input.starting && input.windowOpened;
+  return input.status === "lobby" && input.starting;
 }
 
 export function startButtonLabel(starting: boolean): string {

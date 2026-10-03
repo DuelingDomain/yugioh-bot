@@ -9,6 +9,19 @@ export function duelWindowName(slug: string): string {
   return `yugidraft-duel-${slug}`;
 }
 
+/** Name of the blank window opened at the click, before the server has named the duel. */
+export const PENDING_DUEL_WINDOW = "yugidraft-duel-pending";
+
+// Duel windows this page opened, so a later "Open duel" click focuses one instead of loading a second copy.
+const openedWindows = new Map<string, Window>();
+
+function liveWindow(slug: string): Window | null {
+  const known = openedWindows.get(slug);
+  if (known && !known.closed) return known;
+  openedWindows.delete(slug);
+  return null;
+}
+
 export function duelWindowPath(slug: string): string {
   return `/duels/${encodeURIComponent(slug)}?${DUEL_WINDOW_PARAM}=1`;
 }
@@ -44,7 +57,76 @@ export function openDuelWindow(slug: string): Window | null {
   } catch {
     target.focus();
   }
+  openedWindows.set(slug, target);
   return target;
+}
+
+/**
+ * Open a blank duel window inside a click, before the duel has a slug (the server still has to create
+ * it). Pop-up blockers only allow `window.open` in the gesture itself; `navigateDuelWindow` fills it in
+ * once the slug is known. Returns null when the browser blocked it.
+ */
+export function openPendingDuelWindow(): Window | null {
+  if (typeof window === "undefined") return null;
+  let target: Window | null = null;
+  try {
+    target = window.open("", PENDING_DUEL_WINDOW);
+  } catch {
+    target = null;
+  }
+  if (!target) return null;
+  try {
+    // A quiet dark page, so the wait is not a white flash.
+    target.document.title = "Starting duel";
+    target.document.body.style.cssText = "margin:0;background:#0b0b10;color:#9a9aa8;font:14px system-ui,sans-serif;display:grid;min-height:100vh;place-items:center";
+    target.document.body.textContent = "Starting duel…";
+  } catch {
+    // The window stays blank; it still navigates.
+  }
+  return target;
+}
+
+/** Send a pending window to the duel. False when the player closed it meanwhile (play in place then). */
+export function navigateDuelWindow(target: Window, slug: string): boolean {
+  try {
+    if (target.closed) return false;
+    // The slug name lets a later open of this duel find the window again.
+    target.name = duelWindowName(slug);
+    target.location.href = duelWindowPath(slug);
+    target.focus();
+  } catch {
+    return false;
+  }
+  openedWindows.set(slug, target);
+  return true;
+}
+
+/** Close a pending window after a failed start. */
+export function closePendingDuelWindow(target: Window | null): void {
+  try { target?.close(); } catch { /* the browser keeps it open */ }
+}
+
+/** Focus the duel window this page opened for `slug`. False when there is none (or it was closed). */
+export function focusOpenDuelWindow(slug: string): boolean {
+  const target = liveWindow(slug);
+  if (!target) return false;
+  try { target.focus(); } catch { /* still counts as open */ }
+  return true;
+}
+
+/** Slug of a `/duels/<slug>` link, or null for any other href. */
+export function duelSlugFromHref(href: string): string | null {
+  const match = /^\/duels\/([^/?#]+)/.exec(href);
+  if (!match) return null;
+  try { return decodeURIComponent(match[1]); } catch { return null; }
+}
+
+/** Click handler for plain /duels/<slug> links: focuses the duel window when this page already opened one. */
+export function focusDuelWindowOnClick(href: string, event: { preventDefault(): void; defaultPrevented?: boolean; button?: number; metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean }): void {
+  if (event.defaultPrevented || (event.button ?? 0) !== 0) return;
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  const slug = duelSlugFromHref(href);
+  if (slug && focusOpenDuelWindow(slug)) event.preventDefault();
 }
 
 /**

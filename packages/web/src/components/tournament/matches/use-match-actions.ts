@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { closePendingDuelWindow, navigateDuelWindow, openPendingDuelWindow } from "@/components/duel/duel-window";
 import { isSeriesOpen, startDuelErrorText } from "../duel-rules";
 import { useOptionalRouter } from "../use-optional-router";
 import type { Match } from "../types";
@@ -28,6 +29,8 @@ export function useMatchActions(match: Match, tournamentSlug: string, onChanged:
 
   async function request(action: Action, url: string, fallback: string, body?: object) {
     setLoading(action);
+    // Inside the click, so pop-up blockers allow it; the duel's slug is not known until the server answers.
+    let duelWindow = action === "start" ? openPendingDuelWindow() : null;
     if (action === "result") setResultError(null); else setError(null);
     try {
       const res = await fetch(url, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : { method: "POST" });
@@ -37,12 +40,21 @@ export function useMatchActions(match: Match, tournamentSlug: string, onChanged:
         const message = typeof data?.error === "string" ? data.error : fallback;
         if (action === "result") setResultError(message);
         else setError(action === "start" ? startDuelErrorText(res.status, message) : message);
+        closePendingDuelWindow(duelWindow);
         return;
       }
       if (action === "start") {
         const slug: unknown = data?.duel?.slug;
         if (typeof slug !== "string") {
           setError("The duel started, but its link is missing. Reload the page.");
+          closePendingDuelWindow(duelWindow);
+          onChanged();
+          return;
+        }
+        // The duel runs in the window opened at the click; this page stays on the floor. A blocked or
+        // closed window means the duel opens here, straight onto the board.
+        if (duelWindow && navigateDuelWindow(duelWindow, slug)) {
+          duelWindow = null; // handed over: the catch below must not close it
           onChanged();
           return;
         }
@@ -55,6 +67,7 @@ export function useMatchActions(match: Match, tournamentSlug: string, onChanged:
       if (action === "result") closeResult();
       onChanged();
     } catch (err) {
+      closePendingDuelWindow(duelWindow);
       const message = action === "report" || action === "start" ? fallback : err instanceof Error ? err.message : fallback;
       if (action === "result") setResultError(message); else setError(message);
     } finally { setLoading(null); }

@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { duelWindowName, duelWindowPath, exitDuelWindow, isDuelWindow, openDuelWindow } from "@/components/duel/duel-window";
+import {
+  closePendingDuelWindow, duelSlugFromHref, duelWindowName, duelWindowPath, exitDuelWindow, focusDuelWindowOnClick,
+  focusOpenDuelWindow, isDuelWindow, navigateDuelWindow, openDuelWindow, openPendingDuelWindow,
+} from "@/components/duel/duel-window";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -57,5 +60,74 @@ describe("duel window helpers", () => {
     exitDuelWindow("abc", fallback);
     vi.advanceTimersByTime(200);
     expect(fallback).toHaveBeenCalled();
+  });
+});
+
+describe("starting a duel from a click", () => {
+  const fakeWindow = () => ({ closed: false, name: "", location: { href: "about:blank" }, focus: vi.fn(), close: vi.fn(),
+    document: { title: "", body: { style: { cssText: "" }, textContent: "" } } });
+
+  it("opens a pending window inside the click and sends it to the duel once the slug is known", () => {
+    const pending = fakeWindow();
+    const open = vi.spyOn(window, "open").mockReturnValue(pending as unknown as Window);
+    expect(openPendingDuelWindow()).toBe(pending);
+    expect(open).toHaveBeenCalledWith("", "yugidraft-duel-pending");
+    expect(pending.location.href).toBe("about:blank");
+    expect(navigateDuelWindow(pending as unknown as Window, "new-duel")).toBe(true);
+    expect(pending.name).toBe("yugidraft-duel-new-duel");
+    expect(pending.location.href).toBe("/duels/new-duel?window=1");
+    expect(pending.focus).toHaveBeenCalled();
+  });
+
+  it("returns null for a blocked pending window", () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    expect(openPendingDuelWindow()).toBeNull();
+  });
+
+  it("does not navigate a window the player closed meanwhile", () => {
+    const pending = { ...fakeWindow(), closed: true };
+    expect(navigateDuelWindow(pending as unknown as Window, "gone")).toBe(false);
+    expect(pending.location.href).toBe("about:blank");
+    expect(focusOpenDuelWindow("gone")).toBe(false);
+  });
+
+  it("closes a pending window after a failed start", () => {
+    const pending = fakeWindow();
+    closePendingDuelWindow(pending as unknown as Window);
+    expect(pending.close).toHaveBeenCalled();
+    expect(() => closePendingDuelWindow(null)).not.toThrow();
+  });
+
+  it("reuses a window this page opened: an Open duel click focuses it instead of navigating", () => {
+    const pending = fakeWindow();
+    navigateDuelWindow(pending as unknown as Window, "live-1");
+    pending.focus.mockClear();
+    const event = { preventDefault: vi.fn(), button: 0 };
+    focusDuelWindowOnClick("/duels/live-1", event);
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(pending.focus).toHaveBeenCalled();
+
+    const other = { preventDefault: vi.fn(), button: 0 };
+    focusDuelWindowOnClick("/duels/other", other);
+    expect(other.preventDefault).not.toHaveBeenCalled();
+
+    pending.closed = true;
+    const afterClose = { preventDefault: vi.fn(), button: 0 };
+    focusDuelWindowOnClick("/duels/live-1", afterClose);
+    expect(afterClose.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("leaves modified clicks to the browser", () => {
+    const pending = fakeWindow();
+    navigateDuelWindow(pending as unknown as Window, "live-2");
+    const event = { preventDefault: vi.fn(), button: 0, ctrlKey: true };
+    focusDuelWindowOnClick("/duels/live-2", event);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("reads the slug of a duel link", () => {
+    expect(duelSlugFromHref("/duels/abc")).toBe("abc");
+    expect(duelSlugFromHref("/duels/abc?invite=x")).toBe("abc");
+    expect(duelSlugFromHref("/tournaments/abc")).toBeNull();
   });
 });

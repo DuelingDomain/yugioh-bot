@@ -58,7 +58,11 @@ beforeEach(() => {
     prioritySeat: 0, prompt: { id: "p1", seat: 0, kind: "choice", title: "Respond?", options: [{ id: "pass", label: "Pass" }] },
     chain: [], events: [], log: [], result: null };
 });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+let openSpy: { mockRestore(): void } | null = null;
+afterEach(() => {
+  cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); window.name = "";
+  openSpy?.mockRestore(); openSpy = null;
+});
 const live = () => screen.getByTestId("priority").getAttribute("data-live");
 
 describe("room header", () => {
@@ -70,16 +74,46 @@ describe("room header", () => {
 });
 
 describe("room priority gate", () => {
-  it("keeps the opening pending until Open here instead mounts the card layers", () => {
+  it("mounts the card layers at once when the player lands on the duel outside the duel window", () => {
     state.room!.engine!.revision = 0;
     state.room!.engine!.turn = 1;
     render(<DuelRoomView slug="game-2" />);
-    expect(screen.getByTestId("duel-window-gate")).toBeTruthy();
-    expect(screen.queryByTestId("priority")).toBeNull();
-    expect(startBeats.mock.lastCall?.[0].ready).toBe(false);
-    fireEvent.click(screen.getByRole("button", { name: "Open here instead" }));
+    expect(screen.queryByTestId("duel-window-gate")).toBeNull();
     expect(screen.getByTestId("priority")).toBeTruthy();
     expect(startBeats.mock.lastCall?.[0].ready).toBe(true);
+  });
+
+  it("shows the own-window screen after Pop out, and the board again after Open here instead", () => {
+    const popupWindow = { closed: false, location: { href: "about:blank" }, focus: vi.fn() };
+    const open = vi.spyOn(window, "open").mockReturnValue(popupWindow as unknown as Window);
+    openSpy = open;
+    render(<DuelRoomView slug="game-3" />);
+    fireEvent.click(screen.getByRole("button", { name: "Pop out" }));
+    expect(open).toHaveBeenCalledWith("", "yugidraft-duel-game-3");
+    expect(popupWindow.location.href).toBe("/duels/game-3?window=1");
+    expect(screen.getByTestId("duel-window-gate")).toBeTruthy();
+    expect(screen.queryByTestId("priority")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open here instead" }));
+    expect(screen.getByTestId("priority")).toBeTruthy();
+  });
+
+  it("keeps the board and offers no Pop out inside the duel window", () => {
+    render(<DuelRoomView slug="game-1" windowed />);
+    expect(screen.queryByRole("button", { name: "Pop out" })).toBeNull();
+    expect(screen.getByTestId("priority")).toBeTruthy();
+  });
+
+  it("brings the board back in this tab when the duel window is closed", () => {
+    vi.useFakeTimers();
+    const popupWindow = { closed: false, location: { href: "about:blank" }, focus: vi.fn() };
+    openSpy = vi.spyOn(window, "open").mockReturnValue(popupWindow as unknown as Window);
+    render(<DuelRoomView slug="game-4" />);
+    fireEvent.click(screen.getByRole("button", { name: "Pop out" }));
+    expect(screen.getByTestId("duel-window-gate")).toBeTruthy();
+    popupWindow.closed = true;
+    act(() => { vi.advanceTimersByTime(1100); });
+    expect(screen.queryByTestId("duel-window-gate")).toBeNull();
+    expect(screen.getByTestId("priority")).toBeTruthy();
   });
 
   it("shares the local prompt reveal with the field", () => {
