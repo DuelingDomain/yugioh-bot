@@ -135,7 +135,7 @@ function bothMaterials(f: Format): Scenario {
     setup[s] = { monsters: [xyz("Number 39: Utopia", ["Silver Fang", "Battle Ox"])] };
     result[s] = { monsters: ["Number 39: Utopia"], zones: { m0: { card: "Number 39: Utopia", materials: 2, attack: 2500 } } };
   }
-  return scenario(f, "both-fields-count-all-xyz-materials", setup, [activate(card, "p0"), board(f, result)]);
+  return scenario(f, "both-fields-count-all-xyz-materials", setup, [activate(card, "p0"), board(f, result)], ["R-COMMON-ALL-BOTH"]);
 }
 export const DECLARED_OPPONENT_SCENARIOS: Scenario[] = formats.flatMap(f => [
   ...["Raigeki", "Harpie's Feather Duster", "Lightning Storm"].map(c => wipe(f, c)), legalOnly(f), targetCards(f), banished(f), anyCondition(f), mirror(f),
