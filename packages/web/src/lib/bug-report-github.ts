@@ -30,6 +30,21 @@ function hasFromAppLabel(labels: unknown): boolean {
 }
 
 /**
+ * The public web address for the replay link, from NEXTAUTH_URL or AUTH_URL only (no trailing slash), or undefined. The
+ * request's own origin is never used: the issue is public, and a Host header the client chose must not reach it.
+ */
+export function bugReportBaseUrl(): string | undefined {
+  const configured = process.env.NEXTAUTH_URL?.trim() || process.env.AUTH_URL?.trim();
+  if (!configured) return undefined;
+  try {
+    const url = new URL(configured);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.origin + url.pathname.replace(/\/+$/, "") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Opens one GitHub issue for a saved report. Never throws: a missing token, a network error or a GitHub refusal comes
  * back as `{ ok: false, error }` so the report stays saved. The error text never holds the token. If GitHub refuses the
  * labels (422), the issue is sent once more without them. A 403 is not retried: it is often a rate limit, and a second

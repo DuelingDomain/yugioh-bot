@@ -293,8 +293,8 @@ export interface IssueBodyInput {
   path: string;
   duelSlug?: string | null;
   context: BugReportContext;
-  /** Public web base URL, no trailing slash. */
-  baseUrl: string;
+  /** Public web base URL, no trailing slash. Without it the issue has no replay link. */
+  baseUrl?: string;
 }
 
 const cell = (value: string | number | null | undefined) =>
@@ -350,7 +350,7 @@ function reportSections(input: IssueBodyInput): string[] {
     "## Recent log",
     log.length ? fence(log.join("\n")) : "_No duel log._",
   ];
-  if (input.duelSlug) {
+  if (input.duelSlug && input.baseUrl) {
     sections.push("## Replay", `${input.baseUrl}/duels/${encodeURIComponent(input.duelSlug)}/replay (sign-in needed)`);
   }
   return sections;

@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { BugReportServiceError, createBugReportService, createPlayerService } from "@yugidraft/shared/services";
-import { webBaseUrl } from "@/lib/announce-bot";
 import { parseBugReportRequest } from "@/lib/bug-report";
-import { bugReportRepo, commentOnIssue, createGithubIssue, getOpenFromAppIssue, resetGithubIssueCache } from "@/lib/bug-report-github";
+import { bugReportBaseUrl, bugReportRepo, commentOnIssue, createGithubIssue, getOpenFromAppIssue, resetGithubIssueCache } from "@/lib/bug-report-github";
 import { takeDuplicateCheckSlot } from "@/lib/bug-reports/precheck";
 import { readJsonBody } from "@/lib/bug-reports/read-body";
 import { getDb } from "@/lib/db";
@@ -97,7 +96,7 @@ export async function POST(request: Request) {
     path: saved.path,
     duelSlug: saved.duelSlug,
     context: report.context,
-    baseUrl: webBaseUrl(request),
+    baseUrl: bugReportBaseUrl(),
   };
   // Last line of defence: nothing that names the reporter or the guild may reach the public issue.
   const redact = [actor.userId, actor.userName, guildId];

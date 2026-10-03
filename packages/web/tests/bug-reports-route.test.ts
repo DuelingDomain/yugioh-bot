@@ -155,6 +155,37 @@ describe("POST /api/bug-reports", () => {
     expect(call!.payload.body).toContain("`Report #1`");
   });
 
+  it("builds the replay link only from NEXTAUTH_URL or AUTH_URL, never from the request", async () => {
+    const POST = await route();
+    vi.stubEnv("NEXTAUTH_URL", "");
+    vi.stubEnv("AUTH_URL", "https://auth.example.com/");
+    vi.stubEnv("WEB_URL", "https://web-url.example.com");
+    await POST(new Request("https://evil.example/api/bug-reports", { method: "POST", body: JSON.stringify(body()) }));
+    expect(githubCalls()[0]!.payload.body).toContain("https://auth.example.com/duels/duel-a/replay");
+  });
+
+  it("leaves the replay link out when no public URL is configured, even if the request has an origin", async () => {
+    const POST = await route();
+    vi.stubEnv("NEXTAUTH_URL", "");
+    vi.stubEnv("AUTH_URL", "");
+    vi.stubEnv("WEB_URL", "https://web-url.example.com");
+    const res = await POST(new Request("https://evil.example/api/bug-reports", { method: "POST", body: JSON.stringify(body()) }));
+    expect(res.status).toBe(200);
+    const text = githubCalls()[0]!.payload.body as string;
+    expect(text).not.toContain("## Replay");
+    expect(text).not.toContain("evil.example");
+    expect(text).not.toContain("web-url.example.com");
+    expect(text).not.toContain("localhost");
+    expect(text).toContain("`Report #1`");
+  });
+
+  it("ignores a configured URL that is not http or https", async () => {
+    const POST = await route();
+    vi.stubEnv("NEXTAUTH_URL", "javascript:alert(1)");
+    await POST(post(body()));
+    expect(githubCalls()[0]!.payload.body).not.toContain("## Replay");
+  });
+
   it("keeps private data out of the public issue", async () => {
     const POST = await route();
     await POST(post(body({ description: `Seraphina Quill (${DISCORD_ID}) in ${GUILD} cc @octocat` })));
@@ -339,6 +370,17 @@ describe("POST /api/bug-reports with duplicateOf", () => {
     expect(comment!.body.body.startsWith("**+1** from `Report #1`")).toBe(true);
     expect(comment!.body.body).toContain("https://duel.example.com/duels/duel-a/replay");
     expect(comment!.body.body).toContain("Player 2 draws 1 card");
+  });
+
+  it("leaves the replay link out of the +1 comment when no public URL is configured", async () => {
+    serve();
+    vi.stubEnv("NEXTAUTH_URL", "");
+    vi.stubEnv("AUTH_URL", "");
+    const POST = await route();
+    expect((await POST(new Request("https://evil.example/api/bug-reports", { method: "POST", body: JSON.stringify(body({ duplicateOf: ISSUE })) }))).status).toBe(200);
+    const text = String(comments()[0]!.body.body);
+    expect(text).not.toContain("## Replay");
+    expect(text).not.toContain("evil.example");
   });
 
   it("keeps private data out of the comment", async () => {
