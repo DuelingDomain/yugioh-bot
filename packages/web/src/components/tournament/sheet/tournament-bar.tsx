@@ -2,6 +2,7 @@
 
 import { SlidersHorizontal } from "lucide-react";
 import { PageBar } from "@/components/sheet";
+import { OwnsPageBar, ShellMenuButton } from "@/components/layout/shell-bar";
 import { currentRound, tournamentEnding, totalRounds } from "../floor/floor-model";
 import { AnimationsControl } from "../fx/animations-control";
 import type { Motion } from "../fx/use-animations";
@@ -48,7 +49,6 @@ export function TournamentBar({ tournament, isHost, hostOpen, onHostToggle, moti
       sub={barSub(tournament)}
       actions={
         <>
-          {/* TODO(shell): the shell's menu button (ShellMenuButton) goes here on a phone, once the shell agent lands it. */}
           {showHost && (
             <button type="button" className={fx.barButton} aria-expanded={hostOpen} aria-controls="host-tools" aria-label="Host tools" onClick={onHostToggle}>
               <SlidersHorizontal size={17} strokeWidth={1.7} aria-hidden="true" />
@@ -56,6 +56,8 @@ export function TournamentBar({ tournament, isHost, hostOpen, onHostToggle, moti
             </button>
           )}
           <AnimationsControl motion={motion} reduced={reducedMotion} onChange={onMotion} />
+          <ShellMenuButton />
+          <OwnsPageBar />
         </>
       }
     />

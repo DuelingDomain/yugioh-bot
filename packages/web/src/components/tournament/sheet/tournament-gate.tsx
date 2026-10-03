@@ -1,6 +1,7 @@
 "use client";
 
 import { FieldOutline, LightRule, PageBar, SheetRoot, SvButton } from "@/components/sheet";
+import { OwnsPageBar, ShellMenuButton } from "@/components/layout/shell-bar";
 import styles from "./tournament-gate.module.css";
 
 /**
@@ -15,7 +16,7 @@ export function TournamentGate({ kind, slug, busy = false, onRetry }: {
 }) {
   return (
     <SheetRoot>
-      <PageBar back={{ href: "/tournaments", label: "Back to tournaments" }} title="Tournament" />
+      <PageBar back={{ href: "/tournaments", label: "Back to tournaments" }} title="Tournament" actions={<><ShellMenuButton /><OwnsPageBar /></>} />
       <div className={styles.wrap}>
         <FieldOutline lit={kind !== "error"} centreLine>
           <div className={styles.body}>
