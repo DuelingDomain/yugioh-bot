@@ -6,6 +6,7 @@
  * banner layers whether to replay the opening of the duel (the deal of both hands) instead of dropping
  * its events as history.
  */
+import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DuelClock, DuelEngineView } from "@yugidraft/shared/duels";
 import { collectFreshEvents, maxEventId } from "./event-queue";
@@ -52,7 +53,7 @@ export function useStartBeats({
   const opening = engine != null && isOpeningView(engine);
   // A duel that is still at its very start replays its opening; one the player joins halfway does not.
   const replayFrom = opening && !presentedOpenings.has(duelKey)
-    && openingPresentationMs(engine.events, reducedMotion) + 100 <= graceLeft ? 0 : null;
+    && duelFxClock.realMs(openingPresentationMs(engine.events, reducedMotion)) + 100 <= graceLeft ? 0 : null;
 
   const [shown, setShown] = useState<Shown>(IDLE);
   const [, setOpeningClaim] = useState<string | null>(null);
@@ -66,7 +67,7 @@ export function useStartBeats({
   const events = engine?.events;
 
   const clearTimers = () => {
-    for (const timer of timersRef.current) window.clearTimeout(timer);
+    for (const timer of timersRef.current) duelFxClock.clearTimeout(timer);
     timersRef.current.clear();
   };
 
@@ -117,7 +118,7 @@ export function useStartBeats({
     if (fresh.length === 0) return;
     cursorRef.current = nextCursor;
 
-    const now = performance.now();
+    const now = duelFxClock.now();
     const plan: PhaseBeatPlan | null = planPhaseBeats(events, cursor, { now, reduced: reducedRef.current, duelKey });
     if (!plan) return;
 
@@ -127,7 +128,7 @@ export function useStartBeats({
         fn();
         return;
       }
-      const timer = window.setTimeout(() => {
+      const timer = duelFxClock.setTimeout(() => {
         timersRef.current.delete(timer);
         if (mountedRef.current) fn();
       }, wait);
@@ -139,7 +140,7 @@ export function useStartBeats({
     releaseAtRef.current = Math.max(releaseAtRef.current, plan.releaseAt);
     after(plan.releaseAt, () => {
       // A later batch may have held the player for longer.
-      if (performance.now() + 8 >= releaseAtRef.current) setShown(IDLE);
+      if (duelFxClock.now() + 8 >= releaseAtRef.current) setShown(IDLE);
     });
   }, [duelKey, events, opening, replayFrom, ready]);
 
