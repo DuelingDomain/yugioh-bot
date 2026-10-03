@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { createDraftService } from "@yugidraft/shared/services";
+import { draftReadAccess } from "@/lib/draft-access";
 
 export const runtime = "nodejs";
 
@@ -19,6 +20,8 @@ export async function GET(
     const { slug } = await params;
     const db = getDb();
     const guildId = env.discordGuildId;
+    const denied = draftReadAccess(db, slug, guildId, session.user.id);
+    if (denied) return denied;
 
     const draft = db
       .prepare("select id from drafts where web_slug = ? and guild_id = ?")

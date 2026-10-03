@@ -5,6 +5,7 @@ import { env } from "@/lib/env";
 import { createDraftService, createCardCatalogService } from "@yugidraft/shared/services";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import type { CardSummary } from "@/lib/card-types";
+import { draftReadAccess } from "@/lib/draft-access";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
 
   const { slug } = await params;
   const db = getDb();
+  const denied = draftReadAccess(db, slug, env.discordGuildId, session.user.id);
+  if (denied) return denied;
   const row = db
     .prepare("select config_json from drafts where web_slug = ? and guild_id = ?")
     .get(slug, env.discordGuildId) as { config_json: string } | undefined;

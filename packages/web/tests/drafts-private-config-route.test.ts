@@ -83,16 +83,21 @@ describe("draft config privacy", () => {
     }
     const { GET } = await import("../app/api/drafts/[slug]/route");
     const params = { params: Promise.resolve({ slug: draft.webSlug! }) };
-    for (const userId of ["participant", "observer"]) {
-      auth.mockResolvedValue({ user: { id: userId } });
-      const response = await GET(new Request(`http://localhost/api/drafts/${draft.webSlug}`), params);
-      expect(response.status).toBe(200);
-      const body = await response.json();
-      expect(body.status).toBe(status);
-      expect(body.config).not.toHaveProperty("themeAssignments");
-      expect(Object.keys(body.config).filter((key) => /seed/i.test(key))).toEqual([]);
-      expect(JSON.stringify(body)).not.toContain(secretSeed);
-    }
+    // A joined non-creator can read the draft without seeing the host's secrets.
+    auth.mockResolvedValue({ user: { id: "participant" } });
+    const response = await GET(new Request(`http://localhost/api/drafts/${draft.webSlug}`), params);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.status).toBe(status);
+    expect(body.isParticipant).toBe(true);
+    expect(body.config).not.toHaveProperty("themeAssignments");
+    expect(Object.keys(body.config).filter((key) => /seed/i.test(key))).toEqual([]);
+    expect(JSON.stringify(body)).not.toContain(secretSeed);
+
+    // Once the draft starts, someone who didn't join can't read it at all.
+    auth.mockResolvedValue({ user: { id: "observer" } });
+    const observerResponse = await GET(new Request(`http://localhost/api/drafts/${draft.webSlug}`), params);
+    expect(observerResponse.status).toBe(status === "pending" ? 200 : 403);
 
     // The host's editor still gets the map, and filtering never alters stored config.
     auth.mockResolvedValue({ user: { id: "creator" } });

@@ -492,12 +492,13 @@ describe("theme lobby routes", () => {
     }
     const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
     const params = { params: Promise.resolve({ slug: "theme-slug" }) };
-    for (const userId of ["u2", "observer"]) {
-      auth.mockResolvedValue({ user: { id: userId } });
-      const response = await GET(new Request("http://localhost"), params);
-      expect(response.status).toBe(200);
-      expect(await response.json()).toEqual({ errors: [], warnings: [] });
-    }
+    // u2 joined the draft and can read it, but cannot see host assignment warnings.
+    auth.mockResolvedValue({ user: { id: "u2" } });
+    const participantResponse = await GET(new Request("http://localhost"), params);
+    expect(participantResponse.status).toBe(200);
+    expect(await participantResponse.json()).toEqual({ errors: [], warnings: [] });
+    auth.mockResolvedValue({ user: { id: "observer" } });
+    expect((await GET(new Request("http://localhost"), params)).status).toBe(status === "pending" ? 200 : 403);
     auth.mockResolvedValue({ user: { id: "u1" } });
     const response = await GET(new Request("http://localhost"), params);
     expect(response.status).toBe(200);
