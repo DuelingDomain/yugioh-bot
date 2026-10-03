@@ -60,7 +60,7 @@ describe("chain stack placement", () => {
   });
 
   it("animates only transform and opacity in the new glow and callout", () => {
-    for (const name of ["chainGlowIn", "chainTagIn"]) {
+    for (const name of ["chainGlowIn", "chainTagIn", "chainDrop", "chainClink", "chainIn"]) {
       const block = new RegExp(`@keyframes ${name} \\{([\\s\\S]*?)\\n\\}`).exec(chainCss);
       expect(block, name).not.toBeNull();
       const props = [...block![1].matchAll(/([a-z-]+):/g)].map((m) => m[1]);
@@ -72,5 +72,30 @@ describe("chain stack placement", () => {
     expect(chainCss).toMatch(/\.layer\[data-reduced="true"\] \.glow/);
     expect(chainCss).toMatch(/\.layer\[data-reduced="true"\] \.tag/);
     expect(chainCss).toMatch(/\.glow, \.tag,/);
+  });
+
+  it("keeps every entry animation short, between 150 and 250 ms with its delay under 150 ms", () => {
+    const entries: Array<[string, string]> = [
+      [".badge", "chainDrop"], [".tag", "chainTagIn"], [".chip", "chainClink"], [".row", "chainIn"], [".panel", "chainIn"],
+    ];
+    for (const [selector, name] of entries) {
+      const body = rule(chainCss, selector);
+      const m = new RegExp(`animation:\\s*${name}\\s+([\\d.]+)s[^;]*?(?:\\s([\\d.]+)s)?\\s*(?:both|backwards);`).exec(body);
+      expect(m, `${selector} ${name}`).not.toBeNull();
+      const ms = parseFloat(m![1]) * 1000;
+      expect(ms, `${selector} duration`).toBeGreaterThanOrEqual(150);
+      expect(ms, `${selector} duration`).toBeLessThanOrEqual(250);
+      expect(parseFloat(m![2] ?? "0") * 1000, `${selector} delay`).toBeLessThan(150);
+    }
+    const glow = /\.slot\[data-status="pending"\]\[data-top="true"\] \.glow \{[^}]*animation: chainGlowIn ([\d.]+)s/.exec(chainCss);
+    expect(parseFloat(glow![1]) * 1000).toBeLessThanOrEqual(250);
+    const wire = /animation: chainWireIn ([\d.]+)s ease ([\d.]+)s/.exec(chainCss);
+    expect(parseFloat(wire![1]) * 1000).toBeLessThanOrEqual(250);
+    expect(parseFloat(wire![2]) * 1000).toBeLessThan(150);
+  });
+
+  it("never lets a chain cosmetic take a pointer: the layers and the stack do not catch input", () => {
+    for (const selector of [".layer", ".dock"]) expect(rule(chainCss, selector)).toMatch(/pointer-events:\s*none/);
+    expect(chainCss).not.toMatch(/pointer-events:\s*auto/);
   });
 });
