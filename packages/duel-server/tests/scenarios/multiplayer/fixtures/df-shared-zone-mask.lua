@@ -1,4 +1,5 @@
--- Register a zone effect in a real activation bound to a non-across opponent.
+-- Register a zone effect with an opponent declared in a real activation.
+-- Across geometry proofs declare the across seat; numeric controls use a side seat.
 local s,id=GetID()
 function s.initial_effect(c)
  local e=Effect.CreateEffect(c)

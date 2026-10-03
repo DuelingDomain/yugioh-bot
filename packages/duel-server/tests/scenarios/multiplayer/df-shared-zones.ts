@@ -88,16 +88,20 @@ function eliminated(actor: Seat): Scenario {
   board[actor] = { ...board[actor], monsters: [SPIDER], grave: [ELF, "Pot of Greed", 95200138], hand: [...(board[actor].hand as string[]), ELF, ELF, ELF], deckCount: (board[actor].deckCount ?? 20) - 3,
     zones: { emz0: SPIDER, emz1: null } };
   board[other] = { lp: 8000, hand: [], deckCount: 0, extra: [], monsters: [], grave: [], spells: [], banished: [] };
-  // Pot of Greed provides a real engine response that lets the pending loss land.
-  return scenario(`ffa4-eliminated-across-${actor}`, "ffa4", setup, [...turnsBefore("ffa4", actor), activate(95200138, actor), surrender(other), activate("Pot of Greed", actor),
-    expectEliminated(other), specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }),
+  // R-COMMON-SURRENDER-EOT: finish the proof activation before no-chain surrender.
+  // Its place prompt precedes payment of the cost that checks the living across EMZ.
+  return scenario(`ffa4-eliminated-across-${actor}`, "ffa4", setup, [...turnsBefore("ffa4", actor), activate(95200138, actor), zone(actor, "s0", actor), expectPrompt({ by: actor, context: "action" }),
+    surrender(other), expectEliminated(other), activate("Pot of Greed", actor), expectEliminated(other), specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }),
     expectPickOptions([{ seat: actor, label: "Extra Monster Zone (left)" }, { seat: actor, label: "Extra Monster Zone (right)" }], actor), zone(actor, "emz0", actor), everySeat("ffa4", board)]);
 }
 function mask(code: number): Scenario {
   const setup: Scenario["setup"] = { p0: { spells: [null, { card: code, pos: "set" }] } };
   const board = state("ffa4", "p0");
   board.p0 = { ...board.p0, spells: [code], hand: [...openingHand(), ELF], deckCount: openingDeck() - 1 };
-  const steps: Step[] = [activate(code, "p0"), expectPickSeats(["p1", "p2", "p3"], "p0"), pickOpponent("p1", "p0")];
+  // R-FFA-ACROSS-EMZ + R-FFA-ACTIVATED-LOCK: these activated geometry proofs
+  // declare the across opponent. A side binding correctly hides the high half.
+  const declared: Seat = [95200122, 95200123, 95200129].includes(code) ? "p2" : "p1";
+  const steps: Step[] = [activate(code, "p0"), expectPickSeats(["p1", "p2", "p3"], "p0"), pickOpponent(declared, "p0")];
   if ((code === 95200125 || code === 95200129 || code === 95200132)) steps.push(zone("p1", "m3", "p0"));
   steps.push(expectPrompt({ by: "p0", context: "action" }), everySeat("ffa4", board));
   // Real Normal Summon place prompts show the target of each mask at every seat.
@@ -125,7 +129,8 @@ function linkedMask(): Scenario {
     setup[seat] = { monsters: [ELF], extra: [SPIDER] };
     board[seat] = { ...board[seat], monsters: [ELF], extra: [SPIDER] };
   }
-  const steps: Step[] = [activate(code, "p0"), expectPickSeats(["p1", "p2", "p3"], "p0"), pickOpponent("p1", "p0"), everySeat("ffa4", board)];
+  // R-FFA-ACROSS-EMZ: this positive geometry proof declares the across seat.
+  const steps: Step[] = [activate(code, "p0"), expectPickSeats(["p1", "p2", "p3"], "p0"), pickOpponent("p2", "p0"), everySeat("ffa4", board)];
   for (const [i, seat] of (["p1", "p2", "p3"] as Seat[]).entries()) {
     steps.push(...turnsBefore("ffa4", seat, `p${i}` as Seat), specialSummon(SPIDER, seat), select({ card: ELF, owner: seat }));
     const choices = [{ seat, label: "Extra Monster Zone (left)" }, { seat, label: "Extra Monster Zone (right)" }];
