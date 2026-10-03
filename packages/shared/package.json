@@ -39,6 +39,11 @@
       "source": "./src/ws/index.ts",
       "default": "./dist/ws/index.js"
     },
+    "./ws/talk": {
+      "types": "./dist/ws/talk.d.ts",
+      "source": "./src/ws/talk.ts",
+      "default": "./dist/ws/talk.js"
+    },
     "./scoring": {
       "types": "./dist/scoring/index.d.ts",
       "source": "./src/scoring/index.ts",

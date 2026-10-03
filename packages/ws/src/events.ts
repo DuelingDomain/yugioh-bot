@@ -1,6 +1,6 @@
 import type { Server, Socket } from "socket.io";
 import type { DraftRoomManager } from "./rooms.js";
-import { verifyDraftRoomToken, type DraftRoomTokenClaims } from "@yugidraft/shared/ws";
+import { verifyDraftRoomToken, type DraftRoomTokenClaims, type TalkLineId } from "@yugidraft/shared/ws";
 
 export type DraftStatus = "active" | "cancelled" | "completed";
 
@@ -24,6 +24,7 @@ export interface ServerToClientEvents {
   "draft:resync": (data: { packRound: number; pickStep: number }) => void;
   "draft:complete": (data: Record<string, never>) => void;
   "draft:seats": (data: Record<string, never>) => void;
+  "draft:talk": (data: { playerId: number; line: TalkLineId }) => void;
   "draft:subscription-expired": (data: { slug: string }) => void;
   "tournament:participant-joined": (data: { playerId: number; displayName: string }) => void;
   "tournament:participant-left": (data: { playerId: number }) => void;

@@ -170,6 +170,19 @@
 .dr .seg button { min-height: 34px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font-size: 14px; cursor: pointer; }
 .dr .seg button[aria-pressed="true"] { background: var(--panel-3); color: var(--ink); box-shadow: inset 0 0 0 1px var(--rule); }
 .dr .pop p { margin: 10px 0 0; color: var(--ink-3); font-size: 13.5px; line-height: 1.45; }
+.dr .says { display: flex; flex-wrap: wrap; gap: 6px; }
+.dr .says button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.2);
+  color: var(--ink);
+  font-size: 15px;
+  cursor: pointer;
+}
+.dr .says button:hover:not(:disabled) { border-color: var(--rule-hi); background: var(--panel-3); }
+.dr .says button:disabled { color: var(--ink-3); cursor: default; }
 
 /* ---------- body ---------- */
 .dr .body {
@@ -256,7 +269,7 @@
 .dr .pick-btn:hover:not(:disabled) { filter: brightness(1.12); }
 .dr .pick-btn:disabled { border-color: var(--rule-lo); background: var(--panel-3); box-shadow: none; color: var(--ink-3); cursor: default; }
 .dr .pick-btn:disabled kbd { display: none; }
-.dr .keys { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-3); font-size: 12.5px; }
+.dr .keys { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-4); font-size: 12.5px; }
 .dr .keys kbd { padding: 0 5px; border: 1px solid var(--rule-lo); border-radius: 4px; color: var(--ink-3); font: 500 11.5px/1.5 var(--f-ui); }
 .dr .sheet-x { display: none; }
 
@@ -591,9 +604,9 @@
 .dr[data-mode="theme"] .seat .pk b { display: none; }
 /* Keep the avatar and its badge inside the far seat's share of the row. */
 .dr .seat[data-far] .who { transform: scale(var(--seat-scale, 1)); }
-.dr .seat[data-far] .pk { left: 28px; }
+.dr .seat[data-far] .pk { left: calc(100% + 6px); }
 .dr .seat[data-far] .pk b { right: -4px; }
-.dr .seat[data-compact] .pk { left: 22px; width: 18px; height: 26px; }
+.dr .seat[data-compact] .pk { left: calc(100% + 4px); width: 18px; height: 26px; }
 .dr .seat[data-compact] .pk b { right: -4px; top: -5px; min-width: 17px; padding: 1px 3px; font-size: 11px; }
 .dr .av {
   display: grid;
@@ -626,6 +639,27 @@
 .dr[data-mode="theme"] .seat { opacity: 0.9; }
 @keyframes dr-hold { 0%, 100% { transform: rotateY(-24deg) translateY(0); } 50% { transform: rotateY(24deg) translateY(-3px); } }
 
+
+/* what someone says: a bubble over their seat. It sits on the seat or the disk, so it moves with them. */
+.dr .bubble {
+  position: absolute;
+  z-index: 8;
+  padding: 6px 11px 7px;
+  border: 1px solid var(--rule);
+  border-radius: 12px 12px 12px 3px;
+  background: #f1e6cf;
+  color: #20160d;
+  font: 600 14px/1 var(--f-ui);
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 10px 22px rgb(0 0 0 / 0.5);
+}
+.dr .bubble small { margin-right: 6px; color: #6d5a43; font-weight: 500; }
+.dr .seat .bubble { left: calc(50% - 18px); bottom: calc(100% + 6px); }
+.dr .seat .bubble[data-flip] { left: auto; right: calc(50% - 18px); border-radius: 12px 12px 3px 12px; }
+.dr .seat[data-talk] { z-index: 9; }
+/* yours stands over the dial: 6px above its top edge (the 76px dial is centred in the disk), as in the mock */
+.dr .disk .bubble { left: 32px; bottom: calc(var(--disk-h) / 2 + 38px + 6px); }
 
 /* ---------- the hologram ---------- */
 .dr .holo { position: absolute; top: 0; left: 0; z-index: 4; width: var(--hw, 228px); pointer-events: none; visibility: hidden; }
@@ -898,7 +932,7 @@
 .dr .search:focus-within { border-color: var(--rule-hi); box-shadow: 0 0 0 3px rgb(155 126 255 / 0.18); }
 .dr .search svg { width: 16px; height: 16px; flex: none; color: var(--ink-3); }
 .dr .search input { flex: 1; min-width: 0; height: 38px; border: 0; background: none; color: var(--ink); font: inherit; font-size: 14.5px; outline: none; }
-.dr .search input::placeholder { color: var(--ink-3); }
+.dr .search input::placeholder { color: var(--ink-4); }
 .dr .search input::-webkit-search-cancel-button { display: none; }
 .dr .search kbd { padding: 0 6px; border: 1px solid var(--rule-lo); border-radius: 4px; color: var(--ink-3); font: 500 12px/1.5 var(--f-ui); }
 .dr .search .clr { display: none; padding: 2px 6px; border: 0; background: none; color: var(--ink-3); font-size: 18px; line-height: 1; cursor: pointer; }
@@ -993,10 +1027,11 @@
 
 .dr .bd-scroll { min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .dr .bd-bar { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 10px; padding: 10px 14px 8px; border-bottom: 1px solid var(--rule-lo); background: #0a1120; }
-.dr .bd-sort { display: flex; flex: none; align-items: center; gap: 6px; margin-left: auto; color: var(--ink-3); font-size: 13px; }
-.dr .bd-sort select { min-width: 0; max-width: 100%; min-height: 32px; padding: 3px 6px; border: 1px solid var(--rule-lo); border-radius: 8px; background: var(--panel-3); color: var(--ink); font: inherit; cursor: pointer; }
-.dr .bd-export { flex: none; min-height: 32px; padding: 3px 8px; border: 1px solid var(--rule-lo); border-radius: 8px; background: var(--panel-3); color: var(--ink); font-size: 13px; white-space: nowrap; cursor: pointer; }
-.dr .bd-export:hover:not(:disabled) { border-color: var(--rule); }
+.dr .bd-bar .seg { flex: none; margin-left: auto; padding: 2px; }
+.dr .bd-bar .seg button { min-height: 28px; padding: 0 9px; font-size: 13px; }
+.dr .bd-foot { display: flex; justify-content: flex-end; padding: 6px 14px max(14px, env(safe-area-inset-bottom)); }
+.dr .bd-export { min-height: 32px; padding: 4px 2px; border: 0; background: none; color: var(--ink-3); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--rule); white-space: nowrap; cursor: pointer; }
+.dr .bd-export:hover:not(:disabled) { color: var(--ink); }
 .dr .bd-export:disabled { opacity: 0.45; cursor: not-allowed; }
 .dr .showing { min-width: 0; color: var(--ink-3); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dr .showing button { padding: 0; border: 0; background: none; color: var(--pen-ink); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
@@ -1182,23 +1217,70 @@
   .dr[data-mode="theme"] .seatstrip .dir { display: none; }
   .dr[data-mode="theme"] .seatstrip { --strip-start: 0px; --strip-snap: 8px; }
   .dr .chip-seat { position: relative; flex: 1 0 44px; min-width: 0; display: grid; justify-items: center; gap: 3px; scroll-snap-align: start; }
+  /* Past five seats the strip scrolls. Seats are sized so five and a half show: the half seat under the fade says there are more. */
+  .dr .seatstrip[data-many] { align-items: flex-start; }
+  .dr .seatstrip[data-many] .say-item { align-self: center; }
+  .dr .seatstrip[data-many] .chip-seat { flex: 0 0 calc((100% - 26px) / 5.5 - 4px); }
+  .dr .seatstrip[data-many] .chip-seat .nm {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+    font-size: 10.5px;
+    line-height: 1.15;
+  }
   .dr .chip-seat .av { width: 28px; height: 28px; font-size: 11.5px; }
   .dr .chip-seat[data-state="picking"] .av { animation: dr-breathe 1.6s ease-in-out infinite; }
   .dr .chip-seat .nm { max-width: 100%; overflow: hidden; color: var(--ink-2); font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
   .dr .chip-seat[data-state="picked"] .nm { color: var(--ink-3); }
   .dr .chip-seat[data-talk] .nm { visibility: hidden; }
+  /* on a phone a friend's line takes the place of their name, so it never covers the table */
+  .dr .chip-seat .say {
+    position: absolute;
+    left: 50%;
+    bottom: -3px;
+    display: none;
+    padding: 2px 7px 3px;
+    border-radius: 9px;
+    background: #f1e6cf;
+    color: #20160d;
+    font: 600 12px/1.2 var(--f-ui);
+    white-space: nowrap;
+    translate: -50% 0;
+    box-shadow: 0 4px 10px rgb(0 0 0 / 0.45);
+  }
+  .dr .chip-seat[data-talk] .say { display: block; }
+  .dr .seatstrip .say-item { flex: none; display: grid; align-items: center; }
+  .dr .seatstrip .say-btn { flex: none; width: 36px; padding: 0; justify-content: center; }
+  .dr .bar .say-btn { display: none; }
+  /* Their pile: a card back beside the avatar. It is lit gold with a dark halo so it reads on the strip; it never says what they took. */
   .dr .chip-seat .mp {
     position: absolute;
-    left: calc(50% + 9px);
-    top: 1px;
-    width: 13px;
-    height: 19px;
-    border: 1px solid #b08a3e;
+    left: calc(50% + 10px);
+    top: 0;
+    width: 15px;
+    height: 21px;
+    border: 1px solid #d3a84f;
     border-radius: 2px;
     background: #120e0c url("/duel/card-back-main-hd.webp") center / cover;
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.6);
+    box-shadow: 0 0 0 1px rgb(8 13 25), 0 0 7px rgb(228 182 79 / 0.5);
   }
-  .dr[data-phase="extra"] .chip-seat .mp { border-color: #8a6bb0; background-image: url("/duel/card-back-extra-hd.webp"); }
+  /* locked in: the pile is set down, marked with a gold pip */
+  .dr .chip-seat[data-state="picked"] .mp::after {
+    content: "";
+    position: absolute;
+    right: -5px;
+    bottom: -4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #e4b64f;
+    box-shadow: 0 0 0 1.5px rgb(8 13 25);
+  }
+  .dr[data-phase="extra"] .chip-seat .mp { border-color: #a990ff; box-shadow: 0 0 0 1px rgb(8 13 25), 0 0 7px rgb(169 144 255 / 0.5); background-image: url("/duel/card-back-extra-hd.webp"); }
   .dr[data-mode="theme"] .chip-seat .mp { display: none; }
   .dr .chip-seat[data-state="passing"] .mp { visibility: hidden; }
 
@@ -1214,6 +1296,7 @@
     border-radius: 60px 60px 12px 12px / 26px 26px 12px 12px;
   }
   .dr .dial { grid-template-columns: 58px auto; gap: 6px; padding: 2px 6px 2px 2px; }
+  .dr .disk .bubble { left: 28px; bottom: calc(var(--disk-h) / 2 + 29px + 6px); }
   .dr .dial .face { width: 58px; height: 58px; }
   .dr .dial .face::after { inset: 9px; }
   .dr .dial b { font-size: 26px; }

@@ -37,4 +37,17 @@ describe("phone seat strip CSS", () => {
 
     expect(snapOffset).toBe(paddingLeft);
   });
+
+  it("sizes a long strip so five and a half seats show, with the name allowed two lines", () => {
+    const chip = phone.match(/\.dr \.seatstrip\[data-many\] \.chip-seat\s*\{([^}]+)\}/)?.[1] ?? "";
+    const name = phone.match(/\.dr \.seatstrip\[data-many\] \.chip-seat \.nm\s*\{([^}]+)\}/)?.[1] ?? "";
+    expect(chip).toContain("/ 5.5");
+    expect(name).toContain("-webkit-line-clamp: 2");
+  });
+
+  it("lights a picked pile so it reads on the strip", () => {
+    const pile = phone.match(/\.dr \.chip-seat \.mp\s*\{([^}]+)\}/)?.[1] ?? "";
+    expect(pile).toContain("border: 1px solid #d3a84f");
+    expect(phone).toMatch(/\.chip-seat\[data-state="picked"\] \.mp::after/);
+  });
 });

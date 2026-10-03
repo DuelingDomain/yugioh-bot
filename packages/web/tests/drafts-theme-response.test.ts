@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const tempDirs: string[] = [];
+// The room asks the duel host for card types; these tests have no host.
+vi.mock("@/lib/duel-host", () => ({ callDuelHost: async () => ({ ok: false, response: { status: 503 } }) }));
 
 describe("theme draft GET response (buildDraftResponse)", () => {
   beforeEach(() => vi.resetModules());

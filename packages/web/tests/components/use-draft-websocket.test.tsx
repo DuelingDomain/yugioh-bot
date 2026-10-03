@@ -3,6 +3,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, waitFor } from "@testing-library/react";
 import { useDraftStore } from "../../src/lib/stores/draft-store";
+import { useTalkStore } from "../../src/lib/stores/talk-store";
 import { useDraftWebsocket } from "../../src/lib/hooks/use-draft-websocket";
 
 // ---------------------------------------------------------------------------
@@ -272,5 +273,24 @@ describe("useDraftWebsocket", () => {
     unmount();
 
     expect(mockDisconnect).toHaveBeenCalledTimes(1);
+  });
+
+  describe("table talk", () => {
+    afterEach(() => useTalkStore.getState().clear());
+
+    it("keeps the line a seat said, by player", () => {
+      render(<HookHarness slug="my-draft" />);
+      act(() => simulateEvent("draft:talk", { playerId: 2, line: "gg" }));
+      expect(useTalkStore.getState().heard[2]?.line).toBe("gg");
+    });
+
+    it("drops a line that is not one of the fixed ids, and does not touch the picks", () => {
+      render(<HookHarness slug="my-draft" />);
+      const before = useDraftStore.getState().seats;
+      act(() => simulateEvent("draft:talk", { playerId: 2, line: "show me your pool" }));
+      act(() => simulateEvent("draft:talk", undefined));
+      expect(useTalkStore.getState().heard).toEqual({});
+      expect(useDraftStore.getState().seats).toBe(before);
+    });
   });
 });

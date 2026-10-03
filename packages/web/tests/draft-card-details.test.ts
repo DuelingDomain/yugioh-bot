@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { seedDraftDeck } from "./helpers/draft-deck-fixture";
 
 const tempDirs: string[] = [];
+// The room asks the duel host for card types; these tests have no host.
+vi.mock("@/lib/duel-host", () => ({ callDuelHost: async () => ({ ok: false, response: { status: 503 } }) }));
 
 beforeEach(() => vi.resetModules());
 afterEach(async () => {
@@ -53,6 +55,21 @@ describe("draft card details", () => {
       { id: 1, passcode: 46986414, name: "Card 46986414", type: "Unknown", imageUrl: "" },
       { id: 2, passcode: 53183600, name: "Card 53183600", type: "Fusion Monster", imageUrl: "u" },
       { id: 3, passcode: 46986414, name: "Card 46986414", type: "Unknown", imageUrl: "" },
+    ]);
+  });
+  it("sends each card's archetype, or null when the catalog has none", async () => {
+    const fixture = await setup([46986414, 53183600]);
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(join(fixture.dir, "test.sqlite"));
+    db.prepare("update card_catalog set archetype = 'Dark Magician' where ygoprodeck_id = ?").run(46986414);
+    db.close();
+    const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
+
+    const response = await buildDraftResponse("slug-1", "drafter");
+
+    expect(response?.myPool).toMatchObject([
+      { passcode: 46986414, archetype: "Dark Magician" },
+      { passcode: 53183600, archetype: null },
     ]);
   });
 });

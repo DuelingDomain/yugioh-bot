@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDraftStore } from "../../../src/lib/stores/draft-store";
@@ -19,6 +19,9 @@ vi.mock("next/link", () => ({
 }));
 
 import { DraftRoom } from "../../../src/components/draft/room/draft-room";
+// With animations Off the pack ribbon holds the table for 1.3 s before the cards show, as in the mock.
+configure({ asyncUtilTimeout: 4000 });
+
 
 const card = (id: number) => ({
   id,
@@ -171,13 +174,16 @@ describe("Draft room panels", () => {
     await renderRoom();
     // jsdom and user-event do not honor inert. Let Tab traversal skip inert ancestors as browsers do.
     const inertStyle = document.createElement("style");
-    inertStyle.textContent = "[inert] { visibility: hidden; }";
+    // The phone layout also moves the Say button from the bar to the seat strip.
+    inertStyle.textContent = "[inert] { visibility: hidden; } .bar .say-btn { display: none; }";
     document.head.appendChild(inertStyle);
     try {
       await user.tab();
       expect(screen.getByRole("link", { name: "Back to drafts" })).toHaveFocus();
       await user.tab();
       expect(screen.getByRole("button", { name: /animations:/i })).toHaveFocus();
+      await user.tab();
+      expect(screen.getByRole("button", { name: "Say something to the table" })).toHaveFocus();
       await user.tab();
 
       expect(screen.getByRole("button", { name: "Card 1" })).toHaveFocus();
