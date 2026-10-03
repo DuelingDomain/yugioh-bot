@@ -18,6 +18,11 @@ the existing ordinary ports (`3300`, `3302`, `4302`, `4303`) and manual ports
 | Duel host | `4305 + 10*N` | 4315 | 4325 | 4335 |
 
 All ten default families are disjoint and avoid ordinary, manual, and live ports.
+On an 8-CPU machine, run at most **4–5 slots in parallel**, with
+**`E2E_WORKERS=1` per slot** during parallel batches. Available slot numbers are
+an isolation mechanism, not a recommended concurrency level. Start with fewer
+slots when other workloads are running; browser and engine contention can
+exhaust action and test timeouts even when the ports are separate.
 Explicit `E2E_WEB_PORT`, `E2E_WS_PORT`, `E2E_WS_INTERNAL_PORT`, and `E2E_DUEL_PORT`
 still win; callers choosing overrides must keep them disjoint. Occupied and live
 ports are refused. Empty, fractional, padded, and out-of-range slots are rejected.
@@ -51,12 +56,12 @@ E2E_SLOT=2 npm run stack:build --workspace=packages/e2e
 E2E_SLOT=3 npm run stack:build --workspace=packages/e2e
 
 # Separate terminals/workers, all from the same worktree:
-E2E_SLOT=1 npm run e2e --workspace=packages/e2e -- <spec>
-E2E_SLOT=2 npm run e2e --workspace=packages/e2e -- <spec>
-E2E_SLOT=3 npm run e2e --workspace=packages/e2e -- <spec>
+E2E_SLOT=1 E2E_WORKERS=1 npm run e2e --workspace=packages/e2e -- <spec>
+E2E_SLOT=2 E2E_WORKERS=1 npm run e2e --workspace=packages/e2e -- <spec>
+E2E_SLOT=3 E2E_WORKERS=1 npm run e2e --workspace=packages/e2e -- <spec>
 ```
 
-General invocation: `E2E_SLOT=N npm run e2e --workspace=packages/e2e -- <spec>`.
+General parallel invocation: `E2E_SLOT=N E2E_WORKERS=1 npm run e2e --workspace=packages/e2e -- <spec>`.
 Prepare skips fresh shared/service/web output. Shared freshness requires a build
 after changes to its source or config; service freshness also checks shared dist.
 With `E2E_SLOT` set, stale ws or duel-server output is refused: build each service
