@@ -209,6 +209,11 @@ export function chainFocusLink(state: ChainState): ChainLinkState | null {
   return resolved ?? state.links[state.links.length - 1];
 }
 
+/** What every surface calls a link's card: its name, or "A card" when the name is unknown. Never a passcode. */
+export function chainCardName(link: Pick<ChainLinkState, "name">): string {
+  return link.name?.trim() || "A card";
+}
+
 export type ChainCallout = {
   /** "Chain 1" */
   label: string;
@@ -236,7 +241,7 @@ export function chainCallout(
   named = false,
 ): ChainCallout {
   const known = link.name != null || link.code != null;
-  const title = link.name ?? (known ? `Card ${link.code}` : "A card");
+  const title = chainCardName(link);
   const owner = chainSeatLabel(link.seat, mySeat, playerName, named);
   let action = known ? "activates its effect" : "activates an effect";
   if (link.negated) action = "was negated";
@@ -379,7 +384,7 @@ export function chainLinkLabel(
   detail = true,
   named = false,
 ): string {
-  const parts = [`${link.name ?? "Effect"}`, chainSeatLabel(link.seat, mySeat, playerName, named)];
+  const parts = [chainCardName(link), chainSeatLabel(link.seat, mySeat, playerName, named)];
   if (detail) {
     if (link.status === "resolving") parts.push("resolving");
     if (link.negated) parts.push("negated");
@@ -434,7 +439,7 @@ export function chainAnnouncement(
   if (negated) return `Chain Link ${negated.index} was negated`;
   if (next.resolving != null && next.resolving !== prev.resolving) {
     const link = next.links[next.resolving - 1];
-    return `Chain Link ${link.index} resolving: ${link.name ?? "Effect"}, ${chainSeatLabel(link.seat, mySeat, playerName, named)}`;
+    return `Chain Link ${link.index} resolving: ${chainCardName(link)}, ${chainSeatLabel(link.seat, mySeat, playerName, named)}`;
   }
   return null;
 }

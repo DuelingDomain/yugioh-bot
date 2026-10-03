@@ -39,6 +39,7 @@ import {
   chainAnchor,
   chainAnnouncement,
   chainCallout,
+  chainCardName,
   chainFocusLink,
   chainLinkLabel,
   chainSeatLabel,
@@ -230,10 +231,6 @@ function cardBox(overlay: DOMRect, zone: HTMLElement): Box | null {
 
 function artStyle(code: number | null): CSSProperties | undefined {
   return code != null ? { backgroundImage: `url(${cardArtUrl(code)})` } : undefined;
-}
-
-function linkLabel(link: ChainLinkState): string {
-  return link.name ?? "Effect";
 }
 
 /** Two interlocked links. */
@@ -538,7 +535,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
                     <b className={styles.rowNum}>{link.index}</b>
                     <span className={styles.thumb} style={artStyle(link.code)} />
                     <span className={styles.text}>
-                      <span className={styles.name}>{linkLabel(link)}</span>
+                      <span className={styles.name}>{chainCardName(link)}</span>
                       <small className={styles.who}>{callout.owner} · {callout.action}</small>
                       {focus?.index === link.index && callout.effect ? <small className={styles.effect}>{callout.effect}</small> : null}
                     </span>

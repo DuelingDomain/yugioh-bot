@@ -6,6 +6,7 @@ import {
   chainAnchor,
   chainAnnouncement,
   chainCallout,
+  chainCardName,
   chainFocusLink,
   chainLinkLabel,
   chainSeatLabel,
@@ -247,7 +248,7 @@ describe("chainLinkLabel", () => {
   });
   it("names the card Effect when the engine gave none, and the player to a spectator", () => {
     const gap = fold([ev("chain-resolving", 1)]);
-    expect(chainLinkLabel(gap.links[0], null, names)).toBe("Chain Link 1: Effect, Player 1, resolving");
+    expect(chainLinkLabel(gap.links[0], null, names)).toBe("Chain Link 1: A card, Player 1, resolving");
   });
   it("says negated and resolved", () => {
     const done = fold([ev("chain-negated", 1), ev("chain-resolved", 1)], state);
@@ -469,6 +470,20 @@ describe("chain stack and callout", () => {
     const pending = chainCallout(deriveChainState([], [{ index: 1, seat: 1 }]).links[0], 0, you);
     expect(pending.action).toBe("activates an effect");
     expect(pending.text).toBe("Chain 1 · A card · activates an effect · Opponent");
+  });
+
+  it("uses one label for an unknown card everywhere and never shows a passcode", () => {
+    const unnamed = deriveChainState([], [{ index: 1, seat: 1, code: 89111398 }]).links[0];
+    expect(unnamed.name).toBeNull();
+    expect(chainCardName(unnamed)).toBe("A card");
+    expect(chainCardName({ name: "  " })).toBe("A card");
+    expect(chainCallout(unnamed, 0, you).title).toBe("A card");
+    expect(chainLinkLabel(unnamed, 0, you)).toBe("Chain Link 1: A card, Opponent");
+    const said = chainAnnouncement(EMPTY_CHAIN, unnamed ? { links: [unnamed], resolving: null } : EMPTY_CHAIN, 0, you);
+    expect(said).toBe("Chain Link 1: A card, Opponent");
+    const resolving = { links: [{ ...unnamed, status: "resolving" as const }], resolving: 1 };
+    expect(chainAnnouncement({ links: [unnamed], resolving: null }, resolving, 0, you)).toBe("Chain Link 1 resolving: A card, Opponent");
+    expect(`${chainCallout(unnamed, 0, you).title}${chainLinkLabel(unnamed, 0, you)}`).not.toMatch(/89111398|Card \d/);
   });
 
   it("follows the link through resolving, resolved and negated", () => {
