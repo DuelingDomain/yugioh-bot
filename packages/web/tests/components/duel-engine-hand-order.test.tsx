@@ -155,6 +155,24 @@ describe("engine hand order on the board", () => {
     expect(moveDestinationRect(dest).left).toBe(655);
   });
 
+  it("keeps the remaining slide and speed when arrival visibility changes", async () => {
+    const states = new Map<string, HandState>();
+    const view = render(<Board view={engine(hand(["a", "b"]))} />);
+    flipHands(view.container, states, false);
+    view.rerender(<Board view={engine(hand(["new", "a", "b"]))} />);
+    flipHands(view.container, states, false);
+    await advance(120);
+    const count = animations.length;
+    const neighbour = view.container.querySelector<HTMLElement>('[data-hand-id="b"]')!;
+    const running = neighbour.getAnimations()[0];
+    view.container.querySelector<HTMLElement>('[data-hand-id="new"] [data-zones]')!.style.visibility = "hidden";
+    flipHands(view.container, states, false);
+    expect(animations).toHaveLength(count);
+    expect(neighbour.getAnimations()[0]).toBe(running);
+    await advance(HAND_FLIP_MS - 120);
+    expect(neighbour.getAnimations()).toHaveLength(0);
+  });
+
   it.each([1, 16, 32, 64, 4])("flies from location %s directly to the middle engine slot and hands off without moving", async (source) => {
     const event = arrival(source);
     const view = render(<Board fx view={engine(hand(["a", "b"]))} />);

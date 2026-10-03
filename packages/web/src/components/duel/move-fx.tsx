@@ -567,6 +567,20 @@ export function flipHands(root: ParentNode, states: Map<string, HandState>, redu
     let state = states.get(seat);
     if (state && state.hand !== hand) state = undefined;
 
+    const fallbackKeys = handCardKeys(cards.map((card) => card.querySelector("img")?.getAttribute("src") ?? null));
+    const keys = cards.map((card, index) => card.dataset.handId ?? fallbackKeys[index]);
+    const layout = new Map<string, FlipPoint>();
+    cards.forEach((card, index) => {
+      const r = moveDestinationRect(card);
+      layout.set(keys[index], { left: r.left, top: r.top });
+    });
+    // A reveal or an arrival's hide/release changes attributes, but not the layout. Let an
+    // existing slide keep its easing and deadline instead of starting another full slide.
+    if (state && !reduced && layout.size === state.layout.size && [...layout].every(([key, at]) => {
+      const before = state.layout.get(key);
+      return before && Math.hypot(before.left - at.left, before.top - at.top) < 0.01;
+    })) return;
+
     // Where each card is on screen right now, before its old slide is cancelled.
     const visual = new Map<string, FlipPoint>();
     if (state) {
@@ -584,13 +598,6 @@ export function flipHands(root: ParentNode, states: Map<string, HandState>, redu
       for (const anim of card.getAnimations()) if (isFlipAnimation(anim)) anim.cancel();
     }
 
-    const fallbackKeys = handCardKeys(cards.map((card) => card.querySelector("img")?.getAttribute("src") ?? null));
-    const keys = cards.map((card, index) => card.dataset.handId ?? fallbackKeys[index]);
-    const layout = new Map<string, FlipPoint>();
-    cards.forEach((card, index) => {
-      const r = card.getBoundingClientRect();
-      layout.set(keys[index], { left: r.left, top: r.top });
-    });
     const applied = new Map<Element, { key: string; dx: number; dy: number }>();
     const next: HandState = { hand, layout, applied };
     states.set(seat, next);
