@@ -36,3 +36,4 @@ services:
     # Local development reads its existing engine volume; no CI bundle build context.
     build:
       target: duel
+      additional_contexts: !reset {}

@@ -59,7 +59,8 @@ The deploy workflow requires these GitHub Actions secrets:
 ## Deployment Pipeline
 
 1. Code is pushed to `main` on GitHub.
-2. GitHub Actions starts the `Deploy` workflow on `ubuntu-latest` (amd64).
+2. GitHub Actions starts the `Deploy` workflow on `ubuntu-latest` (amd64), with a 90-minute job limit.
+   The job runs only for `refs/heads/main`, including manual dispatches.
 3. The workflow builds or restores the pinned duel-engine resource bundle
    (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `ocgcore.standard.wasm`, `manifest.json`, and the legacy 1v1 files `ocgcore.domain.legacy.wasm` and `card-scripts/domain.legacy.lua`)
    using `npm run duel:prepare`, `packages/duel-server/scripts/build-domain-core.ts` (Domain wasm) and `packages/duel-server/scripts/build-domain-core.ts standard` (Standard wasm: stock rules plus the shared fixes in `domain-core/src/apply-core-fixes.mjs`, `build-standard-core.sh`)
@@ -71,34 +72,45 @@ The deploy workflow requires these GitHub Actions secrets:
    It applies the full patch series; Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`.
    Neither deploy core uses `LUA_FIXED_SEED`. A separate `duel-multi-cores-v2-<hash>` cache covers the
    pins, patches, Domain sources and build/packaging scripts, and holds both WASMs and their build metadata.
+   Each build record stores the builder commit. Packaging prints `builtBy=` and `deployedBy=` separately,
+   so cache hits retain the original builder while recording the current deploy checkout.
    The cores and individual checksum/provenance sidecars are added to the deploy tarball, keeping the
    cached base bundle independent. See [staging's engine build details](staging.md#engine-files-and-image-build).
-4. The workflow SSHes into the VM and fetches the exact commit checked out on the runner. It runs a
+4. The workflow SSHes into the VM and fetches the exact commit checked out on the runner. It also
+   fetches `origin main` and checks that the deploy commit is an ancestor of `FETCH_HEAD` before preflight.
+   It waits up to 15 minutes for the shared VM build lock. It runs a
    **preflight** before anything on the VM changes: the install script from that commit runs with
    `DUEL_PREFLIGHT=1` on the new bundle and installs nothing. It refuses while a duel has `status = 'active'`
    in `data/bot.sqlite` and the base bundle would be replaced (a locked or corrupt DB fails closed).
    For a new multi core under an identical base bundle, only an active Tag/FFA duel refuses. On refusal, the old
-   checkout, images and containers stay as they were. The new duel image needs the new bundle, so a half-done
-   deploy followed by `docker compose up` would crash-loop the duel service. That is why the check comes first.
+   checkout, images and containers stay as they were. The transfer tarball and preflight files use
+   `mktemp` paths and are removed on refusal or any other exit.
    After the preflight the workflow resets `/opt/yugioh-bot` to the same CI commit, prepares the ignored
-   `.deploy-duel-engine` context from the tarball, rebuilds Compose images, stops **web**
+   `.deploy-duel-engine` named `engine` context from the tarball, tags the current duel/web/bot container
+   images as `:prev`, rebuilds Compose images, stops **web**
    (ingress) only, then installs the bundle into `/opt/yugioh-bot/data/duel-engine` **before** `docker compose down`.
    The duel engine stays up during the check. Install is a no-op when `manifest.json` is identical. The install
    script checks the active duels once more (a table could start during the build, which takes minutes); on that
-   second refuse `docker compose start web` restores the old web container and the deploy exits without recreating
-   duel. It never writes `data/bot.sqlite`.
+   second refusal or any exit after stopping web, an EXIT trap runs `docker compose start web` and
+   cleans temporary files. The web recovery trap is cleared after `up -d` succeeds. It never writes `data/bot.sqlite`.
    Each multi core is installed independently (atomic renames per file, checked against its `.sha256`),
    also when `manifest.json` is identical. A changed multi core is refused while a Tag or free-for-all duel is active.
    A 1v1 duel never blocks it and never reads it. Without the multi core, a Tag, 3 or 4 player table answers 409
    with a clear message when it starts.
 5. Compose starts bot, ws, duel, web, and caddy. The duel container verifies
    the volume bundle and runs `node packages/duel-server/dist/server.js`. The `duel-bundled` image carries
-   the same bundle at `/opt/duel-engine`, outside the data mount, to initialize a fresh volume
-   (`dist/worker.js` is loaded by the compiled host). Container restarts do
-   not re-download or recompile the bundle.
+   the same bundle at `/opt/duel-engine`, outside the data mount, and verifies it in place during the
+   image build. Production sets `DUEL_BUNDLE_SRC=${DUEL_BUNDLE_SRC_ON_START:-}` to empty by default:
+   the host deploy installs the volume, and container starts only verify it (`dist/worker.js` is loaded
+   by the compiled host). Set `DUEL_BUNDLE_SRC_ON_START=/opt/duel-engine` only for a deliberate fresh-volume
+   installation with drained duels; normal production starts should leave it unset. Container restarts
+   do not replace, re-download or recompile the bundle.
+   After the duel container passes the startup check (`running restarts=0`), the workflow runs
+   `docker image prune -f` to remove dangling images. The `:prev` tags retain the rollback images.
 6. Caddy serves `https://<SITE_DOMAIN>` and 308-redirects `www.<SITE_DOMAIN>`
    and every plain-HTTP host (including old IP links), preserving path and query.
    Keep `caddy_data` and `caddy_config` volumes so certificates survive deploys.
+   Port 4003 stays on the Docker network only — do not publish it.
 
 Image updates should use the workflow: it transfers the pinned bundle, runs active-duel preflight,
 prepares `.deploy-duel-engine` for the `duel-bundled` image target, builds and verifies the image, then
@@ -128,6 +140,27 @@ Tag, 3-player or 4-player tables). Both are read by a restart of the `duel` serv
 empty server. See `duel-engine-switch.md` for the values, the engine saved for each duel and how to switch back.
 
 ### Rollback
+
+Before each production build, the workflow tags the images used by the existing duel, web and bot
+containers as `:prev` (normally `yugioh-bot-duel:prev`, `yugioh-bot-web:prev`, and
+`yugioh-bot-bot:prev`). It uses container image IDs, so an earlier failed build cannot replace the
+rollback snapshot with an unused image. These tags survive the dangling-image prune.
+
+For a fast rollback when the installed engine bundle is compatible with the previous code, retag
+those snapshots to the current image names and recreate the three services without building:
+
+```sh
+cd /opt/yugioh-bot
+for service in duel web bot; do
+  docker tag "yugioh-bot-$service:prev" "yugioh-bot-$service:latest"
+done
+docker compose -f docker-compose.yml up -d --no-build --no-deps --force-recreate duel web bot
+```
+
+This restores the three image snapshots; it does not roll back the checkout, ws, database or engine
+volume. Use the actual image names if the Compose project name is customized. If the engine bundle
+also needs to change, drain active duels and use the workflow rollback below, which installs the
+matching bundle and rebuilds every service:
 
 1. Revert the merge commit on `main` (`git revert -m 1 <merge sha>`), and push it.
 2. Make sure no duel is active (see above), or let the preflight refuse until it is true.

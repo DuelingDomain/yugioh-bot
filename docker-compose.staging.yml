@@ -65,6 +65,8 @@ services:
     build:
       context: .
       target: duel-bundled
+      additional_contexts:
+        engine: ./.deploy-duel-engine
     user: "${STAGING_UID:-1000}:${STAGING_GID:-1000}"
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite

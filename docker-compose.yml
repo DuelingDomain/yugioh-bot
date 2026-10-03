@@ -34,11 +34,15 @@ services:
     build:
       context: .
       target: duel-bundled
+      additional_contexts:
+        engine: ./.deploy-duel-engine
     restart: unless-stopped
     user: *user
     environment:
       - DATABASE_PATH=/app/data/bot.sqlite
       - DUEL_DATA_DIR=/app/data/duel-engine
+      # The deploy installs on the host. Restarts verify the existing volume without replacing it.
+      - DUEL_BUNDLE_SRC=${DUEL_BUNDLE_SRC_ON_START:-}
       - DUEL_INTERNAL_HOST=0.0.0.0
       - DUEL_INTERNAL_PORT=4003
       - DUEL_INTERNAL_SECRET=${DUEL_INTERNAL_SECRET}

@@ -190,7 +190,6 @@ jobs:
             cat "$bundle/$core.SOURCE" >> "$GITHUB_STEP_SUMMARY"
           done
           rm -rf "$RUNNER_TEMP/staging-bundle-check"
-          tar -C "$bundle" -czf "$RUNNER_TEMP/yugidraft-staging-bundle.tar.gz" .
 
       - name: Configure SSH key
         run: |
@@ -202,16 +201,28 @@ jobs:
       - name: Trust VM host key
         run: ssh-keyscan -p "$VM_PORT" -H "$VM_HOST" >> ~/.ssh/known_hosts
 
-      - name: Send the bundle
-        if: ${{ inputs.action == 'deploy' }}
-        run: |
-          scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
-            "$RUNNER_TEMP/yugidraft-staging-bundle.tar.gz" \
-            "$VM_USER@$VM_HOST:/tmp/yugidraft-staging-bundle.tar.gz"
-
       # remote-deploy.sh runs in /opt/yugioh-bot-staging. All values were checked in the first step.
       - name: Run on the VM
         run: |
+          set -eu
+          bundle_tar=
+          remote_bundle=
+          cleanup_transfer() {
+            if [ -n "$bundle_tar" ]; then rm -f "$bundle_tar"; fi
+            if [ -n "$remote_bundle" ]; then
+              ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+                "rm -f -- '$remote_bundle'" || true
+            fi
+          }
+          trap cleanup_transfer EXIT
+          if [ "$INPUT_ACTION" = deploy ]; then
+            bundle_tar=$(mktemp "$RUNNER_TEMP/yugidraft-staging-bundle.XXXXXX.tar.gz")
+            remote_bundle=$(ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+              'mktemp /tmp/yugidraft-staging-bundle.XXXXXX.tar.gz')
+            printf '%s' "$remote_bundle" | grep -Eq '^/tmp/yugidraft-staging-bundle\.[A-Za-z0-9]{6}\.tar\.gz$' || exit 1
+            tar -C "$RUNNER_TEMP/staging-bundle" -czf "$bundle_tar" .
+            scp -i ~/.ssh/vm_deploy_key -P "$VM_PORT" "$bundle_tar" "$VM_USER@$VM_HOST:$remote_bundle"
+          fi
           ssh -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
-            "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_COMMIT='$DEPLOY_COMMIT' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' sh -s" \
+            "env STAGING_ACTION='$INPUT_ACTION' STAGING_REF='$INPUT_REF' STAGING_COMMIT='$DEPLOY_COMMIT' STAGING_REFRESH_DB='$INPUT_REFRESH_DB' STAGING_HOST='$STAGING_HOST' STAGING_DOMAIN='$STAGING_DOMAIN' STAGING_HTTP_PORT='$STAGING_HTTP_PORT' STAGING_BUNDLE='$remote_bundle' sh -s" \
             < scripts/staging/remote-deploy.sh

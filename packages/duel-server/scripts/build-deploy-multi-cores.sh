@@ -4,6 +4,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$root"
+builder_commit="$(git rev-parse HEAD)"
 image="$(node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; e.image + '@' + e.digest")"
 docker pull "$image"
 for mode in multi multi-domain; do
@@ -15,4 +16,13 @@ for mode in multi multi-domain; do
     -e OUT_NAME="ocgcore.$mode.sync.wasm" "${args[@]}" \
     -v "$root":/src -w /src "$image" \
     bash packages/duel-server/scripts/build-multi-core.sh
+  # Cache this identity with the artifact. A later deploy may restore it under a different HEAD.
+  BUILDER_COMMIT="$builder_commit" BUILD_INFO_PATH="packages/duel-server/domain-core/dist/ocgcore.$mode-build-info.json" \
+    node --input-type=module <<'NODE'
+import { readFileSync, writeFileSync } from "node:fs";
+const path = process.env.BUILD_INFO_PATH;
+const info = JSON.parse(readFileSync(path, "utf8"));
+info.builderCommit = process.env.BUILDER_COMMIT;
+writeFileSync(path, `${JSON.stringify(info, null, 2)}\n`);
+NODE
 done

@@ -41,8 +41,9 @@ npx vitest run packages/web/tests/cards-resolve-route.test.ts -c packages/web/vi
 # Docker (local dev with hot reload)
 docker compose up -d --build
 
-# Docker (production — no override file)
-docker compose -f docker-compose.yml up -d --build
+# Docker (production — start already built images without the override file)
+# For image updates, run the Deploy workflow on main; see docs/deployment/vm-runbook.md.
+docker compose -f docker-compose.yml up -d
 
 # Seed test data and restart services
 npm run reset:test-data

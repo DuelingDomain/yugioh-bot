@@ -204,8 +204,11 @@ The seed uses the tracked offline catalog at `scripts/data/draft-catalog-legenda
 
 ### Production
 
+Use the `Deploy` workflow on `main` for image updates. It prepares and verifies the engine bundle
+and installs it before recreating containers. To start already built images:
+
 ```bash
-docker compose -f docker-compose.yml up -d --build
+docker compose -f docker-compose.yml up -d
 ```
 
 Production should always use the base file explicitly so local dev overrides are not loaded.
@@ -241,8 +244,10 @@ passwd
 3. Clone the repo to `/opt/yugioh-bot`
 4. Configure [DNS, firewall](docs/deployment/vm-runbook.md#create-the-server), and the [production environment](docs/deployment/vm-runbook.md#create-env)
 5. Set Discord OAuth redirect URI: `https://<SITE_DOMAIN>/api/auth/callback/discord` (see [runbook](docs/deployment/vm-runbook.md#discord-oauth-redirect))
-6. Follow the runbook's [first production start](docs/deployment/vm-runbook.md#build--run)
-7. Add GitHub Actions secrets (`VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`, `VM_PORT`)
+6. Add GitHub Actions secrets (`VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`, `VM_PORT`)
+7. Follow the runbook's [first production start](docs/deployment/vm-runbook.md#build--run): run the
+   `Deploy` workflow on `main` to build images and install the engine bundle. Later starts of
+   already built images use `docker compose -f docker-compose.yml up -d` (without `--build`).
 
 See the [VM runbook](docs/deployment/vm-runbook.md) for the full step-by-step guide.
 
