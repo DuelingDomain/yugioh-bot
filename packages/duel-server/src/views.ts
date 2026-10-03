@@ -680,9 +680,16 @@ function sameZone(a: DuelZoneRef, b: DuelZoneRef): boolean {
   return a.controller === b.controller && a.location === b.location && a.sequence === b.sequence;
 }
 
-/** EDOPro broadcasts hand/field confirmations; deck and extra inspection stays recipient-only. */
-export function confirmationAudience(location: number, recipient: number): "all" | number {
-  return (location & (OcgLocation.HAND | OcgLocation.ONFIELD)) !== 0 ? "all" : recipient;
+function confirmedMove(card: DuelZoneRef & { code: number }, ctx: EventContext): TrackedMove | undefined {
+  return [...ctx.moves].reverse().find((move) => sameZone(move.to, card) && move.event.card?.code === card.code);
+}
+
+/** Public only when linked to the controller's own Deck-to-hand/field move this batch. */
+export function confirmationAudience(card: DuelZoneRef & { code: number }, recipient: number, ctx: EventContext): "all" | number {
+  const move = confirmedMove(card, ctx);
+  return move && move.from.location === OcgLocation.DECK &&
+    (move.to.location & (OcgLocation.HAND | OcgLocation.ONFIELD)) !== 0 &&
+    move.from.controller === card.controller && move.to.controller === card.controller ? "all" : recipient;
 }
 
 /** Capture one immutable identity per confirmed card, independently of the live RevealMap. */
@@ -691,7 +698,7 @@ export function observeConfirmEvents(message: OcgMessage, cards: CardDatabase, c
   return message.cards.map((card, index) => {
     const info = cards.get(card.code);
     const zone = zoneOf(card);
-    const move = [...ctx.moves].reverse().find((move) => sameZone(move.to, zone) && move.event.card?.code === card.code);
+    const move = confirmedMove(card, ctx);
     return {
       id: firstId + index,
       kind: "confirm",
@@ -701,7 +708,7 @@ export function observeConfirmEvents(message: OcgMessage, cards: CardDatabase, c
       moveId: move?.event.id,
       text: `Confirmed ${info?.name ?? `Card ${card.code}`}`,
       publicText: "A card was confirmed",
-      revealCardTo: confirmationAudience(card.location, message.player),
+      revealCardTo: confirmationAudience(card, message.player, ctx),
     };
   });
 }

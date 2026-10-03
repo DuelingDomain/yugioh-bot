@@ -648,6 +648,7 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
   const [confirmations, setConfirmations] = useState<DuelEvent[]>([]);
   const [confirmedCards, setConfirmedCards] = useState<Map<number, DuelCardInfo>>(new Map());
   const confirmUntilRef = useRef(0);
+  const shownConfirmationsRef = useRef<Set<number>>(new Set());
   const [overlay, setOverlay] = useState<HTMLDivElement | null>(null);
   const cursorRef = useRef<number | null>(null);
   const keyRef = useRef(duelKey);
@@ -690,6 +691,7 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
       clearAll();
       // A remount (React strict mode) reads the first events again, so a replayed opening is not lost.
       cursorRef.current = null;
+      confirmUntilRef.current = 0;
     },
     [],
   );
@@ -704,6 +706,7 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
       setConfirmations([]);
       setConfirmedCards(new Map());
       confirmUntilRef.current = 0;
+      shownConfirmationsRef.current.clear();
     }
     if (cursorRef.current == null) {
       cursorRef.current = replayRef.current ?? maxEventId(events) ?? 0;
@@ -733,7 +736,13 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null }: Mo
         if (move?.showcase && now < move.landAt) continue;
         const startAt = Math.max(now, move?.landAt ?? now, confirmUntilRef.current);
         confirmUntilRef.current = startAt + CONFIRM_MS;
-        const show = () => setConfirmations((current) => [...current, event]);
+        const show = () => {
+          // Record presentation, not scheduling: cleanup cancels queued timers, so those cards
+          // must still be eligible when Strict Mode rebuilds the queue from its replay cursor.
+          if (shownConfirmationsRef.current.has(event.id)) return;
+          shownConfirmationsRef.current.add(event.id);
+          setConfirmations((current) => [...current, event]);
+        };
         if (startAt <= now) show();
         else {
           const timer = window.setTimeout(() => {

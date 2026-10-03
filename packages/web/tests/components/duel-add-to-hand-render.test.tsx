@@ -28,7 +28,7 @@ const addEvent = (extra: Partial<DuelEvent> = {}): DuelEvent =>
   }) as DuelEvent;
 
 /** A hand with one slot (the added card), the way field.tsx draws it, and the flight layer next to it. */
-function Board({ events, reduced = false, slotCode = 1234, slotZone = "0:2:3", side = "you" }: { events: DuelEvent[]; reduced?: boolean; slotCode?: number; slotZone?: string; side?: "you" | "opp" }) {
+function Board({ events, reduced = false, slotCode = 1234, slotZone = "0:2:3", side = "you", replayFrom = null, duelKey = "room" }: { events: DuelEvent[]; reduced?: boolean; slotCode?: number; slotZone?: string; side?: "you" | "opp"; replayFrom?: number | null; duelKey?: string }) {
   return (
     <div data-testid="board">
       <div data-hand-seat="0" data-side={side}>
@@ -38,7 +38,7 @@ function Board({ events, reduced = false, slotCode = 1234, slotZone = "0:2:3", s
           </div>
         </div>
       </div>
-      <MoveFx events={events} duelKey="room" reducedMotion={reduced} />
+      <MoveFx events={events} duelKey={duelKey} reducedMotion={reduced} replayFrom={replayFrom} />
     </div>
   );
 }
@@ -242,6 +242,54 @@ describe("the Added to hand showcase on the board", () => {
     expect(view.getByTestId("confirmed-ghost").querySelector("img")?.getAttribute("src")).toContain("/api/cards/888/image");
     advance(1600);
     expect(view.queryByTestId("confirmed-ghost")).toBeNull();
+  });
+
+  it("presents a replayed standalone confirmation once under Strict Mode", () => {
+    // Time can advance between Strict Mode's first setup and its replay.
+    vi.spyOn(performance, "now").mockReturnValueOnce(1000).mockReturnValue(1020);
+    const event: DuelEvent = { id: 6, kind: "confirm", text: "Confirmed Card 777", card: info(777) };
+    const view = render(<React.StrictMode><Board events={[event]} replayFrom={0} slotCode={0} /></React.StrictMode>);
+    expect(view.getAllByTestId("confirmed-ghost")).toHaveLength(1);
+    advance(1490);
+    expect(view.getAllByTestId("confirmed-ghost")).toHaveLength(1);
+    advance(20);
+    expect(view.queryAllByTestId("confirmed-ghost")).toHaveLength(0);
+    advance(1600);
+    expect(view.queryAllByTestId("confirmed-ghost")).toHaveLength(0);
+  });
+
+  it("preserves queued replay confirmations through Strict Mode cleanup and presents each once", () => {
+    const events: DuelEvent[] = [777, 888].map((code, index) => ({ id: 6 + index, kind: "confirm", text: `Confirmed Card ${code}`, card: info(code) }));
+    const view = render(<React.StrictMode><Board events={events} replayFrom={0} slotCode={0} /></React.StrictMode>);
+    expect(view.getAllByTestId("confirmed-ghost")).toHaveLength(1);
+    expect(view.getByTestId("confirmed-ghost").querySelector("img")?.getAttribute("src")).toContain("/api/cards/777/image");
+    advance(1510);
+    expect(view.getAllByTestId("confirmed-ghost")).toHaveLength(1);
+    expect(view.getByTestId("confirmed-ghost").querySelector("img")?.getAttribute("src")).toContain("/api/cards/888/image");
+    advance(1600);
+    expect(view.queryAllByTestId("confirmed-ghost")).toHaveLength(0);
+  });
+
+  it("allows the same confirmation id in a new duel", () => {
+    const event: DuelEvent = { id: 6, kind: "confirm", text: "Confirmed Card 777", card: info(777) };
+    const view = render(<Board events={[event]} replayFrom={0} slotCode={0} />);
+    expect(view.getByTestId("confirmed-ghost")).toBeTruthy();
+    advance(1600);
+    expect(view.queryByTestId("confirmed-ghost")).toBeNull();
+    view.rerender(<Board events={[event]} replayFrom={0} slotCode={0} duelKey="next-room" />);
+    expect(view.getByTestId("confirmed-ghost")).toBeTruthy();
+  });
+
+  it.each([0, 1, null])("only presents a recipient-only field confirmation in viewer %s's overlay", (viewer) => {
+    const event: DuelEvent = { id: 6, kind: "confirm", zone: { controller: 1, location: 4, sequence: 0 },
+      text: viewer === 0 ? "Confirmed Card 777" : "A card was confirmed",
+      card: viewer === 0 ? info(777) : undefined,
+    };
+    const view = render(<Board events={[]} slotCode={0} slotZone="1:4:0" />);
+    view.rerender(<Board events={[event]} slotCode={0} slotZone="1:4:0" />);
+    if (viewer === 0) expect(view.getByTestId("confirmed-ghost").querySelector("img")?.getAttribute("src")).toContain("/api/cards/777/image");
+    else expect(view.queryByTestId("confirmed-ghost")).toBeNull();
+    expect(view.getByTestId("slot").querySelector("img")).toBeNull();
   });
 
   it("does not animate redacted confirmations or replay confirmations on initial mount", () => {

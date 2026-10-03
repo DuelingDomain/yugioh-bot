@@ -100,4 +100,22 @@ describe("confirmation event history", () => {
   it("keeps an unconfirmed search hidden", () => {
     expect(historyEntry([added], 1).thumbs[0]?.code).toBeNull();
   });
+
+  it.each([0, 1, null])("keeps a recipient-only field confirmation private in viewer %s's history", (viewer) => {
+    const event: DuelEvent = { ...confirm, moveId: undefined, seat: 1,
+      zone: { controller: 1, location: 4, sequence: 0 },
+      text: viewer === 0 ? "Confirmed Kojikocy" : "A card was confirmed",
+      card: viewer === 0 ? searched.card : undefined,
+    };
+    const state = ingestHistory(emptyHistory(), [event], {
+      revision: 1, turn: 1, turnSeat: 0, phase: "main1", seatCount: 2, cards: [],
+    });
+    const rows = buildHistoryView(state.items, { mySeat: viewer, who: () => "Opponent" })
+      .groups.flatMap((group) => group.rows).filter((row) => row.type === "entry");
+    if (viewer === 0) {
+      expect(rows).toHaveLength(1);
+      expect(rows[0].thumbs[0]?.code).toBe(1184620);
+      expect(rows[0].title).toBe("Kojikocy");
+    } else expect(rows).toHaveLength(0);
+  });
 });

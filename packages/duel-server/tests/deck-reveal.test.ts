@@ -31,6 +31,7 @@ const TEMPEST = 2572890;
 const TRAP_TRICK = 80101899;
 const TORRENTIAL = 53582587;
 const FILLER = 32274490; // Skull Servant: no effects, not a Warrior/search target.
+const MIMIGHOUL_FAIRY = 43066927;
 
 beforeEach(() => { observed.messages.length = 0; });
 
@@ -89,6 +90,32 @@ function evidence(game: EngineGame, target: number, location: number): void {
 }
 
 describe("Deck reveal diagnosis (stock core, real card scripts)", () => {
+  it("keeps Mimighoul Fairy's confirmation to its owner private after summoning to the opponent's field", async () => {
+    const game = await openGame(MIMIGHOUL_FAIRY, []);
+    try {
+      drive(game, (seat, prompt) => {
+        if (observed.messages.some((message) => message.type === OcgMessageType.CONFIRM_CARDS) && game.view(0).chain.length === 0) return "stop";
+        const activate = seat === 0 ? option(prompt, "activate:", MIMIGHOUL_FAIRY) : undefined;
+        return activate ? { choice: activate } : null;
+      });
+      expect(observed.messages).toContainEqual(expect.objectContaining({
+        type: OcgMessageType.CONFIRM_CARDS, player: 0,
+        cards: [{ code: MIMIGHOUL_FAIRY, controller: 1, location: OcgLocation.MZONE, sequence: expect.any(Number) }],
+      }));
+      const owner = game.view(0);
+      const move = owner.events.find((event) => event.kind === "move" && event.zone?.location === OcgLocation.MZONE);
+      expect(move).toMatchObject({ from: { controller: 0, location: OcgLocation.HAND }, zone: { controller: 1, location: OcgLocation.MZONE } });
+      expect(owner.events.find((event) => event.kind === "confirm")).toMatchObject({ moveId: move!.id, card: { code: MIMIGHOUL_FAIRY } });
+      expect(game.view(0).log.some((entry) => entry.text === "Confirmed Mimighoul Fairy")).toBe(true);
+      for (const viewer of [1, null]) {
+        const view = game.view(viewer);
+        expect(view.events.find((event) => event.kind === "confirm")).toMatchObject({ text: "A card was confirmed" });
+        expect(view.events.find((event) => event.kind === "confirm")?.card).toBeUndefined();
+        expect(view.log.some((entry) => entry.text === "Confirmed Mimighoul Fairy")).toBe(false);
+      }
+    } finally { game.close(); }
+  });
+
   it("BUG 1: retains the searched Warrior's identity in the opponent's event stream", async () => {
     const game = await openGame(ROTA, [KOJIKOCY]);
     try {
@@ -145,11 +172,11 @@ describe("Deck reveal diagnosis (stock core, real card scripts)", () => {
         expect(game.view(viewer).events.find((event) => event.kind === "set")).toMatchObject({ text: "Player 1 Sets a card" });
         expect(game.view(viewer).events.find((event) => event.kind === "set")?.card).toBeUndefined();
         expect(game.view(viewer).seats[0]!.spells.filter(Boolean).every((card) => card?.code == null)).toBe(true);
-        // EDOPro broadcasts hand/field confirmations; the field itself stays hidden.
+        // The same-batch move from the controller's own Deck makes this confirmation public.
         expect(game.view(viewer).log.some((entry) => entry.text.includes("Confirmed Majespecter Tempest"))).toBe(true);
         expect(game.view(viewer).events.find((event) => event.kind === "confirm")?.card?.code).toBe(TEMPEST);
       }
-      // EDOPro broadcasts confirmations for cards on the field, even when player is 0.
+      // The move link makes this confirmation public even when player is 0.
       const reveal = game.view(1).events.find((event) => event.zone?.location === OcgLocation.SZONE && event.card?.code === TEMPEST);
       expect(reveal?.card?.code, "Deck Set confirmation must expose the card in the opponent's history/animation event").toBe(TEMPEST);
     } finally { game.close(); }

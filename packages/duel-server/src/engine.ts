@@ -442,7 +442,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
       case OcgMessageType.CONFIRM_CARDS:
         for (const card of message.cards) {
           noteReveal(reveals, message.player, card.controller, card.location, card.sequence, card.code);
-          appendLog(`Confirmed ${cards.get(card.code)?.name ?? `Card ${card.code}`}`, confirmationAudience(card.location, message.player));
+          appendLog(`Confirmed ${cards.get(card.code)?.name ?? `Card ${card.code}`}`, confirmationAudience(card, message.player, eventContext));
         }
         return;
       case OcgMessageType.CONFIRM_DECKTOP:
