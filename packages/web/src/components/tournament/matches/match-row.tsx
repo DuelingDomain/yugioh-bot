@@ -1,16 +1,15 @@
 "use client";
 
-import { AlertCircle, RotateCcw } from "lucide-react";
 import { RankGem } from "@/components/sheet";
 import { matchAnchorId, type MatchQueueProps } from "../sheet-contracts";
 import type { Match } from "../types";
 import { decidedPlayers, matchProjection, matchScore, matchView, opponent, reportNames, winnerScore } from "./match-model";
-import { MatchButton, MatchControls, MatchError } from "./match-controls";
+import { MatchControls, MatchError } from "./match-controls";
+import { MatchHostControls, MatchReopenPanel } from "./match-host-actions";
 import { MatchState } from "./match-state";
 import { ReportPanel } from "./report-panel";
 import { SetResultDialog } from "./set-result-dialog";
 import { useMatchActions } from "./use-match-actions";
-import styles from "./matches.module.css";
 
 export type MatchRowProps = MatchQueueProps & { match: Match };
 
@@ -54,25 +53,9 @@ export function MatchRow({ match, tournament, tournamentSlug, currentUserPlayerI
       </div>
       <div className="m-act">
         <MatchControls match={match} view={view} actions={actions} waitingOn={reportNames(match).other} />
-        {hostInline && view.canSetResult && (
-          <MatchButton variant="quiet" small disabled={actions.loading !== null} onClick={actions.openResult}>Set result</MatchButton>
-        )}
+        {hostInline && <MatchHostControls view={view} actions={actions} inline />}
       </div>
-      {!reopening && ((view.canSetResult && !hostInline) || view.canReopen) && (
-        <div className="m-host">
-          <span className="lbl">Organizer</span>
-          {view.canSetResult && (
-            <MatchButton variant="quiet" small disabled={actions.loading !== null} onClick={actions.openResult}>
-              Set result
-            </MatchButton>
-          )}
-          {view.canReopen && (
-            <MatchButton variant="quiet" small disabled={actions.loading !== null} onClick={actions.openReopen}>
-              <RotateCcw className="ic sm" aria-hidden="true" />Reopen
-            </MatchButton>
-          )}
-        </div>
-      )}
+      {!hostInline && <MatchHostControls view={view} actions={actions} />}
       {reporting && currentUserPlayerId !== null && (
         <ReportPanel
           projection={matchProjection(match, currentUserPlayerId, ratings)}
@@ -82,18 +65,7 @@ export function MatchRow({ match, tournament, tournamentSlug, currentUserPlayerI
           onReport={actions.report}
         />
       )}
-      {reopening && (
-        <div className="report">
-          <div className="banner banner-warn">
-            <AlertCircle className="ic" aria-hidden="true" />
-            <div><strong>Reopen this match?</strong> The result is cleared and the match goes back to not started. Either player can then play or report it again.</div>
-          </div>
-          <div className={`acts ${styles.reopenActs}`}>
-            <MatchButton variant="quiet" small onClick={actions.cancelReopen}>Keep result</MatchButton>
-            <MatchButton variant="danger" small disabled={actions.loading !== null} onClick={actions.reopen}>Reopen match</MatchButton>
-          </div>
-        </div>
-      )}
+      <MatchReopenPanel view={view} actions={actions} />
       <MatchError error={actions.error} />
       {actions.resultOpen && view.canSetResult && <SetResultDialog match={match} ratings={ratings} bestOf={tournament.bestOf ?? 3} actions={actions} />}
     </div>

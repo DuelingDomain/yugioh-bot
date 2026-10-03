@@ -12,12 +12,32 @@ vi.mock("next/font/google", () => {
 import { SheetRoot } from "@/components/sheet/sheet-root";
 import { YourMatch } from "@/components/tournament/matches/your-match";
 import { deriveMyMatches } from "@/components/tournament/use-my-matches";
-import { deckResponse, liveMatch, matchProps, openMatch, pendingMatch, tournament } from "../fixtures/matches";
+import { deckResponse, liveMatch, matchProps, openMatch, pendingMatch, seriesFor, tournament } from "../fixtures/matches";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 function show(props = matchProps) { return render(<SheetRoot><YourMatch {...props} /></SheetRoot>); }
 
 describe("Your match", () => {
+  it("lets a participating organizer open Set result on their featured open or live match", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(deckResponse())));
+    const props = { ...matchProps, isHost: true, tournament: tournament({ matches: [openMatch] }) };
+    const { rerender } = show(props);
+    await screen.findByText("Branded Despia");
+    const card = within(screen.getByRole("region", { name: "Your match" }));
+    fireEvent.click(card.getByRole("button", { name: "Set result" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Set the result" }));
+    expect(dialog.getByRole("radio", { name: "Imran" })).toBeInTheDocument();
+    expect(dialog.getByRole("radio", { name: "Marik_Mains" })).toBeInTheDocument();
+    fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
+
+    const live = { ...openMatch, series: seriesFor(openMatch) };
+    rerender(<SheetRoot><YourMatch {...props} tournament={tournament({ matches: [live] })} narrow /></SheetRoot>);
+    fireEvent.click(card.getByRole("button", { name: "Set result" }));
+    const liveDialog = within(screen.getByRole("dialog", { name: "Set the result" }));
+    expect(liveDialog.getByText(/This cancels the online duel in progress/)).toBeInTheDocument();
+    expect(liveDialog.getByRole("button", { name: "End duel and record" })).toBeInTheDocument();
+  });
+
   it.each([
     { layout: "desktop", narrow: false, reportLabel: "Report a result" },
     { layout: "phone", narrow: true, reportLabel: "Report" },

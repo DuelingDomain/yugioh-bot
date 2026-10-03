@@ -8,8 +8,10 @@ import { parseMyDeckState, type MyDeckState } from "../my-deck-model";
 import type { Match } from "../types";
 import { featuredMatch, isMatchPlayer, matchProjection, matchView, opponent, reportNames, tournamentRecord } from "./match-model";
 import { MatchControls, MatchError } from "./match-controls";
+import { MatchHostControls, MatchReopenPanel } from "./match-host-actions";
 import { MatchState } from "./match-state";
 import { ReportPanel } from "./report-panel";
+import { SetResultDialog } from "./set-result-dialog";
 import { useMatchActions } from "./use-match-actions";
 import styles from "./matches.module.css";
 
@@ -108,10 +110,13 @@ function ActionMatch({ props, match, others, deck, narrow }: { props: YourMatchP
           <MatchControls match={match} view={view} actions={actions} small={false} reportLabel={narrow ? "Report" : "Report a result"} reportFirst waitingOn={reportNames(match).other} />
         </div>
       </div>
+      <MatchHostControls view={view} actions={actions} />
       {actions.reporting && view.canReport && (
         <ReportPanel projection={projection} opponentName={opp.name} confirmWindowHours={hours} loading={actions.loading !== null} onReport={actions.report} />
       )}
+      <MatchReopenPanel view={view} actions={actions} />
       <MatchError error={actions.error} />
+      {actions.resultOpen && view.canSetResult && <SetResultDialog match={match} ratings={ratings} bestOf={tournament.bestOf ?? 3} actions={actions} />}
     </section>
   );
 }
