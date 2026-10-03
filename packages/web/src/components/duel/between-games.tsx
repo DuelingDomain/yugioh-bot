@@ -136,6 +136,8 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const unreadying = useRef<Promise<void> | null>(null);
   const unreadyFailed = useRef(false);
   const unreadyAgain = useRef(false);
+  const notReadyClicked = useRef(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const working = useRef(false);
   const [moving, setMoving] = useState(false);
   const advancing = useRef(false);
@@ -283,8 +285,10 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
           unreadyFailed.current = false;
           setError(null);
         }
-        if (result.nextSlug) follow(result.nextSlug);
-        else void refresh();
+        if (result.nextSlug) {
+          if (notReadyClicked.current) setNotice("The next game started before Not ready reached the server.");
+          follow(result.nextSlug);
+        } else void refresh();
       },
       (cause: unknown) => {
         if (wasReady) {
@@ -298,6 +302,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
       },
     ).finally(() => {
       unreadying.current = null;
+      notReadyClicked.current = false;
       if (unreadyAgain.current && !advancing.current) {
         unreadyAgain.current = false;
         leaveReady();
@@ -339,6 +344,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
     if (busy || moving || advancing.current || !imReady) return;
     setError(null);
     setUnreadyPending(true);
+    notReadyClicked.current = true;
     leaveReady();
     const pending = unreadying.current;
     if (pending) void pending.finally(() => setUnreadyPending(false));
@@ -524,6 +530,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
                 )
               ) : null}
             </div>
+            {notice ? <p className={styles.reason} role="status" data-testid="between-notice">{notice}</p> : null}
             {error ? <p className={styles.error} role="alert">{error}</p> : null}
           </div>
         </aside>

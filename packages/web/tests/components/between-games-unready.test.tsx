@@ -128,6 +128,15 @@ describe("BetweenGamesScreen: Not ready button", () => {
     const view = setup({ sideReady: [true, true] });
     fireEvent.click(screen.getByRole("button", { name: "Not ready" }));
     await waitFor(() => expect(view.onNavigate).toHaveBeenCalledWith("game-2"));
+    expect(screen.getByTestId("between-notice").textContent).toBe("The next game started before Not ready reached the server.");
+  });
+
+  it("shows no such note when an edit's un-ready follows the series", async () => {
+    api.unreadySeries.mockResolvedValue({ series: between(), nextSlug: "game-2" });
+    const view = setup({ sideReady: [true, true] });
+    fireEvent.click(await tile("Card 2, Main Deck"));
+    await waitFor(() => expect(view.onNavigate).toHaveBeenCalledWith("game-2"));
+    expect(screen.queryByTestId("between-notice")).toBeNull();
   });
 
   it("keeps the player ready and shows the error when the request fails", async () => {
