@@ -2,10 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
-import { AlertTriangle, Compass, Lock, RotateCw } from "lucide-react";
-import { SheetRoot } from "@/components/sheet";
 import { DraftManageView } from "@/components/draft/draft-manage-view";
+import { DraftState } from "@/components/draft/draft-state";
 import { DraftSummaryView } from "@/components/draft/draft-summary-view";
 import { DraftRoom } from "@/components/draft/room/draft-room";
 import { DraftFinale } from "@/components/draft/room/finale";
@@ -258,50 +256,7 @@ export default function DraftDetailPage() {
   };
 
   if (error || !draft) {
-    const forbidden = error?.status === 403;
-    const missing = error?.status === 404;
-    return (
-      <SheetRoot>
-        <div className="nf">
-          {error ? (
-            <>
-              <p className="nf-code">
-                {forbidden ? (
-                  <Lock className="ic" aria-hidden="true" />
-                ) : missing ? (
-                  <Compass className="ic" aria-hidden="true" />
-                ) : (
-                  <AlertTriangle className="ic" style={{ color: "var(--loss-ink)" }} aria-hidden="true" />
-                )}
-                {forbidden ? "403" : missing ? "404" : "Error"}
-              </p>
-              <h1 className="t-title">
-                {forbidden ? "This draft is only open to its players" : missing ? "No draft at this address" : "This draft didn't load"}
-              </h1>
-              {forbidden ? (
-                <p>Once a draft starts, only its host and the people drafting can open it.</p>
-              ) : missing ? (
-                <p>Nothing on this server matches{" "}<code>/draft/{slug}</code>.{" "}It may have been deleted, or the link has a typo.</p>
-              ) : (
-                <p>Nothing was changed. Try again, and if it keeps happening, tell whoever runs the bot.</p>
-              )}
-              <div className="acts">
-                {forbidden || missing ? (
-                  <Link className="btn btn-primary" href="/drafts">All drafts</Link>
-                ) : (
-                  <button className="btn btn-primary" type="button" onClick={() => void fetchDraft()}>
-                    <RotateCw className="ic" aria-hidden="true" />Try again
-                  </button>
-                )}
-                <Link className="btn btn-quiet" href="/dashboard">Dashboard</Link>
-              </div>
-            </>
-          ) : (
-            <p className="ref" role="status" aria-label="Loading draft">Loading draft…</p>
-          )}
-        </div>
-      </SheetRoot>
-    );
+    return <DraftState slug={slug} error={error} onRetry={() => void fetchDraft()} />;
   }
 
   const isCreator = currentUserId === draft.createdByUserId;

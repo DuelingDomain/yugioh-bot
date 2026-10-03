@@ -1,0 +1,10 @@
+.state { display: grid; gap: 14px; max-width: 560px; padding-top: clamp(8px, 4vh, 48px); min-width: 0; }
+.code { margin: 0; color: var(--ink-3); font: 600 18px/1 var(--f-num); }
+.title { margin: 0; font: 600 28px/1.2 var(--f-display); color: var(--ink); overflow-wrap: anywhere; }
+.text { margin: 0; color: var(--ink-2); font-size: 15.5px; line-height: 1.55; overflow-wrap: anywhere; }
+.text code { color: var(--ink); font-family: var(--f-num); }
+.acts { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.loading { margin: 0; color: var(--ink-3); font-size: 15px; }
+@container (max-width: 620px) {
+  .title { font-size: 24px; }
+}

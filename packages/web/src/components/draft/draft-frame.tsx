@@ -62,6 +62,11 @@ export function RailSection({ title, children, className, id }: { title?: ReactN
   );
 }
 
+/** A quiet sentence under a rail control (the one-line consequence of a button). */
+export function RailNote({ children, className }: { children: ReactNode; className?: string }) {
+  return <p className={cn(styles.railNote, className)}>{children}</p>;
+}
+
 /** Label and value pairs in a rail. Values sit on the right; wrap numbers in `className="num"` through `num`. */
 export function Rules({ rows, className }: { rows: Array<{ label: ReactNode; value: ReactNode; num?: boolean }>; className?: string }) {
   return (

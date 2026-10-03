@@ -27,9 +27,10 @@ import {
   packsOf,
 } from "./lobby/lobby-model";
 import styles from "./lobby/lobby.module.css";
+import { DangerConfirm } from "./danger-confirm";
 import { formatPickSeconds } from "./pick-time";
 import { useInlineConfirm } from "./use-inline-confirm";
-import { DraftFrame, DraftLayout, DraftMain, DraftRail, Gem, Pieces, RailSection, Rules } from "./draft-frame";
+import { DraftFrame, DraftLayout, DraftMain, DraftRail, Gem, Pieces, RailNote, RailSection, Rules } from "./draft-frame";
 
 interface DraftManageViewProps {
   draft: {
@@ -553,14 +554,16 @@ export function DraftManageView({
             {isCreator && !isTheme && !isEditingConfig && (
               <SvButton variant="quiet" className={styles.editBtn} onClick={handleStartEditConfig}>Edit setup</SvButton>
             )}
-            {isCreator && isTheme && <p className={styles.cancelNote}>Can&apos;t be changed here.</p>}
+            {isCreator && isTheme && <RailNote>Can&apos;t be changed here.</RailNote>}
           </RailSection>
 
           {isCreator && (
             <RailSection>
               {showCancelConfirm ? (
                 <div onKeyDown={cancelConfirm.onKeyDown}>
-                  <CancelConfirm
+                  <DangerConfirm
+                    title="Cancel this draft?"
+                    confirmLabel="Yes, cancel"
                     busy={cancelling}
                     consequence={`It ends for the ${plural(playerCount, "player")} who joined. Nothing has been dealt yet.`}
                     onBack={() => setShowCancelConfirm(false)}
@@ -577,7 +580,7 @@ export function DraftManageView({
                   >
                     Cancel draft
                   </button>
-                  <p className={styles.cancelNote}>Ends it for the {plural(playerCount, "player")} who joined. Nothing has been dealt yet.</p>
+                  <RailNote>Ends it for the {plural(playerCount, "player")} who joined. Nothing has been dealt yet.</RailNote>
                 </>
               )}
             </RailSection>
@@ -585,24 +588,5 @@ export function DraftManageView({
         </DraftRail>
       </DraftLayout>
     </DraftFrame>
-  );
-}
-
-/** The inline confirm for cancelling. It replaces the Cancel draft button; focus lands on Go back so Enter never confirms by accident. */
-function CancelConfirm({ busy, consequence, onBack, onConfirm }: { busy: boolean; consequence: string; onBack: () => void; onConfirm: () => void }) {
-  const backRef = React.useRef<HTMLButtonElement>(null);
-  const headingId = React.useId();
-  React.useEffect(() => {
-    backRef.current?.focus();
-  }, []);
-  return (
-    <div className={styles.confirm} role="dialog" aria-modal="false" aria-labelledby={headingId}>
-      <h3 id={headingId}>Cancel this draft?</h3>
-      <p>{consequence}</p>
-      <div className={styles.confirmActs}>
-        <button ref={backRef} type="button" className={svButtonClass("quiet")} onClick={onBack} disabled={busy}>Go back</button>
-        <button type="button" className={svButtonClass("danger")} onClick={onConfirm} disabled={busy} aria-busy={busy || undefined}>Yes, cancel</button>
-      </div>
-    </div>
   );
 }

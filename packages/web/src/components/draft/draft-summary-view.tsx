@@ -2,16 +2,19 @@
 
 import * as React from "react";
 import Image from "next/image";
-import Link from "next/link";
-import { ArrowLeft, ChevronDown, Download, Layers, Trash2, Trophy } from "lucide-react";
+import { ChevronDown, Layers } from "lucide-react";
 import {
-  ConfirmPanel,
-  DangerRow,
-  DangerZone,
-  SheetPanel,
+  Mono,
+  SectionHead,
+  StageLine,
+  StatusLine,
+  SvButton,
   SheetPortal,
-  SheetRoot,
-  StationTrack,
+  YouPill,
+  Zone,
+  ringColour,
+  svButtonClass,
+  type StageStep,
 } from "@/components/sheet";
 import { CardHoverPopup } from "@/components/draft/card-hover-popup";
 import { PoolBreakdown } from "@/components/draft/pool-breakdown";
@@ -23,8 +26,9 @@ import { buildLevelsModel } from "./summary/levels";
 import { groupPool, kindTally, type PoolGroup } from "./summary/groups";
 import { formatDuration, formatEnded, formatStamp, plural } from "./summary/format";
 import styles from "./summary/summary.module.css";
+import { DangerConfirm } from "./danger-confirm";
+import { DraftFrame, DraftLayout, DraftMain, DraftRail, Gem, Pieces, RailNote, RailSection, Rules } from "./draft-frame";
 import { useInlineConfirm } from "./use-inline-confirm";
-import { MetaLine } from "./meta-line";
 
 interface DraftSummaryViewProps {
   draft: {
@@ -300,31 +304,20 @@ export function DraftSummaryView({
   });
   const myPlayerIds = new Set((draft.seats ?? []).filter((s) => s.isCurrentPlayer).map((s) => s.playerId));
 
-  // Station track: everything done, the last stop is the current one.
+  // Everything before the last stop is done; building a deck is where you go next.
   const cfg = draft.config;
-  const stations = isTheme
+  const stages: StageStep[] = isTheme
     ? [
-        { code: "LB", name: "Lobby" },
-        { code: "MN", name: "Main deck" },
-        ...(cfg.extraDeckEnabled ? [{ code: "EX", name: "Extra deck" }] : []),
-        { code: "DK", name: "Decks" },
+        { label: "Lobby", state: "done" },
+        { label: "Main deck", state: "done" },
+        ...(cfg.extraDeckEnabled ? [{ label: "Extra deck", state: "done" as const }] : []),
+        { label: "Build deck", state: "now" },
       ]
     : [
-        { code: "LB", name: "Lobby" },
-        { code: "DR", name: cfg.packsPerPlayer ? plural(cfg.packsPerPlayer, "pack") : "Draft" },
-        { code: "DK", name: "Decks" },
+        { label: "Lobby", state: "done" },
+        { label: "Draft", state: "done" },
+        { label: "Build deck", state: "now" },
       ];
-  const counts = draft.players.map((p) => p.pickCount);
-  const evenPicks = counts.length > 0 && counts.every((c) => c === counts[0]);
-  const trackCaption = evenPicks ? (
-    <>
-      <span className="at">Done</span>
-      <span className="sep">·</span>
-      everyone has {plural(counts[0], "card")}
-    </>
-  ) : (
-    <span className="at">Done</span>
-  );
 
   const duration = formatDuration(draft.startedAt, draft.endedAt);
 
@@ -357,51 +350,56 @@ export function DraftSummaryView({
   const showTournamentPanel = isCompleted && (linkedTournament != null || draft.tournamentId != null);
 
 
-  return (
-    <SheetRoot>
-      <Link className="crumb" href="/drafts">
-        <ArrowLeft className="ic sm" aria-hidden="true" />
-        All drafts
-      </Link>
-      <header className={`t-head sheet-head ${styles.head}`} style={{ marginTop: 4 }}>
-        <div>
-          <h1 className="t-title">{draft.name}</h1>
-          <MetaLine className="t-meta" items={[
-            { content: <span className="status">
-              <span className="lamp" data-s={isCompleted ? "done" : "off"} />
-              {isCompleted ? "Finished" : "Cancelled"}
-            </span> },
-            { content: isTheme ? "Theme draft" : "Cube draft" },
-            { content: plural(draft.playerCount, "player") },
-            ...(draft.endedAt ? [{ content: `Ended ${formatEnded(draft.endedAt)}` }] : []),
-            ...(duration ? [{ content: `Took ${duration}` }] : []),
-          ]} />
-        </div>
-        {isCompleted && (
-          <StationTrack stations={stations} current={stations.length - 1} tone="mine" caption={trackCaption} />
-        )}
-      </header>
-
+  const kind = isTheme ? "Theme draft" : "Cube draft";
+  const hasActions = canBuildDeck || canExportYdk || Boolean(error);
+  const actions = (
+    <>
       {error && (
-        <div className="inline-note" role="alert" style={{ marginBottom: 16 }}>
-          <p>{error}</p>
+        <div role="alert">
+          <StatusLine tone="block">{error}</StatusLine>
         </div>
       )}
-      {!isCompleted && (
-        <div className="inline-note" style={{ marginBottom: 20 }}>
-          <p>The host cancelled this draft before it finished.</p>
-        </div>
+      {canBuildDeck && (
+        <SvButton as="a" href={`/decks/draft/${slug}`} variant="primary" big wide>
+          <Layers size={18} aria-hidden="true" />
+          {hasDeck ? "Edit your deck" : "Build your deck"}
+        </SvButton>
       )}
+      {canExportYdk && (
+        <SvButton variant="ghost" wide disabled={exporting} aria-busy={exporting || undefined} onClick={handleExport}>
+          {exporting ? "Exporting…" : "Export YDK"}
+        </SvButton>
+      )}
+    </>
+  );
 
-      <div className="t-grid">
-        <div className="t-main">
-          {canBuildDeck && (
-            <section className={`panel panel-pad ${styles.next}`} aria-labelledby="df-next-t">
-              <div>
-                <h2 id="df-next-t">
+  return (
+    <DraftFrame title={draft.name} back={{ href: "/drafts", label: "All drafts" }}>
+      <DraftLayout>
+        <DraftMain>
+          <div className={styles.lead}>
+            {isCompleted && <StageLine steps={stages} label="Draft progress" />}
+            <Pieces
+              items={[
+                { content: <><Gem fill={isCompleted} tone={isCompleted ? undefined : "dim"} />{isCompleted ? "Finished" : "Cancelled"}</>, strong: true },
+                { content: kind },
+                { content: plural(draft.playerCount, "player") },
+                ...(draft.endedAt ? [{ content: `Ended ${formatEnded(draft.endedAt)}` }] : []),
+                ...(duration ? [{ content: `Took ${duration}` }] : []),
+              ]}
+            />
+            {!isCompleted && (
+              <div className={styles.cancelled}>
+                <Zone state="lost" label="Cancelled draft" />
+                <p className={styles.nextP}>The host cancelled this draft before it finished.</p>
+              </div>
+            )}
+            {canBuildDeck && (
+              <div className={styles.next} role="group" aria-labelledby="df-next-t">
+                <h2 className={styles.nextT} id="df-next-t">
                   {hasDeck ? "Your deck is built" : `Your ${plural(participantPickCount, "card")} ${participantPickCount === 1 ? "is" : "are"} ready`}
                 </h2>
-                <p className="small">
+                <p className={styles.nextP}>
                   {canExportYdk
                     ? hasDeck
                       ? `Keep tuning it, or export ${ydkCards} as a YDK file.`
@@ -411,27 +409,12 @@ export function DraftSummaryView({
                       : `Export needs at least 40 picks. You made ${participantPickCount}, so build your deck here instead.`}
                 </p>
               </div>
-              <div className={styles.acts}>
-                <Link href={`/decks/draft/${slug}`} className="btn btn-primary">
-                  <Layers className="ic" aria-hidden="true" />
-                  {hasDeck ? "Edit your deck" : "Build your deck"}
-                </Link>
-                {canExportYdk && (
-                  <button type="button" className="btn btn-secondary" disabled={exporting} onClick={handleExport}>
-                    <Download className="ic" aria-hidden="true" />
-                    {exporting ? "Exporting…" : "Export YDK"}
-                  </button>
-                )}
-              </div>
-            </section>
-          )}
+            )}
+          </div>
 
           {pool && tally && levels && (
             <section aria-labelledby="df-pool-t">
-              <div className="sec-h">
-                <h2 className="sec-t" id="df-pool-t">Your pool</h2>
-                <span className="sec-aux">{plural(pool.length, "card")} · tap a card to read it</span>
-              </div>
+              <SectionHead title="Your pool" id="df-pool-t" note={`${plural(pool.length, "card")}, tap a card to read it`} />
               <div className={styles.poolHead}>
                 <p className={styles.tally}>
                   <span data-k="monster"><b>{tally.monster}</b>Monsters</span>
@@ -507,25 +490,20 @@ export function DraftSummaryView({
           )}
 
           <section aria-labelledby="df-players-t">
-            <div className="sec-h">
-              <h2 className="sec-t" id="df-players-t">Players</h2>
-              <span className="sec-aux">In seat order</span>
-            </div>
+            <SectionHead title="Players" id="df-players-t" note="In seat order" />
             {draft.players.length === 0 ? (
-              <p className="small">No players were in this draft.</p>
+              <p className={styles.empty}>No players were in this draft.</p>
             ) : (
               <ol className={styles.seats}>
                 {sortedPlayers.map((player, i) => {
                   const mine = myPlayerIds.has(player.playerId);
                   return (
-                    <li key={player.playerId} className={mine ? "me" : undefined}>
+                    <li key={player.playerId} data-you={mine ? "true" : undefined}>
                       <span className={styles.no}>{(player.seatIndex ?? i) + 1}</span>
-                      <span className={styles.av} aria-hidden="true">
-                        {player.displayName.trim().charAt(0).toUpperCase() || "?"}
-                      </span>
+                      <Mono name={player.displayName} you={mine} ring={mine ? undefined : ringColour(player.playerId)} />
                       <span className={styles.nm}>
-                        {player.displayName}
-                        {mine && <span className="youtag">you</span>}
+                        <span className={styles.nmText}>{player.displayName}</span>
+                        {mine && <YouPill />}
                       </span>
                       <span className={styles.pk}>
                         <b>{player.pickCount}</b> {player.pickCount === 1 ? "pick" : "picks"}
@@ -538,7 +516,7 @@ export function DraftSummaryView({
           </section>
 
           {!isTheme && (
-            <details className={`panel ${styles.full}`} open={poolOpen}>
+            <details className={styles.full} open={poolOpen}>
               <summary
                 onClick={(e) => {
                   e.preventDefault();
@@ -547,9 +525,9 @@ export function DraftSummaryView({
               >
                 <span>Every card in the pool</span>
                 <small>
-                  {fullPool ? `${fullPool.reduce((n, c) => n + (c.qty ?? 1), 0)} cards · ` : ""}what the packs were dealt from
+                  {fullPool ? `${fullPool.reduce((n, c) => n + (c.qty ?? 1), 0)} cards. ` : ""}What the packs were dealt from
                 </small>
-                <ChevronDown className="ic sm" aria-hidden="true" />
+                <ChevronDown size={16} aria-hidden="true" />
               </summary>
               {poolOpen && (
                 <div className={styles.fullBody}>
@@ -566,20 +544,18 @@ export function DraftSummaryView({
               )}
             </details>
           )}
-        </div>
+        </DraftMain>
 
-        <aside className="t-rail" aria-label="Draft details">
+        <DraftRail aria-label="Draft details" actions={hasActions ? actions : undefined}>
           {showMakeTournament && (
-            <SheetPanel title="Make it a tournament" aside="only you see this">
-              <p className="small" style={{ marginBottom: 14 }}>
-                The {draft.playerCount} drafters become its players, in seat order.
-              </p>
+            <RailSection title="Make it a tournament" id="df-tour-t">
+              <RailNote>The {draft.playerCount} drafters become its players, in seat order.</RailNote>
               {tournamentError && (
-                <div className="inline-note" role="alert" style={{ marginBottom: 14 }}>
-                  <p>{tournamentError}</p>
+                <div role="alert" className={styles.tourErr}>
+                  <StatusLine tone="block">{tournamentError}</StatusLine>
                 </div>
               )}
-              <div className="fields" style={{ gridTemplateColumns: "minmax(0,1fr)" }}>
+              <div className={styles.tourFields}>
                 <div>
                   <label className="label" htmlFor="tournament-format">Format</label>
                   <select
@@ -605,53 +581,34 @@ export function DraftSummaryView({
                   </select>
                 </div>
               </div>
-              <button
-                type="button"
-                className="btn btn-primary btn-block"
-                style={{ marginTop: 16 }}
-                disabled={creatingTournament}
-                aria-busy={creatingTournament || undefined}
-                onClick={handleCreateTournament}
-              >
-                <Trophy className="ic" aria-hidden="true" />
+              <SvButton variant="ghost" wide className={styles.tourBtn} disabled={creatingTournament} aria-busy={creatingTournament || undefined} onClick={handleCreateTournament}>
                 Create tournament
-              </button>
-            </SheetPanel>
+              </SvButton>
+            </RailSection>
           )}
 
           {showTournamentPanel && (
-            <SheetPanel title="Tournament" aside={linkedTournament?.webSlug ? undefined : "after a reload"}>
+            <RailSection title="Tournament" id="df-tour-t">
               {linkedTournament?.webSlug ? (
                 <>
-                  <p className="small" style={{ marginBottom: 12 }}>Made from this draft.</p>
-                  <Link className="btn btn-secondary btn-block" href={`/tournament/${linkedTournament.webSlug}`}>
-                    <Trophy className="ic" aria-hidden="true" />
-                    Open the tournament
-                  </Link>
+                  <RailNote>Made from this draft.</RailNote>
+                  <SvButton as="a" href={`/tournament/${linkedTournament.webSlug}`} variant="ghost" wide className={styles.tourBtn}>
+                    Open {linkedTournament.name}
+                  </SvButton>
                 </>
               ) : (
                 <>
-                  <p className="small" style={{ marginBottom: 12 }}>A tournament was made from this draft.</p>
-                  <Link className="btn btn-quiet btn-block" href="/tournaments">
-                    <Trophy className="ic" aria-hidden="true" />
+                  <RailNote>A tournament was made from this draft.</RailNote>
+                  <SvButton as="a" href="/tournaments" variant="quiet" className={styles.tourBtn}>
                     Find it on Tournaments
-                  </Link>
+                  </SvButton>
                 </>
               )}
-            </SheetPanel>
+            </RailSection>
           )}
 
-          <SheetPanel title="Setup" bodyClassName={styles.flush}>
-            {setupRows.length > 0 && (
-              <dl className={`rows ${styles.rowsPad}`}>
-                {setupRows.map(([k, v]) => (
-                  <div key={k}>
-                    <dt>{k}</dt>
-                    <dd>{v}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
+          <RailSection title="Setup" id="df-setup-t">
+            {setupRows.length > 0 && <Rules rows={setupRows.map(([label, value]) => ({ label, value }))} />}
             {!isTheme && cfg.setNames && cfg.setNames.length > 0 && (
               <div className={styles.sets}>
                 <p>Sets</p>
@@ -662,47 +619,41 @@ export function DraftSummaryView({
                 </ul>
               </div>
             )}
-          </SheetPanel>
+          </RailSection>
 
           {isCreator && (
-            <DangerZone title="Remove">
+            <RailSection>
               {confirmOpen ? (
                 <div onKeyDown={deleteConfirm.onKeyDown}>
-                <ConfirmPanel
-                  title={`Delete ${draft.name}?`}
-                  confirmLabel="Yes, delete"
-                  cancelLabel="Go back"
-                  busy={deleting}
-                  onConfirm={handleDelete}
-                  onCancel={() => setConfirmOpen(false)}
-                >
-                  <p className="small">
-                    {draft.playerCount > 1
-                      ? `Every pick is removed for all ${draft.playerCount} players. This can't be undone.`
-                      : "Every pick is removed. This can't be undone."}
-                  </p>
-                </ConfirmPanel>
+                  <DangerConfirm
+                    title={`Delete ${draft.name}?`}
+                    confirmLabel="Yes, delete"
+                    busy={deleting}
+                    consequence={
+                      draft.playerCount > 1
+                        ? `Every pick is removed for all ${draft.playerCount} players. This can't be undone.`
+                        : "Every pick is removed. This can't be undone."
+                    }
+                    onBack={() => setConfirmOpen(false)}
+                    onConfirm={handleDelete}
+                  />
                 </div>
               ) : (
-                <DangerRow
-                  title="Delete draft"
-                  description={
-                    draft.playerCount > 1
+                <>
+                  <button ref={deleteConfirm.triggerRef} type="button" className={svButtonClass("danger", { wide: true })} onClick={() => setConfirmOpen(true)}>
+                    Delete draft
+                  </button>
+                  <RailNote>
+                    {draft.playerCount > 1
                       ? `Removes it and every pick for all ${draft.playerCount} players.`
-                      : "Removes it and every pick."
-                  }
-                  action={
-                    <button ref={deleteConfirm.triggerRef} type="button" className="btn btn-danger btn-sm" onClick={() => setConfirmOpen(true)}>
-                      <Trash2 className="ic sm" aria-hidden="true" />
-                      Delete
-                    </button>
-                  }
-                />
+                      : "Removes it and every pick."}
+                  </RailNote>
+                </>
               )}
-            </DangerZone>
+            </RailSection>
           )}
-        </aside>
-      </div>
-    </SheetRoot>
+        </DraftRail>
+      </DraftLayout>
+    </DraftFrame>
   );
 }
