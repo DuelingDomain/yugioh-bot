@@ -111,3 +111,5 @@ The Domain includes the Deck Master's archetypes, Attributes and Monster Types, 
 
 - The EDOPro core supports only two sides. Separate fields for 3 or 4 duelists need core changes; the engine design is a separate decision (see `docs/roadmap.md`, step 1).
 - The app model moves from "two seats" to "N duelists in teams": LP per team, one winner or a winning team, N clocks, per-seat privacy with a partner rule, and a multi-field layout.
+
+- `[R-FFA-LOCK-CONTROL-CHANGE]` **A declared opponent takes the source of a lock.** When the opponent bound to a lasting lock takes control of its source card, the lock applies to the old controller, the seat that lost the card. Other FFA opponents stay free. Tag keeps the opposing-team rule. See the owner answer in `DECISIONS-2026-10-01.md`, 2026-10-02 evening.

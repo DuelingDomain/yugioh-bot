@@ -574,7 +574,9 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 					w += (i < M.n && M.f(P, i) == named) ? '1' : '0';
 				return w;
 			};
-			const std::string wa = want_for(M.f(P, P)), wb = want_for(M.fold() ? 1 - M.f(P, P) : 1 - P), wc = want_for(0);
+			const std::string wa = want_for(M.f(P, P)), wc = want_for(0);
+			std::string wb = want_for(M.fold() ? 1 - M.f(P, P) : 1 - P);
+			if(M.fold() && !M.tag && B >= 0) { wb.assign(4, '0'); wb[B] = '1'; }
 			EXPECT(m["a"] == wa && m["b"] == wb && m["c"] == wc, "%s: SetAbsoluteRange seat %d: a=%s b=%s c=%s, want a=%s b=%s c=%s",
 			       sc.name, P, m["a"].c_str(), m["b"].c_str(), m["c"].c_str(), wa.c_str(), wb.c_str(), wc.c_str());
 		} else if(k == "sel1" || k == "sel2") {
@@ -601,7 +603,7 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 			EXPECT(count_kind(nfold, 'd') == firings, "%s: %d kind (d) records, want %d", sc.name, count_kind(nfold, 'd'), firings);
 		EXPECT(count_kind(nfold, 'b') == 0, "%s: %d kind (b) records (a binding conflict)", sc.name, count_kind(nfold, 'b'));
 		// F5: no unbound fallback (a). The first read of a single "1" in a yieldable operation is Card.IsType with the viewer
-		// 1-tp: on an own turn of a seat with at least 2 living opponents the core asks for a pick (kind c, fn=IsType, one per
+		// 1-tp: on an own turn of a seat with at least 2 living opponents the core asks for a pick (one per
 		// firing); on an opponent's turn the GetTurnPlayer read has bound the turn player; one living opponent binds silently.
 		int want_picks = 0;
 		for(const auto& r : g_recs) {
@@ -611,8 +613,10 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 			if(M.same_team(P, r.turn_player) && M.opponents(P).size() >= 2) ++want_picks;
 		}
 		EXPECT(count_kind(nfold, 'a') == 0, "%s: %d kind (a) records (an unbound fallback), want 0", sc.name, count_kind(nfold, 'a'));
-		EXPECT(count_kind(nfold, 'c') == want_picks && count_kind(nfold, 'c', "IsType") == want_picks, "%s: %d kind (c) records (%d from IsType), want %d", sc.name,
-		       count_kind(nfold, 'c'), count_kind(nfold, 'c', "IsType"), want_picks);
+		// Valid bound FFA operations are not kind (c) diagnostics; Tag keeps its stock count.
+		const int want_c = M.tag ? want_picks : 0;
+		EXPECT(count_kind(nfold, 'c') == want_c && count_kind(nfold, 'c', "IsType") == want_c, "%s: %d kind (c) records (%d from IsType), want %d", sc.name,
+		       count_kind(nfold, 'c'), count_kind(nfold, 'c', "IsType"), want_c);
 		EXPECT(out.picks == static_cast<size_t>(want_picks), "%s: %zu pick prompts, want %d", sc.name, out.picks, want_picks);
 		EXPECT(out.pick_bad.empty(), "%s: a pick prompt is wrong: %s", sc.name, out.pick_bad.empty() ? "" : out.pick_bad[0].c_str());
 		for(const auto& l : nfold)

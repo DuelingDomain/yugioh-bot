@@ -1776,7 +1776,7 @@
       ],
       "r2Class": "TABLE",
       "stockSha256": "b99e4aa0a39f232eae1020b8e43b5e3f981ca4fc627e92819405d720e8e53ef1",
-      "note": "the state is global with ONE slot (s[0] the monsters of the opponents of the turn player, s[1] their count): in FFA the group joined the monsters of every opponent, so the event came only when ALL of them were destroyed, for every holder, with no seat. The check keeps one group and one count per key (seat in FFA, team in Tag), and raises the event with a bit mask of the keys whose monsters (2 or more) were all destroyed by battle; the condition asks for the own key in that mask."
+      "note": "the state is global with ONE slot (s[0] the monsters of the opponents of the turn player, s[1] their count): in FFA the group joined the monsters of every opponent, so the event came only when ALL of them were destroyed, for every holder, with no seat. The check keeps one group and one count per key (seat in FFA, team in Tag), and raises the event with a bit mask of the keys whose monsters (2 or more) were all destroyed by battle; the condition asks for the own key in that mask. The response lock binds the battle turn player with no declaration."
     },
     {
       "code": 27770341,
@@ -2257,6 +2257,21 @@
       ],
       "stockSha256": "d8429c88bb7922c1f0fe1887aabe4073fb78b057d260459a719a4d6621fb2118",
       "note": "Script fix (R1 each opponent, R-COMMON-EACH-PLAYER, lead decision 2026-10-01): the End Phase effect (registered with Duel.RegisterEffect) flips the face-down monsters of the opponents and the stock operation lets ONE opponent (Duel.Draw(1-tp,ct)) draw for all of them. The operation groups the face-down monsters by real controller seat (aux.MPForEachController): each opponent changes its OWN monsters to face-up Defense Position and draws 1 card for each of its own; in Tag each opposing member does the same. The activation and the condition are stock. Not part of R1 or R2 (a script fix, as Raging Cloudian)."
+    },
+    {
+      "code": 35569555,
+      "file": "c35569555.lua",
+      "name": "Dogmatikamatrix",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "04f4e6aeddcdf61979761b5e194056608618d90902540065de15a15d3ff081c7",
+      "note": "The ordinary activation checks opponent monsters without a declaration. The Extra Deck ignition declares one opponent at activation and uses that seat.",
+      "effectType": "ACTIVATE+IGNITION",
+      "redefined": [
+        "activate",
+        "gytg",
+        "gyop"
+      ]
     },
     {
       "code": 35842855,
@@ -4143,7 +4158,8 @@
       "classes": [
         "R1"
       ],
-      "stockSha256": "3693e2446758134c6e861dff80d9490027144da1606540e815640ae227af499d"
+      "stockSha256": "3693e2446758134c6e861dff80d9490027144da1606540e815640ae227af499d",
+      "note": "Its own or each-player eligibility reads do not declare an opponent."
     },
     {
       "code": 69120785,
@@ -4493,7 +4509,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "a50729536e1e88c68807d9bf912fa282f38280dc7276e2ef9ea9cbf926c2c1ab",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "R-COMMON-EACH-PLAYER: every living duelist must have five or more monsters in the GY. This condition does not declare an opponent. Tag checks each member."
     },
     {
       "code": 73507661,
@@ -5024,7 +5040,7 @@
       ],
       "r2Class": "TABLE",
       "stockSha256": "3caddd4db24d26bae219c6cb75f336b9cfee75233b91a9f5e2150882fc1874fc",
-      "note": "count of direct attacks per ATTACKED duelist key (s.mpcount) and first attacker per key (s.mpfirst); the stock s[1-controller] and s[2] break at more than two seats."
+      "note": "count of direct attacks per ATTACKED duelist key (s.mpcount) and first attacker per key (s.mpfirst); the stock s[1-controller] and s[2] break at more than two seats. The response lock binds the battle turn player with no declaration."
     },
     {
       "code": 82734805,

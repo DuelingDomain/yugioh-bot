@@ -7,7 +7,7 @@
 // Every scenario ends with the state of every seat (everySeat). Plain data, also read by scripts/rule-coverage.ts; opponent-field-effects.test.ts
 // runs them on a live core (NSEAT_LIVE=1).
 
-import { expectPickSeats, pickOpponent, type CardEntry, type DuelistExpect, type DuelistSetup, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, no, select, expectPickSeats, pickOpponent, type CardEntry, type DuelistExpect, type DuelistSetup, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { everySeat } from "./table-cards.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
@@ -73,7 +73,7 @@ export interface EffectSpec {
   /** The steps after the pick, for example the answer of a yes/no prompt. */
   then?: Step[] | ((roles: Roles) => Step[]);
   /** The pick is not asked (one legal opponent only) and the scenario has no pick step. */
-  noPick?: boolean;
+  noPick?: boolean | ((roles: Roles) => boolean);
   /** The seat that picks. Default p0. */
   pickBy?: Seat;
   /** The seats offered. Default: all opponents of p0. */
@@ -129,9 +129,41 @@ export const PARTNER_MONSTER = "Battle Ox";
 
 const FORMAT_LABEL: Record<Format, string> = { ffa3: "FFA3", ffa4: "FFA4", tag: "Tag" };
 
-export function effectScenarios(spec: EffectSpec): Scenario[] {
-  return (spec.formats ?? (["ffa3", "ffa4", "tag"] as Format[])).map((format) => {
+// FFA reads and the receiving field use one declared opponent. Tag retains the team rules.
+function declaredSpec(spec: EffectSpec, roles: Roles): EffectSpec {
+  if (roles.format === "tag") return spec;
+  const { tgt } = roles;
+  switch (spec.slug) {
+    case "foolish-revival": return { ...spec, seats: { p1: { grave: ["Dark Magician"] }, [tgt]: { grave: ["Summoned Skull"] } },
+      then: [], seatEnd: {}, offered: (r) => r.opponents.filter(seat => seat === "p1" || seat === r.tgt), tgtEnd: { monsters: ["Summoned Skull"] } };
+    case "alpha-summon": return { ...spec, opp: { monsters: [ELF], banished: ["Blue-Eyes White Dragon"] },
+      tgt: { monsters: [ELF], banished: ["Blue-Eyes White Dragon"] }, seats: {}, seatEnd: {},
+      then: [select("Dark Magician", { card: "Blue-Eyes White Dragon", owner: tgt })],
+      tgtEnd: { monsters: [ELF, "Dark Magician"] } };
+    // Its shared-GY targets remain broad, but the opponent destination still declares a seat.
+    case "branded-expulsion": return { ...spec, noPick: false };
+    case "two-toads-with-one-sting": case "xyz-encore": case "terrors-of-the-afterroot":
+    case "flogos": case "vampire-sucker": case "number-29-mannequin-cat": case "graydle-parasite":
+      return { ...spec, noPick: true };
+    case "inferno-of-the-ashened": return { ...spec, then: [], seatEnd: {},
+      tgtEnd: { monsters: ["King of the Ashened City"], grave: [ELF] } };
+    case "terrors-of-the-overroot": return { ...spec, noPick: true, seatEnd: {},
+      then: [select({ card: ELF, owner: tgt }, "Dark Magician")], tgtEnd: { monsters: ["Dark Magician"], grave: [ELF] } };
+    case "cubic-mandala": return { ...spec, noPick: true, seatEnd: {}, othersEnd: { monsters: [ELF] },
+      steps: [activate("Raigeki", "p0"), pickOpponent(tgt, "p0"), activate("Cubic Mandala", "p0")],
+      then: [], tgtEnd: { monsters: [ELF] } };
+    case "diamond-duston": return { ...spec, steps: [activate("Smashing Ground", "p0"), pickOpponent(tgt, "p0"), activate("Diamond Duston", "p0")] };
+    case "trick-box": return { ...spec, steps: [activate("Offerings to the Doomed", "p0"), select("Performage Hat Tricker"), activate("Trick Box", "p0")],
+      then: [], seatEnd: {}, tgtEnd: { monsters: ["Performage Hat Tricker"] } };
+    case "elemental-hero-necroid-shaman": return { ...spec, then: [select("Dark Magician")] };
+    case "sky-striker-ace-camellia": return { ...spec, then: [] };
+    default: return spec;
+  }
+}
+export function effectScenarios(original: EffectSpec): Scenario[] {
+  return (original.formats ?? (["ffa3", "ffa4", "tag"] as Format[])).map((format) => {
     const roles = ROLES[format];
+    const spec = declaredSpec(original, roles);
     const oppSetup = spec.opp ?? { monsters: [ELF] };
     const tgtSetup = spec.tgt ?? oppSetup;
     const partnerSetup = spec.partner ?? { monsters: [PARTNER_MONSTER] };
@@ -152,7 +184,7 @@ export function effectScenarios(spec: EffectSpec): Scenario[] {
     const steps = typeof spec.steps === "function" ? spec.steps(roles) : spec.steps;
     const then = typeof spec.then === "function" ? spec.then(roles) : (spec.then ?? []);
     const by = spec.pickBy ?? "p0";
-    const pick: Step[] = spec.noPick
+    const pick: Step[] = (typeof spec.noPick === "function" ? spec.noPick(roles) : spec.noPick)
       ? []
       : [expectPickSeats((spec.offered ? spec.offered(roles) : roles.opponents) as Seat[], by), pickOpponent(roles.tgt, by)];
     const where = format === "tag" ? "an opposing member" : "the picked opponent";

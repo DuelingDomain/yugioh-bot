@@ -5,7 +5,7 @@
 // Tag: team 0 is p0 and p2, team 1 is p1 and p3. Turn order is p0, p1, p2, p3.
 
 import {
-  activate, changePhase, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, expectResponseOrder, normalSummon, type BoardExpect, type DuelistExpect, type Scenario, type Step,
+  activate, changePhase, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, expectResponseOrder, normalSummon, pickOpponent, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -98,6 +98,8 @@ function solemnSpell(): Scenario {
     },
     steps: [
       activate(RAIGEKI, "p0"),
+      // R-COMMON-OPP-ONE: declare the opponent before the response window.
+      pickOpponent("p1", "p0"),
       expectPrompt({ by: "p2", context: "chain" }),
       activate(SOLEMN, "p2"),
       everySeat("ffa3", {
@@ -189,6 +191,8 @@ function swordsFfa3(): Scenario {
     setup: { format: "ffa3", p0: { hand: [SWORDS], monsters: [RAT] }, p1: { monsters: [OX] }, p2: { monsters: [AXE] } },
     steps: [
       activate(SWORDS, "p0"),
+      // R-COMMON-OPP-ONE: Swords binds its lasting attack lock to p1.
+      pickOpponent("p1", "p0"),
       endTurn("p0"), endTurn("p1"), endTurn("p2"),
       ...attackTurn("p0", RAT, true),
       ...attackTurn("p1", OX, false),

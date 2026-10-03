@@ -23,7 +23,7 @@ const ELF = "Mystical Elf";
 const RULE = `${SOURCE} [R-COMMON-SEAT-STATE] a per-player flag that a global check writes is kept for the real seat (Q6)`;
 
 /** The activator Special Summons the Elf (Monster Reborn, Elf to Monster Zone 5) and then activates the effect of Homunculus. */
-function summonThenEffect(seat: Seat): Step[] {
+function summonThenEffect(seat: Seat, format: Format = "tag"): Step[] {
   return [activate(REBORN, seat), auto(seat), choose("Monster Zone 5", seat), activate(HOMUNCULUS, seat)];
 }
 
@@ -35,7 +35,7 @@ function holderTrapped(format: Format, activator: Seat, holders: Seat[], user: S
   const setup: Partial<Record<Seat, object>> = { [activator]: activatorSetup };
   for (const holder of holders) setup[holder] = { spells: [faceDown(TRAP)] };
   // Seats that answer the chain link in turn order before the user pass (the prompt of each seat is checked with expectOffered).
-  const steps: Step[] = [...turnsBefore(format, activator), ...summonThenEffect(activator)];
+  const steps: Step[] = [...turnsBefore(format, activator), ...summonThenEffect(activator, format)];
   for (const seat of responders) {
     steps.push(expectOffered("activate", TRAP, seat));
     steps.push(pass(seat));

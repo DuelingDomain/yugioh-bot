@@ -672,7 +672,7 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 			EXPECT(m["tt"] == wt && m["oo"] == wb, "%s: SetAbsoluteRange seat %d: tt=%s oo=%s, want tt=%s oo=%s", sc.name, P, m["tt"].c_str(), m["oo"].c_str(), wt.c_str(), wb.c_str());
 			// ot: named 1-tp, owner stays tp (the effect is stored relative to the owner, so it is exact in FFA)
 			if(!M.tag)
-				EXPECT(m["ot"] == wo, "%s: SetAbsoluteRange seat %d: ot=%s, want %s", sc.name, P, m["ot"].c_str(), wo.c_str());
+				EXPECT(m["ot"] == wb, "%s: SetAbsoluteRange seat %d: ot=%s, want %s", sc.name, P, m["ot"].c_str(), wb.c_str());
 			// to: named tp, owner changes to the bound opponent: in FFA only the two sides (owner / others) exist. The owner
 			// side gets the o range (nobody) and every other seat gets s: tp is boosted, with the seats beside it. Report only.
 			std::printf("         abs seat %d tt=%s oo=%s ot=%s to=%s\n", P, m["tt"].c_str(), m["oo"].c_str(), m["ot"].c_str(), m["to"].c_str());
@@ -688,8 +688,8 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 	EXPECT(out.depth_bad == 0, "%s: scope depth not 0 at %zu of %zu prompts", sc.name, out.depth_bad, out.prompts);
 	EXPECT(g_errors == 0, "%s: %ld Lua errors, first: %s", sc.name, g_errors, g_error_text.empty() ? "" : g_error_text[0].c_str());
 	if(M.fold()) {
-		// F5: no unbound fallback (a), no binding conflict (b), no bad player value (d). The pick prompt is the logged kind
-		// (c): one per firing on an own turn of a seat with at least 2 living opponents, none on an opponent's turn (the
+		// F5: no unbound fallback (a), no binding conflict (b), no bad player value (d). There is one opponent prompt
+		// per firing on an own turn of a seat with at least 2 living opponents, none on an opponent's turn (the
 		// GetTurnPlayer read binds the turn player) and none with one living opponent (silent bind).
 		int want_picks = 0;
 		for(const auto& r : g_recs) {
@@ -700,7 +700,9 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 		}
 		EXPECT(count_kind(nfold, 'a') == 0, "%s: %d kind (a) records (an unbound fallback), want 0", sc.name, count_kind(nfold, 'a'));
 		EXPECT(count_kind(nfold, 'b') == 0 && count_kind(nfold, 'd') == 0, "%s: kind b/d records: %d/%d", sc.name, count_kind(nfold, 'b'), count_kind(nfold, 'd'));
-		EXPECT(count_kind(nfold, 'c') == want_picks, "%s: %d kind (c) records, want %d", sc.name, count_kind(nfold, 'c'), want_picks);
+		// Valid bound FFA operations are not kind (c) diagnostics; Tag keeps its stock count.
+		const int want_c = M.tag ? want_picks : 0;
+		EXPECT(count_kind(nfold, 'c') == want_c, "%s: %d kind (c) records, want %d", sc.name, count_kind(nfold, 'c'), want_c);
 		EXPECT(out.picks == static_cast<size_t>(want_picks), "%s: %zu pick prompts, want %d", sc.name, out.picks, want_picks);
 		EXPECT(out.pick_bad.empty(), "%s: a pick prompt is wrong: %s", sc.name, out.pick_bad.empty() ? "" : out.pick_bad[0].c_str());
 	} else {

@@ -33,7 +33,8 @@ export const DUEL_STYLE_FFA4_SCENARIOS: Scenario[] = [
     },
     steps: [
       activate("Soul Exchange", "p0"),
-      select({ card: ELF, owner: "p3" }),
+      // R-COMMON-OPP-ONE: the bound field has one target, which the engine selects.
+      pickOpponent("p3", "p0"),
       normalSummon(SKULL, "p0"),
       select({ card: ELF, owner: "p3" }),
       expectBoard({

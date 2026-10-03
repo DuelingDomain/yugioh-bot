@@ -1,7 +1,5 @@
-import {
-  activate, endTurn, expectBoard, no, yes,
-  type BoardExpect, type DuelistId, type Scenario, type Step,
-} from "../../support/dsl.js";
+import { activate, endTurn, expectBoard, no, pickOpponent, yes,
+  type BoardExpect, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 
 type Format = "1v1" | "ffa3" | "ffa4" | "tag";
@@ -51,6 +49,7 @@ function zoneGap(kind: Kind, format: Format): Scenario {
       board[SEATS[i]]!.banished = ["Mystical Elf", "Mystical Elf"];
       board[SEATS[i]]!.deckCount = 0;
     }
+    // Own-GY yes/no is not an opponent declaration.
     steps.push(activate("Underworld Circle", "p0"), no("p0"));
   } else {
     setup.p0!.monsters = ["The Bystial Alba Los"];

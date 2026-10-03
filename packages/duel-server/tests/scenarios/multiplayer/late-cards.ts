@@ -337,8 +337,7 @@ const heroCounterattackTag = defineScenario({
   ],
 });
 
-// A Graveyard of an opponent that is NOT the picked one: the target may be there (R-COMMON-OPP-FIELD) and the card goes to the field of the
-// picked opponent only. The Skull of p1 goes to the field of p2 and p1 keeps nothing, p2 keeps its own Graveyard card.
+// FFA uses only the declared Graveyard. Tag keeps its choice of an opposing Graveyard and recipient.
 function foolishRevivalOtherGrave(format: "ffa3" | "tag"): Scenario {
   const label = format === "tag" ? "Tag" : "FFA3";
   const picked: Seat = format === "tag" ? "p3" : "p2";
@@ -348,12 +347,12 @@ function foolishRevivalOtherGrave(format: "ffa3" | "tag"): Scenario {
   const lp = format === "tag" ? 16000 : 8000;
   const spec: Partial<Record<Seat, DuelistExpect>> = {
     p0: { grave: [FOOLISH_REVIVAL] },
-    [source]: {},
-    [picked]: { monsters: [SKULL], grave: [DARK_MAGICIAN] },
+    [source]: format === "tag" ? {} : { grave: [SKULL] },
+    [picked]: format === "tag" ? { monsters: [SKULL], grave: [DARK_MAGICIAN] } : { monsters: [DARK_MAGICIAN] },
   };
   return defineScenario({
     id: `late-${format}-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked`,
-    title: `${label}: p0 activates Foolish Revival and picks ${picked}, then targets the Summoned Skull in the Graveyard of ${source}: the Skull goes to the field of ${picked}; ${picked} keeps its own Graveyard card`,
+    title: format === "tag" ? `${label}: Foolish Revival summons ${source}\'s Summoned Skull to ${picked} and keeps ${picked}\'s Graveyard card` : `${label}: Foolish Revival declares ${picked}, revives its Dark Magician, and leaves ${source}\'s Summoned Skull in the Graveyard`,
     source: REVIVAL_RULE,
     rules: ["R-COMMON-OPP-PICK", "R-COMMON-OPP-FIELD", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
     tags: ["multiplayer", "late-cards", "opponent-field-summon", format, "card:83778600"],
@@ -362,7 +361,7 @@ function foolishRevivalOtherGrave(format: "ffa3" | "tag"): Scenario {
       activate(FOOLISH_REVIVAL, "p0"),
       expectPickSeats(format === "tag" ? ["p1", "p3"] : ["p1", "p2"], "p0"),
       pickOpponent(picked, "p0"),
-      select({ card: SKULL, owner: source }),
+      ...(format === "tag" ? [select({ card: SKULL, owner: source })] : []),
       everySeat(format, spec, lp),
     ],
   });

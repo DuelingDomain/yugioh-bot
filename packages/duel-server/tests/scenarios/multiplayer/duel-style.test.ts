@@ -148,7 +148,8 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     },
     steps: [
       activate("Psychic Jumper", "p0"),
-      select({ card: "Summoned Skull", owner: "p2" }),
+      // R-COMMON-OPP-ONE: the declared opponent has one target, which the engine selects.
+      pickOpponent("p2", "p0"),
       expectBoard({
         p0: { lp: 7000, monsters: ["Psychic Jumper", "Summoned Skull"] },
         p1: { lp: 8000, monsters: [ELF] },
@@ -197,7 +198,8 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     },
     steps: [
       activate("Soul Exchange", "p0"),
-      select({ card: ELF, owner: "p2" }),
+      // R-COMMON-OPP-ONE: the declared opponent has one target, which the engine selects.
+      pickOpponent("p2", "p0"),
       normalSummon("Summoned Skull", "p0"),
       select({ card: ELF, owner: "p2" }),
       expectBoard({
@@ -282,7 +284,6 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
       activate("Hero Counterattack", "p0"),
       // The opponent that attacked is the bound opponent: no pick prompt. The Hero picked at random is Special Summoned, and p0 chooses
       // the monster to destroy among the monsters of all opponents.
-      select({ card: "Summoned Skull", owner: "p1" }),
       expectBoard({
         p0: { monsters: ["Elemental HERO Sparkman"], hand: ["Elemental HERO Sparkman"], grave: ["Elemental HERO Avian", "Hero Counterattack"] },
         p1: { monsters: { count: 0 }, grave: ["Summoned Skull"] },
@@ -307,8 +308,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
       activate("Foolish Revival", "p0"),
       expectPickSeats(["p1", "p2"], "p0"),
       pickOpponent("p2", "p0"),
-      // The target may be in the Graveyard of any opponent (R-COMMON-OPP-FIELD). The card goes to the field of the picked opponent.
-      select("Dark Magician"),
+      // R-COMMON-OPP-ONE: the picked Graveyard has one monster, which the engine selects.
       expectBoard({
         p0: { monsters: { count: 0 }, grave: ["Foolish Revival"] },
         p1: { monsters: { count: 0 }, grave: ["Summoned Skull"] },
@@ -414,7 +414,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
       activate("Foolish Revival", "p0"),
       expectPickSeats(["p1", "p2", "p3"], "p0"),
       pickOpponent("p3", "p0"),
-      select("Gaia The Fierce Knight"),
+      // R-COMMON-OPP-ONE: the picked Graveyard has one monster, which the engine selects.
       expectBoard({
         p1: { monsters: { count: 0 }, grave: ["Summoned Skull"] },
         p2: { monsters: { count: 0 }, grave: ["Dark Magician"] },

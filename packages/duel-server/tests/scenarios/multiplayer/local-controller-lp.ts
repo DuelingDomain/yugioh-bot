@@ -15,8 +15,9 @@ function probe(format: Format, actor: 0 | 1, [code,card]: typeof CARDS[number]):
   if(format==="ffa4")setup.p2!.monsters=["Silver Fang"];
   const turns=actor===0?n+1:n;for(let j=0;j<turns;j++)turn(j%n);
   steps.push(attack("Battle Ox",{card:"Beaver Warrior",owner:seat(actor)},seat(other)),activate(card,seat(actor)));
-  board[seat(actor)]!.monsters=["Beaver Warrior"];board[seat(actor)]!.grave=[card];board[seat(other)]!.grave=["Battle Ox"];board[seat(late)]!.grave=["Luster Dragon"];if(format==="ffa4")board.p2!.grave=["Silver Fang"];
-  const amount=format==="ffa4"?2400:1800;damage(actor,amount);damage(other,amount);
+  board[seat(actor)]!.monsters=["Beaver Warrior"];board[seat(actor)]!.grave=[card];board[seat(other)]!.grave=["Battle Ox"];// R-COMMON-OPP-ONE: the battle event binds destruction and damage to the attacker.
+  if(format==="tag")board[seat(late)]!.grave=["Luster Dragon"];else board[seat(late)]!.monsters=["Luster Dragon"];if(format==="ffa4")board.p2!.monsters=["Silver Fang"];
+  const amount=format==="tag"?1800:850;damage(actor,amount);damage(other,amount);
  }else if(code===52038441){
   setup[seat(actor)]!.hand=[card];setup[seat(late)]!.hand=[...(setup[seat(late)]!.hand as string[]),"Monster Reborn","Dark Hole"];setup[seat(late)]!.grave=["Beaver Warrior"];setup[seat(other)]!.grave=["Celtic Guardian"];board[seat(other)]!.grave=["Celtic Guardian"];
   for(let j=0;j<late;j++)turn(j);

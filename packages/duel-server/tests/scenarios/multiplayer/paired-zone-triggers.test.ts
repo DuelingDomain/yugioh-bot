@@ -16,7 +16,15 @@ skip:SetProperty(EFFECT_FLAG_PLAYER_TARGET); skip:SetTargetRange(1,1); Duel.Regi
 local undo=Effect.GlobalEffect(); undo:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS); undo:SetCode(EVENT_PHASE_START+PHASE_MAIN1)
 undo:SetOperation(function(e) skip:Reset() e:Reset() end); Duel.RegisterEffect(undo,0) end`;
 describeWithCores("live paired zone trigger actions", liveNseat, () => {
-  runScenarios("multiplayer/paired-zone-triggers", PAIRED_ZONE_TRIGGERS_SCENARIOS, async (scenario) => {
+  runScenarios("multiplayer/paired-zone-triggers", PAIRED_ZONE_TRIGGERS_SCENARIOS, async (proof) => {
+    const scenario = structuredClone(proof);
+    if(process.env.SEAT_PROOF_DOMAIN === "1") {
+      scenario.setup.mode="domain";
+      for(const seat of ["p0","p1","p2","p3"] as const) if(scenario.setup[seat]) {
+        scenario.setup[seat]!.deckMaster="Blue-Eyes White Dragon";
+        for(const step of scenario.steps) if(step.op==="expectBoard" && step.board[seat]) step.board[seat]!.deckMaster={inZone:true,returns:0,nextCost:0};
+      }
+    }
     const compiled = compileBoard(scenario.setup);
     compiled.options.startupScripts![0].content += SKIP_OPENING_DRAW;
     const count = scenario.setup.format === "1v1" ? 2 : scenario.setup.format === "ffa3" ? 3 : 4;
@@ -28,13 +36,8 @@ describeWithCores("live paired zone trigger actions", liveNseat, () => {
       for (const step of scenario.steps) {
         session.run(expectPrompt({}), at++);
         const prompt = Array.from({ length: count }, (_, seat) => game.view(seat).prompt).find(Boolean);
-        if (prompt?.context?.type === "opponent") {
-          if (process.env.ALL_HANDS_TIMING === "1") {
-            const code = Number(scenario.tags.find(tag => tag.startsWith("card:"))!.slice(5));
-            session.run(expectNoEvent({kind:"chain-resolving",card:code}),at++);
-          }
-          session.run(pickOpponent(`p${count - 1}` as DuelistId, `p${prompt.seat}` as DuelistId), at++);
-          session.run(expectPrompt({}), at++);
+        if (prompt?.context?.type === "opponent" && step.op !== "pickOpponent" && !step.op.startsWith("expect")) {
+          throw new Error(`${scenario.id}: unexpected opponent prompt before ${step.op}`);
         }
         if (step.op === "select") {
           const current = Array.from({ length: count }, (_, seat) => game.view(seat).prompt).find(Boolean);

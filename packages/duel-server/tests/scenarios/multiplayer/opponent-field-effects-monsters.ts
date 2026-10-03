@@ -1,7 +1,7 @@
 // Monster cards whose effect Special Summons the card itself or tokens to the field of an opponent (the table and the rule are in
 // opponent-field-effects.ts). Each card needs its own trigger (a flip, a destruction, a battle, a discard), so each row has its own steps.
 
-import { activate, attack, changePosition, choose, endTurn, no, normalSummon, select, yes } from "../../support/dsl.js";
+import { activate, attack, changePosition, choose, endTurn, no, normalSummon, pickOpponent, select, yes } from "../../support/dsl.js";
 import { ELF } from "./nseat-scenarios.js";
 import { effectScenarios, type EffectSpec } from "./opponent-field-effects.js";
 
@@ -217,7 +217,7 @@ const SPECS: EffectSpec[] = [
     p0: { hand: ["Monster Reborn"], grave: ["Flogos, the Ogdoadic Boundless"] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
     steps: [activate("Monster Reborn", "p0"), select("Flogos, the Ogdoadic Boundless"), yes("p0")],
-    then: (roles) => [select({ card: ELF, owner: roles.tgt })],
+    then: (roles) => roles.format === "tag" ? [select({ card: ELF, owner: roles.tgt })] : [],
     p0End: { hand: [], grave: ["Monster Reborn"], monsters: ["Flogos, the Ogdoadic Boundless"] },
     tgtEnd: { monsters: [MAGICIAN], grave: [ELF] },
   },
@@ -282,8 +282,10 @@ const SPECS: EffectSpec[] = [
     code: 81003500, name: "Elemental HERO Necroid Shaman", slug: "elemental-hero-necroid-shaman", does: "Special Summons a monster from the Graveyard of an opponent",
     p0: { hand: ["Polymerization"], monsters: ["Elemental HERO Wildheart", "Elemental HERO Necroshade"], extra: ["Elemental HERO Necroid Shaman"] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
-    steps: (roles) => [activate("Polymerization", "p0"), select("Elemental HERO Wildheart", "Elemental HERO Necroshade"), select({ card: ELF, owner: roles.tgt })],
-    then: [select(MAGICIAN)],
+    // R-COMMON-OPP-ONE: the declared field and Graveyard each have one target, which the engine selects.
+    noPick: (roles) => roles.format !== "tag",
+    steps: (roles) => [activate("Polymerization", "p0"), select("Elemental HERO Wildheart", "Elemental HERO Necroshade"), roles.format !== "tag" ? pickOpponent(roles.tgt, "p0") : select({ card: ELF, owner: roles.tgt })],
+    then: (roles) => roles.format === "tag" ? [select(MAGICIAN)] : [],
     p0End: { monsters: ["Elemental HERO Necroid Shaman"], grave: ["Polymerization", "Elemental HERO Wildheart", "Elemental HERO Necroshade"] },
     tgtEnd: { grave: [ELF], monsters: [MAGICIAN] },
   },
@@ -375,7 +377,8 @@ const SPECS: EffectSpec[] = [
     tgt: { monsters: [MAGICIAN, ELF] },
     steps: (roles) => [
       activate("Monster Reborn", "p0"),
-      select({ card: ELF, owner: roles.others[0] }),
+      // Space-Time Police declares the opponent before its opponent-only target selection.
+      ...(roles.format !== "tag" ? [pickOpponent(roles.others[0], "p0")] : [select({ card: ELF, owner: roles.others[0] })]),
       ...(["p0", "p1", "p2", "p3"] as const).slice(0, (["p0", "p1", "p2", "p3"] as const).indexOf(roles.tgt)).map((seat) => endTurn(seat)),
       attack(MAGICIAN, { card: "Space-Time Police", owner: "p0" }, roles.tgt),
     ],

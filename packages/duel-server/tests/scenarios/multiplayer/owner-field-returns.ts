@@ -23,6 +23,7 @@ function returns(format: Format, actor: Seat, target: Seat, card: string, code: 
     setup: baseSetup(format, setup),
     steps: [
       ...(knight ? turnsBefore(format, actor) : actor === 'p0' ? [] : [endTurn('p0')]), activate(card, actor),
+      // The all-GY target read keeps every owner's monster available.
       ...(knight ? [select({ card: monster, owner: target })] : [
         everySeat(format, { [actor]: { grave: [card] }, [target]: { banished: [monster] } }),
         endTurn('p0'),

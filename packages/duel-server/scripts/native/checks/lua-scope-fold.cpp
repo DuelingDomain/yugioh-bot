@@ -567,13 +567,14 @@ static void check_test_cards(const Scenario& sc, const Outcome& out, const std::
 	EXPECT(out.depth_bad == 0, "%s: scope depth not 0 at %zu of %zu prompts", sc.name, out.depth_bad, out.prompts);
 	EXPECT(g_errors == 0, "%s: %ld Lua errors, first: %s", sc.name, g_errors, g_error_text.empty() ? "" : g_error_text[0].c_str());
 	if(M.fold()) {
-		// F5: never a guess (a) or a conflict (b). A pick prompt in the operation step is the logged kind (c): one per
-		// own-team firing that has two or more living opponents, none when the bind is silent.
-		const int want_c = M.eliminate >= 0 ? 0 : own_firings;
+		// Valid bound FFA operations are not kind (c) diagnostics. Tag keeps its stock count.
+		// The actual opponent prompt count remains checked independently.
+		const int want_picks = M.eliminate >= 0 ? 0 : own_firings;
+		const int want_c = M.tag ? want_picks : 0;
 		EXPECT(count_kind(nfold, 'a') == 0, "%s: %d kind (a) records (an unbound fallback), want 0", sc.name, count_kind(nfold, 'a'));
 		EXPECT(count_kind(nfold, 'b') == 0, "%s: %d kind (b) records (a binding conflict), want 0", sc.name, count_kind(nfold, 'b'));
 		EXPECT(count_kind(nfold, 'c') == want_c, "%s: %d kind (c) records, want %d", sc.name, count_kind(nfold, 'c'), want_c);
-		EXPECT(out.picks == static_cast<size_t>(want_c), "%s: %zu pick prompts, want %d", sc.name, out.picks, want_c);
+		EXPECT(out.picks == static_cast<size_t>(want_picks), "%s: %zu pick prompts, want %d", sc.name, out.picks, want_picks);
 		EXPECT(out.pick_bad.empty(), "%s: a pick prompt is wrong: %s", sc.name, out.pick_bad.empty() ? "" : out.pick_bad[0].c_str());
 		EXPECT(count_kind(nfold, 'd') == firings, "%s: %d kind (d) records, want %d", sc.name, count_kind(nfold, 'd'), firings);
 	} else {

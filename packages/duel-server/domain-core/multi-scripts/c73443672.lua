@@ -34,3 +34,18 @@ function s.activate(e,tp,eg,ep,ev,re,r,rp)
 		end
 	end
 end
+
+-- R-COMMON-EACH-PLAYER: every living duelist needs five monsters in the GY.
+-- This condition does not declare an opponent. Tag checks each member's GY.
+local mp_circle_condition=s.condition
+function s.condition(e,tp,eg,ep,ev,re,r,rp)
+ if Duel.MPMode()==0 then return mp_circle_condition(e,tp,eg,ep,ev,re,r,rp) end
+ local eligible=true
+ aux.MPForEachDuelist(function(p,seat)
+  local count=Duel.GetMatchingGroupCount(function(c)
+   return c:IsMonster() and Duel.MPSeatOf(c)==seat
+  end,p,LOCATION_GRAVE,0,nil)
+  if count<5 then eligible=false return true end
+ end)
+ return eligible
+end
