@@ -198,13 +198,15 @@ export function chainStackRows(state: ChainState): ChainLinkState[] {
 }
 
 /**
- * The link the stack callout is about: the one that is resolving, otherwise the top of the chain (the
- * activation that just happened). null when no chain is open.
+ * The link the stack callout is about: the one that is resolving; between resolutions, the link that resolved last
+ * (the lowest index among the resolved links, since a chain resolves from the top down); while the chain is still
+ * building, the top of the chain (the activation that just happened). null when no chain is open.
  */
 export function chainFocusLink(state: ChainState): ChainLinkState | null {
   if (state.links.length === 0) return null;
   if (state.resolving != null) return state.links[state.resolving - 1] ?? null;
-  return state.links[state.links.length - 1];
+  const resolved = state.links.find((link) => link.status === "resolved");
+  return resolved ?? state.links[state.links.length - 1];
 }
 
 export type ChainCallout = {

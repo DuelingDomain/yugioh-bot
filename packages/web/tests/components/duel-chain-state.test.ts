@@ -423,6 +423,15 @@ describe("chain stack and callout", () => {
     expect(chainFocusLink(EMPTY_CHAIN)).toBeNull();
   });
 
+  it("keeps the focus on the link that resolved last, not back on the top link", () => {
+    const base = fold([dust(), shield()]);
+    const afterTop = fold([ev("chain-resolving", 2), ev("chain-resolved", 2)], base);
+    expect(chainFocusLink(afterTop)?.index).toBe(2);
+    const afterLast = fold([ev("chain-resolving", 1), ev("chain-resolved", 1)], afterTop);
+    expect(afterLast.links.every((link) => link.status === "resolved")).toBe(true);
+    expect(chainFocusLink(afterLast)?.index).toBe(1);
+  });
+
   it("clears the stack when the chain ends", () => {
     const state = fold([dust(), shield(), ev("chain-resolving", 2), ev("chain-resolved", 2), ev("chain-end")]);
     expect(chainStackRows(state)).toEqual([]);
