@@ -6,6 +6,9 @@ import { isSeriesOpen, startDuelErrorText } from "../duel-rules";
 import { useOptionalRouter } from "../use-optional-router";
 import type { Match } from "../types";
 
+/** Longer than a healthy Start duel; the player sees the usual start error after it. */
+export const START_TIMEOUT_MS = 20_000;
+
 type Action = "report" | "approve" | "deny" | "start" | "result" | "reopen";
 
 /** All requests retain the existing endpoints and bodies. UI failures stay inline. */
@@ -32,8 +35,13 @@ export function useMatchActions(match: Match, tournamentSlug: string, onChanged:
     // Inside the click, so pop-up blockers allow it; the duel's slug is not known until the server answers.
     let duelWindow = action === "start" ? openPendingDuelWindow() : null;
     if (action === "result") setResultError(null); else setError(null);
+    // A hung start request must not leave a blank window open: the abort lands in the catch below.
+    const controller = action === "start" ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), START_TIMEOUT_MS) : null;
     try {
-      const res = await fetch(url, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : { method: "POST" });
+      const init: RequestInit = body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : { method: "POST" };
+      if (controller) init.signal = controller.signal;
+      const res = await fetch(url, init);
       // JSON failures use the original fallback; successful non-start responses need no body.
       const data = action === "start" || !res.ok ? await res.json().catch(() => null) : null;
       if (!res.ok) {
@@ -68,9 +76,14 @@ export function useMatchActions(match: Match, tournamentSlug: string, onChanged:
       onChanged();
     } catch (err) {
       closePendingDuelWindow(duelWindow);
+      // A timed-out start may still have made the duel: refresh so the row shows Open duel.
+      if (controller?.signal.aborted) onChanged();
       const message = action === "report" || action === "start" ? fallback : err instanceof Error ? err.message : fallback;
       if (action === "result") setResultError(message); else setError(message);
-    } finally { setLoading(null); }
+    } finally {
+      if (timer) clearTimeout(timer);
+      setLoading(null);
+    }
   }
 
   const root = `/api/tournaments/${tournamentSlug}`;

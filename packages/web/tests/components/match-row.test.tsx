@@ -198,7 +198,7 @@ describe("online match states", () => {
     renderRow(); fireEvent.click(screen.getByRole("button", { name: "Start duel" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/duels/new-duel"));
     expect(open).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/friday-night-duels-12/matches/1/duel", { method: "POST" });
+    expect(fetchMock).toHaveBeenCalledWith("/api/tournaments/friday-night-duels-12/matches/1/duel", { method: "POST", signal: expect.any(AbortSignal) });
   });
 
   it("opens the duel window in the click, then sends it to the duel after the server answers", async () => {
@@ -210,7 +210,7 @@ describe("online match states", () => {
     const onChanged = vi.fn(); renderRow(openMatch, { onChanged });
     fireEvent.click(screen.getByRole("button", { name: "Start duel" }));
     // Before the server answers: the window exists and is blank; nothing navigated yet.
-    expect(open).toHaveBeenCalledWith("", "yugidraft-duel-pending");
+    expect(open).toHaveBeenCalledWith("", expect.stringMatching(/^yugidraft-duel-pending-/));
     expect(popup.location.href).toBe("about:blank");
     answer(Response.json({ duel: { slug: "new-duel" } }, { status: 201 }));
     await waitFor(() => expect(popup.location.href).toBe("/duels/new-duel?window=1"));
@@ -228,6 +228,25 @@ describe("online match states", () => {
     renderRow(); fireEvent.click(screen.getByRole("button", { name: "Start duel" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/duels/new-duel"));
     expect(popup.location.href).toBe("about:blank");
+  });
+
+  it("closes the blank window and shows the start error when the server does not answer within 20 seconds", async () => {
+    vi.useFakeTimers();
+    const popup = { closed: false, name: "", location: { href: "about:blank" }, focus: vi.fn(), close: vi.fn(),
+      document: { title: "", body: { style: { cssText: "" }, textContent: "" } } };
+    vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init.signal!.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+    })));
+    const onChanged = vi.fn(); renderRow(openMatch, { onChanged });
+    fireEvent.click(screen.getByRole("button", { name: "Start duel" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(19_000); });
+    expect(popup.close).not.toHaveBeenCalled();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
+    expect(popup.close).toHaveBeenCalledOnce();
+    expect(push).not.toHaveBeenCalled();
+    expect(onChanged).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alert").textContent).toContain("Failed to start the duel");
   });
 
   it("closes the blank window when the server refuses to start the duel", async () => {

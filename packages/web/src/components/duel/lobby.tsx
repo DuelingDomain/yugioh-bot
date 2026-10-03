@@ -8,6 +8,7 @@ import { ArrowRight, Eye, Lock, Plus, Swords, Users } from "lucide-react";
 import { isCustomDomain, type DuelHistoryScope, type DuelListItem } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { focusDuelWindowOnClick } from "./duel-window";
 import { formatLabel, formatSeatCount } from "./table-format";
 import { DUEL_LIST_KEY, cancelDuel, leaveDuel, listDuels, surrenderDuel, takeDuelSeat } from "./api";
 import { isNotableSeries, SeriesBadges } from "./series-banner";
@@ -170,7 +171,7 @@ function LiveRow({ duel, onClose }: { duel: DuelListItem; onClose: (duel: DuelLi
           onClick={() => void join()}>
           {content}
         </button>
-      ) : <Link href={roomPath} className={styles.rowLink}>{content}</Link>}
+      ) : <Link href={roomPath} className={styles.rowLink} onClick={(event) => focusDuelWindowOnClick(roomPath, event)}>{content}</Link>}
       {!own && open ? (
         <div className={styles.close}>
           <Link href={`/duels/${duel.slug}`} className={sheetButtonClass("quiet", "sm")}>
