@@ -218,6 +218,9 @@ const MIN_BADGE = 28;
 const MAX_BADGE = 46;
 
 type Box = { left: number; top: number; width: number; height: number };
+/** One link as the read phase of a frame saw it; the write phase applies it. */
+type PlacedLink = { link: ChainLinkState; slot: HTMLElement; box: Box | null; size: number; shift: number; half: "high" | "low"; tagHalf: number };
+type PlacedMark = { link: ChainLinkState; mark: HTMLElement | undefined; wire: SVGPathElement | undefined; box: Box | null };
 
 /** The card's visible box: a Defense Position card is turned a quarter inside its portrait zone. */
 function cardBox(overlay: DOMRect, zone: HTMLElement): Box | null {
@@ -262,6 +265,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const overlayRef = useRef<HTMLDivElement>(null);
   const slotRefs = useRef(new Map<number, HTMLElement>());
   const ringRefs = useRef(new Map<number, HTMLElement>());
+  const tagRefs = useRef(new Map<number, HTMLElement>());
   const wireRefs = useRef(new Map<number, SVGPathElement>());
   const targetRefs = useRef(new Map<string, HTMLElement>());
   const targetWireRefs = useRef(new Map<string, SVGPathElement>());
@@ -272,26 +276,27 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   linksRef.current = links;
 
   // Keep every badge on its card: layout can move under us (resize, a hovered hand card, a summon).
+  // Each frame reads the layout first and writes after, so the browser lays out at most once per frame.
   useLayoutEffect(() => {
     if (links.length === 0 && targetLinks.length === 0) return undefined;
     let raf = 0;
     const measure = () => {
       const overlay = overlayRef.current;
       if (!overlay) return;
+      // ---- Read phase: no style write may happen before the last read. ----
       const origin = overlay.getBoundingClientRect();
       const stacked = new Map<HTMLElement, number>();
+      const placed: PlacedLink[] = [];
       const centers = new Map<number, { x: number; y: number }>();
       let gap = MIN_BADGE;
       for (const link of linksRef.current) {
         const slot = slotRefs.current.get(link.index);
-        const ring = ringRefs.current.get(link.index);
         if (!slot) continue;
         const anchor = chainAnchor(link);
         const zone = anchor ? resolveAnchor(anchor) : null;
         const box = zone ? cardBox(origin, zone) : null;
         if (!zone || !box) {
-          if (slot.dataset.placed !== "false") slot.dataset.placed = "false";
-          if (ring && ring.dataset.placed !== "false") ring.dataset.placed = "false";
+          placed.push({ link, slot, box: null, size: 0, shift: 0, half: "high", tagHalf: 0 });
           continue;
         }
         const shift = stacked.get(zone) ?? 0;
@@ -301,6 +306,25 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         centers.set(link.index, badgeCenter(box, size, shift));
         // The callout tag opens away from the nearer board edge, so it stays on screen.
         const half = box.top + box.height / 2 > origin.height / 2 ? "low" : "high";
+        const tag = tagRefs.current.get(link.index);
+        placed.push({ link, slot, box, size, shift, half, tagHalf: tag ? tag.offsetWidth / 2 : 0 });
+      }
+      const marks: PlacedMark[] = [];
+      for (const link of targetLinksRef.current) {
+        for (const target of link.targets) {
+          const key = `${link.index}:${zoneKey(target.controller, target.location, target.sequence)}`;
+          const zone = findZoneElement(target);
+          marks.push({ link, mark: targetRefs.current.get(key), wire: targetWireRefs.current.get(key), box: zone ? cardBox(origin, zone) : null });
+        }
+      }
+      // ---- Write phase. ----
+      for (const { link, slot, box, size, shift, half, tagHalf } of placed) {
+        const ring = ringRefs.current.get(link.index);
+        if (!box) {
+          if (slot.dataset.placed !== "false") slot.dataset.placed = "false";
+          if (ring && ring.dataset.placed !== "false") ring.dataset.placed = "false";
+          continue;
+        }
         const geo = `${Math.round(box.left)},${Math.round(box.top)},${Math.round(box.width)},${Math.round(box.height)},${size},${shift},${half}`;
         // The badge (front layer) and the card ring and glow (back layer) share one box.
         for (const el of ring ? [slot, ring] : [slot]) {
@@ -316,11 +340,10 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           if (el.dataset.placed !== "true") el.dataset.placed = "true";
         }
         // Keep the callout tag inside the board: it is centred on its card, so near an edge it slides in.
-        const tag = slot.querySelector<HTMLElement>("[data-chain-callout]");
+        const tag = tagRefs.current.get(link.index);
         if (tag) {
-          const half = tag.offsetWidth / 2;
           const centre = box.left + box.width / 2;
-          const dx = Math.round(Math.max(4 + half - centre, Math.min(0, origin.width - 4 - half - centre)));
+          const dx = Math.round(Math.max(4 + tagHalf - centre, Math.min(0, origin.width - 4 - tagHalf - centre)));
           if (tag.dataset.dx !== String(dx)) {
             tag.dataset.dx = String(dx);
             tag.style.translate = `calc(-50% + ${dx}px) 0`;
@@ -338,32 +361,25 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           wire.setAttribute("d", d);
         }
       }
-      for (const link of targetLinksRef.current) {
-        for (const target of link.targets) {
-          const key = `${link.index}:${zoneKey(target.controller, target.location, target.sequence)}`;
-          const mark = targetRefs.current.get(key);
-          const zone = findZoneElement(target);
-          const box = zone ? cardBox(origin, zone) : null;
-          const wire = targetWireRefs.current.get(key);
-          if (mark) {
-            mark.dataset.placed = box ? "true" : "false";
-            if (box) {
-              const geo = `${box.left},${box.top},${box.width},${box.height}`;
-              if (mark.dataset.geo !== geo) {
-                mark.dataset.geo = geo;
-                mark.style.width = `${box.width}px`;
-                mark.style.height = `${box.height}px`;
-                mark.style.translate = `${box.left}px ${box.top}px`;
-              }
+      for (const { link, mark, wire, box } of marks) {
+        if (mark) {
+          mark.dataset.placed = box ? "true" : "false";
+          if (box) {
+            const geo = `${box.left},${box.top},${box.width},${box.height}`;
+            if (mark.dataset.geo !== geo) {
+              mark.dataset.geo = geo;
+              mark.style.width = `${box.width}px`;
+              mark.style.height = `${box.height}px`;
+              mark.style.translate = `${box.left}px ${box.top}px`;
             }
           }
-          if (wire) {
-            const from = centers.get(link.index);
-            const to = box ? { x: box.left + box.width / 2, y: box.top + box.height / 2 } : null;
-            const d = from && to ? chainWirePath(from, to, gap) : null;
-            if (d && wire.getAttribute("d") !== d) wire.setAttribute("d", d);
-            else if (!d && wire.hasAttribute("d")) wire.removeAttribute("d");
-          }
+        }
+        if (wire) {
+          const from = centers.get(link.index);
+          const to = box ? { x: box.left + box.width / 2, y: box.top + box.height / 2 } : null;
+          const d = from && to ? chainWirePath(from, to, gap) : null;
+          if (d && wire.getAttribute("d") !== d) wire.setAttribute("d", d);
+          else if (!d && wire.hasAttribute("d")) wire.removeAttribute("d");
         }
       }
     };
@@ -501,7 +517,12 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
                 <span className={styles.chip}><ChainGlyph /></span>
               </span>
               {focus?.index === link.index ? (
-                <span className={styles.tag} data-chain-callout={link.index} data-callout-key={`${link.index}:${link.status}`}>
+                <span
+                  ref={(el) => {
+                    if (el) tagRefs.current.set(link.index, el);
+                    else tagRefs.current.delete(link.index);
+                  }}
+                  className={styles.tag} data-chain-callout={link.index} data-callout-key={`${link.index}:${link.status}`}>
                   <b>{callout.label}</b>
                   <span className={styles.tagName}>{callout.title}</span>
                   <span className={styles.tagAction}>{callout.action}</span>

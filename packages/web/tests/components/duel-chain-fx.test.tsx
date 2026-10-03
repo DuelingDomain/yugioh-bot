@@ -443,6 +443,47 @@ describe("ChainFx", () => {
     });
   });
 
+  describe("layout reads", () => {
+    it("reads the layout first and writes after, in every frame, without a selector lookup", () => {
+      placeZones("0:8:0", "1:8:0");
+      const events = [activate(1, 0, 11, z(0, SZONE, 0)), activate(2, 1, 22, z(1, SZONE, 0))];
+      const log: string[] = [];
+      const frame = window.requestAnimationFrame;
+      window.requestAnimationFrame = (cb) => frame((t) => { log.push("frame"); cb(t); });
+      const rect = HTMLElement.prototype.getBoundingClientRect;
+      HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) { log.push("read"); return rect.call(this); };
+      Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, get() { log.push("read"); return 120; } });
+      const setProperty = CSSStyleDeclaration.prototype.setProperty;
+      CSSStyleDeclaration.prototype.setProperty = function (this: CSSStyleDeclaration, ...args: Parameters<typeof setProperty>) { log.push("write"); return setProperty.apply(this, args); };
+      const lookup = vi.spyOn(HTMLElement.prototype, "querySelector");
+      try {
+        const { container } = render(<ChainFx events={events} chain={[]} duelKey="t" reducedMotion mySeat={0} playerName={names} />);
+        log.length = 0;
+        lookup.mockClear();
+        // Move a card between frames so the second frame has writes too.
+        act(() => { vi.advanceTimersByTime(40); });
+        BOXES["0:8:0"] = [120, 410, 60, 80];
+        act(() => { vi.advanceTimersByTime(40); });
+        expect(log.filter((entry) => entry === "frame").length).toBeGreaterThan(2);
+        expect(log).toContain("write");
+        let wrote = false;
+        for (const entry of log) {
+          if (entry === "frame") wrote = false;
+          else if (entry === "write") wrote = true;
+          else expect(wrote, "a layout read came after a style write in the same frame").toBe(false);
+        }
+        expect(lookup.mock.calls.filter(([selector]) => String(selector).includes("data-chain"))).toEqual([]);
+        expect(container.querySelector("[data-chain-link]")).not.toBeNull();
+      } finally {
+        window.requestAnimationFrame = frame;
+        HTMLElement.prototype.getBoundingClientRect = rect;
+        CSSStyleDeclaration.prototype.setProperty = setProperty;
+        delete (HTMLElement.prototype as { offsetWidth?: number }).offsetWidth;
+        BOXES["0:8:0"] = [100, 400, 60, 80];
+      }
+    });
+  });
+
   describe("screen reader", () => {
     const stack = () => [activate(1, 0, 11, z(0, SZONE, 0)), { ...activate(2, 1, 22, z(1, SZONE, 0)), description: "Negate it" }];
     const srItems = (c: HTMLElement) => [...c.querySelectorAll("[data-chain-sr-link]")].map((el) => el.textContent);
