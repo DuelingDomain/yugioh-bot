@@ -1,4 +1,4 @@
-import { choose, pass, number, attack, position, yes, no, activate, defineScenario, endTurn, normalSummon, expectPickSeats, pickOpponent, expectEliminated, expectNotOffered, expectOffered, expectPickOptions, expectPrompt, select, specialSummon, surrender, zone, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { choose, pass, number, attack, position, yes, no, activate, defineScenario, endTurn, normalSummon, expectPickSeats, pickOpponent, expectEliminated, expectNotOffered, expectOffered, expectPickOptions, expectPrompt, select, specialSummon, surrender, zone, type DuelistExpect, type Scenario, type Step, setCard } from "../../support/dsl.js";
 import { domainVariant } from "./domain-variants.js";
 import { everySeat, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -45,13 +45,27 @@ function arrows(actor: Seat): Scenario {
 }
 function columns(format: Format, actor: Seat): Scenario {
   const other = format === "ffa3" ? "p2" : across(actor);
-  const setup: Scenario["setup"] = { [actor]: { hand: [KNIGHT] }, [other]: { monsters: slots(3, ELF), spells: [null, null, null, { card: "Dark Hole", pos: "set" }] } };
+  const setup: Scenario["setup"] = {
+    [actor]: format === "ffa4" ? { hand: [KNIGHT] } : { hand: [KNIGHT, "Dark Hole"], monsters: [ELF], extra: [SPIDER] },
+    [other]: { monsters: slots(3, ELF), spells: [null, null, null, { card: "Dark Hole", pos: "set" }] },
+  };
   const board = state(format, actor);
   board[other] = { ...board[other], monsters: [ELF], spells: ["Dark Hole"] };
-  board[actor] = { ...board[actor], hand: [...(board[actor].hand as string[]), ...(format === "ffa4" ? [] : [KNIGHT])],
-    monsters: format === "ffa4" ? [KNIGHT] : [], zones: { m1: format === "ffa4" ? KNIGHT : null } };
-  return scenario(`${format}-across-column-${actor}`, format, setup, [...turnsBefore(format, actor),
-    ...(format === "ffa4" ? [expectOffered("specialSummon", KNIGHT, actor), specialSummon(KNIGHT, actor)] : [expectNotOffered("specialSummon", KNIGHT, actor)]), everySeat(format, board)]);
+  board[actor] = { ...board[actor], monsters: format === "ffa4" ? [KNIGHT] : [SPIDER, KNIGHT],
+    zones: { m1: KNIGHT, ...(format === "ffa4" ? {} : { emz0: SPIDER, s1: { card: "Dark Hole", pos: "set" as const } }) },
+    ...(format === "ffa4" ? {} : { grave: [ELF], spells: ["Dark Hole"] }) };
+  const steps: Step[] = [...turnsBefore(format, actor)];
+  if (format !== "ffa4") {
+    // Foreign cards do not make a local column. One local Spell is also not enough.
+    steps.push(expectNotOffered("specialSummon", KNIGHT, actor),
+      setCard("Dark Hole", actor), zone(actor, "s1", actor),
+      expectNotOffered("specialSummon", KNIGHT, actor),
+      specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }),
+      expectPickOptions([{ seat: actor, label: "Extra Monster Zone (left)" }, { seat: actor, label: "Extra Monster Zone (right)" }], actor),
+      zone(actor, "emz0", actor));
+  }
+  steps.push(expectOffered("specialSummon", KNIGHT, actor), specialSummon(KNIGHT, actor), everySeat(format, board));
+  return scenario(`${format}-across-column-${actor}`, format, setup, steps);
 }
 function geometry(format: Format, actor: Seat): Scenario {
   const reader = format === "ffa4" ? 95200120 : 95200121;
