@@ -247,7 +247,7 @@ jobs:
         run: |
           set -o pipefail
           # Lines that start with // or * are comments: a comment that names the helper does not count.
-          files=$(grep -rE "duel-server/tests/support/cores(\.js)?[\"']" packages/web/tests --include='*.test.ts' --include='*.test.tsx' | grep -vE '^[^:]*:[[:space:]]*(//|\*)' | cut -d: -f1 | sed 's#^packages/web/##' | sort -u)
+          files=$({ grep -rE "duel-server/tests/support/cores(\.js)?[\"']" packages/web/tests --include='*.test.ts' --include='*.test.tsx' || true; } | { grep -vE '^[^:]*:[[:space:]]*(//|\*)' || true; } | cut -d: -f1 | sed 's#^packages/web/##' | sort -u)
           if [ -z "$files" ]; then echo "No web test imports the cores helper. Fix this step."; exit 1; fi
           echo "$files"
           npm exec --workspace=packages/web -- vitest run $files
