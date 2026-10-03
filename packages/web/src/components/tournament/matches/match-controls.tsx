@@ -34,8 +34,8 @@ export function MatchError({ error }: { error: string | null }) {
   );
 }
 
-export function MatchControls({ match, view, actions, small = true, reportLabel = "Report", waitingOn }: {
-  match: Match; view: ReturnType<typeof matchView>; actions: MatchActions; small?: boolean; reportLabel?: string; waitingOn: string;
+export function MatchControls({ match, view, actions, small = true, reportLabel = "Report", reportFirst = false, waitingOn }: {
+  match: Match; view: ReturnType<typeof matchView>; actions: MatchActions; small?: boolean; reportLabel?: string; reportFirst?: boolean; waitingOn: string;
 }) {
   if (actions.reporting && view.canReport) return <MatchButton variant="quiet" small={small} onClick={actions.cancelReport}>Cancel</MatchButton>;
   if (view.canOpen) {
@@ -47,14 +47,16 @@ export function MatchControls({ match, view, actions, small = true, reportLabel 
     );
   }
   const disabled = actions.loading !== null;
+  const reportButton = view.canReport && <MatchButton small={small} disabled={disabled} onClick={actions.openReport}>{reportLabel}</MatchButton>;
   return (
     <>
+      {reportFirst && reportButton}
       {view.canStart && (
         <MatchButton variant={view.player ? "primary" : "quiet"} small={small} disabled={disabled} onClick={actions.start}>
           {view.player && <Swords className="ic sm" aria-hidden="true" />}Start duel
         </MatchButton>
       )}
-      {view.canReport && <MatchButton small={small} disabled={disabled} onClick={actions.openReport}>{reportLabel}</MatchButton>}
+      {!reportFirst && reportButton}
       {view.canConfirm && (
         <>
           <MatchButton variant="primary" small={small} disabled={disabled} onClick={actions.approve}><Check className="ic sm" aria-hidden="true" />Approve</MatchButton>

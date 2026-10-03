@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { projectMatch } from "@yugidraft/shared/scoring";
 
@@ -18,6 +18,19 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 function show(props = matchProps) { return render(<SheetRoot><YourMatch {...props} /></SheetRoot>); }
 
 describe("Your match", () => {
+  it.each([
+    { layout: "desktop", narrow: false, reportLabel: "Report a result" },
+    { layout: "phone", narrow: true, reportLabel: "Report" },
+  ])("puts $reportLabel before Start duel in document order on $layout", async ({ narrow, reportLabel }) => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(deckResponse())));
+    render(<SheetRoot><YourMatch {...matchProps} narrow={narrow} /></SheetRoot>);
+    if (!narrow) await screen.findByText("Branded Despia");
+    const card = within(screen.getByRole("region", { name: "Your match" }));
+    const report = card.getByRole("button", { name: reportLabel });
+    const start = card.getByRole("button", { name: "Start duel" });
+    expect(report.compareDocumentPosition(start) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
   it("shows the winnings with the stakes on a phone, and skips the tier names and deck fetch", () => {
     const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
     render(<SheetRoot><YourMatch {...matchProps} narrow /></SheetRoot>);
