@@ -11,9 +11,9 @@ const slots = (seq: number, card: string) => Array.from({ length: seq + 1 }, (_,
 function createScenarios(mode: "standard" | "domain"): Scenario[] {
 const openingHand = (): string[] => mode === "domain" ? [ELF] : [];
 const openingDeck = () => mode === "domain" ? 19 : 20;
-function scenario(id: string, format: Format, setup: Scenario["setup"], steps: Step[]): Scenario {
+function scenario(id: string, format: Format, setup: Scenario["setup"], steps: Step[], rules: string[] = [rule]): Scenario {
   const result = defineScenario({ id: `df-shared-zones-${id}`, title: id.replaceAll("-", " "),
-    source: `${SOURCE} [${rule}]`, rules: [rule], tags: ["multiplayer", format, "link", "column", "ffa-first-draw-included"], setup: { ...setup, format, mode: mode === "domain" ? "domain" : "normal" }, steps });
+    source: `${SOURCE} [${rule}]`, rules, tags: ["multiplayer", format, "link", "column", "ffa-first-draw-included"], setup: { ...setup, format, mode: mode === "domain" ? "domain" : "normal" }, steps });
   return mode === "domain" ? domainVariant(result) : result;
 }
 function state(format: Format, actor: Seat): Record<Seat, DuelistExpect> {
@@ -183,12 +183,13 @@ function deadSelected(): Scenario {
   return scenario("ffa4-dead-selected-zone-stays-empty", "ffa4", setup, steps);
 }
 
+// This starting legality check remains a negative control with no outcome marker.
 function sideColumns(): Scenario {
   const board = state("ffa4", "p0");
   board.p0 = { ...board.p0, hand: [KNIGHT, ...openingHand()] };
   board.p1 = { ...board.p1, monsters: [ELF], spells: ["Dark Hole"] };
   return scenario("ffa4-side-seat-column-control", "ffa4", { p0: { hand: [KNIGHT] }, p1: { monsters: slots(3, ELF), spells: [null, null, null, { card: "Dark Hole", pos: "set" }] } },
-    [expectNotOffered("specialSummon", KNIGHT, "p0"), everySeat("ffa4", board)]);
+    [expectNotOffered("specialSummon", KNIGHT, "p0"), everySeat("ffa4", board)], []);
 }
 function sorceress(): Scenario {
   const card = "Summon Sorceress", material = "Balancer Lord", gift = "Widget Kid";

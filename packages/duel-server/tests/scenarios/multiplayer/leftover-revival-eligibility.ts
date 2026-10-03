@@ -5,7 +5,8 @@ const SHALLOW = "The Shallow Grave", ENKINDLING = "The Grave of Enkindling";
 const shallowEmpty = defineScenario({
   id: "leftover-shallow-tag-partner-only-grave-not-legal",
   title: "Tag: The Shallow Grave needs a target in the activator's own Graveyard",
-  source: "docs/adr/0002-multiplayer-duel-rules.md [R-COMMON-EACH-PLAYER]", rules: ["R-COMMON-EACH-PLAYER"],
+  // This initial activation check has no action outcome. It remains a negative control.
+  source: "docs/adr/0002-multiplayer-duel-rules.md [R-COMMON-EACH-PLAYER]", rules: [],
   tags: ["multiplayer", "tag", "card:43434803"],
   setup: baseSetup("tag", { p0: { hand: [SHALLOW] }, p1: { grave: ["Battle Ox"] }, p2: { grave: ["Silver Fang"] } }),
   steps: [expectPrompt({ by: "p0", context: "action" }), expectNotOffered("activate", SHALLOW, "p0"),

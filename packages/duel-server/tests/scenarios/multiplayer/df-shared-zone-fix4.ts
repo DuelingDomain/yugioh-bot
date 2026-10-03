@@ -17,7 +17,8 @@ function cases(mode: "standard" | "domain"): Scenario[] {
   }
   function scenario(id: string, setup: Scenario["setup"], steps: Step[]): Scenario {
     const s = defineScenario({ id: `df-shared-zones-ffa4-review4-${id}`, title: id.replaceAll("-", " "), source: SOURCE,
-      rules: ["R-FFA-ACROSS-EMZ"], tags: ["multiplayer", "ffa4", "column", "ffa-first-draw-included"], setup: { ...setup, format: "ffa4", mode: mode === "domain" ? "domain" : "normal" }, steps });
+      // A starting legality check has no action outcome. Keep it as a negative control.
+      rules: id === "small-scuffle-side-zones-cannot-supply-column" ? [] : ["R-FFA-ACROSS-EMZ"], tags: ["multiplayer", "ffa4", "column", "ffa-first-draw-included"], setup: { ...setup, format: "ffa4", mode: mode === "domain" ? "domain" : "normal" }, steps });
     return mode === "domain" ? domainVariant(s) : s;
   }
   function crown(caller: "p1" | "p2"): Scenario {
