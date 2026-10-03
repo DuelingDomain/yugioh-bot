@@ -185,6 +185,14 @@ export function orderSeats(seats: SeatLike[]): TableSeat[] {
   return rotated.map((seat, i) => ({ index: i, seat, isMe: i === 0 }));
 }
 
+/** Offscreen phone seats, ignoring up to one pixel of scroll rounding at either edge. */
+export function stripEdges(scrollLeft: number, scrollWidth: number, clientWidth: number): "start" | "end" | "both" | undefined {
+  if (scrollWidth - clientWidth <= 1) return undefined;
+  const start = scrollLeft > 1;
+  const end = scrollWidth - clientWidth - scrollLeft > 1;
+  return start && end ? "both" : start ? "start" : end ? "end" : undefined;
+}
+
 export type SeatState = "picking" | "picked" | "passing";
 
 export type Turn = "picking" | "waiting" | "settling" | "done";
@@ -216,18 +224,32 @@ export interface Pt {
   y: number;
 }
 
+/** Share the desktop row counts between the anchors and the upright seat boxes. */
+export function seatLayout(n: number): { side: number; far: number } {
+  const others = Math.max(0, n - 1);
+  const side = others <= 3 ? 0 : others <= 6 ? 1 : Math.max(1, Math.min(3, Math.ceil((others - 5) / 2)));
+  return { side, far: others - 2 * side };
+}
+
 /** Where friend `i` sits, in table pixels. Index 0 is you at the near edge; friends go clockwise from your left. */
 export function anchorPoint(i: number, n: number, tw: number, th: number): Pt {
   if (i === 0) return { x: tw / 2, y: th + 30 };
-  if (n >= 5) {
-    if (i === 1) return { x: -46, y: th * 0.56 };
-    if (i === n - 1) return { x: tw + 46, y: th * 0.56 };
-    const rim = n - 3;
-    const t = rim === 1 ? 0.5 : 0.2 + (0.6 * (i - 2)) / (rim - 1);
+  const { side, far } = seatLayout(n);
+  if (side > 0) {
+    if (i <= side) {
+      const y = side === 1 ? 0.56 : 0.78 - (0.48 * (i - 1)) / (side - 1);
+      return { x: -46, y: th * y };
+    }
+    if (i > side + far) {
+      const y = side === 1 ? 0.56 : 0.30 + (0.48 * (i - side - far - 1)) / (side - 1);
+      return { x: tw + 46, y: th * y };
+    }
+    const start = n >= 8 ? 0.10 : 0.12;
+    const span = n >= 8 ? 0.80 : 0.76;
+    const t = far === 1 ? 0.5 : start + (span * (i - side - 1)) / (far - 1);
     return { x: tw * t, y: -14 };
   }
-  const friends = n - 1;
-  const t = friends <= 1 ? 0.5 : (i - 1) / (friends - 1);
+  const t = far <= 1 ? 0.5 : (i - 1) / (far - 1);
   return { x: tw * (0.03 + 0.94 * t), y: -14 };
 }
 

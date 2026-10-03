@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   EMPTY_FILTER,
+  anchorPoint,
   countKinds,
   dealReducer,
   INITIAL_DEAL,
@@ -15,6 +16,7 @@ import {
   passLabel,
   roomSizes,
   seatPackSize,
+  stripEdges,
   tableCards,
   themeProgress,
   toggled,
@@ -113,6 +115,114 @@ describe("seats", () => {
     ]);
     expect(out[0].isMe).toBe(true);
     expect(out.map((s) => s.seat?.displayName)).toEqual(["B", "C", "A"]);
+  });
+});
+
+describe("stripEdges", () => {
+  it("omits the attribute when all seats fit", () => {
+    expect(stripEdges(0, 300, 330)).toBeUndefined();
+    expect(stripEdges(0, 330, 330)).toBeUndefined();
+  });
+
+  it("shows more seats at the end when scrolled to the start", () => {
+    expect(stripEdges(0, 550, 330)).toBe("end");
+  });
+
+  it("shows more seats on both sides in the middle", () => {
+    expect(stripEdges(110, 550, 330)).toBe("both");
+  });
+
+  it("shows more seats at the start when scrolled to the end", () => {
+    expect(stripEdges(220, 550, 330)).toBe("start");
+  });
+
+  it("ignores up to one pixel at either edge", () => {
+    expect(stripEdges(0, 331, 330)).toBeUndefined();
+    expect(stripEdges(0, 331.1, 330)).toBe("end");
+    expect(stripEdges(0.5, 550, 330)).toBe("end");
+    expect(stripEdges(1, 550, 330)).toBe("end");
+    expect(stripEdges(1.1, 550, 330)).toBe("both");
+    expect(stripEdges(218.9, 550, 330)).toBe("both");
+    expect(stripEdges(219, 550, 330)).toBe("start");
+    expect(stripEdges(219.5, 550, 330)).toBe("start");
+  });
+});
+
+describe("table anchors", () => {
+  const tw = 580;
+  const th = 400;
+
+  it.each([2, 3, 4, 5, 7, 8, 9, 12, 13])("keeps your seat at the near middle with %i players", (n) => {
+    expect(anchorPoint(0, n, tw, th)).toEqual({ x: 290, y: 430 });
+  });
+
+  it("keeps up to three friends on the far edge", () => {
+    expect(anchorPoint(1, 2, tw, th)).toEqual({ x: 290, y: -14 });
+    expect(anchorPoint(1, 3, tw, th).x).toBeCloseTo(17.4);
+    expect(anchorPoint(2, 3, tw, th).x).toBeCloseTo(562.6);
+    expect(anchorPoint(2, 4, tw, th)).toEqual({ x: 290, y: -14 });
+  });
+
+  it.each([
+    { n: 5, xs: [69.6, 510.4] },
+    { n: 6, xs: [69.6, 290, 510.4] },
+    { n: 7, xs: [69.6, 216.5333333333, 363.4666666667, 510.4] },
+  ])("spreads the far row wider with $n players and preserves the side seats", ({ n, xs }) => {
+    expect(anchorPoint(1, n, tw, th).x).toBe(-46);
+    expect(anchorPoint(1, n, tw, th).y).toBeCloseTo(224);
+    expect(anchorPoint(n - 1, n, tw, th).x).toBe(626);
+    expect(anchorPoint(n - 1, n, tw, th).y).toBeCloseTo(224);
+    xs.forEach((x, j) => {
+      expect(anchorPoint(j + 2, n, tw, th).x).toBeCloseTo(x);
+      expect(anchorPoint(j + 2, n, tw, th).y).toBe(-14);
+    });
+  });
+
+  it.each([
+    { n: 8, side: 1, far: 5 },
+    { n: 9, side: 2, far: 4 },
+    { n: 10, side: 2, far: 5 },
+    { n: 11, side: 3, far: 4 },
+    { n: 12, side: 3, far: 5 },
+    { n: 13, side: 3, far: 6 },
+    { n: 20, side: 3, far: 13 },
+  ])("places $n players clockwise with $side / $far / $side friends", ({ n, side, far }) => {
+    const anchors = Array.from({ length: n - 1 }, (_, j) => anchorPoint(j + 1, n, tw, th));
+    const left = anchors.filter((p) => p.x === -46);
+    const rim = anchors.filter((p) => p.y === -14);
+    const right = anchors.filter((p) => p.x === 626);
+
+    expect(left).toHaveLength(side);
+    expect(rim).toHaveLength(far);
+    expect(right).toHaveLength(side);
+    expect(anchors).toEqual([...left, ...rim, ...right]);
+
+    for (let j = 1; j < side; j++) {
+      expect(left[j].y).toBeLessThan(left[j - 1].y);
+      expect(right[j].y).toBeGreaterThan(right[j - 1].y);
+    }
+    for (let j = 1; j < far; j++) {
+      expect(rim[j].x).toBeGreaterThan(rim[j - 1].x);
+    }
+
+    expect(left[0].y).toBeCloseTo(side === 1 ? 224 : 312);
+    expect(left[side - 1].y).toBeCloseTo(side === 1 ? 224 : 120);
+    expect(right[0].y).toBeCloseTo(side === 1 ? 224 : 120);
+    expect(right[side - 1].y).toBeCloseTo(side === 1 ? 224 : 312);
+    expect(rim[0].x).toBeCloseTo(58);
+    expect(rim[far - 1].x).toBeCloseTo(522);
+    if (side === 3) {
+      expect(left[1].y).toBeCloseTo(216);
+      expect(right[1].y).toBeCloseTo(216);
+    }
+  });
+
+  it("leaves at least 96 pixels between neighbouring far seats at twelve players", () => {
+    const rim = Array.from({ length: 11 }, (_, j) => anchorPoint(j + 1, 12, tw, th)).filter((p) => p.y === -14);
+    expect(rim).toHaveLength(5);
+    for (let j = 1; j < rim.length; j++) {
+      expect(rim[j].x - rim[j - 1].x).toBeGreaterThanOrEqual(96);
+    }
   });
 });
 
