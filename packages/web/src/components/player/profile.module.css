@@ -1,0 +1,80 @@
+/* Profile-only rules the board CSS does not cover. */
+
+.busy { transition: opacity 160ms var(--ease, ease); }
+.busy[aria-busy="true"] { opacity: 0.55; }
+
+.meterLink { color: var(--pen-ink); }
+.header :global(.t-title) { min-width: 0; }
+.topTier { margin-top: 10px; }
+.crumbRow { margin-bottom: 14px; }
+.stakes { display: grid; gap: 12px; }
+.empty { padding: 28px 20px; }
+.note { margin-top: 2px; }
+
+.achievements, .winnings { min-width: 0; }
+.progressLine { display: contents; }
+.mobileOnly { display: none; }
+.expandLink {
+  display: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--pen-ink);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.expandLink:hover { text-decoration: underline; text-underline-offset: 3px; }
+.expandLink:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+
+/* The profile's .ms container decides how much the compact sections show. */
+@container (max-width: 600px) {
+  .expandLink { display: inline-flex; }
+  .achievements .expandLink { margin-top: 10px; }
+
+  :global(.ms) .achievements .tiles { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  :global(.ms) .achievements .tiles > li {
+    grid-template-columns: 36px minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    gap: 2px 12px;
+    padding: 10px 12px;
+  }
+  .achievements[data-expanded="false"] .tiles > li:nth-child(n+4) { display: none; }
+  :global(.ms) .achievements .tiles :global(.medal) {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    align-self: center;
+    width: 36px;
+    height: 36px;
+  }
+  :global(.ms) .achievements .tiles :global(.an) {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    padding-top: 0;
+    overflow-wrap: anywhere;
+  }
+  :global(.ms) .achievements .tiles :global(.ac) { display: none; }
+  :global(.ms) .achievements .tiles :global(.ad),
+  .achievements .tiles .mobileOnly {
+    grid-column: 2;
+    grid-row: 2;
+    margin-top: 0;
+    font-size: 12px;
+  }
+  .achievements .tiles .mobileOnly { display: flex; align-items: center; color: var(--ink-3); }
+  .progressLine { display: flex; grid-column: 2; grid-row: 2; align-items: center; gap: 10px; min-width: 0; }
+  :global(.ms) .achievements .tiles .progressLine :global(.ad) { flex: none; white-space: nowrap; }
+  :global(.ms) .achievements .tiles .progressLine :global(.meter) { flex: 1; min-width: 24px; margin-top: 0; }
+  .progressDetail { display: none; }
+
+  .winnings .winningsNote { display: none; }
+  .winnings[data-expanded="false"] .collapsedItem { display: none; }
+  :global(.ms) .winnings :global(.hr-turn) { min-width: 0; overflow-wrap: anywhere; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .busy { transition: none; }
+}

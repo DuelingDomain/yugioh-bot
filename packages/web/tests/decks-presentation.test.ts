@@ -1,0 +1,53 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+// jsdom cannot evaluate container queries or the foundation's CSS cascade.
+const editor = readFileSync(new URL("../src/components/decks/editor.module.css", import.meta.url), "utf8");
+const browser = readFileSync(new URL("../src/components/decks/card-browser.module.css", import.meta.url), "utf8");
+const phoneStart = editor.indexOf("@container de-editor (width < 960px)");
+const desktop = editor.slice(0, phoneStart);
+const phone = editor.slice(phoneStart);
+
+describe("deck editor presentation", () => {
+  it("scopes both tab visibility rules to beat the foundation's .ms .seg", () => {
+    expect(desktop).toMatch(/:global\(\.ms\)\s+\.de-tabs\s*\{[^}]*display:\s*none/);
+    expect(phone).toMatch(/:global\(\.ms\)\s+\.de-tabs\s*\{[^}]*display:\s*grid/);
+  });
+
+  it("scopes phone button sizing and hiding to beat the foundation's .ms .btn", () => {
+    expect(phone).toMatch(/:global\(\.ms\)\s+\.de-back\s*\{[^}]*width:\s*34px;[^}]*height:\s*44px;[^}]*padding:\s*0/);
+    expect(phone).toMatch(/:global\(\.ms\)\s+\.de-export\s*\{[^}]*display:\s*none/);
+  });
+
+  it("lets draft hosts fill the viewport below their measured top without a frame", () => {
+    const host = /\.host\[data-pool\]\s*\{([^}]*)\}/.exec(editor)?.[1] ?? "";
+    expect(host).toMatch(/height:\s*calc\(100dvh - var\(--de-top,\s*0px\)\)/);
+    expect(host).toMatch(/min-height:\s*560px/);
+    expect(host).toMatch(/border:\s*0/);
+    expect(host).toMatch(/border-radius:\s*0/);
+    expect(/\.host\s*\{([^}]*)\}/.exec(editor)?.[1]).toMatch(/height:\s*100dvh/);
+  });
+
+  it("cancels all four shell padding edges at the shell's viewport breakpoints", () => {
+    expect(editor).toMatch(/\.host\[data-pool\]\s*\{[^}]*width:\s*calc\(100% \+ 32px\);[^}]*margin:\s*-16px/);
+    expect(editor).toMatch(/@media\s*\(min-width:\s*640px\)\s*\{\s*\.host\[data-pool\]\s*\{[^}]*width:\s*calc\(100% \+ 48px\);[^}]*margin:\s*-24px/);
+    expect(editor).toMatch(/@media\s*\(min-width:\s*1024px\)\s*\{\s*\.host\[data-pool\]\s*\{[^}]*width:\s*calc\(100% \+ 64px\);[^}]*margin:\s*-32px/);
+  });
+
+  it("switches tribute totals to a list using the chart's own width", () => {
+    expect(editor).toMatch(/\.df-lv\s*\{[^}]*container:\s*de-levels\s*\/\s*inline-size/);
+    expect(editor).toMatch(/\.df-totals\s*\{[^}]*display:\s*none/);
+    const narrowChart = /@container de-levels \(width < 240px\)\s*\{([\s\S]*?)\n\}/.exec(editor)?.[1] ?? "";
+    expect(narrowChart).toMatch(/\.df-bt\s*\{[^}]*display:\s*none/);
+    expect(narrowChart).toMatch(/\.df-totals\s*\{[^}]*display:\s*grid/);
+    expect(editor).toMatch(/\.df-totals li\s*\{[^}]*justify-content:\s*space-between/);
+  });
+
+  it("reserves space for the search placeholder and drops the hint in narrow fields", () => {
+    expect(browser).toMatch(/\.de-lt\s*\{[^}]*flex-wrap:\s*wrap/);
+    expect(browser).toMatch(/\.de-q\s*\{[^}]*container:\s*de-search\s*\/\s*inline-size;[^}]*min-width:\s*min\(100%,\s*180px\)/);
+    const narrowSearch = /@container de-search \(width < 200px\)\s*\{([\s\S]*?)\n\}/.exec(browser)?.[1] ?? "";
+    expect(narrowSearch).toMatch(/\.de-q kbd\s*\{[^}]*display:\s*none/);
+    expect(narrowSearch).toMatch(/:global\(\.ms\)\s+\.de-q\s+:global\(\.input\):placeholder-shown\s*\{[^}]*padding-right:\s*12px/);
+  });
+});
