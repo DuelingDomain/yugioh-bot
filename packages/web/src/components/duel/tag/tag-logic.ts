@@ -1,5 +1,5 @@
 import { opponentSeatsOf, seatsOfTeam, teamOfSeat } from "@yugidraft/shared/duels";
-import type { DuelCard, DuelChainLink, DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelChainLink, DuelEngineView, DuelPrompt, DuelPromptOption } from "@yugidraft/shared/duels";
 import { isFacedown } from "../constants";
 import { opponentPickOptions } from "../multi-seat";
 import { tagSeatCode } from "../table-format";
@@ -145,7 +145,8 @@ export function responseWindow(
 
 /**
  * Rivals the viewer can click on the team plate. An opponent pick gives its own options. A direct attack is a choice
- * whose every option names a rival seat (`controller`); eliminated rivals are left out.
+ * whose every option is "Attack ... directly" for a rival seat (`controller`, no card zone); a choice among cards is no
+ * seat pick, even when the cards belong to rivals. Eliminated rivals are left out.
  */
 export function rivalPickOptions(engine: DuelEngineView, prompt: DuelPrompt | null): Map<number, string> {
   const picks = opponentPickOptions(prompt, engine);
@@ -153,7 +154,8 @@ export function rivalPickOptions(engine: DuelEngineView, prompt: DuelPrompt | nu
   const type = prompt.context?.type;
   if (type === "chain" || type === "action") return picks;
   const rivals = opponentSeatsOf(TAG, prompt.seat);
-  if (prompt.options.length === 0 || !prompt.options.every((o) => o.controller != null && rivals.includes(o.controller))) return picks;
+  const direct = (o: DuelPromptOption) => o.controller != null && rivals.includes(o.controller) && o.location == null && /^Attack .+ directly$/i.test(o.label);
+  if (prompt.options.length === 0 || !prompt.options.every(direct)) return picks;
   for (const option of prompt.options) {
     const view = engine.seats.find((s) => s.seat === option.controller);
     if (!view || view.eliminated || view.pendingElimination || picks.has(option.controller!)) continue;
