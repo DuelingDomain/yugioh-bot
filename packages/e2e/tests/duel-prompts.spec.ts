@@ -20,15 +20,15 @@ test("a number prompt and an order prompt can be answered and do not stick", asy
   const order = alice.page.getByRole("group", { name: "Choose the card order" });
   const cards = order.getByRole("list").getByRole("button");
   const confirm = order.getByRole("button", { name: "Confirm" });
-  await expect(order.getByText("0 of 3 selected")).toBeVisible();
+  await expect(order.getByText("0 of 3 ordered")).toBeVisible();
   await expect(confirm).toBeDisabled();
   await cards.nth(2).click();
-  await expect(order.getByText("1 of 3 selected")).toBeVisible();
+  await expect(order.getByText("1 of 3 ordered")).toBeVisible();
   await order.getByRole("button", { name: "Reset order" }).click();
-  await expect(order.getByText("0 of 3 selected")).toBeVisible();
+  await expect(order.getByText("0 of 3 ordered")).toBeVisible();
   for (const [done, index] of [[1, 2], [2, 1], [3, 0]]) {
     await cards.nth(index).click();
-    await expect(order.getByText(`${done} of 3 selected`)).toBeVisible();
+    await expect(order.getByText(`${done} of 3 ordered`)).toBeVisible();
   }
   await expect(confirm).toBeEnabled();
   await confirm.click();
