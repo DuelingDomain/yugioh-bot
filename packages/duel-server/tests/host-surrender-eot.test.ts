@@ -22,6 +22,13 @@ import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
 const SECRET = "surrender-eot-test";
+const END_PHASE_RECOVER = `local c=Duel.GetFieldCard(0,LOCATION_MZONE,0)
+local e=Effect.CreateEffect(c)
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetRange(LOCATION_MZONE)
+e:SetCode(EVENT_PHASE_START+PHASE_END)
+e:SetOperation(function() Duel.Recover(1,321,REASON_EFFECT) end)
+c:RegisterEffect(e)`;
 class TestWorker extends GameWorker {
   holdViews = false;
   failCreate = false;
@@ -277,14 +284,21 @@ for (const mode of ["normal", "domain"] as const) {
       expect((await t.post("view", leaver)).engine).toEqual(room.engine);
     }, 60_000);
 
+    it.each(["ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s normal turn end fires the End Phase Recover effect", async (format) => {
+      const t = await table(mode, format, false, [END_PHASE_RECOVER]);
+      const before = await t.view();
+      await t.answer(0, { choice: "to_ep" });
+      expect((await t.view()).phase).toBe("end");
+      await t.answer(0, { choice: "no" });
+      const after = await t.view(1);
+      expect(after).toMatchObject({ turn: 2, turnSeat: 1, result: null });
+      expect(after.seats[1]!.lp).toBe(before.seats[1]!.lp + 321);
+      expect(after.log.slice(before.log.length).map((line) => line.text)).toContain("end");
+      expect(states(after)).toEqual(Array(t.count).fill("in"));
+    }, 60_000);
+
     it.each(["ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s removes the turn player immediately without its End Phase effects", async (format) => {
-      const t = await table(mode, format, false, [`local c=Duel.GetFieldCard(0,LOCATION_MZONE,0)
-local e=Effect.CreateEffect(c)
-e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
-e:SetRange(LOCATION_MZONE)
-e:SetCode(EVENT_PHASE_START+PHASE_END)
-e:SetOperation(function() Duel.Recover(1,321,REASON_EFFECT) end)
-c:RegisterEffect(e)`]);
+      const t = await table(mode, format, false, [END_PHASE_RECOVER]);
       const before = await t.view();
       const room = await t.post("surrender", 0);
       expect(room.role).toBe(format === "tag" ? "player" : "spectator");
@@ -292,6 +306,8 @@ c:RegisterEffect(e)`]);
       const commands = t.service.privateState(t.session.slug, "g").commands;
       expect(commands.map((entry) => entry.command.promptId)).toEqual(["eliminate:0"]);
       expect(room.engine!.log.slice(before.log.length).some((entry) => entry.text === "draw")).toBe(format !== "tag");
+      // A forced turn end may emit an "end" phase marker. The positive control
+      // above proves that the registered End Phase action itself is skipped here.
       expect(room.engine!.seats[1]!.lp).toBe(before.seats[1]!.lp);
       expect(room.engine!.seats.every((seat) => !seat.pendingElimination)).toBe(true);
       if (format === "tag") expect(room.session).toMatchObject({ status: "completed", winnerSeat: 1 });
