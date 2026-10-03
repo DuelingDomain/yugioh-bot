@@ -26,24 +26,25 @@ export function createDraftTimerService({
       try {
         drafts.expireCurrentPickStep(draft.id, now);
         const updatedDraft = drafts.findById(draft.id);
-        await messenger.updateStatus(updatedDraft);
-
-        if (!updatedDraft.webSlug) continue;
-
-        if (updatedDraft.status === "completed") {
-          await broadcaster.draft({ kind: "complete", slug: updatedDraft.webSlug });
-          if (onDraftCompleted) {
-            await onDraftCompleted(updatedDraft.id).catch((err) =>
-              console.warn(`[draft-timer] onDraftCompleted failed for ${updatedDraft.id}:`, err),
-            );
+        // Publish the committed step before Discord I/O, which can fail independently.
+        if (updatedDraft.webSlug) {
+          if (updatedDraft.status === "completed") {
+            await broadcaster.draft({ kind: "complete", slug: updatedDraft.webSlug });
+          } else {
+            await broadcaster.draft({
+              kind: "resync",
+              slug: updatedDraft.webSlug,
+              packRound: updatedDraft.currentPackRound,
+              pickStep: updatedDraft.currentPickStep,
+            });
           }
-        } else {
-          await broadcaster.draft({
-            kind: "resync",
-            slug: updatedDraft.webSlug,
-            packRound: updatedDraft.currentPackRound,
-            pickStep: updatedDraft.currentPickStep,
-          });
+        }
+
+        await messenger.updateStatus(updatedDraft);
+        if (updatedDraft.webSlug && updatedDraft.status === "completed" && onDraftCompleted) {
+          await onDraftCompleted(updatedDraft.id).catch((err) =>
+            console.warn(`[draft-timer] onDraftCompleted failed for ${updatedDraft.id}:`, err),
+          );
         }
       } catch (error) {
         console.warn(`Draft timer failed to expire pick step for draft ${draft.id}`, error);

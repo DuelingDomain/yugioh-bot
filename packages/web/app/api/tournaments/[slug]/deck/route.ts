@@ -13,6 +13,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { callDuelHost } from "@/lib/duel-host";
 import { draftMainSizeError, loadDraftPool } from "@/lib/tournament-deck";
+import { broadcaster } from "@/lib/notify";
 
 export const runtime = "nodejs";
 
@@ -177,6 +178,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       savedDeckId,
       deck,
     });
+    void broadcaster.tournament({ kind: "match-updated", slug });
     return NextResponse.json({ registration });
   } catch (error) {
     return serviceError(error);

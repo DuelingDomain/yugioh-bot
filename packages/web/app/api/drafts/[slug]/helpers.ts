@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createDraftService, createSavedDeckService } from "@yugidraft/shared/services";
 import { toUtcIso } from "@/lib/utils";
+import { broadcaster } from "@/lib/notify";
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
   if (!pickDeadlineAt) {
@@ -57,7 +58,15 @@ export async function buildDraftResponse(slug: string, userId: string) {
   }
 
   if (draftIdRow.status === "active") {
-    drafts.expireCurrentPickStep(draftIdRow.id);
+    const { autoPickedPlayerIds } = drafts.expireCurrentPickStep(draftIdRow.id);
+    if (autoPickedPlayerIds.length > 0) {
+      const updated = drafts.findById(draftIdRow.id);
+      if (updated.status === "completed") {
+        void broadcaster.draft({ kind: "complete", slug });
+      } else {
+        void broadcaster.draft({ kind: "resync", slug, packRound: updated.currentPackRound, pickStep: updated.currentPickStep });
+      }
+    }
   }
 
   const draft = db

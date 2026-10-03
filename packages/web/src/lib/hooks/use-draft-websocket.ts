@@ -25,9 +25,14 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
 
     const socket = io(WS_URL, { autoConnect: true });
     socketRef.current = socket;
+    let hasConnected = false;
 
     socket.on("connect", () => {
       socket.emit("draft:join", { slug });
+      // The page loads on mount; only reconnects need to catch up on missed events.
+      const isReconnect = hasConnected;
+      hasConnected = true;
+      if (isReconnect) optionsRef.current.onResync?.();
     });
 
     socket.on("draft:status", (payload: { status: "active" | "cancelled" | "completed" }) => {
