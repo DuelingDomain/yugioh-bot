@@ -16,6 +16,7 @@ vi.mock("next/link", () => ({
 
 const api = vi.hoisted(() => ({
   readySeries: vi.fn(),
+  unreadySeries: vi.fn(),
   chooseSeriesFirst: vi.fn(),
   saveSeriesSideDeck: vi.fn(),
   cancelSeries: vi.fn(),
@@ -36,6 +37,7 @@ const soon = () => new Date(Date.now() + 42_000).toISOString();
 beforeEach(() => {
   api.chooseSeriesFirst.mockReset().mockResolvedValue({ series: makeSeries(), nextSlug: null });
   api.readySeries.mockReset().mockResolvedValue({ series: makeSeries(), nextSlug: null });
+  api.unreadySeries.mockReset().mockResolvedValue({ series: makeSeries(), nextSlug: null });
   api.saveSeriesSideDeck.mockReset().mockResolvedValue({ series: makeSeries() });
   api.cancelSeries.mockReset().mockResolvedValue(undefined);
   api.getDuelCards.mockReset().mockImplementation(async (codes: number[]) => ({

@@ -188,6 +188,11 @@ export async function readySeries(slug: string): Promise<{ series: DuelSeriesSum
   return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/series/ready`, { method: "POST" }));
 }
 
+/** Take back Ready while editing the side deck. `nextSlug` is set when the next game already exists. */
+export async function unreadySeries(slug: string): Promise<{ series: DuelSeriesSummary; nextSlug: string | null }> {
+  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/series/unready`, { method: "POST" }));
+}
+
 /** The loser of the last game chooses to go first or second in the next game; `slug` is any game of the series. */
 export async function chooseSeriesFirst(slug: string, choice: DuelFirstChoice): Promise<{ series: DuelSeriesSummary; nextSlug: string | null }> {
   return parseBody(

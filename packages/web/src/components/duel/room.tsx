@@ -707,7 +707,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
     else router.replace("/duels");
   };
   if (showBetweenGames) {
-    return <BetweenGamesScreen room={data} slug={slug} onChanged={() => void refreshRoom()} onNavigate={goToGame} />;
+    return <BetweenGamesScreen room={data} slug={slug} onChanged={refreshRoom} onNavigate={goToGame} />;
   }
   if (ownWindowGate) {
     return (
