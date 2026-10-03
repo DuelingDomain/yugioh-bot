@@ -6,7 +6,9 @@ import {
   TAG_DOM,
   defaultTeamNames,
   pileSideForSeat,
-  tagKeysPaused,
+  tagCameraYields,
+  tagInputSuspended,
+  resolveTagExtras,
   tagResponseOrder,
   tagTurnText,
   type TagShellLiveProps,
@@ -34,22 +36,34 @@ describe("pileSideForSeat", () => {
   });
 });
 
-describe("tagKeysPaused", () => {
+describe("tagInputSuspended", () => {
   it("runs the keys when nothing is open", () => {
-    expect(tagKeysPaused({})).toBe(false);
-    expect(tagKeysPaused({ seatPick: null, aim: null, menu: null, pile: null, dialog: false, inputSuspended: false })).toBe(false);
+    expect(tagInputSuspended({})).toBe(false);
+    expect(tagInputSuspended({ menu: null, pile: null, dialog: false, inputSuspended: false, narrow: false, sheetOpen: true })).toBe(false);
   });
   it.each([
-    ["seatPick", { options: new Map() }],
-    ["aim", { mode: "aim" }],
     ["menu", { open: true }],
     ["pile", { open: true }],
     ["dialog", true],
     ["inputSuspended", true],
-  ] as const)("pauses the keys for %s", (key, value) => {
-    expect(tagKeysPaused({ [key]: value })).toBe(true);
+  ] as const)("suspends the input for %s", (key, value) => {
+    expect(tagInputSuspended({ [key]: value })).toBe(true);
   });
-  it("does not pause for a closed pile", () => expect(tagKeysPaused({ pile: { open: false } })).toBe(false));
+  it("suspends for an open sheet only on a narrow screen", () => {
+    expect(tagInputSuspended({ narrow: true, sheetOpen: true })).toBe(true);
+    expect(tagInputSuspended({ narrow: true, sheetOpen: false })).toBe(false);
+  });
+  it("does not suspend for a closed pile", () => expect(tagInputSuspended({ pile: { open: false } })).toBe(false));
+  it("does not take a seat pick or an aim: the aim flow needs its digits and Esc", () => {
+    expect(tagInputSuspended({ seatPick: {}, aim: {} } as never)).toBe(false);
+  });
+});
+
+describe("tagCameraYields", () => {
+  it("does not yield when idle", () => expect(tagCameraYields({})).toBe(false));
+  it.each(["aiming", "seatKeys", "centeredUnrevealed"] as const)("yields for %s", (key) => {
+    expect(tagCameraYields({ [key]: true })).toBe(true);
+  });
 });
 
 describe("defaultTeamNames", () => {
@@ -64,44 +78,74 @@ describe("tagResponseOrder", () => {
     chain: seats.map((seat, index) => ({ index: index + 1, seat }) as DuelChainLink),
   });
 
-  it("has no order without a chain", () => expect(tagResponseOrder(chainOf())).toBeNull());
+  it("has no order without a chain", () => expect(tagResponseOrder(chainOf(), 0)).toBeNull());
   it("lets the opposing team answer first, in turn order", () => {
-    const order = tagResponseOrder(chainOf(0))!;
+    const order = tagResponseOrder(chainOf(0), 0)!;
     expect(order.team).toBe(1);
     expect(order.seats).toEqual([1, 3]);
     expect(order.promptSeat).toBe(1);
     expect(order.window.team).toBe(1);
     expect(order.window.otherPassed).toBe(false);
   });
+  it("starts each team from the turn seat", () => {
+    expect(tagResponseOrder(chainOf(0), 2)!.seats).toEqual([3, 1]);
+    expect(tagResponseOrder(chainOf(1), 2)!.seats).toEqual([2, 0]);
+    expect(tagResponseOrder(chainOf(1), 2)!.promptSeat).toBe(2);
+  });
   it("answers the newest link, not the first", () => {
-    expect(tagResponseOrder(chainOf(0, 1))!.team).toBe(0);
+    expect(tagResponseOrder(chainOf(0, 1), 0)!.team).toBe(0);
   });
   it("moves to the second rival after the first one passes", () => {
-    const order = tagResponseOrder(chainOf(0), [1])!;
+    const order = tagResponseOrder(chainOf(0), 0, [1])!;
     expect(order.team).toBe(1);
     expect(order.promptSeat).toBe(3);
     expect(order.window.members.map((m) => m.state)).toEqual(["passed", "choosing"]);
   });
   it("returns to the link owner's team when both rivals passed", () => {
-    const order = tagResponseOrder(chainOf(0), [1, 3])!;
+    const order = tagResponseOrder(chainOf(0), 0, [1, 3])!;
     expect(order.team).toBe(0);
     expect(order.seats).toEqual([0, 2]);
     expect(order.window.otherPassed).toBe(true);
   });
+  it("has no order when both teams passed", () => {
+    expect(tagResponseOrder(chainOf(0), 0, [0, 1, 2, 3])).toBeNull();
+  });
+});
+
+describe("resolveTagExtras", () => {
+  const controller = { room: { session: { mode: "domain" as const } } };
+  it("defaults the mode from the controller room", () => {
+    expect(resolveTagExtras({}, controller)).toEqual({ teamNames: ["Team 1", "Team 2"], mode: "domain" });
+  });
+  it("prefers the given mode and names", () => {
+    expect(resolveTagExtras({ mode: "normal", teamNames: ["A", "B"] }, controller)).toEqual({ teamNames: ["A", "B"], mode: "normal" });
+  });
+  it("falls back to normal with no controller", () => expect(resolveTagExtras({}).mode).toBe("normal"));
 });
 
 describe("DOM hooks", () => {
-  it("keeps the names every piece relies on", () => {
+  it("keeps the names every piece and the e2e helpers rely on", () => {
     expect(TAG_DOM).toEqual({
       shellAttr: "data-table-shell",
       shellValue: "tag",
       canActAttr: "data-can-act",
       fieldLabel: "Duel field",
-      stageAttr: "data-tag-stage",
+      stageAttr: "data-table-stage",
+      stageValue: "tag",
+      extraStageAttr: "data-tag-stage",
+      seatFieldAttr: "data-seat-field",
+      sideAttr: "data-side",
+      sideSelf: "you",
+      sidePartner: "partner",
       relationAttr: "data-relation",
-      relations: ["self", "partner", "rival"],
+      relations: ["self", "partner", "opponent", "other"],
       lpSeatAttr: "data-lp-seat",
       handLabel: "Your hand",
+      handSeatAttr: "data-hand-seat",
+      chainFxAttr: "data-chain-fx",
+      chipsTestId: "priority-chips",
+      chipSeatAttr: "data-seat",
+      chipNowAttr: "data-now",
     });
     expect(tagTurnText(7)).toBe("Turn 7");
   });
@@ -112,7 +156,8 @@ describe("TagShellLiveProps", () => {
     const seams: Pick<TableShellProps, "controller" | "fillViewport" | "actions" | "connection" | "pickContinuation" | "inputSuspended" | "boardRef"> = {
       controller: undefined as never,
     };
-    const props: TagShellLiveProps = { ...seams, teamNames: ["A", "B"], mode: "domain" };
-    expect(props.mode).toBe("domain");
+    const props: TagShellLiveProps = { ...seams, teamNames: ["A", "B"] };
+    const withMode: TagShellLiveProps = { ...props, mode: "domain" };
+    expect(withMode.mode).toBe("domain");
   });
 });
