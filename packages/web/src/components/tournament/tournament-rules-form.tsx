@@ -77,7 +77,7 @@ export function TournamentRulesForm({
       aria-label="Duel rules"
       className="space-y-3 rounded-xl border border-border bg-surface p-4"
     >
-      <h3 className="font-body text-sm font-semibold uppercase tracking-wider text-text-secondary">
+      <h3 className="font-body text-sm font-semibold text-text-secondary">
         Duel rules
       </h3>
       {error && <p className="text-sm text-accent-cta">{error}</p>}
@@ -91,7 +91,7 @@ export function TournamentRulesForm({
       {locked ? (
         <p className="flex items-center gap-1.5 text-xs text-text-secondary">
           <Lock className="h-3.5 w-3.5" aria-hidden="true" />
-          Locked — the first online game has started, or the event is over.
+          Locked. The first online game has started, or the event is over.
         </p>
       ) : (
         <Button type="submit" loading={saving} size="sm">

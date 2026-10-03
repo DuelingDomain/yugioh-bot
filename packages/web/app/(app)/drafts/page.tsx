@@ -1,11 +1,10 @@
 import { env } from "@/lib/env";
 import { redirect } from "next/navigation";
-import Link from "next/link";
-import { Fragment } from "react";
-import { Layers, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
-import { SheetRoot } from "@/components/sheet";
+import { FloorList, SectionHead, SvButton } from "@/components/sheet";
+import { DraftFrame } from "@/components/draft/draft-frame";
 import { LiveDraftRow, WaitingDraftRow } from "@/components/draft/list/draft-rows";
 import { FinishedLedger } from "@/components/draft/list/finished-ledger";
 import styles from "@/components/draft/list/drafts-list.module.css";
@@ -71,88 +70,57 @@ export default async function DraftsPage() {
   const groups = groupDrafts(drafts);
   const summary = listSummaryParts(groups);
 
-  return (
-    <SheetRoot>
-      <header className={`page-h sheet-head ${styles.head}`}>
-        <div className={styles.heading}>
-          <h1 className="t-title">Drafts</h1>
-          {drafts.length > 0 && (
-            <p className="page-sub">
-              Drafts you&apos;re in
-              {summary.map((part) => (
-                <Fragment key={part}>
-                  <span className="dot" aria-hidden="true" />
-                  {part}
-                </Fragment>
-              ))}
-            </p>
-          )}
-        </div>
-        <Link className={`btn btn-primary ${styles.newDraft}`} href="/drafts/new">
-          <Plus className="ic" aria-hidden="true" />
-          New draft
-        </Link>
-      </header>
+  const newDraft = (
+    <SvButton as="a" href="/drafts/new" variant="primary">
+      <Plus size={16} strokeWidth={2.2} aria-hidden="true" />
+      New draft
+    </SvButton>
+  );
 
+  return (
+    <DraftFrame title="Drafts" sub={summary.length > 0 ? summary.join(", ") : undefined} actions={newDraft}>
       {drafts.length === 0 ? (
-        <div className="empty">
-          <Layers className="ic" aria-hidden="true" />
+        <div className={styles.empty}>
           <h2>No drafts yet</h2>
           <p>
             Start one here, or run <code className="cmd">/draft create</code> in Discord. Drafts you join show up on this
             page.
           </p>
-          <div className="acts">
-            <Link className="btn btn-primary" href="/drafts/new">
-              <Plus className="ic" aria-hidden="true" />
-              New draft
-            </Link>
-          </div>
+          <SvButton as="a" href="/drafts/new" variant="primary" className={styles.go}>
+            <Plus size={16} strokeWidth={2.2} aria-hidden="true" />
+            New draft
+          </SvButton>
         </div>
       ) : (
-        <div className="tl">
+        <div className={styles.sections}>
           {groups.live.length > 0 && (
             <section aria-labelledby="dl-live">
-              <div className="sec-h">
-                <h2 className="sec-t" id="dl-live">
-                  Live now
-                </h2>
-              </div>
-              <div className="tl-list">
+              <SectionHead id="dl-live" title="Live now" />
+              <FloorList aria-labelledby="dl-live">
                 {groups.live.map((d) => (
                   <LiveDraftRow key={d.id} draft={d} />
                 ))}
-              </div>
+              </FloorList>
             </section>
           )}
           {groups.waiting.length > 0 && (
             <section aria-labelledby="dl-wait">
-              <div className="sec-h">
-                <h2 className="sec-t" id="dl-wait">
-                  Waiting to start
-                </h2>
-                <span className="sec-aux">Nothing is dealt until the host presses Start.</span>
-              </div>
-              <div className="tl-list">
+              <SectionHead id="dl-wait" title="Waiting to start" note="Nothing is dealt until the host presses Start." />
+              <FloorList aria-labelledby="dl-wait">
                 {groups.waiting.map((d) => (
                   <WaitingDraftRow key={d.id} draft={d} />
                 ))}
-              </div>
+              </FloorList>
             </section>
           )}
           {groups.finished.length > 0 && (
             <section aria-labelledby="dl-fin">
-              <div className="sec-h">
-                <h2 className="sec-t" id="dl-fin">
-                  Finished
-                </h2>
-                <span className="sec-aux">Newest first</span>
-              </div>
-              <FinishedLedger items={groups.finished} />
+              <SectionHead id="dl-fin" title="Finished" note="Newest first" />
+              <FinishedLedger items={groups.finished} labelledBy="dl-fin" />
             </section>
           )}
         </div>
       )}
-    </SheetRoot>
+    </DraftFrame>
   );
 }

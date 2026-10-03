@@ -3,7 +3,9 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import type { DraftConfig } from "@yugidraft/shared/types";
-import { CircleAlert, Check } from "lucide-react";
+import { Check } from "lucide-react";
+import { StatusLine, SvButton } from "@/components/sheet";
+import { DraftLayout, DraftMain, DraftRail, Num, RailSection, Rules } from "./draft-frame";
 import { parseCustomCardIds } from "@/lib/custom-card-pool";
 import { PoolBuilder } from "@/components/cards/pool-builder";
 import { ArchetypeAdd } from "./create/archetype-add";
@@ -228,17 +230,16 @@ export function CreateDraftForm() {
   const unnamed = !name.trim();
 
   return (
-    <form className="mk" onSubmit={handleSubmit}>
-      <div className="min-w-0">
+    <DraftLayout as="form" onSubmit={handleSubmit}>
+      <DraftMain>
         {error && (
-          <div className={`banner banner-bad ${styles.banner}`} role="alert">
-            <CircleAlert className="ic" aria-hidden="true" />
-            <p>{error}</p>
+          <div role="alert" className={styles.alert}>
+            <StatusLine tone="block">{error}</StatusLine>
           </div>
         )}
-        <div className={`mk-secs ${styles.sections}`}>
-          <section className="mk-sec" aria-labelledby="dc-d">
-            <div className="mk-side">
+        <div className={styles.sections}>
+          <section className={styles.sec} aria-labelledby="dc-d">
+            <div className={styles.secSide}>
               <h2 id="dc-d">Draft</h2>
               <p>Players see this name in Discord and on the web.</p>
             </div>
@@ -285,8 +286,8 @@ export function CreateDraftForm() {
             </div>
           </section>
 
-          <section className="mk-sec" aria-labelledby="dc-p">
-            <div className="mk-side">
+          <section className={styles.sec} aria-labelledby="dc-p">
+            <div className={styles.secSide}>
               <h2 id="dc-p">Pool</h2>
               <p>The cards everyone drafts from. Mix whole sets, whole archetypes and single passcodes.</p>
             </div>
@@ -346,16 +347,16 @@ export function CreateDraftForm() {
                     placeholder="Goat cube"
                   />
                 </div>
-                <button className="btn btn-secondary" type="button" onClick={handleSaveTemplate}>
+                <SvButton variant="ghost" onClick={handleSaveTemplate}>
                   {savedName ? (
                     <>
-                      <Check className="ic sm" aria-hidden="true" />
+                      <Check size={15} aria-hidden="true" />
                       Saved
                     </>
                   ) : (
                     "Save pool"
                   )}
-                </button>
+                </SvButton>
                 {savedName && (
                   <p className={styles.status} role="status">
                     Saved {savedName}
@@ -365,53 +366,48 @@ export function CreateDraftForm() {
             </div>
           </section>
 
-          <section className="mk-sec" aria-labelledby="dc-k">
-            <div className="mk-side">
+          <section className={styles.sec} aria-labelledby="dc-k">
+            <div className={styles.secSide}>
               <h2 id="dc-k">Packs</h2>
               <p>How many cards each player ends with, and how long each pick lasts.</p>
             </div>
             <PackFields value={fields} onChange={setFields} />
           </section>
         </div>
-      </div>
+      </DraftMain>
 
-      <aside className="sum" aria-label="Draft summary">
-        <div className="card">
-          <p className="card-kind">Cube draft</p>
-          <p className={`sum-name${unnamed ? ` ${styles.unnamed}` : ""}`}>{unnamed ? "Untitled draft" : name.trim()}</p>
-          <dl className="rows">
-            <div>
-              <dt>Pool</dt>
-              <dd>{poolRowText(fields.setNames.length, cardIds.length)}</dd>
-            </div>
-            <div>
-              <dt>Each player</dt>
-              <dd>{config.cardsPerPlayer} cards</dd>
-            </div>
-            <div>
-              <dt>Packs</dt>
-              <dd>{config.packsPerPlayer} of {config.packSize}</dd>
-            </div>
-            <div>
-              <dt>Pick duration</dt>
-              <dd>{secondsText(config.pickSeconds ?? 0)}</dd>
-            </div>
-            <div>
-              <dt>Seats</dt>
-              <dd>Shuffled at the start</dd>
-            </div>
-          </dl>
+      <DraftRail
+        aria-label="Draft summary"
+        actions={
+          <SvButton type="submit" variant="primary" big wide disabled={submitting} aria-busy={submitting || undefined}>
+            Create draft
+          </SvButton>
+        }
+      >
+        <RailSection>
+          <p className={styles.railKind}>Cube draft</p>
+          <p className={`${styles.railName}${unnamed ? ` ${styles.unnamed}` : ""}`}>{unnamed ? "Untitled draft" : name.trim()}</p>
+          <Rules
+            rows={[
+              { label: "Pool", value: poolRowText(fields.setNames.length, cardIds.length) },
+              { label: "Each player", value: <><Num>{config.cardsPerPlayer}</Num> cards</> },
+              { label: "Packs", value: <><Num>{config.packsPerPlayer}</Num> of <Num>{config.packSize}</Num></> },
+              { label: "Pick duration", value: secondsText(config.pickSeconds ?? 0) },
+              { label: "Seats", value: "Shuffled at the start" },
+            ]}
+          />
+        </RailSection>
+        <RailSection>
           <PoolPreview cards={poolCards} unknownIds={poolUnknownIds} loading={poolLoading} />
-          <ol className={`next ${styles.next}`} aria-label="What happens next">
+        </RailSection>
+        <RailSection title="What happens next">
+          <ol className={styles.steps} aria-label="What happens next">
             <li><span>You get a lobby with an invite link. You&apos;re in it as a player.</span></li>
             <li><span>Players join from the link or with <code className="cmd">/draft join</code>.</span></li>
             <li><span>You press Start. Seats are shuffled and the first packs are dealt.</span></li>
           </ol>
-          <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={submitting} aria-busy={submitting || undefined}>
-            Create draft
-          </button>
-        </div>
-      </aside>
-    </form>
+        </RailSection>
+      </DraftRail>
+    </DraftLayout>
   );
 }

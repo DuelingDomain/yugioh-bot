@@ -2,9 +2,10 @@
 
 import { useCallback, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, RotateCw, TriangleAlert, Upload } from "lucide-react";
-import type { DuelMode, SavedDeck } from "@yugidraft/shared/duels";
-import { createSavedDeck } from "./api";
+import { RotateCw, Upload } from "lucide-react";
+import type { DuelMode } from "@yugidraft/shared/duels";
+import { Segmented, SectionHead, StatusLine, SvButton } from "@/components/sheet";
+import { createSavedDeck, type SavedDeckView } from "./api";
 import { MAX_IMPORT_FILE_BYTES, prepareDeckImport } from "./import";
 import { modeLabel } from "./model";
 import styles from "./library.module.css";
@@ -15,7 +16,7 @@ const MODE_CHOICES = [
 ] as const;
 
 type ImportOutcome =
-  | { state: "saved"; deck: SavedDeck }
+  | { state: "saved"; deck: SavedDeckView }
   | { state: "failed"; error: string };
 
 type ImportRow = { key: number; fileName: string } & ({ state: "saving" } | ImportOutcome);
@@ -35,7 +36,7 @@ async function importOne(file: File, mode: DuelMode): Promise<ImportOutcome> {
 export type DeckImporter = ReturnType<typeof useDeckImport>;
 
 /** Saves each dropped file as its own deck, one at a time, in drop order. */
-export function useDeckImport(onImported: (deck: SavedDeck) => void) {
+export function useDeckImport(onImported: (deck: SavedDeckView) => void) {
   const [mode, setMode] = useState<DuelMode>("normal");
   const [rows, setRows] = useState<ImportRow[]>([]);
   const nextKey = useRef(1);
@@ -78,16 +79,15 @@ export function DeckImportPanel({
   const finished = rows.length > 0 && !saving;
 
   return (
-    <section className="panel dk-imp" aria-labelledby="deck-import-title">
-      <div className="dk-imp-h">
-        <h2 id="deck-import-title">Import YDK files</h2>
-        <button className="btn btn-quiet btn-sm" type="button" onClick={onClose}>
-          Close
-        </button>
-      </div>
+    <section className={styles.import} aria-labelledby="deck-import-title">
+      <SectionHead
+        id="deck-import-title"
+        title="Import YDK files"
+        action={<SvButton variant="quiet" onClick={onClose}>Close</SvButton>}
+      />
 
-      <div className="dk-imp-b">
-        <label className={`dk-drop ${styles.drop}`} data-dragging={dragging ? "" : undefined}>
+      <div className={styles.importBody}>
+        <label className={styles.drop} data-dragging={dragging ? "" : undefined}>
           <input
             type="file"
             accept=".ydk,.txt,text/plain"
@@ -100,26 +100,15 @@ export function DeckImportPanel({
               event.target.value = "";
             }}
           />
-          <Upload className="ic" aria-hidden="true" />
+          <Upload size={20} aria-hidden="true" />
           {dragging ? "Let go to import" : "Drop .ydk files here"}
           <small>{dragging ? "Every file saves as its own deck." : "or click to choose. You can pick many at once."}</small>
         </label>
 
-        <div>
+        <div className={styles.saveAs}>
           <span className="label">Save as</span>
-          <div className="seg" role="group" aria-label="Save as">
-            {MODE_CHOICES.map((choice) => (
-              <button
-                key={choice.value}
-                type="button"
-                aria-pressed={mode === choice.value}
-                onClick={() => setMode(choice.value)}
-              >
-                {choice.label}
-              </button>
-            ))}
-          </div>
-          <p className="hint">
+          <Segmented label="Save as" value={mode} options={MODE_CHOICES} onChange={setMode} />
+          <p className={styles.hintText}>
             Each file becomes one saved deck, named after the file. A file with a #deckmaster section always saves as
             Domain. For Domain, a single Side card becomes the Deck Master.
           </p>
@@ -128,39 +117,30 @@ export function DeckImportPanel({
 
       {rows.length > 0 ? (
         <>
-          <ul className="dk-res" aria-live="polite">
+          <ul className={styles.results} aria-live="polite">
             {rows.map((row) => (
               <li key={row.key} data-st={row.state}>
-                {row.state === "saving" ? <RotateCw className={`ic ${styles.spin}`} aria-hidden="true" /> : null}
-                {row.state === "saved" ? <Check className="ic" aria-hidden="true" /> : null}
-                {row.state === "failed" ? <TriangleAlert className="ic" aria-hidden="true" /> : null}
-                <div>
-                  <p className="f">{row.fileName}</p>
-                  {row.state === "saving" ? <p className="s">Saving…</p> : null}
-                  {row.state === "saved" ? (
-                    <p className="s">
-                      Saved as {row.deck.name} · {modeLabel(row.deck.mode)} · Main <b>{row.deck.deck.main.length}</b> ·
-                      Extra <b>{row.deck.deck.extra.length}</b>
-                    </p>
-                  ) : null}
-                  {row.state === "failed" ? <p className="s">{row.error}</p> : null}
-                </div>
+                {row.state === "saving" ? <RotateCw size={16} className={styles.spin} aria-hidden="true" /> : null}
+                <span className={styles.resFile}>{row.fileName}</span>
+                {row.state === "saving" ? <span className={styles.resFacts}>Saving…</span> : null}
                 {row.state === "saved" ? (
-                  <Link href={`/decks/${row.deck.id}`} className="link">
-                    Open
-                    <ArrowRight className="ic sm" aria-hidden="true" />
-                  </Link>
-                ) : (
-                  <span />
-                )}
+                  <>
+                    <span className={styles.resFacts}>
+                      <span>Saved as {row.deck.name}</span>
+                      <span>{modeLabel(row.deck.mode)}</span>
+                      <span>Main <b>{row.deck.deck.main.length}</b></span>
+                      <span>Extra <b>{row.deck.deck.extra.length}</b></span>
+                    </span>
+                    <Link href={`/decks/${row.deck.id}`} className={styles.resLink}>Open</Link>
+                  </>
+                ) : null}
+                {row.state === "failed" ? <StatusLine tone="block">{row.error}</StatusLine> : null}
               </li>
             ))}
           </ul>
           {finished ? (
-            <div className="dk-res-f" style={{ padding: "0 18px 12px" }}>
-              <button className="btn btn-quiet btn-sm" type="button" onClick={clearFinished}>
-                Clear list
-              </button>
+            <div className={styles.resFoot}>
+              <SvButton variant="quiet" onClick={clearFinished}>Clear list</SvButton>
             </div>
           ) : null}
         </>

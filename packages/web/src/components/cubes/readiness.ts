@@ -1,5 +1,5 @@
 /**
- * Theme Draft readiness for a cube, at the default settings: 3 choices a pick, 40 main,
+ * Theme draft readiness for a cube, at the default settings: 3 choices a pick, 40 main,
  * 15 extra, no burn. The same rule as the server's pool analysis (`analyzeCubePools`):
  * a pool needs `cards + (choices - 1)` copies, so 42 main and 17 Extra. A player can be given
  * at most 3 copies of a card, so a card counts at most ×3 here however many copies the cube holds.
@@ -50,7 +50,7 @@ export type ReadinessState = "blocked" | "soft" | "ready";
 export interface CubeReadiness {
   main: PoolReadiness;
   extra: PoolReadiness;
-  /** blocked: short on main (a Theme Draft cannot start). soft: only Extra is short. */
+  /** blocked: short on main (a theme draft cannot start). soft: only Extra is short. */
   state: ReadinessState;
 }
 

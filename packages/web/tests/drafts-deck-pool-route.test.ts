@@ -79,6 +79,7 @@ describe("GET /api/drafts/[slug]/deck-pool", () => {
       ],
       mainPoolCount: 3,
       savedDeckId: null,
+      registration: null,
       unresolved: [],
     });
     expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "normalize-codes", codes: [1, 2, 2001] }));

@@ -81,8 +81,28 @@ describe("AccountMenu", () => {
     expect(screen.getByText(/you get a profile after your first match/i)).toBeTruthy();
   });
 
-  it("phone variant uses the avatar button and the phone menu", () => {
-    open(ready, "phone");
-    expect(screen.getByRole("menu")).toHaveClass("ph");
+  it("phone variant is a ring button with the phone menu, and shows no tier line", () => {
+    const trigger = open(ready, "phone");
+    expect(screen.getByRole("menu")).toHaveAttribute("data-variant", "phone");
+    expect(trigger).not.toHaveTextContent("Gold");
+  });
+
+  it("the side seat shows your name, tier and Elo, with no chevrons", () => {
+    render(<AccountMenu account={ready} pathname="/dashboard" variant="side" />);
+    const seat = screen.getByRole("button", { name: /account menu, imran/i });
+    expect(seat).toHaveTextContent("Imran");
+    expect(seat).toHaveTextContent("Gold");
+    expect(seat).toHaveTextContent("1432");
+    expect(seat.querySelector("svg.lucide-chevrons-up-down")).toBeNull();
+  });
+
+  it("the seat shows the name alone when the rating could not be read", () => {
+    render(<AccountMenu account={{ ...ready, tier: null, elo: null }} pathname="/dashboard" variant="side" />);
+    expect(screen.getByRole("button", { name: /account menu, imran/i }).textContent).not.toMatch(/\d{3,}/);
+  });
+
+  it("the rail seat is the ring alone", () => {
+    render(<AccountMenu account={ready} pathname="/dashboard" variant="side" rail />);
+    expect(screen.getByRole("button", { name: /account menu, imran/i })).not.toHaveTextContent("Gold");
   });
 });

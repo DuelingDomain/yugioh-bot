@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
-import { Check, Coins, Crown, Flame, Medal, Swords, Trophy, type LucideIcon } from "lucide-react";
-import { NewChip, SummonCircle } from "@/components/sheet";
+import { Check } from "lucide-react";
+import { NewChip, SectionHead, Zone } from "@/components/sheet";
 import {
   buildAchievements,
   formatDay,
@@ -13,43 +13,37 @@ import {
 } from "./profile-model";
 import styles from "./profile.module.css";
 
-
-const ICONS: Record<string, LucideIcon> = {
-  trophy: Trophy, flame: Flame, swords: Swords, coins: Coins, crown: Crown, medal: Medal,
-};
-
 function Tile({ view }: { view: AchievementView }) {
-  const Icon = ICONS[view.icon] ?? Trophy;
   const { progress } = view;
+  const pct = progress ? Math.round((progress.value / progress.goal) * 1000) / 10 : 0;
   return (
-    <li data-a={view.state} className={progress?.close ? "close" : undefined}>
-      {view.state === "new" && <NewChip className="newchip">New</NewChip>}
-      <span className="medal">
-        {view.state === "new" && <SummonCircle />}
-        <Icon className="ic" aria-hidden />
+    <li data-a={view.state} className={styles.tile}>
+      <span className={styles.tileCard}>
+        {/* Won is a gold card, anything not yet earned is an outline. The words beside it carry the meaning. */}
+        <Zone state={view.state === "off" ? "dashed" : "won"} />
       </span>
-      <span className="an">{view.name}</span>
-      <span className="ac">{view.criteria}</span>
-      {view.unlockedAt ? (
-        <span className="ad"><Check className="ic sm" aria-hidden />{formatDay(view.unlockedAt)}</span>
-      ) : progress ? (
-        <span className={styles.progressLine}>
-          <span className="ad">
-            {progress.close && <span className={styles.progressDetail}><b>{progress.toGo.toLocaleString()} to go</b> · </span>}
-            {progress.value.toLocaleString()} of {progress.goal.toLocaleString()}
-          </span>
-          <span
-            className="meter"
-            style={{ gridColumn: 2 }}
-            role="img"
-            aria-label={`${Math.floor((progress.value / progress.goal) * 100)} percent`}
-          >
-            <i style={{ width: `${Math.round((progress.value / progress.goal) * 1000) / 10}%` }} />
-          </span>
+      <span className={styles.tileText}>
+        <span className={styles.an}>
+          {view.name}
+          {view.state === "new" && <NewChip className="newchip">New</NewChip>}
         </span>
-      ) : (
-        <span className={view.isOwnerLocked ? "ad" : styles.mobileOnly}>Not yet</span>
-      )}
+        <span className={styles.ac}>{view.criteria}</span>
+        {view.unlockedAt ? (
+          <span className={styles.ad}><Check className={styles.checkIc} aria-hidden />{formatDay(view.unlockedAt)}</span>
+        ) : progress ? (
+          <span className={styles.progressLine}>
+            <span className={styles.ad}>
+              {progress.close && <b className={styles.toGo}>{progress.toGo.toLocaleString()} to go, </b>}
+              {progress.value.toLocaleString()} of {progress.goal.toLocaleString()}
+            </span>
+            <span className={styles.bar} role="img" aria-label={`${Math.floor((progress.value / progress.goal) * 100)} percent`}>
+              <i style={{ transform: `scaleX(${pct / 100})` }} />
+            </span>
+          </span>
+        ) : (
+          <span className={view.isOwnerLocked ? styles.ad : `${styles.ad} ${styles.mobileOnly}`}>Not yet</span>
+        )}
+      </span>
     </li>
   );
 }
@@ -93,14 +87,17 @@ export function ProfileAchievements({ playerId, isMe, achievements, careerWinnin
 
   return (
     <section className={styles.achievements} aria-labelledby="pf-ach" data-expanded={expanded}>
-      <div className="sec-h">
-        <h2 className="sec-t" id="pf-ach">Achievements</h2>
-        <span className="sec-aux">
-          {newCount > 0 && <><b className="new-n">{newCount} new</b> · </>}
-          {unlocked} of {views.length} unlocked
-        </span>
-      </div>
-      <ul className={`ach ${styles.tiles}`} id={listId}>
+      <SectionHead
+        id="pf-ach"
+        title="Achievements"
+        note={
+          <>
+            {newCount > 0 && <span className={styles.newN}>{newCount} new</span>}
+            <span>{unlocked} of {views.length} unlocked</span>
+          </>
+        }
+      />
+      <ul className={styles.tiles} id={listId}>
         {views.map((view) => <Tile key={view.key} view={view} />)}
       </ul>
       {views.length > 3 && (

@@ -230,7 +230,7 @@ export function CubeDraftBuilder({
                   <option value="">Choose a cube</option>
                   {attachable.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name}{c.archetype ? ` (${c.archetype})` : ""} — {c.mainCount} main · {c.extraCount} extra
+                      {c.name}{c.archetype ? ` (${c.archetype})` : ""} — {c.mainCount} main, {c.extraCount} extra
                     </option>
                   ))}
                 </select>

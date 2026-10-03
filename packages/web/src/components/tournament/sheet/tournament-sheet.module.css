@@ -1,0 +1,11 @@
+/* The live view's frame: the floor bands run full width, standings and the rail sit below them. */
+.body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; align-items: start; }
+.main { min-width: 0; padding-bottom: 60px; }
+.status { padding: 10px 40px 0; }
+@container (max-width: 1060px) {
+  .body { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 760px) {
+  .status { padding: 10px 16px 0; }
+  .main { padding-bottom: 24px; }
+}

@@ -31,20 +31,46 @@ beforeEach(() => window.localStorage.clear());
 afterEach(() => vi.restoreAllMocks());
 
 describe("profile view", () => {
-  it("shows the four season readouts with the tier, Elo and place", () => {
+  it("shows the four season numbers with the tier, Elo and place", () => {
     const { container } = render(<ProfileView profile={profile} leaderboardRank={5} isMe />);
     expect(screen.getByRole("heading", { level: 1, name: "Imran" })).toBeInTheDocument();
-    expect(screen.getByText("you")).toBeInTheDocument();
-    expect(container.querySelector(".pf-tier")!.textContent).toContain("1184 Elo");
-    expect(container.querySelector(".pf-tier")!.textContent).toContain("#5 this season");
-    const lps = container.querySelector(".pf-lps")!;
-    expect(lps.textContent).toContain("176");
-    expect(lps.textContent).toContain("15–9");
-    expect(lps.textContent).toContain("63% won");
-    expect(lps.textContent).toContain("best 4 this season");
-    expect(lps.textContent).toContain("540");
-    expect(screen.getByRole("img", { name: "84 of 250 Elo through Gold" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Leaderboard" })).toHaveAttribute("href", "/leaderboard");
+    const who = screen.getByRole("region", { name: "Player" });
+    expect(who).toHaveTextContent("1184");
+    expect(who).toHaveTextContent("#5 this season");
+    expect(within(who).getByText("You")).toBeInTheDocument();
+    expect(within(who).getByRole("img", { name: "84 of 250 Elo through Gold" })).toBeInTheDocument();
+    const stats = screen.getByLabelText("Season numbers");
+    expect(stats.textContent).toContain("176");
+    expect(stats.textContent).toContain("15–9");
+    expect(stats.textContent).toContain("63% won");
+    expect(stats.textContent).toContain("best 4 this season");
+    expect(stats.textContent).toContain("540");
+    expect(container.textContent).not.toContain("·");
     expect(screen.getByRole("link", { name: "all tiers" })).toHaveAttribute("href", "/leaderboard#tiers");
+  });
+
+  it("leaves the pill off other players and shows no live link without a duel", () => {
+    render(<ProfileView profile={profile} leaderboardRank={5} />);
+    expect(screen.queryByText("You")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Watch" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open duel" })).toBeNull();
+  });
+
+  it("offers Open duel on your own live game and Watch on someone else's", () => {
+    const { unmount } = render(<ProfileView profile={profile} leaderboardRank={5} isMe liveDuel="room-1" />);
+    expect(screen.getByRole("link", { name: "Open duel" })).toHaveAttribute("href", "/duels/room-1");
+    expect(screen.getByRole("img", { name: "Live, your duel" })).toBeInTheDocument();
+    unmount();
+    render(<ProfileView profile={profile} leaderboardRank={5} liveDuel="room-2" />);
+    expect(screen.getByRole("link", { name: "Watch" })).toHaveAttribute("href", "/duels/room-2");
+    expect(screen.getByRole("img", { name: "Live" })).toBeInTheDocument();
+  });
+
+  it("scopes the toggle to the page bar and reports pressed state", () => {
+    render(<ProfileView profile={profile} leaderboardRank={5} />);
+    expect(screen.getByRole("button", { name: "This season" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "All-time" })).toHaveAttribute("aria-pressed", "false");
   });
 
   it("counts only active-season awards in the weekly winnings delta", () => {
@@ -54,24 +80,25 @@ describe("profile view", () => {
       { kind: "match", points: 3, created_at: "2026-09-24 10:00:00", tournament_id: null, tournament_name: null },
       { kind: "placement", points: 100, created_at: "2026-09-24 09:59:59", tournament_id: 11, tournament_name: "Friday Night Duels #11" },
     ];
-    const { container } = render(
+    render(
       <ProfileView profile={{ ...profile, winnings: 11, recent }} leaderboardRank={5} seasonStartedAt="2026-09-24 10:00:00" />,
     );
-    const winnings = container.querySelector(".pf-lps .lp")!;
-    expect(winnings.querySelector(".lp-v b")!.textContent).toBe("11");
-    expect(winnings.querySelector(".lp-d")!.textContent).toBe("+11");
+    const winnings = screen.getByText("Winnings", { selector: "dt" }).closest("div")!;
+    expect(winnings.querySelector("dd b")!.textContent).toBe("11");
+    expect(winnings).toHaveTextContent("+11");
+    expect(winnings).toHaveTextContent("this week");
     expect(within(screen.getByRole("region", { name: "Winnings earned" })).getByText("+100")).toBeInTheDocument();
   });
 
   it("drops record and streak in the all-time view and without a season", () => {
-    const { container } = render(<ProfileView profile={profile} leaderboardRank={4} hasSeason={false} />);
+    render(<ProfileView profile={profile} leaderboardRank={4} hasSeason={false} />);
     expect(screen.queryByRole("group", { name: "Profile scope" })).toBeNull();
-    const lps = container.querySelector(".lps")!.textContent!;
-    expect(lps).not.toContain("Record");
-    expect(lps).not.toContain("Streak");
-    expect(lps).not.toContain("0–0");
-    expect(lps).toContain("Career winnings");
-    expect(screen.queryByText("you")).toBeNull();
+    const stats = screen.getByLabelText("Career numbers").textContent!;
+    expect(stats).not.toContain("Record");
+    expect(stats).not.toContain("Streak");
+    expect(stats).not.toContain("0–0");
+    expect(stats).toContain("Career winnings");
+    expect(screen.queryByText("You")).toBeNull();
   });
 
   it("calls the list Winnings earned and reads placings as Placing", () => {
@@ -86,6 +113,8 @@ describe("profile view", () => {
   it("writes out every achievement with criteria, dates and countable progress", () => {
     render(<ProfileView profile={profile} leaderboardRank={5} isMe />);
     expect(screen.getByText("2 of 6 unlocked")).toBeInTheDocument();
+    expect(document.querySelectorAll('li[data-a="on"]')).toHaveLength(2);
+    expect(document.querySelectorAll('li[data-a="off"]')).toHaveLength(4);
     expect(screen.getByText("Beat the server's highest-rated player while rated below them.")).toBeInTheDocument();
     expect(screen.getByText("Fri, Aug 21")).toBeInTheDocument();
     expect(screen.getByText("540 of 1,000")).toBeInTheDocument();
@@ -192,6 +221,7 @@ describe("profile view", () => {
     window.localStorage.setItem("achievements:seen:5", JSON.stringify(["first_tournament_win"]));
     render(<ProfileView profile={profile} leaderboardRank={5} isMe />);
     await waitFor(() => expect(screen.getByText("1 new")).toBeInTheDocument());
+    expect(screen.getByText("1 new").textContent).not.toContain("·");
     expect(document.querySelectorAll('li[data-a="new"]')).toHaveLength(1);
     expect(JSON.parse(window.localStorage.getItem("achievements:seen:5")!)).toContain("giant_slayer");
   });

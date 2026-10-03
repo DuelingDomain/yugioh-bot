@@ -1,17 +1,13 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { SheetRoot, StationTrack } from "@/components/sheet";
+import { ChevronRight } from "lucide-react";
+import { svButtonClass } from "@/components/sheet";
+import { DraftFrame } from "@/components/draft/draft-frame";
+import { NewDraftLead } from "@/components/draft/create/new-lead";
 import styles from "@/components/draft/create/create.module.css";
 
 /** Fixed, well-known cards for the fans. They load through the existing card image route. */
 const CUBE_FAN = [55144522, 77585513, 44095762];
 const THEME_FAN = [62962630, 44362883, 87746184];
-const STATIONS = [
-  { code: "NW", name: "Create" },
-  { code: "LB", name: "Lobby" },
-  { code: "DR", name: "Draft" },
-  { code: "DK", name: "Decks" },
-];
 
 function Fan({ ids }: { ids: number[] }) {
   return (
@@ -26,29 +22,12 @@ function Fan({ ids }: { ids: number[] }) {
 
 export default function NewDraftPage() {
   return (
-    <SheetRoot>
-      <Link className="crumb" href="/drafts">
-        <ChevronLeft className="ic sm" aria-hidden="true" />
-        All drafts
-      </Link>
-      <header className="t-head sheet-head">
-        <div>
-          <h1 className="t-title">New draft</h1>
-          <p className="page-sub">Pick how cards reach the players. You can&apos;t switch after the draft is made.</p>
-        </div>
-        <StationTrack
-          stations={STATIONS}
-          current={0}
-          tone="mine"
-          label="Where creating leads"
-          caption={
-            <>
-              <span className="at">Pick a kind</span>
-              <span className="sep">·</span>then set it up
-            </>
-          }
-        />
-      </header>
+    <DraftFrame
+      back={{ href: "/drafts", label: "All drafts" }}
+      title="New draft"
+      sub="You can't switch after the draft is made."
+    >
+      <NewDraftLead pieces={["Pick a kind", "Then set it up"]} />
       <div className={styles.choose}>
         <Link className={styles.kind} href="/drafts/new/cube">
           <Fan ids={CUBE_FAN} />
@@ -62,9 +41,9 @@ export default function NewDraftPage() {
             <li>40 to 60 cards each</li>
           </ul>
           <span className={styles.defaults}>Starts at 40 cards each, 3 packs of 15, 45 s a pick</span>
-          <span className={`btn ${styles.go}`}>
+          <span className={`${svButtonClass("ghost")} ${styles.go}`}>
             Set up a cube draft
-            <ChevronRight className="ic sm" aria-hidden="true" />
+            <ChevronRight size={16} aria-hidden="true" />
           </span>
         </Link>
         <Link className={styles.kind} data-k="theme" href="/drafts/new/theme">
@@ -80,12 +59,12 @@ export default function NewDraftPage() {
             <li>Main deck first, then the Extra deck</li>
           </ul>
           <span className={styles.defaults}>Starts at 40 main and 15 Extra deck picks, 3 choices a pick, 45 s a pick</span>
-          <span className={`btn ${styles.go}`}>
+          <span className={`${svButtonClass("ghost")} ${styles.go}`}>
             Set up a theme draft
-            <ChevronRight className="ic sm" aria-hidden="true" />
+            <ChevronRight size={16} aria-hidden="true" />
           </span>
         </Link>
       </div>
-    </SheetRoot>
+    </DraftFrame>
   );
 }

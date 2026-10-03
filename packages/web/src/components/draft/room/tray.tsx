@@ -1,6 +1,8 @@
 "use client";
 
 import { memo } from "react";
+import type { HeardLine } from "@/lib/stores/talk-store";
+import { TalkBubble } from "./talk-bubble";
 import { KINDS, KIND_LABEL, mixGradient, type Kind, type KindCounts, type RoomCard } from "./room-model";
 
 export interface TrayProps {
@@ -15,6 +17,8 @@ export interface TrayProps {
   last: Partial<Record<Kind, RoomCard>>;
   active: ReadonlySet<Kind>;
   landed: { kind: Kind; seq: number } | null;
+  /** What you just said to the table, if anything. */
+  said?: HeardLine | null;
   onDial: () => void;
   onKind: (kind: Kind) => void;
 }
@@ -23,6 +27,7 @@ export interface TrayProps {
 export const Tray = memo(function Tray(p: TrayProps) {
   return (
     <div className="disk">
+      {p.said ? <TalkBubble key={p.said.seq} className="bubble" heard={p.said} /> : null}
       <button className="dial" type="button" aria-controls="binder" aria-label={`Your picks: ${p.done} of ${p.of}. Open your picks.`} onClick={p.onDial}>
         <span className="face" style={{ "--mix": mixGradient(p.phaseCounts, p.of) } as React.CSSProperties}>
           <b>{p.done}</b>

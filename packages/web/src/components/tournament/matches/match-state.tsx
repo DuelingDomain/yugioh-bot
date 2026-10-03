@@ -22,11 +22,11 @@ export function BetweenGames({ match }: { match: Match }) {
     }, 1000);
     return () => window.clearInterval(interval);
   }, [deadline]); // The deadline, rather than the refreshed tournament object, drives the clock.
-  if (deadline === null) return <>Between games · side decking</>;
+  if (deadline === null) return <>Between games. Side decking.</>;
   return (
     <span>
-      Between games · game {(match.series?.gameNumber ?? 1) + 1} starts in{" "}
-      <b className={styles.countdown}>{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}</b> · side decking
+      Between games. Game {(match.series?.gameNumber ?? 1) + 1} starts in{" "}
+      <b className={styles.countdown}>{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}</b>. Side decking.
     </span>
   );
 }
@@ -42,8 +42,8 @@ export function MatchState({ match, state, format, hours, stakes }: {
     <p className="m-state">
       {state === "your-open" && (
         <span>
-          Your match · not started
-          {stakes && <> · <span className="lp-d up">+{stakes.win}</span> <span className="lp-d down">−{Math.abs(stakes.lose)}</span></>}
+          Your match. Not started.
+          {stakes && <> <span className="lp-d up">+{stakes.win}</span> <span className="lp-d down">−{Math.abs(stakes.lose)}</span></>}
         </span>
       )}
       {state === "open" && <span>Not started</span>}
@@ -71,7 +71,7 @@ export function MatchState({ match, state, format, hours, stakes }: {
       {state === "live" && (
         <>
           <LivePill />
-          <span>Game {match.series?.gameNumber} in progress{firstWinner ? ` · ${firstWinner} took game 1` : ""}</span>
+          <span>Game {match.series?.gameNumber} in progress{firstWinner ? `. ${firstWinner} took game 1` : ""}.</span>
         </>
       )}
       {state === "between-games" && (
@@ -82,12 +82,12 @@ export function MatchState({ match, state, format, hours, stakes }: {
       )}
       {(state === "decided" || state === "reopening") && (
         <span>
-          {decidedPlayers(match).winner.name} won{when ? ` · ${when}` : ""}
-          {match.series?.status === "completed" ? ` · online, best of ${match.series.bestOf}` : ""}
+          {decidedPlayers(match).winner.name} won{when ? `, ${when}` : ""}.
+          {match.series?.status === "completed" ? ` Online, best of ${match.series.bestOf}.` : ""}
         </span>
       )}
-      {state === "bye" && <span>No match to play · not counted as a win in standings</span>}
-      {format === "single_elim" && <span>· Round {match.roundNumber}</span>}
+      {state === "bye" && <span>No match to play. Not counted as a win in standings.</span>}
+      {format === "single_elim" && <span>Round {match.roundNumber}.</span>}
     </p>
   );
 }

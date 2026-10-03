@@ -1,46 +1,40 @@
-/* Rows: the board's fixed 230px track column is too narrow for a four-stop theme track,
-   so the middle column sizes to its content. Doubled selectors beat the board's own rule. */
-:global(.ms) .row:global(.tl-row) { grid-template-columns: minmax(0, 1fr) auto auto; }
-.row:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
-.details { min-width: 0; }
-.count b { margin-left: 0; }
-.count { white-space: nowrap; }
-/* Keep one accessible joined count at both sizes; the large count is decorative. */
-.joined { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.mobileKind { display: none; }
-@container (max-width: 760px) {
-  :global(.ms) .head:global(.page-h) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 12px; }
-  .heading { display: contents; }
-  .head :global(.t-title) { grid-area: 1 / 1; min-width: 0; }
-  .head :global(.page-sub) { grid-column: 1 / -1; }
-  :global(.ms) .newDraft:global(.btn) { grid-area: 1 / 2; justify-self: end; height: 34px; padding: 0 13px; font-size: 13.5px; gap: 7px; border-radius: 7px; }
-  :global(.ms) .newDraft :global(.ic) { width: 14px; height: 14px; }
-  :global(.ms) .row:global(.tl-row) { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 16px; }
-  .details { grid-column: 1 / -1; }
-  :global(.ms) .row :global(.tl-name) { font-size: 17px; }
-  .prog { width: 100%; min-width: 0; }
-  :global(.ms) .prog :global(.trk) { justify-items: start; }
-  :global(.ms) .prog :global(.trk-cap) { text-align: left; }
-  :global(.ms) .row .side:global(.tl-side) { justify-content: flex-end; }
-  :global(.ms) .row .count, :global(.ms) .row .waitingSide, .chevron { display: none; }
-  .joined { position: static; display: inline-flex; align-items: center; gap: 0; width: auto; height: auto; overflow: visible; clip-path: none; }
-  :global(.ms) .ledger .kindColumn { display: none; }
-  /* Beat the shared ledger rule that hides its fourth column on small screens. */
-  :global(.ms) .ledger:global(.ledger) th:nth-child(4),
-  :global(.ms) .ledger:global(.ledger) td:nth-child(4) { display: table-cell; }
-  .mobileKind { display: block; color: var(--ink-3); font-size: 12.5px; line-height: 1.5; }
-  :global(.ms) .ledger .fin td:first-child { min-width: 0; overflow-wrap: anywhere; }
-}
-@container (max-width: 560px) {
-  /* Four theme stops and the room chip share the same line on a phone. */
-  :global(.ms) .prog :global(.trk.sm) { --pw: 40px; --gap: 6px; }
-}
-.fin a { color: var(--ink); }
-.fin a:hover { color: var(--pen-ink); text-decoration: underline; text-underline-offset: 3px; }
-.fin a:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; border-radius: 3px; }
-.fin tr { position: relative; }
-.fin a::after { content: ""; position: absolute; inset: 0; }
-.fin td:first-child { white-space: normal; min-width: 140px; }
-.more { background: none; border: 0; cursor: pointer; color: var(--ink-3); font: inherit; font-size: 12.5px; letter-spacing: 0; text-decoration: underline; text-underline-offset: 3px; }
+/* Rows on the floor. The rows themselves come from the kit (FloorRow); this only places the cells. */
+.row .id { min-width: 0; display: grid; gap: 5px; }
+.name { margin: 0; }
+.prog { min-width: 0; display: grid; gap: 2px; }
+.cap { margin: 0; color: var(--ink-3); font-size: 14px; line-height: 1.4; }
+.actCell { display: flex; justify-content: flex-end; }
+.act { pointer-events: none; }
+:global(.ms) .row:global(.sv-row[data-link]):hover .act:global(.sv-btn) { border-color: var(--rule-hi); }
+.joined { color: var(--ink-3); font-size: 14.5px; white-space: nowrap; display: inline-flex; align-items: baseline; gap: 6px; justify-self: end; }
+.joined b { color: var(--ink); }
+.chevron { width: 18px; height: 18px; color: var(--ink-3); justify-self: end; }
+.kind, .players { white-space: nowrap; }
+.end { color: var(--ink-2); font-size: 14.5px; white-space: nowrap; }
+.cancelled { color: var(--ink-3); font-style: italic; }
+.more { justify-self: start; margin-top: 12px; padding: 4px 0; background: none; border: 0; cursor: pointer; color: var(--ink-3); font: inherit; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; }
 .more:hover { color: var(--ink); }
-.more:focus-visible { outline: 2px solid var(--pen); outline-offset: 2px; }
+.more:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; border-radius: 3px; }
+
+/* Empty state: a heading, one sentence, the one button. */
+.empty { display: grid; gap: 10px; justify-items: start; max-width: 520px; padding-top: 8px; }
+.empty h2 { margin: 0; font: 600 21px/1.2 var(--f-display); color: var(--ink); }
+.empty p { margin: 0; color: var(--ink-2); font-size: 15.5px; line-height: 1.55; }
+.empty .go { margin-top: 6px; }
+
+.sections { display: grid; gap: clamp(28px, 4cqi, 44px); min-width: 0; }
+.sections > * { min-width: 0; }
+
+@container (max-width: 620px) {
+  /* The kit's phone grid names its areas; the cells take their place only here, so a desktop row reads in DOM order. */
+  .aId { grid-area: id; } .aProg { grid-area: prog; } .aAct { grid-area: act; } .aN { grid-area: n; }
+  .aNm { grid-area: nm; } .aEnd { grid-area: end; } .aKind { grid-area: kind; } .aPlayers { grid-area: players; }
+  .chevron { display: none; }
+  /* The phone row: name and room button on one line, the stage line under, the kind and count under that. */
+  :global(.ms) .act:global(.sv-btn) { height: 32px; padding: 0 12px; font-size: 14px; }
+  .row .prog { margin-top: 12px; }
+  .row .name { font-size: 16px; }
+  .row .kind { margin-top: 3px; }
+  .row .players { margin-top: 3px; justify-self: end; }
+  .joined { font-size: 13.5px; }
+}

@@ -48,8 +48,8 @@ describe("draft deck pool model", () => {
   });
 
   it("states the size rule", () => {
-    expect(draftRuleText(50)).toBe("Main Deck: 40 to 60 cards. Extra Deck: up to 15.");
-    expect(draftRuleText(30)).toContain("all 30 main-deck cards");
+    expect(draftRuleText(50)).toBe("Main deck: 40 to 60 cards. Extra deck: up to 15.");
+    expect(draftRuleText(30)).toContain("all 30 main deck cards");
   });
 
   it("lists the size notes of a deck", () => {

@@ -104,7 +104,7 @@ export function setupRows(config: LobbyConfig): SetupRow[] {
   }
   const rows: SetupRow[] = [
     { label: "Each player", value: `${config.cardsPerPlayer ?? 40} cards` },
-    { label: "Packs", value: `${packsOf(config)} of ${config.packSize ?? "—"}` },
+    { label: "Packs", value: `${plural(packsOf(config), "pack")} of ${config.packSize ?? "—"}` },
     { label: "Pick duration", value: seconds },
   ];
   if (config.alternatePassDirection) rows.push({ label: "Passing", value: "Left, then right" });

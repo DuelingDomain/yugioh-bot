@@ -8,15 +8,23 @@ const phoneStart = editor.indexOf("@container de-editor (width < 960px)");
 const desktop = editor.slice(0, phoneStart);
 const phone = editor.slice(phoneStart);
 
+describe("list rows on a phone", () => {
+  it.each(["cubes/cubes.module.css", "decks/library.module.css"])("hides the Open button above the kit's .ms .sv-btn display rule (%s)", (file) => {
+    const css = readFileSync(new URL(`../src/components/${file}`, import.meta.url), "utf8");
+    expect(css).toMatch(/:global\(\.ms\)\s+:global\(\.sv-btn\)\.openBtn\s*\{[^}]*display:\s*none/);
+  });
+});
+
 describe("deck editor presentation", () => {
   it("scopes both tab visibility rules to beat the foundation's .ms .seg", () => {
     expect(desktop).toMatch(/:global\(\.ms\)\s+\.de-tabs\s*\{[^}]*display:\s*none/);
     expect(phone).toMatch(/:global\(\.ms\)\s+\.de-tabs\s*\{[^}]*display:\s*grid/);
   });
 
-  it("scopes phone button sizing and hiding to beat the foundation's .ms .btn", () => {
+  it("scopes phone button sizing and hiding to beat the kit's .ms .sv-btn", () => {
     expect(phone).toMatch(/:global\(\.ms\)\s+\.de-back\s*\{[^}]*width:\s*34px;[^}]*height:\s*44px;[^}]*padding:\s*0/);
-    expect(phone).toMatch(/:global\(\.ms\)\s+\.de-export\s*\{[^}]*display:\s*none/);
+    expect(phone).toMatch(/:global\(\.ms\)\s+:global\(\.sv-btn\)\.de-export\s*\{[^}]*display:\s*none/);
+    expect(phone).toMatch(/:global\(\.ms\)\s+\.de-clear\s+:global\(\.sv-btn\.quiet\)\s*\{[^}]*width:\s*38px;[^}]*padding:\s*0/);
   });
 
   it("lets draft hosts fill the viewport below their measured top without a frame", () => {
@@ -28,10 +36,12 @@ describe("deck editor presentation", () => {
     expect(/\.host\s*\{([^}]*)\}/.exec(editor)?.[1]).toMatch(/height:\s*100dvh/);
   });
 
-  it("cancels all four shell padding edges at the shell's viewport breakpoints", () => {
-    expect(editor).toMatch(/\.host\[data-pool\]\s*\{[^}]*width:\s*calc\(100% \+ 32px\);[^}]*margin:\s*-16px/);
-    expect(editor).toMatch(/@media\s*\(min-width:\s*640px\)\s*\{\s*\.host\[data-pool\]\s*\{[^}]*width:\s*calc\(100% \+ 48px\);[^}]*margin:\s*-24px/);
-    expect(editor).toMatch(/@media\s*\(min-width:\s*1024px\)\s*\{\s*\.host\[data-pool\]\s*\{[^}]*width:\s*calc\(100% \+ 64px\);[^}]*margin:\s*-32px/);
+  it("does not cancel shell padding: a draft deck page owns its bar and the shell drops its padding", () => {
+    const host = /\.host\[data-pool\]\s*\{([^}]*)\}/.exec(editor)?.[1] ?? "";
+    expect(host).not.toMatch(/margin:\s*-/);
+    expect(host).not.toMatch(/width:\s*calc\(100% \+/);
+    expect(editor).toMatch(/\.de-menu\s*\{[^}]*display:\s*none/);
+    expect(phone).toMatch(/\.de-menu\s*\{[^}]*grid-column:\s*3[^}]*display:\s*grid/);
   });
 
   it("switches tribute totals to a list using the chart's own width", () => {

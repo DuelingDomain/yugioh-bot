@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DraftManageView } from "../../src/components/draft/draft-manage-view";
-import lobbyStyles from "../../src/components/draft/lobby/lobby.module.css";
 import type { CardSummary } from "../../src/lib/card-types";
 import { installVirtualizerJsdomEnv } from "../helpers/virtualizer-jsdom";
 
@@ -102,34 +101,28 @@ describe("DraftManageView — header, players, start", () => {
   ];
 
   it.each([
-    ["booster", ["LB", "DR", "DK"]],
-    ["theme", ["LB", "MN", "EX", "DK"]],
-  ] as const)("uses the flush phone track for a %s lobby", (mode, codes) => {
+    ["booster", ["Lobby", "Draft", "Build deck"]],
+    ["theme", ["Lobby", "Main deck", "Extra deck", "Build deck"]],
+  ] as const)("shows the %s stage line with Lobby current", (mode, labels) => {
     render(<DraftManageView {...baseProps} draft={{ ...baseDraft, config: { ...baseDraft.config, mode, extraDeckEnabled: true } }} />);
-    const plates = screen.getByRole("list", { name: "Draft progress" });
-    expect(plates.closest(".trk")).toHaveClass(lobbyStyles.track);
-    expect(Array.from(plates.querySelectorAll("b"), (plate) => plate.textContent)).toEqual(codes);
-    expect(within(plates).getByText("LB").parentElement).toHaveAttribute("aria-current", "step");
+    const stages = screen.getByRole("list", { name: "Draft progress" });
+    expect(Array.from(stages.querySelectorAll(".sv-stage-l"), (l) => l.textContent)).toEqual(labels);
+    expect(within(stages).getByText("Lobby").closest("li")).toHaveAttribute("aria-current", "step");
   });
 
-  it("shows the crumb, status, kind and the host's rename pencil", () => {
-    render(<DraftManageView {...baseProps} />);
+  it("shows the back link, the name in the bar, short pieces and the host's rename pencil", () => {
+    const { container } = render(<DraftManageView {...baseProps} />);
     expect(screen.getByRole("link", { name: /all drafts/i })).toHaveAttribute("href", "/drafts");
     expect(screen.getByRole("heading", { level: 1, name: /legendary draft/i })).toBeInTheDocument();
     expect(screen.getByText("Waiting to start")).toBeInTheDocument();
     expect(screen.getByText("Cube draft")).toBeInTheDocument();
     expect(screen.getByText("Hosted by you")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Rename draft" })).toBeInTheDocument();
-    const meta = screen.getByText("Waiting to start").closest(".t-meta")!;
-    const items = Array.from(meta.firstElementChild!.children);
-    expect(items.map((item) => item.textContent)).toEqual([
+    const pieces = screen.getByText("Waiting to start").closest("ul")!;
+    expect(Array.from(pieces.children, (item) => item.textContent)).toEqual([
       "Waiting to start", "Cube draft", "Hosted by you", "Created Wed, May 6",
     ]);
-    for (const item of items) {
-      expect(item.firstElementChild).toHaveClass("dot");
-      expect(item.firstElementChild).toHaveAttribute("aria-hidden", "true");
-    }
-    expect(meta.querySelector(".lamp")).toHaveAttribute("aria-hidden", "true");
+    expect(container.textContent).not.toMatch(/\u00b7/);
   });
 
   it("hides rename and 'Hosted by you' from a non-host", () => {
@@ -149,16 +142,16 @@ describe("DraftManageView — header, players, start", () => {
     expect(onUpdate).toHaveBeenCalledWith({ name: "Goat format cube" });
   });
 
-  it("marks your seat 'you' and 'host' only when you are the host", () => {
+  it("marks your seat 'You' and 'Host' only when you are the host", () => {
     const draft = { ...baseDraft, players, playerCount: 2, seats };
     const { unmount } = render(<DraftManageView {...baseProps} draft={draft} />);
-    expect(screen.getByText("you")).toBeInTheDocument();
-    expect(screen.getByText("host")).toBeInTheDocument();
+    expect(screen.getByText("You")).toBeInTheDocument();
+    expect(screen.getByText("Host")).toBeInTheDocument();
     expect(screen.getAllByText(/^Joined /)).toHaveLength(2);
     unmount();
     render(<DraftManageView {...baseProps} draft={draft} isCreator={false} />);
-    expect(screen.getByText("you")).toBeInTheDocument();
-    expect(screen.queryByText("host")).not.toBeInTheDocument();
+    expect(screen.getByText("You")).toBeInTheDocument();
+    expect(screen.queryByText("Host")).not.toBeInTheDocument();
   });
 
   it.each([
@@ -177,7 +170,8 @@ describe("DraftManageView — header, players, start", () => {
   it("shows an open seat and a disabled Start with the reason under two players", () => {
     const draft = { ...baseDraft, players: [players[0]], playerCount: 1, seats: [seats[0]] };
     render(<DraftManageView {...baseProps} draft={draft} />);
-    expect(screen.getByText("Open seat · needed to start")).toBeInTheDocument();
+    expect(screen.getByText("Open seat")).toBeInTheDocument();
+    expect(screen.getByText("Needed to start")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start draft" })).toBeDisabled();
     expect(screen.getByText("Need 1 more player to start.")).toBeInTheDocument();
   });
@@ -186,7 +180,8 @@ describe("DraftManageView — header, players, start", () => {
     const onStart = vi.fn().mockResolvedValue(undefined);
     const draft = { ...baseDraft, players, playerCount: 2, seats };
     render(<DraftManageView {...baseProps} draft={draft} onStart={onStart} />);
-    expect(screen.getByText("3 packs of 5")).toBeInTheDocument();
+    // The Start sentence and the Setup row both say it.
+    expect(screen.getAllByText("3 packs of 5")).toHaveLength(2);
     await userEvent.click(screen.getByRole("button", { name: "Start draft" }));
     expect(onStart).toHaveBeenCalledOnce();
   });
@@ -230,7 +225,7 @@ describe("DraftManageView — header, players, start", () => {
   it("confirms in place before cancelling the draft", async () => {
     const onCancel = vi.fn().mockResolvedValue(undefined);
     render(<DraftManageView {...baseProps} onCancel={onCancel} />);
-    expect(screen.getByText("Ending early")).toBeInTheDocument();
+    expect(screen.getByText(/Ends it for the 0 players who joined/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Cancel draft" }));
     expect(onCancel).not.toHaveBeenCalled();
     expect(screen.getByText("Cancel this draft?")).toBeInTheDocument();
@@ -436,7 +431,7 @@ describe("DraftManageView — card pool section", () => {
       return Response.json({}, { status: 404 });
     }));
     render(<DraftManageView draft={baseDraft} slug="my-slug" isCreator isParticipant={false} onStart={noop} onCancel={noop} onUpdate={noop} onJoin={noop} />);
-    await waitFor(() => expect(screen.getByRole("heading", { level: 2, name: /card pool/i })).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByRole("heading", { level: 2, name: /card pool/i }).length).toBeGreaterThan(0));
     await waitFor(() => expect(screen.getByRole("button", { name: /preview dark magician/i })).toBeTruthy());
     // The kind tally sits at the top of the pool.
     expect(screen.getByText("Monsters")).toBeTruthy();
@@ -494,12 +489,12 @@ describe("DraftManageView — editing config syncs the card pool pane", () => {
     // The duplicate inline "Pool preview" grid is gone — only the left pane remains.
     expect(screen.queryByText(/pool preview/i)).toBeNull();
     // 3 copies before removal.
-    await waitFor(() => expect(screen.getByText(/3 copies/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText(/3 copies/i).length).toBeGreaterThan(0));
 
     await userEvent.click(screen.getByRole("button", { name: /remove dark magician from pool/i }));
 
     // Removal is local (no save) and the synced pane updates to 2 copies.
-    await waitFor(() => expect(screen.queryByText(/3 copies/i)).toBeNull());
+    await waitFor(() => expect(screen.queryAllByText(/3 copies/i)).toHaveLength(0));
     expect(onUpdate).not.toHaveBeenCalled();
   });
 });

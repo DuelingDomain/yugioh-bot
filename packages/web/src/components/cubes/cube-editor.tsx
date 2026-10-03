@@ -1,11 +1,10 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Check, Info, Pencil, Plus, Search, TriangleAlert, Trash2, X } from "lucide-react";
-import { MetaLine } from "@/components/meta-line/meta-line";
-import { ConfirmPanel, SheetRoot } from "@/components/sheet";
+import { Check, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { PageFrame } from "@/components/decks/page-frame";
+import { ConfirmPanel, SectionHead, SizeBar, StatusLine, SvButton, Zone } from "@/components/sheet";
 import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
 import { isExtraDeckCardClient, poolToGridCards, type CubeCardDto, type CubePoolsDto } from "@/lib/cube-pools";
@@ -295,11 +294,11 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
 
   if (loading) {
     return (
-      <SheetRoot>
-        <p className="hint" role="status">
+      <PageFrame title="Cube" back={{ href: backHref, label: backLabel }}>
+        <p className={styles.lede} role="status">
           Loading cube...
         </p>
-      </SheetRoot>
+      </PageFrame>
     );
   }
 
@@ -327,24 +326,54 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
 
   const raise = cardsToRaise(pools.main, readiness.main.short);
 
-  return (
-    <SheetRoot>
-      <div className="ce-bar">
-        <Link className="crumb" href={backHref}>
-          <ArrowLeft className="ic sm" aria-hidden="true" />
-          {backLabel}
-        </Link>
-        <button
-          className="btn btn-danger-quiet btn-sm"
-          type="button"
-          disabled={busy}
-          onClick={() => setConfirmingDelete(true)}
-        >
-          <Trash2 className="ic sm" aria-hidden="true" />
-          Delete cube
-        </button>
-      </div>
+  const mainRow = (
+    <div className={styles.rdRow}>
+      <span>Main</span>
+      <SizeBar
+        className={styles.rdSize}
+        label={`${readiness.main.have} of ${THEME_MAIN_NEEDED} main copies`}
+        value={readiness.main.have}
+        min={THEME_MAIN_NEEDED}
+        max={Math.max(THEME_MAIN_NEEDED, readiness.main.have)}
+      />
+      <span className={styles.rdVal} data-short={readiness.main.short > 0 ? "true" : undefined}>
+        <b>{readiness.main.have}</b> / {THEME_MAIN_NEEDED}
+      </span>
+    </div>
+  );
+  const extraRow = (
+    <div className={styles.rdRow}>
+      <span>Extra</span>
+      <SizeBar
+        className={styles.rdSize}
+        label={`${readiness.extra.have} of ${THEME_EXTRA_NEEDED} Extra copies`}
+        value={readiness.extra.have}
+        min={THEME_EXTRA_NEEDED}
+        max={Math.max(THEME_EXTRA_NEEDED, readiness.extra.have)}
+      />
+      <span className={styles.rdVal}>
+        <b>{readiness.extra.have}</b> / {THEME_EXTRA_NEEDED}
+      </span>
+    </div>
+  );
 
+  return (
+    <PageFrame
+      back={{ href: backHref, label: backLabel }}
+      title={cube?.name ?? "Cube"}
+      actions={
+        <>
+          <SvButton aria-label="Rename cube" title="Rename cube" disabled={editingName} onClick={startRename}>
+            <Pencil size={16} aria-hidden="true" />
+            Rename
+          </SvButton>
+          <SvButton variant="danger" disabled={busy} onClick={() => setConfirmingDelete(true)}>
+            <Trash2 size={16} aria-hidden="true" />
+            Delete cube
+          </SvButton>
+        </>
+      }
+    >
       {confirmingDelete && (
         <ConfirmPanel
           className={styles.cfmWrap}
@@ -359,144 +388,81 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
         </ConfirmPanel>
       )}
 
-      <header className="ce-head">
-        <div>
-          {editingName ? (
-            <div className="ce-rename">
-              <input
-                className="input"
-                aria-label="Cube name"
-                value={nameDraft}
-                autoFocus
-                onChange={(e) => setNameDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void saveName();
-                  if (e.key === "Escape") setEditingName(false);
-                }}
-              />
-              <button className="btn btn-primary btn-sm" type="button" disabled={savingName} onClick={() => void saveName()}>
-                <Check className="ic sm" aria-hidden="true" />
-                Save name
-              </button>
-              <button className="ib" type="button" aria-label="Cancel rename" onClick={() => setEditingName(false)}>
-                <X className="ic" aria-hidden="true" />
-              </button>
-            </div>
-          ) : (
-            <div className="ce-name">
-              <h1 className="t-title">{cube?.name ?? "Cube"}</h1>
-              <button className="ib" type="button" aria-label="Rename cube" title="Rename cube" onClick={startRename}>
-                <Pencil className="ic" aria-hidden="true" />
-              </button>
-            </div>
-          )}
-          <MetaLine
-            className="ce-meta"
-            items={[
-              {
-                content: cube?.archetype ? (
-                  <span>Seeded from <b>{cube.archetype}</b></span>
-                ) : (
-                  <span>Built by hand</span>
-                ),
-              },
-              ...(cube?.banlist ? [{ content: <span>{cube.banlist} banlist</span> }] : []),
-              ...(busy ? [{ content: <span>Saving…</span>, className: styles.busy }] : []),
-            ]}
+      {editingName && (
+        <div className="ce-rename">
+          <input
+            className="input"
+            aria-label="Cube name"
+            value={nameDraft}
+            autoFocus
+            onChange={(e) => setNameDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void saveName();
+              if (e.key === "Escape") setEditingName(false);
+            }}
           />
-          <MetaLine
-            className="ce-meta"
-            items={[
-              {
-                content: (
-                  <span>
-                    Main <b>{mainTotals.cards}</b> {plural(mainTotals.cards, "card", "cards")}, <b>{mainTotals.copies}</b>{" "}
-                    {plural(mainTotals.copies, "copy", "copies")}
-                  </span>
-                ),
-              },
-              {
-                content: (
-                  <span>
-                    Extra <b>{extraTotals.cards}</b> {plural(extraTotals.cards, "card", "cards")}, <b>{extraTotals.copies}</b>{" "}
-                    {plural(extraTotals.copies, "copy", "copies")}
-                  </span>
-                ),
-              },
-            ]}
-          />
+          <SvButton variant="primary" disabled={savingName} onClick={() => void saveName()}>
+            <Check size={16} aria-hidden="true" />
+            Save name
+          </SvButton>
+          <button className="ib" type="button" aria-label="Cancel rename" onClick={() => setEditingName(false)}>
+            <X className="ic" aria-hidden="true" />
+          </button>
         </div>
-        <section className="ce-ready msheet" aria-labelledby="ce-rd">
-          <header className="sheet-cap">
-            <h2 id="ce-rd">Theme Draft check</h2>
-            <small>
-              {THEME_CHOICES} choices · {THEME_MAIN_CARDS} + {THEME_EXTRA_CARDS}
-            </small>
-          </header>
-          <div className="sheet-body">
-            <div className="r">
-              <span>Main</span>
-              <div
-                className={`meter ${readiness.main.short > 0 ? "short" : "ok"}`}
-                role="img"
-                aria-label={`${readiness.main.have} of ${THEME_MAIN_NEEDED} main copies`}
-              >
-                <i style={{ width: `${readiness.main.pct}%` }} />
-              </div>
-              <span className={`v${readiness.main.short > 0 ? " short" : ""}`}>
-                <b>{readiness.main.have}</b> / {THEME_MAIN_NEEDED}
-              </span>
-            </div>
-            <div className="r">
-              <span>Extra</span>
-              <div
-                className={`meter ${readiness.extra.short > 0 ? "soft" : "ok"}`}
-                role="img"
-                aria-label={`${readiness.extra.have} of ${THEME_EXTRA_NEEDED} Extra copies`}
-              >
-                <i style={{ width: `${readiness.extra.pct}%` }} />
-              </div>
-              <span className="v">
-                <b>{readiness.extra.have}</b> / {THEME_EXTRA_NEEDED}
-              </span>
-            </div>
-          </div>
+      )}
+
+      <section className={styles.head} aria-label="Cube summary">
+        <div className={styles.headFacts}>
+          <p className={styles.facts}>
+            {cube?.archetype ? <span>Seeded from <b>{cube.archetype}</b></span> : <span>Built by hand</span>}
+            {cube?.banlist ? <span>{cube.banlist} banlist</span> : null}
+            {busy ? <span className={styles.busy}>Saving…</span> : null}
+          </p>
+          <p className={styles.counts}>
+            <span>
+              Main <b>{mainTotals.cards}</b> {plural(mainTotals.cards, "card", "cards")}, <b>{mainTotals.copies}</b>{" "}
+              {plural(mainTotals.copies, "copy", "copies")}
+            </span>
+            <span>
+              Extra <b>{extraTotals.cards}</b> {plural(extraTotals.cards, "card", "cards")}, <b>{extraTotals.copies}</b>{" "}
+              {plural(extraTotals.copies, "copy", "copies")}
+            </span>
+          </p>
+        </div>
+        <section className={styles.check} aria-labelledby="ce-rd">
+          <SectionHead
+            id="ce-rd"
+            title="Theme draft check"
+            note={`${THEME_CHOICES} choices a pick, ${THEME_MAIN_CARDS} main and ${THEME_EXTRA_CARDS} extra`}
+          />
+          {mainRow}
+          {extraRow}
           {readiness.state === "blocked" ? (
-            <p className="fix sheet-foot">
-              <TriangleAlert className="ic sm" aria-hidden="true" />
-              <span>
-                <b>
-                  {readiness.main.short} main {plural(readiness.main.short, "copy", "copies")} short.
-                </b>{" "}
-                A Theme Draft can&apos;t start with it.{" "}
-                {raise != null
-                  ? `Raising ${raise} main ${plural(raise, "card", "cards")} to ×3 covers it.`
-                  : "Add more main cards to cover it."}
-              </span>
-            </p>
+            <StatusLine tone="warn">
+              <b>
+                {readiness.main.short} main {plural(readiness.main.short, "copy", "copies")} short.
+              </b>{" "}
+              A theme draft can&apos;t start with it.{" "}
+              {raise != null
+                ? `Raising ${raise} main ${plural(raise, "card", "cards")} to ×3 covers it.`
+                : "Add more main cards to cover it."}
+            </StatusLine>
           ) : readiness.state === "soft" ? (
-            <p className={`fix sheet-foot ${styles.fixSoft}`}>
-              <Info className="ic sm" aria-hidden="true" />
-              <span>
-                <b>Extra may come up short.</b> {readiness.extra.have} of {THEME_EXTRA_NEEDED} Extra copies. A Theme
-                Draft still starts.
-              </span>
-            </p>
+            <StatusLine tone="neutral">
+              <b>Extra may come up short.</b> {readiness.extra.have} of {THEME_EXTRA_NEEDED} Extra copies. A theme
+              draft still starts.
+            </StatusLine>
           ) : (
-            <p className={`fix sheet-foot ${styles.fixOk}`}>
-              <Check className="ic sm" aria-hidden="true" />
-              <span>
-                <b>Ready for a Theme Draft.</b> Main and Extra both covered.
-              </span>
-            </p>
+            <StatusLine tone="ready">
+              <b>Ready for a theme draft.</b> Main and Extra both covered.
+            </StatusLine>
           )}
         </section>
-      </header>
+      </section>
 
       {error && (
-        <div className={`banner banner-bad ${styles.err}`} role="alert">
-          <TriangleAlert className="ic" aria-hidden="true" />
-          <div>{error}</div>
+        <div role="alert">
+          <StatusLine tone="block">{error}</StatusLine>
         </div>
       )}
 
@@ -525,10 +491,10 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
                 Extra<span className="n">{extraTotals.cards}</span>
               </button>
             </div>
-            <button className="btn btn-secondary ce-addbtn" type="button" onClick={() => setAddSheetOpen(true)}>
-              <Plus className="ic sm" aria-hidden="true" />
+            <SvButton variant="ghost" className={styles.addBtn} onClick={() => setAddSheetOpen(true)}>
+              <Plus size={16} aria-hidden="true" />
               Add cards
-            </button>
+            </SvButton>
             <div className="srch">
               <Search className="ic" aria-hidden="true" />
               <input
@@ -580,11 +546,18 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
           </div>
 
           {activeEntries.length === 0 ? (
-            <p className={styles.emptyPool}>
-              {activePool === "main"
-                ? "Import passcodes or add cards to build the main pool."
-                : "Extra-Deck cards land here automatically."}
-            </p>
+            <div className={styles.emptyPool}>
+              <span className={styles.emptyZones} aria-hidden="true">
+                <Zone state="empty" size="md" />
+                <Zone state="empty" size="md" />
+                <Zone state="empty" size="md" />
+              </span>
+              <p>
+                {activePool === "main"
+                  ? "Import passcodes or add cards to build the main pool."
+                  : "Extra deck cards land here automatically."}
+              </p>
+            </div>
           ) : (
             <>
               {shown.length === 0 && unknown.length === 0 && <p className={styles.noMatch}>No cards match.</p>}
@@ -639,6 +612,6 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
         </CubeBottomSheet>
       )}
       {undo && <UndoToast key={undo.removalId} message={undo.message} busy={busy} onUndo={() => void undoRemove()} onDismiss={dismissUndo} />}
-    </SheetRoot>
+    </PageFrame>
   );
 }

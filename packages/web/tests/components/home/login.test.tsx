@@ -1,8 +1,5 @@
 // @vitest-environment jsdom
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { cleanup, render, screen } from "@testing-library/react";
-import postcss from "postcss";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -52,37 +49,30 @@ describe("login error copy", () => {
 });
 
 describe("LoginPage", () => {
-  it("renders Blue-Eyes Ultimate Dragon in the card fan with the existing alternate artworks", async () => {
+  it("draws a lit field with a centre line and two real cards, one in each half", async () => {
     const { container } = render(await LoginPage({ searchParams: Promise.resolve({}) }));
-    const cards = container.querySelectorAll(".si-fan > img");
+    const field = container.querySelector(".sv-field");
+    expect(field).toHaveAttribute("data-lit", "true");
+    expect(field).toHaveAttribute("data-centre", "true");
+    const cards = field!.querySelectorAll("img");
     expect(Array.from(cards, (card) => card.getAttribute("src"))).toEqual([
       "https://images.ygoprodeck.com/images/cards_small/46986418.jpg",
       "https://images.ygoprodeck.com/images/cards_small/89631146.jpg",
-      "https://images.ygoprodeck.com/images/cards_small/23995346.jpg",
     ]);
+    expect(container.querySelectorAll("[data-half]")).toHaveLength(2);
+    expect(field!.querySelectorAll(".sv-zone")).toHaveLength(2);
   });
 
-  it("keeps the three cards fanned around the raised center card with the summon circle present", async () => {
-    const rules: string[] = [];
-    const css = readFileSync(path.resolve(__dirname, "../../../src/styles/match-sheet.css"), "utf8");
-    postcss.parse(css).walkRules((rule) => {
-      if (rule.selector.startsWith(".ms .si-fan")) rules.push(rule.toString());
-    });
-    const { container } = render(
-      <>
-        <style>{rules.join("\n")}</style>
-        {await LoginPage({ searchParams: Promise.resolve({}) })}
-      </>,
-    );
-    const cards = container.querySelectorAll(".si-fan > img");
-    expect(Array.from(cards, (card) => {
-      const style = getComputedStyle(card);
-      return { translate: style.translate, rotate: style.rotate || "none", zIndex: style.zIndex };
-    })).toEqual([
-      { translate: "-50% 0", rotate: "-15deg", zIndex: "1" },
-      { translate: "-50% -12px", rotate: "none", zIndex: "2" },
-      { translate: "-50% 0", rotate: "15deg", zIndex: "1" },
-    ]);
+  it("has no summon circle and no third card", async () => {
+    const { container } = render(await LoginPage({ searchParams: Promise.resolve({}) }));
+    expect(container.querySelector("svg.si-smn, .si-smn, .si-fan")).toBeNull();
+    expect(container.querySelectorAll("img")).toHaveLength(2);
+  });
+
+  it("uses the flat primary button at full width", async () => {
+    render(await LoginPage({ searchParams: Promise.resolve({}) }));
+    const button = screen.getByRole("button", { name: "Sign in with Discord" });
+    expect(button).toHaveClass("sv-btn", "primary", "big", "wide");
   });
 
   it("names Duelists Kingdom, says what Discord shares, and shows the code", async () => {
@@ -91,6 +81,7 @@ describe("LoginPage", () => {
     screen.getByText(/Discord shares your name, avatar and email/);
     expect(screen.getByRole("alert").textContent).toContain("Couldn't sign you in. The problem");
     expect(screen.getByRole("alert")).toHaveTextContent("Error: Configuration");
+    expect(screen.getByRole("alert").querySelector(".sv-status")).toHaveAttribute("data-tone", "block");
     expect(screen.getByRole("alert").textContent).toContain("on Duelists Kingdom's side");
     screen.getByText(/Duelists Kingdom can.t read or send messages as you/);
     expect(document.body.textContent).not.toMatch(/yugidraft/i);
@@ -100,6 +91,8 @@ describe("LoginPage", () => {
     render(await LoginPage({ searchParams: Promise.resolve({ error: "OAuthCallbackError" }) }));
     expect(screen.getByRole("status")).toHaveTextContent("Sign-in didn't finish.");
     expect(screen.getByRole("status").textContent).toContain("Sign-in didn't finish. If you pressed Cancel");
+    expect(screen.getByRole("status").querySelector(".sv-status")).toHaveAttribute("data-tone", "neutral");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });
 

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Search, X, Grid3X3, RefreshCw } from "lucide-react";
+import { svButtonClass } from "@/components/sheet";
 import { SetBrowserModal } from "./set-browser-modal";
 import { cn } from "@/lib/utils";
 import styles from "./create/create.module.css";
@@ -122,7 +123,7 @@ export function SetPicker({ selectedSets, onSetsChange, inputId = "pool-set-sear
                     {set.setName}
                     {selectedSets.includes(set.setName) && <span className={styles.added}> Added</span>}
                     <small>
-                      {set.setCode} &middot; {set.cardCount} cards
+                      {set.setCode}, {set.cardCount} cards
                     </small>
                   </button>
                 </li>
@@ -131,7 +132,7 @@ export function SetPicker({ selectedSets, onSetsChange, inputId = "pool-set-sear
           )}
         </span>
         <button
-          className={`btn btn-secondary ${styles.browseBtn}`}
+          className={`${svButtonClass("ghost")} ${styles.browseBtn}`}
           type="button"
           aria-label="Browse sets"
           onClick={() => setBrowserOpen(true)}
@@ -140,7 +141,7 @@ export function SetPicker({ selectedSets, onSetsChange, inputId = "pool-set-sear
           <span className={styles.browseText}>Browse</span>
         </button>
         <button
-          className={`btn btn-secondary ${styles.ib}`}
+          className={`${svButtonClass("ghost")} ${styles.ib}`}
           type="button"
           onClick={handleSync}
           disabled={syncing}

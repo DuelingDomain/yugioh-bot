@@ -65,7 +65,7 @@ export function TournamentSettingsForm({
       onSubmit={handleSubmit}
       className="space-y-3 rounded-xl border border-border bg-surface p-4"
     >
-      <h3 className="font-body text-sm font-semibold uppercase tracking-wider text-text-secondary">
+      <h3 className="font-body text-sm font-semibold text-text-secondary">
         Tournament settings
       </h3>
       {error && <p className="text-sm text-accent-cta">{error}</p>}

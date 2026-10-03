@@ -55,6 +55,6 @@ describe("create tournament model", () => {
   });
 
   it("formats the summary's closing time", () => {
-    expect(formatClosesAt(new Date(2026, 9, 9, 23, 0))).toBe("Fri, Oct 9 · 11 PM");
+    expect(formatClosesAt(new Date(2026, 9, 9, 23, 0))).toBe("Fri, Oct 9, 11 PM");
   });
 });

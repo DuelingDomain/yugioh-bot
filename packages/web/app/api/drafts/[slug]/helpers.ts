@@ -9,6 +9,7 @@ import {
 } from "@yugidraft/shared/services";
 import { toUtcIso } from "@/lib/utils";
 import { broadcaster } from "@/lib/notify";
+import { lookupDraftCardTypes, type EngineCardTypes } from "@/lib/draft-engine-types";
 import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
@@ -22,7 +23,8 @@ function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
 
 function mapDraftCardDetails(
   db: ReturnType<typeof getDb>,
-  cards: Array<{ draftCardId: number; catalogCardId: number }>
+  cards: Array<{ draftCardId: number; catalogCardId: number }>,
+  engineTypes: ReadonlyMap<number, EngineCardTypes> = new Map(),
 ) {
   if (cards.length === 0) {
     return [];
@@ -34,6 +36,7 @@ function mapDraftCardDetails(
 
   return cards.map((card) => {
     const catalogCard = catalogById.get(card.catalogCardId);
+    const engine = engineTypes.get(card.catalogCardId);
 
     return {
       id: card.draftCardId,
@@ -42,6 +45,9 @@ function mapDraftCardDetails(
       type: catalogCard?.type ?? "Unknown",
       frameType: catalogCard?.frameType ?? "normal",
       attribute: catalogCard?.attribute,
+      archetype: catalogCard?.archetype ?? null,
+      race: engine?.race ?? null,
+      spellTrapType: engine?.spellTrapType ?? null,
       level: catalogCard?.level,
       effectText: catalogCard?.effectText ?? "",
       atk: catalogCard?.atk,
@@ -189,17 +195,25 @@ export async function buildDraftResponse(slug: string, userId: string) {
         }))
       : [];
 
+  // Monster type and spell/trap kind come from the duel engine. Without it (or without a seat to ask
+  // it as) the cards carry no types and the room hides those chip rows.
+  const engineTypes = currentPlayer && isParticipant
+    ? await lookupDraftCardTypes(
+        [...currentPackCards, ...myPoolCards].map((card) => card.catalogCardId),
+        { guildId: draft.guild_id, playerId: currentPlayer.id },
+      )
+    : new Map<number, EngineCardTypes>();
   // The whole pack is sent. A card the viewer already holds the per-player maximum of is marked
   // blocked, with the copies held, so the room can show it as unavailable.
   const held =
     draft.status === "active" && currentPlayer && isParticipant ? drafts.heldCopies(draft.id, currentPlayer.id) : {};
-  const currentPack = mapDraftCardDetails(db, currentPackCards).map((card) => {
+  const currentPack = mapDraftCardDetails(db, currentPackCards, engineTypes).map((card) => {
     const copies = held[card.passcode] ?? 0;
     return { ...card, held: copies, blocked: copies >= MAX_COPIES_PER_PLAYER };
   });
   const passed =
     draft.status === "active" && currentPlayer && isParticipant ? drafts.hasPassedStep(draft.id, currentPlayer.id) : false;
-  const myPool = mapDraftCardDetails(db, myPoolCards);
+  const myPool = mapDraftCardDetails(db, myPoolCards, engineTypes);
 
   // Theme-mode extras: derived phase, progress, and lobby theme previews.
   const isTheme = draftModel.config.mode === "theme";

@@ -1,0 +1,160 @@
+/* Sign in: a lit field with one card in each half, and the form under it. Nothing moves. */
+.page {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: 40px 16px;
+  background: var(--floor);
+}
+
+.stack {
+  display: grid;
+  gap: 30px;
+  width: min(100%, 520px);
+}
+
+.field {
+  height: 280px;
+}
+
+.field > :global(.sv-field-body) {
+  position: relative;
+  height: 100%;
+}
+
+.slots {
+  position: absolute;
+  inset: 0;
+}
+
+.slot {
+  position: absolute;
+  width: 84px;
+  height: 123px;
+}
+
+.slot[data-half="top"] {
+  top: 8px;
+  left: calc(27% - 42px);
+}
+
+.slot[data-half="bottom"] {
+  bottom: 8px;
+  right: calc(27% - 42px);
+}
+
+.slot > .zone.zone {
+  position: absolute;
+  inset: 0;
+}
+
+.card {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 5px;
+  box-shadow: 0 14px 30px -10px rgb(0 0 0 / 0.75);
+}
+
+.slot[data-half="top"] .card {
+  rotate: -5deg;
+}
+
+.slot[data-half="bottom"] .card {
+  rotate: 4deg;
+}
+
+.copy {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  margin: 0;
+  color: var(--ink);
+  font: 600 32px/1.1 var(--f-display);
+}
+
+.mark {
+  display: block;
+  width: 30px;
+  height: 30px;
+}
+
+.short {
+  display: block;
+  width: 56px;
+  margin-top: 14px;
+}
+
+.sub {
+  margin: 14px 0 0;
+  color: var(--ink-2);
+  font: 400 15px/1.55 var(--f-ui);
+}
+
+.msg {
+  width: 100%;
+  margin-top: 22px;
+  text-align: left;
+}
+
+.msgTitle {
+  color: var(--ink);
+  font-weight: 550;
+}
+
+.code {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-3);
+  font: 400 12.5px/1.3 var(--f-num);
+}
+
+.form {
+  display: grid;
+  width: 100%;
+  margin-top: 26px;
+}
+
+.form > :global(.sv-btn) {
+  gap: 10px;
+  justify-content: center;
+}
+
+.spin {
+  animation: login-spin 900ms linear infinite;
+}
+
+.fine {
+  margin: 18px 0 0;
+  color: var(--ink-3);
+  font: 400 13px/1.55 var(--f-ui);
+}
+
+@keyframes login-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 480px) {
+  .field {
+    height: 250px;
+  }
+
+  .brand {
+    font-size: 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}

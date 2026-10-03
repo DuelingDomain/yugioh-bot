@@ -1,15 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, LogOut, Megaphone, UserPlus, X } from "lucide-react";
-import { RankGem, SheetPanel, DangerZone, DangerRow, ConfirmPanel } from "@/components/sheet";
-import { Link as LinkIcon } from "lucide-react";
+import { CopyLinkRow, FloorList, FloorRow, Mono, SectionHead, Seat, StatusLine, SvButton, ringColour } from "@/components/sheet";
 import { generateSingleElimFirstRound } from "@yugidraft/shared/tournaments";
 import styles from "./tournament-lobby.module.css";
 import { MyDeckPanel } from "./my-deck-panel";
 import { DeckMarker } from "./deck-marker";
 import { RulesPanel } from "./sheet/rules-panel";
 import { formatLabel, rulesSummary } from "./sheet-rules";
+import rail from "./sheet/rail.module.css";
 import { UNRATED_ELO, type PlayerRatings } from "./sheet-contracts";
 import type { TournamentDetail } from "./types";
 
@@ -49,8 +48,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [announced, setAnnounced] = useState(false);
+    const [announced, setAnnounced] = useState(false);
 
   const isParticipant = tournament.isParticipant;
   const players = tournament.participants;
@@ -82,185 +80,138 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
   const link = typeof window !== "undefined" ? `${window.location.origin}/tournament/${tournamentSlug}` : `/tournament/${tournamentSlug}`;
   const needed = 2 - count;
 
-  const nameLine = rules ? `${formatLabel(tournament.format)} · Best of ${rules.bestOf}` : formatLabel(tournament.format);
+  const rulesLine = rules ? `${formatLabel(tournament.format)}, best of ${rules.bestOf}` : formatLabel(tournament.format);
+  const extra = rules ? rules.line.split(", ").slice(2).join(", ") : "";
 
   return (
-    <div className="t-grid">
-      <div className="t-main">
-        {error && <div className="banner banner-bad" role="alert"><p>{error}</p></div>}
+    <div className={styles.lobby}>
+      <div className={styles.main}>
+        {error && <div role="alert"><StatusLine tone="block">{error}</StatusLine></div>}
 
         {!isParticipant && (
-          <div className="join">
+          <section className={styles.join} aria-label={`Join ${tournament.name}`}>
             <div>
-              <h2>Join {tournament.name}</h2>
-              <p>{nameLine}{rules ? ` · ${rules.line.split(" · ").slice(1).join(" · ")}` : ""}. {count} {count === 1 ? "player" : "players"} so far.</p>
+              <h2 className={styles.joinT}>Join {tournament.name}</h2>
+              <p className={styles.joinN}>{rulesLine}{extra ? `, ${extra}` : ""}. {count} {count === 1 ? "player" : "players"} so far.</p>
+              <p className={styles.note}>You register a deck after joining. You can leave any time before the start.</p>
             </div>
-            <button type="button" className="btn btn-primary btn-lg" disabled={busy === "join"} onClick={() => post("join", "/join", "Failed to join tournament")}>
-              <UserPlus className="ic" aria-hidden="true" />Join tournament
-            </button>
-          </div>
+            <SvButton variant="primary" big disabled={busy === "join"} aria-busy={busy === "join"} onClick={() => post("join", "/join", "Failed to join tournament")}>Join tournament</SvButton>
+          </section>
         )}
-        {!isParticipant && <p className="small">You register a deck after joining. You can leave any time before the start.</p>}
 
         {isParticipant && !isCreator && (
-          <div className="inline-note">
-            <p>You&apos;re in. Waiting for the organizer to start.</p>
-            <button type="button" className="btn btn-quiet btn-sm" disabled={busy === "leave"} onClick={() => post("leave", "/leave", "Failed to leave")}>
-              <LogOut className="ic sm" aria-hidden="true" />Leave tournament
-            </button>
-          </div>
-        )}
-
-        {isCreator && (
-          <section className="panel invite" aria-labelledby="invite-t">
-            <h2 className="panel-t"><span id="invite-t">Invite players</span><small>anyone in the server can join</small></h2>
-            <div className={`invite-row ${styles.inviteRow}`}>
-              <input className="input" readOnly value={link} aria-label="Invite link" />
-              <div className="acts">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(link);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 1500);
-                  }}
-                >
-                  {copied ? <Check className="ic" aria-hidden="true" /> : <Copy className="ic" aria-hidden="true" />}
-                  {copied ? "Copied" : "Copy link"}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  disabled={busy === "announce"}
-                  onClick={() => post("announce", "/announce", "Failed to announce", () => { setAnnounced(true); setTimeout(() => setAnnounced(false), 2500); })}
-                >
-                  {announced ? <Check className="ic" aria-hidden="true" /> : <Megaphone className="ic" aria-hidden="true" />}
-                  {announced ? "Announced" : "Announce in Discord"}
-                </button>
-              </div>
-            </div>
-            <p className="small">Players can also join from Discord with <code className="cmd">/event join</code>.</p>
-          </section>
-        )}
-        {!isCreator && (
-          <section className="panel invite" aria-labelledby="invite-t">
-            <h2 className="panel-t"><span id="invite-t">Invite link</span><small>share it so others can join</small></h2>
-            <div className={`invite-row ${styles.inviteRow}`}>
-              <input className="input" readOnly value={link} aria-label="Invite link" />
-              <div className="acts">
-                <button type="button" className="btn btn-secondary" onClick={async () => { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
-                  {copied ? <Check className="ic" aria-hidden="true" /> : <LinkIcon className="ic" aria-hidden="true" />}
-                  {copied ? "Copied" : "Copy link"}
-                </button>
-              </div>
-            </div>
+          <section className={styles.joined}>
+            <p className={styles.joinN}>You&apos;re in. Waiting for the organizer to start.</p>
+            <SvButton variant="quiet" disabled={busy === "leave"} onClick={() => post("leave", "/leave", "Failed to leave")}>Leave tournament</SvButton>
           </section>
         )}
 
-        <section aria-labelledby="seats-t" className={styles.seatsSec}>
-          <div className="sec-h">
-            <h2 className="sec-t" id="seats-t">Players</h2>
-            <span className="sec-aux">{count} joined · at least 2 to start · no seat limit</span>
-          </div>
-          <ul className="seats">
+        <section aria-label={isCreator ? "Invite players" : "Invite link"} className={styles.invite}>
+          <SectionHead title={isCreator ? "Invite players" : "Invite link"} note={isCreator ? "Anyone in the server can join." : "Share it so others can join."} />
+          <CopyLinkRow value={link} label="Invite link" />
+          {isCreator && (
+            <p className={styles.note}>Players can also join from Discord with <code className={styles.cmd}>/event join</code>.</p>
+          )}
+        </section>
+
+        <section aria-labelledby="seats-t" className={styles.seats}>
+          <SectionHead title="Who's in" id="seats-t" note={`${count} joined. At least 2 to start. No seat limit.`} />
+          <FloorList>
             {players.map((p, i) => {
               const you = p.playerId === tournament.currentUserPlayerId;
               const rating = ratings?.get(p.playerId);
-              const hostSeat = isCreator && you;
+              const rated = rating && rating.rating !== UNRATED_ELO;
               return (
-                <li key={p.playerId} className={`seat${you ? " me" : ""}`}>
-                  {single ? <span className="no">{i + 1}</span> : <RankGem tier={rating?.rank ?? "none"} size="lg" />}
-                  <span className="who">
-                    <span className="nm">
-                      {single && <RankGem tier={rating?.rank ?? "none"} />}
-                      <span className="t">{p.displayName}</span>
-                      {you && <span className="youtag">you</span>}
-                      {hostSeat && <span className="hosttag">host</span>}
-                    </span>
-                    {(rating || isCreator) && (
-                      <span className="sub">
-                        {rating && rating.rating !== UNRATED_ELO && <span className="elo">{rating.rating}</span>}
-                        {isCreator && <DeckMarker participant={p} />}
-                      </span>
-                    )}
+                <FloorRow key={p.playerId} you={you} cols={single ? "28px minmax(0, 1fr) auto auto" : "minmax(0, 1fr) auto auto"} phoneCols={undefined}>
+                  {single && <span className={styles.no}>{i + 1}</span>}
+                  <span className={styles.who}>
+                    <Seat
+                      name={p.displayName}
+                      href={`/player/${p.playerId}`}
+                      you={you}
+                      ring={ringColour(p.playerId)}
+                      tier={rating?.rank}
+                      elo={rated ? rating.rating : undefined}
+                      trailing={isCreator && you ? <span className={styles.host}>Host</span> : undefined}
+                    />
                   </span>
-                  {isCreator && !you && (
-                    <button
-                      type="button"
-                      className="x"
+                  {isCreator ? <DeckMarker participant={p} /> : <span />}
+                  {isCreator && !you ? (
+                    <SvButton
+                      variant="quiet"
                       aria-label={`Remove ${p.displayName}`}
                       disabled={busy === `kick-${p.playerId}`}
                       onClick={() => call(`kick-${p.playerId}`, `${base}/kick`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ playerId: p.playerId }) }, "Failed to remove")}
                     >
-                      <X className="ic sm" aria-hidden="true" />
-                    </button>
-                  )}
-                </li>
+                      Remove
+                    </SvButton>
+                  ) : <span />}
+                </FloorRow>
               );
             })}
             {Array.from({ length: Math.max(0, needed) }).map((_, i) => (
-              <li key={`open-${i}`} className="seat open"><UserPlus className="ic" aria-hidden="true" /><span>Open seat · needed to start</span></li>
+              <FloorRow key={`open-${i}`} cols="minmax(0, 1fr)">
+                <span className={styles.open}><Mono name="" dashed size="md" />Open seat. Needed to start.</span>
+              </FloorRow>
             ))}
-          </ul>
-          {single && count > 1 && <p className={`small ${styles.pairNote}`}>{firstRoundNote(count)}</p>}
+          </FloorList>
+          {single && count > 1 && <p className={styles.note}>{firstRoundNote(count)}</p>}
           {isParticipant && isCreator && (
-            <div className="inline-note">
-              <p>Hosting and playing in this tournament.</p>
-              <button type="button" className="btn btn-quiet btn-sm" disabled={busy === "leave"} onClick={() => post("leave", "/leave", "Failed to leave")}>
-                <LogOut className="ic sm" aria-hidden="true" />Leave as participant
-              </button>
+            <div className={styles.joined}>
+              <p className={styles.joinN}>Hosting and playing in this tournament.</p>
+              <SvButton variant="quiet" disabled={busy === "leave"} onClick={() => post("leave", "/leave", "Failed to leave")}>Leave as participant</SvButton>
             </div>
           )}
         </section>
 
         {isParticipant && (
-          <section id="my-deck" aria-label="Your deck">
+          <section id="my-deck" aria-label="Your deck" className={styles.deck}>
             <MyDeckPanel tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
           </section>
         )}
       </div>
 
-      <aside className="t-rail" aria-label="Tournament details">
+      <aside className={`${rail.rail} ${styles.rail}`} aria-label="Tournament details">
         {isCreator && (
-          <SheetPanel title="Start" aside={<small>only you see this</small>} bodyClassName="start">
-            <button type="button" className="btn btn-primary btn-lg btn-block" disabled={!canStart || busy === "start"} title={!canStart ? "Need at least 2 participants to start" : undefined} onClick={() => call("start", base, { method: "POST" }, "Failed to start")}>
-              Start tournament
-            </button>
-            {canStart ? (
-              <p className="small">Makes <b>{matchCount(tournament.format, count)} matches over {roundsOf(tournament.format, count)} rounds</b> for the {count} players here. Nobody can join after this. Players without a deck can still register one after the start.</p>
-            ) : (
-              <p className="small">Need {needed} more {needed === 1 ? "player" : "players"} to start.</p>
-            )}
-            {process.env.NODE_ENV !== "production" && (
-              <button type="button" className="btn btn-secondary btn-sm btn-block" disabled={busy === "add-bot"} onClick={() => post("add-bot", "/join-bot", "Failed to add bot")}>
-                <UserPlus className="ic sm" aria-hidden="true" />Add bot
-              </button>
-            )}
-          </SheetPanel>
+          <section className={rail.sec} aria-label="Start">
+            <h2 className={rail.h}>Start</h2>
+            <div className={styles.startActs}>
+              <SvButton variant="primary" big wide disabled={!canStart || busy === "start"} title={!canStart ? "Need at least 2 participants to start" : undefined} onClick={() => call("start", base, { method: "POST" }, "Failed to start")}>
+                Start the tournament
+              </SvButton>
+              {process.env.NODE_ENV !== "production" && (
+                <SvButton variant="quiet" disabled={busy === "add-bot"} onClick={() => post("add-bot", "/join-bot", "Failed to add bot")}>Add a bot</SvButton>
+              )}
+              <SvButton variant="quiet" disabled={busy === "announce"} onClick={() => post("announce", "/announce", "Failed to announce", () => { setAnnounced(true); setTimeout(() => setAnnounced(false), 2500); })}>
+                {announced ? "Announced" : "Announce in Discord"}
+              </SvButton>
+            </div>
+            <p className={styles.note}>
+              {canStart
+                ? `Starting draws the first round: ${matchCount(tournament.format, count)} matches over ${roundsOf(tournament.format, count)} rounds for the ${count} players here. Nobody can join after this. Players without a deck can still register one later.`
+                : `Starting needs 2 or more players. ${needed} more to go.`}
+            </p>
+          </section>
         )}
         <RulesPanel tournament={tournament} tournamentSlug={tournamentSlug} isHost={isCreator} onChanged={onChanged} />
         {isCreator && (
-          <DangerZone title="Ending early">
+          <section className={rail.sec} aria-label="Cancel">
             {confirmCancel ? (
-              <ConfirmPanel
-                title="Cancel this tournament?"
-                confirmLabel="Yes, cancel"
-                cancelLabel="Go back"
-                busy={busy === "cancel"}
-                onCancel={() => setConfirmCancel(false)}
-                onConfirm={() => call("cancel", base, { method: "DELETE" }, "Failed to cancel", () => setConfirmCancel(false))}
-              >
-                It is removed for the {count} {count === 1 ? "player" : "players"} who joined. Nothing has been played yet.
-              </ConfirmPanel>
+              <div className={rail.confirmBox}>
+                <StatusLine tone="warn"><strong>Cancel this tournament?</strong> It is removed for the {count} {count === 1 ? "player" : "players"} who joined. Nothing has been played yet.</StatusLine>
+                <div className={rail.endActs}>
+                  <SvButton variant="quiet" onClick={() => setConfirmCancel(false)}>Go back</SvButton>
+                  <SvButton variant="danger" disabled={busy === "cancel"} onClick={() => call("cancel", base, { method: "DELETE" }, "Failed to cancel", () => setConfirmCancel(false))}>Yes, cancel</SvButton>
+                </div>
+              </div>
             ) : (
-              <DangerRow
-                title="Cancel tournament"
-                description={`Removes it for the ${count} ${count === 1 ? "player" : "players"} who joined. Nothing has been played yet.`}
-                action={<button type="button" className="btn btn-danger btn-sm" onClick={() => setConfirmCancel(true)}><X className="ic sm" aria-hidden="true" />Cancel</button>}
-              />
+              <div className={rail.endRow}>
+                <p className={rail.endT}>Cancel the tournament</p>
+                <p className={rail.endN}>Cancelling removes the tournament for everyone. Nothing has been played yet.</p>
+                <div className={rail.endActs}><SvButton variant="danger" onClick={() => setConfirmCancel(true)}>Cancel the tournament</SvButton></div>
+              </div>
             )}
-          </DangerZone>
+          </section>
         )}
       </aside>
     </div>

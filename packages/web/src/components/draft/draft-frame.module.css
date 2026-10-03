@@ -1,0 +1,109 @@
+/* The drafts pages in Solid Vision. The page bar runs edge to edge on the floor (the shell drops its padding for
+   OwnsPageBar), so the body takes the side padding itself: 32px, 16px on a phone. Everything inside is on the
+   floor, split by light lines. No boxes. */
+:global(.ms).root {
+  padding: 0;
+  background: var(--floor);
+  min-height: 100%;
+}
+.body {
+  display: grid;
+  gap: clamp(24px, 3.4cqi, 40px);
+  align-content: start;
+  min-width: 0;
+  padding: 28px 32px 56px;
+}
+.body > * { min-width: 0; }
+
+/* Main column plus the 340px rail. The rail and the action block (Create draft, Start draft, Join draft) share one
+   "side" column that sticks to the top on a desktop screen. On a phone the layout is a flex column, the side wrapper
+   disappears (display: contents), the rail follows the main column and the action block sticks to the bottom of the
+   screen. It has to be a flex item there: a sticky grid item can only move inside its own grid area. */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  column-gap: 40px;
+  align-items: start;
+  min-width: 0;
+}
+.main { grid-column: 1; display: grid; gap: clamp(24px, 3.4cqi, 40px); align-content: start; min-width: 0; }
+.main > * { min-width: 0; }
+.side { grid-column: 2; grid-row: 1; position: sticky; top: 20px; display: flex; flex-direction: column; min-width: 0; max-height: calc(100dvh - 40px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--rule) transparent; }
+.rail { min-width: 0; padding: 0 0 0 28px; border-left: 1px solid var(--rule-lo); }
+.actions { min-width: 0; padding: 4px 0 0 28px; border-left: 1px solid var(--rule-lo); display: grid; gap: 10px; align-content: start; }
+.actions > * { min-width: 0; }
+
+.railSec { padding: 20px 0; border-bottom: 1px solid var(--rule-lo); min-width: 0; }
+.railSec:first-child { padding-top: 0; }
+.railSec:last-child { border-bottom: 0; }
+.railH { margin: 0 0 12px; font: 600 18px/1.2 var(--f-display); color: var(--ink); }
+.railNote { margin: 8px 0 0; color: var(--ink-3); font-size: 14px; line-height: 1.5; }
+.railNote strong { color: var(--ink-2); font-weight: 600; }
+
+/* A definition list: quiet label on the left, the value on the right in the number font. */
+.rules { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px 18px; margin: 0; font-size: 14.5px; }
+.rules dt { color: var(--ink-3); }
+.rules dd { margin: 0; min-width: 0; color: var(--ink); text-align: right; overflow-wrap: anywhere; }
+.rules dd.num, .num { font-family: var(--f-num); font-variant-numeric: tabular-nums lining-nums; font-weight: 600; }
+
+/* Short separate pieces under a title, with a gap and no dot between them. */
+.pieces { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 18px; margin: 0; padding: 0; list-style: none; color: var(--ink-3); font-size: 14.5px; line-height: 1.4; min-width: 0; }
+.pieces > li { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.pieces .strong { color: var(--ink-2); }
+.gem { flex: none; display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--ink-3); background: transparent; }
+.gem[data-fill="true"] { background: var(--ink-2); border-color: var(--ink-2); }
+.gem[data-tone="dim"] { border-color: var(--ink-4); }
+
+@container (max-width: 900px) {
+  .layout { display: flex; flex-direction: column; align-items: stretch; gap: 28px; }
+  .main { gap: 28px; }
+  .side { display: contents; }
+  .rail { padding: 24px 0 0; border-left: 0; border-top: 1px solid var(--rule-lo); }
+  .actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin: 0 -32px;
+    padding: 10px 32px calc(10px + env(safe-area-inset-bottom));
+    max-height: 45dvh;
+    overflow-y: auto;
+    border-left: 0;
+    border-top: 1px solid var(--rule-lo);
+    background: var(--panel);
+    box-sizing: border-box;
+  }
+  .actions > * { width: 100%; }
+}
+@container (max-width: 620px) {
+  .body { padding: 20px 16px 48px; gap: 24px; }
+  .actions { margin: 0 -16px; padding-inline: 16px; }
+}
+
+/* ---- The skin ----
+   Pieces this branch does not own (the cube lobby panel, the cube draft builder, the pool browser, the set picker)
+   still use the old Match Sheet classes. Inside a drafts page those classes are re-drawn the Solid Vision way: fields
+   on the floor with a thin outline and a violet focus ring, no boxed panels, no tinted banners, quiet outlined chips.
+   The doubled selector (.ms .skin .x) beats the sheet's own `.ms .x`. */
+:global(.ms) .skin :global(.input) { background-color: var(--floor); border-color: var(--rule-lo); border-radius: 8px; }
+:global(.ms) .skin :global(.input):hover { border-color: var(--rule); }
+:global(.ms) .skin :global(.input:focus-visible) { outline: none; border-color: var(--pen); box-shadow: 0 0 0 1px var(--pen); }
+:global(.ms) .skin :global(.input.bad) { border-color: rgb(228 90 77 / 0.7); }
+:global(.ms) .skin :global(.input:disabled) { opacity: 0.5; }
+:global(.ms) .skin :global(.label) { margin-bottom: 7px; color: var(--ink-2); font-size: 14px; }
+:global(.ms) .skin :global(.hint) { margin-top: 8px; color: var(--ink-3); font-size: 14px; line-height: 1.5; }
+:global(.ms) .skin :global(.ferr) { margin-top: 8px; font-size: 14px; }
+:global(.ms) .skin :global(.chip) { height: 28px; padding: 0 11px; border-color: var(--rule); background: transparent; color: var(--ink-2); font-size: 13.5px; }
+:global(.ms) .skin :global(.chip-pen), :global(.ms) .skin :global(.chip-gold), :global(.ms) .skin :global(.chip-ok) { border-color: var(--rule); background: transparent; color: var(--ink-2); }
+:global(.ms) .skin :global(.banner) { padding: 10px 0 0; border: 0; border-top: 1px solid var(--rule-lo); border-radius: 0; background: transparent; font-size: 14.5px; }
+:global(.ms) .skin :global(.banner-warn) { color: var(--warn-ink); }
+:global(.ms) .skin :global(.banner-warn) :global(.ic) { color: var(--warn-ink); }
+:global(.ms) .skin :global(.banner-bad) { color: var(--loss-ink); }
+:global(.ms) .skin :global(.panel) { border: 0; border-top: 1px solid var(--rule-lo); border-radius: 0; background: transparent; }
+:global(.ms) .skin :global(.panel-pad) { padding: 18px 0 0; }
+:global(.ms) .skin :global(.panel-t) { font: 600 18px/1.2 var(--f-display); }
+:global(.ms) .skin :global(.panel-t) small { font: 400 14px var(--f-ui); }
+:global(.ms) .skin :global(.btn) { border-radius: 8px; font-weight: 600; font-size: 15px; }
+:global(.ms) .skin :global(.btn:active) { translate: none; }
+:global(.ms) .skin :global(.btn-quiet) { color: var(--ink-2); }
+:global(.ms) .skin :global(.sec-t) { font: 600 18px/1.2 var(--f-display); }
+:global(.ms) .skin :global(.sec-aux) { font-size: 14px; }

@@ -32,7 +32,7 @@ describe("DeadlinePicker", () => {
 
   it("opens a dialog with focus on today, and Escape closes it and returns focus", () => {
     render(<Harness />);
-    const trigger = screen.getByRole("button", { name: /no deadline · add one/i });
+    const trigger = screen.getByRole("button", { name: /no deadline, add one/i });
     trigger.focus();
     fireEvent.click(trigger);
     const dialog = screen.getByRole("dialog", { name: /choose a date/i });
@@ -40,13 +40,13 @@ describe("DeadlinePicker", () => {
     expect(document.activeElement).toHaveAttribute("aria-current", "date");
     fireEvent.keyDown(document.activeElement!, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: /no deadline · add one/i }));
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /no deadline, add one/i }));
   });
 
   it("disables days before today and moves focus with the arrow keys, picks with Enter/click", () => {
     const onValue = vi.fn();
     render(<Harness onValue={onValue} />);
-    fireEvent.click(screen.getByRole("button", { name: /no deadline · add one/i }));
+    fireEvent.click(screen.getByRole("button", { name: /no deadline, add one/i }));
     const day = (n: number) => screen.getByRole("button", { name: new RegExp(`october ${n}, 2026`, "i") });
     expect(day(1)).not.toBeDisabled();
     fireEvent.keyDown(day(1), { key: "ArrowLeft" });
@@ -159,7 +159,7 @@ describe("DeadlinePicker", () => {
     render(<Harness initial={new Date(2026, 9, 9, 23, 0)} onValue={onValue} />);
     fireEvent.click(screen.getByRole("button", { name: /clear the deadline/i }));
     expect(onValue).toHaveBeenCalledWith(null);
-    expect(screen.getByRole("button", { name: /no deadline · add one/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /no deadline, add one/i })).toBeTruthy();
     expect(screen.getByText(/runs until every match is decided/i)).toBeTruthy();
   });
 });

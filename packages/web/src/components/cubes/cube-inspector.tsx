@@ -87,7 +87,7 @@ export function CubeInspector({
   onRemove: () => void;
 }) {
   const name = card?.name ?? `Passcode ${fallbackId}`;
-  const kind = card ? `${card.type} · ${poolLabel} pool` : `Not in the catalog yet · ${poolLabel} pool`;
+  const kind = card ? `${card.type}, ${poolLabel} pool` : `Not in the catalog yet, ${poolLabel} pool`;
   const art = card ? (
     <span className="art">
       <img src={card.imageUrl || card.imageUrlSmall} alt="" />

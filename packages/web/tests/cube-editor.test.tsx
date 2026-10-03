@@ -91,24 +91,20 @@ async function open() {
 }
 
 describe("CubeEditor", () => {
-  it.each(["TCG", null])("wraps header facts with one dot each while saving (%s banlist)", async (currentBanlist) => {
+  it.each(["TCG", null])("lists header facts as plain items while saving (%s banlist)", async (currentBanlist) => {
     banlist = currentBanlist;
     main = [{ catalogCardId: 1, pool: "main", maxCopies: 2 }];
     extra = [{ catalogCardId: 2, pool: "extra", maxCopies: 1 }];
     await open();
 
-    const header = screen.getByRole("heading", { name: "Custom" }).closest(".ce-head")!;
-    const lines = header.querySelectorAll(".ce-meta");
+    expect(screen.getByRole("heading", { name: "Custom" })).toBeInTheDocument();
+    const header = screen.getByRole("region", { name: "Cube summary" });
+    const lines = [header.querySelector(`.${styles.facts}`)!, header.querySelector(`.${styles.counts}`)!];
     const expectedOrigin = currentBanlist ? ["Built by hand", "TCG banlist"] : ["Built by hand"];
     const expectFacts = (line: Element, expected: string[]) => {
-      expect(line.children).toHaveLength(1);
-      const items = Array.from(line.firstElementChild!.children);
+      const items = Array.from(line.children);
       expect(items.map((item) => item.textContent)).toEqual(expected);
-      expect(line.querySelectorAll(".dot")).toHaveLength(expected.length);
-      for (const item of items) {
-        expect(item.querySelectorAll(":scope > .dot")).toHaveLength(1);
-        expect(item.querySelector(".dot")).toHaveAttribute("aria-hidden", "true");
-      }
+      expect(line.querySelector(".dot")).toBeNull();
       return items;
     };
     expectFacts(lines[0]!, expectedOrigin);
@@ -253,10 +249,11 @@ describe("CubeEditor", () => {
       expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
     });
 
-    it("shows the Theme Draft check against 42 main and 17 extra", async () => {
+    it("shows the theme draft check against 42 main and 17 extra", async () => {
       await open();
-      expect(screen.getByRole("img", { name: "2 of 42 main copies" })).toBeInTheDocument();
-      expect(screen.getByRole("img", { name: "0 of 17 Extra copies" })).toBeInTheDocument();
+      expect(screen.getByRole("meter", { name: "2 of 42 main copies" })).toBeInTheDocument();
+      expect(screen.getByRole("meter", { name: "0 of 17 Extra copies" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Theme draft check" })).toBeInTheDocument();
       expect(screen.getByText(/40 main copies short/)).toBeInTheDocument();
     });
   });

@@ -61,9 +61,19 @@ export interface RoomBarProps {
   motion: Motion;
   motionOpen: boolean;
   onMotion: () => void;
+  /** Seated players can say a line to the table. */
+  canSay: boolean;
+  sayOpen: boolean;
+  onSay: (anchor: HTMLElement) => void;
   /** 0 to 1: how far through the draft you are. */
   progress: number;
 }
+
+export const SAY_ICON = (
+  <svg viewBox="0 0 20 20" aria-hidden="true">
+    <path d="M4 4.5h12a1.5 1.5 0 0 1 1.5 1.5v6.5A1.5 1.5 0 0 1 16 14H9l-4 3v-3H4a1.5 1.5 0 0 1-1.5-1.5V6A1.5 1.5 0 0 1 4 4.5Z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+  </svg>
+);
 
 export const RoomBar = memo(
   forwardRef<HTMLButtonElement, RoomBarProps>(function RoomBar(p, motionRef) {
@@ -80,6 +90,19 @@ export const RoomBar = memo(
         </div>
         <Where {...p.where} />
         <div className="right">
+          {p.canSay ? (
+            <button
+              className="ibtn say-btn"
+              type="button"
+              aria-expanded={p.sayOpen}
+              aria-controls="sayPop"
+              aria-label="Say something to the table"
+              onClick={(e) => p.onSay(e.currentTarget)}
+            >
+              {SAY_ICON}
+              <span className="t">Say</span>
+            </button>
+          ) : null}
           <button
             ref={motionRef}
             className="ibtn"

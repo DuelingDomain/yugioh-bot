@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import { io, Socket } from "socket.io-client";
 import { useDraftStore } from "@/lib/stores/draft-store";
+import { useTalkStore } from "@/lib/stores/talk-store";
 
 const WS_URL =
   process.env.NEXT_PUBLIC_WS_URL ||
@@ -124,6 +125,11 @@ export function useDraftWebsocket(slug: string, options: UseDraftWebsocketOption
     socket.on("draft:complete", () => {
       setFromServer({ completed: true, isMyTurn: false });
       optionsRef.current.onStatusChange?.("completed");
+    });
+
+    // Table talk: a fixed line from a seat. The store checks the id and drops anything else.
+    socket.on("draft:talk", (payload: { playerId: number; line: string }) => {
+      useTalkStore.getState().hear(payload?.playerId, payload?.line);
     });
 
     socket.on("draft:seats", () => {

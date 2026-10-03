@@ -16,7 +16,6 @@ vi.mock("@/lib/hooks/use-tournament-websocket", () => ({
 
 import TournamentDetailPage from "../../app/(app)/tournament/[slug]/page";
 import { sheetRatings, sheetTournament } from "../fixtures/tournament-sheet";
-import { deckResponse } from "../fixtures/matches";
 
 const LEADERBOARD = "/api/leaderboard?scope=all";
 const ratingsAt = (rating: number) => ({ rows: sheetRatings.map(row => row.playerId === 5 ? { ...row, rating } : row) });
@@ -32,7 +31,6 @@ function setup(ratings: () => Response | Promise<Response>) {
     if (String(url) === LEADERBOARD) return ratings();
     if (String(url) === "/api/auth/session") return Response.json({ user: { id: "host" } });
     if (String(url) === "/api/tournaments/friday-night-12") return Response.json(sheetTournament);
-    if (String(url) === "/api/tournaments/friday-night-12/deck") return Response.json(deckResponse());
     throw new Error(`Unexpected request: ${String(url)}`);
   }));
 }
@@ -51,7 +49,6 @@ describe("tournament live ratings", () => {
     act(() => handlers.onMatchUpdated?.());
     expect(await within(match).findByText("1201")).toBeInTheDocument();
     expect(within(match).queryByText("1184")).toBeNull();
-    expect(screen.getByText("In progress")).toBeInTheDocument();
   });
 
   it("keeps the last good Elo when a match update ratings refresh fails", async () => {

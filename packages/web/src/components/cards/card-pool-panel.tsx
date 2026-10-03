@@ -60,7 +60,7 @@ function CardPoolPanelBase({
       showCopies ? `${totalCopies} copies` : null,
       detail || null,
       loading ? "resolving…" : null,
-    ].filter(Boolean).join(" · ");
+    ].filter(Boolean).join(", ");
     return (
       <section className={cn("panel panel-pad", sheetStyles.panel, className)} aria-labelledby={headingId}>
         <h2 className="panel-t">
@@ -92,8 +92,8 @@ function CardPoolPanelBase({
         <h3 className="font-display text-lg text-text-primary">{title}</h3>
         <span aria-live="polite" className="text-sm tabular-nums text-text-secondary">
           {distinct} card{distinct === 1 ? "" : "s"}
-          {showCopies ? ` · ${totalCopies} copies` : ""}
-          {loading ? " · resolving…" : ""}
+          {showCopies ? `, ${totalCopies} copies` : ""}
+          {loading ? ", resolving…" : ""}
         </span>
       </div>
 

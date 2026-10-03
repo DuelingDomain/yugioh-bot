@@ -1,7 +1,11 @@
 import type { DraftDeckPool } from "./pool-model";
 import type { CardFacets, CardQuery, CardQueryResult, DeckCardInfo, DuelDeck, DuelMode, SavedDeck } from "@yugidraft/shared/duels";
+import type { DeckRegistrationMark } from "@yugidraft/shared/services";
 
-export type { SavedDeck };
+export type { SavedDeck, DeckRegistrationMark };
+
+/** A saved deck as the decks API returns it: the stored deck plus the tournament it is registered for, if any. */
+export type SavedDeckView = SavedDeck & { registration?: DeckRegistrationMark | null };
 
 export class DeckRequestError extends Error {
   readonly status: number;
@@ -38,22 +42,22 @@ async function parseBody<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-function readDeck(body: { deck?: SavedDeck }): SavedDeck {
+function readDeck(body: { deck?: SavedDeckView }): SavedDeckView {
   if (!body.deck || typeof body.deck !== "object") {
     throw new DeckRequestError("The server returned an invalid deck.", 502);
   }
   return body.deck;
 }
 
-export async function listSavedDecks(): Promise<SavedDeck[]> {
-  const body = await parseBody<{ decks?: SavedDeck[] }>(await fetch("/api/decks", { cache: "no-store" }));
+export async function listSavedDecks(): Promise<SavedDeckView[]> {
+  const body = await parseBody<{ decks?: SavedDeckView[] }>(await fetch("/api/decks", { cache: "no-store" }));
   if (!Array.isArray(body.decks)) {
     throw new DeckRequestError("The server returned an invalid deck list.", 502);
   }
   return body.decks;
 }
 
-export async function getSavedDeck(id: number): Promise<SavedDeck> {
+export async function getSavedDeck(id: number): Promise<SavedDeckView> {
   return readDeck(await parseBody(await fetch(`/api/decks/${id}`, { cache: "no-store" })));
 }
 
@@ -72,7 +76,7 @@ export async function createSavedDeck(input: {
 export async function updateSavedDeck(
   id: number,
   input: { name: string; mode: DuelMode; deck: DuelDeck },
-): Promise<SavedDeck> {
+): Promise<SavedDeckView> {
   return readDeck(await parseBody(await fetch(`/api/decks/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -81,9 +85,9 @@ export async function updateSavedDeck(
 }
 
 /** A saved draft deck and, when the tournament registration failed, why. */
-export type DraftDeckSave = { deck: SavedDeck; warning?: string };
+export type DraftDeckSave = { deck: SavedDeckView; warning?: string };
 
-function readDraftSave(body: { deck?: SavedDeck; warning?: unknown }): DraftDeckSave {
+function readDraftSave(body: { deck?: SavedDeckView; warning?: unknown }): DraftDeckSave {
   const deck = readDeck(body);
   return typeof body.warning === "string" && body.warning ? { deck, warning: body.warning } : { deck };
 }
@@ -111,6 +115,19 @@ export async function saveDraftDeck(
   }
 }
 
+/** Reads the `registration` the API sends next to a deck; anything that is not a full mark counts as none. */
+export function readRegistration(value: unknown): DeckRegistrationMark | null {
+  if (!value || typeof value !== "object") return null;
+  const { tournament, locked } = value as { tournament?: unknown; locked?: unknown };
+  if (!tournament || typeof tournament !== "object") return null;
+  const t = tournament as Record<string, unknown>;
+  if (typeof t.id !== "number" || typeof t.name !== "string" || typeof t.status !== "string") return null;
+  return {
+    tournament: { id: t.id, slug: typeof t.slug === "string" ? t.slug : null, name: t.name, status: t.status },
+    locked: locked === true,
+  };
+}
+
 /** The caller's pool for a finished draft, as engine passcodes. */
 export async function getDraftDeckPool(slug: string): Promise<Omit<DraftDeckPool, "slug">> {
   const body = await parseBody<Partial<Omit<DraftDeckPool, "slug">> & { unresolved?: number[] }>(
@@ -126,6 +143,7 @@ export async function getDraftDeckPool(slug: string): Promise<Omit<DraftDeckPool
     mainPoolCount: body.mainPoolCount,
     unresolved: Array.isArray(body.unresolved) ? body.unresolved : [],
     savedDeckId: typeof body.savedDeckId === "number" ? body.savedDeckId : null,
+    registration: readRegistration(body.registration),
   };
 }
 

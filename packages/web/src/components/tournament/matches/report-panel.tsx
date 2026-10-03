@@ -8,11 +8,11 @@ export function ReportPanel({ projection, opponentName, confirmWindowHours, load
   projection: MatchProjection; opponentName: string; confirmWindowHours: number; loading: boolean; onReport: (result: "win" | "loss") => void;
 }) {
   return (
-    <div className="report">
-      <p>How did it go? A win also earns <b className={styles.number}>{projection.winWinnings}</b> winnings. {opponentName} confirms within {confirmWindowHours} hours, or it approves itself.</p>
-      <div className="acts">
-        <MatchButton disabled={loading} onClick={() => onReport("win")}>I won <span className="lp-d up">+{projection.winRating}</span></MatchButton>
-        <MatchButton disabled={loading} onClick={() => onReport("loss")}>I lost <span className="lp-d down">−{Math.abs(projection.loseRating)}</span></MatchButton>
+    <div className={styles.report}>
+      <p className={styles.reportText}>How did it go? {opponentName} confirms within {confirmWindowHours} hours, or it approves itself.</p>
+      <div className={styles.reportActs}>
+        <MatchButton variant="primary" disabled={loading} onClick={() => onReport("win")}>I won <span className={styles.up}>+{projection.winRating}</span></MatchButton>
+        <MatchButton disabled={loading} onClick={() => onReport("loss")}>I lost <span className={styles.dn}>−{Math.abs(projection.loseRating)}</span></MatchButton>
       </div>
     </div>
   );

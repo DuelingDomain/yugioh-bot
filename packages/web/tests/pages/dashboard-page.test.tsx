@@ -17,8 +17,8 @@ vi.mock("next/font/google", () => {
 });
 
 function readout(label: string) {
-  const key = screen.getByText(label, { selector: ".lp-k" });
-  return key.closest(".lp") as HTMLElement;
+  const key = screen.getByText(label, { selector: "dt" });
+  return key.closest("div") as HTMLElement;
 }
 
 describe("DashboardPage", () => {
@@ -59,7 +59,7 @@ describe("DashboardPage", () => {
     vi.stubEnv("TZ", "America/Toronto");
     render(page, { container, hydrate: true });
 
-    expect(container.querySelector(".page-sub")).toHaveTextContent("Fri, Oct 2");
+    expect(container.querySelector(".sv-bar-sub")).toHaveTextContent("Fri, Oct 2");
   });
 
   it("counts approved wins and losses in the configured guild only", async () => {
@@ -120,12 +120,13 @@ describe("DashboardPage", () => {
     render(await DashboardPage());
 
     const section = screen.getByRole("region", { name: "Your tournaments" });
-    expect(section.parentElement).toHaveClass("db-cols", styles.cols);
-    const rows = within(section).getAllByRole("link").filter((a) => a.classList.contains("db-row"));
-    expect(rows.map((r) => r.querySelector(".nm")?.textContent)).toEqual(["Running Cup", "Open Cup"]);
+    expect(section.parentElement).toHaveClass(styles.cols);
+    const rows = Array.from(section.querySelectorAll<HTMLElement>("li.sv-row"));
+    const names = rows.map((r) => within(r).getAllByRole("link")[0]);
+    expect(names.map((a) => a.textContent)).toEqual(["Running Cup", "Open Cup"]);
     rows.forEach((r) => expect(r).toHaveAttribute("data-you"));
-    expect(rows[0]).toHaveAttribute("href", "/tournament/running-cup");
-    within(rows[0]).getByText("In progress");
+    expect(names[0]).toHaveAttribute("href", "/tournament/running-cup");
+    within(rows[0]).getByText(/Round 1 of 1|In progress/);
     within(rows[1]).getByText("Open to join");
     expect(screen.getByText(/not in a draft right now/i)).toBeInTheDocument();
   });

@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { LinkStub, fontMock, stubFetch } from "./helpers";
+import { ROOM_COLLAPSE_QUERY } from "../../../src/components/layout/shell-model";
 
 vi.mock("next/font/google", () => fontMock());
 vi.mock("next/navigation", () => ({ usePathname: vi.fn() }));
@@ -31,6 +32,7 @@ describe("AppShell bypass routes", () => {
     expect(container.querySelector("nav")).toBeNull();
     expect(container.querySelector("header")).toBeNull();
     expect(global.fetch).not.toHaveBeenCalled();
+    expect(vi.mocked(global.fetch).mock.calls.some(([u]) => String(u).includes("/api/live"))).toBe(false);
   });
 
   it("keeps the exact main wrappers", () => {
@@ -67,40 +69,40 @@ describe("AppShell frame", () => {
         <p>page</p>
       </AppShell>,
     );
-    expect(container.querySelector("header.ns-top")).not.toBeNull();
-    expect(container.querySelector("aside.ns-side")).not.toBeNull();
+    expect(container.querySelector("header")).not.toBeNull();
+    expect(container.querySelector("aside")).not.toBeNull();
     const main = container.querySelector("main") as HTMLElement;
     expect(main.closest(".ms")).toBeNull();
     expect(screen.getByText("page").closest(".ms")).toBeNull();
-    expect(screen.getByText("Tournaments", { selector: ".ns-title" })).toBeTruthy();
+    expect(within(container.querySelector("header") as HTMLElement).getByText("Tournaments")).toBeTruthy();
   });
 
   it("falls back to Duelists Kingdom for the phone title", () => {
     mockUsePathname.mockReturnValue("/nowhere");
-    render(<AppShell><p>x</p></AppShell>);
-    expect(screen.getByText("Duelists Kingdom", { selector: ".ns-title" })).toBeTruthy();
+    const { container } = render(<AppShell><p>x</p></AppShell>);
+    expect(within(container.querySelector("header") as HTMLElement).getByText("Duelists Kingdom")).toBeTruthy();
   });
 
   it("names the sidebar and the phone menu Duelists Kingdom", async () => {
-    const { container } = render(<AppShell><p>x</p></AppShell>);
-    expect(container.querySelector(".ns-side .ns-word")?.textContent).toBe("Duelists Kingdom");
+    render(<AppShell><p>x</p></AppShell>);
+    expect(within(screen.getByRole("complementary", { name: "Sidebar" })).getByText("Duelists Kingdom")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
     const dialog = await screen.findByRole("dialog", { name: "Navigation" });
-    expect(dialog.querySelector(".ns-word")?.textContent).toBe("Duelists Kingdom");
+    expect(within(dialog).getByText("Duelists Kingdom")).toBeTruthy();
   });
 
   it("restores the collapsed state from storage after mount", async () => {
     window.localStorage.setItem(KEY, "1");
     const { container } = render(<AppShell><p>x</p></AppShell>);
-    await waitFor(() => expect(container.querySelector(".ns")).toHaveAttribute("data-c"));
+    await waitFor(() => expect(container.querySelector("aside")).toHaveAttribute("data-rail"));
     expect(container.firstElementChild).toHaveAttribute("data-sidebar-collapsed", "true");
   });
 
   it("remembers a toggle", async () => {
     const { container } = render(<AppShell><p>x</p></AppShell>);
-    expect(container.querySelector(".ns")).not.toHaveAttribute("data-c");
+    expect(container.querySelector("aside")).not.toHaveAttribute("data-rail");
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
-    expect(container.querySelector(".ns")).toHaveAttribute("data-c");
+    expect(container.querySelector("aside")).toHaveAttribute("data-rail");
     expect(window.localStorage.getItem(KEY)).toBe("1");
     fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
     expect(window.localStorage.getItem(KEY)).toBe("0");
@@ -114,9 +116,9 @@ describe("AppShell frame", () => {
       throw new Error("blocked");
     });
     const { container } = render(<AppShell><p>x</p></AppShell>);
-    expect(container.querySelector(".ns")).not.toHaveAttribute("data-c");
+    expect(container.querySelector("aside")).not.toHaveAttribute("data-rail");
     fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
-    expect(container.querySelector(".ns")).toHaveAttribute("data-c");
+    expect(container.querySelector("aside")).toHaveAttribute("data-rail");
   });
 
   it("phone menu: opens as a dialog, page goes inert, Escape closes and focus returns", async () => {
@@ -209,5 +211,116 @@ describe("AppShell frame", () => {
     expect(accountButton).toHaveAttribute("data-on");
     fireEvent.click(accountButton);
     expect(screen.getByRole("menuitem", { name: "Your profile" })).toHaveAttribute("href", "/player/7");
+  });
+});
+
+describe("AppShell Live now", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    // An earlier test leaves a matchMedia that reports a wide window, which would close the menu.
+    window.matchMedia = vi.fn().mockReturnValue({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }) as unknown as typeof window.matchMedia;
+    mockUsePathname.mockReturnValue("/dashboard");
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("shows nothing when nothing is live", async () => {
+    stubFetch();
+    await act(async () => {
+      render(<AppShell><p>x</p></AppShell>);
+    });
+    expect(screen.queryByText("Live now")).toBeNull();
+    expect(screen.queryByText("Your duel")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open menu" })).toBeTruthy();
+  });
+
+  it("puts your duel under Dashboard and puts a dot on the menu button", async () => {
+    stubFetch(undefined, undefined, { yourDuel: { href: "/duels/abc", opponent: "Kestrel", state: "live" }, liveCount: 3 });
+    await act(async () => {
+      render(<AppShell><p>x</p></AppShell>);
+    });
+    const sidebar = screen.getByRole("complementary", { name: "Sidebar" });
+    const row = within(sidebar).getByRole("link", { name: /your duel against kestrel/i });
+    expect(row).toHaveAttribute("href", "/duels/abc");
+    expect(row).toHaveTextContent("Open duel");
+    expect(screen.getByRole("button", { name: "Open menu, live now" })).toBeTruthy();
+  });
+
+  it("falls back to the count, linking to /duels", async () => {
+    stubFetch(undefined, undefined, { yourDuel: null, liveCount: 2 });
+    await act(async () => {
+      render(<AppShell><p>x</p></AppShell>);
+    });
+    const row = within(screen.getByRole("complementary", { name: "Sidebar" })).getByRole("link", { name: "Live now, 2 duels" });
+    expect(row).toHaveAttribute("href", "/duels");
+  });
+
+  it("shows the phone menu's live row too", async () => {
+    stubFetch(undefined, undefined, { yourDuel: null, liveCount: 1 });
+    await act(async () => {
+      render(<AppShell><p>x</p></AppShell>);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Open menu, live now" }));
+    const drawer = await screen.findByRole("dialog", { name: "Navigation" });
+    expect(within(drawer).getByRole("link", { name: "Live now, 1 duel" })).toHaveAttribute("href", "/duels");
+  });
+});
+
+describe("AppShell tournament rail", () => {
+  function matchWidth(roomWidth: boolean) {
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === ROOM_COLLAPSE_QUERY ? roomWidth : false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+  }
+  beforeEach(() => {
+    window.localStorage.clear();
+    stubFetch();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    // @ts-expect-error jsdom has no matchMedia by default
+    delete window.matchMedia;
+  });
+
+  it("starts collapsed on /tournament/* between 1024 and 1360px, without writing storage", async () => {
+    matchWidth(true);
+    mockUsePathname.mockReturnValue("/tournament/friday");
+    const { container } = render(<AppShell><p>x</p></AppShell>);
+    await waitFor(() => expect(container.querySelector("aside")).toHaveAttribute("data-rail", "true"));
+    expect(window.localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("the toggle there is for this visit only", async () => {
+    matchWidth(true);
+    mockUsePathname.mockReturnValue("/tournament/friday");
+    const { container } = render(<AppShell><p>x</p></AppShell>);
+    await waitFor(() => expect(container.querySelector("aside")).toHaveAttribute("data-rail"));
+    fireEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+    expect(container.querySelector("aside")).not.toHaveAttribute("data-rail");
+    expect(window.localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("other pages and other widths are not auto-collapsed", async () => {
+    matchWidth(true);
+    mockUsePathname.mockReturnValue("/tournaments");
+    const a = render(<AppShell><p>x</p></AppShell>);
+    expect(a.container.querySelector("aside")).not.toHaveAttribute("data-rail");
+    a.unmount();
+    matchWidth(false);
+    mockUsePathname.mockReturnValue("/tournament/friday");
+    const b = render(<AppShell><p>x</p></AppShell>);
+    expect(b.container.querySelector("aside")).not.toHaveAttribute("data-rail");
+  });
+
+  it("stored collapse still applies when the room width rule does not", async () => {
+    matchWidth(false);
+    window.localStorage.setItem(KEY, "1");
+    mockUsePathname.mockReturnValue("/tournament/friday");
+    const { container } = render(<AppShell><p>x</p></AppShell>);
+    await waitFor(() => expect(container.querySelector("aside")).toHaveAttribute("data-rail"));
   });
 });

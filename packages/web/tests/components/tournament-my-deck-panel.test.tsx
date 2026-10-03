@@ -54,7 +54,7 @@ describe("MyDeckPanel", () => {
     );
     const onChanged = vi.fn();
     renderPanel(tournament, onChanged);
-    expect(await screen.findByText(/no deck registered/i)).toBeTruthy();
+    expect(await screen.findByText(/no deck yet/i)).toBeTruthy();
     const register = screen.getByRole("button", { name: /register/i });
     expect(register).toBeDisabled();
     fireEvent.change(screen.getByLabelText(/saved deck/i), { target: { value: "5" } });
@@ -75,7 +75,7 @@ describe("MyDeckPanel", () => {
       () => Response.json({ error: "Deck is not legal.", report: { issues: [{ message: "Too few cards." }] } }, { status: 400 }),
     );
     renderPanel();
-    expect(await screen.findByText(/Goat · 40 main · 15 extra · 0 side/)).toBeTruthy();
+    expect(await screen.findByText(/Goat, 40 main, 15 extra, 0 side/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/saved deck/i), { target: { value: "5" } });
     fireEvent.click(screen.getByRole("button", { name: /change/i }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Deck is not legal. Too few cards.");
@@ -84,7 +84,7 @@ describe("MyDeckPanel", () => {
   it("is read-only when locked", async () => {
     stub({ registration: { savedDeckId: 4, deck, lockedAt: "2026-01-02T00:00:00Z" }, draft: null, savedDeckOptions: [{ id: 4, name: "Goat" }] });
     renderPanel();
-    expect(await screen.findByText(/locked — your first tournament game started/i)).toBeTruthy();
+    expect(await screen.findByText(/locked\. your first tournament game started/i)).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByLabelText(/saved deck/i)).toBeNull();
   });
@@ -95,9 +95,9 @@ describe("MyDeckPanel", () => {
     fetchMock.mockImplementationOnce(() => old.promise);
     const { rerender } = renderPanel();
     rerender(<MyDeckPanel tournament={{ ...tournament }} tournamentSlug="cup" onChanged={() => {}} />);
-    expect(await screen.findByText(/locked — your first tournament game started/i)).toBeInTheDocument();
+    expect(await screen.findByText(/locked\. your first tournament game started/i)).toBeInTheDocument();
     await act(async () => old.resolve(Response.json(registeredDeck(null))));
-    expect(screen.getByText(/locked — your first tournament game started/i)).toBeInTheDocument();
+    expect(screen.getByText(/locked\. your first tournament game started/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/saved deck/i)).toBeNull();
   });
 
@@ -110,9 +110,9 @@ describe("MyDeckPanel", () => {
     const { rerender } = renderPanel();
     await waitFor(() => expect(json).toHaveBeenCalledOnce());
     rerender(<MyDeckPanel tournament={{ ...tournament }} tournamentSlug="cup" onChanged={() => {}} />);
-    expect(await screen.findByText(/locked — your first tournament game started/i)).toBeInTheDocument();
+    expect(await screen.findByText(/locked\. your first tournament game started/i)).toBeInTheDocument();
     await act(async () => oldBody.resolve(registeredDeck(null)));
-    expect(screen.getByText(/locked — your first tournament game started/i)).toBeInTheDocument();
+    expect(screen.getByText(/locked\. your first tournament game started/i)).toBeInTheDocument();
     expect(screen.queryByLabelText(/saved deck/i)).toBeNull();
   });
 
