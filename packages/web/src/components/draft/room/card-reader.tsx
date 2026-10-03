@@ -11,6 +11,8 @@ export interface ReaderProps {
   /** The pick button: hidden while reading a pick from the binder, or when the draft is done. */
   buttonHidden: boolean;
   pickable: boolean;
+  /** Set when the card under the reader cannot be picked: the reason, e.g. "You have 3". */
+  blockedNote?: string | null;
   /** It is your turn but nothing is chosen. */
   myTurn: boolean;
   waitingOn: string[];
@@ -96,7 +98,7 @@ export const CardReader = memo(function CardReader(p: ReaderProps) {
       </div>
       <p className="insp-text">{card ? cardText(card) : ""}</p>
       <button className="pick-btn" type="button" hidden={p.buttonHidden} disabled={!p.pickable} onClick={p.onPick}>
-        <span>{p.pickable && card ? `Pick ${card.name}` : p.myTurn ? "Choose a card" : "Picked"}</span>
+        <span>{p.pickable && card ? `Pick ${card.name}` : p.blockedNote ? p.blockedNote : p.myTurn ? "Choose a card" : "Picked"}</span>
         <kbd>Enter</kbd>
       </button>
       <div className="keys">

@@ -70,6 +70,8 @@ interface DraftData {
   tournamentId?: number | null;
   myDeckId?: number | null;
   isParticipant: boolean;
+  /** Server says test bots are allowed (DRAFT_TEST_BOTS=1 or a non-production build). */
+  botsEnabled?: boolean;
   currentPack?: Array<{
     id: number;
     passcode: number;
@@ -340,7 +342,7 @@ export default function DraftDetailPage() {
         onJoin={handleJoin}
         onAddBot={handleAddBot}
         onChanged={() => void fetchDraft()}
-        isDev={process.env.NODE_ENV !== "production"}
+        botsEnabled={draft.botsEnabled === true}
       />
     );
   }

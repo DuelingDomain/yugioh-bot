@@ -43,7 +43,7 @@ export function CubeCardGrid({
             >
               <span className="ct-art">
                 <img src={card.imageUrlSmall || card.imageUrl} alt="" loading="lazy" decoding="async" />
-                <span className={`ct-x${n !== 3 ? " lo" : ""}`} aria-hidden="true">
+                <span className={`ct-x${n < 3 ? " lo" : ""}`} aria-hidden="true">
                   ×{n}
                 </span>
               </span>
@@ -64,7 +64,7 @@ export function CubeCardGrid({
             >
               <span className="ct-art">
                 <span className={styles.unknownArt}>{id}</span>
-                <span className={`ct-x${copies !== 3 ? " lo" : ""}`} aria-hidden="true">
+                <span className={`ct-x${copies < 3 ? " lo" : ""}`} aria-hidden="true">
                   ×{copies}
                 </span>
               </span>

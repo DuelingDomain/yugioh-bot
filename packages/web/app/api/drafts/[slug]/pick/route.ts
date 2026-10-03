@@ -9,8 +9,12 @@ import { broadcaster } from "@/lib/notify";
 export const runtime = "nodejs";
 
 const DRAFT_STATUS = {
+  active: "active",
   completed: "completed",
 } as const;
+
+// Guards the bot loop; a draft has far fewer steps than this where the human can only pass.
+const MAX_BOT_ROUNDS = 200;
 
 export async function POST(
   request: NextRequest,
@@ -70,21 +74,28 @@ export async function POST(
       )
       .all(draft.id) as Array<{ player_id: number }>;
 
-    for (const fake of fakePlayers) {
-      const hasPicked = db
-        .prepare(
-          `SELECT id FROM draft_picks
-           WHERE draft_id = ? AND player_id = ? AND wave_number = ? AND pick_step = ?`
-        )
-        .get(draft.id, fake.player_id, currentStep.currentPackRound, currentStep.currentPickStep);
+    // A bot only picks from cards it may take (pickOptions leaves out capped cards). When the
+    // step moves on and the human has nothing to pick (every card capped, so they passed), the
+    // bots play the next step too; otherwise the bots wait for the human's next pick.
+    for (let round = 0; round < MAX_BOT_ROUNDS; round += 1) {
+      const before = drafts.findById(draft.id);
+      if (before.status !== DRAFT_STATUS.active) break;
+      let botPicked = false;
 
-      if (!hasPicked) {
-        const options = drafts.currentPackOptions(draft.id, fake.player_id);
+      for (const fake of fakePlayers) {
+        const now = drafts.findById(draft.id);
+        if (now.currentPackRound !== before.currentPackRound || now.currentPickStep !== before.currentPickStep) break;
+        const options = drafts.pickOptions(draft.id, fake.player_id);
         if (options.length > 0) {
           const randomCard = options[Math.floor(Math.random() * options.length)];
           drafts.pickCard(draft.id, fake.player_id, randomCard.id, "auto");
+          botPicked = true;
         }
       }
+
+      const after = drafts.findById(draft.id);
+      const humanToAct = after.status === DRAFT_STATUS.active && drafts.pickOptions(draft.id, player.id).length > 0;
+      if (!botPicked || humanToAct || after.status !== DRAFT_STATUS.active) break;
     }
 
     void broadcaster.draft({

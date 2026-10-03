@@ -199,7 +199,7 @@ describe("shared draft service", () => {
       "guild-1", "channel-1", "random seats",
       {
         ...(pool === "cube" ? { cubeCardIds: [1, 2, 3, 4, 5, 6, 7, 8] } : { setNames: ["Metal Raiders"] }),
-        packSize: 2, packsPerPlayer: 1, randomizeSeats: true,
+        packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2, randomizeSeats: true,
       },
       "user-1", yugi.id,
     );
@@ -236,7 +236,7 @@ describe("shared draft service", () => {
     const mai = insertPlayer(app.db, "guild-1", "user-4", "Mai");
     const draft = app.drafts.create(
       "guild-1", "channel-1", "join order",
-      { packSize: 2, packsPerPlayer: 1, randomizeSeats }, "user-1", yugi.id,
+      { packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2, randomizeSeats }, "user-1", yugi.id,
     );
     app.drafts.join(draft.id, joey.id);
     app.drafts.join(draft.id, mai.id);
@@ -302,7 +302,7 @@ describe("shared draft service", () => {
       "channel-1",
       "custom pool night",
       // 2 players × packSize 2 => 4 distinct needed for one wave.
-      { setNames: ["Missing Set"], customCardIds: [101, 102, 103, 104], packSize: 2, packsPerPlayer: 1 },
+      { setNames: ["Missing Set"], customCardIds: [101, 102, 103, 104], packSize: 2, packsPerPlayer: 1, cardsPerPlayer: 2 },
       "user-1",
       yugi.id,
     );
@@ -723,7 +723,7 @@ describe("shared draft service", () => {
       "guild-1",
       "channel-1",
       "multiplicity",
-      { customCardIds: [101, 101, 102, 103, 104, 105], packSize: 2, packsPerPlayer: 2 },
+      { customCardIds: [101, 101, 102, 103, 104, 105], packSize: 2, packsPerPlayer: 2, cardsPerPlayer: 4 },
       "user-1",
       yugi.id,
     );

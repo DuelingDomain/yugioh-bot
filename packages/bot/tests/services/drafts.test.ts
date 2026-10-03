@@ -242,6 +242,7 @@ describe("draft service", () => {
         excludeNames: ["Kuriboh"],
         packSize: 1,
         packsPerPlayer: 1,
+        cardsPerPlayer: 1,
       },
       "user-1",
       yugi.id,
@@ -315,7 +316,7 @@ describe("draft service", () => {
       "guild-1",
       "channel-1",
       "cube night",
-      { setNames: ["Metal Raiders"], packSize: 1, packsPerPlayer: 1 },
+      { setNames: ["Metal Raiders"], packSize: 1, packsPerPlayer: 1, cardsPerPlayer: 1 },
       "user-1",
       yugi.id,
     );

@@ -73,6 +73,14 @@ describe("shared database schema", () => {
       "pick_method",
       "picked_at",
     ]);
+    expect(getTableInfo(db, "draft_passes").map((column) => column.name)).toEqual([
+      "id",
+      "draft_id",
+      "player_id",
+      "wave_number",
+      "pick_step",
+      "passed_at",
+    ]);
     expect(getTableInfo(db, "card_catalog").map((column) => column.name)).toEqual([
       "ygoprodeck_id",
       "name",

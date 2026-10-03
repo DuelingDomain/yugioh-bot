@@ -178,6 +178,19 @@ export function migrate(db: Database.Database) {
       unique (draft_card_id)
     );
 
+    -- A booster pick the player could not make (every card in the pack was capped for them, or
+    -- the pack was empty). It counts toward step completion but adds no card.
+    create table if not exists draft_passes (
+      id integer primary key autoincrement,
+      draft_id integer not null references drafts(id),
+      player_id integer not null,
+      wave_number integer not null,
+      pick_step integer not null,
+      passed_at text not null,
+      foreign key (draft_id, player_id) references draft_players(draft_id, player_id),
+      unique (draft_id, player_id, wave_number, pick_step)
+    );
+
     create table if not exists matches (
       id integer primary key autoincrement,
       guild_id text not null,

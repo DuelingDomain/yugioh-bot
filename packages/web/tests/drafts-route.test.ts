@@ -207,7 +207,7 @@ describe("GET /api/drafts/[slug]", () => {
       guildId,
       "channel-1",
       "uncached metal draft",
-      { setNames: ["Metal Raiders"], packSize: 1, packsPerPlayer: 1 },
+      { setNames: ["Metal Raiders"], packSize: 1, packsPerPlayer: 1, cardsPerPlayer: 1 },
       creatorUserId,
       creator.id,
     );
@@ -354,7 +354,7 @@ describe("GET /api/drafts/[slug]", () => {
       guildId,
       "channel-1",
       "uncached custom draft",
-      { customCardIds: [70781052, 89631139], packSize: 1, packsPerPlayer: 1 },
+      { customCardIds: [70781052, 89631139], packSize: 1, packsPerPlayer: 1, cardsPerPlayer: 1 },
       creatorUserId,
       creator.id,
     );

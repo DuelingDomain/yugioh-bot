@@ -93,6 +93,7 @@ The bot wraps all discord.js interactions into framework-agnostic `*Like` types 
 - `src/lib/discord-web-access.ts` is the shared entry point for member/admin checks, used by sign-in, proxy, and route guards. E2E/test login providers must go through it too. Exception: duel guards in `src/lib/duel-host.ts` call `verifyDiscordGuildMembership` directly, so tests that stub only the entry point still hit Discord verification there. Membership/admin decisions cache for 60 seconds with in-flight deduplication and a 5-second request timeout; failures back off for at least 10 seconds and honor Discord's 429 retry deadline. APIs return 401 for no session, 403 for denied access, 503 when verification is unavailable.
 - Admin = guild owner or a member with Manage Server / Administrator. Season start/end and settings writes require admin; cubes are editable by their owner or admin. Every server-data read is scoped to the configured guild, including slug/id lookups and linked resources.
 - `/dev/fx-lab` and its card-image routes are public with `DUEL_FX_LAB=1` or in `next dev`; the lab returns 404 otherwise (`src/lib/fx-lab.ts`).
+- Draft lobby test bots (Add bot button, `POST /api/drafts/[slug]/join-bot`, host only) are off in production unless the web server has `DRAFT_TEST_BOTS=1`; any non-production build allows them. The draft API returns `botsEnabled` so the page never reads the env (`src/lib/draft-test-bots.ts`). Bots pick through the pick route (they auto-pick after each human pick) and through pick-deadline expiry.
 
 ### Draft flow
 

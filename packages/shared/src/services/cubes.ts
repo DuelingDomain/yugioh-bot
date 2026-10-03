@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import type { Card, Cube, CubeCard, CubePool, CubePools, DraftConfig } from "../types/index.js";
 import { isExtraDeckFrame, type CardCatalogService } from "./card-catalog.js";
 import type { CubeAnalysis } from "./deal.js";
+import { DEFAULT_CUBE_COPIES, MAX_COPIES_PER_PLAYER, MAX_CUBE_COPIES, MIN_CUBE_COPIES } from "./constants.js";
 
 export interface AnalyzeCubePoolsConfig {
   themePackSize: number;
@@ -13,6 +14,19 @@ export interface AnalyzeCubePoolsConfig {
 
 function requiredPoolSize(rounds: number, themePackSize: number, burnUnpicked: boolean): number {
   return burnUnpicked ? rounds * themePackSize : rounds + (themePackSize - 1);
+}
+
+/** Cards one player can take from a pool: the per-player cap limits each card, whatever the cube holds. */
+function playerReachableSize(cards: Array<{ maxCopies: number }>): number {
+  return cards.reduce((sum, c) => sum + Math.min(c.maxCopies, MAX_COPIES_PER_PLAYER), 0);
+}
+
+/** Copies of one card in a cube: any whole number from 1 to MAX_CUBE_COPIES. */
+function assertCubeCopies(value: number): number {
+  if (!Number.isInteger(value) || value < MIN_CUBE_COPIES || value > MAX_CUBE_COPIES) {
+    throw new Error(`Copies must be a whole number from ${MIN_CUBE_COPIES} to ${MAX_CUBE_COPIES}`);
+  }
+  return value;
 }
 
 function mapCube(row: any): Cube {
@@ -114,8 +128,9 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       const {
         name = archetype,
         banlist,
-        maxCopies = 3,
+        maxCopies = DEFAULT_CUBE_COPIES,
       } = opts;
+      assertCubeCopies(maxCopies);
 
       const { main, extra } = await catalog.syncByArchetype(archetype, { banlist });
       const cubeId = insertCubeRow(guildId, name, createdByUserId, archetype, banlist ?? null);
@@ -131,7 +146,14 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       return findCube(cubeId);
     },
 
-    addCard(cubeId: number, catalogCardId: number, pool: CubePool, maxCopies = 3, source: string | null = null): void {
+    addCard(
+      cubeId: number,
+      catalogCardId: number,
+      pool: CubePool,
+      maxCopies = DEFAULT_CUBE_COPIES,
+      source: string | null = null,
+    ): void {
+      assertCubeCopies(maxCopies);
       upsertCard.run(cubeId, catalogCardId, pool, maxCopies, source);
       bump(cubeId);
     },
@@ -142,6 +164,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     },
 
     setMaxCopies(cubeId: number, catalogCardId: number, maxCopies: number): void {
+      assertCubeCopies(maxCopies);
       db.prepare("update cube_cards set max_copies = ? where cube_id = ? and catalog_card_id = ?").run(
         maxCopies,
         cubeId,
@@ -172,7 +195,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
           continue;
         }
         const pool: CubePool = opts.pool ?? (isExtraDeckFrame(card) ? "extra" : "main");
-        upsertCard.run(cubeId, id, pool, Math.min(count, 3), null);
+        upsertCard.run(cubeId, id, pool, Math.min(count, MAX_CUBE_COPIES), null);
         added += 1;
       }
 
@@ -187,7 +210,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     ): Promise<{ added: number }> {
       const { main, extra } = await catalog.syncByArchetype(archetype, { banlist: opts.banlist });
       const present = existingCardIds(cubeId);
-      const maxCopies = opts.maxCopies ?? 3;
+      const maxCopies = assertCubeCopies(opts.maxCopies ?? DEFAULT_CUBE_COPIES);
       let added = 0;
       for (const card of main) {
         if (!present.has(card.ygoprodeckId)) {
@@ -218,6 +241,17 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         errors.push(
           `Main pool has ${mainSize} cards but needs at least ${mainNeeded} for a ${config.cardsPerPlayer}-card main deck (${config.themePackSize} choices/pick${config.burnUnpicked ? ", burn on" : ""}).`,
         );
+      } else {
+        // A player never gets more than 3 copies of one card, so a few card names with many copies cannot fill a deck.
+        const mainReachable = playerReachableSize(pools.main);
+        // Burned choices also spend reachable copies; excess copies above the
+        // player cap cannot stand in for the choices needed in later rounds.
+        const mainReachableNeeded = mainNeeded;
+        if (mainReachable < mainReachableNeeded) {
+          errors.push(
+            `A player can take at most ${MAX_COPIES_PER_PLAYER} copies of a card, so this main pool gives ${mainReachable} cards but a ${config.cardsPerPlayer}-card main deck needs ${mainReachableNeeded}${config.burnUnpicked ? " including burned choices (burn on)" : ""}. Add more different cards.`,
+          );
+        }
       }
 
       if (config.extraDeckEnabled) {

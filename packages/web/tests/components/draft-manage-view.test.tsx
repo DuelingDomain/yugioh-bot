@@ -42,6 +42,22 @@ const baseProps = {
 };
 
 describe("DraftManageView — setup rail", () => {
+  it("shows booster reachability errors on entering the lobby and refreshes them after edits", async () => {
+    let errors = ["This pool can give one player at most 24 cards (at most 3 copies of each card), but the deck needs 40."];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/preflight")
+      ? Response.json({ errors, warnings: [] })
+      : Response.json({ cards: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(<DraftManageView {...baseProps} slug="narrow" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("at most 3 copies");
+    errors = [];
+    rerender(<DraftManageView {...baseProps} slug="narrow" draft={{
+      ...baseDraft, config: { ...baseDraft.config, cardsPerPlayer: 20 },
+    }} />);
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/preflight"))).toHaveLength(2);
+  });
+
   it("shows the configured cards-per-player in the read-only setup", () => {
     render(<DraftManageView {...baseProps} />);
     expect(screen.getByText("Each player")).toBeInTheDocument();
@@ -377,29 +393,29 @@ describe("DraftManageView — theme draft", () => {
 });
 
 describe("DraftManageView — Add Bot button", () => {
-  it("shows Add Bot button when isDev=true and isCreator=true", () => {
+  it("shows Add Bot button when botsEnabled=true and isCreator=true", () => {
     const onAddBot = vi.fn().mockResolvedValue(undefined);
-    render(<DraftManageView {...baseProps} isDev={true} onAddBot={onAddBot} />);
+    render(<DraftManageView {...baseProps} botsEnabled={true} onAddBot={onAddBot} />);
     expect(screen.getByRole("button", { name: /add bot/i })).toBeInTheDocument();
   });
 
-  it("hides Add Bot button when isDev=false", () => {
+  it("hides Add Bot button when botsEnabled=false", () => {
     const onAddBot = vi.fn().mockResolvedValue(undefined);
-    render(<DraftManageView {...baseProps} isDev={false} onAddBot={onAddBot} />);
+    render(<DraftManageView {...baseProps} botsEnabled={false} onAddBot={onAddBot} />);
     expect(screen.queryByRole("button", { name: /add bot/i })).not.toBeInTheDocument();
   });
 
-  it("hides Add Bot button when isDev=true but isCreator=false", () => {
+  it("hides Add Bot button when botsEnabled=true but isCreator=false", () => {
     const onAddBot = vi.fn().mockResolvedValue(undefined);
     render(
-      <DraftManageView {...baseProps} isCreator={false} isDev={true} onAddBot={onAddBot} />
+      <DraftManageView {...baseProps} isCreator={false} botsEnabled={true} onAddBot={onAddBot} />
     );
     expect(screen.queryByRole("button", { name: /add bot/i })).not.toBeInTheDocument();
   });
 
   it("calls onAddBot when the button is clicked", async () => {
     const onAddBot = vi.fn().mockResolvedValue(undefined);
-    render(<DraftManageView {...baseProps} isDev={true} onAddBot={onAddBot} />);
+    render(<DraftManageView {...baseProps} botsEnabled={true} onAddBot={onAddBot} />);
     await userEvent.click(screen.getByRole("button", { name: /add bot/i }));
     expect(onAddBot).toHaveBeenCalledOnce();
   });

@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { createDraftService, createPlayerService } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
+import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
 
 export const runtime = "nodejs";
 
@@ -38,7 +39,7 @@ export async function POST(
   _request: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
-  if (process.env.NODE_ENV === "production") {
+  if (!draftTestBotsEnabled()) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

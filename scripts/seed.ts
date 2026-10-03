@@ -208,6 +208,11 @@ db.exec(`
 `);
 
 // ---------- CLEAN UP PREVIOUS SEED DATA FOR THIS GUILD ----------
+// The standalone seed schema predates passes, but an existing migrated database
+// may contain them. Clear them before removing draft_players or drafts.
+if (db.prepare("select 1 from sqlite_master where type = 'table' and name = 'draft_passes'").get()) {
+  db.prepare("delete from draft_passes where draft_id in (select id from drafts where guild_id = ?)").run(guildId);
+}
 db.exec(`
   delete from draft_picks where draft_id in (select id from drafts where guild_id = '${guildId}');
   delete from draft_cards where draft_id in (select id from drafts where guild_id = '${guildId}');

@@ -1533,6 +1533,8 @@
 .ms .step button:hover { background: rgb(239 231 213 / 0.05); color: var(--ink); }
 .ms .step button[disabled] { color: var(--ink-4); background: none; cursor: default; }
 .ms .step output { display: grid; place-items: center; border-inline: 1px solid var(--rule-lo); color: var(--ink); font: 400 22px/1 var(--f-num); }
+.ms .step input { width: 100%; min-width: 0; padding: 0; text-align: center; border: 0; border-inline: 1px solid var(--rule-lo); border-radius: 0; background: none; color: var(--ink); font: 400 22px/1 var(--f-num); appearance: textfield; -moz-appearance: textfield; }
+.ms .step input::-webkit-outer-spin-button, .ms .step input::-webkit-inner-spin-button { appearance: none; margin: 0; }
 .ms .undo {
   display: flex;
   flex-wrap: wrap;
