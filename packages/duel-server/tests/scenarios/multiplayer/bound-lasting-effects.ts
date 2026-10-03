@@ -1,6 +1,7 @@
 // Owner decision 2026-10-02: an activated lasting effect keeps its declared opponent.
 import { activate, attack, changePhase, defineScenario, endTurn, expectBoard, expectNotOffered, expectPickSeats, pickOpponent, select, pass,
   type BoardExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { withDomainProof } from "./proof-domain.js";
 type Format = "ffa3" | "ffa4" | "tag";
 type Seat = "p0" | "p1" | "p2" | "p3";
 const formats: Format[] = ["ffa3", "ffa4", "tag"];
@@ -43,7 +44,23 @@ function fieldLock(f: Format): Scenario {
     hand: f === "tag" ? ["Axe Raider"] : [], deckCount: f === "tag" ? 18 : 19 } };
   for (const s of opps(f)) result[s] = f === "tag" || s === "p1" ? { spells: [burden] } : { grave: [burden] };
   steps.push(board(f, result));
-  return proof(f, "magical-spring-protects-only-bound-field", setup, steps);
+  return withDomainProof(proof(f, "magical-spring-protects-only-bound-field", setup, steps), (variant) => ({
+    ...variant,
+    // Domain draws Axe Raider first. Spring then draws Battle Ox in FFA,
+    // or Battle Ox and Celtic Guardian in Tag. The discard stays in this fixture.
+    steps: variant.steps.map((step) => {
+      if (f !== "tag" && step.op === "select" && step.sels.includes("Axe Raider")) {
+        return { ...step, sels: ["Battle Ox"] };
+      }
+      if (step.op !== "expectBoard" || !step.board.p0) return step;
+      const p0 = step.board.p0;
+      return { ...step, board: { ...step.board, p0: {
+        ...p0,
+        hand: f === "tag" ? ["Axe Raider", "Celtic Guardian"] : ["Axe Raider"],
+        grave: (p0.grave as string[]).map((card) => card === "Axe Raider" ? "Battle Ox" : card),
+      } } };
+    }),
+  }));
 }
 function ongoing(f: Format): Scenario {
   const setup: Scenario["setup"] = { p0: { spells: [{ card: "Burden of the Mighty", pos: "up" }] } };
