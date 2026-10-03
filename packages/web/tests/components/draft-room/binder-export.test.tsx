@@ -20,11 +20,7 @@ function renderBinder(pool: RoomCard[], draftName = "Friday cube", phone = false
     <Binder
       draftName={draftName}
       pool={pool}
-      tab="mine"
-      onTab={() => {}}
-      showGone={false}
       theme={false}
-      gone={[]}
       packCards={[]}
       filter={filter}
       onFilter={() => {}}

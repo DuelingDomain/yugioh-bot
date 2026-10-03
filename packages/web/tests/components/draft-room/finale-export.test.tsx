@@ -34,6 +34,7 @@ vi.mock("@/components/cubes/cube-draft-builder", () => ({ CubeDraftBuilder: () =
 
 const pool = [{
   id: 1,
+  passcode: 100001,
   name: "Card 1",
   type: "Effect Monster",
   frameType: "effect",

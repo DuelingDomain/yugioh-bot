@@ -22,8 +22,13 @@ describe("pack layout stays inside the mat", () => {
 });
 
 const stages = [
-  { width: 1440, height: 900, phone: false, diskH: 112, floor: 64, rows: 8, tilt: 12 },
-  { width: 390, height: 844, phone: true, diskH: 84, floor: 60, rows: 15, tilt: 8 },
+  { width: 1440, height: 900, phone: false, diskH: 112, floor: 64, rows: 5, cols: 12 },
+  { width: 390, height: 844, phone: true, diskH: 84, floor: 60, rows: 15, cols: 4 },
+];
+const tallStages = [
+  ...stages,
+  // The desktop stage between the reader and binder at a 1440px viewport.
+  { width: 790, height: 842, phone: false, diskH: 112, floor: 64, rows: 9, cols: 7 },
 ];
 
 describe("pack capacity", () => {
@@ -41,14 +46,22 @@ describe("pack capacity", () => {
     }
   });
 
-  it.each(stages.flatMap((stage) => [false, true].map((theme) => ({ ...stage, theme }))))(
+  it.each(tallStages.flatMap((stage) => [false, true].map((theme) => ({ ...stage, theme }))))(
     "fits all 60 cards at $width x $height with theme $theme",
     (stage) => {
       const g = measureTable({ ...stage, packSize: 60 });
       expect(g.rows).toBe(stage.rows);
+      expect(g.cols).toBe(stage.cols);
       expect(g.tall).toBe(true);
-      expect(g.tilt).toBe(stage.tilt);
+      // An identity table rotation keeps the rendered width equal to the slot width.
+      expect(g.tilt).toBe(0);
       expect(g.cw).toBeGreaterThanOrEqual(stage.floor);
+      const widthCap = stage.phone ? Math.min(560, stage.width - 24) : Math.min(980, stage.width - 220);
+      expect(g.tw).toBeLessThanOrEqual(widthCap);
+      if (!stage.phone) {
+        const anotherColumn = (g.cols + 1) * stage.floor + g.cols * g.gap + 2 * g.pad;
+        expect(anotherColumn).toBeGreaterThan(widthCap);
+      }
       const zoneEnd = g.top + g.rows * g.ch + (g.rows - 1) * g.gap;
       const slots = packSlots(g, 60, stage.theme);
       expect(slots).toHaveLength(60);
@@ -83,6 +96,44 @@ describe("pack capacity", () => {
     expect(measureTable({ ...opts, packSize: 15 }).rows).toBe(4);
   });
 
+  it.each([844, 664].flatMap((viewportHeight) =>
+    [3, 5, 8, 12, 20, 30].map((packSize) => ({ viewportHeight, packSize })),
+  ))("keeps every phone theme slot inside the stage or enables scrolling at 390 x $viewportHeight with $packSize cards", ({ viewportHeight, packSize }) => {
+    // The phone bar and seat strip consume 50px + 60px of viewport height.
+    const height = viewportHeight - 110;
+    const g = measureTable({ width: 390, height, phone: true, theme: true, diskH: 84, packSize });
+    const slots = packSlots(g, packSize, true);
+    expect(slots).toHaveLength(packSize);
+    for (const s of slots) {
+      expect(s.x).toBeGreaterThanOrEqual(0);
+      expect(s.x + s.w).toBeLessThanOrEqual(g.tw + 0.000001);
+      expect(s.y).toBeGreaterThanOrEqual(0);
+      expect(s.y + s.h).toBeLessThanOrEqual(g.th + 0.000001);
+    }
+    if (g.tall) {
+      expect(g.tilt).toBe(0);
+      return;
+    }
+
+    // Project the slot corners using the phone scene's 1000px perspective,
+    // origin at the stage's top centre, and table bottom at diskH + 22px.
+    const radians = g.tilt * Math.PI / 180;
+    for (const s of [...slots, themeStackPoint(g)]) {
+      for (const y of [s.y, s.y + s.h]) {
+        const depth = g.th - y;
+        const scale = 1000 / (1000 + depth * Math.sin(radians));
+        const stageY = (height - 84 - 22 - depth * Math.cos(radians)) * scale;
+        expect(stageY).toBeGreaterThanOrEqual(0);
+        expect(stageY).toBeLessThanOrEqual(height);
+        for (const x of [s.x, s.x + s.w]) {
+          const stageX = 195 + (x - g.tw / 2) * scale;
+          expect(stageX).toBeGreaterThanOrEqual(0);
+          expect(stageX).toBeLessThanOrEqual(390);
+        }
+      }
+    }
+  });
+
   it.each(stages)("keeps theme packs that fit the base rows in place at $width x $height", (stage) => {
     const original = measureTable({ ...stage, theme: true });
     for (const packSize of stage.phone ? [5, 8] : [5, 8, 15]) {
@@ -96,7 +147,35 @@ describe("pack capacity", () => {
     const g = measureTable({ width: 820, height: 1200, phone: false, theme: false, diskH: 112, packSize: 60 });
     expect(g.cw).toBeGreaterThanOrEqual(64);
     expect(g.tw).toBeLessThanOrEqual(820);
-    expect(g.tall).toBe(false);
+    expect(g.tall).toBe(true);
+    expect(g.tilt).toBe(0);
+    expect(g.cols).toBe(7);
+  });
+
+  it("preserves standard packs at the actual desktop stage width", () => {
+    const opts = { width: 790, height: 842, phone: false, theme: false, diskH: 112 };
+    const original = measureTable(opts);
+    expect(original.cols).toBe(5);
+    expect(original.rows).toBe(3);
+    expect(original.tw).toBe(570);
+    expect(original.cw).toBe(94);
+    expect(original.tilt).toBe(40);
+    expect(original.tall).toBe(false);
+    for (const packSize of [5, 8, 15]) {
+      const g = measureTable({ ...opts, packSize });
+      expect(g).toEqual(original);
+      expect(packSlots(g, packSize, false)).toEqual(packSlots(original, packSize, false));
+    }
+  });
+
+  it("keeps the theme pool below the cards when extra columns reduce the row count to two", () => {
+    const g = measureTable({ width: 1440, height: 300, phone: false, theme: true, diskH: 112, packSize: 17 });
+    expect(g.tall).toBe(true);
+    expect(g.cols).toBe(12);
+    expect(g.rows).toBe(2);
+    const slots = packSlots(g, 17, true);
+    expect(slots.every((slot) => slot.w >= 64)).toBe(true);
+    expect(themeStackPoint(g).y).toBeGreaterThanOrEqual(g.top + g.rows * g.ch + (g.rows - 1) * g.gap);
   });
 
   it("clamps an oversized block to the start of the card zone", () => {

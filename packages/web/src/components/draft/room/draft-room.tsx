@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useDraftStore } from "@/lib/stores/draft-store";
-import { Binder, type BinderHandle, type Tab } from "./binder";
+import { Binder, type BinderHandle } from "./binder";
 import { CardReader } from "./card-reader";
 import { Holo, type HoloTarget } from "./holo";
 import { FullscreenLayer } from "./layer";
@@ -64,8 +64,18 @@ const parseNumberKey = (key: string): number | null => {
 
 const inField = (t: EventTarget | null) => t instanceof Element && !!t.closest("input, textarea, select");
 
+const canRestoreFocus = (el: HTMLElement | null | undefined): el is HTMLElement => {
+  if (!el?.isConnected || el === document.body || el.closest("[inert], [hidden]") || el.matches(":disabled")) return false;
+  const visibility = getComputedStyle(el).visibility;
+  if (visibility === "hidden" || visibility === "collapse") return false;
+  for (let node: HTMLElement | null = el; node; node = node.parentElement) {
+    if (getComputedStyle(node).display === "none") return false;
+  }
+  return true;
+};
+
 export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps) {
-  const rs = useRoomState(slug, config, isParticipant);
+  const rs = useRoomState(config, isParticipant);
   const { sizes, deal, turn, direction } = rs;
   const [motion, setMotion] = useMotionSetting();
   const phone = useMedia(PHONE);
@@ -77,7 +87,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const binderRef = useRef<BinderHandle>(null);
   const readerPanelRef = useRef<HTMLDivElement>(null);
   const binderPanelRef = useRef<HTMLDivElement>(null);
-  const panelOpenerRef = useRef<HTMLElement | null>(null);
+  const panelFocusRef = useRef<{ opener: HTMLElement | null; panel: HTMLDivElement } | null>(null);
   const [stage, setStage] = useState<HTMLElement | null>(null);
 
   /* ---------- state ---------- */
@@ -89,7 +99,6 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const sentPicks = useRef<{ stepKey: string | null; ids: Set<number> }>({ stepKey: null, ids: new Set() });
   const currentDeal = useRef(deal);
   currentDeal.current = deal;
-  const [tab, setTab] = useState<Tab>("mine");
   const [filter, setFilter] = useState<RoomFilter>(EMPTY_FILTER);
   const [sheet, setSheet] = useState<"card" | "binder" | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -184,20 +193,38 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   }, []);
   const closeCardSheet = useCallback(() => setSheet((s) => (s === "card" ? null : s)), []);
   useLayoutEffect(() => {
-    const opener = panelOpenerRef.current;
-    panelOpenerRef.current = null;
+    const previous = panelFocusRef.current;
+    panelFocusRef.current = null;
+    const opener = previous?.opener;
+    // Leave focus alone when it stayed on the table or moved outside the closing panel.
+    const needsRestore = previous && (previous.panel.contains(document.activeElement) || document.activeElement === document.body);
     // React restores pre-commit focus after layout cleanups. Restore here, after that and the inert updates.
-    if (opener?.isConnected && !opener.closest("[inert]")) {
-      // Focusing a table card normally opens the reader. Restoration only moves focus.
-      const wasClicking = clicking.current;
-      clicking.current = true;
-      opener.focus({ preventScroll: true });
-      clicking.current = wasClicking;
+    if (needsRestore) {
+      const root = rootRef.current;
+      const toggle = previous.panel === binderPanelRef.current
+        ? root?.querySelector<HTMLElement>('.dial[aria-controls="binder"]')
+        : null;
+      const target = [
+        opener,
+        toggle,
+        ...Array.from(root?.querySelectorAll<HTMLElement>('.stage .tcard[tabindex="0"]') ?? []),
+        root?.querySelector<HTMLElement>(".stage"),
+      ].find(canRestoreFocus);
+      if (target) {
+        // Focusing a table card normally opens the reader. Restoration only moves focus.
+        const wasClicking = clicking.current;
+        clicking.current = true;
+        target.focus({ preventScroll: true });
+        clicking.current = wasClicking;
+      }
     }
     if (!openPanel) return;
     const panel = openPanel === "card" ? readerPanelRef.current : binderPanelRef.current;
     if (!panel) return;
-    panelOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const nextOpener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    panelFocusRef.current = { opener: nextOpener, panel };
+    // The reader previews the focused table card without taking focus away from it.
+    if (openPanel === "card" && nextOpener?.matches(".tcard")) return;
     const first = panel.querySelector<HTMLElement>(
       'button:not(:disabled):not([hidden]), input:not(:disabled):not([hidden]), a[href], [tabindex]:not([tabindex="-1"])',
     );
@@ -585,7 +612,10 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const L = latest.current;
-      if (inField(e.target)) return;
+      if (inField(e.target)) {
+        if (e.key === "Escape" && !L.motionOpen && L.binderOpen && (L.phone || L.drawer)) L.closeSheets();
+        return;
+      }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const num = parseNumberKey(e.key);
       if (num != null || e.key.startsWith("Arrow")) setKbd(true);
@@ -634,23 +664,16 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   }, []);
 
   /* ---------- binder, tray and dial ---------- */
-  const showBinder = useCallback(
-    (which: Tab) => {
-      setTab(which);
-      openSheet("binder");
-    },
-    [openSheet],
-  );
   const onDial = () => {
     if (phone || drawer) {
       if (binderOpen) closeSheets();
-      else showBinder("mine");
+      else openSheet("binder");
     } else binderRef.current?.focusSearch();
   };
   const onKind = (k: Kind) => {
     const next = toggled(filter.kinds, k);
     setFilter({ ...filter, kinds: next });
-    if ((phone || drawer) && next.has(k) && !binderOpen) showBinder("mine");
+    if ((phone || drawer) && next.has(k) && !binderOpen) openSheet("binder");
   };
 
   const subline = theme
@@ -724,7 +747,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               if (card) setSelectedId(null);
             }}
           />
-          <section className="stage" aria-label="Draft table" ref={setStage}>
+          <section className="stage" aria-label="Draft table" ref={setStage} tabIndex={-1}>
             <Table
               geometry={geometry}
               deal={deal}
@@ -751,24 +774,6 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
             <div className="notes">
               <div className="status" role="status" data-on={status ? "" : undefined}>
                 {status}
-              </div>
-              <div className="wheel" hidden={!rs.wheel || theme}>
-                {rs.wheel ? (
-                  <>
-                    <span className="lede">
-                      <b>Back around.</b> {rs.wheel.cards.length} gone since pick {rs.wheel.from}
-                    </span>
-                    <span className="thumbs">
-                      {rs.wheel.cards.slice(0, 6).map((c) => (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img key={c.id} src={c.imageUrlSmall || c.imageUrl} alt={c.name} title={c.name} />
-                      ))}
-                    </span>
-                    <button type="button" onClick={() => showBinder("gone")}>
-                      See what went
-                    </button>
-                  </>
-                ) : null}
               </div>
             </div>
             <div className="lens" hidden={!lens}>
@@ -814,12 +819,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
             <Binder
               ref={binderRef}
               draftName={name}
-              tab={theme ? "mine" : tab}
-              onTab={setTab}
-              showGone={!theme}
               theme={theme}
               pool={pool}
-              gone={rs.gone}
               packCards={rs.cards}
               filter={filter}
               onFilter={setFilter}
