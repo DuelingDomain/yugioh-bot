@@ -151,7 +151,7 @@ export const SeatStrip = memo(function SeatStrip({
   }, [friends]);
 
   return (
-    <div ref={ref} className="seatstrip" aria-label="Seats" role="list">
+    <div ref={ref} className="seatstrip" aria-label="Seats" role="list" data-many={friends.length > 5 ? "" : undefined}>
       <span className="dir" title="Pass direction">
         {ARROW}
       </span>
@@ -166,6 +166,7 @@ export const SeatStrip = memo(function SeatStrip({
             data-state={f.state}
             data-talk={said ? "" : undefined}
             title={f.seat.displayName}
+            aria-label={`${f.seat.displayName}: ${stateLabel(f.state)}`}
           >
             <Avatar name={f.seat.displayName} picked={f.seat.hasPicked} />
             <i className="mp" />

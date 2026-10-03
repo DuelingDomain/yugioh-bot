@@ -62,7 +62,7 @@ export function typeParts(card: RoomCard): string[] {
   if (kind === "trap") return [card.spellTrapType ? `${card.spellTrapType} Trap` : "Trap"];
   const parts = [card.type.replace(/ Card$/, "")];
   if (card.attribute) parts.push(card.attribute);
-  if (card.race) parts.push(card.race);
+  if (card.race) parts.push(raceLabel(card.race));
   const frame = card.frameType.trim().toLowerCase();
   if (card.level) {
     if (frame.startsWith("xyz")) parts.push(`Rank ${card.level}`);
@@ -367,9 +367,62 @@ export function typeKey(card: RoomCard): string | null {
   return card.race ? `monster:${card.race}` : null;
 }
 
-/** "monster:Dragon" reads as Dragon; "spell:Quick-Play" as Quick-Play. */
+/** The engine names monster types as keys ("winged_beast"). These are the printed names. */
+const RACE_LABELS: Record<string, string> = {
+  warrior: "Warrior",
+  spellcaster: "Spellcaster",
+  fairy: "Fairy",
+  fiend: "Fiend",
+  zombie: "Zombie",
+  machine: "Machine",
+  aqua: "Aqua",
+  pyro: "Pyro",
+  rock: "Rock",
+  winged_beast: "Winged Beast",
+  windbeast: "Winged Beast",
+  plant: "Plant",
+  insect: "Insect",
+  thunder: "Thunder",
+  dragon: "Dragon",
+  beast: "Beast",
+  beast_warrior: "Beast-Warrior",
+  dinosaur: "Dinosaur",
+  fish: "Fish",
+  sea_serpent: "Sea Serpent",
+  reptile: "Reptile",
+  psychic: "Psychic",
+  divine_beast: "Divine-Beast",
+  divine: "Divine-Beast",
+  creator_god: "Creator God",
+  creatorgod: "Creator God",
+  wyrm: "Wyrm",
+  cyberse: "Cyberse",
+  illusion: "Illusion",
+  cyborg: "Cyborg",
+  magical_knight: "Magical Knight",
+  high_dragon: "High Dragon",
+  omega_psychic: "Omega Psychic",
+  celestial_warrior: "Celestial Warrior",
+  galaxy: "Galaxy",
+};
+
+/** A monster type key or name as it is printed: "beast_warrior" and "Beast-Warrior" both read "Beast-Warrior". */
+export function raceLabel(race: string): string {
+  const raw = race.trim();
+  if (!raw) return "";
+  const known = RACE_LABELS[raw.toLowerCase().replace(/[\s-]+/g, "_")];
+  if (known) return known;
+  return raw
+    .replace(/_+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/(^|\s)(\S)/g, (_, gap: string, ch: string) => gap + ch.toUpperCase());
+}
+
+/** "monster:winged_beast" reads as Winged Beast; "spell:Quick-Play" as Quick-Play. */
 export function typeKeyName(key: string): string {
-  return key.slice(key.indexOf(":") + 1);
+  const name = key.slice(key.indexOf(":") + 1);
+  return key.startsWith("monster:") ? raceLabel(name) : name;
 }
 
 function typeKeyWords(key: string): string {
@@ -378,7 +431,7 @@ function typeKeyWords(key: string): string {
 }
 
 export function haystack(card: RoomCard): string {
-  return [card.name, card.effectText, card.type, card.attribute, card.race, card.archetype, KIND_ONE[kindOf(card)], ...typeParts(card)]
+  return [card.name, card.effectText, card.type, card.attribute, card.race, card.race ? raceLabel(card.race).replace(/-/g, " ") : null, card.archetype, KIND_ONE[kindOf(card)], ...typeParts(card)]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();

@@ -8,6 +8,7 @@ import {
   filterWords,
   isFiltering,
   matchesFilter,
+  raceLabel,
   typeChips,
   typeKey,
   typeKeyName,
@@ -134,5 +135,63 @@ describe("monster type and spell/trap type", () => {
     expect(typeChips("spell", list, [], new Set()).map((c) => c.key)).toEqual(["spell:Quick-Play"]);
     expect(typeChips("trap", list, [], new Set()).map((c) => c.key)).toEqual(["trap:Counter"]);
     expect(typeChips("monster", [noData, quick], [], new Set())).toEqual([]);
+  });
+});
+
+describe("monster type labels", () => {
+  it("prints every engine monster type the way the card does", () => {
+    const keys: Record<string, string> = {
+      warrior: "Warrior",
+      spellcaster: "Spellcaster",
+      fairy: "Fairy",
+      fiend: "Fiend",
+      zombie: "Zombie",
+      machine: "Machine",
+      aqua: "Aqua",
+      pyro: "Pyro",
+      rock: "Rock",
+      winged_beast: "Winged Beast",
+      plant: "Plant",
+      insect: "Insect",
+      thunder: "Thunder",
+      dragon: "Dragon",
+      beast: "Beast",
+      beast_warrior: "Beast-Warrior",
+      dinosaur: "Dinosaur",
+      fish: "Fish",
+      sea_serpent: "Sea Serpent",
+      reptile: "Reptile",
+      psychic: "Psychic",
+      divine_beast: "Divine-Beast",
+      creator_god: "Creator God",
+      wyrm: "Wyrm",
+      cyberse: "Cyberse",
+      illusion: "Illusion",
+    };
+    for (const [key, label] of Object.entries(keys)) expect(raceLabel(key)).toBe(label);
+  });
+
+  it("leaves a name that is already printed alone, whatever the case or dash", () => {
+    expect(raceLabel("Beast-Warrior")).toBe("Beast-Warrior");
+    expect(raceLabel("Winged Beast")).toBe("Winged Beast");
+    expect(raceLabel("DRAGON")).toBe("Dragon");
+  });
+
+  it("falls back to title case with underscores as spaces for a type it does not know", () => {
+    expect(raceLabel("space_dragon_lord")).toBe("Space Dragon Lord");
+    expect(raceLabel("  new__thing ")).toBe("New Thing");
+    expect(raceLabel("")).toBe("");
+  });
+
+  it("shows the label on chips, subtitles and search, while the filter key stays raw", () => {
+    const wb = card(30, { race: "winged_beast" });
+    expect(typeKey(wb)).toContain("monster:winged_beast");
+    expect(typeKeyName("monster:winged_beast")).toBe("Winged Beast");
+    expect(typeKeyName("monster:beast_warrior")).toBe("Beast-Warrior");
+    expect(typeKeyName("trap:Counter")).toBe("Counter");
+    expect(typeParts(wb)).toContain("Winged Beast");
+    expect(matchesFilter(wb, { ...EMPTY_FILTER, q: "winged beast" })).toBe(true);
+    expect(matchesFilter(card(31, { race: "beast_warrior" }), { ...EMPTY_FILTER, q: "beast-warrior" })).toBe(true);
+    expect(matchesFilter(card(31, { race: "beast_warrior" }), { ...EMPTY_FILTER, q: "beast warrior" })).toBe(true);
   });
 });

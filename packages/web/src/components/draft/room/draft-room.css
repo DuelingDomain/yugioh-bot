@@ -640,8 +640,8 @@
 .dr .seat .bubble { left: calc(50% - 18px); bottom: calc(100% + 6px); }
 .dr .seat .bubble[data-flip] { left: auto; right: calc(50% - 18px); border-radius: 12px 12px 3px 12px; }
 .dr .seat[data-talk] { z-index: 9; }
-/* yours stands over the dial */
-.dr .disk .bubble { left: 32px; bottom: calc(100% + 6px); }
+/* yours stands over the dial: 6px above its top edge (the 76px dial is centred in the disk), as in the mock */
+.dr .disk .bubble { left: 32px; bottom: calc(var(--disk-h) / 2 + 38px + 6px); }
 
 /* ---------- the hologram ---------- */
 .dr .holo { position: absolute; top: 0; left: 0; z-index: 4; width: var(--hw, 228px); pointer-events: none; visibility: hidden; }
@@ -1199,6 +1199,21 @@
   .dr[data-mode="theme"] .seatstrip .dir { display: none; }
   .dr[data-mode="theme"] .seatstrip { --strip-start: 0px; --strip-snap: 8px; }
   .dr .chip-seat { position: relative; flex: 1 0 44px; min-width: 0; display: grid; justify-items: center; gap: 3px; scroll-snap-align: start; }
+  /* Past five seats the strip scrolls. Seats are sized so five and a half show: the half seat under the fade says there are more. */
+  .dr .seatstrip[data-many] { align-items: flex-start; }
+  .dr .seatstrip[data-many] .say-item { align-self: center; }
+  .dr .seatstrip[data-many] .chip-seat { flex: 0 0 calc((100% - 26px) / 5.5 - 4px); }
+  .dr .seatstrip[data-many] .chip-seat .nm {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: center;
+    font-size: 10.5px;
+    line-height: 1.15;
+  }
   .dr .chip-seat .av { width: 28px; height: 28px; font-size: 11.5px; }
   .dr .chip-seat[data-state="picking"] .av { animation: dr-breathe 1.6s ease-in-out infinite; }
   .dr .chip-seat .nm { max-width: 100%; overflow: hidden; color: var(--ink-2); font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
@@ -1223,18 +1238,31 @@
   .dr .seatstrip .say-item { flex: none; display: grid; align-items: center; }
   .dr .seatstrip .say-btn { flex: none; width: 36px; padding: 0; justify-content: center; }
   .dr .bar .say-btn { display: none; }
+  /* Their pile: a card back beside the avatar. It is lit gold with a dark halo so it reads on the strip; it never says what they took. */
   .dr .chip-seat .mp {
     position: absolute;
-    left: calc(50% + 9px);
-    top: 1px;
-    width: 13px;
-    height: 19px;
-    border: 1px solid #b08a3e;
+    left: calc(50% + 10px);
+    top: 0;
+    width: 15px;
+    height: 21px;
+    border: 1px solid #d3a84f;
     border-radius: 2px;
     background: #120e0c url("/duel/card-back-main-hd.webp") center / cover;
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.6);
+    box-shadow: 0 0 0 1px rgb(8 13 25), 0 0 7px rgb(228 182 79 / 0.5);
   }
-  .dr[data-phase="extra"] .chip-seat .mp { border-color: #8a6bb0; background-image: url("/duel/card-back-extra-hd.webp"); }
+  /* locked in: the pile is set down, marked with a gold pip */
+  .dr .chip-seat[data-state="picked"] .mp::after {
+    content: "";
+    position: absolute;
+    right: -5px;
+    bottom: -4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #e4b64f;
+    box-shadow: 0 0 0 1.5px rgb(8 13 25);
+  }
+  .dr[data-phase="extra"] .chip-seat .mp { border-color: #a990ff; box-shadow: 0 0 0 1px rgb(8 13 25), 0 0 7px rgb(169 144 255 / 0.5); background-image: url("/duel/card-back-extra-hd.webp"); }
   .dr[data-mode="theme"] .chip-seat .mp { display: none; }
   .dr .chip-seat[data-state="passing"] .mp { visibility: hidden; }
 
@@ -1250,6 +1278,7 @@
     border-radius: 60px 60px 12px 12px / 26px 26px 12px 12px;
   }
   .dr .dial { grid-template-columns: 58px auto; gap: 6px; padding: 2px 6px 2px 2px; }
+  .dr .disk .bubble { left: 28px; bottom: calc(var(--disk-h) / 2 + 29px + 6px); }
   .dr .dial .face { width: 58px; height: 58px; }
   .dr .dial .face::after { inset: 9px; }
   .dr .dial b { font-size: 26px; }
