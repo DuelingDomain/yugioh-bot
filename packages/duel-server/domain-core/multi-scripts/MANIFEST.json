@@ -854,6 +854,20 @@
       "stockSha256": "904caca4dc9e8e7704b02452553bb3fbdc9ab3680c511b0815f8504d513dfe38"
     },
     {
+      "code": 14220547,
+      "file": "c14220547.lua",
+      "name": "Branded in Central Dogmatika",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+TRIGGER_O",
+      "redefined": [
+        "gytg",
+        "gyop"
+      ],
+      "stockSha256": "365168fb52cca9602a085a7e080d159b6cdf3a8cb62eef17b01cf811c55319f3",
+      "note": "R-FFA-OPP-ONE and R-COMMON-OPP-PICK: declare one opponent at activation before the opponent-only Extra Deck read. Keep the own Extra Deck branch and two-seat stock behavior. FFA3, FFA4 and Tag have Standard and Domain live proofs."
+    },
+    {
       "code": 14318794,
       "file": "c14318794.lua",
       "name": "Life Absorbing Machine",
