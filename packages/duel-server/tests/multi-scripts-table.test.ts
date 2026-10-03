@@ -430,6 +430,16 @@ export function boardFor(format: DuelFormat, code: number, layout: Layout): Boar
   const monster = (type & TYPE.monster) !== 0;
   const p0: DuelistSetup = { hand: extra ? [...filler(2)] : [code, ...filler(2)], grave: [code], banished: [code] };
   if (extra) p0.extra = [code];
+  // Keep the field copy for the event check. Extra Deck cards load before the probe.
+  // A Link Summon of that copy can use the field copy and remove its wrapped callbacks.
+  if ([30822527, 5821478, 95493471].includes(code)) p0.extra = [];
+  // These Link conditions need an event after setup. Keep the Link on the field.
+  // Foolish Burial sends a card to the Graveyard. Monster Reborn supplies a Special Summon.
+  if (code === 30822527) p0.hand!.push("Foolish Burial");
+  if (code === 5821478 || code === 95493471) {
+    p0.hand!.push("Monster Reborn");
+    p0.grave!.push("Giant Rat");
+  }
   const own: Array<CardEntry | null> = [];
   if (monster) own.push(code);
   if (!monster && (type & TYPE.field) !== 0) p0.field = code;
