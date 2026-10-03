@@ -10,6 +10,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
+import { DeckCardPreview } from "@/components/duel/deck-card-preview";
 import { BetweenGamesScreen } from "@/components/duel/between-games";
 import styles from "@/components/duel/between-games.module.css";
 import ui from "@/components/duel/sheet-ui.module.css";
@@ -22,13 +23,38 @@ const root = fileURLToPath(new URL("../../src/components/", import.meta.url));
 const css = readFileSync(`${root}duel/between-games.module.css`, "utf8");
 
 describe("between-games grid sizing", () => {
-  it("keeps desktop tiles at least 40 px wide without fixing the column count", () => {
+  it("sizes cards to be readable: a growing minimum width, never the old 40 px thumbnails", () => {
     const cards = css.match(/^\.cards\s*\{([^}]+)\}/m)![1]!;
-    expect(cards).toMatch(/grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(40px,\s*1fr\)\)/);
-    // Give auto-fill a definite available width; max-width alone can create clipped tracks.
+    // 64 px at least (phones), 120 px at most, and capped by the window height so all sections fit on a 1080p screen.
+    expect(cards).toMatch(/--tile:\s*clamp\(64px,\s*min\(6vw,\s*8\.5dvh\),\s*120px\)/);
+    expect(cards).toMatch(/grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(var\(--tile\),\s*1fr\)\)/);
     expect(cards).toMatch(/width:\s*100%/);
     expect(cards).toMatch(/min-width:\s*0/);
-    expect(cards).toMatch(/max-width:\s*calc\(20 \* clamp\(44px, 8\.5dvh, 76px\) \+ 19 \* 4px\)/);
+    expect(cards).not.toMatch(/max-width/);
+    expect(css).not.toMatch(/minmax\((40|44)px/);
+    // The phone layout keeps the same sizing instead of overriding it.
+    expect(css.slice(css.indexOf("@media (max-width: 900px)"))).not.toMatch(/\.cards\s*\{/);
+  });
+
+  it("uses the deck editor's card tile, which keeps the 421:614 card shape", () => {
+    const html = renderToStaticMarkup(<BetweenGamesScreen room={makeSeriesRoom({ series: makeSeries({ status: "between_games" }),
+      mySide: { baseDeck: makeDeck(), currentDeck: makeDeck() } })} slug="layout" onChanged={() => {}} onNavigate={() => {}} />);
+    expect(editor["de-c"]).toBeTruthy();
+    expect(html).toContain(`class="${editor["de-c"]} ${styles.tile}"`);
+    expect(readFileSync(`${root}decks/editor.module.css`, "utf8")).toMatch(/\.de-c \{[^}]*aspect-ratio:\s*421 \/ 614/);
+  });
+
+  it("keeps the empty preview hint across all columns, so the table lobby's art column does not squeeze it", () => {
+    const previewCss = readFileSync(`${root}duel/deck-card-preview.module.css`, "utf8");
+    expect(previewCss).toMatch(/\.preview > \.hint \{[^}]*grid-column:\s*1 \/ -1/);
+    const html = renderToStaticMarkup(<DeckCardPreview code={null} />);
+    expect(html).toContain(`class="${preview.hint}"`);
+    expect(html).not.toContain("<img");
+  });
+
+  it("has no dashed empty preview box", () => {
+    expect(readFileSync(`${root}duel/deck-card-preview.module.css`, "utf8")).not.toMatch(/dashed/);
+    expect(css).not.toMatch(/dashed/);
   });
 
   it.each([40, 60])("renders all three full sections for a %i-card Main Deck", (count) => {

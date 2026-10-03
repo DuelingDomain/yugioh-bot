@@ -1,6 +1,7 @@
-/* Dense deck thumbnails in the duel room's dark style. Gold marks the timer and
-   cards coming in, purple the cards going out. The editor's grids are deliberately
-   not shared: all three sections must fit beside the controls on desktop. */
+/* Readable deck cards in the duel room's dark style. Gold marks the timer and
+   cards coming in, purple the cards going out. The grid has its own sizing (not the
+   editor's column counts): a card is never narrower than --tile, and --tile grows
+   with the window so a wide screen shows about 12 cards a row. */
 .screen {
   --b-gold: var(--duel-chain-ink, #f4d690);
   --b-pen: var(--duel-pen-ink, #c6b6ff);
@@ -86,13 +87,14 @@
 .sectionTarget, .sectionHint { color: var(--duel-ink-3); font-size: 12px; font-weight: 400; }
 .empty { color: var(--duel-ink-2); font-size: 13px; }
 .cards {
+  /* Grows with the width (6vw) but is also capped by the height (8.5dvh), so on a 1920x1080 screen Main,
+     Extra and Side all fit beside the controls. 64 px at least (phones), 120 px at most. */
+  --tile: clamp(64px, min(6vw, 8.5dvh), 120px);
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--tile), 1fr));
   width: 100%;
   min-width: 0;
-  gap: 4px;
-  /* Cap the art even on a wide monitor; height scales down on short screens. */
-  max-width: calc(20 * clamp(44px, 8.5dvh, 76px) + 19 * 4px);
+  gap: 8px;
 }
 .cards > li { position: relative; min-width: 0; }
 
@@ -145,7 +147,7 @@
 button.tile { cursor: pointer; }
 button.tile:active { cursor: pointer; }
 button.tile[data-locked="true"] { cursor: default; }
-button.tile[data-locked="true"]:hover { translate: none; }
+button.tile[data-locked="true"]:hover { transform: none; }
 /* A marked card glows (the same soft halo as a pickable card on the field). The halo is the tile's own
    shadow, because the editor tile clips its children; the art stays at full strength. Cards going out glow
    purple, cards coming in gold. */
@@ -169,7 +171,7 @@ button.tile[data-tag="in"] {
   left: 0;
   padding: 1px 5px 2px;
   border-radius: 0 0 4px 0;
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 1.2;
   letter-spacing: 0.06em;
@@ -201,7 +203,6 @@ button.tile[data-tag="in"] {
 @media (max-width: 900px) {
   .body { display: block; overflow-y: auto; overflow-x: hidden; }
   .deck { overflow: visible; }
-  .cards { grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); max-width: none; }
   .panel { grid-template-rows: auto; border-left: 0; border-top: 1px solid var(--b-rule); overflow: visible; padding: 10px 14px 12px; }
   .preview { height: 220px; }
   .counter { font-size: 17px; padding: 6px 10px; }
@@ -214,5 +215,5 @@ button.tile[data-tag="in"] {
 }
 @media (prefers-reduced-motion: reduce) {
   button.tile { transition: none; }
-  button.tile:hover { translate: none; }
+  button.tile:hover { transform: none; }
 }

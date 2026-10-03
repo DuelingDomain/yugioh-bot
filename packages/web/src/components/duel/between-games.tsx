@@ -47,7 +47,7 @@ function Tile({ code, name, label, tag, extra, locked, onClick, onHover, onSelec
 }) {
   return (
     <li>
-      <button type="button" className={cx(deckStyles.card, styles.tile)} data-tag={tag} data-locked={locked ? "true" : undefined}
+      <button type="button" className={cx(deckStyles["de-c"], styles.tile)} data-tag={tag} data-locked={locked ? "true" : undefined}
         aria-pressed={tag != null} aria-disabled={locked || undefined} aria-label={label} title={name}
         onClick={() => { onSelect(code); if (!locked) onClick(); }}
         onPointerEnter={(event) => { if (event.pointerType !== "touch") onHover(code); }}
@@ -131,9 +131,13 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   // Local request results bridge polling delays; every edit still asks the server to clear Ready.
   const [knownReady, setKnownReady] = useState<boolean | null>(null);
   const [unreadied, setUnreadied] = useState(false);
+  // Set from the Not ready click until its request settles, so a double click cannot ready the player again.
+  const [unreadyPending, setUnreadyPending] = useState(false);
   const unreadying = useRef<Promise<void> | null>(null);
   const unreadyFailed = useRef(false);
   const unreadyAgain = useRef(false);
+  const notReadyClicked = useRef(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const working = useRef(false);
   const [moving, setMoving] = useState(false);
   const advancing = useRef(false);
@@ -234,6 +238,8 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const nameOf = (code: number) => meta.get(code)?.name ?? String(code);
   const changed = hasMarks(marks);
   const sideShown = plan.counts.side;
+  // With nothing hovered or picked, the rail shows the first card instead of an empty box.
+  const previewCode = hovered ?? selected ?? current.main[0] ?? current.extra[0] ?? current.side[0] ?? null;
 
   const flag = (code: number, section: string, tag?: Tag, extra?: boolean) =>
     `${nameOf(code)}, ${section} Deck${tag === "out" ? ", going out" : tag === "in" ? ", coming in" : ""}${extra ? ", goes to the Extra Deck" : ""}`;
@@ -260,16 +266,17 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
    * without this screen seeing it yet, and only the server knows.
    */
   function leaveReady() {
+    const wasReady = imReady;
+    const before = knownReady;
+    // Show the change at once, also when a request is already in flight (a Ready from another tab can show up meanwhile).
+    if (wasReady) {
+      setKnownReady(false);
+      setUnreadied(true);
+    }
     if (unreadying.current) {
       // A Ready from another tab may land after the request in flight: send one more when it settles.
       unreadyAgain.current = true;
       return;
-    }
-    const wasReady = imReady;
-    const before = knownReady;
-    if (wasReady) {
-      setKnownReady(false);
-      setUnreadied(true);
     }
     if (!autoSave) return;
     unreadying.current = unreadySeries(slug).then(
@@ -278,8 +285,10 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
           unreadyFailed.current = false;
           setError(null);
         }
-        if (result.nextSlug) follow(result.nextSlug);
-        else void refresh();
+        if (result.nextSlug) {
+          if (notReadyClicked.current) setNotice("The next game started before Not ready reached the server.");
+          follow(result.nextSlug);
+        } else void refresh();
       },
       (cause: unknown) => {
         if (wasReady) {
@@ -293,6 +302,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
       },
     ).finally(() => {
       unreadying.current = null;
+      notReadyClicked.current = false;
       if (unreadyAgain.current && !advancing.current) {
         unreadyAgain.current = false;
         leaveReady();
@@ -327,6 +337,18 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
       working.current = false;
       setBusy(false);
     }
+  }
+
+  /** Takes Ready back with no edit, so the player can change the deck again before the timer ends. */
+  function notReady() {
+    if (busy || moving || advancing.current || !imReady) return;
+    setError(null);
+    setUnreadyPending(true);
+    notReadyClicked.current = true;
+    leaveReady();
+    const pending = unreadying.current;
+    if (pending) void pending.finally(() => setUnreadyPending(false));
+    else setUnreadyPending(false);
   }
 
   const ready = () => run(async () => {
@@ -370,7 +392,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const status = imReady && changed
     ? "Saving these swaps clears your Ready. Click Ready again when you are done."
     : imReady
-    ? (theirReady ? "Both players are ready." : "You are ready. Waiting for your opponent.")
+    ? (theirReady ? "Both players are ready." : "You are ready. Waiting for your opponent. Click Not ready to change your deck.")
     : unreadied ? "You are no longer ready. Finish your swaps, then click Ready again."
     : interrupted ? "The last game did not finish. Both players must click Ready to play on."
       : !hasSide ? "Your deck has no Side Deck, so there is nothing to change. Click Ready."
@@ -451,7 +473,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
         </div>
 
         <aside className={styles.panel} aria-label="Siding">
-          <div className={styles.preview}><DeckCardPreview code={hovered ?? selected} compact /></div>
+          <div className={styles.preview}><DeckCardPreview code={previewCode} compact /></div>
 
           <div className={styles.counter} data-state={counterState} role="status" aria-live="polite" data-testid="swap-counter">
             <span className={ui.num}>{plan.out} out · {plan.inn} in</span>
@@ -484,10 +506,16 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
               {readyReason ?? (unreadied || (imReady && changed) ? null : status)}
             </p>
             <div className={styles.buttons}>
-              <SheetButton kind="primary" size="lg" loading={busy && !confirmCancel} disabled={(imReady && !changed) || busy || moving || readyReason != null}
-                aria-describedby="between-reason" onClick={() => void ready()}>
-                Ready
-              </SheetButton>
+              {imReady && !changed ? (
+                <SheetButton key="not-ready" kind="secondary" size="lg" disabled={busy || moving} aria-describedby="between-reason" onClick={notReady}>
+                  Not ready
+                </SheetButton>
+              ) : (
+                <SheetButton key="ready" kind="primary" size="lg" loading={busy && !confirmCancel} disabled={busy || moving || unreadyPending || readyReason != null}
+                  aria-describedby="between-reason" onClick={() => void ready()}>
+                  Ready
+                </SheetButton>
+              )}
               <SheetButton kind="secondary" disabled={locked || (!changed && sameDeck(current, resetDeck))} onClick={reset}>
                 Reset to the deck from last game
               </SheetButton>
@@ -502,6 +530,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
                 )
               ) : null}
             </div>
+            {notice ? <p className={styles.reason} role="status" data-testid="between-notice">{notice}</p> : null}
             {error ? <p className={styles.error} role="alert">{error}</p> : null}
           </div>
         </aside>

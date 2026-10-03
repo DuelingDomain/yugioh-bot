@@ -47,7 +47,6 @@ export function DeckCardPreview({ code, compact = false }: { code: number | null
   if (code == null) {
     return (
       <div className={styles.preview} data-compact={compact || undefined}>
-        <div className={styles.artEmpty} aria-hidden />
         <p className={styles.hint}>Hover a card in your deck to see it here.</p>
       </div>
     );

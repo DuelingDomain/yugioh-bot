@@ -64,6 +64,25 @@ const counter = () => screen.getByTestId("swap-counter").textContent ?? "";
 const readyButton = () => screen.getByRole("button", { name: "Ready" }) as HTMLButtonElement;
 
 describe("BetweenGamesScreen: what it shows", () => {
+  it("previews the first card when nothing is hovered, not an empty box", async () => {
+    screenFor();
+    await card("Card 1, Main Deck");
+    expect(screen.getByRole("img", { name: "Card 1" }).getAttribute("src")).toBe("/api/cards/1/image");
+    expect(screen.queryByText(/Hover a card/)).toBeNull();
+    // A hovered card replaces it, and the first card returns when the pointer leaves.
+    const other = await card("Card 3, Main Deck");
+    fireEvent.pointerEnter(other, { pointerType: "mouse" });
+    expect(screen.getByRole("img", { name: "Card 3" })).toBeTruthy();
+    fireEvent.pointerLeave(other);
+    expect(screen.getByRole("img", { name: "Card 1" })).toBeTruthy();
+  });
+
+  it("previews the first Extra or Side card when the Main Deck is empty", async () => {
+    screenFor({ deck: { main: [], extra: [100], side: [10] } });
+    await card("Card 100, Extra Deck");
+    expect(screen.getByRole("img", { name: "Card 100" })).toBeTruthy();
+  });
+
   it("previews a focused card and keeps the clicked card visible after the pointer leaves", async () => {
     screenFor();
     const tile = await card("Card 2, Main Deck");
@@ -147,7 +166,8 @@ describe("BetweenGamesScreen: what it shows", () => {
         expect(screen.getByTestId("my-side-status").textContent).toBe(mine ? "You are ready." : "You are not ready.");
         expect(screen.getByTestId("opponent-side-status").textContent).toBe(theirs ? "Opponent ready" : "Opponent is siding…");
         expect(screen.queryByText("Both players are ready.") != null).toBe(mine && theirs);
-        expect(readyButton().disabled).toBe(mine);
+        expect(screen.queryByRole("button", { name: "Not ready" }) != null).toBe(mine);
+        expect(screen.queryByRole("button", { name: "Ready" }) != null).toBe(!mine);
         cleanup();
       }
     }
