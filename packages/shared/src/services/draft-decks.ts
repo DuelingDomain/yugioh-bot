@@ -124,8 +124,8 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
   const selectDraft = db.prepare<[number], DraftRow>(
     "select id, guild_id, name, tournament_id, ended_at, created_at from drafts where id = ? and status = 'completed'",
   );
-  const selectHumans = db.prepare<[number], { player_id: number; discord_user_id: string }>(
-    `select dp.player_id, p.discord_user_id
+  const selectHumans = db.prepare<[number], { player_id: number; discord_user_id: string; deck_saved_at: string | null }>(
+    `select dp.player_id, p.discord_user_id, dp.deck_saved_at
      from draft_players dp
      inner join players p on p.id = dp.player_id
      where dp.draft_id = ?
@@ -139,13 +139,18 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
      where dp.draft_id = ? and dp.player_id = ?
      order by dp.id asc`,
   );
-  // Finished drafts the user played in with no saved deck yet (this guild only).
+  const markSaved = db.prepare<[number, number]>(
+    "update draft_players set deck_saved_at = current_timestamp where draft_id = ? and player_id = ? and deck_saved_at is null",
+  );
+  // Finished drafts the user played in whose deck was never saved (this guild only). A deck the
+  // user deleted stays deleted: deck_saved_at is set when it is made.
   const selectMissing = db.prepare<[string, string, string], { id: number }>(
     `select d.id
      from drafts d
      inner join draft_players dp on dp.draft_id = d.id
      inner join players p on p.id = dp.player_id
      where d.guild_id = ? and d.status = 'completed' and p.guild_id = d.guild_id and p.discord_user_id = ?
+       and dp.deck_saved_at is null
        and not exists (
          select 1 from saved_decks s
          where s.guild_id = d.guild_id and s.owner_user_id = ? and s.draft_id = d.id
@@ -207,24 +212,33 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
       if (!draft) return [];
       const saved = createSavedDeckService(db);
       const created: string[] = [];
-      const run = db.transaction(() => {
-        for (const human of selectHumans.all(draftId)) {
-          if (isTestBotDiscordId(human.discord_user_id)) continue;
-          if (saved.findByDraft(draft.guild_id, human.discord_user_id, draftId)) continue;
-          const cards = picksOf(draftId, human.player_id);
-          if (cards.length === 0) continue;
-          saved.create(draft.guild_id, human.discord_user_id, {
-            name: draftDeckName(draft),
-            mode: "normal",
-            deck: buildDraftDeck(cards),
-            draftId,
-          });
-          created.push(human.discord_user_id);
+      for (const human of selectHumans.all(draftId)) {
+        if (isTestBotDiscordId(human.discord_user_id) || human.deck_saved_at !== null) continue;
+        // One savepoint per player: a failure for one player keeps the others' decks.
+        const savePlayer = db.transaction(() => {
+          if (!saved.findByDraft(draft.guild_id, human.discord_user_id, draftId)) {
+            const cards = picksOf(draftId, human.player_id);
+            if (cards.length === 0) return false;
+            saved.create(draft.guild_id, human.discord_user_id, {
+              name: draftDeckName(draft),
+              mode: "normal",
+              deck: buildDraftDeck(cards),
+              draftId,
+            });
+            markSaved.run(draftId, human.player_id);
+            return true;
+          }
+          markSaved.run(draftId, human.player_id);
+          return false;
+        });
+        try {
+          if (savePlayer()) created.push(human.discord_user_id);
+        } catch (error) {
+          console.error(`[draft-decks] could not save the deck of player ${human.player_id} for draft ${draftId}:`, error);
         }
-        const tournamentId = selectDraftTournament.get(draftId)?.tournament_id ?? null;
-        if (tournamentId !== null) service.linkTournament(tournamentId);
-      });
-      run();
+      }
+      const tournamentId = selectDraftTournament.get(draftId)?.tournament_id ?? null;
+      if (tournamentId !== null) service.linkTournament(tournamentId);
       return created;
     },
 

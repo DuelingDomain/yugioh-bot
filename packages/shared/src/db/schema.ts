@@ -297,6 +297,8 @@ export function migrate(db: Database.Database) {
     }
   }
   addColumnIfMissing(db, "draft_players", "seat_index", "integer");
+  // Set when the player's draft deck was saved. A player who deletes that deck does not get it back.
+  addColumnIfMissing(db, "draft_players", "deck_saved_at", "text");
   addColumnIfMissing(db, "draft_cards", "draft_pack_id", "integer references draft_packs(id)");
   addColumnIfMissing(db, "draft_cards", "position", "integer");
   addColumnIfMissing(db, "draft_picks", "pick_method", "text not null default 'manual'");
@@ -648,6 +650,15 @@ export function migrate(db: Database.Database) {
 
   // A deck built from a player's draft pool. One per owner per draft.
   addColumnIfMissing(db, "saved_decks", "draft_id", "integer references drafts(id) on delete set null");
+  // Decks saved before deck_saved_at existed count as saved.
+  db.exec(`
+    update draft_players set deck_saved_at = current_timestamp
+    where deck_saved_at is null and exists (
+      select 1 from saved_decks s
+      inner join players p on p.id = draft_players.player_id
+      where s.draft_id = draft_players.draft_id and s.owner_user_id = p.discord_user_id and s.guild_id = p.guild_id
+    )
+  `);
   db.exec(`
     create unique index if not exists saved_decks_owner_draft_idx
       on saved_decks (guild_id, owner_user_id, draft_id)

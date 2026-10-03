@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import { createDraftService } from "../../src/services/drafts.js";
 import { createDraftTournamentService } from "../../src/services/draft-tournament.js";
@@ -131,7 +131,9 @@ describe("saving a deck when a draft finishes", () => {
     const alice = addPlayer(db, "u1", "Alice");
     const bob = addPlayer(db, "u2", "Bob");
     const { draftId } = playDraft(db, [alice, bob], "u1");
+    // A draft that ended before decks were saved: no deck and no saved mark.
     db.prepare("delete from saved_decks").run();
+    db.prepare("update draft_players set deck_saved_at = null").run();
 
     const service = createDraftDeckService(db);
     expect(service.ensureForUser("other-guild", "u1")).toEqual([]);
@@ -140,6 +142,80 @@ describe("saving a deck when a draft finishes", () => {
     expect(service.ensureForUser("g1", "u1")).toEqual([draftId]);
     expect(createSavedDeckService(db).findByDraft("g1", "u1", draftId)).not.toBeNull();
     expect(createSavedDeckService(db).findByDraft("g1", "u2", draftId)).not.toBeNull();
+    db.close();
+  });
+});
+
+describe("a draft deck the player removed", () => {
+  function finishedDraft() {
+    const db = new Database(":memory:");
+    migrate(db);
+    seed(db);
+    const alice = addPlayer(db, "u1", "Alice");
+    const bob = addPlayer(db, "u2", "Bob");
+    const { draftId } = playDraft(db, [alice, bob], "u1");
+    return { db, draftId };
+  }
+
+  it("does not come back when the player deletes it and the decks load again", () => {
+    const { db, draftId } = finishedDraft();
+    const decks = createSavedDeckService(db);
+    decks.delete(decks.findByDraft("g1", "u1", draftId)!.id, "g1", "u1");
+
+    expect(createDraftDeckService(db).ensureForUser("g1", "u1")).toEqual([]);
+    expect(createDraftDeckService(db).saveForDraft(draftId)).toEqual([]);
+    expect(decks.findByDraft("g1", "u1", draftId)).toBeNull();
+    // The other player's deck is untouched.
+    expect(decks.findByDraft("g1", "u2", draftId)).not.toBeNull();
+    db.close();
+  });
+
+  it("is not copied when the player clears the draft link of the deck", () => {
+    const { db, draftId } = finishedDraft();
+    db.prepare("update saved_decks set draft_id = null where owner_user_id = 'u1'").run();
+
+    expect(createDraftDeckService(db).ensureForUser("g1", "u1")).toEqual([]);
+    expect(db.prepare("select count(*) n from saved_decks where owner_user_id = 'u1'").get()).toEqual({ n: 1 });
+    expect(createSavedDeckService(db).findByDraft("g1", "u1", draftId)).toBeNull();
+    db.close();
+  });
+
+  it("marks a deck that exists from before the mark was added, so deleting it later sticks", () => {
+    const { db, draftId } = finishedDraft();
+    db.prepare("update draft_players set deck_saved_at = null").run();
+    migrate(db);
+    expect(db.prepare("select count(*) n from draft_players where deck_saved_at is null").get()).toEqual({ n: 0 });
+    const decks = createSavedDeckService(db);
+    decks.delete(decks.findByDraft("g1", "u2", draftId)!.id, "g1", "u2");
+    expect(createDraftDeckService(db).ensureForUser("g1", "u2")).toEqual([]);
+    db.close();
+  });
+});
+
+describe("a failure while saving one player's deck", () => {
+  it("keeps the decks of the other players", () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    seed(db);
+    const alice = addPlayer(db, "u1", "Alice");
+    const bob = addPlayer(db, "u2", "Bob");
+    const { draftId } = playDraft(db, [alice, bob], "u1");
+    db.prepare("delete from saved_decks").run();
+    db.prepare("update draft_players set deck_saved_at = null").run();
+    db.exec(`create trigger fail_bob before insert on saved_decks when new.owner_user_id = 'u1'
+             begin select raise(abort, 'boom'); end`);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(createDraftDeckService(db).saveForDraft(draftId)).toEqual(["u2"]);
+    expect(createSavedDeckService(db).findByDraft("g1", "u2", draftId)).not.toBeNull();
+    expect(createSavedDeckService(db).findByDraft("g1", "u1", draftId)).toBeNull();
+    expect(log).toHaveBeenCalled();
+
+    // The failed player is tried again on the next backfill.
+    db.exec("drop trigger fail_bob");
+    expect(createDraftDeckService(db).ensureForUser("g1", "u1")).toEqual([draftId]);
+    expect(createSavedDeckService(db).findByDraft("g1", "u1", draftId)).not.toBeNull();
+    log.mockRestore();
     db.close();
   });
 });
@@ -154,6 +230,7 @@ describe("linking the draft deck to the tournament entry", () => {
     const { draftId } = playDraft(db, [alice, bob], "u1");
     // The draft finished before automatic saving existed.
     db.prepare("delete from saved_decks").run();
+    db.prepare("update draft_players set deck_saved_at = null").run();
 
     const result = createDraftTournamentService(db).createTournamentFromDraft({
       draftId, format: "round_robin", createdByUserId: "u1",
