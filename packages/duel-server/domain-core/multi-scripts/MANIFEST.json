@@ -4221,7 +4221,7 @@
       "name": "The Law of the Normal",
       "kind": "fix",
       "classes": [],
-      "note": "Every living duelist is included. Collect each duelist's own zones before one simultaneous action. Tag partner included; no opponent pick.",
+      "note": "Activation needs another card in the activator hand and a card in at least one opponent hand. Every living duelist discards at resolution, including the Tag partner; an empty hand does nothing. All living fields take the destruction.",
       "file": "c66926224.lua",
       "stockSha256": "412abbd641756201e19f0f0bdd06d0b6c8772a5dc803a5f2e1658fbc548ee8b0"
     },
