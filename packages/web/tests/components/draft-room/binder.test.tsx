@@ -2,8 +2,8 @@
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Binder, type BinderProps, type Tab } from "../../../src/components/draft/room/binder";
-import { EMPTY_FILTER, type GoneCard, type RoomCard, type RoomFilter } from "../../../src/components/draft/room/room-model";
+import { Binder, type BinderProps } from "../../../src/components/draft/room/binder";
+import { EMPTY_FILTER, type RoomCard, type RoomFilter } from "../../../src/components/draft/room/room-model";
 
 const card = (id: number, name: string, over: Partial<RoomCard> = {}): RoomCard => ({
   id,
@@ -27,28 +27,19 @@ const pool = [
   card(6, "Delta effect"),
 ];
 
-const gone = (cards: RoomCard[]): GoneCard[] => cards.map((c, i) => ({ card: c, round: 1, seenAt: i + 1, goneBy: i + 2 }));
-
 interface HarnessProps {
   pool?: RoomCard[];
-  gone?: GoneCard[];
-  initialTab?: Tab;
   initialFilter?: RoomFilter;
   theme?: boolean;
   phone?: boolean;
 }
 
-function Harness({ pool = [], gone = [], initialTab = "mine", initialFilter = EMPTY_FILTER, theme = false, phone = false }: HarnessProps) {
-  const [tab, onTab] = useState<Tab>(initialTab);
+function Harness({ pool = [], initialFilter = EMPTY_FILTER, theme = false, phone = false }: HarnessProps) {
   const [filter, onFilter] = useState<RoomFilter>(initialFilter);
   return (
     <Binder
-      tab={tab}
-      onTab={onTab}
-      showGone
       theme={theme}
       pool={pool}
-      gone={gone}
       packCards={pool}
       filter={filter}
       onFilter={onFilter}
@@ -62,12 +53,26 @@ function Harness({ pool = [], gone = [], initialTab = "mine", initialFilter = EM
   );
 }
 
-const names = () => Array.from(screen.getByRole("tabpanel").querySelectorAll(".rn"), (el) => el.textContent);
+const picks = () => screen.getByRole("complementary", { name: "Your picks" });
+const pickList = () => picks().querySelector<HTMLElement>(".list")!;
+const names = () => Array.from(pickList().querySelectorAll(".rn"), (el) => el.textContent);
 const monsters = () => screen.getByRole("button", { name: /Monsters$/ });
 const spells = () => screen.getByRole("button", { name: /Spells$/ });
 const traps = () => screen.getByRole("button", { name: /Traps$/ });
 
 afterEach(cleanup);
+
+it("names the binder without tabs or a Taken by others control", () => {
+  render(<Harness pool={pool} />);
+  expect(within(picks()).getByRole("heading", { name: "Your picks" })).toBeInTheDocument();
+  expect(screen.queryByText(/taken by others/i)).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /taken by others/i })).not.toBeInTheDocument();
+  expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+  expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+  expect(screen.queryByRole("tabpanel")).not.toBeInTheDocument();
+  expect(names()).toHaveLength(6);
+  expect(screen.getByText("6 of 6 picked")).toBeInTheDocument();
+});
 
 describe("binder sorting", () => {
   const orders = [
@@ -77,34 +82,21 @@ describe("binder sorting", () => {
     { order: "name", want: ["Alpha trap", "Beta normal", "Delta effect", "Gamma fusion", "Omega effect", "Zulu spell"] },
   ];
 
-  describe.each(["mine", "gone"] as const)("%s", (tab) => {
-    it.each(orders)("renders the $order sequence", ({ order, want }) => {
-      render(<Harness pool={pool} gone={gone(pool)} initialTab={tab} />);
-      const sort = screen.getByRole("combobox", { name: "Sort" });
-      expect(sort).toHaveValue("type");
-      expect(sort).toBeEnabled();
-      expect(within(sort).getAllByRole("option").map((el) => el.textContent)).toEqual(["Type", "Newest", "Oldest", "Name"]);
-      fireEvent.change(sort, { target: { value: order } });
-      expect(names()).toEqual(want);
-      expect(pool.map((c) => c.id)).toEqual([1, 2, 3, 4, 5, 6]);
-    });
-  });
-
-  it("keeps the chosen sort when switching tabs", () => {
-    render(<Harness pool={pool} gone={gone(pool)} />);
-    fireEvent.change(screen.getByRole("combobox", { name: "Sort" }), { target: { value: "newest" } });
-    fireEvent.click(screen.getByRole("tab", { name: /Taken by others/ }));
-    expect(screen.getByRole("combobox", { name: "Sort" })).toHaveValue("newest");
-    expect(names()).toEqual(["Delta effect", "Gamma fusion", "Omega effect", "Alpha trap", "Beta normal", "Zulu spell"]);
-    fireEvent.click(screen.getByRole("tab", { name: /Your picks/ }));
-    expect(screen.getByRole("combobox", { name: "Sort" })).toHaveValue("newest");
-    expect(names()).toEqual(["Delta effect", "Gamma fusion", "Omega effect", "Alpha trap", "Beta normal", "Zulu spell"]);
+  it.each(orders)("renders the $order sequence", ({ order, want }) => {
+    render(<Harness pool={pool} />);
+    const sort = screen.getByRole("combobox", { name: "Sort" });
+    expect(sort).toHaveValue("type");
+    expect(sort).toBeEnabled();
+    expect(within(sort).getAllByRole("option").map((el) => el.textContent)).toEqual(["Type", "Newest", "Oldest", "Name"]);
+    fireEvent.change(sort, { target: { value: order } });
+    expect(names()).toEqual(want);
+    expect(pool.map((c) => c.id)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
   it("reverses theme phases for newest and retains original pick numbers", () => {
     render(<Harness theme pool={[pool[1], pool[0], pool[4], card(7, "Xyz", { type: "Xyz Monster", frameType: "xyz" })]} />);
     fireEvent.change(screen.getByRole("combobox", { name: "Sort" }), { target: { value: "newest" } });
-    const list = screen.getByRole("tabpanel");
+    const list = pickList();
     expect(names()).toEqual(["Xyz", "Gamma fusion", "Zulu spell", "Beta normal"]);
     const headings = within(list).getAllByRole("heading");
     expect(headings).toHaveLength(2);
@@ -116,11 +108,11 @@ describe("binder sorting", () => {
   it("keeps separate copies in pick order and groups them only for Type", () => {
     render(<Harness pool={[pool[1], pool[0], pool[1]]} />);
     expect(names()).toEqual(["Beta normal", "Zulu spell"]);
-    expect(within(screen.getByRole("tabpanel")).getByText("×2")).toBeInTheDocument();
+    expect(within(pickList()).getByText("×2")).toBeInTheDocument();
     fireEvent.change(screen.getByRole("combobox", { name: "Sort" }), { target: { value: "oldest" } });
     expect(names()).toEqual(["Beta normal", "Zulu spell", "Beta normal"]);
-    expect(Array.from(screen.getByRole("tabpanel").querySelectorAll(".no"), (el) => el.textContent)).toEqual(["Pick 1", "Pick 2", "Pick 1"]);
-    const rows = within(screen.getByRole("tabpanel")).getAllByRole("button");
+    expect(Array.from(pickList().querySelectorAll(".no"), (el) => el.textContent)).toEqual(["Pick 1", "Pick 2", "Pick 1"]);
+    const rows = within(pickList()).getAllByRole("button");
     fireEvent.click(rows[0]);
     expect(rows[0]).toHaveAttribute("aria-expanded", "true");
     expect(rows[2]).toHaveAttribute("aria-expanded", "false");
@@ -128,20 +120,13 @@ describe("binder sorting", () => {
 });
 
 describe("binder facet counts", () => {
-  it("keeps whole-tab Spell and Trap counts with Monster selected", () => {
-    render(<Harness pool={pool} gone={gone([pool[1], pool[0], pool[0], pool[2], pool[2], pool[2]])} />);
+  it("keeps whole-pool Spell and Trap counts with Monster selected", () => {
+    render(<Harness pool={pool} />);
     fireEvent.click(monsters());
     expect(names()).toEqual(["Omega effect", "Beta normal", "Delta effect"]);
     expect(screen.getByText(/Showing 3 of 6/)).toBeInTheDocument();
     expect(spells().querySelector("b")).toHaveTextContent("1");
     expect(traps().querySelector("b")).toHaveTextContent("1");
-
-    fireEvent.click(screen.getByRole("tab", { name: /Taken by others/ }));
-    expect(monsters()).toHaveAttribute("aria-pressed", "true");
-    expect(names()).toEqual(["Beta normal"]);
-    expect(screen.getByText(/Showing 1 of 6/)).toBeInTheDocument();
-    expect(spells().querySelector("b")).toHaveTextContent("2");
-    expect(traps().querySelector("b")).toHaveTextContent("3");
   });
 
   it("keeps other attribute and level counts when an attribute is selected", () => {
@@ -208,7 +193,7 @@ describe("binder monster subtype", () => {
     fireEvent.click(screen.getByRole("button", { name: "Effect" }));
     fireEvent.click(change === "add Spell" ? spells() : monsters());
     expect(screen.queryByRole("group", { name: "Monster subtype" })).not.toBeInTheDocument();
-    expect(screen.getByRole("tabpanel")).toHaveTextContent("Normal monster");
+    expect(pickList()).toHaveTextContent("Normal monster");
     fireEvent.click(change === "add Spell" ? spells() : monsters());
     expect(screen.getByRole("button", { name: "All monsters" })).toHaveAttribute("aria-pressed", "true");
     expect(names()).toHaveLength(5);
@@ -217,8 +202,8 @@ describe("binder monster subtype", () => {
   it("clears a subtype when the parent changes kinds outside the binder", () => {
     const onFilter = vi.fn();
     const props: BinderProps = {
-      tab: "mine", onTab: () => {}, showGone: true, theme: false,
-      pool: monstersPool, gone: [], packCards: monstersPool,
+      theme: false,
+      pool: monstersPool, packCards: monstersPool,
       filter: { ...EMPTY_FILTER, kinds: new Set(["monster"]), monsterSubtype: "effect" },
       onFilter, pickConfig: { theme: false, packSize: 2, cardsPerPlayer: 2 },
       target: 6, newId: null, phone: false, onClose: () => {}, onPeek: () => {},
@@ -264,11 +249,11 @@ describe("binder empty filters", () => {
     expect(screen.getByRole("button", { name: "All monsters" })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("allows clearing active filters even on an empty tab", () => {
-    render(<Harness initialTab="gone" initialFilter={filtered} />);
+  it("allows clearing active filters even with no picks", () => {
+    render(<Harness initialFilter={filtered} />);
     expect(screen.getByText("No cards match these filters.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(screen.queryByText("No cards match these filters.")).not.toBeInTheDocument();
-    expect(screen.getByRole("tabpanel")).toHaveTextContent("Nothing yet.");
+    expect(pickList()).toHaveTextContent("Your picks land here as you draft.");
   });
 });
