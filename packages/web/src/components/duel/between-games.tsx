@@ -47,7 +47,7 @@ function Tile({ code, name, label, tag, extra, locked, onClick, onHover, onSelec
 }) {
   return (
     <li>
-      <button type="button" className={cx(deckStyles.card, styles.tile)} data-tag={tag} data-locked={locked ? "true" : undefined}
+      <button type="button" className={cx(deckStyles["de-c"], styles.tile)} data-tag={tag} data-locked={locked ? "true" : undefined}
         aria-pressed={tag != null} aria-disabled={locked || undefined} aria-label={label} title={name}
         onClick={() => { onSelect(code); if (!locked) onClick(); }}
         onPointerEnter={(event) => { if (event.pointerType !== "touch") onHover(code); }}
@@ -234,6 +234,8 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const nameOf = (code: number) => meta.get(code)?.name ?? String(code);
   const changed = hasMarks(marks);
   const sideShown = plan.counts.side;
+  // With nothing hovered or picked, the rail shows the first card instead of an empty box.
+  const previewCode = hovered ?? selected ?? current.main[0] ?? current.extra[0] ?? current.side[0] ?? null;
 
   const flag = (code: number, section: string, tag?: Tag, extra?: boolean) =>
     `${nameOf(code)}, ${section} Deck${tag === "out" ? ", going out" : tag === "in" ? ", coming in" : ""}${extra ? ", goes to the Extra Deck" : ""}`;
@@ -451,7 +453,7 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
         </div>
 
         <aside className={styles.panel} aria-label="Siding">
-          <div className={styles.preview}><DeckCardPreview code={hovered ?? selected} compact /></div>
+          <div className={styles.preview}><DeckCardPreview code={previewCode} compact /></div>
 
           <div className={styles.counter} data-state={counterState} role="status" aria-live="polite" data-testid="swap-counter">
             <span className={ui.num}>{plan.out} out · {plan.inn} in</span>
