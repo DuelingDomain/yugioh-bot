@@ -231,6 +231,7 @@ export function TagShell(props: TagShellProps) {
       ref={rootRef}
       className={`${duelFontClasses} ${styles.shell}`}
       data-table-shell="tag"
+      data-duel-fx-speed-root
       data-can-act={canAct ? "true" : "false"}
       data-viewport={fillViewport ? "true" : undefined}
       data-domain={domain}
