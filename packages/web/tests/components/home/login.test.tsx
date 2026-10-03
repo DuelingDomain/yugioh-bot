@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { cleanup, render, screen } from "@testing-library/react";
+import postcss from "postcss";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -49,6 +52,29 @@ describe("login error copy", () => {
 });
 
 describe("LoginPage", () => {
+  it("keeps the three cards fanned around the raised center card with the summon circle present", async () => {
+    const rules: string[] = [];
+    const css = readFileSync(path.resolve(__dirname, "../../../src/styles/match-sheet.css"), "utf8");
+    postcss.parse(css).walkRules((rule) => {
+      if (rule.selector.startsWith(".ms .si-fan")) rules.push(rule.toString());
+    });
+    const { container } = render(
+      <>
+        <style>{rules.join("\n")}</style>
+        {await LoginPage({ searchParams: Promise.resolve({}) })}
+      </>,
+    );
+    const cards = container.querySelectorAll(".si-fan > img");
+    expect(Array.from(cards, (card) => {
+      const style = getComputedStyle(card);
+      return { translate: style.translate, rotate: style.rotate || "none", zIndex: style.zIndex };
+    })).toEqual([
+      { translate: "-50% 0", rotate: "-15deg", zIndex: "1" },
+      { translate: "-50% -12px", rotate: "none", zIndex: "2" },
+      { translate: "-50% 0", rotate: "15deg", zIndex: "1" },
+    ]);
+  });
+
   it("names YugiDraft, says what Discord shares, and shows the code", async () => {
     render(await LoginPage({ searchParams: Promise.resolve({ error: "Configuration" }) }));
     screen.getByRole("heading", { level: 1, name: "YugiDraft" });

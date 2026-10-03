@@ -2,6 +2,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
+import { renderToString } from "react-dom/server";
 import { migrate } from "../../../shared/src/db/schema";
 import DashboardPage from "../../app/(app)/dashboard/page";
 import styles from "@/components/dashboard/dashboard.module.css";
@@ -34,6 +35,8 @@ describe("DashboardPage", () => {
     cleanup();
     db.close();
     vi.clearAllMocks();
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   it("shows the welcome panel, not dashes, when the user has no player yet", async () => {
@@ -41,6 +44,22 @@ describe("DashboardPage", () => {
     screen.getByRole("heading", { name: "Your first match puts you on the board" });
     expect(screen.queryByText("—")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Your standing" })).toBeNull();
+  });
+
+  it("shows the browser's date after hydrating a page rendered on a UTC server", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-03T00:30:00Z"));
+    vi.stubEnv("TZ", "UTC");
+    db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g1', 'u1', 'Yugi')").run();
+    const page = await DashboardPage();
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(page);
+    document.body.append(container);
+
+    vi.stubEnv("TZ", "America/Toronto");
+    render(page, { container, hydrate: true });
+
+    expect(container.querySelector(".page-sub")).toHaveTextContent("Fri, Oct 2");
   });
 
   it("counts approved wins and losses in the configured guild only", async () => {

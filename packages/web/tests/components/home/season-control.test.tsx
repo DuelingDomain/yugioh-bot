@@ -10,7 +10,7 @@ vi.mock("next/font/google", () => {
 
 const active = { id: 3, number: 3, name: null, status: "active", startedAt: "2026-08-04T10:00:00.000Z", endedAt: null };
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("SeasonControl", () => {
   it("offers no Start while loading", () => {
@@ -94,6 +94,17 @@ describe("SeasonControl", () => {
 });
 
 describe("seasonDay", () => {
+  it.each(["America/Toronto", "Asia/Tokyo"])("parses SQLite timestamps as UTC in %s", (timeZone) => {
+    vi.stubEnv("TZ", timeZone);
+    expect(seasonDay("2026-08-04 10:00:00", Date.parse("2026-08-05T09:59:59Z"))).toBe(1);
+    expect(seasonDay("2026-08-04 10:00:00", Date.parse("2026-08-05T10:00:00Z"))).toBe(2);
+  });
+
+  it("preserves the timezone offset of ISO timestamps", () => {
+    expect(seasonDay("2026-08-04T10:00:00-04:00", Date.parse("2026-08-05T13:59:59Z"))).toBe(1);
+    expect(seasonDay("2026-08-04T10:00:00-04:00", Date.parse("2026-08-05T14:00:00Z"))).toBe(2);
+  });
+
   it("counts the start day as day 1", () => {
     expect(seasonDay("2026-08-04T10:00:00.000Z", Date.parse("2026-08-04T12:00:00.000Z"))).toBe(1);
     expect(seasonDay("2026-08-04T10:00:00.000Z", Date.parse("2026-08-06T10:00:00.000Z"))).toBe(3);

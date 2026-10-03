@@ -5,6 +5,7 @@ import { SheetRoot } from "@/components/sheet";
 import { DraftRow, TournamentRow, type DashboardDraft, type DashboardTournament } from "@/components/dashboard/dashboard-rows";
 import { YourStanding, type StandingProfile } from "@/components/dashboard/your-standing";
 import { WelcomePanel } from "@/components/dashboard/welcome-panel";
+import { DashboardDate } from "@/components/dashboard/dashboard-date";
 import styles from "@/components/dashboard/dashboard.module.css";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -127,14 +128,13 @@ export default async function DashboardPage() {
   }
 
   const hasPlayer = playerIds.length > 0;
-  const today = new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 
   return (
     <SheetRoot>
       <header className="page-h sheet-head">
         <div>
           <h1 className="t-title">Dashboard</h1>
-          {hasPlayer && <p className="page-sub">{today}</p>}
+          {hasPlayer && <DashboardDate />}
         </div>
       </header>
 

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { AlertTriangle, Lock, RotateCw, RefreshCw } from "lucide-react";
 import { ConfirmPanel, DangerRow, DangerZone, SheetPanel } from "@/components/sheet";
+import { toUtcIso } from "@/lib/utils";
 
 type Season = {
   id: number;
@@ -21,7 +22,7 @@ function formatDate(iso: string) {
 
 /** Day 1 is the day it started. */
 export function seasonDay(startedAt: string, now: number = Date.now()): number {
-  const started = new Date(startedAt).getTime();
+  const started = new Date(toUtcIso(startedAt)).getTime();
   if (Number.isNaN(started)) return 1;
   return Math.max(1, Math.floor((now - started) / DAY_MS) + 1);
 }
