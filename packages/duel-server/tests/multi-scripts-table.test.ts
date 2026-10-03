@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -59,11 +59,17 @@ export interface TableCard {
  * Blast) is listed once, in the first group. A "fix" entry has no class (a fix of one script that the scan does not flag) and is
  * listed in its own group. Mirror Gate is never listed (Q7).
  */
+// The pre-errata card is outside the current corpus. Keep its C6 geometry audit.
+// Add it to the live table only after its database row and official script are supplied.
+const TABLE_EXCLUSIONS: Record<number, string> = {
+  5043020: "Firewall Dragon (pre-errata): the corpus has no database row or official script. The live table cannot load this card.",
+};
+
 export function tableCardsOf(source: Manifest): TableCard[] {
   const rows: TableCard[] = [];
   const groups: [string, TableGroup][] = [["COMPARE", "compare"], ["CHOOSER", "chooser"], ["R1", "r1"], ["R2", "r2"]];
   for (const card of source.cards) {
-    if (card.code === MIRROR_GATE) continue;
+    if (card.code === MIRROR_GATE || TABLE_EXCLUSIONS[card.code]) continue;
     const group = groups.find(([name]) => (card.classes as string[]).includes(name))?.[1] ?? (card.kind === "fix" ? "fix" : null);
     if (group) rows.push({ code: card.code, group, name: card.name || `c${card.code}` });
   }
@@ -336,13 +342,13 @@ describeWithCores("the table: classes of the manifest against the scan", stock, 
     for (const scan of scans.values()) if (scan.rules.includes("field-count-compare") && !COMPARE_FALSE_POSITIVES.includes(scan.code)) listed.add(scan.code);
     const triage = readTriage();
     for (const entry of triage ?? []) if (entry.rule.startsWith("CHOOSER")) listed.add(entry.code);
-    for (const card of manifest.cards) listed.add(card.code);
+    for (const card of manifest.cards) if (!TABLE_EXCLUSIONS[card.code]) listed.add(card.code);
     expect(overlayReadersWithoutEntry(listed, manifest, stockText)).toEqual([]);
   });
 
   it("the overlay check fails for a listed card that reads overlay materials or counters and has no entry", () => {
     // Vola-Chemicritter Methydraco reads GetOverlayGroup on a field. Without its entry the check must name it.
-    const readers = manifest.cards.filter((card) => OVERLAY_OR_COUNTER.test(stockText(card.code))).map((card) => card.code);
+    const readers = manifest.cards.filter((card) => !TABLE_EXCLUSIONS[card.code] && OVERLAY_OR_COUNTER.test(stockText(card.code))).map((card) => card.code);
     expect(readers.length).toBeGreaterThan(0);
     for (const code of readers) {
       const without = JSON.parse(JSON.stringify(manifest)) as Manifest;
@@ -366,7 +372,7 @@ describeWithCores("the table: classes of the manifest against the scan", stock, 
     expect(TABLE.filter((row) => row.group === "r1")).toHaveLength(EXPECTED_COUNTS.r1);
     const r2Entries = manifest.cards.filter((card) => card.classes.includes("R2" as CardClass)).length;
     expect(TABLE.filter((row) => row.group === "r2")).toHaveLength(r2Entries + R2_NO_CHANGE.filter((code) => !manifest.cards.some((card) => card.code === code)).length);
-    expect(TABLE.filter((row) => row.group === "fix")).toHaveLength(manifest.cards.filter((card) => card.kind === "fix" && card.classes.length === 0 && card.code !== MIRROR_GATE).length);
+    expect(TABLE.filter((row) => row.group === "fix")).toHaveLength(manifest.cards.filter((card) => card.kind === "fix" && card.classes.length === 0 && card.code !== MIRROR_GATE && !TABLE_EXCLUSIONS[card.code]).length);
     expect(codes).not.toContain(MIRROR_GATE);
     for (const [code, reason] of Object.entries(NO_CONDITION_RUN)) expect(reason, code).toBeTruthy();
   });
@@ -664,6 +670,15 @@ describe("the table helpers", () => {
       expect(reason, code).toBeTruthy();
     }
     for (const code of Object.keys(NO_CONDITION_RUN_ONLY)) expect(NO_CONDITION_RUN[Number(code)], `${code} has a NO_CONDITION_RUN entry`).toBeTruthy();
+  });
+
+  it("requires a corpus review if an excluded card gains a database row or an official script", () => {
+    for (const [code, reason] of Object.entries(TABLE_EXCLUSIONS)) {
+      expect(reason, code).toBeTruthy();
+      expect(inCardDatabase(Number(code)), `${reason} Review the card before table use.`).toBe(false);
+      expect(existsSync(join(stockDirectory, `c${code}.lua`)), `${reason} Review the card before table use.`).toBe(false);
+      expect(TABLE.some((row) => row.code === Number(code)), code).toBe(false);
+    }
   });
 
   it("matches a known gap by its Lua error or by its trap kind, and by nothing else", () => {
