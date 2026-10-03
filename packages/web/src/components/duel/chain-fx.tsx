@@ -28,6 +28,7 @@
  * no burst, no movement and no wire; the state shows through colour and opacity, with a short hold
  * so the order stays readable.
  */
+import { duelFxClock } from "./fx-clock";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { DuelChainLink, DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "./constants";
@@ -66,7 +67,7 @@ export type ChainFxProps = {
   playerName: (seat: number) => string;
 };
 
-const clock = (): number => (typeof performance !== "undefined" ? performance.now() : Date.now());
+const clock = (): number => (typeof performance !== "undefined" ? duelFxClock.now() : duelFxClock.dateNow());
 
 /**
  * Plays chain events one beat at a time and settles on the live chain when the beats run out.
@@ -114,7 +115,7 @@ export function useChainPlayback(
       return;
     }
     const wait = (at: number) => {
-      timerRef.current = window.setTimeout(() => {
+      timerRef.current = duelFxClock.setTimeout(() => {
         timerRef.current = null;
         pump();
       }, Math.max(0, at - clock()));
@@ -134,7 +135,7 @@ export function useChainPlayback(
   useEffect(() => {
     if (keyRef.current !== duelKey) {
       keyRef.current = duelKey;
-      if (timerRef.current != null) window.clearTimeout(timerRef.current);
+      if (timerRef.current != null) duelFxClock.clearTimeout(timerRef.current);
       timerRef.current = null;
       queueRef.current = [];
       cursorRef.current = maxEventId(events) ?? 0;
@@ -156,7 +157,7 @@ export function useChainPlayback(
 
   useEffect(
     () => () => {
-      if (timerRef.current != null) window.clearTimeout(timerRef.current);
+      if (timerRef.current != null) duelFxClock.clearTimeout(timerRef.current);
       timerRef.current = null;
     },
     [],
@@ -299,14 +300,14 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
     };
     const tick = () => {
       measure();
-      raf = requestAnimationFrame(tick);
+      raf = duelFxClock.requestAnimationFrame(tick);
     };
     if (typeof requestAnimationFrame !== "function") {
       measure();
       return undefined;
     }
     tick();
-    return () => cancelAnimationFrame(raf);
+    return () => duelFxClock.cancelAnimationFrame(raf);
   }, [linksKey, links.length]);
 
   // Live announcements for screen readers: what changed on this beat of the chain.
