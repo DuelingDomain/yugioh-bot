@@ -205,7 +205,11 @@ function CardPoolGridBase({
     const PAD_X = 24; // px-3 on each row, both sides
     const measure = (): void => {
       const inner = Math.max(0, el.clientWidth - PAD_X);
-      const columns = Math.max(1, Math.floor((inner + GAP) / (TILE_MIN + GAP)));
+      // Keep virtual row grouping in sync with the sheet's container query.
+      const sheetColumns = variant === "sheet"
+        ? Number(getComputedStyle(el).getPropertyValue("--pool-columns"))
+        : 0;
+      const columns = sheetColumns > 0 ? sheetColumns : Math.max(1, Math.floor((inner + GAP) / (TILE_MIN + GAP)));
       setLayout({ columns, innerWidth: inner });
     };
     measure();

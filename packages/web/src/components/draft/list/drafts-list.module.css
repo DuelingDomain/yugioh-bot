@@ -9,6 +9,12 @@
 .joined { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .mobileKind { display: none; }
 @container (max-width: 760px) {
+  :global(.ms) .head:global(.page-h) { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 12px; }
+  .heading { display: contents; }
+  .head :global(.t-title) { grid-area: 1 / 1; min-width: 0; }
+  .head :global(.page-sub) { grid-column: 1 / -1; }
+  :global(.ms) .newDraft:global(.btn) { grid-area: 1 / 2; justify-self: end; height: 34px; padding: 0 13px; font-size: 13.5px; gap: 7px; border-radius: 7px; }
+  :global(.ms) .newDraft :global(.ic) { width: 14px; height: 14px; }
   :global(.ms) .row:global(.tl-row) { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 16px; }
   .details { grid-column: 1 / -1; }
   :global(.ms) .row :global(.tl-name) { font-size: 17px; }

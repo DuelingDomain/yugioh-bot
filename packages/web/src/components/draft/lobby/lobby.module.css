@@ -7,6 +7,12 @@
 .rename { display: flex; flex-wrap: wrap; gap: 8px; }
 :global(.ms) .rename > :global(.input) { flex: 1 1 240px; }
 
+/* A long caption otherwise centers the plates inside a wider track. */
+@container (max-width: 760px) {
+  :global(.ms) .track:global(.trk) { width: 100%; justify-items: start; }
+  :global(.ms) .track :global(.trk-cap) { text-align: left; }
+}
+
 /* Invite row: link, then the button wraps under it when there is no room. */
 :global(.ms) .inviteRow.inviteRow { display: flex; flex-wrap: wrap; gap: 8px; }
 :global(.ms) .inviteRow > :global(.input) { flex: 1 1 240px; }

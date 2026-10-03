@@ -15,6 +15,7 @@ vi.mock("@/lib/env", () => ({ env: { discordGuildId: "g1" } }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 
 import DraftsPage from "../../../app/(app)/drafts/page";
+import styles from "../../../src/components/draft/list/drafts-list.module.css";
 
 describe("DraftsPage", () => {
   let db: Database.Database;
@@ -56,6 +57,19 @@ describe("DraftsPage", () => {
     expect(screen.getByRole("heading", { name: "No drafts yet" })).toBeTruthy();
     expect(screen.getByText("/draft create")).toBeTruthy();
     expect(screen.getAllByRole("link", { name: /new draft/i }).map((a) => a.getAttribute("href"))).toEqual(["/drafts/new", "/drafts/new"]);
+  });
+
+  it.each([false, true])("uses the phone title-row layout with joined drafts: %s", async (joined) => {
+    if (joined) add("Waiting cube", "pending");
+    render(await DraftsPage());
+    const title = screen.getByRole("heading", { name: "Drafts" });
+    const header = title.closest("header")!;
+    expect(header).toHaveClass(styles.head);
+    expect(title.parentElement).toHaveClass(styles.heading);
+    const action = within(header).getByRole("link", { name: "New draft" });
+    expect(action).toHaveClass(styles.newDraft);
+    expect(action).toHaveAttribute("href", "/drafts/new");
+    expect(action.querySelector("svg")).toHaveClass("lucide-plus");
   });
 
   it("lists only joined drafts in this guild, in live, waiting, finished order", async () => {
