@@ -11,6 +11,7 @@ import { activatePromptFromField, optionsForCard, type PromptDraft } from "@/com
 import { applyEdits, cardAt, hiddenAt, HAND, newBoard } from "@/components/duel/fx-lab/board";
 import { CARDS } from "@/components/duel/fx-lab/cards";
 import { findScenario } from "@/components/duel/fx-lab/scenarios";
+import { showcasePhases } from "@/components/duel/add-to-hand";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ className: "font", variable: "font-var", style: {} });
@@ -79,6 +80,7 @@ beforeEach(() => {
     const index = wrapper && group ? Array.from(group.children).indexOf(wrapper) : 0;
     const at = wrapper ? offset(wrapper) : { x: 0, y: 0 };
     const box = wrapper && group ? { left: 610 - group.children.length * 45 + index * 90 + at.x, top: group.dataset.side === "opp" ? 50 + at.y : 700 + at.y, width: 70, height: 100 }
+      : this.hasAttribute("data-hand-seat") ? { left: 200, top: this.dataset.side === "opp" ? 50 : 700, width: 800, height: 100 }
       : this.getAttribute("aria-hidden") === "true" && this.tagName === "DIV" ? { left: 0, top: 0, width: 1200, height: 800 }
       : this.hasAttribute("data-zones") ? { left: 900, top: 500, width: 70, height: 100 }
       : { left: 0, top: 0, width: 0, height: 0 };
@@ -166,23 +168,70 @@ describe("engine hand order on the board", () => {
     await advance(source === 1 ? 800 : 2200);
     expect(dest.style.visibility).toBe(""); expect(moveDestinationRect(dest)).toEqual(target);
     const old = dest.closest<HTMLElement>("[data-hand-card]")!;
-    expect(old.dataset.handArrived).toBe("true");
+    expect(old.dataset.handArrived).toBeUndefined();
     view.rerender(<Board fx view={engine(hand(["new", "b", "a"]), [], [event], 2)} />);
     expect(findMoveDestination(event)?.closest("[data-hand-card]")).toBe(old);
-    expect(old.dataset.handArrived).toBe("true");
+    expect(old.dataset.handArrived).toBeUndefined();
     await advance(1500); expect(old.dataset.handArrived).toBeUndefined();
   });
 
-  it.each([false, true])("aims an opponent arrival at its mirrored middle slot (revealed=%s)", async (revealed) => {
-    const event = arrival(16, 1, revealed);
-    const view = render(<Board fx view={engine([], hand(["a", "b"], 1, revealed))} />);
-    view.rerender(<Board fx view={engine([], hand(["a", "new", "b"], 1, revealed), [event])} />);
+  it.each([0, 1, null].flatMap((mySeat) => [false, true].map((revealed) => ({ mySeat, revealed }))))("aims the far hand's off-centre arrival at the mirrored engine slot for viewer $mySeat (revealed=$revealed)", async ({ mySeat, revealed }) => {
+    const seat = mySeat === 1 ? 0 : 1;
+    const event = { ...arrival(16, seat, revealed), zone: HAND(seat, 0) };
+    const hands = (ids: string[], events: DuelEvent[] = []) => engine(seat === 0 ? hand(ids, 0, revealed) : [], seat === 1 ? hand(ids, 1, revealed) : [], events);
+    const view = render(<Board fx mySeat={mySeat} view={hands(["a", "b"])} />);
+    view.rerender(<Board fx mySeat={mySeat} view={hands(["new", "a", "b"], [event])} />);
     const ghost = view.getByTestId("added-ghost"); expect(ghost.dataset.known).toBe(String(revealed));
     if (!revealed) expect(ghost.querySelector("img")).toBeNull();
     const target = findMoveDestination(event)!;
-    expect(target.dataset.side).toBe("opp"); expect(moveDestinationRect(target).left).toBe(565);
-    await advance(2200);
-    expect(target.style.visibility).toBe(""); expect(moveDestinationRect(target).left).toBe(565);
+    expect(target.dataset.side).toBe("opp"); expect(moveDestinationRect(target).left).toBe(655);
+    expect(target.closest("[data-hand-card]")).toBe(view.container.querySelector(`[data-hand-seat="${seat}"]`)!.lastElementChild);
+    expect(Number.parseFloat(ghost.style.left) + Number.parseFloat(ghost.style.width) / 2).toBe(690);
+    await advance(showcasePhases(1, false).totalMs + 20);
+    expect(target.style.visibility).toBe(""); expect(moveDestinationRect(target).left).toBe(655);
+    expect(view.getByTestId("added-ring").style.left).toBe("655px");
+  });
+
+  it.each([false, true])("deals all ten opening cards without an arrival glow (reduced=%s)", async (reduced) => {
+    const events = [0, 1].flatMap((seat) => Array.from({ length: 5 }, (_, sequence) => ({
+      ...arrival(1, seat, seat === 0), id: seat * 5 + sequence + 1, handId: `${seat}-${sequence}`, zone: HAND(seat, sequence),
+    })));
+    const view = render(<Board fx reduced={reduced} view={engine([])} />);
+    view.rerender(<Board fx reduced={reduced} view={engine(hand(["0-0", "0-1", "0-2", "0-3", "0-4"]), hand(["1-0", "1-1", "1-2", "1-3", "1-4"], 1, false), events)} />);
+    for (let elapsed = 0; elapsed < 6000; elapsed += 200) {
+      await advance(200);
+      expect(view.container.querySelectorAll("[data-hand-arrived]")).toHaveLength(0);
+    }
+    expect(view.container.querySelectorAll("[data-hand-card]")).toHaveLength(10);
+    expect(view.container.querySelectorAll("[data-hand-arrived]")).toHaveLength(0);
+    expect(animations.some((record) => (record.el as HTMLElement).dataset.testid === "added-ring")).toBe(false);
+    expect(view.container.querySelector('[style*="visibility: hidden"]')).toBeNull();
+  });
+
+  it.each([0, 1])("shows a departed add at the engine message's missing end slot for seat %s", async (seat) => {
+    const event = { ...arrival(16, seat, seat === 0), handId: "departed-10", zone: HAND(seat, 2) };
+    const final = (events: DuelEvent[] = []) => engine(seat === 0 ? hand(["a", "b"]) : [], seat === 1 ? hand(["a", "b"], 1, false) : [], events);
+    const view = render(<Board fx view={final()} />);
+    view.rerender(<Board fx view={final([event])} />);
+    const ghost = view.getByTestId("added-ghost");
+    const centre = Number.parseFloat(ghost.style.left) + Number.parseFloat(ghost.style.width) / 2;
+    expect(centre).toBe(seat === 0 ? 735 : 465);
+    expect(findMoveDestination(event)).toBeNull();
+    expect(view.container.querySelector('[style*="visibility: hidden"]')).toBeNull();
+    await advance(showcasePhases(1, false).totalMs);
+    expect(animations.some((record) => record.el === ghost && record.options.duration === showcasePhases(1, false).flyMs)).toBe(true);
+    expect(animations.some((record) => (record.el as HTMLElement).dataset.testid === "added-ring")).toBe(false);
+  });
+
+  it.each([false, true])("still presents a departed add when the final hand is empty (reduced=%s)", async (reduced) => {
+    const event = { ...arrival(16), handId: "departed-10", zone: HAND(0, 0) };
+    const view = render(<Board fx reduced={reduced} view={engine([])} />);
+    view.rerender(<Board fx reduced={reduced} view={engine([], [], [event])} />);
+    expect(view.getByTestId("added-label").textContent).toContain("Added to hand");
+    const ghost = view.getByTestId("added-ghost");
+    expect(Number.parseFloat(ghost.style.left) + Number.parseFloat(ghost.style.width) / 2).toBe(600);
+    await advance(showcasePhases(1, reduced).totalMs);
+    expect(animations.some((record) => record.el === ghost && record.options.duration === showcasePhases(1, reduced).flyMs)).toBe(true);
   });
 
   it("keeps a drawn ghost on the real card during its handoff fade after a new engine sequence", async () => {

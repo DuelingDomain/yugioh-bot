@@ -6,6 +6,7 @@ import {
   isDefenseAt,
   isFacedown,
   LOCATION_EXTRA,
+  LOCATION_HAND,
   TYPE_FUSION,
   TYPE_LINK,
   TYPE_MONSTER,
@@ -206,6 +207,36 @@ export function findMoveDestination(event: DuelEvent): HTMLElement | null {
     return card?.querySelector<HTMLElement>("[data-zones]") ?? null;
   }
   return findZoneElement(event.zone);
+}
+
+/**
+ * An effect's hand arrival must still be shown if the card left in the same engine batch. In that
+ * case use the message's engine slot as geometry only: never hide or read the replacement there.
+ * A missing end slot is extrapolated in engine sequence direction (leftward on the far hand).
+ */
+export function handArrivalTarget(event: DuelEvent): { rect: ReturnType<typeof moveDestinationRect>; side: "you" | "opp" } | null {
+  const dest = findMoveDestination(event);
+  if (dest) return { rect: moveDestinationRect(dest), side: dest.dataset.side === "opp" ? "opp" : "you" };
+  const zone = event.zone;
+  if (!zone || zone.location !== LOCATION_HAND || typeof document === "undefined") return null;
+  const hand = document.querySelector<HTMLElement>(`[data-hand-seat="${zone.controller}"]`);
+  if (!hand) return null;
+  const side = hand.dataset.side === "opp" ? "opp" : "you";
+  let sequence = zone.sequence;
+  let slot = findZoneElement(zone);
+  if (!slot) {
+    sequence = Math.max(0, hand.children.length - 1);
+    slot = findZoneElement({ ...zone, sequence });
+  }
+  if (slot) {
+    const rect = moveDestinationRect(slot);
+    const previous = findZoneElement({ ...zone, sequence: sequence - 1 });
+    const step = previous ? rect.left - moveDestinationRect(previous).left : rect.width * (side === "opp" ? -1 : 1);
+    return { rect: { ...rect, left: rect.left + (zone.sequence - sequence) * step }, side };
+  }
+  const rail = hand.getBoundingClientRect();
+  const width = rail.height * 0.686;
+  return { rect: { left: rail.left + (rail.width - width) / 2, top: rail.top, width, height: rail.height }, side };
 }
 
 /** Engine-slot geometry without a hand card's temporary FLIP/entry translation. */

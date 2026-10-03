@@ -441,25 +441,6 @@
   width: var(--cardw);
 }
 
-.handCard[data-hand-arrived="true"]::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 5px;
-  pointer-events: none;
-  box-shadow: 0 0 12px 2px rgb(202 166 94 / 25%), inset 0 0 0 1px rgb(224 192 130 / 50%);
-  animation: hand-arrival 1.25s ease-out both;
-}
-
-@keyframes hand-arrival {
-  0%, 20% { opacity: 0.85; }
-  100% { opacity: 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .handCard[data-hand-arrived="true"]::after { animation-timing-function: linear; }
-}
-
 .handCard:hover,
 .handCard:has(:focus-visible) {
   z-index: 6;

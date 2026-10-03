@@ -50,16 +50,22 @@ describe("hand order in projected views", () => {
     expect(project(0)).toEqual(project(0));
   });
 
-  it("never filters engine cards when identity metadata is incomplete", () => {
+  it.each(["incomplete", "mismatched", "shuffled", "removed"])("never filters engine cards when identity metadata is %s", (mismatch) => {
     const ctx = createEventContext();
-    const view = projectView({
-      lib: { duelQueryField: () => ({ players: [{ deck_size: 30, extra_size: 0 }, { deck_size: 30, extra_size: 0 }], chain: [] }),
-        duelQueryLocation: (_h: unknown, q: { controller: number; location: number }) => q.controller === 0 && q.location === L.HAND
-          ? [30, 10, 20].map((code) => ({ code, position: P.FACEDOWN_ATTACK })) : [] } as never,
-      handle: {} as never, cards, viewer: 0, revision: 0, turn: 1, turnSeat: 0, phase: "main1", lp: [8000, 8000],
-      prompt: null, promptSeat: null, log: [], events: [], result: null, reveals: createRevealMap(), mode: "normal", handIdentities: ctx.handIdentities,
-    });
-    expect(view.seats[0]!.hand.map((c) => [c.code, c.sequence])).toEqual([[30, 0], [10, 1], [20, 2]]);
+    ctx.handIdentities.add(0, 99, 0, 1);
+    if (mismatch !== "incomplete") ctx.handIdentities.add(0, 98, 1, 2);
+    if (mismatch === "shuffled") ctx.handIdentities.shuffle(0, [97, 96, 95, 94]);
+    if (mismatch === "removed") ctx.handIdentities.remove(0, 0);
+    for (const viewer of [0, 1, null]) {
+      const view = projectView({
+        lib: { duelQueryField: () => ({ players: [{ deck_size: 30, extra_size: 0 }, { deck_size: 30, extra_size: 0 }], chain: [] }),
+          duelQueryLocation: (_h: unknown, q: { controller: number; location: number }) => q.controller === 0 && q.location === L.HAND
+            ? [30, 10, 20].map((code) => ({ code, position: P.FACEDOWN_ATTACK })) : [] } as never,
+        handle: {} as never, cards, viewer, revision: 0, turn: 1, turnSeat: 0, phase: "main1", lp: [8000, 8000],
+        prompt: null, promptSeat: null, log: [], events: [], result: null, reveals: createRevealMap(), mode: "normal", handIdentities: ctx.handIdentities,
+      });
+      expect(view.seats[0]!.hand.map((c) => [c.code, c.sequence])).toEqual([30, 10, 20].map((code, sequence) => [viewer === 0 ? code : undefined, sequence]));
+    }
   });
   it("keeps reveals on their engine card as removals compact and additions insert", () => {
     const reveals = createRevealMap();

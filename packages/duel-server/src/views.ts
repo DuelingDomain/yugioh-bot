@@ -753,17 +753,19 @@ export function observeMoveEvents(message: OcgMessage, cards: CardDatabase, ctx:
         ctx.handIdentities.relocate(from.controller, from.sequence, to.sequence);
         return [];
       }
+      const overlay = OcgLocation.OVERLAY as number;
+      const event = from.location && to.location && from.location !== overlay && to.location !== overlay
+        && !(from.controller === to.controller && from.location === to.location)
+        ? trackMove(ctx, firstId, cards, message.card, from, to, defaultMoveReason(from.location, to.location))
+        : undefined;
       if (from.location === OcgLocation.HAND) ctx.handIdentities.remove(from.controller, from.sequence);
-      if (to.location === OcgLocation.HAND) ctx.handIdentities.add(to.controller, message.card, to.sequence, firstId);
+      // Skipped moves still update slot identities, but must not claim the next emitted event's id.
+      if (to.location === OcgLocation.HAND) ctx.handIdentities.add(to.controller, message.card, to.sequence, event?.id);
       if (from.location === OcgLocation.HAND) ctx.handSize[from.controller === 1 ? 1 : 0] = Math.max(0, ctx.handSize[from.controller === 1 ? 1 : 0] - 1);
       if (to.location === OcgLocation.HAND) ctx.handSize[to.controller === 1 ? 1 : 0] += 1;
       if (isFieldLocation(from.location)) ctx.arrivals.delete(slotKey(from.controller, from.location, from.sequence));
       if (isFieldLocation(to.location)) ctx.arrivals.set(slotKey(to.controller, to.location, to.sequence), from.location);
-      const overlay = OcgLocation.OVERLAY as number;
-      if (!from.location || !to.location || from.location === overlay || to.location === overlay) return [];
-      if (from.controller === to.controller && from.location === to.location) return [];
-      const reason = defaultMoveReason(from.location, to.location);
-      const event = trackMove(ctx, firstId, cards, message.card, from, to, reason);
+      if (!event) return [];
       // A MOVE to a hand is never a draw (draws arrive as DRAW): a card effect added it.
       if (to.location === OcgLocation.HAND && from.location !== OcgLocation.HAND) event.addedToHand = true;
       return [event];

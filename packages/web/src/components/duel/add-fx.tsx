@@ -17,7 +17,7 @@
  */
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { cardArtUrl, LOCATION_EXTRA } from "./constants";
-import { findMoveDestination, followMoveDestination, moveDestinationRect } from "./event-queue";
+import { findMoveDestination, followMoveDestination, handArrivalTarget } from "./event-queue";
 import { artCodeOf } from "./destroy-hide";
 import { buildShowcaseFrames, showcaseBox, showcaseSourceLabel, ADDED_TITLE } from "./add-to-hand";
 import { CARD_FX } from "./duel-timing";
@@ -58,11 +58,11 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
   const source = showcaseSourceLabel(plan.event.from, plan.event.zone, side);
 
   useLayoutEffect(() => {
-    const dest = findMoveDestination(plan.event);
+    const target = handArrivalTarget(plan.event);
     const el = root.current;
     const o = overlay.getBoundingClientRect();
-    const z = dest ? moveDestinationRect(dest) : undefined;
-    if (!showcase || !dest || !el || !z || z.width < 4 || z.height < 4 || o.width < 4) {
+    const z = target?.rect;
+    if (!showcase || !target || !el || !z || z.width < 4 || z.height < 4 || o.width < 4) {
       landedRef.current();
       doneRef.current();
       return undefined;
@@ -73,7 +73,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
     const w = Math.min(z.width, h * CARD_ASPECT);
     const cx = z.left - o.left + z.width / 2;
     const cy = z.top - o.top + z.height / 2;
-    const ownerSide: "you" | "opp" = dest.dataset.side === "opp" ? "opp" : "you";
+    const ownerSide = target.side;
     setSide(ownerSide);
     el.style.left = `${cx - w / 2}px`;
     el.style.top = `${cy - h / 2}px`;
@@ -150,12 +150,13 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
       if (!alive) return;
       window.clearInterval(poll);
       const current = findMoveDestination(plan.event);
-      if (!current) { land(); doneRef.current(); return; }
-      const now = moveDestinationRect(current);
+      const target = handArrivalTarget(plan.event);
+      if (!target) { land(); doneRef.current(); return; }
+      const now = target.rect;
       flightEnd = { dx: now.left - o.left + now.width / 2 - cx, dy: now.top - o.top + now.height / 2 - cy };
       const fly = frames(flightEnd);
       // A card goes into the opponent's hand face down unless the hand shows its face.
-      const found = shownCode > 0 ? shownCode : artCodeOf(current);
+      const found = shownCode > 0 ? shownCode : current ? artCodeOf(current) : 0;
       if (found > 0 && shownCode === 0) {
         shownCode = found;
         setCode(found);
@@ -167,7 +168,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
         land();
         return;
       }
-      const faceAtEnd = found > 0 && (ownerSide === "you" || artCodeOf(current) > 0);
+      const faceAtEnd = found > 0 && (ownerSide === "you" || (current != null && artCodeOf(current) > 0));
       const a = showing;
       const b = faceAtEnd ? 0 : 180;
       if (a !== b) {
@@ -181,8 +182,9 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
     const settle = () => {
       if (!alive) return;
       const current = findMoveDestination(plan.event);
-      if (!current) { land(); doneRef.current(); return; }
-      const now = moveDestinationRect(current);
+      const target = handArrivalTarget(plan.event);
+      if (!target) { land(); doneRef.current(); return; }
+      const now = target.rect;
       const end = { dx: now.left - o.left + now.width / 2 - cx, dy: now.top - o.top + now.height / 2 - cy };
       if (!reduced && Math.hypot(end.dx - flightEnd.dx, end.dy - flightEnd.dy) >= 2) {
         const transform = (at: { dx: number; dy: number }) => `translate3d(${at.dx.toFixed(2)}px, ${at.dy.toFixed(2)}px, 0) rotate(${endRot}deg) scale(1)`;
@@ -201,7 +203,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
       // The real card takes over under the ghost, which dissolves while the ring of light plays.
       track.play(el, [{ opacity: 1 }, { opacity: 0 }], { duration: CARD_FX.landFadeMs, easing: "ease-out", fill: "both" });
       const r = ring.current;
-      if (r) {
+      if (r && current) {
         r.style.left = `${now.left - o.left}px`;
         r.style.top = `${now.top - o.top}px`;
         r.style.width = `${now.width}px`;
@@ -216,7 +218,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
           { duration: phases.glowMs, easing: "ease-out", fill: "both" },
         );
       }
-      track.onDispose(followMoveDestination(plan.event, (destination) => {
+      if (current) track.onDispose(followMoveDestination(plan.event, (destination) => {
         if (!destination) {
           el.style.visibility = "hidden";
           if (r) r.style.visibility = "hidden";

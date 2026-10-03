@@ -80,6 +80,13 @@ function deliver(event: DuelEvent, props: { reduced?: boolean; slotCode?: number
 }
 
 describe("the Added to hand showcase on the board", () => {
+  it.each([0x01, GRAVE, 0x20, 0x04, 0x40])("plays just one landing glow for an effect arrival from %s", (source) => {
+    const view = deliver(addEvent({ addedToHand: true, from: { controller: 0, location: source, sequence: 0 } }));
+    const ring = view.getByTestId("added-ring");
+    advance(showcasePhases(1, false).totalMs + 5);
+    expect(animate.mock.contexts.filter((el) => el === ring)).toHaveLength(1);
+    expect(view.getByTestId("slot").parentElement?.dataset.handArrived).toBeUndefined();
+  });
   it("keeps the fading ghost and landing ring on the card when the engine re-sequences just after landing", () => {
     const event = addEvent({ handId: "arrival" });
     const view = deliver(event, { handId: "arrival" });
@@ -92,7 +99,8 @@ describe("the Added to hand showcase on the board", () => {
     expect(view.getByTestId("added-ring").style.left).toBe("200px");
     const ghost = view.getByTestId("added-ghost");
     expect(Number.parseFloat(ghost.style.left) + Number.parseFloat(ghost.style.width) / 2).toBe(235);
-    expect(view.getByTestId("slot").parentElement?.dataset.handArrived).toBe("true");
+    expect(view.getByTestId("slot").parentElement?.dataset.handArrived).toBeUndefined();
+    expect(animate.mock.contexts.filter((el) => el === view.getByTestId("added-ring"))).toHaveLength(1);
   });
   it("follows a new engine slot during the flight before showing the real card", () => {
     const view = deliver(addEvent({ handId: "arrival" }), { handId: "arrival" });
@@ -121,7 +129,7 @@ describe("the Added to hand showcase on the board", () => {
     expect(slot.style.visibility).toBe("hidden");
     advance(showcasePhases(1, false).totalMs);
     expect(slot.style.visibility).toBe("");
-    expect(slot.parentElement?.dataset.handArrived).toBe("true");
+    expect(slot.parentElement?.dataset.handArrived).toBeUndefined();
     expect(view.getByTestId("added-ghost").getAttribute("data-known")).toBe(String(known));
   });
 
@@ -134,6 +142,23 @@ describe("the Added to hand showcase on the board", () => {
     expect(view.getByTestId("slot").style.visibility).toBe("");
     advance(showcasePhases(1, false).totalMs);
     expect(view.getByTestId("slot").parentElement?.dataset.handArrived).toBeUndefined();
+    const ghost = view.getByTestId("added-ghost");
+    expect(animate.mock.contexts.some((el, index) => el === ghost && (animate.mock.calls[index][1] as KeyframeAnimationOptions).duration === showcasePhases(1, false).flyMs)).toBe(true);
+    expect(animate.mock.contexts).not.toContain(view.getByTestId("added-ring"));
+  });
+  it("plays an add then discard from the same chain even when the final hand has no arrival", () => {
+    const added = addEvent({ handId: "departed-5" });
+    const discarded: DuelEvent = { ...added, id: 6, handId: undefined, from: added.zone, zone: { controller: 0, location: GRAVE, sequence: 0 }, reason: "discard" };
+    const view = render(<Board events={[]} handId="replacement" slotCode={777} />);
+    view.rerender(<Board events={[added, discarded]} handId="replacement" slotCode={777} />);
+    const slot = view.getByTestId("slot");
+    expect(slot.style.visibility).toBe("");
+    const ghost = view.getByTestId("added-ghost");
+    expect(view.getByTestId("added-label").textContent).toContain("Added to hand");
+    advance(showcasePhases(1, false).totalMs);
+    expect(animate.mock.contexts.some((el, index) => el === ghost && (animate.mock.calls[index][1] as KeyframeAnimationOptions).duration === showcasePhases(1, false).flyMs)).toBe(true);
+    expect(animate.mock.contexts).not.toContain(view.getByTestId("added-ring"));
+    expect(slot.style.visibility).toBe("");
   });
   it("shows the card large with the label and its source, then lands it in the hand: hidden until then", () => {
     const view = deliver(addEvent());
@@ -152,8 +177,9 @@ describe("the Added to hand showcase on the board", () => {
     // It flies in, lands, and the real card takes over under the ring of light.
     advance(20 + phases.flyMs + 5);
     expect(slot.style.visibility).toBe("");
-    expect(slot.parentElement?.dataset.handArrived).toBe("true");
+    expect(slot.parentElement?.dataset.handArrived).toBeUndefined();
     expect(view.getByTestId("added-ring").style.width).toBe("70px");
+    expect(animate.mock.contexts.filter((el) => el === view.getByTestId("added-ring"))).toHaveLength(1);
 
     advance(ADD_TO_HAND.glowMs + 50);
     expect(view.queryByTestId("added-ghost")).toBeNull();
@@ -201,7 +227,8 @@ describe("the Added to hand showcase on the board", () => {
     expect(spots.size).toBe(1);
     advance(phases.riseMs + phases.holdMs + 5);
     expect(slot.style.visibility).toBe("");
-    expect(slot.parentElement?.dataset.handArrived).toBe("true");
+    expect(slot.parentElement?.dataset.handArrived).toBeUndefined();
+    expect(animate.mock.contexts).not.toContain(view.getByTestId("added-ring"));
     advance(phases.flyMs + 20);
     expect(view.queryByTestId("added-ghost")).toBeNull();
   });
@@ -209,6 +236,8 @@ describe("the Added to hand showcase on the board", () => {
   it("keeps a normal draw out of the showcase", () => {
     const view = deliver(addEvent({ reason: "draw", from: { controller: 0, location: 0x01, sequence: 0 } }));
     expect(view.queryByTestId("added-ghost")).toBeNull();
+    advance(1000);
+    expect(view.getByTestId("slot").parentElement?.dataset.handArrived).toBeUndefined();
   });
 });
 
