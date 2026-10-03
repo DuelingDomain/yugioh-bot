@@ -89,11 +89,16 @@ describe("host start of a Domain table with 3 or more seats", () => {
     expect(t.workersCreated()).toBe(0);
   });
 
-  it.each([false, true])("reports the installed Domain multi core to the creator: %s", async (ready) => {
-    const t = lobby("ffa3", ready ? ["ocgcore.multi-domain.wasm"] : []);
+  it.each([
+    { multiCoreReady: false, multiDomainCoreReady: false, files: [] },
+    { multiCoreReady: true, multiDomainCoreReady: false, files: ["ocgcore.multi.wasm"] },
+    { multiCoreReady: false, multiDomainCoreReady: true, files: ["ocgcore.multi-domain.wasm"] },
+    { multiCoreReady: true, multiDomainCoreReady: true, files: ["ocgcore.multi.wasm", "ocgcore.multi-domain.wasm"] },
+  ])("reports installed cores to the creator: $multiCoreReady / $multiDomainCoreReady", async ({ files, multiCoreReady, multiDomainCoreReady }) => {
+    const t = lobby("ffa3", files);
     const result = await t.start("capabilities");
     expect(result.status).toBe(200);
-    expect(result.data).toEqual({ multiplayerTables: true, multiDomainCoreReady: ready });
+    expect(result.data).toEqual({ multiplayerTables: true, multiCoreReady, multiDomainCoreReady });
     expect(t.workersCreated()).toBe(0);
   });
 

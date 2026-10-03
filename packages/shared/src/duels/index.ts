@@ -50,7 +50,7 @@ export {
   multiplayerTablesBlockReason,
   multiplayerTablesEnabled,
 } from "./multiplayer-tables.js";
-export { MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason } from "./multi-domain.js";
+export { MULTI_CORE_UNAVAILABLE_MESSAGE, MULTI_DOMAIN_CORE_READY, MULTI_DOMAIN_UNAVAILABLE_MESSAGE, multiDomainBlockReason } from "./multi-domain.js";
 export type { DuelTableCapabilities } from "./multi-domain.js";
 export type { DuelBanlistOption } from "./banlist-options.js";
 export type { DeckPoolIssue } from "./pool.js";

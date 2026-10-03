@@ -14,7 +14,7 @@ export function cx(...names: (string | false | null | undefined)[]): string {
 export const sheetRoot = cx(ui.root, duelFontClasses);
 export const sheetPage = cx(sheetRoot, ui.page);
 
-export type Choice<T> = { value: T; label: string; icon?: ReactNode };
+export type Choice<T> = { value: T; label: string; icon?: ReactNode; disabled?: boolean };
 
 type ButtonKind = "primary" | "secondary" | "quiet" | "danger";
 const KIND: Record<ButtonKind, string> = {
@@ -66,9 +66,9 @@ export function SheetSelect<T extends string | number | boolean>({
       <span className={cx(ui.selectWrap, compact && ui.selectSm)}>
         <select className={cx(ui.input, ui.select)} value={String(value)} disabled={disabled} onChange={(event) => {
           const selected = choices.find((choice) => String(choice.value) === event.target.value);
-          if (selected) onChange?.(selected.value);
+          if (selected && !selected.disabled) onChange?.(selected.value);
         }}>
-          {choices.map((choice) => <option key={String(choice.value)} value={String(choice.value)}>{choice.label}</option>)}
+          {choices.map((choice) => <option key={String(choice.value)} value={String(choice.value)} disabled={choice.disabled}>{choice.label}</option>)}
         </select>
         <ChevronDown size={16} strokeWidth={1.6} aria-hidden />
       </span>

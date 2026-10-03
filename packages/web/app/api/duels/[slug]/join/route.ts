@@ -1,3 +1,4 @@
+import { multiplayerSeatsBlockReason, multiplayerTablesEnabled, seatCountFor } from "@yugidraft/shared/duels";
 import { NextResponse } from "next/server";
 import { duelErrorResponse, requireDuelActor } from "@/lib/duel-host";
 import { notifyDuelChange } from "@/lib/notify-duel";
@@ -10,6 +11,9 @@ export async function POST(_request: Request, { params }: { params: Promise<{ sl
   const { slug } = await params;
 
   try {
+    const { format } = actor.duels.get(slug, actor.guildId);
+    const blocked = multiplayerSeatsBlockReason(seatCountFor(format), multiplayerTablesEnabled());
+    if (blocked) return NextResponse.json({ error: blocked }, { status: 403 });
     const session = actor.duels.join(slug, actor.guildId, actor.playerId);
     try {
       await notifyDuelChange(session.slug, actor.guildId);

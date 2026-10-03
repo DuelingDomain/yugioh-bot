@@ -21,7 +21,7 @@ afterEach(() => {
 
 describe("DuelCreator Domain rule", () => {
   it("does not promise every duelist a first-turn draw at a Standard FFA3 table", () => {
-    render(<DuelCreator multiplayerTables />);
+    render(<DuelCreator multiplayerTables multiCoreReady />);
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "ffa3" } });
     const note = screen.getByText(/Master Rules use the current card catalog/);
     expect(note.textContent).not.toContain("every duelist draws");
@@ -29,7 +29,7 @@ describe("DuelCreator Domain rule", () => {
   });
 
   it.each([1, 2, 3, 4, 5].map((masterRule) => ({ masterRule })))("uses engine-neutral draw text for 1v1 Domain MR$masterRule", ({ masterRule }) => {
-    render(<DuelCreator multiplayerTables />);
+    render(<DuelCreator multiplayerTables multiCoreReady />);
     fireEvent.click(screen.getByLabelText("Domain"));
     fireEvent.change(screen.getByLabelText("Master Rules"), { target: { value: String(masterRule) } });
     expect(screen.getByRole("status").textContent).not.toContain("every duelist draws");
@@ -38,13 +38,13 @@ describe("DuelCreator Domain rule", () => {
   });
 
   it("offers Standard and Domain at a 1v1 table", () => {
-    render(<DuelCreator multiplayerTables />);
+    render(<DuelCreator multiplayerTables multiCoreReady />);
     expect(screen.getByLabelText("Domain")).toBeTruthy();
     expect(screen.queryByTestId("domain-blocked")).toBeNull();
   });
 
   it.each(["tag", "ffa3", "ffa4"])("hides Domain and says why at a %s table", (format) => {
-    render(<DuelCreator multiplayerTables />);
+    render(<DuelCreator multiplayerTables multiCoreReady />);
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: format } });
     expect(screen.queryByLabelText("Domain")).toBeNull();
     expect(screen.getByLabelText("Standard duel")).toBeTruthy();
@@ -54,7 +54,7 @@ describe("DuelCreator Domain rule", () => {
   it("goes back to Standard when the table type changes while Domain is chosen", async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ session: { slug: "abc" } }, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
-    render(<DuelCreator multiplayerTables />);
+    render(<DuelCreator multiplayerTables multiCoreReady />);
     fireEvent.click(screen.getByLabelText("Domain"));
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "ffa3" } });
     fireEvent.click(screen.getByRole("button", { name: /Create game/ }));
@@ -66,7 +66,7 @@ describe("DuelCreator Domain rule", () => {
   });
 
   it("brings Domain back when the table type is 1v1 again", () => {
-    render(<DuelCreator multiplayerTables />);
+    render(<DuelCreator multiplayerTables multiCoreReady />);
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "tag" } });
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: "1v1" } });
     expect(screen.getByLabelText("Domain")).toBeTruthy();
@@ -75,7 +75,7 @@ describe("DuelCreator Domain rule", () => {
   it.each(["ffa3", "ffa4", "tag"])("offers Domain at %s when the host has its core", async (format) => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({ session: { slug: "abc" } }, { status: 201 }));
     vi.stubGlobal("fetch", fetchMock);
-    render(<DuelCreator multiplayerTables multiDomainCoreReady />);
+    render(<DuelCreator multiplayerTables multiCoreReady multiDomainCoreReady />);
     fireEvent.click(screen.getByLabelText("Domain"));
     fireEvent.change(screen.getByLabelText("Table type"), { target: { value: format } });
     expect(screen.getByLabelText("Domain")).toBeTruthy();

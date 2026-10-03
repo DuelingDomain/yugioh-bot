@@ -11,6 +11,7 @@ import {
   duelClockRulesText,
   isCustomDomain,
   DUEL_FORMATS,
+  MULTI_CORE_UNAVAILABLE_MESSAGE,
   multiDomainBlockReason,
   type DuelFormat,
   type DuelMasterRule,
@@ -65,9 +66,10 @@ const BANLISTS = DUEL_BANLIST_OPTIONS.map(({ id, label }) => ({ value: id, label
  * `focusOpponent` focuses the opponent search for the challenge entry.
  * Server capabilities control the available table formats and Domain mode.
  */
-export function DuelCreator({ focusOpponent = false, multiplayerTables = false, multiDomainCoreReady = false }: {
+export function DuelCreator({ focusOpponent = false, multiplayerTables = false, multiCoreReady = false, multiDomainCoreReady = false }: {
   focusOpponent?: boolean;
   multiplayerTables?: boolean;
+  multiCoreReady?: boolean;
   multiDomainCoreReady?: boolean;
 } = {}) {
   const router = useRouter();
@@ -226,7 +228,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
               <div className={styles.fields}>
                 {multiplayerTables ? (
                 <div className={styles.wide}>
-                  <SheetSelect label="Table type" value={format} choices={TABLE_FORMATS} onChange={(value) => {
+                  <SheetSelect label="Table type" value={format} choices={TABLE_FORMATS.map((choice) => ({ ...choice, disabled: choice.value !== "1v1" && !multiCoreReady }))} onChange={(value) => {
                     setFormat(value);
                     setSettings((current) => ({ ...current, stopAtEveryWindow: defaultDuelSettings(mode, value).stopAtEveryWindow }));
                     // A challenge, Best of 3 and Ranked need a 1v1 table.
@@ -243,6 +245,9 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                     // Tag and free-for-all tables run on Master Rule 5 only.
                     if (value !== "1v1") setMasterRule(5);
                   }} />
+                  {!multiCoreReady ? (
+                    <p className={cx(ui.hint, styles.below)} data-testid="multi-core-blocked">{MULTI_CORE_UNAVAILABLE_MESSAGE}</p>
+                  ) : null}
                   <p className={cx(ui.hint, styles.below)} data-testid="format-rule">
                     {formatSeatCount(format)} seats · {formatStartingLp(format, settings).toLocaleString("en-US")} LP{format === "tag" ? " per team" : " each"}. {FORMAT_RULES[format]}
                   </p>

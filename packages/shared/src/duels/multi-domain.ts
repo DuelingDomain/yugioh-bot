@@ -6,11 +6,15 @@ import type { DuelFormat } from "./settings.js";
  */
 export const MULTI_DOMAIN_CORE_READY = false;
 
+export const MULTI_CORE_UNAVAILABLE_MESSAGE =
+  "The core for Tag, 3-player and 4-player tables is missing on this server. Play a 1v1 table.";
+
 export const MULTI_DOMAIN_UNAVAILABLE_MESSAGE =
   "The Domain core for 3 or more seats is missing on this server. Pick Standard, or play Domain at a 1v1 table.";
 
 export interface DuelTableCapabilities {
   multiplayerTables: boolean;
+  multiCoreReady: boolean;
   multiDomainCoreReady: boolean;
 }
 
