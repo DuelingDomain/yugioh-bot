@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import React, { useState } from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Binder, type BinderProps } from "../../../src/components/draft/room/binder";
 import { DraftRoom } from "../../../src/components/draft/room/draft-room";
+// With animations Off the pack ribbon holds the table for 1.3 s before the cards show, as in the mock.
+configure({ asyncUtilTimeout: 4000 });
+
 import { EMPTY_FILTER, type RoomCard, type RoomFilter } from "../../../src/components/draft/room/room-model";
 import { useDraftStore } from "../../../src/lib/stores/draft-store";
 
@@ -135,12 +138,11 @@ describe.each([390, 1100, 1440])("binder panel keyboard at %ipx", (width) => {
   );
 
   if (width < 1440) {
-    it("closes the binder on Escape from the collapsed Sort select", async () => {
+    it("closes the binder on Escape from the sort control", async () => {
       const user = userEvent.setup();
       renderRoom();
       const room = openBinder();
-      const sort = screen.getByRole("combobox", { name: "Sort" });
-      // Tab to the select without clicking to open the native dropdown.
+      const sort = screen.getByRole("button", { name: "By type" });
       sort.focus();
       await user.tab({ shift: true });
       await user.tab();
@@ -178,14 +180,15 @@ describe.each([390, 1100, 1440])("binder panel keyboard at %ipx", (width) => {
       expect(room).not.toHaveAttribute(panelAttribute);
     });
   } else {
-    it.each(["search", "Sort"])("keeps the selected card on Escape from the %s field", async (field) => {
+    it.each(["search"])("keeps the selected card on Escape from the %s field", async (field) => {
       const user = userEvent.setup();
       renderRoom();
+      await waitFor(() => expect(document.querySelector('.tcard[data-id="8"]')).toBeTruthy());
       fireEvent.keyDown(document, { key: "2" });
       const selected = document.querySelector('.tcard[data-id="8"]');
       expect(selected).toHaveAttribute("data-sel");
       openBinder();
-      const input = field === "search" ? screen.getByRole("searchbox") : screen.getByRole("combobox", { name: "Sort" });
+      const input = screen.getByRole("searchbox");
       input.focus();
       if (field === "search") await user.type(input, "beta");
       await user.keyboard("{Escape}");
@@ -200,14 +203,15 @@ describe.each([390, 1100, 1440])("binder panel keyboard at %ipx", (width) => {
     });
   }
 
-  it.each(["search", "Sort"])("keeps number keys, arrows, Enter and / in the %s field without picking cards", async (field) => {
+  it.each(["search"])("keeps number keys, arrows, Enter and / in the %s field without picking cards", async (field) => {
     const user = userEvent.setup();
     renderRoom();
+    await waitFor(() => expect(document.querySelector('.tcard[data-id="8"]')).toBeTruthy());
     fireEvent.keyDown(document, { key: "2" });
     const selected = document.querySelector('.tcard[data-id="8"]');
     expect(selected).toHaveAttribute("data-sel");
     const room = openBinder();
-    const input = field === "search" ? screen.getByRole("searchbox") : screen.getByRole("combobox", { name: "Sort" });
+    const input = screen.getByRole("searchbox");
     input.focus();
     await user.keyboard("123456789/{ArrowLeft}{ArrowRight}{ArrowUp}{ArrowDown}{Enter}");
     expect(input).toHaveFocus();
@@ -220,48 +224,62 @@ describe.each([390, 1100, 1440])("binder panel keyboard at %ipx", (width) => {
   });
 });
 
+const clickOrder = (name: "By type" | "In order") => fireEvent.click(screen.getByRole("button", { name }));
+
 describe("binder sorting", () => {
   const orders = [
-    { order: "type", want: ["Omega effect", "Beta normal", "Delta effect", "Zulu spell", "Alpha trap", "Gamma fusion"] },
-    { order: "oldest", want: ["Zulu spell", "Beta normal", "Alpha trap", "Omega effect", "Gamma fusion", "Delta effect"] },
-    { order: "newest", want: ["Delta effect", "Gamma fusion", "Omega effect", "Alpha trap", "Beta normal", "Zulu spell"] },
-    { order: "name", want: ["Alpha trap", "Beta normal", "Delta effect", "Gamma fusion", "Omega effect", "Zulu spell"] },
-  ];
+    { order: "By type", want: ["Omega effect", "Beta normal", "Delta effect", "Zulu spell", "Alpha trap", "Gamma fusion"] },
+    { order: "In order", want: ["Zulu spell", "Beta normal", "Alpha trap", "Omega effect", "Gamma fusion", "Delta effect"] },
+  ] as const;
 
   it.each(orders)("renders the $order sequence", ({ order, want }) => {
     render(<Harness pool={pool} />);
-    const sort = screen.getByRole("combobox", { name: "Sort" });
-    expect(sort).toHaveValue("type");
-    expect(sort).toBeEnabled();
-    expect(within(sort).getAllByRole("option").map((el) => el.textContent)).toEqual(["Type", "Newest", "Oldest", "Name"]);
-    fireEvent.change(sort, { target: { value: order } });
+    const seg = screen.getByRole("group", { name: "Sort" });
+    expect(within(seg).getAllByRole("button").map((el) => el.textContent)).toEqual(["By type", "In order"]);
+    expect(within(seg).getByRole("button", { name: "By type" })).toHaveAttribute("aria-pressed", "true");
+    clickOrder(order);
+    expect(within(seg).getByRole("button", { name: order })).toHaveAttribute("aria-pressed", "true");
     expect(names()).toEqual(want);
     expect(pool.map((c) => c.id)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
-  it("reverses theme phases for newest and retains original pick numbers", () => {
-    render(<Harness theme pool={[pool[1], pool[0], pool[4], card(7, "Xyz", { type: "Xyz Monster", frameType: "xyz" })]} />);
-    fireEvent.change(screen.getByRole("combobox", { name: "Sort" }), { target: { value: "newest" } });
-    const list = pickList();
-    expect(names()).toEqual(["Xyz", "Gamma fusion", "Zulu spell", "Beta normal"]);
-    const headings = within(list).getAllByRole("heading");
-    expect(headings).toHaveLength(2);
-    expect(headings[0]).toHaveTextContent("Extra deck");
-    expect(headings[1]).toHaveTextContent("Main deck");
-    expect(Array.from(list.querySelectorAll(".no"), (el) => el.textContent)).toEqual(["Round 2", "Round 1", "Round 2", "Round 1"]);
+  it("no longer offers a Sort select", () => {
+    render(<Harness pool={pool} />);
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 
-  it("keeps separate copies in pick order and groups them only for Type", () => {
+  it("keeps theme phases in pick order and the original pick numbers", () => {
+    render(<Harness theme pool={[pool[1], pool[0], pool[4], card(7, "Xyz", { type: "Xyz Monster", frameType: "xyz" })]} />);
+    clickOrder("In order");
+    const list = pickList();
+    expect(names()).toEqual(["Beta normal", "Zulu spell", "Gamma fusion", "Xyz"]);
+    const headings = within(list).getAllByRole("heading");
+    expect(headings).toHaveLength(2);
+    expect(headings[0]).toHaveTextContent("Main deck");
+    expect(headings[1]).toHaveTextContent("Extra deck");
+    expect(Array.from(list.querySelectorAll(".no"), (el) => el.textContent)).toEqual(["Round 1", "Round 2", "Round 1", "Round 2"]);
+  });
+
+  it("keeps separate copies in pick order and groups them only by type", () => {
     render(<Harness pool={[pool[1], pool[0], pool[1]]} />);
     expect(names()).toEqual(["Beta normal", "Zulu spell"]);
     expect(within(pickList()).getByText("×2")).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("combobox", { name: "Sort" }), { target: { value: "oldest" } });
+    clickOrder("In order");
     expect(names()).toEqual(["Beta normal", "Zulu spell", "Beta normal"]);
     expect(Array.from(pickList().querySelectorAll(".no"), (el) => el.textContent)).toEqual(["Pick 1", "Pick 2", "Pick 1"]);
     const rows = within(pickList()).getAllByRole("button");
     fireEvent.click(rows[0]);
     expect(rows[0]).toHaveAttribute("aria-expanded", "true");
     expect(rows[2]).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("puts Export YDK after the list as a quiet link, not in the bar", () => {
+    const { container } = render(<Harness pool={pool} />);
+    const exportBtn = screen.getByRole("button", { name: "Export YDK" });
+    expect(container.querySelector(".bd-bar")).not.toContainElement(exportBtn);
+    const list = container.querySelector(".list")!;
+    expect(list.compareDocumentPosition(exportBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(exportBtn.closest(".bd-foot")).not.toBeNull();
   });
 });
 
@@ -313,7 +331,6 @@ describe("binder monster subtype", () => {
 
   it("filters by frame type, includes pendulums and keeps whole-list facet counts", () => {
     render(<Harness pool={monstersPool} />);
-    fireEvent.change(screen.getByRole("combobox", { name: "Sort" }), { target: { value: "name" } });
     fireEvent.click(monsters());
     expect(names()).toEqual(["Effect monster", "Effect pendulum", "Normal monster", "Normal pendulum", "Ritual monster"]);
     fireEvent.click(screen.getByRole("button", { name: "Effect" }));
@@ -380,7 +397,7 @@ describe("binder empty filters", () => {
 
   it("shows the filtered empty message and clears every filter while retaining sort", () => {
     const { container } = render(<Harness phone pool={[pool[1], pool[0]]} initialFilter={filtered} />);
-    fireEvent.change(screen.getByRole("combobox", { name: "Sort" }), { target: { value: "newest" } });
+    clickOrder("In order");
     expect(screen.getByText("No cards match these filters.")).toBeInTheDocument();
     expect(screen.getByText(/Showing 0 of 2/)).toBeInTheDocument();
     expect(names()).toEqual([]);
@@ -388,12 +405,12 @@ describe("binder empty filters", () => {
       ["monster", "1"], ["spell", "1"], ["trap", "0"], ["extra", "0"],
     ]);
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
-    expect(names()).toEqual(["Zulu spell", "Beta normal"]);
+    expect(names()).toEqual(["Beta normal", "Zulu spell"]);
     expect(screen.queryByText("No cards match these filters.")).not.toBeInTheDocument();
     expect(screen.getByRole("searchbox")).toHaveValue("");
     expect(monsters()).toHaveAttribute("aria-pressed", "false");
     expect(screen.queryByRole("group", { name: "Monster subtype" })).not.toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Sort" })).toHaveValue("newest");
+    expect(screen.getByRole("button", { name: "In order" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.click(monsters());
     expect(screen.getByRole("button", { name: "All monsters" })).toHaveAttribute("aria-pressed", "true");
   });

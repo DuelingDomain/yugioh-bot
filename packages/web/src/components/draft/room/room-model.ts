@@ -683,6 +683,65 @@ export function dealReducer(state: DealState, event: DealEvent): DealState {
   return state;
 }
 
+/* ---------- the ribbon that opens a pack or a round ---------- */
+
+export interface DealRibbon {
+  /** The deal this ribbon belongs to. The cards stay off the table until it hides. */
+  seq: number;
+  title: string;
+  sub: string;
+  tone: "" | "extra";
+}
+
+/**
+ * The news that comes before a deal, as in the mock: a new pack (pick 1), the start of a theme draft,
+ * or the switch to the Extra deck. Every other deal (a pass inside a pack) has no ribbon and shows at once.
+ */
+export function dealRibbon(opts: {
+  seq: number;
+  theme: boolean;
+  poolCount: number;
+  pickStep: number;
+  packRound: number;
+  direction: 1 | -1;
+  sizes: Pick<RoomSizes, "extraSize" | "cardsPerPlayer">;
+}): DealRibbon | null {
+  const { seq } = opts;
+  if (seq === 0) return null;
+  if (opts.theme) {
+    if (opts.poolCount === 0 && seq === 1) {
+      return { seq, title: "Theme draft", sub: "Private packs. Nothing passes.", tone: "" };
+    }
+    if (opts.sizes.extraSize > 0 && opts.poolCount === opts.sizes.cardsPerPlayer) {
+      return {
+        seq,
+        title: "Extra deck",
+        sub: `Main deck done. Pick ${opts.sizes.extraSize} for your Extra Deck.`,
+        tone: "extra",
+      };
+    }
+    return null;
+  }
+  if (opts.pickStep === 1) return { seq, title: `Pack ${opts.packRound}`, sub: passLabel(opts.direction), tone: "" };
+  return null;
+}
+
+/**
+ * A reload while you wait: the live deal is gone, but the draft's own pool is not. Your last pool card is the
+ * one you took this step, so the reader can show it again. Nothing about anyone else's pick is read.
+ * The leftover pack is not in the fetched state (the server returns no pack once you have picked).
+ */
+export function restoredPick(opts: {
+  turn: Turn;
+  seats: SeatLike[];
+  pool: RoomCard[];
+}): RoomCard | null {
+  if (opts.turn !== "waiting" && opts.turn !== "settling") return null;
+  const me = opts.seats.find((s) => s.isCurrentPlayer);
+  if (!me?.hasPicked) return null;
+  return opts.pool.length ? opts.pool[opts.pool.length - 1] : null;
+}
+
 /** The cards on the table: the dealt pack without the one you took. */
 export function tableCards(state: DealState): RoomCard[] {
   return state.dealt.filter((c) => c.id !== state.pickedId);

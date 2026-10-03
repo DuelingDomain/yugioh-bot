@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, configure, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDraftStore } from "../../../src/lib/stores/draft-store";
@@ -19,6 +19,9 @@ vi.mock("next/link", () => ({
 }));
 
 import { DraftRoom } from "../../../src/components/draft/room/draft-room";
+// With animations Off the pack ribbon holds the table for 1.3 s before the cards show, as in the mock.
+configure({ asyncUtilTimeout: 4000 });
+
 
 const card = (id: number) => ({
   id,

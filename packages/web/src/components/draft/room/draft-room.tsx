@@ -26,7 +26,9 @@ import {
   joinNames,
   kindOf,
   matchesFilter,
+  dealRibbon,
   passLabel,
+  restoredPick,
   seatPackSize,
   themeProgress,
   tint,
@@ -112,8 +114,9 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const [newId, setNewId] = useState<number | null>(null);
   const [landed, setLanded] = useState<{ kind: Kind; seq: number } | null>(null);
   const [pending, setPending] = useState<ReadonlySet<number>>(new Set());
-  const [ribbon, setRibbon] = useState<{ title: string; sub: string; tone: string; key: number } | null>(null);
   const [ribbonOn, setRibbonOn] = useState(false);
+  /** The deal whose ribbon has finished. The cards wait for it, as the mock's deal waits for its ribbon. */
+  const [ribbonDone, setRibbonDone] = useState(-1);
   const [passing, setPassing] = useState(false);
   const [positions, setPositions] = useState<Record<number, { x: number; y: number }>>({});
   const [size, setSize] = useState({ w: 1100, h: 700, diskH: 112 });
@@ -125,6 +128,25 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const tp = themeProgress(poolCount, sizes);
   const phase: "main" | "extra" = theme && tp.inExtra ? "extra" : "main";
   const urgency = useDraftStore((s) => urgencyFor(s.timerSeconds, turn));
+
+  /* ---------- the pack ribbon plays first, then the cards deal in ---------- */
+  // Worked out while rendering, so the first frame of a new deal already has an empty table.
+  const ribbon = useMemo(
+    () =>
+      dealRibbon({
+        seq: deal.seq,
+        theme,
+        poolCount,
+        pickStep: rs.pickStep,
+        packRound: rs.packRound,
+        direction,
+        sizes,
+      }),
+    // only a new deal raises the ribbon
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [deal.seq],
+  );
+  const holdDeal = ribbon != null && ribbonDone !== ribbon.seq;
 
   /* ---------- table talk: a few fixed words to the table ---------- */
   const heard = useTalkStore((s) => s.heard);
@@ -425,7 +447,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   /* ---------- selecting ---------- */
   const select = useCallback(
     (id: number | null, focus: boolean) => {
-      if (turn !== "picking") return;
+      if (turn !== "picking" || holdDeal) return;
       setSelectedId(id);
       if (id == null) return;
       if (focus) {
@@ -434,7 +456,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
       }
       if (phone) openSheet("card");
     },
-    [turn, phone, openSheet],
+    [turn, holdDeal, phone, openSheet],
   );
   const onCardClick = useCallback(
     (card: RoomCard) => {
@@ -484,35 +506,20 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const lensHits = lens ? rs.cards.filter(lens).length : 0;
 
   /* ---------- the ribbon ---------- */
-  const ribbonSeq = useRef(0);
-  useEffect(() => {
-    if (deal.seq === 0) return;
-    if (theme) {
-      if (poolCount === 0 && deal.seq === 1) {
-        setRibbon({ title: "Theme draft", sub: "Private packs. Nothing passes.", tone: "", key: ++ribbonSeq.current });
-      } else if (sizes.extraSize > 0 && poolCount === sizes.cardsPerPlayer) {
-        setRibbon({
-          title: "Extra deck",
-          sub: `Main deck done. Pick ${sizes.extraSize} for your Extra Deck.`,
-          tone: "extra",
-          key: ++ribbonSeq.current,
-        });
-      }
-      return;
-    }
-    if (rs.pickStep === 1) {
-      setRibbon({ title: `Pack ${rs.packRound}`, sub: passLabel(direction), tone: "", key: ++ribbonSeq.current });
-    }
-    // only a new deal raises the ribbon
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deal.seq]);
   const ribbonRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!ribbon) return;
+    if (!ribbon) {
+      setRibbonOn(false);
+      return;
+    }
     setRibbonOn(true);
     const r = ribbonRef.current;
     let alive = true;
-    const hide = () => alive && setRibbonOn(false);
+    const hide = () => {
+      if (!alive) return;
+      setRibbonOn(false);
+      setRibbonDone(ribbon.seq);
+    };
     if (motionOff() || !r) {
       wait(1300).then(hide);
     } else {
@@ -538,7 +545,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     return () => {
       alive = false;
     };
-  }, [ribbon]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ribbon?.seq]);
 
   /* ---------- friends passing their packs ---------- */
   const packRect = useCallback(
@@ -583,6 +591,13 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rs.settle]);
+
+  /* ---------- a reload while waiting: bring your last pick back into the reader ---------- */
+  useEffect(() => {
+    if (lastPick) return;
+    const card = restoredPick({ turn, seats: rs.seats, pool: rs.pool });
+    if (card) setLastPick(card);
+  }, [lastPick, turn, rs.seats, rs.pool]);
 
   /* ---------- derived views ---------- */
   const waitingOn = useMemo(
@@ -656,8 +671,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const pickable = !!reading && turn === "picking";
 
   /* ---------- keys: 1-9 choose, arrows move, Enter picks, / searches, Esc closes ---------- */
-  const latest = useRef({ rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen: motionOpen || sayOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets });
-  latest.current = { rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen: motionOpen || sayOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets };
+  const latest = useRef({ rs, holdDeal, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen: motionOpen || sayOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets });
+  latest.current = { rs, holdDeal, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen: motionOpen || sayOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const L = latest.current;
@@ -679,7 +694,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
         requestAnimationFrame(() => binderRef.current?.focusSearch());
         return;
       }
-      const order = L.rs.cards.map((c) => c.id);
+      const order = L.holdDeal ? [] : L.rs.cards.map((c) => c.id);
       if (num != null) {
         e.preventDefault();
         if (order[num - 1] != null) L.select(order[num - 1], true);
@@ -818,6 +833,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               turn={turn}
               direction={direction}
               seatCount={seatCount}
+              hold={holdDeal}
+              ribboned={ribbon != null}
               settle={rs.settle}
               stepKey={rs.stepKey}
               pickSeconds={rs.pickSeconds}

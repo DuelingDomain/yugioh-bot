@@ -76,7 +76,7 @@ describe("binder YDK export", () => {
     ];
     renderBinder(picks, "Friday cube", phone, { ...EMPTY_FILTER, q: "no match" });
     expect(screen.getByText("No cards match these filters.")).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("combobox", { name: "Sort" }), { target: { value: "newest" } });
+    fireEvent.click(screen.getByRole("button", { name: "In order" }));
 
     const button = screen.getByRole("button", { name: "Export YDK" });
     expect(button).toBeEnabled();

@@ -125,6 +125,10 @@ export const Binder = memo(
     const { filter, onFilter, theme, pickConfig } = p;
     const [order, setOrder] = useState<Order>("type");
     const [open, setOpen] = useState<Set<string>>(new Set());
+    const pickOrder = (next: Order) => {
+      setOrder(next);
+      setOpen(new Set());
+    };
     const [facetsOpen, setFacetsOpen] = useState(!p.phone);
     const [text, setText] = useState(filter.q);
     const input = useRef<HTMLInputElement>(null);
@@ -394,26 +398,14 @@ export const Binder = memo(
           </div>
           <div className="bd-bar">
             <span className="showing">{showingText}</span>
-            <label className="bd-sort">
-              <span>Sort</span>
-              <select value={order} onChange={(e) => { setOrder(e.target.value as Order); setOpen(new Set()); }}>
-                <option value="type">Type</option>
-                <option value="newest">Newest</option>
-                <option value="oldest">Oldest</option>
-                <option value="name">Name</option>
-              </select>
-            </label>
-            <button
-              type="button"
-              className="bd-export"
-              disabled={p.pool.length === 0}
-              onClick={() => {
-                const name = p.draftName.replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, "").trim() || "Draft";
-                downloadYdk(p.pool.map((card) => ({ id: card.passcode, frameType: card.frameType })), `${name} picks.ydk`);
-              }}
-            >
-              Export YDK
-            </button>
+            <div className="seg" role="group" aria-label="Sort">
+              <button type="button" aria-pressed={order === "type"} onClick={() => pickOrder("type")}>
+                By type
+              </button>
+              <button type="button" aria-pressed={order === "oldest"} onClick={() => pickOrder("oldest")}>
+                In order
+              </button>
+            </div>
           </div>
           <div
             className="list"
@@ -490,6 +482,19 @@ export const Binder = memo(
                 </div>
               ))
             )}
+          </div>
+          <div className="bd-foot">
+            <button
+              type="button"
+              className="bd-export"
+              disabled={p.pool.length === 0}
+              onClick={() => {
+                const name = p.draftName.replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, "").trim() || "Draft";
+                downloadYdk(p.pool.map((card) => ({ id: card.passcode, frameType: card.frameType })), `${name} picks.ydk`);
+              }}
+            >
+              Export YDK
+            </button>
           </div>
         </div>
       </aside>
