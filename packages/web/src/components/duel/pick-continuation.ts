@@ -56,7 +56,7 @@ export type PickContinuation = {
 export function usePickContinuation(prompt: DuelPrompt | null | undefined): PickContinuation {
   const answered = useRef<DuelPrompt | null>(null);
   const decided = useRef<{ id: string | null; continuing: boolean }>({ id: null, continuing: false });
-  const windowTimer = useRef<ReturnType<typeof duelFxClock.setTimeout> | null>(null);
+  const windowTimer = useRef<number | null>(null);
   const holdTimer = useRef<ReturnType<typeof duelFxClock.setTimeout> | null>(null);
   const [waiting, setWaiting] = useState<DuelPrompt | null>(null);
 
@@ -68,7 +68,7 @@ export function usePickContinuation(prompt: DuelPrompt | null | undefined): Pick
   }
 
   const noteAnswer = useCallback((target: DuelPrompt, answer: DuelAnswer) => {
-    if (windowTimer.current) duelFxClock.clearTimeout(windowTimer.current);
+    if (windowTimer.current) window.clearTimeout(windowTimer.current);
     if (holdTimer.current) duelFxClock.clearTimeout(holdTimer.current);
     if (!keepsPickOpen(target, answer)) {
       answered.current = null;
@@ -76,7 +76,7 @@ export function usePickContinuation(prompt: DuelPrompt | null | undefined): Pick
       return;
     }
     answered.current = target;
-    windowTimer.current = duelFxClock.setTimeout(() => {
+    windowTimer.current = window.setTimeout(() => {
       answered.current = null;
     }, PICK_CONTINUATION.windowMs);
     setWaiting(target);
@@ -91,7 +91,7 @@ export function usePickContinuation(prompt: DuelPrompt | null | undefined): Pick
 
   useEffect(
     () => () => {
-      if (windowTimer.current) duelFxClock.clearTimeout(windowTimer.current);
+      if (windowTimer.current) window.clearTimeout(windowTimer.current);
       if (holdTimer.current) duelFxClock.clearTimeout(holdTimer.current);
     },
     [],
