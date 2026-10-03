@@ -113,6 +113,8 @@ export interface SeatFieldProps {
   viewerSeat: number | null;
   masterRule: DuelMasterRule;
   side: "you" | "opp";
+  /** Value of the `data-side` attribute when it must differ from `side` (Tag: "partner"). Default: `side`. */
+  dataSide?: "you" | "opp" | "partner";
   angleDeg: number;
   upright: boolean;
   tone: SeatTone;

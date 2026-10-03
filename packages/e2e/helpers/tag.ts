@@ -2,8 +2,10 @@ import { expect, type Locator, type Page } from "@playwright/test";
 
 // Helpers for the live Tag 2v2 table (the "Rooftop"). The DOM hooks are the TAG_DOM contract in
 // packages/web/src/components/duel/tag/live-tag.ts: stage `data-table-stage="tag"` (and `data-tag-stage`), a
-// `data-seat-field={seat}` per field with `data-side` "you" (self) or "partner", and `data-relation` on each field.
-// Shared helpers of table.ts (tableField, tableLp, tableLpValue) work on a Tag table too. The generic ownZone /
+// `data-seat-field={seat}` per field with `data-side` "you" (self) or "partner", and `data-relation` on the field holder
+// (`[data-field-hold={seat}]`) that wraps each field.
+// Shared helpers of table.ts (tableField) work on a Tag table too; for the life points use teamLpValue below, because
+// `[data-lp-value]` sits on the team plate, not on a seat. The generic ownZone /
 // attackWithFirstMonster of board.ts can hit a partner zone if a partner zone carries data-side="you"; use ownZoneTag.
 
 export type TagRelation = "self" | "partner" | "opponent" | "other";
@@ -17,7 +19,7 @@ export const tagStage = (page: Page): Locator => page.locator("[data-table-stage
 
 /** A seat field seen from the viewer's side. Pass `seat` to pick one field when two share a relation (opponents). */
 export const tagField = (page: Page, relation: TagRelation, seat?: number): Locator =>
-  page.locator(`[data-table-stage='tag'] [data-seat-field${seat == null ? "" : `='${seat}'`}][data-relation='${relation}']`);
+  page.locator(`[data-table-stage='tag'] [data-field-hold${seat == null ? "" : `='${seat}'`}][data-relation='${relation}'] [data-seat-field]`);
 
 /** The seats that hold priority now: chain chips with `data-now` (`data-seat` is the seat). */
 export const tagPriorityChips = (page: Page): Locator =>

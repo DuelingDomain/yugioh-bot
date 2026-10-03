@@ -107,6 +107,20 @@ describe("TagStage field relations", () => {
   it("calls every field other for a spectator", () => {
     expect(relations(mount("spectator"))).toEqual(["other", "other", "other", "other"]);
   });
+
+  const sides = (root: HTMLElement) => [0, 1, 2, 3].map((seat) => root.querySelector(`[data-seat-field="${seat}"]`)?.getAttribute("data-side"));
+
+  it("gives data-side=you to the viewer's own field only; the partner reads partner", () => {
+    expect(sides(mount("main"))).toEqual(["you", "opp", "partner", "opp"]);
+  });
+
+  it("gives a spectator no data-side=you", () => {
+    expect(sides(mount("spectator"))).toEqual(["opp", "opp", "opp", "opp"]);
+  });
+
+  it("puts data-table-stage=tag on the data-tag-stage node", () => {
+    expect(mount("main").querySelector("[data-tag-stage][data-table-stage='tag']")).not.toBeNull();
+  });
 });
 
 describe("TagStage prompt centre", () => {

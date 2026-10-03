@@ -56,7 +56,9 @@ export function defaultTeamNames(): TagTeamNames {
  * - Each seat field (the SeatField node): `data-seat-field={seat}` and `data-side`. `data-side="you"` is for the
  *   viewer's own field ONLY, because the generic own-zone locators (board.ts) pick `[data-seat-field][data-side="you"]`.
  *   The partner's field has `data-side="partner"`; rivals keep `"opp"`. A spectator has no `"you"`.
- * - Each field holder: `data-relation="self" | "partner" | "opponent" | "other"` ("other" = spectator view of any seat).
+ * - Each field holder (`[data-field-hold={seat}]`, the node around the SeatField): `data-relation="self" | "partner" |
+ *   "opponent" | "other"` ("other" = spectator view of any seat). The relation is NOT on the `data-seat-field` node: the
+ *   e2e helper reads `[data-field-hold][data-relation] [data-seat-field]`.
  * - Each LP chip of the team plate: `data-lp-seat={seat}`. The hand has `data-hand-seat={seat}` and `data-side="you"`.
  * - The hand is a group with `aria-label="Your hand"`.
  * - The header shows the visible text `Turn N` (see `tagTurnText`).

@@ -1078,6 +1078,7 @@ export function SeatField({
   viewerSeat,
   masterRule,
   side,
+  dataSide,
   angleDeg,
   upright,
   tone,
@@ -1141,7 +1142,7 @@ export function SeatField({
         data-seat-field={seat}
         data-testid={`seat-field-${seat}`}
         data-seat={seat}
-        data-side={side}
+        data-side={dataSide ?? side}
         data-seat-angle={Math.round(angle)}
         data-tone={tone}
         data-density={density}
