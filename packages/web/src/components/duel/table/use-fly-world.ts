@@ -9,7 +9,7 @@ import { hexToRgbTriplet } from "./seat-angle";
  * The world of the fly-in view, driven from outside React: a tween of the world transform and, while the view is
  * on, a per-frame pump that puts each holo LP panel beside its projected seat and draws the tether lines.
  * The pump reads the live DOM (`getBoundingClientRect`), because the seats move by CSS transitions inside a 3D
- * world. It writes only `style.transform` of `[data-holo]`, `--ry` of the ring, and the tether svg.
+ * world. It writes only `style.transform` of `[data-holo]`, `--ry` of the ring, `data-tilted` of the canvas and the tether svg.
  */
 
 export const WORLD_ID: FlyWorld = { yawDeg: 0, tiltDeg: 0, zoom: 1, fx: 0, fy: 0, oy: 0 };
@@ -49,7 +49,10 @@ export function useFlyWorld(options: FlyWorldOptions): void {
 
   const apply = (w: FlyWorld) => {
     const world = worldRef.current;
-    if (world) world.style.transform = worldTransform(w);
+    const transform = worldTransform(w);
+    if (world) world.style.transform = transform;
+    // The 3D camera (perspective, preserve-3d) is on only while the world is off identity; see table-stage.module.css.
+    canvasRef.current?.toggleAttribute("data-tilted", transform !== "");
     const ring = canvasRef.current?.querySelector<HTMLElement>("[data-turn-ring]");
     ring?.style.setProperty("--ry", `${(-w.yawDeg).toFixed(1)}deg`);
   };

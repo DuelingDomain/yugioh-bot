@@ -14,6 +14,7 @@ import { aimCurve } from "@/components/duel/table/attack-line";
 import { OpponentBar } from "@/components/duel/table/opponent-bar";
 import { TurnRing } from "@/components/duel/table/turn-ring";
 import { TableShell } from "@/components/duel/table/table-shell";
+import { tiltSupersample } from "@/components/duel/table/table-stage";
 import { tableLayout } from "@/components/duel/table/geometry";
 import type { CameraLockReason, CameraState } from "@/components/duel/table/types";
 
@@ -103,6 +104,63 @@ describe("camera keys on the 3-way shell", () => {
   it("opens in the fly-in when asked", () => {
     const { container } = render(<Shell id="main" camera={{ mode: "fly" }} />);
     expect(stageOf(container).getAttribute("data-fly")).toBe("true");
+  });
+
+  it("marks the canvas as tilted only while the world is off identity, so a flat view has no 3D camera", () => {
+    const { container } = render(<Shell id="main" />);
+    const canvas = () => container.querySelector("[data-fly-capable]")!;
+    expect(canvas().hasAttribute("data-tilted")).toBe(false);
+    press("0");
+    expect(canvas().hasAttribute("data-tilted")).toBe(true);
+    press("h");
+    expect(canvas().hasAttribute("data-tilted")).toBe(false);
+  });
+
+  it("keeps the tilt on while the world eases back, and drops it when the tween ends (motion on)", () => {
+    let now = 1000;
+    let queue: FrameRequestCallback[] = [];
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const realRaf = window.requestAnimationFrame;
+    const realCancel = window.cancelAnimationFrame;
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => queue.push(cb);
+    window.cancelAnimationFrame = () => {};
+    const frame = (advanceMs: number) => {
+      now += advanceMs;
+      const run = queue;
+      queue = [];
+      act(() => run.forEach((cb) => cb(now)));
+    };
+    function Moving() {
+      const controller = useFixtureController(FFA3_FIXTURES.states.main, { reducedMotion: false });
+      return <TableShell controller={controller} />;
+    }
+    try {
+      const { container } = render(<Moving />);
+      const canvas = () => container.querySelector("[data-fly-capable]")!;
+      press("0");
+      frame(16);
+      expect(stageOf(container).getAttribute("data-fly")).toBe("true");
+      expect(canvas().hasAttribute("data-tilted")).toBe(true);
+      press("h");
+      frame(16);
+      // The board is flat at once, but the world is still tilted: the 3D camera must stay until it is back at identity.
+      expect(stageOf(container).getAttribute("data-fly")).toBe("false");
+      expect(canvas().hasAttribute("data-tilted")).toBe(true);
+      for (let i = 0; i < 80 && queue.length; i++) frame(16);
+      expect(canvas().hasAttribute("data-tilted")).toBe(false);
+    } finally {
+      nowSpy.mockRestore();
+      window.requestAnimationFrame = realRaf;
+      window.cancelAnimationFrame = realCancel;
+    }
+  });
+
+  it("supersamples the tilted plane about two texels per screen pixel, in quarter steps within 1.5 to 4", () => {
+    expect(tiltSupersample(1)).toBe(2);
+    expect(tiltSupersample(0.96)).toBe(2);
+    expect(tiltSupersample(1.3)).toBe(2.5);
+    expect(tiltSupersample(0.3)).toBe(1.5);
+    expect(tiltSupersample(9)).toBe(4);
   });
 });
 

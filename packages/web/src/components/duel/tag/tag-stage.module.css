@@ -150,6 +150,32 @@
   transform-origin: 0 0;
 }
 
+/*
+ * Sharp fields and baton labels. A layer inside the perspective is rasterized at a fixed low density whatever scale
+ * the camera gives it (measured: the home pose is already soft, a seat close-up about 1.8x is plainly blurry), and
+ * the GPU then stretches that texture. So a hold is laid out --roof-ss times larger (zoom) and drawn --roof-ss times
+ * smaller (scale). Both act about the world origin, because a hold has left/top 0 and places itself by its inline
+ * transform: `scale` composes after that transform, and `zoom` multiplies its lengths. Same picture and same 3D
+ * position, --roof-ss squared times the texels. Only the holds that carry text and card art get it; the city and
+ * the slab are big and plain. 3 on a high-density screen with a fine pointer and room (3x is about 87 MB of tiles for
+ * the four holds), 2 on a phone or tablet. Guarded by @supports: a browser without `zoom` keeps the 1x layout.
+ * MouseEvent.offsetX/Y of an event inside a hold are scaled by the zoom; use client coordinates or bounding rects.
+ * The FFA table (table/table-stage.module.css) applies the same cap to its own factor.
+ */
+.world { --roof-ss: 2; }
+
+@media (min-resolution: 1.5dppx) and (min-width: 900px) and (pointer: fine) {
+  .world { --roof-ss: 3; }
+}
+
+@supports (zoom: 2) {
+  .fieldHold,
+  .bpills {
+    zoom: var(--roof-ss);
+    scale: calc(1 / var(--roof-ss)) calc(1 / var(--roof-ss)) calc(1 / var(--roof-ss));
+  }
+}
+
 .fog {
   position: absolute;
   inset: 0;
