@@ -373,6 +373,28 @@ describe("host with more than two seats", () => {
     expect(t.duels.privateState(t.slug, "g1").setup?.surrenderedSeats).toEqual([0]);
     expect(t.worker.promptSeat).toBe(1);
   });
+  it("keeps an earlier time-limit spectator after the old-core fallback ends the duel", async () => {
+    const clock = { t: 1_000 };
+    const t = await table("ffa3", 3, [], clock);
+    await post(t.host, { op: "start", ...t.organizer });
+    clock.t += 10 * 60 * 1000;
+    await post(t.host, { op: "view", slug: t.slug, guildId: "g1", playerId: t.players[1] });
+    const earlier = await post(t.host, { op: "view", slug: t.slug, guildId: "g1", playerId: t.players[0] });
+    expect(earlier.data).toMatchObject({ role: "spectator", mySeat: null });
+    clock.t += 10 * 60 * 1000;
+    await post(t.host, { op: "view", slug: t.slug, guildId: "g1", playerId: t.players[2] });
+    for (let seat = 0; seat < 3; seat++) {
+      const final = await post(t.host, { op: "view", slug: t.slug, guildId: "g1", playerId: t.players[seat] });
+      expect(final.status).toBe(200);
+      expect(final.data.session).toMatchObject({ status: "completed", winnerSeat: 2, resultReason: "Time limit" });
+      expect(final.data.role).toBe(seat === 0 ? "spectator" : "player");
+      expect(final.data.mySeat).toBe(seat === 0 ? null : seat);
+    }
+    const replay = await post(t.host, { op: "replay", slug: t.slug, guildId: "g1", playerId: t.players[0] });
+    expect(replay.status).toBe(200);
+    expect(replay.data).toMatchObject({ role: "spectator", mySeat: null });
+  });
+
 });
 
 describe("host eliminates through the core", () => {

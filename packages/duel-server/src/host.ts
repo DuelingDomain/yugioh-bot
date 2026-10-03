@@ -1067,9 +1067,13 @@ export function createDuelHost(options: {
       }
     }
     // The final loss ends play. Only earlier losses give the automatic spectator role.
-    const spectator = room.session.status === "completed"
+    const legacySpectator = room.mySeat !== null && !queued.has(room.mySeat)
+      && (setup.setup?.surrenderedSeats ?? []).includes(room.mySeat)
+      && setup.commands.some((input) => input.seat === room.mySeat
+        && (input.command as { note?: string }).note === SURRENDER_AUTOPILOT_NOTE);
+    const spectator = legacySpectator || (room.session.status === "completed"
       ? room.engine?.eliminationOrder?.slice(0, -1).some((group) => group.includes(room.mySeat ?? -1)) === true
-      : room.engine?.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated) === true;
+      : room.engine?.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated) === true);
     if (room.mySeat !== null && (spectator || noBoardLoss)) {
       room.role = "spectator";
       room.mySeat = null;
