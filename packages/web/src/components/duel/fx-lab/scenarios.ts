@@ -1,5 +1,6 @@
 import type { DuelCardInfo, DuelMasterRule } from "@yugidraft/shared/duels";
 import { LOCATION_HAND, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../constants";
+import { ADD_TO_HAND } from "../duel-timing";
 import {
   BANISHED,
   DECK,
@@ -753,6 +754,20 @@ const MOVES: LabScenario[] = [
       3200,
     ),
   ),
+  moveScenario("move-draw-discard", "Draw and discard the same card", "One engine batch draws a card, then discards that same card. The draw finishes before its Graveyard flight begins.", () =>
+    script(
+      board(),
+      [{
+        at: 0,
+        events: [
+          { ...ev.draw(ME, C.heavyStorm, 4), handId: "departed-lab-draw-discard" },
+          ev.move(ME, C.heavyStorm, HAND(ME, 4), GY(ME, 0), "discard"),
+        ],
+        edits: [edit.drawFromDeck(ME), edit.addHand(ME, C.heavyStorm), edit.removeHand(ME, 4), edit.grave(ME, C.heavyStorm)],
+      }],
+      3200,
+    ),
+  ),
   moveScenario("move-opp-draw", "Opponent draws", "The opponent draws a card you cannot see.", () =>
     script(board(), [{ at: 0, events: [ev.draw(OPP, null, 5)], edits: [edit.drawFromDeck(OPP), edit.addHand(OPP, null)] }], 2600),
   ),
@@ -777,38 +792,54 @@ const MOVES: LabScenario[] = [
       4800,
     );
   }),
-  moveScenario("move-hand-order", "Hand order: engine slots", "A search lands in the middle while neighbours slide. Engine re-sequencing moves the same card and its landing glow; a discard closes the gap. The opponent's middle insertion is mirrored.", () => {
+  moveScenario("move-added-discard", "Added to hand, then discarded", "One engine batch adds a searched card, then discards that same card. Its showcase and hand flight finish before its Graveyard flight begins.", () =>
+    script(
+      board(),
+      [{
+        at: 0,
+        events: [
+          { ...ev.addToHand(ME, C.cyberDragon, DECK(ME), HAND(ME, 4)), handId: "departed-lab-added-discard" },
+          ev.move(ME, C.cyberDragon, HAND(ME, 4), GY(ME, 0), "discard"),
+        ],
+        edits: [edit.drawFromDeck(ME), edit.addHand(ME, C.cyberDragon), edit.removeHand(ME, 4), edit.grave(ME, C.cyberDragon)],
+      }],
+      4000,
+    ),
+  ),
+  moveScenario("move-hand-order", "Hand order: engine slots", "A search appends to the hand, then a later engine shuffle moves its landing slot during flight and its glow after landing. A discard closes the gap. An opponent search appends a sleeve; hidden shuffles keep sleeve identities at public slots.", () => {
     const initial = board();
     for (const seat of initial.seats) seat.hand.forEach((card, i) => { card.handId = `lab-${seat.seat}-${i}`; });
     const arrival = "lab-added";
+    const flightStart = ADD_TO_HAND.riseMs + ADD_TO_HAND.holdMs;
+    const landing = flightStart + ADD_TO_HAND.flyMs;
     return script(initial, [
-      { at: 0, events: [{ ...ev.addToHand(ME, C.cyberDragon, DECK(ME), HAND(ME, 2)), handId: arrival }],
+      { at: 0, events: [{ ...ev.addToHand(ME, C.cyberDragon, DECK(ME), HAND(ME, 4)), handId: arrival }],
         edits: [edit.drawFromDeck(ME), edit.addHand(ME, C.cyberDragon), (b) => {
           const hand = b.seats[ME].hand;
-          const added = hand.pop()!;
-          added.handId = arrival;
-          hand.splice(2, 0, added);
-          hand.forEach((c, i) => { c.sequence = i; });
+          hand[4].handId = arrival;
         }] },
-      { at: 900, edits: [(b) => {
+      // A later SHUFFLE_HAND batch changes query order without rewriting the original MOVE slot.
+      { at: flightStart + ADD_TO_HAND.flyMs / 2, edits: [(b) => {
         const hand = b.seats[ME].hand;
-        b.seats[ME].hand = [hand[4], hand[2], hand[0], hand[3], hand[1]];
+        b.seats[ME].hand = [hand[3], hand[4], hand[0], hand[2], hand[1]];
         b.seats[ME].hand.forEach((c, i) => { c.sequence = i; });
       }] },
-      { at: 2300, edits: [(b) => {
+      { at: landing + 100, edits: [(b) => {
         const hand = b.seats[ME].hand;
         hand.splice(3, 0, hand.splice(1, 1)[0]);
         hand.forEach((c, i) => { c.sequence = i; });
       }] },
       { at: 3200, events: [ev.move(ME, C.cyberDragon, HAND(ME, 3), GY(ME, 0), "discard")],
         edits: [edit.removeHand(ME, 3), edit.grave(ME, C.cyberDragon)] },
-      { at: 5000, events: [{ ...ev.addToHand(OPP, null, DECK(OPP), HAND(OPP, 2)), handId: "lab-opp-added" }],
+      { at: 5000, events: [{ ...ev.addToHand(OPP, null, DECK(OPP), HAND(OPP, 5)), handId: "lab-opp-added" }],
         edits: [edit.drawFromDeck(OPP), edit.addHand(OPP, null), (b) => {
           const hand = b.seats[OPP].hand;
-          const added = hand.pop()!;
-          added.handId = "lab-opp-added";
-          hand.splice(2, 0, added);
-          hand.forEach((c, i) => { c.sequence = i; });
+          hand[5].handId = "lab-opp-added";
+        }] },
+      { at: 5000 + flightStart + ADD_TO_HAND.flyMs / 2, edits: [(b) => {
+        // The public SHUFFLE_HAND snapshot refreshes sleeves in engine slots. The hidden
+        // permutation is private, so neither card codes nor sleeve IDs follow it.
+        b.seats[OPP].hand = b.seats[OPP].hand.map((sleeve) => ({ ...sleeve }));
         }] },
     ], 4000);
   }),
