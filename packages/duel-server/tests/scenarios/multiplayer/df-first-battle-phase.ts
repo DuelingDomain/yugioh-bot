@@ -57,6 +57,6 @@ function stockControl(format: "tag" | "1v1"): Scenario {
 }
 
 const ffa = (["ffa3", "ffa4"] as const).flatMap((format) => [ffaFirstBattle(format, false), ffaFirstBattle(format, true)]);
-export const DF_FIRST_BATTLE_FFA_SCENARIOS = [...ffa, ...ffa.map(domainVariant)];
+const ffaScenarios = [...ffa, ...ffa.map(domainVariant)];
 const controls = [stockControl("tag"), stockControl("1v1")];
-export const DF_FIRST_BATTLE_PHASE_SCENARIOS = [...DF_FIRST_BATTLE_FFA_SCENARIOS, ...controls, ...controls.map(domainVariant)];
+export const DF_FIRST_BATTLE_PHASE_SCENARIOS = [...ffaScenarios, ...controls, ...controls.map(domainVariant)];
