@@ -1,7 +1,7 @@
 // Monster cards whose effect Special Summons the card itself or tokens to the field of an opponent (the table and the rule are in
 // opponent-field-effects.ts). Each card needs its own trigger (a flip, a destruction, a battle, a discard), so each row has its own steps.
 
-import { activate, attack, changePosition, choose, endTurn, expectPrompt, no, normalSummon, pickOpponent, select, yes } from "../../support/dsl.js";
+import { activate, attack, changePosition, choose, endTurn, expectPickSeats, expectPrompt, no, normalSummon, pickOpponent, select, yes } from "../../support/dsl.js";
 import { ELF } from "./nseat-scenarios.js";
 import { effectScenarios, type EffectSpec } from "./opponent-field-effects.js";
 
@@ -292,7 +292,7 @@ const SPECS: EffectSpec[] = [
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
     // R-FFA-OPP-ONE: the field target is automatic in FFA. Its destruction adds a second GY choice.
     noPick: (roles) => roles.format !== "tag",
-    steps: (roles) => [activate("Polymerization", "p0"), select("Elemental HERO Wildheart", "Elemental HERO Necroshade"), roles.format !== "tag" ? pickOpponent(roles.tgt, "p0") : select({ card: ELF, owner: roles.tgt })],
+    steps: (roles) => [activate("Polymerization", "p0"), select("Elemental HERO Wildheart", "Elemental HERO Necroshade"), ...(roles.format !== "tag" ? [expectPickSeats(roles.opponents, "p0"), pickOpponent(roles.tgt, "p0")] : [select({ card: ELF, owner: roles.tgt })])],
     then: [select(MAGICIAN)],
     p0End: { monsters: ["Elemental HERO Necroid Shaman"], grave: ["Polymerization", "Elemental HERO Wildheart", "Elemental HERO Necroshade"] },
     tgtEnd: { grave: [ELF], monsters: [MAGICIAN] },
@@ -386,7 +386,7 @@ const SPECS: EffectSpec[] = [
     steps: (roles) => [
       activate("Monster Reborn", "p0"),
       // Monster Reborn reads either GY. The declaration is for Space-Time Police's banish trigger.
-      ...(roles.format !== "tag" ? [pickOpponent(roles.others[0], "p0")] : [select({ card: ELF, owner: roles.others[0] })]),
+      ...(roles.format !== "tag" ? [expectPickSeats(roles.opponents, "p0"), pickOpponent(roles.others[0], "p0")] : [select({ card: ELF, owner: roles.others[0] })]),
       ...(["p0", "p1", "p2", "p3"] as const).slice(0, (["p0", "p1", "p2", "p3"] as const).indexOf(roles.tgt)).map((seat) => endTurn(seat)),
       attack(MAGICIAN, { card: "Space-Time Police", owner: "p0" }, roles.tgt),
     ],
