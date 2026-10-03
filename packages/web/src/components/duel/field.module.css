@@ -451,6 +451,17 @@
   position: relative;
   flex: 0 0 auto;
   width: var(--cardw);
+  transform-origin: 50% 170%;
+  transition: transform 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hand:not(.handLocal) .handCard {
+  transform-origin: 50% -70%;
+}
+
+.felt[data-reduced-motion="true"] .handCard,
+.handCard:has([style*="visibility: hidden"]) {
+  transition: none;
 }
 
 .handCard:hover,

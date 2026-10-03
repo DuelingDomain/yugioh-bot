@@ -23,7 +23,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED } from "./constants";
-import { collectFreshEvents, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect } from "./event-queue";
+import { collectFreshEvents, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation } from "./event-queue";
 import {
   getMovePlan,
   planMoves,
@@ -336,8 +336,8 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
       doneRef.current();
       return undefined;
     }
-    const h = z.height;
-    const w = plan.event.zone?.location === LOCATION_HAND ? z.width : Math.min(z.width, h * CARD_ASPECT);
+    const h = dest?.offsetHeight || z.height;
+    const w = plan.event.zone?.location === LOCATION_HAND ? dest?.offsetWidth || z.width : Math.min(z.width, h * CARD_ASPECT);
     const cx = z.left - o.left + z.width / 2;
     const cy = z.top - o.top + z.height / 2;
     el.style.left = `${cx - w / 2}px`;
@@ -349,7 +349,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
     const track = new Track();
     let alive = true;
     const endDefense = dest?.dataset.defense === "true";
-    const endTurn = cardTurn(target.side, endDefense);
+    const endTurn = dest ? moveDestinationRotation(dest) : cardTurn(target.side, endDefense);
     let liveFlight: ReturnType<typeof retargetFlight> | undefined;
 
     if (plan.style === "fade" || !source) {
@@ -374,7 +374,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
       });
       const options: KeyframeAnimationOptions = { duration: plan.durationMs, easing: "linear", fill: "both" };
       track.play(el, flight.card, options);
-      liveFlight = retargetFlight({ event: plan.event, el, overlay, cx, cy, duration: plan.durationMs,
+      liveFlight = retargetFlight({ event: plan.event, el, overlay, cx, cy, duration: plan.durationMs, endRot: endTurn,
         fallback: () => handArrivalTarget(plan.event)?.rect });
       track.onDispose(liveFlight.stop);
       if (pieces) {
@@ -415,10 +415,12 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
           if (plan.event.zone?.location === LOCATION_HAND) {
             track.onDispose(followMoveDestination(plan.event, (destination) => ({ destination,
               visible: destination?.getBoundingClientRect(), layer: overlay.getBoundingClientRect(),
-            }), ({ destination, visible, layer }) => {
+              rotation: moveDestinationRotation(destination, true),
+            }), ({ destination, visible, layer, rotation }) => {
               if (!destination) { el.style.visibility = "hidden"; return; }
               if (!visible) return;
               el.style.translate = "0px 0px";
+              el.style.rotate = `${rotation - endTurn}deg`;
               el.style.left = `${visible.left - layer.left + visible.width / 2 - w / 2}px`;
               el.style.top = `${visible.top - layer.top + visible.height / 2 - h / 2}px`;
             }));
@@ -636,11 +638,15 @@ function useHandFlip(boardOf: () => HTMLElement | null, reducedRef: { current: b
       const inHand = records.some((record) => {
         const target = record.target;
         const el = target instanceof Element ? target : target.parentElement;
+        if (record.type === "attributes" && record.attributeName === "style" && el instanceof HTMLElement) {
+          const layoutStyle = (style: string) => style.replace(/\bvisibility\s*:[^;]*;?/gi, "").trim();
+          if (layoutStyle(record.oldValue ?? "") === layoutStyle(el.getAttribute("style") ?? "")) return false;
+        }
         return el?.closest("[data-hand-seat]") != null;
       });
       if (inHand) flipHands(board, states, reducedRef.current);
     });
-    observer.observe(board, { childList: true, subtree: true, attributes: true, attributeFilter: ["src", "style", "data-many"] });
+    observer.observe(board, { childList: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["src", "style", "data-many"] });
     return () => {
       observer.disconnect();
       board.querySelectorAll<HTMLElement>("[data-hand-seat] > *").forEach((card) => {

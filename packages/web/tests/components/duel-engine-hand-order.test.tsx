@@ -70,6 +70,10 @@ beforeEach(() => {
   } });
   const computed = window.getComputedStyle.bind(window);
   vi.spyOn(window, "getComputedStyle").mockImplementation((el) => {
+    if (el.hasAttribute("data-hand-card")) {
+      const at = offset(el);
+      return { translate: `${at.x}px ${at.y}px`, transform: "none" } as CSSStyleDeclaration;
+    }
     const style = computed(el); const at = offset(el);
     Object.defineProperty(style, "translate", { configurable: true, value: `${at.x}px ${at.y}px` });
     return style;
@@ -223,6 +227,33 @@ describe("engine hand order on the board", () => {
     await advance(showcasePhases(1, false).totalMs + 20);
     expect(target.style.visibility).toBe(""); expect(moveDestinationRect(target).left).toBe(655);
     expect(view.getByTestId("added-ring").style.left).toBe("655px");
+  });
+
+  it.each([1, 16])("lands an arrival from %s at the final fan angle after stage and flight shuffles", async (from) => {
+    const ids = ["a", "b", "c", "d", "e", "f", "g"];
+    const event = { ...arrival(from), zone: HAND(0, 7) };
+    const view = render(<Board fx view={engine(hand(ids))} />);
+    view.rerender(<Board fx view={engine(hand([...ids, "new"]), [], [event])} />);
+    const plan = getMovePlan(event.id)!;
+    const halfway = from === 1 ? plan.durationMs / 2 : plan.showcase!.phases.riseMs + plan.showcase!.phases.holdMs + plan.showcase!.phases.flyMs / 2;
+    if (from !== 1) {
+      await advance(200);
+      view.rerender(<Board fx view={engine(hand([ids[0], "new", ...ids.slice(1)]), [], [event], 2)} />);
+      await advance(halfway - 200);
+    } else await advance(halfway);
+    view.rerender(<Board fx view={engine(hand(["new", ...ids]), [], [event], 2)} />);
+    await advance(plan.landAt - performance.now() + 1);
+    const ghost = view.container.querySelector<HTMLElement>(`[data-style="${from === 1 ? "draw" : "add"}"]`)!;
+    const frames = animations.findLast((a) => a.el === ghost && a.frames.some((f) => f.transform))!.frames;
+    // CSS individual rotate composes before transform: a nonzero final translation would
+    // rotate away from the slot after the fan angle changed in flight.
+    expect(frames.at(-1)!.transform).toMatch(/^translate3d\(0(?:\.00)?px, 0(?:\.00)?px, 0\)/);
+    const angle = Number(frames.at(-1)!.transform!.toString().match(/rotate\(([-\d.]+)deg\)/)![1]) + (Number.parseFloat(ghost.style.rotate) || 0);
+    expect(angle).toBeCloseTo(-3.5 * 1.15, 5);
+    if (from !== 1) {
+      await advance(17);
+      expect(Number.parseFloat(view.getByTestId("added-ring").style.rotate)).toBeCloseTo(angle, 5);
+    }
   });
 
   it.each([false, true])("deals all ten opening cards without an arrival glow (reduced=%s)", async (reduced) => {

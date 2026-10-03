@@ -255,6 +255,24 @@ export function moveDestinationRect(dest: HTMLElement): { left: number; top: num
   return { left: rect.left - x, top: rect.top - (y ?? 0), width: rect.width, height: rect.height };
 }
 
+/** The card's board turn plus its fan angle; landing uses the engine's final angle. */
+export function moveDestinationRotation(dest: HTMLElement | null, visible = false): number {
+  if (!dest) return 0;
+  const turn = (dest.dataset.side === "opp" ? 180 : 0) + (dest.dataset.defense === "true" ? 90 : 0);
+  const card = dest.closest<HTMLElement>("[data-hand-card]");
+  const hand = card?.closest<HTMLElement>("[data-hand-seat]");
+  if (!card || !hand || hand.closest('[data-reduced-motion="true"]')) return turn;
+  if (visible) {
+    const transform = getComputedStyle(card).transform;
+    const matrix = transform.match(/^matrix\(([^)]+)\)$/)?.[1].split(",").map(Number);
+    if (matrix) return turn + Math.atan2(matrix[1], matrix[0]) * 180 / Math.PI;
+  }
+  if (hand.dataset.many !== "true") return turn;
+  const index = Number.parseFloat(card.style.getPropertyValue("--i")) || 0;
+  const count = Number.parseFloat(hand.style.getPropertyValue("--hn")) || hand.children.length;
+  return turn + (index - (count - 1) / 2) * 1.15;
+}
+
 type DestinationFollower = { read: () => unknown; write: (sample: unknown) => void };
 const destinationFollowers = new Set<DestinationFollower>();
 let destinationFrame: number | undefined;

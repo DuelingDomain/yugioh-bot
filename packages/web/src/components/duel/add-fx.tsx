@@ -17,7 +17,7 @@
  */
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { cardArtUrl, LOCATION_EXTRA } from "./constants";
-import { findMoveDestination, followMoveDestination, handArrivalTarget } from "./event-queue";
+import { findMoveDestination, followMoveDestination, handArrivalTarget, moveDestinationRotation } from "./event-queue";
 import { artCodeOf } from "./destroy-hide";
 import { buildShowcaseFrames, showcaseBox, showcaseSourceLabel, ADDED_TITLE } from "./add-to-hand";
 import { CARD_FX } from "./duel-timing";
@@ -69,8 +69,9 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
     }
     const reduced = plan.reduced;
     const phases = showcase.phases;
-    const h = z.height;
-    const w = z.width;
+    const initialDestination = findMoveDestination(plan.event);
+    const h = initialDestination?.offsetHeight || z.height;
+    const w = initialDestination?.offsetWidth || z.width;
     const cx = z.left - o.left + z.width / 2;
     const cy = z.top - o.top + z.height / 2;
     const ownerSide = target.side;
@@ -98,7 +99,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
       start = { dx: from.left - o.left + from.width / 2 - cx, dy: from.top - o.top + from.height / 2 - cy, scale: Math.max(0.3, from.height / h) };
       fadeIn = false;
     }
-    const endRot = ownerSide === "opp" ? 180 : 0;
+    const endRot = initialDestination ? Math.round(moveDestinationRotation(initialDestination) * 100) / 100 : ownerSide === "opp" ? 180 : 0;
     const frames = (end?: { dx: number; dy: number }) => buildShowcaseFrames({ phases, start, spot, end, endRot, reduced, fadeIn });
 
     // The label sits under the showcase card.
@@ -155,7 +156,16 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
       if (!target) { land(); doneRef.current(); return; }
       const now = target.rect;
       flightEnd = { dx: now.left - o.left + now.width / 2 - cx, dy: now.top - o.top + now.height / 2 - cy };
-      const fly = frames(flightEnd);
+      const flightCx = cx + flightEnd.dx; const flightCy = cy + flightEnd.dy;
+      // Rebase travel onto the current landing centre. The endpoint transform then has no
+      // translation for the individual fan rotation to rotate away from its engine slot.
+      const fly = reduced ? frames(flightEnd) : buildShowcaseFrames({ phases, start,
+        spot: { ...spot, dx: spot.dx - flightEnd.dx, dy: spot.dy - flightEnd.dy }, endRot, reduced, fadeIn });
+      if (!reduced) {
+        el.style.left = `${flightCx - w / 2}px`;
+        el.style.top = `${flightCy - h / 2}px`;
+        flightEnd = { dx: 0, dy: 0 };
+      }
       // A card goes into the opponent's hand face down unless the hand shows its face.
       const found = shownCode > 0 ? shownCode : current ? artCodeOf(current) : 0;
       if (found > 0 && shownCode === 0) {
@@ -164,8 +174,8 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
       }
       track.play(el, fly.fly, opts(phases.flyMs));
       if (!reduced) {
-        liveFlight = retargetFlight({ event: plan.event, el, overlay, cx: cx + flightEnd.dx, cy: cy + flightEnd.dy,
-          duration: phases.flyMs, fallback: () => handArrivalTarget(plan.event)?.rect });
+        liveFlight = retargetFlight({ event: plan.event, el, overlay, cx: flightCx, cy: flightCy,
+          duration: phases.flyMs, endRot, fallback: () => handArrivalTarget(plan.event)?.rect });
         track.onDispose(liveFlight.stop);
       }
       track.play(aura.current, fly.auraFly, opts(phases.flyMs));
@@ -202,10 +212,11 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
       track.play(el, [{ opacity: 1 }, { opacity: 0 }], { duration: CARD_FX.landFadeMs, easing: "ease-out", fill: "both" });
       const r = ring.current;
       if (r && current) {
-        r.style.left = `${now.left - o.left}px`;
-        r.style.top = `${now.top - o.top}px`;
-        r.style.width = `${now.width}px`;
-        r.style.height = `${now.height}px`;
+        r.style.left = `${now.left - o.left + now.width / 2 - w / 2}px`;
+        r.style.top = `${now.top - o.top + now.height / 2 - h / 2}px`;
+        r.style.width = `${w}px`;
+        r.style.height = `${h}px`;
+        r.style.rotate = `${moveDestinationRotation(current, true)}deg`;
         track.play(
           r,
           [
@@ -218,7 +229,8 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
       }
       if (current) track.onDispose(followMoveDestination(plan.event, (destination) => ({ destination,
         visible: destination?.getBoundingClientRect(), layer: overlay.getBoundingClientRect(),
-      }), ({ destination, visible, layer }) => {
+        rotation: moveDestinationRotation(destination, true), width: destination?.offsetWidth, height: destination?.offsetHeight,
+      }), ({ destination, visible, layer, rotation, width, height }) => {
         if (!destination) {
           el.style.visibility = "hidden";
           if (r) r.style.visibility = "hidden";
@@ -226,13 +238,16 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
         }
         if (!visible) return;
         el.style.translate = "0px 0px";
+        el.style.rotate = `${rotation - endRot}deg`;
         el.style.left = `${visible.left - layer.left + visible.width / 2 - w / 2 - flightEnd.dx}px`;
         el.style.top = `${visible.top - layer.top + visible.height / 2 - h / 2 - flightEnd.dy}px`;
         if (r) {
-          r.style.left = `${visible.left - layer.left}px`;
-          r.style.top = `${visible.top - layer.top}px`;
-          r.style.width = `${visible.width}px`;
-          r.style.height = `${visible.height}px`;
+          const ringW = width || visible.width; const ringH = height || visible.height;
+          r.style.left = `${visible.left - layer.left + visible.width / 2 - ringW / 2}px`;
+          r.style.top = `${visible.top - layer.top + visible.height / 2 - ringH / 2}px`;
+          r.style.width = `${ringW}px`;
+          r.style.height = `${ringH}px`;
+          r.style.rotate = `${rotation}deg`;
         }
       }));
       track.after(Math.max(phases.glowMs, CARD_FX.landFadeMs), () => doneRef.current());
