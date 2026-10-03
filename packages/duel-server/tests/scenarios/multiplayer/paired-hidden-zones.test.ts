@@ -6,7 +6,7 @@ import { engineDataDirectory } from "../../engine-data-dir.js";
 import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
-import { expectPrompt, expectNoEvent, pickOpponent, type DuelistId } from "../../support/dsl.js";
+import { expectPrompt } from "../../support/dsl.js";
 import { PAIRED_HIDDEN_ZONES_SCENARIOS } from "./paired-hidden-zones.js";
 // The opening-draw skip is intentional: keep the card fixture hand and Deck counts fixed.
 // rule-proof-ffa-order.test.ts checks the first draw without this skip in the default test:engine gate.
@@ -28,16 +28,15 @@ describeWithCores("live paired hidden-zone actions", liveNseat, () => {
       for (const step of scenario.steps) {
         session.run(expectPrompt({}), at++);
         const prompt = Array.from({ length: count }, (_, seat) => game.view(seat).prompt).find(Boolean);
-        if (prompt?.context?.type === "opponent") {
-          if (process.env.ALL_HANDS_TIMING === "1") {
-            const code = Number(scenario.tags.find(tag => tag.startsWith("card:"))!.slice(5));
-            session.run(expectNoEvent({kind:"chain-resolving",card:code}),at++);
-          }
-          session.run(pickOpponent(`p${count - 1}` as DuelistId, `p${prompt.seat}` as DuelistId), at++);
-          session.run(expectPrompt({}), at++);
+        if (prompt?.context?.type === "opponent" && step.op !== "pickOpponent" && !step.op.startsWith("expect")) {
+          throw new Error(`${scenario.id}: unexpected opponent prompt before ${step.op}`);
         }
         if (step.op === "select" && Array.from({ length: count }, (_, seat) => game.view(seat).prompt).find(Boolean)?.context?.type === "action") continue;
         session.run(step, at++);
+      }
+      for (let seat = 0; seat < count; seat++) {
+        expect(game.view(seat).prompt?.context?.type,
+          `${scenario.id}: p${seat} has an open opponent prompt`).not.toBe("opponent");
       }
       if (scenario.tags.includes("rain")) {
         const card = game.view(0).seats[0].monsters.find(card => card?.code === 15025844);
