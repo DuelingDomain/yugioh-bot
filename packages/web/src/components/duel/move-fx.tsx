@@ -750,7 +750,12 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
 
     const now = duelFxClock.now();
     planMoves(fresh, { now, reduced: reducedRef.current, duelKey });
-    const confirmedMoves = fresh.filter((event) => event.kind === "confirm" && event.moveId != null && event.card);
+    const confirmedMoves = fresh.filter((event) => {
+      if (event.kind !== "confirm" || event.moveId == null || !event.card) return false;
+      const move = getMovePlan(event.moveId);
+      // After landing, the fading showcase retires while the standalone confirmation owns the face.
+      return move?.showcase != null && now < move.landAt;
+    });
     if (confirmedMoves.length > 0) {
       setConfirmedCards((current) => {
         // Keep identities for queued showcases even after their events leave the rolling window.

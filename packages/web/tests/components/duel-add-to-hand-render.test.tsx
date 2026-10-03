@@ -338,6 +338,19 @@ describe("the Added to hand showcase on the board", () => {
     expect(view.queryByTestId("confirmed-ghost")).toBeNull();
   });
 
+  it("routes a confirmation after landing only to the standalone presentation", () => {
+    const move = addEvent({ card: undefined, from: { controller: 0, location: 1, sequence: 0 }, addedToHand: true });
+    const view = deliver(move, { slotCode: 0 });
+    advance(showcasePhases(1, false).totalMs + 1);
+    expect(view.getByTestId("added-ghost").getAttribute("data-known")).toBe("false");
+    view.rerender(<Board events={[move, { id: 6, kind: "confirm", text: "Confirmed Card 777", moveId: 5, zone: move.zone, card: info(777) }]} slotCode={0} />);
+    expect(view.getByTestId("added-ghost").getAttribute("data-known")).toBe("false");
+    expect(view.getByTestId("added-ghost").querySelector("img")).toBeNull();
+    expect(view.getByTestId("confirmed-ghost").querySelector("img")?.getAttribute("src")).toContain("/api/cards/777/image");
+    advance(1600);
+    expect(view.queryByTestId("confirmed-ghost")).toBeNull();
+  });
+
   it("shows multiple confirmed cards one at a time", () => {
     const first: DuelEvent = { id: 6, kind: "confirm", text: "Confirmed Card 777", card: info(777) };
     const second: DuelEvent = { id: 7, kind: "confirm", text: "Confirmed Card 888", card: info(888) };
