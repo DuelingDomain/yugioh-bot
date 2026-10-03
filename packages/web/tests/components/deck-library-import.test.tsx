@@ -38,7 +38,42 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("SavedDeckLibrary YDK import", () => {
+describe("SavedDeckLibrary", () => {
+  it("wraps each row fact with its own dot and omits an absent Master", async () => {
+    const decks: SavedDeck[] = [
+      {
+        id: 1, name: "With master", mode: "domain",
+        deck: { main: [89631139, 89631139], extra: [23995346], side: [14558127], deckMaster: 46986414 },
+        createdAt: "2026-09-30 12:00:00", updatedAt: "2026-09-30 12:00:00",
+      },
+      {
+        id: 2, name: "Without master", mode: "normal",
+        deck: { main: [89631139, 89631139], extra: [23995346], side: [14558127] },
+        createdAt: "2026-09-30 12:00:00", updatedAt: "2026-09-30 12:00:00",
+      },
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ decks })));
+    render(<SavedDeckLibrary />);
+    await screen.findByRole("link", { name: "With master" });
+
+    for (const [name, expected] of [
+      ["With master", ["Main 2", "Extra 1", "Side 1", "Master", expect.stringMatching(/^Updated /)]],
+      ["Without master", ["Main 2", "Extra 1", "Side 1", expect.stringMatching(/^Updated /)]],
+    ] as const) {
+      const row = screen.getByRole("link", { name }).closest("li")!;
+      const line = row.querySelector(".mt")!;
+      expect(line.children).toHaveLength(1);
+      const items = Array.from(line.firstElementChild!.children);
+      expect(items.map((item) => item.textContent)).toEqual(expected);
+      expect(line.querySelectorAll(".dot")).toHaveLength(expected.length);
+      for (const item of items) {
+        expect(item.querySelectorAll(":scope > .dot")).toHaveLength(1);
+        expect(item.querySelector(".dot")).toHaveAttribute("aria-hidden", "true");
+      }
+      expect(Array.from(line.querySelectorAll("b"), (count) => count.textContent)).toEqual(["2", "1", "1"]);
+    }
+  });
+
   it("saves every chosen file as its own deck and lists it", async () => {
     stubApi();
     render(<SavedDeckLibrary />);

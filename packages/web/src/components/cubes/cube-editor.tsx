@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Check, Info, Pencil, Plus, Search, TriangleAlert, Trash2, X } from "lucide-react";
+import { MetaLine } from "@/components/meta-line/meta-line";
 import { ConfirmPanel, SheetRoot } from "@/components/sheet";
 import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
@@ -386,38 +387,41 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
               </button>
             </div>
           )}
-          <p className="ce-meta">
-            {cube?.archetype ? (
-              <span>
-                Seeded from <b>{cube.archetype}</b>
-              </span>
-            ) : (
-              <span>Built by hand</span>
-            )}
-            {cube?.banlist ? (
-              <>
-                <span className="dot" />
-                <span>{cube.banlist} banlist</span>
-              </>
-            ) : null}
-            {busy ? (
-              <>
-                <span className="dot" />
-                <span className={styles.busy}>Saving…</span>
-              </>
-            ) : null}
-          </p>
-          <p className="ce-meta">
-            <span>
-              Main <b>{mainTotals.cards}</b> {plural(mainTotals.cards, "card", "cards")}, <b>{mainTotals.copies}</b>{" "}
-              {plural(mainTotals.copies, "copy", "copies")}
-            </span>
-            <span className="dot" />
-            <span>
-              Extra <b>{extraTotals.cards}</b> {plural(extraTotals.cards, "card", "cards")}, <b>{extraTotals.copies}</b>{" "}
-              {plural(extraTotals.copies, "copy", "copies")}
-            </span>
-          </p>
+          <MetaLine
+            className="ce-meta"
+            items={[
+              {
+                content: cube?.archetype ? (
+                  <span>Seeded from <b>{cube.archetype}</b></span>
+                ) : (
+                  <span>Built by hand</span>
+                ),
+              },
+              ...(cube?.banlist ? [{ content: <span>{cube.banlist} banlist</span> }] : []),
+              ...(busy ? [{ content: <span>Saving…</span>, className: styles.busy }] : []),
+            ]}
+          />
+          <MetaLine
+            className="ce-meta"
+            items={[
+              {
+                content: (
+                  <span>
+                    Main <b>{mainTotals.cards}</b> {plural(mainTotals.cards, "card", "cards")}, <b>{mainTotals.copies}</b>{" "}
+                    {plural(mainTotals.copies, "copy", "copies")}
+                  </span>
+                ),
+              },
+              {
+                content: (
+                  <span>
+                    Extra <b>{extraTotals.cards}</b> {plural(extraTotals.cards, "card", "cards")}, <b>{extraTotals.copies}</b>{" "}
+                    {plural(extraTotals.copies, "copy", "copies")}
+                  </span>
+                ),
+              },
+            ]}
+          />
         </div>
         <section className="ce-ready msheet" aria-labelledby="ce-rd">
           <header className="sheet-cap">

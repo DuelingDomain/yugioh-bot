@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type DragEvent } from "react"
 import Link from "next/link";
 import { Check, FileUp, Layers, Plus, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
 import type { SavedDeck } from "@yugidraft/shared/duels";
+import { MetaLine } from "@/components/meta-line/meta-line";
 import { SheetRoot } from "@/components/sheet";
 import { cardArtUrl } from "@/components/duel/constants";
 import { deleteSavedDeck, listSavedDecks } from "./api";
@@ -53,15 +54,16 @@ function DeckRow({
           </Link>
           <span className={`chip${deck.mode === "domain" ? " chip-gold" : ""}`}>{modeLabel(deck.mode)}</span>
         </p>
-        <p className="mt">
-          <span>
-            Main <b>{deck.deck.main.length}</b> · Extra <b>{deck.deck.extra.length}</b> · Side{" "}
-            <b>{deck.deck.side.length}</b>
-            {deck.deck.deckMaster != null ? " · Master" : ""}
-          </span>
-          <span className="dot" />
-          <span>Updated {formatWhen(deck.updatedAt)}</span>
-        </p>
+        <MetaLine
+          className="mt"
+          items={[
+            { content: <span>Main <b>{deck.deck.main.length}</b></span> },
+            { content: <span>Extra <b>{deck.deck.extra.length}</b></span> },
+            { content: <span>Side <b>{deck.deck.side.length}</b></span> },
+            ...(deck.deck.deckMaster != null ? [{ content: <span>Master</span> }] : []),
+            { content: <span>Updated {formatWhen(deck.updatedAt)}</span> },
+          ]}
+        />
         {deck.draftId != null ? (
           <p className="tags">
             <span className="chip">

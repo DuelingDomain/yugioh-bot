@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Box, Layers, Plus, RotateCcw, Trash2, TriangleAlert } from "lucide-react";
+import { MetaLine } from "@/components/meta-line/meta-line";
 import { SheetRoot } from "@/components/sheet";
 import { isDraftTemplate, nextCubeName, type AddTab, type CubeSummary } from "./library-model";
 import styles from "./cubes.module.css";
@@ -81,22 +82,20 @@ function CubeRow({
       <li className={rowClass} data-template data-confirm={confirming || undefined}>
         <div>
           <span className="nm">{cube.name}</span>
-          <p className="mt">
-            <span>Draft template</span>
-            <span className="dot" />
-            <span>
-              {sets.length} {sets.length === 1 ? "set" : "sets"}
-            </span>
-          </p>
-          <p className={`mt ${styles.setNames}`}>
-            {sets.slice(0, MAX_SET_NAMES).map((set, i) => (
-              <React.Fragment key={set}>
-                {i > 0 && <span className="dot" />}
-                <span>{set}</span>
-              </React.Fragment>
-            ))}
-            {sets.length > MAX_SET_NAMES && <span>+{sets.length - MAX_SET_NAMES} more</span>}
-          </p>
+          <MetaLine
+            className="mt"
+            items={[
+              { content: <span>Draft template</span> },
+              { content: <span>{sets.length} {sets.length === 1 ? "set" : "sets"}</span> },
+            ]}
+          />
+          <MetaLine
+            className={`mt ${styles.setNames}`}
+            items={[
+              ...sets.slice(0, MAX_SET_NAMES).map((set) => ({ content: <span>{set}</span> })),
+              ...(sets.length > MAX_SET_NAMES ? [{ content: <span>+{sets.length - MAX_SET_NAMES} more</span> }] : []),
+            ]}
+          />
           <p className={styles.tmplNote}>
             <Layers className="ic sm" aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 6 }} />
             Used by <code>/draft</code>. Booster sets, not a pool, so there are no cards to edit.
@@ -113,21 +112,19 @@ function CubeRow({
         <Link className={`nm ${styles.openLink}`} href={`/cubes/${cube.id}`}>
           {cube.name}
         </Link>
-        <p className="mt">
-          {cube.archetype ? (
-            <span>
-              Seeded from <b>{cube.archetype}</b>
-            </span>
-          ) : (
-            <span>Built by hand</span>
-          )}
-          {cube.banlist ? (
-            <>
-              <span className="dot" />
-              <span>{cube.banlist} banlist</span>
-            </>
-          ) : null}
-        </p>
+        <MetaLine
+          className="mt"
+          items={[
+            {
+              content: cube.archetype ? (
+                <span>Seeded from <b>{cube.archetype}</b></span>
+              ) : (
+                <span>Built by hand</span>
+              ),
+            },
+            ...(cube.banlist ? [{ content: <span>{cube.banlist} banlist</span> }] : []),
+          ]}
+        />
         <p className="mt">
           <span>
             Main <b>{cube.mainCount}</b> cards

@@ -10,6 +10,8 @@
 
 /* On phones the whole row opens the deck. */
 @container (max-width: 520px) {
+  /* MetaLine needs the separator space even when a leading dot is clipped. */
+  :global(.ms) .row.row :global(.mt) :global(.dot) { display: inline-block; }
   :global(.ms) .openLink::after { content: ""; position: absolute; inset: 0; }
   :global(.ms) .row :global(.cb-acts) { position: relative; z-index: 1; }
   :global(.ms) .row :global(.cb-acts) :global(.ib) { position: relative; z-index: 2; }
