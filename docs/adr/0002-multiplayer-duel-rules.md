@@ -8,7 +8,7 @@ Konami publishes official rules only for Tag Duels ([TCG, revised 5 December 201
 
 ## Rules common to every multi-player format
 
-- `[R-FFA-FIRST-DRAW]` **First draw by duel mode and Master Rule (all seat layouts).** Domain 1v1, Tag, FFA3 and FFA4: every duelist draws on their first turn, including the turn-1 duelist. Standard MR1 and MR2: the turn-1 duelist draws, as specified by the stock core flags. Standard MR3, MR4 and MR5: only the turn-1 duelist skips the draw; all later duelists draw on their first turn. MR3 removed the turn-1 draw on 21 March 2014. The rule id is kept for existing references.
+- `[R-FFA-FIRST-DRAW]` **First draw by duel mode and Master Rule (all seat layouts).** Domain in 1v1, Tag, FFA3 and FFA4: every duelist draws on their first turn, including the turn-1 duelist. Standard MR1 and MR2: the turn-1 duelist draws, as specified by the stock core flags. Standard MR3, MR4 and MR5: only the turn-1 duelist skips the draw; all later duelists draw on their first turn. MR3 removed the turn-1 draw on 21 March 2014. The rule id is kept for existing references.
 
   **Known deviation, accepted by the owner on 2026-10-02:** The default legacy 1v1 engine keeps the stock Master Rule draw rule in Standard and Domain. In Domain MR3, MR4 and MR5, the turn-1 duelist does not draw. This is an accepted exception to the Domain draw rule. The pinned engine follows the Domain draw rule. The saved `firstTurnDraw` flag records the actual engine behavior; it is `false` for legacy Domain MR3 through MR5.
 
