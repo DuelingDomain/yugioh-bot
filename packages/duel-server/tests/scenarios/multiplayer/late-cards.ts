@@ -491,9 +491,9 @@ const timeSealCutShort = defineScenario({
     pickOpponent("p1", "p0"),
     table(["p0", "p1", "p2"], {}, { grave: [TIME_SEAL] }),
     surrender("p1"),
-    // The surrender keeps p0's action prompt open until p0 ends its turn.
+    // p1 leaves at once. p0's action prompt stays open because it does not respond to p1.
     expectPrompt({ by: "p0", context: "action", offers: ["to_ep"] }),
-    endTurn("p0"), expectEliminated("p1"), expectTurn("p2", 2),
+    expectEliminated("p1"), endTurn("p0"), expectTurn("p2", 2),
     table(["p0", "p2"], { p2: 1 }, { grave: [TIME_SEAL] }),
     expectBoard({ p2: { deckCount: 19 } }),
     endTurn("p2"), expectTurn("p0", 3),

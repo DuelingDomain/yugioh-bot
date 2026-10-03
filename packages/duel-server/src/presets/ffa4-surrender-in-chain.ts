@@ -3,7 +3,7 @@ import { onChain, type Preset } from "./types.js";
 
 /**
  * FFA4. Seat 1 answers Heavy Storm with Dust Tornado, then surrenders while its own link is still on the chain
- * (R-FFA-ELIMINATION). Its link resolves with no effect, its cards leave the game, the duel goes on with three seats.
+ * (R-COMMON-SURRENDER-EOT). Its link resolves normally. After the chain, its cards leave and three seats remain.
  */
 export const preset: Preset = {
   id: "ffa4-surrender-in-chain",
@@ -11,7 +11,7 @@ export const preset: Preset = {
   format: "ffa4",
   humanSeat: 0,
   needs: "multi-core",
-  rules: ["R-FFA-ELIMINATION", "R-FFA-WINNER"],
+  rules: ["R-FFA-ELIMINATION", "R-FFA-WINNER", "R-COMMON-SURRENDER-EOT"],
   board: {
     format: "ffa4",
     p0: { hand: ["Heavy Storm"], spells: [{ card: "Swords of Revealing Light", pos: "up" }] },
@@ -34,8 +34,8 @@ export const preset: Preset = {
   checklist: [
     "You start in Main Phase 1 with Heavy Storm. Activate it (chain link 1).",
     "Seat 1 adds Dust Tornado (link 2).",
-    "Seat 1 then surrenders while its link is on the chain. Seat 1 is shown as eliminated.",
-    "The Dust Tornado link of seat 1 resolves with no effect: your Swords of Revealing Light is destroyed only by Heavy Storm.",
+    "Seat 1 then surrenders while its link is on the chain. It leaves after the whole chain resolves.",
+    "The Dust Tornado link of seat 1 resolves normally and destroys your Swords of Revealing Light before Heavy Storm resolves.",
     "The Gemini Elf of seat 1 is gone (its cards left the game).",
     "The duel goes on with seats 0, 2 and 3. No winner yet.",
   ],
