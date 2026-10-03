@@ -6,7 +6,7 @@ import { SOURCE } from "./nseat-scenarios.js";
 
 function clearField(format: Format, actor: Seat, spells: boolean): Scenario {
   const card = spells ? "Harpie's Feather Duster" : "Raigeki";
-  // R-COMMON-OPP-ONE: only the declared opponent loses its one-sided field cards.
+  // R-FFA-OPP-ONE: FFA declares one opponent. Tag uses the opposing team.
   const opponent = SEATS[format].find((seat) => seat !== actor)!;
   const setup: Scenario["setup"] = { format };
   for (const seat of SEATS[format]) setup[seat] = {
@@ -14,7 +14,8 @@ function clearField(format: Format, actor: Seat, spells: boolean): Scenario {
   };
   return defineScenario({ id: `rule-proof-${format}-all-opposing-${spells ? "spells" : "monsters"}-${actor}`,
     title: `${format}: ${actor} clears the declared opponent's ${spells ? "Set Spell" : "monster"} with ${card}`,
-    source: `${SOURCE} [R-COMMON-OPP-ONE]`, rules: ["R-COMMON-OPP-ONE"],
+    source: SOURCE + (format === "tag" ? " [R-TAG-PARTNER] [R-TAG-SHARED-CARDS]" : " [R-FFA-OPP-ONE]"),
+    rules: format === "tag" ? ["R-TAG-PARTNER", "R-TAG-SHARED-CARDS"] : ["R-FFA-OPP-ONE"],
     tags: ["multiplayer", format, spells ? "card:18144506" : "card:12580477"], setup,
     steps: [...turnsBefore(format, actor), activate(card, actor), ...(format !== "tag" ? [pickOpponent(opponent, actor)] : []), everySeat(format, Object.fromEntries(SEATS[format].map((seat, i) => {
       const ownTeam = format === "tag" ? seat === actor || seat === PARTNER[actor] : seat !== opponent;
