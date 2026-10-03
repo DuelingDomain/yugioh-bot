@@ -24,26 +24,30 @@ export async function POST(
     const db = getDb();
     const tournament = db
       .prepare("select id, name from tournaments where web_slug = ? and guild_id = ?")
-      .get(slug, actor.guildId) as { id: number; name: string } | undefined;
+      .get(slug, actor.guildId) as
+      | { id: number; name: string }
+      | undefined;
     if (!tournament) return NextResponse.json({ error: "Tournament not found" }, { status: 404 });
     const slot = Number.isInteger(tournamentMatchId)
       ? (db
           .prepare("select tournament_id, player_one_id, player_two_id from tournament_matches where id = ?")
           .get(tournamentMatchId) as
-          | { tournament_id: number; player_one_id: number | null; player_two_id: number | null }
+          | { tournament_id: number; player_one_id: number; player_two_id: number | null }
           | undefined)
       : undefined;
     if (!slot || slot.tournament_id !== tournament.id) {
       return NextResponse.json({ error: "Match not found" }, { status: 404 });
     }
 
-    // A draft tournament's auto-registered decks hold catalog ids: map both seats' decks to
-    // engine codes before the series copies them.
-    await mapDraftTournamentDecks(db, {
-      tournamentId: tournament.id,
-      guildId: actor.guildId,
-      playerIds: [slot.player_one_id, slot.player_two_id].filter((id): id is number => id !== null),
-    });
+    const playerIds = [slot.player_one_id, slot.player_two_id];
+    // A draft tournament's auto-registered decks hold catalog ids: map both seats' decks to engine
+    // codes before the series copies and locks them. If that cannot be done, nothing is started.
+    const mapped = await mapDraftTournamentDecks(db, { tournamentId: tournament.id, guildId: actor.guildId, playerIds });
+    if (!mapped.ok) {
+      return NextResponse.json(mapped.report ? { error: mapped.error, report: mapped.report } : { error: mapped.error }, {
+        status: mapped.status,
+      });
+    }
 
     const { series, duel, created } = createDuelSeriesService(db).startTournamentMatch({
       guildId: actor.guildId,

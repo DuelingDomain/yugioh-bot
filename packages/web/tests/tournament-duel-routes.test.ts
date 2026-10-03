@@ -125,7 +125,7 @@ describe("tournament match duel and result routes", () => {
 
   it("duel: maps the decks of both seats before it starts the series", async () => {
     const s = seed();
-    const mapDraftTournamentDecks = vi.fn(async (..._args: unknown[]) => {});
+    const mapDraftTournamentDecks = vi.fn(async (..._args: unknown[]) => ({ ok: true as const }));
     vi.doMock("@/lib/draft-deck-codes", () => ({ mapDraftTournamentDecks }));
     const { POST } = await import("../app/api/tournaments/[slug]/matches/[tmId]/duel/route");
     auth.mockResolvedValue({ user: { id: "u-a", name: "Alice" } });
