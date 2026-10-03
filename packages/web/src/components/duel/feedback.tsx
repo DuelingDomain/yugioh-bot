@@ -22,6 +22,7 @@ import { chainBeatAt, chainEffectAt } from "./chain-beats";
 import { createDuelFeedbackAudio, type DuelFeedbackAudio } from "./feedback-audio";
 import { pairedMovePlan } from "./move-plan";
 import { getPhaseBeat, planPhaseBeats } from "./phase-beats";
+import { duelFxClock } from "./fx-clock";
 import styles from "./feedback.module.css";
 
 export type DuelFeedbackProps = {
@@ -210,7 +211,7 @@ export function DuelFeedback({
     const ms = pacedCueDuration(next.kind, reducedRef.current, remaining);
     setCurrent({ event: next, durationMs: ms });
     if (soundRef.current) audioRef.current?.play(next.kind);
-    timerRef.current = window.setTimeout(() => {
+    timerRef.current = duelFxClock.setTimeout(() => {
       timerRef.current = null;
       currentRef.current = null;
       setCurrent(null);
@@ -250,7 +251,7 @@ export function DuelFeedback({
       window.removeEventListener("pointerdown", onGesture, true);
       window.removeEventListener("keydown", onGesture, true);
       if (timerRef.current != null) {
-        window.clearTimeout(timerRef.current);
+        duelFxClock.clearTimeout(timerRef.current);
         timerRef.current = null;
       }
       audio.dispose();
@@ -269,7 +270,7 @@ export function DuelFeedback({
   useEffect(() => {
     const timers = holdTimersRef.current;
     return () => {
-      for (const timer of timers) window.clearTimeout(timer);
+      for (const timer of timers) duelFxClock.clearTimeout(timer);
       timers.clear();
       // A remount (React strict mode) reads the first events again, so a replayed opening is not lost.
       queueRef.current = [];
@@ -284,12 +285,12 @@ export function DuelFeedback({
       queueRef.current = [];
       cursorRef.current = null;
       if (timerRef.current != null) {
-        window.clearTimeout(timerRef.current);
+        duelFxClock.clearTimeout(timerRef.current);
         timerRef.current = null;
       }
       currentRef.current = null;
       setCurrent(null);
-      for (const timer of holdTimersRef.current) window.clearTimeout(timer);
+      for (const timer of holdTimersRef.current) duelFxClock.clearTimeout(timer);
       holdTimersRef.current.clear();
       audioRef.current?.stopAll();
     }
@@ -305,14 +306,14 @@ export function DuelFeedback({
     cursorRef.current = nextCursor;
     if (fresh.length === 0) return;
     const toasts: DuelEvent[] = [];
-    const now = performance.now();
+    const now = duelFxClock.now();
     // The phases of a turn start come one beat at a time, after the cards that come before them have landed.
     planPhaseBeats(events, before, { now, reduced: reducedRef.current, duelKey });
     // A sound waits for the moment its picture plays on the board.
     const playAfter = (kind: DuelEvent["kind"], waitMs: number) => {
       if (!soundRef.current) return;
       if (waitMs > 30) {
-        const timer = window.setTimeout(() => {
+        const timer = duelFxClock.setTimeout(() => {
           holdTimersRef.current.delete(timer);
           if (soundRef.current) audioRef.current?.play(kind);
         }, waitMs);
@@ -347,7 +348,7 @@ export function DuelFeedback({
         continue;
       }
       if (holdMs > 30) {
-        const timer = window.setTimeout(() => {
+        const timer = duelFxClock.setTimeout(() => {
           holdTimersRef.current.delete(timer);
           queueRef.current.push(event);
           startNextRef.current();
