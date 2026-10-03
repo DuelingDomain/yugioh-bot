@@ -44,6 +44,28 @@ describe("cube engine", () => {
     expect(r.errors.join(" ")).toMatch(/3 copies/);
   });
 
+  it.each([16, 17, 18, 19])("accepts %i distinct cards when the deck limit exceeds the deal size", (distinct) => {
+    const cube = Array.from({ length: distinct }, (_, i) => i + 1);
+    const r = analyzeCube(cube, 2, 5, 8, 60);
+    expect(r.ok).toBe(true);
+    expect(r.errors).toEqual([]);
+  });
+
+  it("reports the deal size when the pool cannot reach it", () => {
+    const cube = Array.from({ length: 8 }, (_, i) => i + 1);
+    const r = analyzeCube(cube, 2, 10, 4, 60);
+    expect(r.ok).toBe(false);
+    expect(r.errors.join(" ")).toMatch(/24.*needs 40/);
+    expect(r.errors.join(" ")).not.toMatch(/needs 60/);
+  });
+
+  it("accepts a configured deck limit below the deal size", () => {
+    const cube = Array.from({ length: 8 }, (_, i) => i + 1);
+    const r = analyzeCube(cube, 2, 10, 4, 20);
+    expect(r.ok).toBe(true);
+    expect(r.errors).toEqual([]);
+  });
+
   it("analyzeCube warns (not errors) when a card has more copies than waves", () => {
     // 2 players × 4 packSize => 8 distinct needed; card 1 has 6 copies, waves = 3
     const cube = [1, 1, 1, 1, 1, 1, ...Array.from({ length: 7 }, (_, i) => i + 2)];

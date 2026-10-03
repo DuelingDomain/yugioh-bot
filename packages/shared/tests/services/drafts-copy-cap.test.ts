@@ -79,6 +79,14 @@ function boosterDraft(config: Partial<DraftConfig>, cubeCardIds: number[], cardC
 const distinctCube = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
 
 describe("per-player copy cap in booster drafts", () => {
+  it.each([16, 17, 18, 19])("starts with %i distinct cards when the deck limit exceeds the deal size", (distinct) => {
+    const { db, drafts, draftId } = boosterDraft({ packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 60 }, distinctCube(distinct));
+    expect(drafts.findById(draftId).status).toBe("active");
+    expect(drafts.players(draftId)).toHaveLength(2);
+    expect(db.prepare("select count(*) as n from draft_deal where draft_id = ?").get(draftId)).toEqual({ n: 80 });
+    db.close();
+  });
+
   it("refuses to start a booster deck exceeding the three-copy reachability", () => {
     const db = new Database(":memory:");
     migrate(db);

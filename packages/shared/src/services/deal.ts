@@ -65,11 +65,12 @@ export function analyzeCube(
 
   // A card occurs at most once per wave, and a player may take only three
   // copies across the draft. Even routing every name to one player has this limit.
+  const neededSize = Math.min(cardsPerPlayer, waves * packSize);
   const reachable = distinct * Math.min(waves, MAX_COPIES_PER_PLAYER);
-  if (reachable < cardsPerPlayer) {
+  if (reachable < neededSize) {
     errors.push(
       `This pool can give one player at most ${reachable} cards across ${waves} waves ` +
-      `(at most ${MAX_COPIES_PER_PLAYER} copies of each card), but the deck needs ${cardsPerPlayer}. Add more different cards or reduce the deck size.`,
+      `(at most ${MAX_COPIES_PER_PLAYER} copies of each card), but the deck needs ${neededSize}. Add more different cards or reduce the deck size.`,
     );
   }
 
