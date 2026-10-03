@@ -14,6 +14,7 @@ import { LiveView } from "@/components/tournament/floor/live-view";
 import { StandingsGrid, goToMatch } from "@/components/tournament/standings/crosstable";
 import { buildCrosstable } from "@/components/tournament/standings/standings-model";
 import type { TournamentDetail } from "@/components/tournament/types";
+import { standingsPlayers, standingsTournament } from "../fixtures/standings";
 import { sheetRatings, sheetTournament } from "../fixtures/tournament-sheet";
 
 // jsdom has no scrollIntoView.
@@ -21,6 +22,69 @@ beforeEach(() => { Element.prototype.scrollIntoView = vi.fn(); });
 afterEach(() => {
   document.body.querySelectorAll("[data-test-node]").forEach((node) => node.remove());
   vi.unstubAllGlobals();
+});
+
+function grid(tournament: Pick<TournamentDetail, "participants" | "matches"> = standingsTournament, narrow = false) {
+  return render(<SheetRoot><StandingsGrid rows={buildCrosstable(tournament, 5)} currentUserPlayerId={5} narrow={narrow} /></SheetRoot>);
+}
+
+describe("standings grid", () => {
+  it("has the pinned columns in standings order and the W and L columns", () => {
+    grid();
+    expect(screen.getByRole("region", { name: "Standings grid" })).toHaveAttribute("tabindex", "0");
+    expect(screen.getAllByRole("columnheader").map((node) => node.textContent)).toEqual([
+      "#", "Player", "Kestrel", "Imran", "voidpriest", "duelist.josh", "BlueEyesBen", "Marik_Mains", "W", "L",
+    ]);
+  });
+
+  it("shows places, records and profile links", () => {
+    grid();
+    const rows = within(screen.getByRole("table")).getAllByRole("row").slice(1);
+    expect(rows.map((row) => within(row).getAllByRole("cell")[0].textContent)).toEqual(["1", "2", "2", "4", "4", "6"]);
+    const kestrel = screen.getByRole("link", { name: "Kestrel" }).closest("tr")!;
+    expect(within(kestrel).getAllByRole("cell").slice(-2).map((node) => node.textContent)).toEqual(["3", "0"]);
+    for (const player of standingsPlayers) expect(screen.getByRole("link", { name: player.displayName })).toHaveAttribute("href", `/player/${player.playerId}`);
+  });
+
+  it("marks the viewer's row and gives each of their open matches a Play button", () => {
+    grid();
+    const row = screen.getByRole("link", { name: "Imran" }).closest("tr")!;
+    expect(row.className).toContain("me");
+    expect(within(row).getByText("You")).toBeInTheDocument();
+    expect(within(row).getAllByRole("button", { name: /not started, play now/ }).map((button) => button.textContent)).toEqual(["Play", "Play"]);
+    expect(screen.getAllByRole("button", { name: /play now/ })).toHaveLength(2);
+  });
+
+  it("describes live, reported, won and lost cells for the row player", () => {
+    grid();
+    const live = screen.getByRole("cell", { name: "Kestrel vs voidpriest: live, game 2, Kestrel leads 1–0" });
+    expect(within(live).getByText("1–0")).toHaveAttribute("data-r", "live");
+    expect(within(live).getByText("game 2")).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "voidpriest vs Kestrel: live, game 2, voidpriest trails 0–1" })).toBeInTheDocument();
+    const reported = screen.getByRole("cell", { name: "Marik_Mains vs duelist.josh: reported win, awaiting confirmation" });
+    expect(within(reported).getByText("W")).toHaveAttribute("data-r", "wait");
+    expect(screen.getByRole("cell", { name: "Imran vs Kestrel: lost, 1–2" })).toHaveTextContent("lost");
+    expect(screen.getByRole("cell", { name: "BlueEyesBen vs Marik_Mains: won" })).toHaveTextContent("W");
+  });
+
+  it("explains the cells in a legend on a wide column only", () => {
+    const { unmount } = grid();
+    const legend = screen.getByLabelText("How to read a cell");
+    for (const text of ["Row player lost.", "Being played now.", "Yours to play.", "Not started."]) expect(within(legend).getByText(text)).toBeInTheDocument();
+    unmount();
+    grid(standingsTournament, true);
+    expect(screen.queryByLabelText("How to read a cell")).toBeNull();
+    expect(screen.getByText("Swipe the grid. Names and places stay pinned.")).toBeInTheDocument();
+    expect(screen.getAllByRole("columnheader").map((node) => node.textContent)).not.toContain("W");
+  });
+
+  it("drops a Play button once its match is decided", () => {
+    const { rerender } = grid();
+    const next = { ...standingsTournament, matches: standingsTournament.matches.map((m) => (m.id === 8 ? { ...m, status: "completed", winnerId: 5 } : m)) };
+    rerender(<SheetRoot><StandingsGrid rows={buildCrosstable(next, 5)} currentUserPlayerId={5} narrow={false} /></SheetRoot>);
+    expect(screen.getAllByRole("button", { name: /play now/ })).toHaveLength(1);
+    expect(screen.getByRole("cell", { name: "Imran vs BlueEyesBen: won" })).toHaveTextContent("W");
+  });
 });
 
 /** A node standing in for the page elements goToMatch scrolls to. */
