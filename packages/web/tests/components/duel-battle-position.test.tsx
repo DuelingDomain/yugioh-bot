@@ -41,6 +41,25 @@ function field(view: DuelEngineView, mySeat: number | null, fx = false) {
 }
 
 describe("battle position presentation", () => {
+  it.each([0, 1, null])("hides face-down Defense art and field stats for viewer %s throughout the battle windows", mySeat => {
+    for (const battleStep of ["battle", "damage", "damage-calculation"] as const) {
+      const view = engine();
+      view.battleStep = battleStep;
+      const card = view.seats[1].monsters[0]!;
+      view.seats[1].monsters[0] = mySeat === 1 ? { ...card, position: 8 }
+        : { controller: card.controller, location: card.location, sequence: card.sequence, position: 8 };
+      const { container, unmount } = render(field(view, mySeat));
+      const zone = container.querySelector('[data-zones~="1:4:0"]')!;
+      expect(zone.getAttribute("data-defense")).toBe("true");
+      expect(zone.querySelector("[data-card-art]")).not.toBeNull();
+      expect(zone.querySelector("img")).toBeNull();
+      expect(zone.querySelector("b")).toBeNull();
+      expect(zone.textContent).not.toContain(String(CARDS.celtic.attack));
+      expect(zone.textContent).not.toContain(String(CARDS.celtic.defense));
+      unmount();
+    }
+  });
+
   it.each([0, 1, null])("renders the engine's defense position for viewer %s", mySeat => {
     const { container, rerender } = render(field(engine(), mySeat));
     const zone = () => container.querySelector('[data-zones~="1:4:0"]')!;

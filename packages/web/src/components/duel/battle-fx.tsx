@@ -412,7 +412,7 @@ function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events
     if (differs(attackerBoard, calculation.attacker)) {
       stats.push({ role: "attacker", box: capture.from, value: calculation.attacker.attack, label: "ATK", above: capture.from.top < capture.to.top });
     }
-    if (calculation.target && !capture.direct && differs(targetBoard, calculation.target)) {
+    if (calculation.target && !isFacedown(calculation.target.position) && !capture.direct && differs(targetBoard, calculation.target)) {
       const defense = isDefense(calculation.target.position);
       stats.push({ role: "target", box: capture.to, value: defense ? calculation.target.defense : calculation.target.attack,
         label: defense ? "DEF" : "ATK", above: capture.to.top < capture.from.top });

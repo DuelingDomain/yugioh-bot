@@ -131,6 +131,42 @@ describe("BattleFx", () => {
   const warrior = { code: 6368038, name: "Gaia The Fierce Knight", race: "Warrior", attribute: 1, attack: 2300, defense: 2100 };
   const machine = { code: 77585513, name: "Jinzo", race: "Machine", attribute: 32, attack: 2400, defense: 1500 };
 
+  it.each([0, 1, null])("keeps a face-down Defense target's calculation stats hidden for viewer %s", viewer => {
+    const node = board.querySelector<HTMLElement>('[data-zones="1:4:0"]')!;
+    node.dataset.side = viewer === 1 ? "you" : "opp";
+    node.dataset.defense = "true";
+    // Owners receive the identity and stats of their Set cards; spectators/opponents do not.
+    const hidden = seatsOf(warrior, viewer === 1 ? machine : {}, 8);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={hidden} />);
+    rerender(<BattleFx events={[phase, attack]} reducedMotion seats={hidden} />);
+    expect(document.querySelector('[data-battle-stat]')).toBeNull();
+    expect(node.querySelector("img")).toBeNull();
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 2300, defense: 2100, position: 1 }, target: { attack: 200, defense: 100, position: 8 } } };
+    rerender(<BattleFx events={[phase, attack, calculation, { id: 4, kind: "battle-end", text: "End" }]} reducedMotion seats={hidden} />);
+    expect(playLayer()).not.toBeNull();
+    expect(document.querySelector('[data-battle-stat="target"]')).toBeNull();
+    expect(node.querySelector("img")).toBeNull();
+  });
+
+  it.each([false, true])("shows calculation plates only after Damage Step resolution (reduced motion: %s)", reducedMotion => {
+    const before = seatsOf(warrior, machine, 4);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={reducedMotion} seats={before} />);
+    // Battle Step: declaring an attack and querying changed live stats cannot show a calculation plate.
+    const changed = seatsOf({ ...warrior, attack: 200 }, machine, 4);
+    rerender(<BattleFx events={[phase, attack]} reducedMotion={reducedMotion} seats={changed} />);
+    expect(document.querySelector('[data-battle-stat]')).toBeNull();
+    expect(playLayer()).toBeNull();
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 200, defense: 2100, position: 1 }, target: { attack: 2400, defense: 100, position: 4 } } };
+    // An after-calculation window still waits for the fight to resolve.
+    rerender(<BattleFx events={[phase, attack, calculation]} reducedMotion={reducedMotion} seats={changed} />);
+    expect(document.querySelector('[data-battle-stat]')).toBeNull();
+    rerender(<BattleFx events={[phase, attack, calculation, { id: 4, kind: "battle-end", text: "End" }]} reducedMotion={reducedMotion} seats={before} />);
+    expect(document.querySelector('[data-battle-stat="attacker"]')?.textContent).toBe("200 ATK");
+    expect(document.querySelector('[data-battle-stat="target"]')?.textContent).toBe("100 DEF");
+  });
+
   it.each([0, 1, null])("uses the changed defender pose for DOM and canvas playback for viewer %s", viewer => {
     const node = board.querySelector<HTMLElement>('[data-zones="1:4:0"]')!;
     node.dataset.side = viewer === 1 ? "you" : "opp";
