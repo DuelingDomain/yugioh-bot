@@ -9,6 +9,7 @@ Data in code:
 - Scenario sketches and script evidence: `packages/duel-server/tests/scenarios/multiplayer/catalog.ts`.
 - Check test: `packages/duel-server/tests/scenarios/multiplayer/catalog.test.ts`. It reads every cited line of every script.
 - Compare proof: `compare.ts` checks that Raigeki makes a new declaration after Evenly Matched.
+- Thundercross proof: `compare.ts` passes the earlier End, Draw and Standby Phase windows, then activates in response to the Normal Summon. Every seat is checked.
 - Deck check: `inspectDeck(mode, deck, dir, settings, { table })` in `packages/duel-server/src/deck-legality.ts`. The default table is `"1v1"` and changes nothing.
 
 This page tables are made from the catalog data. Change the data first, then change this page.
