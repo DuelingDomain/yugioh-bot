@@ -67,7 +67,7 @@ async function table(mode: DuelMode, format: DuelFormat, chain = false, extraScr
   const service = createDuelService(db);
   const session = service.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Immediate surrender", mode, format,
     settings: { banlist: "none", turnSeconds: 60, startingHand: 0, drawPerTurn, shuffleDeck: false } });
-  for (const player of players.slice(1)) service.join(session.slug, "g", player);
+  for (const player of players.slice(1)) service.takeSeat(session.slug, "g", player);
   const deck = buildPracticeBotDeck(mode, DATA);
   for (const player of players) service.setDeck(session.slug, "g", player, deck);
   const board: BoardSpec = { mode, format };
