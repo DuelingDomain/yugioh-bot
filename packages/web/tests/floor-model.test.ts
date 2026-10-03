@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  byeNames, champion, confirmLine, currentRound, finishedSeries, finishLine, heroCase, heroMatch, initials, nameList, ordinal,
+  byeNames, champion, liveElsewhere, confirmLine, currentRound, finishedSeries, finishLine, heroCase, heroMatch, initials, nameList, ordinal,
   pageRound, pickMoment, rangeText, recordLine, resultsFeed, roundName, roundWindow, signed, stakesFor, tableNumber, tableStatus, totalRounds,
   tournamentEnding, waitingList, zoneFor, zonesFor, zoneLabel,
 } from "@/components/tournament/floor/floor-model";
@@ -348,5 +348,25 @@ describe("initials", () => {
     expect(initials("Marik_Mains")).toBe("Ma");
     expect(initials("duelist.josh")).toBe("Du");
     expect(initials("  ")).toBe("?");
+  });
+});
+
+describe("liveElsewhere", () => {
+  it("returns open series outside the shown round, in round order, and skips finished, byes and series without a duel", () => {
+    const m = (id: number, round: number, a: number, b: number | null, extra: Partial<Match> = {}) => slot(id, a, b, { roundNumber: round, ...extra });
+    const live = (match: Match, extra = {}) => ({ ...match, series: seriesFor(match, extra) });
+    const t = tournament({
+      matches: [
+        m(1, 1, 5, 1),
+        live(m(2, 3, 2, 3)),
+        live(m(3, 2, 4, 6)),
+        live(m(4, 1, 5, 2)),
+        live(m(5, 4, 1, 2, { status: "completed", winnerId: 1 })),
+        live(m(6, 5, 3, 4), { currentDuelSlug: null }),
+        m(7, 2, 6, null, { metadata: { bye: true } }),
+      ],
+    });
+    expect(liveElsewhere(t, 1).map((x) => x.id)).toEqual([3, 2]);
+    expect(liveElsewhere(t, 2).map((x) => x.id)).toEqual([4, 2]);
   });
 });
