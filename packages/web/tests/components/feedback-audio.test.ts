@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDuelFeedbackAudio } from "../../src/components/duel/feedback-audio";
 import { battleTiming } from "../../src/components/duel/attack-styles";
 import { scheduleBattleSound, type ToneOpts, type BurstOpts } from "../../src/components/duel/attack-audio";
+import { setAnimationSpeed } from "../../src/components/duel/animation-speed";
+import { duelFxClock } from "../../src/components/duel/fx-clock";
 
 function param(value = 0) {
   return {
@@ -81,15 +83,32 @@ const battle = {
 };
 
 beforeEach(() => {
+  setAnimationSpeed(1);
+  duelFxClock.resetReviewTimeline();
   created = [];
   (window as unknown as { AudioContext: typeof FakeContext }).AudioContext = FakeContext;
 });
 afterEach(() => {
+  setAnimationSpeed(1);
+  duelFxClock.resetReviewTimeline();
   delete (window as unknown as { AudioContext?: unknown }).AudioContext;
   vi.restoreAllMocks();
 });
 
 describe("createDuelFeedbackAudio", () => {
+  it.each([0.5, 2])("schedules attack, counter and LP voices at %sx on the real audio clock", async (speed) => {
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    duelFxClock.resetReviewTimeline();
+    setAnimationSpeed(speed);
+    const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
+    const voices: Array<ToneOpts | BurstOpts> = [];
+    scheduleBattleSound({ tone: (opts) => voices.push(opts), burst: (opts) => voices.push(opts) }, battle, 1.01);
+    audio.playBattle(battle);
+    const expected = voices.flatMap((voice) => Array.from({ length: "vibrato" in voice && voice.vibrato ? 2 : 1 }, () => 1.01 + (voice.start - 1.01) / speed));
+    const starts = created[0]!.sourceNodes.map((node) => node.start.mock.calls[0]![0] as number);
+    expect(starts.sort((a, b) => a - b)).toEqual(expected.sort((a, b) => a - b));
+    audio.dispose();
+  });
   it.each([20, 39, 41, 100, 200])("drops voices over 30 ms late when joining %i ms into a battle", async (elapsed) => {
     vi.spyOn(performance, "now").mockReturnValue(1000 + elapsed);
     const audio = createDuelFeedbackAudio(); audio.setMuted(false); await audio.unlock();
