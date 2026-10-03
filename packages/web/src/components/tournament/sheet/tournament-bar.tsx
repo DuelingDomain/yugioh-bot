@@ -6,7 +6,7 @@ import { OwnsPageBar, ShellMenuButton } from "@/components/layout/shell-bar";
 import { pageRound, tournamentEnding, totalRounds } from "../floor/floor-model";
 import { AnimationsControl } from "../fx/animations-control";
 import type { Motion } from "../fx/use-animations";
-import { formatLabel } from "../sheet-rules";
+import { formatLabel, hostToolsAvailable } from "../sheet-rules";
 import type { TournamentDetail } from "../types";
 import fx from "../fx/fx.module.css";
 
@@ -44,7 +44,7 @@ export function TournamentBar({ tournament, isHost, hostOpen, onHostToggle, moti
   reducedMotion: boolean;
   onMotion: (level: Motion) => void;
 }) {
-  const showHost = isHost && tournament.status === "active";
+  const showHost = hostToolsAvailable(tournament, isHost);
   return (
     <PageBar
       back={{ href: "/tournaments", label: "All tournaments" }}

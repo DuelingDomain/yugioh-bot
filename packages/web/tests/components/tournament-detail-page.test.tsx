@@ -184,7 +184,28 @@ describe("TournamentDetailPage one sheet", () => {
     });
   });
 
-  it.each(["completed", "cancelled"])("renders the closed sheet with no organizer tools in the %s rail", async (status) => {
+  it("lets the host reopen a result after a round robin completes, without the ending controls", async () => {
+    setup({ ...sheetTournament, status: "completed" });
+    render(<TournamentDetailPage />);
+    const tools = await openHostTools();
+    expect(within(tools).getAllByRole("button", { name: /Reopen/ }).length).toBeGreaterThan(0);
+    expect(within(tools).queryByText("End the tournament early")).toBeNull();
+    expect(within(tools).queryByRole("region", { name: "Ending early" })).toBeNull();
+  });
+
+  it("gives a finished single elimination no host tools, and a viewer none after a round robin completes", async () => {
+    setup({ ...sheetTournament, status: "completed", format: "single_elim" });
+    const first = render(<TournamentDetailPage />);
+    await screen.findByRole("heading", { name: sheetTournament.name });
+    expect(screen.queryByRole("button", { name: "Host tools" })).toBeNull();
+    first.unmount();
+    setup({ ...sheetTournament, status: "completed", createdByUserId: "somebody-else" }, "spectator");
+    render(<TournamentDetailPage />);
+    await screen.findByRole("heading", { name: sheetTournament.name });
+    expect(screen.queryByRole("button", { name: "Host tools" })).toBeNull();
+  });
+
+  it.each(["cancelled"])("renders the closed sheet with no organizer tools in the %s rail", async (status) => {
     setup({ ...sheetTournament, status });
     render(<TournamentDetailPage />);
     await screen.findByRole("heading", { name: sheetTournament.name });

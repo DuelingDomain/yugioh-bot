@@ -18,6 +18,15 @@ export function formatLabel(format: string): string {
   return format;
 }
 
+/**
+ * Whether the organizer gets the Host tools drawer. While the event is active, always. After a round robin
+ * completes, still yes: the service lets the organizer reopen a result, which sets the event back to active.
+ */
+export function hostToolsAvailable(tournament: Pick<TournamentDetail, "status" | "format">, isHost: boolean): boolean {
+  if (!isHost) return false;
+  return tournament.status === "active" || (tournament.status === "completed" && tournament.format === "round_robin");
+}
+
 /** The short form the sheet uses: "3 min", "90 s", "Unlimited". */
 export function turnLabel(turnSeconds: number): string {
   if (turnSeconds === 0) return "Unlimited";
