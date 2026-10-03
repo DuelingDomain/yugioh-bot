@@ -49,7 +49,13 @@ test("a Deck Master is summoned from its zone, destroyed, recalled, and summoned
   await expect(bob.page.locator('[data-kind="st"][data-side="you"][data-occupied="true"]')).toHaveCount(1);
   await endTurn(bob.page, 3);
 
-  // Turn 3: the master attacks into Mirror Force and is destroyed. Alice is asked to recall it.
+  // Turn 3: use a hand card before attacking. The pinned Domain engine draws on turn 1 (legacy MR5 does not),
+  // so Alice otherwise holds 7 cards and End Turn waits for a discard. Summoning the master never used her hand.
+  await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
+  await pickLegalZone(alice.page, "mz");
+  await expect(alice.page.locator('[data-kind="mz"][data-side="you"][data-occupied="true"]')).toHaveCount(2);
+
+  // The master attacks into Mirror Force and is destroyed with the filler. Alice is asked to recall it.
   await attackWithFirstMonster(alice.page);
   await activateSingleResponse(bob.page);
   const recall = alice.page.getByRole("group", { name: /Deck Master/i });
