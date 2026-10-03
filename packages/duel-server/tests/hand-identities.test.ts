@@ -272,6 +272,29 @@ describe("animation identities in engine slots", () => {
     expect(snapshots[0]).toEqual(snapshots[1]);
   });
 
+  it("keeps surviving hidden sleeves when retiring an expired public correlation after a mutation", () => {
+    const ids = new HandIdentities();
+    [10, 20, 30, 40].forEach((code, sequence) => ids.add(0, code, sequence, sequence + 1, code === 20));
+    const before = [0, 1, 2, 3].map((sequence) => ids.at(0, false, sequence));
+    ids.shuffle(0, [20, 10, 30, 40]);
+    ids.remove(0, 2);
+    ids.syncPublic(0, [20, 10, 40].map((code) => ({ code, isPublic: false })));
+    expect(ids.at(0, false, 0)).toBe(before[0]);
+    expect(ids.at(0, false, 2)).toBe(before[3]);
+    expect(ids.at(0, false, 1)).not.toBe(before[1]);
+    expect(ids.arrival(0, false, 2)).toBeUndefined();
+  });
+
+  it("keeps every hidden sleeve when the ambiguous public sleeve was already consumed", () => {
+    const ids = new HandIdentities();
+    ids.add(0, 10, 0); ids.add(0, 20, 1, 2, true); ids.add(0, 30, 2);
+    const before = [0, 2].map((sequence) => ids.at(0, false, sequence));
+    ids.shuffle(0, [10, 20, 30]);
+    ids.remove(0, 1);
+    ids.syncPublic(0, [{ code: 10 }, { code: 30 }]);
+    expect([0, 1].map((sequence) => ids.at(0, false, sequence))).toEqual(before);
+  });
+
   it("follows public hand-to-hand sequence moves for both views", () => {
     const ids = new HandIdentities();
     ids.add(0, 10, 0, 1); ids.add(0, 20, 1, 2);

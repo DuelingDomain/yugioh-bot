@@ -55,15 +55,16 @@ export class HandIdentities {
         if (!entry.public) continue;
         const copies = publicCodes.get(entry.code) ?? 0;
         if (copies) publicCodes.set(entry.code, copies - 1);
-        else { entry.public = false; entry.code = 0; delete entry.arrival; }
+        else {
+          entry.public = false;
+          entry.code = 0;
+          delete entry.arrival;
+          // Only this public history is ambiguous after a mutation; hidden sleeves retain
+          // their identities and order, including when the public sleeve was already removed.
+          if (expired && this.mutatedAfterShuffle[seat]) entry.id = `sleeve-${++this.nextSleeve}`;
+        }
       }
-      // A removal/insertion/relocation after an unobserved shuffle can already have consumed a
-      // provisional public sleeve. If that effect expired, its history is ambiguous: retire all
-      // anonymous correlations while retaining cards that the new query still confirms public.
-      const source = expired && this.mutatedAfterShuffle[seat]
-        ? this.sleeves[seat]!.filter((entry) => entry.public)
-        : before;
-      this.sleeves[seat] = this.reorderSleeves(source, queries.map((query) => query?.code ?? 0), queries.map((query) => query?.isPublic === true));
+      this.sleeves[seat] = this.reorderSleeves(before, queries.map((query) => query?.code ?? 0), queries.map((query) => query?.isPublic === true));
       this.beforeShuffle[seat] = undefined;
       this.shuffledPublic[seat] = undefined;
       this.mutatedAfterShuffle[seat] = false;
