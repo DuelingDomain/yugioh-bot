@@ -75,6 +75,9 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const layerRef = useRef<HTMLDivElement>(null);
   const motionBtn = useRef<HTMLButtonElement>(null);
   const binderRef = useRef<BinderHandle>(null);
+  const readerPanelRef = useRef<HTMLDivElement>(null);
+  const binderPanelRef = useRef<HTMLDivElement>(null);
+  const panelOpenerRef = useRef<HTMLElement | null>(null);
   const [stage, setStage] = useState<HTMLElement | null>(null);
 
   /* ---------- state ---------- */
@@ -162,6 +165,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
 
   /* ---------- sheets ---------- */
   const binderOpen = phone ? sheet === "binder" : drawer ? drawerOpen : true;
+  const openPanel = phone ? sheet : drawer && binderOpen ? "binder" : null;
   const openSheet = useCallback(
     (which: "card" | "binder") => {
       if (phone) {
@@ -176,6 +180,26 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     setDrawerOpen(false);
   }, []);
   const closeCardSheet = useCallback(() => setSheet((s) => (s === "card" ? null : s)), []);
+  useLayoutEffect(() => {
+    const opener = panelOpenerRef.current;
+    panelOpenerRef.current = null;
+    // React restores pre-commit focus after layout cleanups. Restore here, after that and the inert updates.
+    if (opener?.isConnected && !opener.closest("[inert]")) {
+      // Focusing a table card normally opens the reader. Restoration only moves focus.
+      const wasClicking = clicking.current;
+      clicking.current = true;
+      opener.focus({ preventScroll: true });
+      clicking.current = wasClicking;
+    }
+    if (!openPanel) return;
+    const panel = openPanel === "card" ? readerPanelRef.current : binderPanelRef.current;
+    if (!panel) return;
+    panelOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const first = panel.querySelector<HTMLElement>(
+      'button:not(:disabled):not([hidden]), input:not(:disabled):not([hidden]), a[href], [tabindex]:not([tabindex="-1"])',
+    );
+    (first ?? panel).focus({ preventScroll: true });
+  }, [openPanel]);
   useEffect(() => {
     setSelectedId(null);
     closeSheets();
@@ -671,22 +695,24 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
         />
         <SeatStrip friends={friends} />
         <div className="body">
-          <CardReader
-            card={readerCard}
-            tag={readerTag}
-            pickNote={showLast && !peeking ? pickNote : null}
-            buttonHidden={!!peeking || turn === "done"}
-            pickable={pickable}
-            myTurn={turn === "picking"}
-            waitingOn={waitingOn}
-            showWaiting={!reading && !peeking && showLast}
-            phone={phone}
-            onPick={() => reading && doPick(reading.id)}
-            onClose={() => {
-              closeSheets();
-              setSelectedId(null);
-            }}
-          />
+          <div className="reader-panel" ref={readerPanelRef} inert={phone && sheet !== "card"} tabIndex={-1}>
+            <CardReader
+              card={readerCard}
+              tag={readerTag}
+              pickNote={showLast && !peeking ? pickNote : null}
+              buttonHidden={!!peeking || turn === "done"}
+              pickable={pickable}
+              myTurn={turn === "picking"}
+              waitingOn={waitingOn}
+              showWaiting={!reading && !peeking && showLast}
+              phone={phone}
+              onPick={() => reading && doPick(reading.id)}
+              onClose={() => {
+                closeSheets();
+                setSelectedId(null);
+              }}
+            />
+          </div>
           <div
             className="scrim"
             onClick={() => {
@@ -780,24 +806,26 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               onKind={onKind}
             />
           </section>
-          <Binder
-            ref={binderRef}
-            tab={theme ? "mine" : tab}
-            onTab={setTab}
-            showGone={!theme}
-            theme={theme}
-            pool={pool}
-            gone={rs.gone}
-            packCards={rs.cards}
-            filter={filter}
-            onFilter={setFilter}
-            pickConfig={pickConfig}
-            target={sizes.total}
-            newId={newId}
-            phone={phone}
-            onClose={closeSheets}
-            onPeek={setPeek}
-          />
+          <div className="binder-panel" ref={binderPanelRef} inert={!binderOpen} tabIndex={-1}>
+            <Binder
+              ref={binderRef}
+              tab={theme ? "mine" : tab}
+              onTab={setTab}
+              showGone={!theme}
+              theme={theme}
+              pool={pool}
+              gone={rs.gone}
+              packCards={rs.cards}
+              filter={filter}
+              onFilter={setFilter}
+              pickConfig={pickConfig}
+              target={sizes.total}
+              newId={newId}
+              phone={phone}
+              onClose={closeSheets}
+              onPeek={setPeek}
+            />
+          </div>
         </div>
       </div>
       {motionOpen ? (
