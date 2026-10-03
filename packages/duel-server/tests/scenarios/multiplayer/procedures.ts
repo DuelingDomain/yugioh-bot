@@ -342,12 +342,13 @@ export const PROCEDURE_SCENARIOS: Scenario[] = [
   defineScenario({
     id: "procedures-ffa3-monarchs-stormforth-tributes-opponent-two",
     title: "FFA3: The Monarchs Stormforth lets p0 Tribute the only opponent monster, which p2 controls, for a Tribute Summon",
-    source: `${SOURCE} [Q8]`,
-    rules: ["R-COMMON-OPP-FIELD"],
+    source: `${SOURCE} [Q8] [R-FFA-ACTIVATED-LOCK]`,
+    rules: ["R-FFA-ACTIVATED-LOCK", "R-FFA-OPP-ONE"],
     tags: ["multiplayer", "summon", "tribute", "q8", "ffa3", "card:79844764"],
     setup: { format: "ffa3", p0: { hand: ["The Monarchs Stormforth", "Leogun"] }, p2: { monsters: [RAT] } },
     steps: [
       activate("The Monarchs Stormforth", "p0"),
+      pickOpponent("p2", "p0"),
       normalSummon("Leogun", "p0"),
       select(RAT),
       expectBoard({
