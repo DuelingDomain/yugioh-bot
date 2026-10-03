@@ -950,7 +950,11 @@ Duel.RegisterEffect(e,0)`]);
       const final = await t.view();
       expect(states(final)).toEqual(Array.from({ length: t.count }, (_, seat) =>
         (format === "tag" ? teamOfSeat(format, seat) === 1 : losers.includes(seat)) ? "out" : "in"));
-      if (format !== "tag") {
+      if (format === "tag") {
+        // Tag ends through MSG_WIN; its result log names the winning team.
+        expect(final.log.filter((line) => line.text.startsWith("Team ")).map((line) => line.text))
+          .toEqual(["Team 1 wins (Surrender)"]);
+      } else {
         expect(final.log.filter((line) => line.text.includes("is eliminated")).map((line) => line.text))
           .toEqual(losers.map((seat) => `Player ${seat + 1} is eliminated (Surrender)`));
       }
