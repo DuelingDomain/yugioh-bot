@@ -55,8 +55,24 @@
   transform-origin: 0 0;
 }
 
-/* A 3-way canvas has a camera: the fly-in tilts the world inside this perspective. */
-.canvas[data-fly-capable="true"] {
+/*
+ * The 3D camera of a 3-way canvas, only while the world is tilted (data-fly on the board, or data-tilted while the
+ * world eases back to identity). A flat view has no perspective and no preserve-3d. Under a permanent perspective
+ * Chrome rasterized the stage at a low fixed density and the GPU stretched it, so every card and label was soft
+ * (measured: the sharpness score of the home pose dropped by a quarter at 1920 wide and by a third at 2560 wide).
+ * The perspective sits on its own zero-size box, so the flat holo panels and tethers beside it stay sharp too.
+ */
+.persp {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 0;
+}
+
+.board[data-fly="true"] .persp,
+.canvas[data-tilted] .persp {
   perspective: 1500px;
   perspective-origin: 550px 400px;
 }
@@ -68,8 +84,12 @@
   top: 410px;
   width: 0;
   height: 0;
-  transform-style: preserve-3d;
   will-change: transform;
+}
+
+.board[data-fly="true"] .world,
+.canvas[data-tilted] .world {
+  transform-style: preserve-3d;
 }
 
 /* The stage plane inside the world: stage px, flattened onto the floor. */
@@ -79,7 +99,19 @@
   top: -410px;
   width: 1100px;
   height: 860px;
+}
+
+/*
+ * A tilted plane is still rasterized at a low fixed density whatever the camera does. So the plane is laid out --ss
+ * times larger (zoom) and drawn --ss times smaller (scale about the world origin): the same picture with --ss
+ * squared times the texels. --ss follows the stage scale k (table-stage.tsx).
+ */
+.board[data-fly="true"] .wstage,
+.canvas[data-tilted] .wstage {
   transform: translateZ(1px);
+  transform-origin: 550px 410px;
+  zoom: var(--ss, 1);
+  scale: calc(1 / var(--ss, 1)) calc(1 / var(--ss, 1)) calc(1 / var(--ss, 1));
 }
 
 .sky,

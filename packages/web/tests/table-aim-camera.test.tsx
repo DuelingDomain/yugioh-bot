@@ -14,6 +14,7 @@ import { aimCurve } from "@/components/duel/table/attack-line";
 import { OpponentBar } from "@/components/duel/table/opponent-bar";
 import { TurnRing } from "@/components/duel/table/turn-ring";
 import { TableShell } from "@/components/duel/table/table-shell";
+import { tiltSupersample } from "@/components/duel/table/table-stage";
 import { tableLayout } from "@/components/duel/table/geometry";
 import type { CameraLockReason, CameraState } from "@/components/duel/table/types";
 
@@ -103,6 +104,24 @@ describe("camera keys on the 3-way shell", () => {
   it("opens in the fly-in when asked", () => {
     const { container } = render(<Shell id="main" camera={{ mode: "fly" }} />);
     expect(stageOf(container).getAttribute("data-fly")).toBe("true");
+  });
+
+  it("marks the canvas as tilted only while the world is off identity, so a flat view has no 3D camera", () => {
+    const { container } = render(<Shell id="main" />);
+    const canvas = () => container.querySelector("[data-fly-capable]")!;
+    expect(canvas().hasAttribute("data-tilted")).toBe(false);
+    press("0");
+    expect(canvas().hasAttribute("data-tilted")).toBe(true);
+    press("h");
+    expect(canvas().hasAttribute("data-tilted")).toBe(false);
+  });
+
+  it("supersamples the tilted plane about two texels per screen pixel, in quarter steps within 1.5 to 4", () => {
+    expect(tiltSupersample(1)).toBe(2);
+    expect(tiltSupersample(0.96)).toBe(2);
+    expect(tiltSupersample(1.3)).toBe(2.5);
+    expect(tiltSupersample(0.3)).toBe(1.5);
+    expect(tiltSupersample(9)).toBe(4);
   });
 });
 
