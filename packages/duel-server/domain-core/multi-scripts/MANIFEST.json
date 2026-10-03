@@ -2837,10 +2837,13 @@
       "classes": [],
       "effectType": "ACTIVATE",
       "redefined": [
+        "target",
+        "activate",
+        "retcon",
         "retop"
       ],
       "stockSha256": "721fd4a0bdaa7626b8ee164f0f69bac6ab36be006b1d82bddc447e208534680c",
-      "note": "Script fix (late-cards, R3 + R-COMMON-OPP-PICK): the card banished from the hand of the picked opponent goes back to the hand of its owner. The stock operation sent it to 1-tp, which reads as the turn player of the NEXT opponent turn, so in FFA3 the Axe Raider of p2 came back to p1. Not part of R1."
+      "note": "Script fix (R-FFA-DECLARED-DURATION + R-COMMON-OPP-PICK): in FFA, save the declared opponent's real seat at activation and return the banished card during only that seat's next End Phase. Keep the stock timing in 1v1 and Tag. The card returns to its owner's hand. Requires the W18 declared-opponent phase-reset core fix."
     },
     {
       "code": 43383478,
