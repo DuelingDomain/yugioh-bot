@@ -41,7 +41,8 @@ function hiddenPair(kind:HiddenPair,format:'1v1'|'ffa3'|'ffa4'|'tag'):Scenario {
  // Re-Cover has one legal opponent. The engine binds that seat without a pick.
  if(format!=='1v1'&&kind!=='re-cover')steps.splice(1,0,
   expectPickSeats(format==='tag'?['p1','p3']:seats.slice(1,count),'p0'),
-  ...(format==='tag'?[]:[expectNoEvent({kind:'chain-resolving',card:HIDDEN_PAIR_CODES[kind]})]),
+  // Open core defect (W25): Tag Gold Pride picks at resolution, against R-COMMON-OPP-PICK.
+  ...(kind==='gold-pride'&&format==='tag'?[]:[expectNoEvent({kind:'chain-resolving',card:HIDDEN_PAIR_CODES[kind]})]),
   pickOpponent(last,'p0'));
  steps.push(expectBoard(board));
  return defineScenario({id:`paired-hidden-zones-${kind}-${format}`,title:kind,source:'docs/adr/0002-multiplayer-duel-rules.md [Q4]',rules:['R-COMMON-OPP-PICK'],tags:['multiplayer','pair',`card:${HIDDEN_PAIR_CODES[kind]}`,kind,format],setup,steps});
