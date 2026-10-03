@@ -11,6 +11,7 @@ if (rawSlot !== undefined && !/^[0-9]$/.test(rawSlot)) {
 }
 export const e2eSlot = rawSlot === undefined ? undefined : Number(rawSlot);
 export const stackDir = resolve(e2eRoot, e2eSlot === undefined ? ".stack" : `.stack-${e2eSlot}`);
+export const supervisorPidFile = resolve(stackDir, "supervisor.pid");
 /** One timestamped file with the output of ws, duel host and web. Tests attach the lines of a failed test. */
 export const stackLogFile = resolve(stackDir, "logs/stack.log");
 

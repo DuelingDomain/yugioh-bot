@@ -3,26 +3,20 @@
 // Ctrl-C or SIGTERM stops all three children. Nothing here touches the live stack.
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import net from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  cardImageDir, dbPath, duelDataDir, e2eSlot, ensureSecrets, guildId, livePorts, manualInfoFile, manualMode, players, ports, repoRoot, stackDir, stackLogFile, standaloneBuildDir, webUrl, wsUrl,
+  cardImageDir, dbPath, duelDataDir, e2eRoot, e2eSlot, ensureSecrets, guildId, livePorts, manualInfoFile, manualMode, players, ports, repoRoot, stackDir, stackLogFile, standaloneBuildDir, supervisorPidFile, webUrl, wsUrl,
 } from "./env.mjs";
 import { seedDatabase } from "./seed.mjs";
 import { prepareManualData } from "./manual-data.mjs";
+import { withBuildLock } from "./build.mjs";
+import { readPid } from "./pid.mjs";
+import { assertStackStopped, assertSupervisorStopped } from "./runtime.mjs";
 
 const secrets = ensureSecrets();
 const children = [];
 let stopping = false;
-
-function portFree(port) {
-  return new Promise((done) => {
-    const probe = net.createServer();
-    probe.once("error", () => done(false));
-    probe.listen(port, () => probe.close(() => done(true)));
-  });
-}
 
 function stop(code = 0) {
   if (stopping) return;
@@ -72,10 +66,7 @@ function run(name, command, args, options) {
   return child;
 }
 
-for (const port of Object.values(ports)) {
-  if (livePorts.includes(port)) throw new Error(`Port ${port} belongs to the live stack. Pick another E2E port.`);
-  if (!(await portFree(port))) throw new Error(`Port ${port} is already in use. Stop the old E2E stack first.`);
-}
+await assertStackStopped(supervisorPidFile, ports, livePorts);
 
 // `E2E_STANDALONE_DIR` points at a copy of the web build (for example one with another baked ws port), so a second
 // stack can run while the repo build is being rebuilt. Default: the repo build.
@@ -92,6 +83,14 @@ for (const [label, file] of [
 }
 
 mkdirSync(stackDir, { recursive: true });
+// Claim the supervisor under the web build lock so start cannot race a prepare's rebuild.
+await withBuildLock(resolve(e2eRoot, ".stack-build-lock"), () => {
+  assertSupervisorStopped(supervisorPidFile);
+  writeFileSync(supervisorPidFile, String(process.pid));
+});
+process.once("exit", () => {
+  if (readPid(supervisorPidFile) === process.pid) rmSync(supervisorPidFile, { force: true });
+});
 mkdirSync(dirname(stackLogFile), { recursive: true });
 stackLog = createWriteStream(stackLogFile, { flags: "w" });
 mkdirSync(cardImageDir, { recursive: true });
