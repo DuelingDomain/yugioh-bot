@@ -367,8 +367,9 @@ export const FFA_SCENARIOS: Scenario[] = [
     source: `${SOURCE} [R-FFA-ELIMINATION]`,
     rules: ["R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "chain", "ffa4", "card:19613556", "card:24068492"],
-    // On turn 2 p1 (500 LP, one monster) plays Heavy Storm. p0 answers with Just Desserts (500 damage per monster) and picks p1,
-    // so p1 is eliminated while its link is still on the chain. That link must do nothing: the Swords of p2 stays.
+    // On turn 2 p1 (500 LP, one monster) plays Heavy Storm. p0 answers with Just Desserts (500 damage per monster).
+    // Only p1 controls a monster. The effect binds p1 with no pick. p1 loses while its link is on the chain.
+    // That link must have no effect: the Swords of p2 stays.
     // The set Just Desserts opens four optional windows for p0 (its End Phase and the draw of p1): they are declined.
     setup: {
       format: "ffa4",
@@ -420,7 +421,6 @@ export const FFA_SCENARIOS: Scenario[] = [
       activate("Change of Heart", "p0"),
       expectBoard({ p0: { monsters: [ELF] }, p1: { monsters: { count: 0 } } }),
       activate("Hinotama", "p0"),
-      pickOpponent("p1", "p0"),
       expectEliminated("p1"),
       // The Elf belongs to p1: it is gone from the field of p0, who controls it.
       expectBoard({ p0: { monsters: { count: 0 }, lp: 8000 } }),
