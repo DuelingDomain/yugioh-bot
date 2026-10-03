@@ -14,8 +14,9 @@ const ELF = "Mystical Elf";
 const OX = "Battle Ox";
 const KNIGHT = "Mekk-Knight Purple Nightfall";
 const RULE = "R-COMMON-EMZ";
-// The Tag column and Link Infra-Flier controls fail on installed P61. The unnumbered core fix is exported to
-// domain-core/.build/phase1/gap-rules/out/local-link-column-zones.patch. Test with private NSEAT_WASM and DOMAIN_MULTI_WASM builds.
+// The Tag column and Link Infra-Flier controls require C1 on installed P68:
+// domain-core/.build/phase1/df-zones/out/01-local-zone-viewer.patch. The integration route includes C1.
+// FFA4 shared geometry is proved by df-shared-zones.ts after the current C6 export is installed.
 const emz = (card: string) => [null, null, null, null, null, card];
 
 function independentZones(format: Format, right: boolean): Scenario {
@@ -59,7 +60,7 @@ function coLinks(format: Format, actor: Seat): Scenario {
     state[seat] = { monsters: seat === actor ? [ELF, SECURITY] : [ELF, SPIDER], extra: seat === actor ? [SPIDER] : [],
       hand: SEATS[format].indexOf(seat) > 0 && SEATS[format].indexOf(seat) <= SEATS[format].indexOf(actor) ? [ELF] : [] };
   }
-  const target = actor === "p0" ? "p1" : "p0";
+  const target: Seat = actor === "p0" ? "p1" : "p0";
   const targets = SEATS[format].filter((seat) => seat !== actor && (format !== "tag" || Number(seat[1]) % 2 !== Number(actor[1]) % 2));
   const before = everySeat(format, state);
   state[actor] = { ...state[actor], monsters: [SECURITY, SPIDER], extra: [], grave: [ELF], zones: { m1: SECURITY, emz0: SPIDER } };
@@ -135,7 +136,7 @@ function extraLink(format: Format): Scenario {
   });
 }
 
-const standard = (["ffa3", "ffa4", "tag"] as Format[]).flatMap((format) => [
+const standard = (["ffa3", "tag"] as Format[]).flatMap((format) => [
   independentZones(format, false), independentZones(format, true), coLinks(format, "p0"),
   coLinks(format, format === "ffa3" ? "p2" : "p3"), columns(format), arrowViewer(format, "p0"),
   arrowViewer(format, format === "ffa3" ? "p2" : "p3"), extraLink(format),
