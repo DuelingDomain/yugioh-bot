@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -135,11 +135,27 @@ describe("fx lab: Best of 3 scenarios", () => {
     expect(screen.getByTestId("ready-reason").textContent).toMatch(/Bring in 1 card/);
   });
 
-  it("shows a player with no Side Deck as ready", () => {
+  it("shows a player with no Side Deck waiting to click Ready", () => {
     const { room, spec } = open("match-side-none");
     render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
     expect(screen.getByText("No Side Deck. You play the same deck again.")).toBeTruthy();
     expect(screen.getByTestId("swap-counter").textContent).toContain("0 out · 0 in");
+    expect(room.series!.sideReady[0]).toBe(false);
+    expect(screen.getByTestId("my-side-status").textContent).toBe("You are not ready.");
+    expect((screen.getByRole("button", { name: "Ready" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("does not send side-deck writes automatically from a preview", async () => {
+    const fetchMock = vi.fn(async (_url: unknown) => Response.json({ cards: [], missing: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const { room, spec } = open("match-side-even");
+      render(<SeriesLabScreen room={room} spec={spec} reduced sound={false} />);
+      await act(async () => { await Promise.resolve(); });
+      expect(fetchMock.mock.calls.every(([url]) => !String(url).endsWith("/series/side"))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("shows the opponent ready while the player sides", () => {

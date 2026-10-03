@@ -5,6 +5,8 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
+import { NextRequest } from "next/server";
+import { makeDeck, makeSeries } from "./helpers/duel-series";
 
 const auth = vi.fn();
 vi.mock("@/lib/auth", () => ({ auth }));
@@ -67,6 +69,40 @@ describe("POST /api/duels/[slug]/series/first", () => {
     const res = await POST(...post(s.slug, { choice: "second" }));
     expect(res.status).toBe(200);
     expect(sentPayload()).toMatchObject({ op: "series-first", slug: s.slug, guildId: "g1", choice: "second" });
+  });
+
+  it.each(["first", "second"] as const)("forwards %s alone and preserves the not-ready response", async (choice) => {
+    const s = seed();
+    const series = makeSeries({ status: "between_games", firstChooser: 0, firstChoice: choice, sideReady: [false, true], vsBot: true });
+    hostReply = () => Response.json({ series, nextSlug: null });
+    const { POST } = await import("../app/api/duels/[slug]/series/first/route");
+    const res = await POST(...post(s.slug, { choice, ready: true }));
+    expect(await res.json()).toEqual({ series, nextSlug: null });
+    expect(hostCalls()).toHaveLength(1);
+    expect(sentPayload()).toEqual({ op: "series-first", slug: s.slug, guildId: "g1", playerId: expect.any(Number), choice });
+  });
+
+  it("forwards a side change without Ready and preserves readiness", async () => {
+    const s = seed();
+    const deck = makeDeck();
+    const series = makeSeries({ status: "between_games", sideReady: [false, true] });
+    hostReply = () => Response.json({ series });
+    const { POST } = await import("../app/api/duels/[slug]/series/side/route");
+    const request = new NextRequest(`http://localhost/api/duels/${s.slug}/series/side`, { method: "POST", body: JSON.stringify({ deck, ready: true }) });
+    const res = await POST(request, { params: Promise.resolve({ slug: s.slug }) });
+    expect(await res.json()).toEqual({ series });
+    expect(hostCalls()).toHaveLength(1);
+    expect(sentPayload()).toEqual({ op: "series-side", slug: s.slug, guildId: "g1", playerId: expect.any(Number), deck });
+  });
+
+  it.each([null, "game-2"])("only the Ready route requests readiness and returns nextSlug %s", async (nextSlug) => {
+    const s = seed();
+    const series = makeSeries({ status: nextSlug ? "active" : "between_games", sideReady: nextSlug ? [true, true] : [true, false] });
+    hostReply = () => Response.json({ series, nextSlug });
+    const { POST } = await import("../app/api/duels/[slug]/series/ready/route");
+    const res = await POST(...post(s.slug, {}));
+    expect(await res.json()).toEqual({ series, nextSlug });
+    expect(sentPayload()).toEqual({ op: "series-ready", slug: s.slug, guildId: "g1", playerId: expect.any(Number) });
   });
 
   it("refuses a bad body without calling the host", async () => {

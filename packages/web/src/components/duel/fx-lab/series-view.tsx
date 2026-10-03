@@ -65,8 +65,8 @@ function summary(spec: LabSeries): DuelSeriesSummary {
     tournamentMatchId: null,
     nextGameAt: between ? new Date(Date.now() + (spec.secondsLeft ?? 45) * 1000).toISOString() : null,
     // The practice bot is ready at once and never sides.
-    // A player with no Side Deck is ready at once, like the practice bot.
-    sideReady: [spec.noSide === true, spec.vsBot ? true : spec.opponentReady === true],
+    // Humans still click Ready when they have no Side Deck.
+    sideReady: [false, spec.vsBot ? true : spec.opponentReady === true],
     hasSide: [spec.noSide !== true, !spec.vsBot],
     // The loser of the game on screen chooses: you when the opponent leads, the opponent when you lead.
     firstChooser: between ? (spec.wins[0] > spec.wins[1] ? 1 : 0) : null,
@@ -154,7 +154,7 @@ export function SeriesLabScreen({ room, spec, reduced, sound }: { room: DuelRoom
   if (spec.screen === "label" || !room.series) return null;
   if (spec.screen === "ready" || spec.screen === "side") {
     return (
-      <BetweenGamesScreen room={room} slug="fx-lab" knownCards={KNOWN_CARDS} initialMarks={labMarks(spec)}
+      <BetweenGamesScreen room={room} slug="fx-lab" knownCards={KNOWN_CARDS} initialMarks={labMarks(spec)} autoSave={false}
         onChanged={() => undefined} onNavigate={() => undefined} />
     );
   }

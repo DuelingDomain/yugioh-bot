@@ -1,6 +1,6 @@
 "use client";
 
-import { Children, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Children, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { DuelDeck, DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { CardArt } from "@/components/decks/card-art";
 import deckStyles from "@/components/decks/editor.module.css";
@@ -19,6 +19,7 @@ import {
   isMarkedOut,
   NO_MARKS,
   planSideDeck,
+  sameDeck,
   toggleIn,
   toggleOut,
   type SideMarks,
@@ -89,10 +90,10 @@ function Section({ title, count, target, tone, hint, children, empty }: {
  * The screen between two games of a Best of 3, for a player. It replaces the table lobby: a deck view
  * like the deck editor (Main, Extra and Side) where cards come out of the Main or Extra Deck and go
  * in from the Side Deck. The count out must equal the count in, so the Side Deck never changes size.
- * Ready saves the deck for the next game (the saved deck is never touched) and marks the player ready;
+ * Complete swaps save the deck for the next game without changing readiness; Ready marks the player ready;
  * when both players are ready the room follows the series to the next game.
  */
-export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCards, initialMarks }: {
+export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCards, initialMarks, autoSave = true }: {
   room: DuelRoom;
   slug: string;
   onChanged: () => void;
@@ -101,13 +102,19 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   knownCards?: ReadonlyMap<number, CardMeta>;
   /** Marks to start with (the FX lab shows siding in progress). */
   initialMarks?: SideMarks;
+  /** Disable background writes for previews that have no duel server. */
+  autoSave?: boolean;
 }) {
   const series = room.series as DuelSeriesSummary;
   const index = seriesPlayerIndex(room, series);
   const info = betweenGamesInfo(room, slug);
   const seconds = useSecondsUntil(series.nextGameAt);
   const side = room.mySide ?? null;
-  const current = side?.currentDeck ?? EMPTY_DECK;
+  const serverDeck = side?.currentDeck ?? EMPTY_DECK;
+  const serverDeckKey = JSON.stringify(serverDeck);
+  const [current, setCurrent] = useState(serverDeck);
+  // Unlike the sided series deck, the completed duel's own deck survives reloads unchanged.
+  const [resetDeck] = useState(room.myDeck ?? serverDeck);
   const base = side?.baseDeck ?? current;
 
   const [marks, setMarks] = useState<SideMarks>(initialMarks ?? NO_MARKS);
@@ -118,13 +125,54 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const [hovered, setHovered] = useState<number | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
 
-  // The server deck changed (Ready saved it, or a new game began): the marks start again from it.
-  const serverKey = JSON.stringify(current);
-  const [seenKey, setSeenKey] = useState(serverKey);
-  if (serverKey !== seenKey) {
-    setSeenKey(serverKey);
-    setMarks(NO_MARKS);
+  const savedDeckKey = useRef(JSON.stringify(current));
+  const ownSaveKeys = useRef(new Map<string, number>());
+  const inFlightSaveKey = useRef<string | null>(null);
+  const saveOrder = useRef(0);
+  const generation = useRef(0);
+  const [seenServerKey, setSeenServerKey] = useState(serverDeckKey);
+  const saveQueue = useRef(Promise.resolve());
+  if (seenServerKey !== serverDeckKey) {
+    setSeenServerKey(serverDeckKey);
+    savedDeckKey.current = serverDeckKey;
+    // Own save echoes keep the user's marks. External edits become the new editor state.
+    const echoedOrder = ownSaveKeys.current.get(serverDeckKey);
+    if (echoedOrder == null) {
+      generation.current += 1;
+      for (const key of ownSaveKeys.current.keys()) {
+        if (key !== inFlightSaveKey.current) ownSaveKeys.current.delete(key);
+      }
+      setCurrent(serverDeck);
+      setMarks(NO_MARKS);
+    } else {
+      // Polling may skip earlier saves. Retire them so a later external rollback is recognized.
+      for (const [key, order] of ownSaveKeys.current) {
+        if (order <= echoedOrder) ownSaveKeys.current.delete(key);
+      }
+    }
   }
+  const persistDeck = useCallback((deck: DuelDeck) => {
+    const key = JSON.stringify(deck);
+    const editingGeneration = generation.current;
+    // Serialize saves so a slower request cannot overwrite a newer swap or Reset. Ready waits too.
+    const pending = saveQueue.current.catch(() => undefined).then(async () => {
+      if (editingGeneration !== generation.current || savedDeckKey.current === key) return;
+      ownSaveKeys.current.set(key, ++saveOrder.current);
+      inFlightSaveKey.current = key;
+      try {
+        await saveSeriesSideDeck(slug, deck);
+      } catch (cause) {
+        ownSaveKeys.current.delete(key);
+        throw cause;
+      } finally {
+        inFlightSaveKey.current = null;
+      }
+      // An obsolete in-flight write can finish; the new generation's queued save restores its deck.
+      savedDeckKey.current = key;
+    });
+    saveQueue.current = pending;
+    return pending;
+  }, [slug]);
 
   const codesKey = [...deckCodes(current)].sort((a, b) => a - b).join(",");
   useEffect(() => {
@@ -142,6 +190,14 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
 
   const types = useMemo(() => new Map([...meta].map(([code, info]) => [code, info.type] as const)), [meta]);
   const plan = useMemo(() => planSideDeck(current, marks, types, base), [current, marks, types, base]);
+
+  useEffect(() => {
+    if (!autoSave || index == null || series.sideReady[index] || plan.reason || series.status !== "between_games") return;
+    // Save valid deck state throughout the window; never submit an incomplete swap or mark Ready.
+    void persistDeck(plan.deck).catch((cause) => {
+      setError(cause instanceof Error ? cause.message : "Your side changes could not be saved. Try Ready again.");
+    });
+  }, [autoSave, index, series.sideReady, series.status, serverDeckKey, plan, persistDeck]);
 
   if (index == null) return null;
   const imReady = series.sideReady[index];
@@ -173,16 +229,17 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
 
   const ready = () => run(async () => {
     if (plan.reason) return;
-    if (changed) await saveSeriesSideDeck(slug, plan.deck);
+    const readyGeneration = generation.current;
+    await persistDeck(plan.deck);
+    if (readyGeneration !== generation.current) throw new Error("Your deck changed. Review it and click Ready again.");
     const result = await readySeries(slug);
     if (result.nextSlug) onNavigate(result.nextSlug);
     else onChanged();
   });
   const choose = (choice: "first" | "second") => run(async () => {
     if (choice === series.firstChoice) return;
-    const result = await chooseSeriesFirst(slug, choice);
-    if (result.nextSlug) onNavigate(result.nextSlug);
-    else onChanged();
+    await chooseSeriesFirst(slug, choice);
+    onChanged();
   });
   const cancel = () => run(async () => {
     await cancelSeries(series.id);
@@ -195,10 +252,10 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const counterNote = !changed ? "No changes" : !plan.typesReady ? "Loading card types…"
     : plan.balanced ? "Even" : plan.out === plan.inn ? "Section sizes changed" : "Not even";
   const status = imReady
-    ? (theirReady ? "Both players are ready." : !hasSide ? "Your deck has no Side Deck, so you are ready. Waiting for your opponent." : "You are ready. Waiting for your opponent.")
+    ? (theirReady ? "Both players are ready." : "You are ready. Waiting for your opponent.")
     : interrupted ? "The last game did not finish. Both players must click Ready to play on."
       : !hasSide ? "Your deck has no Side Deck, so there is nothing to change. Click Ready."
-        : "Click Ready before the timer ends, or your changes are lost.";
+        : "Complete swaps are saved automatically. Click Ready, or wait for the timer.";
 
   const mainCards = current.main.map((code, i) => {
     const tag: Tag | undefined = isMarkedOut(marks, "main", i) ? "out" : undefined;
@@ -295,13 +352,15 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
           </div>
 
           <div className={styles.actions}>
+            <p className={styles.reason} role="status" data-testid="my-side-status">{imReady ? "You are ready." : "You are not ready."}</p>
             <p className={styles.reason} id="between-reason" data-testid="ready-reason">{readyReason ?? status}</p>
             <div className={styles.buttons}>
               <SheetButton kind="primary" loading={busy && !confirmCancel} disabled={imReady || busy || readyReason != null}
                 aria-describedby="between-reason" onClick={() => void ready()}>
                 Ready
               </SheetButton>
-              <SheetButton kind="secondary" disabled={locked || !changed} onClick={() => setMarks(NO_MARKS)}>
+              <SheetButton kind="secondary" disabled={locked || (!changed && sameDeck(current, resetDeck))}
+                onClick={() => { setCurrent(resetDeck); setMarks(NO_MARKS); }}>
                 Reset to the deck from last game
               </SheetButton>
               {canCancelInterrupted(series) ? (

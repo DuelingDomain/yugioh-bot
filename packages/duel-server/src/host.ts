@@ -1198,11 +1198,8 @@ export function createDuelHost(options: {
         if (info.status !== "between_games") throw new RequestError("The series is not between games", 409);
         const updated = series.setFirstChoice(seriesId, guildId, actor, body.choice);
         await emitChange(updated.currentDuelSlug ?? slug, guildId);
-        const advanced = isSeriesDue(updated, now()) ? await advanceSeries(seriesId, guildId) : null;
-        const latest = series.get(seriesId, guildId);
-        const nextSlug = advanced
-          ?? (latest.status === "active" && latest.currentDuelSlug !== slug ? latest.currentDuelSlug : null);
-        return { series: latest, nextSlug };
+        // A turn choice only records the choice. Ready and the deadline own advancement.
+        return { series: updated, nextSlug: null };
       }
       if (info.status !== "between_games") {
         // The next game may already exist (the timer or the other player was first): point the client at it.
