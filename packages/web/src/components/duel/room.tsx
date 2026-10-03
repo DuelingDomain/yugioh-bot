@@ -667,7 +667,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   if (liveTable && liveController) {
     // One seam set for both live shells, so the room stays one code path.
     const shellProps: TableShellProps = {
-      controller: liveController, fillViewport: true, boardRef, pickContinuation: pick,
+      controller: liveController, fillViewport: true, boardRef, pickContinuation: pick, preferences,
       inputSuspended: surrenderOpen,
       fxActive: !error && !realtime.recovering, busy: busy || Boolean(error) || catchingUp,
       initialOutOrder: eliminationOrder(liveController.engine),

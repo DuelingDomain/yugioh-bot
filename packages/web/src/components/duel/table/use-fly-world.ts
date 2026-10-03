@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type RefObject } from "react";
+import { CAMERA_HOME_MS } from "./camera-model";
 import { normalizeAngle, type FlyWorld } from "./geometry";
 import { SEAT_TONE_HEX, type SeatTone } from "./types";
 import { hexToRgbTriplet } from "./seat-angle";
@@ -13,7 +14,7 @@ import { hexToRgbTriplet } from "./seat-angle";
  */
 
 export const WORLD_ID: FlyWorld = { yawDeg: 0, tiltDeg: 0, zoom: 1, fx: 0, fy: 0, oy: 0 };
-const DURATION_MS = 950;
+const DURATION_MS = CAMERA_HOME_MS;
 const easeOut4 = (t: number) => 1 - Math.pow(1 - t, 4);
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 

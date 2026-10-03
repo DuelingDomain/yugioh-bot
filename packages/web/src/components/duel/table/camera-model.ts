@@ -1,5 +1,6 @@
 import type { DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
 import { flyYawFor, normalizeAngle } from "./geometry";
+import { scaleLockMs as scaleLock } from "../camera-lock-time";
 import type { CameraAction, CameraLockReason, CameraMode, CameraState, FlyPose, TableLayout } from "./types";
 
 /**
@@ -245,10 +246,14 @@ const LOCK_PRIORITY: Record<CameraLockReason, number> = { destroy: 1, chain: 2, 
 const LOCK_MS: Record<CameraLockReason, number> = { chain: 900, destroy: 1300, battle: 1500, direct: 1900, elimination: 2400 };
 const DAMAGE_LOCK_MS = 1100;
 
+/**
+ * The longest home move of the table camera: the fly tween (`DURATION_MS` in use-fly-world.ts). The rival fields ease
+ * for 0.76 s (rival-field.module.css). Neither is scaled by the FX speed.
+ */
+export const CAMERA_HOME_MS = 950;
+
 /** Real milliseconds a lock of `ms` FX milliseconds lasts at the viewer's pace (`duelFxClock.factor()`). */
-export function scaleLockMs(ms: number, speed: number): number {
-  return Number.isFinite(speed) && speed > 0 ? Math.round(ms / speed) : ms;
-}
+export const scaleLockMs = (ms: number, speed: number): number => scaleLock(ms, speed, CAMERA_HOME_MS);
 
 /** The lock one event asks for. An attack with a target is a battle; with none it is a direct attack. */
 export function fxLockFor(event: DuelEvent): FxLock | null {

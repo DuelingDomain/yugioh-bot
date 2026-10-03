@@ -26,6 +26,8 @@ export const ROOF_PRESETS: Readonly<Record<"home" | "overview" | "rival" | "intr
   intro: { yaw: -150, tilt: 74, zoom: 0.17, fx: 0, fy: -500, oy: -150 },
 };
 
+/** How long the camera takes to ease to the play view when an FX lock starts. The FX speed does not scale it. */
+export const ROOF_LOCK_IN_MS = 700;
 /** Field plane size (the SeatField box at z = 112 px) and strip offset in world units. Fields sit 61 units apart. */
 export const ROOF_FIELD = { width: 653, height: 380, offsetY: 190, centerX: 357 } as const;
 
@@ -243,7 +245,7 @@ export function roofReducer(state: RoofCameraState, action: CameraAction): RoofC
         pose: state.pose,
         fly: state.fly,
       };
-      const eased = goHome(state, 700);
+      const eased = goHome(state, ROOF_LOCK_IN_MS);
       return { ...eased, lock: { reason: action.reason, untilMs }, resume };
     }
     case "tick": {

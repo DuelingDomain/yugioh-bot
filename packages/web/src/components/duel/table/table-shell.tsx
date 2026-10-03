@@ -16,7 +16,7 @@ import { DuelResultScreen } from "../duel-result";
 import { resolveEquipLinks } from "../equip-links";
 import { DuelFeedback } from "../feedback";
 import { DeckMasterRail, SeatField } from "../field";
-import { FxBoundary } from "../fx-boundary";
+import { FxBoundary, MoveSourceBoundary } from "../fx-boundary";
 import { duelFontClasses } from "../fonts";
 import { DuelHistoryRail } from "../history-rail";
 import { CardInspector, type InspectTarget } from "../inspector";
@@ -39,7 +39,7 @@ import { SeriesBanner } from "../series-banner";
 import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNarrow } from "../side-panel";
 import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "../station-track";
 import { SummonFx } from "../summon-fx";
-import { useDuelPreferences } from "../preferences";
+import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import roomStyles from "../room.module.css";
 import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
@@ -98,6 +98,11 @@ export interface TableShellProps {
   inputSuspended?: boolean;
   /** The room's prompt reveal gate must wait on this shell's board effects. */
   boardRef?: RefObject<HTMLDivElement | null>;
+  /**
+   * The room's one preferences instance. The room already feeds its Motion setting to the controller and the FX speed
+   * clock, so the shell's Settings tab must change that same state. A preview leaves it out and gets its own.
+   */
+  preferences?: DuelPreferences;
 }
 
 /**
@@ -105,7 +110,17 @@ export interface TableShellProps {
  * track, menus, the result screen and the FX. It uses the exported duel components of the 1v1 room and keeps the room's
  * look (room.module.css). The room itself stays the owner of the live engine: it passes a controller.
  */
-export function TableShell({
+export function TableShell(props: TableShellProps) {
+  return props.preferences ? <TableShellBody {...props} preferences={props.preferences} /> : <TableShellOwnPreferences {...props} />;
+}
+
+/** A shell with no room above it (a preview): it keeps its own preferences, created once. */
+function TableShellOwnPreferences(props: TableShellProps) {
+  const preferences = useDuelPreferences();
+  return <TableShellBody {...props} preferences={preferences} />;
+}
+
+function TableShellBody({
   controller: supplied,
   fillViewport = false,
   initialCamera,
@@ -122,7 +137,8 @@ export function TableShell({
   pickContinuation,
   inputSuspended = false,
   boardRef: roomBoardRef,
-}: TableShellProps) {
+  preferences,
+}: TableShellProps & { preferences: DuelPreferences }) {
   // Field clicks use the same reveal gate as the centered prompt; hidden decisions must not answer early.
   const given = useMemo(() => {
     const blocked = roomBusy || supplied.busy || (centerKind(supplied.prompt) != null && !supplied.revealed);
@@ -155,7 +171,6 @@ export function TableShell({
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
   const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, aiming: flow.aiming, seatKeys: flow.seatKeys, suspended });
-  const preferences = useDuelPreferences();
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
   // Phone and small tablet: the left column is a sheet opened from a bar under the station track.
@@ -403,95 +418,97 @@ export function TableShell({
         </div>
         <section className={roomStyles.boardColumn} aria-label="Duel field">
           <div className={roomStyles.board} ref={boardRef}>
-            <TableStage
-              controller={controller}
-              layout={layout}
-              camera={camera.shown}
-              wantMode={camera.state.mode}
-              locked={camera.locked}
-              out={camera.out}
-              dispatchCamera={camera.dispatch}
-              renderSeatField={(props) => <SeatField {...props} />}
-              fx={
-                <FxBoundary>
-                  {fxActive ? <DuelFeedback events={engine.events} duelKey={session.slug} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={controller.reducedMotion} /> : null}
-                  {fxActive ? <SummonFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
-                  {fxActive ? <MoveFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
-                  {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
-                  {fxActive ? <ChainFx events={engine.events} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} /> : null}
-                  {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
-                  <BattleFx events={engine.events} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} />
-                  <DestroyFx events={engine.events} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />
-                </FxBoundary>
-              }
-              promptCenter={
-                <PromptCenter
-                  prompt={prompt ?? (!hasResult ? pick.waiting : null)}
-                  mySeat={viewerSeat}
-                  active={!terminal && !viewerOut}
-                  slug={session.slug}
-                  busy={controller.busy || (prompt == null && pick.waiting != null)}
-                  draft={controller.draft}
-                  onSubmit={controller.onAnswer}
-                  menuOpen={suspended}
-                  chain={engine.chain}
-                  aim={flow.promptAim ?? undefined}
-                  aimLocked={flow.locked}
-                  reducedMotion={controller.reducedMotion}
-                  revision={engine.revision}
-                  battleStep={battleStep}
-                  revealed={controller.revealed}
-                  onInspectCard={(card) => ui.setInspect({ type: "info", card })}
-                  nameOf={nameOf}
-                  seatTones={seatTones}
-                  priority={priority}
-                />
-              }
-              overlay={
-                <>
-                  {barShown && flow.bar ? (
-                    <OpponentBar
-                      kind={flow.bar.kind}
-                      title={flow.bar.title}
-                      targetLabel={flow.bar.targetLabel}
-                      entries={flow.bar.entries}
-                      onPick={(seat) => controller.seatPick?.onPick(seat)}
-                      onConfirm={flow.confirm}
-                      onCancel={flow.cancel}
-                    />
-                  ) : null}
-                  {out.length > 0 ? (
-                    <ul className={styles.outNote} aria-label="Duelists who left">
-                      {out.map((entry) => (
-                        <li key={entry.seat} data-testid="seat-out" data-you={entry.seat === viewerSeat} style={{ "--seat-main": toneOf(entry.seat).main, "--seat-ink": toneOf(entry.seat).ink } as CSSProperties}>
-                          <i aria-hidden="true" />
-                          {entry.seat === viewerSeat ? "You are out" : `${nameOf(entry.seat)} is out`}
-                          <b>{placeLabel(entry.place)}</b>
-                          {entry.seat === viewerSeat ? <em data-testid="self-eliminated" role="status">You are eliminated.</em> : null}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                  <CameraControls {...cameraProps} variant={masterRail ? "stage" : "float"} />
-                  {ui.pile ? (
-                    <PileViewer
-                      title={ui.pile.title}
-                      owner={ui.pile.owner}
-                      ownerTag={pileSeat != null ? { name: nameOf(pileSeat), tone: toneOf(pileSeat) } : null}
-                      open={ui.pile.open}
-                      cards={livePileCards(ui.pile, engine, viewerSeat)}
-                      onClose={ui.closePile}
-                      onInspectCard={(card) => inspectCard({ type: "card", card })}
-                      onHoverCard={(card) => { if (ui.pane === "card") ui.setInspect({ type: "card", card }); }}
-                      onActivateCard={onInspectorActivate}
-                      legalKeys={controller.legalKeys}
-                      selectedKeys={controller.selectedKeys}
-                      reducedMotion={controller.reducedMotion}
-                    />
-                  ) : null}
-                </>
-              }
-            />
+            <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
+              <TableStage
+                controller={controller}
+                layout={layout}
+                camera={camera.shown}
+                wantMode={camera.state.mode}
+                locked={camera.locked}
+                out={camera.out}
+                dispatchCamera={camera.dispatch}
+                renderSeatField={(props) => <SeatField {...props} />}
+                fx={
+                  <FxBoundary>
+                    {fxActive ? <DuelFeedback events={engine.events} duelKey={session.slug} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={controller.reducedMotion} /> : null}
+                    {fxActive ? <SummonFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
+                    {fxActive ? <MoveFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
+                    {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
+                    {fxActive ? <ChainFx events={engine.events} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} /> : null}
+                    {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
+                    <BattleFx events={engine.events} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} />
+                    <DestroyFx events={engine.events} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />
+                  </FxBoundary>
+                }
+                promptCenter={
+                  <PromptCenter
+                    prompt={prompt ?? (!hasResult ? pick.waiting : null)}
+                    mySeat={viewerSeat}
+                    active={!terminal && !viewerOut}
+                    slug={session.slug}
+                    busy={controller.busy || (prompt == null && pick.waiting != null)}
+                    draft={controller.draft}
+                    onSubmit={controller.onAnswer}
+                    menuOpen={suspended}
+                    chain={engine.chain}
+                    aim={flow.promptAim ?? undefined}
+                    aimLocked={flow.locked}
+                    reducedMotion={controller.reducedMotion}
+                    revision={engine.revision}
+                    battleStep={battleStep}
+                    revealed={controller.revealed}
+                    onInspectCard={(card) => ui.setInspect({ type: "info", card })}
+                    nameOf={nameOf}
+                    seatTones={seatTones}
+                    priority={priority}
+                  />
+                }
+                overlay={
+                  <>
+                    {barShown && flow.bar ? (
+                      <OpponentBar
+                        kind={flow.bar.kind}
+                        title={flow.bar.title}
+                        targetLabel={flow.bar.targetLabel}
+                        entries={flow.bar.entries}
+                        onPick={(seat) => controller.seatPick?.onPick(seat)}
+                        onConfirm={flow.confirm}
+                        onCancel={flow.cancel}
+                      />
+                    ) : null}
+                    {out.length > 0 ? (
+                      <ul className={styles.outNote} aria-label="Duelists who left">
+                        {out.map((entry) => (
+                          <li key={entry.seat} data-testid="seat-out" data-you={entry.seat === viewerSeat} style={{ "--seat-main": toneOf(entry.seat).main, "--seat-ink": toneOf(entry.seat).ink } as CSSProperties}>
+                            <i aria-hidden="true" />
+                            {entry.seat === viewerSeat ? "You are out" : `${nameOf(entry.seat)} is out`}
+                            <b>{placeLabel(entry.place)}</b>
+                            {entry.seat === viewerSeat ? <em data-testid="self-eliminated" role="status">You are eliminated.</em> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <CameraControls {...cameraProps} variant={masterRail ? "stage" : "float"} />
+                    {ui.pile ? (
+                      <PileViewer
+                        title={ui.pile.title}
+                        owner={ui.pile.owner}
+                        ownerTag={pileSeat != null ? { name: nameOf(pileSeat), tone: toneOf(pileSeat) } : null}
+                        open={ui.pile.open}
+                        cards={livePileCards(ui.pile, engine, viewerSeat)}
+                        onClose={ui.closePile}
+                        onInspectCard={(card) => inspectCard({ type: "card", card })}
+                        onHoverCard={(card) => { if (ui.pane === "card") ui.setInspect({ type: "card", card }); }}
+                        onActivateCard={onInspectorActivate}
+                        legalKeys={controller.legalKeys}
+                        selectedKeys={controller.selectedKeys}
+                        reducedMotion={controller.reducedMotion}
+                      />
+                    ) : null}
+                  </>
+                }
+              />
+            </MoveSourceBoundary>
           </div>
         </section>
         {masterRail && !narrow ? (
