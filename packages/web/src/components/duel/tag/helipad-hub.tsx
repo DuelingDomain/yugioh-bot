@@ -46,6 +46,7 @@ export function HelipadHub({ chain, anchorSeat, nameOf, toneOf, response, teamLa
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+      if (target?.closest?.("[role='dialog']")) return;
       const index = Number(event.key) - 1;
       if (Number.isInteger(index) && index >= 0 && index < pick.seats.length) {
         event.preventDefault();

@@ -47,6 +47,21 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+const HOTKEYS = ["h", "H", "s", "S", "m", "M", " ", "1", "2", "3", "4", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Enter", "f", "+", "-"];
+
+/** Keys pressed in the open dialog, in its field and on its buttons, must not reach any duel hotkey (they would call preventDefault). */
+function expectNoDuelHotkeys() {
+  const targets = [screen.getByLabelText(/What went wrong\?/), screen.getByRole("button", { name: "Cancel" })];
+  for (const target of targets) {
+    for (const key of HOTKEYS) {
+      // Enter in the field may only submit the form; the form needs both fields, so nothing is sent here.
+      const notPrevented = fireEvent.keyDown(target, { key });
+      if (target instanceof HTMLTextAreaElement || key !== "Enter") expect(notPrevented, `${key} on ${target.tagName}`).toBe(true);
+    }
+  }
+  expect(screen.getByRole("dialog", { name: "Report a bug" })).toBeTruthy();
+}
+
 /** Opens the dialog from the room menu, fills it, sends it and checks the result and the Escape key. */
 async function reportFromMenu(expected: { format: string; seat: number | null; slug: string }, entry = screen.getByRole("button", { name: "Report bug" })) {
   fireEvent.click(entry);
@@ -102,6 +117,13 @@ describe("Report bug in the table shell", () => {
     await waitFor(() => expect(document.activeElement).toBe(opener));
   });
 
+  it("ignores duel hotkeys typed inside the dialog", () => {
+    render(<Shell />);
+    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Report bug" }));
+    expectNoDuelHotkeys();
+  });
+
   it("shows Saved when GitHub is not set up and a clear text after a rate limit", async () => {
     render(<Shell />);
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
@@ -125,6 +147,17 @@ describe("Report bug in the table shell", () => {
 });
 
 describe("Report bug in the Rooftop shell", () => {
+  it("ignores duel hotkeys typed inside the dialog", () => {
+    function Shell() {
+      const controller = useFixtureController(TAG_FIXTURES.states.main, { reducedMotion: true });
+      return <TagShell fxActive={false} controller={controller} connection={connection} />;
+    }
+    render(<Shell />);
+    fireEvent.click(screen.getAllByRole("tab", { name: "Settings" })[0]!);
+    fireEvent.click(screen.getByRole("button", { name: "Report bug" }));
+    expectNoDuelHotkeys();
+  });
+
   it("opens from the Settings menu with the tag format", async () => {
     function Shell() {
       const fixture = TAG_FIXTURES.states.main;
@@ -153,6 +186,13 @@ describe("Report bug in the 1v1 room", () => {
     const body = await reportFromMenu({ format: "1v1", seat: 0, slug: "game-1" }, menuEntry);
     expect(body.context).toMatchObject({ animationSpeed: 1 });
     expect(JSON.stringify(body.context)).not.toMatch(/Sulman|Dark Magician/);
+  });
+
+  it("ignores duel hotkeys typed inside the dialog", () => {
+    render(<DuelRoomView slug="game-1" windowed />);
+    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Report bug" }).find((button) => !button.hasAttribute("data-bug-header-button"))!);
+    expectNoDuelHotkeys();
   });
 
   it("has a red Report bug button in the header, next to the other header buttons, that sends browser context only", async () => {

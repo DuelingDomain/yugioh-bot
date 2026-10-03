@@ -1409,6 +1409,8 @@ export function PromptCenter(props: PromptCenterProps) {
         else check.no();
         return;
       }
+      // A dialog opened over the duel (Report a bug) owns its keys: its Escape must not answer the prompt behind it.
+      if (event.target instanceof Element && event.target.closest("[role='dialog']")) return;
       if (event.key !== "Escape") return;
       event.preventDefault();
       if (check?.backable && !collapsedRef.current) {
