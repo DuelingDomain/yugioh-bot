@@ -493,6 +493,24 @@
   font: 500 12px/1 var(--f-ui);
 }
 .dr[data-kbd] .tcard .ix { display: block; }
+/* a card the player already holds the maximum copies of: muted on its own, with the reason on a small tag */
+.dr .tcard .cap {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 8px);
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgb(7 11 21 / 0.92);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.16);
+  color: var(--ink-2);
+  font: 600 11px/1 var(--f-ui);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.dr .tcard[data-blocked] .face { filter: saturate(0.4) brightness(0.7); }
+.dr .tcard[data-blocked] { cursor: default; }
 @media (hover: hover) {
   .dr[data-turn="picking"] .tcard:hover .lift { transform: translateZ(10px) rotateX(calc(var(--tilt) * -0.42)); }
 }

@@ -17,6 +17,7 @@ import {
   EMPTY_FILTER,
   KINDS,
   attributeTint,
+  blockedLabel,
   dialModel,
   filterWords,
   isFiltering,
@@ -339,7 +340,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     (cardId: number): Promise<boolean> => {
       const root = rootRef.current;
       const card = deal.dealt.find((c) => c.id === cardId);
-      if (!root || !card) return Promise.resolve(false);
+      // a card the player holds the maximum copies of cannot be picked
+      if (!root || !card || card.blocked) return Promise.resolve(false);
       const el = root.querySelector<HTMLElement>(`.tcard[data-id="${cardId}"] .face`);
       const win = root.querySelector<HTMLElement>(`.slot[data-kind="${kindOf(card)}"] .win`);
       flightRef.current = {
@@ -361,6 +363,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
 
   /* ---------- time's nearly up: a selected card is the pick (hover alone never counts) ---------- */
   const lastCall = useDraftStore((s) => s.timerSeconds <= AUTO_PICK_AT);
+  const passed = useDraftStore((s) => s.passed);
   const autoPicked = useRef(-1);
   useEffect(() => {
     if (!lastCall || pickPending || turn !== "picking" || rs.completed || selectedId == null) return;
@@ -579,7 +582,11 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
           ? "Everyone's in. Next round."
           : "Pack finished.";
     } else if (turn === "waiting" && waitingOn.length) {
-      status = (
+      status = passed ? (
+        <>
+          Nothing here you can take. You pass this pick. Waiting on <em>{joinNames(waitingOn)}</em>
+        </>
+      ) : (
         <>
           Picked. Waiting on <em>{joinNames(waitingOn)}</em>
         </>
@@ -602,7 +609,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
       : showLast
         ? "Your pick"
         : "";
-  const pickable = !!reading && turn === "picking";
+  const pickable = !!reading && turn === "picking" && !reading.blocked;
+  const blockedNote = reading?.blocked ? blockedLabel(reading) : null;
 
   /* ---------- keys: 1-9 choose, arrows move, Enter picks, / searches, Esc closes ---------- */
   const latest = useRef({ rs, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets });
@@ -733,6 +741,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               pickNote={showLast && !peeking ? pickNote : null}
               buttonHidden={!!peeking || turn === "done"}
               pickable={pickable}
+              blockedNote={blockedNote}
               myTurn={turn === "picking"}
               waitingOn={waitingOn}
               showWaiting={!reading && !peeking && showLast}

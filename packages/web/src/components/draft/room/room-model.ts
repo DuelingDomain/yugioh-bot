@@ -45,6 +45,13 @@ export function countKinds(cards: Array<Pick<RoomCard, "type" | "frameType">>): 
   return counts;
 }
 
+/* ---------- the per-player copy limit ---------- */
+
+/** Why a pack card cannot be picked: the player already holds the maximum copies of it. */
+export function blockedLabel(card: Pick<RoomCard, "held">): string {
+  return `You have ${card.held ?? 0}`;
+}
+
 /* ---------- card text ---------- */
 
 function titleCase(s: string): string {

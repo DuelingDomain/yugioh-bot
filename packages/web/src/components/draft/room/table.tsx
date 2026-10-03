@@ -9,7 +9,7 @@ import { animate, flight, motionCalm, motionOff, prefersReducedMotion, wait } fr
 import { CardImg } from "./card-img";
 import { EdgeClock } from "./edge-clock";
 import { anchorDelta, anchorFor, packSlots, themeStackPoint, type Geometry, type Slot } from "./table-geometry";
-import { kindOf, type DealState, type RoomCard, type Turn } from "./room-model";
+import { blockedLabel, kindOf, type DealState, type RoomCard, type Turn } from "./room-model";
 
 interface Item {
   card: RoomCard;
@@ -244,7 +244,7 @@ export const Table = memo(function Table(props: TableProps) {
       const host = cardsRef.current;
       if (!host || motionCalm() || turn !== "picking" || document.hidden) return;
       const pool = Array.from(host.children).filter(
-        (el) => !el.hasAttribute("data-sel") && (el as HTMLElement).dataset.lens !== "miss",
+        (el) => !el.hasAttribute("data-sel") && !el.hasAttribute("data-blocked") && (el as HTMLElement).dataset.lens !== "miss",
       ) as HTMLElement[];
       const el = pool[Math.floor(Math.random() * pool.length)];
       if (!el) return;
@@ -278,16 +278,19 @@ export const Table = memo(function Table(props: TableProps) {
   const stack = themeStackPoint(g);
   const renderCard = (it: Item, key: string, interactive: boolean) => {
     const kind = kindOf(it.card);
+    const blocked = !!it.card.blocked;
     return (
       <div
         key={key}
         className="tcard"
         tabIndex={interactive ? 0 : -1}
         role="button"
-        aria-label={it.card.name}
+        aria-label={blocked ? `${it.card.name}. ${blockedLabel(it.card)}, cannot be picked` : it.card.name}
+        aria-disabled={blocked || undefined}
         aria-hidden={interactive ? undefined : true}
         data-id={it.card.id}
         data-kind={kind}
+        data-blocked={blocked ? "" : undefined}
         data-index={it.index}
         data-sel={interactive && props.selectedId === it.card.id ? "" : undefined}
         data-lens={interactive && props.lens ? (props.lens(it.card) ? "hit" : "miss") : undefined}
@@ -328,6 +331,7 @@ export const Table = memo(function Table(props: TableProps) {
               <span className={`back${kind === "extra" ? " x" : ""}`} />
             </span>
             <span className="ix">{it.index < 9 ? String(it.index + 1) : ""}</span>
+            {blocked ? <span className="cap">{blockedLabel(it.card)}</span> : null}
           </span>
         </span>
       </div>
