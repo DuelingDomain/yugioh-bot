@@ -924,8 +924,9 @@ export function createDuelHost(options: {
 
   /**
    * A seat gives up (surrender or time limit).
-   * 1v1 surrender and Tag time losses end the duel at once. A multiplayer surrender with no
-   * open chain is queued until the turn ends. Tag surrender with an open chain ends the duel at once.
+   * 1v1 surrender and Tag time losses end the duel at once. A multiplayer surrender during another
+   * seat's turn and with no open chain is queued until that turn ends. Own-turn surrender flags the
+   * loss now. Tag surrender with an open chain ends the duel at once.
    */
   async function forfeitSeat(
     slug: string,
@@ -958,7 +959,7 @@ export function createDuelHost(options: {
       await persistComplete(slug, guildId, game, winner, reason);
       return;
     }
-    const atTurnEnd = reason !== TIME_LIMIT_REASON && (before.chain?.length ?? 0) === 0;
+    const atTurnEnd = reason !== TIME_LIMIT_REASON && before.turnSeat !== seat && (before.chain?.length ?? 0) === 0;
     if (atTurnEnd) {
       entry.surrendered.add(seat);
       try {
@@ -990,6 +991,7 @@ export function createDuelHost(options: {
       if (drive) await driveBot(slug, guildId, game);
       return;
     }
+    if (reason !== TIME_LIMIT_REASON) throw new RequestError("This engine cannot eliminate a surrendering duelist", 409);
     if (!entry.surrendered.has(seat)) {
       entry.surrendered.add(seat);
       service.setSetup(slug, guildId, { ...(state.setup ?? {}), surrenderedSeats: [...entry.surrendered].sort((a, b) => a - b) });

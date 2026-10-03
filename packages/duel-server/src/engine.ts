@@ -971,36 +971,52 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         errors.length = 0;
         throw new Error("This duel core has no Debug.EliminateDuelist");
       }
-      if (atTurnEnd) {
+      const finishQueuedTurn = !atTurnEnd && reason === 0 && seat === turnSeat && liveChainSize === 0 && queuedSurrenders.size > 0;
+      if (atTurnEnd || finishQueuedTurn) {
         // Each loss has one effect, in queue order. DELAY makes the core run Adjust
         // after each operation, so the last living seat wins before its loss can run.
         // EVENT_TURN_END follows all End Phase actions, also when the turn ends early.
         const script = `
-local late=Duel.GetCurrentPhase()==PHASE_END and Duel.CheckEvent(EVENT_TURN_END)
+local immediate=${finishQueuedTurn}
+local late=immediate or (Duel.GetCurrentPhase()==PHASE_END and Duel.CheckEvent(EVENT_TURN_END))
 local queue=__yugidraft_surrender_eot or {}
 __yugidraft_surrender_eot=queue
-table.insert(queue,${seat})
+local entry={seat=${seat},reason=${reason}}
+table.insert(queue,entry)
+local function register(loss)
 local e=Effect.GlobalEffect()
 e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
 e:SetProperty(EFFECT_FLAG_DELAY)
 e:SetCountLimit(1)
 e:SetCode(late and EVENT_ADJUST or EVENT_TURN_END)
-if late then e:SetCondition(function() return queue[1]==${seat} end) end
+if late then e:SetCondition(function() return queue[1]==loss end) end
 e:SetOperation(function(effect)
   table.remove(queue,1)
   if #queue==0 then __yugidraft_surrender_eot=nil end
-  local ok,err=pcall(Debug.EliminateDuelist,${seat},${reason})
+  local ok,err=pcall(Debug.EliminateDuelist,loss.seat,loss.reason)
   if not ok and not tostring(err):find("Debug.EliminateDuelist: the duelist is not in the duel.",1,true) then error(err) end
   effect:Reset()
 end)
-Duel.RegisterEffect(e,0)`;
+loss.effect=e
+Duel.RegisterEffect(e,0)
+end
+if immediate then
+  for _,loss in ipairs(queue) do
+    if loss.effect then loss.effect:Reset() end
+    register(loss)
+  end
+else register(entry) end`;
         if (!lib.loadScript(handle, "duel-surrender-eot.lua", script)) {
           const detail = errors.join("; ");
           errors.length = 0;
           throw new Error(`Failed to queue surrender of seat ${seat}: ${detail}`);
         }
         queuedSurrenders.add(seat);
-        diagnose("surrender-eot", seat, `reason ${reason}`);
+        diagnose(finishQueuedTurn ? "surrender-turn-end" : "surrender-eot", seat, `reason ${reason}`);
+        if (finishQueuedTurn) {
+          for (const gone of format === "tag" ? seatsOfTeam(format, teamOfSeat(format, seat)) : [seat]) leaving.add(gone);
+          answerForLeavingSeats();
+        }
         revision += 1;
         return;
       }

@@ -49,7 +49,7 @@ afterEach(async () => {
   while (databases.length) databases.pop()!.close();
 });
 
-async function table(mode: DuelMode, format: DuelFormat, chain = false, extraScripts: string[] = [], queueBlockedMs = 30_000) {
+async function table(mode: DuelMode, format: DuelFormat, chain = false, extraScripts: string[] = [], queueBlockedMs = 30_000, drawPerTurn = 0) {
   const db = new Database(":memory:");
   databases.push(db);
   migrate(db);
@@ -59,7 +59,7 @@ async function table(mode: DuelMode, format: DuelFormat, chain = false, extraScr
   ).run("g", `u${seat}`, `P${seat}`).lastInsertRowid));
   const service = createDuelService(db);
   const session = service.create({ guildId: "g", organizerPlayerId: players[0]!, name: "Turn-end surrender", mode, format,
-    settings: { banlist: "none", turnSeconds: 60, startingHand: 0, drawPerTurn: 0, shuffleDeck: false } });
+    settings: { banlist: "none", turnSeconds: 60, startingHand: 0, drawPerTurn, shuffleDeck: false } });
   for (const player of players.slice(1)) service.join(session.slug, "g", player);
   const deck = buildPracticeBotDeck(mode, DATA);
   for (const player of players) service.setDeck(session.slug, "g", player, deck);
@@ -221,8 +221,12 @@ for (const mode of ["normal", "domain"] as const) {
       await t.recover();
       expect(await t.view(1)).toEqual(live);
       for (let step = 0; step < 20 && (await t.view(1)).chain?.length; step++) await passPrompt(t);
+      // CHAIN_END clears the display before the final response windows close. Keep the
+      // living seats' choices, then let the core finish the lost turn and start the next one.
+      for (let step = 0; step < 20 && (await t.view(1)).turn === before.turn; step++) await passPrompt(t);
       const final = await t.view(1);
       expect(states(final)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 0 ? "out" : "in"));
+      expect(final).toMatchObject({ turn: 2, turnSeat: 1, result: null });
       const deckCount = t.service.privateState(t.session.slug, "g").decks[0]!.main.length;
       // Pot of Greed must not draw two cards after its owner has flagged a loss.
       expect(final.log.some((line) => line.text.includes("drew 2"))).toBe(false);
@@ -263,16 +267,23 @@ for (const mode of ["normal", "domain"] as const) {
       expect((await t.post("view", leaver)).engine).toEqual(room.engine);
     }, 60_000);
 
-    it.each(["ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s passes for the turn player until the turn ends", async (format) => {
-      const t = await table(mode, format);
-      await t.view();
+    it.each(["ffa3", "ffa4", "tag"] as const)("R-COMMON-SURRENDER-EOT: %s removes the turn player immediately without its End Phase effects", async (format) => {
+      const t = await table(mode, format, false, [`local c=Duel.GetFieldCard(0,LOCATION_MZONE,0)
+local e=Effect.CreateEffect(c)
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetRange(LOCATION_MZONE)
+e:SetCode(EVENT_PHASE_START+PHASE_END)
+e:SetOperation(function() Duel.Recover(1,321,REASON_EFFECT) end)
+c:RegisterEffect(e)`]);
+      const before = await t.view();
       const room = await t.post("surrender", 0);
       expect(room.role).toBe(format === "tag" ? "player" : "spectator");
       expect(states(room.engine!)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 0 || (format === "tag" && seat === 2) ? "out" : "in"));
-      expect(room.engine!.log.some((entry) => entry.text === "end")).toBe(true);
       const commands = t.service.privateState(t.session.slug, "g").commands;
-      expect(commands[0]!.command.promptId).toBe("eliminate-eot:0");
-      expect(commands.slice(1).map((entry) => entry.command.answer)).toEqual([{ choice: "to_ep" }, { choice: "no" }]);
+      expect(commands.map((entry) => entry.command.promptId)).toEqual(["eliminate:0"]);
+      expect(room.engine!.log.slice(before.log.length).some((entry) => entry.text === "draw")).toBe(format !== "tag");
+      expect(room.engine!.seats[1]!.lp).toBe(before.seats[1]!.lp);
+      expect(room.engine!.seats.every((seat) => !seat.pendingElimination)).toBe(true);
       if (format === "tag") expect(room.session).toMatchObject({ status: "completed", winnerSeat: 1 });
       else expect(room.engine).toMatchObject({ turn: 2, turnSeat: 1, result: null });
       const replayed = await replaySource(t.source(), DATA, commands.length);
@@ -281,6 +292,100 @@ for (const mode of ["normal", "domain"] as const) {
         expect(seat.monsters.filter(Boolean)).toHaveLength(1);
         expect(seat.hand).toHaveLength(1);
       }
+      await t.recover();
+      expect((await t.post("view", 0)).engine).toEqual(room.engine);
+    }, 60_000);
+
+    it.each(["ffa3", "ffa4"] as const)("%s own-turn surrender starts the next seat's Draw Phase and keeps the first-round attack limit", async (format) => {
+      const t = await table(mode, format, false, [], 30_000, 1);
+      const before = await t.view();
+      const room = await t.post("surrender", 0);
+      expect(room.engine).toMatchObject({ turn: 2, turnSeat: 1, phase: "main1", result: null });
+      expect(room.engine!.seats[1]!.hand).toHaveLength(before.seats[1]!.hand.length + 1);
+      expect(room.engine!.seats[1]!.deckCount).toBe(before.seats[1]!.deckCount - 1);
+      const phases = room.engine!.log.slice(before.log.length).map((line) => line.text);
+      expect(phases).toContain("Turn 2 — Player 2");
+      expect(phases.indexOf("draw")).toBeLessThan(phases.indexOf("standby"));
+      expect(phases.indexOf("standby")).toBeLessThan(phases.indexOf("main1"));
+      for (let seat = 1; seat < t.count; seat++) {
+        await reachMain(t, seat);
+        const current = await t.view(seat);
+        expect(current).toMatchObject({ turn: seat + 1, turnSeat: seat });
+        expect(current.prompt!.options.some((option) => option.id === "to_bp")).toBe(false);
+        await t.answer(seat, { choice: "to_ep" });
+      }
+      await reachMain(t, 1);
+      const nextRound = await t.view(1);
+      expect(nextRound).toMatchObject({ turn: t.count + 1, turnSeat: 1 });
+      expect(nextRound.prompt!.options.some((option) => option.id === "to_bp")).toBe(true);
+      const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
+      expect(replayed.seats[1]).toEqual(nextRound);
+    }, 60_000);
+
+    it("FFA4 own-turn surrender skips an earlier eliminated seat", async () => {
+      const t = await table(mode, "ffa4");
+      await t.view();
+      await t.post("surrender", 2);
+      await t.answer(0, { choice: "to_ep" });
+      await t.answer(0, { choice: "no" });
+      expect(await t.view(1)).toMatchObject({ turn: 2, turnSeat: 1 });
+      await t.post("surrender", 1);
+      await reachMain(t, 3);
+      const next = await t.view(3);
+      expect(next).toMatchObject({ turn: 3, turnSeat: 3, result: null, eliminationOrder: [[2], [1]] });
+      expect(states(next)).toEqual(["in", "out", "out", "in"]);
+      expect(next.prompt!.options.some((option) => option.id === "to_bp")).toBe(false);
+      await t.answer(3, { choice: "to_ep" });
+      await reachMain(t, 0);
+      expect((await t.view()).prompt!.options.some((option) => option.id === "to_bp")).toBe(true);
+    }, 60_000);
+
+    it.each(["ffa3", "ffa4", "tag"] as const)("%s own-turn surrender auto-answers an open required prompt before leaving", async (format) => {
+      const t = await table(mode, format, false, [`local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_PHASE_START+PHASE_MAIN1)
+e:SetCountLimit(1)
+e:SetOperation(function() Duel.SelectOption(0,30,31) end)
+Duel.RegisterEffect(e,0)`]);
+      const before = await t.view();
+      expect(before.chain).toHaveLength(0);
+      expect(before.prompt!.options.map((option) => option.id)).toEqual(["opt:0", "opt:1"]);
+      const room = await t.post("surrender", 0);
+      expect(states(room.engine!)).toEqual(Array.from({ length: t.count }, (_, seat) =>
+        seat === 0 || (format === "tag" && seat === 2) ? "out" : "in"));
+      if (format === "tag") expect(room.session).toMatchObject({ status: "completed", winnerSeat: 1 });
+      else expect(room.engine).toMatchObject({ turn: 2, turnSeat: 1, phase: "main1", result: null });
+      expect(t.source().commands.map((command) => command.promptId)).toEqual(["eliminate:0"]);
+      const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
+      expect(format === "tag" ? replayed.seats[0] : replayed.spectator).toEqual(room.engine);
+    }, 60_000);
+
+    it.each([[2, 0], [3, 0]])("Tag queued seat %s keeps its loss priority when turn seat %s surrenders", async (first, turnSeat) => {
+      const t = await table(mode, "tag");
+      await t.view();
+      await t.post("surrender", first);
+      const final = await t.post("surrender", turnSeat);
+      expect(final.session).toMatchObject({ status: "completed", winnerSeat: 1 - teamOfSeat("tag", first) });
+      expect(states(final.engine!)).toEqual(Array.from({ length: t.count }, (_, seat) =>
+        teamOfSeat("tag", seat) === teamOfSeat("tag", first) ? "out" : "in"));
+      expect(t.source().commands.map((command) => command.promptId)).toEqual(["eliminate-eot:0", "eliminate:0"]);
+      const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
+      expect(states(replayed.spectator)).toEqual(states(final.engine!));
+    }, 60_000);
+
+    it("FFA4 own-turn surrender settles earlier queues in order before the next living turn", async () => {
+      const t = await table(mode, "ffa4");
+      await t.view();
+      await t.post("surrender", 1);
+      await t.post("surrender", 0);
+      const final = await t.view(2);
+      expect(final).toMatchObject({ turn: 2, turnSeat: 2, phase: "main1", result: null, eliminationOrder: [[1], [0]] });
+      expect(states(final)).toEqual(["out", "out", "in", "in"]);
+      expect(t.source().commands.map((command) => command.promptId)).toEqual(["eliminate-eot:0", "eliminate:0"]);
+      const replayed = await replaySource(t.source(), DATA, t.source().commands.length);
+      expect(replayed.seats[2]).toEqual(final);
+      await t.recover();
+      expect(await t.view(2)).toEqual(final);
     }, 60_000);
 
     it("R-COMMON-SURRENDER-EOT: an earlier card loss does not block the other queued loss", async () => {
@@ -881,10 +986,10 @@ async function passPrompt(t: Awaited<ReturnType<typeof table>>) {
   throw new Error("No prompt is open");
 }
 
-async function reachMain(t: Awaited<ReturnType<typeof table>>) {
+async function reachMain(t: Awaited<ReturnType<typeof table>>, seat = 0) {
   await t.view();
   for (let step = 0; step < 30; step++) {
-    if ((await t.view()).prompt?.options.some((option) => option.id === "to_ep")) return;
+    if ((await t.view(seat)).prompt?.options.some((option) => option.id === "to_ep")) return;
     await passPrompt(t);
   }
   throw new Error("The Main Phase prompt did not open");

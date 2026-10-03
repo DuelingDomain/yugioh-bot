@@ -95,9 +95,10 @@ describeWithCores("host eliminates a seat while a prompt is open (real engine)",
     expect(live[0]!.result ?? null).toBeNull();
     expect(live.some((view) => view.prompt)).toBe(true);
     const state = t.duels.privateState(t.slug, "g1");
-    expect(state.commands.map((entry) => entry.command.promptId)).toEqual(["eliminate-eot:0", expect.stringMatching(/^p/)]);
-    // The host saves each pass answer before the turn-end loss.
-    expect(state.commands).toHaveLength(2);
+    expect(state.commands.map((entry) => entry.command.promptId)).toEqual(["eliminate:0"]);
+    expect(live[0]).toMatchObject({ turn: 2, turnSeat: 1 });
+    // The engine finishes the leaver's prompt as part of the immediate loss command.
+    expect(state.commands).toHaveLength(1);
 
     const worker2 = new RealEngineWorker();
     const host2 = makeHost(t.db, worker2);

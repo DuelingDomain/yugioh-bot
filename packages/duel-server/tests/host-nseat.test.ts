@@ -130,10 +130,14 @@ class EliminatingWorker extends NSeatWorker {
     }
     const count = seatCountFor(this.format);
     this.calls.push({ seat, reason });
-    this.eliminated.add(seat);
+    for (let member = 0; member < count; member++) {
+      if (member === seat || (this.format === "tag" && member % 2 === seat % 2)) this.eliminated.add(member);
+    }
     this.revision += 1;
     const living = Array.from({ length: count }, (_, index) => index).filter((index) => !this.eliminated.has(index));
-    if (living.length === 1) this.result = { winnerSeat: living[0]!, reason: "Surrendered" };
+    const teams = new Set(living.map((member) => this.format === "tag" ? member % 2 : member));
+    if (teams.size <= 1) this.result = { winnerSeat: living[0] ?? null, reason: "Surrendered",
+      ...(this.format === "tag" ? { winnerTeam: living[0] == null ? null : living[0] % 2 } : {}) };
     else if (seat === this.promptSeat) {
       let next = (seat + 1) % count;
       while (this.eliminated.has(next)) next = (next + 1) % count;
@@ -282,16 +286,16 @@ describe("host with more than two seats", () => {
     expect(clock.remainingMs).toHaveLength(3);
   });
 
-  it("FFA surrender removes only that seat; its prompts are passed on autopilot; the last seat wins", async () => {
-    const t = await table("ffa3", 3, []);
+  it("FFA own-turn surrender removes only that seat immediately; the last seat wins", async () => {
+    const t = await table("ffa3", 3, [], undefined, new EliminatingWorker());
     await post(t.host, { op: "start", ...t.organizer });
     // Seat 0 holds the prompt and surrenders.
     const surrendered = await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[0] });
     expect(surrendered.status).toBe(200);
     expect(t.duels.get(t.slug, "g1").status).toBe("active");
-    expect(t.duels.privateState(t.slug, "g1").setup?.surrenderedSeats).toEqual([0]);
-    // Seat 0's prompt was answered with a pass, and seat 1 now holds the prompt.
-    expect(t.worker.answers).toEqual([{ seat: 0, answer: { choice: "to_ep" } }]);
+    expect(t.duels.privateState(t.slug, "g1").commands[0]!.command.promptId).toBe("eliminate:0");
+    // The immediate core loss moves the prompt to seat 1.
+    expect(t.worker.answers).toEqual([]);
     expect(t.worker.promptSeat).toBe(1);
     const clock = t.duels.privateState(t.slug, "g1").clock!;
     expect(clock.activeSeat).toBe(1);
@@ -318,20 +322,20 @@ describe("host with more than two seats", () => {
   });
 
   it("an eliminated seat stays out after a restart", async () => {
-    const t = await table("ffa3", 3, []);
+    const t = await table("ffa3", 3, [], undefined, new EliminatingWorker());
     await post(t.host, { op: "start", ...t.organizer });
     await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[0] });
     await t.respond(t.players[1]!);
     await t.respond(t.players[2]!);
     // The eliminated seat is skipped when its turn would start.
-    expect(t.worker.answers.map((entry) => entry.seat)).toEqual([0, 1, 2]);
-    const worker2 = new NSeatWorker();
+    expect(t.worker.answers.map((entry) => entry.seat)).toEqual([1, 2]);
+    const worker2 = new EliminatingWorker();
     const host2 = createDuelHost({
       db: t.db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000, createWorker: () => worker2,
     });
     hosts.push(host2);
     await post(host2, { op: "view", slug: t.slug, guildId: "g1", playerId: t.players[1] });
-    expect(worker2.answers.map((entry) => entry.seat)).toEqual([0, 1, 2]);
+    expect(worker2.answers.map((entry) => entry.seat)).toEqual([1, 2]);
     expect(worker2.promptSeat).toBe(1);
   });
 
@@ -352,7 +356,7 @@ describe("host with more than two seats", () => {
 
   it("Tag winner_player_id is the human partner when the lowest winning seat is a bot", async () => {
     // Human seats 0 and 3; bots in seats 1 and 2. Seat 0 surrenders: team 1 (seats 1 and 3) wins.
-    const t = await table("tag", 2, [1, 2]);
+    const t = await table("tag", 2, [1, 2], undefined, new EliminatingWorker());
     expect(t.duels.get(t.slug, "g1").seats.map((seat) => seat.isBot)).toEqual([false, true, true, false]);
     await post(t.host, { op: "start", ...t.organizer });
     expect((await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[0] })).status).toBe(200);
@@ -408,11 +412,11 @@ describe("host eliminates through the core", () => {
     const surrendered = await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[0] });
     expect(surrendered.status).toBe(200);
     expect(worker.calls).toEqual([{ seat: 0, reason: 0 }]);
-    // The host saves the queue and the pass answer that ends the turn.
-    expect(worker.answers).toEqual([{ seat: 0, answer: { choice: "to_ep" } }]);
+    // The immediate loss is one command, with no host answer through the End Phase.
+    expect(worker.answers).toEqual([]);
     const state = t.duels.privateState(t.slug, "g1");
-    expect(state.setup?.surrenderedSeats).toEqual([0]);
-    expect(state.commands.map((entry) => [entry.seat, entry.command.promptId, entry.command.revision])).toEqual([[0, "eliminate-eot:0", 1], [0, "p2", 2]]);
+    expect(state.setup?.surrenderedSeats).toBeUndefined();
+    expect(state.commands.map((entry) => [entry.seat, entry.command.promptId, entry.command.revision])).toEqual([[0, "eliminate:0", 1]]);
     expect(state.clock?.activeSeat).toBe(1);
     expect(t.duels.get(t.slug, "g1").status).toBe("active");
   });
@@ -453,18 +457,19 @@ describe("host eliminates through the core", () => {
     hosts.push(host2);
     const viewed = await post(host2, { op: "view", slug: t.slug, guildId: "g1", playerId: t.players[2] });
     expect(viewed.status).toBe(200);
-    expect(worker2.answers.map((entry) => entry.seat)).toEqual([0, 1]);
+    expect(worker2.answers.map((entry) => entry.seat)).toEqual([0]);
+    expect(t.duels.privateState(t.slug, "g1").commands.map((entry) => entry.command.promptId)).toEqual(["p1", "eliminate:0"]);
     expect(worker2.calls).toEqual([{ seat: 1, reason: 0 }]);
     expect(worker2.revision).toBe(worker.revision);
     expect(worker2.promptSeat).toBe(worker.promptSeat);
   });
 
-  it("refuses a new queued surrender when the core cannot apply it", async () => {
+  it.each([0, 1])("refuses seat %s surrender when the core cannot apply it", async (seat) => {
     const worker = new EliminatingWorker();
     worker.missing = true;
     const t = await table("ffa3", 3, [], undefined, worker);
     await post(t.host, { op: "start", ...t.organizer });
-    expect((await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[0] })).status).toBe(409);
+    expect((await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[seat] })).status).toBe(409);
     expect(t.duels.privateState(t.slug, "g1").setup?.surrenderedSeats).toBeUndefined();
     expect(worker.answers).toEqual([]);
     expect(t.duels.privateState(t.slug, "g1").commands.some((entry) => entry.command.promptId.startsWith("eliminate:"))).toBe(false);
@@ -840,9 +845,9 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
       expect(lines[0]).toMatchObject({ format: "yugidraft-duel-journal/1", tableFormat: "ffa3", mode: "normal", wasmSha: "f".repeat(64) });
       expect(lines[0].decks).toHaveLength(3);
       expect(lines[0].seed).toHaveLength(4);
-      expect(lines.slice(1).map((line) => [line.type, line.seq, line.seat])).toEqual([["answer", 1, 0], ["eliminate", 2, 1], ["answer", 3, 1], ["answer", 4, 2]]);
+      expect(lines.slice(1).map((line) => [line.type, line.seq, line.seat])).toEqual([["answer", 1, 0], ["eliminate", 2, 1], ["answer", 3, 2]]);
 
-      expect(lines[2].command.promptId).toBe("eliminate-eot:0");
+      expect(lines[2].command.promptId).toBe("eliminate:0");
       // A core without the loss function refuses the queue and saves no command.
       const old = new EliminatingWorker();
       old.missing = true;
