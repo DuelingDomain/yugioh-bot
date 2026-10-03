@@ -203,8 +203,11 @@ The seed uses the tracked offline catalog at `scripts/data/draft-catalog-legenda
 
 ### Production
 
+Use the `Deploy` workflow on `main` for image updates. It prepares and verifies the engine bundle
+and installs it before recreating containers. To start already built images:
+
 ```bash
-docker compose -f docker-compose.yml up -d --build
+docker compose -f docker-compose.yml up -d
 ```
 
 Production should always use the base file explicitly so local dev overrides are not loaded.
@@ -240,8 +243,9 @@ passwd
 3. Clone the repo to `/opt/yugioh-bot`
 4. Create `.env` on the VM (see Environment Variables above)
 5. Set Discord OAuth redirect URI: `http://<YOUR_IP>/api/auth/callback/discord`
-6. Run `docker compose -f docker-compose.yml up -d --build`
-7. Add GitHub Actions secrets (`VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`, `VM_PORT`)
+6. Add GitHub Actions secrets (`VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`, `VM_PORT`)
+7. Run the `Deploy` workflow on `main` to build images and install the engine bundle. Later starts of
+   already built images use `docker compose -f docker-compose.yml up -d` (without `--build`).
 
 See `docs/deployment/vm-runbook.md` for the full step-by-step guide.
 

@@ -23,15 +23,16 @@ See `docs/deployment/vm-runbook.md` for the full guide.
 
 ## Updating
 
+Push to `main` or run the `Deploy` workflow on `main` for image updates. It transfers and verifies
+the engine bundle, builds the images, and installs the bundle before recreating containers.
+See [the VM runbook](vm-runbook.md#deployment-pipeline).
+
+To start already built images:
+
 ```bash
 cd /opt/yugioh-bot
-git fetch --all --prune && git reset --hard origin/main
-docker compose -f docker-compose.yml up -d --build
+docker compose -f docker-compose.yml up -d
 ```
-
-That rebuilds images only. Resource-bundle changes come from the `main` deploy workflow.
-
-Or push to `main` and let GitHub Actions deploy automatically.
 
 ## Backups
 
