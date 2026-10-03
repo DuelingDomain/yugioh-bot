@@ -116,3 +116,13 @@ describe("bug report duplicates", () => {
     expect(reports.listWithIssue("guild-b")).toEqual([]);
   });
 });
+
+describe("bug_reports table", () => {
+  it("has duplicate_of from the CREATE TABLE and migrates again without error", () => {
+    const { db } = setup();
+    migrate(db);
+    const columns = (db.prepare("pragma table_info(bug_reports)").all() as Array<{ name: string }>).map((c) => c.name);
+    expect(columns.filter((name) => name === "duplicate_of")).toHaveLength(1);
+    expect(db.prepare("select name from sqlite_master where type = 'index' and name in ('bug_reports_player_idx', 'bug_reports_duel_idx')").all()).toHaveLength(2);
+  });
+});
