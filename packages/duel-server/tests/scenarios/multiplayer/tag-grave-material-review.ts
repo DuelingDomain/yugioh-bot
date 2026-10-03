@@ -1,6 +1,6 @@
 // Review 5c: extra Ritual and Fusion material in the partner's Graveyard belongs to the Tag team.
 // Real Djinn and Magical Knight Dragon scripts register the effects. Opponent Graveyards stay out.
-import { activate, endTurn, expectNotOffered, expectOffered, expectPickOptions, pickOpponent, select, zone, type DuelistExpect, type Scenario } from "../../support/dsl.js";
+import { activate, endTurn, expectNotOffered, expectOffered, expectPickOptions, select, zone, type DuelistExpect, type Scenario } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, SEATS, type Format, type Seat } from "./seat-kit.js";
@@ -36,8 +36,8 @@ function ritual(format: Format, partner: boolean): Scenario {
     setup,
     steps: [
       expectOffered("activate", RITUAL, "p0"), activate(RITUAL, "p0"),
-      // R-COMMON-OPP-ONE: the Ritual material read declares one opponent before its own material.
-      ...(format !== "tag" ? [pickOpponent("p1", "p0")] : []), zone("p0", "s0", "p0"),
+      // R-FFA-OPP-ONE: own Ritual material checks do not declare an opponent.
+      zone("p0", "s0", "p0"),
       expectPickOptions({ count: 2, include: [{ card: OX, seat: "p0" }, { card: DJINN, seat: holder }] }, "p0"),
       select(OX, { card: DJINN, owner: holder, from: "grave" }),
       everySeat(format, state),
