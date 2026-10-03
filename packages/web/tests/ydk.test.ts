@@ -343,4 +343,9 @@ describe("YDK deck master serialization", () => {
     expect(() => parseYdk("#deckmaster\n1\n#main\n2\n#deckmaster\n3\n")).toThrow();
     expect(() => parseYdk("#deckmaster\n0\n#main\n1\n")).toThrow();
   });
+
+  it("reads only plain digits as a passcode, not hex, exponent, sign or decimal forms", () => {
+    const deck = parseYdk("#main\n0x10\n1e3\n+5\n-5\n2.5\n 12 \n00123\n12345678901\n46986414\n0\n");
+    expect(deck.main).toEqual([12, 123, 46986414]);
+  });
 });
