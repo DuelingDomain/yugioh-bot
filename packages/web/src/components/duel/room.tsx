@@ -42,6 +42,7 @@ import fxStyles from "./battle-fx.module.css";
 import { DuelFeedback } from "./feedback";
 import { duelFontClasses } from "./fonts";
 import { DUEL_SHAKE_LEVELS, useDuelPreferences } from "./preferences";
+import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "./animation-speed-control";
 import { CardInspector, type InspectTarget } from "./inspector";
 import {
   activatePromptFromField,
@@ -297,6 +298,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
   const clearPickHint = useCallback(() => setPickHint(null), []);
   const [pile, setPile] = useState<PileView | null>(null);
   const preferences = useDuelPreferences();
+  useDuelAnimationSpeed(preferences.reducedMotion);
   // The server flips to active before it answers Start duel; the pop-up already has the duel then.
   const ownWindowGate = data ? ownWindowGateVisible({
     status: data.session.status, mySeat: data.mySeat, inDuelWindow, playHere,
@@ -820,6 +822,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
       <DuelSettingsSummary session={data.session} />
       <RoomInvite room={data} slug={slug} />
       <h2>Presentation</h2>
+      <DuelAnimationSpeedControl />
       <DuelSoundControls enabled={preferences.soundEnabled} volume={preferences.soundVolume}
         onEnabledChange={preferences.setSoundEnabled} onVolumeChange={preferences.setSoundVolume} />
       <label className="flex flex-col gap-2">Motion
@@ -891,7 +894,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
 
   return (
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
-      data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
+      data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={preferences.reducedMotion ? "true" : "false"}>
       <header className={styles.header}>

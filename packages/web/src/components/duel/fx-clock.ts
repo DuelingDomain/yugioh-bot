@@ -1,0 +1,93 @@
+import { getAnimationSpeed } from "./animation-speed";
+
+/**
+ * The lab's continuous virtual-clock model, scoped to duel presentation. Browser clocks and timers
+ * are never patched. Timers, rAF, DOM/CSS animations, canvas effects, audio and gates share this clock.
+ * A requested speed is captured after the current effects/holds finish; pending work keeps its pace.
+ */
+export function createDuelFxClock(preference = getAnimationSpeed, realNow = () => performance.now()) {
+  let rate = 1;
+  let reduced = false;
+  let realBase = 0;
+  let virtualBase = 0;
+  let lastReal = 0;
+  const leases = new Map<object, number>();
+
+  const sync = () => {
+    const real = realNow();
+    // Also supports test clocks and a fresh browser performance time origin.
+    if (real < lastReal) { leases.clear(); realBase = virtualBase = real; rate = 1; }
+    lastReal = real;
+    for (const [key, until] of leases) if (until <= real) leases.delete(key);
+    const wanted = reduced ? 1 : preference();
+    if (leases.size === 0 && wanted !== rate) {
+      virtualBase += (real - realBase) * rate;
+      realBase = real;
+      rate = wanted;
+    }
+    return real;
+  };
+  const now = () => { const real = sync(); return virtualBase + (real - realBase) * rate; };
+  const factor = () => { sync(); return rate; };
+  const realMs = (ms: number) => ms / factor();
+  const retain = (ms: number) => {
+    const real = sync();
+    const key = {};
+    if (Number.isFinite(ms) && ms > 0) leases.set(key, real + ms / rate);
+    return () => { leases.delete(key); };
+  };
+  const timers = new Map<number, () => void>();
+  const setTimeout = (fn: () => void, ms = 0): number => {
+    const delay = Math.max(0, ms);
+    const wait = realMs(delay);
+    const release = retain(delay);
+    const id = window.setTimeout(() => { release(); timers.delete(id); fn(); }, wait);
+    timers.set(id, release);
+    return id;
+  };
+  const clearTimeout = (id: number | undefined) => {
+    if (id == null) return;
+    timers.get(id)?.(); timers.delete(id);
+    window.clearTimeout(id);
+  };
+  const intervals = new Map<number, number>();
+  let intervalId = 0;
+  const setInterval = (fn: () => void, ms: number): number => {
+    const id = ++intervalId;
+    const tick = () => {
+      if (!intervals.has(id)) return;
+      fn();
+      if (intervals.has(id)) intervals.set(id, window.setTimeout(tick, realMs(ms)));
+    };
+    intervals.set(id, window.setTimeout(tick, realMs(ms)));
+    return id;
+  };
+  const clearInterval = (id: number) => {
+    const timer = intervals.get(id);
+    if (timer != null) window.clearTimeout(timer);
+    intervals.delete(id);
+  };
+  const rateAnimation = (animation: Animation | null, ms: number): Animation | null => {
+    if (!animation) return null;
+    const speed = factor();
+    const release = retain(ms);
+    try { animation.playbackRate = speed; } catch { /* Old engines can keep the fallback timer. */ }
+    void animation.finished?.then(release, release);
+    return animation;
+  };
+  const animate = (el: Element, frames: Keyframe[], options: KeyframeAnimationOptions): Animation => {
+    const anim = el.animate(frames, options);
+    const ms = Number(options.delay ?? 0) + Number(options.duration ?? 0) * Number(options.iterations ?? 1) + Number(options.endDelay ?? 0);
+    rateAnimation(anim, ms);
+    return anim;
+  };
+  return {
+    now, factor, realMs, retain, animate, rateAnimation, setTimeout, clearTimeout, setInterval, clearInterval,
+    dateNow: () => Date.now() + now() - realNow(),
+    requestAnimationFrame: (fn: FrameRequestCallback): number => window.requestAnimationFrame(() => fn(now())),
+    cancelAnimationFrame: (id: number) => window.cancelAnimationFrame(id),
+    setReducedMotion: (value: boolean) => { reduced = value; },
+  };
+}
+
+export const duelFxClock = createDuelFxClock();
