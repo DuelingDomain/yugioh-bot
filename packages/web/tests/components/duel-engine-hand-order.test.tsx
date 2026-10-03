@@ -79,11 +79,20 @@ beforeEach(() => {
     const group = wrapper?.parentElement;
     const index = wrapper && group ? Array.from(group.children).indexOf(wrapper) : 0;
     const at = wrapper ? offset(wrapper) : { x: 0, y: 0 };
-    const box = wrapper && group ? { left: 610 - group.children.length * 45 + index * 90 + at.x, top: group.dataset.side === "opp" ? 50 + at.y : 700 + at.y, width: 70, height: 100 }
+    const ghostFrames = animations.findLast((r) => r.el === this && r.frames.some((f) => f.transform));
+    const end = ghostFrames?.frames.at(-1)?.transform?.toString().match(/translate3d\(([-\d.]+)px, ([-\d.]+)px/);
+    const translation = this.style.translate.split(" ").map(Number.parseFloat);
+    const ghostBox = this.dataset.style ? {
+      left: Number.parseFloat(this.style.left) + (Number(end?.[1]) || 0) + (translation[0] || 0),
+      top: Number.parseFloat(this.style.top) + (Number(end?.[2]) || 0) + (translation[1] || 0),
+      width: Number.parseFloat(this.style.width), height: Number.parseFloat(this.style.height),
+    } : undefined;
+    const box = ghostBox ?? (wrapper && group ? { left: 610 - group.children.length * 45 + index * 90 + at.x, top: group.dataset.side === "opp" ? 50 + at.y : 700 + at.y, width: 70, height: 100 }
+      : this.hasAttribute("data-hand-size-probe") ? { left: 0, top: 0, width: 70, height: 100 }
       : this.hasAttribute("data-hand-seat") ? { left: 200, top: this.dataset.side === "opp" ? 50 : 700, width: 800, height: 100 }
       : this.getAttribute("aria-hidden") === "true" && this.tagName === "DIV" ? { left: 0, top: 0, width: 1200, height: 800 }
       : this.hasAttribute("data-zones") ? { left: 900, top: 500, width: 70, height: 100 }
-      : { left: 0, top: 0, width: 0, height: 0 };
+      : { left: 0, top: 0, width: 0, height: 0 });
     return { ...box, right: box.left + box.width, bottom: box.top + box.height, x: box.left, y: box.top, toJSON: () => box } as DOMRect;
   });
 });
@@ -94,13 +103,13 @@ afterEach(() => {
 });
 
 describe("engine hand order on the board", () => {
-  it("shows middle insertion and engine re-sequencing in the lab, keeping the card's DOM identity", () => {
+  it("shows an append and engine re-sequencing in the lab, keeping the card's DOM identity", () => {
     const script = findScenario("move-hand-order")!.build();
     const after = applyEdits(script.initial, script.steps[0]!.edits!);
     const next = applyEdits(after, script.steps[1]!.edits!);
     const view = render(<Board view={engine(after.seats[0].hand, after.seats[1].hand)} />);
     const node = view.container.querySelector('[data-hand-id="lab-added"]')!;
-    expect(node).toBe(view.container.querySelector('[data-hand-seat="0"]')!.children[2]);
+    expect(node).toBe(view.container.querySelector('[data-hand-seat="0"]')!.children[4]);
     view.rerender(<Board view={engine(next.seats[0].hand, next.seats[1].hand)} />);
     expect(view.container.querySelector('[data-hand-id="lab-added"]')).toBe(node);
     expect(node).toBe(view.container.querySelector('[data-hand-seat="0"]')!.children[1]);
@@ -177,20 +186,26 @@ describe("engine hand order on the board", () => {
     const event = arrival(source);
     const view = render(<Board fx view={engine(hand(["a", "b"]))} />);
     captureZoneSnapshots(view.container);
-    view.rerender(<Board fx view={engine(hand(["a", "new", "b"]), [], [event])} />);
+    view.rerender(<Board fx view={engine(hand(["a", "b", "new"]), [], [event])} />);
     const dest = findMoveDestination(event)!;
-    expect(dest.dataset.zones).toBe("0:2:1"); expect(dest.style.visibility).toBe("hidden");
+    expect(dest.dataset.zones).toBe("0:2:2"); expect(dest.style.visibility).toBe("hidden");
     const ghost = view.container.querySelector<HTMLElement>(source === 1 ? '[data-style="draw"]' : '[data-testid="added-ghost"]')!;
-    expect(Number.parseFloat(ghost.style.left) + Number.parseFloat(ghost.style.width) / 2).toBe(600);
+    expect(Number.parseFloat(ghost.style.left) + Number.parseFloat(ghost.style.width) / 2).toBe(690);
+    const incoming = getMovePlan(event.id)!;
+    const midway = source === 1 ? incoming.durationMs / 2 : incoming.showcase!.phases.riseMs + incoming.showcase!.phases.holdMs + incoming.showcase!.phases.flyMs / 2;
+    await advance(midway);
+    view.rerender(<Board fx view={engine(hand(["new", "a", "b"]), [], [event], 2)} />);
     const target = moveDestinationRect(dest);
-    await advance(source === 1 ? 800 : 2200);
+    await advance(incoming.landAt - performance.now() + 1);
+    const final = ghost.getBoundingClientRect();
+    expect({ left: final.left, top: final.top, width: final.width, height: final.height }).toEqual(target);
+    expect(animations.some((a) => a.el === ghost && a.options.duration === 300)).toBe(false);
+    expect(view.queryByTestId("added-ring") != null).toBe(source !== 1);
     expect(dest.style.visibility).toBe(""); expect(moveDestinationRect(dest)).toEqual(target);
     const old = dest.closest<HTMLElement>("[data-hand-card]")!;
-    expect(old.dataset.handArrived).toBeUndefined();
     view.rerender(<Board fx view={engine(hand(["new", "b", "a"]), [], [event], 2)} />);
     expect(findMoveDestination(event)?.closest("[data-hand-card]")).toBe(old);
-    expect(old.dataset.handArrived).toBeUndefined();
-    await advance(1500); expect(old.dataset.handArrived).toBeUndefined();
+    await advance(1500); expect(view.queryByTestId("added-ring")).toBeNull();
   });
 
   it.each([0, 1, null].flatMap((mySeat) => [false, true].map((revealed) => ({ mySeat, revealed }))))("aims the far hand's off-centre arrival at the mirrored engine slot for viewer $mySeat (revealed=$revealed)", async ({ mySeat, revealed }) => {
@@ -218,10 +233,10 @@ describe("engine hand order on the board", () => {
     view.rerender(<Board fx reduced={reduced} view={engine(hand(["0-0", "0-1", "0-2", "0-3", "0-4"]), hand(["1-0", "1-1", "1-2", "1-3", "1-4"], 1, false), events)} />);
     for (let elapsed = 0; elapsed < 6000; elapsed += 200) {
       await advance(200);
-      expect(view.container.querySelectorAll("[data-hand-arrived]")).toHaveLength(0);
+      expect(view.queryByTestId("added-ring")).toBeNull();
     }
     expect(view.container.querySelectorAll("[data-hand-card]")).toHaveLength(10);
-    expect(view.container.querySelectorAll("[data-hand-arrived]")).toHaveLength(0);
+    expect(view.queryByTestId("added-ring")).toBeNull();
     expect(animations.some((record) => (record.el as HTMLElement).dataset.testid === "added-ring")).toBe(false);
     expect(view.container.querySelector('[style*="visibility: hidden"]')).toBeNull();
   });

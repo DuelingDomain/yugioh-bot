@@ -15,9 +15,8 @@
  *
  * The hand slides too: when a card joins or leaves a hand the others glide (FLIP, the individual
  * `translate` property so the fan rotation and the hover lift are left alone) to their new places,
- * and a card that appears without a flight fades up into its slot. A flight ends by checking that
- * its destination did not move while it flew (the hand may have re-centred) and glides the last
- * few pixels, then the real card takes over under a short cross-fade so nothing snaps or flickers.
+ * and a card that appears without a flight fades up into its slot. Flights continuously retarget
+ * the live engine slot during travel, then the real card takes over under a short cross-fade.
  *
  * Reduced motion: no travel, a 150 ms fade at the destination.
  */
@@ -38,6 +37,7 @@ import { beginDestroyHide, beginPileHold, startDestroyHideGuard } from "./destro
 import { SHARDS, Track } from "./summon-fx";
 import { CARD_FX } from "./duel-timing";
 import { ShowcaseGhost } from "./add-fx";
+import { retargetFlight } from "./live-flight";
 
 export type MoveFxProps = {
   /** engine.events (a rolling window; ids only grow). Play only events newer than the first render. */
@@ -60,8 +60,6 @@ const HIDE_FAILSAFE_MS = 1500;
 const MAX_GHOSTS = 12;
 /** The ghost dissolves over the real card this long after landing. */
 export const LAND_FADE_MS = CARD_FX.landFadeMs;
-/** A destination that moved during the flight is followed for this long, at the end. */
-const GLIDE_MS = CARD_FX.glideMs;
 /** Moves smaller than this many px are not chased. */
 const GLIDE_MIN_PX = 2;
 
@@ -336,7 +334,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
       return undefined;
     }
     const h = z.height;
-    const w = Math.min(z.width, h * CARD_ASPECT);
+    const w = plan.event.zone?.location === LOCATION_HAND ? z.width : Math.min(z.width, h * CARD_ASPECT);
     const cx = z.left - o.left + z.width / 2;
     const cy = z.top - o.top + z.height / 2;
     el.style.left = `${cx - w / 2}px`;
@@ -349,6 +347,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
     let alive = true;
     const endDefense = dest?.dataset.defense === "true";
     const endTurn = cardTurn(target.side, endDefense);
+    let liveFlight: ReturnType<typeof retargetFlight> | undefined;
 
     if (plan.style === "fade" || !source) {
       track.play(el, [{ opacity: 0 }, { opacity: 1, offset: 0.5 }, { opacity: 1 }], {
@@ -372,6 +371,9 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
       });
       const options: KeyframeAnimationOptions = { duration: plan.durationMs, easing: "linear", fill: "both" };
       track.play(el, flight.card, options);
+      liveFlight = retargetFlight({ event: plan.event, el, overlay, cx, cy, duration: plan.durationMs,
+        fallback: () => handArrivalTarget(plan.event)?.rect });
+      track.onDispose(liveFlight.stop);
       if (pieces) {
         // No shadow of a whole card under the pieces: each one springs, drifts and fades on its own.
         pieceEls.current.forEach((piece, index) => {
@@ -399,6 +401,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
 
     void track.settled().then(() => {
       if (!alive) return;
+      liveFlight?.finish();
       const finish = () => {
         if (!alive) return;
         if (plan.handoff) { el.style.visibility = "hidden"; landedRef.current(); doneRef.current(); return; }
@@ -407,12 +410,14 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         const tail = plan.style === "fade" || !source ? plan.holdMs : Math.max(plan.holdMs, LAND_FADE_MS);
         if (tail > 0) {
           if (plan.event.zone?.location === LOCATION_HAND) {
-            track.onDispose(followMoveDestination(plan.event, (destination) => {
+            track.onDispose(followMoveDestination(plan.event, (destination) => ({ destination,
+              visible: destination?.getBoundingClientRect(), layer: overlay.getBoundingClientRect(),
+            }), ({ destination, visible, layer }) => {
               if (!destination) { el.style.visibility = "hidden"; return; }
-              const visible = destination.getBoundingClientRect();
-              const layer = overlay.getBoundingClientRect();
-              el.style.left = `${visible.left - layer.left + visible.width / 2 - w / 2 - dx}px`;
-              el.style.top = `${visible.top - layer.top + visible.height / 2 - h / 2 - dy}px`;
+              if (!visible) return;
+              el.style.translate = "0px 0px";
+              el.style.left = `${visible.left - layer.left + visible.width / 2 - w / 2}px`;
+              el.style.top = `${visible.top - layer.top + visible.height / 2 - h / 2}px`;
             }));
           }
           // A heavy summon's hologram rises out of the landed card: it dissolves as that starts.
@@ -426,25 +431,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
           doneRef.current();
         }
       };
-      let dx = 0;
-      let dy = 0;
-      const settle = () => {
-        if (!alive) return;
-        const current = findMoveDestination(plan.event);
-        const shift = current && plan.style !== "fade" && source ? destinationShift(overlay, current, cx + dx, cy + dy) : null;
-        if (!shift) { finish(); return; }
-        const rest = `translate3d(${dx.toFixed(2)}px, ${dy.toFixed(2)}px, 0) rotate(${endTurn}deg) scale(1)`;
-        dx += shift.dx;
-        dy += shift.dy;
-        const glide = new Track();
-        glide.play(el, [
-          { transform: rest },
-          { transform: `translate3d(${dx.toFixed(2)}px, ${dy.toFixed(2)}px, 0) rotate(${endTurn}deg) scale(1)` },
-        ], { duration: GLIDE_MS, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "both" });
-        track.anims.push(...glide.anims);
-        void glide.settled().then(settle);
-      };
-      settle();
+      finish();
     });
     return () => {
       alive = false;

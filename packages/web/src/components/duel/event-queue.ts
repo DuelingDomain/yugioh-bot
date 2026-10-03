@@ -248,16 +248,33 @@ export function moveDestinationRect(dest: HTMLElement): { left: number; top: num
   return { left: rect.left - x, top: rect.top - (y ?? 0), width: rect.width, height: rect.height };
 }
 
-/** Keep landing overlays attached to the visible card through its handoff fade and glow. */
-export function followMoveDestination(event: DuelEvent, update: (dest: HTMLElement | null) => void): () => void {
-  let frame: number | undefined;
-  const tick = () => {
-    update(findMoveDestination(event));
-    frame = window.requestAnimationFrame(tick);
+type DestinationFollower = { read: () => unknown; write: (sample: unknown) => void };
+const destinationFollowers = new Set<DestinationFollower>();
+let destinationFrame: number | undefined;
+
+function queueDestinationFrame(): void {
+  if (destinationFrame != null || destinationFollowers.size === 0 || typeof window.requestAnimationFrame !== "function") return;
+  destinationFrame = window.requestAnimationFrame(() => {
+    destinationFrame = undefined;
+    // Every geometry read precedes every style write, however many flights/rings are active.
+    const samples = [...destinationFollowers].map((follower) => ({ follower, sample: follower.read() }));
+    for (const { follower, sample } of samples) if (destinationFollowers.has(follower)) follower.write(sample);
+    queueDestinationFrame();
+  });
+}
+
+/** Keep flights and landing overlays attached with one shared read-then-write animation frame. */
+export function followMoveDestination<T>(event: DuelEvent, read: (dest: HTMLElement | null) => T, write: (sample: T) => void): () => void {
+  const follower: DestinationFollower = { read: () => read(findMoveDestination(event)), write: (sample) => write(sample as T) };
+  destinationFollowers.add(follower);
+  queueDestinationFrame();
+  return () => {
+    destinationFollowers.delete(follower);
+    if (destinationFollowers.size === 0 && destinationFrame != null) {
+      window.cancelAnimationFrame(destinationFrame);
+      destinationFrame = undefined;
+    }
   };
-  update(findMoveDestination(event));
-  if (typeof window.requestAnimationFrame === "function") frame = window.requestAnimationFrame(tick);
-  return () => { if (frame != null) window.cancelAnimationFrame(frame); };
 }
 
 /**

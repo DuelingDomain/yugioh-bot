@@ -22,11 +22,11 @@ import { artCodeOf } from "./destroy-hide";
 import { buildShowcaseFrames, showcaseBox, showcaseSourceLabel, ADDED_TITLE } from "./add-to-hand";
 import { CARD_FX } from "./duel-timing";
 import { Track } from "./summon-fx";
+import { retargetFlight } from "./live-flight";
 import type { MovePlan } from "./move-plan";
 import fx from "./move-fx.module.css";
 import styles from "./add-fx.module.css";
 
-const CARD_ASPECT = 0.686;
 /** How often the hand slot is checked for a face while the card is on show (a reveal has no event). */
 const REVEAL_POLL_MS = 90;
 const REVEAL_FLIP_MS = 340;
@@ -70,7 +70,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
     const reduced = plan.reduced;
     const phases = showcase.phases;
     const h = z.height;
-    const w = Math.min(z.width, h * CARD_ASPECT);
+    const w = z.width;
     const cx = z.left - o.left + z.width / 2;
     const cy = z.top - o.top + z.height / 2;
     const ownerSide = target.side;
@@ -146,6 +146,7 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
     };
 
     let flightEnd = { dx: 0, dy: 0 };
+    let liveFlight: ReturnType<typeof retargetFlight> | undefined;
     track.after(stageMs, () => {
       if (!alive) return;
       window.clearInterval(poll);
@@ -162,6 +163,11 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
         setCode(found);
       }
       track.play(el, fly.fly, opts(phases.flyMs));
+      if (!reduced) {
+        liveFlight = retargetFlight({ event: plan.event, el, overlay, cx: cx + flightEnd.dx, cy: cy + flightEnd.dy,
+          duration: phases.flyMs, fallback: () => handArrivalTarget(plan.event)?.rect });
+        track.onDispose(liveFlight.stop);
+      }
       track.play(aura.current, fly.auraFly, opts(phases.flyMs));
       if (reduced) {
         if (found > 0 && flipper.current) flipper.current.style.transform = "rotateY(0deg)";
@@ -182,20 +188,11 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
     const settle = () => {
       if (!alive) return;
       if (plan.handoff) { el.style.visibility = "hidden"; land(); doneRef.current(); return; }
+      liveFlight?.finish();
       const current = findMoveDestination(plan.event);
       const target = handArrivalTarget(plan.event);
       if (!target) { land(); doneRef.current(); return; }
       const now = target.rect;
-      const end = { dx: now.left - o.left + now.width / 2 - cx, dy: now.top - o.top + now.height / 2 - cy };
-      if (!reduced && Math.hypot(end.dx - flightEnd.dx, end.dy - flightEnd.dy) >= 2) {
-        const transform = (at: { dx: number; dy: number }) => `translate3d(${at.dx.toFixed(2)}px, ${at.dy.toFixed(2)}px, 0) rotate(${endRot}deg) scale(1)`;
-        track.play(el, [{ transform: transform(flightEnd) }, { transform: transform(end) }], {
-          duration: CARD_FX.glideMs, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "both",
-        });
-        flightEnd = end;
-        track.after(CARD_FX.glideMs, settle);
-        return;
-      }
       land();
       if (reduced) {
         doneRef.current();
@@ -219,14 +216,16 @@ export function ShowcaseGhost({ plan, overlay, landed, done }: Props) {
           { duration: phases.glowMs, easing: "ease-out", fill: "both" },
         );
       }
-      if (current) track.onDispose(followMoveDestination(plan.event, (destination) => {
+      if (current) track.onDispose(followMoveDestination(plan.event, (destination) => ({ destination,
+        visible: destination?.getBoundingClientRect(), layer: overlay.getBoundingClientRect(),
+      }), ({ destination, visible, layer }) => {
         if (!destination) {
           el.style.visibility = "hidden";
           if (r) r.style.visibility = "hidden";
           return;
         }
-        const visible = destination.getBoundingClientRect();
-        const layer = overlay.getBoundingClientRect();
+        if (!visible) return;
+        el.style.translate = "0px 0px";
         el.style.left = `${visible.left - layer.left + visible.width / 2 - w / 2 - flightEnd.dx}px`;
         el.style.top = `${visible.top - layer.top + visible.height / 2 - h / 2 - flightEnd.dy}px`;
         if (r) {

@@ -85,7 +85,7 @@ describe("the Added to hand showcase on the board", () => {
     const ring = view.getByTestId("added-ring");
     advance(showcasePhases(1, false).totalMs + 5);
     expect(animate.mock.contexts.filter((el) => el === ring)).toHaveLength(1);
-    expect(view.getByTestId("slot").parentElement?.dataset.handArrived).toBeUndefined();
+    expect(view.getByTestId("added-ring").style.width).toBe("70px");
   });
   it("keeps the fading ghost and landing ring on the card when the engine re-sequences just after landing", () => {
     const event = addEvent({ handId: "arrival" });
@@ -98,23 +98,22 @@ describe("the Added to hand showcase on the board", () => {
     advance(20);
     expect(view.getByTestId("added-ring").style.left).toBe("200px");
     const ghost = view.getByTestId("added-ghost");
-    expect(Number.parseFloat(ghost.style.left) + Number.parseFloat(ghost.style.width) / 2).toBe(235);
-    expect(view.getByTestId("slot").parentElement?.dataset.handArrived).toBeUndefined();
+    expect(Number.parseFloat(ghost.style.left) + Number.parseFloat(ghost.style.width) / 2 + (Number.parseFloat(ghost.style.translate) || 0)).toBe(235);
+    expect(view.getByTestId("added-ring").style.top).toBe("700px");
     expect(animate.mock.contexts.filter((el) => el === view.getByTestId("added-ring"))).toHaveLength(1);
   });
-  it("follows a new engine slot during the flight before showing the real card", () => {
+  it("retargets in flight and lands on the live engine slot without a second glide", () => {
     const view = deliver(addEvent({ handId: "arrival" }), { handId: "arrival" });
     const phases = showcasePhases(1, false);
     advance(phases.riseMs + phases.holdMs + phases.flyMs / 2);
     boxes.set("slot", { left: 200, top: 700, width: 70, height: 100 });
     view.rerender(<Board events={[addEvent({ handId: "arrival" })]} handId="arrival" sequence={1} />);
     advance(phases.flyMs / 2);
-    expect(view.getByTestId("slot").style.visibility).toBe("hidden");
-    const correction = animate.mock.calls.find((call) => (call[1] as { duration: number }).duration === CARD_FX.glideMs);
-    expect(correction).toBeDefined();
-    expect(String((correction![0] as Keyframe[]).at(-1)?.transform)).toContain("-300.00px");
-    advance(CARD_FX.glideMs + 1);
     expect(view.getByTestId("slot").style.visibility).toBe("");
+    const correction = animate.mock.calls.find((call) => (call[1] as { duration: number }).duration === CARD_FX.glideMs);
+    expect(correction).toBeUndefined();
+    const ghost = view.getByTestId("added-ghost");
+    expect(Number.parseFloat(ghost.style.left) + Number.parseFloat(ghost.style.width) / 2 + (Number.parseFloat(ghost.style.translate) || 0)).toBe(235);
     expect(view.getByTestId("added-ring").style.left).toBe("200px");
   });
   it.each([true, false])("lands on the same hand card through an in-flight engine shuffle (known=%s)", (known) => {
@@ -129,7 +128,7 @@ describe("the Added to hand showcase on the board", () => {
     expect(slot.style.visibility).toBe("hidden");
     advance(showcasePhases(1, false).totalMs);
     expect(slot.style.visibility).toBe("");
-    expect(slot.parentElement?.dataset.handArrived).toBeUndefined();
+    expect(view.getByTestId("added-ring").style.width).toBe("70px");
     expect(view.getByTestId("added-ghost").getAttribute("data-known")).toBe(String(known));
   });
 
@@ -141,7 +140,7 @@ describe("the Added to hand showcase on the board", () => {
     view.rerender(<Board events={[event]} handId="replacement" slotCode={777} />);
     expect(view.getByTestId("slot").style.visibility).toBe("");
     advance(showcasePhases(1, false).totalMs);
-    expect(view.getByTestId("slot").parentElement?.dataset.handArrived).toBeUndefined();
+    expect(view.getByTestId("added-ring").style.width).toBe("");
     const ghost = view.getByTestId("added-ghost");
     expect(animate.mock.contexts.some((el, index) => el === ghost && (animate.mock.calls[index][1] as KeyframeAnimationOptions).duration === showcasePhases(1, false).flyMs)).toBe(true);
     expect(animate.mock.contexts).not.toContain(view.getByTestId("added-ring"));
@@ -177,15 +176,14 @@ describe("the Added to hand showcase on the board", () => {
     // It flies in, lands, and the real card takes over under the ring of light.
     advance(20 + phases.flyMs + 5);
     expect(slot.style.visibility).toBe("");
-    expect(slot.parentElement?.dataset.handArrived).toBeUndefined();
     expect(view.getByTestId("added-ring").style.width).toBe("70px");
     expect(animate.mock.contexts.filter((el) => el === view.getByTestId("added-ring"))).toHaveLength(1);
 
     advance(ADD_TO_HAND.glowMs + 50);
     expect(view.queryByTestId("added-ghost")).toBeNull();
     expect(slot.style.visibility).toBe("");
+    expect(view.queryByTestId("added-ring")).toBeNull();
     advance(1250);
-    expect(slot.parentElement?.dataset.handArrived).toBeUndefined();
   });
 
   it("animates a rise, a hold and a flight with the face of the card", () => {
@@ -227,7 +225,6 @@ describe("the Added to hand showcase on the board", () => {
     expect(spots.size).toBe(1);
     advance(phases.riseMs + phases.holdMs + 5);
     expect(slot.style.visibility).toBe("");
-    expect(slot.parentElement?.dataset.handArrived).toBeUndefined();
     expect(animate.mock.contexts).not.toContain(view.getByTestId("added-ring"));
     advance(phases.flyMs + 20);
     expect(view.queryByTestId("added-ghost")).toBeNull();
@@ -237,7 +234,7 @@ describe("the Added to hand showcase on the board", () => {
     const view = deliver(addEvent({ reason: "draw", from: { controller: 0, location: 0x01, sequence: 0 } }));
     expect(view.queryByTestId("added-ghost")).toBeNull();
     advance(1000);
-    expect(view.getByTestId("slot").parentElement?.dataset.handArrived).toBeUndefined();
+    expect(view.queryByTestId("added-ring")).toBeNull();
   });
 });
 
