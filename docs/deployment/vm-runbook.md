@@ -168,6 +168,12 @@ Checks and limits:
   `sqlite3 data/bot.sqlite "select id, created_at, github_error from bug_reports where github_issue_number is null order by id desc limit 10"`.
 - Issues get the labels `bug`, `needs-triage` and `from-app`. If a label does not exist the issue is created without labels.
 - When the token expires, create a new one and repeat steps 2 and 3. Reports sent in the gap stay in the database.
+- Before it sends, the dialog calls `POST /api/bug-reports/precheck`. It reads the open issues with the label `from-app` (cached
+  for 60 seconds) with the same token. With no token, or if GitHub fails, it uses the reports saved in the database that already
+  have an issue. If the check itself fails or takes more than 5 seconds, the report is sent without it. A "Yes, same bug" answer
+  adds a "+1" comment to the open issue instead of making a new one. The token needs only Issues: Read and write for this.
+- A human reviews each `needs-triage` issue. See `docs/agents/triage-labels.md`. Create the labels `from-app`, `invalid` and
+  `duplicate` in the repository once.
 
 ### Rollback
 
