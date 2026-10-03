@@ -370,7 +370,7 @@ describeWithCores("the table: classes of the manifest against the scan", stock, 
     const chooser = manifest.cards.filter((card) => card.classes.includes("CHOOSER") && !COMPARE_EXTRA.includes(card.code)).length;
     expect(TABLE.filter((row) => row.group === "compare")).toHaveLength(compare);
     expect(TABLE.filter((row) => row.group === "chooser")).toHaveLength(chooser);
-    // R1: an entry or a card of R1_NO_CHANGE, 92 in all. Fix entries: every entry of kind "fix" except Mirror Gate.
+    // R1: an entry or a card of R1_NO_CHANGE. Fix entries: each entry of kind "fix" except Mirror Gate.
     expect(TABLE.filter((row) => row.group === "r1")).toHaveLength(manifest.cards.filter((card) => card.classes.includes("R1")).length + R1_NO_CHANGE.length);
     expect(TABLE.filter((row) => row.group === "r1")).toHaveLength(EXPECTED_COUNTS.r1);
     const r2Entries = manifest.cards.filter((card) => card.classes.includes("R2" as CardClass)).length;

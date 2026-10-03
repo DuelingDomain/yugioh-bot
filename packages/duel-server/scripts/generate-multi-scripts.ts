@@ -13,7 +13,8 @@
  *   COMPARE (54) = triage group `field-count-compare` (51) minus 6 false positives, plus Evenly Matched and Pineapple Blast,
  *                  plus 7 cards of the scan gap (COMPARE_SCAN_ADDED, in other triage groups).
  *   CHOOSER (44) = triage rule starting with `CHOOSER`.
- *   R1 (92)      = triage rule starting with `EACH-DUELIST` or `SCRIPT`, minus Mirror Gate 43452193 (it belongs to Q7).
+ *   R1           = triage rule starting with `EACH-DUELIST` or `SCRIPT`, minus Mirror Gate 43452193 (it belongs to Q7),
+ *                  plus the reviewed cards in R1_TRIAGE_ADDED. A new scan does not remove these cards.
  *                  An R1 card is a MANIFEST entry of class `R1` (kind `hand`: a suffix that loops with aux.MPForEachDuelist) or a
  *                  member of R1_NO_CHANGE (the stock script already acts on every living duelist). The R1 entries are not part of
  *                  the pinned `entries` count (that count is the compare and chooser entries, in other agents' lists).
@@ -88,7 +89,7 @@ export const R2_NO_CHANGE: number[] = [
 export const R2_ACCEPTED_DEVIATIONS: Record<number, string> = {
   88851326: "FFA: the Set flag of one opponent locks the Set from the hand of every opponent (reset at the End Phase)",
 };
-/** True when every one of the 92 R1 cards is an entry or a member of R1_NO_CHANGE (the strict count check). */
+/** True when each R1 card is an entry or a member of R1_NO_CHANGE (the strict count check). */
 export const R1_COMPLETE = true;
 
 export type Helper = "MPAny" | "MPValue" | "MPOne" | "MPPick" | "MPTarget" | "MPAttackedAtMe";

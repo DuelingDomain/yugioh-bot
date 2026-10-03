@@ -11,7 +11,7 @@ import { makeSource, scanCorpus } from "../scripts/scan-multiplayer-scripts.js";
 import { currentEngineDataDirectory } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
-// The overlay of the compare and chooser cards (F7 design, part P3a): MANIFEST.json, the 112 cNNN.lua files (the Snatch Steal, Kaiser Colosseum, The Eye of Truth, Brain Jacker, Royal Tribute, Messenger of Peace, Dice Jar, Appointer of the Red Lotus, Raging Cloudian, Book of Eclipse, Astromorrigan and Rebirth of the Seventh Emperors fixes are the 100th to 111th, and the Soul Taker fix is the 112th; Snake-Eyes Diabellstar has no overlay file since core patch 0059) and the generator.
+// The overlay checks cover MANIFEST.json, the cNNN.lua files and the generator (F7 design, part P3a).
 // The checks that need the stock scripts or the triage file (both are not in git) are skipped when the file is missing,
 // and fail with DUEL_REQUIRE_CORES=1 (stock scripts) or stay a skip (triage, a local file).
 
@@ -37,7 +37,7 @@ function isActivationCheck(body: string, name: string): boolean {
 }
 
 describe("MANIFEST.json of the overlay", () => {
-  it("lists 112 cards with a valid kind, a file named after the code and a name", () => {
+  it("lists cards with a valid kind, a file named after the code and a name", () => {
     expect(manifest.version).toBe(1);
     expect(cards.filter((card) => !card.classes.includes("R1") && !card.classes.includes("R2") && !card.classes.includes("ATTACK"))).toHaveLength(EXPECTED_COUNTS.entries);
     for (const card of cards) {
