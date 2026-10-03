@@ -1,7 +1,7 @@
 // Monster cards whose effect Special Summons the card itself or tokens to the field of an opponent (the table and the rule are in
 // opponent-field-effects.ts). Each card needs its own trigger (a flip, a destruction, a battle, a discard), so each row has its own steps.
 
-import { activate, attack, changePosition, choose, endTurn, no, normalSummon, pickOpponent, select, yes } from "../../support/dsl.js";
+import { activate, attack, changePosition, choose, endTurn, expectPrompt, no, normalSummon, pickOpponent, select, yes } from "../../support/dsl.js";
 import { ELF } from "./nseat-scenarios.js";
 import { effectScenarios, type EffectSpec } from "./opponent-field-effects.js";
 
@@ -55,7 +55,8 @@ const SPECS: EffectSpec[] = [
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
     // Only the target opponent has a legal GY monster in FFA.
     noPick: (roles) => roles.format !== "tag",
-    steps: [activate("Vampire Sucker", "p0")],
+    // An opponent prompt must fail the action-context check.
+    steps: (roles) => [activate("Vampire Sucker", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", context: "action" })] : [])],
     p0End: { monsters: ["Vampire Sucker"] },
     tgtEnd: { monsters: [ELF, MAGICIAN] },
   },
@@ -154,8 +155,10 @@ const SPECS: EffectSpec[] = [
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
     // Only the target opponent has a legal GY monster in FFA. The detach choice still opens.
     noPick: (roles) => roles.format !== "tag",
-    steps: [activate("Number 29: Mannequin Cat", "p0")],
-    then: [select(ELF), no("p0")],
+    // The cost is a card choice; after it, only the optional trigger prompt opens.
+    // An opponent prompt must fail the card-kind or yes/no-option check.
+    steps: (roles) => [activate("Number 29: Mannequin Cat", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", kind: "cards" })] : [])],
+    then: (roles) => [select(ELF), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", offers: ["yes", "no"] })] : []), no("p0")],
     p0End: { monsters: ["Number 29: Mannequin Cat"], grave: ["Mystical Elf"] },
     tgtEnd: { monsters: [ELF, MAGICIAN] },
   },
@@ -220,7 +223,8 @@ const SPECS: EffectSpec[] = [
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
     // Monster Reborn reads either GY. Only the target opponent has a legal GY monster for Flogos in FFA.
     noPick: (roles) => roles.format !== "tag",
-    steps: [activate("Monster Reborn", "p0"), select("Flogos, the Ogdoadic Boundless"), yes("p0")],
+    // An opponent prompt must fail the card-kind or action-context check.
+    steps: (roles) => [activate("Monster Reborn", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", kind: "cards" })] : []), select("Flogos, the Ogdoadic Boundless"), yes("p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", context: "action" })] : [])],
     then: (roles) => roles.format === "tag" ? [select({ card: ELF, owner: roles.tgt })] : [],
     p0End: { hand: [], grave: ["Monster Reborn"], monsters: ["Flogos, the Ogdoadic Boundless"] },
     tgtEnd: { monsters: [MAGICIAN], grave: [ELF] },
