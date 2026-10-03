@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Release Check <release@localhost>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] F03-core final route
+
+---
+diff --git a/effect_constants.h b/effect_constants.h
+--- a/effect_constants.h
++++ b/effect_constants.h
+@@ -174,6 +174,8 @@
+ #define EFFECT_CANNOT_BE_EFFECT_TARGET      71
+ #define EFFECT_IGNORE_BATTLE_TARGET         72
+ #define EFFECT_CANNOT_DIRECT_ATTACK         73
++// Fork-private player effect: a protected FFA seat cannot be attacked directly.
++#define EFFECT_CANNOT_BE_DIRECT_ATTACKED		0x7F000101
+ #define EFFECT_DIRECT_ATTACK                74
+ #define EFFECT_GEMINI_STATUS                75
+ #define EFFECT_EQUIP_LIMIT                  76
+diff --git a/field.cpp b/field.cpp
+--- a/field.cpp
++++ b/field.cpp
+@@ -3162,7 +3162,8 @@
+ 	if(n_duelists > 2) {
+ 		const bool any_side = pcard->is_affected_by_effect(EFFECT_DIRECT_ATTACK) || core.attack_player;
+ 		for(uint8_t oi = 0; oi < opp_count; ++oi)
+-			if(any_side || mcount_by[opps[oi]] == 0)
++			if((any_side || mcount_by[opps[oi]] == 0)
++				&& (n_teams != n_duelists || !is_player_affected_by_effect(opps[oi], EFFECT_CANNOT_BE_DIRECT_ATTACKED)))
+ 				dmask |= 1u << opps[oi];
+ 	}
+ 	if((n_duelists == 2 ? (mcount == 0 || pcard->is_affected_by_effect(EFFECT_DIRECT_ATTACK) || core.attack_player) : dmask != 0)
+@@ -3178,7 +3179,10 @@
+ 	card_vector cv;
+ 	get_attack_target(core.attacker, &cv, core.chain_attack, false);
+ 	return (core.attack_target && std::find(cv.begin(), cv.end(), core.attack_target) != cv.end())
+-		|| (!core.attack_target && core.attacker->direct_attackable);
++		|| (!core.attack_target && core.attacker->direct_attackable
++			&& (n_duelists == 2 || n_teams != n_duelists
++				|| (is_duelist(core.battle_defender)
++					&& (core.attacker->direct_attack_mask & (1u << core.battle_defender)))));
+ }
+ // update the validity for EFFECT_ATTACK_ALL (approximate solution)
+ void field::attack_all_target_check() {
+diff --git a/libduel.cpp b/libduel.cpp
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -1675,6 +1675,30 @@
+ 	}
+ 	card_vector cv;
+ 	pduel->game_field->get_attack_target(attacker, &cv, pduel->game_field->core.chain_attack);
++	auto& attack_field = *pduel->game_field;
++	// Stock redirect-to-direct cards keep the live defender even with monsters.
++	// Only an eliminated defender permits a fallback to another opponent.
++	uint8_t direct_defender = attack_field.core.battle_defender;
++	if(!target && attack_field.n_duelists > 2 && attack_field.n_teams == attack_field.n_duelists) {
++		const auto legal_direct = [&](uint8_t q) {
++			return attack_field.is_alive(q) && !attack_field.same_team(attacker->current.controler, q)
++				&& !attack_field.is_player_affected_by_effect(q, EFFECT_CANNOT_BE_DIRECT_ATTACKED);
++		};
++		if(attack_field.is_alive(direct_defender)) {
++			if(!legal_direct(direct_defender)) {
++				lua_pushboolean(L, 0);
++				return 1;
++			}
++		} else {
++			direct_defender = DUELIST_NONE;
++			for(uint8_t q = 0; q < attack_field.n_duelists; ++q)
++				if(legal_direct(q)) { direct_defender = q; break; }
++		}
++		if(direct_defender == DUELIST_NONE) {
++			lua_pushboolean(L, 0);
++			return 1;
++		}
++	}
+ 	if(((target && std::find(cv.begin(), cv.end(), target) != cv.end()) || ignore) ||
+ 		(!target && !attacker->is_affected_by_effect(EFFECT_CANNOT_DIRECT_ATTACK))) {
+ 		pduel->game_field->core.attack_target = target;
+@@ -1700,6 +1724,8 @@
+ 			// attack) the defender stays if it is still a living opponent, else the first living opponent.
+ 			if(target) {
+ 				gf.core.battle_defender = target->current.controler;
++			} else if(gf.n_teams == gf.n_duelists) {
++				gf.core.battle_defender = direct_defender;
+ 			} else if(!(gf.is_alive(gf.core.battle_defender) && !gf.same_team(turnp, gf.core.battle_defender))) {
+ 				gf.core.battle_defender = DUELIST_NONE;
+ 				for(uint8_t i = 1; i < gf.n_duelists && gf.core.battle_defender == DUELIST_NONE; ++i) {
