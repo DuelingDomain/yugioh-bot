@@ -612,7 +612,10 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const L = latest.current;
-      if (inField(e.target)) return;
+      if (inField(e.target)) {
+        if (e.key === "Escape" && !L.motionOpen && L.binderOpen && (L.phone || L.drawer)) L.closeSheets();
+        return;
+      }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const num = parseNumberKey(e.key);
       if (num != null || e.key.startsWith("Arrow")) setKbd(true);
