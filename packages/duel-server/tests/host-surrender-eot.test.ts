@@ -1,5 +1,5 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -116,6 +116,16 @@ Duel.RegisterEffect(e,0)`);
 }
 
 const states = (view: DuelEngineView) => view.seats.map((seat) => seat.eliminated ? "out" : seat.pendingElimination ? "pending" : "in");
+// Only these installed cores use the old turn n+1 attack window. Proof cores and
+// all other builds must give the last living duelist a Battle Phase on its first turn.
+const LEGACY_FIRST_BATTLE_HASHES = new Set([
+  "896d6528b16227e1702088c42da8570a6c394be9c0dd93ad4f2aac9951e5c22e",
+  "f1f8adaeaff21328970ffe894bf70cd86cc3afa18731a8aae4a397206824e2cb",
+]);
+function legacyFirstBattleWindow(mode: DuelMode): boolean {
+  const file = mode === "domain" ? "ocgcore.multi-domain.wasm" : "ocgcore.multi.wasm";
+  return LEGACY_FIRST_BATTLE_HASHES.has(createHash("sha256").update(readFileSync(join(DATA, file))).digest("hex"));
+}
 const allIn = (view: DuelEngineView, count: number) => {
   expect(view.seats.map((seat) => seat.eliminated)).toEqual(Array(count).fill(false));
   for (const seat of view.seats) {
@@ -296,8 +306,9 @@ c:RegisterEffect(e)`]);
       expect((await t.post("view", 0)).engine).toEqual(room.engine);
     }, 60_000);
 
-    it.each(["ffa3", "ffa4"] as const)("%s own-turn surrender starts the next seat's Draw Phase and keeps the first-round attack limit", async (format) => {
+    it.each(["ffa3", "ffa4"] as const)("R-FFA-NO-ATTACK: %s own-turn surrender starts the next seat's Draw Phase and allows battle for the last living first-turn duelist", async (format) => {
       const t = await table(mode, format, false, [], 30_000, 1);
+      const legacyWindow = legacyFirstBattleWindow(mode);
       const before = await t.view();
       const room = await t.post("surrender", 0);
       expect(room.engine).toMatchObject({ turn: 2, turnSeat: 1, phase: "main1", result: null });
@@ -311,7 +322,8 @@ c:RegisterEffect(e)`]);
         await reachMain(t, seat);
         const current = await t.view(seat);
         expect(current).toMatchObject({ turn: seat + 1, turnSeat: seat });
-        expect(current.prompt!.options.some((option) => option.id === "to_bp")).toBe(false);
+        expect(current.prompt!.options.some((option) => option.id === "to_bp"))
+          .toBe(seat === t.count - 1 && !legacyWindow);
         await t.answer(seat, { choice: "to_ep" });
       }
       await reachMain(t, 1);
@@ -334,7 +346,9 @@ c:RegisterEffect(e)`]);
       const next = await t.view(3);
       expect(next).toMatchObject({ turn: 3, turnSeat: 3, result: null, eliminationOrder: [[2], [1]] });
       expect(states(next)).toEqual(["in", "out", "out", "in"]);
-      expect(next.prompt!.options.some((option) => option.id === "to_bp")).toBe(false);
+      // Seat 2 never had a turn and is out. Seat 3 is the last living first-turn
+      // duelist, so R-FFA-NO-ATTACK allows its Battle Phase on turn 3.
+      expect(next.prompt!.options.some((option) => option.id === "to_bp")).toBe(!legacyFirstBattleWindow(mode));
       await t.answer(3, { choice: "to_ep" });
       await reachMain(t, 0);
       expect((await t.view()).prompt!.options.some((option) => option.id === "to_bp")).toBe(true);
