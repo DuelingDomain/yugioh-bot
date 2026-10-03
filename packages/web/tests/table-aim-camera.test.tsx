@@ -116,6 +116,45 @@ describe("camera keys on the 3-way shell", () => {
     expect(canvas().hasAttribute("data-tilted")).toBe(false);
   });
 
+  it("keeps the tilt on while the world eases back, and drops it when the tween ends (motion on)", () => {
+    let now = 1000;
+    let queue: FrameRequestCallback[] = [];
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const realRaf = window.requestAnimationFrame;
+    const realCancel = window.cancelAnimationFrame;
+    window.requestAnimationFrame = (cb: FrameRequestCallback) => queue.push(cb);
+    window.cancelAnimationFrame = () => {};
+    const frame = (advanceMs: number) => {
+      now += advanceMs;
+      const run = queue;
+      queue = [];
+      act(() => run.forEach((cb) => cb(now)));
+    };
+    function Moving() {
+      const controller = useFixtureController(FFA3_FIXTURES.states.main, { reducedMotion: false });
+      return <TableShell controller={controller} />;
+    }
+    try {
+      const { container } = render(<Moving />);
+      const canvas = () => container.querySelector("[data-fly-capable]")!;
+      press("0");
+      frame(16);
+      expect(stageOf(container).getAttribute("data-fly")).toBe("true");
+      expect(canvas().hasAttribute("data-tilted")).toBe(true);
+      press("h");
+      frame(16);
+      // The board is flat at once, but the world is still tilted: the 3D camera must stay until it is back at identity.
+      expect(stageOf(container).getAttribute("data-fly")).toBe("false");
+      expect(canvas().hasAttribute("data-tilted")).toBe(true);
+      for (let i = 0; i < 80 && queue.length; i++) frame(16);
+      expect(canvas().hasAttribute("data-tilted")).toBe(false);
+    } finally {
+      nowSpy.mockRestore();
+      window.requestAnimationFrame = realRaf;
+      window.cancelAnimationFrame = realCancel;
+    }
+  });
+
   it("supersamples the tilted plane about two texels per screen pixel, in quarter steps within 1.5 to 4", () => {
     expect(tiltSupersample(1)).toBe(2);
     expect(tiltSupersample(0.96)).toBe(2);
