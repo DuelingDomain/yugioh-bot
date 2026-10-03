@@ -442,8 +442,11 @@ export function boardFor(format: DuelFormat, code: number, layout: Layout): Boar
     p0.hand!.push("Monster Reborn");
     p0.grave!.push("Giant Rat");
   }
+  // Book of Taiyou flips Mecha Bunny face-up and raises its damage trigger.
+  if (format === "ffa3" && code === 10110717) p0.hand!.unshift("Book of Taiyou");
   const own: Array<CardEntry | null> = [];
   if (monster) own.push(code);
+  if (format === "ffa3" && code === 10110717) own[0] = { card: code, pos: "set" };
   if (!monster && (type & TYPE.field) !== 0) p0.field = code;
   else if (!monster) p0.spells = [{ card: code, pos: "set" }];
   own.push(...filler(layout === "ahead" ? 4 - own.length : 1));
