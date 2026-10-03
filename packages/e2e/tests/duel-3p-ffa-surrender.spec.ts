@@ -7,17 +7,16 @@ import type { DuelRoom } from "@yugidraft/shared/duels";
 import type { Page, TestInfo } from "@playwright/test";
 import { copyFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-
 const options = { ordered: true, looseDecks: true, noBanlist: true, format: "ffa3" as const };
 const occupied = (page: Page, seat: number) => tableField(page, seat).locator("[data-kind='mz'][data-occupied='true']");
 const normalDeck = () => ({ main: withFiller([FILLER], 40) });
 const viewSeat = (room: DuelRoom, seat: number) => room.engine!.seats.find(entry => entry.seat === seat)!;
-
 async function humans(player: (key: "p1" | "p2" | "p3" | "p4") => Promise<Seat>, format: "ffa3" | "ffa4") {
   const seats = await Promise.all((format === "ffa3" ? ["p1", "p2", "p3"] as const : ["p1", "p2", "p3", "p4"] as const).map(key => player(key)));
   // Surrender tests exclude audio-device behavior; keep console errors observable without a headless audio sink.
   await Promise.all(seats.map(seat => seat.context.addInitScript(() => {
-    for (const name of ["AudioContext", "webkitAudioContext"]) Object.defineProperty(window, name, { value: undefined, configurable: true });
+    for (const name of ["AudioContext", "webkitAudioContext"])
+      Object.defineProperty(window, name, { value: undefined, configurable: true });
   })));
   return seats;
 }
@@ -40,14 +39,16 @@ async function shot(page: Page, slug: string, info: TestInfo, name: string) {
 }
 // After the duel ends, spectate=1 returns the seated reader's own seat room, not the spectator copy.
 const ownSeatRoomAfterSpectate = (page: Page, slug: string) => readTable(page, slug, true);
-
 // Real-core surrender state, automatic spectator data and owner timing contracts.
 test.describe("FFA surrender and spectators", () => {
   // Four live boards can render slowly when other stack slots share headless Chromium resources.
-  test.use({ actionTimeout: 60_000, navigationTimeout: 60_000 });
-
-  test("queued surrender shows Leaving, then automatically spectates live turns and placings", async ({ player }, info) => {
-    const [alice, bob, carol] = await humans(player, "ffa3") as [Seat, Seat, Seat];
+  test.use({ actionTimeout: 60000, navigationTimeout: 60000 });
+  test("immediate surrender removes the seat, then the client watches live turns and placings", async ({ player }, info) => {
+    const [alice, bob, carol] = await humans(player, "ffa3") as [
+      Seat,
+      Seat,
+      Seat
+    ];
     const errors = collectTableErrors(alice.page, [bob.page, carol.page]);
     const { slug } = await startTable([alice, bob, carol], "ffa3 leaving and watching", [normalDeck(), normalDeck(), normalDeck()], options);
     await expectRealCore(alice.page, slug, "practice", info, 0);
@@ -58,22 +59,21 @@ test.describe("FFA surrender and spectators", () => {
     const response = alice.page.waitForResponse(reply => reply.url().endsWith(`/api/duels/${slug}/surrender`) && reply.request().method() === "POST");
     await surrender(alice.page);
     const pending = await (await response).json() as DuelRoom;
-    expect(viewSeat(pending, 0)).toMatchObject({ eliminated: false, pendingElimination: true });
+    expect(viewSeat(pending, 0)).toMatchObject({ eliminated: true, pendingElimination: false });
+    expect(pending).toMatchObject({ role: "player", mySeat: 0 });
     expect(pending.engine!.turn).toBe(2);
-    await expect(alice.page.locator("[data-holo='0']")).toHaveAttribute("data-leaving", "true");
-    await expect(alice.page.getByRole("button", { name: "Surrender", exact: true })).toHaveCount(0);
-    await expect(alice.page.getByRole("button", { name: "Stay and watch" })).toHaveCount(0);
-    await expect(alice.page.getByTestId("self-leaving")).toHaveText("Leaving — you surrendered; you leave at the end of this turn");
-    for (const seat of [alice, bob, carol]) await expect(seat.page.locator("[data-holo='0']")).toContainText("Leaving");
+    await expect(alice.page.getByTestId("self-leaving")).toHaveCount(0);
+    await expectAutoSpectating(alice.page, slug);
     const posts = actionPosts(alice.page, slug);
-    await shot(alice.page, slug, info, "leaving");
+    await shot(alice.page, slug, info, "immediate-loss");
     // Ending the turn is the next adjustment in this focused path. The intermediate-summon
     // tests below show why this path alone is not proof of the new owner timing rule.
     await endTurn(bob.page, 3);
     const after = await readTable(alice.page, slug);
     expect(after.engine!.turn).toBe(3);
     expect(viewSeat(after, 0).eliminated).toBe(true);
-    for (const location of ["hand", "monsters", "spells", "graveyard", "banished"] as const) expect(viewSeat(after, 0)[location].filter(Boolean)).toHaveLength(0);
+    for (const location of ["hand", "monsters", "spells", "graveyard", "banished"] as const)
+      expect(viewSeat(after, 0)[location].filter(Boolean)).toHaveLength(0);
     await expect(alice.page.locator("[data-holo='0']")).toHaveAttribute("data-elim", "true");
     await expect(occupied(alice.page, 0)).toHaveCount(0);
     const watched = await expectAutoSpectating(alice.page, slug);
@@ -81,9 +81,12 @@ test.describe("FFA surrender and spectators", () => {
     expect(watched.engine!.eliminationOrder).toEqual([[0]]);
     const connection = await alice.page.request.get(`/api/duels/${slug}/connection?spectate=1`);
     expect(connection.ok()).toBe(true);
-    const credentials = await connection.json() as { token: string };
+    const credentials = await connection.json() as {
+      token: string;
+    };
     expect(JSON.parse(Buffer.from(credentials.token.split(".")[0]!, "base64url").toString()).seat).toBeNull();
-    for (const seat of watched.engine!.seats) expect(seat.hand.every(card => card.code == null && card.name == null)).toBe(true);
+    for (const seat of watched.engine!.seats)
+      expect(seat.hand.every(card => card.code == null && card.name == null)).toBe(true);
     await expect.poll(async () => {
       const trace = await readTableTrace(bob.page, slug);
       return trace.seats.find(entry => entry.seat === 2)?.view.turn;
@@ -115,15 +118,19 @@ test.describe("FFA surrender and spectators", () => {
     expect(posts.count).toBe(0);
     expect(errors).toEqual([]);
   });
-
   test("FFA4: an eliminated player automatically spectates live turns and persisted four-seat placings", async ({ player }, info) => {
-    const [alice, bob, carol, dan] = await humans(player, "ffa4") as [Seat, Seat, Seat, Seat];
+    const [alice, bob, carol, dan] = await humans(player, "ffa4") as [
+      Seat,
+      Seat,
+      Seat,
+      Seat
+    ];
     const errors = collectTableErrors(alice.page, [bob.page, carol.page, dan.page]);
     const { slug } = await startTable([alice, bob, carol, dan], "ffa4 leaving and watching", Array.from({ length: 4 }, normalDeck), { ...options, format: "ffa4" });
     await expectRealCore(alice.page, slug, "practice", info, 0);
     await endTurn(alice.page, 2);
     await surrender(alice.page);
-    await expect(alice.page.getByTestId("self-leaving")).toBeVisible();
+    await expectAutoSpectating(alice.page, slug);
     await shot(alice.page, slug, info, "ffa4-leaving");
     await endTurn(bob.page, 3);
     const posts = actionPosts(alice.page, slug);
@@ -154,9 +161,12 @@ test.describe("FFA surrender and spectators", () => {
     expect(posts.count).toBe(0);
     expect(errors).toEqual([]);
   });
-
   test("an eliminated player can leave the room while the other duelists keep playing", async ({ player }, info) => {
-    const [alice, bob, carol] = await humans(player, "ffa3") as [Seat, Seat, Seat];
+    const [alice, bob, carol] = await humans(player, "ffa3") as [
+      Seat,
+      Seat,
+      Seat
+    ];
     const { slug } = await startTable([alice, bob, carol], "ffa3 leave room", [normalDeck(), normalDeck(), normalDeck()], options);
     await endTurn(alice.page, 2);
     await surrender(alice.page);
@@ -170,12 +180,9 @@ test.describe("FFA surrender and spectators", () => {
     expect((await readTable(bob.page, slug)).session.seats.map(seat => seat.seat)).toEqual([0, 1, 2]);
     await evidence(bob.page, slug, info, "leave-room-next-live-seat");
   });
-
   for (const format of ["ffa3", "ffa4"] as const) {
-    for (const ownerRule of [false, true]) {
-      test(ownerRule
-        ? `${format}: owner rule 2026-10-02: surrender at end of turn keeps Leaving through a summon`
-        : `current engine: ${format} no-chain surrender lands after summon placement in the same Main Phase`, async ({ player }, info) => {
+    {
+      test(`${format}: no-chain surrender lands before summon placement in the same Main Phase`, async ({ player }, info) => {
         const seats = await humans(player, format);
         const errors = collectTableErrors(seats[0]!.page, seats.slice(1).map(seat => seat.page));
         const { slug } = await startTable(seats, `${format} surrender timing`, seats.map(normalDeck), { ...options, format });
@@ -185,13 +192,13 @@ test.describe("FFA surrender and spectators", () => {
         expect(before.engine!.chain).toHaveLength(0);
         await surrender(leaver.page);
         const pending = await readTable(alice.page, slug);
-        expect(viewSeat(pending, leavingSeat)).toMatchObject({ eliminated: false, pendingElimination: true });
-        await expect(leaver.page.locator(`[data-holo='${leavingSeat}']`)).toHaveAttribute("data-leaving", "true");
+        expect(viewSeat(pending, leavingSeat)).toMatchObject({ eliminated: true, pendingElimination: false });
+        await expect(leaver.page.locator(`[data-holo='${leavingSeat}']`)).toHaveAttribute("data-elim", "true");
         await useCard(alice.page, handCard(alice.page, FILLER), "Normal Summon");
         await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.kind).toBe("places");
         const placement = await readTable(alice.page, slug);
         expect(placement.engine!.prompt?.kind).toBe("places");
-        expect(viewSeat(placement, leavingSeat)).toMatchObject({ eliminated: false, pendingElimination: true });
+        expect(viewSeat(placement, leavingSeat)).toMatchObject({ eliminated: true, pendingElimination: false });
         await pickLegalZone(alice.page, "mz");
         await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("action");
         const adjusted = await readTable(alice.page, slug);
@@ -199,12 +206,7 @@ test.describe("FFA surrender and spectators", () => {
         expect(adjusted.engine).toMatchObject({ turn: 1, turnSeat: 0, phase: "main1" });
         expect(adjusted.engine!.prompt?.context?.type).toBe("action");
         expect(log.filter(entry => entry.turn === 1).map(entry => entry.kind)).toContain("places");
-        if (ownerRule) {
-          test.fail(true, "R-COMMON-SURRENDER-EOT pending engine change");
-          expect(viewSeat(adjusted, leavingSeat).eliminated, "surrender must stay queued through Main Phase actions").toBe(false);
-          expect(viewSeat(adjusted, leavingSeat).pendingElimination).toBe(true);
-          await expect(leaver.page.locator(`[data-holo='${leavingSeat}']`)).toHaveAttribute("data-leaving", "true");
-        } else {
+        {
           expect(viewSeat(adjusted, leavingSeat).eliminated).toBe(true);
           expect(viewSeat(adjusted, leavingSeat).pendingElimination).not.toBe(true);
           await expect(leaver.page.locator(`[data-holo='${leavingSeat}']`)).toHaveAttribute("data-elim", "true");
@@ -214,56 +216,43 @@ test.describe("FFA surrender and spectators", () => {
         expect(errors).toEqual([]);
       });
     }
-
   }
   for (const format of ["ffa3", "ffa4"] as const) {
-    for (const ownerRule of [false, true]) {
-      test(ownerRule ? `${format}: owner rule: an offered Leaving opponent selection is accepted`
-        : `current engine: ${format}: Leaving remains selectable but the core rejects its opponent choice`, async ({ player }, info) => {
+    {
+      test(`${format}: a surrender rejects the removed seat in an open opponent choice`, async ({ player }, info) => {
         const seats = await humans(player, format);
         const alice = seats[0]!, leaver = seats[1]!;
         const { slug } = await startTable(seats, `${format} choose Leaving opponent`, [
           { main: withFiller(["Hinotama"], 40) }, ...seats.slice(1).map(normalDeck),
         ], { ...options, format });
         await useCard(alice.page, handCard(alice.page, "Hinotama"), "Activate");
-        await pickLegalZone(alice.page, "st");
         await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("opponent");
         await surrender(leaver.page);
         const pending = await readTable(alice.page, slug);
-        expect(viewSeat(pending, 1)).toMatchObject({ eliminated: false, pendingElimination: true });
-        const option = pending.engine!.prompt!.options.find(option => option.controller === 1);
+        expect(viewSeat(pending, 1)).toMatchObject({ eliminated: true, pendingElimination: false });
+        expect(pending.engine!.prompt!.options.map(option => option.controller)).toEqual(format === "ffa3" ? [1, 2] : [1, 2, 3]);
+        const removed = pending.engine!.prompt!.options.find(option => option.controller === 1)!;
+        const stale = await alice.page.request.post(`/api/duels/${slug}/actions`, { data: { revision: pending.engine!.revision, promptId: pending.engine!.prompt!.id, answer: { choice: removed.id } } });
+        expect(stale.status()).toBe(400);
+        expect(await stale.json()).toEqual({ error: "Invalid answer" });
+        expect((await readTable(alice.page, slug)).engine!.prompt).toEqual(pending.engine!.prompt);
+        const option = pending.engine!.prompt!.options.find(option => option.controller === 2)!;
         expect(option).toBeDefined();
         const posts = actionPosts(leaver.page, slug);
-        await expect(leaver.page.getByTestId("self-leaving")).toBeVisible();
-        await expect(leaver.page.locator("[data-prompt-panel]")).toHaveCount(0);
-        await expect(leaver.page.locator("[data-table-shell]")).toHaveAttribute("data-can-act", "false");
-        await expect(alice.page.locator("[data-holo='1']")).toContainText("Leaving");
+        await expectAutoSpectating(leaver.page, slug);
         const answered = alice.page.waitForResponse(reply => reply.url().endsWith(`/api/duels/${slug}/actions`) && reply.request().method() === "POST");
-        await alice.page.getByTestId("holo-pick-1").click();
+        await alice.page.getByTestId("holo-pick-2").click();
         const reply = await answered;
-        const submitted = reply.request().postDataJSON();
-        expect(submitted).toEqual({ revision: pending.engine!.revision, promptId: pending.engine!.prompt!.id, answer: { choice: option!.id } });
+        expect(reply.ok()).toBe(true);
+        expect(reply.request().postDataJSON()).toEqual({ revision: pending.engine!.revision, promptId: pending.engine!.prompt!.id, answer: { choice: option.id } });
         expect(posts.count).toBe(0);
-        await info.attach("Leaving-opponent-request", { body: JSON.stringify(submitted), contentType: "application/json" });
-        await evidence(alice.page, slug, info, "Leaving-opponent-selected", [pending]);
-        if (ownerRule) {
-          test.fail(true, "R-COMMON-SURRENDER-EOT pending engine change");
-          expect(reply.ok(), "the engine must accept an offered Leaving opponent").toBe(true);
-        } else {
-          expect(reply.status()).toBe(400);
-          expect(await reply.json()).toEqual({ error: "Invalid answer" });
-          const unchanged = await readTable(alice.page, slug);
-          expect(unchanged.engine!.prompt).toEqual(pending.engine!.prompt);
-          expect(viewSeat(unchanged, 1)).toMatchObject({ eliminated: false, pendingElimination: true });
-          const fallback = alice.page.waitForResponse(reply => reply.url().endsWith(`/api/duels/${slug}/actions`) && reply.request().method() === "POST");
-          await alice.page.getByTestId("holo-pick-2").click();
-          expect((await fallback).ok()).toBe(true);
-        }
+        await info.attach("living-opponent-request", { body: JSON.stringify(reply.request().postDataJSON()), contentType: "application/json" });
+        await evidence(alice.page, slug, info, "surrendered-opponent-removed", [pending]);
+        await pickLegalZone(alice.page, "st");
         await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("action");
       });
     }
-
-    // The current engine settles this path by auto-passing the open action prompt.
+    // Immediate surrender cuts the turn short and starts the next living seat.
     // Own-turn surrender while another seat owns a chain prompt is covered below.
     test(`current engine: ${format}: own action-prompt surrender auto-passes and hands off to the next live seat`, async ({ player }, info) => {
       const seats = await humans(player, format);
@@ -272,7 +261,7 @@ test.describe("FFA surrender and spectators", () => {
       const nextSeat = format === "ffa4" ? 2 : 1;
       if (format === "ffa4") {
         await surrender(seats[1]!.page);
-        expect(viewSeat(await readTable(alice.page, slug), 1)).toMatchObject({ eliminated: false, pendingElimination: true });
+        expect(viewSeat(await readTable(alice.page, slug), 1)).toMatchObject({ eliminated: true, pendingElimination: false });
       }
       const posts = actionPosts(alice.page, slug);
       const response = alice.page.waitForResponse(reply => reply.url().endsWith(`/api/duels/${slug}/surrender`) && reply.request().method() === "POST");
@@ -283,14 +272,18 @@ test.describe("FFA surrender and spectators", () => {
       expect(viewSeat(accepted, 0).pendingElimination).not.toBe(true);
       expect(accepted.engine).toMatchObject({ turn: 2, turnSeat: nextSeat });
       expect(accepted.engine!.prompt).toBeNull();
-      if (format === "ffa4") expect(viewSeat(accepted, 1).eliminated).toBe(true);
+      if (format === "ffa4")
+        expect(viewSeat(accepted, 1).eliminated).toBe(true);
       await expectAutoSpectating(alice.page, slug);
       expect(posts.count).toBe(0);
     });
-
     test(`current engine: ${format}: surrender at an offered chain response auto-passes without a browser answer`, async ({ player }, info) => {
       const seats = await humans(player, format);
-      const [alice, bob] = seats as [Seat, Seat, ...Seat[]];
+      const [alice, bob] = seats as [
+        Seat,
+        Seat,
+        ...Seat[]
+      ];
       const { slug } = await startTable(seats, `${format} auto-pass Leaving response`, [
         { main: withFiller(["Pot of Greed"], 40) },
         { main: withFiller(["Ash Blossom & Joyous Spring"], 40) }, ...seats.slice(2).map(normalDeck),
@@ -315,7 +308,6 @@ test.describe("FFA surrender and spectators", () => {
       const log = await evidence(alice.page, slug, info, "Leaving-response-auto-passed", [offered, after]);
       expect(log.some(entry => entry.promptId === offered.engine!.prompt!.id && entry.promptSeat === 1 && entry.promptType === "chain")).toBe(true);
     });
-
     for (const reason of ["LP", "deck-out"] as const) {
       test(`${format}: ${reason} elimination automatically spectates without a choice panel`, async ({ player }, info) => {
         const seats = await humans(player, format);
@@ -323,18 +315,18 @@ test.describe("FFA surrender and spectators", () => {
         const decks = reason === "LP"
           ? [{ main: withFiller(["Hinotama", "Hinotama"], 40) }, ...seats.slice(1).map(normalDeck)]
           : [normalDeck(), { main: Array(5).fill(FILLER) as string[] }, ...seats.slice(2).map(normalDeck)];
-        const { slug } = await startTable(seats, `${format} automatic ${reason} spectator`, decks,
-          { ...options, format, ...(reason === "LP" ? { startingLP: 1000 } : {}) });
+        const { slug } = await startTable(seats, `${format} automatic ${reason} spectator`, decks, { ...options, format, ...(reason === "LP" ? { startingLP: 1000 } : {}) });
         const posts = actionPosts(loser.page, slug);
         if (reason === "LP") {
           for (const lp of [500, 0]) {
             await useCard(alice.page, handCard(alice.page, "Hinotama"), "Activate");
-            await pickLegalZone(alice.page, "st");
             await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("opponent");
             await alice.page.getByTestId("holo-pick-1").click();
+            await pickLegalZone(alice.page, "st");
             await expect.poll(async () => viewSeat(await readTable(alice.page, slug), 1).lp).toBe(lp);
           }
-        } else {
+        }
+        else {
           await alice.page.getByRole("button", { name: "End Turn", exact: true }).click();
         }
         await expect.poll(async () => viewSeat(await readTable(alice.page, slug), 1).eliminated).toBe(true);
@@ -347,12 +339,13 @@ test.describe("FFA surrender and spectators", () => {
       });
     }
   }
-
-  for (const ownerRule of [false, true]) {
-    test(ownerRule
-      ? "R-FFA-SURRENDER: a seat already Leaving stays live through later responses while its UI blocks answers"
-      : "current engine: a seat already Leaving is eliminated before a later Ash Blossom response can be offered", async ({ player }, info) => {
-      const [alice, bob, carol] = await humans(player, "ffa3") as [Seat, Seat, Seat];
+  {
+    test("immediate surrender prevents a later Ash Blossom response", async ({ player }, info) => {
+      const [alice, bob, carol] = await humans(player, "ffa3") as [
+        Seat,
+        Seat,
+        Seat
+      ];
       const { slug } = await startTable([alice, bob, carol], "ffa3 later Leaving response", [
         { main: withFiller(["Pot of Greed"], 40) },
         { main: withFiller(["Ash Blossom & Joyous Spring"], 40) }, normalDeck(),
@@ -363,7 +356,7 @@ test.describe("FFA surrender and spectators", () => {
       expect(viewSeat(await readTable(bob.page, slug), 1).hand.some(card => card.name === "Ash Blossom & Joyous Spring")).toBe(true);
       await surrender(bob.page);
       const pending = await readTable(alice.page, slug);
-      expect(viewSeat(pending, 1)).toMatchObject({ eliminated: false, pendingElimination: true });
+      expect(viewSeat(pending, 1)).toMatchObject({ eliminated: true, pendingElimination: false });
       await useCard(alice.page, handCard(alice.page, "Pot of Greed"), "Activate");
       await pickLegalZone(alice.page, "st");
       // The host auto-passes for Leaving seats; their UI cannot answer a response.
@@ -374,18 +367,7 @@ test.describe("FFA surrender and spectators", () => {
       }).toBe(true);
       const offered = await readTable(alice.page, slug);
       const log = await evidence(alice.page, slug, info, "later-leaving-response-policy", [before, pending, offered]);
-      if (ownerRule) {
-        await expect(bob.page.locator("[data-table-shell]")).toHaveAttribute("data-can-act", "false");
-        await expect(bob.page.locator("[data-prompt-panel]")).toHaveCount(0);
-        test.fail(true, "R-COMMON-SURRENDER-EOT pending engine change");
-        expect(viewSeat(offered, 1)).toMatchObject({ eliminated: false, pendingElimination: true });
-        await expect.poll(async () => (await readTable(alice.page, slug)).engine!.prompt?.context?.type).toBe("action");
-        expect(viewSeat(await readTable(alice.page, slug), 1)).toMatchObject({ eliminated: false, pendingElimination: true });
-        await endTurn(alice.page, 2);
-        const after = await readTable(carol.page, slug);
-        expect(after.engine!.turnSeat).toBe(2);
-        expect(viewSeat(after, 1).eliminated).toBe(true);
-      } else {
+      {
         expect(viewSeat(offered, 1).eliminated).toBe(true);
         expect(log.some(entry => entry.promptSeat === 1 && entry.options.some(option => option.card?.name === "Ash Blossom & Joyous Spring"))).toBe(false);
         expect(offered.engine!.prompt?.context?.type).toBe("action");
@@ -395,13 +377,15 @@ test.describe("FFA surrender and spectators", () => {
       }
     });
   }
-
   for (const format of ["ffa3", "ffa4"] as const) {
-    for (const ownerRule of [false, true]) {
-      test(ownerRule ? `${format}: owner rule: own-turn surrender during an open chain hands off immediately`
-        : `current engine: ${format}: surrender during an open chain suppresses the flagged duelist's link and eliminates after the chain`, async ({ player }, info) => {
+    {
+      test(`${format}: surrender during an open chain resolves the leaver's link and eliminates after the chain`, async ({ player }, info) => {
         const seats = await humans(player, format);
-        const [alice, bob] = seats as [Seat, Seat, ...Seat[]];
+        const [alice, bob] = seats as [
+          Seat,
+          Seat,
+          ...Seat[]
+        ];
         const { slug } = await startTable(seats, `${format} surrender in chain`, [
           { main: withFiller(["Pot of Greed", FILLER], 40) },
           { main: withFiller(["Ash Blossom & Joyous Spring"], 40) }, ...seats.slice(2).map(normalDeck),
@@ -414,26 +398,19 @@ test.describe("FFA surrender and spectators", () => {
         expect(before.engine!.chain.map(link => link.seat)).toEqual([0]);
         await surrender(alice.page);
         const pending = await readTable(bob.page, slug);
-        if (ownerRule) {
-          await evidence(bob.page, slug, info, "own-turn-open-chain-immediate", [before, pending]);
-          test.fail(true, "R-COMMON-SURRENDER-EOT pending engine change");
-          expect(viewSeat(pending, 0).eliminated).toBe(true);
-          expect(pending.engine).toMatchObject({ turn: 2, turnSeat: 1 });
-          await expectAutoSpectating(alice.page, slug);
-          return;
-        }
         expect(pending.engine!.prompt?.id).toBe(before.engine!.prompt?.id);
         expect(pending.engine!.chain.map(link => link.seat)).toEqual([0]);
         expect(viewSeat(pending, 0)).toMatchObject({ eliminated: false, pendingElimination: true });
+        expect(pending).toMatchObject({ role: "player", mySeat: 1 });
         expect(viewSeat(pending, 0).monsters.filter(Boolean)).toHaveLength(1);
         await expect(occupied(alice.page, 0)).toHaveCount(1);
         await expect(alice.page.locator("[data-holo='0']")).toHaveAttribute("data-leaving", "true");
-        // Decline rather than negate: Pot's missing draw must come from the flagged link.
+        // Decline rather than negate: the surrendered Pot link must draw before the loss.
         await bob.page.locator("[data-prompt-panel]").getByRole("button", { name: "No", exact: true }).click();
         await expect.poll(async () => viewSeat(await readTable(bob.page, slug), 0).eliminated).toBe(true);
         const after = await readTable(bob.page, slug);
         expect(after.engine!.chain).toHaveLength(0);
-        expect(after.engine!.log.some(entry => entry.text === "Player 1 drew 2 card(s)")).toBe(false);
+        expect(after.engine!.log.some(entry => entry.text === "Player 1 drew 2 card(s)")).toBe(true);
         expect(viewSeat(after, 0).monsters.filter(Boolean)).toHaveLength(0);
         await expect(occupied(alice.page, 0)).toHaveCount(0);
         expect(after.session.status).toBe("active");
