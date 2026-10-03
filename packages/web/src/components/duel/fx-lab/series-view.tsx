@@ -137,7 +137,7 @@ export function SeriesLabHeader({ room }: { room: DuelRoom }) {
   return (
     <header className={styles.header}>
       <div className={styles.identity}>
-        <span>Yugidraft</span>
+        <span>Duelists Kingdom</span>
         <span className={styles.format}>MR5 · 1v1</span>
       </div>
       <div className={styles.turn}>
