@@ -1,5 +1,5 @@
 import type { DuelCardInfo, DuelMasterRule } from "@yugidraft/shared/duels";
-import { LOCATION_HAND, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../constants";
+import { LOCATION_HAND, LOCATION_MZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../constants";
 import { ADD_TO_HAND } from "../duel-timing";
 import {
   BANISHED,
@@ -1142,13 +1142,56 @@ function triggerChain(id: string, name: string, description: string, withPrompt:
   };
 }
 
+/**
+ * A chain link with a target while a card pick is open: the narrow-screen case. With no free gutter the stack
+ * becomes numbered chips, and the target ring of link 2 stays visible unless the pick panel sits over it.
+ */
+function targetSelectChain(id: string, name: string, description: string): LabScenario {
+  return {
+    id,
+    category: "Chain",
+    name,
+    description,
+    build: () => {
+      const dust = C.darkDustSpirit;
+      const shield = C.myBodyAsAShield;
+      const start = board((e) => {
+        e.push(edit.monster(ME, 2, dust), edit.monster(OPP, 2, C.harpie), edit.monster(OPP, 3, C.celtic), edit.hiddenSpell(OPP, 1));
+      });
+      const first = ev.activate(ME, dust, MZ(ME, 2), 1);
+      const second = { ...ev.activate(OPP, shield, SZ(OPP, 1), 2), targets: [MZ(OPP, 2)] };
+      const chain1 = [link(1, ME, dust)];
+      const chain2 = [...chain1, { ...link(2, OPP, shield), targets: [MZ(OPP, 2)] }];
+      const steps: LabStep[] = [
+        { at: 400, events: [first], chain: chain1 },
+        { at: 1200, events: [second], edits: [edit.spell(OPP, 1, shield)], chain: chain2 },
+      ];
+      const options = [C.harpie, C.celtic].map((card, index) => ({
+        id: `card:${index}`,
+        label: card.name,
+        card,
+        controller: OPP,
+        location: LOCATION_MZONE,
+        sequence: index + 2,
+      }));
+      return script(start, steps, 2400, {
+        legalKeys: options.map((option) => `${OPP}:${LOCATION_MZONE}:${option.sequence}`),
+        prompt: {
+          prompt: { id: "lab-chain-select", seat: ME, kind: "cards", title: "Select 1 monster to destroy", min: 1, max: 1, options },
+        },
+      });
+    },
+  };
+}
+
 const CHAIN: LabScenario[] = [
   chainScenario("chain-one", "One link", "A single activation: badge, resolving pulse and clear.", 1),
   chainScenario("chain-two", "Chain of two", "Two links. The last link resolves first.", 2),
   chainScenario("chain-three", "Chain of three", "Three links, the full resolution beat by beat.", 3),
   chainScenario("chain-negated", "Negated link", "Link 1 is negated: slash on the badge and the Negated banner.", 2, 1),
   triggerChain("chain-trigger", "Trigger and a response", "Dark Dust Spirit's effect is Chain Link 1, My Body as a Shield answers as link 2. The callout names the card, the stack lists both links, and the rows light up as they resolve.", false),
-  triggerChain("chain-trigger-prompt", "Chain stack under a response prompt", "The same chain with the Activate its effect? prompt open. The prompt and the hover card must not cover the badges or the stack.", true),
+  triggerChain("chain-trigger-prompt", "Chain stack under a response prompt", "The same chain with the Activate its effect? prompt open. The prompt must not cover a badge, the callout tag or the stack; the tag flips to the far side of its card when the prompt would sit over it.", true),
+  targetSelectChain("chain-target-select", "Chain with a target under a card pick", "Link 2 targets a monster while a card pick is open. On a narrow screen the stack is numbered chips and the target ring stays visible."),
 ];
 
 /* ---------- LP ---------- */
