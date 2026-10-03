@@ -1,8 +1,8 @@
 import { describeWithCores } from '../../support/cores.js';
 import { liveNseat } from '../../support/live-nseat.js';
 import { runScenarios } from '../../support/runner.js';
-import { activate, defineScenario, endTurn, pickOpponent, select } from '../../support/dsl.js';
-import { baseSetup, everySeat, SEATS, type Format, type Seat } from './seat-kit.js';
+import { activate, defineScenario, endTurn, expectPickOptions, select } from '../../support/dsl.js';
+import { baseSetup, everySeat, type Format, type Seat } from './seat-kit.js';
 import { SOURCE } from './nseat-scenarios.js';
 
 const formats: Format[] = ['ffa3', 'ffa4', 'tag'];
@@ -14,10 +14,12 @@ const scenes = formats.flatMap(format => {
   return [
     defineScenario({
       id: `audit-fiendish-${format}`, title: `${format}: return the target to its owner`, source: SOURCE,
-      rules: ['R-COMMON-SEAT-STATE'], tags: ['multiplayer', format, 'card:4145915'],
+      rules: ['R-COMMON-RETURN-TO-OWNER', ...(format !== 'tag' ? ['R-FFA-OPP-ONE'] : [])], tags: ['multiplayer', format, 'card:4145915'],
       setup: baseSetup(format, { p0: { hand: [knight] }, p1: { grave: ['Battle Ox'] }, [target]: { grave: [elf] } }),
-      // R-FFA-OPP-ONE: the chosen Graveyard has one target, which the engine selects.
-      steps: [activate(knight, 'p0'), format !== 'tag' ? pickOpponent(target, 'p0') : select({ card: elf, owner: target }),
+      // R-FFA-OPP-ONE: "either GY" selects a card without declaring an opponent.
+      // R-COMMON-RETURN-TO-OWNER: the selected monster returns to its real owner's field.
+      steps: [activate(knight, 'p0'), expectPickOptions([{ card: 'Battle Ox', seat: 'p1' }, { card: elf, seat: target }], 'p0'),
+        select({ card: elf, owner: target, from: 'grave' }),
         everySeat(format, { p0: { monsters: [knight], hand: [] }, p1: { grave: ['Battle Ox'] }, [target]: { monsters: [elf], grave: [] } })],
     }),
     defineScenario({
