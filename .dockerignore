@@ -15,15 +15,18 @@ packages/*/tests/
 packages/*/test/
 packages/*/.next/
 packages/*/.next-*/
+packages/e2e/.stack*/
+packages/e2e/.auth/
+packages/e2e/test-results/
+packages/e2e/playwright-report/
 packages/duel-server/domain-core/.build/
 packages/duel-server/domain-core/.emsdk/
 packages/duel-server/domain-core/out/
 packages/duel-server/domain-core/.*.bak/
 data-staging/
 .worktrees/
-# The CI-prepared bundle is available to duel-bundled. Exclude local snapshot backups.
-.deploy-duel-engine/*.prev
-.deploy-duel-engine/.ready
+# CI passes the engine bundle as a separate named context, outside the application build.
+.deploy-duel-engine/
 packages/duel-server/domain-core/.emcache/
 packages/duel-server/legacy-1v1/domain-core/.build/
 packages/duel-server/legacy-1v1/domain-core/dist/

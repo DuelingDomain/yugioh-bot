@@ -82,15 +82,13 @@ RUN mkdir -p /app/data
 CMD ["sh", "-c", "sh packages/duel-server/scripts/install-engine-bundle.sh && exec node packages/duel-server/dist/server.js"]
 
 # CI compiles the pinned engine bundle before it reaches the VM. The deploy
-# scripts populate this ignored build-context directory from the verified tarball.
+# scripts pass the verified tarball contents as the named engine build context.
 # Keep a source outside /app/data: the Compose bind mount hides image data there.
 FROM duel AS duel-bundled
 ENV DUEL_BUNDLE_SRC=/opt/duel-engine
 ENV DUEL_DATA_DIR=/app/data/duel-engine
-COPY .deploy-duel-engine/ /opt/duel-engine/
-RUN chmod -R a+rX /opt/duel-engine && \
-    sh packages/duel-server/scripts/install-engine-bundle.sh && \
-    node packages/duel-server/scripts/verify-deploy-multi-cores.mjs
+COPY --from=engine --chmod=0755 . /opt/duel-engine/
+RUN DUEL_DATA_DIR=/opt/duel-engine node packages/duel-server/scripts/verify-deploy-multi-cores.mjs
 
 # ── web ──────────────────────────────────────────────────────────────────────
 # Production stage for the Next.js web dashboard.
