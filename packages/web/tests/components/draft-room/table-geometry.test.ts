@@ -96,6 +96,44 @@ describe("pack capacity", () => {
     expect(measureTable({ ...opts, packSize: 15 }).rows).toBe(4);
   });
 
+  it.each([844, 664].flatMap((viewportHeight) =>
+    [3, 5, 8, 12, 20, 30].map((packSize) => ({ viewportHeight, packSize })),
+  ))("keeps every phone theme slot inside the stage or enables scrolling at 390 x $viewportHeight with $packSize cards", ({ viewportHeight, packSize }) => {
+    // The phone bar and seat strip consume 50px + 60px of viewport height.
+    const height = viewportHeight - 110;
+    const g = measureTable({ width: 390, height, phone: true, theme: true, diskH: 84, packSize });
+    const slots = packSlots(g, packSize, true);
+    expect(slots).toHaveLength(packSize);
+    for (const s of slots) {
+      expect(s.x).toBeGreaterThanOrEqual(0);
+      expect(s.x + s.w).toBeLessThanOrEqual(g.tw + 0.000001);
+      expect(s.y).toBeGreaterThanOrEqual(0);
+      expect(s.y + s.h).toBeLessThanOrEqual(g.th + 0.000001);
+    }
+    if (g.tall) {
+      expect(g.tilt).toBe(0);
+      return;
+    }
+
+    // Project the slot corners using the phone scene's 1000px perspective,
+    // origin at the stage's top centre, and table bottom at diskH + 22px.
+    const radians = g.tilt * Math.PI / 180;
+    for (const s of [...slots, themeStackPoint(g)]) {
+      for (const y of [s.y, s.y + s.h]) {
+        const depth = g.th - y;
+        const scale = 1000 / (1000 + depth * Math.sin(radians));
+        const stageY = (height - 84 - 22 - depth * Math.cos(radians)) * scale;
+        expect(stageY).toBeGreaterThanOrEqual(0);
+        expect(stageY).toBeLessThanOrEqual(height);
+        for (const x of [s.x, s.x + s.w]) {
+          const stageX = 195 + (x - g.tw / 2) * scale;
+          expect(stageX).toBeGreaterThanOrEqual(0);
+          expect(stageX).toBeLessThanOrEqual(390);
+        }
+      }
+    }
+  });
+
   it.each(stages)("keeps theme packs that fit the base rows in place at $width x $height", (stage) => {
     const original = measureTable({ ...stage, theme: true });
     for (const packSize of stage.phone ? [5, 8] : [5, 8, 15]) {
