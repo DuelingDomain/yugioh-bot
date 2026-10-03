@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelRoom } from "@yugidraft/shared/duels";
 
-const state = vi.hoisted(() => ({ room: undefined as DuelRoom | undefined, error: undefined as unknown, syncing: false, recovering: false, revealed: true, reportEnabled: vi.fn().mockResolvedValue(false), mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), resync: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined), surrender: vi.fn().mockResolvedValue(undefined) }));
+const state = vi.hoisted(() => ({ room: undefined as DuelRoom | undefined, error: undefined as unknown, syncing: false, recovering: false, revealed: true, reportEnabled: vi.fn().mockResolvedValue(false), mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), resync: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined), surrender: vi.fn().mockResolvedValue(undefined), tagProps: vi.fn() }));
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
@@ -16,6 +16,13 @@ vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() 
 vi.mock("@/components/duel/prompt-reveal", async (original) => ({ ...await original<object>(), usePromptReveal: () => state.revealed, usePromptAnswerable: () => true }));
 vi.mock("@/components/duel/api", async (original) => ({ ...await original<object>(), sendDuelAction: state.send, surrenderDuel: state.surrender,
   reportEnabled: state.reportEnabled, getDuelRoom: async () => state.room, listDuelPresets: async () => ({ presets: [] }) }));
+// The Rooftop is built by another branch; the room only has to mount it with the shared seams and the team names.
+vi.mock("@/components/duel/tag/tag-shell", () => ({
+  TagShell: (props: Record<string, unknown>) => {
+    state.tagProps(props);
+    return <div data-tag-shell data-testid="tag-shell">{props.headerTools as React.ReactNode}{props.modals as React.ReactNode}</div>;
+  },
+}));
 import { DuelRoomView } from "@/components/duel/room";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
@@ -64,11 +71,72 @@ describe("live room table mount", () => {
     expect(container.querySelector("[data-table-shell]")).toBeNull();
   });
 
-  it("keeps tag on MultiSeatStage", () => {
+  it("mounts the Rooftop for a tag player with the live seams and team names", () => {
+    room(TAG_FIXTURES.states.main.room);
+    const { container } = mount();
+    expect(screen.getByTestId("tag-shell")).toBeTruthy();
+    expect(container.querySelector("[data-table-shell]")).toBeNull();
+    expect(screen.queryByTestId("multi-seat-stage")).toBeNull();
+    expect(state.tagProps).toHaveBeenCalled();
+    const props = state.tagProps.mock.calls.at(-1)![0];
+    expect(props.teamNames).toEqual(["Team 1", "Team 2"]);
+    expect(props.controller.engine.format).toBe("tag");
+    expect(props.fillViewport).toBe(true);
+    expect(Object.keys(props).sort()).toEqual(["actions", "boardRef", "busy", "connection", "controller", "fillViewport", "fxActive",
+      "headerTools", "initialOutOrder", "inputSuspended", "modals", "notices", "pickContinuation", "settingsTools", "teamNames"]);
+    expect(screen.getByRole("button", { name: "Surrender" })).toBeTruthy();
+  });
+
+  it("mounts the Rooftop for a tag spectator", () => {
+    room(TAG_FIXTURES.states.main.room);
+    state.room!.mySeat = null;
+    const { container } = mount();
+    expect(screen.getByTestId("tag-shell")).toBeTruthy();
+    expect(container.querySelector("[data-table-shell]")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Surrender" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Leave room" })).toBeTruthy();
+  });
+
+  it("keeps tag on MultiSeatStage with stage=legacy", () => {
+    window.history.replaceState(null, "", "/duels/live?stage=legacy");
     room(TAG_FIXTURES.states.main.room);
     const { container } = mount();
     expect(screen.getByTestId("multi-seat-stage")).toHaveAttribute("data-format", "tag");
+    expect(screen.queryByTestId("tag-shell")).toBeNull();
     expect(container.querySelector("[data-table-shell]")).toBeNull();
+  });
+
+  it.each([FFA3_FIXTURES, FFA4_FIXTURES])("never mounts the Rooftop for $format", (fixtures) => {
+    room(fixtures.states.main.room);
+    mount();
+    expect(screen.queryByTestId("tag-shell")).toBeNull();
+    expect(state.tagProps).not.toHaveBeenCalled();
+  });
+
+  it("keeps the two-seat DuelField path off the Rooftop", () => {
+    const source = TAG_FIXTURES.states.main.room;
+    room({ ...source, session: { ...source.session, format: "1v1", seats: source.session.seats.slice(0, 2) }, engine: { ...source.engine!, format: "1v1", seats: source.engine!.seats.slice(0, 2) } });
+    mount();
+    expect(screen.queryByTestId("tag-shell")).toBeNull();
+    expect(screen.queryByTestId("multi-seat-stage")).toBeNull();
+  });
+
+  it("tells a tag player that the whole team loses on surrender", async () => {
+    room(TAG_FIXTURES.states.main.room);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "Surrender" }));
+    const dialog = screen.getByRole("dialog", { name: "Surrender" });
+    expect(dialog).toHaveTextContent("Your team loses now.");
+    expect(dialog).not.toHaveTextContent("Leaving");
+    await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Surrender" })); });
+    expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live");
+  });
+
+  it("does not send a tag player to spectate when a seat is eliminated", () => {
+    room(TAG_FIXTURES.states.main.room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map((seat) => ({ ...seat, eliminated: seat.seat === 0 }));
+    mount();
+    expect(state.replace).not.toHaveBeenCalled();
   });
 
   it.each([true, false])("preserves stage=legacy while following the next series game (windowed=%s)", (windowed) => {

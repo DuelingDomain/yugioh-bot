@@ -54,10 +54,10 @@ describe("duel room layout stays one size", () => {
     const legacyAlerts = classElements(legacyNotices[0], "styles.error");
     expect(legacyAlerts).toHaveLength(3);
 
-    const tableShells = descendants(room, ts.isJsxSelfClosingElement).filter((element) => element.tagName.getText() === "TableShell");
-    expect(tableShells).toHaveLength(1);
-    const noticeProps = tableShells[0].attributes.properties.filter((attribute) =>
-      ts.isJsxAttribute(attribute) && attribute.name.getText() === "notices");
+    // Both live shells (TableShell and the Tag Rooftop) get the same `shellProps` object, so its notices are the table path's.
+    const shellProps = descendants(room, ts.isVariableDeclaration).filter((declaration) => declaration.name.getText() === "shellProps");
+    expect(shellProps).toHaveLength(1);
+    const noticeProps = descendants(shellProps[0], ts.isPropertyAssignment).filter((assignment) => assignment.name.getText() === "notices");
     expect(noticeProps).toHaveLength(1);
     const tableAlerts = classElements(noticeProps[0], "styles.error");
     expect(tableAlerts).toHaveLength(3);
