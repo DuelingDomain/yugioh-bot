@@ -12,9 +12,11 @@ import { engineDataDirectory } from "../../engine-data-dir.js";
 const cards = ["Giant Rat", "Dark Magician", "Summoned Skull", "Blue-Eyes White Dragon"];
 const seatId = (seat: number) => `p${seat}` as DuelistId;
 
-// TABLE_TRAP_WASM can select a debug core. Release cores still run all duel checks.
+// Each mode has its own trap override. Without an override, release cores run all duel checks.
 function selectedCorePath(mode: "normal" | "domain"): string {
-  return resolve(process.env.TABLE_TRAP_WASM ?? (mode === "domain" ? currentDomainMultiWasm() : currentNseatWasm()));
+  return resolve(mode === "domain"
+    ? process.env.TABLE_TRAP_DOMAIN_WASM || currentDomainMultiWasm()
+    : process.env.TABLE_TRAP_WASM || currentNseatWasm());
 }
 
 function selectedCore(mode: "normal" | "domain") {
@@ -28,8 +30,13 @@ function selectedCore(mode: "normal" | "domain") {
 
 function coreNeeds(mode: "normal" | "domain") {
   const path = selectedCorePath(mode);
-  const core = needs.file("Creature Swap multi core", path, "Set TABLE_TRAP_WASM for a -DYGO_N_TRAP build, or NSEAT_WASM / DOMAIN_MULTI_WASM for another core.");
-  return [liveNseat, core, ...(mode === "domain" ? needs.domainMulti(engineDataDirectory, path) : [])];
+  const override = mode === "domain" ? "TABLE_TRAP_DOMAIN_WASM" : "TABLE_TRAP_WASM";
+  const selector = mode === "domain" ? "DOMAIN_MULTI_WASM" : "NSEAT_WASM";
+  const core = needs.file("Creature Swap multi core", path, `Set ${override} for a -DYGO_N_TRAP build, or ${selector} for another core.`);
+  const traps = process.env[override]
+    ? [needs.coreFeature("trap core (-DYGO_N_TRAP)", core.ok && selectedCore(mode).hasTraps, `Build with EXTRA_CXXFLAGS=-DYGO_N_TRAP, or unset ${override} to run a release core.`, path)]
+    : [];
+  return [liveNseat, core, ...traps, ...(mode === "domain" ? needs.domainMulti(engineDataDirectory, path) : [])];
 }
 
 // Tag uses one card from each team. The chosen cards keep their real controller seats.
@@ -68,7 +75,7 @@ for (const mode of ["normal", "domain"] as const) {
               board[seatId(seat)] = { monsters: [received, "Mystical Elf"], spells: [], grave: seat === actor ? ["Creature Swap"] : [], banished: [], lp: 16000, ...(mode === "domain" ? { deckMaster: { inZone: true } } : {}) };
             }
             steps.push(expectBoard(board));
-            const scenario = defineScenario({ id: `creature-swap-tag-trap-${mode}-${actor}-${chooser}-${own}`, title: "Tag chooses one card from each team and swaps the two controller seats", source: "ADR-0002 [R-TAG-SHARED-CARDS]; owner decisions Q5 and Q7", rules: [], tags: ["multiplayer", "tag", "card:31036355"], setup, steps });
+            const scenario = defineScenario({ id: `creature-swap-tag-trap-${mode}-${actor}-${chooser}-${own}`, title: "Tag chooses one card from each team and swaps the two controller seats", source: "ADR-0002 [R-TAG-SHARED-CARDS] [R-TAG-PARTNER]; owner decisions Q5 and Q7", rules: ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER"], tags: ["multiplayer", "tag", "card:31036355"], setup, steps });
             const compiled = compileBoard(setup);
             const core = selectedCore(mode);
             const game = await createEngineGame({ ...compiled.options, dataDirectory: engineDataDirectory, multiWasmBinary: core.wasmBinary, seed: ["1", "2", "3", "4"] });
@@ -100,7 +107,7 @@ for (const mode of ["normal", "domain"] as const) {
         const board: Parameters<typeof expectBoard>[0] = {};
         for (let seat = 0; seat < count; seat++) {
           setup[seatId(seat)] = { monsters: [cards[seat]!], ...(mode === "domain" ? { deckMaster: "Mystical Elf" } : {}) };
-          board[seatId(seat)] = { monsters: [cards[seat]!], grave: [], spells: [], banished: [] };
+          board[seatId(seat)] = { monsters: [cards[seat]!], grave: [], spells: [], banished: [], ...(mode === "domain" ? { deckMaster: { inZone: true } } : {}) };
         }
         const compiled = compileBoard(setup);
         const fixture = `local c=Duel.GetFieldCard(0,LOCATION_MZONE,0)
@@ -112,7 +119,8 @@ e:SetRange(LOCATION_MZONE)
 e:SetOperation(function() Duel.Draw(7,1,REASON_EFFECT) end)
 c:RegisterEffect(e)`;
         const steps = [endTurn("p0"), expectBoard(board)];
-        const scenario = defineScenario({ id: `invalid-player-trap-${mode}-${format}`, title: "An invalid player keeps the board and writes trap d on a trap build", source: "The fold trap contract", rules: [], tags: ["multiplayer", format], setup, steps });
+        // This core contract has no ADR rule ID.
+        const scenario = defineScenario({ id: `invalid-player-trap-${mode}-${format}`, title: "An invalid player keeps the board and writes trap d on a trap build", source: "The fold trap contract", tags: ["multiplayer", format], setup, steps });
         const core = selectedCore(mode);
         const game = await createEngineGame({ ...compiled.options, dataDirectory: engineDataDirectory, multiWasmBinary: core.wasmBinary, seed: ["1", "2", "3", "4"], startupScripts: [...compiled.options.startupScripts!, { name: "invalid-player-control.lua", content: fixture }] });
         try {
