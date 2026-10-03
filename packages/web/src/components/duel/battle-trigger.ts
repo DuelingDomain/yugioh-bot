@@ -46,6 +46,9 @@ export function battleTrigger(events: readonly DuelEvent[], attack: DuelEvent, a
     switch (event.kind) {
       case "battle-end":
         if (battleCalculation(events, attack)) {
+          // With no battle damage or casualty, completion follows the clash fallback guards.
+          if (responded) return { action: "fizzle", reason: "negated" };
+          if (ageMs > CLASH_MAX_AGE_MS) return { action: "fizzle", reason: "stale" };
           return { action: "play", reason: "calculation" };
         }
         break;
