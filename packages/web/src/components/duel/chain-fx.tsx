@@ -222,6 +222,8 @@ function resolveAnchor(anchor: ChainAnchor): HTMLElement | null {
   return findPileElement(fallback.controller, fallback.location);
 }
 
+const OBSTACLES = "[data-prompt-panel], [data-prompt-surface], [data-feedback-cue]";
+
 const MIN_BADGE = 28;
 const MAX_BADGE = 46;
 
@@ -324,10 +326,11 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       const origin = overlay.getBoundingClientRect();
       const front = frontRef.current;
       const hostRect = front && host ? host.getBoundingClientRect() : null;
-      // Open prompt panels and the activation banner, in board pixels: the callout tag and the target marks keep
-      // clear of them, so their text stays readable.
+      // Open prompt surfaces and the activation banner, in board pixels: the callout tag and the target marks keep
+      // clear of them, so their text stays readable. `data-prompt-surface` marks what a panel is not: the select
+      // bar, the "Response needed" pill and the phone prompt dock.
       const panels: Box[] = [];
-      for (const panel of document.querySelectorAll<HTMLElement>("[data-prompt-panel], [data-feedback-cue]")) {
+      for (const panel of document.querySelectorAll<HTMLElement>(OBSTACLES)) {
         const rect = panel.getBoundingClientRect();
         if (rect.width > 0 && rect.height > 0) panels.push({ left: rect.left - origin.left, top: rect.top - origin.top, width: rect.width, height: rect.height });
       }

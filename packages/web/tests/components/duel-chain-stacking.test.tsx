@@ -28,7 +28,7 @@ const CHAIN: DuelChainLink[] = [{ index: 1, seat: 0, code: 11 }, { index: 2, sea
  * prompt slot after it. Each slot is its own stacking context in the real table, so the chain's front layer must
  * not live in either.
  */
-function Table({ withRoot = true, table, panels = [], cue, plate }: { withRoot?: boolean; table?: string; panels?: string[]; cue?: string; plate?: string }) {
+function Table({ withRoot = true, table, panels = [], cue, plate, surface }: { withRoot?: boolean; table?: string; panels?: string[]; cue?: string; plate?: string; surface?: string }) {
   const board = (
     <div data-board data-format={table}>
       <div data-slot="fx">
@@ -38,6 +38,7 @@ function Table({ withRoot = true, table, panels = [], cue, plate }: { withRoot?:
         <div data-prompt-panel>Activate its effect?</div>
         {panels.map((box) => <div key={box} data-prompt-panel data-box={box}>choices</div>)}
         {plate ? <div data-lp-seat="1" data-box={plate}>5,400</div> : null}
+        {surface ? <div data-prompt-surface data-box={surface}>Select 1 card</div> : null}
         {cue ? <div data-feedback-cue data-box={cue}>My Body as a Shield is activating</div> : null}
       </div>
     </div>
@@ -55,7 +56,7 @@ beforeEach(() => {
     let box = [0, 0, 0, 0];
     if (this.dataset.zones && ZONES[this.dataset.zones]) box = ZONES[this.dataset.zones];
     else if (this.hasAttribute("data-chain-panel")) box = [0, 0, 240, 30];
-    else if (this.hasAttribute("data-prompt-panel") || this.hasAttribute("data-feedback-cue") || this.hasAttribute("data-lp-seat")) box = (this.dataset.box ?? "0,0,0,0").split(",").map(Number);
+    else if (this.hasAttribute("data-prompt-panel") || this.hasAttribute("data-prompt-surface") || this.hasAttribute("data-feedback-cue") || this.hasAttribute("data-lp-seat")) box = (this.dataset.box ?? "0,0,0,0").split(",").map(Number);
     else if (this.hasAttribute("data-duel-fx-speed-root")) box = [20, 10, 1000, 700];
     else if (this.hasAttribute("data-chain-fx") || this.hasAttribute("data-board")) box = [120, 60, 900, 600];
     const [left, top, width, height] = box;
@@ -160,6 +161,13 @@ describe("chain front layer stacking", () => {
 
     it("keeps clear of the activation banner as well, so its text stays readable", () => {
       const { getByTestId } = render(<Table table="ffa3" cue="240,240,300,70" />);
+      act(() => { vi.advanceTimersByTime(60); });
+      expect(tagOf(getByTestId("root")).dataset.side).toBe("far");
+    });
+
+    it("keeps clear of the select bar, the Response needed pill and the phone prompt dock", () => {
+      // Any element with data-prompt-surface counts, not only a prompt panel (the hover tooltip reads that one).
+      const { getByTestId } = render(<Table table="ffa3" surface="240,240,300,70" />);
       act(() => { vi.advanceTimersByTime(60); });
       expect(tagOf(getByTestId("root")).dataset.side).toBe("far");
     });

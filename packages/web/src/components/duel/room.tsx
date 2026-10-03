@@ -1005,6 +1005,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           data-mode={dockMode}
           data-tone={prompt?.context?.type === "chain" ? "chain" : "action"}
           data-idle={dockMode === "idle" ? "true" : "false"}
+          data-prompt-surface={dockMode === "idle" ? undefined : ""}
         >
           <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
             draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu)}
