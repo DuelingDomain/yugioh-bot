@@ -1,41 +1,28 @@
-import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
-import { SheetRoot, StationTrack } from "@/components/sheet";
+import { StageLine } from "@/components/sheet";
+import { PageFrame } from "@/components/dashboard/page-frame";
 import { CreateTournamentForm } from "@/components/tournament/create-tournament-form";
-
-const CREATE_STATIONS = [
-  { code: "NW", name: "Create" },
-  { code: "LB", name: "Lobby" },
-  { code: "PL", name: "Play" },
-  { code: "FN", name: "Final" },
-];
+import styles from "../tournaments.module.css";
 
 export default function NewTournamentPage() {
   return (
-    <SheetRoot>
-      <Link className="crumb" href="/tournaments">
-        <ChevronLeft className="ic sm" aria-hidden="true" />
-        All tournaments
-      </Link>
-      <header className="t-head sheet-head">
-        <div>
-          <h1 className="t-title">New tournament</h1>
-          <p className="page-sub">You get a lobby and an invite link. Nothing starts until you press Start.</p>
-        </div>
-        <StationTrack
-          stations={CREATE_STATIONS}
-          current={0}
-          tone="mine"
+    <PageFrame
+      back={{ href: "/tournaments", label: "All tournaments" }}
+      title="New tournament"
+      sub="You get a lobby and an invite link. Nothing starts until you press Start."
+    >
+      <div className={styles.steps}>
+        <StageLine
           label="Where creating leads"
-          caption={
-            <>
-              <span className="at">Create</span>
-              <span className="sep">·</span>then a lobby with an invite link
-            </>
-          }
+          steps={[
+            { label: "Create", state: "now" },
+            { label: "Lobby", state: "next" },
+            { label: "Play", state: "next" },
+            { label: "Final", state: "next" },
+          ]}
         />
-      </header>
+        <p className={styles.stepsNote}>After you create it, you get a lobby with an invite link.</p>
+      </div>
       <CreateTournamentForm />
-    </SheetRoot>
+    </PageFrame>
   );
 }

@@ -43,9 +43,9 @@ describe("CreateTournamentForm", () => {
     expect((screen.getByLabelText(/duel mode/i) as HTMLSelectElement).value).toBe("normal");
     expect((screen.getByLabelText(/banlist/i) as HTMLSelectElement).value).toBe("tcg-2026-09");
     expect((screen.getByLabelText(/turn time/i) as HTMLSelectElement).value).toBe("240");
-    expect(screen.getByRole("button", { name: /no deadline · add one/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /no deadline, add one/i })).toBeTruthy();
     const summary = screen.getByRole("complementary", { name: /tournament summary/i });
-    expect(within(summary).getByText("Round robin · Best of 3")).toBeTruthy();
+    expect(within(summary).getByText("Round robin, best of 3")).toBeTruthy();
     expect(within(summary).getByText("Untitled tournament")).toBeTruthy();
   });
 
@@ -81,7 +81,7 @@ describe("CreateTournamentForm", () => {
     expect(screen.getByText(/join order sets round 1/i)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/confirm window/i), { target: { value: "48" } });
     // Pick Oct 9 from the date picker: the time defaults to 11:59 PM local.
-    fireEvent.click(screen.getByRole("button", { name: /no deadline · add one/i }));
+    fireEvent.click(screen.getByRole("button", { name: /no deadline, add one/i }));
     fireEvent.click(within(screen.getByRole("dialog", { name: /choose a date/i })).getByRole("button", { name: /october 9, 2026/i }));
     fireEvent.click(screen.getByRole("button", { name: /create tournament/i }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/tournament/ko"));

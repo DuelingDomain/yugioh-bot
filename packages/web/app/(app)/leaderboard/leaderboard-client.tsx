@@ -9,9 +9,10 @@ interface LeaderboardClientProps {
   currentPlayerId: number | null;
   activeSeason: ActiveSeason | null;
   seasonStartedOn: string | null;
+  liveDuels?: Record<number, string>;
 }
 
-export function LeaderboardClient({ initialRows, currentPlayerId, activeSeason, seasonStartedOn }: LeaderboardClientProps) {
+export function LeaderboardClient({ initialRows, currentPlayerId, activeSeason, seasonStartedOn, liveDuels }: LeaderboardClientProps) {
   const [standings, setStandings] = useState<{ rows: LeaderboardRow[]; scope: LeaderboardScope }>({ rows: initialRows, scope: "season" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +40,7 @@ export function LeaderboardClient({ initialRows, currentPlayerId, activeSeason, 
     currentPlayerId={currentPlayerId}
     activeSeason={activeSeason}
     seasonStartedOn={seasonStartedOn}
+    liveDuels={liveDuels}
     onScopeChange={handleScopeChange}
     loading={loading}
     error={error}

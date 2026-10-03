@@ -125,7 +125,7 @@ export function DeadlinePicker({
             onClick={() => setOpen(open === "date" ? null : "date")}
           >
             <Calendar className="ic sm" aria-hidden="true" />
-            No deadline · add one
+            No deadline, add one
           </button>
         </div>
       )}
@@ -298,7 +298,7 @@ function DatePopover({
         <button type="button" className={`btn btn-quiet btn-sm ${styles.focus}`} onClick={onClear}>
           No deadline
         </button>
-        <span>{value ? `${formatDateShort(value)} · ${daysAwayLabel(new Date(), value)}` : ""}</span>
+        <span>{value ? `${formatDateShort(value)}, ${daysAwayLabel(new Date(), value)}` : ""}</span>
       </div>
     </div>
   );

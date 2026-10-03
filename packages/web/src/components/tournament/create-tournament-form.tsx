@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert } from "lucide-react";
 import { DUEL_BANLIST_OPTIONS } from "@yugidraft/shared/duels";
+import { FieldOutline, StatusLine, SvButton, Zone } from "@/components/sheet";
 import { DuelRulesFields } from "./duel-rules-fields";
 import { DeadlinePicker } from "./deadline-picker";
 import { buildRulesPayload, defaultDuelRulesValue } from "./duel-rules";
@@ -24,8 +25,8 @@ const FORMAT_CHOICES: ReadonlyArray<{ value: TournamentFormat; title: string; bo
 ];
 
 /**
- * The new tournament form. Render it inside a `SheetRoot`; the page supplies the header,
- * breadcrumb and station track, this supplies the ruled sections and the summary.
+ * The new tournament form. Render it inside a `SheetRoot`; the page supplies the bar and the
+ * steps, this supplies the ruled sections and the summary.
  */
 export function CreateTournamentForm() {
   const router = useRouter();
@@ -91,7 +92,7 @@ export function CreateTournamentForm() {
     <>
       <form className="mk" onSubmit={handleSubmit} noValidate>
         <div className="mk-secs">
-          <section className="mk-sec" aria-labelledby="mk-ev">
+          <section className={`mk-sec ${styles.sec}`} aria-labelledby="mk-ev">
             <div className="mk-side">
               <h2 id="mk-ev">Event</h2>
               <p>Players see this name in Discord and on the web.</p>
@@ -136,6 +137,11 @@ export function CreateTournamentForm() {
                       />
                       <b>{choice.title}</b>
                       <span>{choice.body}</span>
+                      <span className={styles.draw} aria-hidden="true">
+                        {Array.from({ length: choice.value === "round_robin" ? 5 : 3 }, (_, i) => (
+                          <Zone key={i} state="empty" size="sm" />
+                        ))}
+                      </span>
                     </label>
                   ))}
                 </div>
@@ -175,7 +181,7 @@ export function CreateTournamentForm() {
             </div>
           </section>
 
-          <section className="mk-sec" aria-labelledby="mk-m">
+          <section className={`mk-sec ${styles.sec}`} aria-labelledby="mk-m">
             <div className="mk-side">
               <h2 id="mk-m">Match</h2>
               <p>Every online duel in this tournament uses these. They lock when the first duel opens.</p>
@@ -183,7 +189,7 @@ export function CreateTournamentForm() {
             <DuelRulesFields idPrefix="tournament-rules" value={rules} onChange={setRules} />
           </section>
 
-          <section className="mk-sec" aria-labelledby="mk-t">
+          <section className={`mk-sec ${styles.sec}`} aria-labelledby="mk-t">
             <div className="mk-side">
               <h2 id="mk-t">Timing</h2>
               <p>Both can be changed later from the tournament page.</p>
@@ -220,9 +226,10 @@ export function CreateTournamentForm() {
         </div>
 
         <aside className="sum" aria-label="Tournament summary">
-          <div className="card">
+          <FieldOutline className={styles.field}>
+           <div className={styles.sumBody}>
             <p className="card-kind">
-              {formatName(format)} · Best of {rules.bestOf}
+              {formatName(format)}, best of {rules.bestOf}
             </p>
             <p className={`sum-name${name.trim() ? "" : ` ${styles.unnamed}`}`}>{name.trim() || "Untitled tournament"}</p>
             <dl className="rows">
@@ -253,17 +260,17 @@ export function CreateTournamentForm() {
               <li>You press Start. Pairings are made then, and nobody else can join.</li>
             </ol>
             {error && (
-              <div className={`banner banner-bad ${styles.sumBanner}`} role="alert">
-                <CircleAlert className="ic" aria-hidden="true" />
-                <span>
-                  <strong>Couldn&apos;t create the tournament.</strong> The server said: {error}
-                </span>
+              <div role="alert">
+                <StatusLine tone="block">
+                  Couldn&apos;t create the tournament. The server said: {error}
+                </StatusLine>
               </div>
             )}
-            <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={submitting} aria-busy={submitting || undefined}>
+            <SvButton type="submit" variant="primary" big wide disabled={submitting} aria-busy={submitting || undefined}>
               Create tournament
-            </button>
-          </div>
+            </SvButton>
+           </div>
+          </FieldOutline>
         </aside>
       </form>
     </>
