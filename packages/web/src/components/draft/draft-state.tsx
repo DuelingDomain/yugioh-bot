@@ -25,7 +25,7 @@ export function DraftState({ slug, error, onRetry }: { slug: string; error: { st
           ) : missing ? (
             <p className={styles.text}>Nothing on this server matches{" "}<code>/draft/{slug}</code>.{" "}It may have been deleted, or the link has a typo.</p>
           ) : (
-            <p className={styles.text}>Nothing was changed. Try again, and if it keeps happening, tell whoever runs the bot.</p>
+            <p className={styles.text}>Nothing was changed. Try again, or open your drafts list.</p>
           )}
           <div className={styles.acts}>
             {forbidden || missing ? (
@@ -35,7 +35,11 @@ export function DraftState({ slug, error, onRetry }: { slug: string; error: { st
                 <RotateCw size={16} aria-hidden="true" />Try again
               </SvButton>
             )}
-            <SvButton as="a" href="/dashboard" variant="ghost">Dashboard</SvButton>
+            {forbidden || missing ? (
+              <SvButton as="a" href="/dashboard" variant="ghost">Dashboard</SvButton>
+            ) : (
+              <SvButton as="a" href="/drafts" variant="ghost">Drafts</SvButton>
+            )}
           </div>
         </div>
       ) : (

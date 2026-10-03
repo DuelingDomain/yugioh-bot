@@ -21,13 +21,14 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  let slug = "unknown";
   try {
     const session = await auth();
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { slug } = await params;
+    slug = (await params).slug;
     const denied = draftReadAccess(getDb(), slug, env.discordGuildId, session.user.id);
     if (denied) return denied;
     const response = await buildDraftResponse(slug, session.user.id);
@@ -38,7 +39,7 @@ export async function GET(
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error("[api/drafts/[slug]] error:", error);
+    console.error(`[api/drafts/${slug}] load failed:`, error);
     return NextResponse.json(
       { error: "Failed to load draft" },
       { status: 500 }

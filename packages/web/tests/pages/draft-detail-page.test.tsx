@@ -448,4 +448,41 @@ describe("DraftDetailPage — load failures", () => {
 
     await waitFor(() => expect(draftCalls()).toBe(before + 1));
   });
+
+  it("offers the drafts list next to Try again when the load fails", async () => {
+    global.fetch = respondWith(500, { error: "boom" });
+
+    render(<DraftDetailPage />);
+
+    expect(await screen.findByRole("heading", { name: "This draft didn't load" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Try again/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Drafts" }).getAttribute("href")).toBe("/drafts");
+    expect(screen.queryByText(/tell whoever runs the bot/)).toBeNull();
+  });
+
+  it("keeps the room on screen when a later refresh fails with a server error", async () => {
+    let draftCalls = 0;
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url === "/api/auth/session") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ user: { id: "user-1" } }) } as Response);
+      }
+      draftCalls += 1;
+      if (draftCalls === 1) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(activeDraftResponse) } as Response);
+      }
+      return Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ error: "boom" }) } as Response);
+    });
+
+    render(<DraftDetailPage />);
+    await waitFor(() => expect(screen.getByTestId("draft-room")).toBeTruthy());
+
+    // The pick that completes the draft makes the page refresh; that refresh fails.
+    act(() => {
+      useDraftStore.getState().setFromServer({ completed: true });
+    });
+    await waitFor(() => expect(draftCalls).toBeGreaterThanOrEqual(2));
+
+    expect(screen.getByTestId("draft-room")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "This draft didn't load" })).toBeNull();
+  });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DraftManageView } from "@/components/draft/draft-manage-view";
 import { DraftState } from "@/components/draft/draft-state";
@@ -134,6 +134,8 @@ export default function DraftDetailPage() {
   // indicator stays in lock-step with the Your Pool / DRAFTED counters.
   const storePool = useDraftStore((s) => s.myPool);
 
+  const loadedRef = useRef(false);
+
   const fetchDraft = useCallback(async () => {
     try {
       const res = await fetch(`/api/drafts/${slug}`);
@@ -142,6 +144,8 @@ export default function DraftDetailPage() {
           router.push("/login");
           return;
         }
+        // A server fault on a refresh keeps the room on screen; the next refresh brings it back up to date.
+        if (res.status >= 500 && loadedRef.current) return;
         setError({ status: res.status });
         return;
       }
@@ -161,9 +165,10 @@ export default function DraftDetailPage() {
         });
       }
       setDraft(data);
+      loadedRef.current = true;
       setError(null);
     } catch {
-      setError({ status: null });
+      if (!loadedRef.current) setError({ status: null });
     }
   }, [setFromServer, slug, router]);
 
