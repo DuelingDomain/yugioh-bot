@@ -125,7 +125,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
       activate("Dragged Down into the Grave", "p0"),
       expectPickSeats(["p1", "p2"], "p0"),
       pickOpponent("p2", "p0"),
-      select({ card: "Raigeki", owner: "p0" }),
+      // Each affected hand has one card. The host selects both discards.
       expectBoard({
         p0: { grave: ["Dragged Down into the Grave", "Raigeki"], hand: [ELF] },
         p1: { hand: ["Dark Hole"], grave: { count: 0 } },
