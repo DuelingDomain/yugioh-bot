@@ -81,7 +81,7 @@ describe("chain stack placement", () => {
 
   it("keeps every entry animation short, between 150 and 250 ms with its delay under 150 ms", () => {
     const entries: Array<[string, string]> = [
-      [".badge", "chainDrop"], [".tag", "chainTagIn"], [".chip", "chainClink"], [".row", "chainIn"], [".panel", "chainIn"],
+      [".badge", "chainDrop"], [".ring", "chainStrike"], [".tag", "chainTagIn"], [".chip", "chainClink"], [".row", "chainIn"], [".panel", "chainIn"],
     ];
     for (const [selector, name] of entries) {
       const body = rule(chainCss, selector);

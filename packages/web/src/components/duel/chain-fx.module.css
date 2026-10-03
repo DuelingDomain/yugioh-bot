@@ -101,7 +101,7 @@
   border-radius: 5px;
   opacity: 0.4;
   box-shadow: 0 0 0 1px rgb(0 0 0 / 0.55);
-  animation: chainStrike 0.7s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation: chainStrike 0.24s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 /* The activation glow: a gold halo around the card of the newest link, so the eye goes there first.
    Static shadow, only its opacity animates. */
