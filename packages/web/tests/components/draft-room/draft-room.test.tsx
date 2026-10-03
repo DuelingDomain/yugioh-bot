@@ -126,6 +126,22 @@ describe("DraftRoom", () => {
     expect(JSON.parse((global.fetch as any).mock.calls[0][1].body)).toEqual({ cardId: 3 });
   });
 
+  it("does not pick the selected card when Enter is pressed on the focused Back to drafts link", async () => {
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+    fireEvent.click(card(1));
+    expect(card(1)).toHaveAttribute("data-sel");
+    const link = screen.getByRole("link", { name: "Back to drafts" });
+    act(() => link.focus());
+    expect(link).toHaveFocus();
+
+    const event = createEvent.keyDown(link, { key: "Enter" });
+    fireEvent(link, event);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+    expect(card(1)).toHaveAttribute("data-sel");
+  });
+
   it("chooses a card by digit while a filter button has focus", async () => {
     renderRoom();
     await waitFor(() => expect(card(1)).toBeTruthy());

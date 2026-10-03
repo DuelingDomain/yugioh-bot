@@ -587,8 +587,10 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
         else if (e.key === "ArrowDown") i = Math.min(order.length - 1, i + cols);
         L.select(order[i], true);
       } else if (e.key === "Enter") {
-        // a focused button handles its own Enter
-        if (e.target instanceof Element && e.target.closest("button")) return;
+        // focused controls handle their own Enter; table cards use the room shortcut
+        if (e.target instanceof Element && e.target.closest(
+          'a[href], button, [role="button"]:not(.tcard), [role="tab"], [role="menuitem"], summary, [contenteditable]:not([contenteditable="false"])',
+        )) return;
         if (L.selectedId != null && L.turn === "picking") {
           e.preventDefault();
           L.doPick(L.selectedId);
