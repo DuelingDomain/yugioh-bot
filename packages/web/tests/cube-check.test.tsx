@@ -73,9 +73,21 @@ describe("CubeCheck", () => {
   });
 
   it("booster: says how many players a big enough cube seats", () => {
-    render(<CubeCheck type="booster" pools={pools(25, 20)} />);
+    render(<CubeCheck type="booster" pools={pools(45, 20)} />);
     expect(screen.getByText("Ready for a cube draft.")).toBeInTheDocument();
     expect(screen.getByText(/Seats up to 3 players/)).toBeInTheDocument();
+  });
+
+  it("booster: only the Main pool counts, Extra cards do not make a cube draft ready", () => {
+    render(<CubeCheck type="booster" pools={pools(25, 10)} />);
+    expect(screen.queryByText("Ready for a cube draft.")).not.toBeInTheDocument();
+    expect(screen.getByText("5 more different cards needed.")).toBeInTheDocument();
+    expect(screen.getByRole("meter", { name: "25 of 30 different cards for 2 players" })).toBeInTheDocument();
+  });
+
+  it("any: Extra cards do not count towards the cube draft line either", () => {
+    render(<CubeCheck type="any" pools={pools(25, 10)} />);
+    expect(screen.getByText(/needs 5 more different cards/)).toBeInTheDocument();
   });
 
   it("booster: the reach line when too few different cards for the deck", () => {

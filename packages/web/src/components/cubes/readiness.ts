@@ -90,7 +90,7 @@ export function clampCopies(value: number): number {
 
 /**
  * Cube draft (booster) readiness. The same rule as the server's `analyzeCube`: every card name in
- * the cube, main and extra together, goes in the packs; a card name shows up once per wave and a
+ * the cube's Main pool goes in the packs (a cube draft never deals the Extra pool); a card name shows up once per wave and a
  * player can be given 3 copies of it at most, so one player can reach `names × min(waves, 3)` cards.
  */
 export const BOOSTER_DEFAULT_CARDS = 40;
@@ -105,7 +105,7 @@ export interface BoosterSettings {
 }
 
 export interface BoosterReadiness {
-  /** Different card names in the cube, main and extra together. */
+  /** Different card names in the cube's Main pool. */
   names: number;
   cardsPerPlayer: number;
   packSize: number;

@@ -82,7 +82,7 @@ function ThemeCheck({ pools }: { pools: CubePoolsDto }) {
 }
 
 function BoosterCheck({ pools, settings }: { pools: CubePoolsDto; settings: BoosterSettings }) {
-  const r = boosterReadiness(pools.main.length + pools.extra.length, settings);
+  const r = boosterReadiness(pools.main.length, settings);
   return (
     <section className={styles.check} aria-labelledby="ce-rd">
       <SectionHead
@@ -128,7 +128,7 @@ function BoosterCheck({ pools, settings }: { pools: CubePoolsDto; settings: Boos
 /** A plain cube is used for either draft: both checks as short lines, nothing alarming. */
 function AnyCheck({ pools, settings }: { pools: CubePoolsDto; settings: BoosterSettings }) {
   const theme = cubeReadiness(poolTotals(pools.main).usable, poolTotals(pools.extra).usable);
-  const booster = boosterReadiness(pools.main.length + pools.extra.length, settings);
+  const booster = boosterReadiness(pools.main.length, settings);
   return (
     <section className={styles.check} aria-labelledby="ce-rd">
       <SectionHead id="ce-rd" title="Cube check" note="Works for theme drafts and cube drafts" />
