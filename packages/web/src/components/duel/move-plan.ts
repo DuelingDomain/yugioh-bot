@@ -496,6 +496,13 @@ const snapshots = new Map<string, ZoneSnapshot>();
 const snapshotCards = new Map<string, { code: number; owner: boolean }>();
 const handRails = new Map<string, ZoneSnapshot>();
 const departureSnapshots = new Map<number, ZoneSnapshot | null>();
+
+/** A failed pre-commit capture must never fall through to a replacement hand slot. */
+export function invalidateHandDepartures(events: readonly DuelEvent[]): void {
+  for (const event of events) {
+    if (isMoveEvent(event) && event.from?.location === LOCATION_HAND) departureSnapshots.set(event.id, null);
+  }
+}
 const DEPARTURE_SNAPSHOT_CAP = 512;
 
 /** A new board must not reuse another duel's coordinates or event IDs. */

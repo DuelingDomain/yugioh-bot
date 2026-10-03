@@ -107,6 +107,8 @@ describe("hand geometry snapshots", () => {
     expect(view.container.querySelector('[data-hand-id="hand-a"]')).toBeNull();
     expect(view.container.querySelector('[data-hand-id="hand-b"]')).not.toBeNull();
     expect(getZoneSnapshot(departure(1).from!)).toBeNull();
+    expect(getMovePlan(1)?.source).toBeNull();
+    expect(resolveSource(departure(1).from!, 1)).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string).message).toContain("snapshot failed");
     fail = false;

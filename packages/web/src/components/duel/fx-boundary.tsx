@@ -6,7 +6,7 @@ export { reportDuelClientError } from "./client-error";
 import { Component, type ErrorInfo, type ReactNode, type RefObject } from "react";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { maxEventId } from "./event-queue";
-import { captureDepartureSnapshots, clearZoneSnapshots } from "./move-plan";
+import { captureDepartureSnapshots, clearZoneSnapshots, invalidateHandDepartures } from "./move-plan";
 
 /** Captures old board geometry in React's pre-mutation commit phase, including batched updates. */
 export class MoveSourceBoundary extends Component<{
@@ -27,6 +27,7 @@ export class MoveSourceBoundary extends Component<{
         captureDepartureSnapshots(fresh, this.props.root.current);
       } catch (error) {
         clearZoneSnapshots();
+        invalidateHandDepartures(fresh);
         reportDuelClientError(error);
       }
     }
