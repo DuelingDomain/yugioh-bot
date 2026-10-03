@@ -4,13 +4,15 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelRoom } from "@yugidraft/shared/duels";
 
-const state = vi.hoisted(() => ({ room: undefined as DuelRoom | undefined, error: undefined as unknown, syncing: false, recovering: false, revealed: true, reportEnabled: vi.fn().mockResolvedValue(false), mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), resync: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined), surrender: vi.fn().mockResolvedValue(undefined) }));
+const state = vi.hoisted(() => ({ playerId: undefined as number | undefined, room: undefined as DuelRoom | undefined, error: undefined as unknown, syncing: false, recovering: false, revealed: true, reportEnabled: vi.fn().mockResolvedValue(false), mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), resync: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined), surrender: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: state.replace }), useSearchParams: () => new URLSearchParams(window.location.search) }));
-vi.mock("swr", () => ({ default: () => ({ data: state.room, error: state.error, isLoading: !state.room, mutate: state.mutate }) }));
+vi.mock("swr", () => ({ default: (key: string) => key === "/api/player/me"
+  ? { data: state.playerId == null ? undefined : { playerId: state.playerId } }
+  : { data: state.room, error: state.error, isLoading: !state.room, mutate: state.mutate } }));
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({ useDuelWebsocket: () => ({ connected: true, syncing: state.syncing, recovering: state.recovering, presence: null, resync: state.resync }) }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
 vi.mock("@/components/duel/prompt-reveal", async (original) => ({ ...await original<object>(), usePromptReveal: () => state.revealed, usePromptAnswerable: () => true }));
@@ -34,6 +36,7 @@ beforeAll(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   state.error = undefined; state.syncing = false; state.recovering = false; state.revealed = true;
+  state.playerId = undefined;
   state.reportEnabled.mockResolvedValue(false);
   window.history.replaceState(null, "", "/duels/live");
 });
@@ -210,27 +213,83 @@ describe("live room table mount", () => {
     expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live");
   });
 
-  it.each([FFA3_FIXTURES, FFA4_FIXTURES])("offers watch or leave only after $format elimination", async (fixtures) => {
+  it.each([FFA3_FIXTURES, FFA4_FIXTURES])("shows $format Leaving until loss, then automatically switches to spectating", (fixtures) => {
     room(fixtures.states.main.room);
     state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, pendingElimination: true } : seat);
     const view = mount();
+    expect(screen.getByTestId("self-leaving")).toHaveTextContent("Leaving — you surrendered; you leave at the end of this turn");
     expect(screen.queryByRole("button", { name: "Surrender" })).toBeNull();
-    expect(screen.queryByRole("region", { name: "You are eliminated" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stay and watch" })).toBeNull();
+    expect(state.replace).not.toHaveBeenCalled();
+    expect(view.container.querySelector("[data-table-shell]")).toHaveAttribute("data-can-act", "false");
     state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, pendingElimination: false, eliminated: true } : seat);
     view.rerender(<DuelRoomView slug="live" windowed />);
-    const choice = screen.getByRole("region", { name: "You are eliminated" });
-    fireEvent.click(within(choice).getByRole("button", { name: "Stay and watch" }));
+    expect(screen.queryByTestId("self-leaving")).toBeNull();
+    expect(screen.queryByRole("region", { name: "You are eliminated" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stay and watch" })).toBeNull();
     expect(state.replace).toHaveBeenCalledWith("/duels/live?spectate=1&window=1");
   });
 
-  it("leaves an eliminated seat without another surrender", async () => {
+  it.each(["surrender", "LP reached 0", "deck-out"])("automatically spectates a reloaded %s loss and preserves URL options", (reason) => {
+    window.history.replaceState(null, "", "/duels/live?stage=legacy&window=1");
     room(FFA3_FIXTURES.states.main.room);
     state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, eliminated: true } : seat);
+    state.room!.engine!.log = [{ id: 1, text: `Player 1 is eliminated (${reason})` }];
+    mount();
+    expect(state.replace).toHaveBeenCalledWith("/duels/live?stage=legacy&window=1&spectate=1");
+    expect(screen.queryByRole("button", { name: "Stay and watch" })).toBeNull();
+  });
+
+  it("leaves a spectator room with the small header control without another surrender", () => {
+    room(FFA3_FIXTURES.states.spectator.room);
     mount(false);
-    fireEvent.click(screen.getByRole("button", { name: "Open here instead" }));
     fireEvent.click(screen.getByRole("button", { name: "Leave room" }));
     expect(state.replace).toHaveBeenCalledWith("/duels");
     expect(state.surrender).not.toHaveBeenCalled();
+  });
+
+  it("closes an open surrender dialog when an LP loss lands", async () => {
+    room(FFA3_FIXTURES.states.main.room);
+    const view = mount();
+    fireEvent.click(screen.getByRole("button", { name: "Surrender" }));
+    expect(screen.getByRole("dialog", { name: "Surrender" })).toBeVisible();
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, lp: 0, eliminated: true } : seat);
+    view.rerender(<DuelRoomView slug="live" windowed />);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Surrender" })).toBeNull());
+    room(FFA3_FIXTURES.states.spectator.room);
+    view.rerender(<DuelRoomView slug="live" windowed spectate />);
+    expect(screen.queryByRole("dialog", { name: "Surrender" })).toBeNull();
+    expect(state.surrender).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])("keeps Archive table available only to a spectating organizer (organizer=%s)", (organizer) => {
+    room(FFA3_FIXTURES.states.result.room);
+    state.room!.mySeat = null;
+    state.playerId = organizer ? state.room!.session.organizerPlayerId : state.room!.session.organizerPlayerId + 1;
+    mount(false);
+    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    expect(screen.queryByRole("button", { name: "Archive table" }) != null).toBe(organizer);
+  });
+
+  it("shows Leaving and blocks stale response prompts in the legacy view", () => {
+    window.history.replaceState(null, "", "/duels/live?stage=legacy");
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, pendingElimination: true } : seat);
+    mount();
+    expect(screen.getByTestId("self-leaving")).toBeVisible();
+    expect(screen.queryAllByRole("button", { name: /as the opponent$/ })).toHaveLength(0);
+    expect(state.replace).not.toHaveBeenCalled();
+  });
+
+  it("answers an engine-offered Leaving opponent from the live LP panel", async () => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 2 ? { ...seat, pendingElimination: true } : seat);
+    mount();
+    expect(screen.getByTestId("holo-pick-2")).toBeVisible();
+    await act(async () => { fireEvent.click(screen.getByTestId("holo-pick-2")); });
+    expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
+      promptId: "choose-opponent", revision: state.room!.engine!.revision, answer: { choice: "opp-2" },
+    });
   });
 
   it("explains a multiplayer surrender without promising to end everyone's duel", () => {
@@ -238,7 +297,8 @@ describe("live room table mount", () => {
     mount();
     fireEvent.click(screen.getByRole("button", { name: "Surrender" }));
     expect(screen.getByRole("dialog", { name: "Surrender" })).toHaveTextContent("Leaving");
-    expect(screen.getByRole("dialog", { name: "Surrender" })).toHaveTextContent("watch");
+    expect(screen.getByRole("dialog", { name: "Surrender" })).toHaveTextContent("automatically spectate");
+    expect(screen.getByRole("dialog", { name: "Surrender" })).toHaveTextContent("your own turn");
     expect(screen.getByRole("dialog", { name: "Surrender" })).not.toHaveTextContent("This ends the duel.");
   });
 
