@@ -24,7 +24,7 @@ function slot(id: number, one: number, two: number, winner: number | null = null
     id: id + 100, bestOf: 3, ranked: true, status: winner === null ? "active" : "completed",
     playerIds: [one, two], displayNames: [playerOneName, playerTwoName], wins, gameNumber: wins[0] + wins[1] + (winner === null ? 1 : 0),
     currentDuelSlug: `duel-${id}`, winnerPlayerId: winner, tournamentId: 12, tournamentSlug: "friday-night-12",
-    tournamentMatchId: id, nextGameAt: null, sideReady: [false, false], hasSide: [true, true],
+    tournamentMatchId: id, nextGameAt: null, sideReady: [false, false], hasSide: [true, true], firstChooser: null, firstChoice: null, vsBot: false,
   } : null;
   return {
     id, matchId: winner === null ? null : id + 1000, roundNumber: Math.ceil(id / 3),
