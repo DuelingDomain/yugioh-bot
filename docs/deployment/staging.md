@@ -77,7 +77,7 @@ sh scripts/staging/check-resources.sh now 1000 3000 /opt
 
 ## One-time steps for the owner
 
-1. **Push the branch** `feat/multiplayer-nseat-duels` to GitHub. (Nobody and nothing has pushed it for you.)
+1. **Push the branch** `n-player-ui-implementation` to GitHub. (Nobody and nothing has pushed it for you.)
 2. **Put the workflow on `main`.** GitHub lists a manual workflow in the Actions tab only when its file is on the default
    branch. Make a small pull request that adds only `.github/workflows/deploy-staging.yml`. The workflow uses the input
    `ref` to check out the feature branch, so the scripts and the code come from that branch. Note: a push to `main`
@@ -97,8 +97,11 @@ sh scripts/staging/check-resources.sh now 1000 3000 /opt
 5. **Optional repository variables.** They are read only the first time, when `.env.staging` does not exist yet.
    `STAGING_DOMAIN`, `STAGING_HOST` (default: the secret `VM_HOST`) and `STAGING_HTTP_PORT` (default `8080`).
    The secrets `VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY` and `VM_PORT` are the ones that production already uses.
-6. **Run the workflow.** GitHub, Actions, "Deploy Staging", Run workflow. Use `ref` = `feat/multiplayer-nseat-duels`,
+6. **Run the workflow.** GitHub, Actions, "Deploy Staging", Run workflow. Choose the same branch for
+   "Use workflow from" and `ref` (default `n-player-ui-implementation`),
    `refresh_db` = off, `action` = `deploy`. The first run is slow (it builds three images and both multi cores).
+   From the CLI, specify the branch twice: `gh workflow run deploy-staging.yml --ref <branch> -f ref=<branch>`.
+   For this branch: `gh workflow run deploy-staging.yml --ref n-player-ui-implementation -f ref=n-player-ui-implementation`.
    If the VM user is not `root`, make the folder first: `sudo mkdir /opt/yugioh-bot-staging && sudo chown $USER: /opt/yugioh-bot-staging`.
 
 When the run is green, the job log ends with the container list, the memory use and `staging is running`.
@@ -145,17 +148,21 @@ The build uses the same inputs as the engine session:
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
 build/packaging scripts, pins, patches and Domain sources. Each cache stores both WASMs and their
 build-info JSON files. `package-deploy-multi-cores.mjs` checks those records and rejects test-seeded or
-incomplete builds, then writes a `.sha256` and `.SOURCE` sidecar for **each** deployed core. Provenance
-uses `git rev-parse HEAD`, so a manual staging dispatch records the requested checkout, not the commit
-that owns the workflow. The VM fetches and checks out that exact CI commit, even if the requested branch
+incomplete builds, then writes a `.sha256` and `.SOURCE` sidecar for **each** deployed core. Each build-info
+JSON stores `builderCommit`; the sidecars and packaging logs print `builtBy=` from that record and
+`deployedBy=` from the checked-out HEAD. A cache hit preserves the original builder, while a manual
+staging dispatch records the requested checkout as deployer. The VM fetches and checks out that exact CI commit, even if the requested branch
 advances during compilation. The workflows verify installation in a scratch directory before transfer.
 
-The VM prepares the ignored `.deploy-duel-engine` build context from that tarball. Both deploy Compose
-files use Docker target `duel-bundled`. It embeds the complete bundle at `/opt/duel-engine` and verifies
-an installed copy at `/app/data/duel-engine` during the image build. At startup the existing installer
-copies from `/opt/duel-engine` into the mounted directory, which hides the image's `/app/data` copy.
-The source remains outside the mount and is readable by the Compose user. The temporary build context
-is removed after deployment. The local dev override retains the bare `duel` target and its existing volume.
+The VM prepares `.deploy-duel-engine` from that tarball and passes it as the named `engine` build
+context. `.dockerignore` excludes it from the application context. Both deploy Compose files use
+Docker target `duel-bundled`, which copies the complete bundle once to `/opt/duel-engine` with readable
+permissions and verifies it there with `verify-deploy-multi-cores.mjs`. No engine copy is baked into
+`/app/data`. Staging installs on the host before startup; its installer also checks the image source
+against the mounted bundle at startup. Production leaves `DUEL_BUNDLE_SRC` empty, so starts only
+verify the installed volume. The temporary build context and randomized transfer tarball are removed
+after deployment, including clone/fetch failures. The local dev override retains the bare `duel`
+target, clears the named context, and keeps its existing volume.
 
 The shared installer validates both checksums before writing, updates either multi core even under an
 identical base manifest, and refuses a changed multi core while a Tag/FFA duel is active. Staging's
@@ -176,8 +183,8 @@ npx tsx packages/duel-server/scripts/build-domain-core.ts standard
 npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
 bash packages/duel-server/scripts/build-deploy-multi-cores.sh
 node packages/duel-server/scripts/package-deploy-multi-cores.mjs "$DUEL_DATA_DIR"
-docker build --target duel-bundled -t yugidraft-multicore-test .
-docker run --rm --network none --entrypoint node yugidraft-multicore-test \
+docker build --target duel-bundled --build-context engine=./.deploy-duel-engine -t yugidraft-multicore-test .
+docker run --rm --network none --env DUEL_DATA_DIR=/opt/duel-engine --entrypoint node yugidraft-multicore-test \
   packages/duel-server/scripts/verify-deploy-multi-cores.mjs --smoke
 ```
 
@@ -198,7 +205,7 @@ Remove only this checkout's generated `.deploy-duel-engine`, test data and core 
 Do not prune shared Docker images, volumes or build caches. No external release asset is required: all
 patches and Domain sources are tracked, and upstream repositories are pinned to commits.
 
-Local verification on 2026-10-02 rebuilt both production cores with bytes identical to the engine
+Earlier local verification of the original packaging on 2026-10-02 rebuilt both production cores with bytes identical to the engine
 snapshot: Standard multi SHA256 `896d6528b16227e1702088c42da8570a6c394be9c0dd93ad4f2aac9951e5c22e`,
 Domain multi SHA256 `f1f8adaeaff21328970ffe894bf70cd86cc3afa18731a8aae4a397206824e2cb`.
 The Docker build, baked-data check, fresh non-root bind-mount install, repeat install, and real staging
@@ -206,6 +213,10 @@ tarball install passed. All six engine startups passed in the image and installe
 installer/availability suites passed 47 tests. Packaging rejected a test seed, wrong core pin and wrong
 Domain layer before copying any file. Smoke checks prove loading and startup; the rule coverage limits
 below still apply. The workflows were checked locally, without deploying or pushing.
+
+The deployment-review changes were checked separately with a synthetic bundle: the named-context
+image build verified `/opt/duel-engine` in place, with no engine copy in `/app/data` or the application
+context. This check covered image packaging and capability reporting; it did not execute real duels.
 
 ## Normal use
 
