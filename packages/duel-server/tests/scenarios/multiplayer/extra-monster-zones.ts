@@ -110,12 +110,17 @@ function arrowViewer(format: Format, actor: Seat): Scenario {
       hand: [...(seat === actor ? [FLIER] : []), ...(seat !== "p0" && SEATS[format].indexOf(seat) <= SEATS[format].indexOf(actor) ? [ELF] : [])] };
   }
   const before = everySeat(format, state);
+  state[actor] = { ...state[actor], monsters: [SPIDER], grave: [ELF], extra: [],
+    zones: { m0: null, m1: null, emz0: SPIDER, emz1: null } };
+  const linked = everySeat(format, state);
   state[actor] = { ...state[actor], monsters: [SPIDER, FLIER], grave: [ELF], extra: [],
     hand: actor === "p0" ? [] : [ELF], zones: { emz0: SPIDER, m1: FLIER, emz1: null } };
   return defineScenario({ id: `emz-${format}-arrow-viewer-${actor}`, title: `${format}: ${actor} cannot use another seat's Link arrow`,
     source: `${SOURCE} [${RULE}]`, rules: [RULE], tags: ["multiplayer", format, "link", "card:65100616"], setup,
     steps: [...turnsBefore(format, actor), expectNotOffered("specialSummon", FLIER, actor), before,
-      specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }), zone(actor, "emz0", actor),
+      specialSummon(SPIDER, actor), select({ card: ELF, owner: actor }),
+      // FFA4 has one free EMZ. The host answers that zone prompt automatically.
+      ...(format === "ffa4" ? [] : [zone(actor, "emz0", actor)]), linked,
       expectOffered("specialSummon", FLIER, actor), specialSummon(FLIER, actor), everySeat(format, state)],
   });
 }
