@@ -1,16 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { seatCountFor } from "@yugidraft/shared/duels";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
-import { describeWithCores } from "../../support/cores.js";
+import { describeWithCores, needs } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import { LATE_CARD_SCENARIOS } from "./late-cards.js";
+import { domainVariant } from "./domain-variants.js";
 
 // Live scenarios of the late cards (Royal Tribute, Messenger of Peace, dice, coin, Ante, Tag Hero Counterattack and Foolish Revival, R3 cards).
 // Same gate as the other live N-seat files: NSEAT_LIVE=1 and a multi core. Run it on the Standard multi core and again on the Domain multi core
 // (NSEAT_WASM=domain-core/dist/ocgcore.multi-domain-P56.sync.wasm).
 describeWithCores("live late-card scenarios", liveNseat, () => {
   runScenarios("multiplayer/late-cards", LATE_CARD_SCENARIOS);
+});
+
+// Check the FFA target limit and the Tag Graveyard rule in real Domain duels.
+describeWithCores("Domain Foolish Revival", [liveNseat, ...needs.domainMulti()], () => {
+  runScenarios("multiplayer/late-cards-domain", LATE_CARD_SCENARIOS
+    .filter((scenario) => scenario.tags.includes("card:83778600"))
+    .map(domainVariant));
 });
 
 describe("late-card scenario list", () => {

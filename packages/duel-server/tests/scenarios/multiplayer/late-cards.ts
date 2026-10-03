@@ -4,7 +4,7 @@
 // card scripts and the overlay, on the Standard multi core and again on the Domain multi core. Every scenario ends with the state of EVERY seat.
 
 import {
-  activate, attack, changePhase, changePosition, endTurn, expectBoard, expectEliminated, expectTurn, expectNotOffered, expectOffered, expectPickSeats, expectPrompt, faceDown, no, pickOpponent, select, surrender, yes, zone,
+  activate, attack, changePhase, changePosition, endTurn, expectBoard, expectEliminated, expectTurn, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, faceDown, no, pickOpponent, select, surrender, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
@@ -304,9 +304,9 @@ function anteEmptyHand(format: Format): Scenario {
   });
 }
 
-// --- Hero Counterattack and Foolish Revival in Tag, Foolish Revival with a Graveyard that is not the picked one ----------------------
+// --- Hero Counterattack and Foolish Revival ----------------------------------------------------------------------------------------
 const HERO_RULE = `${SOURCE} [R-COMMON-OPP-PICK], the other cards use the defaults: Hero Counterattack (the opponent that attacked picks at random from your hand)`;
-const REVIVAL_RULE = `${SOURCE} [R-COMMON-OPP-PICK], [R-COMMON-OPP-FIELD], a summon to the field of an opponent: the summoning player picks one opponent, the target may be in the Graveyard of any opponent`;
+const REVIVAL_RULE = `${SOURCE} [R-FFA-OPP-ONE] [R-COMMON-OPP-PICK]: in FFA, select a target from the declared opponent's Graveyard and summon it to that opponent's field; in Tag, the target may be in either opposing Graveyard`;
 const AVIAN = "Elemental HERO Avian";
 const SPARKMAN = "Elemental HERO Sparkman";
 const HERO_COUNTERATTACK = "Hero Counterattack";
@@ -345,31 +345,41 @@ const heroCounterattackTag = defineScenario({
   ],
 });
 
-// FFA uses only the declared Graveyard. Tag keeps its choice of an opposing Graveyard and recipient.
+// In FFA, the declaration limits the target and the summon to one opponent.
+// In Tag, the two opposing Graveyards are shared; the summon goes to the picked duelist.
 function foolishRevivalOtherGrave(format: "ffa3" | "tag"): Scenario {
   const label = format === "tag" ? "Tag" : "FFA3";
+  const ffa = format === "ffa3";
   const picked: Seat = format === "tag" ? "p3" : "p2";
   const source: Seat = "p1";
+  const target = ffa ? DARK_MAGICIAN : SKULL;
   const setup: Scenario["setup"] = { format, p0: { spells: [{ card: FOOLISH_REVIVAL, pos: "set" }] }, p1: { grave: [SKULL] } };
-  (setup as Record<string, unknown>)[picked] = { grave: [DARK_MAGICIAN] };
+  // Two legal FFA targets keep the card prompt open so the test can check its options.
+  (setup as Record<string, unknown>)[picked] = { grave: ffa ? [DARK_MAGICIAN, ELF] : [DARK_MAGICIAN] };
   const lp = format === "tag" ? 16000 : 8000;
   const spec: Partial<Record<Seat, DuelistExpect>> = {
     p0: { grave: [FOOLISH_REVIVAL] },
-    [source]: format === "tag" ? {} : { grave: [SKULL] },
-    [picked]: format === "tag" ? { monsters: [SKULL], grave: [DARK_MAGICIAN] } : { monsters: [DARK_MAGICIAN] },
+    [source]: { grave: ffa ? [SKULL] : [] },
+    [picked]: { monsters: [target], grave: ffa ? [ELF] : [DARK_MAGICIAN], zones: { m0: { card: target, pos: "def" } } },
   };
+  for (const seat of seatsOf(format)) spec[seat] = { hand: [], deckCount: 20, ...spec[seat] };
   return defineScenario({
-    id: `late-${format}-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked`,
-    title: format === "tag" ? `${label}: Foolish Revival summons ${source}\'s Summoned Skull to ${picked} and keeps ${picked}\'s Graveyard card` : `${label}: Foolish Revival declares ${picked}, revives its Dark Magician, and leaves ${source}\'s Summoned Skull in the Graveyard`,
+    id: ffa
+      ? "late-ffa3-foolish-revival-target-and-summon-use-the-declared-opponent"
+      : `late-${format}-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked`,
+    title: ffa
+      ? "FFA3: p0 declares p2 for Foolish Revival: only p2's Graveyard cards are offered; Dark Magician goes to p2 in Defense Position; p1 keeps Summoned Skull"
+      : `${label}: p0 activates Foolish Revival and picks ${picked}, then targets the Summoned Skull in the Graveyard of ${source}: the Skull goes to the field of ${picked}; ${picked} keeps its own Graveyard card`,
     source: REVIVAL_RULE,
-    rules: ["R-COMMON-OPP-PICK", "R-COMMON-OPP-FIELD", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
+    rules: ["R-COMMON-OPP-PICK", ...(ffa ? ["R-FFA-OPP-ONE"] : ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER"])],
     tags: ["multiplayer", "late-cards", "opponent-field-summon", format, "card:83778600"],
     setup,
     steps: [
       activate(FOOLISH_REVIVAL, "p0"),
       expectPickSeats(format === "tag" ? ["p1", "p3"] : ["p1", "p2"], "p0"),
       pickOpponent(picked, "p0"),
-      ...(format === "tag" ? [select({ card: SKULL, owner: source })] : []),
+      ...(ffa ? [expectPickOptions([{ card: DARK_MAGICIAN, seat: picked }, { card: ELF, seat: picked }], "p0")] : []),
+      select({ card: target, owner: ffa ? picked : source }),
       everySeat(format, spec, lp),
     ],
   });
