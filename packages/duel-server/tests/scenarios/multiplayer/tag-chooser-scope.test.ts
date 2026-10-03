@@ -5,18 +5,17 @@ import { compileBoard } from "../../support/board.js";
 import { describeWithCores, needs } from "../../support/cores.js";
 import { activate, defineScenario, endTurn, expectBoard, expectPickOptions, expectPrompt, pickOpponent, select, type DuelistId, type Scenario, type Step } from "../../support/dsl.js";
 import { liveNseat } from "../../support/live-nseat.js";
-import { domainNseatWasmBinary, nseatWasmBinary, Session } from "../../support/session.js";
+import { Session } from "../../support/session.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
-
-const trapPath=process.env.CORE_SCOPE_TRAP_WASM ?? "";
-const trapCore=needs.file("Tag chooser trap core",trapPath,"Set CORE_SCOPE_TRAP_WASM to a YGO_N_TRAP build.");
-if(trapCore.ok) trapCore.ok=readFileSync(trapPath).includes(Buffer.from("NFOLD %c"));
 
 const cards = ["Giant Rat", "Dark Magician", "Summoned Skull", "Blue-Eyes White Dragon"];
 const seatId = (seat: number) => `p${seat}` as DuelistId;
 
 // Tag uses one card from each team. The chosen cards keep their real controller seats.
 for (const mode of ["normal", "domain"] as const) {
+  const trapPath = (mode === "domain" ? process.env.TABLE_TRAP_DOMAIN_WASM : process.env.CORE_SCOPE_TRAP_WASM ?? process.env.TABLE_TRAP_WASM) ?? "";
+  const trapCore = needs.file(`${mode} Tag chooser trap core`, trapPath, "Set TABLE_TRAP_WASM and TABLE_TRAP_DOMAIN_WASM to YGO_N_TRAP builds.");
+  if (trapCore.ok) trapCore.ok = readFileSync(trapPath).includes(Buffer.from("NFOLD %c"));
   describeWithCores(`Tag chooser scope (${mode})`, mode === "domain" ? [liveNseat, trapCore, ...needs.domainMulti()] : [liveNseat,trapCore], () => {
     for (let actor = 0; actor < 4; actor++) {
       const opponents = [0, 1, 2, 3].filter((seat) => seat % 2 !== actor % 2);
@@ -53,7 +52,8 @@ for (const mode of ["normal", "domain"] as const) {
             steps.push(expectBoard(board));
             const scenario = defineScenario({ id: `tag-chooser-scope-${mode}-${actor}-${chooser}-${own}`, title: "Tag chooses one card from each team and swaps the two controller seats", source: "ADR-0002 [R-TAG-SHARED-CARDS]; owner decisions Q5 and Q7", rules: ["R-TAG-SHARED-CARDS","R-TAG-PARTNER"], tags: ["multiplayer", "tag", "card:31036355"], setup, steps });
             const compiled = compileBoard(setup);
-            const wasm = mode === "domain" ? domainNseatWasmBinary() : nseatWasmBinary();
+            const bytes = readFileSync(trapPath);
+            const wasm = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
             expect(Buffer.from(new Uint8Array(wasm ?? new ArrayBuffer(0))).includes(Buffer.from("NFOLD %c")), "The loaded core must emit fold traps").toBe(true);
             const game = await createEngineGame({ ...compiled.options, dataDirectory: engineDataDirectory, multiWasmBinary: wasm, seed: ["1", "2", "3", "4"] });
             try {

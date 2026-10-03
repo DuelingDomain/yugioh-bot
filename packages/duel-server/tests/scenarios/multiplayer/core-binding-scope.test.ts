@@ -10,6 +10,8 @@ import { engineDataDirectory } from "../../engine-data-dir.js";
 import { activate, defineScenario, endTurn, expectBoard, expectPickSeats, expectPrompt, expectOffered, expectNotOffered, pickOpponent, select,
   type Scenario, type DuelistId, type Step, type BoardExpect } from "../../support/dsl.js";
 const SOURCE="Giant Soldier of Stone", OX="Battle Ox", ELF="Mystical Elf", HEART="Change of Heart";
+const standardTrap = process.env.CORE_SCOPE_TRAP_WASM ?? process.env.TABLE_TRAP_WASM ?? "";
+const domainTrap = process.env.TABLE_TRAP_DOMAIN_WASM ?? "";
 type Case="card-lock"|"card-lock-symbolic"|"player-lock"|"phase-read"|"phase-later"|"phase-same-turn"|"single"|"equip"|"field"|"duration"|"dead-duration"|"empty-duration"|"tag-read";
 function proof(format:"1v1"|"ffa3"|"ffa4"|"tag", domain:boolean, kind:Case):Scenario {
   const seats:DuelistId[]=format==="1v1"?["p0","p1"]:format==="ffa3"?["p0","p1","p2"]:["p0","p1","p2","p3"];
@@ -85,7 +87,9 @@ function proof(format:"1v1"|"ffa3"|"ffa4"|"tag", domain:boolean, kind:Case):Scen
 async function run(scenario:Scenario):Promise<void>{
  const compiled=compileBoard(scenario.setup),kind=scenario.tags.find(t=>t.startsWith("fixture:"))!.slice(8);
  const fixture=readFileSync(new URL("./fixtures/core-binding-scope.lua",import.meta.url),"utf8");
- const wasm=scenario.setup.mode==="domain"?domainNseatWasmBinary():nseatWasmBinary();
+ const trapPath=scenario.setup.mode==="domain"?domainTrap:standardTrap;
+ const trapBytes=kind==="tag-read"?readFileSync(trapPath):undefined;
+ const wasm=trapBytes?trapBytes.buffer.slice(trapBytes.byteOffset,trapBytes.byteOffset+trapBytes.byteLength) as ArrayBuffer:scenario.setup.mode==="domain"?domainNseatWasmBinary():nseatWasmBinary();
  if(kind==="tag-read") expect(Buffer.from(new Uint8Array(wasm ?? new ArrayBuffer(0))).includes(Buffer.from("NFOLD %c")),"The loaded core must emit fold traps").toBe(true);
  const game=await createEngineGame({...compiled.options,firstTurnDraw:scenario.setup.mode==="domain",dataDirectory:engineDataDirectory,
   multiWasmBinary:wasm,startupScripts:[{name:"core-binding-scope.lua",content:`CORE_CASE=${JSON.stringify(kind)}\n${fixture}`},...(compiled.options.startupScripts??[])],seed:["1","2","3","4"]});
@@ -98,6 +102,6 @@ describeWithCores("Core binding scopes",liveNseat,()=>{
   (format==="1v1"?["single","equip","field"]:format==="tag"?["card-lock","card-lock-symbolic","player-lock","single","equip","field"]:["card-lock","card-lock-symbolic","player-lock","phase-read","phase-later","phase-same-turn","single","equip","field","duration","dead-duration","empty-duration"]).map(kind=>proof(format,domain,kind as Case)))),run);
 });
 
-describeWithCores("Tag operation read traps",[liveNseat,needs.file("Tag read trap core",process.env.CORE_SCOPE_TRAP_WASM ?? "", "Set CORE_SCOPE_TRAP_WASM to a YGO_N_TRAP core")],()=>{
+describeWithCores("Tag operation read traps",[liveNseat,needs.file("Tag read trap core",standardTrap, "Set TABLE_TRAP_WASM to a YGO_N_TRAP core"),needs.file("Domain Tag read trap core",domainTrap,"Set TABLE_TRAP_DOMAIN_WASM to a YGO_N_TRAP Domain core")],()=>{
  runScenarios("multiplayer/tag-operation-trap",[false,true].map(domain=>proof("tag",domain,"tag-read")),run);
 });
