@@ -10,6 +10,7 @@ vi.mock("next/font/google", () => {
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 import { SheetRoot } from "@/components/sheet";
+import { MatchError } from "@/components/tournament/matches/match-controls";
 import { LiveView } from "@/components/tournament/floor/live-view";
 import type { TournamentDetail } from "@/components/tournament/types";
 import { sheetRatings, sheetTournament } from "../fixtures/tournament-sheet";
@@ -63,6 +64,30 @@ describe("Register a deck under your field", () => {
     expect(JSON.parse(String(put[1]!.body))).toEqual({ savedDeckId: 4 });
   });
 
+  it("points aria-controls at the panel only while it is open, and moves focus into the panel", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(deckState)));
+    live(withoutDeck());
+
+    const open = screen.getByRole("button", { name: "Register a deck" });
+    // Closed: no aria-controls, but the host container is already in the page with the id.
+    expect(open).not.toHaveAttribute("aria-controls");
+    const host = document.getElementById("floor-my-deck")!;
+    expect(host).not.toBeNull();
+    expect(host).toBeEmptyDOMElement();
+
+    fireEvent.click(open);
+    expect(open).toHaveAttribute("aria-controls", "floor-my-deck");
+    expect(document.getElementById("floor-my-deck")).toBe(host);
+    expect(host).toHaveFocus();
+    expect(await within(host).findByTestId("floor-my-deck")).toBeInTheDocument();
+    expect(document.querySelectorAll("#floor-my-deck")).toHaveLength(1);
+
+    fireEvent.click(open);
+    expect(open).not.toHaveAttribute("aria-controls");
+    expect(document.getElementById("floor-my-deck")).toBe(host);
+    expect(host).toBeEmptyDOMElement();
+  });
+
   it("says so when the decks cannot be loaded, and loads again on request", async () => {
     let ok = false;
     const fetchMock = vi.fn(async () => (ok ? Response.json(deckState) : Response.json({ error: "x" }, { status: 500 })));
@@ -106,5 +131,20 @@ describe("Register a deck under your field", () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json(deckState)));
     live({ ...withoutDeck(), draftId: 9, draftSlug: "friday-cube", deckNote: null });
     expect(screen.queryByTestId("deck-note")).toBeNull();
+  });
+});
+
+describe("My deck inside a match error", () => {
+  it("opens the deck panel when the page has one", () => {
+    const onOpenDeck = vi.fn();
+    render(<SheetRoot><MatchError error="Both players must register a deck in My deck first." onOpenDeck={onOpenDeck} /></SheetRoot>);
+    expect(screen.queryByRole("link", { name: "My deck" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "My deck" }));
+    expect(onOpenDeck).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the section link when there is no panel to open", () => {
+    render(<SheetRoot><MatchError error="Register a deck in My deck first." /></SheetRoot>);
+    expect(screen.getByRole("link", { name: "My deck" })).toHaveAttribute("href", "#my-deck");
   });
 });

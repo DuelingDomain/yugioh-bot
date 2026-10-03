@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { BugFabLift } from "@/components/bug-report/fab-lift";
 import { DeckMark, DuelAction, SheetPortal, SvButton } from "@/components/sheet";
 import type { PlayerRatings } from "../sheet-contracts";
@@ -39,6 +39,17 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
   // "Register a deck" opens the deck panel right here: the old link jumped to a rail section that
   // is already on screen on a wide page and empty until its own request finished.
   const [deckOpen, setDeckOpen] = useState(false);
+  // Focus moves into the panel each time it is asked to open (the counter also covers a panel
+  // that is already open, such as "My deck" in an error message).
+  const [focusTick, setFocusTick] = useState(0);
+  const deckHost = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focusTick > 0) deckHost.current?.focus();
+  }, [focusTick]);
+  const openDeck = () => {
+    setDeckOpen(true);
+    setFocusTick((tick) => tick + 1);
+  };
 
   // The server's numbers when it sent them, else the same projection the old card used.
   const stakes = stakesFor(tournament, match);
@@ -107,8 +118,8 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
               type="button"
               className={styles.deckbtn}
               aria-expanded={deckOpen}
-              aria-controls="floor-my-deck"
-              onClick={() => setDeckOpen(!deckOpen)}
+              aria-controls={deckOpen ? "floor-my-deck" : undefined}
+              onClick={() => (deckOpen ? setDeckOpen(false) : openDeck())}
             >
               {me?.deckRegistered ? "Change deck" : "Register a deck"}
             </button>
@@ -126,11 +137,13 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
           )}
         </p>
       )}
-      {deckOpen && !me?.deckLocked && (
-        <div className={styles.panel}>
-          <MyDeckPanel variant="floor" tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
-        </div>
-      )}
+      <div id="floor-my-deck" ref={deckHost} tabIndex={-1} className={styles.deckhost}>
+        {deckOpen && !me?.deckLocked && (
+          <div className={styles.panel}>
+            <MyDeckPanel variant="floor" tournament={tournament} tournamentSlug={tournamentSlug} onChanged={onChanged} />
+          </div>
+        )}
+      </div>
     </>
   ) : null;
 
@@ -146,7 +159,7 @@ export function NearBox({ tournament, tournamentSlug, match, viewerId, isHost, r
           <ReportPanel projection={projection} opponentName={opp.name} confirmWindowHours={hours} loading={disabled} onReport={actions.report} />
         </div>
       )}
-      <MatchError error={actions.error} />
+      <MatchError error={actions.error} onOpenDeck={deckBlock && !me?.deckLocked ? openDeck : undefined} />
       {useBar && <div className={styles.spacer} aria-hidden="true" />}
     </div>
   );

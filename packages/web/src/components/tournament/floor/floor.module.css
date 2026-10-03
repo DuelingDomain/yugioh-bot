@@ -99,6 +99,8 @@
 .deckbtn:hover { color: var(--ink); }
 .deckbtn:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 .panel { margin-top: 14px; }
+/* The deck panel host takes focus when it opens; the panel itself is the cue, so no ring on the box. */
+.deckhost:focus { outline: none; }
 .spacer { height: 122px; }
 
 /* ---------- the tables: every match in the round, as small flat fields ---------- */

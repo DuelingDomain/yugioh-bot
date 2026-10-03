@@ -71,10 +71,12 @@ export function MyDeckPanel({
 
   if (!visible) return null;
   const sectionId = variant === "floor" ? "floor-my-deck" : "tournament-my-deck";
+  // The floor panel sits in a host container that always carries the id (aria-controls points at it).
+  const domId = variant === "floor" ? undefined : sectionId;
   if (!loaded || !state) {
     if (variant !== "floor") return null;
     return (
-      <section id={sectionId} data-testid={sectionId} className={styles.panel} aria-label="Register a deck">
+      <section id={domId} data-testid={sectionId} className={styles.panel} aria-label="Register a deck">
         {loaded && loadFailed ? (
           <div role="alert" className={styles.err}>
             <StatusLine tone="block">Could not load your decks.</StatusLine>
@@ -130,7 +132,7 @@ export function MyDeckPanel({
   }
 
   return (
-    <section id={sectionId} data-testid={sectionId} className={styles.panel}>
+    <section id={domId} data-testid={sectionId} className={styles.panel}>
       <h2 className={styles.h}>My deck</h2>
 
       {registration ? (
