@@ -51,15 +51,15 @@ describe("battle position presentation", () => {
     expect(zone().getAttribute("data-side")).toBe(mySeat === 1 ? "you" : "opp");
   });
 
-  it("animates an opponent's quarter-turn and leaves its engine-derived defense orientation intact", () => {
+  it.each([0, 1, null])("animates the quarter-turn and keeps the defense orientation for viewer %s", mySeat => {
     const animate = vi.fn((_frames: Keyframe[], _options: KeyframeAnimationOptions) =>
       ({ finished: new Promise(() => {}), cancel: vi.fn() }) as unknown as Animation);
     Object.defineProperty(Element.prototype, "animate", { configurable: true, value: animate });
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       return { left: 0, top: 0, width: this.closest("[data-zones]") ? 70 : 1200, height: this.closest("[data-zones]") ? 100 : 900 } as DOMRect;
     });
-    const { container, rerender, unmount } = render(field(engine(), 0, true));
-    rerender(field(engine(true), 0, true));
+    const { container, rerender, unmount } = render(field(engine(), mySeat, true));
+    rerender(field(engine(true), mySeat, true));
     const turn = animate.mock.calls.find(call => (call[1] as KeyframeAnimationOptions).duration === TURN_MS && (call[0] as Keyframe[])[0]?.transform?.toString().startsWith("rotate(0deg)"));
     expect(turn).toBeDefined();
     expect((turn![0] as Keyframe[]).at(-1)?.transform).toBe("rotate(90deg) translateY(0) scale(1)");

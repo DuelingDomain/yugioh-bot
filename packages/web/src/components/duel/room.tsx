@@ -992,7 +992,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false }: { slug: str
                 {!error && !realtime.recovering ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
                 <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}
-                  active={!error && !realtime.recovering} aim={battleAim} />
+                  active={!error && !realtime.recovering} aim={battleAim} result={engine.result} />
                 <DestroyFx key={`destroy-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
                   active={!error && !realtime.recovering} mySeat={localSeat} />
                 </FxBoundary>

@@ -64,9 +64,9 @@
 .calculationStat {
   position: absolute;
   transform: translateX(-50%);
-  padding: 3px 8px;
-  border: 1px solid var(--fx-ember-soft);
-  border-radius: 3px;
+  padding: calc(3 * var(--fx-unit)) calc(8 * var(--fx-unit));
+  border: max(1px, var(--fx-unit)) solid var(--fx-ember-soft);
+  border-radius: calc(3 * var(--fx-unit));
   background: rgb(7 11 21 / 0.94);
   color: var(--fx-hot);
   font-family: var(--fx-f-ui);
@@ -74,8 +74,15 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  box-shadow: 0 3px 10px rgb(0 0 0 / 0.5);
+  box-shadow: 0 calc(3 * var(--fx-unit)) calc(10 * var(--fx-unit)) rgb(0 0 0 / 0.5);
 }
+
+.calculationStat[data-edge="top"] {
+  transform: translate(-50%, -100%);
+}
+
+.calculationStat strong { font-size: calc(18 * var(--fx-unit)); }
+.calculationStat small { font-size: calc(10 * var(--fx-unit)); }
 
 @keyframes fx-life {
   0%,

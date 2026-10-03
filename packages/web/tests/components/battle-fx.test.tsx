@@ -128,8 +128,150 @@ describe("BattleFx", () => {
       { seat: 1, monsters: [{ controller: 1, location: 4, sequence: 0, position: defenderPosition, ...defender }] },
     ] as unknown as DuelSeatView[];
   // A Warrior (slash: two halves), a Machine (beam: 24 tiles) and a Spellcaster (arcane: 24 tiles).
-  const warrior = { code: 6368038, name: "Gaia The Fierce Knight", race: "Warrior", attribute: 1 };
-  const machine = { code: 77585513, name: "Jinzo", race: "Machine", attribute: 32 };
+  const warrior = { code: 6368038, name: "Gaia The Fierce Knight", race: "Warrior", attribute: 1, attack: 2300, defense: 2100 };
+  const machine = { code: 77585513, name: "Jinzo", race: "Machine", attribute: 32, attack: 2400, defense: 1500 };
+
+  it.each([0, 1, null])("uses the changed defender pose for DOM and canvas playback for viewer %s", viewer => {
+    const node = board.querySelector<HTMLElement>('[data-zones="1:4:0"]')!;
+    node.dataset.side = viewer === 1 ? "you" : "opp";
+    node.dataset.defense = "false";
+    node.querySelector<HTMLElement>("[data-card-art]")!.dataset.defense = "false";
+    const position: DuelEvent = { id: 2, kind: "position", text: "Enemy Controller", zone: attack.target,
+      card: machine as DuelEvent["card"], fromPosition: 1, toPosition: 4 };
+    const declaration = { ...attack, id: 3 };
+    const calculation: DuelEvent = { id: 4, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 2300, defense: 2100, position: 1 }, target: { attack: 2400, defense: 1500, position: 4 } } };
+    const destroyed: DuelEvent = { id: 5, kind: "destroy", text: "Destroyed in defense", zone: attack.target, cause: "battle", fromPosition: 4 };
+    for (const canvas of [false, true]) {
+      const play = vi.fn((_id: string, _request: FxRequest) => Promise.resolve());
+      if (canvas) setSharedFx3d({ host: board, api: { ready: true, play, prefetchArt() {}, cancelAll() {} } });
+      try {
+        const { rerender, unmount } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seatsOf(warrior, machine)} />);
+        // Position change and declaration arrive together: the DOM still has the pre-change pose.
+        rerender(<BattleFx events={[phase, position, declaration]} reducedMotion={false} seats={seatsOf(warrior, machine, 4)} />);
+        const after = seatsOf(warrior, machine, 4);
+        after[1].monsters[0] = null;
+        rerender(<BattleFx events={[phase, position, declaration, calculation, destroyed]} reducedMotion={false} seats={after} />);
+        if (canvas) {
+          expect(play.mock.calls[0]?.[1].battle?.breaks[0]).toMatchObject({ defense: true, turned: viewer !== 1, rect: { w: 88, h: 60 } });
+        } else {
+          const art = document.querySelector('[data-role="target"] [data-card-art]');
+          expect(art?.getAttribute("data-defense")).toBe("true");
+          expect(art?.getAttribute("data-turned")).toBe(viewer === 1 ? null : "true");
+        }
+        unmount();
+      } finally { setSharedFx3d(null); }
+    }
+  });
+
+  it("refreshes declaration-time art from the engine calculation position", () => {
+    const node = board.querySelector<HTMLElement>('[data-zones="1:4:0"]')!;
+    node.dataset.defense = "false";
+    node.querySelector<HTMLElement>("[data-card-art]")!.dataset.defense = "false";
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seatsOf(warrior, machine)} />);
+    rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seatsOf(warrior, machine)} />);
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 2300, defense: 2100, position: 1 }, target: { attack: 2400, defense: 1500, position: 4 } } };
+    const destroy: DuelEvent = { id: 4, kind: "destroy", text: "", zone: attack.target, fromPosition: 4, cause: "battle" };
+    rerender(<BattleFx events={[phase, attack, calculation, destroy]} reducedMotion={false} seats={seatsOf(warrior, machine, 4)} />);
+    expect(document.querySelector('[data-role="target"] [data-card-art]')?.getAttribute("data-defense")).toBe("true");
+  });
+
+  it("omits calculation plates when both battlers keep their board stats", () => {
+    const before = seatsOf({ ...warrior, attack: 2300, defense: 2100 }, { ...machine, attack: 2400, defense: 1500 }, 4);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={before} />);
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 2300, defense: 2100, position: 1 }, target: { attack: 2400, defense: 1500, position: 4 } } };
+    rerender(<BattleFx events={[phase, attack, calculation, { id: 4, kind: "battle-end", text: "End" }]} reducedMotion seats={before} />);
+    expect(playLayer()).not.toBeNull();
+    expect(document.querySelector('[data-battle-stat]')).toBeNull();
+  });
+
+  it("omits a plate when a response changes stats that remain on the live board", () => {
+    const before = seatsOf(warrior, { ...machine, attack: 200, defense: 100 });
+    const after = seatsOf({ ...warrior, attack: 3300 }, { ...machine, attack: 200, defense: 100 });
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={before} />);
+    rerender(<BattleFx events={[phase, attack]} reducedMotion seats={before} />);
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 3300, defense: 2100, position: 1 }, target: { attack: 200, defense: 100, position: 1 } } };
+    rerender(<BattleFx events={[phase, attack, calculation, { id: 4, kind: "battle-end", text: "End" }]} reducedMotion seats={after} />);
+    expect(playLayer()).not.toBeNull();
+    expect(document.querySelector('[data-battle-stat]')).toBeNull();
+  });
+
+  it.each(["inactive", "ended"])("clears calculation plates when the duel becomes %s mid-Damage-Step", state => {
+    const before = seatsOf({ ...warrior, attack: 2300 }, machine);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={before} />);
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 200, defense: 2100, position: 1 }, target: { attack: 2400, defense: 1500, position: 1 } } };
+    const events = [phase, attack, calculation, { id: 4, kind: "destroy", text: "", zone: attack.target, cause: "battle" } as DuelEvent];
+    rerender(<BattleFx events={events} reducedMotion seats={before} />);
+    expect(document.querySelector('[data-battle-stat="attacker"]')).not.toBeNull();
+    rerender(<BattleFx events={events} reducedMotion seats={before} active={state !== "inactive"}
+      result={state === "ended" ? { winnerSeat: 0, reason: "Surrender during the Damage Step" } : null} />);
+    expect(document.querySelector('[data-battle-stat]')).toBeNull();
+  });
+
+  it("reveals and destroys a previously hidden defender in defense when its flip and departure arrive together", () => {
+    const node = board.querySelector<HTMLElement>('[data-zones="1:4:0"]')!;
+    node.dataset.defense = "true";
+    const hidden = seatsOf(warrior, {}, 8);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={hidden} />);
+    rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={hidden} />);
+    const flip: DuelEvent = { id: 3, kind: "position", text: "Flip", zone: attack.target, fromPosition: 8, toPosition: 4,
+      flip: true, card: machine as DuelEvent["card"] };
+    const calculation: DuelEvent = { id: 4, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 2300, defense: 2100, position: 1 }, target: { attack: 2400, defense: 1500, position: 4 } } };
+    const after = seatsOf(warrior, machine);
+    after[1].monsters[0] = null;
+    rerender(<BattleFx events={[phase, attack, flip, calculation,
+      { id: 5, kind: "destroy", text: "", zone: attack.target, cause: "battle", fromPosition: 4 }]} reducedMotion={false} seats={after} />);
+    const art = document.querySelector('[data-role="target"] [data-card-art]');
+    expect(art?.getAttribute("data-defense")).toBe("true");
+    expect(art?.querySelector("img")?.getAttribute("src")).toContain(`/cards/${machine.code}/image`);
+  });
+
+  it("uses the revealed defender's counter timing for the LP hold as well as playback", () => {
+    vi.spyOn(performance, "now").mockReturnValue(1000);
+    board.insertAdjacentHTML("beforeend", '<div data-lp-seat="0"><strong>8000</strong></div>');
+    const hidden = seatsOf(warrior, {}, 8);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={hidden} />);
+    rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={hidden} />);
+    const flip: DuelEvent = { id: 3, kind: "position", text: "Flip", zone: attack.target, fromPosition: 8, toPosition: 4,
+      flip: true, card: machine as DuelEvent["card"] };
+    const calculation: DuelEvent = { id: 4, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 1000, defense: 2100, position: 1 }, target: { attack: 2400, defense: 1500, position: 4 } } };
+    rerender(<BattleFx events={[phase, attack, flip, calculation,
+      { id: 5, kind: "damage", seat: 0, amount: 500, cause: "battle", text: "Battle damage" }]} reducedMotion={false} seats={seatsOf(warrior, machine, 4)} />);
+    expect(playLayer()?.getAttribute("data-counter-style")).toBe("beam");
+    const counterHit = Math.round(STYLE_TIMING.slash.impact + COUNTER_GAP_MS + STYLE_TIMING.beam.impact * COUNTER_SCALE);
+    expect(takeLpHold(0)).toBe(counterHit + ATTACK_TIMING.lpAfterHitMs);
+  });
+
+  it("retains the casualty's identity when its zone is reoccupied in the resolution snapshot", () => {
+    const play = vi.fn((_id: string, _request: FxRequest) => Promise.resolve());
+    setSharedFx3d({ host: board, api: { ready: true, play, prefetchArt() {}, cancelAll() {} } });
+    try {
+      const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seatsOf(warrior, machine, 4)} />);
+      const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+        battle: { attacker: { attack: 2300, defense: 2100, position: 1 }, target: { attack: 2400, defense: 1500, position: 4 } } };
+      rerender(<BattleFx events={[phase, attack, calculation,
+        { id: 4, kind: "destroy", text: "", zone: attack.target, cause: "battle", fromPosition: 4 }]} reducedMotion={false} seats={seatsOf(warrior, warrior)} />);
+      expect(play.mock.calls[0]?.[1].battle?.breaks[0]).toMatchObject({ code: machine.code, defense: true });
+      expect(document.querySelector('[data-battle-stat="target"]')).toBeNull();
+    } finally { setSharedFx3d(null); }
+  });
+
+  it("compares a casualty to its saved stats even if a same-code replacement occupies its zone", () => {
+    const before = seatsOf(warrior, { ...machine, attack: 3300 }, 4);
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={before} />);
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 2300, defense: 2100, position: 1 }, target: { attack: 3300, defense: 1500, position: 4 } } };
+    rerender(<BattleFx events={[phase, attack, calculation,
+      { id: 4, kind: "destroy", text: "", zone: attack.target, cause: "battle", fromPosition: 4 }]} reducedMotion seats={seatsOf(warrior, machine)} />);
+    expect(playLayer()).not.toBeNull();
+    expect(document.querySelector('[data-battle-stat="target"]')).toBeNull();
+  });
 
   it("waits through an after-calculation prompt and plays both actual battle casualties", () => {
     const before = seatsOf(warrior, machine);
@@ -151,7 +293,7 @@ describe("BattleFx", () => {
 
   it("shows calculation-time ATK after temporary stats have expired on the board", () => {
     vi.useFakeTimers();
-    const before = seatsOf({ ...warrior, attack: 2900 }, { ...machine, attack: 200 });
+    const before = seatsOf({ ...warrior, attack: 2900 }, { ...machine, attack: 200, defense: 100 });
     const { rerender, unmount } = render(<BattleFx events={[phase]} reducedMotion={false} seats={before} />);
     act(() => undefined);
     // Declaration and resolution are separate snapshots; the live attacker is back at 2900.
@@ -163,11 +305,24 @@ describe("BattleFx", () => {
     const damage: DuelEvent = { id: 4, kind: "damage", seat: 1, amount: 1000, cause: "battle", text: "" };
     rerender(<BattleFx events={[phase, attack, calculation, damage]} reducedMotion={false} seats={before} />);
     expect(document.querySelector('[data-battle-stat="attacker"]')?.textContent).toBe("1200 ATK");
-    expect(document.querySelector('[data-battle-stat="target"]')?.textContent).toBe("200 ATK");
+    expect(document.querySelector('[data-battle-stat="target"]')).toBeNull();
     act(() => vi.advanceTimersByTime(10000));
     expect(document.querySelector('[data-battle-stat]')).toBeNull();
     unmount();
     vi.useRealTimers();
+  });
+
+  it("compares against board stats before a batched declaration and calculation prompt", () => {
+    const before = seatsOf({ ...warrior, attack: 2900 }, { ...machine, attack: 200, defense: 100 });
+    const queried = seatsOf({ ...warrior, attack: 1200 }, { ...machine, attack: 200, defense: 100 });
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={before} />);
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 1200, defense: 2100, position: 1 }, target: { attack: 200, defense: 100, position: 1 } } };
+    rerender(<BattleFx events={[phase, attack, calculation]} reducedMotion seats={queried} />);
+    expect(playLayer()).toBeNull();
+    rerender(<BattleFx events={[phase, attack, calculation, { id: 4, kind: "battle-end", text: "End" }]} reducedMotion seats={before} />);
+    expect(document.querySelector('[data-battle-stat="attacker"]')?.textContent).toBe("1200 ATK");
+    expect(document.querySelector('[data-battle-stat="target"]')).toBeNull();
   });
 
   it("shows the target's calculated DEF when it is in defense, including reduced motion", () => {
@@ -182,6 +337,11 @@ describe("BattleFx", () => {
     rerender(<BattleFx events={[phase, attack, calculation, destroyed]} reducedMotion seats={before} />);
     expect(document.querySelector('[data-battle-stat="attacker"]')?.textContent).toBe("200 ATK");
     expect(document.querySelector('[data-battle-stat="target"]')?.textContent).toBe("100 DEF");
+    const plate = document.querySelector('[data-battle-stat="target"]') as HTMLElement;
+    expect(plate.querySelector("strong")?.textContent).toBe("100");
+    expect(plate.querySelector("small")?.textContent).toBe("DEF");
+    expect(plate.dataset.edge).toBe("top");
+    expect(plate.style.top).toContain("var(--fx-unit)");
   });
 
   it("does not replay events that were already in the first snapshot", () => {

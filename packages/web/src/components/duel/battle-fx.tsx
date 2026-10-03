@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
-import type { DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
-import { LOCATION_DMZONE, isDefense, zoneKey } from "./constants";
+import type { DuelEngineView, DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
+import { LOCATION_DMZONE, cardArtUrl, isDefense, isFacedown, zoneKey } from "./constants";
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { battleTrigger } from "./battle-trigger";
 import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
@@ -22,6 +22,7 @@ import { battleCalculation } from "./battle-calculation";
 import { ATTACK_TIMING, paceAttack } from "./duel-timing";
 import { duelFxClock } from "./fx-clock";
 import styles from "./battle-fx.module.css";
+import fieldStyles from "./field.module.css";
 
 /**
  * Battle effects, drawn in one fixed overlay over the field and under the prompts (pointer-events: none).
@@ -70,6 +71,8 @@ export type BattleFxProps = {
   aim?: BattleAim | null;
   /** The engine view's seats: names the fighting cards so each plays its own attack style. Optional. */
   seats?: readonly DuelSeatView[];
+  /** A terminal result removes calculation plates even if the core never ends the Damage Step. */
+  result?: DuelEngineView["result"];
 };
 
 /* ---------- geometry ---------- */
@@ -147,7 +150,7 @@ function arrowBetween(from: Box, to: Box): Arrow | null {
 /* ---------- which cards fight ---------- */
 
 /** What the style resolver needs, plus the position (a Defense Position target shows a shield when it holds). */
-type BattleCard = AttackCardLike & { position?: number };
+type BattleCard = AttackCardLike & { position?: number; attack?: number; defense?: number };
 type CardIndex = Map<string, BattleCard>;
 
 /** The monsters of the engine view, by zone key. */
@@ -158,6 +161,7 @@ function indexSeats(seats: readonly DuelSeatView[] | undefined): CardIndex {
       if (!card) continue;
       index.set(zoneKey(card.controller, card.location, card.sequence), {
         code: card.code, name: card.name, race: card.race, attribute: card.attribute, position: card.position,
+        attack: card.attack, defense: card.defense,
       });
     }
     const master = seat.deckMaster;
@@ -178,14 +182,19 @@ function codeFromArt(art: Element | null): number | undefined {
 }
 
 function readCard(key: string, node: HTMLElement, prev: CardIndex, now: CardIndex): BattleCard {
-  const known = prev.get(key) ?? now.get(key) ?? {};
+  const previous = prev.get(key), current = now.get(key);
+  // A casualty's slot can already hold a replacement. Keep the identity that matches retained art.
+  const known = previous ?? current ?? {};
+  // A declaration and calculation can share a snapshot that already queries temporary stats.
+  // Keep the same card's pre-calculation board values for the plate comparison, but its newest pose.
   const art = node.querySelector("[data-card-art]");
-  return { ...known, code: known.code ?? codeFromArt(art) };
+  return { ...known, position: current?.code === known.code ? current?.position ?? known.position : known.position,
+    code: known.code ?? codeFromArt(art) };
 }
 
 /* ---------- capture (before the new snapshot reaches the DOM) ---------- */
 
-type CutSource = FxCut;
+type CutSource = FxCut & { defense: boolean };
 type AttackCapture = {
   from: Box;
   to: Box;
@@ -210,7 +219,37 @@ function keyOfZone(zone: { controller: number; location: number; sequence: numbe
   return zoneKey(zone.controller, zone.location, zone.sequence);
 }
 
-function cutSourceOf(node: HTMLElement): CutSource | null {
+/** Reorient retained art without letting a declaration snapshot override the core's battle pose. */
+function orientCut(cut: CutSource | null, card: BattleCard | null): CutSource | null {
+  if (!cut || card?.position == null) return cut;
+  const defense = isDefense(card.position);
+  const holder = document.createElement("div");
+  holder.innerHTML = cut.html;
+  const art = holder.firstElementChild as HTMLElement | null;
+  if (!art) return cut;
+  art.dataset.defense = defense ? "true" : "false";
+  // A batched flip and casualty can remove a Set monster before its revealed DOM face commits.
+  if (!isFacedown(card.position) && card.code && !art.querySelector("img")) {
+    art.className = fieldStyles.cardFace;
+    const img = document.createElement("img");
+    img.className = fieldStyles.art;
+    img.src = cardArtUrl(card.code, "small");
+    img.alt = "";
+    img.draggable = false;
+    art.replaceChildren(img);
+  }
+  // Sleeves normally inherit the turn from artWrap, which is outside this retained copy.
+  if (!art.querySelector("img")) art.style.transform = defense ? "rotate(90deg)" : "";
+  else art.style.removeProperty("transform");
+  const box = defense === cut.defense ? cut.box : {
+    left: cut.box.left + (cut.box.width - cut.box.height) / 2,
+    top: cut.box.top + (cut.box.height - cut.box.width) / 2,
+    width: cut.box.height, height: cut.box.width,
+  };
+  return { ...cut, box, html: art.outerHTML, defense };
+}
+
+function cutSourceOf(node: HTMLElement, card: BattleCard): CutSource | null {
   const art = node.querySelector<HTMLElement>("[data-card-art]");
   if (!art) return null;
   const box = boxOf(art);
@@ -222,7 +261,9 @@ function cutSourceOf(node: HTMLElement): CutSource | null {
     clone.setAttribute("data-turned", "true");
     html = clone.outerHTML;
   }
-  return { box, innerW: art.offsetWidth || box.width, innerH: art.offsetHeight || box.height, html };
+  const defense = node.dataset.defense === "true";
+  return orientCut({ box, innerW: art.offsetWidth || (defense ? box.height : box.width),
+    innerH: art.offsetHeight || (defense ? box.width : box.height), html, defense }, card);
 }
 
 /**
@@ -238,11 +279,13 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
   const from = fromNode ? zoneBox(fromKey) : null;
   if (!fromNode || !from) return null;
   const lp: Record<number, Box | undefined> = { 0: lpBox(0) ?? undefined, 1: lpBox(1) ?? undefined };
+  const attackerCard = readCard(fromKey, fromNode, prev, now);
+  const attacker = cutSourceOf(fromNode, attackerCard);
   const base = {
-    from,
-    attacker: cutSourceOf(fromNode),
+    from: attacker?.box ?? from,
+    attacker,
     fromEl: fromNode.querySelector("[data-card-art]"),
-    attackerCard: readCard(fromKey, fromNode, prev, now),
+    attackerCard,
     attackerTurned: fromNode.closest('[data-side="opp"]') != null,
     lp,
   };
@@ -250,16 +293,38 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
     const targetKey = keyOfZone(event.target);
     const node = zoneNode(targetKey);
     if (!node) return null;
-    const target = cutSourceOf(node);
+    const targetCard = readCard(targetKey, node, prev, now);
+    const target = cutSourceOf(node, targetCard);
     const to = target?.box ?? boxOf(node);
     if (to.width <= 0 || to.height <= 0) return null;
-    const targetCard = readCard(targetKey, node, prev, now);
-    const targetInDefense = node.getAttribute("data-defense") === "true" || isDefense(prev.get(targetKey)?.position ?? now.get(targetKey)?.position);
+    const targetInDefense = targetCard.position == null ? node.dataset.defense === "true" : isDefense(targetCard.position);
     return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense, targetTurned: node.closest('[data-side="opp"]') != null };
   }
   const to = lpBox(1 - zone.controller);
   if (!to) return null;
   return { ...base, to, direct: true, target: null, toEl: null, targetCard: null, targetInDefense: false, targetTurned: false };
+}
+
+function battleCapture(capture: AttackCapture, events: readonly DuelEvent[], attack: DuelEvent): AttackCapture {
+  let attackerCard = capture.attackerCard, targetCard = capture.targetCard;
+  for (const event of [...events].filter(e => e.id > attack.id).sort((a, b) => a.id - b.id)) {
+    if (event.kind === "attack" || event.kind === "phase") break;
+    const zone = event.kind === "move" ? event.from : event.zone;
+    const position = event.kind === "position" ? event.toPosition : event.kind === "move" || event.kind === "destroy" ? event.fromPosition : undefined;
+    if (!zone || position == null) continue;
+    if (attack.zone && keyOfZone(zone) === keyOfZone(attack.zone)) {
+      attackerCard = { ...attackerCard, ...(attackerCard.code == null ? event.card : {}), position };
+    }
+    if (targetCard && attack.target && keyOfZone(zone) === keyOfZone(attack.target)) {
+      targetCard = { ...targetCard, ...(targetCard.code == null ? event.card : {}), position };
+    }
+  }
+  const calculation = battleCalculation(events, attack);
+  if (calculation) attackerCard = { ...attackerCard, position: calculation.attacker.position };
+  if (targetCard && calculation?.target) targetCard = { ...targetCard, position: calculation.target.position };
+  const attacker = orientCut(capture.attacker, attackerCard), target = orientCut(capture.target, targetCard);
+  return { ...capture, attackerCard, targetCard, attacker, target, from: attacker?.box ?? capture.from,
+    to: target?.box ?? capture.to, targetInDefense: targetCard?.position == null ? capture.targetInDefense : isDefense(targetCard.position) };
 }
 
 /* ---------- playback model ---------- */
@@ -275,7 +340,7 @@ type Play = {
   totalMs: number;
   /** What the fight sounds like (sent to the audio layer when it starts). */
   sound: BattleSoundPlan;
-  stats: Array<{ role: "attacker" | "target"; box: Box; value: number; label: "ATK" | "DEF" }>;
+  stats: Array<{ role: "attacker" | "target"; box: Box; value: number; label: "ATK" | "DEF"; above: boolean }>;
 };
 
 /** The signature passcode when the card plays a signature attack, else null. */
@@ -331,16 +396,26 @@ function damageDelay(event: DuelEvent, attack: DuelEvent, direct: boolean, timin
   return hitAt + ATTACK_TIMING.lpAfterHitMs;
 }
 
-function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events: readonly DuelEvent[], attack: DuelEvent, layer3d = false): Play | null {
+function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events: readonly DuelEvent[], attack: DuelEvent, layer3d = false, board?: CardIndex): Play | null {
   const resolved = resolveBattle(capture, events, attack, reduced);
   const { kind, timing, attackerStyle, defenderStyle } = resolved;
   const calculation = battleCalculation(events, attack);
   const stats: Play["stats"] = [];
   if (calculation) {
-    stats.push({ role: "attacker", box: capture.from, value: calculation.attacker.attack, label: "ATK" });
-    if (calculation.target && !capture.direct) {
+    const differs = (board: BattleCard | null, stats: { attack: number; defense: number }) =>
+      (board?.attack != null && board.attack !== stats.attack) || (board?.defense != null && board.defense !== stats.defense);
+    const liveAttacker = attack.zone ? board?.get(keyOfZone(attack.zone)) : null;
+    const liveTarget = attack.target ? board?.get(keyOfZone(attack.target)) : null;
+    // A battle casualty is no longer on the board, even if a floater has filled its slot with another copy.
+    const attackerBoard = !resolved.outcome.attacker && liveAttacker?.code != null && liveAttacker.code === capture.attackerCard.code ? liveAttacker : capture.attackerCard;
+    const targetBoard = !resolved.outcome.target && liveTarget?.code != null && liveTarget.code === capture.targetCard?.code ? liveTarget : capture.targetCard;
+    if (differs(attackerBoard, calculation.attacker)) {
+      stats.push({ role: "attacker", box: capture.from, value: calculation.attacker.attack, label: "ATK", above: capture.from.top < capture.to.top });
+    }
+    if (calculation.target && !capture.direct && differs(targetBoard, calculation.target)) {
       const defense = isDefense(calculation.target.position);
-      stats.push({ role: "target", box: capture.to, value: defense ? calculation.target.defense : calculation.target.attack, label: defense ? "DEF" : "ATK" });
+      stats.push({ role: "target", box: capture.to, value: defense ? calculation.target.defense : calculation.target.attack,
+        label: defense ? "DEF" : "ATK", above: capture.to.top < capture.from.top });
     }
   }
   const attacker: FxSide = {
@@ -378,7 +453,7 @@ function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events
 
 /* ---------- attack playback ---------- */
 
-function AttackPlay({ play }: { play: Play }) {
+function AttackPlay({ play, showStats }: { play: Play; showStats: boolean }) {
   const htmlRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   // Each play mounts with its own key; CSS advances itself after this initial seek.
@@ -406,13 +481,15 @@ function AttackPlay({ play }: { play: Play }) {
     >
       <div ref={htmlRef} className={styles.htmlLayer} />
       <svg ref={svgRef} className={styles.svg} aria-hidden />
-      {play.stats.map(stat => (
+      {showStats ? play.stats.map(stat => (
         <span key={stat.role} className={styles.calculationStat} data-battle-stat={stat.role}
+          data-edge={stat.above ? "top" : "bottom"}
           title="Damage calculation"
-          style={{ left: stat.box.left + stat.box.width / 2, top: stat.box.top + stat.box.height + 8 }}>
-          {stat.value} {stat.label}
+          style={{ left: stat.box.left + stat.box.width / 2,
+            top: `calc(${stat.above ? stat.box.top : stat.box.top + stat.box.height}px ${stat.above ? "-" : "+"} 6 * var(--fx-unit))` }}>
+          <strong>{stat.value}</strong> <small>{stat.label}</small>
         </span>
-      ))}
+      )) : null}
     </div>
   );
 }
@@ -543,7 +620,7 @@ function startBattle3d(capture: AttackCapture, play: Play, clock: BattleClock, c
   const { fx } = play;
   const attackerSide = {
     rect: to(fx.attacker.box), code: attackerCard.code ?? 0, style: fx.attacker.style, tint: fx.attacker.tint,
-    signature: play.sound.attacker.signature, defense: false, turned: capture.attackerTurned,
+    signature: play.sound.attacker.signature, defense: isDefense(capture.attackerCard.position), turned: capture.attackerTurned,
   };
   const defenderSide = fx.defender
     ? {
@@ -572,7 +649,7 @@ function declaredAim(attack: DuelEvent): BattleAim | null {
   return { mode: "locked", from, to: { lpSeat: 1 - attack.zone.controller } };
 }
 
-export function BattleFx({ events, reducedMotion, active = true, aim = null, seats }: BattleFxProps) {
+export function BattleFx({ events, reducedMotion, active = true, aim = null, seats, result = null }: BattleFxProps) {
   const [mounted, setMounted] = useState(false);
   const [play, setPlay] = useState<Play | null>(null);
   const [declared, setDeclared] = useState<BattleAim | null>(null);
@@ -611,7 +688,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     const incoming: PendingAttack | null = latest ? { attack: latest, capture: capturesRef.current.get(latest.id) ?? null, at: stamp } : null;
     const ready = [pendingRef.current, incoming].find((entry) => entry != null && battleTrigger(events, entry.attack, stamp - entry.at).action === "play") ?? null;
     if (ready) {
-      const cap = ready.capture;
+      const cap = ready.capture ? battleCapture(ready.capture, events, ready.attack) : null;
       let route = routeRef.current.get(ready.attack.id);
       if (!route) {
         const three = pickBattleRoute({ reduced: reducedMotion, ready: getSharedFx3d() != null }) === "three" && cap != null;
@@ -652,6 +729,10 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     if (!active) {
       pendingRef.current = null;
       setDeclared(null);
+      setPlay(null);
+      for (const controller of controllersRef.current) controller.abort();
+      controllersRef.current.clear();
+      clearBattleHolds();
       forget();
       return;
     }
@@ -679,11 +760,12 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     setDeclared((current) => (aimSignature(current) === aimSignature(marker) ? current : marker));
     forget();
     if (!ready) return;
-    const { attack: resolved, capture } = ready;
+    const resolved = ready.attack;
+    const capture = ready.capture ? battleCapture(ready.capture, events, resolved) : null;
     // The destroy events after the attack (in this snapshot) say which card(s) the battle took.
     const route = routeRef.current.get(resolved.id);
     const three = route?.three === true && !reducedRef.current && getSharedFx3d() != null;
-    const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, resolved, three) : null;
+    const next = capture ? buildPlay(++seqRef.current, capture, reducedRef.current, events, resolved, three, indexSeats(seats)) : null;
     if (next && capture) {
       const clock = route?.clock ?? { startedAt: duelFxClock.now() };
       joinBattleClock(clock);
@@ -720,7 +802,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   return (
     <div className={`${styles.layer} ${duelFontClasses}`} aria-hidden>
       {shownAim ? <AimLayer aim={shownAim} reduced={reducedMotion} /> : null}
-      {play ? <AttackPlay key={play.seq} play={play} /> : null}
+      {play ? <AttackPlay key={play.seq} play={play} showStats={active && result == null} /> : null}
     </div>
   );
 }
