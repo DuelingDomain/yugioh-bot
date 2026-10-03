@@ -18,11 +18,11 @@ import { ELF, SOURCE } from "./nseat-scenarios.js";
 // Tag seats: p0 and p2 are team 0, p1 and p3 are team 1.
 
 const Q4 = `${SOURCE} [R-COMMON-OPP-PICK], answers to the ten triage questions, 4 (duel-style cards)`;
-const Q7 = `${SOURCE} [R-COMMON-OPP-FIELD], answers to the ten triage questions, 7 (swap of control)`;
-const Q8 = `${SOURCE} [R-COMMON-OPP-FIELD], answers to the ten triage questions, 8 (Tribute of an opponent monster)`;
+const Q7 = `${SOURCE} [R-FFA-OPP-ONE/R-TAG-SHARED-CARDS], answers to the ten triage questions, 7 (swap of control)`;
+const Q8 = `${SOURCE} [R-FFA-OPP-ONE/R-TAG-SHARED-CARDS], answers to the ten triage questions, 8 (Tribute of an opponent monster)`;
 const SUMMON = `${SOURCE} [R-COMMON-OPP-PICK], a summon to the field of an opponent: the summoning player picks one opponent`;
 const NO_WRAPPER = `${SOURCE} [R-COMMON-OPP-PICK], the other cards use the defaults`;
-const OWNER_LP = `${SOURCE} [R-COMMON-OPP-FIELD], finding s2-duelstyle-swap-1: Snatch Steal gives the LP to the owner of the stolen monster, in the Standby Phase of that owner`;
+const OWNER_LP = `${SOURCE} [R-COMMON-ONGOING/R-TAG-LP], finding s2-duelstyle-swap-1: Snatch Steal gives the LP to the owner of the stolen monster, in the Standby Phase of that owner`;
 
 type Seat = "p0" | "p1" | "p2" | "p3";
 
@@ -138,7 +138,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     id: "swap-psychic-jumper-ffa3-swaps-with-a-monster-of-any-opponent",
     title: "FFA3: Psychic Jumper swaps one of your Psychic monsters with a monster of the opponent you choose, the other opponent keeps all",
     source: Q7,
-    rules: ["R-COMMON-OPP-FIELD"],
+    rules: ["R-FFA-OPP-ONE"],
     tags: ["multiplayer", "swap-control", "ffa3", "card:52430902"],
     setup: {
       format: "ffa3",
@@ -148,7 +148,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     },
     steps: [
       activate("Psychic Jumper", "p0"),
-      // R-COMMON-OPP-ONE: the declared opponent has one target, which the engine selects.
+      // R-FFA-OPP-ONE: the declared opponent has one target, which the engine selects.
       pickOpponent("p2", "p0"),
       expectBoard({
         p0: { lp: 7000, monsters: ["Psychic Jumper", "Summoned Skull"] },
@@ -161,7 +161,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     id: "swap-psychic-jumper-tag-swaps-with-an-opposing-monster-never-the-partner",
     title: "Tag: Psychic Jumper offers the monsters of the two opposing duelists only and swaps with the one you choose, team LP pays the cost",
     source: Q7,
-    rules: ["R-COMMON-OPP-FIELD", "R-TAG-PARTNER", "R-TAG-LP"],
+    rules: ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER", "R-TAG-LP"],
     tags: ["multiplayer", "swap-control", "tag", "card:52430902"],
     setup: {
       format: "tag",
@@ -188,7 +188,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     id: "tribute-soul-exchange-ffa3-tributes-a-monster-of-any-opponent",
     title: "FFA3: Soul Exchange targets a monster of the second opponent and a Tribute Summon uses it, the first opponent keeps all",
     source: Q8,
-    rules: ["R-COMMON-OPP-FIELD"],
+    rules: ["R-FFA-OPP-ONE"],
     tags: ["multiplayer", "tribute", "ffa3", "card:68005187"],
     setup: {
       format: "ffa3",
@@ -198,7 +198,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     },
     steps: [
       activate("Soul Exchange", "p0"),
-      // R-COMMON-OPP-ONE: the declared opponent has one target, which the engine selects.
+      // R-FFA-OPP-ONE: the declared opponent has one target, which the engine selects.
       pickOpponent("p2", "p0"),
       normalSummon("Summoned Skull", "p0"),
       select({ card: ELF, owner: "p2" }),
@@ -213,7 +213,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     id: "tribute-soul-exchange-tag-tributes-an-opposing-monster",
     title: "Tag: Soul Exchange targets a monster of an opposing duelist and a Tribute Summon uses it",
     source: Q8,
-    rules: ["R-COMMON-OPP-FIELD", "R-TAG-PARTNER"],
+    rules: ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER"],
     tags: ["multiplayer", "tribute", "tag", "card:68005187"],
     setup: {
       format: "tag",
@@ -240,7 +240,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     id: "no-wrapper-snatch-steal-ffa3-takes-a-monster-of-any-opponent",
     title: "FFA3: Snatch Steal equips a monster of the second opponent and takes control of it, the first opponent keeps all",
     source: NO_WRAPPER,
-    rules: ["R-COMMON-OPP-FIELD"],
+    rules: ["R-FFA-OPP-ONE"],
     tags: ["multiplayer", "no-wrapper", "equip", "steal", "ffa3", "card:45986603"],
     setup: {
       format: "ffa3",
@@ -277,13 +277,13 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
       p2: { monsters: [ELF] },
     },
     steps: [
-      // No attack is allowed in the first turn of each seat: p1 attacks on its second turn (turn 5).
+      // R-FFA-NO-ATTACK: p1 has no Battle Phase on turn 2. It attacks on turn 5.
       ...["p0", "p1", "p2", "p0"].map((seat) => endTurn(seat as Seat)),
       changePhase("battle", "p1"),
       attack("Summoned Skull", "Elemental HERO Avian", "p1"),
       activate("Hero Counterattack", "p0"),
-      // The opponent that attacked is the bound opponent: no pick prompt. The Hero picked at random is Special Summoned, and p0 chooses
-      // the monster to destroy among the monsters of all opponents.
+      // R-FFA-OPP-RESPONSE: the attacker is the bound opponent. No opponent pick is needed.
+      // The Hero is Special Summoned. Only the attacker's monsters can be destroyed.
       expectBoard({
         p0: { monsters: ["Elemental HERO Sparkman"], hand: ["Elemental HERO Sparkman"], grave: ["Elemental HERO Avian", "Hero Counterattack"] },
         p1: { monsters: { count: 0 }, grave: ["Summoned Skull"] },
@@ -308,7 +308,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
       activate("Foolish Revival", "p0"),
       expectPickSeats(["p1", "p2"], "p0"),
       pickOpponent("p2", "p0"),
-      // R-COMMON-OPP-ONE: the picked Graveyard has one monster, which the engine selects.
+      // R-FFA-OPP-ONE: the picked Graveyard has one monster, which the engine selects.
       expectBoard({
         p0: { monsters: { count: 0 }, grave: ["Foolish Revival"] },
         p1: { monsters: { count: 0 }, grave: ["Summoned Skull"] },
@@ -358,7 +358,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     id: "no-wrapper-snatch-steal-tag-takes-a-monster-of-an-opposing-duelist",
     title: "Tag: Snatch Steal offers the monsters of the two opposing duelists and takes the one you choose, the partner keeps its monster",
     source: NO_WRAPPER,
-    rules: ["R-COMMON-OPP-FIELD", "R-TAG-PARTNER"],
+    rules: ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER"],
     tags: ["multiplayer", "no-wrapper", "equip", "steal", "tag", "card:45986603"],
     setup: {
       format: "tag",
@@ -414,7 +414,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
       activate("Foolish Revival", "p0"),
       expectPickSeats(["p1", "p2", "p3"], "p0"),
       pickOpponent("p3", "p0"),
-      // R-COMMON-OPP-ONE: the picked Graveyard has one monster, which the engine selects.
+      // R-FFA-OPP-ONE: the picked Graveyard has one monster, which the engine selects.
       expectBoard({
         p1: { monsters: { count: 0 }, grave: ["Summoned Skull"] },
         p2: { monsters: { count: 0 }, grave: ["Dark Magician"] },
@@ -427,7 +427,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     id: "owner-lp-snatch-steal-ffa3-only-the-owner-gains-the-lp-in-its-own-standby-phase",
     title: "FFA3: the 1000 LP of Snatch Steal go to the owner of the stolen monster (p2) in its own Standby Phase, with no pick, and to nobody else",
     source: OWNER_LP,
-    rules: ["R-COMMON-OPP-FIELD", "R-FFA-ORDER"],
+    rules: ["R-COMMON-ONGOING", "R-FFA-ORDER"],
     tags: ["multiplayer", "equip", "steal", "lp", "ffa3", "card:45986603"],
     setup: {
       format: "ffa3",
@@ -465,7 +465,7 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     id: "owner-lp-snatch-steal-tag-only-the-team-of-the-owner-gains-the-lp-in-the-turn-of-the-owner",
     title: "Tag: the 1000 LP of Snatch Steal go to the team of the owner (p3) in the turn of p3 only, not in the turn of its partner p1",
     source: OWNER_LP,
-    rules: ["R-COMMON-OPP-FIELD", "R-TAG-PARTNER", "R-TAG-ORDER"],
+    rules: ["R-TAG-LP", "R-TAG-PARTNER", "R-TAG-ORDER"],
     tags: ["multiplayer", "equip", "steal", "lp", "tag", "card:45986603"],
     setup: {
       format: "tag",
