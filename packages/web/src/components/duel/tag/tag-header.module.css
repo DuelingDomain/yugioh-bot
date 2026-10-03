@@ -85,4 +85,7 @@
 @media (max-width: 900px) {
   .header { grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; gap: 8px; padding: 0 8px 0 12px; }
   .title, .format, .phase, .turnPill small { display: none; }
+  /* The middle column is the one that gives: the turn pill clips instead of running under the header buttons. */
+  .turn { min-width: 0; overflow: hidden; gap: 8px; }
+  .turnPill { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 }

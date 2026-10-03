@@ -1,36 +1,39 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { usePathname } from "next/navigation";
 import { Bug } from "lucide-react";
 import { BugReportDialog } from "./bug-report-dialog";
 import { collectBugContext } from "./context";
-import { getBugReportRoom } from "./room-store";
+import { getBugReportRoom, useBugReportHeaderHosted } from "./room-store";
+
+/** Where the button sits when the caller does not say: the bottom-left corner of the screen. */
+const DEFAULT_PLACE = "fixed bottom-3 left-3 z-40";
 
 /**
- * The red Report bug button, fixed at the bottom-left of every page. In a duel it sends the room on screen with the
- * text; elsewhere only the page and the browser. The duel shells keep the bottom-left corner clear (`--bug-fab-clear`
- * in globals.css) and the phone layout lifts the button above the duel's bottom bar.
+ * The red Report bug button, floating over a signed-in page. The app shell places it past the sidebar so it covers
+ * neither the account menu nor the rail (`className`). In a duel the table owns every corner, so a live duel header
+ * carries its own button (`BugReportHeaderButton`) and this one hides while that header is on screen. Outside a duel
+ * it sends the page and the browser only; the room on screen, if any, adds the public duel facts.
  */
-export function BugReportFab() {
+export function BugReportFab({ className = DEFAULT_PLACE }: { className?: string }) {
   const [open, setOpen] = useState(false);
-  const pathname = usePathname() ?? "";
-  const inDuel = pathname.startsWith("/duels/");
+  const headerHosted = useBugReportHeaderHosted();
   const collect = useCallback(() => collectBugContext(getBugReportRoom()), []);
   return (
     <>
-      <button
-        type="button"
-        aria-haspopup="dialog"
-        data-bug-fab
-        data-in-duel={inDuel ? "true" : "false"}
-        onClick={() => setOpen(true)}
-        className="fixed bottom-3 left-3 z-40 inline-flex h-9 items-center gap-1.5 rounded-full bg-accent-cta px-3 text-sm font-semibold text-white shadow-card motion-safe:transition-[colors,transform] hover:bg-red-600 motion-safe:active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white max-[900px]:h-8 max-[900px]:px-2.5 max-[900px]:text-xs data-[in-duel=true]:max-[900px]:bottom-[calc(env(safe-area-inset-bottom)+3.5rem)]"
-      >
-        <Bug className="h-4 w-4" aria-hidden="true" />
-        <span>Report bug</span>
-      </button>
-      <BugReportDialog open={open} onClose={() => setOpen(false)} collect={collect} />
+      {headerHosted ? null : (
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          data-bug-fab
+          onClick={() => setOpen(true)}
+          className={`${className} inline-flex h-9 items-center gap-1.5 rounded-full bg-accent-cta px-3 text-sm font-semibold text-white shadow-card motion-safe:transition-[colors,transform] hover:bg-red-600 motion-safe:active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white max-[900px]:h-8 max-[900px]:px-2.5 max-[900px]:text-xs`}
+        >
+          <Bug className="h-4 w-4" aria-hidden="true" />
+          <span>Report bug</span>
+        </button>
+      )}
+      <BugReportDialog open={open && !headerHosted} onClose={() => setOpen(false)} collect={collect} />
     </>
   );
 }

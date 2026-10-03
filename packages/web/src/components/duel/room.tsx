@@ -8,6 +8,7 @@ import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "luc
 import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { SurrenderModal } from "./surrender-modal";
+import { BugReportHeaderButton } from "../bug-report/bug-report-header-button";
 import { BugReportMenuButton } from "../bug-report/bug-report-menu-button";
 import { useBugReportRoom } from "../bug-report/room-store";
 import { connectionLabel as labelForConnection } from "./connection-label";
@@ -677,6 +678,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       connection: { ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy },
       actions: { onExit: exitDuel, onSeriesChanged: () => void refreshRoom(), onNavigate: goToGame },
       headerTools: <>
+        <BugReportHeaderButton room={data} />
         <ReportButton slug={slug} />
         {leaveControl}
         {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error)}
@@ -898,6 +900,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
             {connectionLabel === "Live" ? <i className={styles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
             {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
           </span>
+          <BugReportHeaderButton room={data} />
           <ReportButton slug={slug} />
           {leaveControl}
           {hasResult && hideResult ? (

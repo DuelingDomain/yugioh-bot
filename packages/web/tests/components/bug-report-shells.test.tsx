@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultDuelSettings, type DuelRoom } from "@yugidraft/shared/duels";
 import { makeSeriesRoom } from "../helpers/duel-series";
@@ -48,8 +48,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 /** Opens the dialog from the room menu, fills it, sends it and checks the result and the Escape key. */
-async function reportFromMenu(expected: { format: string; seat: number | null; slug: string }) {
-  const entry = screen.getByRole("button", { name: "Report bug" });
+async function reportFromMenu(expected: { format: string; seat: number | null; slug: string }, entry = screen.getByRole("button", { name: "Report bug" })) {
   fireEvent.click(entry);
   const dialog = screen.getByRole("dialog", { name: "Report a bug" });
   expect(dialog).toBeTruthy();
@@ -150,7 +149,20 @@ describe("Report bug in the 1v1 room", () => {
   it("opens from the Settings menu, sends the context and closes on Escape", async () => {
     render(<DuelRoomView slug="game-1" windowed />);
     fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
-    const body = await reportFromMenu({ format: "1v1", seat: 0, slug: "game-1" });
+    const menuEntry = screen.getAllByRole("button", { name: "Report bug" }).find((button) => !button.hasAttribute("data-bug-header-button"))!;
+    const body = await reportFromMenu({ format: "1v1", seat: 0, slug: "game-1" }, menuEntry);
     expect(body.context).toMatchObject({ duelMode: "normal", turn: 2, phase: "main1", turnSeat: 1, livingPlayers: 2, log: ["Sulman draws a card"] });
+  });
+
+  it("has a red Report bug button in the header, next to the other header buttons, that sends the same context", async () => {
+    render(<DuelRoomView slug="game-1" windowed />);
+    const header = document.querySelector("header")!;
+    const button = within(header).getByRole("button", { name: "Report bug" });
+    expect(button.className).toContain("bg-accent-cta");
+    expect(button.hasAttribute("data-bug-header-button")).toBe(true);
+    const body = await reportFromMenu({ format: "1v1", seat: 0, slug: "game-1" }, button);
+    expect(body.context).toMatchObject({ turn: 2, log: ["Sulman draws a card"] });
+    // The floating button is not in the app shell here, and a header button is the only one on screen.
+    expect(document.querySelector("[data-bug-fab]")).toBeNull();
   });
 });
