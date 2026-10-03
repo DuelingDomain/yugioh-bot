@@ -684,7 +684,7 @@
 
   .identity .format, .connectionStatus svg, .pref, .whoPill { display: none; }
   .identity:has(.viewerRole) { flex-direction: column; align-items: flex-start; gap: 2px; }
-  .identity a { font-size: 17px; }
+  .identity a { font-size: 15px; } /* "Duelists Kingdom" is long: keep the turn and phase readable beside it */
   .viewerRole { padding: 0; border: 0; background: transparent; font-size: 10px; line-height: 12px; }
   .viewerRole svg { width: 12px; height: 12px; }
   .turn { justify-content: flex-start; overflow: hidden; }

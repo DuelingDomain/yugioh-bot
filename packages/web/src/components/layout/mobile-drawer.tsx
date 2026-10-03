@@ -67,7 +67,7 @@ function DrawerDialog({ onClose, account, live }: Omit<MobileDrawerProps, "open"
       >
         <div className={styles.brand}>
           <BrandMark className={styles.mark} />
-          <span className={styles.word}>YugiDraft</span>
+          <span className={styles.word}>Duelists Kingdom</span>
           <button ref={closeRef} className={styles.toggle} type="button" aria-label="Close menu" onClick={onClose}>
             <X className={styles.navIcon} aria-hidden="true" />
           </button>
