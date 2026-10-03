@@ -58,9 +58,9 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   height: 67px;
-  padding: 0 12px 0 16px;
+  padding: 0 10px 0 14px;
 }
 
 .aside[data-rail="true"] .brand {
@@ -77,9 +77,12 @@
 .word {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
   color: var(--ink);
-  font: 600 19px/1 var(--f-display);
-  letter-spacing: 0.01em;
+  font: 600 16px/1 var(--f-display);
+  letter-spacing: 0;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .toggle {

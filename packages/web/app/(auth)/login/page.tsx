@@ -44,7 +44,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           <div className={styles.copy}>
             <h1 className={styles.brand}>
               <BrandMark className={styles.mark} />
-              YugiDraft
+              Duelists Kingdom
             </h1>
             <span className={styles.short}>
               <LightRule beam />
@@ -64,7 +64,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               <LoginButton />
             </form>
             <p className={styles.fine}>
-              Discord shares your name, avatar and email. YugiDraft can&apos;t read or send messages as you.
+              Discord shares your name, avatar and email. Duelists Kingdom can&apos;t read or send messages as you.
             </p>
           </div>
         </div>

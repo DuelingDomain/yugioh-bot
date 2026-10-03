@@ -75,13 +75,16 @@ describe("LoginPage", () => {
     expect(button).toHaveClass("sv-btn", "primary", "big", "wide");
   });
 
-  it("names YugiDraft, says what Discord shares, and shows the code", async () => {
+  it("names Duelists Kingdom, says what Discord shares, and shows the code", async () => {
     render(await LoginPage({ searchParams: Promise.resolve({ error: "Configuration" }) }));
-    screen.getByRole("heading", { level: 1, name: "YugiDraft" });
+    screen.getByRole("heading", { level: 1, name: "Duelists Kingdom" });
     screen.getByText(/Discord shares your name, avatar and email/);
     expect(screen.getByRole("alert").textContent).toContain("Couldn't sign you in. The problem");
     expect(screen.getByRole("alert")).toHaveTextContent("Error: Configuration");
     expect(screen.getByRole("alert").querySelector(".sv-status")).toHaveAttribute("data-tone", "block");
+    expect(screen.getByRole("alert").textContent).toContain("on Duelists Kingdom's side");
+    screen.getByText(/Duelists Kingdom can.t read or send messages as you/);
+    expect(document.body.textContent).not.toMatch(/yugidraft/i);
     screen.getByRole("button", { name: "Sign in with Discord" });
   });
   it("announces a cancel politely", async () => {
