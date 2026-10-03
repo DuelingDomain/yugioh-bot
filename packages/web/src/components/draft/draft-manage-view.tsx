@@ -81,7 +81,8 @@ interface DraftManageViewProps {
   onUpdate: (data: { name?: string; config?: unknown }) => Promise<void>;
   onJoin: () => Promise<void>;
   onAddBot?: () => Promise<void>;
-  isDev?: boolean;
+  /** Show Add bot. The server decides (see draftTestBotsEnabled); the view never reads the environment. */
+  botsEnabled?: boolean;
   slug?: string;
   /** Called after a theme is added, detached, deleted or claimed, so the page can refetch the draft. */
   onChanged?: () => void;
@@ -102,7 +103,7 @@ export function DraftManageView({
   onUpdate,
   onJoin,
   onAddBot,
-  isDev,
+  botsEnabled,
   slug,
   onChanged,
 }: DraftManageViewProps) {
@@ -523,7 +524,7 @@ export function DraftManageView({
                   </>
                 )}
               </p>
-              {isDev && onAddBot && (
+              {botsEnabled && onAddBot && (
                 <button type="button" className="btn btn-secondary btn-sm btn-block" disabled={addingBot} aria-busy={addingBot || undefined} onClick={handleAddBot}>
                   <UserPlus className="ic sm" aria-hidden="true" />Add bot
                 </button>

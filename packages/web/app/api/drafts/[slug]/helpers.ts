@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { createCardCatalogService, createDraftService, createSavedDeckService } from "@yugidraft/shared/services";
 import { toUtcIso } from "@/lib/utils";
 import { broadcaster } from "@/lib/notify";
+import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
   if (!pickDeadlineAt) {
@@ -275,5 +276,6 @@ export async function buildDraftResponse(slug: string, userId: string) {
     phase,
     themeProgress,
     allowedCubes,
+    botsEnabled: draftTestBotsEnabled(),
   };
 }
