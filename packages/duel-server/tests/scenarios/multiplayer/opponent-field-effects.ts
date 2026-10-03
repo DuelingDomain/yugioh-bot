@@ -129,41 +129,10 @@ export const PARTNER_MONSTER = "Battle Ox";
 
 const FORMAT_LABEL: Record<Format, string> = { ffa3: "FFA3", ffa4: "FFA4", tag: "Tag" };
 
-// FFA reads and the receiving field use one declared opponent. Tag retains the team rules.
-function declaredSpec(spec: EffectSpec, roles: Roles): EffectSpec {
-  if (roles.format === "tag") return spec;
-  const { tgt } = roles;
-  switch (spec.slug) {
-    case "foolish-revival": return { ...spec, seats: { p1: { grave: ["Dark Magician"] }, [tgt]: { grave: ["Summoned Skull"] } },
-      then: [], seatEnd: {}, offered: (r) => r.opponents.filter(seat => seat === "p1" || seat === r.tgt), tgtEnd: { monsters: ["Summoned Skull"] } };
-    case "alpha-summon": return { ...spec, opp: { monsters: [ELF], banished: ["Blue-Eyes White Dragon"] },
-      tgt: { monsters: [ELF], banished: ["Blue-Eyes White Dragon"] }, seats: {}, seatEnd: {},
-      then: [select("Dark Magician", { card: "Blue-Eyes White Dragon", owner: tgt })],
-      tgtEnd: { monsters: [ELF, "Dark Magician"] } };
-    // Its shared-GY targets remain broad, but the opponent destination still declares a seat.
-    case "branded-expulsion": return { ...spec, noPick: false };
-    case "two-toads-with-one-sting": case "xyz-encore": case "terrors-of-the-afterroot":
-    case "flogos": case "vampire-sucker": case "number-29-mannequin-cat": case "graydle-parasite":
-      return { ...spec, noPick: true };
-    case "inferno-of-the-ashened": return { ...spec, then: [], seatEnd: {},
-      tgtEnd: { monsters: ["King of the Ashened City"], grave: [ELF] } };
-    case "terrors-of-the-overroot": return { ...spec, noPick: true, seatEnd: {},
-      then: [select({ card: ELF, owner: tgt }, "Dark Magician")], tgtEnd: { monsters: ["Dark Magician"], grave: [ELF] } };
-    case "cubic-mandala": return { ...spec, noPick: true, seatEnd: {}, othersEnd: { monsters: [ELF] },
-      steps: [activate("Raigeki", "p0"), pickOpponent(tgt, "p0"), activate("Cubic Mandala", "p0")],
-      then: [], tgtEnd: { monsters: [ELF] } };
-    case "diamond-duston": return { ...spec, steps: [activate("Smashing Ground", "p0"), pickOpponent(tgt, "p0"), activate("Diamond Duston", "p0")] };
-    case "trick-box": return { ...spec, steps: [activate("Offerings to the Doomed", "p0"), select("Performage Hat Tricker"), activate("Trick Box", "p0")],
-      then: [], seatEnd: {}, tgtEnd: { monsters: ["Performage Hat Tricker"] } };
-    case "elemental-hero-necroid-shaman": return { ...spec, then: [select("Dark Magician")] };
-    case "sky-striker-ace-camellia": return { ...spec, then: [] };
-    default: return spec;
-  }
-}
-export function effectScenarios(original: EffectSpec): Scenario[] {
-  return (original.formats ?? (["ffa3", "ffa4", "tag"] as Format[])).map((format) => {
+
+export function effectScenarios(spec: EffectSpec): Scenario[] {
+  return (spec.formats ?? (["ffa3", "ffa4", "tag"] as Format[])).map((format) => {
     const roles = ROLES[format];
-    const spec = declaredSpec(original, roles);
     const oppSetup = spec.opp ?? { monsters: [ELF] };
     const tgtSetup = spec.tgt ?? oppSetup;
     const partnerSetup = spec.partner ?? { monsters: [PARTNER_MONSTER] };
