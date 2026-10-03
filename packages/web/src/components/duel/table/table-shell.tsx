@@ -357,8 +357,10 @@ export function TableShell({
           onNavigate={(next) => actions?.onNavigate?.(next)}
         />
       ) : null}
-      {notices}
       <div className={roomStyles.layout}>
+        <div className={roomStyles.notices}>
+          <div className="pointer-events-auto">{notices}</div>
+        </div>
         {narrow ? null : (
           <aside className={roomStyles.inspector}>
             <HistoryStrip
