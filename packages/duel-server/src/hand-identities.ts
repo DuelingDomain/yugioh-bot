@@ -9,6 +9,8 @@ export class HandIdentities {
   private sleeves: Identity[][] = [[], []];
   /** The last observed sleeve order until a query confirms which effects survived a shuffle. */
   private beforeShuffle: Array<Identity[] | undefined> = [undefined, undefined];
+  private shuffledPublic: Array<Map<string, number> | undefined> = [undefined, undefined];
+  private mutatedAfterShuffle = [false, false];
 
   add(seat: number, code: number, sequence: number, arrival?: number, isPublic = false): void {
     if (!this.own[seat] || !isSequence(sequence)) return;
@@ -18,6 +20,7 @@ export class HandIdentities {
     this.sleeves[seat]!.splice(sequence, 0, sleeve);
     const before = this.beforeShuffle[seat];
     if (before) {
+      this.mutatedAfterShuffle[seat] = true;
       const index = following ? before.indexOf(following) : -1;
       before.splice(index < 0 ? before.length : index, 0, sleeve);
     }
@@ -41,14 +44,29 @@ export class HandIdentities {
       for (const query of queries) {
         if (query?.isPublic && query.code) publicCodes.set(query.code, (publicCodes.get(query.code) ?? 0) + 1);
       }
+      const remaining = new Map(publicCodes);
+      let expired = false;
+      for (const code of this.shuffledPublic[seat]?.values() ?? []) {
+        const copies = remaining.get(code) ?? 0;
+        if (copies) remaining.set(code, copies - 1);
+        else expired = true;
+      }
       for (const entry of before) {
         if (!entry.public) continue;
         const copies = publicCodes.get(entry.code) ?? 0;
         if (copies) publicCodes.set(entry.code, copies - 1);
         else { entry.public = false; entry.code = 0; delete entry.arrival; }
       }
-      this.sleeves[seat] = this.reorderSleeves(before, queries.map((query) => query?.code ?? 0), queries.map((query) => query?.isPublic === true));
+      // A removal/insertion/relocation after an unobserved shuffle can already have consumed a
+      // provisional public sleeve. If that effect expired, its history is ambiguous: retire all
+      // anonymous correlations while retaining cards that the new query still confirms public.
+      const source = expired && this.mutatedAfterShuffle[seat]
+        ? this.sleeves[seat]!.filter((entry) => entry.public)
+        : before;
+      this.sleeves[seat] = this.reorderSleeves(source, queries.map((query) => query?.code ?? 0), queries.map((query) => query?.isPublic === true));
       this.beforeShuffle[seat] = undefined;
+      this.shuffledPublic[seat] = undefined;
+      this.mutatedAfterShuffle[seat] = false;
     }
     queries.forEach((query, sequence) => {
       if (query?.code) this.setPublic(seat, sequence, query.code, query.isPublic === true);
@@ -61,6 +79,7 @@ export class HandIdentities {
     const sleeve = this.sleeves[seat]!.splice(sequence, 1)[0];
     const before = this.beforeShuffle[seat];
     if (before && sleeve) {
+      this.mutatedAfterShuffle[seat] = true;
       const index = before.indexOf(sleeve);
       if (index >= 0) before.splice(index, 1);
     }
@@ -76,6 +95,7 @@ export class HandIdentities {
     const before = this.beforeShuffle[seat];
     const entry = this.sleeves[seat]![to]!;
     if (before) {
+      this.mutatedAfterShuffle[seat] = true;
       const index = before.indexOf(entry);
       if (index >= 0) before.splice(index, 1);
       const following = this.sleeves[seat]![to + 1];
@@ -93,6 +113,8 @@ export class HandIdentities {
       return index >= 0 ? available.splice(index, 1)[0]! : { id: `hand-${++this.nextOwn}`, code };
     });
     this.beforeShuffle[seat] ??= [...this.sleeves[seat]!];
+    const publicEntries = this.shuffledPublic[seat] ??= new Map();
+    for (const entry of this.sleeves[seat]!) if (entry.public) publicEntries.set(entry.id, entry.code);
     // A concealed shuffle severs the connection to the arrived card. Keeping that old target
     // could later bind its flight to an unrelated card when the slot becomes visible.
     for (const entry of this.sleeves[seat]!) if (!entry.public) delete entry.arrival;

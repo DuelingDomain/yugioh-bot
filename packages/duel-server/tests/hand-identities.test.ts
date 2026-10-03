@@ -248,6 +248,26 @@ describe("animation identities in engine slots", () => {
     expect(ids.arrival(0, false, 4)?.sequence).toBe(0);
   });
 
+  it.each(["remove", "insert", "relocate"] as const)("does not expose an expired public card's hidden permutation after an intervening %s", (mutation) => {
+    const snapshots = [[20, 40, 10, 30], [10, 40, 20, 30]].map((shuffled) => {
+      const ids = new HandIdentities();
+      [10, 20, 30, 40].forEach((code, sequence) => ids.add(0, code, sequence, sequence + 1, code === 20 || code === 40));
+      const publicSleeve = ids.at(0, false, 3);
+      ids.shuffle(0, shuffled);
+      const final = [...shuffled];
+      if (mutation === "remove") { ids.remove(0, 0); final.splice(0, 1); }
+      if (mutation === "insert") { ids.add(0, 50, 0, 5); final.splice(0, 0, 50); }
+      if (mutation === "relocate") { ids.relocate(0, 0, 2); final.splice(2, 0, final.splice(0, 1)[0]!); }
+      ids.syncPublic(0, final.map((code) => ({ code, isPublic: code === 40 })));
+      const publicSlot = final.indexOf(40);
+      expect(ids.at(0, false, publicSlot)).toBe(publicSleeve);
+      expect(ids.arrival(0, false, 4)).toEqual({ id: publicSleeve, sequence: publicSlot });
+      expect(ids.arrival(0, false, 2)).toBeUndefined();
+      return final.map((_, sequence) => ids.at(0, false, sequence));
+    });
+    expect(snapshots[0]).toEqual(snapshots[1]);
+  });
+
   it("follows public hand-to-hand sequence moves for both views", () => {
     const ids = new HandIdentities();
     ids.add(0, 10, 0, 1); ids.add(0, 20, 1, 2);
