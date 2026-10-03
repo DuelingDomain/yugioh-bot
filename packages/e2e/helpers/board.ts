@@ -167,10 +167,13 @@ export async function startTable(
   const table = uniqueTableName(label);
   const slug = await createTable(host.page, table, options);
   for (const seat of options.bots ?? []) await addBotToSeat(host.page, slug, seat);
-  for (const guest of guests) {
+  // Guests take the free seats in numeric order. The lobby lists Tag seats by team (1, 3, 2, 4), so "first open seat" would not be seat order.
+  const botSeats = new Set(options.bots ?? []);
+  const freeSeats = Array.from({ length: 8 }, (_, seat) => seat).filter((seat) => seat > 0 && !botSeats.has(seat));
+  for (const [index, guest] of guests.entries()) {
     await guest.page.goto(`/duels/${slug}`);
     await expect(guest.page.getByRole("heading", { level: 1, name: table })).toBeVisible();
-    await guest.page.getByRole("button", { name: /^Take seat \d+$/ }).first().click();
+    await guest.page.getByRole("button", { name: `Take seat ${freeSeats[index]! + 1}`, exact: true }).click();
   }
   for (const [index, guest] of guests.entries()) {
     const deck = decks[index + 1]!;
