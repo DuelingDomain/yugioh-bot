@@ -31,11 +31,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   const pools = createCubeService(db, createCardCatalogService(db)).getCubePools(cubeId);
   const fileName = ydkFileName(cube.name);
   // The plain name is an ASCII fallback; browsers read the UTF-8 name from filename*.
+  const encoded = encodeURIComponent(fileName).replace(/['()*!]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
   const ascii = fileName.replace(/[^\x20-\x7e]/g, "_").replace(/"/g, "'");
   return new NextResponse(serializeYdk(pools.main, pools.extra), {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+      "Content-Disposition": `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`,
       "Cache-Control": "no-store",
     },
   });

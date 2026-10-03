@@ -242,6 +242,22 @@ describe("cube API routes", () => {
     expect(hidden.status).toBe(404);
   });
 
+  it("percent-encodes ' ( ) ! in the UTF-8 file name of the download", async () => {
+    await setupDb();
+    const { POST: createCube } = await import("../app/api/cubes/route");
+    const created = await createCube(
+      new Request("http://x", { method: "POST", body: JSON.stringify({ kind: "blank", name: "Dark (Magician)! O'Neil *é" }) }) as any,
+    );
+    const { cube } = await created.json();
+    const { GET: exportYdk } = await import("../app/api/cubes/[id]/ydk/route");
+    const res = await exportYdk(new Request("http://x") as any, { params: Promise.resolve({ id: String(cube.id) }) });
+    const header = res.headers.get("content-disposition")!;
+    const encoded = header.split("filename*=UTF-8''")[1]!;
+    expect(encoded).toBe("Dark%20%28Magician%29%21%20O%27Neil%20%C3%A9.ydk");
+    expect(encoded).not.toMatch(/['()*!]/);
+    expect(decodeURIComponent(encoded)).toBe("Dark (Magician)! O'Neil é.ydk");
+  });
+
   it("lists cubes for the guild", async () => {
     await setupDb();
     const { POST: createCube, GET: listCubes } = await import("../app/api/cubes/route");
