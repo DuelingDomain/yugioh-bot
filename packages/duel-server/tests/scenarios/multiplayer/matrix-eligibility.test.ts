@@ -1,3 +1,6 @@
+import { it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createEngineGame } from "../../../src/engine.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { compileBoard } from "../../support/board.js";
@@ -25,3 +28,55 @@ async function run(scenario:Scenario) {
  try{const session=new Session(scenario,game);session.reachMainPhase();session.startRecording();scenario.steps.forEach((step,index)=>session.run(step,index+1));}finally{game.close();}
 }
 describeWithCores("Matrix ordinary activation eligibility",[liveNseat,...needs.domainMulti()],()=>runScenarios("matrix-eligibility",[false,true].flatMap(domain=>(["ffa3","ffa4","tag"] as const).map(format=>proof(format,domain))),run));
+
+describeWithCores("Matrix ignition wrapper startup check", [liveNseat, ...needs.domainMulti()], () => {
+ for (const domain of [false, true]) it(`wraps gytg with MPTarget and gyop with MPOne${domain ? " Domain" : " Standard"}`, async () => {
+  const stock = readFileSync(join(engineDataDirectory, "card-scripts/official/c35569555.lua"), "utf8");
+  const overlay = readFileSync(new URL("../../../domain-core/multi-scripts/c35569555.lua", import.meta.url), "utf8");
+  // Run the full stock file and full overlay. Local stubs record the wrapper inputs.
+  // They do not change the engine helpers or depend on the opponent-read analyzer.
+  const content = `local script={}
+local function GetID() return script,35569555 end
+do
+${stock}
+end
+local stock_target,stock_operation=script.gytg,script.gyop
+assert(type(stock_target)=="function" and type(stock_operation)=="function","The stock Matrix functions must exist")
+local target_calls,operation_calls={},{}
+local target_wrapper,operation_wrapper
+local aux=setmetatable({
+ MPTarget=function(fn)
+  table.insert(target_calls,fn)
+  target_wrapper=function(...) return fn(...) end
+  return target_wrapper
+ end,
+ MPOne=function(fn)
+  table.insert(operation_calls,fn)
+  operation_wrapper=function(...) return fn(...) end
+  return operation_wrapper
+ end
+},{__index=aux})
+do
+ local s,id=script,35569555
+${overlay}
+end
+assert(#target_calls==1,"MPTarget must wrap gytg once")
+assert(#operation_calls==1,"MPOne must wrap gyop once")
+assert(target_calls[1]==stock_target,"MPTarget must receive the stock gytg")
+assert(operation_calls[1]==stock_operation,"MPOne must receive the stock gyop")
+assert(script.gytg==target_wrapper and script.gytg~=stock_target,"gytg must keep the MPTarget wrapper")
+assert(script.gyop==operation_wrapper and script.gyop~=stock_operation,"gyop must keep the MPOne wrapper")`;
+  const compiled = compileBoard({ format: "ffa3", deckSize: 20, ...(domain ? {
+   mode: "domain" as const,
+   p0: { deckMaster: "Blue-Eyes White Dragon" },
+   p1: { deckMaster: "Blue-Eyes White Dragon" },
+   p2: { deckMaster: "Blue-Eyes White Dragon" },
+  } : {}) });
+  const game = await createEngineGame({ ...compiled.options, dataDirectory: engineDataDirectory,
+   multiWasmBinary: domain ? domainNseatWasmBinary() : nseatWasmBinary(),
+   startupScripts: [...compiled.options.startupScripts!, { name: "matrix-ignition-wrapper-test.lua", content }],
+   seed: ["1", "2", "3", "4"],
+  });
+  game.close();
+ });
+});
