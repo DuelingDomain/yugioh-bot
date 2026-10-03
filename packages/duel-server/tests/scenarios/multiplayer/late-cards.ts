@@ -71,7 +71,7 @@ function royalTribute(format: Format): Scenario {
 // The card of p0 is face up on its field. Its ATK limit (1500 or more cannot attack) holds for the monsters of every duelist. The 100 LP
 // are asked only in the Standby Phase of p0 (in Tag: of the duelist that owns the card, not of the partner). In Tag the 100 LP are paid
 // from the one LP total of the team. Attacks are allowed in the 1st round (attackFirstTurn).
-const PEACE = `${SOURCE} [R-COMMON-OPP-FIELD], card decisions 2026-10-01: Messenger of Peace (the ATK limit holds for all opponents, the 100 LP only in the own Standby Phase)`;
+const PEACE = `${SOURCE} [R-COMMON-ONGOING], card decisions 2026-10-01: Messenger of Peace (the ATK limit holds for all opponents, the 100 LP only in the own Standby Phase)`;
 const BIG: Record<Seat, string> = { p0: OX, p1: AXE, p2: OX, p3: AXE };
 
 function messengerSetup(format: Format): Scenario["setup"] {
@@ -121,7 +121,7 @@ function messengerOfPeace(format: Format, pay: boolean): Scenario {
     id: `late-${format}-messenger-of-peace-${pay ? "limit-for-all-and-payment-only-in-own-standby" : "declined-payment-destroys-it"}`,
     title: `${label}: Messenger of Peace of p0: ${pay ? "no monster with 1500 ATK or more of any duelist attacks; only p0 is asked for the 100 LP, once in each of its own Standby Phases" : "p0 does not pay in its Standby Phase and the card is destroyed"}`,
     source: PEACE,
-    rules: ["R-COMMON-OPP-FIELD", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
+    rules: ["R-COMMON-ONGOING", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
     tags: ["multiplayer", "late-cards", "opp-field", "standby-cost", format, "card:44656491", "card:47355498"],
     setup: messengerSetup(format),
     steps,
