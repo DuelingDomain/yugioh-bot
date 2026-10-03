@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { createDraftTournamentService, TournamentDuelError } from "@yugidraft/shared/services";
+import { broadcaster } from "@/lib/notify";
 
 export const runtime = "nodejs";
 
@@ -65,6 +66,7 @@ export async function POST(
       createdByUserId: session.user.id,
       bestOf,
     });
+    void broadcaster.draft({ kind: "seats", slug });
 
     const tournament = db
       .prepare("select id, name, web_slug, format from tournaments where id = ?")

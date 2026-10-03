@@ -1,14 +1,12 @@
 import Database from "better-sqlite3";
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { migrate } from "../../shared/src/db/schema.js";
-import { findDraftReadAccess } from "../../shared/src/services/draft-access.js";
-import { createDraftRoomToken } from "../../shared/src/ws/draft-token.js";
+import { migrate } from "@yugidraft/shared/db";
+import { findDraftReadAccess } from "@yugidraft/shared/services";
+import { createDraftRoomToken } from "@yugidraft/shared/ws";
 import { registerEventHandlers, type TypedServer, type TypedSocket } from "../src/events.js";
 import { createInternalHttpHandler } from "../src/internal-http.js";
 import { DraftRoomManager } from "../src/rooms.js";
-
-vi.mock("@yugidraft/shared/ws", () => import("../../shared/src/ws/index.js"));
 
 const secret = "existing-internal-secret";
 const error = { error: "This draft is only open to its players." };

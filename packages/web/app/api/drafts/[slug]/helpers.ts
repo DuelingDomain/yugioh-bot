@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createDraftService, createSavedDeckService } from "@yugidraft/shared/services";
 import { toUtcIso } from "@/lib/utils";
+import { broadcaster } from "@/lib/notify";
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
   if (!pickDeadlineAt) {
@@ -57,7 +58,15 @@ export async function buildDraftResponse(slug: string, userId: string) {
   }
 
   if (draftIdRow.status === "active") {
-    drafts.expireCurrentPickStep(draftIdRow.id);
+    const { autoPickedPlayerIds } = drafts.expireCurrentPickStep(draftIdRow.id);
+    if (autoPickedPlayerIds.length > 0) {
+      const updated = drafts.findById(draftIdRow.id);
+      if (updated.status === "completed") {
+        void broadcaster.draft({ kind: "complete", slug });
+      } else {
+        void broadcaster.draft({ kind: "resync", slug, packRound: updated.currentPackRound, pickStep: updated.currentPickStep });
+      }
+    }
   }
 
   const draft = db
@@ -94,6 +103,10 @@ export async function buildDraftResponse(slug: string, userId: string) {
   }
 
   const draftModel = drafts.findById(draft.id);
+  const config = { ...draftModel.config };
+  if (userId !== draft.created_by_user_id) {
+    delete config.themeAssignments;
+  }
 
   const players = db
     .prepare(
@@ -179,8 +192,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
   let themeProgress: { main: number; mainTotal: number; extra: number; extraTotal: number } | undefined;
   if (isTheme) {
     const ids = draftModel.config.allowedCubeIds ?? [];
-    // The pool of theme cubes is always shown (the host builds it openly here);
-    // only per-player random *assignment* is hidden until reveal, handled client-side.
+    // The host's allowed theme pool is public; per-player assignments stay private.
     if (ids.length > 0) {
       const placeholders = ids.map(() => "?").join(",");
       const rows = db
@@ -234,7 +246,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
     name: draft.name,
     status: draft.status,
     createdByUserId: draft.created_by_user_id,
-    config: draftModel.config,
+    config,
     currentPackRound: draftModel.currentPackRound,
     currentPickStep: draftModel.currentPickStep,
     pickDeadlineAt: draft.pick_deadline_at ?? undefined,

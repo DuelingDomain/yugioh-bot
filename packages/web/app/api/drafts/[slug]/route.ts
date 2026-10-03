@@ -84,6 +84,7 @@ export async function DELETE(
         db.prepare("delete from draft_players where draft_id = ?").run(draft.id);
         db.prepare("delete from drafts where id = ?").run(draft.id);
       })();
+      void broadcaster.draft({ kind: "seats", slug });
       return NextResponse.json({ deleted: true });
     }
 
@@ -167,8 +168,6 @@ export async function PUT(
       if (existing) {
         return NextResponse.json({ error: "A draft with that name already exists" }, { status: 400 });
       }
-
-      db.prepare("update drafts set name = ? where id = ?").run(name, draft.id);
     }
 
     let analysisWarnings: ReturnType<typeof analyzeCube> | undefined;
@@ -222,14 +221,23 @@ export async function PUT(
       (mergedConfig as any).cubeCardIds = cubeCardIds;
     }
 
-    if (config !== undefined) {
-      db.prepare("update drafts set config_json = ? where id = ?").run(
-        JSON.stringify(mergedConfig),
-        draft.id,
-      );
-    }
+    // Apply edits together after validation, so a rejected pool edit cannot silently rename the draft.
+    db.transaction(() => {
+      if (name !== undefined) {
+        db.prepare("update drafts set name = ? where id = ?").run(name, draft.id);
+      }
+      if (config !== undefined) {
+        db.prepare("update drafts set config_json = ? where id = ?").run(
+          JSON.stringify(mergedConfig),
+          draft.id,
+        );
+      }
+    })();
 
     const updated = db.prepare("select * from drafts where id = ?").get(draft.id) as any;
+    if (name !== undefined || config !== undefined) {
+      void broadcaster.draft({ kind: "seats", slug });
+    }
 
     return NextResponse.json({
       id: updated.id,

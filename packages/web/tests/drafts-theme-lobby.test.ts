@@ -481,6 +481,53 @@ describe("theme lobby routes", () => {
     expect(res2.status).toBe(409);
   }, 30000);
 
+  it.each(["pending", "active"])("preflight returns host-assigned warnings only to the creator when the draft is %s", async (status) => {
+    await seedDraft([{ main: 42, extra: 17 }, { main: 42, extra: 0 }], {
+      themeSelection: "host_assigned", themeAssignments: { "1": 1, "2": 2 },
+    });
+    if (status === "active") {
+      const { getDb } = await import("@/lib/db");
+      const { createDraftService } = await import("@yugidraft/shared/services");
+      createDraftService(getDb()).start(1);
+    }
+    const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
+    const params = { params: Promise.resolve({ slug: "theme-slug" }) };
+    // u2 joined the draft and can read it, but cannot see host assignment warnings.
+    auth.mockResolvedValue({ user: { id: "u2" } });
+    const participantResponse = await GET(new Request("http://localhost"), params);
+    expect(participantResponse.status).toBe(200);
+    expect(await participantResponse.json()).toEqual({ errors: [], warnings: [] });
+    auth.mockResolvedValue({ user: { id: "observer" } });
+    expect((await GET(new Request("http://localhost"), params)).status).toBe(status === "pending" ? 200 : 403);
+    auth.mockResolvedValue({ user: { id: "u1" } });
+    const response = await GET(new Request("http://localhost"), params);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      errors: [], warnings: [expect.stringMatching(/^Theme1: Extra pool/i)],
+    });
+  }, 30000);
+
+  it("preflight hides host assignment validation errors from a non-creator", async () => {
+    await seedDraft([{ main: 42, extra: 0 }, { main: 42, extra: 0 }], { themeSelection: "host_assigned" });
+    auth.mockResolvedValue({ user: { id: "u2" } });
+    const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
+    const response = await GET(new Request("http://localhost"), { params: Promise.resolve({ slug: "theme-slug" }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ errors: [], warnings: [] });
+  }, 30000);
+
+  it.each(["player_pick", "random"])("preflight still analyzes every allowed theme for a non-creator in %s mode", async (themeSelection) => {
+    await seedDraft([{ main: 5, extra: 17 }, { main: 42, extra: 0 }], { themeSelection });
+    auth.mockResolvedValue({ user: { id: "u2" } });
+    const { GET } = await import("../app/api/drafts/[slug]/preflight/route");
+    const response = await GET(new Request("http://localhost"), { params: Promise.resolve({ slug: "theme-slug" }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      errors: [expect.stringMatching(/^Theme0: Main pool/i)],
+      warnings: [expect.stringMatching(/^Theme1: Extra pool/i)],
+    });
+  }, 30000);
+
   it("preflight reports an error for a main-short cube and a warning for a thin-extra cube", async () => {
     await seedDraft([{ main: 5, extra: 0 }, { main: 42, extra: 0 }]);
     auth.mockResolvedValue({ user: { id: "u1", name: "P1" } });

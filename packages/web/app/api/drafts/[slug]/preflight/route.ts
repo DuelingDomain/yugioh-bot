@@ -31,6 +31,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   if (draft.config.mode !== "theme") {
     return NextResponse.json({ errors: [], warnings: [] });
   }
+  if (draft.config.themeSelection === "host_assigned" && draft.createdByUserId !== session.user.id) {
+    return NextResponse.json({ errors: [], warnings: [] });
+  }
 
   const cubes = createCubeService(db, createCardCatalogService(db));
   const cfg = {
