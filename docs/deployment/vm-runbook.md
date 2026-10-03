@@ -139,6 +139,36 @@ The merge deploys with `DUEL_1V1_ENGINE=legacy` (1v1 duels run on main's old eng
 Tag, 3-player or 4-player tables). Both are read by a restart of the `duel` service (the flag also by `web`). They need no
 empty server. See `duel-engine-switch.md` for the values, the engine saved for each duel and how to switch back.
 
+### Report bug button (GitHub issues)
+
+The red "Report bug" button saves every report in the `bug_reports` table of `data/bot.sqlite`. The `web` service also opens
+a GitHub issue for it when it has a token. The repo is public, so an issue holds only the report number, the player's
+text, public duel facts and the last public log lines. It never holds a hand, a Discord id or name, or the guild id. The
+full report with the player id stays in the database. Each player may send 5 reports in 10 minutes.
+
+Set it up once:
+
+1. In GitHub open Settings, Developer settings, Personal access tokens, Fine-grained tokens, Generate new token.
+   Resource owner `imran443`, repository access "Only select repositories" with `imran443/yugioh-bot`, repository
+   permission **Issues: Read and write** (the Metadata read permission is added by itself). Pick an expiry and note the date.
+2. On the VM add these lines to `/opt/yugioh-bot/.env` (the token never goes in git or in a `NEXT_PUBLIC_` name):
+
+   ```bash
+   BUG_REPORT_GITHUB_TOKEN=github_pat_xxxxxxxx
+   BUG_REPORT_GITHUB_REPO=imran443/yugioh-bot   # optional, this is the default
+   ```
+
+3. Recreate only the web service so it reads the new values: `docker compose -f docker-compose.yml up -d web`.
+
+Checks and limits:
+
+- Send one test report from the red button. The dialog shows "issue #N" with a link when GitHub accepted it, and
+  "Saved — the team will see it" when the token is missing or GitHub refused it.
+- A failed issue never loses a report. Read the reason with
+  `sqlite3 data/bot.sqlite "select id, created_at, github_error from bug_reports where github_issue_number is null order by id desc limit 10"`.
+- Issues get the labels `bug`, `needs-triage` and `from-app`. If a label does not exist the issue is created without labels.
+- When the token expires, create a new one and repeat steps 2 and 3. Reports sent in the gap stay in the database.
+
 ### Rollback
 
 Before each production build, the workflow tags the images used by the existing duel, web and bot
