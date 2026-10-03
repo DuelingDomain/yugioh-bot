@@ -20,7 +20,7 @@
  */
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { MOVE_PACE, PHASE_TIMING } from "./duel-timing";
-import { getMovePlan } from "./move-plan";
+import { getMovePlan, planMoves } from "./move-plan";
 
 export type PhaseKey = "draw" | "standby" | "main1" | "battle" | "main2" | "end";
 
@@ -159,6 +159,10 @@ export function planPhaseBeats(events: readonly DuelEvent[], cursor: number, opt
   if (run.length === 0) return null;
   const known = plans.get(run[0].event.id);
   if (known) return known;
+
+  // A phase consumer can commit before the card layer. Establish its shared flight schedule
+  // before memoising the beats, or missing landing times let the ribbons overtake the deal.
+  if (!options.landAtOf) planMoves(fresh, { now, reduced, duelKey });
 
   let holdPhase: PhaseKey | null = previous;
   for (const event of fresh) {
