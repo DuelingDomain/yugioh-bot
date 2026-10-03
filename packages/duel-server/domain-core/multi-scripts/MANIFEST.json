@@ -1698,7 +1698,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "c51f8ea1515f45e548d608e7211d58d28b891e922fdbaa14a453cfb3c677246b",
-      "note": "Use a picked FFA count and combined opposing Tag hands and fields.",
+      "note": "Count the hands and fields of every living duelist once, including the Tag partner. The removal effect keeps its declared opponent.",
       "redefines": [
         "target",
         "activate"
