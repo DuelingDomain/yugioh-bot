@@ -390,7 +390,10 @@ describe("host with more than two seats", () => {
       expect(final.data.role).toBe(seat === 0 ? "spectator" : "player");
       expect(final.data.mySeat).toBe(seat === 0 ? null : seat);
     }
-    const replay = await post(t.host, { op: "replay", slug: t.slug, guildId: "g1", playerId: t.players[0] });
+    const replayHost = createDuelHost({ db: t.db, dataDirectory: DATA, secret: SECRET, searchCards: () => [],
+      pollIntervalMs: 60_000, now: () => clock.t, createWorker: () => new NSeatWorker() });
+    hosts.push(replayHost);
+    const replay = await post(replayHost, { op: "replay", slug: t.slug, guildId: "g1", playerId: t.players[0] });
     expect(replay.status).toBe(200);
     expect(replay.data).toMatchObject({ role: "spectator", mySeat: null });
   });
