@@ -30,6 +30,7 @@
  */
 import { duelFxClock } from "./fx-clock";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import type { DuelChainLink, DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, zoneKey } from "./constants";
 import { collectFreshEvents, findZoneElement, maxEventId } from "./event-queue";
@@ -78,6 +79,8 @@ export type ChainFxProps = {
   priority?: readonly PrioritySlot[];
   /** The duel is over (a result, or the session is not active): a chain that was open when it ended is cleared. */
   ended?: boolean;
+  /** The format of a multi-seat table board ("ffa3", "ffa4", "tag"). It picks the lane the chain stack uses. Left out (1v1), nothing changes. */
+  table?: string;
 };
 
 function toneVars(tones: ChainFxProps["seatTones"], seat: number): CSSProperties | undefined {
@@ -250,7 +253,7 @@ function ChainGlyph() {
   );
 }
 
-export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority, ended = false }: ChainFxProps) {
+export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority, ended = false, table }: ChainFxProps) {
   const named = seatTones != null;
   const played = useChainPlayback(events, chain, duelKey, reducedMotion);
   // A duel that ends mid-chain sends no "chain-end": nothing is left to resolve, so nothing stays on the board.
@@ -263,6 +266,15 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const targetLinksRef = useRef(targetLinks);
   targetLinksRef.current = targetLinks;
   const overlayRef = useRef<HTMLDivElement>(null);
+  const frontRef = useRef<HTMLDivElement>(null);
+  // The front layer lives in the duel's own root (the element that holds the pace slider's scope), not in the
+  // fx slot. A slot or the board is a stacking context, and nothing inside one can rise above its siblings
+  // (the prompt slot, the room's prompt dock); the root is above all of them. undefined = not looked up yet,
+  // null = no root (a bare mount): the layer stays where it is.
+  const [host, setHost] = useState<HTMLElement | null | undefined>(undefined);
+  useLayoutEffect(() => {
+    setHost(overlayRef.current?.closest<HTMLElement>("[data-duel-fx-speed-root]") ?? null);
+  }, []);
   const slotRefs = useRef(new Map<number, HTMLElement>());
   const ringRefs = useRef(new Map<number, HTMLElement>());
   const tagRefs = useRef(new Map<number, HTMLElement>());
@@ -285,6 +297,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       if (!overlay) return;
       // ---- Read phase: no style write may happen before the last read. ----
       const origin = overlay.getBoundingClientRect();
+      const front = frontRef.current;
+      const hostRect = front && host ? host.getBoundingClientRect() : null;
       const stacked = new Map<HTMLElement, number>();
       const placed: PlacedLink[] = [];
       const centers = new Map<number, { x: number; y: number }>();
@@ -318,6 +332,18 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         }
       }
       // ---- Write phase. ----
+      // The front layer sits over the board box, wherever the board is inside the root.
+      if (front && host && hostRect) {
+        const x = Math.round(origin.left - hostRect.left - host.clientLeft);
+        const y = Math.round(origin.top - hostRect.top - host.clientTop);
+        const geo = `${x},${y},${Math.round(origin.width)},${Math.round(origin.height)}`;
+        if (front.dataset.geo !== geo) {
+          front.dataset.geo = geo;
+          front.style.width = `${origin.width}px`;
+          front.style.height = `${origin.height}px`;
+          front.style.translate = `${x}px ${y}px`;
+        }
+      }
       for (const { link, slot, box, size, shift, half, tagHalf } of placed) {
         const ring = ringRefs.current.get(link.index);
         if (!box) {
@@ -393,7 +419,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
     }
     tick();
     return () => duelFxClock.cancelAnimationFrame(raf);
-  }, [linksKey, links.length, targetsKey, targetLinks.length]);
+  }, [linksKey, links.length, targetsKey, targetLinks.length, host]);
 
   // Live announcements for screen readers: what changed on this beat of the chain.
   const prevRef = useRef<ChainState>(EMPTY_CHAIN);
@@ -416,6 +442,91 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
     "data-focus": focus?.index === link.index ? "true" : "false",
   });
   const showStack = links.length > 0;
+
+  // Front layer: the numbered badges, the callout and the chain stack. Above every other board layer (it is
+  // portaled into the duel root, see `host`), so a prompt, a banner or a pile cannot cover the chain.
+  const front = (
+    <div ref={frontRef} className={`${styles.layer} ${styles.front}`} aria-hidden="true" data-chain-fx="front" data-chain-front="true"
+    data-portal={host ? "true" : undefined} data-table={table}
+    data-open={links.length > 0 ? "true" : "false"} data-reduced={reducedMotion ? "true" : "false"}>
+      {links.map((link) => {
+        const callout = chainCallout(link, mySeat, playerName, named);
+        return (
+          <div
+            key={link.index}
+            ref={(el) => {
+              if (el) slotRefs.current.set(link.index, el);
+              else slotRefs.current.delete(link.index);
+            }}
+            className={styles.slot}
+            style={{ zIndex: link.index }}
+            data-placed="false"
+            data-chain-link={link.index}
+            {...attrs(link)}
+          >
+            <span className={styles.badge}>
+              <span className={styles.num} data-chain-num="true">{link.index}</span>
+              <svg className={styles.tick} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span className={styles.chip}><ChainGlyph /></span>
+            </span>
+            {focus?.index === link.index ? (
+              <span
+                ref={(el) => {
+                  if (el) tagRefs.current.set(link.index, el);
+                  else tagRefs.current.delete(link.index);
+                }}
+                className={styles.tag} data-chain-callout={link.index} data-callout-key={`${link.index}:${link.status}`}>
+                <b>{callout.label}</b>
+                <span className={styles.tagName}>{callout.title}</span>
+                <span className={styles.tagAction}>{callout.action}</span>
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
+      {showStack ? (
+        <div className={styles.dock}>
+          <ol className={styles.panel} data-chain-panel="true" data-priority={priority?.length ? "true" : undefined}>
+            <li className={styles.head}>
+              <span>Chain</span>
+              <small>{links.length} {links.length === 1 ? "link" : "links"}</small>
+            </li>
+            {priority && priority.length > 0 ? (
+              <li className={styles.prioRow}>
+                <PriorityChips order={priority} mySeat={mySeat} nameOf={playerName} seatTones={seatTones} compact />
+              </li>
+            ) : null}
+            {rows.map((link) => {
+              const callout = chainCallout(link, mySeat, playerName, named);
+              return (
+                <li
+                  key={link.index}
+                  className={styles.row}
+                  data-status={link.status}
+                  data-negated={link.negated ? "true" : "false"}
+                  data-focus={focus?.index === link.index ? "true" : "false"}
+                  data-mine={mySeat != null && link.seat === mySeat ? "true" : "false"}
+                  data-chain-row={link.index}
+                  data-toned={seatTones?.has(link.seat) ? "true" : undefined}
+                  style={toneVars(seatTones, link.seat)}
+                >
+                  <b className={styles.rowNum}>{link.index}</b>
+                  <span className={styles.thumb} style={artStyle(link.code)} />
+                  <span className={styles.text}>
+                    <span className={styles.name}>{chainCardName(link)}</span>
+                    <small className={styles.who}>{callout.owner} · {callout.action}</small>
+                    {focus?.index === link.index && callout.effect ? <small className={styles.effect}>{callout.effect}</small> : null}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      ) : null}
+    </div>
+  );
 
   return (
     <>
@@ -490,87 +601,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           </div>;
         }))}
       </div>
-      {/* Front layer: the numbered badges, the callout and the chain stack. Above every other board layer,
-          so a prompt, a banner or a pile cannot cover the chain. */}
-      <div className={`${styles.layer} ${styles.front}`} aria-hidden="true" data-chain-front="true"
-        data-open={links.length > 0 ? "true" : "false"} data-reduced={reducedMotion ? "true" : "false"}>
-        {links.map((link) => {
-          const callout = chainCallout(link, mySeat, playerName, named);
-          return (
-            <div
-              key={link.index}
-              ref={(el) => {
-                if (el) slotRefs.current.set(link.index, el);
-                else slotRefs.current.delete(link.index);
-              }}
-              className={styles.slot}
-              style={{ zIndex: link.index }}
-              data-placed="false"
-              data-chain-link={link.index}
-              {...attrs(link)}
-            >
-              <span className={styles.badge}>
-                <span className={styles.num} data-chain-num="true">{link.index}</span>
-                <svg className={styles.tick} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <span className={styles.chip}><ChainGlyph /></span>
-              </span>
-              {focus?.index === link.index ? (
-                <span
-                  ref={(el) => {
-                    if (el) tagRefs.current.set(link.index, el);
-                    else tagRefs.current.delete(link.index);
-                  }}
-                  className={styles.tag} data-chain-callout={link.index} data-callout-key={`${link.index}:${link.status}`}>
-                  <b>{callout.label}</b>
-                  <span className={styles.tagName}>{callout.title}</span>
-                  <span className={styles.tagAction}>{callout.action}</span>
-                </span>
-              ) : null}
-            </div>
-          );
-        })}
-        {showStack ? (
-          <div className={styles.dock}>
-            <ol className={styles.panel} data-chain-panel="true" data-priority={priority?.length ? "true" : undefined}>
-              <li className={styles.head}>
-                <span>Chain</span>
-                <small>{links.length} {links.length === 1 ? "link" : "links"}</small>
-              </li>
-              {priority && priority.length > 0 ? (
-                <li className={styles.prioRow}>
-                  <PriorityChips order={priority} mySeat={mySeat} nameOf={playerName} seatTones={seatTones} compact />
-                </li>
-              ) : null}
-              {rows.map((link) => {
-                const callout = chainCallout(link, mySeat, playerName, named);
-                return (
-                  <li
-                    key={link.index}
-                    className={styles.row}
-                    data-status={link.status}
-                    data-negated={link.negated ? "true" : "false"}
-                    data-focus={focus?.index === link.index ? "true" : "false"}
-                    data-mine={mySeat != null && link.seat === mySeat ? "true" : "false"}
-                    data-chain-row={link.index}
-                    data-toned={seatTones?.has(link.seat) ? "true" : undefined}
-                    style={toneVars(seatTones, link.seat)}
-                  >
-                    <b className={styles.rowNum}>{link.index}</b>
-                    <span className={styles.thumb} style={artStyle(link.code)} />
-                    <span className={styles.text}>
-                      <span className={styles.name}>{chainCardName(link)}</span>
-                      <small className={styles.who}>{callout.owner} · {callout.action}</small>
-                      {focus?.index === link.index && callout.effect ? <small className={styles.effect}>{callout.effect}</small> : null}
-                    </span>
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-        ) : null}
-      </div>
+      {host === undefined ? null : host ? createPortal(front, host) : front}
     </>
   );
 }

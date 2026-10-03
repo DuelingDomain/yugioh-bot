@@ -27,10 +27,13 @@
   contain: layout style;
 }
 
-/* The front layer: badges, the card callout and the chain stack. Above the prompt, the banners and the
-   piles (--duel-z-chain), so nothing on the board covers the chain. The hover card is a portal outside
-   the board and is the one thing that can still sit over it. */
+/* The front layer: badges, the card callout and the chain stack. It is portaled into the duel root, so
+   no stacking context of the board, a table slot or the room's prompt dock can trap it: at --duel-z-chain
+   it paints over the prompt, the banners and the piles. The hover card and the menus are portals above
+   the root and are the only things that can still sit over it. */
 .front { z-index: var(--duel-z-chain); }
+/* Portaled into the duel root: placed over the board box by the frame loop (translate, width, height). */
+.layer[data-portal="true"] { inset: auto; left: 0; top: 0; }
 
 /* ---------- badges ---------- */
 
@@ -553,6 +556,30 @@
 
 /* The priority chips sit under the panel head; the list item itself carries no marker or padding. */
 .prioRow { display: block; flex: none; padding: 0; list-style: none; border-bottom: 1px solid rgb(228 182 79 / 0.16); }
+
+/*
+ * A table of 3 or 4: the "Activate its effect?" bar sits in the lower-left lane, beside your own field. The chain
+ * stack moves up, off that lane, so the two never cross. (Picks and card lists keep the middle.)
+ */
+.front[data-table] .panel {
+  align-self: flex-start;
+  /* Percentage margins resolve against the narrow dock's width, not the board height. */
+  position: relative;
+  top: 23%;
+  margin-top: 0;
+  max-height: 46%;
+}
+.front[data-table] .panel[data-priority="true"] {
+  width: max-content;
+  max-width: min(420px, calc(100% - 24px));
+}
+/* The far seat's LP sits partway down a four-way table. Its chain lane ends above that panel. */
+.front[data-table="ffa4"] .panel {
+  top: 8px;
+  max-height: calc(30% - 24px);
+  overflow-y: auto;
+}
+.front[data-table] .panel [data-testid="priority-chips"] { flex-wrap: wrap; }
 
 /* A narrow board has no side gutter: the stack becomes a small strip in the top left corner. */
 @media (max-width: 760px) {
