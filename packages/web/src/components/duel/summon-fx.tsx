@@ -31,8 +31,9 @@
  * for reduced motion, missing WebGL, context loss and the moments before the canvas has loaded.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { duelFxClock } from "./fx-clock";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
-import { cardArtUrl, LOCATION_GRAVE, LOCATION_PZONE, TYPE_LINK, TYPE_XYZ } from "./constants";
+import { cardArtUrl, LOCATION_GRAVE, LOCATION_PZONE, LOCATION_SZONE, TYPE_LINK, TYPE_XYZ } from "./constants";
 import {
   auraTintOf,
   collectFreshEvents,
@@ -58,10 +59,10 @@ import { SUMMON3D_TIMELINE, shakeScaleOf, summon3dHitMs, summon3dLockMs, type Su
 import type { Fx3dApi, FxRequest, FxTint } from "./fx3d/types";
 import { useFx3d } from "./fx3d/use-fx3d";
 import { holdPromptReveal } from "./prompt-reveal";
-import { MOVE_TIMING, pairedMovePlan, planMoves, type MovePlan } from "./move-plan";
+import { getMovePlan, MOVE_TIMING, pairedMovePlan, planMoves, type MovePlan } from "./move-plan";
 import type { DuelShakePreference } from "./preferences";
 import styles from "./summon-fx.module.css";
-import { safeAnimate } from "./safe-animate";
+import { safeFxAnimate as safeAnimate } from "./safe-animate";
 import { CARD_FX } from "./duel-timing";
 
 export type SummonFxProps = {
@@ -190,6 +191,9 @@ type FxItem = {
   life: number;
   /** destroy: ms the card cracks in place before it breaks; set when a battle holds the destroy. */
   breakMs?: number;
+  /** A resolved source stays visible until its cleanup flight takes over. */
+  activationHoldMs?: number;
+  activationAt?: number;
   /** The 3D layer draws the break of this card (shards and flash), so the DOM only holds the ghost. */
   claim3d?: boolean;
   /** Set when the WebGL layer draws this heavy or typed summon. */
@@ -343,7 +347,7 @@ export class Track {
   }
 
   after(ms: number, fn: () => void): void {
-    this.timers.push(window.setTimeout(fn, Math.max(0, this.at(ms))));
+    this.timers.push(duelFxClock.setTimeout(fn, Math.max(0, this.at(ms))));
   }
 
   /** Runs `fn` when the track is disposed (an effect that lives outside the DOM stops with it). */
@@ -357,7 +361,7 @@ export class Track {
   }
 
   dispose(): void {
-    for (const timer of this.timers) window.clearTimeout(timer);
+    for (const timer of this.timers) duelFxClock.clearTimeout(timer);
     for (const cleanup of this.cleanups) cleanup();
     for (const anim of this.anims) {
       try {
@@ -521,9 +525,9 @@ function useEffectSetup(
       alive = false;
       track.dispose();
     };
-    // The item is immutable for its whole life: set up once.
+    // An activation's hold can grow when resolution arrives in a subsequent snapshot.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [item.activationHoldMs]);
 }
 
 function useAnchor() {
@@ -551,7 +555,7 @@ function GlowFx({ item, overlay, done, tone }: EffectProps & { tone: "gold" | "v
     if (anchor.current) placeAnchor(anchor.current, geo);
     if (tone === "typed") applyTone(anchor.current, item.style ?? "gold");
     track.play(glow.current, [{ opacity: 0 }, { opacity: 0.95, offset: 0.25 }, { opacity: 0 }], {
-      duration: 320,
+      duration: CARD_FX.reducedEffectMs,
       delay: item.delayMs,
       easing: "ease-out",
     });
@@ -624,33 +628,39 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
   const edge = useRef<HTMLSpanElement>(null);
   const ghost = useRef<HTMLDivElement>(null);
   const chain = item.event.chainIndex != null;
-  useEffectSetup(overlay, item, done, ({ track, zone, geo }) => {
+  useEffectSetup(overlay, item, item.activationHoldMs == null && item.event.zone?.location === LOCATION_SZONE ? () => {} : done, ({ track, zone, geo }) => {
     if (anchor.current) placeAnchor(anchor.current, geo);
     const art = artOf(zone);
     const flat = !geo.defense;
-    const frames: Keyframe[] = [
-      { filter: "brightness(0.55)", transform: flat ? "perspective(520px) rotateY(84deg)" : "none", opacity: 0.6 },
-      { filter: "brightness(1.6)", transform: flat ? "perspective(520px) rotateY(-6deg)" : "none", opacity: 1, offset: 0.55 },
-      { filter: "brightness(1)", transform: flat ? "perspective(520px) rotateY(0deg)" : "none", opacity: 1 },
-    ];
-    if (item.plan) {
-      // The flight already brought the card face-up onto the zone: only the ring marks the activation.
-    } else if (art) {
-      track.play(art, frames, { duration: 560, delay: item.delayMs, easing: "cubic-bezier(0.25, 0.8, 0.3, 1)" });
-    } else if (ghost.current) {
-      // The card already left the zone (it resolved): flip a copy in place so the activation still reads.
-      track.play(ghost.current, [{ opacity: 0, transform: "perspective(520px) rotateY(84deg)" }, { opacity: 1, transform: "perspective(520px) rotateY(0deg)", offset: 0.4 }, { opacity: 1, offset: 0.75 }, { opacity: 0 }], {
-        duration: 800,
-        delay: item.delayMs,
+    // Rebuilding an extended hold keeps the original origin; a negative WAAPI delay resumes
+    // the flip at its elapsed time instead of replaying it when the next snapshot arrives.
+    const d = item.activationAt != null ? item.activationAt - duelFxClock.now() : item.delayMs;
+    if (ghost.current) {
+      const activationMs = item.reduced ? CARD_FX.reducedEffectMs : CARD_FX.activationMs;
+      const total = Math.max(activationMs, item.activationHoldMs ?? 0);
+      const flips = flat && !item.plan && !item.reduced;
+      const initialTransform = flips ? "perspective(520px) rotateY(84deg)" : "none";
+      const finalTransform = flips ? "perspective(520px) rotateY(0deg)" : "none";
+      const frames: Keyframe[] = item.activationHoldMs ? [
+        { opacity: 0, transform: initialTransform },
+        { opacity: 1, transform: finalTransform, offset: activationMs * 0.4 / total },
+        { opacity: 1, offset: 0.9999 }, { opacity: 0 },
+      ] : [{ opacity: 0, transform: initialTransform }, { opacity: 1, transform: finalTransform, offset: 0.4 }, { opacity: 1, offset: 0.75 }, { opacity: 0 }];
+      track.play(ghost.current, frames, {
+        duration: total,
+        delay: d,
         easing: "cubic-bezier(0.25, 0.8, 0.3, 1)",
       });
+      // A copy survives the source node disappearing in a later response snapshot.
+      if (art?.querySelector(`img[src*="/cards/${item.card?.code}/image"]`)) holdHidden(track, zone, Math.max(0, d + total));
     }
-    pulseRing(track, edge.current, item.delayMs + 80, { grow: 1.16, duration: 700, peak: 1 });
+    if (item.reduced) track.play(edge.current, [{ opacity: 0 }, { opacity: 1, offset: 0.25 }, { opacity: 0 }], { duration: CARD_FX.reducedEffectMs, delay: d });
+    else pulseRing(track, edge.current, d + 80, { grow: 1.16, duration: 700, peak: 1 });
   });
   return (
     <div ref={anchor} className={styles.anchor}>
       <span ref={edge} className={styles.ring} data-tone={chain ? "gold" : "violet"} data-strong="true" />
-      {item.card && !item.plan ? (
+      {item.card ? (
         <div ref={ghost} className={styles.flipGhost}>
           <img className={styles.ghostArt} src={cardArtUrl(item.card.code, "small")} alt="" draggable={false} />
         </div>
@@ -729,7 +739,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
     );
     const playFlash = (delay: number) =>
       track.play(flash.current, [{ opacity: 0 }, { opacity: 0.8, offset: 0.35 }, { opacity: 0 }], {
-        duration: 420,
+        duration: CARD_FX.destroyFlashMs,
         delay,
         easing: "ease-out",
       });
@@ -1971,6 +1981,7 @@ function Summon3dFx({ item, overlay, done }: EffectProps) {
 }
 
 function FxView({ item, overlay, done }: EffectProps) {
+  if (item.reduced && item.kind === "activate") return <ActivateFx item={item} overlay={overlay} done={done} />;
   if (item.reduced) {
     const tone = item.kind === "destroy" ? "red" : item.kind === "activate" && item.event.chainIndex == null ? "violet" : item.style ? "typed" : "gold";
     return <GlowFx item={item} overlay={overlay} done={done} tone={tone} />;
@@ -2066,7 +2077,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
     if (fresh.length === 0) return;
     if (typeof document !== "undefined" && document.hidden) return;
 
-    const now = typeof performance !== "undefined" ? performance.now() : 0;
+    const now = typeof performance !== "undefined" ? duelFxClock.now() : 0;
     // Idempotent: MoveFx plans the same batch; whichever layer runs first fixes the timing.
     planMoves(fresh, { now, reduced: prefsRef.current.reducedMotion, duelKey });
     const planned: FxItem[] = [];
@@ -2130,6 +2141,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         breakMs,
         claim3d,
         three,
+        activationAt: kind === "activate" ? now + delayMs : undefined,
       };
       planned.push(base);
       if (strength > 0 && !base.reduced) {
@@ -2139,8 +2151,19 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         planned.push({ ...base, key: `${event.id}-${seqRef.current}`, kind: "impact", delayMs: delayMs + hit, life: impactLifeMs(hit) });
       }
     }
-    if (planned.length === 0) return;
-    setItems((current) => [...current, ...planned].slice(-MAX_ITEMS - 4));
+    setItems((current) => [...current, ...planned].map((item) => {
+      if (item.kind !== "activate" || item.activationAt == null) return item;
+      const cleanup = events.find((other) => other.kind === "move" && other.id > item.event.id && other.from && item.event.zone &&
+        other.from.controller === item.event.zone.controller && other.from.location === item.event.zone.location &&
+        other.from.sequence === item.event.zone.sequence && other.card?.code === item.event.card?.code);
+      const departure = cleanup ? getMovePlan(cleanup.id) : null;
+      // A source destroyed by another link hands its copy to the break phase, just like any
+      // other victim. Keeping the activation copy until its flight would cover the shards.
+      const destroyed = departure && events.find((other) => other.kind === "destroy" && departure.pairedIds.includes(other.id));
+      const handoffAt = departure ? destroyed ? chainEffectAt(destroyed.id) || departure.startAt - departure.leadMs : departure.startAt : null;
+      const hold = handoffAt != null ? Math.max(0, handoffAt - item.activationAt) : undefined;
+      return hold === item.activationHoldMs ? item : { ...item, activationHoldMs: hold };
+    }).slice(-MAX_ITEMS - 4));
   }, [duelKey, events]);
 
   const finish = (key: string) => setItems((current) => current.filter((item) => item.key !== key));

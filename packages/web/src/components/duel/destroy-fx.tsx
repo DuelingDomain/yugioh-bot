@@ -9,9 +9,12 @@ import { PIECE_TINTS, groupScenes, isWipePiece, planScene, tintForCode, type Sce
 import { pickBattleRoute } from "./fx3d/routing";
 import { getSharedFx3d, viewportToHost } from "./fx3d/shared";
 import type { FxPiles, FxRect, FxRows, FxScene, FxWorld } from "./fx3d/types";
-import { safeAnimate } from "./safe-animate";
+import { safeFxAnimate as safeAnimate } from "./safe-animate";
+import { duelFxClock } from "./fx-clock";
 import { chainEffectAt } from "./chain-beats";
 import { holdPromptReveal } from "./prompt-reveal";
+import { registerDestroyScene } from "./destroy-scene-hold";
+import { CARD_FX, MOVE_PACE } from "./duel-timing";
 
 /**
  * The trap and effect destroys: a destroy caused by a card effect (cause "effect") plays a set
@@ -50,6 +53,8 @@ type Planned = {
   /** Wipes: the page card of each victim stays whole on a ghost until the canvas takes it (see wipeGhosts). */
   ghosts: WipeGhost[];
   started: boolean;
+  reduced: boolean;
+  releaseHold: () => void;
 };
 
 type WipeGhost = { box: Box; src: string; defense: boolean; takeMs: number; endMs: number };
@@ -126,7 +131,7 @@ function sourceBox(code: number, seat: number): Box | null {
   return null;
 }
 
-function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], mySeat: number, now: number, three: boolean, log: readonly DuelEvent[] = events): Planned | null {
+function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], mySeat: number, now: number, three: boolean, reduced: boolean, log: readonly DuelEvent[] = events): Planned | null {
   const host = getSharedFx3d()?.host.getBoundingClientRect();
   const toRect = (box: Box): FxRect => (host ? viewportToHost(box, host) : { x: box.left, y: box.top, w: box.width, h: box.height });
   const wipe = isWipePiece(group.piece);
@@ -217,9 +222,11 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
     world,
     rows: rowRects,
     piles: pileRects,
+    sequential: group.events.some((event) => event.sourceKind === "spell" || event.sourceKind === "trap"),
   });
   const ghosts: WipeGhost[] = [];
-  if (three) {
+  const arm = (at: number) => {
+    if (!three) return;
     // The victims stay on their zones until their shards break: SummonFx keeps the ghosts, MoveFx waits.
     // A wipe keeps its own ghost whole until the canvas takes the card (takeMs); the move to the pile waits for endMs.
     scene.victims.forEach((victim, index) => {
@@ -227,14 +234,18 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
       const event = v.event;
       if (wipe) {
         const takeMs = victim.takeMs ?? 0;
-        armBattleDestroy(`scene:${group.key}:${event.id}`, v.zone, takeMs, startAt, true, { moveAfterMs: victim.endMs ?? victim.atMs });
-        if (v.src) ghosts.push({ box: v.box, src: v.src, defense: v.defense, takeMs, endMs: victim.endMs ?? victim.atMs });
+        armBattleDestroy(`scene:${group.key}:${event.id}:${at}`, v.zone, takeMs, at, true, { moveAfterMs: victim.endMs ?? victim.atMs });
       } else if (event.zone) {
-        armBattleDestroy(`scene:${group.key}:${event.id}`, event.zone, victim.atMs, startAt, true);
+        armBattleDestroy(`scene:${group.key}:${event.id}:${at}`, event.zone, victim.atMs, at, true);
       }
     });
-  }
-  return {
+  };
+  arm(startAt);
+  if (three && wipe) scene.victims.forEach((victim, index) => {
+    const v = victims[index];
+    if (v.src) ghosts.push({ box: v.box, src: v.src, defense: v.defense, takeMs: victim.takeMs ?? 0, endMs: victim.endMs ?? victim.atMs });
+  });
+  const planned: Planned = {
     key: `${group.key}:${group.events[0].id}`,
     three,
     startAt,
@@ -244,7 +255,16 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
     flash: victims.map((v) => v.box),
     ghosts,
     started: false,
+    reduced,
+    releaseHold: () => {},
   };
+  const handoffMs = three ? (wipe ? Math.max(...scene.victims.map((victim) => victim.atMs)) : scene.totalMs)
+    : reduced ? CARD_FX.reducedEffectMs : MOVE_PACE.destroyBreakMs + CARD_FX.destroyFlashMs;
+  planned.releaseHold = registerDestroyScene(group.events.map((event) => event.id), {
+    startAt, handoffMs, totalMs: three ? scene.totalMs : handoffMs,
+    reschedule: (at) => { planned.startAt = at; arm(at); },
+  });
+  return planned;
 }
 
 /**
@@ -264,7 +284,7 @@ function wipeGhosts(planned: Planned): () => void {
   const nodes: HTMLElement[] = [];
   const timers: number[] = [];
   for (const ghost of planned.ghosts) {
-    const wait = planned.startAt + ghost.takeMs - performance.now();
+    const wait = planned.startAt + ghost.takeMs - duelFxClock.now();
     if (wait <= 0) continue;
     const el = document.createElement("div");
     el.setAttribute("aria-hidden", "true");
@@ -287,10 +307,10 @@ function wipeGhosts(planned: Planned): () => void {
     el.appendChild(img);
     fxHost().appendChild(el);
     nodes.push(el);
-    timers.push(window.setTimeout(() => el.remove(), wait));
+    timers.push(duelFxClock.setTimeout(() => el.remove(), wait));
   }
   return () => {
-    for (const t of timers) window.clearTimeout(t);
+    for (const t of timers) duelFxClock.clearTimeout(t);
     for (const n of nodes) n.remove();
   };
 }
@@ -310,7 +330,7 @@ function domFlash(planned: Planned): () => void {
     fxHost().appendChild(el);
     nodes.push(el);
     {
-      const flash = safeAnimate(el, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: 450, easing: "ease-out", fill: "forwards" });
+      const flash = safeAnimate(el, [{ opacity: 0 }, { opacity: 1, offset: 0.3 }, { opacity: 0 }], { duration: planned.reduced ? CARD_FX.reducedEffectMs : 450, easing: "ease-out", fill: "forwards" });
       if (flash) anims.push(flash);
     }
   }
@@ -336,12 +356,12 @@ export function DestroyFx({ events, reducedMotion, active = true, mySeat }: Dest
     const fresh = events.filter((event) => event.id > after);
     const groups = groupScenes(fresh);
     if (groups.length > 0) {
-      const now = performance.now();
+      const now = duelFxClock.now();
       const three = pickBattleRoute({ reduced: reducedMotion, ready: getSharedFx3d() != null }) === "three";
       for (const group of groups) {
         const key = `${group.key}:${group.events[0].id}`;
         if (plannedRef.current.has(key)) continue;
-        const planned = planGroup(group, fresh, mySeat, now, three, events);
+        const planned = planGroup(group, fresh, mySeat, now, three, reducedMotion, events);
         if (planned) plannedRef.current.set(key, planned);
       }
     }
@@ -356,16 +376,16 @@ export function DestroyFx({ events, reducedMotion, active = true, mySeat }: Dest
       if (planned.started) continue;
       planned.started = true;
       // A chain link's destroy waits for its badge beat; the prompt waits for it as well.
-      const wait = Math.max(0, planned.startAt - performance.now());
+      const wait = Math.max(0, planned.startAt - duelFxClock.now());
       if (planned.three && planned.ghosts.length > 0) cleanupsRef.current.add(wipeGhosts(planned));
       const shared = planned.three ? getSharedFx3d() : null;
       // The prompt waits for what actually plays: the whole piece on the canvas, or (DOM) the flash
       // plus, when holds were armed for the canvas, the held cards breaking on their zones.
       const lastBreak = planned.three ? planned.scene.victims.reduce((max, v) => Math.max(max, v.atMs, v.endMs ?? 0), 0) : 0;
       const playMs = shared ? planned.scene.totalMs : Math.max(DOM_FLASH_HOLD_MS, lastBreak + DOM_FLASH_HOLD_MS);
-      holdPromptReveal(Math.max(0, wait + playMs - Math.max(0, performance.now() - planned.startAt)));
+      holdPromptReveal(Math.max(0, wait + playMs - Math.max(0, duelFxClock.now() - planned.startAt)));
       const begin = () => {
-        const late = Math.max(0, performance.now() - planned.startAt);
+        const late = Math.max(0, duelFxClock.now() - planned.startAt);
         const live = planned.three ? getSharedFx3d() : null;
         if (live) {
 
@@ -378,7 +398,7 @@ export function DestroyFx({ events, reducedMotion, active = true, mySeat }: Dest
             .finally(() => controllersRef.current.delete(controller));
           for (const cue of planned.cues) {
             const cueWait = Math.max(0, cue.atMs - late);
-            const timer = window.setTimeout(() => {
+            const timer = duelFxClock.setTimeout(() => {
               timersRef.current.delete(timer);
               emitDuelFxCue({ cue: cue.cue, strength: cue.strength });
             }, cueWait);
@@ -389,7 +409,7 @@ export function DestroyFx({ events, reducedMotion, active = true, mySeat }: Dest
           if (!reducedMotion) emitDuelFxCue({ cue: planned.cues[0].cue, strength: 0.8 });
           const undo = domFlash(planned);
           cleanupsRef.current.add(undo);
-          const timer = window.setTimeout(() => {
+          const timer = duelFxClock.setTimeout(() => {
             timersRef.current.delete(timer);
             undo();
             cleanupsRef.current.delete(undo);
@@ -398,7 +418,7 @@ export function DestroyFx({ events, reducedMotion, active = true, mySeat }: Dest
         }
       };
       if (wait > 0) {
-        const starter = window.setTimeout(() => {
+        const starter = duelFxClock.setTimeout(() => {
           timersRef.current.delete(starter);
           begin();
         }, wait);
@@ -407,9 +427,10 @@ export function DestroyFx({ events, reducedMotion, active = true, mySeat }: Dest
         begin();
       }
       const plannedKey = planned.key;
-      const forget = window.setTimeout(() => {
+      const forget = duelFxClock.setTimeout(() => {
         timersRef.current.delete(forget);
         plannedRef.current.delete(plannedKey);
+        planned.releaseHold();
       }, wait + planned.scene.totalMs + 500);
       timersRef.current.add(forget);
     }
@@ -419,13 +440,16 @@ export function DestroyFx({ events, reducedMotion, active = true, mySeat }: Dest
     const controllers = controllersRef.current;
     const timers = timersRef.current;
     const cleanups = cleanupsRef.current;
+    const planned = plannedRef.current;
     return () => {
       for (const controller of controllers) controller.abort();
       controllers.clear();
-      for (const timer of timers) window.clearTimeout(timer);
+      for (const timer of timers) duelFxClock.clearTimeout(timer);
       timers.clear();
       for (const undo of cleanups) undo();
       cleanups.clear();
+      for (const scene of planned.values()) scene.releaseHold();
+      planned.clear();
     };
   }, []);
 

@@ -482,7 +482,62 @@ const MIRROR_SCENARIOS: LabScenario[] = [
 ];
 
 
+/** Actual server order, including destroy markers deferred until after the resolving link. */
+function destructionSequence(source: DuelCardInfo, trap: boolean, victims: Victim[]): LabScript {
+  const sourceZone = SZ(ME, 1);
+  const initial = board((edits) => {
+    if (trap) edits.push(edit.setSpell(ME, 1, source));
+    for (const victim of victims) edits.push(victim.zone.location === MZ(0, 0).location
+      ? edit.monster(victim.seat, victim.zone.sequence, victim.info) : edit.setSpell(victim.seat, victim.zone.sequence, victim.info));
+  }, { ...myHand, hand: trap ? myHand.hand : [source, ...myHand.hand!] });
+  const why = { cause: "effect" as const, sourceCode: source.code, sourceKind: trap ? "trap" as const : "spell" as const, sourceSeat: ME };
+  const events: EventSpec[] = [];
+  const edits: Edit[] = [];
+  const graves = new Map<number, number>();
+  if (!trap) { events.push(ev.move(ME, source, HAND(ME, 0), sourceZone, "activate")); edits.push(edit.removeHand(ME, 0)); }
+  events.push(ev.activate(ME, source, sourceZone, 1), ev.chain("chain-resolving", ME, source, 1));
+  for (const victim of victims) {
+    const index = graves.get(victim.seat) ?? 0;
+    events.push(ev.toGrave(victim.seat, victim.info, victim.zone, index, why));
+    graves.set(victim.seat, index + 1);
+    edits.push(edit.grave(victim.seat, victim.info), victim.zone.location === MZ(0, 0).location
+      ? edit.monster(victim.seat, victim.zone.sequence, null) : edit.spell(victim.seat, victim.zone.sequence, null));
+  }
+  events.push(ev.chain("chain-resolved", ME, source, 1), ...victims.map((v) => ev.destroy(v.seat, v.info, v.zone, why)),
+    ev.move(ME, source, sourceZone, GY(ME, graves.get(ME) ?? 0), "send"), ev.chainEnd());
+  edits.push(edit.spell(ME, 1, null), edit.grave(ME, source));
+  const sangan = victims.find((v) => v.info.code === C.sangan.code);
+  if (sangan) {
+    events.push(ev.activate(sangan.seat, C.sangan, GY(sangan.seat, 0), 1), ev.chain("chain-resolving", sangan.seat, C.sangan, 1),
+      ev.move(sangan.seat, C.kuriboh, DECK(sangan.seat), HAND(sangan.seat, initial.seats[sangan.seat].hand.length), "other", { addedToHand: true }),
+      ev.chain("chain-resolved", sangan.seat, C.sangan, 1), ev.chainEnd());
+    edits.push(edit.addHand(sangan.seat, C.kuriboh));
+  } else {
+    events.push(ev.draw(ME, C.kuriboh, initial.seats[ME].hand.length - 1));
+    edits.push(edit.addHand(ME, C.kuriboh));
+  }
+  return script(initial, [{ at: 0, events, edits, chain: [] }], 12000);
+}
+
 const DESTROY: LabScenario[] = [
+  {
+    id: "spell-destroy-sequence", category: "Destroy", name: "Spell: activate, destroy, send, trigger",
+    description: "One engine batch: MST enters from the hand and activates, the target breaks and reaches the GY, then MST reaches the GY before a later draw.",
+    build: () => destructionSequence(C.mst, false, [{ seat: OPP, info: C.mirrorForce, zone: SZ(OPP, 2) }]),
+  },
+  {
+    id: "trap-destroy-sequence", category: "Destroy", name: "Set trap: flip, destroy, send, search",
+    description: "A Set Sakuretsu Armor flips and activates fully, destroys Sangan, and reaches the GY before Sangan's search is presented.",
+    build: () => destructionSequence(C.sakuretsu, true, [{ seat: OPP, info: C.sangan, zone: MZ(OPP, 2) }]),
+  },
+  {
+    id: "mass-destroy-sequence", category: "Destroy", name: "Mass destruction: all breaks before flights",
+    description: "Dark Hole activates from the hand. Both fields break before any GY streak, then Dark Hole goes to the GY and Sangan searches.",
+    build: () => destructionSequence(C.darkHole, false, [
+      { seat: ME, info: C.sangan, zone: MZ(ME, 2) },
+      ...[C.celtic, C.harpie, C.blueEyes].map((info, i) => ({ seat: OPP, info, zone: MZ(OPP, i + 1) })),
+    ]),
+  },
   ...WIPES,
   {
     id: "destroy-mst",

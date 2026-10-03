@@ -32,6 +32,7 @@ import { isAddToHand, showcaseGateMs, showcaseOrigin, showcasePhases, type Showc
 import { chainEffectAt } from "./chain-beats";
 import { findZoneElement, findMoveDestination, handArrivalTarget, moveDestinationRect } from "./event-queue";
 import { artCodeOf } from "./destroy-hide";
+import { resetEffectSequence, sequenceEffects } from "./effect-sequence";
 
 export const MOVE_TIMING = {
   placeMin: MOVE_PACE.placeMinMs,
@@ -74,6 +75,8 @@ export type MovePlan = {
   durationMs: number;
   /** Destroy hand-off: ms the card cracks in place before `startAt` (already inside `startAt`). */
   leadMs: number;
+  /** Explicit battle/canvas/chain floor, independent of the serial queue's overlap. */
+  notBeforeAt?: number;
   /** Extra ms the ghost stays after landing. */
   holdMs: number;
   /** The card is being destroyed: it is hidden in its zone until this flight lands in the pile. */
@@ -114,6 +117,7 @@ const pairs = new Map<number, number>();
 const state = { key: "", nextStartAt: 0 };
 
 export function resetMoveSchedule(key = ""): void {
+  resetEffectSequence();
   plans.clear();
   pairs.clear();
   state.key = key;
@@ -346,7 +350,10 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     const origin = style === "add" ? showcaseOrigin(event, now, source != null) : null;
     candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance, reduced), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin });
   }
-  if (candidates.length === 0) return [];
+  if (candidates.length === 0) {
+    sequenceEffects(fresh, [...plans.values()], now, reduced);
+    return [];
+  }
   const chained = new Set<Candidate>();
   const byId = new Map(candidates.map((item) => [item.event.id, item]));
   const pending = new Map<number, Array<Candidate | undefined>>();
@@ -459,6 +466,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       landAt: start + dur,
       durationMs: dur,
       leadMs: item.lead,
+      notBeforeAt: item.notBefore,
       // After a showcase lands, the ring of light plays on the hand card.
       holdMs: chained.has(item) ? 0 : phases ? phases.glowMs : item.hold,
       destroy: item.destroy,
@@ -477,6 +485,9 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     created.push(plan);
   });
   state.nextStartAt = layout.cursor;
+  sequenceEffects(fresh, [...plans.values()], now, reduced);
+  // Keep the queue's existing overlap gate on its final, reconciled flight.
+  state.nextStartAt += created[created.length - 1].startAt - layout.out[layout.out.length - 1].start;
   return created;
 }
 

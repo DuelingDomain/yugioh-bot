@@ -133,6 +133,10 @@ export const ADD_TO_HAND = {
 /* ---------- flips, positions, hand, summon ---------- */
 
 export const CARD_FX = {
+  /** Full activation ghost/flip and ring, and its reduced glow. */
+  activationMs: 800,
+  reducedEffectMs: 320,
+  destroyFlashMs: 420,
   /** A card turns to the other position. */
   turnMs: 600,
   /** A face-down card flips face up and shows its face. */

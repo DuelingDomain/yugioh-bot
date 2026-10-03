@@ -193,6 +193,8 @@ export type SceneCueName =
 export type SceneCue = { cue: SceneCueName; atMs: number; strength: number };
 
 export type SceneInput = {
+  /** Spell/trap resolution: all cards finish breaking before any landing streak starts. */
+  sequential?: boolean;
   piece: FxScenePiece;
   victims: ReadonlyArray<{ rect: FxRect; code: number; defense: boolean; turned?: boolean; pile?: FxRect | null; st?: boolean }>;
   source: FxRect | null;
@@ -464,7 +466,8 @@ export function planWipe(input: SceneInput): { scene: FxScene; cues: SceneCue[] 
     }
   }
 
-  const land = landingTimes(wx, landT0Ms, params.stagger, params.spread, params.dur);
+  const handoffMs = input.sequential ? Math.max(0, ...goneSec.map(ms)) : 0;
+  const land = landingTimes(wx, Math.max(landT0Ms, handoffMs), params.stagger, params.spread, params.dur);
   const cap = sceneCapMs(piece);
   const out: FxVictim[] = victims.map((victim, i) => {
     const atMs = Math.min(cap - 200, Math.max(120, ms(goneSec[i])));
