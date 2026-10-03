@@ -13,10 +13,10 @@ function board(f: Format, spec: BoardExpect): Step {
     hand: [],
     deckCount: 20, ...spec[s] }])));
 }
-function proof(f: Format, name: string, setup: Scenario["setup"], steps: Step[]): Scenario {
+function proof(f: Format, name: string, setup: Scenario["setup"], steps: Step[], rules: string[]): Scenario {
   return defineScenario({ id: `bound-lasting-${f}-${name}`, title: `${f}: ${name}`,
     source: "Owner answers 2026-10-02; docs/adr/0002-multiplayer-duel-rules.md",
-    rules: ["R-COMMON-OPP-PICK"], tags: ["multiplayer", "bound-lasting", f], setup: { format: f, ...setup }, steps });
+    rules, tags: ["multiplayer", "bound-lasting", f], setup: { format: f, ...setup }, steps });
 }
 function damageLock(f: Format): Scenario {
   const setup: Scenario["setup"] = { p0: { hand: ["Dark Ruler No More", "Hinotama", "Hinotama"] } };
@@ -30,7 +30,8 @@ function damageLock(f: Format): Scenario {
   const result: BoardExpect = { p0: { grave: ["Dark Ruler No More", "Hinotama", "Hinotama"] } };
   for (const s of opps(f)) result[s] = { monsters: ["Man-Eater Bug"], lp: f !== "tag" && s === "p2" ? 7500 : f === "tag" ? 16000 : 8000 };
   steps.push(board(f, result));
-  return proof(f, "dark-ruler-damage-lock-and-clone-only-bound-seat", setup, steps);
+  return proof(f, "dark-ruler-damage-lock-and-clone-only-bound-seat", setup, steps,
+    f === "tag" ? ["R-TAG-SHARED-CARDS"] : ["R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK"]);
 }
 function fieldLock(f: Format): Scenario {
   const burden = "Burden of the Mighty";
@@ -44,7 +45,8 @@ function fieldLock(f: Format): Scenario {
     hand: f === "tag" ? ["Axe Raider"] : [], deckCount: f === "tag" ? 18 : 19 } };
   for (const s of opps(f)) result[s] = f === "tag" || s === "p1" ? { spells: [burden] } : { grave: [burden] };
   steps.push(board(f, result));
-  return withDomainProof(proof(f, "magical-spring-protects-only-bound-field", setup, steps), (variant) => ({
+  return withDomainProof(proof(f, "magical-spring-protects-only-bound-field", setup, steps,
+    f === "tag" ? ["R-TAG-SHARED-CARDS"] : ["R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK"]), (variant) => ({
     ...variant,
     // Domain draws Axe Raider first. Spring then draws Battle Ox in FFA,
     // or Battle Ox and Celtic Guardian in Tag. The discard stays in this fixture.
@@ -68,7 +70,7 @@ function ongoing(f: Format): Scenario {
   for (const s of seats(f).slice(1)) { setup[s] = { monsters: ["Battle Ox"] }; result[s] = {
     ...(s === "p1" ? { hand: ["Mystical Elf"], deckCount: 19 } : {}),
     monsters: ["Battle Ox"], zones: { m0: { card: "Battle Ox", attack: f === "tag" && s === "p2" ? 1700 : 1300 } } }; }
-  return proof(f, "face-up-continuous-still-affects-all-opponents", setup, [endTurn("p0"), board(f, result)]);
+  return proof(f, "face-up-continuous-still-affects-all-opponents", setup, [endTurn("p0"), board(f, result)], ["R-COMMON-ONGOING"]);
 }
 function swords(f: Format): Scenario {
   const card = "Swords of Revealing Light";
