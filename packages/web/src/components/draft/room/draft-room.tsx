@@ -132,8 +132,11 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     return () => ro.disconnect();
   }, [stage]);
   const geometry = useMemo(
-    () => measureTable({ width: size.w, height: size.h, phone, theme, diskH: size.diskH }),
-    [size, phone, theme],
+    () => measureTable({
+      width: size.w, height: size.h, phone, theme, diskH: size.diskH,
+      packSize: Math.max(theme ? sizes.themePackSize : sizes.packSize, deal.dealt.length),
+    }),
+    [size, phone, theme, sizes.packSize, sizes.themePackSize, deal.dealt.length],
   );
 
   const seatCount = rs.tableSeats.length;
@@ -147,7 +150,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
         const i = Number(a.dataset.anchor);
         if (!i) return;
         const r = a.getBoundingClientRect();
-        next[i] = { x: Math.round(r.left - sr.left), y: Math.round(r.top - sr.top) };
+        next[i] = { x: Math.round(r.left - sr.left + stage.scrollLeft), y: Math.round(r.top - sr.top + stage.scrollTop) };
       });
       setPositions((cur) => {
         const keys = Object.keys(next);

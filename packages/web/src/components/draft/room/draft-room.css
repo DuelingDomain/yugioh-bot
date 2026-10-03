@@ -256,6 +256,7 @@
 
 /* ---------- stage: the room and the table ---------- */
 .dr .stage { position: relative; min-height: 0; overflow: hidden; }
+.dr .stage[data-tall] { overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
 /* the lamp over the table: a warm pool from above, the only warm light in the room.
    It hangs, so it sways a touch; dust drifts through the light. It dims for the last five seconds. */
 .dr .lamp { position: absolute; inset: 0; overflow: hidden; pointer-events: none; transition: opacity 1.2s; }
@@ -289,6 +290,12 @@
   100% { opacity: 0; transform: translate(var(--dx, 20px), var(--dy, 40px)); }
 }
 .dr .scene { position: absolute; inset: 0; perspective: 1500px; perspective-origin: 50% 12%; }
+.dr .stage[data-tall] .scene {
+  position: relative;
+  inset: auto;
+  /* Keep the far seats above the mat and leave room for the disk below it. */
+  height: calc(var(--th) + var(--disk-h) + 150px);
+}
 .dr .dr-table {
   position: absolute;
   left: 50%;
