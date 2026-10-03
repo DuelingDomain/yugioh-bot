@@ -609,7 +609,7 @@ export function flipHands(root: ParentNode, states: Map<string, HandState>, redu
         // The ghost brings an invisible arrival straight to its new engine slot. Only neighbours slide.
         if (!card || typeof card.animate !== "function" || card.querySelector('[style*="visibility: hidden"]')) continue;
         applied.set(card, { key: move.key, dx: move.dx, dy: move.dy });
-        duelFxClock.animate(card, 
+        duelFxClock.animate(card,
           [{ translate: `${move.dx}px ${move.dy}px` }, { translate: "0px 0px" }],
           { duration: HAND_FLIP_MS, easing: HAND_FLIP_EASE, id: HAND_FLIP_ID },
         );
@@ -622,7 +622,7 @@ export function flipHands(root: ParentNode, states: Map<string, HandState>, redu
         if (!card || typeof card.animate !== "function") continue;
         if (card.querySelector('[style*="visibility"]')) continue; // a flight is bringing it
         const rise = reduced ? "0px 0px" : `0px ${Math.round(card.getBoundingClientRect().height * 0.22)}px`;
-        duelFxClock.animate(card, 
+        duelFxClock.animate(card,
           [{ opacity: 0, translate: rise }, { opacity: 1, translate: "0px 0px" }],
           { duration: reduced ? 150 : HAND_ENTER_MS, easing: HAND_FLIP_EASE },
         );
