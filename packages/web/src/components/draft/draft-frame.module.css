@@ -63,8 +63,10 @@
     position: sticky;
     bottom: 0;
     z-index: 5;
-    margin: 0 -16px;
-    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    margin: 0 -32px;
+    padding: 10px 32px calc(10px + env(safe-area-inset-bottom));
+    max-height: 45dvh;
+    overflow-y: auto;
     border-left: 0;
     border-top: 1px solid var(--rule);
     background: var(--panel);
@@ -73,6 +75,7 @@
 }
 @container (max-width: 620px) {
   .body { padding: 20px 16px 48px; gap: 24px; }
+  .actions { margin: 0 -16px; padding-inline: 16px; }
 }
 
 /* ---- The skin ----

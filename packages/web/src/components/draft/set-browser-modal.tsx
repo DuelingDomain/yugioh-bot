@@ -131,7 +131,7 @@ export function SetBrowserModal({ open, onClose, selectedSets, onToggleSet }: Se
                   >
                     <div className="font-medium">{set.setName}</div>
                     <div className="text-xs text-text-secondary">
-                      {set.setCode} &middot; {set.cardCount} cards
+                      {set.setCode}, {set.cardCount} cards
                     </div>
                   </button>
                   <Button
