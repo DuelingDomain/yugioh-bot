@@ -63,7 +63,7 @@ function typing(target: EventTarget | null): boolean {
  * aim hold and the keys. It reads the clock only inside effects.
  */
 export function useCamera({ controller, layout, initial, initialLock = null, aiming, seatKeys, suspended = false, now = Date.now }: UseCameraOptions): UseCamera {
-  const { engine, prompt, viewerSeat, nameOf } = controller;
+  const { engine, prompt, viewerSeat, nameOf, reducedMotion } = controller;
   const out = useMemo(
     () => engine.seats.filter(isEliminated).map((view) => view.seat),
     [engine.seats],
@@ -77,19 +77,20 @@ export function useCamera({ controller, layout, initial, initialLock = null, aim
     () => initialCamera(layout, { ...initial, lock: initialLock ? { reason: initialLock, untilMs: Number.POSITIVE_INFINITY } : null }),
   );
 
-  // FX lock: a new engine event, or a seat that starts to leave.
+  // FX lock: a new engine event, or a seat that starts to leave. With reduced motion the effects are instant, so no
+  // lock starts (like the Rooftop), but the cursors still move: old events never lock the camera later.
   const lastId = useRef(maxEventId(engine.events));
   useEffect(() => {
-    const lock = lockForEvents(engine.events, lastId.current, duelFxClock.factor());
+    const lock = reducedMotion ? null : lockForEvents(engine.events, lastId.current, duelFxClock.factor());
     lastId.current = Math.max(lastId.current, lock?.lastId ?? 0, maxEventId(engine.events));
     if (lock) dispatch({ type: "lock", reason: lock.reason, nowMs: now(), ms: lock.ms });
-  }, [engine.events, now]);
+  }, [engine.events, now, reducedMotion]);
   const lastSeats = useRef(engine.seats);
   useEffect(() => {
-    const lock = lockForSeats(lastSeats.current, engine.seats, duelFxClock.factor());
+    const lock = reducedMotion ? null : lockForSeats(lastSeats.current, engine.seats, duelFxClock.factor());
     lastSeats.current = engine.seats;
     if (lock) dispatch({ type: "lock", reason: lock.reason, nowMs: now(), ms: lock.ms });
-  }, [engine.seats, now]);
+  }, [engine.seats, now, reducedMotion]);
 
   const lockUntil = state.lock?.untilMs ?? null;
   useEffect(() => {

@@ -1,5 +1,6 @@
 import type { DuelEvent } from "@yugidraft/shared/duels";
-import { scaleLockMs } from "../table/camera-model";
+import { scaleLockMs } from "../camera-lock-time";
+import { ROOF_LOCK_IN_MS } from "./roof-camera";
 import type { CameraLockReason } from "../table/types";
 
 /**
@@ -51,5 +52,5 @@ export function lockForEvents(events: readonly DuelEvent[], afterId: number, red
     if (reason === null || PRIORITY[next] > PRIORITY[reason]) reason = next;
     ms = Math.max(ms, TIMES[next]);
   }
-  return reason === null ? null : { reason, ms: scaleLockMs(ms, speed), lastId };
+  return reason === null ? null : { reason, ms: scaleLockMs(ms, speed, ROOF_LOCK_IN_MS), lastId };
 }
