@@ -145,6 +145,18 @@ describe("the Added to hand showcase on the board", () => {
     expect(animate.mock.contexts.some((el, index) => el === ghost && (animate.mock.calls[index][1] as KeyframeAnimationOptions).duration === showcasePhases(1, false).flyMs)).toBe(true);
     expect(animate.mock.contexts).not.toContain(view.getByTestId("added-ring"));
   });
+  it("refreshes an active hidden arrival after a private shuffle without revealing its replacement sleeve", () => {
+    const original = addEvent({ handId: "sleeve-1", card: undefined, addedToHand: true });
+    const view = deliver(original, { handId: "sleeve-1", slotCode: 0 });
+    advance(200);
+    view.rerender(<Board events={[{ ...original, handId: "departed-5" }]} handId="sleeve-1" slotCode={777} />);
+    advance(100);
+    expect(view.getByTestId("slot").style.visibility).toBe("");
+    expect(view.getByTestId("added-ghost").dataset.known).toBe("false");
+    expect(view.getByTestId("added-ghost").querySelector("img")).toBeNull();
+    advance(showcasePhases(1, false).totalMs);
+    expect(animate.mock.contexts).not.toContain(view.getByTestId("added-ring"));
+  });
   it("plays an add then discard from the same chain even when the final hand has no arrival", () => {
     const added = addEvent({ handId: "departed-5" });
     const discarded: DuelEvent = { ...added, id: 6, handId: undefined, from: added.zone, zone: { controller: 0, location: GRAVE, sequence: 0 }, reason: "discard" };

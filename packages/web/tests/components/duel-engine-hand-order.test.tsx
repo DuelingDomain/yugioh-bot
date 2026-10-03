@@ -275,6 +275,23 @@ describe("engine hand order on the board", () => {
     expect(view.queryByTestId("added-ring")).toBeNull();
   });
 
+  it.each([1, 16])("starts a chained departure from %s at the live landing after a later hand update", async (from) => {
+    const added = { ...arrival(from), handId: "departed-10", zone: HAND(0, 2) };
+    const departure: DuelEvent = { ...added, id: 11, handId: undefined, addedToHand: undefined, reason: "discard",
+      from: added.zone, zone: { controller: 0, location: 16, sequence: 0 } };
+    const view = render(<Board fx view={engine(hand(["a", "b"]))} />);
+    captureZoneSnapshots(view.container);
+    view.rerender(<Board fx view={engine(hand(["a", "b"]), [], [added, departure])} />);
+    const plan = getMovePlan(10)!;
+    await advance(plan.durationMs / 2);
+    view.rerender(<Board fx view={engine(hand(["a", "c", "b"]), [], [added, departure], 2)} />);
+    await advance(plan.landAt - performance.now() + 1);
+    const outgoing = view.container.querySelector<HTMLElement>('[data-style="toss"]')!;
+    const flight = animations.find((a) => a.el === outgoing && a.frames[0]?.transform)!.frames;
+    expect(flight[0].transform).toContain("translate3d(-245.00px, 200.00px");
+    expect(view.container.querySelectorAll('[data-style]')).toHaveLength(1);
+  });
+
   it.each([false, true])("still presents a departed add when the final hand is empty (reduced=%s)", async (reduced) => {
     const event = { ...arrival(16), handId: "departed-10", zone: HAND(0, 0) };
     const view = render(<Board fx reduced={reduced} view={engine([])} />);

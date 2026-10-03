@@ -318,6 +318,9 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   const endAngle = card == null ? 0 : endUp ? 0 : 180;
 
   useLayoutEffect(() => {
+    const predecessor = plan.handoffFrom ? getMovePlan(plan.handoffFrom.id)?.event ?? plan.handoffFrom : null;
+    const predecessorTarget = predecessor ? handArrivalTarget(predecessor) : null;
+    const source = predecessorTarget ? { ...predecessorTarget, faceUp: (predecessor?.card?.code ?? 0) > 0, defense: false } : plan.source;
     const dest = findMoveDestination(plan.event);
     const el = root.current;
     const target = handArrivalTarget(plan.event);
@@ -714,6 +717,12 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
       cursorRef.current = replayRef.current ?? maxEventId(events) ?? 0;
       if (replayRef.current == null) return;
     }
+    // Historical events are reprojected too: a private shuffle can retire a sleeve's arrival ID.
+    // Keep the event object used by running geometry/reveal followers current, even with no new IDs.
+    for (const event of events) {
+      const plan = getMovePlan(event.id);
+      if (plan && event.kind === "move") Object.assign(plan.event, event, { handId: event.handId });
+    }
     const { nextCursor, fresh } = collectFreshEvents(events, cursorRef.current);
     cursorRef.current = nextCursor;
     if (fresh.length === 0) return;
@@ -731,7 +740,20 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
       const target = dest ? hideTargetOf(dest, plan) : null;
       const waitMs = Math.max(0, plan.landAt + plan.holdMs - now) + HIDE_FAILSAFE_MS;
       const releases: Array<() => void> = [];
-      if (target) releases.push(hideElement(target));
+      if (plan.event.zone?.location === LOCATION_HAND) {
+        let heldTarget = target;
+        let releaseTarget = target ? hideElement(target) : null;
+        const stop = followMoveDestination(plan.event,
+          (destination) => destination ? hideTargetOf(destination, plan) : null,
+          (nextTarget) => {
+            if (nextTarget === heldTarget) return;
+            releaseTarget?.();
+            heldTarget = nextTarget;
+            releaseTarget = nextTarget ? hideElement(nextTarget) : null;
+          },
+        );
+        releases.push(() => { stop(); releaseTarget?.(); });
+      } else if (target) releases.push(hideElement(target));
       if (plan.destroy && plan.event.from && plan.event.zone) {
         // The card is being destroyed: its zone shows empty from now (the ghost stands in until the break),
         // and the pile counts it when the flight lands, not before.
