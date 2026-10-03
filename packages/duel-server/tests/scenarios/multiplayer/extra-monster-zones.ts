@@ -98,20 +98,37 @@ function columns(format: Format): Scenario {
   const state: Partial<Record<Seat, DuelistExpect>> = {};
   for (const seat of SEATS[format]) {
     setup[seat] = { monsters: emz(SPIDER), hand: [KNIGHT, "Dark Hole"] };
-    state[seat] = { monsters: [SPIDER], hand: [KNIGHT, "Dark Hole"] };
+    state[seat] = { monsters: [SPIDER], hand: [KNIGHT, "Dark Hole"], extra: [], deckCount: 20,
+      zones: { m0: null, m1: null, m2: null, m3: null, m4: null, emz0: SPIDER, emz1: null,
+        s0: null, s1: null, s2: null, s3: null, s4: null } };
   }
-  // All seats have a Spider in EMZ 5 (column 1). Those cards give no column to another seat.
+  // FFA4 shares columns with the across seat. FFA3 and Tag keep columns on each seat.
   for (const [index, seat] of SEATS[format].entries()) {
-    if (index) state[seat] = { ...state[seat], hand: [KNIGHT, "Dark Hole", ELF] };
-    steps.push(expectNotOffered("specialSummon", KNIGHT, seat), setCard("Dark Hole", seat), zone(seat, "s1", seat));
-    state[seat] = { ...state[seat], spells: ["Dark Hole"], hand: index ? [KNIGHT, ELF] : [KNIGHT] };
+    const acrossColumn = format === "ffa4" && index >= 2;
+    if (index) state[seat] = { ...state[seat], hand: [KNIGHT, "Dark Hole", ELF], deckCount: 19 };
+    if (!acrossColumn) {
+      // One own Spider is not enough. The cards of the adjacent seat do not count.
+      steps.push(expectNotOffered("specialSummon", KNIGHT, seat), setCard("Dark Hole", seat), zone(seat, "s1", seat));
+      state[seat] = { ...state[seat], spells: ["Dark Hole"], hand: index ? [KNIGHT, ELF] : [KNIGHT],
+        zones: { ...state[seat]!.zones, s1: { card: "Dark Hole", pos: "set" } } };
+    }
+    // For p2 and p3, two across cards permit the summon before this seat sets a Spell.
     steps.push(expectOffered("specialSummon", KNIGHT, seat), specialSummon(KNIGHT, seat));
-    state[seat] = { ...state[seat], monsters: [SPIDER, KNIGHT], hand: index ? [ELF] : [],
-      zones: { emz0: SPIDER, m1: KNIGHT, s1: { card: "Dark Hole", pos: "set" } } };
+    state[seat] = { ...state[seat], monsters: [SPIDER, KNIGHT],
+      hand: acrossColumn ? ["Dark Hole", ELF] : index ? [ELF] : [],
+      zones: { ...state[seat]!.zones, [acrossColumn ? "m3" : "m1"]: KNIGHT } };
     steps.push(everySeat(format, state));
+    if (acrossColumn) {
+      steps.push(setCard("Dark Hole", seat), zone(seat, "s1", seat));
+      state[seat] = { ...state[seat], spells: ["Dark Hole"], hand: [ELF],
+        zones: { ...state[seat]!.zones, s1: { card: "Dark Hole", pos: "set" } } };
+      steps.push(everySeat(format, state));
+    }
     if (index < SEATS[format].length - 1) steps.push(endTurn(seat));
   }
-  return defineScenario({ id: `emz-${format}-columns-stay-on-each-seat`, title: `${format}: column summons use two cards of the same seat`,
+  return defineScenario({ id: `emz-${format}-columns-stay-on-each-seat`,
+    title: format === "ffa4" ? "ffa4: column summons count the across field and exclude adjacent fields"
+      : `${format}: column summons use two cards of the same seat`,
     source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "column", "card:28692962"], setup, steps });
 }
 
