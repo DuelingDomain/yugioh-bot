@@ -7,7 +7,7 @@ local function mp_all_deck_monsters()
  return g
 end
 function s.spop(e,tp,eg,ep,ev,re,r,rp)
-	aux.MPForEachDuelist(function(p) s.ignoresumconsp(e,p) end)
+	aux.MPForEachDuelistFromTurn(function(p) s.ignoresumconsp(e,p) end)
 	Duel.SpecialSummonComplete()
 end
 local mp_target=s.target
