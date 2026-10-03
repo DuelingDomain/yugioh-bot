@@ -80,7 +80,9 @@ function s.adop(e,tp,eg,ep,ev,re,r,rp)
 end
 
 -- R-FFA-OPP-RESPONSE: bind the opponent who caused the battle event.
--- Bind the turn player before the target probe can ask for another opponent.
+-- MPBindSeat limits the target probe to the turn player until this target call ends.
+-- The GetTurnPlayer read saves that opponent on the chain link for the operation.
+-- Keep this read: MPTurnSeat does not save a chain-link opponent.
 local mp_lock_initial=s.initial_effect
 function s.initial_effect(c)
  local register=Card.RegisterEffect
