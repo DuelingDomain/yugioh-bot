@@ -17,7 +17,6 @@ afterEach(() => {
   cleanup();
   push.mockReset();
   vi.unstubAllGlobals();
-  vi.unstubAllEnvs();
 });
 
 describe("DuelCreator Domain rule", () => {
@@ -29,10 +28,7 @@ describe("DuelCreator Domain rule", () => {
     expect(note.textContent).toContain("First-turn draws follow the selected Master Rule.");
   });
 
-  it.each((["legacy", "pinned"] as const).flatMap((engine) =>
-    ([1, 2, 3, 4, 5] as const).map((masterRule) => ({ engine, masterRule })),
-  ))("uses the server draw rules for 1v1 Domain MR$masterRule with $engine", ({ engine, masterRule }) => {
-    vi.stubEnv("DUEL_1V1_ENGINE", engine);
+  it.each([1, 2, 3, 4, 5].map((masterRule) => ({ masterRule })))("uses engine-neutral draw text for 1v1 Domain MR$masterRule", ({ masterRule }) => {
     render(<DuelCreator multiplayerTables />);
     fireEvent.click(screen.getByLabelText("Domain"));
     fireEvent.change(screen.getByLabelText("Master Rules"), { target: { value: String(masterRule) } });
