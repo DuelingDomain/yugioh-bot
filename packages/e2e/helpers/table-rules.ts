@@ -74,8 +74,7 @@ export async function expectRulesUi(page: Page, slug: string, info: TestInfo): P
 
 export async function expectRulesPriority(page: Page, order: number[], choosing = 0): Promise<void> {
   const chips = page.locator("[data-chain-fx] [data-testid='priority-chips'] [data-seat]");
-  await expect(chips).toHaveCount(order.length);
-  expect(await chips.evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute("data-seat"))))).toEqual(order);
+  await expect.poll(() => chips.evaluateAll((nodes) => nodes.map((node) => Number(node.getAttribute("data-seat"))))).toEqual(order);
   await expect(page.locator(`[data-chain-fx] [data-testid='priority-chips'] [data-seat='${choosing}']`)).toHaveAttribute("data-now", "true");
   for (const chip of await chips.all()) await expect(chip).toBeVisible();
 }
