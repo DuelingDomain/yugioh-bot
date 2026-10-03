@@ -7,6 +7,8 @@ import { getAnimationSpeed } from "./animation-speed";
  */
 export function createDuelFxClock(preference = getAnimationSpeed, realNow = () => performance.now()) {
   let rate = 1;
+  let previousRate = 1;
+  let lastFrame = 0;
   let reduced = false;
   let reviewSpeed: number | null = null;
   let realBase = 0;
@@ -17,13 +19,14 @@ export function createDuelFxClock(preference = getAnimationSpeed, realNow = () =
   const sync = () => {
     const real = realNow();
     // Also supports test clocks and a fresh browser performance time origin.
-    if (real < lastReal) { leases.clear(); realBase = virtualBase = real; rate = 1; }
+    if (real < lastReal) { leases.clear(); realBase = virtualBase = lastFrame = real; rate = previousRate = 1; }
     lastReal = real;
     for (const [key, until] of leases) if (until <= real) leases.delete(key);
     const wanted = reduced ? 1 : reviewSpeed ?? preference();
     if (leases.size === 0 && wanted !== rate) {
       virtualBase += (real - realBase) * rate;
       realBase = real;
+      previousRate = rate;
       rate = wanted;
     }
     return real;
@@ -95,7 +98,9 @@ export function createDuelFxClock(preference = getAnimationSpeed, realNow = () =
     },
     requestAnimationFrame: (fn: FrameRequestCallback): number => window.requestAnimationFrame((stamp) => {
       sync();
-      fn(virtualBase + (stamp - realBase) * rate);
+      // The frame stamp precedes callback work. Convert a pre-rebase stamp at its old rate.
+      lastFrame = Math.max(lastFrame, virtualBase + (stamp - realBase) * (stamp < realBase ? previousRate : rate));
+      fn(lastFrame);
     }),
     cancelAnimationFrame: (id: number) => window.cancelAnimationFrame(id),
     setReducedMotion: (value: boolean) => { reduced = value; },
@@ -105,7 +110,9 @@ export function createDuelFxClock(preference = getAnimationSpeed, realNow = () =
     resetReviewTimeline: () => {
       leases.clear();
       realBase = virtualBase = lastReal = realNow();
+      lastFrame = realBase;
       rate = reduced ? 1 : reviewSpeed ?? preference();
+      previousRate = rate;
     },
   };
 }

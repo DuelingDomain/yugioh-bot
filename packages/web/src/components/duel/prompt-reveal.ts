@@ -152,9 +152,18 @@ export async function waitForReveal(options: WaitForRevealOptions): Promise<bool
     const pending = (options.pendingAnimations ?? pendingBoardAnimations)(source());
     const holdMs = Math.max(boardHoldUntil - duelFxClock.dateNow(), options.holdMs?.() ?? 0);
     if (pending.length === 0 && holdMs <= 0) break;
-    const waits: Promise<unknown>[] = [sleep(holdMs > 0 ? Math.min(holdMs, budget) : budget, signal)];
-    if (pending.length > 0 && holdMs <= 0) waits.push(Promise.allSettled(pending.map((animation) => animation.finished)));
-    await Promise.race(waits);
+    const deadline = new AbortController();
+    const cancel = () => deadline.abort();
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      const waits: Promise<unknown>[] = [sleep(holdMs > 0 ? Math.min(holdMs, budget) : budget, deadline.signal)];
+      if (pending.length > 0 && holdMs <= 0) waits.push(Promise.allSettled(pending.map((animation) => animation.finished)));
+      await Promise.race(waits);
+    } finally {
+      // An animation winning the race must not leave a safety timer holding the old speed.
+      cancel();
+      signal?.removeEventListener("abort", cancel);
+    }
     if (aborted()) return false;
   }
 

@@ -3,12 +3,15 @@ import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ANIMATION_SPEED_KEY, loadAnimationSpeed, normalizeAnimationSpeed, saveAnimationSpeed, setAnimationSpeed } from "@/components/duel/animation-speed";
-import { createDuelFxClock } from "@/components/duel/fx-clock";
+import { createDuelFxClock, duelFxClock } from "@/components/duel/fx-clock";
+import { waitForReveal } from "@/components/duel/prompt-reveal";
 import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "@/components/duel/animation-speed-control";
 
 beforeEach(() => {
   window.localStorage.clear();
   setAnimationSpeed(1);
+  duelFxClock.setReducedMotion(false);
+  duelFxClock.resetReviewTimeline();
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
@@ -111,6 +114,27 @@ describe("scoped FX clock", () => {
     expect(fx.factor()).toBe(0.5);
     expect(fx.now()).toBe(1000);
   });
+  it("keeps frame timestamps monotonic when callback work follows a speed change", () => {
+    let real = 1000;
+    let speed = 1;
+    const fx = createDuelFxClock(() => speed, () => real);
+    const callbacks: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((fn) => { callbacks.push(fn); return callbacks.length; });
+    const stamps: number[] = [];
+    fx.requestAnimationFrame((stamp) => stamps.push(stamp)); callbacks[0](1000);
+    real = 1040; speed = 2;
+    fx.requestAnimationFrame((stamp) => stamps.push(stamp)); callbacks[1](1016);
+    expect(stamps).toEqual([1000, 1016]);
+    expect(fx.now()).toBe(1040);
+  });
+  it("clears a gate safety timer when animation completion wins the race", async () => {
+    vi.useFakeTimers();
+    await waitForReveal({ source: null, reducedMotion: false, pendingAnimations: () => [{ finished: Promise.resolve(), playState: "running" }],
+      timing: { beatMs: 0, settleMs: 0, capMs: 8000 } });
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => setAnimationSpeed(2));
+    expect(duelFxClock.factor()).toBe(2);
+  });
   it("rates CSS effects on a board mounted after loading, without touching effects outside the room", () => {
     function Scope() { useDuelAnimationSpeed(); return null; }
     const css = { playbackRate: 1, effect: { getComputedTiming: () => ({ endTime: 500 }) } };
@@ -130,5 +154,18 @@ describe("scoped FX clock", () => {
     fireEvent(target, new Event("animationstart", { bubbles: true }));
     expect(css.playbackRate).toBe(1);
     target.remove(); vi.unstubAllGlobals();
+  });
+  it("scales pending CSS delays before animationstart", async () => {
+    function Scope() { useDuelAnimationSpeed(); return null; }
+    class FakeCSSAnimation {}
+    vi.stubGlobal("CSSAnimation", FakeCSSAnimation);
+    render(<Scope />);
+    act(() => setAnimationSpeed(2));
+    const anim = Object.assign(new FakeCSSAnimation(), { playbackRate: 1, effect: { getComputedTiming: () => ({ endTime: 850 }) } });
+    const board = document.createElement("div"); board.setAttribute("data-duel-fx-speed-root", "");
+    board.getAnimations = () => [anim as unknown as Animation];
+    await act(async () => { document.body.append(board); });
+    expect(anim.playbackRate).toBe(2);
+    board.remove(); vi.unstubAllGlobals();
   });
 });

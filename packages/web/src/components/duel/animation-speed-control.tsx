@@ -11,11 +11,13 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
   duelFxClock.setReducedMotion(reducedMotion);
   useEffect(() => { setAnimationSpeed(loadAnimationSpeed()); }, []);
   useEffect(() => {
+    const rated = new WeakSet<Animation>();
     const retime = (target: Element) => {
       for (const anim of target.getAnimations?.() ?? []) {
         const cssAnimation = typeof CSSAnimation !== "undefined" && anim instanceof CSSAnimation;
         const cssTransition = typeof CSSTransition !== "undefined" && anim instanceof CSSTransition;
-        if (!cssAnimation && !cssTransition) continue;
+        if ((!cssAnimation && !cssTransition) || rated.has(anim)) continue;
+        rated.add(anim);
         const timing = anim.effect?.getComputedTiming();
         duelFxClock.rateAnimation(anim, Number(timing?.endTime ?? 0));
       }
@@ -26,8 +28,26 @@ export function useDuelAnimationSpeed(reducedMotion = false): number {
     // The room may initially render a loading state. Delegation also covers its later board mount.
     document.addEventListener("animationstart", onStart, true);
     document.addEventListener("transitionrun", onStart, true);
-    for (const target of document.querySelectorAll("[data-duel-fx-speed-root], [data-duel-fx-speed-root] *")) retime(target);
+    const scan = (node: Node) => {
+      if (!(node instanceof Element)) return;
+      if (node.closest("[data-duel-fx-speed-root]")) {
+        retime(node);
+        for (const target of node.querySelectorAll("*")) retime(target);
+      } else {
+        for (const target of node.querySelectorAll("[data-duel-fx-speed-root], [data-duel-fx-speed-root] *")) retime(target);
+      }
+    };
+    // Capture positive CSS delays when styles are created, before animationstart fires.
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "attributes") scan(record.target);
+        else for (const node of record.addedNodes) scan(node);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "data-status", "data-reduced"] });
+    scan(document.body);
     return () => {
+      observer.disconnect();
       document.removeEventListener("animationstart", onStart, true);
       document.removeEventListener("transitionrun", onStart, true);
     };
