@@ -8,9 +8,10 @@ import { activate, attack, changePhase, endTurn, expectBoard, expectNotOffered, 
   no, normalSummon, pass, pickOpponent, select, expectTurn, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
+import { ffa4Variant } from "./ffa4-variants.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
-/** The state of EVERY seat of a format (monsters, Spell and Trap zones, Graveyard, banished zone and Life Points exact; the hand is not checked). */
+/** The state of EVERY seat of a format (monsters, Spell and Trap zones, Graveyard, banished zone and Life Points exact; the hand and Deck count are checked when the spec names them). */
 function everySeat(format: "ffa3" | "ffa4" | "tag", spec: Partial<Record<Seat, DuelistExpect>>): Step {
   const seats: Seat[] = format === "ffa3" ? ["p0", "p1", "p2"] : ["p0", "p1", "p2", "p3"];
   const board: BoardExpect = {};
@@ -328,9 +329,9 @@ export const COMPARE_SCENARIOS: Scenario[] = [
       expectPrompt({ by: "p1", offers: ["yes", "no"] }),
       no("p1"),
       everySeat("ffa3", {
-        p0: { grave: ["Gigantic Thundercross"], banished: [ELF] },
-        p1: { monsters: [ELF], banished: [SANGAN, WITCH, BUG, OX, GUARDIAN] },
-        p2: { monsters: [AXE], banished: [FANG, RAT] },
+        p0: { grave: ["Gigantic Thundercross"], banished: [ELF], hand: [], deckCount: 20 },
+        p1: { monsters: [ELF], banished: [SANGAN, WITCH, BUG, OX, GUARDIAN], hand: [], deckCount: 19 },
+        p2: { monsters: [AXE], banished: [FANG, RAT], hand: [], deckCount: 20 },
       }),
     ],
   }),
@@ -362,9 +363,9 @@ export const COMPARE_SCENARIOS: Scenario[] = [
       yes("p1"),
       select(ELF),
       everySeat("ffa3", {
-        p0: { grave: ["Gigantic Thundercross"], banished: [ELF] },
-        p1: { monsters: [BEAVER, ELF], banished: [SANGAN, WITCH, BUG, OX, GUARDIAN] },
-        p2: { monsters: [AXE], banished: [FANG, RAT] },
+        p0: { grave: ["Gigantic Thundercross"], banished: [ELF], hand: [], deckCount: 20 },
+        p1: { monsters: [BEAVER, ELF], banished: [SANGAN, WITCH, BUG, OX, GUARDIAN], hand: [], deckCount: 18 },
+        p2: { monsters: [AXE], banished: [FANG, RAT], hand: [], deckCount: 20 },
       }),
     ],
   }),
@@ -393,10 +394,10 @@ export const COMPARE_SCENARIOS: Scenario[] = [
       yes("p3"),
       select(ELF),
       everySeat("tag", {
-        p0: { grave: ["Gigantic Thundercross"], banished: [ELF] },
-        p1: { banished: [SANGAN, WITCH, OX] },
-        p2: { monsters: [AXE] },
-        p3: { monsters: [ELF], banished: [BUG, GUARDIAN] },
+        p0: { grave: ["Gigantic Thundercross"], banished: [ELF], hand: [], deckCount: 20 },
+        p1: { banished: [SANGAN, WITCH, OX], hand: [BEAVER], deckCount: 19 },
+        p2: { monsters: [AXE], hand: [], deckCount: 20 },
+        p3: { monsters: [ELF], banished: [BUG, GUARDIAN], hand: [], deckCount: 19 },
       }),
     ],
   }),
@@ -604,3 +605,15 @@ export const COMPARE_SCENARIOS: Scenario[] = [
     ],
   }),
 ];
+
+// Run both Normal Summon responses with a third FFA opponent. Its banished count
+// equals p0's count, so it is not a legal declared opponent for this Trap.
+COMPARE_SCENARIOS.push(...COMPARE_SCENARIOS.filter(scenario =>
+  scenario.setup.format === "ffa3" && scenario.id.includes("thundercross")
+).map(scenario => {
+  const variant = ffa4Variant(scenario, { p3: { banished: [ELF] }, pickP3: false });
+  for (const step of variant.steps) if (step.op === "expectBoard") {
+    step.board.p3 = { lp: 8000, monsters: [], spells: [], grave: [], banished: [ELF], hand: [], deckCount: 20 };
+  }
+  return variant;
+}));
