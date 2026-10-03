@@ -40,6 +40,7 @@ const NEEDS_ENGINE = [
   "tests/engine-nseat.test.ts",
   "tests/engine-settings.test.ts",
   "tests/engine.test.ts",
+  "tests/enemy-controller.test.ts",
   "tests/failure-to-scenario.test.ts",
   "tests/host-bot-pacing.test.ts",
   "tests/host-bot-turn-limit.test.ts",
