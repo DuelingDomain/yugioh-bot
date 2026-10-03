@@ -820,6 +820,10 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
   const resetToActive = db.prepare<[number]>(
     "update duel_series set status = 'active', side_ready0 = 0, side_ready1 = 0, next_game_at = null, first_chooser = null, first_choice = null where id = ?",
   );
+  const inheritInviteGrants = db.prepare<[number, number]>(
+    `insert or ignore into duel_invite_grants (duel_id, player_id)
+     select ?, player_id from duel_invite_grants where duel_id = ?`,
+  );
   const updateFirstChoice = db.prepare<[string, number]>("update duel_series set first_choice = ? where id = ?");
   const selectDueNext = db.prepare<[string, number], { seriesId: number; guildId: string }>(
     `
@@ -1154,6 +1158,8 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
         return { playerId: index === 0 ? row.player0_id : row.player1_id, deck: index === 0 ? deck0 : deck1, ready: true };
       }),
     });
+    // Admission follows the series, including grants inherited by the previous game.
+    if (latest) inheritInviteGrants.run(game.id, latest.id);
     resetToActive.run(row.id);
     return duels.get(game.slug, guildId);
   });
