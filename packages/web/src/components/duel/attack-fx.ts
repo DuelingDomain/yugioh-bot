@@ -9,7 +9,8 @@
  * Ported from the approved prototype (designs/duel-ui/attack-fx/fx.js). The style table (which
  * effect a monster plays) lives in attack-styles.ts; this file only draws them.
  */
-import { safeAnimate } from "./safe-animate";
+import { duelFxClock } from "./fx-clock";
+import { safeFxAnimate as safeAnimate } from "./safe-animate";
 import { battleSeekMs } from "./battle-clock";
 import {
   COUNTER_GAP_MS,
@@ -51,7 +52,7 @@ export type FxLpHit = {
 };
 
 export type AttackFxPlan = {
-  /** Shared performance.now() clock for the canvas, audio and DOM beats. */
+  /** Shared duelFxClock.now() clock for the canvas, audio and DOM beats. */
   startedAt?: number;
   reduced: boolean;
   kind: BattleKind;
