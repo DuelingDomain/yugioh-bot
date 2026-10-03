@@ -3,7 +3,7 @@ import React, { useLayoutEffect, useRef } from "react";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { handArrivalTarget } from "@/components/duel/event-queue";
-import { captureZoneSnapshots, getMovePlan, planMoves, resetMoveSchedule, resolveSource } from "@/components/duel/move-plan";
+import { captureZoneSnapshots, getZoneSnapshot, getMovePlan, planMoves, resetMoveSchedule, resolveSource } from "@/components/duel/move-plan";
 import { MoveSourceBoundary } from "@/components/duel/fx-boundary";
 import { LOCATION_DECK, LOCATION_GRAVE, LOCATION_HAND } from "@/components/duel/constants";
 import type { DuelEvent } from "@yugidraft/shared/duels";
@@ -18,7 +18,7 @@ const arrival = (seat: number): DuelEvent => ({ id: 1, kind: "move", text: "A ca
   zone: { controller: seat, location: LOCATION_HAND, sequence: 0 }, reason: "draw" });
 
 beforeEach(() => { resetMoveSchedule("snapshot-test"); });
-afterEach(() => { cleanup(); document.body.replaceChildren(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); document.body.replaceChildren(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("hand geometry snapshots", () => {
   it.each(["you", "opp"] as const)("sizes an empty %s hand from its own CSS card dimensions", (side) => {
@@ -90,6 +90,28 @@ describe("hand geometry snapshots", () => {
     expect(resolveSource({ controller: 0, location: LOCATION_HAND, sequence: 0 }, 3)?.rect.left).toBe(300);
     view.unmount();
     expect(resolveSource({ controller: 0, location: LOCATION_HAND, sequence: 0 }, 3)).toBeNull();
+  });
+
+  it("reports a pre-commit snapshot failure and still commits the board without partial sources", () => {
+    let fail = false;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({}));
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const sequence = Number(this.dataset.zones?.split(":")[2] ?? 0);
+      if (fail && this.dataset.zones && sequence === 1) throw new Error("snapshot failed");
+      return rect(100 + sequence * 100, 500, 70, 100);
+    });
+    const view = render(<SnapshotBoard ids={["a", "b"]} events={[]} />);
+    captureZoneSnapshots(view.container);
+    fail = true;
+    expect(() => view.rerender(<SnapshotBoard ids={["b"]} events={[departure(1)]} />)).not.toThrow();
+    expect(view.container.querySelector('[data-hand-id="hand-a"]')).toBeNull();
+    expect(view.container.querySelector('[data-hand-id="hand-b"]')).not.toBeNull();
+    expect(getZoneSnapshot(departure(1).from!)).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string).message).toContain("snapshot failed");
+    fail = false;
+    view.rerender(<SnapshotBoard ids={[]} events={[departure(1), departure(2)]} />);
+    expect(resolveSource(departure(2).from!, 2)?.rect.left).toBe(100);
   });
 
   it("finds an owner's old card when an unreported shuffle changes its departure sequence", () => {

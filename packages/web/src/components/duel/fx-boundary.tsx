@@ -22,7 +22,14 @@ export class MoveSourceBoundary extends Component<{
     }
     const cursor = maxEventId(previous.events) ?? 0;
     const fresh = this.props.events.filter((event) => event.id > cursor);
-    if (fresh.length > 0 && this.props.root.current) captureDepartureSnapshots(fresh, this.props.root.current);
+    if (fresh.length > 0 && this.props.root.current) {
+      try {
+        captureDepartureSnapshots(fresh, this.props.root.current);
+      } catch (error) {
+        clearZoneSnapshots();
+        reportDuelClientError(error);
+      }
+    }
     return null;
   }
 
