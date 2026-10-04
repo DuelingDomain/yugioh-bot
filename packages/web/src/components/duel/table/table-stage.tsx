@@ -4,14 +4,15 @@ import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Mo
 import { engineFormat } from "../multi-seat";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
-import { flyWorld, holoAnchor, normalizeAngle, ringAngles, ringPose, seatPoses, slotPlan, stageFit, STAGE } from "./geometry";
+import { aliveLayout, flyWorld, holoAnchor, normalizeAngle, ringAngles, ringPose, seatPoses, slotPlan, stageFit, STAGE } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
-import { RivalField } from "./rival-field";
+import { ExitingSeat, RivalField } from "./rival-field";
 import { TurnRing } from "./turn-ring";
 import { useFlyGestures } from "./use-fly-gestures";
 import { useFlyWorld } from "./use-fly-world";
+import { useSeatExits } from "./use-seat-exits";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
 import styles from "./table-stage.module.css";
 
@@ -36,6 +37,8 @@ export interface TableStageViewProps extends TableStageProps {
   out?: readonly number[];
   /** Draw the turn ring (default true on a 3-way table). */
   ring?: boolean;
+  /** Place of every seat that left, as text ("3rd"), for the chip on its panel while it fades. */
+  placeLabels?: ReadonlyMap<number, string>;
 }
 
 /**
@@ -45,7 +48,7 @@ export interface TableStageViewProps extends TableStageProps {
  * overlay are slots over the whole box, so they measure the real screen position of `[data-zones]` and
  * `[data-lp-seat]` nodes. `camera` is the camera to draw (the shell passes the effective one).
  */
-export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, out = [], ring = true }: TableStageViewProps) {
+export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, out = [], ring = true, placeLabels }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -74,12 +77,17 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const canvasHeight = STAGE.height + 96;
   const fitBox = useMemo(() => ({ ...box, height: box.height * STAGE.height / canvasHeight }), [box, canvasHeight]);
   const k = stageFit(fitBox);
-  const threeWay = slotPlan(layout, { mode: "home" }) != null;
+  // The seats still in the duel. A 3-way table regroups when one leaves (face to face); a 4-way table keeps its places.
+  const outKey = out.join(",");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const outSet = useMemo(() => new Set(out), [outKey]);
+  const play = useMemo(() => aliveLayout(layout, outSet), [layout, outSet]);
+  const threeWay = slotPlan(play, { mode: "home" }) != null;
   const fly = camera.mode === "fly" && threeWay;
   // The city is heavy: it mounts the first time the fly-in shows and stays (the fade out needs it).
   const [cityOn, setCityOn] = useState(fly);
   if (fly && !cityOn) setCityOn(true);
-  const rawPoses = useMemo(() => seatPoses(layout, camera, fitBox), [layout, camera, fitBox]);
+  const rawPoses = useMemo(() => seatPoses(play, camera, fitBox), [play, camera, fitBox]);
 
   // A seat turns by the short way between two places: the angle it draws is the previous one plus the smallest turn.
   const turned = useRef(new Map<number, number>());
@@ -94,8 +102,17 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     return next;
   }, [rawPoses]);
 
-  const world = useMemo(() => flyWorld(layout, camera.fly), [layout, camera.fly]);
+  const world = useMemo(() => flyWorld(play, camera.fly), [play, camera.fly]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);
+  const looking = camera.mode === "look";
+  // A seat that leaves crumbles at the pose it had; the seats that stay glide to their new places.
+  const { exits, gliding, finish } = useSeatExits({
+    out,
+    seats: engine.seats,
+    poses,
+    faceUpHand: (seat) => layout.slots.find((slot) => slot.seat === seat)?.relation === "self" && !looking,
+    enabled: layout.format !== "tag",
+  });
   useFlyWorld({
     active: fly,
     target: world,
@@ -113,9 +130,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const format = engineFormat(engine);
   const masterRule = room.session.masterRule;
   const picks = controller.seatPick;
-  const pickOrder = picks ? layout.slots.map((slot) => slot.seat).filter((seat) => picks.options.has(seat)) : [];
+  const pickOrder = picks ? play.slots.map((slot) => slot.seat).filter((seat) => picks.options.has(seat)) : [];
   const promptSeat = controller.prompt?.seat ?? null;
-  const looking = camera.mode === "look";
   const flyYaw = fly ? world.yawDeg : 0;
 
   const onSeatClick = (event: MouseEvent<HTMLDivElement>) => {
@@ -139,7 +155,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   };
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
-  const ringAt = ringPose(layout, camera);
+  const ringAt = ringPose(play, camera);
 
   return (
     <div
@@ -168,21 +184,43 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
           <div ref={worldRef} className={styles.world} data-world>
             {threeWay && cityOn ? <FlyCity title={layout.format === "ffa4" ? "4-WAY DUEL" : undefined} /> : null}
             <div className={styles.wstage} onClick={onSeatClick}>
-              <Plaza layout={layout} poses={poses} fly={fly} />
+              <Plaza
+                layout={play}
+                poses={poses}
+                fly={fly}
+                hidden={outSet}
+                exits={exits.map((exit) => ({ seat: exit.seat, tone: tones.get(exit.seat) ?? "violet", pose: exit.pose }))}
+                glide={gliding}
+                reducedMotion={reducedMotion}
+              />
               {ring && threeWay ? (
                 <TurnRing
-                  layout={layout}
+                  layout={play}
+                  numbering={layout}
                   engine={engine}
-                  angles={ringAngles(layout, camera)}
+                  angles={ringAngles(play, camera)}
                   pose={ringAt}
                   promptSeat={promptSeat}
                   locked={locked}
                 />
               ) : null}
-              {layout.slots.map((slot) => {
+              {exits.map((exit) => (
+                <ExitingSeat
+                  key={`exit${exit.seat}`}
+                  pose={exit.pose}
+                  tone={tones.get(exit.seat) ?? "violet"}
+                  view={exit.view}
+                  masterRule={masterRule}
+                  faceUpHand={exit.faceUpHand}
+                  angleOffsetDeg={flyYaw}
+                  reducedMotion={reducedMotion}
+                  onDone={() => finish(exit.seat)}
+                />
+              ))}
+              {play.slots.map((slot) => {
                 const pose = poses.get(slot.seat);
-                if (!pose) return null;
-                const place = layout.slots.indexOf(slot);
+                if (!pose || outSet.has(slot.seat)) return null;
+                const place = play.slots.indexOf(slot);
                 const self = slot.relation === "self";
                 const you = pose.slot ? pose.slot === "home" : place === 0;
                 const field: Omit<SeatFieldProps, "angleDeg" | "scale"> = {
@@ -206,17 +244,25 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
                   onInspect: controller.onInspect,
                   onHoverCard: controller.onHoverCard,
                 };
-                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} />;
+                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding} />;
               })}
             </div>
           </div>
         </div>
         <svg ref={tetherRef} className={styles.tethers} viewBox="0 0 1100 860" aria-hidden="true" />
-        {layout.slots.map((slot, place) => {
+        {[
+          // A seat that left keeps its panel where its place stays (a 4-way table); where the seats regroup (a 3-way
+          // table, face to face) the panel of the seat that left fades away and is gone.
+          ...play.slots.map((slot) => ({ slot, place: play.slots.indexOf(slot), exit: false, from: play })),
+          ...exits.flatMap((exit) => {
+            const slot = layout.slots.find((entry) => entry.seat === exit.seat);
+            return slot && !play.slots.includes(slot) ? [{ slot, place: layout.slots.indexOf(slot), exit: true, from: layout }] : [];
+          }),
+        ].map(({ slot, place, exit, from }) => {
           const view = engine.seats.find((entry) => entry.seat === slot.seat);
           if (!view) return null;
-          const anchor = holoAnchor(layout, slot.seat, camera);
-          const pickable = picks?.options.has(slot.seat) === true;
+          const anchor = holoAnchor(from, slot.seat, camera);
+          const pickable = !exit && picks?.options.has(slot.seat) === true;
           const index = pickOrder.indexOf(slot.seat);
           return (
             <HoloLp
@@ -241,6 +287,9 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
               hotkey={pickable && index >= 0 ? index + 1 : null}
               onPick={() => picks?.onPick(slot.seat)}
               onHover={(hover) => controller.onAim?.(hover ? { lpSeat: slot.seat } : null)}
+              exiting={exit}
+              placeLabel={placeLabels?.get(slot.seat) ?? null}
+              glide={gliding && !exit}
               reducedMotion={reducedMotion}
             />
           );
