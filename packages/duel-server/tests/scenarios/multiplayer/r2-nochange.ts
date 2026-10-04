@@ -4,7 +4,7 @@
 // least once), and ends with the state of EVERY seat. Plain data (scripts/rule-coverage.ts reads it); r2-nochange.test.ts runs it live.
 
 import {
-  activate, attack, auto, changePhase, choose, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, expectTurn, faceDown, no,
+  activate, attack, auto, changePhase, choose, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, expectPrompt, expectSeatNotOffered, expectTurn, faceDown, no,
   expectNoPrompt, changePosition, xyz, normalSummon, pass, pickOpponent, setCard, select, finish, specialSummon, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
@@ -24,12 +24,12 @@ function everySeat(format: Format, spec: Partial<Record<Seat, DuelistExpect>>): 
 
 const EACH = `${SOURCE} [R-COMMON-SEAT-STATE]`;
 
-const probe = (format: Format, slug: string, card: number | number[], title: string, setup: Record<string, unknown>, steps: Step[], spec: Partial<Record<Seat, DuelistExpect>>): Scenario =>
+const probe = (format: Format, slug: string, card: number | number[], title: string, setup: Record<string, unknown>, steps: Step[], spec: Partial<Record<Seat, DuelistExpect>>, extraRules: string[] = []): Scenario =>
   defineScenario({
     id: `r2-nochange-${format}-${slug}`,
     title,
     source: EACH,
-    rules: ["R-COMMON-SEAT-STATE"],
+    rules: ["R-COMMON-SEAT-STATE", ...extraRules],
     tags: ["multiplayer", "r2-nochange", "no-change", format, ...(Array.isArray(card) ? card : [card]).map((c) => `card:${c}`)],
     setup: { format, ...setup } as unknown as Scenario["setup"],
     steps: [...steps, everySeat(format, spec)],
@@ -636,19 +636,25 @@ const tell = (format: "ffa3" | "tag"): Scenario => {
   const tag = format === "tag";
   const holder: Seat = tag ? "p1" : "p2";
   const other: Seat = tag ? "p2" : "p1";
+  const DIVINE_WRATH = "Divine Wrath";
   const setup: Record<string, unknown> = { p0: { hand: [OOKAZI], deck: [ELF] }, p1: { deck: [ELF] }, p2: { deck: [ELF] } };
   if (tag) setup.p3 = { deck: [ELF] };
   setup[holder] = { monsters: [xyz(TELL, [ELF, ELF])], deck: [ELF] };
-  setup[other] = { monsters: [xyz(TELL, [ELF, ELF])], deck: [ELF] };
+  // Divine Wrath can respond to Tell, but not to Ookazi. Its discard stays in hand because this seat passes.
+  setup[other] = { hand: [ELF], monsters: [xyz(TELL, [ELF, ELF])], spells: [faceDown(DIVINE_WRATH)], deck: [ELF] };
   return probe(format, `d-d-d-marksman-king-tell-damage-flag-of-${holder}-only`, 71612253,
-    `${tag ? "Tag" : "FFA3"}: Ookazi of p0 burns ${holder} (flag kept for ${tag ? "team 1" : holder}); before Tell activates, the Tell of ${other} (no damage taken) is not offered; the Tell of ${holder} detaches a material, shrinks the Tell of ${other}, and burns ${tag ? "team 0" : other} for 1000`,
+    `${tag ? "Tag" : "FFA3"}: Ookazi of p0 burns ${holder} (flag kept for ${tag ? "team 1" : holder}); the Tell of ${other} (no damage taken) is not offered in response before the Tell of ${holder} resolves, shrinks the Tell of ${other}, and burns ${tag ? "team 0" : other} for 1000`,
     setup,
     [activate(OOKAZI, "p0"), ...(tag ? [] : [pickOpponent(holder, "p0")]), expectOffered("activate", TELL, holder), activate(TELL, holder),
-      // R-FFA-OPP-ONE: declare before the detach cost; the target and damage use that same seat.
-      ...(tag ? [] : [pickOpponent(other, holder)]), select(ELF), select({ card: TELL, owner: other })],
+      // R-COMMON-OPP-PICK (ADR:18): declare before the detach cost. The target can be on either field; only damage goes to the declared opponent.
+      ...(tag ? [] : [expectPickSeats(["p0", "p1"], holder), pickOpponent(other, holder)]), select(ELF), select({ card: TELL, owner: other }),
+      expectPrompt({ by: other, context: "chain" }), expectOffered("activate", DIVINE_WRATH, other),
+      expectBoard({ [other]: { lp: tag ? 16000 : 8000 } }),
+      expectSeatNotOffered("activate", { card: TELL, owner: other }, other), pass(other)],
     tag
-      ? { p0: { lp: 15000, grave: [OOKAZI] }, p1: { lp: 15200, grave: [ELF], monsters: [TELL] }, p2: { lp: 15000, monsters: [TELL] }, p3: { lp: 15200 } }
-      : { p0: { lp: 8000, grave: [OOKAZI] }, p1: { lp: 7000, monsters: [TELL], zones: { m0: { card: TELL, attack: 1300, materials: 2 } } }, p2: { lp: 7200, grave: [ELF], monsters: [TELL], zones: { m0: { card: TELL, attack: 2300, materials: 1 } } } });
+      ? { p0: { lp: 15000, grave: [OOKAZI] }, p1: { lp: 15200, grave: [ELF], monsters: [TELL] }, p2: { lp: 15000, hand: [ELF], monsters: [TELL], spells: [DIVINE_WRATH] }, p3: { lp: 15200 } }
+      : { p0: { lp: 8000, grave: [OOKAZI] }, p1: { lp: 7000, hand: [ELF], monsters: [TELL], spells: [DIVINE_WRATH], zones: { m0: { card: TELL, attack: 1300, materials: 2 } } }, p2: { lp: 7200, grave: [ELF], monsters: [TELL], zones: { m0: { card: TELL, attack: 2300, materials: 1 } } } },
+    ["R-COMMON-OPP-PICK"]);
 };
 
 /**

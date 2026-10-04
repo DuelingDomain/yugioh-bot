@@ -46,7 +46,7 @@ function attach(format: Format, team: 0 | 1, own: boolean): Scenario {
   return defineScenario({
     id: `tag-xyz-attach-review-${format}-team-${team}-${own ? "own" : "partner"}-cannot-change-control`,
     title: `${format} team ${team}: Gabonga attaches the ${own ? "own" : "partner's"} Blindly Loyal Goblin after Cowboy detaches; opposing immutable monsters are excluded`,
-    source: `${SOURCE} [R-TAG-SHARED-CARDS] [R-TAG-PARTNER-COST]`, rules: ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER-COST"],
+    source: `${SOURCE} [R-TAG-SHARED-CARDS] [R-TAG-PARTNER-COST]`, rules: tag ? ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER-COST"] : ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER-COST", "R-FFA-OPP-ONE"],
     tags: ["multiplayer", format, "xyz", "card:34001672", "card:35215622"], setup,
     steps: [
       ...(team === 1 ? [endTurn("p0")] : []),
@@ -65,7 +65,7 @@ export const TAG_XYZ_ATTACH_REVIEW_SCENARIOS: Scenario[] = [
   attach("ffa3", 0, true), attach("ffa4", 0, true),
   defineScenario({
     id: "tag-xyz-attach-review-ffa4-opponent-can-change-control", title: "FFA4: Gabonga can attach an opposing monster whose control can change",
-    source: `${SOURCE} [R-TAG-PARTNER-COST]`, rules: ["R-TAG-PARTNER-COST"], tags: ["multiplayer", "ffa4", "xyz", "card:34001672"],
+    source: `${SOURCE} [R-TAG-PARTNER-COST]`, rules: ["R-TAG-PARTNER-COST", "R-FFA-OPP-ONE"], tags: ["multiplayer", "ffa4", "xyz", "card:34001672"],
     setup: { format: "ffa4", p0: { monsters: [GABONGA, { card: COWBOY, materials: [ELF] }] }, p1: { monsters: [MATAZA] }, p2: { monsters: [GOBLIN] }, p3: { monsters: [OX] } },
     steps: [
       activate(COWBOY, "p0"),

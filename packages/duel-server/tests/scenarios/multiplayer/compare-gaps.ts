@@ -7,8 +7,8 @@
 // Decisions: docs/adr/0002-multiplayer-duel-rules.md (question 2): FFA, the activator compares with ONE opponent.
 
 import {
-  activate, changePhase, changePosition, choose, endTurn, expectBoard, expectEliminated, expectNoPrompt, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, expectRetry, expectTurn,
-  normalSummon, pass, pickOpponent, position, select, surrender, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
+  activate, changePhase, changePosition, choose, endTurn, expectBoard, expectEliminated, expectEvents, expectNoPrompt, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, expectRetry, expectTurn,
+  normalSummon, pass, pickOpponent, position, select, surrender, yes, zone, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
@@ -95,7 +95,7 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
     id: "compare-gaps-ffa3-kaiser-colosseum-limit-counts-the-summoner-only",
     title: "FFA3: Kaiser Colosseum limits the Tribute of a monster of p0 by the monsters of the SUMMONING duelist (p1: none), not by the sum of the opponents of p0",
     source: OPP_PICK,
-    rules: ["R-COMMON-OPP-PICK"],
+    rules: ["R-COMMON-OPP-PICK", "R-FFA-OPP-ONE"],
     tags: ["multiplayer", "compare", "ffa3", "card:35059553", "card:68005187"],
     // p0 controls 2 monsters and Kaiser Colosseum. p1 has none, p2 has 1. Soul Exchange of p1 Tributes a monster of p0: one Tribute leaves p1 with 1 monster,
     // not more than p0 (1 after the Tribute). The sum of p1 and p2 (1) would block it.
@@ -507,30 +507,37 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
   // W8: immediate surrender removes a seat while the living duelist's opponent choice stays open.
   defineScenario({
     id: "compare-gaps-ffa3-surrender-while-the-opponent-pick-is-open",
-    title: "FFA3: p1 gives up while p0 picks an opponent for Ultimate Sky: p1 is removed immediately, its option is refused, p0 picks p2, and Sky negates p2's only effect monster for 800 LP (W8)",
+    title: "FFA3: p1 gives up while p0 picks an opponent for Ultimate Sky: p1 is removed immediately, its option is refused, p0 picks p2, and Sky negates p2's Man-Eater Bug for 800 LP (W8)",
     source: OPP_PICK,
-    rules: ["R-COMMON-OPP-PICK", "R-FFA-ELIMINATION", "R-COMMON-SURRENDER-EOT"],
+    rules: ["R-COMMON-OPP-PICK", "R-FFA-OPP-ONE", "R-FFA-ELIMINATION", "R-COMMON-SURRENDER-EOT"],
     tags: ["multiplayer", "compare", "elimination", "ffa3", "card:38817295"],
     setup: {
       format: "ffa3",
       p0: { hand: ["Ultimate Sky"], monsters: [ELF] },
       p1: { monsters: [SANGAN, WITCH] },
-      p2: { monsters: [BUG, OX] },
+      p2: { monsters: [BUG, OX, WITCH] },
     },
     steps: [
       activate("Ultimate Sky", "p0"),
       expectPickSeats(["p1", "p2"], "p0"),
+      expectPickOptions([{ id: "opt:0", seat: "p1" }, { id: "opt:1", seat: "p2" }], "p0"),
       surrender("p1"),
       // R-COMMON-SURRENDER-EOT: p1 is out before p0 answers, and the saved opponent option is refused.
       expectEliminated("p1"),
+      // ADR:34: the living duelist's opponent pick keeps its option IDs.
+      expectPickOptions([{ id: "opt:0", seat: "p1" }, { id: "opt:1", seat: "p2" }], "p0"),
       expectRetry({ choice: "opt:0" }, { error: "Invalid answer", by: "p0" }),
       pickOpponent("p2", "p0"),
-      // R-FFA-OPP-ONE: only p2's Man-Eater Bug has an effect to negate; the engine selects it.
+      zone("p0", "s0", "p0"),
+      // R-FFA-OPP-ONE: p2's two effect monsters keep the target choice open.
+      expectPickOptions([{ card: BUG, seat: "p2" }, { card: WITCH, seat: "p2" }], "p0"),
+      select(BUG),
+      expectEvents({ kind: "target", by: "p0", text: "targets 1 card" }),
       expectPrompt({ by: "p0", title: "Choose an action", context: "action" }),
       expectEliminated("p1"),
       everySeat("ffa3", {
         p0: { lp: 7200, hand: [], monsters: [ELF], grave: ["Ultimate Sky"] },
-        p2: { monsters: [BUG, OX] },
+        p2: { monsters: [BUG, OX, WITCH] },
       }),
     ],
   }),

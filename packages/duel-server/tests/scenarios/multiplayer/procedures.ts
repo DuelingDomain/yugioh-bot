@@ -292,7 +292,7 @@ export const PROCEDURE_SCENARIOS: Scenario[] = [
       pickOpponent("p2", "p0"),
       expectPickOptions([{ id: "select:0", card: RAT, seat: "p2" }, { id: "select:1", card: OX, seat: "p2" }], "p0"),
       eliminate("p2"),
-      // R-COMMON-SURRENDER-EOT: removed cards have no name, but the living chooser keeps its option IDs.
+      // R-FFA-ELIMINATION (ADR:28): removed cards have no name, but the living duelist's current choice stays open.
       expectPickOptions([{ id: "select:0", label: "Unknown card" }, { id: "select:1", label: "Unknown card" }], "p0"),
       expectEliminated("p2"),
       raw({ choice: "select:1" }, "p0"),
@@ -316,7 +316,7 @@ export const PROCEDURE_SCENARIOS: Scenario[] = [
       pickOpponent("p2", "p0"),
       expectPickOptions([{ id: "select:0", card: RAT, seat: "p2" }, { id: "select:1", card: OX, seat: "p2" }], "p0"),
       eliminate("p2"),
-      // R-COMMON-SURRENDER-EOT: answer the saved Battle Ox option after its card leaves the game.
+      // R-FFA-ELIMINATION (ADR:28): the living duelist's current choice stays open; answer the saved Battle Ox option after its card leaves the game.
       expectPickOptions([{ id: "select:0", label: "Unknown card" }, { id: "select:1", label: "Unknown card" }], "p0"),
       expectEliminated("p2"),
       raw({ choice: "select:1" }, "p0"),
