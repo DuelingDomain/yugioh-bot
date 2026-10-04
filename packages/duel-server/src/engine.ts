@@ -1033,7 +1033,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       if (closed) throw new Error("Engine is closed");
       if (result) throw new EngineAnswerError("Duel is over");
       if (!pending) throw new EngineAnswerError("No prompt is waiting");
-      const response = resolveAnswer(pending, seat, promptId, answer, cards, new Set([...eliminated, ...leaving]));
+      const response = resolveAnswer(pending, seat, promptId, answer, cards);
       const previous = pending;
       const previousSummon = synchroSummon;
       if (pending.message.type === OcgMessageType.SELECT_IDLECMD && answer.choice?.startsWith("spsummon:")) {

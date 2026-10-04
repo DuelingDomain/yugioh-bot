@@ -919,7 +919,7 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
   }
 }
 
-export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: string, answer: DuelAnswer, cards: CardDatabase, leftSeats?: ReadonlySet<number>): OcgResponse {
+export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: string, answer: DuelAnswer, cards: CardDatabase): OcgResponse {
   if (seat !== pending.seat) throw new EngineAnswerError("Wrong seat");
   if (promptId !== pending.id) throw new EngineAnswerError("Stale prompt");
   const { message, prompt } = pending;
@@ -990,10 +990,10 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
     case OcgMessageType.SELECT_OPTION: {
       if (!answer.choice) throw new EngineAnswerError("Invalid answer");
       if (isOpponentPick(message.options) && typeof answer.choice === "string" && /^opt:(0|[1-9]\d*)$/.test(answer.choice)) {
-        // Read the core's options too: prompt mapping may already have removed this seat.
+        // Only relabel a missing option; offered choices must reach the core as before.
         const desc = message.options[Number(answer.choice.slice(4))];
         const pickedSeat = desc === undefined ? null : opponentPickSeat(desc);
-        if (pickedSeat !== null && (leftSeats?.has(pickedSeat) || !prompt.options.some((option) => option.id === answer.choice))) {
+        if (pickedSeat !== null && !prompt.options.some((option) => option.id === answer.choice)) {
           throw new EngineAnswerError("That player has left. Pick again.", DUEL_SEAT_LEFT_ERROR_CODE);
         }
       }
