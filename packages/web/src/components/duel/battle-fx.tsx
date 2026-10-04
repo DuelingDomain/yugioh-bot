@@ -6,7 +6,7 @@ import { LOCATION_DMZONE, cardArtUrl, isDefense, isFacedown, zoneKey } from "./c
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { battleTrigger } from "./battle-trigger";
 import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
-import { runAttackFx, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
+import { runAttackFx, screenPose, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
 import { flipAttackAt, flipFightDamageAt } from "./chain-beats";
 import { FlipStrike, type FlipStrikePlan } from "./flip-strike";
 import { flipSequenceSteps } from "./flip-sequence";
@@ -200,7 +200,11 @@ function readCard(key: string, node: HTMLElement, prev: CardIndex, now: CardInde
 
 /* ---------- capture (before the new snapshot reaches the DOM) ---------- */
 
-type CutSource = FxCut & { defense: boolean };
+/**
+ * `w` x `h` is the art's own box on screen (before its Defense turn), `turn` the screen angle of its top edge and
+ * `fit` the scale a seat field gives a Defense card (`--dfit`). The copy is drawn outside the field, so it needs them.
+ */
+type CutSource = FxCut & { defense: boolean; w: number; h: number; fit: number };
 type AttackCapture = {
   from: Box;
   to: Box;
@@ -225,6 +229,33 @@ function keyOfZone(zone: { controller: number; location: number; sequence: numbe
   return zoneKey(zone.controller, zone.location, zone.sequence);
 }
 
+/**
+ * How the art sits on screen: its box size, the angle of its top edge, and the Defense fit of its field.
+ * A seat field of a multiplayer table is rotated (and scaled) as a whole, so a copy of the art drawn outside the
+ * field must repeat that turn. The art's parent is the art's own box (before its Defense turn); three zero-size
+ * probes on its corners give the screen edges. Anything unreadable gives the unturned layout size.
+ */
+function readPose(art: HTMLElement): { w: number; h: number; turn: number; fit: number } {
+  const own = { w: art.offsetWidth, h: art.offsetHeight, turn: 0, fit: 1 };
+  const fit = Number.parseFloat(getComputedStyle(art).getPropertyValue("--dfit"));
+  if (Number.isFinite(fit) && fit > 0) own.fit = fit;
+  const pose = art.parentElement ? screenPose(art.parentElement) : null;
+  return pose ? { ...pose, fit: own.fit } : own;
+}
+
+/** The pose a card gets in a copy: the Defense quarter turn (scaled to its field) or none. Inline, since the copy has no field around it. */
+function defenseTransform(defense: boolean, fit: number): string {
+  return defense ? `rotate(90deg) scale(${fit})` : "";
+}
+
+/** Bounding box of a w x h card around `centre`, turned by `turn`; in Defense it lies on its side at `fit` scale. */
+function cutBox(centre: Pt, w: number, h: number, turn: number, defense: boolean, fit: number): Box {
+  const fw = defense ? h * fit : w, fh = defense ? w * fit : h;
+  const rad = turn * Math.PI / 180, cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
+  const width = fw * cos + fh * sin, height = fw * sin + fh * cos;
+  return { left: centre.x - width / 2, top: centre.y - height / 2, width, height };
+}
+
 /** Reorient retained art without letting a declaration snapshot override the core's battle pose. */
 function orientCut(cut: CutSource | null, card: BattleCard | null): CutSource | null {
   if (!cut || card?.position == null) return cut;
@@ -244,14 +275,10 @@ function orientCut(cut: CutSource | null, card: BattleCard | null): CutSource | 
     img.draggable = false;
     art.replaceChildren(img);
   }
-  // Sleeves normally inherit the turn from artWrap, which is outside this retained copy.
-  if (!art.querySelector("img")) art.style.transform = defense ? "rotate(90deg)" : "";
-  else art.style.removeProperty("transform");
-  const box = defense === cut.defense ? cut.box : {
-    left: cut.box.left + (cut.box.width - cut.box.height) / 2,
-    top: cut.box.top + (cut.box.height - cut.box.width) / 2,
-    width: cut.box.height, height: cut.box.width,
-  };
+  // The copy sits outside its field, so the field's own Defense rule (and a sleeve's wrapper rule) cannot reach it.
+  art.style.transform = defenseTransform(defense, cut.fit);
+  const box = defense === cut.defense ? cut.box
+    : cutBox({ x: cut.box.left + cut.box.width / 2, y: cut.box.top + cut.box.height / 2 }, cut.w, cut.h, cut.turn ?? 0, defense, cut.fit);
   return { ...cut, box, html: art.outerHTML, defense };
 }
 
@@ -260,16 +287,16 @@ function cutSourceOf(node: HTMLElement, card: BattleCard): CutSource | null {
   if (!art) return null;
   const box = boxOf(art);
   if (box.width <= 0 || box.height <= 0) return null;
-  // The copy is drawn outside its zone, so it carries the opponent's half turn (field.module.css) as an attribute.
-  let html = art.outerHTML;
-  if (art.closest('[data-side="opp"]')) {
-    const clone = art.cloneNode(true) as HTMLElement;
-    clone.setAttribute("data-turned", "true");
-    html = clone.outerHTML;
-  }
   const defense = node.dataset.defense === "true";
-  return orientCut({ box, innerW: art.offsetWidth || (defense ? box.height : box.width),
-    innerH: art.offsetHeight || (defense ? box.width : box.height), html, defense }, card);
+  const pose = readPose(art);
+  // The copy is drawn outside its zone, so it carries the opponent's half turn (field.module.css) as an attribute.
+  const clone = art.cloneNode(true) as HTMLElement;
+  if (art.closest('[data-side="opp"]')) clone.setAttribute("data-turned", "true");
+  if (defense) clone.style.transform = defenseTransform(true, pose.fit);
+  // Without a layout (no readable size) the box on screen is all there is: a Defense card lies on its side in it.
+  const w = pose.w || art.offsetWidth || (defense ? box.height : box.width);
+  const h = pose.h || art.offsetHeight || (defense ? box.width : box.height);
+  return orientCut({ box, innerW: w, innerH: h, html: clone.outerHTML, defense, turn: pose.turn, w, h, fit: pose.fit }, card);
 }
 
 /**

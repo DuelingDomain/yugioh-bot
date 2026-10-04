@@ -305,6 +305,40 @@ describe("BattleFx", () => {
     expect(document.querySelector('[data-role="target"] [data-card-art]')?.getAttribute("data-defense")).toBe("true");
   });
 
+  it("draws the cut copy of a seat-field card in its field's turn and Defense fit", () => {
+    const TURN = 30;
+    const node = board.querySelector<HTMLElement>('[data-zones="1:4:0"]')!;
+    node.dataset.side = "opp";
+    node.dataset.defense = "true";
+    node.style.position = "relative";
+    const art = node.querySelector<HTMLElement>("[data-card-art]")!;
+    art.dataset.defense = "true";
+    art.style.setProperty("--dfit", "0.5");
+    // The seat field is turned: the probes put on the corners of the art's box land turned around its top-left.
+    const plain = vi.mocked(Element.prototype.getBoundingClientRect).getMockImplementation()!;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      if (this.getAttribute("aria-hidden") === "true" && this.parentElement === node) {
+        const el = this as HTMLElement;
+        const x = el.style.left === "100%" ? 60 : 0, y = el.style.top === "100%" ? 88 : 0;
+        const rad = (TURN * Math.PI) / 180;
+        return { left: 100 + x * Math.cos(rad) - y * Math.sin(rad), top: 100 + x * Math.sin(rad) + y * Math.cos(rad), width: 0, height: 0 } as DOMRect;
+      }
+      return plain.call(this);
+    });
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seatsOf(warrior, machine, 4)} />);
+    rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seatsOf(warrior, machine, 4)} />);
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 2300, defense: 2100, position: 1 }, target: { attack: 2400, defense: 1500, position: 4 } } };
+    const destroy: DuelEvent = { id: 4, kind: "destroy", text: "", zone: attack.target, fromPosition: 4, cause: "battle" };
+    const after = seatsOf(warrior, machine, 4);
+    after[1].monsters[0] = null;
+    rerender(<BattleFx events={[phase, attack, calculation, destroy]} reducedMotion={false} seats={after} />);
+    const copy = document.querySelector<HTMLElement>('[data-role="target"] [data-card-art]')!;
+    expect(copy.style.transform).toBe("rotate(90deg) scale(0.5)");
+    expect(copy.getAttribute("data-turned")).toBe("true");
+    expect(copy.parentElement!.style.rotate).toBe(`${TURN}deg`);
+  });
+
   it("omits calculation plates when both battlers keep their board stats", () => {
     const before = seatsOf({ ...warrior, attack: 2300, defense: 2100 }, { ...machine, attack: 2400, defense: 1500 }, 4);
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={before} />);

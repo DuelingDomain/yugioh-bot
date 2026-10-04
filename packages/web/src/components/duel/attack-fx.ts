@@ -31,7 +31,14 @@ export type Pt = { x: number; y: number };
 export type Box = { left: number; top: number; width: number; height: number };
 
 /** A card's art as it looked before the board updated: what gets broken up when it dies. */
-export type FxCut = { box: Box; innerW: number; innerH: number; html: string };
+export type FxCut = {
+  box: Box;
+  innerW: number;
+  innerH: number;
+  html: string;
+  /** Degrees the card was turned on screen (a seat field of a multiplayer table is rotated). Default 0. */
+  turn?: number;
+};
 
 export type FxSide = {
   box: Box;
@@ -452,6 +459,36 @@ function emit(cx: Ctx, spec: Spark): void {
 
 type PieceMotion = (piece: HTMLElement, index: number, centre: Pt) => void;
 
+/**
+ * How a box sits on screen: its edge lengths and the angle of its top edge. A seat field of a multiplayer table is
+ * rotated (and scaled) as a whole, so anything drawn outside the field to stand in for a card must repeat that turn.
+ * Three zero-size probes on the corners of `box` (which must be positioned) give the screen edges; null if unreadable.
+ */
+export function screenPose(box: HTMLElement): { w: number; h: number; turn: number } | null {
+  if (getComputedStyle(box).position === "static") return null;
+  const probe = (left: string, top: string): HTMLElement => {
+    const dot = document.createElement("span");
+    dot.setAttribute("aria-hidden", "true");
+    dot.style.cssText = `position:absolute;width:0;height:0;pointer-events:none;visibility:hidden;left:${left};top:${top};`;
+    box.appendChild(dot);
+    return dot;
+  };
+  const dots = [probe("0", "0"), probe("100%", "0"), probe("0", "100%")];
+  const [a, b, c] = dots.map((dot) => dot.getBoundingClientRect());
+  for (const dot of dots) dot.remove();
+  const w = Math.hypot(b.left - a.left, b.top - a.top);
+  const h = Math.hypot(c.left - a.left, c.top - a.top);
+  if (!(w > 0 && h > 0)) return null;
+  const turn = Math.atan2(b.top - a.top, b.left - a.left) * 180 / Math.PI;
+  // An upright field reads a rounding error, not a turn.
+  return { w, h, turn: Math.abs(turn) < 0.05 ? 0 : Math.round(turn * 100) / 100 };
+}
+
+/** The turn of a card copy that was cut from a rotated seat field: the copy lives outside the field, so it carries the turn itself. */
+export function cutTurnStyle(cut: Pick<FxCut, "turn">): string {
+  return cut.turn ? `rotate:${f1(cut.turn)}deg;` : "";
+}
+
 function fragments(cx: Ctx, cut: FxCut, role: string, polys: Poly[], motion: PieceMotion): void {
   const wrap = document.createElement("div");
   wrap.className = cx.cls.frags;
@@ -464,7 +501,8 @@ function fragments(cx: Ctx, cut: FxCut, role: string, polys: Poly[], motion: Pie
     piece.style.cssText = `position:absolute;inset:0;will-change:transform,opacity;clip-path:polygon(${poly.map((p) => `${f1(p[0])}% ${f1(p[1])}%`).join(",")});`;
     const inner = document.createElement("div");
     inner.className = cx.cls.inner;
-    inner.style.cssText = `position:absolute;top:50%;left:50%;width:${cut.innerW}px;height:${cut.innerH}px;translate:-50% -50%;`;
+    // `rotate` (not `transform`) so the copy keeps the turn of its seat field while the piece moves in screen directions.
+    inner.style.cssText = `position:absolute;top:50%;left:50%;width:${cut.innerW}px;height:${cut.innerH}px;translate:-50% -50%;${cutTurnStyle(cut)}`;
     inner.innerHTML = cut.html;
     piece.appendChild(inner);
     wrap.appendChild(piece);
