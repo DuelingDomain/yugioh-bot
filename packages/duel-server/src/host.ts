@@ -22,7 +22,7 @@ import type {
 } from "@yugidraft/shared/duels";
 import {
   CardQueryError, duel1v1Engine, isFirstChoice, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
-  normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_RPS_MOVES,
+  CHAIN_MODE_JOURNAL_LIMIT, CHAIN_MODE_PROMPT_PREFIX, chainModeOf, isDuelChainMode, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_RPS_MOVES,
 } from "@yugidraft/shared/duels";
 import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf } from "./engine.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
@@ -138,6 +138,8 @@ type LiveGame = {
   policies: Map<number, Rule[]>;
   /** The rules tried for each auto seat's latest prompt (debug-trace). Kept in memory only. */
   traces: Map<number, RuleTraceEntry[]>;
+  /** A hand scenario table. Its scripts are written against every response window, so it has no chain response switch. */
+  presetId?: string;
 };
 
 /** One background loop plays the practice bot's turns at a human pace; at most one per duel. */
@@ -1010,11 +1012,15 @@ export function createDuelHost(options: {
           throw new RequestError(error instanceof Error ? error.message : "Duel engine is temporarily unavailable", 503);
         }
         const elimination = eliminationReasonOf(input.command);
-        if (view.revision !== input.command.revision || (elimination === null && view.prompt?.id !== input.command.promptId)) {
+        const chainMode = chainModeOf(input.command.promptId);
+        if (view.revision !== input.command.revision || (elimination === null && chainMode === null && view.prompt?.id !== input.command.promptId)) {
           throw new ReplayMismatchError("Duel recovery did not reproduce the saved prompt");
         }
         try {
-          if (elimination === null) await game.answer(input.seat, input.command.promptId, input.command.answer);
+          if (chainMode !== null) {
+            if (!game.setChainMode) throw new ReplayMismatchError("Duel recovery needs an engine that can set a chain response mode");
+            await game.setChainMode(input.seat, chainMode);
+          } else if (elimination === null) await game.answer(input.seat, input.command.promptId, input.command.answer);
           else if (game.eliminate) await game.eliminate(input.seat, elimination);
           else throw new ReplayMismatchError("Duel recovery needs an engine that can eliminate a duelist");
         } catch (error) {
@@ -1043,6 +1049,7 @@ export function createDuelHost(options: {
       surrendered: new Set(state.setup?.surrenderedSeats ?? []),
       policies: policiesOf(state.setup),
       traces: new Map(),
+      ...(state.setup?.presetId ? { presetId: state.setup.presetId } : {}),
     });
     await driveBot(slug, guildId, game);
     return game;
@@ -1169,6 +1176,8 @@ export function createDuelHost(options: {
     const room = stampRoomClock(service.room(slug, guildId, playerId), now());
     if (game && game.running && room.session.status === "active") {
       room.engine = await game.view(room.mySeat);
+      // A scenario table has no response switch: its seats keep the duel setting.
+      if (games.get(slug)?.presetId) delete room.engine.chainMode;
       rememberView(slug, room.mySeat, room.engine);
       // Surrendered seats stay in the core on autopilot. Show them as out of the game.
       for (const gone of games.get(slug)?.surrendered ?? []) {
@@ -1216,7 +1225,7 @@ export function createDuelHost(options: {
     const events = view.events.filter((entry) => entry.id > seen.events);
     for (const entry of log) seen.log = Math.max(seen.log, entry.id);
     for (const entry of events) seen.events = Math.max(seen.events, entry.id);
-    return { ...view, prompt: null, prioritySeat: null, log, events };
+    return { ...view, chainMode: undefined, prompt: null, prioritySeat: null, log, events };
   }
 
   async function buildReplay(slug: string, guildId: string, room: DuelRoom): Promise<DuelReplay> {
@@ -1261,9 +1270,13 @@ export function createDuelHost(options: {
         try {
           const before = await game.view(input.seat);
           const elimination = eliminationReasonOf(input.command);
-          if (before.revision !== input.command.revision || (elimination === null && before.prompt?.id !== input.command.promptId)) throw mismatch();
+          const chainMode = chainModeOf(input.command.promptId);
+          if (before.revision !== input.command.revision || (elimination === null && chainMode === null && before.prompt?.id !== input.command.promptId)) throw mismatch();
           try {
-            if (elimination === null) await game.answer(input.seat, input.command.promptId, input.command.answer);
+            if (chainMode !== null) {
+              if (!game.setChainMode) throw mismatch();
+              await game.setChainMode(input.seat, chainMode);
+            } else if (elimination === null) await game.answer(input.seat, input.command.promptId, input.command.answer);
             else if (game.eliminate) await game.eliminate(input.seat, elimination);
             else throw mismatch();
           } catch (error) {
@@ -1272,11 +1285,15 @@ export function createDuelHost(options: {
             throw mismatch();
           }
           lastView = await game.view(viewer);
+          // A mode change that passed nothing leaves the duel exactly as it was: no frame, so the replay never shows it.
+          if (chainMode !== null && lastView.revision === before.revision) continue;
         } catch (error) {
           if (error instanceof RequestError) throw error;
           throw transport(error);
         }
-        frames.push({ step: i + 1, actorSeat: input.seat, view: deltaView(lastView, seen) });
+        // Numbered by the frames emitted so far: a skipped mode change must leave no gap (a gap shows how many private
+        // changes there were, and where).
+        frames.push({ step: frames.length, actorSeat: input.seat, view: deltaView(lastView, seen) });
       }
     } finally {
       await safeClose(game);
@@ -1399,6 +1416,7 @@ export function createDuelHost(options: {
         guildId,
         surrendered: new Set(),
         policies: policiesOf({ presetId: preset.id, botPolicies }),
+        presetId: preset.id,
         traces: new Map(),
       });
     } catch (error) {
@@ -1496,7 +1514,7 @@ export function createDuelHost(options: {
 
   /**
    * The journal lines of a report. First line: the e2e journal header (format `yugidraft-duel-journal/1`, decks, settings,
-   * startup scripts, core sha and more). Then one line per accepted command at its seq (`answer` or `eliminate`). A surrender
+   * startup scripts, core sha and more). Then one line per accepted command at its seq (`answer`, `eliminate` or `chain-mode`). A surrender
    * sits before the first answer that the host gave for that seat on autopilot, so a replayer sees it at its seq.
    */
   function reportJournalLines(state: ReturnType<typeof service.privateState>, worker: WorkerDebugState): unknown[] {
@@ -1546,7 +1564,7 @@ export function createDuelHost(options: {
       marker(seq);
       const command = entry.command as DuelCommand & { note?: string };
       lines.push({
-        type: eliminationReasonOf(command) === null ? "answer" : "eliminate",
+        type: chainModeOf(command.promptId) !== null ? "chain-mode" : eliminationReasonOf(command) === null ? "answer" : "eliminate",
         seq,
         seat: entry.seat,
         bot: session.seats.some((seat) => seat.seat === entry.seat && seat.isBot),
@@ -2281,6 +2299,7 @@ export function createDuelHost(options: {
       return await project(slug, guildId, actor, game);
     }
     if (room.session.status !== "active") throw new RequestError("This duel is not active", 409);
+    if (op === "chain-mode") return setChainMode(slug, guildId, actor, seat, body.mode);
     if (op === "surrender") {
       const game = await recover(slug, guildId);
       await settleClock(slug, guildId, game);
@@ -2317,6 +2336,79 @@ export function createDuelHost(options: {
     }
     try {
       await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt);
+      await emitChange(slug, guildId);
+      await driveBot(slug, guildId, live);
+      return await project(slug, guildId, actor, live);
+    } catch (error) {
+      await disposeGame(slug);
+      throw error;
+    }
+  }
+
+  /**
+   * A seat's chain response switch (Auto, Always, Off). Private and live: it changes only what the core asks THIS seat.
+   * Every change that alters the mode is journaled (`chain-mode:<mode>`, the revision before) so that a recover and a
+   * replay re-apply it at the same point. A change that passes no window leaves the duel as it was: no revision bump, no
+   * clock change, no push to the other viewers. One that passes the open window moves the duel on like an answer.
+   * The journal takes `CHAIN_MODE_JOURNAL_LIMIT` changes per duel; after that every change is refused, because a change
+   * that was applied but not journaled would break the replay.
+   */
+  async function setChainMode(slug: string, guildId: string, actor: number, seat: number, requested: unknown): Promise<unknown> {
+    if (!isDuelChainMode(requested)) throw new RequestError("Choose Auto, Always or Off", 400);
+    const mode = requested;
+    const game = await recover(slug, guildId);
+    await settleClock(slug, guildId, game);
+    if (service.get(slug, guildId).status !== "active") return project(slug, guildId, actor);
+    const entry = games.get(slug);
+    const live = entry?.game ?? game;
+    if (entry?.surrendered.has(seat)) throw new RequestError("You surrendered this duel", 409);
+    if (entry?.presetId) throw new RequestError("Scenario tables have no response switch", 409);
+    if (typeof live.setChainMode !== "function") throw new RequestError("This duel engine has no chain response switch", 409);
+    // Settle the clock again at the moment the switch is decided (like respond does), before the view that decides
+    // anything: a switch must never pass a window of a seat whose time has run out, and a forfeit that settling causes
+    // may put the seat out, so eligibility is read after it.
+    const decidedAt = now();
+    await settleClock(slug, guildId, live, decidedAt);
+    if (service.get(slug, guildId).status !== "active") return project(slug, guildId, actor);
+    if (games.get(slug)?.surrendered.has(seat)) throw new RequestError("You surrendered this duel", 409);
+    const before: DuelEngineView = await live.view(seat);
+    if (before.result) return project(slug, guildId, actor, live);
+    if (before.seats?.some((state) => state.seat === seat && (state.eliminated || state.pendingElimination))) {
+      throw new RequestError("You are out of this duel", 409);
+    }
+    // The same mode again changes nothing and is not worth a journal line.
+    if (before.chainMode === mode) return project(slug, guildId, actor, live);
+    const state = service.privateState(slug, guildId);
+    const used = state.commands.reduce((count, input) => count + (chainModeOf(input.command.promptId) === null ? 0 : 1), 0);
+    if (used >= CHAIN_MODE_JOURNAL_LIMIT) {
+      throw new RequestError(`This duel has reached its limit of ${CHAIN_MODE_JOURNAL_LIMIT} response switch changes. The switch stays where it is.`, 409);
+    }
+    let passed: boolean;
+    try {
+      passed = await live.setChainMode(seat, mode);
+    } catch (error) {
+      // The engine sets the mode before it passes the window, so a throw can leave the mode (or the core) changed with
+      // nothing journaled. Drop the worker whatever the cause; the next request rebuilds the duel from the journal.
+      const stillRunning = live.running;
+      await disposeGame(slug);
+      throw new RequestError(error instanceof Error ? error.message : "The response switch could not be set", stillRunning ? 409 : 503);
+    }
+    const command: DuelCommand = { promptId: `${CHAIN_MODE_PROMPT_PREFIX}${mode}`, revision: before.revision, answer: {} };
+    try {
+      if (passed) {
+        await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt);
+      } else {
+        // The clock is not touched: the stored clock goes back in as it is.
+        // Nor does it count as activity: /api/duels shows lastActivityAt to everyone and this change is private.
+        service.recordCommand(slug, guildId, seat, command, state.clock, { touchActivity: false });
+      }
+    } catch (error) {
+      // Applied but not journaled: drop the worker so the next request rebuilds the duel from the journal.
+      await disposeGame(slug);
+      throw error;
+    }
+    if (!passed) return project(slug, guildId, actor, live);
+    try {
       await emitChange(slug, guildId);
       await driveBot(slug, guildId, live);
       return await project(slug, guildId, actor, live);

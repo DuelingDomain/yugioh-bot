@@ -26,6 +26,7 @@ export function TagPreview({ stateId, cam, lock }: { stateId: string | null; cam
             lookSeat: preview.cam.lookSeat,
             ...(state.ui?.camera ?? {}),
           }}
+          chainMode={preview.chainMode}
         />
       )}
     />

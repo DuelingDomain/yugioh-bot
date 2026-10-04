@@ -1,7 +1,7 @@
 import { Worker } from "node:worker_threads";
 import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
-import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 
 const PROMPT_LOG_LIMIT = 5_000;
 
@@ -44,6 +44,11 @@ export interface DuelGameWorker {
   search(query: string): Promise<DuelCardInfo[]>;
   /** Remove a duelist from a duel with more than two seats. Rejects when the core has no `Debug.EliminateDuelist`. Optional so that test doubles may omit it (the host then uses autopilot). */
   eliminate?(seat: number, reason: number): Promise<void>;
+  /**
+   * Set a seat's chain response mode. True when it passed the window that was open for the seat (the duel moved on);
+   * false when it only stored the mode. Optional so that test doubles may omit it (the host then refuses the toggle).
+   */
+  setChainMode?(seat: number, mode: DuelChainMode): Promise<boolean>;
   /** The engine's triage ring buffer (host report only). */
   diagnostics?(): Promise<EngineDiagnostic[]>;
   /** Worker state for debug-trace, reports and the stall watchdog. Optional so that test doubles may omit it. */
@@ -150,6 +155,10 @@ export class GameWorker implements DuelGameWorker {
 
   eliminate(seat: number, reason: number): Promise<void> {
     return this.request({ op: "eliminate", seat, reason });
+  }
+
+  setChainMode(seat: number, mode: DuelChainMode): Promise<boolean> {
+    return this.request({ op: "chain-mode", seat, mode });
   }
 
   diagnostics(): Promise<EngineDiagnostic[]> {

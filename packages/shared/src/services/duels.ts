@@ -181,7 +181,8 @@ export interface DuelService {
     clock: DuelClockState | null,
     setup?: DuelSetup,
   ): DuelSession;
-  recordCommand(slug: string, guildId: string, seat: number, command: DuelCommand, clock: DuelClockState | null): void;
+  /** `touchActivity: false` journals the command without moving `last_activity_at` (a private change nobody else may see). */
+  recordCommand(slug: string, guildId: string, seat: number, command: DuelCommand, clock: DuelClockState | null, options?: { touchActivity?: boolean }): void;
   complete(
     slug: string,
     guildId: string,
@@ -1045,7 +1046,7 @@ export function createDuelService(db: Database.Database): DuelService {
   );
 
   const recordCommandTx = db.transaction(
-    (slug: string, guildId: string, seat: number, command: DuelCommand, clock: DuelClockState | null) => {
+    (slug: string, guildId: string, seat: number, command: DuelCommand, clock: DuelClockState | null, touch: boolean) => {
       const row = loadDuelRow(slug, guildId);
       if (row.status !== "active") throw new DuelServiceError("Duel is not active", 400);
       if (!Number.isInteger(seat) || !seatRows(row.id).some((entry) => entry.seat === seat)) {
@@ -1056,7 +1057,7 @@ export function createDuelService(db: Database.Database): DuelService {
       if (!next) throw new DuelServiceError("Duel record is invalid", 500);
       insertCommand.run(row.id, next.next_seq, seat, JSON.stringify(command));
       updateClock.run(serializeClock(storedClock), row.id);
-      touchActivity.run(row.id);
+      if (touch) touchActivity.run(row.id);
     },
   );
 
@@ -1326,8 +1327,8 @@ export function createDuelService(db: Database.Database): DuelService {
       return activateTx(slug, guildId, organizerPlayerId, seed, bundleVersion, clock, setup);
     },
 
-    recordCommand(slug, guildId, seat, command, clock) {
-      recordCommandTx(slug, guildId, seat, command, clock);
+    recordCommand(slug, guildId, seat, command, clock, options) {
+      recordCommandTx(slug, guildId, seat, command, clock, options?.touchActivity !== false);
     },
 
     complete(slug, guildId, winnerSeat, reason, snapshots) {

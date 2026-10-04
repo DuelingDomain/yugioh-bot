@@ -26,7 +26,8 @@ import { parseJournalText } from "./lib/journal-file.js";
 import { join } from "node:path";
 import { isDuelFormat, legacyDuelSettings, normalizeDuelSettings, seatCountFor, type DuelAnswer, type DuelDeck, type DuelFormat, type DuelMasterRule, type DuelMode } from "@yugidraft/shared/duels";
 import { engineDataDirectory } from "../tests/fuzz/config.js";
-import { createEngineGame, eliminationCodeOf } from "../src/engine.js";
+import { createEngineGame } from "../src/engine.js";
+import { applyJournaledCommand, isPromptlessCommand } from "../src/journal-command.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "../src/multi-scripts.js";
 import { savedFirstTurnDraw } from "../src/first-turn-draw.js";
 
@@ -129,17 +130,15 @@ try {
   for (; done < stopAt; done++) {
     const { seat, command } = journal.commands[done]!;
     const view = game.view(seat);
-    const elimination = eliminationCodeOf(command.promptId);
-    if (view.revision !== command.revision || (elimination === null && view.prompt?.id !== command.promptId)) {
+    if (view.revision !== command.revision || (!isPromptlessCommand(command.promptId) && view.prompt?.id !== command.promptId)) {
       log(`step ${done}: mismatch. Journal has revision ${command.revision} prompt ${command.promptId}; the engine has revision ${view.revision} prompt ${view.prompt?.id ?? "none"}`);
       failed = true;
       failedStep = done;
       break;
     }
     if (process.argv.includes("--trace")) log(`  ${done}: seat ${seat} ${command.promptId} "${view.prompt?.title ?? "(elimination)"}" ${JSON.stringify(command.answer)}`);
-    // A host-driven elimination (FFA surrender or time loss) is journaled like an answer.
-    if (elimination === null) game.answer(seat, command.promptId, command.answer);
-    else game.eliminate(seat, elimination);
+    // A host-driven elimination (FFA surrender or time loss) and a chain response mode change are journaled like an answer.
+    applyJournaledCommand(game, seat, command);
     if (asJson) sample(done + 1);
   }
   if (!failed) log(`replayed ${done} of ${journal.commands.length} answers`);

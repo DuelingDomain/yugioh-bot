@@ -443,7 +443,7 @@ export function FxLab() {
                       <SummonFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} shake="medium" />
                       <MoveFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} replayFrom={live.preloaded ? 0 : null} />
                       <PositionFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} />
-                      <ChainFx events={engine.events} chain={engine.chain} duelKey={duelKey} reducedMotion={reduced} mySeat={0} playerName={(seat) => (seat === 0 ? "You" : "Practice Bot")} />
+                      <ChainFx seats={engine.seats} events={engine.events} chain={engine.chain} duelKey={duelKey} reducedMotion={reduced} mySeat={0} playerName={(seat) => (seat === 0 ? "You" : "Practice Bot")} />
                       <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={duelKey} reducedMotion={reduced} mySeat={0} />
                       <BattleFx events={engine.events} seats={engine.seats} reducedMotion={reduced} active aim={script.aim} result={engine.result} />
                       <DestroyFx events={engine.events} reducedMotion={reduced} active mySeat={0} />
