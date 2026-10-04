@@ -154,4 +154,26 @@ describe("SolidField Master Rule 3 Pendulum zones", () => {
     const { container } = render(<SolidField {...props(engine, 3)} />);
     expect(filledSpells(container)).toBe(before + 1);
   });
+
+  it("draws and lets you pick both cards when S1 and the Pendulum zone are occupied", () => {
+    const engine = solidEngine();
+    const spells = engine.seats[0].spells;
+    spells[0] = { ...spells[1]!, sequence: 0, position: 1 };
+    spells[6] = { ...spells[1]!, sequence: 6, position: 1 };
+    const onActivate = vi.fn();
+    const { container } = render(<SolidField {...props(engine, 3)} onActivate={onActivate} />);
+    const cell = container.querySelector('[data-field-seat="0"] [data-cell="st"]') as HTMLElement;
+    const zones = [...cell.querySelectorAll<HTMLElement>("[data-zones]")];
+    expect(zones).toHaveLength(2);
+    expect(zones.map((el) => el.getAttribute("data-occupied"))).toEqual(["true", "true"]);
+    const [main, pendulum] = zones.map((el) => el.getAttribute("data-zones")!.split(" "));
+    expect(main).toContain("0:8:0");
+    expect(main).not.toContain("0:8:6");
+    expect(pendulum).toContain("0:8:6");
+    expect(pendulum).not.toContain("0:8:0");
+    zones.forEach((el) => (el.querySelector("button") as HTMLButtonElement).click());
+    expect(onActivate).toHaveBeenCalledTimes(2);
+    expect(onActivate.mock.calls[0][0]).toEqual(main);
+    expect(onActivate.mock.calls[1][0]).toEqual(pendulum);
+  });
 });

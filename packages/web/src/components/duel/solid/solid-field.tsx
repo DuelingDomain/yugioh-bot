@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useRef, type ReactNode } from "react";
+import { createContext, useContext, useRef, type CSSProperties, type ReactNode } from "react";
 import type { DuelMasterRule, DuelCard, DuelSeatView } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
 import { ST_COUNT } from "../constants";
@@ -66,6 +66,11 @@ function spellKeys(seat: number, sequence: number, card: DuelCard | null, master
   return withExact(card, [...new Set([...stKeys(seat, sequence, null, masterRule), ...stKeys(seat, pendulum, null, masterRule)])]);
 }
 
+/** The Master Rule 3 Pendulum card sits over the lower outer corner of its S1/S5 cell, smaller than the zone card. */
+const PENDULUM_STACK: CSSProperties = {
+  position: "absolute", right: 0, bottom: 0, width: "62%", height: "62%", zIndex: 1, display: "grid",
+};
+
 function PileCell({ view, kind, ownerLabel, flip, column, callbacks, col, row, cell = "pile" }: {
   view: DuelSeatView | undefined;
   kind: PileKind;
@@ -121,15 +126,22 @@ function Half({ view, seatIndex, opponent, ownerLabel, masterRule, callbacks, ac
       {order.map((sequence, index) => {
         const shared = { flip: opponent, callbacks, masterRule, pendulum: masterRule >= 3 && (sequence === 0 || sequence === ST_COUNT - 1) };
         const own = spellZoneProps(view, sequence, shared);
-        // Master Rule 3: the Pendulum zones (spells[6], [7]) share S1/S5 here. V1 draws them as own zones; with the
-        // ordinary zone empty, this cell draws the Pendulum card so a legal pick on it is not an empty cell.
+        // Master Rule 3: the Pendulum zones (spells[6], [7]) share S1/S5 here. V1 draws them as own zones. A Pendulum
+        // card is drawn as a second, smaller card in the corner of the cell, with its own keys and hit target, so
+        // it shows and can be picked even when the ordinary zone holds a card too. With no Pendulum card the cell
+        // stays one zone that answers to the keys of both.
         const pendulumSequence = masterRule === 3 && shared.pendulum ? (sequence === 0 ? 6 : 7) : null;
-        const props = own.card == null && pendulumSequence != null && slot(view?.spells, pendulumSequence) != null
-          ? spellZoneProps(view, pendulumSequence, shared)
-          : own;
+        const pendulumCard = pendulumSequence != null ? slot(view?.spells, pendulumSequence) : null;
         return (
           <Cell key={`st-${sequence}`} col={2 + index} row={spellRow} kind="st">
-            <ZoneSlot {...props} keys={spellKeys(seat, sequence, props.card, masterRule)} />
+            <ZoneSlot {...own} keys={pendulumCard != null ? own.keys : spellKeys(seat, sequence, own.card, masterRule)} />
+            {pendulumSequence != null && pendulumCard != null ? (
+              <div data-sv-pendulum={pendulumSequence} style={PENDULUM_STACK}>
+                <ZoneSlot {...spellZoneProps(view, pendulumSequence, shared)}
+                  label={`${ownerLabel} ${pendulumSequence === 6 ? "left" : "right"} Pendulum zone`}
+                  keys={stKeys(seat, pendulumSequence, pendulumCard, masterRule)} />
+              </div>
+            ) : null}
           </Cell>
         );
       })}
