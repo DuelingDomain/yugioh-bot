@@ -9,6 +9,7 @@ import { SeatField } from "../field";
 import { MoveSourceBoundary } from "../fx-boundary";
 import { duelFxClock } from "../fx-clock";
 import { duelFontClasses } from "../fonts";
+import { outOrLeavingSeats, outSeatOptionIds } from "../multi-seat";
 import { usePickContinuation } from "../pick-continuation";
 import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import { centerKind, PromptCenter } from "../prompt-center";
@@ -223,6 +224,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       headless={centered}
       suspended={suspended || flow.seatKeys || centeredUnrevealed}
       waitingName={prompt ? nameOf(prompt.seat) : null}
+      disabledIds={outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats))}
     />
   );
   const side = (
@@ -306,7 +308,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
                     reducedMotion={controller.reducedMotion}
                     revision={engine.revision}
                     battleStep={battleStep}
-                    outSeats={new Set(engine.seats.filter((seat) => seat.eliminated || seat.pendingElimination).map((seat) => seat.seat))}
+                    outSeats={outOrLeavingSeats(engine.seats)}
                     revealed={controller.revealed}
                     onInspectCard={(card) => ui.setInspect({ type: "info", card })}
                     nameOf={nameOf}

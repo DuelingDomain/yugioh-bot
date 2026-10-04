@@ -9,7 +9,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 import { nextEnabledIndex, outSeatOptionIds, PromptCenter } from "@/components/duel/prompt-center";
-import { usePromptDraft } from "@/components/duel/prompts";
+import { PromptTray, usePromptDraft } from "@/components/duel/prompts";
 
 afterEach(cleanup);
 
@@ -26,6 +26,8 @@ function Panel({ prompt, outSeats, onSubmit = vi.fn() }: { prompt: DuelPrompt; o
   const draft = usePromptDraft(prompt);
   return (
     <>
+      <PromptTray prompt={prompt} mySeat={0} slug="t" busy={false} draft={draft} onSubmit={onSubmit} headless
+        disabledIds={outSeatOptionIds(prompt, outSeats)} />
       <PromptCenter prompt={prompt} mySeat={0} active slug="t" busy={false} draft={draft} onSubmit={onSubmit}
         menuOpen={false} chain={[]} aimLocked={false} reducedMotion revision={1} seatTones={new Map()}
         nameOf={(seat) => `Duelist ${seat + 1}`} outSeats={outSeats} />
@@ -106,6 +108,25 @@ describe("PromptCenter outSeats", () => {
     expect(highlight()).toBe(0);
     fireEvent.keyDown(window, { key: "ArrowUp" });
     expect(highlight()).toBe(2);
+  });
+
+  it("focuses the first enabled row when the first row is disabled", async () => {
+    render(<Panel prompt={opponentPrompt} outSeats={new Set([1])} />);
+    await waitFor(() => expect(highlight()).toBe(1));
+    expect(rows()[1]).toHaveFocus();
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    expect(highlight()).toBe(2);
+    expect(rows()[2]).toHaveFocus();
+  });
+
+  it("answers the enabled row with its number key and Enter, never the disabled one", async () => {
+    const submit = vi.fn();
+    render(<Panel prompt={opponentPrompt} outSeats={new Set([1])} onSubmit={submit} />);
+    await waitFor(() => expect(highlight()).toBe(1));
+    fireEvent.keyDown(window, { key: "1" });
+    expect(submit).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(submit).toHaveBeenCalledExactlyOnceWith({ choice: "opp-2" });
   });
 
   it("does not answer a disabled row with its number key", () => {

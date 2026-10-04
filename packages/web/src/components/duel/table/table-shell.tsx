@@ -22,7 +22,7 @@ import { DuelHistoryRail } from "../history-rail";
 import { CardInspector, type InspectTarget } from "../inspector";
 import { MasterReturnFx } from "../master-return-fx";
 import { MoveFx } from "../move-fx";
-import { engineFormat, formatLabel } from "../multi-seat";
+import { engineFormat, formatLabel, outOrLeavingSeats, outSeatOptionIds } from "../multi-seat";
 import { PileViewer } from "../pile-viewer";
 import { livePileCards } from "../pile-focus";
 import { MatchSheetLog } from "../text-log";
@@ -422,6 +422,7 @@ function TableShellBody({
             headless={centered}
             suspended={suspended || flow.seatKeys || (centered && !controller.revealed)}
             waitingName={prompt ? nameOf(prompt.seat) : null}
+            disabledIds={outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats))}
           />
         </div>
         <section className={roomStyles.boardColumn} aria-label="Duel field">
@@ -464,7 +465,7 @@ function TableShellBody({
                     reducedMotion={controller.reducedMotion}
                     revision={engine.revision}
                     battleStep={battleStep}
-                    outSeats={new Set(engine.seats.filter((seat) => seat.eliminated || seat.pendingElimination).map((seat) => seat.seat))}
+                    outSeats={outOrLeavingSeats(engine.seats)}
                     revealed={controller.revealed}
                     onInspectCard={(card) => ui.setInspect({ type: "info", card })}
                     nameOf={nameOf}

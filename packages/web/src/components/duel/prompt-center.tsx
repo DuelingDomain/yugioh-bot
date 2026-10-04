@@ -32,7 +32,7 @@ import {
   POS_FACEUP_ATTACK,
   POS_FACEUP_DEFENSE,
 } from "./constants";
-import { opponentPickLabel } from "./multi-seat";
+import { isDirectAttackRow, nextEnabledIndex, opponentPickLabel, outSeatOptionIds } from "./multi-seat";
 import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import { CardBack } from "./card-face";
 import { CardStrip, type StripCard } from "./card-strip";
@@ -727,37 +727,10 @@ function PositionTiles({
   );
 }
 
-/** A seat-only direct attack row ("Attack Player 2 directly"): it names a duelist, not a card. */
-function isDirectAttackRow(option: DuelPromptOption): boolean {
-  return option.controller != null && option.location == null && /^Attack .+ directly$/i.test(option.label);
-}
+// Re-exported for callers and tests that import the seat-pick rule from here.
+export { nextEnabledIndex, outSeatOptionIds };
 
 const NO_ROWS: ReadonlySet<string> = new Set();
-
-/**
- * Rows of a seat pick (opponent pick or direct attack) that name a seat which is out or leaving. They are disabled
- * only while at least one other seat row is still living; with none living every row stays (same rule as the server,
- * prompts.ts). Option ids and order never change.
- */
-export function outSeatOptionIds(prompt: DuelPrompt | null | undefined, outSeats: ReadonlySet<number> | undefined): ReadonlySet<string> {
-  if (!prompt || !outSeats || outSeats.size === 0) return NO_ROWS;
-  const seatRow = prompt.context?.type === "opponent"
-    ? (option: DuelPromptOption) => option.controller != null
-    : isDirectAttackRow;
-  const rows = prompt.options.filter(seatRow);
-  if (rows.length === 0 || !rows.some((option) => !outSeats.has(option.controller as number))) return NO_ROWS;
-  return new Set(rows.filter((option) => outSeats.has(option.controller as number)).map((option) => option.id));
-}
-
-/** The next index from `from` in `step` direction (wrapping) whose option is not disabled; `from` when none is free. */
-export function nextEnabledIndex(prompt: DuelPrompt, disabled: ReadonlySet<string>, from: number, step: 1 | -1): number {
-  const count = prompt.options.length;
-  for (let offset = 1; offset <= count; offset += 1) {
-    const index = (((from + step * offset) % count) + count) % count;
-    if (!disabled.has(prompt.options[index].id)) return index;
-  }
-  return from;
-}
 
 /** The row's spoken name; a row that is out says so (its visible text is not part of an aria-label). */
 function rowLabel(label: string | undefined, out: boolean): string | undefined {
@@ -1421,10 +1394,6 @@ export function PromptCenter(props: PromptCenterProps) {
   // Seat rows of an out or leaving duelist stay listed but cannot be picked, by click or by key.
   const outRows = outSeatOptionIds(kind === "response" ? prompt : null, props.outSeats);
   const outKey = [...outRows].join("|");
-  const outRef = useRef(outRows);
-  outRef.current = outRows;
-  const draftRef = useRef(draft);
-  draftRef.current = draft;
 
   // Which way to answer a card pick: on the board, or in a centred grid.
   useLayoutEffect(() => {
@@ -1497,7 +1466,10 @@ export function PromptCenter(props: PromptCenterProps) {
     if (!kind || !revealed || (kind === "select" && onBoard !== false) || collapsed) return;
     const panel = panelRef.current;
     // Card grids focus the panel itself: Enter then confirms through the tray's shortcut.
-    const target = kind === "response" ? panel?.querySelector<HTMLElement>("[data-primary]:not(:disabled)") : panel;
+    // The highlighted row can be a disabled seat row (out or leaving); focus then goes to the first enabled row.
+    const target = kind === "response"
+      ? (panel?.querySelector<HTMLElement>("[data-primary]:not(:disabled)") ?? panel?.querySelector<HTMLElement>("[data-index]:not(:disabled)"))
+      : panel;
     target?.focus({ preventScroll: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [promptId, collapsed, kind, onBoard, revealed, checking]);
@@ -1524,34 +1496,6 @@ export function PromptCenter(props: PromptCenterProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlight, promptId, outKey]);
-
-  // The tray reads arrows and number keys in the bubble phase. This capture step runs first, so those keys skip the
-  // disabled rows and a swallowed key never reaches the tray.
-  useEffect(() => {
-    if (!outKey) return;
-    const key = (event: KeyboardEvent) => {
-      const current = promptRef.current;
-      const rows = outRef.current;
-      if (!current || rows.size === 0 || !revealedRef.current || kindRef.current !== "response") return;
-      if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey || menuRef.current) return;
-      if (event.target instanceof Element && event.target.closest("input,textarea,select,[contenteditable='true'],[data-duel-menu],[role='menu'],[role='dialog']")) return;
-      const step = event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 0;
-      if (step !== 0) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        draftRef.current.setHighlight(nextEnabledIndex(current, rows, draftRef.current.highlight, step));
-        return;
-      }
-      const digit = /^(?:Numpad)?([1-9])$/.exec(event.key)?.[1];
-      const option = digit ? current.options[Number(digit) - 1] : undefined;
-      if (option && rows.has(option.id)) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      }
-    };
-    window.addEventListener("keydown", key, true);
-    return () => window.removeEventListener("keydown", key, true);
-  }, [outKey]);
 
   useEffect(() => {
     if (!kind) return;

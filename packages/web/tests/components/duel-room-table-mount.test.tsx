@@ -466,6 +466,18 @@ describe("live room table mount", () => {
     });
   });
 
+  it("reads key 1 as the first living rival when seat 1 is Leaving, and keys 2 and 3 answer nothing", async () => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 1 ? { ...seat, pendingElimination: true } : seat);
+    mount();
+    await act(async () => { fireEvent.keyDown(window, { key: "2" }); fireEvent.keyDown(window, { key: "3" }); });
+    expect(state.send).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.keyDown(window, { key: "1" }); });
+    expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
+      promptId: "choose-opponent", revision: state.room!.engine!.revision, answer: { choice: "opp-2" },
+    });
+  });
+
   it("answers a Leaving opponent from the live LP panel when every offered seat is leaving", async () => {
     room(FFA3_FIXTURES.states["choose-opponent"].room);
     state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 1 || seat.seat === 2 ? { ...seat, pendingElimination: true } : seat);
