@@ -11,6 +11,7 @@ import {
   type ServerToClientEvents,
 } from "../src/events.js";
 import { registerDuelEventHandlers } from "../src/duel-events.js";
+import { presenceHeartbeat } from "../src/socket-options.js";
 
 const SECRET = "duel-ws-secret";
 
@@ -38,10 +39,11 @@ function mint(overrides: Partial<DuelConnectionTokenClaims> = {}) {
 
 async function setupTestServer(): Promise<Setup> {
   const httpServer = createServer();
-  const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(httpServer);
+  const io = new SocketIOServer<ClientToServerEvents, ServerToClientEvents>(httpServer, presenceHeartbeat);
   registerEventHandlers(io, new DraftRoomManager(), { secret: SECRET, canReadDraft: () => true });
   registerDuelEventHandlers(io, { secret: SECRET });
-  return new Promise<Setup>((resolve) => {
+  return new Promise<Setup>((resolve, reject) => {
+    httpServer.once("error", reject);
     httpServer.listen(0, () => {
       const address = httpServer.address();
       const port = typeof address === "object" && address ? address.port : 0;
@@ -69,9 +71,14 @@ function emitDraftJoin(client: TestClient, slug: string): Promise<unknown> {
 }
 
 function oncePresence(client: TestClient, match: (payload: Presence) => boolean): Promise<Presence> {
-  return new Promise<Presence>((resolve) => {
+  return new Promise<Presence>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      client.off("duel:presence", onPresence);
+      reject(new Error("Presence did not update within 18 seconds"));
+    }, 18_000);
     const onPresence = (payload: Presence) => {
       if (!match(payload)) return;
+      clearTimeout(timeout);
       client.off("duel:presence", onPresence);
       resolve(payload);
     };
@@ -102,8 +109,8 @@ describe("registerDuelEventHandlers", () => {
     for (const client of clients) {
       if (client.connected) client.disconnect();
     }
-    server.io.close();
-    server.httpServer.close();
+    server?.io.close();
+    server?.httpServer.close();
   });
 
   function addClient(): TestClient {
@@ -111,6 +118,62 @@ describe("registerDuelEventHandlers", () => {
     clients.push(client);
     return client;
   }
+
+  it("lets a sidebar observe without occupying a seat or counting as a spectator", async () => {
+    const observer = addClient();
+    await waitForConnect(observer);
+    const ack = await new Promise<DuelJoinAck>((resolve) => observer.emit("duel:join", {
+      token: mint().token, observe: true,
+    }, resolve));
+    expect(ack).toEqual({ ok: true, onlineSeats: [], spectatorCount: 0 });
+    const present = oncePresence(observer, (payload) => payload.onlineSeats.includes(1));
+    const player = addClient();
+    await waitForConnect(player);
+    await emitDuelJoin(player, mint({ seat: 1 }).token);
+    expect((await present).onlineSeats).toEqual([1]);
+    observer.emit("duel:visibility", { visible: true });
+    expect(await emitDuelJoin(observer, "bad")).toEqual({ ok: false, error: "invalid token" });
+    expect((await emitDuelJoin(player, mint({ seat: 1 }).token))).toMatchObject({ onlineSeats: [1], spectatorCount: 0 });
+  });
+
+  it("reports away when all duel tabs are hidden and present when one becomes visible", async () => {
+    const watcher = addClient();
+    const first = addClient();
+    const second = addClient();
+    await Promise.all([watcher, first, second].map(waitForConnect));
+    await emitDuelJoin(watcher, mint({ seat: null }).token);
+    await emitDuelJoin(first, mint({ seat: 3 }).token);
+    await emitDuelJoin(second, mint({ seat: 3 }).token);
+    const stillPresent = oncePresence(watcher, (p) => p.onlineSeats.includes(3));
+    first.emit("duel:visibility", { visible: false });
+    await stillPresent;
+    const away = oncePresence(watcher, (p) => p.onlineSeats.length === 0);
+    second.emit("duel:visibility", { visible: false });
+    expect((await away).onlineSeats).toEqual([]);
+    const back = oncePresence(watcher, (p) => p.onlineSeats.includes(3));
+    first.emit("duel:visibility", { visible: true });
+    expect((await back).onlineSeats).toEqual([3]);
+  }, 20_000);
+
+  it("keeps a hidden tab hidden when its token is renewed", async () => {
+    const client = addClient();
+    await waitForConnect(client);
+    for (let join = 0; join < 2; join++) {
+      const ack = await new Promise<DuelJoinAck>((resolve) => client.emit("duel:join", {
+        token: mint({ seat: 2 }).token, visible: false,
+      }, resolve));
+      expect(ack).toMatchObject({ onlineSeats: [] });
+    }
+  });
+
+  it("keeps presence scoped to the token's guild even when slugs match", async () => {
+    const first = addClient();
+    const otherGuild = addClient();
+    await Promise.all([first, otherGuild].map(waitForConnect));
+    await emitDuelJoin(first, mint({ seat: 2 }).token);
+    expect(await emitDuelJoin(otherGuild, mint({ guildId: "g2", seat: null }).token))
+      .toEqual({ ok: true, onlineSeats: [], spectatorCount: 1 });
+  });
 
   it("subscribes a valid token to the token's room and reports presence", async () => {
     const client = addClient();
@@ -231,6 +294,25 @@ describe("registerDuelEventHandlers", () => {
     leaving.disconnect();
     expect(await afterDisconnect).toEqual({ slug: "alpha", onlineSeats: [0], spectatorCount: 0 });
   });
+
+  it("clears a blackholed network connection within 18 seconds", async () => {
+    const staying = addClient();
+    const lost = addClient();
+    await Promise.all([staying, lost].map(waitForConnect));
+    await emitDuelJoin(staying, mint({ seat: null }).token);
+    await emitDuelJoin(lost, mint({ seat: 1 }).token);
+    const afterTimeout = oncePresence(staying, (payload) => payload.onlineSeats.length === 0);
+    const started = Date.now();
+    // Keep the TCP transport open but drop outgoing packets, including pong replies.
+    const send = lost.io.engine.transport.send;
+    lost.io.engine.transport.send = () => {};
+    try {
+      expect((await afterTimeout).onlineSeats).toEqual([]);
+      expect(Date.now() - started).toBeLessThan(18_000);
+    } finally {
+      lost.io.engine.transport.send = send;
+    }
+  }, 20_000);
 
   it("expires a live subscription and notifies only that socket", async () => {
     const expiring = addClient();

@@ -60,6 +60,10 @@
 .seatActions .status { grid-area: auto; }
 .status { grid-area: status; display: inline-flex; align-items: center; gap: 7px; justify-self: start; height: 26px; padding: 0 11px 0 9px; border: 1px solid var(--duel-rule-lo); border-radius: 999px; color: var(--duel-ink-3); font-size: 13px; }
 .statusReady { border-color: rgb(134 207 161 / 0.4); background: var(--duel-ok-soft); color: var(--duel-ok); }
+.presence { display: inline-flex; align-items: center; gap: 6px; color: var(--duel-ink-3); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+.presence i { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--duel-ink-4); }
+.presence[data-present="true"] { color: var(--duel-ok); }
+.presence[data-present="true"] i { background: var(--duel-ok); }
 
 .help { color: var(--duel-ink-3); font-size: 13.5px; line-height: 1.55; max-width: 72ch; }
 .footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; padding-top: 16px; border-top: 1px solid var(--duel-rule-lo); }

@@ -22,22 +22,25 @@ interface LiveNowRowProps {
  * back instead of jumping (grid rows and opacity, 300ms). While it collapses it shows what it showed.
  */
 export function LiveNowRow({ live, size, onNavigate }: LiveNowRowProps) {
-  const model = liveRowModel(live);
+  const model = liveRowModel(live, live?.presence ?? null);
   const kept = useRef(model);
   if (model) kept.current = model;
   const { mounted, state } = usePresence(model !== null, DURATION.flip);
   const row = model ?? kept.current;
   if (!mounted || !row) return null;
   const you = row.kind === "you";
+  const dot = you ? <i className={`${styles.presenceDot} ${styles.liveDot}`} data-present={row.present}
+    role="img" aria-label={row.present ? "Opponent in the room" : "Opponent away or presence unavailable"} />
+    : <LiveDot className={styles.liveDot} />;
 
   const link =
     size === "rail" ? (
       <Link className={styles.liveTile} href={row.href} aria-label={row.name} onClick={onNavigate}>
-        <LiveDot you={you} className={styles.liveDot} />
+        {dot}
       </Link>
     ) : (
       <Link className={styles.liveRow} data-size={size} href={row.href} aria-label={row.name} onClick={onNavigate}>
-        <LiveDot you={you} className={styles.liveDot} />
+        {dot}
         <span className={styles.liveText}>
           <span className={styles.liveTitle}>{row.title}</span>
           <span className={styles.liveSub}>{row.sub}</span>

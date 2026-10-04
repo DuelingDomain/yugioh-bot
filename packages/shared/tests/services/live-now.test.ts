@@ -57,6 +57,17 @@ function seatOf(app: App, slug: string, playerId: number) {
 }
 
 describe("live now", () => {
+  it("includes each other seat for presence in a full multiplayer lobby", () => {
+    const app = setup();
+    const duel = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Four", mode: "normal", format: "ffa4" });
+    app.duels.takeSeat(duel.slug, "g1", app.p2, 1);
+    app.duels.takeSeat(duel.slug, "g1", app.p3, 2);
+    app.duels.takeSeat(duel.slug, "g1", app.p4, 3);
+    expect(app.live.forPlayer("g1", app.p2).yourDuel).toMatchObject({ href: `/duels/${duel.slug}`, opponents: [
+      { seat: 0, name: "Yugi", isBot: false }, { seat: 2, name: "Joey", isBot: false }, { seat: 3, name: "Tea", isBot: false },
+    ] });
+    expect(app.live.forPlayer("g2", app.other).yourDuel).toBeNull();
+  });
   it("is empty when nothing is happening", () => {
     const app = setup();
     expect(app.live.forPlayer("g1", app.p1)).toEqual({ yourDuel: null, liveCount: 0 });
@@ -71,8 +82,9 @@ describe("live now", () => {
   it("walks a best of 3 challenge through waiting, live and between games", () => {
     const app = setup();
     const slug = startChallenge(app);
-    for (const [viewer, opponent] of [[app.p1, "Kaiba"], [app.p2, "Yugi"]] as const) {
-      expect(app.live.forPlayer("g1", viewer).yourDuel).toEqual({ href: `/duels/${slug}`, opponent, state: "waiting" });
+    for (const [viewer, opponent, opponentId] of [[app.p1, "Kaiba", app.p2], [app.p2, "Yugi", app.p1]] as const) {
+      expect(app.live.forPlayer("g1", viewer).yourDuel).toEqual({ href: `/duels/${slug}`, opponent, state: "waiting",
+        opponents: [{ seat: seatOf(app, slug, opponentId), name: opponent, isBot: false }] });
     }
     // A bystander sees nothing of their own, and the lobby is not live.
     expect(app.live.forPlayer("g1", app.p3)).toEqual({ yourDuel: null, liveCount: 0 });
@@ -80,13 +92,13 @@ describe("live now", () => {
     readyBoth(app, slug);
     app.duels.activate(slug, "g1", null, ["s"], "v", null);
     expect(app.live.forPlayer("g1", app.p1)).toEqual({
-      yourDuel: { href: `/duels/${slug}`, opponent: "Kaiba", state: "live" },
+      yourDuel: { href: `/duels/${slug}`, opponent: "Kaiba", state: "live", opponents: [{ seat: seatOf(app, slug, app.p2), name: "Kaiba", isBot: false }] },
       liveCount: 0 + 1,
     });
 
     app.duels.complete(slug, "g1", seatOf(app, slug, app.p1), "done");
     expect(app.live.forPlayer("g1", app.p2)).toEqual({
-      yourDuel: { href: `/duels/${slug}`, opponent: "Yugi", state: "between" },
+      yourDuel: { href: `/duels/${slug}`, opponent: "Yugi", state: "between", opponents: [{ seat: seatOf(app, slug, app.p1), name: "Yugi", isBot: false }] },
       liveCount: 0,
     });
 

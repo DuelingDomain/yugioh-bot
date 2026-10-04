@@ -36,6 +36,23 @@ describe("shell model", () => {
 });
 
 describe("liveRowModel", () => {
+  it("uses socket presence rather than lobby readiness for the opponent", () => {
+    const live = { yourDuel: { href: "/duels/abc", opponent: "milansteg", state: "waiting" as const,
+      opponents: [{ seat: 1, name: "milansteg", isBot: false }] }, liveCount: 0 };
+    expect(liveRowModel(live, { onlineSeats: [1], spectatorCount: 0 }))
+      .toMatchObject({ sub: "milansteg · in the room", present: true });
+    expect(liveRowModel(live, { onlineSeats: [0], spectatorCount: 0 }))
+      .toMatchObject({ sub: "milansteg · away", present: false });
+    expect(liveRowModel(live, null)).toMatchObject({ sub: "milansteg · presence unavailable", present: false });
+  });
+
+  it("shows presence per opponent in a multiplayer lobby and labels bots", () => {
+    const live = { yourDuel: { href: "/duels/abc", opponent: "A", state: "waiting" as const,
+      opponents: [{ seat: 0, name: "A", isBot: false }, { seat: 2, name: "B", isBot: false },
+        { seat: 3, name: "Practice Bot", isBot: true }] }, liveCount: 0 };
+    expect(liveRowModel(live, { onlineSeats: [2], spectatorCount: 0 }))
+      .toMatchObject({ sub: "A · away; B · in the room; Practice Bot · bot", present: true });
+  });
   it("shows nothing without data or with nothing live", () => {
     expect(liveRowModel(null)).toBeNull();
     expect(liveRowModel({ yourDuel: null, liveCount: 0 })).toBeNull();
@@ -43,14 +60,14 @@ describe("liveRowModel", () => {
 
   it("your duel wins over the count", () => {
     const row = liveRowModel({ yourDuel: { href: "/duels/abc", opponent: "Kestrel", state: "live" }, liveCount: 4 });
-    expect(row).toMatchObject({ kind: "you", title: "Your duel", sub: "Kestrel", action: "Open duel", href: "/duels/abc" });
-    expect(row?.name).toBe("Your duel against Kestrel. Open duel");
+    expect(row).toMatchObject({ kind: "you", title: "Your duel", sub: "Kestrel · presence unavailable", action: "Open duel", href: "/duels/abc" });
+    expect(row?.name).toBe("Your duel against Kestrel · presence unavailable. Open duel");
   });
 
-  it("says the state when your duel is between games or waiting", () => {
+  it("does not use the game state as evidence of room presence", () => {
     const base = { href: "/duels/abc", opponent: "Kestrel" } as const;
-    expect(liveRowModel({ yourDuel: { ...base, state: "between" }, liveCount: 1 })?.sub).toBe("Kestrel, between games");
-    expect(liveRowModel({ yourDuel: { ...base, state: "waiting" }, liveCount: 1 })?.sub).toBe("Kestrel, waiting");
+    expect(liveRowModel({ yourDuel: { ...base, state: "between" }, liveCount: 1 })?.sub).toBe("Kestrel · presence unavailable");
+    expect(liveRowModel({ yourDuel: { ...base, state: "waiting" }, liveCount: 1 })?.sub).toBe("Kestrel · presence unavailable");
   });
 
   it("falls back to the count and links to /duels", () => {

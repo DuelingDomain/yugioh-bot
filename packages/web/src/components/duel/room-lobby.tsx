@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Bot, CheckCircle2, CircleDashed, Lock, Globe, Swords, UserPlus, X, type LucideIcon } from "lucide-react";
 import { isCustomDomain, type DuelDeck, type DuelRoom, type DuelSeat } from "@yugidraft/shared/duels";
+import type { DuelPresencePayload } from "@yugidraft/shared/ws";
 import { DeckCardPreview } from "./deck-card-preview";
 import { DeckEditor } from "./deck-editor";
 import { formatLabel as tableFormatLabel, formatSeatCount, seatGroups, tagSeatCode } from "./table-format";
@@ -18,7 +19,7 @@ import styles from "./room-lobby.module.css";
 import seriesStyles from "./series.module.css";
 
 function SeatCard({
-  index, taken, mine, code, waitLabel, onTakeSeat, onAddBot, onRemoveBot, botBusy,
+  index, taken, mine, code, waitLabel, onTakeSeat, onAddBot, onRemoveBot, botBusy, present,
 }: {
   index: number;
   taken: DuelSeat | undefined;
@@ -31,6 +32,7 @@ function SeatCard({
   /** Set only for the organizer of a lobby table: shows the quiet remove control on a bot's seat. */
   onRemoveBot?: (seat: number) => void;
   botBusy: boolean;
+  present: boolean | null;
 }) {
   const seatLabel = `Seat ${index + 1}${code ? ` · ${code}` : ""}`;
   if (!taken) {
@@ -70,9 +72,14 @@ function SeatCard({
           {seatLabel}{mine ? " · You" : taken.isBot ? " · Practice bot" : ""}
         </span>
       </span>
-      <span className={cx(styles.status, taken.ready && styles.statusReady)}>
-        <Icon size={15} strokeWidth={1.7} aria-hidden />
-        {taken.ready ? "Ready" : waitLabel}
+      <span className={styles.seatActions}>
+        <span className={cx(styles.status, taken.ready && styles.statusReady)}>
+          <Icon size={15} strokeWidth={1.7} aria-hidden />
+          {taken.ready ? "Ready" : waitLabel}
+        </span>
+        {!taken.isBot ? <span className={styles.presence} data-present={present === true}>
+          <i aria-hidden />{present === null ? "Presence unavailable" : present ? "In the room" : "Away"}
+        </span> : null}
       </span>
       {taken.isBot && onRemoveBot ? (
         <button type="button" className={styles.seatRemove} onClick={() => onRemoveBot(index)} disabled={botBusy}
@@ -87,6 +94,7 @@ function SeatCard({
 /** The table before the duel starts: seats, settings, practice bot, deck import and start. */
 export function RoomLobby({
   room,
+  presence = null,
   slug,
   busy,
   starting = false,
@@ -103,6 +111,7 @@ export function RoomLobby({
   onLeave,
 }: {
   room: DuelRoom;
+  presence?: Omit<DuelPresencePayload, "slug"> | null;
   slug: string;
   busy: boolean;
   /** Start duel was clicked and the server has not answered yet. */
@@ -202,6 +211,7 @@ export function RoomLobby({
                         onAddBot={canAddBot ? onAddBot : undefined}
                         onRemoveBot={isOrganizer && !seatsLocked ? onRemoveBot : undefined}
                         botBusy={busy}
+                        present={presence === null ? null : presence.onlineSeats.includes(seat)}
                       />
                     ))}
                   </ul>

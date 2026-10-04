@@ -56,7 +56,8 @@ describe("GET /api/live", () => {
     const { GET } = await import("../app/api/live/route");
     actor(p2);
     expect(await (await GET()).json()).toEqual({
-      yourDuel: { href: `/duels/${duel.slug}`, opponent: "Yugi", state: "waiting" },
+      yourDuel: { href: `/duels/${duel.slug}`, opponent: "Yugi", state: "waiting",
+        opponents: [{ seat: duel.seats.find((seat) => seat.playerId === p1)!.seat, name: "Yugi", isBot: false }] },
       liveCount: 0,
     });
     const deck = { main: Array.from({ length: 40 }, (_, i) => i + 1), extra: [], side: [] };
@@ -69,6 +70,7 @@ describe("GET /api/live", () => {
     expect(await (await GET()).json()).toEqual({ yourDuel: null, liveCount: 0 });
     actor(p1);
     const mine = await (await GET()).json();
-    expect(mine).toEqual({ yourDuel: { href: `/duels/${duel.slug}`, opponent: "Kaiba", state: "live" }, liveCount: 1 });
+    expect(mine).toEqual({ yourDuel: { href: `/duels/${duel.slug}`, opponent: "Kaiba", state: "live",
+      opponents: [{ seat: duel.seats.find((seat) => seat.playerId === p2)!.seat, name: "Kaiba", isBot: false }] }, liveCount: 1 });
   });
 });

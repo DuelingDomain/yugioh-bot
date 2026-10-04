@@ -2,16 +2,17 @@ import type Database from "better-sqlite3";
 import { DUEL_LIVE_IDLE_AFTER_MS } from "./duels.js";
 
 export type LiveDuelState = "live" | "between" | "waiting";
+export type LiveOpponent = { seat: number; name: string; isBot: boolean };
 
 export interface LiveNow {
   /** The viewer's most urgent duel of their own, or null. `href` is the duel page. */
-  yourDuel: { href: string; opponent: string; state: LiveDuelState } | null;
+  yourDuel: { href: string; opponent: string; state: LiveDuelState; opponents?: LiveOpponent[] } | null;
   /** Duels in progress that the viewer is allowed to see (their own included). */
   liveCount: number;
 }
 
 export interface LiveNowService {
-  /** Two queries, no duel-host calls. Safe to poll. */
+  /** Small database reads, no duel-host calls. Safe to poll. */
   forPlayer(guildId: string, playerId: number): LiveNow;
 }
 
@@ -47,7 +48,7 @@ const OWN_SQL = `
     and d.archived_at is null
     and (
       d.status = 'active'
-      or (d.status = 'lobby' and (select count(*) from duel_seats c where c.duel_id = d.id) = 2)
+      or (d.status = 'lobby' and (select count(*) from duel_seats c where c.duel_id = d.id) >= 2)
     )
   union all
   select (select g.web_slug from duels g where g.series_id = s.id order by g.game_number desc, g.id desc limit 1) as slug,
@@ -94,6 +95,14 @@ function urgency(row: OwnRow): number {
 export function createLiveNowService(db: Database.Database): LiveNowService {
   const own = db.prepare<Record<string, string | number>, OwnRow>(OWN_SQL);
   const count = db.prepare<Record<string, string | number>, { n: number }>(COUNT_SQL);
+  const opponents = db.prepare<{ guild: string; slug: string; viewer: number; bot: string }, { seat: number; name: string; is_bot: number }>(`
+    select x.seat, case when x.is_bot = 1 then @bot else p.display_name end as name, x.is_bot
+    from duels d join duel_seats x on x.duel_id = d.id
+    left join players p on p.id = x.player_id
+    where d.guild_id = @guild and d.web_slug = @slug
+      and (x.player_id is null or x.player_id != @viewer)
+    order by x.seat
+  `);
   const idle = `-${Math.ceil(DUEL_LIVE_IDLE_AFTER_MS / 1000)} seconds`;
 
   return {
@@ -106,7 +115,9 @@ export function createLiveNowService(db: Database.Database): LiveNowService {
       const liveCount = count.get({ guild: guildId, viewer: playerId, idle })?.n ?? 0;
       return {
         yourDuel: top
-          ? { href: `/duels/${top.slug}`, opponent: top.opponent ?? "Opponent", state: top.state }
+          ? { href: `/duels/${top.slug}`, opponent: top.opponent ?? "Opponent", state: top.state,
+            opponents: opponents.all({ guild: guildId, slug: top.slug!, viewer: playerId, bot: PRACTICE_BOT_NAME })
+              .map((seat) => ({ seat: seat.seat, name: seat.name ?? "Opponent", isBot: seat.is_bot === 1 })) }
           : null,
         liveCount,
       };
