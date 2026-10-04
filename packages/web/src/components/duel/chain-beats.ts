@@ -1,4 +1,5 @@
 import type { DuelEvent } from "@yugidraft/shared/duels";
+import { zoneKey } from "./constants";
 import { chainEffectLead, chainStepDelay, isChainEvent } from "./chain-state";
 import { advanceFlipTracks, flipSequenceSteps, type FlipStep, type FlipTrack } from "./flip-sequence";
 
@@ -45,6 +46,8 @@ const activations = new Map<number, number>();
 const closers = new Map<number, number>();
 /** Attack event id -> when its beat starts (a flip-effect sequence only). */
 const flipAttacks = new Map<number, number>();
+/** Attacker zone key -> when its strike ends (absolute FX ms). */
+const strikeEnds = new Map<string, number>();
 /** Position events that are the flip of a sequence. */
 const sequenceFlips = new Set<number>();
 /** Attacks that may become a flip sequence; the next batch of the same fight continues them. */
@@ -59,6 +62,7 @@ export function resetChainBeats(key = ""): void {
   activations.clear();
   closers.clear();
   flipAttacks.clear();
+  strikeEnds.clear();
   sequenceFlips.clear();
   flipTracks.length = 0;
   state.key = key;
@@ -78,6 +82,16 @@ export function flipAttackAt(attackId: number): number {
 }
 
 /** True for the flip of a flip-effect sequence: it plays the short turn of the sequence. */
+/**
+ * While the attacker of a flip sequence lunges (a copy of its picture, flip-strike.tsx), the stand-in of
+ * that attacker must stay out of sight on its zone. Returns how long from `now` it has to wait, 0 for none.
+ */
+export function flipStrikeHideMs(zone: { controller: number; location: number; sequence: number } | undefined, now: number): number {
+  if (!zone) return 0;
+  const end = strikeEnds.get(zoneKey(zone.controller, zone.location, zone.sequence)) ?? 0;
+  return end > now ? end - now : 0;
+}
+
 export function isSequenceFlip(eventId: number): boolean {
   return sequenceFlips.has(eventId);
 }
@@ -140,6 +154,8 @@ function planFlipOpening(step: Extract<FlipStep, { role: "open" }>, now: number,
   const flipAt = startAt + steps.attackMs;
   const chainAt = step.flipFresh ? flipAt + steps.flipMs : flipAt;
   flipAttacks.set(step.track.attack.id, startAt);
+  const attackZone = step.track.attack.zone;
+  if (attackZone) strikeEnds.set(zoneKey(attackZone.controller, attackZone.location, attackZone.sequence), startAt + steps.attackMs);
   if (step.flipFresh && step.track.flip) {
     sequenceFlips.add(step.track.flip.id);
     effects.set(step.track.flip.id, flipAt);
@@ -147,6 +163,7 @@ function planFlipOpening(step: Extract<FlipStep, { role: "open" }>, now: number,
   effects.set(step.event.id, chainAt);
   state.freeAt = Math.max(state.freeAt, chainAt);
   trim(flipAttacks);
+  while (strikeEnds.size > MAX_KEPT) strikeEnds.delete(strikeEnds.keys().next().value as string);
   while (sequenceFlips.size > MAX_KEPT) sequenceFlips.delete(sequenceFlips.values().next().value as number);
 }
 

@@ -50,7 +50,7 @@ import {
   type SummonStyle,
 } from "./event-queue";
 import { battleBreakIs3d, battleDestroyAt, battleTakeover, HELD_CRACK_MS } from "./battle-hold";
-import { chainEffectAt } from "./chain-beats";
+import { chainEffectAt, flipStrikeHideMs } from "./chain-beats";
 import { hiddenHoldMs } from "./big-summon";
 import { getSharedFx3d, setSharedFx3d } from "./fx3d/shared";
 import { parseRgbTriplet } from "./fx3d/coords";
@@ -195,6 +195,8 @@ type FxItem = {
   life: number;
   /** destroy: ms the card cracks in place before it breaks; set when a battle holds the destroy. */
   breakMs?: number;
+  /** How long the stand-in stays out of sight (virtual ms): the attacker of a flip sequence lunges as a copy. */
+  hideMs?: number;
   /** A resolved source stays visible until cleanup; undefined awaits an open chain, zero finishes normally. */
   activationHoldMs?: number;
   activationAt?: number;
@@ -730,6 +732,8 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
     const burst = handoff ? (claimed ? 400 : 60) : 840;
     const total = breakAt + burst;
     track.after(d + breakAt, () => emitCue("shatter", 1));
+    // The attacker of a flip sequence lunges as a copy (flip-strike.tsx): its stand-in stays hidden meanwhile.
+    if (item.hideMs) track.play(anchor.current, [{ opacity: 0 }, { opacity: 0 }], { duration: item.hideMs, fill: "backwards", easing: "linear" });
 
     const gy = findZoneElement({
       controller: item.event.zone?.controller ?? 0,
@@ -2142,6 +2146,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
           delayMs = timing.delayMs;
         }
       }
+      const hideMs = kind === "destroy" ? flipStrikeHideMs(event.zone, now) : 0;
       step += 1;
       seqRef.current += 1;
       const strength = kind === "heavy" || kind === "typed" ? slamStrengthOf(event, plan?.event.from?.location) : 0;
@@ -2158,6 +2163,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         strength,
         life: 0,
         breakMs,
+        hideMs,
         claim3d,
         three,
         activationAt: kind === "activate" ? now + delayMs : undefined,
