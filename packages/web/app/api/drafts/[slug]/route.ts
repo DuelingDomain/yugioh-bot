@@ -79,6 +79,7 @@ export async function DELETE(
         db.prepare("delete from draft_picks where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_cards where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_packs where draft_id = ?").run(draft.id);
+        db.prepare("delete from draft_undealt where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_deal where draft_id = ?").run(draft.id);
         // Theme drafts reference draft_player_cube(draft_id) -> drafts(id); clear it
         // before the drafts row or the FK blocks the delete.

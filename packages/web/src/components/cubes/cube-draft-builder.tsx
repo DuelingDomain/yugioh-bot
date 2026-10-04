@@ -25,6 +25,7 @@ interface CubeDraftBuilderProps {
   themeSelection?: "host_assigned" | "random" | "player_pick";
   /** Whether the host has joined the draft and so can claim a theme like anyone else. */
   canClaim?: boolean;
+  copyLimit?: boolean;
 }
 
 /** The host's Themes section: the shared theme cards with host tools, plus the "Add a theme" panel. */
@@ -35,6 +36,7 @@ export function CubeDraftBuilder({
   onChanged,
   themeSelection = "player_pick",
   canClaim = false,
+  copyLimit = true,
 }: CubeDraftBuilderProps) {
   const [query, setQuery] = React.useState("");
   const [suggestions, setSuggestions] = React.useState<string[]>([]);
@@ -174,6 +176,7 @@ export function CubeDraftBuilder({
       themeSelection={themeSelection}
       uniqueThemes={uniqueThemes}
       canClaim={canClaim}
+      copyLimit={copyLimit}
       onClaimed={onChanged}
       hostTools={{ busy, onDetach: (id) => void detach(id), onDelete: (id, name) => void deleteCube(id, name) }}
     >

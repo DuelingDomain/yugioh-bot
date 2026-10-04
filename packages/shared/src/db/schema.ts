@@ -163,6 +163,14 @@ export function migrate(db: Database.Database) {
       primary key (draft_id, position)
     );
 
+    -- Undealt booster copies, in their original deal order. Old drafts have no rows.
+    create table if not exists draft_undealt (
+      draft_id integer not null references drafts(id) on delete cascade,
+      position integer not null,
+      catalog_card_id integer not null references card_catalog(ygoprodeck_id),
+      primary key (draft_id, position)
+    );
+
     create table if not exists draft_picks (
       id integer primary key autoincrement,
       draft_id integer not null references drafts(id),

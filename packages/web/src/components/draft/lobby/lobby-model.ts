@@ -13,6 +13,7 @@ export interface LobbyConfig {
   pickSeconds?: number;
   alternatePassDirection?: boolean;
   randomizeSeats?: boolean;
+  copyLimit?: boolean;
   themeSelection?: "host_assigned" | "random" | "player_pick";
   uniqueThemes?: boolean;
   themePackSize?: number;
@@ -99,6 +100,7 @@ export function setupRows(config: LobbyConfig): SetupRow[] {
       { label: "Extra deck", value: themeExtraOn(config) ? `${config.extraDeckSize ?? 15} picks` : "Off" },
       { label: "Each pick", value: `${config.themePackSize ?? 3} choices` },
       { label: "Pick duration", value: seconds },
+      { label: "Copy limit", value: config.copyLimit === false ? "Off" : "3 per card" },
       { label: "Passed cards", value: config.burnUnpicked ? "Burned" : "Can come back" },
     ];
   }
@@ -108,6 +110,7 @@ export function setupRows(config: LobbyConfig): SetupRow[] {
     { label: "Pick duration", value: seconds },
   ];
   if (config.alternatePassDirection) rows.push({ label: "Passing", value: "Left, then right" });
+  rows.push({ label: "Copy limit", value: config.copyLimit === false ? "Off" : "3 per card" });
   rows.push({ label: "Seats", value: config.randomizeSeats === false ? "In join order" : "Shuffled at the start" });
   return rows;
 }

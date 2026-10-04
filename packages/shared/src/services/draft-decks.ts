@@ -40,7 +40,11 @@ export function buildDraftDeck(cards: Array<{ catalogId: number; extra: boolean 
   const overflow = (code: number) => {
     if (side.length < DRAFT_DECK_SIDE_MAX) side.push(code);
   };
+  const copies = new Map<number, number>();
   for (const card of cards) {
+    const count = copies.get(card.catalogId) ?? 0;
+    if (count >= 3) continue;
+    copies.set(card.catalogId, count + 1);
     if (card.extra) {
       if (extra.length < DRAFT_DECK_EXTRA_MAX) extra.push(card.catalogId);
       else overflow(card.catalogId);
@@ -192,7 +196,11 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
 
   const service: DraftDeckService = {
     mainPoolCount(draftId, playerId) {
-      return picksOf(draftId, playerId).filter((card) => !card.extra).length;
+      const counts = new Map<number, number>();
+      for (const card of picksOf(draftId, playerId)) {
+        if (!card.extra) counts.set(card.catalogId, Math.min(3, (counts.get(card.catalogId) ?? 0) + 1));
+      }
+      return [...counts.values()].reduce((sum, count) => sum + count, 0);
     },
 
     linkTournament(tournamentId, onlyPlayerId) {

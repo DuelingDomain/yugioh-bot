@@ -149,6 +149,7 @@ describe("draft service", () => {
         pickSeconds: 45,
         alternatePassDirection: true,
         randomizeSeats: false,
+        copyLimit: true,
       },
       currentPackRound: 0,
       currentPickStep: 0,

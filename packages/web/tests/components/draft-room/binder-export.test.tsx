@@ -90,13 +90,20 @@ describe("binder YDK export", () => {
   });
 
   it.each([1, 45])("exports the current pool at %s picks", async (count) => {
-    renderBinder(Array.from({ length: count }, (_, i) => card(i + 1, 46986414)));
+    renderBinder(Array.from({ length: count }, (_, i) => card(i + 1, 46986414 + i)));
 
     fireEvent.click(screen.getByRole("button", { name: "Export YDK" }));
 
     const content = await createObjectURL.mock.calls[0][0].text();
-    expect(content.split("\n").filter((line) => line === "46986414")).toHaveLength(count);
+    expect(content.split("\n").filter((line) => /^\d+$/.test(line))).toHaveLength(count);
     expect(downloads).toHaveLength(1);
+  });
+
+  it("exports three copies when the pool has a forced fourth pick", async () => {
+    renderBinder(Array.from({ length: 4 }, (_, i) => card(i + 1, 46986414)));
+    fireEvent.click(screen.getByRole("button", { name: "Export YDK" }));
+    const content = await createObjectURL.mock.calls[0][0].text();
+    expect(content.split("\n").filter((line) => line === "46986414")).toHaveLength(3);
   });
 
   it.each([

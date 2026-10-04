@@ -98,6 +98,7 @@ describe("setupRows", () => {
       { label: "Packs", value: "3 packs of 15" },
       { label: "Pick duration", value: "45 s" },
       { label: "Passing", value: "Left, then right" },
+      { label: "Copy limit", value: "3 per card" },
       { label: "Seats", value: "Shuffled at the start" },
     ]);
     expect(setupRows({ packSize: 15, packsPerPlayer: 3 }).some((r) => r.label === "Passing")).toBe(false);
@@ -110,6 +111,7 @@ describe("setupRows", () => {
       { label: "Extra deck", value: "15 picks" },
       { label: "Each pick", value: "3 choices" },
       { label: "Pick duration", value: "45 s" },
+      { label: "Copy limit", value: "3 per card" },
       { label: "Passed cards", value: "Can come back" },
     ]);
   });

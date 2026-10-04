@@ -4,7 +4,7 @@ import type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../t
 import { generateWebSlug } from "../util/web-slug.js";
 import { MAX_COPIES_PER_PLAYER } from "./constants.js";
 import { createDraftDeckService } from "./draft-decks.js";
-import { analyzeCube, buildDeal, seededShuffle, type ShuffleSeed } from "./deal.js";
+import { analyzeCube, buildDealWithRemainder, seededShuffle, type ShuffleSeed } from "./deal.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
 export type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../types/index.js";
@@ -102,6 +102,7 @@ function normalizeDraftConfig(config: DraftConfig): DraftConfig {
     pickSeconds: config.pickSeconds ?? defaultDraftConfig.pickSeconds,
     alternatePassDirection: config.alternatePassDirection ?? defaultDraftConfig.alternatePassDirection,
     randomizeSeats: config.randomizeSeats ?? defaultDraftConfig.randomizeSeats,
+    copyLimit: config.copyLimit !== false,
   };
   if (config.mode !== "theme") {
     return base;
@@ -300,7 +301,10 @@ export function createDraftService(
     const card = db
       .prepare("select catalog_card_id from draft_cards where id = ? and draft_id = ?")
       .get(draftCardId, draftId) as { catalog_card_id: number } | undefined;
+    const draft = findById(draftId);
+    if (draft.config.copyLimit === false) return;
     if (card && isCapped(heldCopies(draftId, playerId), card.catalog_card_id)) {
+      if (draft.config.mode !== "theme" && currentPackOptionsInternal(draftId, playerId, true).some((option) => option.id === draftCardId)) return;
       throw new Error(`You already have ${MAX_COPIES_PER_PLAYER} copies of this card`);
     }
   };
@@ -351,6 +355,27 @@ export function createDraftService(
          and exists (select 1 from draft_cards c where c.draft_pack_id = p.id and c.picked_by_player_id is null)
        order by p.id asc limit 1`,
     ).get(draftId, waveNumber, seatIndex) as { id: number; pass_direction: number } | undefined;
+
+  // Also called from settlement and expiry. Nested transactions use a savepoint, so
+  // a failed pick rolls back its swap. Reading options persists the same pack a bot or UI sees.
+  const prepareBoosterPack = db.transaction((draftId: number, playerId: number) => {
+    const draft = findById(draftId);
+    if (draft.config.mode === "theme" || draft.config.copyLimit === false) return;
+    const pack = currentPackAtSeat(draftId, draft.currentPackRound, playerSeatIndex(draftId, playerId));
+    if (!pack) return;
+    const cards = db.prepare("select id, catalog_card_id from draft_cards where draft_pack_id = ? and picked_by_player_id is null order by position, id")
+      .all(pack.id) as Array<{ id: number; catalog_card_id: number }>;
+    const held = heldCopies(draftId, playerId);
+    if (cards.length === 0 || cards.some((card) => !isCapped(held, card.catalog_card_id))) return;
+    const remainder = db.prepare("select position, catalog_card_id from draft_undealt where draft_id = ? order by position")
+      .all(draftId) as Array<{ position: number; catalog_card_id: number }>;
+    const replacement = remainder.find((card) => !isCapped(held, card.catalog_card_id));
+    if (!replacement) return; // Old drafts and exhausted piles use the forced-pick rule.
+    const tail = remainder[remainder.length - 1].position + 1;
+    db.prepare("delete from draft_undealt where draft_id = ? and position = ?").run(draftId, replacement.position);
+    db.prepare("insert into draft_undealt (draft_id, position, catalog_card_id) values (?, ?, ?)").run(draftId, tail, cards[0].catalog_card_id);
+    db.prepare("update draft_cards set catalog_card_id = ? where id = ?").run(replacement.catalog_card_id, cards[0].id);
+  }).immediate;
 
   const pool = (draftId: number, playerId: number): DraftPoolCard[] => {
     findById(draftId);
@@ -612,7 +637,7 @@ export function createDraftService(
       // A player never gets a card they already hold the maximum copies of.
       const held = heldCopies(draftId, player.player_id);
       const candidates = [...remaining.entries()]
-        .filter(([id, count]) => count > 0 && !isCapped(held, id))
+        .filter(([id, count]) => count > 0 && (config.copyLimit === false || !isCapped(held, id)))
         .map(([id]) => id);
       if (candidates.length === 0) {
         // Exhausting Main must not exclude the player from their Extra rounds.
@@ -753,7 +778,7 @@ export function createDraftService(
           `Cube ${row.cube_id} has only ${row.main_size} main-pool cards but needs ${requiredMain} to fill a ${cardsPerPlayer}-card main deck.`,
         );
       }
-      if (row.reachable_size < requiredReachable) {
+      if (config.copyLimit !== false && row.reachable_size < requiredReachable) {
         throw new Error(
           `Cube ${row.cube_id} gives one player only ${row.reachable_size} main-pool cards (at most ${MAX_COPIES_PER_PLAYER} copies of a card) but needs ${requiredReachable} to fill a ${cardsPerPlayer}-card main deck${burnUnpicked ? " including burned choices (burn on)" : ""}.`,
         );
@@ -863,7 +888,7 @@ export function createDraftService(
       throw new Error(analysis.errors.join(" "));
     }
 
-    const packs = buildDeal(cubeCardIds, { players, waves, packSize, seed: seedSource() });
+    const { packs, remainder } = buildDealWithRemainder(cubeCardIds, { players, waves, packSize, seed: seedSource() });
     const insertCube = db.prepare(
       "insert into draft_deal (draft_id, position, catalog_card_id) values (?, ?, ?)",
     );
@@ -874,6 +899,9 @@ export function createDraftService(
         position += 1;
       }
     }
+
+    const insertUndealt = db.prepare("insert into draft_undealt (draft_id, position, catalog_card_id) values (?, ?, ?)");
+    for (const cardId of remainder) insertUndealt.run(draftId, position++, cardId);
 
     openWave(draftId, 1, playerIds.length, draft.config);
 
@@ -892,33 +920,11 @@ export function createDraftService(
     return findById(draftId);
   });
 
-  // Whether any active player can still take a card left in the wave (not capped for them).
-  const waveHasPickableCard = (draftId: number, waveNumber: number, active: DraftPlayerProgressRow[]): boolean => {
-    const catalogIds = (
-      db
-        .prepare(
-          `
-            select distinct catalog_card_id from draft_cards
-            where draft_id = ? and wave_number = ? and picked_by_player_id is null
-          `,
-        )
-        .all(draftId, waveNumber) as Array<{ catalog_card_id: number }>
-    ).map((row) => row.catalog_card_id);
+  const waveHasPickableCard = (draftId: number, waveNumber: number, active: DraftPlayerProgressRow[]): boolean =>
+    active.length > 0 && Boolean(db.prepare("select 1 from draft_cards where draft_id = ? and wave_number = ? and picked_by_player_id is null limit 1").get(draftId, waveNumber));
 
-    if (catalogIds.length === 0) {
-      return false;
-    }
-
-    return active.some((row) => {
-      const held = heldCopies(draftId, row.player_id);
-      return catalogIds.some((id) => !isCapped(held, id));
-    });
-  };
-
-  // Booster step bookkeeping, run after every pick. A player who cannot pick (every card in
-  // the pack is capped for them, or the pack is empty) passes on their own: a pass row, no card.
-  // The step closes once every active player picked or passed. The wave ends when no active
-  // player can take any card left in it. Steps where nobody can pick are skipped in a loop.
+  // Empty seats pass. A capped pack offers a swap or a forced pick, so it never loses a pick.
+  // Finish the step after all active seats act, and rotate every pack in the usual direction.
   const settleBoosterStep = (draftId: number, now: Date) => {
     const insertPass = db.prepare(
       `
@@ -1145,6 +1151,8 @@ export function createDraftService(
       throw new Error("Player has no card to pick this step");
     }
 
+    prepareBoosterPack(draftId, playerId);
+
     const cardRow = db
       .prepare("select wave_number, draft_pack_id, picked_by_player_id from draft_cards where id = ? and draft_id = ?")
       .get(draftCardId, draftId) as DraftCardRow | undefined;
@@ -1227,6 +1235,8 @@ export function createDraftService(
     const autoPickedPlayerIds: number[] = [];
 
     for (const playerId of pendingPlayers) {
+      const current = findById(draftId);
+      if (current.status !== "active" || current.currentPackRound !== draft.currentPackRound || current.currentPickStep !== draft.currentPickStep) break;
       // Only cards the player may take: a card they hold the maximum copies of is never auto-picked.
       const options = currentPackOptionsInternal(draftId, playerId, true);
 
@@ -1247,8 +1257,8 @@ export function createDraftService(
     return { autoPickedPlayerIds };
   });
 
-  // pickableOnly drops cards the player holds the maximum copies of; without it the whole pack is returned.
-  const currentPackOptionsInternal = (draftId: number, playerId: number, pickableOnly = false): DraftCard[] => {
+  // Legal choices first; a fully capped booster pack permits one forced pick.
+  const currentPackOptionsInternal = db.transaction((draftId: number, playerId: number, pickableOnly = false): DraftCard[] => {
     const draft = findById(draftId);
     if (draft.status === "completed") {
       return [];
@@ -1270,6 +1280,7 @@ export function createDraftService(
       return [];
     }
 
+    prepareBoosterPack(draftId, playerId);
     const seatIndex = playerSeatIndex(draftId, playerId);
     const pack = currentPackAtSeat(draftId, draft.currentPackRound, seatIndex);
 
@@ -1288,13 +1299,14 @@ export function createDraftService(
       .all(pack.id)
       .map(mapDraftCard);
 
-    if (!pickableOnly) {
+    if (!pickableOnly || draft.config.copyLimit === false) {
       return cards;
     }
 
     const held = heldCopies(draftId, playerId);
-    return cards.filter((card) => !isCapped(held, card.catalogCardId));
-  };
+    const legal = cards.filter((card) => !isCapped(held, card.catalogCardId));
+    return legal.length > 0 || draft.config.mode === "theme" ? legal : cards;
+  }).immediate;
 
   return {
     create(

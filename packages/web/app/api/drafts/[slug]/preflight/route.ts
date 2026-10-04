@@ -49,6 +49,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
     extraDeckSize: draft.config.extraDeckSize ?? 15,
     burnUnpicked: draft.config.burnUnpicked ?? false,
     extraDeckEnabled: draft.config.extraDeckEnabled ?? true,
+    copyLimit: draft.config.copyLimit ?? true,
   };
 
   const playerIds = drafts.players(draft.id).map((p) => p.playerId);

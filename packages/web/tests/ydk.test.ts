@@ -8,6 +8,18 @@ import {
 } from "../src/components/duel/ydk.js";
 
 describe("generateYdk", () => {
+  it("keeps fourth copies in the pool and out of every deck section", () => {
+    const cards = [
+      ...Array.from({ length: 4 }, () => ({ id: 1, frameType: "normal" })),
+      ...Array.from({ length: 4 }, () => ({ id: 2, frameType: "xyz_pendulum" })),
+    ];
+    const deck = parseYdk(generateYdk(cards));
+    expect(deck.main).toEqual([1, 1, 1]);
+    expect(deck.extra).toEqual([2, 2, 2]);
+    expect(deck.side).toEqual([]);
+    expect(cards).toHaveLength(8);
+  });
+
   it("generates YDK with main deck cards only", () => {
     const cards = [
       { id: 46986414, frameType: "normal" },

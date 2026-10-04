@@ -319,6 +319,16 @@ describe("cube service core", () => {
     expect(a.errors[0]).toMatch(/at most 3 copies/);
   });
 
+  it("makes capped main reach a warning when the pick copy limit is off", () => {
+    const { db, cubes } = setup();
+    const cube = cubes.createBlank("g", "Limit off", "u");
+    cubes.addCard(cube.id, 1, "main", 20);
+    const analysis = cubes.analyzeCubePools(cube.id, { themePackSize: 2, cardsPerPlayer: 10, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: false, copyLimit: false });
+    expect(analysis.ok).toBe(true);
+    expect(analysis.warnings).toHaveLength(1);
+    db.close();
+  });
+
   it("passes a main-sufficient cube and skips extra when extra disabled", () => {
     const { db, cubes } = setup();
     const t = cubes.createBlank("g", "Big", "u");

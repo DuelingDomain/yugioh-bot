@@ -126,6 +126,7 @@ function fakeInteraction(input: {
   users?: Record<string, FakeUser>;
   strings?: Record<string, string>;
   integers?: Record<string, number>;
+  booleans?: Record<string, boolean>;
 }) {
   const replies: Array<string | { content: string; ephemeral?: boolean; components?: readonly unknown[]; files?: readonly unknown[] }> = [];
   const interaction: CommandInteractionLike = {
@@ -140,6 +141,7 @@ function fakeInteraction(input: {
       getRole: (name) => input.roles?.[name] ?? null,
       getUser: (name) => input.users?.[name] ?? null,
       getInteger: (name) => input.integers?.[name] ?? null,
+      getBoolean: (name) => input.booleans?.[name] ?? null,
     },
     reply: (message) => {
       replies.push(message);
@@ -253,7 +255,16 @@ describe("command handlers", () => {
       pickSeconds: 45,
       alternatePassDirection: true,
       randomizeSeats: false,
+      copyLimit: true,
     });
+  });
+
+  it("/draft create can turn the pick copy limit off", async () => {
+    const app = setup();
+    const { interaction } = fakeInteraction({ commandName: "draft", subcommand: "create", user: { id: "u", username: "Host" }, strings: { name: "No cap" }, booleans: { copy_limit: false } });
+    await handleCommand(interaction, app);
+    expect(app.drafts.findByName("guild-1", "No cap")?.config.copyLimit).toBe(false);
+    app.db.close();
   });
 
   it("/draft create trims and deduplicates set options", async () => {
@@ -308,6 +319,7 @@ describe("command handlers", () => {
       pickSeconds: 45,
       alternatePassDirection: true,
       randomizeSeats: false,
+      copyLimit: true,
     });
   });
 

@@ -10,6 +10,7 @@ export interface AnalyzeCubePoolsConfig {
   extraDeckSize: number;
   burnUnpicked: boolean;
   extraDeckEnabled: boolean;
+  copyLimit?: boolean;
 }
 
 function requiredPoolSize(rounds: number, themePackSize: number, burnUnpicked: boolean): number {
@@ -282,7 +283,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         // player cap cannot stand in for the choices needed in later rounds.
         const mainReachableNeeded = mainNeeded;
         if (mainReachable < mainReachableNeeded) {
-          errors.push(
+          (config.copyLimit === false ? warnings : errors).push(
             `A player can take at most ${MAX_COPIES_PER_PLAYER} copies of a card, so this main pool gives ${mainReachable} cards but a ${config.cardsPerPlayer}-card main deck needs ${mainReachableNeeded}${config.burnUnpicked ? " including burned choices (burn on)" : ""}. Add more different cards.`,
           );
         }

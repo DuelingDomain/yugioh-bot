@@ -132,7 +132,7 @@ describe("per-player copy cap in the draft routes", () => {
     db.close();
   });
 
-  it("shows a passed pick: no turn, no pack, and the seat counts as done", async () => {
+  it("allows a forced pick when the entire pack is capped", async () => {
     const { db, drafts, draft, slug, host, others } = await setup({ bots: 0 });
     const [other] = others;
     const hostPack = drafts.currentPackOptions(draft.id, host);
@@ -146,12 +146,26 @@ describe("per-player copy cap in the draft routes", () => {
     const response = await buildDraftResponse(slug, "host");
 
     expect(response?.pickStep).toBe(2);
-    expect(response?.passed).toBe(true);
-    expect(response?.isMyTurn).toBe(false);
-    expect(response?.currentPack).toEqual([]);
+    expect(response?.passed).toBe(false);
+    expect(response?.isMyTurn).toBe(true);
+    expect(response?.currentPack).toHaveLength(3);
+    expect(response?.currentPack.every((card) => !card.blocked)).toBe(true);
     const seats = response?.seats ?? [];
-    expect(seats.find((seat) => seat.playerId === host)?.hasPicked).toBe(true);
+    expect(seats.find((seat) => seat.playerId === host)?.hasPicked).toBe(false);
     expect(seats.find((seat) => seat.playerId === other)?.hasPicked).toBe(false);
+    db.close();
+  });
+
+  it("keeps all legal choices visible in packs larger than eight", async () => {
+    const { db, drafts, draft, slug, host } = await setup({ bots: 0 });
+    const pack = db.prepare("select id from draft_packs where draft_id = ? and current_holder_seat_index = 0").get(draft.id) as { id: number };
+    const ins = db.prepare("insert into draft_cards (draft_id, wave_number, draft_pack_id, catalog_card_id, position) values (?, 1, ?, 500, ?)");
+    for (let pos = 4; pos < 15; pos++) ins.run(draft.id, pack.id, pos);
+    const { buildDraftResponse } = await import("../app/api/drafts/[slug]/helpers");
+    const response = await buildDraftResponse(slug, "host");
+    expect(response?.currentPack).toHaveLength(15);
+    expect(new Set(response?.currentPack.map((card) => card.id)).size).toBe(15);
+    expect(response?.currentPack.every((card) => !card.blocked)).toBe(true);
     db.close();
   });
 
@@ -183,7 +197,7 @@ describe("per-player copy cap in the draft routes", () => {
     const first = await pick(slug, drafts.currentPackOptions(draft.id, host)[0].id);
     expect(first.status).toBe(200);
     expect(drafts.findById(draft.id).currentPickStep).toBe(2);
-    expect(drafts.hasPassedStep(draft.id, bot)).toBe(true);
+    expect(drafts.hasPassedStep(draft.id, bot)).toBe(false);
 
     // The bot passed step 2, so the host's pick closes it and the draft moves to step 3.
     const second = await pick(slug, drafts.pickOptions(draft.id, host)[0].id);
@@ -192,7 +206,7 @@ describe("per-player copy cap in the draft routes", () => {
     const botStep2 = db
       .prepare("select count(*) as n from draft_picks where draft_id = ? and player_id = ? and pick_step = 2")
       .get(draft.id, bot) as { n: number };
-    expect(botStep2.n).toBe(0);
+    expect(botStep2.n).toBe(1);
     db.close();
   });
 });

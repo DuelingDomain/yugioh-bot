@@ -66,15 +66,22 @@ export function analyzeCube(
 }
 
 /** Shuffle every authored copy once; packs are stored in wave then seat order. */
-export function buildDeal(
+export function buildDealWithRemainder(
   cubeCardIds: number[],
   opts: { players: number; waves: number; packSize: number; seed: ShuffleSeed },
-): number[][] {
+): { packs: number[][]; remainder: number[] } {
   const { players, waves, packSize, seed } = opts;
   const slots = players * waves * packSize;
   if (cubeCardIds.length < slots) {
     throw new Error(`The cube has ${cubeCardIds.length} cards, but needs ${slots}.`);
   }
-  const deck = seededShuffle(cubeCardIds, seed).slice(0, slots);
-  return Array.from({ length: players * waves }, (_, i) => deck.slice(i * packSize, (i + 1) * packSize));
+  const deck = seededShuffle(cubeCardIds, seed);
+  return {
+    packs: Array.from({ length: players * waves }, (_, i) => deck.slice(i * packSize, (i + 1) * packSize)),
+    remainder: deck.slice(slots),
+  };
+}
+
+export function buildDeal(cubeCardIds: number[], opts: Parameters<typeof buildDealWithRemainder>[1]): number[][] {
+  return buildDealWithRemainder(cubeCardIds, opts).packs;
 }
