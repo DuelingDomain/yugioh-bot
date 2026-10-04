@@ -114,6 +114,9 @@ function CardTab({ ctl, setNote }: TabProps) {
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<CardSummary[]>([]);
   const [resultsFor, setResultsFor] = React.useState("");
+  // The text whose search failed. It shows only while the input still holds that text.
+  const [failedFor, setFailedFor] = React.useState("");
+  const [retry, setRetry] = React.useState(0);
   const [searching, setSearching] = React.useState(false);
   const seq = React.useRef(0);
 
@@ -123,11 +126,13 @@ function CardTab({ ctl, setNote }: TabProps) {
     if (!q) {
       setResults([]);
       setResultsFor("");
+      setFailedFor("");
       setSearching(false);
       return;
     }
     const timer = setTimeout(() => {
       setSearching(true);
+      setFailedFor("");
       resolveCards({ fuzzyName: q })
         .then((r) => {
           if (mine !== seq.current) return;
@@ -136,17 +141,19 @@ function CardTab({ ctl, setNote }: TabProps) {
         })
         .catch(() => {
           if (mine !== seq.current) return;
+          // A failed search is not "no match": say so, and keep resultsFor on the last good answer.
           setResults([]);
-          setResultsFor(q);
+          setFailedFor(q);
         })
         .finally(() => {
           if (mine === seq.current) setSearching(false);
         });
     }, 250);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, retry]);
 
   const trimmed = query.trim();
+  const failed = failedFor === trimmed && !searching;
   const addOne = (card: CardSummary) => setNote({ tone: "ok", text: addCopyLine(card.name, ctl.addCopy(card)) });
   const nav = useResultNav({
     items: results,
@@ -174,7 +181,21 @@ function CardTab({ ctl, setNote }: TabProps) {
       </div>
       {!trimmed && <Hint>Type a card name. Enter or a click adds one copy.</Hint>}
       {trimmed && searching && results.length === 0 && <Hint>Searching.</Hint>}
-      {trimmed && !searching && resultsFor === trimmed && results.length === 0 && <Hint>No main-deck card matches that.</Hint>}
+      {failed && (
+        <div role="alert" className={styles.searchErr}>
+          <p className={`${styles.note} ${styles.bad}`}>
+            <CircleAlert size={16} aria-hidden="true" />
+            <span>The card search did not work. Try again.</span>
+          </p>
+          <button type="button" className={`${svButtonClass("ghost")} ${styles.small}`} onClick={() => {
+            setFailedFor("");
+            setRetry((n) => n + 1);
+          }}>
+            Try again
+          </button>
+        </div>
+      )}
+      {trimmed && !searching && !failed && resultsFor === trimmed && results.length === 0 && <Hint>No main-deck card matches that.</Hint>}
       {results.length > 0 && (
         <ul className={styles.res} aria-label={`Results for ${trimmed}`} aria-busy={searching || nav.stale || undefined} data-stale={nav.stale ? "" : undefined} {...nav.listProps}>
           {results.map((card, index) => {

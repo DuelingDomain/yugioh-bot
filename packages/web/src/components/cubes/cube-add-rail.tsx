@@ -57,6 +57,9 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<CardSummary[]>([]);
   const [resultsFor, setResultsFor] = React.useState("");
+  // The text whose search failed. It shows only while the input still holds that text.
+  const [failedFor, setFailedFor] = React.useState("");
+  const [retry, setRetry] = React.useState(0);
   const [searching, setSearching] = React.useState(false);
   const reqId = React.useRef(0);
 
@@ -65,12 +68,14 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
     if (q.length === 0) {
       setResults([]);
       setResultsFor("");
+      setFailedFor("");
       setSearching(false);
       return;
     }
     const myReq = ++reqId.current;
     const timeout = setTimeout(() => {
       setSearching(true);
+      setFailedFor("");
       fetch("/api/cards/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -85,17 +90,19 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
         })
         .catch(() => {
           if (myReq !== reqId.current) return;
+          // A failed search is not "no match": say so.
           setResults([]);
-          setResultsFor(q);
+          setFailedFor(q);
         })
         .finally(() => {
           if (myReq === reqId.current) setSearching(false);
         });
     }, 250);
     return () => clearTimeout(timeout);
-  }, [query]);
+  }, [query, retry]);
 
   const trimmed = query.trim();
+  const failed = failedFor === trimmed && !searching;
   const nav = useResultNav({
     items: results,
     query,
@@ -155,7 +162,18 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
           })}
         </ul>
       )}
-      {trimmed.length > 0 && results.length === 0 && (
+      {failed && (
+        <div className={styles.noMatch} role="alert">
+          <p style={{ margin: "0 0 8px" }}>The card search did not work.</p>
+          <button className="btn btn-secondary btn-sm" type="button" onClick={() => {
+            setFailedFor("");
+            setRetry((n) => n + 1);
+          }}>
+            Try again
+          </button>
+        </div>
+      )}
+      {trimmed.length > 0 && results.length === 0 && !failed && (
         <p className={styles.noMatch} role="status">
           {searching || resultsFor !== trimmed ? "Searching..." : "No cards match."}
         </p>

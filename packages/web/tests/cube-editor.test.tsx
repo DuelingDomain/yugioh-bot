@@ -41,6 +41,8 @@ let puts: Array<Record<string, unknown>>;
 let resolves: Array<Record<string, unknown>>;
 /** When set, the next card search answers only after this promise settles. */
 let resolveGate: Promise<void> | null;
+/** When true, card searches answer 502 like an unreachable card database. */
+let resolveFails: boolean;
 
 function detail() {
   return { pools: { main: [...main], extra: [...extra] }, cards: CARDS };
@@ -56,6 +58,7 @@ beforeEach(() => {
   puts = [];
   resolves = [];
   resolveGate = null;
+  resolveFails = false;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: unknown, init?: RequestInit) => {
@@ -100,6 +103,7 @@ beforeEach(() => {
       if (url.endsWith("/api/cards/resolve")) {
         resolves.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
         if (resolveGate) await resolveGate;
+        if (resolveFails) return { ok: false, status: 502, json: async () => ({ error: "unavailable" }) } as Response;
         return { ok: true, json: async () => ({ cards: CARDS }) } as Response;
       }
       return { ok: true, json: async () => ({ cards: [] }) } as Response;
@@ -139,6 +143,23 @@ describe("CubeEditor card name search", () => {
 
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).toMatchObject({ op: "add", catalogCardId: 2, pool: "extra" });
+  });
+
+  it("says the search failed instead of no match and searches again on Try again", async () => {
+    await open();
+    resolveFails = true;
+    const input = screen.getByLabelText("Card name");
+    fireEvent.change(input, { target: { value: "xyz b" } });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/did not work/i);
+    expect(screen.queryByText("No cards match.")).toBeNull();
+    expect(screen.queryByText("Searching...")).toBeNull();
+
+    resolveFails = false;
+    fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    await screen.findByRole("listbox", { name: "Results for xyz b" });
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("adds a card with a click on its row", async () => {

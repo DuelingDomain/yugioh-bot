@@ -106,6 +106,34 @@ describe("CreateDraftForm pool: card name search", () => {
     expect(within(screen.getByRole("list", { name: "Pool cards" })).queryByText("Blue-Eyes White Dragon")).toBeNull();
   });
 
+  it("says the search failed instead of no match and searches again on Try again", async () => {
+    const { input } = await openSearch();
+    const ok = globalThis.fetch;
+    let failing = true;
+    vi.stubGlobal("fetch", (url: RequestInfo | URL, init?: RequestInit) =>
+      String(url) === "/api/cards/resolve" && failing
+        ? Promise.resolve(Response.json({ error: "Card database unavailable" }, { status: 502 }))
+        : ok(url, init),
+    );
+    fireEvent.change(input, { target: { value: "blue-eyes" } });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/did not work/i);
+    expect(screen.queryByText("No main-deck card matches that.")).toBeNull();
+
+    failing = false;
+    fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    await screen.findByRole("listbox", { name: "Results for blue-eyes" });
+    expect(screen.queryByRole("alert")).toBeNull();
+
+    // A failure for an older text is not shown for the new text.
+    failing = true;
+    fireEvent.change(input, { target: { value: "blue-eyes white" } });
+    await screen.findByRole("alert");
+    fireEvent.change(input, { target: { value: "dark magician" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("does nothing on Enter while the results still answer an older text, and dims them", async () => {
     const { input } = await openSearch();
     fireEvent.change(input, { target: { value: "blue-eyes" } });
