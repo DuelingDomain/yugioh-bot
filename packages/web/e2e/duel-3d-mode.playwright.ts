@@ -35,11 +35,19 @@ const PHASE_BAR = '[data-sv-phase], [data-sv-phasebar], [data-tone][data-reduced
 await mkdir(shotDir, { recursive: true });
 const require = createRequire(import.meta.url);
 const playwrightModule = process.env.PLAYWRIGHT_MODULE ?? require.resolve("playwright");
-const { chromium } = await import(pathToFileURL(playwrightModule).href);
+const playwright = await import(pathToFileURL(playwrightModule).href);
+const chromium = playwright.chromium ?? playwright.default.chromium;
 const browser = await chromium.launch({
   ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
   headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--allow-file-access-from-files"],
 });
+
+// tsx adds a __name helper to arrow functions; page.evaluate sends them to the browser, which has none.
+const openPage = async (options: Record<string, unknown>) => {
+  const page = await browser.newPage(options);
+  await page.addInitScript("window.__name = (fn) => fn;");
+  return page;
+};
 
 const failures: string[] = [];
 const summary: Record<string, unknown>[] = [];
@@ -49,7 +57,7 @@ type Box = { width: number; height: number };
 
 /** The `.plane` box of the concept at this viewport (a still render of the first state). */
 async function conceptPlane(width: number, height: number): Promise<Box | null> {
-  const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
+  const page = await openPage({ viewport: { width, height }, deviceScaleFactor: 1 });
   try {
     await page.goto(`${pathToFileURL(resolve(conceptDir, "index.html")).href}?still#m1`, { waitUntil: "load" });
     await page.waitForSelector(".plane", { timeout: 10_000 });
@@ -67,7 +75,7 @@ async function conceptPlane(width: number, height: number): Promise<Box | null> 
 
 /** Concept (left) and ours (right) on one canvas. */
 async function composite(file: string, left: string, right: string, width: number, height: number) {
-  const page = await browser.newPage({ viewport: { width: width * 2 + 24, height: height + 40 }, deviceScaleFactor: 1 });
+  const page = await openPage({ viewport: { width: width * 2 + 24, height: height + 40 }, deviceScaleFactor: 1 });
   const data = async (path: string) => `data:image/png;base64,${(await readFile(path)).toString("base64")}`;
   await page.setContent(`<body style="margin:0;background:#111;color:#cfc6b0;font:14px sans-serif">
     <div style="display:flex;gap:24px;padding:0">
@@ -85,7 +93,7 @@ try {
     const conceptAspect = concept ? concept.width / concept.height : 0;
     for (const state of states) {
       const label = `${vp.name}/${state}`;
-      const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1, hasTouch: vp.mobile, isMobile: false });
+      const page = await openPage({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1, hasTouch: vp.mobile, isMobile: false });
       const pageErrors: string[] = [];
       page.on("pageerror", (error: Error) => pageErrors.push(error.message));
       const response = await page.goto(`${base}/dev/solid-preview?state=${state}`, { waitUntil: "load" });
@@ -146,7 +154,7 @@ try {
   // The flags: a flat table and reduced motion must also fit.
   for (const flag of ["view=flat", "reduced=1"]) {
     for (const vp of viewports) {
-      const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1 });
+      const page = await openPage({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1 });
       await page.goto(`${base}/dev/solid-preview?state=m1&${flag}`, { waitUntil: "load" });
       await page.waitForSelector("[data-sv-plane]", { timeout: 30_000 });
       await page.waitForTimeout(600);
