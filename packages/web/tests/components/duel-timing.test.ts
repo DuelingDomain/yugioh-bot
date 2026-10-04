@@ -12,6 +12,7 @@ import {
   ATTACK_PACE,
   ATTACK_TIMING,
   BANNER_TIMING,
+  CARD_FX,
   CHAIN_TIMING,
   GATE_TIMING,
   LP_TIMING,
@@ -96,6 +97,18 @@ describe("duel pace minimums", () => {
   it("keeps banners and chain beats readable, also when squeezed by a backlog", () => {
     expect(BANNER_TIMING.minCueMs).toBeGreaterThanOrEqual(MIN_VISIBLE_MS);
     expect(CHAIN_TIMING.floorMs).toBeGreaterThanOrEqual(300);
+    for (const floor of Object.values(CHAIN_TIMING.readableFloorMs)) expect(floor).toBeGreaterThanOrEqual(500);
+  });
+
+  it("shows the face of an activated card for about 600 to 900 ms before its link may resolve", () => {
+    expect(CARD_FX.activationFaceMs).toBeGreaterThanOrEqual(600);
+    expect(CARD_FX.activationFaceMs).toBeLessThanOrEqual(900);
+    expect(CARD_FX.activationMs).toBe(CARD_FX.activationFlipMs + CARD_FX.activationFaceMs);
+    // One length for the ghost, the chain's activate beat and the banner: the banner ends as the link resolves.
+    expect(CHAIN_TIMING.activateMs).toBe(CARD_FX.activationMs);
+    expect(BANNER_TIMING.activateMs).toBe(CARD_FX.activationMs);
+    // The effect of a resolving link starts after its resolving label has had time to read.
+    expect(CHAIN_TIMING.effectLeadMs).toBeGreaterThanOrEqual(MIN_VISIBLE_MS);
   });
 
   it("lets the result and the prompt wait for a full life roll before their cap", () => {

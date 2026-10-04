@@ -2,7 +2,7 @@ import { reportDuelClientError } from "./client-error";
 import type { SceneCueName } from "./fx3d/scene-plan";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import type { BattleSoundPlan } from "./attack-audio";
-import { BANNER_TIMING, PHASE_TIMING } from "./duel-timing";
+import { BANNER_TIMING, CHAIN_TIMING, PHASE_TIMING } from "./duel-timing";
 import {
   isDefenseAt,
   isFacedown,
@@ -432,10 +432,13 @@ export function pacedCueDuration(
 ): number {
   const base = cueDuration(kind, reducedMotion);
   if (remainingCount <= 1) return base;
+  // What a card activated is the one banner a backlog may not blur: it keeps the chain's readable floor.
+  const readable = kind === "activate" ? Math.min(base, CHAIN_TIMING.readableFloorMs.activate) : 0;
   const floor = Math.min(
     base,
     Math.max(MIN_CUE_MS, Math.round(base * MIN_CUE_FRACTION)),
     Math.max(BLINK_CUE_MS, Math.floor(MAX_BACKLOG_MS / remainingCount)),
   );
+  if (readable > 0) return Math.min(base, Math.max(readable, floor, Math.floor(CATCH_UP_BUDGET_MS / remainingCount)));
   return Math.min(base, Math.max(floor, Math.floor(CATCH_UP_BUDGET_MS / remainingCount)));
 }

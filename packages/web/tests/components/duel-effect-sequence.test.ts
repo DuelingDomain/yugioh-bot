@@ -8,6 +8,7 @@ import { registerDestroyScene } from "@/components/duel/destroy-scene-hold";
 import { planScene, PIECE_TINTS } from "@/components/duel/fx3d/scene-plan";
 import { findScenario } from "@/components/duel/fx-lab/scenarios";
 import { numberSteps } from "@/components/duel/fx-lab/board";
+import { CARD_FX } from "@/components/duel/duel-timing";
 
 const zone = (controller: number, location: number, sequence = 0) => ({ controller, location, sequence });
 const geometry = () => ({ distance: 300 });
@@ -222,6 +223,41 @@ describe("spell/trap destruction presentation", () => {
     for (let i = 1; i < mill.length; i++) {
       expect(mill[i].startAt - mill[i - 1].startAt).toBeCloseTo(Math.max(mill[i - 1].durationMs * MOVE_TIMING.overlap, MOVE_TIMING.minGapMs));
     }
+  });
+
+  it("lets a trap that answers a summon spring only after the summoned card has landed", () => {
+    const batch: DuelEvent[] = [
+      { id: 1, kind: "move", text: "summon", card: C.celtic, from: zone(0, 2), zone: zone(0, 4, 2), reason: "summon" },
+      { id: 2, kind: "summon", text: "summon", card: C.celtic, zone: zone(0, 4, 2) },
+      { id: 3, kind: "activate", text: "a", card: C.trapHole, zone: zone(1, 8, 2), chainIndex: 1 },
+      { id: 4, kind: "chain-resolving", text: "r", card: C.trapHole, chainIndex: 1 },
+      { id: 5, kind: "chain-resolved", text: "r", card: C.trapHole, chainIndex: 1 },
+      { id: 6, kind: "chain-end", text: "end" },
+    ];
+    planChainBeats(batch, options(false));
+    const [summon] = planMoves(batch, options(false));
+    expect(summon.landAt).toBeGreaterThan(1000);
+    expect(chainBeatAt(3)).toBeGreaterThanOrEqual(summon.landAt);
+    expect(chainEffectAt(3)).toBeGreaterThanOrEqual(summon.landAt);
+    // The activation keeps its full beat before the link resolves.
+    expect(chainBeatAt(4) - chainBeatAt(3)).toBeGreaterThanOrEqual(CARD_FX.activationMs);
+  });
+
+  it("does not hold a trap behind a card that landed in an earlier batch", () => {
+    const placed: DuelEvent[] = [
+      { id: 1, kind: "move", text: "summon", card: C.celtic, from: zone(0, 2), zone: zone(0, 4, 2), reason: "summon" },
+      { id: 2, kind: "summon", text: "summon", card: C.celtic, zone: zone(0, 4, 2) },
+    ];
+    planChainBeats(placed, options(false));
+    const [summon] = planMoves(placed, options(false));
+    const answer: DuelEvent[] = [
+      { id: 3, kind: "activate", text: "a", card: C.trapHole, zone: zone(1, 8, 2), chainIndex: 1 },
+      { id: 4, kind: "chain-resolving", text: "r", card: C.trapHole, chainIndex: 1 },
+    ];
+    const later = summon.landAt + 1500;
+    planChainBeats(answer, options(false, later));
+    planMoves(answer, options(false, later));
+    expect(chainBeatAt(3)).toBe(later);
   });
 
   it("keeps an activation's complete hold when resolution arrives in a later batch", () => {

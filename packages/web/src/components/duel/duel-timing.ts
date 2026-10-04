@@ -137,9 +137,24 @@ export const ADD_TO_HAND = {
 
 /* ---------- flips, positions, hand, summon ---------- */
 
+/**
+ * An activation, from the card turning over to the moment its link may resolve. The face turns for
+ * ACTIVATION_FLIP_MS and then stays up for ACTIVATION_FACE_MS (the last part of it is the fade), so a
+ * set trap that springs can be read before anything resolves. The chain's activate beat, the activate
+ * banner and the activation ghost all share this one length, so the banner is gone when the link
+ * starts to resolve and nothing resolves under it.
+ */
+const ACTIVATION_FLIP_MS = 320;
+const ACTIVATION_FACE_MS = 850;
+const ACTIVATION_BEAT_MS = ACTIVATION_FLIP_MS + ACTIVATION_FACE_MS;
+
 export const CARD_FX = {
   /** Full activation ghost/flip and ring, and its reduced glow. */
-  activationMs: 800,
+  activationMs: ACTIVATION_BEAT_MS,
+  /** The activation ghost turns over this fast, then holds its face (activationMs less this) with a short fade at the end. */
+  activationFlipMs: ACTIVATION_FLIP_MS,
+  activationFaceMs: ACTIVATION_FACE_MS,
+  activationFadeMs: 150,
   reducedEffectMs: 320,
   destroyFlashMs: 420,
   /** A card turns to the other position. */
@@ -166,10 +181,11 @@ export const CARD_FX = {
 /* ---------- banners, chains, gates ---------- */
 
 export const BANNER_TIMING = {
-  activateMs: 2000,
+  /** The activate banner lasts one activate beat, so it is gone when its link starts to resolve. */
+  activateMs: ACTIVATION_BEAT_MS,
   eventMs: 1600,
   defaultMs: 1300,
-  reducedActivateMs: 1500,
+  reducedActivateMs: 960,
   reducedDefaultMs: 1200,
   /** A backlog of banners is squeezed, never dropped: every banner keeps this long at least. */
   minCueMs: 500,
@@ -201,7 +217,7 @@ export const PHASE_TIMING = {
 } as const;
 
 export const CHAIN_TIMING = {
-  activateMs: 950,
+  activateMs: ACTIVATION_BEAT_MS,
   resolvingMs: 1150,
   resolvedMs: 720,
   negatedMs: 950,
@@ -210,8 +226,13 @@ export const CHAIN_TIMING = {
   /** A backlog of more than this many beats is played faster, down to the floor. */
   backlogBeats: 10,
   floorMs: 320,
+  /**
+   * The floor of the beats a viewer has to read: what was activated, and what happened to it. A backlog
+   * squeezes the other beats (a link clearing, the chain ending) to floorMs but never these.
+   */
+  readableFloorMs: { activate: 700, "chain-resolving": 520, "chain-negated": 700 },
   /** A link's own effect starts this long after its badge starts to pulse. */
-  effectLeadMs: 440,
+  effectLeadMs: 500,
   effectLeadReducedMs: 200,
 } as const;
 
@@ -259,7 +280,11 @@ export const VISIBLE_EFFECT_MS: Readonly<Record<string, number>> = {
   "event banner": BANNER_TIMING.eventMs,
   "phase ribbon": PHASE_TIMING.beatMs,
   "default banner": BANNER_TIMING.defaultMs,
+  "activation face hold": CARD_FX.activationFaceMs,
   "chain activate": CHAIN_TIMING.activateMs,
+  "chain activate floor": CHAIN_TIMING.readableFloorMs.activate,
+  "chain resolving floor": CHAIN_TIMING.readableFloorMs["chain-resolving"],
+  "chain negated floor": CHAIN_TIMING.readableFloorMs["chain-negated"],
   "chain resolving": CHAIN_TIMING.resolvingMs,
   "chain resolved": CHAIN_TIMING.resolvedMs,
   "chain negated": CHAIN_TIMING.negatedMs,

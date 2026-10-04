@@ -274,7 +274,9 @@ export function chainSeatLabel(seat: number, mySeat: number | null, playerName: 
  * How long the board holds on each chain event before the next one plays. This is the pace of a
  * chain resolution (there is no centre banner for it): a link pulses while it resolves (1150), a
  * negated one then shows its slash (950), and a resolved one ticks and clears away while the next
- * link is marked "up next" (720). One link is about 1.9 s, so each step can be followed.
+ * link is marked "up next" (720). One link is about 1.9 s, so each step can be followed. A backlog
+ * plays the beats faster, but an activation, a resolving link and a negation never below
+ * CHAIN_TIMING.readableFloorMs.
  */
 const STEP_MS: Record<ChainEventKind, number> = {
   activate: CHAIN_TIMING.activateMs,
@@ -285,6 +287,8 @@ const STEP_MS: Record<ChainEventKind, number> = {
   "chain-end": CHAIN_TIMING.endMs,
 };
 const STEP_FLOOR_MS = CHAIN_TIMING.floorMs;
+/** The beats a viewer reads (what was activated, what became of it) squeeze less than the rest. */
+const READABLE_FLOOR_MS: Readonly<Record<string, number>> = CHAIN_TIMING.readableFloorMs;
 /** A backlog of more than this many beats is played faster, down to the floor. */
 const BACKLOG_BEATS = CHAIN_TIMING.backlogBeats;
 /** A link's own effect (a card move, a destroy) starts this long after its badge starts to pulse. */
@@ -295,9 +299,10 @@ const EFFECT_LEAD_REDUCED_MS = CHAIN_TIMING.effectLeadReducedMs;
 export function chainStepDelay(kind: string, remaining: number, reducedMotion: boolean): number {
   if (kind === "target") return 0;
   const base = STEP_MS[kind as ChainEventKind] ?? CHAIN_TIMING.fallbackMs;
-  const length = reducedMotion ? Math.max(STEP_FLOOR_MS, Math.round(base * 0.8)) : base;
+  const floor = READABLE_FLOOR_MS[kind] ?? STEP_FLOOR_MS;
+  const length = reducedMotion ? Math.max(floor, Math.round(base * 0.8)) : base;
   if (remaining <= BACKLOG_BEATS) return length;
-  return Math.max(STEP_FLOOR_MS, Math.round((length * BACKLOG_BEATS) / remaining));
+  return Math.max(floor, Math.round((length * BACKLOG_BEATS) / remaining));
 }
 
 /** How long after a link starts resolving its effect (a move, a destroy) starts on the board. */

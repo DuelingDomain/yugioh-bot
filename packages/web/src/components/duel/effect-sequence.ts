@@ -6,13 +6,14 @@ import { holdDestroySceneUntil } from "./destroy-scene-hold";
 import { LOCATION_SZONE, TYPE_SPELL, TYPE_TRAP } from "./constants";
 import type { MovePlan } from "./move-plan";
 
-const state = { readyAt: 0 };
+const state = { readyAt: 0, placedAt: 0 };
 const handled = new Set<number>();
 const sources = new Map<string, number>();
 const zoneKey = (zone: NonNullable<DuelEvent["zone"]>) => `${zone.controller}:${zone.location}:${zone.sequence}`;
 
 export function resetEffectSequence(): void {
   state.readyAt = 0;
+  state.placedAt = 0;
   handled.clear();
   sources.clear();
 }
@@ -79,7 +80,13 @@ export function sequenceEffects(fresh: readonly DuelEvent[], moves: readonly Mov
     if (event.kind === "activate" && isSpellTrap(event)) {
       sources.set(zoneKey(event.zone!), event.card!.code);
       const incoming = moves.find((item) => item.pairedIds.includes(event.id));
-      const startAt = Math.max(now, state.readyAt, chainBeatAt(event.id), incoming?.landAt ?? 0);
+      // A trap that answers a summon or a Set waits for that card to land: the answer follows what it answers.
+      for (const earlier of ordered) {
+        if (earlier.id >= event.id) break;
+        const placed = byId.get(earlier.id);
+        if (placed && (earlier.reason === "summon" || earlier.reason === "set")) state.placedAt = Math.max(state.placedAt, placed.landAt);
+      }
+      const startAt = Math.max(now, state.readyAt, chainBeatAt(event.id), incoming?.landAt ?? 0, state.placedAt);
       holdChainFrom(event.id, startAt);
       presentEffectAt(event.id, startAt);
       state.readyAt = startAt + (reduced ? CARD_FX.reducedEffectMs : CARD_FX.activationMs);
@@ -120,6 +127,11 @@ export function sequenceEffects(fresh: readonly DuelEvent[], moves: readonly Mov
         presentEffectAt(event.id, Math.max(state.readyAt, chainEffectAt(event.id)));
       }
     }
+  }
+  // A later batch answers what this one placed.
+  for (const event of ordered) {
+    const placed = byId.get(event.id);
+    if (placed && (event.reason === "summon" || event.reason === "set")) state.placedAt = Math.max(state.placedAt, placed.landAt);
   }
   while (handled.size > 800) handled.delete(handled.values().next().value!);
 }

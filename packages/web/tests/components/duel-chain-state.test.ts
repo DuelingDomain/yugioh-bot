@@ -25,6 +25,7 @@ import {
   placeChips,
   type ChainState,
 } from "../../src/components/duel/chain-state";
+import { CHAIN_TIMING } from "../../src/components/duel/duel-timing";
 
 const HAND = 0x02;
 const MZONE = 0x04;
@@ -305,6 +306,14 @@ describe("chainStepDelay", () => {
     const fast = chainStepDelay("chain-resolving", 20, false);
     expect(fast).toBeLessThan(slow);
     expect(fast).toBeGreaterThanOrEqual(220);
+  });
+  it("holds the beats a viewer reads at their floor under a backlog, and squeezes the others further", () => {
+    expect(chainStepDelay("activate", 40, false)).toBe(CHAIN_TIMING.readableFloorMs.activate);
+    expect(chainStepDelay("chain-resolving", 40, false)).toBe(CHAIN_TIMING.readableFloorMs["chain-resolving"]);
+    expect(chainStepDelay("chain-negated", 40, false)).toBe(CHAIN_TIMING.readableFloorMs["chain-negated"]);
+    expect(chainStepDelay("chain-resolved", 40, false)).toBe(CHAIN_TIMING.floorMs);
+    expect(chainStepDelay("chain-end", 40, false)).toBe(CHAIN_TIMING.floorMs);
+    expect(chainStepDelay("activate", 40, true)).toBeGreaterThanOrEqual(CHAIN_TIMING.readableFloorMs.activate);
   });
 });
 
