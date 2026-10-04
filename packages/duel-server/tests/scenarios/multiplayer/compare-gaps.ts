@@ -108,7 +108,8 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
     steps: [
       endTurn("p0"),
       activate("Soul Exchange", "p1"),
-      // Soul Exchange targets a monster of any opponent (no overlay file): p1 picks the monster of p0.
+      // R-FFA-OPP-ONE: Soul Exchange declares p0 before selecting its monster.
+      pickOpponent("p0", "p1"),
       select(OX),
       expectOffered("tributeSummon", SKULL, "p1"),
       normalSummon(SKULL, "p1"),

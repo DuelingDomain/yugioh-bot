@@ -641,12 +641,14 @@ const tell = (format: "ffa3" | "tag"): Scenario => {
   setup[holder] = { monsters: [xyz(TELL, [ELF, ELF])], deck: [ELF] };
   setup[other] = { monsters: [xyz(TELL, [ELF, ELF])], deck: [ELF] };
   return probe(format, `d-d-d-marksman-king-tell-damage-flag-of-${holder}-only`, 71612253,
-    `${tag ? "Tag" : "FFA3"}: Ookazi of p0 burns ${holder} (flag kept for ${tag ? "team 1" : holder}); the Tell of ${holder} is offered and used (detaches a material, shrinks the Tell of ${other}, burns ${tag ? "team 0" : "p0"} for 1000), the Tell of ${other} (no damage taken) is not offered`,
+    `${tag ? "Tag" : "FFA3"}: Ookazi of p0 burns ${holder} (flag kept for ${tag ? "team 1" : holder}); before Tell activates, the Tell of ${other} (no damage taken) is not offered; the Tell of ${holder} detaches a material, shrinks the Tell of ${other}, and burns ${tag ? "team 0" : other} for 1000`,
     setup,
-    [activate(OOKAZI, "p0"), ...(tag ? [] : [pickOpponent(holder, "p0")]), expectOffered("activate", TELL, holder), activate(TELL, holder), select(ELF), select({ card: TELL, owner: other }), ...(tag ? [] : [pickOpponent("p0", holder)])],
+    [activate(OOKAZI, "p0"), ...(tag ? [] : [pickOpponent(holder, "p0")]), expectOffered("activate", TELL, holder), activate(TELL, holder),
+      // R-FFA-OPP-ONE: declare before the detach cost; the target and damage use that same seat.
+      ...(tag ? [] : [pickOpponent(other, holder)]), select(ELF), select({ card: TELL, owner: other })],
     tag
       ? { p0: { lp: 15000, grave: [OOKAZI] }, p1: { lp: 15200, grave: [ELF], monsters: [TELL] }, p2: { lp: 15000, monsters: [TELL] }, p3: { lp: 15200 } }
-      : { p0: { lp: 7000, grave: [OOKAZI] }, p1: { monsters: [TELL] }, p2: { lp: 7200, grave: [ELF], monsters: [TELL] } });
+      : { p0: { lp: 8000, grave: [OOKAZI] }, p1: { lp: 7000, monsters: [TELL], zones: { m0: { card: TELL, attack: 1300, materials: 2 } } }, p2: { lp: 7200, grave: [ELF], monsters: [TELL], zones: { m0: { card: TELL, attack: 2300, materials: 1 } } } });
 };
 
 /**

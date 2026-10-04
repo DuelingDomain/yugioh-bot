@@ -84,11 +84,11 @@ export const DUEL_STYLE_SCENARIOS: Scenario[] = [
     setup: { format: "ffa3", p0: { hand: ["Reversal Quiz", ELF], deck: [ELF] }, p1: { lp: 1000 }, p2: { lp: 3000 } },
     steps: [
       activate("Reversal Quiz", "p0"),
-      zone("p0", "s0", "p0"),
-      // No target and no read of the opponent in the cost: the core asks at the first read, in the operation, after the guess.
-      choose("Monster", "p0"),
+      // R-COMMON-OPP-PICK: declare the opponent at activation, before the cost and guess.
       expectPickSeats(["p1", "p2"], "p0"),
       pickOpponent("p1", "p0"),
+      zone("p0", "s0", "p0"),
+      choose("Monster", "p0"),
       expectLp({ seat: "p0" }, 1000),
       expectLp({ seat: "p1" }, 8000),
       expectLp({ seat: "p2" }, 3000),
