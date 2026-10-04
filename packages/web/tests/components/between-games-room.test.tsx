@@ -107,6 +107,43 @@ describe("the old game's room once the series moves on", () => {
     swr.data = makeSeriesRoom({ series: makeSeries({ status: "active", gameNumber: 1, currentDuelSlug: "game-1", wins: [1, 0] }), status: "completed" });
     render(<DuelRoomView slug="game-1" />);
     expect(screen.queryByTestId("next-game-starting")).toBeNull();
+    expect(screen.getByTestId("duel-result")).toBeTruthy();
+    expect(screen.getAllByText("YOU WIN").length).toBeGreaterThan(0);
+  });
+
+  it("shows the result of the final game of the series (the series is completed)", () => {
+    swr.data = makeSeriesRoom({
+      slug: "game-3",
+      series: makeSeries({ status: "completed", gameNumber: 3, currentDuelSlug: "game-3", wins: [2, 1], winnerPlayerId: 1 }),
+      status: "completed",
+    });
+    render(<DuelRoomView slug="game-3" />);
+    expect(screen.queryByTestId("next-game-starting")).toBeNull();
+    expect(screen.queryByTestId("between-games")).toBeNull();
+    expect(screen.getByTestId("duel-result")).toBeTruthy();
+    expect(screen.getAllByText("YOU WIN").length).toBeGreaterThan(0);
+  });
+
+  it("shows the result of a deciding game that is over while the series still reads active", () => {
+    swr.data = makeSeriesRoom({
+      slug: "game-3",
+      series: makeSeries({ status: "active", gameNumber: 3, currentDuelSlug: "game-3", wins: [2, 1] }),
+      status: "completed",
+    });
+    render(<DuelRoomView slug="game-3" />);
+    expect(screen.queryByTestId("next-game-starting")).toBeNull();
+    expect(screen.getByTestId("duel-result")).toBeTruthy();
+  });
+
+  it("shows the old game's result when the series is already completed (no next game to follow)", () => {
+    swr.data = makeSeriesRoom({
+      slug: "game-1",
+      series: makeSeries({ status: "completed", gameNumber: 3, currentDuelSlug: "game-3", wins: [2, 1], winnerPlayerId: 1 }),
+      status: "completed",
+    });
+    render(<DuelRoomView slug="game-1" />);
+    expect(screen.queryByTestId("next-game-starting")).toBeNull();
+    expect(screen.getByTestId("duel-result")).toBeTruthy();
   });
 
   it("does not move a spectator who opened an older game", () => {
