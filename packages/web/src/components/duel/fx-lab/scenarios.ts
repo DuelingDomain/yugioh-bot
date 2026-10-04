@@ -7,6 +7,7 @@ import {
   EXTRA,
   GY,
   HAND,
+  hiddenAt,
   MZ,
   SZ,
   cardAt,
@@ -1193,13 +1194,13 @@ const MOVES: LabScenario[] = [
       2800,
     ),
   ),
-  moveScenario("move-extra-opp-pendulum", "To an opponent Extra Deck with a face-up Pendulum", "The opponent's Extra Deck lists only its face-up Pendulum Monster (sequence 10): an Xyz Monster of the opponent still flies into that pile and turns face-down.", () =>
+  moveScenario("move-extra-opp-pendulum", "To an opponent Extra Deck with a face-up Pendulum", "The opponent's Extra Deck piles are keyed at sequences 7 to 10 (the Pendulum Monster at 10 is face-up), with no sequence 0: an Xyz Monster of the opponent still flies into that pile and turns face-down.", () =>
     script(
       board((e) => {
         e.push(edit.monster(OPP, 2, C.utopia));
-        e.push((b) => { b.seats[OPP].extra = [cardAt(C.oddEyes, EXTRA(OPP, 10), POS_FACEUP_ATTACK)]; b.seats[OPP].extraCount = 4; });
+        e.push((b) => { b.seats[OPP].extra = [...[7, 8, 9].map((sequence) => hiddenAt(EXTRA(OPP, sequence), POS_FACEDOWN_DEFENSE)), cardAt(C.oddEyes, EXTRA(OPP, 10), POS_FACEUP_ATTACK)]; b.seats[OPP].extraCount = 4; });
       }),
-      [{ at: 0, events: [ev.move(OPP, C.utopia, MZ(OPP, 2), EXTRA(OPP, 3), "return")], edits: [edit.monster(OPP, 2, null), (b) => { b.seats[OPP].extraCount += 1; }] }],
+      [{ at: 0, events: [ev.move(OPP, C.utopia, MZ(OPP, 2), EXTRA(OPP, 3), "return")], edits: [edit.monster(OPP, 2, null), (b) => { b.seats[OPP].extra.push(hiddenAt(EXTRA(OPP, 3), POS_FACEDOWN_DEFENSE)); b.seats[OPP].extraCount += 1; }] }],
       2800,
     ),
   ),
