@@ -21,11 +21,13 @@ import type {
 
 export class DuelRequestError extends Error {
   readonly status: number;
+  readonly code?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = "DuelRequestError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -48,7 +50,8 @@ async function parseBody<T>(res: Response): Promise<T> {
   if (res.redirected) throw new DuelRequestError("Your session expired. Sign in again to return to this table.", 401);
   const body: unknown = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new DuelRequestError(errorMessage(body, res.status), res.status);
+    const code = body && typeof body === "object" && "code" in body && typeof body.code === "string" ? body.code : undefined;
+    throw new DuelRequestError(errorMessage(body, res.status), res.status, code);
   }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw new DuelRequestError("The server returned an invalid response. Your last game state is unchanged.", 502);
@@ -191,6 +194,10 @@ export async function validateDuelDeck(
 /** A seated player clicks Ready in a series game lobby (tournament games use the registered deck). */
 export async function markDuelReady(slug: string): Promise<{ session: DuelSession }> {
   return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/ready`, { method: "POST" }));
+}
+
+export async function markDuelUnready(slug: string): Promise<{ session: DuelSession }> {
+  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/unready`, { method: "POST" }));
 }
 
 /** Save the side-deck swaps for the next game; `slug` is any game of the series. */

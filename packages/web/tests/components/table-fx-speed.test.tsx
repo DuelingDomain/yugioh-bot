@@ -53,7 +53,7 @@ function Tag() {
   return <TagShell controller={controller} teamNames={[...TAG_TEAM_NAMES] as [string, string]} />;
 }
 
-const openSettings = () => act(() => void fireEvent.click(screen.getByRole("tab", { name: "Settings" })));
+const openSettings = () => act(() => void fireEvent.click(screen.queryByRole("tab", { name: "Settings" }) ?? screen.getByRole("button", { name: "Settings" })));
 const ev = (id: number, kind: DuelEvent["kind"], extra: Partial<DuelEvent> = {}): DuelEvent => ({ id, kind, text: kind, ...extra });
 
 describe("animation speed in the N-seat shells", () => {

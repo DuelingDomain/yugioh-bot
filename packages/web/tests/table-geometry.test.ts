@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared/duels";
 import {
   ARENA_CENTER,
+  boardBounds,
   compactFor,
   flyWorld,
   flyYawFor,
@@ -16,9 +17,12 @@ import {
   seatObstacles,
   seatPoses,
   stageFit,
+  stageSpread,
   slotPlan,
   slotZIndex,
   tableLayout,
+  wideHoloAnchors,
+  wideHomeSlots,
 } from "@/components/duel/table/geometry";
 import type { CameraState } from "@/components/duel/table/types";
 
@@ -42,7 +46,10 @@ function camera(over: Partial<CameraState> = {}): CameraState {
     fly: { yawDeg: 0, tiltDeg: 40, zoom: 1, targetSeat: null }, lock: null, ...over,
   };
 }
-const VIEW = { width: 1440, height: 900 };
+// A box exactly the stage's shape: no room beyond the stage, so every pose is the classic one.
+const VIEW = { width: 1100, height: 860 };
+// A box wider than the stage (a 1920 by 1080 screen under the 72px rail and the top and bottom bars).
+const WIDE = { width: 1848, height: 950 };
 
 describe("tableLayout", () => {
   it("places a 3-way table clockwise from the viewer with viewer-relative tones", () => {
@@ -416,38 +423,75 @@ describe("hubPose", () => {
     ["ffa4 focus on the right rival", "ffa4", 4, { mode: "focus", focusSeat: 3 }],
   ];
 
-  it.each(cases)("%s: the strip overlaps no seat field, no LP panel, not the ARENA 07 sign and not the ring", (_label, format, count, over) => {
-    const layout = tableLayout(format as "ffa3", engine(format, count), 0);
-    const view = camera(over);
-    const poses = seatPoses(layout, view);
-    const at = hubPose(layout, view);
-    const card = box(at.x, at.y, at.width, at.height);
-    expect(at.width).toBe(HUB_STRIP[at.size].width);
-    expect(at.height).toBe(HUB_STRIP[at.size].height);
-    // 5px of air around the whole of every seat (field, hand and name label), see seatObstacles.
-    layout.slots.forEach((slot, place) => {
-      const pose = poses.get(slot.seat)!;
-      if (pose.hidden) return;
-      for (const rect of seatObstacles(pose, place === 0)) {
-        expect(overlaps(card, box(rect.x, rect.y, rect.width + 10, rect.height + 10, rect.rotateDeg))).toBe(false);
-      }
-    });
-    // 8px of air around every LP plate at the place the camera mode puts it.
-    for (const slot of layout.slots) {
-      const plate = holoObstacle(holoAnchor(layout, slot.seat, view));
-      expect(overlaps(card, box(plate.x, plate.y, plate.width + 16, plate.height + 16))).toBe(false);
-    }
-    // The ARENA 07 sign on the plaza.
-    expect(overlaps(card, box(ARENA_SIGN.x + ARENA_SIGN.width / 2, ARENA_SIGN.y + ARENA_SIGN.height / 2, ARENA_SIGN.width, ARENA_SIGN.height))).toBe(false);
-    const ring = ringPose(layout, view);
-    const dx = Math.max(Math.abs(at.x - ring.x) - at.width / 2, 0);
-    const dy = Math.max(Math.abs(at.y - ring.y) - at.height / 2, 0);
-    expect(Math.hypot(dx, dy)).toBeGreaterThan(62 * ring.scale);
-    // The card stays inside the 1100 x 860 stage.
-    expect(at.x - at.width / 2).toBeGreaterThanOrEqual(0);
-    expect(at.x + at.width / 2).toBeLessThanOrEqual(1100);
-    expect(at.y - at.height / 2).toBeGreaterThanOrEqual(0);
-    expect(at.y + at.height / 2).toBeLessThanOrEqual(860);
+  // The table boxes the stage can have (screen px, before TableStage trims the hand row off the height): the shell at 1440 x 900 with the
+  // drawer shut and open (the open drawer leaves a box no wider than the stage), 1366 x 768, 1920 x 1080 shut and open, 2560 x 1440.
+  const boxes: Array<[string, { width: number; height: number } | undefined]> = [
+    ["the classic stage", undefined],
+    ["1440 x 900, drawer shut", { width: 1368, height: 740 }],
+    ["1440 x 900, drawer open", { width: 988, height: 740 }],
+    ["1366 x 768", { width: 1294, height: 649 }],
+    ["1920 x 1080, drawer shut", { width: 1848, height: 950 }],
+    ["1920 x 1080, drawer open", { width: 1500, height: 950 }],
+    ["2560 x 1440", { width: 2488, height: 1290 }],
+  ];
+  const fitOf = (box: { width: number; height: number }) => ({ ...box, height: (box.height * 860) / 956 });
+
+  describe.each(boxes)("%s", (_boxLabel, rawBox) => {
+    const area = rawBox ? fitOf(rawBox) : undefined;
+    it.each([...cases, ["ffa3 fly", "ffa3", 3, { mode: "fly" }] as (typeof cases)[number], ["ffa4 fly", "ffa4", 4, { mode: "fly" }] as (typeof cases)[number]])(
+      "%s: the strip overlaps no seat field, hand, name label or LP panel, not the ARENA 07 sign, the ring, your hand's row or the camera hint",
+      (_label, format, count, over) => {
+        const layout = tableLayout(format as "ffa3", engine(format, count), 0);
+        const view = camera(over);
+        // The fly-in keeps the home place, so it is checked against the home boards and plates.
+        const seen = view.mode === "fly" ? camera() : view;
+        const poses = seatPoses(layout, seen, area);
+        const at = hubPose(layout, view, area ? { box: area, meFooter: true } : undefined);
+        const spread = area ? stageSpread(area) : 0;
+        const anchors = new Map(
+          layout.slots.map((slot) => [slot.seat, (area && wideHoloAnchors(layout, seen, poses, spread, true, { hint: { width: 250 / stageFit(area), height: 40 / stageFit(area) } })?.get(slot.seat)) || holoAnchor(layout, slot.seat, seen)] as const),
+        );
+        const card = box(at.x, at.y, at.width, at.height);
+        expect(at.width).toBe(HUB_STRIP[at.size].width);
+        expect(at.height).toBe(HUB_STRIP[at.size].height);
+        // 5px of air around the whole of every seat (field, hand and name label), see seatObstacles.
+        layout.slots.forEach((slot, place) => {
+          const pose = poses.get(slot.seat)!;
+          if (pose.hidden) return;
+          for (const rect of seatObstacles(pose, place === 0)) {
+            expect(overlaps(card, box(rect.x, rect.y, rect.width + 10, rect.height + 10, rect.rotateDeg))).toBe(false);
+          }
+        });
+        // 8px of air around every LP plate as drawn (the wide docks, or the classic ones), and under yours the Deck Master chip.
+        for (const slot of layout.slots) {
+          const anchor = anchors.get(slot.seat)!;
+          const plate = holoObstacle(anchor);
+          expect(overlaps(card, box(plate.x, plate.y, plate.width + 16, plate.height + 16))).toBe(false);
+          if (anchor.me && area && spread > 0) {
+            expect(overlaps(card, box(anchor.x + 135, anchor.y + (113 + 58) / 2, 270 + 16, 113 + 58 + 16))).toBe(false);
+          }
+        }
+        // The ARENA 07 sign on the plaza.
+        expect(overlaps(card, box(ARENA_SIGN.x + ARENA_SIGN.width / 2, ARENA_SIGN.y + ARENA_SIGN.height / 2, ARENA_SIGN.width, ARENA_SIGN.height))).toBe(false);
+        const ring = ringPose(layout, seen);
+        const dx = Math.max(Math.abs(at.x - ring.x) - at.width / 2, 0);
+        const dy = Math.max(Math.abs(at.y - ring.y) - at.height / 2, 0);
+        expect(Math.hypot(dx, dy)).toBeGreaterThan(62 * ring.scale);
+        if (area && spread > 0) {
+          // A wide table: your hand's row under the stage and the camera hint pill in the bottom left corner stay clear too.
+          expect(overlaps(card, box(550, (860 - 4 + 960) / 2, 660, 960 - 856))).toBe(false);
+          const k = stageFit(area);
+          const hintW = 250 / k;
+          const hintH = 40 / k;
+          expect(overlaps(card, box(-spread + 6 - 6 + hintW / 2, 952 - hintH / 2, hintW, hintH))).toBe(false);
+        }
+        // The card stays inside the visible stage: 1100 x 860 plus the spread at each side, and above the hand row.
+        expect(at.x - at.width / 2).toBeGreaterThanOrEqual(-spread);
+        expect(at.x + at.width / 2).toBeLessThanOrEqual(1100 + spread);
+        expect(at.y - at.height / 2).toBeGreaterThanOrEqual(0);
+        expect(at.y + at.height / 2).toBeLessThanOrEqual(area && spread > 0 ? 952 : 860);
+      },
+    );
   });
 
   it("uses the small strip at a 3-way table, the large one above a 4-way ring in the overview", () => {

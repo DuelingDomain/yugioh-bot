@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { LinkStub, fontMock, ready } from "./shell/helpers";
 
 vi.mock("next/font/google", () => fontMock());
@@ -75,5 +75,20 @@ describe("MobileDrawer", () => {
     expect(document.body.style.overflow).toBe("hidden");
     rerender(<MobileDrawer open={false} onClose={vi.fn()} account={ready} live={null} />);
     expect(document.body.style.overflow).toBe("");
+  });
+
+  it("stays mounted, closed and inert while it slides out, then unmounts", async () => {
+    const { rerender } = render(<MobileDrawer open={true} onClose={vi.fn()} account={ready} live={null} />);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("data-mo", "slide");
+    expect(dialog).toHaveAttribute("data-state", "open");
+    expect((dialog.previousElementSibling as HTMLElement).dataset.mo).toBe("scrim");
+    rerender(<MobileDrawer open={false} onClose={vi.fn()} account={ready} live={null} />);
+    // Right away: the same node, closed, taking no input; the scroll lock is already off.
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    expect(dialog).toHaveAttribute("data-state", "closed");
+    expect(dialog.parentElement).toHaveAttribute("inert");
+    expect(document.body.style.overflow).toBe("");
+    await waitFor(() => expect(dialog.isConnected).toBe(false));
   });
 });

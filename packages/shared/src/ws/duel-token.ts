@@ -26,6 +26,7 @@ export type DuelChangedPayload = {
 
 export type DuelPresencePayload = {
   slug: string;
+  /** Seats with at least one connected, visible duel tab; observers do not count. */
   onlineSeats: number[];
   spectatorCount: number;
 };

@@ -53,6 +53,8 @@
   left: 0;
   top: 0;
   transform-origin: 0 0;
+  /* The fit glides only while a drawer reflows the table: the shell sets --glide for that window (table-shell.module.css). */
+  transition: transform var(--glide, 0s) var(--glide-ease, linear);
 }
 
 /*
@@ -246,6 +248,65 @@
 .board[data-format="ffa4"] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {
   inset: 58% auto auto 10px;
   max-height: 30%;
+}
+
+/*
+ * The table measures a free room for its prompts (geometry.ts promptRoom: off every board, plate, the ring, your hand and
+ * the camera hint) and publishes it as --room-*; the seat choice, the "Activate?" bar and the chain panel sit in it, bottom
+ * edge down, so a prompt about a rival's field never covers that field. A table with no room keeps the rules above.
+ * The doubled attributes only outrank the rules above.
+ */
+.board[data-panel-room][data-panel-room] .slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]),
+.board[data-panel-room][data-panel-room] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])),
+.board[data-panel-room][data-panel-room] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) {
+  inset: auto auto calc(100% - var(--room-y) - var(--room-h)) var(--room-x);
+  translate: none;
+  margin: 0;
+  width: var(--room-w);
+  min-width: 0;
+  max-width: none;
+  max-height: var(--room-h);
+}
+
+/*
+ * A snug room (narrow or short, a drawer open on a small screen): the seat choice and the response bars shrink to fit it. The
+ * panel's sizes all scale with --duel-unit, so one smaller unit does most of it; the seat choice's header drops to one row of
+ * chips over a full-width title, so the title is not wrapped word by word beside the Mandatory badge.
+ */
+.board[data-room-snug][data-room-snug] .slot[data-slot="prompt"] :global([data-prompt-panel]) {
+  --duel-unit: 0.8px;
+}
+.board[data-room-snug][data-room-snug] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel] > header) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 6px;
+  row-gap: 4px;
+}
+.board[data-room-snug][data-room-snug] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel] > header > div) {
+  display: contents;
+}
+.board[data-room-snug][data-room-snug] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel] > header h2) {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  font-size: 15px;
+}
+.board[data-room-snug][data-room-snug] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel] > header > div > :not(h2):not(p)) {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+}
+.board[data-room-snug][data-room-snug] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel] > header > span) {
+  grid-column: 2;
+  grid-row: 1;
+}
+.board[data-room-snug][data-room-snug] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel] > header > button) {
+  grid-column: 3;
+  grid-row: 1;
+}
+.board[data-room-snug][data-room-snug] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel] > header p) {
+  grid-column: 1 / -1;
+  grid-row: 3;
 }
 
 /*

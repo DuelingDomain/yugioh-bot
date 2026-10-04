@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import { DraftRoomManager } from "./rooms.js";
 import { registerEventHandlers } from "./events.js";
 import { registerDuelEventHandlers } from "./duel-events.js";
+import { presenceHeartbeat } from "./socket-options.js";
 import { listenInternalHttp } from "./internal-http.js";
 import type { TypedServer } from "./events.js";
 import { createDraftAccessReader } from "@yugidraft/shared/services";
@@ -15,6 +16,7 @@ const WS_INTERNAL_SECRET = process.env.WS_INTERNAL_SECRET ?? "";
 
 const httpServer = createServer();
 const io: TypedServer = new Server(httpServer, {
+  ...presenceHeartbeat,
   cors: { origin: WEB_URL, methods: ["GET", "POST"], credentials: true },
 });
 

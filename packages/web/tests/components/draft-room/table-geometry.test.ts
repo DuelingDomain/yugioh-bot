@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { anchorFor, measureTable, packSlots, themeStackPoint } from "../../../src/components/draft/room/table-geometry";
+import { anchorFor, bestColumns, measureTable, packSlots, themeStackPoint } from "../../../src/components/draft/room/table-geometry";
 
 const fits = (width: number, height: number, phone: boolean, narrowTheme = false) => {
   const g = measureTable({ width, height, phone, theme: narrowTheme, diskH: 112 });
@@ -39,7 +39,8 @@ describe("pack capacity", () => {
     expect(original.tw).toBe(stage.phone ? 366 : 980);
     expect(original.cw).toBe(stage.phone ? 78.5 : 106.25);
     expect(original.th).toBeCloseTo(stage.phone ? 569.694915 : 465.745763);
-    for (const packSize of [5, 8, 15]) {
+    // Roomy desktop stages choose their own columns (see "cube pack columns" below); the phone stays put.
+    for (const packSize of stage.phone ? [5, 8, 15] : []) {
       const g = measureTable({ ...opts, packSize });
       expect(g).toEqual(original);
       expect(packSlots(g, packSize, false)).toEqual(packSlots(original, packSize, false));
@@ -188,5 +189,64 @@ describe("pack capacity", () => {
     expect(anchorFor(g, 0, 12)).toEqual({ x: g.tw / 2, y: g.th + 30 });
     expect(anchorFor(g, 1, 12).y).toBeCloseTo(g.th * 0.78);
     expect(anchorFor(g, 4, 12)).toEqual({ x: g.tw * 0.1, y: -14 });
+  });
+});
+
+describe("cube pack columns", () => {
+  const cube = (width: number, height: number, packSize: number) =>
+    measureTable({ width, height, phone: false, theme: false, diskH: 112, packSize });
+
+  it.each([
+    [1196, 1137, "1904 x 1195 with the right dock"],
+    [1212, 1022, "1920 x 1080"],
+    [932, 842, "a 1560 x 900 window"],
+  ])("deals a 15-card pack five across and three down at %i x %i (%s)", (width, height) => {
+    const g = cube(width, height, 15);
+    expect(g.cols).toBe(5);
+    expect(g.rows).toBe(3);
+    expect(g.tall).toBe(false);
+    expect(g.tilt).toBe(40);
+    // the old eight across gave 106px cards; five across is clearly bigger
+    expect(g.cw).toBeGreaterThan(115);
+  });
+
+  it("keeps the narrow 1440 x 900 stage at five across and three down", () => {
+    const g = cube(812, 842, 15);
+    expect(g.cols).toBe(5);
+    expect(g.rows).toBe(3);
+    expect(g.tall).toBe(false);
+  });
+
+  it("leaves a pack of more than sixteen on the old layout", () => {
+    const g = cube(1196, 1137, 24);
+    expect(g.cols).toBe(8);
+    expect(g.rows).toBe(3);
+  });
+
+  it("falls back to the old layout when no choice reaches the card floor", () => {
+    const g = cube(1196, 220, 15);
+    expect(g.cols).toBe(8);
+  });
+
+  it("leaves a huge pack on the flat scrolling table", () => {
+    const g = cube(988, 742, 60);
+    expect(g.tall).toBe(true);
+    expect(g.tilt).toBe(0);
+    expect(g.cw).toBeGreaterThanOrEqual(64);
+  });
+
+  it("does not search for columns in theme mode or on a phone", () => {
+    const theme = measureTable({ width: 1196, height: 1137, phone: false, theme: true, diskH: 112, packSize: 15 });
+    expect(theme.cols).toBe(8);
+    const phone = measureTable({ width: 390, height: 734, phone: true, theme: false, diskH: 84, packSize: 15 });
+    expect(phone.cols).toBe(4);
+  });
+
+  it("bestColumns breaks a tie toward more columns", () => {
+    const o = { packSize: 8, baseRows: 1, widthCap: 600, pad: 0, gap: 0, top: 0, extra: 0, fit: 10000, floor: 1 };
+    // 8 cards: 4 rows of 2 do not exist among the choices; 5 across gives 2 rows, 8 across gives 1 row
+    expect(bestColumns(o)).toBe(5);
+    expect(bestColumns({ ...o, packSize: 5 })).toBe(5);
+    expect(bestColumns({ ...o, floor: 5000 })).toBeNull();
   });
 });

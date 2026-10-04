@@ -93,6 +93,64 @@ function start(app: ReturnType<typeof setup>, slug: string, seed: string[] = ["s
 }
 
 
+describe("markUnready", () => {
+  it("takes Ready back in the lobby without changing either deck or the other player's Ready", () => {
+    const app = setup();
+    const { slug } = readyDuel(app);
+    const session = app.duels.markUnready(slug, "g1", app.p1);
+    expect(session.status).toBe("lobby");
+    expect(session.seats.map((seat) => seat.ready)).toEqual([false, true]);
+    expect(app.duels.room(slug, "g1", app.p1).myDeck).toEqual(validDeck(1));
+    expect(app.duels.room(slug, "g1", app.p2).myDeck).toEqual(validDeck(1000, 12345678));
+    expect(app.duels.markReady(slug, "g1", app.p1).seats[0].ready).toBe(true);
+  });
+
+  it("is idempotent, including before a deck is submitted", () => {
+    const app = setup();
+    const { slug } = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Table", mode: "normal" });
+    const first = app.duels.markUnready(slug, "g1", app.p1);
+    expect(first.seats[0].ready).toBe(false);
+    expect(app.duels.markUnready(slug, "g1", app.p1)).toEqual(first);
+  });
+
+  it.each(["rps", "choose"])("refuses once the opening is in %s", (phase) => {
+    const app = setup();
+    const { slug } = readyDuel(app);
+    app.duels.startOpening(slug, "g1", app.p1, 1000);
+    if (phase === "choose") {
+      app.duels.submitOpeningPick(slug, "g1", 0, "rock", 1100);
+      app.duels.submitOpeningPick(slug, "g1", 1, "paper", 1200);
+    }
+    expect(() => app.duels.markUnready(slug, "g1", app.p1)).toThrow(/about to start|already starting/);
+    expect(app.duels.get(slug, "g1").seats.map((seat) => seat.ready)).toEqual([true, true]);
+  });
+
+  it("refuses a non-seated player", () => {
+    const app = setup();
+    const { slug } = readyDuel(app);
+    expect(() => app.duels.markUnready(slug, "g1", app.p3)).toThrow(/not seated/);
+  });
+
+  it("enforces guild and invite-only room access", () => {
+    const app = setup();
+    const { slug } = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Private", mode: "normal", settings: { visibility: "private" } });
+    expect(() => app.duels.markUnready(slug, "g2", app.outsider)).toThrow(/not found/);
+    expect(() => app.duels.markUnready(slug, "g1", app.outsider)).toThrow(/same guild/);
+    expect(() => app.duels.markUnready(slug, "g1", app.p3)).toThrow(/invite-only/);
+  });
+
+  it.each(["active", "completed", "cancelled"])("refuses outside the lobby (%s)", (status) => {
+    const app = setup();
+    const { slug } = readyDuel(app);
+    if (status === "cancelled") app.duels.cancel(slug, "g1", app.p1);
+    else {
+      start(app, slug);
+      if (status === "completed") app.duels.complete(slug, "g1", 0, "test");
+    }
+    expect(() => app.duels.markUnready(slug, "g1", app.p1)).toThrow(/not in lobby/);
+  });
+});
+
 describe("duel persistence invariants", () => {
   it.each([true, false])("stores the first-turn draw flag %s through setup updates", (firstTurnDraw) => {
     const app = setup();

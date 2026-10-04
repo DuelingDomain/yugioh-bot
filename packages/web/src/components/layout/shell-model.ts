@@ -1,4 +1,6 @@
 import { navItems, type NavItem } from "@/lib/nav-items";
+import type { LiveOpponent } from "@yugidraft/shared/services";
+import type { DuelPresencePayload } from "@yugidraft/shared/ws";
 
 /** Sidebar grouping from the b14 board. nav-items.ts keeps its links and icons. */
 export const NAV_GROUPS: { label: string | null; hrefs: string[] }[] = [
@@ -77,8 +79,10 @@ export type LiveDuelState = "live" | "between" | "waiting";
 
 /** What `GET /api/live` returns. */
 export interface LiveNow {
-  yourDuel: { href: string; opponent: string; state: LiveDuelState } | null;
+  yourDuel: { href: string; opponent: string; state: LiveDuelState; opponents?: LiveOpponent[] } | null;
   liveCount: number;
+  /** Client-only socket snapshot, never inferred from readiness. */
+  presence?: Omit<DuelPresencePayload, "slug"> | null;
 }
 
 /** Checks the shape of an `/api/live` answer. Anything else counts as "no data" (null). */
@@ -88,17 +92,23 @@ export function parseLiveNow(raw: unknown): LiveNow | null {
   if (typeof liveCount !== "number" || !Number.isFinite(liveCount) || liveCount < 0) return null;
   if (yourDuel === null) return { yourDuel: null, liveCount: Math.floor(liveCount) };
   if (!yourDuel || typeof yourDuel !== "object") return null;
-  const d = yourDuel as { href?: unknown; opponent?: unknown; state?: unknown };
+  const d = yourDuel as { href?: unknown; opponent?: unknown; state?: unknown; opponents?: unknown };
   if (typeof d.href !== "string" || !d.href.startsWith("/") || d.href.startsWith("//")) return null;
   if (typeof d.opponent !== "string") return null;
   if (d.state !== "live" && d.state !== "between" && d.state !== "waiting") return null;
-  return { yourDuel: { href: d.href, opponent: d.opponent, state: d.state }, liveCount: Math.floor(liveCount) };
+  if (d.opponents !== undefined && (!Array.isArray(d.opponents) || !d.opponents.every((item) =>
+    item && Number.isInteger(item.seat) && item.seat >= 0 && typeof item.name === "string" && typeof item.isBot === "boolean"
+  ))) return null;
+  return { yourDuel: { href: d.href, opponent: d.opponent, state: d.state,
+    ...(d.opponents === undefined ? {} : { opponents: d.opponents as LiveOpponent[] }) }, liveCount: Math.floor(liveCount) };
 }
 
 export interface LiveRowModel {
   kind: "you" | "live";
   title: string;
   sub: string;
+  /** At least one human opponent has a visible duel tab. */
+  present: boolean;
   /** The words on the right of the row, only for your own duel. */
   action: string | null;
   href: string;
@@ -113,25 +123,30 @@ function duels(n: number): string {
 }
 
 /** Which Live now row to show, or null when nothing is live. Your own duel always wins. */
-export function liveRowModel(live: LiveNow | null): LiveRowModel | null {
+export function liveRowModel(live: LiveNow | null, presence: Omit<DuelPresencePayload, "slug"> | null = null): LiveRowModel | null {
   if (!live) return null;
   const { yourDuel } = live;
   if (yourDuel) {
     const opponent = yourDuel.opponent.trim() || "your opponent";
-    const sub = yourDuel.state === "between" ? `${opponent}, between games` : yourDuel.state === "waiting" ? `${opponent}, waiting` : opponent;
+    const opponents = yourDuel.opponents ?? [];
+    const present = opponents.some((seat) => !seat.isBot && presence?.onlineSeats.includes(seat.seat));
+    const sub = opponents.length ? opponents.map((seat) => `${seat.name} · ${seat.isBot ? "bot"
+      : presence === null ? "presence unavailable" : presence.onlineSeats.includes(seat.seat) ? "in the room" : "away"}`).join("; ")
+      : `${opponent} · presence unavailable`;
     return {
       kind: "you",
       title: "Your duel",
       sub,
+      present,
       action: "Open duel",
       href: yourDuel.href,
-      tip: `Your duel against ${opponent}`,
+      tip: `Your duel against ${sub}`,
       name: `Your duel against ${sub}. Open duel`,
     };
   }
   if (live.liveCount > 0) {
     const count = duels(live.liveCount);
-    return { kind: "live", title: "Live now", sub: count, action: null, href: "/duels", tip: `Live now, ${count}`, name: `Live now, ${count}` };
+    return { kind: "live", title: "Live now", sub: count, present: true, action: null, href: "/duels", tip: `Live now, ${count}`, name: `Live now, ${count}` };
   }
   return null;
 }

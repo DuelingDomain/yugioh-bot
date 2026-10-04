@@ -6,6 +6,10 @@ export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "can
 export type DuelActorRole = "player" | "spectator";
 export type DuelMasterRule = 1 | 2 | 3 | 4 | 5;
 
+/** An opponent pick named a seat that is eliminated or leaving the duel. */
+export const DUEL_SEAT_LEFT_ERROR_CODE = "seat_left" as const;
+export type DuelErrorCode = typeof DUEL_SEAT_LEFT_ERROR_CODE;
+
 export type {
   DuelCardPool,
   DuelClock,
@@ -401,6 +405,8 @@ export interface DuelEvent {
   handShuffled?: true;
   /** attack: the attacked monster's zone; absent for a direct attack. equip: the monster it was equipped to. */
   target?: DuelZoneRef;
+  /** attack: the defending seat of a direct attack. Absent in 1v1 and older events. */
+  targetSeat?: number;
   /** battle: public MSG_BATTLE values; a direct attack has no target. These never replace live board stats. */
   battle?: { attacker: DuelBattleStats; target?: DuelBattleStats };
   /** damage: LP lost by `seat` (positive number). */

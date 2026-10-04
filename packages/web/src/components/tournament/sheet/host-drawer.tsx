@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { SheetPortal } from "@/components/sheet";
+import { DURATION, usePresence } from "@/lib/motion";
 import { MatchRow } from "../matches/match-row";
 import type { PlayerRatings } from "../sheet-contracts";
 import type { TournamentDetail } from "../types";
@@ -14,15 +15,18 @@ import styles from "./rail.module.css";
  * Host tools, in a drawer from the right (a bottom sheet on a phone): the organizer's controls for every
  * match (Set result, Reopen), the deck list, and ending the tournament early. It is a modal dialog: the
  * scrim blocks the page, Tab stays inside, Escape and the close button close it, and focus returns to the
- * Host tools button.
+ * Host tools button. It slides out over 220ms; the trap, Escape, `inert` and the focus return all let go
+ * the moment `open` goes false, not when the exit ends.
  */
-export function HostDrawer({ tournament, tournamentSlug, ratings, onChanged, onClose }: {
+export function HostDrawer({ open, tournament, tournamentSlug, ratings, onChanged, onClose }: {
+  open: boolean;
   tournament: TournamentDetail;
   tournamentSlug: string;
   ratings: PlayerRatings;
   onChanged: () => void;
   onClose: () => void;
 }) {
+  const { mounted, state } = usePresence(open, DURATION.drawerOut);
   const close = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLElement | null>(null);
   // SheetPortal renders after mount, so the panel appears one tick after this component's effect. Focus
@@ -35,6 +39,7 @@ export function HostDrawer({ tournament, tournamentSlug, ratings, onChanged, onC
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
   useEffect(() => {
+    if (!open) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const key = (event: KeyboardEvent) => {
       if (event.key === "Escape") { onCloseRef.current(); return; }
@@ -55,14 +60,15 @@ export function HostDrawer({ tournament, tournamentSlug, ratings, onChanged, onC
       document.removeEventListener("keydown", key);
       if (previous?.isConnected) previous.focus();
     };
-  }, []);
+  }, [open]);
 
   const matches = tournament.matches.filter((match) => !isByeMatch(match)).sort((a, b) => a.roundNumber - b.roundNumber || a.id - b.id);
   const props = { tournament, tournamentSlug, currentUserPlayerId: tournament.currentUserPlayerId, ratings, isHost: true, onChanged };
+  if (!mounted) return null;
   return (
     <SheetPortal>
-      <div className={styles.scrim} onClick={onClose} aria-hidden="true" />
-      <aside ref={attach} id="host-tools" className={styles.drawer} role="dialog" aria-modal="true" aria-label="Host tools">
+      <div className={styles.scrim} data-mo="scrim" data-state={state} onClick={onClose} aria-hidden="true" />
+      <aside ref={attach} id="host-tools" className={styles.drawer} data-mo="slide" data-state={state} inert={!open} role="dialog" aria-modal="true" aria-label="Host tools">
         <div className={styles.dHead}>
           <h2 className={styles.dTitle}>Host tools</h2>
           <button ref={close} type="button" className={styles.close} aria-label="Close host tools" onClick={onClose}><X size={18} aria-hidden="true" /></button>

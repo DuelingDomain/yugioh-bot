@@ -34,6 +34,7 @@ import {
   takeDuelSeat,
   leaveDuel,
   markDuelReady,
+  markDuelUnready,
   sendDuelAction,
   setDuelDeck,
   startDuel,
@@ -699,13 +700,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   if (data.session.status === "lobby" && !ownWindowGate) {
     const opening = data.opening;
     const lobby = (
-      <RoomLobby room={data} slug={slug} busy={busy} starting={starting} actionError={actionError}
+      <RoomLobby room={data} presence={realtime.presence} slug={slug} busy={busy} starting={starting} actionError={actionError}
         onDeckLocked={() => void refreshRoom()}
         onTakeSeat={(seat) => void run(() => takeDuelSeat(slug, seat))}
         onAddBot={(seat) => void run(() => addPracticeBot(slug, seat))}
         onRemoveBot={(seat) => void run(() => removePracticeBot(slug, seat))}
         onReady={(deck) => void run(() => setDuelDeck(slug, deck))}
         onMarkReady={() => void run(() => markDuelReady(slug))}
+        onMarkUnready={() => void run(() => markDuelUnready(slug))}
         onStart={() => {
           // Inside the click, so pop-up blockers allow it. Seated players on other devices get the prompt below.
           if (inFlight.current) return;

@@ -11,6 +11,7 @@ import { configDefaults, defineConfig } from "vitest/config";
 // tests there (for example tests/engine-nseat.test.ts and tests/engine.test.ts have pure projection and parsing tests),
 // so those tests do not run in the unit job. Every file not in the list passes.
 const NEEDS_ENGINE = [
+  "tests/ffa-attack-target-pick.test.ts",
   // cards.cdb (card data, deck legality, scenario names)
   "tests/card-data-abi.test.ts",
   "tests/card-search.test.ts",

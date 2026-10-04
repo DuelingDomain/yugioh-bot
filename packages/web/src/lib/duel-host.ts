@@ -14,7 +14,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { verifyDiscordGuildMembership } from "@/lib/discord-guild-membership";
 
-export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode";
+export type DuelHostOp = "capabilities" | "view" | "start" | "respond" | "deck" | "validate-deck" | "cards" | "card-details" | "card-query" | "card-facets" | "surrender" | "add-bot" | "archive" | "cancel" | "replay" | "ready" | "unready" | "series-side" | "series-ready" | "series-unready" | "series-first" | "opening-pick" | "opening-choose" | "normalize-codes" | "check-deck" | "list-presets" | "start-preset" | "report" | "debug-trace" | "bug-context" | "chain-mode";
 
 /** Dev scenario tools (presets page, Report button). Server side only. Exactly "1" turns them on. */
 export function scenariosEnabled(): boolean {
@@ -69,16 +69,16 @@ export function duelErrorResponse(error: unknown) {
   return NextResponse.json({ error: "Failed to process duel request" }, { status: 500 });
 }
 
-function hostErrorMessage(text: string) {
+function hostErrorBody(text: string): { error: string; code?: string } {
   try {
     const parsed: unknown = JSON.parse(text);
     if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") {
-      return parsed.error;
+      return { error: parsed.error, ...("code" in parsed && typeof parsed.code === "string" ? { code: parsed.code } : {}) };
     }
   } catch {
     // Host may return a plain-text error body.
   }
-  return text.trim() || "Duel engine error";
+  return { error: text.trim() || "Duel engine error" };
 }
 
 export function duelHostConfigProblem(cfg: { url: string; secret: string }): string | null {
@@ -166,7 +166,7 @@ export async function callDuelHost(input: {
     }
     return {
       ok: false,
-      response: NextResponse.json({ error: hostErrorMessage(result.text) }, { status: result.status }),
+      response: NextResponse.json(hostErrorBody(result.text), { status: result.status }),
     };
   }
   if (!result.text) {

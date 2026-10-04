@@ -82,7 +82,11 @@ describe("BattleFx", () => {
   const boxes: Record<string, DOMRect> = {
     "0:4:0": { left: 100, top: 400, width: 60, height: 88 } as DOMRect,
     "1:4:0": { left: 100, top: 100, width: 60, height: 88 } as DOMRect,
+    "3:4:0": { left: 900, top: 400, width: 60, height: 88 } as DOMRect,
+    lp0: { left: 20, top: 500, width: 200, height: 50 } as DOMRect,
     lp1: { left: 20, top: 20, width: 200, height: 50 } as DOMRect,
+    lp2: { left: 500, top: 20, width: 200, height: 50 } as DOMRect,
+    lp3: { left: 900, top: 20, width: 200, height: 50 } as DOMRect,
   };
 
   beforeEach(() => {
@@ -91,11 +95,13 @@ describe("BattleFx", () => {
     board.innerHTML = `
       <div data-zones="0:4:0"><div data-card-art></div></div>
       <div data-zones="1:4:0"><div data-card-art></div></div>
-      <div data-lp-seat="1"><strong>8000</strong></div>`;
+      <div data-zones="3:4:0"><div data-card-art></div></div>
+      ${[0, 1, 2, 3].map(seat => `<div data-lp-seat="${seat}" data-side="${seat === 0 ? "you" : "opp"}"><strong>8000</strong></div>`).join("")}`;
     document.body.appendChild(board);
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       const zone = this.closest("[data-zones]")?.getAttribute("data-zones");
-      const box = zone ? boxes[zone] : this.closest("[data-lp-seat]") ? boxes.lp1 : undefined;
+      const lpSeat = this.closest("[data-lp-seat]")?.getAttribute("data-lp-seat");
+      const box = zone ? boxes[zone] : lpSeat != null ? boxes[`lp${lpSeat}`] : undefined;
       return (box ?? { left: 0, top: 0, width: 0, height: 0 }) as DOMRect;
     });
   });
@@ -130,6 +136,59 @@ describe("BattleFx", () => {
   // A Warrior (slash: two halves), a Machine (beam: 24 tiles) and a Spellcaster (arcane: 24 tiles).
   const warrior = { code: 6368038, name: "Gaia The Fierce Knight", race: "Warrior", attribute: 1, attack: 2300, defense: 2100 };
   const machine = { code: 77585513, name: "Jinzo", race: "Machine", attribute: 32, attack: 2400, defense: 1500 };
+
+  it.each([[1, 2, 0], [1, 3, 0], [3, 0, 2]])("aims seat %i's direct attack at defending seat %i for third-party viewer %i", (attacker, defender, viewer) => {
+    for (const node of board.querySelectorAll<HTMLElement>("[data-lp-seat]")) {
+      node.dataset.side = Number(node.dataset.lpSeat) === viewer ? "you" : "opp";
+    }
+    const declaration: DuelEvent = { ...direct, id: 2, seat: attacker, targetSeat: defender,
+      zone: { controller: attacker, location: 4, sequence: 0 } };
+    const box = boxes[`lp${defender}`];
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
+    rerender(<BattleFx events={[phase, declaration]} reducedMotion />);
+    // The locked aim rings the defender's LP, independent of the viewer's local LP.
+    const aim = document.querySelector('[data-aim="locked"]');
+    expect(aim).not.toBeNull();
+    expect(aim!.querySelector(`rect[x="${box.left - 5}"][y="${box.top - 5}"]`)).not.toBeNull();
+    const damage: DuelEvent = { id: 3, kind: "damage", seat: defender, amount: 1400, cause: "battle", text: "" };
+    rerender(<BattleFx events={[phase, declaration, damage]} reducedMotion />);
+    // The reduced-motion strike and the LP flash use the same defending seat.
+    expect(playLayer()).not.toBeNull();
+    expect(playLayer()!.querySelector(`rect[x="${box.left - 5}"][y="${box.top - 5}"]`)).not.toBeNull();
+    const flash = playLayer()!.querySelector<HTMLElement>('[class*="lpFlash"]');
+    expect(flash?.style.left).toBe(`${box.left - 8}px`);
+    expect(takeLpHold(defender)).toBe(0);
+  });
+
+  it.each([2, 3])("lands canvas playback, LP flash and sound on defending seat %i", defender => {
+    const play = vi.fn((_id: string, _request: FxRequest) => Promise.resolve());
+    setSharedFx3d({ host: board, api: { ready: true, play, prefetchArt() {}, cancelAll() {} } });
+    const cues: DuelFxCueDetail[] = [];
+    const listen = (event: Event) => cues.push((event as CustomEvent<DuelFxCueDetail>).detail);
+    window.addEventListener(DUEL_FX_CUE_EVENT, listen);
+    try {
+      const declaration: DuelEvent = { ...direct, id: 2, seat: 1, targetSeat: defender, zone: attack.target };
+      const box = boxes[`lp${defender}`];
+      const seats = seatsOf(warrior, machine);
+      const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
+      rerender(<BattleFx events={[phase, declaration]} reducedMotion={false} seats={seats} />);
+      rerender(<BattleFx events={[phase, declaration, { ...hurt, seat: defender }]} reducedMotion={false} seats={seats} />);
+      expect(play.mock.calls[0]?.[1].battle?.strikes[0].to).toEqual({ x: box.left, y: box.top, w: box.width, h: box.height });
+      expect(playLayer()!.querySelector<HTMLElement>('[class*="lpFlash"]')?.style.left).toBe(`${box.left - 8}px`);
+      expect(cues.find(cue => cue.cue === "battle")?.battle?.lpAt).toHaveLength(1);
+      expect(takeLpHold(defender)).toBeGreaterThan(0);
+      expect(takeLpHold(0)).toBe(0);
+    } finally {
+      setSharedFx3d(null);
+      window.removeEventListener(DUEL_FX_CUE_EVENT, listen);
+    }
+  });
+
+  it("keeps the 1v1 LP destination for older events without targetSeat", () => {
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
+    rerender(<BattleFx events={[phase, { ...direct, id: 2 }]} reducedMotion />);
+    expect(document.querySelector('[data-aim="locked"] rect[x="15"][y="15"]')).not.toBeNull();
+  });
 
   it.each([0, 1, null])("keeps a face-down Defense target's calculation stats hidden for viewer %s", viewer => {
     const node = board.querySelector<HTMLElement>('[data-zones="1:4:0"]')!;
@@ -244,6 +303,40 @@ describe("BattleFx", () => {
     const destroy: DuelEvent = { id: 4, kind: "destroy", text: "", zone: attack.target, fromPosition: 4, cause: "battle" };
     rerender(<BattleFx events={[phase, attack, calculation, destroy]} reducedMotion={false} seats={seatsOf(warrior, machine, 4)} />);
     expect(document.querySelector('[data-role="target"] [data-card-art]')?.getAttribute("data-defense")).toBe("true");
+  });
+
+  it("draws the cut copy of a seat-field card in its field's turn and Defense fit", () => {
+    const TURN = 30;
+    const node = board.querySelector<HTMLElement>('[data-zones="1:4:0"]')!;
+    node.dataset.side = "opp";
+    node.dataset.defense = "true";
+    node.style.position = "relative";
+    const art = node.querySelector<HTMLElement>("[data-card-art]")!;
+    art.dataset.defense = "true";
+    art.style.setProperty("--dfit", "0.5");
+    // The seat field is turned: the probes put on the corners of the art's box land turned around its top-left.
+    const plain = vi.mocked(Element.prototype.getBoundingClientRect).getMockImplementation()!;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      if (this.getAttribute("aria-hidden") === "true" && this.parentElement === node) {
+        const el = this as HTMLElement;
+        const x = el.style.left === "100%" ? 60 : 0, y = el.style.top === "100%" ? 88 : 0;
+        const rad = (TURN * Math.PI) / 180;
+        return { left: 100 + x * Math.cos(rad) - y * Math.sin(rad), top: 100 + x * Math.sin(rad) + y * Math.cos(rad), width: 0, height: 0 } as DOMRect;
+      }
+      return plain.call(this);
+    });
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seatsOf(warrior, machine, 4)} />);
+    rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seatsOf(warrior, machine, 4)} />);
+    const calculation: DuelEvent = { id: 3, kind: "battle", text: "Calculation", zone: attack.zone, target: attack.target,
+      battle: { attacker: { attack: 2300, defense: 2100, position: 1 }, target: { attack: 2400, defense: 1500, position: 4 } } };
+    const destroy: DuelEvent = { id: 4, kind: "destroy", text: "", zone: attack.target, fromPosition: 4, cause: "battle" };
+    const after = seatsOf(warrior, machine, 4);
+    after[1].monsters[0] = null;
+    rerender(<BattleFx events={[phase, attack, calculation, destroy]} reducedMotion={false} seats={after} />);
+    const copy = document.querySelector<HTMLElement>('[data-role="target"] [data-card-art]')!;
+    expect(copy.style.transform).toBe("rotate(90deg) scale(0.5)");
+    expect(copy.getAttribute("data-turned")).toBe("true");
+    expect(copy.parentElement!.style.rotate).toBe(`${TURN}deg`);
   });
 
   it("omits calculation plates when both battlers keep their board stats", () => {
@@ -651,6 +744,43 @@ describe("BattleFx resolution", () => {
     expect(markerOf()?.getAttribute("data-aim")).toBe("locked");
     expect(takeLpHold(1)).toBe(0);
     expect(battleDestroyAt({ controller: 1, location: 4, sequence: 0 })).toBe(0);
+  });
+
+  it("strikes where the cards are now when the board moved during the response window (a drawer toggled)", async () => {
+    const strikeTargets: Array<{ x: number; y: number }> = [];
+    const play = vi.fn((_id: string, request: FxRequest) => {
+      const hit = request.battle?.strikes[0]?.to;
+      if (hit) strikeTargets.push({ x: hit.x, y: hit.y });
+      return Promise.resolve();
+    });
+    setSharedFx3d({ host: board, api: { ready: true, play, prefetchArt() {}, cancelAll() {} } });
+    const resolved = [phase, attack, damage(3, 1, 800), destroyed(4, 1)];
+    const original = boxes["1:4:0"];
+    try {
+      // Control: the board stays put.
+      const still = open();
+      still.rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);
+      still.rerender(<BattleFx events={resolved} reducedMotion={false} seats={seats()} />);
+      still.unmount();
+      expect(strikeTargets).toHaveLength(1);
+      clearBattleHolds();
+      // The defender's zone slides 200px right and 50px down while the attack waits; the table fires `resize` as it reflows.
+      const moved = open();
+      moved.rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);
+      boxes["1:4:0"] = { left: original.left + 200, top: original.top + 50, width: original.width, height: original.height } as DOMRect;
+      await act(async () => {
+        window.dispatchEvent(new Event("resize"));
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      });
+      moved.rerender(<BattleFx events={resolved} reducedMotion={false} seats={seats()} />);
+      expect(strikeTargets).toHaveLength(2);
+      expect(strikeTargets[1]!.x - strikeTargets[0]!.x).toBeCloseTo(200, 0);
+      expect(strikeTargets[1]!.y - strikeTargets[0]!.y).toBeCloseTo(50, 0);
+      moved.unmount();
+    } finally {
+      boxes["1:4:0"] = original;
+      setSharedFx3d(null);
+    }
   });
 
   it("plays the whole animation when the battle resolves in a later snapshot, then drops the marker", () => {

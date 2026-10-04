@@ -20,9 +20,9 @@ const ELF = "Mystical Elf";
 const BEWD = "Blue-Eyes White Dragon";
 const team = (seat: Seat): number => Number(seat[1]) % 2;
 const opponents = (format: Format, seat: Seat): Seat[] => SEATS[format].filter((s) => (format === "tag" ? team(s) !== team(seat) : s !== seat));
-/** The opponent prompt of a direct attack comes only when 2 or more opponents have no monster (`busy` are the seats that have one). */
+/** FFA always exposes the combined pick here; Tag retains the native direct-seat choice. */
 const pick = (format: Format, by: Seat, target: Seat, busy: Seat[]): Step[] =>
-  opponents(format, by).filter((seat) => !busy.includes(seat)).length > 1 ? [pickOpponent(target, by)] : [];
+  (format !== "tag" || opponents(format, by).filter((seat) => !busy.includes(seat)).length > 1) ? [pickOpponent(target, by)] : [];
 /** Cards each seat drew until the turn of `turn` (the FFA first-draw fixture adds the draw of p0 in turn 1; Tag skips it). */
 const drawn = (seat: Seat, turn: Seat): number => (seat !== "p0" && Number(seat[1]) <= Number(turn[1]) ? 1 : 0);
 
@@ -31,7 +31,7 @@ function holderAttacks(format: Format, holder: Seat): Scenario {
   const [elfTarget, dragonSeat] = opponents(format, holder) as [Seat, Seat];
   const steps: Step[] = [
     ...turnsBefore(format, holder),
-    attack({ card: ELF, nth: 0 }, "direct", holder), yes(holder), ...pick(format, holder, elfTarget, [holder, dragonSeat]),
+    attack({ card: ELF, nth: 0 }, "direct", holder), ...(format === "tag" ? [yes(holder)] : []), ...pick(format, holder, elfTarget, [holder, dragonSeat]),
     expectNotOffered("activate", { card: UTOPIA, from: "mzone" }, holder),
     attack(UTOPIA, BEWD, holder),
     yes(holder), // the prompt "Activate the Trigger Effect of Number 39" is the offer of the trigger
@@ -60,8 +60,8 @@ function otherAttacks(format: Format, attacker: Seat, holder: Seat, target: Seat
   const base = baseLp(format);
   const steps: Step[] = [
     ...turnsBefore(format, attacker),
-    attack({ card: ELF, nth: 0 }, "direct", attacker), yes(attacker), ...pick(format, attacker, target, [holder]),
-    attack({ card: ELF, nth: 0 }, "direct", attacker), yes(attacker), ...pick(format, attacker, target, [holder]),
+    attack({ card: ELF, nth: 0 }, "direct", attacker), ...(format === "tag" ? [yes(attacker)] : []), ...pick(format, attacker, target, [holder]),
+    attack({ card: ELF, nth: 0 }, "direct", attacker), ...(format === "tag" ? [yes(attacker)] : []), ...pick(format, attacker, target, [holder]),
     yes(holder), // the prompt "Activate the Trigger Effect of Number 39" is the offer of the trigger
   ];
   const spec: Record<string, object> = {};

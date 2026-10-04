@@ -697,7 +697,7 @@
   justify-content: space-between;
   gap: calc(10 * var(--duel-unit, 1px)) calc(16 * var(--duel-unit, 1px));
   width: max-content;
-  min-width: min(240px, calc(100% - 24px));
+  min-width: min(240px, calc(100% - 24px), var(--bar-fit, 240px));
   max-width: min(420px, calc(100% - 24px), var(--bar-fit, 420px));
   padding: var(--pc-pad-y) var(--pc-pad-x);
   border: var(--pc-border);

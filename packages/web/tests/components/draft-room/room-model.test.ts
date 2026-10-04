@@ -24,6 +24,7 @@ import {
   tableCards,
   themeProgress,
   toggled,
+  typeLine,
   type RoomCard,
 } from "../../../src/components/draft/room/room-model";
 
@@ -430,5 +431,22 @@ describe("restoredPick", () => {
 
   it("never reads anyone else's pick", () => {
     expect(restoredPick({ turn: "waiting", seats: [seat({ isCurrentPlayer: false }), other], pool })).toBeNull();
+  });
+});
+
+describe("the reader's type line", () => {
+  it("reads a monster as type, level, attribute and race", () => {
+    expect(typeLine(card(1, { attribute: "LIGHT", race: "Fairy" }))).toBe("Effect Monster, Level 4, LIGHT, Fairy");
+  });
+
+  it("reads rank and link in place of level", () => {
+    expect(typeLine(card(2, { type: "XYZ Monster", frameType: "xyz", level: 4 }))).toBe("XYZ Monster, Rank 4, DARK");
+    expect(typeLine(card(3, { type: "Link Monster", frameType: "link", level: 2 }))).toBe("Link Monster, Link 2, DARK");
+  });
+
+  it("reads a spell or a trap as its kind and its sub-type", () => {
+    expect(typeLine(card(4, { type: "Quick-Play Spell Card", frameType: "spell", spellTrapType: "Quick-Play" }))).toBe("Spell, Quick-Play");
+    expect(typeLine(card(5, { type: "Counter Trap Card", frameType: "trap", spellTrapType: "Counter" }))).toBe("Trap, Counter");
+    expect(typeLine(card(6, { type: "Spell Card", frameType: "spell" }))).toBe("Spell");
   });
 });

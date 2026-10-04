@@ -1,5 +1,5 @@
 import {
-  activate, attack, defineScenario, endTurn, expectBoard, yes,
+  activate, attack, defineScenario, endTurn, expectBoard, pickOpponent, yes,
   type BoardExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
 
@@ -59,7 +59,8 @@ function allDecks(kind: Kind, format: Format): Scenario {
     board.p1!.lp = format === "tag" ? 13000 : 5000;
     if (format === "tag") board.p3!.lp = 13000;
     steps.push(attack("Blue-Eyes White Dragon", "direct", "p0"));
-    if (format !== "1v1") steps.push(yes("p0"));
+    if (format === "tag") steps.push(yes("p0"));
+    else if (format !== "1v1") steps.push(pickOpponent("p1", "p0"));
     steps.push(activate("Inferno Tempest", "p1"));
   }
   steps.push(expectBoard(board));

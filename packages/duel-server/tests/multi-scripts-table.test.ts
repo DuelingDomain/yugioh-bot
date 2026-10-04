@@ -468,12 +468,16 @@ export function boardFor(format: DuelFormat, code: number, layout: Layout): Boar
       spells: layout === "behind" ? [{ card: "Dark Hole", pos: "set" }] : [],
     };
   });
-  if (format === "ffa3" && code === 86209650) {
-    // Stray Asmodian must be destroyed by battle. Dark Hole does not meet its condition.
-    // p2 can attack on turn 3 (R-FFA-NO-ATTACK). Battle Ox has more ATK than Asmodian.
+  if (format === "ffa3" && (code === 86209650 || code === 89731911)) {
+    // Stray Asmodian and Familiar Knight must be destroyed by battle. Dark Hole does not meet their conditions.
+    // p2 can attack on turn 3 (R-FFA-NO-ATTACK). Battle Ox has more ATK than either card.
     board.p0 = { monsters: [code], hand: [] };
     board.p1 = { monsters: ["Battle Ox"], hand: [] };
     board.p2 = { monsters: ["Battle Ox"], hand: [] };
+  }
+  if (code === 99050989) {
+    // Evaluate Drillago's direct-attack condition before the opponents can remove it.
+    board.attackFirstTurn = true;
   }
   return board;
 }
@@ -581,8 +585,14 @@ export async function playTable(format: DuelFormat, code: number, layout: Layout
       result.turn = Math.max(result.turn, view.turn);
       if (view.result) break;
       const answers = candidatesFor(prompt, seat, actions < MAX_ACTIONS, result.steps < LIVELY_STEPS, rng, game, view.seats?.filter((entry) => !entry.eliminated).map((entry) => entry.seat));
-      if (format === "ffa3" && code === 86209650 && seat === 2 && prompt.kind === "cards") {
-        // Choose the real battle target. A random target can leave Asmodian on the field.
+      if (code === 99050989 && seat === 0 && prompt.context?.type === "action") {
+        // The generic p0 planner summons and activates, then ends its turn. Drillago needs an attack.
+        const attack = prompt.options.find(option => option.id.startsWith("attack:") && option.card?.code === code);
+        const action = attack ?? prompt.options.find(option => option.id === "to_bp");
+        if (action) answers.unshift({ choice: action.id });
+      }
+      if (format === "ffa3" && (code === 86209650 || code === 89731911) && seat === 2 && prompt.kind === "cards") {
+        // Choose the card under test as the battle target so its destruction trigger runs.
         const target = prompt.options.find((option) => option.controller === 0 && option.card?.code === code);
         if (target) answers.unshift({ selected: [target.id] });
       }

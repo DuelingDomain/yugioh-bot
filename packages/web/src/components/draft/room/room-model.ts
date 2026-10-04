@@ -68,6 +68,14 @@ export { titleCase };
  * Type, attribute, monster type and level. The monster type and the spell or trap kind come from the
  * duel engine; when the engine could not be reached they are missing and the line is just "Spell" or "Trap".
  */
+function levelLabel(card: RoomCard): string | null {
+  if (!card.level) return null;
+  const frame = card.frameType.trim().toLowerCase();
+  if (frame.startsWith("xyz")) return `Rank ${card.level}`;
+  if (frame === "link") return `Link ${card.level}`;
+  return `Level ${card.level}`;
+}
+
 export function typeParts(card: RoomCard): string[] {
   const kind = kindOf(card);
   if (kind === "spell") return [card.spellTrapType ? `${card.spellTrapType} Spell` : "Spell"];
@@ -75,13 +83,24 @@ export function typeParts(card: RoomCard): string[] {
   const parts = [card.type.replace(/ Card$/, "")];
   if (card.attribute) parts.push(card.attribute);
   if (card.race) parts.push(raceLabel(card.race));
-  const frame = card.frameType.trim().toLowerCase();
-  if (card.level) {
-    if (frame.startsWith("xyz")) parts.push(`Rank ${card.level}`);
-    else if (frame === "link") parts.push(`Link ${card.level}`);
-    else parts.push(`Level ${card.level}`);
-  }
+  const level = levelLabel(card);
+  if (level) parts.push(level);
   return parts;
+}
+
+/** The reader's one-line type: "Effect Monster, Level 4, LIGHT, Fairy" or "Spell, Quick-Play". */
+export function typeLine(card: RoomCard): string {
+  const kind = kindOf(card);
+  if (kind === "spell" || kind === "trap") {
+    const base = kind === "spell" ? "Spell" : "Trap";
+    return card.spellTrapType ? `${base}, ${card.spellTrapType}` : base;
+  }
+  const parts = [card.type.replace(/ Card$/, "")];
+  const level = levelLabel(card);
+  if (level) parts.push(level);
+  if (card.attribute) parts.push(card.attribute);
+  if (card.race) parts.push(raceLabel(card.race));
+  return parts.join(", ");
 }
 
 function stat(v: number | undefined): string {

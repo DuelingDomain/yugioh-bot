@@ -6,7 +6,7 @@ import { LOCATION_DMZONE, cardArtUrl, isDefense, isFacedown, zoneKey } from "./c
 import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { battleTrigger } from "./battle-trigger";
 import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
-import { runAttackFx, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
+import { runAttackFx, screenPose, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
 import { flipAttackAt, flipFightDamageAt } from "./chain-beats";
 import { FlipStrike, type FlipStrikePlan } from "./flip-strike";
 import { flipSequenceSteps } from "./flip-sequence";
@@ -200,7 +200,11 @@ function readCard(key: string, node: HTMLElement, prev: CardIndex, now: CardInde
 
 /* ---------- capture (before the new snapshot reaches the DOM) ---------- */
 
-type CutSource = FxCut & { defense: boolean };
+/**
+ * `w` x `h` is the art's own box on screen (before its Defense turn), `turn` the screen angle of its top edge and
+ * `fit` the scale a seat field gives a Defense card (`--dfit`). The copy is drawn outside the field, so it needs them.
+ */
+type CutSource = FxCut & { defense: boolean; w: number; h: number; fit: number };
 type AttackCapture = {
   from: Box;
   to: Box;
@@ -225,6 +229,33 @@ function keyOfZone(zone: { controller: number; location: number; sequence: numbe
   return zoneKey(zone.controller, zone.location, zone.sequence);
 }
 
+/**
+ * How the art sits on screen: its box size, the angle of its top edge, and the Defense fit of its field.
+ * A seat field of a multiplayer table is rotated (and scaled) as a whole, so a copy of the art drawn outside the
+ * field must repeat that turn. The art's parent is the art's own box (before its Defense turn); three zero-size
+ * probes on its corners give the screen edges. Anything unreadable gives the unturned layout size.
+ */
+function readPose(art: HTMLElement): { w: number; h: number; turn: number; fit: number } {
+  const own = { w: art.offsetWidth, h: art.offsetHeight, turn: 0, fit: 1 };
+  const fit = Number.parseFloat(getComputedStyle(art).getPropertyValue("--dfit"));
+  if (Number.isFinite(fit) && fit > 0) own.fit = fit;
+  const pose = art.parentElement ? screenPose(art.parentElement) : null;
+  return pose ? { ...pose, fit: own.fit } : own;
+}
+
+/** The pose a card gets in a copy: the Defense quarter turn (scaled to its field) or none. Inline, since the copy has no field around it. */
+function defenseTransform(defense: boolean, fit: number): string {
+  return defense ? `rotate(90deg) scale(${fit})` : "";
+}
+
+/** Bounding box of a w x h card around `centre`, turned by `turn`; in Defense it lies on its side at `fit` scale. */
+function cutBox(centre: Pt, w: number, h: number, turn: number, defense: boolean, fit: number): Box {
+  const fw = defense ? h * fit : w, fh = defense ? w * fit : h;
+  const rad = turn * Math.PI / 180, cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
+  const width = fw * cos + fh * sin, height = fw * sin + fh * cos;
+  return { left: centre.x - width / 2, top: centre.y - height / 2, width, height };
+}
+
 /** Reorient retained art without letting a declaration snapshot override the core's battle pose. */
 function orientCut(cut: CutSource | null, card: BattleCard | null): CutSource | null {
   if (!cut || card?.position == null) return cut;
@@ -244,14 +275,10 @@ function orientCut(cut: CutSource | null, card: BattleCard | null): CutSource | 
     img.draggable = false;
     art.replaceChildren(img);
   }
-  // Sleeves normally inherit the turn from artWrap, which is outside this retained copy.
-  if (!art.querySelector("img")) art.style.transform = defense ? "rotate(90deg)" : "";
-  else art.style.removeProperty("transform");
-  const box = defense === cut.defense ? cut.box : {
-    left: cut.box.left + (cut.box.width - cut.box.height) / 2,
-    top: cut.box.top + (cut.box.height - cut.box.width) / 2,
-    width: cut.box.height, height: cut.box.width,
-  };
+  // The copy sits outside its field, so the field's own Defense rule (and a sleeve's wrapper rule) cannot reach it.
+  art.style.transform = defenseTransform(defense, cut.fit);
+  const box = defense === cut.defense ? cut.box
+    : cutBox({ x: cut.box.left + cut.box.width / 2, y: cut.box.top + cut.box.height / 2 }, cut.w, cut.h, cut.turn ?? 0, defense, cut.fit);
   return { ...cut, box, html: art.outerHTML, defense };
 }
 
@@ -260,16 +287,16 @@ function cutSourceOf(node: HTMLElement, card: BattleCard): CutSource | null {
   if (!art) return null;
   const box = boxOf(art);
   if (box.width <= 0 || box.height <= 0) return null;
-  // The copy is drawn outside its zone, so it carries the opponent's half turn (field.module.css) as an attribute.
-  let html = art.outerHTML;
-  if (art.closest('[data-side="opp"]')) {
-    const clone = art.cloneNode(true) as HTMLElement;
-    clone.setAttribute("data-turned", "true");
-    html = clone.outerHTML;
-  }
   const defense = node.dataset.defense === "true";
-  return orientCut({ box, innerW: art.offsetWidth || (defense ? box.height : box.width),
-    innerH: art.offsetHeight || (defense ? box.width : box.height), html, defense }, card);
+  const pose = readPose(art);
+  // The copy is drawn outside its zone, so it carries the opponent's half turn (field.module.css) as an attribute.
+  const clone = art.cloneNode(true) as HTMLElement;
+  if (art.closest('[data-side="opp"]')) clone.setAttribute("data-turned", "true");
+  if (defense) clone.style.transform = defenseTransform(true, pose.fit);
+  // Without a layout (no readable size) the box on screen is all there is: a Defense card lies on its side in it.
+  const w = pose.w || art.offsetWidth || (defense ? box.height : box.width);
+  const h = pose.h || art.offsetHeight || (defense ? box.width : box.height);
+  return orientCut({ box, innerW: w, innerH: h, html: clone.outerHTML, defense, turn: pose.turn, w, h, fit: pose.fit }, card);
 }
 
 /**
@@ -284,7 +311,11 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
   const fromNode = zoneNode(fromKey);
   const from = fromNode ? zoneBox(fromKey) : null;
   if (!fromNode || !from) return null;
-  const lp: Record<number, Box | undefined> = { 0: lpBox(0) ?? undefined, 1: lpBox(1) ?? undefined };
+  const lp: Record<number, Box | undefined> = {};
+  for (const node of document.querySelectorAll<HTMLElement>("[data-lp-seat]")) {
+    const seat = Number(node.dataset.lpSeat);
+    lp[seat] = lpBox(seat) ?? undefined;
+  }
   const attackerCard = readCard(fromKey, fromNode, prev, now);
   const attacker = cutSourceOf(fromNode, attackerCard);
   const base = {
@@ -306,9 +337,48 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
     const targetInDefense = targetCard.position == null ? node.dataset.defense === "true" : isDefense(targetCard.position);
     return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense, targetTurned: node.closest('[data-side="opp"]') != null };
   }
-  const to = lpBox(1 - zone.controller);
+  const to = lpBox(event.targetSeat ?? 1 - zone.controller);
   if (!to) return null;
   return { ...base, to, direct: true, target: null, toEl: null, targetCard: null, targetInDefense: false, targetTurned: false };
+}
+
+/**
+ * The same capture with its screen boxes read again, for a board that moved since the declaration (a drawer opened or closed,
+ * the window resized) while the attack waits for its response window. The retained art stays as captured, since the card may
+ * not be in its zone any more; a zone or tally that is gone keeps its old box. The input itself when nothing moved.
+ */
+function remeasureCapture(capture: AttackCapture, event: DuelEvent): AttackCapture {
+  const zone = event.zone;
+  if (!zone) return capture;
+  const same = (a: Box, b: Box) => a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
+  const refreshCut = (cut: CutSource | null, node: HTMLElement | null, card: BattleCard | null): CutSource | null => {
+    if (!cut || !node || !card) return cut;
+    const fresh = cutSourceOf(node, card);
+    return fresh && fresh.defense === cut.defense ? { ...cut, box: fresh.box, innerW: fresh.innerW, innerH: fresh.innerH } : cut;
+  };
+  const fromNode = zoneNode(keyOfZone(zone));
+  const attacker = refreshCut(capture.attacker, fromNode, capture.attackerCard);
+  let from = attacker?.box ?? capture.from;
+  if (!attacker && fromNode) from = zoneBox(keyOfZone(zone)) ?? from;
+  const lp: Record<number, Box | undefined> = { ...capture.lp };
+  for (const node of document.querySelectorAll<HTMLElement>("[data-lp-seat]")) {
+    const seat = Number(node.dataset.lpSeat);
+    lp[seat] = lpBox(seat) ?? lp[seat];
+  }
+  let target = capture.target;
+  let to = capture.to;
+  if (capture.direct) {
+    to = lpBox(event.targetSeat ?? 1 - zone.controller) ?? to;
+  } else if (event.target) {
+    const node = zoneNode(keyOfZone(event.target));
+    target = refreshCut(capture.target, node, capture.targetCard);
+    to = target?.box ?? (node && boxOf(node).width > 0 ? boxOf(node) : to);
+  }
+  const moved = !same(from, capture.from) || !same(to, capture.to) || Object.keys(lp).some((seat) => {
+    const before = capture.lp[Number(seat)], after = lp[Number(seat)];
+    return before && after ? !same(before, after) : before !== after;
+  });
+  return moved ? { ...capture, from, to, attacker, target, lp } : capture;
 }
 
 function battleCapture(capture: AttackCapture, events: readonly DuelEvent[], attack: DuelEvent): AttackCapture {
@@ -657,7 +727,7 @@ function declaredAim(attack: DuelEvent): BattleAim | null {
   if (!attack.zone) return null;
   const from = keyOfZone(attack.zone);
   if (attack.target) return { mode: "locked", from, to: { zones: [keyOfZone(attack.target)] } };
-  return { mode: "locked", from, to: { lpSeat: 1 - attack.zone.controller } };
+  return { mode: "locked", from, to: { lpSeat: attack.targetSeat ?? 1 - attack.zone.controller } };
 }
 
 export function BattleFx({ events, reducedMotion, active = true, aim = null, seats, result = null }: BattleFxProps) {
@@ -729,6 +799,29 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   }
 
   useEffect(() => setMounted(true), []);
+  // The board can move while an attack waits for its response window (the table's drawer opens or closes, the window is
+  // resized). The wide table pumps a window `resize` for the length of the drawer's glide. The boxes captured at the
+  // declaration are read again one frame after the last resize, so the strike plays on the cards where they are now.
+  useEffect(() => {
+    if (!active) return;
+    let frame = 0;
+    const refresh = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const pending = pendingRef.current;
+        if (!pending?.capture) return;
+        const next = remeasureCapture(pending.capture, pending.attack);
+        if (next === pending.capture) return;
+        pendingRef.current = { ...pending, capture: next };
+        capturesRef.current.set(pending.attack.id, next);
+      });
+    };
+    window.addEventListener("resize", refresh);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", refresh);
+    };
+  }, [active]);
   useEffect(() => {
     const controllers = controllersRef.current;
     return () => {

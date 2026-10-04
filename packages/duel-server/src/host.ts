@@ -9,6 +9,7 @@ import type {
   DuelDeck,
   DuelEngineChoice,
   DuelEngineView,
+  DuelErrorCode,
   DuelFormat,
   DuelMode,
   DuelOpeningState,
@@ -25,6 +26,7 @@ import {
   CHAIN_MODE_JOURNAL_LIMIT, CHAIN_MODE_PROMPT_PREFIX, chainModeOf, isDuelChainMode, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_RPS_MOVES,
 } from "@yugidraft/shared/duels";
 import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, eliminationAtTurnEnd } from "./engine.js";
+import { EngineAnswerError } from "./prompts.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
 import { DeckLegalityError, inspectDeck, validateDeck } from "./deck-legality.js";
 import { canonicalEngineCardCode, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
@@ -112,7 +114,7 @@ function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> 
 }
 
 class RequestError extends Error {
-  constructor(message: string, readonly status: number) { super(message); }
+  constructor(message: string, readonly status: number, readonly code?: DuelErrorCode) { super(message); }
 }
 
 class ReplayMismatchError extends Error {
@@ -2298,6 +2300,11 @@ export function createDuelHost(options: {
       await emitChange(slug, guildId);
       return { session: await autoStart(slug, guildId, session) };
     }
+    if (op === "unready") {
+      const session = service.markUnready(slug, guildId, actor);
+      await emitChange(slug, guildId);
+      return { session };
+    }
     if (op === "deck" || op === "validate-deck") {
       if (room.session.status !== "lobby") throw new RequestError("Decks are locked after the duel starts", 409);
       if (op === "deck" && room.session.seriesId) {
@@ -2374,7 +2381,8 @@ export function createDuelHost(options: {
     try {
       await live.answer(seat, command.promptId, command.answer);
     } catch (error) {
-      throw new RequestError(error instanceof Error ? error.message : "Invalid engine choice", 400);
+      throw new RequestError(error instanceof Error ? error.message : "Invalid engine choice", 400,
+        error instanceof EngineAnswerError ? error.code : undefined);
     }
     try {
       await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt);
@@ -2599,7 +2607,8 @@ export function createDuelHost(options: {
         return Response.json(answer, { headers: { "cache-control": "no-store" } });
       } catch (error) {
         const status = error instanceof Error && "status" in error && typeof error.status === "number" ? error.status : 400;
-        return Response.json({ error: error instanceof Error ? error.message : "Duel request failed" }, { status });
+        return Response.json({ error: error instanceof Error ? error.message : "Duel request failed",
+          ...(error instanceof RequestError && error.code ? { code: error.code } : {}) }, { status });
       }
     },
     async close(): Promise<void> {

@@ -30,14 +30,6 @@ export const KNOWN_LIMITS: readonly KnownLimit[] = [
     ],
     formats: ["ffa3", "ffa4"],
   },
-  {
-    id: "tag-extra-monster-zone",
-    title: "Tag duels: the Extra Monster Zone rules are wrong",
-    explanation:
-      "The Extra Monster Zone rules in Tag (2v2) duels are not right yet, for example which team may use the zone. The team knows about it and works on it.",
-    patterns: [/\bextra monster zones?\b/i, /\bemz\b/i, /\bextra zone\b/i],
-    formats: ["tag"],
-  },
 ];
 
 /** Known limits that match the report text and, when the report names a duel, its format and rules. */

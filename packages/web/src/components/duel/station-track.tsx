@@ -120,6 +120,10 @@ export type StationTrackProps = {
   reducedMotion: boolean;
   /** Tables of 3 or more seats: the duelists in turn order, each with its colour and standing. */
   seatStrip?: readonly StationSeatChip[];
+  /** Tables of 3 or more seats: the turn order as a ready-made element (the table's interactive SeatStrip), shown where the chips go. */
+  seatSlot?: ReactNode;
+  /** How many seats `seatSlot` holds, for the bar's width rules. */
+  seatSlotCount?: number;
   /** Tables of 3 or more seats: attacks are still shut. Shows "No attack until turn N". */
   attackLock?: { firstTurn: number; turnsLeft: number } | null;
   /** The viewer's own chain response switch (Auto / Always / Off). Absent for spectators, replays and scenario tables. */
@@ -196,6 +200,8 @@ export function StationTrack({
   caption,
   reducedMotion,
   seatStrip,
+  seatSlot,
+  seatSlotCount,
   attackLock,
   chainMode,
   phases = "bar",
@@ -251,6 +257,7 @@ export function StationTrack({
       data-reduced={reducedMotion ? "true" : "false"}
       data-seats={seatStrip && seatStrip.length > 0 ? "true" : undefined}
       data-seat-count={seatStrip && seatStrip.length > 3 ? seatStrip.length : undefined}
+      data-seat-chips={seatSlot ? (seatSlotCount ?? 0) > 3 ? "4" : "3" : undefined}
       data-chain={chainMode ? "true" : undefined}
     >
       <div className={styles.seat}>
@@ -265,6 +272,7 @@ export function StationTrack({
           </>
         )}
         {clock ? <div className={styles.clockSlot}>{clock}</div> : null}
+        {seatSlot ? <div className={styles.seatSlot}>{seatSlot}</div> : null}
       </div>
 
       <div className={styles.rail}>

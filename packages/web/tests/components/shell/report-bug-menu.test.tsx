@@ -20,15 +20,15 @@ describe("Report bug in the account menu", () => {
     expect(screen.queryByRole("menuitem", { name: "Report bug" })).toBeNull();
   });
 
-  it("calls the handler, closes the menu and puts focus on the trigger", () => {
+  it("calls the handler, closes the menu and puts focus on the trigger", async () => {
     const onReportBug = vi.fn();
     render(<AccountMenu account={ready} pathname="/dashboard" variant="phone" onReportBug={onReportBug} />);
     const trigger = screen.getByRole("button", { name: /account menu/i });
     fireEvent.click(trigger);
     fireEvent.click(screen.getByRole("menuitem", { name: "Report bug" }));
     expect(onReportBug).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(trigger);
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   });
 });
 

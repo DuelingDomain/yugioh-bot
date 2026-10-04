@@ -324,6 +324,9 @@ describe("SavedDeckEditor", () => {
     expect(screen.getByRole("link", { name: "Back to the draft" })).toHaveAttribute("href", "/draft/retro");
     expect(screen.getByText("Draft deck from Retro draft")).toBeInTheDocument();
     expect(screen.getByText("3 cards in your pool")).toBeInTheDocument();
+    // the bar's rule line is short enough for one line; the full sentence sits in its tooltip
+    expect(screen.getByText("Main: all 3 cards. Extra: up to 15.")).toBeInTheDocument();
+    expect(screen.getByText("Draft deck from Retro draft").closest("p")).toHaveAttribute("title", expect.stringContaining("all 3 main deck cards"));
     fireEvent.doubleClick(tile);
     fireEvent.doubleClick(screen.getByRole("button", { name: "Blue-Eyes White Dragon, 1 copy left in your pool" }));
     const full = screen.getByRole("button", { name: "Blue-Eyes White Dragon, 0 copies left in your pool" });

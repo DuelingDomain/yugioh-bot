@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
+import { Roll } from "@/components/motion/roll";
+import { useFlipList } from "@/lib/motion";
 import { FloorList, FloorRow, LocatorStrip, Mono, SectionHead, SvButton, TierName, YouPill, ringColour, type LocatorSlot } from "@/components/sheet";
 import { SECTION_IDS, type CrosstableProps } from "../sheet-contracts";
 import { champion, currentRound, roundWindow, totalRounds, zoneLabel, zonesFor, type ZoneInfo } from "../floor/floor-model";
@@ -17,6 +19,9 @@ function slotsFor(tournament: CrosstableProps["tournament"], zones: ZoneInfo[], 
 /** Standings as rows on the floor: place, who, a strip of round results, and the record. */
 export function StandingsFloor({ tournament, currentUserPlayerId, ratings, final = false }: CrosstableProps & { final?: boolean }) {
   const [grid, setGrid] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Rows glide to their new place when the standings change, and a row whose record or rating changed gets the wash.
+  useFlipList(listRef, { enter: true });
   const standings = buildStandings(tournament);
   const roundRobin = tournament.format === "round_robin";
   const total = totalRounds(tournament);
@@ -37,6 +42,7 @@ export function StandingsFloor({ tournament, currentUserPlayerId, ratings, final
       ) : grid ? (
         <StandingsGrid rows={buildCrosstable(tournament, currentUserPlayerId)} currentUserPlayerId={currentUserPlayerId} narrow={false} />
       ) : (
+        <div ref={listRef}>
         <FloorList as="ol" aria-label="Tournament standings">
           {standings.map((row) => {
             const me = row.playerId === currentUserPlayerId;
@@ -48,6 +54,8 @@ export function StandingsFloor({ tournament, currentUserPlayerId, ratings, final
               <FloorRow
                 key={row.playerId}
                 you={me}
+                flipId={row.playerId}
+                flipSig={`${row.wins}-${row.losses}-${rating?.rating ?? ""}`}
                 cols="34px 36px minmax(110px, 1fr) 160px 64px"
                 phoneCols="20px 30px minmax(0, 1fr) auto 40px"
                 phoneAreas={'"rk mo nm st rc"'}
@@ -59,16 +67,17 @@ export function StandingsFloor({ tournament, currentUserPlayerId, ratings, final
                     <Link href={`/player/${row.playerId}`} title={row.displayName}>{row.displayName}</Link>
                     {me && <YouPill />}
                   </span>
-                  {rating && <span className={styles.tier}><TierName tier={rating.rank} /><em>{rating.rating}</em></span>}
+                  {rating && <span className={styles.tier}><TierName tier={rating.rank} /><em><Roll value={rating.rating} /></em></span>}
                 </span>
                 <span className={styles.strip}>
                   <LocatorStrip slots={slotsFor(tournament, shown, currentUserPlayerId)} size="sm" label={`${row.displayName}, rounds`} />
                 </span>
-                <span className={`sv-cell-num ${styles.recd}`} aria-label={`${row.wins} wins, ${row.losses} losses`}>{row.wins}–{row.losses}</span>
+                <span className={`sv-cell-num ${styles.recd}`} aria-label={`${row.wins} wins, ${row.losses} losses`}><Roll value={`${row.wins}–${row.losses}`} /></span>
               </FloorRow>
             );
           })}
         </FloorList>
+        </div>
       )}
     </section>
   );

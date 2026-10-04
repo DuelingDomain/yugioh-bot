@@ -5,7 +5,7 @@
 
 import {
   activate, announce, attack, changePhase, changePosition, endTurn, expectBoard, expectChain, expectEliminated, expectLp, expectNotOffered,
-  expectPickSeats, expectPrompt, expectResolved, expectResponseOrder, expectResult, expectTurn, pass, pickOpponent,
+  expectPickOptions, expectPickSeats, expectPrompt, expectResolved, expectResponseOrder, expectResult, expectTurn, pass, pickOpponent,
   select, surrender, yes, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
@@ -661,18 +661,17 @@ export const FFA_SCENARIOS: Scenario[] = [
     source: `${SOURCE} [R-FFA-ATTACK]`,
     rules: ["R-FFA-ATTACK"],
     tags: ["multiplayer", "battle", "direct-attack", "ffa4"],
-    // p1 has a monster, p2 and p3 have none. The core asks "Attack directly?" first, then which opponent.
+    // p1 has a monster, p2 and p3 have none. One target pick offers the monster and both direct seats.
     setup: { format: "ffa4", p0: { monsters: [ELF, ELF] }, p1: { monsters: [ELF] } },
     steps: [
       ...passTurns("p0", "p1", "p2", "p3"),
       changePhase("battle", "p0"),
       attack(ELF, "direct", "p0"),
-      expectPrompt({ by: "p0", title: "Attack directly" }),
-      yes("p0"),
-      expectPickSeats(["p2", "p3"], "p0"),
+      expectPrompt({ by: "p0", title: "attack target" }),
+      expectPickOptions([{ seat: "p1", card: ELF }, { seat: "p2", label: "directly" }, { seat: "p3", label: "directly" }], "p0"),
       pickOpponent("p3", "p0"),
       expectBoard({ p3: { lp: 8000 - ELF_ATK }, p2: { lp: 8000 }, p1: { lp: 8000, monsters: [ELF] } }),
-      // The second Elf answers "no" to the direct question and attacks the Elf of p1 (equal ATK: both are destroyed).
+      // The second Elf picks the Elf of p1 from the combined list (equal ATK: both are destroyed).
       attack(ELF, { card: ELF, owner: "p1" }, "p0"),
       expectBoard({ p1: { monsters: { count: 0 }, lp: 8000 }, p0: { monsters: [ELF] }, p3: { lp: 8000 - ELF_ATK } }),
     ],

@@ -89,7 +89,7 @@ async function reportFromMenu(expected: { format: string; seat: number | null; s
   expect(JSON.stringify(body)).not.toMatch(/hand|Dark Magician|You added/i);
 
   fireEvent.keyDown(document, { key: "Escape" });
-  expect(screen.queryByRole("dialog", { name: "Report a bug" })).toBeNull();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Report a bug" })).toBeNull());
   return body;
 }
 
@@ -108,7 +108,7 @@ describe("Report bug in the table shell", () => {
 
   it("opens from the Settings menu, sends browser context only, shows the issue and closes on Escape", async () => {
     render(<Shell />);
-    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     const opener = screen.getByRole("button", { name: "Report bug" });
     opener.focus();
     const body = await reportFromMenu({ format: "ffa3", seat: FFA3_FIXTURES.states.main.room.mySeat, slug: FFA3_FIXTURES.states.main.room.session.slug });
@@ -119,14 +119,14 @@ describe("Report bug in the table shell", () => {
 
   it("ignores duel hotkeys typed inside the dialog", () => {
     render(<Shell />);
-    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "Report bug" }));
     expectNoDuelHotkeys();
   });
 
   it("shows Saved when GitHub is not set up and a clear text after a rate limit", async () => {
     render(<Shell />);
-    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.click(screen.getByRole("button", { name: "Report bug" }));
     fireEvent.change(screen.getByLabelText(/What went wrong\?/), { target: { value: "Odd turn order after the third turn" } });
     fireEvent.change(screen.getByLabelText(/What did you expect\?/), { target: { value: "The turn order stays the same" } });

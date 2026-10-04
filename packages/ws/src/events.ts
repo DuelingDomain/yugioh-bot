@@ -16,6 +16,9 @@ export type DuelJoinAck =
 
 export interface DuelJoinPayload {
   token: string;
+  /** Read-only subscription from the sidebar; does not occupy the room. */
+  observe?: boolean;
+  visible?: boolean;
 }
 
 export interface ServerToClientEvents {
@@ -51,6 +54,7 @@ export interface ClientToServerEvents {
     ack?: (result: DuelJoinAck) => void,
   ) => void;
   "duel:leave": (payload: { slug: string; guildId: string }) => void;
+  "duel:visibility": (payload: { visible: boolean }) => void;
 }
 
 export interface InterServerEvents {

@@ -27,10 +27,12 @@
 }
 
 /* ---------- host drawer ---------- */
-.scrim { position: fixed; inset: 0; z-index: 59; background: rgb(3 5 10 / 0.55); }
+.scrim { position: fixed; inset: 0; z-index: 59; background: rgb(3 5 10 / 0.55); --mo-in: var(--d-drawer-in); --mo-out: var(--d-drawer-out); }
 .drawer {
   position: fixed; top: 0; right: 0; bottom: 0; z-index: 60; width: min(380px, 100vw); display: flex; flex-direction: column;
   background: var(--panel); border-left: 1px solid var(--rule); box-shadow: -18px 0 40px rgb(0 0 0 / 0.5);
+  /* Enter and exit come from the shared data-mo rules in globals.css: from the right, from the bottom on a phone. */
+  --mo-x: 100%;
 }
 .dHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid var(--rule-lo); }
 .dTitle { margin: 0; font: 600 21px/1.2 var(--f-display); color: var(--ink); }
@@ -54,7 +56,7 @@
 .confirmBox { display: grid; gap: 12px; padding: 12px 0; }
 .err { margin: 8px 0 0; }
 @media (max-width: 760px) {
-  .drawer { top: auto; width: 100vw; max-height: 86vh; border-left: 0; border-top: 1px solid var(--rule); border-radius: 16px 16px 0 0; }
+  .drawer { --mo-x: 0px; --mo-y: 100%; top: auto; width: 100vw; max-height: 86vh; border-left: 0; border-top: 1px solid var(--rule); border-radius: 16px 16px 0 0; }
 }
 .closing { padding: 18px 40px 0; }
 @container (max-width: 760px) { .closing { padding: 14px 16px 0; } }

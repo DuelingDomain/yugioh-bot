@@ -1,5 +1,5 @@
-import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelFormat, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
-import { teamOfSeat } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelErrorCode, DuelFormat, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
+import { DUEL_SEAT_LEFT_ERROR_CODE, teamOfSeat } from "@yugidraft/shared/duels";
 import { chainWindowPasses, effectYesNoPasses, effectiveChainMode } from "./chain-mode.js";
 import {
   OcgLocation,
@@ -109,7 +109,7 @@ export function recallPromptContext(
 }
 
 export class EngineAnswerError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly code?: DuelErrorCode) {
     super(message);
     this.name = "EngineAnswerError";
   }
@@ -120,6 +120,8 @@ export interface PendingPrompt {
   seat: number;
   prompt: DuelPrompt;
   message: OcgMessage;
+  /** FFA target choice backed by the core's attack yes/no or direct-seat selection. */
+  attackTargetPick?: boolean;
 }
 
 const WAITING_TYPES = new Set<OcgMessageType>([
@@ -334,6 +336,10 @@ export function filterPromptOptions(pending: PendingPrompt, extras: Pick<MapProm
     // The core keeps losing seats when every eligible opponent is losing (patch 0057).
     const living = options.filter((option) => option.controller == null || extras.livingSeats!.includes(option.controller));
     if (living.length > 0) options = living;
+  }
+  if (pending.attackTargetPick && extras.livingSeats) {
+    const livingDirect = options.some(option => option.id.startsWith("direct:") && extras.livingSeats!.includes(option.controller!));
+    if (livingDirect) options = options.filter(option => !option.id.startsWith("direct:") || extras.livingSeats!.includes(option.controller!));
   }
   if (!pending.prompt.cancelable && !pending.prompt.finishable &&
     ["cards", "toggle", "sum", "order"].includes(pending.prompt.kind) &&
@@ -919,7 +925,12 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
       return null;
     }
     case OcgMessageType.SELECT_OPTION:
-      if (prompt.options.length === 1) return { type: OcgResponseType.SELECT_OPTION, index: prompt.options[0]!.values![0]! };
+      if (prompt.options.length === 1) {
+        const index = pending.attackTargetPick
+          ? message.options.findIndex(description => directAttackSeat(description) === prompt.options[0]!.controller)
+          : prompt.options[0]!.values![0]!;
+        return index < 0 ? null : { type: OcgResponseType.SELECT_OPTION, index };
+      }
       return null;
     case OcgMessageType.SELECT_SUM: {
       if (message.selects.length === 0 && message.min === 0) {
@@ -962,6 +973,19 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
   if (seat !== pending.seat) throw new EngineAnswerError("Wrong seat");
   if (promptId !== pending.id) throw new EngineAnswerError("Stale prompt");
   const { message, prompt } = pending;
+  if (pending.attackTargetPick) {
+    if (answer.cancel && prompt.cancelable) return { type: OcgResponseType.SELECT_YESNO, yes: false };
+    const ids = selectedIds(prompt, answer);
+    if (answer.cancel || answer.finish || ids.length !== 1) throw new EngineAnswerError("Invalid answer");
+    const option = optionById(prompt, ids[0]!);
+    if (message.type === OcgMessageType.SELECT_OPTION) {
+      const index = message.options.findIndex(description => directAttackSeat(description) === option.controller);
+      if (index < 0 || !option.id.startsWith("direct:")) throw new EngineAnswerError("Invalid answer");
+      return { type: OcgResponseType.SELECT_OPTION, index };
+    }
+    return { type: message.type === OcgMessageType.SELECT_EFFECTYN ? OcgResponseType.SELECT_EFFECTYN : OcgResponseType.SELECT_YESNO,
+      yes: option.id.startsWith("direct:") };
+  }
   if (answer.cancel) {
     if (!prompt.cancelable) throw new EngineAnswerError("Invalid answer");
     switch (message.type) {
@@ -1028,6 +1052,14 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
     }
     case OcgMessageType.SELECT_OPTION: {
       if (!answer.choice) throw new EngineAnswerError("Invalid answer");
+      if (isOpponentPick(message.options) && typeof answer.choice === "string" && /^opt:(0|[1-9]\d*)$/.test(answer.choice)) {
+        // Only relabel a missing option; offered choices must reach the core as before.
+        const desc = message.options[Number(answer.choice.slice(4))];
+        const pickedSeat = desc === undefined ? null : opponentPickSeat(desc);
+        if (pickedSeat !== null && !prompt.options.some((option) => option.id === answer.choice)) {
+          throw new EngineAnswerError("That player has left. Pick again.", DUEL_SEAT_LEFT_ERROR_CODE);
+        }
+      }
       const option = optionById(prompt, answer.choice);
       const index = option.values?.[0];
       if (index == null) throw new EngineAnswerError("Invalid answer");

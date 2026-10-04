@@ -10,12 +10,11 @@ import { useDraftStore } from "@/lib/stores/draft-store";
 import { useTalkStore } from "@/lib/stores/talk-store";
 import { TALK_COOLDOWN_MS, type TalkLineId } from "@yugidraft/shared/ws/talk";
 import { Binder, type BinderHandle } from "./binder";
-import { CardReader } from "./card-reader";
-import { Holo, type HoloTarget } from "./holo";
+import { CardReader, TAG_CHOSEN, TAG_PICKED, TAG_POINTING } from "./card-reader";
 import { FullscreenLayer } from "./layer";
 import { MotionMenu } from "./motion-menu";
 import { SayMenu } from "./say-menu";
-import { animate, flight, motionOff, useMotionSetting, wait } from "./motion";
+import { animate, canTravel, flight, motionOff, prefersReducedMotion, useMotionSetting, wait } from "./motion";
 import { RoomBar } from "./room-bar";
 import {
   EMPTY_FILTER,
@@ -319,6 +318,15 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     setPassing(false);
     closeCardSheet();
   }, [deal.seq, closeCardSheet]);
+  // The dock swaps cards the moment the pointer moves, so the big pictures are fetched as the pack lands.
+  const warmImages = useRef<HTMLImageElement[]>([]);
+  useEffect(() => {
+    warmImages.current = rs.cards.map((c) => {
+      const img = new Image();
+      img.src = c.imageUrl || c.imageUrlSmall;
+      return img;
+    });
+  }, [rs.cards]);
   useEffect(() => {
     if (selectedId != null && !rs.cards.some((c) => c.id === selectedId)) setSelectedId(null);
   }, [rs.cards, selectedId]);
@@ -374,7 +382,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
         setLastPick(card);
         setPickNote(null);
         closeCardSheet();
-        if (!f || !f.from || !f.to || motionOff()) {
+        if (!f || !f.from || !f.to || !canTravel()) {
           landCard(card);
           return;
         }
@@ -391,8 +399,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
           to: f.to,
           src: card.imageUrlSmall || card.imageUrl,
           glow: tint(card).main,
-          arc: window.matchMedia?.(PHONE).matches ? 60 : 140,
-          duration: 640,
+          arc: window.matchMedia?.(PHONE).matches ? 24 : 48,
+          duration: 300,
         }).then(land);
         // a hidden tab can stall animations: land anyway
         wait(1500).then(land);
@@ -489,19 +497,6 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     [turn],
   );
 
-  /* ---------- the hologram ---------- */
-  const [holoTarget, setHoloTarget] = useState<HoloTarget | null>(null);
-  const holoId = hoverId ?? selectedId;
-  useLayoutEffect(() => {
-    if (phone || turn !== "picking" || holoId == null) {
-      setHoloTarget(null);
-      return;
-    }
-    const card = rs.cards.find((c) => c.id === holoId);
-    const el = rootRef.current?.querySelector<HTMLElement>(`.tcard[data-id="${holoId}"]`);
-    setHoloTarget(card && el ? { card, el, partial: holoId !== selectedId } : null);
-  }, [holoId, selectedId, phone, turn, rs.cards, geometry, deal.seq]);
-
   /* ---------- the filter: one lens for the binder and the table ---------- */
   const filtering = isFiltering(filter);
   const lens = useMemo(
@@ -526,7 +521,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
       setRibbonOn(false);
       setRibbonDone(ribbon.seq);
     };
-    if (motionOff() || !r) {
+    // the ribbon is information, so reduced motion shows it still rather than flashing it for 140ms
+    if (motionOff() || prefersReducedMotion() || !r) {
       wait(1300).then(hide);
     } else {
       Promise.all([
@@ -587,9 +583,9 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
         to: dest,
         src: back,
         glow: "228 182 79",
-        arc: phone ? 26 : 70,
-        duration: 640,
-        swell: 0.3,
+        arc: phone ? 16 : 36,
+        duration: 300,
+        swell: 0.12,
         keepRatio: true,
         rotate: direction * 12,
         className: "pack-ghost",
@@ -663,9 +659,11 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     }
   }
 
-  // the card in the reader
+  // the card in the dock: the one under the pointer, else the chosen one, else your last pick
   const dealtCard = (id: number | null) => (id == null ? null : (rs.cards.find((c) => c.id === id) ?? null));
-  const reading = turn === "picking" ? (dealtCard(hoverId) ?? dealtCard(selectedId)) : null;
+  const hovered = turn === "picking" ? dealtCard(hoverId) : null;
+  const chosen = turn === "picking" ? dealtCard(selectedId) : null;
+  const reading = hovered ?? chosen;
   const peeking = peek && !hoverId ? peek : null;
   const showLast = !!lastPick && turn !== "picking";
   const readerCard = peeking?.card ?? reading ?? (showLast ? lastPick : null);
@@ -673,13 +671,14 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     ? peeking.tag
     : reading
       ? reading.id === selectedId
-        ? "Selected"
-        : ""
+        ? TAG_CHOSEN
+        : TAG_POINTING
       : showLast
-        ? "Your pick"
+        ? TAG_PICKED
         : "";
-  const pickable = !!reading && turn === "picking" && !reading.blocked;
-  const blockedNote = reading?.blocked ? blockedLabel(reading) : null;
+  // The Pick button follows the chosen card, never the one the pointer is over.
+  const pickable = !!chosen && !chosen.blocked;
+  const blockedNote = chosen?.blocked ? blockedLabel(chosen) : null;
 
   /* ---------- keys: 1-9 choose, arrows move, Enter picks, / searches, Esc closes ---------- */
   const latest = useRef({ rs, holdDeal, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen: motionOpen || sayOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets });
@@ -809,25 +808,6 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
         />
         <SeatStrip friends={friends} heard={heard} canSay={canSay} sayOpen={sayOpen} onSay={toggleSay} />
         <div className="body">
-          <div className="reader-panel" ref={readerPanelRef} inert={phone && sheet !== "card"} tabIndex={-1}>
-            <CardReader
-              card={readerCard}
-              tag={readerTag}
-              pickNote={showLast && !peeking ? pickNote : null}
-              buttonHidden={!!peeking || turn === "done"}
-              pickable={pickable}
-              blockedNote={blockedNote}
-              myTurn={turn === "picking"}
-              waitingOn={waitingOn}
-              showWaiting={!reading && !peeking && showLast}
-              phone={phone}
-              onPick={() => reading && doPick(reading.id)}
-              onClose={() => {
-                closeSheets();
-                setSelectedId(null);
-              }}
-            />
-          </div>
           <div
             className="scrim"
             onClick={() => {
@@ -836,7 +816,13 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               if (card) setSelectedId(null);
             }}
           />
-          <section className="stage" aria-label="Draft table" ref={setStage} tabIndex={-1}>
+          <section
+            className="stage"
+            aria-label="Draft table"
+            ref={setStage}
+            tabIndex={-1}
+            style={{ "--lift": `${geometry.lift}px` } as React.CSSProperties}
+          >
             <Table
               geometry={geometry}
               deal={deal}
@@ -861,7 +847,6 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               onCardHover={onCardHover}
             />
             <Seats friends={friends} positions={positions} theme={theme} heard={heard} stageWidth={size.w} />
-            <Holo target={holoTarget} stage={stage} />
             <div className="notes">
               <div className="status" role="status" data-on={status ? "" : undefined}>
                 {status}
@@ -910,6 +895,26 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               onKind={onKind}
             />
           </section>
+          <div className="dock" ref={readerPanelRef} inert={phone && sheet !== "card"} tabIndex={-1}>
+            <CardReader
+              card={readerCard}
+              tag={readerTag}
+              pickNote={showLast && !peeking ? pickNote : null}
+              buttonHidden={turn === "done"}
+              pickable={pickable}
+              chosen={chosen}
+              blockedNote={blockedNote}
+              myTurn={turn === "picking"}
+              waitingOn={waitingOn}
+              showWaiting={!reading && !peeking && showLast}
+              phone={phone}
+              onPick={() => chosen && doPick(chosen.id)}
+              onClose={() => {
+                closeSheets();
+                setSelectedId(null);
+              }}
+            />
+          </div>
           <div className="binder-panel" ref={binderPanelRef} inert={!binderOpen} tabIndex={-1}>
             <Binder
               ref={binderRef}
@@ -929,17 +934,14 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
           </div>
         </div>
       </div>
-      {sayAnchor && canSay ? (
-        <SayMenu anchor={sayAnchor} waiting={sayWait} onSay={say} onClose={() => setSayAnchor(null)} />
-      ) : null}
-      {motionOpen ? (
-        <MotionMenu
-          anchor={motionBtn.current}
-          level={motion}
-          onChoose={setMotion}
-          onClose={() => setMotionOpen(false)}
-        />
-      ) : null}
+      <SayMenu open={sayAnchor != null && canSay} anchor={sayAnchor} waiting={sayWait} onSay={say} onClose={() => setSayAnchor(null)} />
+      <MotionMenu
+        open={motionOpen}
+        anchor={motionBtn.current}
+        level={motion}
+        onChoose={setMotion}
+        onClose={() => setMotionOpen(false)}
+      />
       <div className="kit-fx" ref={layerRef} aria-hidden="true" />
     </FullscreenLayer>
   );
