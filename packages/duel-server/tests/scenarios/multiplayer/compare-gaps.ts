@@ -504,13 +504,12 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       }),
     ],
   }),
-  // W8: a seat gives up while the pick prompt of p0 is open. The loss lands at the next Adjust, but a seat with a pending loss must not be
-  // picked: the core answers MSG_RETRY to an answer that names it, and p0 picks the other seat (core: SelectOption with a pick of an opponent).
+  // W8: immediate surrender removes a seat while the living duelist's opponent choice stays open.
   defineScenario({
     id: "compare-gaps-ffa3-surrender-while-the-opponent-pick-is-open",
-    title: "FFA3: p1 gives up while p0 picks an opponent for Ultimate Sky (p1 and p2 both pass): the answer that names p1 is refused (it has a pending loss), p0 picks p2, the Sky resolves on p2, p1 is out and no other seat changes (W8)",
+    title: "FFA3: p1 gives up while p0 picks an opponent for Ultimate Sky: p1 is removed immediately, its option is refused, p0 picks p2, and Sky negates p2's only effect monster for 800 LP (W8)",
     source: OPP_PICK,
-    rules: ["R-COMMON-OPP-PICK", "R-FFA-ELIMINATION"],
+    rules: ["R-COMMON-OPP-PICK", "R-FFA-ELIMINATION", "R-COMMON-SURRENDER-EOT"],
     tags: ["multiplayer", "compare", "elimination", "ffa3", "card:38817295"],
     setup: {
       format: "ffa3",
@@ -522,10 +521,12 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       activate("Ultimate Sky", "p0"),
       expectPickSeats(["p1", "p2"], "p0"),
       surrender("p1"),
-      // The prompt still lists p1 (it was built before the surrender). An answer that names p1 is refused; nothing changes.
+      // R-COMMON-SURRENDER-EOT: p1 is out before p0 answers, and the saved opponent option is refused.
+      expectEliminated("p1"),
       expectRetry({ choice: "opt:0" }, { error: "Invalid answer", by: "p0" }),
       pickOpponent("p2", "p0"),
-      select(BUG),
+      // R-FFA-OPP-ONE: only p2's Man-Eater Bug has an effect to negate; the engine selects it.
+      expectPrompt({ by: "p0", title: "Choose an action", context: "action" }),
       expectEliminated("p1"),
       everySeat("ffa3", {
         p0: { lp: 7200, hand: [], monsters: [ELF], grave: ["Ultimate Sky"] },
