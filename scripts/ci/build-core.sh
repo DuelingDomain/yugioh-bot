@@ -7,6 +7,44 @@ case "$target" in
   *) echo "unknown core target: $target" >&2; exit 1 ;;
 esac
 out="${CI_CORE_OUTPUT:-ci-core}/$target"
+mode="${2:-build}"
+case "$mode" in
+  build|--verify-only) ;;
+  *) echo "unknown core build mode: $mode" >&2; exit 1 ;;
+esac
+
+verify_core() {
+  local wasm="$out/dist/ocgcore.$target.sync.wasm"
+  if [[ "$target" == legacy-domain ]]; then wasm="$out/bundle/ocgcore.domain.legacy.wasm"; fi
+  test -s "$wasm" || { echo "core missing or empty: $wasm" >&2; return 1; }
+  local -a wasms
+  mapfile -d '' -t wasms < <(find "$out/bundle" "$out/dist" -name '*.wasm' -type f -print0)
+  sha256sum "${wasms[@]}"
+  if [[ "$target" == legacy-domain ]]; then
+    sh packages/duel-server/scripts/check-legacy-pin.sh "$out/bundle"
+    return
+  fi
+  # pins.json pins sources/toolchain; fixed binary hashes live in expected-sha256.txt.
+  local expected=packages/duel-server/domain-core/expected-sha256.txt want name got pinned=0
+  test -f "$expected" || { echo "core pin file missing: $expected" >&2; return 1; }
+  while read -r want name; do
+    if [[ "$name" == "ocgcore.$target.sync.wasm" ]]; then
+      got="$(sha256sum "$wasm" | cut -d' ' -f1)"
+      if [[ "$got" != "$want" ]]; then
+        echo "core pin: $target has sha256 $got, expected $want" >&2
+        return 1
+      fi
+      pinned=1
+    fi
+  done < "$expected"
+  if [[ "$target" == standard || "$target" == domain ]]; then
+    cmp -s "$wasm" "$out/bundle/ocgcore.$target.wasm" || { echo "bundle core does not match dist core: $target" >&2; return 1; }
+  fi
+  if [[ "$pinned" == 0 ]]; then echo "No fixed binary SHA256 pin for $target; source/toolchain pins are in pins.json."; fi
+}
+
+# Cache hits must take this path before save/upload, without rebuilding or rewriting the manifest.
+if [[ "$mode" == --verify-only ]]; then verify_core; exit 0; fi
 mkdir -p "$out/bundle" "$out/dist"
 printf '{"sources":{},"integrity":{}}\n' > "$out/bundle/manifest.json"
 pins=packages/duel-server/domain-core/pins.json
@@ -47,6 +85,4 @@ case "$target" in
   legacy-domain) ;; # Its files and manifest keys are in bundle/, not the merged core dist.
   *) cp "$dist/ocgcore.$target.sync.wasm" "$dist/ocgcore.$target-build-info.json" "$out/dist/" ;;
 esac
-mapfile -d '' -t wasms < <(find "$out/bundle" "$out/dist" -name '*.wasm' -type f -print0)
-test "${#wasms[@]}" -gt 0
-sha256sum "${wasms[@]}"
+verify_core

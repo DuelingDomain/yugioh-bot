@@ -14,6 +14,7 @@ test("Domain trap cores invalidate on Domain source and full-series patch edits"
     };
     write("packages/duel-server/domain-core/src/domain_master.cpp", "domain v1");
     write("packages/duel-server/domain-core/patches/0003-seats.patch", "seats v1");
+    write("packages/duel-server/domain-core/expected-sha256.txt", "binary pin v1");
     execFileSync("git", ["init", "-q"], { cwd: root });
     execFileSync("git", ["add", "."], { cwd: root });
     const key = (target) => execFileSync(process.execPath, [new URL("./core-cache-key.mjs", import.meta.url).pathname, target], {
@@ -31,6 +32,9 @@ test("Domain trap cores invalidate on Domain source and full-series patch edits"
     assert.notEqual(key("multi-domain-trap"), changedDomain);
     assert.notEqual(key("multi-trap"), trap);
     assert.equal(key("multi-ref"), reference);
+    const beforePinEdit = key("multi-domain-trap");
+    write("packages/duel-server/domain-core/expected-sha256.txt", "binary pin v2");
+    assert.notEqual(key("multi-domain-trap"), beforePinEdit);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

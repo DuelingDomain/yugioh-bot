@@ -5,6 +5,7 @@ import { readFileSync, appendFileSync } from "node:fs";
 const target = process.argv[2];
 const pkg = "packages/duel-server/";
 const inputs = ["scripts/ci/core-cache-key.mjs", "scripts/ci/build-core.sh", "scripts/ci/parallel-emxx.py", "scripts/ci/bin/em++", pkg + "domain-core/pins.json", "patches/ocgcore-wasm+0.1.2.patch", "package-lock.json"];
+if (target !== "legacy-domain") inputs.push(pkg + "domain-core/expected-sha256.txt");
 if (target === "legacy-domain") inputs.push(pkg + "legacy-1v1/");
 else if (target === "standard" || target === "domain") {
   inputs.push(pkg + `scripts/build-${target}-core.sh`, pkg + "domain-core/src/apply-core-fixes.mjs");

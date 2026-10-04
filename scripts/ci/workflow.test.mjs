@@ -29,3 +29,20 @@ test("the required core job runs and fails for failed or cancelled builds on eve
     }
   }
 });
+
+test("core cache hits are verified before artifacts are saved or uploaded", () => {
+  const steps = workflow.jobs["core-build"].steps;
+  const verify = steps.findIndex((step) => step.run?.includes("build-core.sh") && step.run.includes("--verify-only"));
+  assert.ok(verify > steps.findIndex((step) => step.id === "core"));
+  assert.equal(steps[verify].if, undefined, "verify both freshly built cores and cache hits");
+  assert.ok(verify < steps.findIndex((step) => step.uses === "actions/cache/save@v4"));
+  assert.ok(verify < steps.findIndex((step) => step.uses === "actions/upload-artifact@v4"));
+});
+
+test("bundle cache hits verify the fixed binary pins too", () => {
+  const steps = workflow.jobs.cores.steps;
+  const verify = steps.find((step) => step.name === "Verify pinned core hashes");
+  assert.ok(verify?.run);
+  assert.equal(verify.if, undefined);
+  assert.match(verify.run, /sha256sum --check/);
+});

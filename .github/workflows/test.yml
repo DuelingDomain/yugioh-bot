@@ -87,7 +87,7 @@ jobs:
       # The emsdk image comes from pins.json; the independent builders read the same pin.
       - name: Compute bundle cache key
         id: key
-        run: echo "key=duel-engine-ci-v5-${{ hashFiles('scripts/ci/build-core.sh', 'scripts/ci/parallel-emxx.py', 'scripts/ci/bin/em++', 'scripts/ci/core-cache-key.mjs', 'scripts/ci/assemble-core-bundle.mjs', 'packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
+        run: echo "key=duel-engine-ci-v5-${{ hashFiles('scripts/ci/build-core.sh', 'scripts/ci/parallel-emxx.py', 'scripts/ci/bin/em++', 'scripts/ci/core-cache-key.mjs', 'scripts/ci/assemble-core-bundle.mjs', 'packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/expected-sha256.txt', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
       - name: Read the emsdk image from pins.json
         run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
       - name: Look up engine bundle
@@ -145,6 +145,8 @@ jobs:
       - name: Build core with all runner CPUs
         if: steps.core.outputs.cache-hit != 'true'
         run: prlimit --core=1:1 -- bash scripts/ci/build-core.sh ${{ matrix.target }}
+      - name: Verify compiled core hashes
+        run: prlimit --core=1:1 -- bash scripts/ci/build-core.sh ${{ matrix.target }} --verify-only
       - name: Save compiled core
         if: steps.core.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -240,6 +242,15 @@ jobs:
           DUEL_DATA_DIR="$PWD/$BUNDLE_DIR" sh packages/duel-server/scripts/install-engine-bundle.sh
           # The legacy 1v1 files must be main's files (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
           sh packages/duel-server/scripts/check-legacy-pin.sh "$PWD/$BUNDLE_DIR"
+
+      - name: Verify pinned core hashes
+        run: |
+          set -eu
+          dist=packages/duel-server/domain-core/dist
+          (cd "$dist" && sha256sum --check ../expected-sha256.txt)
+          for target in domain multi multi-domain; do
+            cmp "$dist/ocgcore.$target.sync.wasm" "$BUNDLE_DIR/ocgcore.$target.wasm"
+          done
 
       - name: Save engine bundle
         if: needs.core-cache.outputs.hit != 'true'
