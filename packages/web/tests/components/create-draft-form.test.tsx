@@ -31,7 +31,7 @@ async function openEditor() {
 
 async function addCardByName(query: string, name: string) {
   fireEvent.change(await screen.findByLabelText("Search cards by name"), { target: { value: query } });
-  fireEvent.click(await screen.findByRole("button", { name: `Add one copy of ${name}` }));
+  fireEvent.click(await screen.findByRole("option", { name: new RegExp(`^${name}`) }));
 }
 
 function postedDraft(stub: ReturnType<typeof stubFetch>) {
@@ -52,8 +52,12 @@ describe("CreateDraftForm pool: card name search", () => {
     fireEvent.change(input, { target: { value: "blue-eyes" } });
 
     const list = await screen.findByRole("listbox", { name: "Results for blue-eyes" });
-    const names = within(list).getAllByRole("option").map((o) => within(o).getByRole("button").getAttribute("aria-label"));
-    expect(names).toEqual(["Add one copy of Blue-Eyes White Dragon", "Add one copy of Blue-Eyes Alternative"]);
+    const options = within(list).getAllByRole("option");
+    expect(options).toHaveLength(2);
+    expect(options[0]).toHaveAccessibleName(/^Blue-Eyes White Dragon/);
+    expect(options[1]).toHaveAccessibleName(/^Blue-Eyes Alternative/);
+    // The row is the only control: no button sits inside an option.
+    expect(within(list).queryAllByRole("button")).toHaveLength(0);
     expect(input).toHaveAttribute("role", "combobox");
     expect(input).toHaveAttribute("aria-expanded", "true");
     expect(input).toHaveAttribute("aria-controls", list.id);
@@ -68,20 +72,69 @@ describe("CreateDraftForm pool: card name search", () => {
     expect(options[0]).toHaveAttribute("aria-selected", "true");
     expect(input).toHaveAttribute("aria-activedescendant", options[0].id);
 
-    fireEvent.keyDown(input, { key: "Enter" });
+    // fireEvent returns false when the handler called preventDefault, so the form cannot submit.
+    expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
     const pool = screen.getByRole("list", { name: "Pool cards" });
     expect(within(pool).getByText("Blue-Eyes White Dragon")).toBeInTheDocument();
     expect(within(pool).queryByText("Blue-Eyes Alternative")).toBeNull();
 
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(results()[1]).toHaveAttribute("aria-selected", "true");
-    fireEvent.keyDown(input, { key: "Enter" });
+    expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
     expect(within(pool).getByText("Blue-Eyes White Dragon")).toBeInTheDocument();
     expect(within(pool).getByText("Blue-Eyes Alternative")).toBeInTheDocument();
 
     fireEvent.keyDown(input, { key: "Escape" });
     expect(input).toHaveValue("");
     expect(stub.find("/api/drafts", "POST")).toHaveLength(0);
+  });
+
+  it("adds a card with a click on its row", async () => {
+    const { input } = await openSearch();
+    fireEvent.change(input, { target: { value: "blue-eyes" } });
+    fireEvent.click(await screen.findByRole("option", { name: /^Blue-Eyes Alternative/ }));
+    const pool = screen.getByRole("list", { name: "Pool cards" });
+    expect(within(pool).getByText("Blue-Eyes Alternative")).toBeInTheDocument();
+    expect(within(pool).queryByText("Blue-Eyes White Dragon")).toBeNull();
+  });
+
+  it("ignores Enter while an IME composition is open", async () => {
+    const { input } = await openSearch();
+    fireEvent.change(input, { target: { value: "blue-eyes" } });
+    await screen.findByRole("listbox", { name: "Results for blue-eyes" });
+    expect(fireEvent.keyDown(input, { key: "Enter", isComposing: true })).toBe(false);
+    expect(within(screen.getByRole("list", { name: "Pool cards" })).queryByText("Blue-Eyes White Dragon")).toBeNull();
+  });
+
+  it("does nothing on Enter while the results still answer an older text, and dims them", async () => {
+    const { input } = await openSearch();
+    fireEvent.change(input, { target: { value: "blue-eyes" } });
+    const list = await screen.findByRole("listbox", { name: "Results for blue-eyes" });
+    expect(list).not.toHaveAttribute("data-stale");
+
+    // The next search is held: the old list stays on screen while the text moves on.
+    const fast = globalThis.fetch;
+    const slow = deferred();
+    const held = vi.fn();
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/cards/resolve" && String(init?.body).includes("blue-eyes white")) {
+        held();
+        return slow.promise;
+      }
+      return fast(input, init);
+    });
+    fireEvent.change(input, { target: { value: "blue-eyes white" } });
+    expect(screen.getByRole("listbox")).toHaveAttribute("data-stale");
+    await waitFor(() => expect(held).toHaveBeenCalled());
+
+    expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
+    const pool = screen.getByRole("list", { name: "Pool cards" });
+    expect(within(pool).queryByText("Blue-Eyes White Dragon")).toBeNull();
+
+    slow.release(await fast("/api/cards/resolve", { method: "POST", body: JSON.stringify({ fuzzyName: "blue-eyes white" }) }));
+    await waitFor(() => expect(screen.getByRole("listbox")).not.toHaveAttribute("data-stale"));
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(within(pool).getByText("Blue-Eyes White Dragon")).toBeInTheDocument();
   });
 });
 

@@ -95,6 +95,10 @@
 .resRow { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 6px 4px; border-radius: 8px; }
 .resRow:hover, .resRow[data-active] { background: rgb(239 231 213 / 0.04); }
 .resRow[data-active] { box-shadow: inset 2px 0 0 var(--pen-ink); }
+.resRow { cursor: pointer; }
+.resRow[aria-disabled] { cursor: not-allowed; }
+.res[data-stale] { opacity: 0.55; }
+.ib[data-disabled] { opacity: 0.35; }
 .thumb { width: 26px; height: 38px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.12); background: var(--panel-2); }
 .resN { min-width: 0; }
 .resN b { display: block; font-weight: 500; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

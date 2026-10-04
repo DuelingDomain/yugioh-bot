@@ -56,6 +56,7 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
   const inputId = React.useId();
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<CardSummary[]>([]);
+  const [resultsFor, setResultsFor] = React.useState("");
   const [searching, setSearching] = React.useState(false);
   const reqId = React.useRef(0);
 
@@ -63,6 +64,7 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
     const q = query.trim();
     if (q.length === 0) {
       setResults([]);
+      setResultsFor("");
       setSearching(false);
       return;
     }
@@ -79,9 +81,12 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
           if (myReq !== reqId.current) return;
           putCards(data.cards);
           setResults(data.cards.slice(0, 8));
+          setResultsFor(q);
         })
         .catch(() => {
-          if (myReq === reqId.current) setResults([]);
+          if (myReq !== reqId.current) return;
+          setResults([]);
+          setResultsFor(q);
         })
         .finally(() => {
           if (myReq === reqId.current) setSearching(false);
@@ -94,6 +99,7 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
   const nav = useResultNav({
     items: results,
     query,
+    resultsFor,
     setQuery,
     onPick: onAddCard,
     canPick: (card) => !busy && copiesInCube(card.id) === 0,
@@ -118,7 +124,7 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
         </p>
       </div>
       {trimmed.length > 0 && results.length > 0 && (
-        <ul className="ce-res" aria-label={`Results for ${trimmed}`} aria-busy={searching || undefined} {...nav.listProps}>
+        <ul className="ce-res" aria-label={`Results for ${trimmed}`} aria-busy={searching || nav.stale || undefined} data-stale={nav.stale ? "" : undefined} {...nav.listProps}>
           {results.map((card, index) => {
             const copies = copiesInCube(card.id);
             const pool = isExtraDeckCardClient(card) ? "Extra" : "Main";
@@ -138,16 +144,11 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
                     <Check className="ic" aria-hidden="true" />×{copies} in cube
                   </span>
                 ) : (
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    type="button"
-                    aria-label={`Add ${card.name}`}
-                    disabled={busy}
-                    onClick={() => onAddCard(card)}
-                  >
-                    <Plus className="ic sm" aria-hidden="true" />
+                  // Only a look: the whole row is the option and the click target.
+                  <span className="btn btn-secondary btn-sm" aria-hidden="true" data-disabled={busy ? "" : undefined}>
+                    <Plus className="ic sm" />
                     Add
-                  </button>
+                  </span>
                 )}
               </li>
             );
@@ -156,7 +157,7 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
       )}
       {trimmed.length > 0 && results.length === 0 && (
         <p className={styles.noMatch} role="status">
-          {searching ? "Searching..." : "No cards match."}
+          {searching || resultsFor !== trimmed ? "Searching..." : "No cards match."}
         </p>
       )}
     </>

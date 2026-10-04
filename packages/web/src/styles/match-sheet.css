@@ -1500,6 +1500,10 @@
 .ms .ce-res { display: grid; }
 .ms .ce-res li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 7px 0; border-top: 1px solid var(--rule-lo); }
 .ms .ce-res li:first-child { border-top: 0; }
+.ms .ce-res li { cursor: pointer; }
+.ms .ce-res li[aria-disabled] { cursor: default; }
+.ms .ce-res[data-stale] { opacity: 0.55; }
+.ms .ce-res .btn[data-disabled] { opacity: 0.5; }
 .ms .ce-res li[data-active] { background: var(--pen-soft); box-shadow: -6px 0 0 var(--pen-soft), 6px 0 0 var(--pen-soft); }
 .ms .ce-res img { display: block; width: 34px; height: 50px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.1); }
 .ms .ce-res .n { color: var(--ink); font-size: 13.5px; line-height: 1.25; }

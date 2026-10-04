@@ -113,6 +113,7 @@ function CardTab({ ctl, setNote }: TabProps) {
   const inputId = React.useId();
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<CardSummary[]>([]);
+  const [resultsFor, setResultsFor] = React.useState("");
   const [searching, setSearching] = React.useState(false);
   const seq = React.useRef(0);
 
@@ -121,6 +122,7 @@ function CardTab({ ctl, setNote }: TabProps) {
     const mine = ++seq.current;
     if (!q) {
       setResults([]);
+      setResultsFor("");
       setSearching(false);
       return;
     }
@@ -128,10 +130,14 @@ function CardTab({ ctl, setNote }: TabProps) {
       setSearching(true);
       resolveCards({ fuzzyName: q })
         .then((r) => {
-          if (mine === seq.current) setResults(r.cards.filter((c) => !isExtraDeckMonster(c)).slice(0, 8));
+          if (mine !== seq.current) return;
+          setResults(r.cards.filter((c) => !isExtraDeckMonster(c)).slice(0, 8));
+          setResultsFor(q);
         })
         .catch(() => {
-          if (mine === seq.current) setResults([]);
+          if (mine !== seq.current) return;
+          setResults([]);
+          setResultsFor(q);
         })
         .finally(() => {
           if (mine === seq.current) setSearching(false);
@@ -145,6 +151,7 @@ function CardTab({ ctl, setNote }: TabProps) {
   const nav = useResultNav({
     items: results,
     query,
+    resultsFor,
     setQuery,
     onPick: addOne,
     canPick: (card) => (ctl.pool.get(card.id) ?? 0) < MAX_COPIES,
@@ -165,11 +172,11 @@ function CardTab({ ctl, setNote }: TabProps) {
           {...nav.inputProps}
         />
       </div>
-      {!trimmed && <Hint>Type a card name. Enter or + adds one copy.</Hint>}
+      {!trimmed && <Hint>Type a card name. Enter or a click adds one copy.</Hint>}
       {trimmed && searching && results.length === 0 && <Hint>Searching.</Hint>}
-      {trimmed && !searching && results.length === 0 && <Hint>No main-deck card matches that.</Hint>}
+      {trimmed && !searching && resultsFor === trimmed && results.length === 0 && <Hint>No main-deck card matches that.</Hint>}
       {results.length > 0 && (
-        <ul className={styles.res} aria-label={`Results for ${trimmed}`} aria-busy={searching || undefined} {...nav.listProps}>
+        <ul className={styles.res} aria-label={`Results for ${trimmed}`} aria-busy={searching || nav.stale || undefined} data-stale={nav.stale ? "" : undefined} {...nav.listProps}>
           {results.map((card, index) => {
             const copies = ctl.pool.get(card.id) ?? 0;
             return (
@@ -181,15 +188,10 @@ function CardTab({ ctl, setNote }: TabProps) {
                 </div>
                 <div className={styles.resAct}>
                   {copies > 0 && <span className={styles.inPool}>{copies} in pool</span>}
-                  <button
-                    type="button"
-                    className={`${styles.ib} ${styles.ibAdd}`}
-                    aria-label={`Add one copy of ${card.name}`}
-                    disabled={copies >= MAX_COPIES}
-                    onClick={() => addOne(card)}
-                  >
-                    <Plus size={16} aria-hidden="true" />
-                  </button>
+                  {/* Only a look: the whole row is the option and the click target. */}
+                  <span className={`${styles.ib} ${styles.ibAdd}`} aria-hidden="true" data-disabled={copies >= MAX_COPIES ? "" : undefined}>
+                    <Plus size={16} />
+                  </span>
                 </div>
               </li>
             );

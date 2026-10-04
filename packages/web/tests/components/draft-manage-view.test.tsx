@@ -543,7 +543,7 @@ describe("DraftManageView — editing the setup", () => {
     stubFetch({ draftPool: goatPool });
     const onUpdate = await openEdit(fromGoat);
     fireEvent.change(await screen.findByLabelText("Search cards by name"), { target: { value: "cipher" } });
-    fireEvent.click(await screen.findByRole("button", { name: "Add one copy of Cipher Soldier" }));
+    fireEvent.click(await screen.findByRole("option", { name: /^Cipher Soldier/ }));
     fireEvent.change(screen.getByLabelText(/pick duration/i), { target: { value: "30" } });
     expect(screen.getByLabelText("Limit 3 copies per card")).toBeChecked();
     await userEvent.click(screen.getByLabelText("Limit 3 copies per card"));
@@ -606,7 +606,7 @@ describe("DraftManageView — editing the setup", () => {
     stubFetch({ draftPool: goatPool });
     await openEdit(fromGoat);
     fireEvent.change(await screen.findByLabelText("Search cards by name"), { target: { value: "cipher" } });
-    fireEvent.click(await screen.findByRole("button", { name: "Add one copy of Cipher Soldier" }));
+    fireEvent.click(await screen.findByRole("option", { name: /^Cipher Soldier/ }));
     expect(screen.getByRole("region", { name: "Pool status" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     await userEvent.click(screen.getByRole("button", { name: /edit setup/i }));

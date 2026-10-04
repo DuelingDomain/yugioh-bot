@@ -39,6 +39,8 @@ let draftType: string | undefined;
 let settings: Record<string, number>;
 let puts: Array<Record<string, unknown>>;
 let resolves: Array<Record<string, unknown>>;
+/** When set, the next card search answers only after this promise settles. */
+let resolveGate: Promise<void> | null;
 
 function detail() {
   return { pools: { main: [...main], extra: [...extra] }, cards: CARDS };
@@ -53,6 +55,7 @@ beforeEach(() => {
   settings = {};
   puts = [];
   resolves = [];
+  resolveGate = null;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: unknown, init?: RequestInit) => {
@@ -96,6 +99,7 @@ beforeEach(() => {
       }
       if (url.endsWith("/api/cards/resolve")) {
         resolves.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        if (resolveGate) await resolveGate;
         return { ok: true, json: async () => ({ cards: CARDS }) } as Response;
       }
       return { ok: true, json: async () => ({ cards: [] }) } as Response;
@@ -121,7 +125,9 @@ describe("CubeEditor card name search", () => {
 
     const list = await screen.findByRole("listbox", { name: "Results for xyz b" });
     const rows = within(list).getAllByRole("option");
-    expect(rows.map((row) => within(row).getByRole("button").getAttribute("aria-label"))).toEqual(["Add Main A", "Add Xyz B"]);
+    expect(rows.map((row) => row.querySelector(".n")?.textContent)).toEqual(["Main A", "Xyz B"]);
+    // The row is the only control: no button sits inside an option.
+    expect(within(list).queryAllByRole("button")).toHaveLength(0);
     expect(rows[1]).toHaveTextContent("XYZ Monster, Extra");
     expect(resolves.at(-1)).toEqual({ fuzzyName: "xyz b", includeExtra: true });
     expect(input).toHaveAttribute("role", "combobox");
@@ -129,10 +135,43 @@ describe("CubeEditor card name search", () => {
 
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(within(list).getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
-    fireEvent.keyDown(input, { key: "Enter" });
+    expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
 
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).toMatchObject({ op: "add", catalogCardId: 2, pool: "extra" });
+  });
+
+  it("adds a card with a click on its row", async () => {
+    await open();
+    fireEvent.change(screen.getByLabelText("Card name"), { target: { value: "xyz b" } });
+    const list = await screen.findByRole("listbox", { name: "Results for xyz b" });
+    fireEvent.click(within(list).getAllByRole("option")[0]);
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toMatchObject({ op: "add", catalogCardId: 1 });
+  });
+
+  it("does nothing on Enter while the results answer an older text, and ignores an IME Enter", async () => {
+    await open();
+    const input = screen.getByLabelText("Card name");
+    fireEvent.change(input, { target: { value: "xyz b" } });
+    const list = await screen.findByRole("listbox", { name: "Results for xyz b" });
+    expect(fireEvent.keyDown(input, { key: "Enter", isComposing: true })).toBe(false);
+
+    let release!: () => void;
+    resolveGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fireEvent.change(input, { target: { value: "xyz bb" } });
+    await waitFor(() => expect(resolves.at(-1)).toEqual({ fuzzyName: "xyz bb", includeExtra: true }));
+    expect(list).toHaveAttribute("data-stale");
+    expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
+    expect(posts).toHaveLength(0);
+
+    release();
+    await waitFor(() => expect(screen.getByRole("listbox")).not.toHaveAttribute("data-stale"));
+    expect(posts).toHaveLength(0);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(posts).toHaveLength(1));
   });
 });
 
@@ -313,7 +352,7 @@ describe("CubeEditor", () => {
       fireEvent.change(screen.getByLabelText("Card name"), { target: { value: "Main A" } });
       await act(async () => { await vi.advanceTimersByTimeAsync(250); });
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Add Main A" }));
+        fireEvent.click(screen.getByRole("option", { name: /Main A/ }));
       });
       fireEvent.click(screen.getByRole("button", { name: "Main A, 3 copies" }));
       await act(async () => {
