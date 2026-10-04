@@ -47,9 +47,9 @@ export function DraftFinale(p: FinaleProps) {
   const tournamentHref = linked?.webSlug ? `/tournament/${linked.webSlug}` : "/tournaments";
   const showForm = p.canCreateTournament && !linked && formOpen;
   const status = linked
-    ? "The tournament is ready. Every deck is registered for it."
+    ? "The tournament is ready. Saved draft decks are registered for it."
     : p.canCreateTournament
-      ? "Every deck is saved. Create the tournament when you are ready."
+      ? "Create the tournament when you are ready. Saved draft decks are registered for it."
       : "The host or a server admin will start the tournament.";
   const word = useRef<HTMLHeadingElement>(null);
   const fanRef = useRef<HTMLDivElement>(null);

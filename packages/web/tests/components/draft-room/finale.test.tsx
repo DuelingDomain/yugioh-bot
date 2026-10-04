@@ -58,7 +58,7 @@ describe("DraftFinale", () => {
       await waitFor(() => expect(document.activeElement).toBe(create));
       expect(screen.queryByText("Build your deck")).toBeNull();
       expect(screen.queryByText(/Your deck starts here/)).toBeNull();
-      expect(screen.getByText("Every deck is saved. Create the tournament when you are ready.")).toBeTruthy();
+      expect(screen.getByText("Create the tournament when you are ready. Saved draft decks are registered for it.")).toBeTruthy();
       for (const name of ["Export YDK", "Close"]) expect(screen.getByRole("button", { name })).toBeTruthy();
       expect(screen.getByRole("link", { name: "Back to drafts" }).getAttribute("href")).toBe("/drafts");
     });
@@ -123,7 +123,7 @@ describe("DraftFinale", () => {
       expect(go.getAttribute("href")).toBe("/tournament/cup");
       await waitFor(() => expect(document.activeElement).toBe(go));
       expect(screen.queryByRole("button", { name: "Create tournament" })).toBeNull();
-      expect(screen.getByText("The tournament is ready. Every deck is registered for it.")).toBeTruthy();
+      expect(screen.getByText("The tournament is ready. Saved draft decks are registered for it.")).toBeTruthy();
     });
 
     it("falls back to the tournament list when the slug is unknown", async () => {
