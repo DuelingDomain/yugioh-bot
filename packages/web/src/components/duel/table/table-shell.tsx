@@ -44,6 +44,8 @@ import type { ChainModeControl } from "../use-chain-mode";
 import roomStyles from "../room.module.css";
 import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
+import { GridStage } from "./grid-stage";
+import { usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
 import { OpponentBar } from "./opponent-bar";
 import { attackLockAt, placeLabel, placings, toneBySeat, trackOutOrder } from "./seat-state";
@@ -167,6 +169,9 @@ function TableShellBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [format, engine.seats.length, viewerSeat],
   );
+  // A 4-way free-for-all draws the 2 by 2 grid (grid-layout.ts decides); every other table keeps the plaza stage.
+  const grid = usesGridLayout(format as TableFormat, engine.seats);
+  const Stage = grid ? GridStage : TableStage;
   const rootRef = useRef<HTMLDivElement>(null);
   const ownBoardRef = useRef<HTMLDivElement>(null);
   const boardRef = roomBoardRef ?? ownBoardRef;
@@ -316,6 +321,7 @@ function TableShellBody({
       data-viewport={fillViewport ? "true" : undefined}
       data-domain={domain}
       data-fit="true"
+      data-grid={grid ? "true" : undefined}
       data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
@@ -428,7 +434,7 @@ function TableShellBody({
         <section className={roomStyles.boardColumn} aria-label="Duel field">
           <div className={roomStyles.board} ref={boardRef}>
             <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
-              <TableStage
+              <Stage
                 controller={controller}
                 layout={layout}
                 camera={camera.shown}
@@ -499,7 +505,7 @@ function TableShellBody({
                         ))}
                       </ul>
                     ) : null}
-                    <CameraControls {...cameraProps} variant={masterRail ? "stage" : "float"} />
+                    {grid ? null : <CameraControls {...cameraProps} variant={masterRail ? "stage" : "float"} />}
                     {ui.pile ? (
                       <PileViewer
                         title={ui.pile.title}
@@ -525,7 +531,7 @@ function TableShellBody({
         {masterRail && !narrow ? (
           <aside className={roomStyles.masters} aria-label="Deck Masters">
             {masterRail}
-            <CameraControls {...cameraProps} variant="panel" />
+            {grid ? null : <CameraControls {...cameraProps} variant="panel" />}
           </aside>
         ) : null}
       </div>

@@ -4,6 +4,15 @@
   min-height: 0;
 }
 
+/* The 2 by 2 grid is wide: the side rails give the board a little more room (about a tenth) than on the plaza. */
+.shell.shell[data-grid="true"] {
+  --duel-insp-w: clamp(250px, min(22vw, calc(var(--duel-free) * 0.5)), 520px);
+}
+
+.shell.shell[data-grid="true"] section[aria-label="Duel field"] {
+  padding-inline: 2px;
+}
+
 .shell.shell[data-viewport="true"] {
   position: fixed;
   inset: 0;

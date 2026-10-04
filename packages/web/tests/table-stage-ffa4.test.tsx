@@ -96,24 +96,20 @@ describe("TableShell on the 4-way fixtures", () => {
     expect(stage.getAttribute("data-camera-mode")).toBe("home");
   });
 
-  it("C swaps the three rival fields for chips, and the hooks stay in the DOM", () => {
+  it("C keeps the four full fields on the grid: no chips, no camera move on the board", () => {
     const { container } = render(<Shell id="main" />);
     press("c");
-    expect(container.querySelectorAll("[data-compact-chips]")).toHaveLength(3);
+    expect(container.querySelectorAll("[data-compact-chips]")).toHaveLength(0);
     expect(container.querySelectorAll("[data-seat-field]")).toHaveLength(4);
     expect(container.querySelectorAll("[data-lp-seat]")).toHaveLength(4);
-    press("c");
-    expect(container.querySelectorAll("[data-compact-chips]")).toHaveLength(0);
+    expect(container.querySelector('[data-table-shell][data-grid="true"]')).not.toBeNull();
+    expect(container.querySelector("[data-grid-stage]")).not.toBeNull();
   });
 
-  it("lights usable chips with a glow and never dims the others", () => {
-    const { container } = render(<Shell id="chain-2" />);
-    press("c");
-    const chips = [...container.querySelectorAll("[data-compact-chips] [data-chip]")];
-    expect(chips.length).toBeGreaterThan(0);
-    for (const chip of chips) {
-      expect(chip.getAttribute("style") ?? "").not.toMatch(/opacity/);
-    }
+  it("draws no camera controls on the grid", () => {
+    const { container } = render(<Shell id="main" />);
+    expect(container.querySelector("[data-camera-panel]")).toBeNull();
+    expect(container.querySelector("[data-camera-chip]")).toBeNull();
   });
 
   it("shows no rival chips in the 1v1-style states that have no rivals left", () => {
@@ -128,25 +124,5 @@ describe("TableShell on the 4-way fixtures", () => {
     cleanup();
     const plain = render(<Shell id="main" />).container;
     expect(plain.querySelector('[data-slot="prompt"][data-seat-pick]')).toBeNull();
-  });
-
-  it("opens the chip lens on a mouse hover only, and closes it on a click", () => {
-    const { container } = render(<Shell id="main" />);
-    press("c");
-    const chip = container.querySelector<HTMLElement>("[data-compact-chips] [data-chip]");
-    expect(chip).not.toBeNull();
-    const lens = () => document.querySelector("[data-chip-lens]");
-    act(() => {
-      fireEvent.pointerEnter(chip!, { pointerType: "touch" });
-    });
-    expect(lens()).toBeNull();
-    act(() => {
-      fireEvent.pointerEnter(chip!, { pointerType: "mouse" });
-    });
-    expect(lens()).not.toBeNull();
-    act(() => {
-      fireEvent.click(chip!);
-    });
-    expect(lens()).toBeNull();
   });
 });

@@ -1,0 +1,216 @@
+/*
+ * The 4-way grid table: four full fields in a 2 by 2 grid (see grid-layout.ts). The board box fills its parent, and the
+ * canvas inside is 1100 stage px wide (its height follows the rows), scaled to fit. Slots (fx, prompt, overlay) lie over
+ * the whole box, so FX measure the real screen position of the zones and LP plates, as on the other tables.
+ */
+.board {
+  --sheet: rgb(181 153 99 / 0.34);
+  --sheet-hi: rgb(181 153 99 / 0.66);
+  --sheet-lo: rgb(181 153 99 / 0.17);
+  --ink: #efe7d5;
+  --ink-2: #c3bba8;
+  --ink-3: #958f81;
+  --pen: #9b7eff;
+  --pen-ink: #c6b6ff;
+  --chain: #e4b64f;
+  --loss: #e45a4d;
+  --ember: #d98d52;
+  --partner: #e4b64f;
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  overflow: clip;
+  color: var(--ink);
+  background:
+    radial-gradient(70% 60% at 52% 46%, rgb(22 34 62 / 0.55), transparent 72%),
+    radial-gradient(40% 50% at 12% 88%, rgb(46 34 84 / 0.22), transparent 70%),
+    linear-gradient(118deg, transparent 38%, rgb(140 160 210 / 0.035) 50%, transparent 62%),
+    #070b15;
+  font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+}
+
+.board[data-ready="false"] .canvas {
+  visibility: hidden;
+}
+
+/* A faint ember wash over the whole board in the Battle Phase. */
+.board::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(60% 55% at 50% 50%, rgb(217 141 82 / 0.15), transparent 75%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.6s;
+}
+
+.board[data-battle="true"]::after {
+  opacity: 1;
+}
+
+.canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+/* The grid plane leans back a little: the far (top) row is a touch smaller. No camera moves. */
+.plane {
+  position: absolute;
+  inset: 0;
+  transform: perspective(2400px) rotateX(var(--grid-tilt, 0deg));
+  transform-origin: 50% 62%;
+}
+
+/* A cell is only a hook for state; the field inside is placed on the plane by its own transform. */
+.cell {
+  display: contents;
+}
+
+/* A thin seam between the two columns, through the middle band. */
+.seam {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  border-top: 1px solid rgb(181 153 99 / 0.12);
+  border-bottom: 1px solid rgb(181 153 99 / 0.12);
+  background: linear-gradient(180deg, rgb(181 153 99 / 0.035), transparent 40%, transparent 60%, rgb(181 153 99 / 0.035));
+  pointer-events: none;
+}
+
+/* An out seat shows its existing out treatment (the field's own grayscale and label) while it stays mounted. */
+.cell[data-cell-state="out"] > :global([data-seat-slot]) {
+  pointer-events: none;
+}
+
+/* The column partner mark: a gold pill and bar between the two LP plates of the column. */
+.link {
+  position: absolute;
+  z-index: 41;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 18px;
+  color: var(--partner);
+  pointer-events: none;
+}
+
+.link i {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgb(228 182 79 / 0.8));
+}
+
+.link i:last-child {
+  background: linear-gradient(270deg, transparent, rgb(228 182 79 / 0.8));
+}
+
+.link b {
+  padding: 1px 7px;
+  border: 1px solid rgb(228 182 79 / 0.6);
+  border-radius: 9px;
+  background: rgb(40 30 8 / 0.75);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
+/* Slots over the whole box. A child turns pointer events back on for its own panels. */
+.slot {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+}
+
+/*
+ * The "Activate its effect?" bar sits in the lane under the bottom row, right of your hand and clear of every field.
+ * (A grid has no free side lane: the fields fill the box.)
+ */
+.slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
+  inset: auto auto 6px 44%;
+  translate: none;
+  width: max-content;
+  min-width: 0;
+  max-width: min(440px, 54%);
+}
+
+/*
+ * The "select cards" instruction bar measures the Extra Monster Zones and lands on the middle band, over the LP plates
+ * (which can be targets). In the grid it takes the same lane as the yes/no bar. It places itself with inline styles,
+ * hence !important. A tribute dock (data-place="dock") places itself by your hand and stays as it is.
+ */
+.slot[data-slot="prompt"] :global([data-prompt-surface][data-place="mid"]),
+.slot[data-slot="prompt"] :global([data-prompt-surface][data-place="top"]) {
+  top: auto !important;
+  left: 44% !important;
+  bottom: 6px;
+  translate: none;
+  --bar-fit: 440px;
+}
+
+/* Seat choices sit at the top centre (over the far row), so the attacker, your field and every LP plate stay visible. */
+.slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {
+  inset: 1.5% auto auto 50%;
+  translate: -50% 0;
+  margin: 0;
+  width: clamp(220px, 34%, 320px);
+  max-height: 38%;
+}
+
+/* Expanded responses cover the far (top) row, not your own field, hand or the LP band. */
+.slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) {
+  inset: 1.5% auto auto 50%;
+  translate: -50% 0;
+  margin: 0;
+  width: 42%;
+  min-width: 0;
+  max-width: 400px;
+  max-height: 38%;
+}
+
+.slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) > * {
+  flex-shrink: 0;
+}
+
+.slot[data-slot="prompt"] :global([data-prompt-panel] [data-testid="priority-chips"]) {
+  flex-wrap: wrap;
+}
+
+/*
+ * A rival's hand backs hang off the owner's back edge: the top fields (turned 180 degrees) show them along the top
+ * edge of the board, the bottom-right field along the bottom edge. One `data-hand-seat` per seat stays: the effects aim at it.
+ */
+.board :global([data-hand-seat][data-side="opp"]) {
+  translate: calc(-50% + var(--hand-shift, 0px)) -8%;
+}
+
+.board :global([data-hand-seat][data-side="opp"]:hover) {
+  translate: calc(-50% + var(--hand-shift, 0px)) 4%;
+}
+
+/*
+ * The two far hands lean toward the seam, so the chain strip (it docks in the top-left corner of the board) never
+ * covers a hand. The fields are turned 180 degrees, so a push toward the seam is the opposite sign in their frame.
+ */
+.cell[data-quadrant="tl"] {
+  --hand-shift: -90px;
+}
+
+.cell[data-quadrant="tr"] {
+  --hand-shift: 90px;
+}
+
+/* Keep your field name in the empty lane beside the hand as more cards arrive. */
+.board :global([data-seat-field][data-side="you"] > [data-seat-name]) {
+  left: 0;
+  translate: 0 100%;
+}
