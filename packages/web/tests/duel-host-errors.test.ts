@@ -72,6 +72,25 @@ describe("callDuelHost error messages", () => {
     expect(await result.response.json()).toEqual({ error: "Decks are locked after the duel starts" });
   });
 
+  it("keeps the seat-left code and text for duel answers", async () => {
+    const body = { code: "seat_left", error: "That player has left. Pick again." };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(body, { status: 400 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "respond" });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(400);
+    expect(await result.response.json()).toEqual(body);
+  });
+
+  it("keeps the old response for a normal invalid answer", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Invalid answer" }, { status: 400 })));
+    const { callDuelHost } = await loadHost();
+    const result = await callDuelHost({ ...call, op: "respond" });
+    if (result.ok) throw new Error("expected failure");
+    expect(result.response.status).toBe(400);
+    expect(await result.response.json()).toEqual({ error: "Invalid answer" });
+  });
+
   it("transports the spectator view flag to the authenticated host", async () => {
     const fetchMock = vi.fn().mockImplementation(async () => Response.json({ role: "spectator", mySeat: null }));
     vi.stubGlobal("fetch", fetchMock);
