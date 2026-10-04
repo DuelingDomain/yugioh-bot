@@ -100,6 +100,36 @@ function runToCompletion(
   }
 }
 
+it("weights distinct theme choices by remaining copies over 1000 fixed-seed drafts", () => {
+  let seed = 1;
+  const { db, drafts, themesService, draftId, playerIds, themeIds } = makeThemeDraft({
+    seedSource: () => seed++, themes: [{ main: 21, extra: 0 }], assign: [0, 0],
+    config: { uniqueThemes: false, cardsPerPlayer: 1, themePackSize: 3, extraDeckEnabled: false },
+  });
+  const ids = themesService.getCubePools(themeIds[0]).main.map((card) => card.catalogCardId);
+  themesService.addCard(themeIds[0], ids[0], "main", 10);
+  const config = drafts.findById(draftId).config;
+  const hits = new Map<number, number>();
+  for (let run = 0; run < 1000; run++) {
+    const current = run === 0 ? draftId : drafts.create("g", "c", `Weighted ${run}`, config, "host", playerIds[0]).id;
+    if (run > 0) drafts.join(current, playerIds[1]);
+    drafts.start(current);
+    const choices = drafts.currentPackOptions(current, playerIds[0]).map((card) => card.catalogCardId);
+    expect(new Set(choices).size).toBe(3);
+    for (const id of choices) hits.set(id, (hits.get(id) ?? 0) + 1);
+  }
+  const heavyRate = (hits.get(ids[0]) ?? 0) / 1000;
+  expect(heavyRate).toBeGreaterThan(0.65);
+  expect(heavyRate).toBeLessThan(0.8);
+  for (const id of ids.slice(1)) {
+    const rate = (hits.get(id) ?? 0) / 1000;
+    expect(rate).toBeGreaterThan(0.05);
+    expect(rate).toBeLessThan(0.2);
+    expect(heavyRate).toBeGreaterThan(3 * rate);
+  }
+  db.close();
+});
+
 describe("theme draft — config normalization", () => {
   it("normalizes theme-mode defaults", () => {
     const { drafts, draftId } = makeThemeDraft({ config: {}, themes: [{ main: 1, extra: 1 }, { main: 1, extra: 1 }] });

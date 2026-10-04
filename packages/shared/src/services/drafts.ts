@@ -636,7 +636,7 @@ export function createDraftService(
       const held = heldCopies(draftId, player.player_id);
       const candidates = [...remaining.entries()]
         .filter(([id, count]) => count > 0 && (config.copyLimit === false || !isCapped(held, id)))
-        .map(([id]) => id);
+        .flatMap(([id, count]) => Array<number>(count).fill(id));
       if (candidates.length === 0) {
         // Exhausting Main must not exclude the player from their Extra rounds.
         if (phase === "extra" || totalThemeRounds(config) === cardsPerPlayer) {
@@ -645,10 +645,7 @@ export function createDraftService(
         continue;
       }
 
-      const chosen = seededShuffle(candidates, seedSource()).slice(
-        0,
-        themePackSize,
-      );
+      const chosen = [...new Set(seededShuffle(candidates, seedSource()))].slice(0, themePackSize);
       const packId = Number(insertPack.run(draftId, roundNumber, seat, seat, 1).lastInsertRowid);
       chosen.forEach((catalogCardId, index) => {
         insertDraftCard.run(draftId, roundNumber, packId, catalogCardId, index);
