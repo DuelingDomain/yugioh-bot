@@ -86,6 +86,38 @@ describe("the duel room between games", () => {
   });
 });
 
+describe("the old game's room once the series moves on", () => {
+  // Game 1 is over (completed, with its result) but the series already points at game 2: this room is about
+  // to follow it. The result overlay of game 1 must never flash in that second.
+  const movedOn = () => makeSeriesRoom({
+    series: makeSeries({ status: "active", gameNumber: 2, currentDuelSlug: "game-2", wins: [1, 0] }),
+    status: "completed",
+  });
+
+  it("shows the starting screen of game 2, never the result of game 1", () => {
+    swr.data = movedOn();
+    render(<DuelRoomView slug="game-1" />);
+    expect(screen.getByTestId("next-game-starting").textContent).toContain("Game 2 of 3");
+    expect(screen.queryByTestId("duel-result")).toBeNull();
+    expect(screen.queryByText("YOU WIN")).toBeNull();
+    expect(screen.queryByTestId("between-games")).toBeNull();
+  });
+
+  it("still shows the result at the real end of game 1 (the series has not moved on)", () => {
+    swr.data = makeSeriesRoom({ series: makeSeries({ status: "active", gameNumber: 1, currentDuelSlug: "game-1", wins: [1, 0] }), status: "completed" });
+    render(<DuelRoomView slug="game-1" />);
+    expect(screen.queryByTestId("next-game-starting")).toBeNull();
+  });
+
+  it("does not move a spectator who opened an older game", () => {
+    const room = movedOn();
+    room.mySeat = null;
+    swr.data = room;
+    render(<DuelRoomView slug="game-1" />);
+    expect(screen.queryByTestId("next-game-starting")).toBeNull();
+  });
+});
+
 describe("isStartingNextGame", () => {
   it("is true only for the lobby of a game after the first, in an open series", () => {
     expect(isStartingNextGame(nextGameLobby())).toBe(true);

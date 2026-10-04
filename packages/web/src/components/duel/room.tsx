@@ -692,6 +692,13 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setConfirmSurrender(false);
       void run(() => surrenderDuel(slug));
     }} />;
+  // The series has moved on to its next game and this room is about to follow it (the effect on nextTarget).
+  // The old game's result is history by now: do not flash "You win" for the second the next room takes to
+  // open. Show the starting screen of the next game, then its field and its opening deal.
+  if (nextTarget != null && data.series) {
+    const upcoming = { ...data, session: { ...data.session, gameNumber: data.series.gameNumber } };
+    return <NextGameStarting room={upcoming} onShowTable={() => goToGame(nextTarget)} />;
+  }
   if (showBetweenGames) {
     return <BetweenGamesScreen room={data} slug={slug} onChanged={refreshRoom} onNavigate={goToGame} />;
   }
