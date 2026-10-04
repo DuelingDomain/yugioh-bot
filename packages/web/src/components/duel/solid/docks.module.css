@@ -4,7 +4,10 @@
    The dock rules re-skin the V1 MasterDock/DeckMasterRail classes (field.module.css) through the `field` skin slot.
    Each selector starts with [data-look="solid"] (the Solid room root), so it outranks the V1 rule and its media queries
    no matter which stylesheet loads last. There is no dashed border anywhere (owner rule): the away state and the
-   disabled buttons use a solid gold-lo line. Keep data-master-dock on .masterArt: MasterReturnFx finds the dock by it. */
+   disabled buttons use a solid gold-lo line. Keep data-master-dock on .masterArt: MasterReturnFx finds the dock by it.
+
+   The obsidian greys are written as hex here, not var(--ink-N): .felt and .masterRail (field.module.css) redefine
+   --ink, --ink-2 and --ink-3 as the V1 cream text tones, which would turn these backgrounds beige. */
 
 /* ---------- dock column ---------- */
 
@@ -15,7 +18,10 @@
   gap: var(--pad);
   height: 100%;
   min-height: 0;
+  color: var(--tx);
+  font-family: var(--font);
   font-size: 14px;
+  line-height: 1.35;
 }
 
 [data-look="solid"] .masterDock,
@@ -73,10 +79,13 @@
 [data-look="solid"] .masterId { display: none; }
 
 [data-look="solid"] .masterArt {
+  /* The ZoneMarks glow and tag size from --z (the art height), as on the field. */
+  --z: clamp(100px, 17vh, 196px);
+  --cw: calc(var(--z) * 0.686);
   position: relative;
   flex: none;
   width: auto;
-  height: clamp(100px, 17vh, 196px);
+  height: var(--z);
   aspect-ratio: 813 / 1185;
   border-radius: 6px;
   box-shadow: 0 10px 22px -10px rgb(0 0 0 / 0.95), 0 0 0 1px rgb(0 0 0 / 0.6);
@@ -154,7 +163,7 @@
   padding: 0 14px;
   border: 0;
   border-radius: 8px;
-  background: var(--ink-3);
+  background: #131b2e;
   box-shadow: inset 0 0 0 1px var(--hair);
   color: var(--tx);
   font-family: var(--font);
@@ -164,7 +173,7 @@
 }
 [data-look="solid"] .masterAction:hover:not(:disabled),
 [data-look="solid"] .masterInspect:hover:not(:disabled) {
-  background: var(--ink-4);
+  background: #1b2540;
   color: var(--tx);
 }
 [data-look="solid"] .masterAction[data-primary="true"] {
@@ -182,7 +191,7 @@
   box-shadow: inset 0 0 0 1px var(--hair);
   color: var(--tx-3);
 }
-[data-look="solid"] .masterAction[data-primary="true"]:disabled { background: var(--ink-3); }
+[data-look="solid"] .masterAction[data-primary="true"]:disabled { background: #131b2e; }
 [data-look="solid"] .masterAction:focus-visible,
 [data-look="solid"] .masterInspect:focus-visible {
   outline: 2px solid var(--gold-hi);
@@ -205,7 +214,7 @@
     padding: 10px 12px;
   }
   [data-look="solid"] .masterTitle { margin-bottom: 8px; padding-bottom: 6px; font-size: 15px; }
-  [data-look="solid"] .masterArt { height: clamp(96px, 16dvh, 130px); }
+  [data-look="solid"] .masterArt { --z: clamp(96px, 16dvh, 130px); }
   [data-look="solid"] .masterMeta { margin-top: 8px; }
   [data-look="solid"] .masterAction,
   [data-look="solid"] .masterInspect { min-height: 40px; height: 40px; }
@@ -220,7 +229,7 @@
   height: 48px;
   padding: 4px 5px;
   border-radius: 9px;
-  background: var(--ink-2);
+  background: #0d1221;
   box-shadow: inset 0 0 0 1px var(--gold-b);
   transition: box-shadow 0.25s;
 }
@@ -291,7 +300,7 @@
   height: 46px;
   padding: 4px 6px 4px 5px;
   border-radius: 10px;
-  background: var(--ink-1);
+  background: #080b14;
   box-shadow: inset 0 0 0 1px var(--gold-b);
 }
 .peekThumb {
@@ -329,7 +338,7 @@
   padding: 0 11px;
   border: 0;
   border-radius: 8px;
-  background: var(--ink-3);
+  background: #131b2e;
   box-shadow: inset 0 0 0 1px var(--hair);
   color: var(--tx);
   font-family: var(--font);
@@ -337,5 +346,5 @@
   font-weight: 500;
   touch-action: manipulation;
 }
-.peekBtn:active { background: var(--ink-4); }
+.peekBtn:active { background: #1b2540; }
 .peekBtn:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 1px; }
