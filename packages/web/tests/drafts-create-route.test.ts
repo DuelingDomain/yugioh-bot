@@ -103,8 +103,9 @@ describe("POST /api/drafts", () => {
       cubes: Array<{ name: string; customCardIds: number[]; mainCards: Array<{ id: number; copies: number }> }>;
     };
     const saved = listed.cubes.find((c) => c.name === "Dark Magician")!;
-    const { savedPoolIds } = await import("../src/components/draft/create/format");
-    const loaded = savedPoolIds(saved.customCardIds, saved.mainCards);
+    // The pool editor turns a cube's main pool into one passcode per copy for the draft config.
+    const { poolFromEntries, poolToIds } = await import("../src/components/draft/pool/pool-model");
+    const loaded = poolToIds(poolFromEntries(saved.mainCards));
     const expected = mainIds.flatMap((id) => Array.from({ length: copiesOf(id) }, () => id));
     expect(loaded).toEqual(expected);
 

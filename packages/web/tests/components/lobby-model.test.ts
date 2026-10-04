@@ -7,7 +7,6 @@ import {
   mainShortfallFix,
   extraShortfallSummary,
   plural,
-  poolSources,
   setupRows,
   splitPreflight,
   startBlocker,
@@ -185,13 +184,6 @@ describe("small helpers", () => {
     expect(plural(1, "player")).toBe("1 player");
     expect(plural(2, "player")).toBe("2 players");
     expect(plural(1, "more theme")).toBe("1 more theme");
-  });
-
-  it("describes pool sources", () => {
-    expect(poolSources(2, 36)).toBe("2 sets and 36 passcodes");
-    expect(poolSources(1, 0)).toBe("1 set");
-    expect(poolSources(0, 1)).toBe("1 passcode");
-    expect(poolSources(0, 0)).toBe("");
   });
 
   it("takes the first letter for the seat monogram", () => {

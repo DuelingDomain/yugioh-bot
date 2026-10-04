@@ -53,6 +53,14 @@ function mapCubeCard(row: any): CubeCard {
 /** Config keys that describe the cube itself, not a draft. Saving a draft config over a cube keeps them. */
 const CUBE_META_KEYS = ["draftType"] as const;
 
+/** A cube in the guild already has this name, ignoring case. */
+export class CubeNameTakenError extends Error {
+  constructor(name: string) {
+    super(`A cube named "${name}" already exists`);
+    this.name = "CubeNameTakenError";
+  }
+}
+
 export function createCubeService(db: Database.Database, catalog: CardCatalogService) {
   const touch = db.prepare("update cubes set updated_at = ? where id = ?");
   const bump = (cubeId: number) => touch.run(new Date().toISOString(), cubeId);
@@ -198,6 +206,94 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
 
       bump(cubeId);
       return findCube(cubeId);
+    },
+
+    /**
+     * Create a cube with its cards in one transaction. `entries` hold distinct catalog ids
+     * (all in card_catalog); Extra Deck frames go to the extra pool. `copyExtraFromCubeId`
+     * copies that cube's extra-pool rows (ids and max copies) too.
+     */
+    createWithCards(
+      guildId: string,
+      name: string,
+      createdByUserId: string,
+      entries: Array<{ id: number; copies: number }>,
+      opts: { copyExtraFromCubeId?: number } = {},
+    ): Cube {
+      return db.transaction(() => {
+        // Checked here, inside the write, so two saves of the same name cannot both pass an earlier check.
+        const clash = db.prepare("select 1 from cubes where guild_id = ? and lower(name) = lower(?)").get(guildId, name);
+        if (clash) throw new CubeNameTakenError(name);
+        const cubeId = insertCubeRow(guildId, name, createdByUserId, null, null);
+        const cards = new Map(catalog.findByIds(entries.map((e) => e.id)).map((c) => [c.ygoprodeckId, c]));
+        for (const { id, copies } of entries) {
+          const card = cards.get(id);
+          if (!card) continue;
+          upsertCard.run(cubeId, id, isExtraDeckFrame(card) ? "extra" : "main", assertCubeCopies(copies), null);
+        }
+        if (opts.copyExtraFromCubeId !== undefined) {
+          const rows = db
+            .prepare(
+              `select cc.catalog_card_id, cc.max_copies from cube_cards cc
+                 join cubes c on c.id = cc.cube_id
+                where cc.cube_id = ? and cc.pool = 'extra' and c.guild_id = ? order by cc.rowid asc`,
+            )
+            .all(opts.copyExtraFromCubeId, guildId) as Array<{ catalog_card_id: number; max_copies: number }>;
+          for (const r of rows) upsertCard.run(cubeId, r.catalog_card_id, "extra", r.max_copies, null);
+        }
+        bump(cubeId);
+        return findCube(cubeId);
+      })();
+    },
+
+    /**
+     * Replace a cube's main pool. Extra-pool rows stay. Extra Deck frames in `entries` are
+     * ignored (counted in `skippedExtra`); ids not in card_catalog are returned in `unknownIds`.
+     * Drops `customCardIds` from the cube's config so a legacy config-backed pool is not double counted.
+     */
+    replaceMain(
+      cubeId: number,
+      entries: Array<{ id: number; copies: number }>,
+    ): { skippedExtra: number; unknownIds: number[] } {
+      findCube(cubeId);
+      for (const e of entries) assertCubeCopies(e.copies);
+      const cards = new Map(catalog.findByIds(entries.map((e) => e.id)).map((c) => [c.ygoprodeckId, c]));
+      let skippedExtra = 0;
+      const unknownIds: number[] = [];
+      db.transaction(() => {
+        db.prepare("delete from cube_cards where cube_id = ? and pool = 'main'").run(cubeId);
+        for (const { id, copies } of entries) {
+          const card = cards.get(id);
+          if (!card) {
+            unknownIds.push(id);
+            continue;
+          }
+          if (isExtraDeckFrame(card)) {
+            skippedExtra += 1;
+            continue;
+          }
+          // A card already in the extra pool keeps that row; a main card never replaces it.
+          db.prepare(
+            `insert into cube_cards (cube_id, catalog_card_id, pool, max_copies, source)
+             values (?, ?, 'main', ?, null)
+             on conflict (cube_id, catalog_card_id) do nothing`,
+          ).run(cubeId, id, copies);
+        }
+        const row = db.prepare("select config_json from cubes where id = ?").get(cubeId) as { config_json: string | null };
+        let config: Record<string, unknown> = {};
+        try {
+          const parsed = JSON.parse(row.config_json ?? "{}");
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) config = parsed;
+        } catch {
+          // unreadable config: nothing to keep
+        }
+        if ("customCardIds" in config) {
+          delete config.customCardIds;
+          db.prepare("update cubes set config_json = ? where id = ?").run(JSON.stringify(config), cubeId);
+        }
+        bump(cubeId);
+      })();
+      return { skippedExtra, unknownIds };
     },
 
     addCard(

@@ -7,6 +7,7 @@ import { analyzeCube, createCardCatalogService, createDraftService, createPlayer
 import type { DraftConfig } from "@yugidraft/shared/types";
 import { announcer } from "@/lib/notify";
 import { toUtcIso } from "@/lib/utils";
+import { sanitizePoolSource } from "@/lib/cube-pool";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
 
 export const runtime = "nodejs";
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { name, channelId, config } = body as {
+  const { name, channelId, config: rawConfig } = body as {
     name: string;
     channelId?: string;
     config: DraftConfig;
@@ -127,6 +128,7 @@ export async function POST(request: NextRequest) {
   }
 
   const db = getDb();
+  const config = sanitizePoolSource(db, guildId, rawConfig);
   const denied = cubeReferenceAccess(db, config?.allowedCubeIds);
   if (denied) return denied;
 

@@ -35,6 +35,10 @@ function toCardSummary(c: {
   };
 }
 
+function isUnreachable(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("Could not reach the card database");
+}
+
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -80,16 +84,32 @@ export async function POST(request: Request) {
     return NextResponse.json({ cards: cards.map(toCardSummary), unknownIds: [] });
   }
 
+  // Sets not in card_catalog yet are fetched first, the way POST /api/drafts does.
+  if (setNames.length > 0) {
+    await catalog.syncDraftPool({ setNames, customCardIds: [], includeNames: [], excludeNames: [] });
+  }
+
   const existingCustomCardIds = new Set(catalog.findByIds(customCardIds).map((card) => card.ygoprodeckId));
-  const missingCustomCardIds = customCardIds.filter((id) => !existingCustomCardIds.has(id));
+  const missingCustomCardIds = [...new Set(customCardIds.filter((id) => !existingCustomCardIds.has(id)))];
 
   if (missingCustomCardIds.length > 0) {
-    await catalog.syncDraftPool({
-      setNames: [],
-      customCardIds: missingCustomCardIds,
-      includeNames: [],
-      excludeNames: [],
-    });
+    const sync = (ids: number[]) =>
+      catalog.syncDraftPool({ setNames: [], customCardIds: ids, includeNames: [], excludeNames: [] });
+    try {
+      await sync(missingCustomCardIds);
+    } catch (error) {
+      // The card database answers HTTP 400 for a passcode it lacks, which fails the whole batch.
+      // Retry one by one so the real cards still resolve and the bad ones come back in unknownIds.
+      // A lost connection is a real failure.
+      if (isUnreachable(error)) throw error;
+      for (const id of missingCustomCardIds) {
+        try {
+          await sync([id]);
+        } catch (single) {
+          if (isUnreachable(single)) throw single;
+        }
+      }
+    }
   }
 
   const resolvedIds = drafts.resolvePoolCardIds({

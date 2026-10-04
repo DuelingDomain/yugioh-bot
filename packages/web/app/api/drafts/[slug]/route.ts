@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { cubeReferenceAccess } from "@/lib/cube-access";
+import { sanitizePoolSource } from "@/lib/cube-pool";
 import { env } from "@/lib/env";
 import { analyzeCube, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "./helpers";
@@ -147,7 +148,12 @@ export async function PUT(
 
     const drafts = createDraftService(db);
     const existing = drafts.findById(draft.id);
-    const mergedConfig = { ...existing.config, ...(config as object) };
+    const sanitized = config ? sanitizePoolSource(db, guildId, config as object) : {};
+    const mergedConfig = { ...existing.config, ...sanitized } as typeof existing.config;
+    // A submitted poolSource that does not validate clears the stored one rather than keeping the old value.
+    if (config && typeof config === "object" && "poolSource" in config && !("poolSource" in sanitized)) {
+      delete mergedConfig.poolSource;
+    }
     // Edits can retain library cubes deleted since attachment, including in the request body.
     const denied = cubeReferenceAccess(db, mergedConfig.allowedCubeIds, { allowMissing: true });
     if (denied) return denied;
@@ -182,9 +188,27 @@ export async function PUT(
       delete (mergedConfig as { cubeCardIds?: number[] }).cubeCardIds;
       delete (mergedConfig as { poolCardIds?: number[] }).poolCardIds;
 
-      const clampedPacks = Math.min(10, Math.max(1, Number((mergedConfig as any).packsPerPlayer) || 5));
-      (mergedConfig as any).packsPerPlayer = clampedPacks;
-      (mergedConfig as any).packSize = Math.ceil(40 / clampedPacks);
+      const submitted = (config && typeof config === "object" ? config : {}) as {
+        cardsPerPlayer?: unknown;
+        packSize?: unknown;
+        packsPerPlayer?: unknown;
+      };
+      if (submitted.packSize !== undefined || submitted.cardsPerPlayer !== undefined) {
+        // The lobby's pack fields. Stored as sent, like POST /api/drafts does (the create and lobby forms do the
+        // clamping); the pack count is derived when the body does not carry one.
+        const whole = (value: unknown) => (Number.isInteger(value) && (value as number) > 0 ? (value as number) : undefined);
+        const cardsPerPlayer = whole(submitted.cardsPerPlayer) ?? existing.config.cardsPerPlayer;
+        const packSize = whole(submitted.packSize) ?? existing.config.packSize;
+        mergedConfig.cardsPerPlayer = cardsPerPlayer;
+        mergedConfig.packSize = packSize;
+        mergedConfig.packsPerPlayer =
+          whole(submitted.packsPerPlayer) ??
+          (cardsPerPlayer && packSize ? Math.max(1, Math.ceil(cardsPerPlayer / packSize)) : existing.config.packsPerPlayer);
+      } else {
+        const clampedPacks = Math.min(10, Math.max(1, Number((mergedConfig as any).packsPerPlayer) || 5));
+        (mergedConfig as any).packsPerPlayer = clampedPacks;
+        (mergedConfig as any).packSize = Math.ceil(40 / clampedPacks);
+      }
 
       const hasPool =
         ((mergedConfig as any).setNames?.length ?? 0) > 0 ||

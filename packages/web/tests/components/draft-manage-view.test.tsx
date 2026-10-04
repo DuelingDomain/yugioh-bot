@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import React from "react";
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DraftManageView } from "../../src/components/draft/draft-manage-view";
 import type { CardSummary } from "../../src/lib/card-types";
 import { installVirtualizerJsdomEnv } from "../helpers/virtualizer-jsdom";
+import { CATALOG, GOAT, stubFetch } from "../helpers/pool-fixtures";
 
 vi.mock("next/image", () => ({
   default: ({ alt, fill: _fill, ...props }: React.ImgHTMLAttributes<HTMLImageElement> & { fill?: boolean }) => (
@@ -480,43 +481,134 @@ describe("DraftManageView — card pool section", () => {
   });
 });
 
-describe("DraftManageView — editing config syncs the card pool pane", () => {
+describe("DraftManageView — editing the setup", () => {
   beforeEach(() => installVirtualizerJsdomEnv());
 
-  const dm = { id: 46986414, name: "Dark Magician", type: "Spellcaster / Normal Monster", frameType: "normal", effectText: "", imageUrl: "u", imageUrlSmall: "s" };
-  const bewd = { id: 89631139, name: "Blue-Eyes White Dragon", type: "Dragon / Normal Monster", frameType: "normal", effectText: "", imageUrl: "u2", imageUrlSmall: "s2" };
+  const withQty = (id: number, qty: number) => ({ ...CATALOG.find((c) => c.id === id)!, qty });
+  const goatPool = GOAT.mainCards.map((c) => withQty(c.id, c.copies));
+  const fromGoat = {
+    ...baseDraft,
+    config: { ...baseDraft.config, setNames: [], customCardIds: [101, 101, 101, 102, 102, 103, 104, 104, 104], poolSource: { cubeId: 1, cubeName: "Goat cube" } },
+  };
+  const builtHere = { ...baseDraft, config: { ...baseDraft.config, setNames: [], customCardIds: [105, 105, 106] } };
 
-  it("hides the inline pool preview and removes a card from the single synced pane", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input);
-      if (url === "/api/drafts/my-slug/pool") return Response.json({ cards: [] });
-      if (url === "/api/cards/resolve") {
-        const body = JSON.parse(String(init?.body ?? "{}")) as { setNames?: string[] };
-        // Before removal sets are active (qty 2 + 1 = 3 copies); after removal
-        // the sets collapse to passcodes and one copy is gone (2 copies).
-        const cards = body.setNames && body.setNames.length > 0
-          ? [{ ...dm, qty: 2 } as CardSummary, { ...bewd, qty: 1 } as CardSummary]
-          : [{ ...dm, qty: 1 } as CardSummary, { ...bewd, qty: 1 } as CardSummary];
-        return Response.json({ cards, unknownIds: [] });
-      }
-      return Response.json({}, { status: 404 });
-    }));
-    const onUpdate = vi.fn().mockResolvedValue(undefined);
-    render(<DraftManageView draft={baseDraft} slug="my-slug" isCreator isParticipant={false} onStart={noop} onCancel={noop} onUpdate={onUpdate} onJoin={noop} />);
-
+  async function openEdit(draft: typeof fromGoat, onUpdate = vi.fn().mockResolvedValue(undefined)) {
+    render(<DraftManageView draft={draft} slug="my-slug" isCreator isParticipant={false} onStart={noop} onCancel={noop} onUpdate={onUpdate} onJoin={noop} />);
     await userEvent.click(screen.getByRole("button", { name: /edit setup/i }));
+    await screen.findByRole("heading", { name: "Pool" });
+    return onUpdate;
+  }
 
-    // The synced pane resolves the in-progress pool and exposes remove actions.
-    await waitFor(() => expect(screen.getByRole("button", { name: /remove dark magician from pool/i })).toBeTruthy());
-    // The duplicate inline "Pool preview" grid is gone — only the left pane remains.
-    expect(screen.queryByText(/pool preview/i)).toBeNull();
-    // 3 copies before removal.
-    await waitFor(() => expect(screen.getAllByText(/3 copies/i).length).toBeGreaterThan(0));
+  it("names the cube the draft came from in the setup rail, with its card count", async () => {
+    stubFetch({ draftPool: goatPool });
+    render(<DraftManageView draft={fromGoat} slug="my-slug" isCreator isParticipant={false} onStart={noop} onCancel={noop} onUpdate={noop} onJoin={noop} />);
+    const setup = screen.getByRole("heading", { name: "Setup" }).closest("section")!;
+    await waitFor(() => expect(within(setup).getByText("Pool").nextElementSibling).toHaveTextContent("Goat cube9 cards"));
+    expect(within(setup).getByText(/Only enough different cards for 0 players/)).toBeInTheDocument();
+  });
 
-    await userEvent.click(screen.getByRole("button", { name: /remove dark magician from pool/i }));
+  it("says Built for this draft when the pool has no cube behind it", async () => {
+    stubFetch({ draftPool: [withQty(105, 2), withQty(106, 1)] });
+    render(<DraftManageView draft={builtHere} slug="my-slug" isCreator isParticipant={false} onStart={noop} onCancel={noop} onUpdate={noop} onJoin={noop} />);
+    const setup = screen.getByRole("heading", { name: "Setup" }).closest("section")!;
+    await waitFor(() => expect(within(setup).getByText("Pool").nextElementSibling).toHaveTextContent("Built for this draft3 cards"));
+  });
 
-    // Removal is local (no save) and the synced pane updates to 2 copies.
-    await waitFor(() => expect(screen.queryAllByText(/3 copies/i)).toHaveLength(0));
+  it("opens the editor on the draft's own pool, with no way to change cube, and shows what differs from the cube", async () => {
+    stubFetch({ draftPool: [...goatPool.slice(0, 3), withQty(105, 1)] });
+    await openEdit(fromGoat);
+
+    const summary = await screen.findByRole("region", { name: "Chosen cube" });
+    expect(summary).toHaveTextContent("From Goat cube, edited");
+    expect(summary).toHaveTextContent("Saved with this draft");
+    expect(screen.queryByRole("button", { name: "Change cube" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start from scratch" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Pool status" })).toHaveTextContent("Edited for this draft. 1 card added, 3 removed.");
+    expect(screen.getByLabelText("Search cards by name")).toBeInTheDocument();
+    // The pool the host sees is the draft's: the trap taken out of it waits under Removed.
+    fireEvent.click(screen.getByRole("button", { name: "Removed (1)" }));
+    expect(screen.getByRole("button", { name: "Undo removing Mirror Force" })).toBeInTheDocument();
+  });
+
+  it("Reset returns the pool to the cube it came from", async () => {
+    stubFetch({ draftPool: [...goatPool.slice(0, 3), withQty(105, 1)] });
+    await openEdit(fromGoat);
+    fireEvent.click(await screen.findByRole("button", { name: "Reset" }));
+    expect(screen.queryByRole("region", { name: "Pool status" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Chosen cube" })).toHaveTextContent("From Goat cube");
+    expect(screen.getByRole("region", { name: "Chosen cube" })).not.toHaveTextContent("edited");
+  });
+
+  it("saves the pool as cards with poolSource, never as sets, and keeps the pack fields", async () => {
+    stubFetch({ draftPool: goatPool });
+    const onUpdate = await openEdit(fromGoat);
+    fireEvent.change(await screen.findByLabelText("Search cards by name"), { target: { value: "cipher" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Add one copy of Cipher Soldier" }));
+    fireEvent.change(screen.getByLabelText(/pick duration/i), { target: { value: "30" } });
+    await userEvent.click(screen.getByRole("button", { name: "Save setup" }));
+
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
+    const { config } = onUpdate.mock.calls[0][0] as { config: Record<string, unknown> };
+    expect(config).toMatchObject({
+      setNames: [],
+      customCardIds: [101, 101, 101, 102, 102, 103, 104, 104, 104, 105],
+      poolSource: { cubeId: 1, cubeName: "Goat cube" },
+      includeNames: [],
+      excludeNames: [],
+      pickSeconds: 30,
+      cardsPerPlayer: 45,
+    });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Save setup" })).toBeNull());
+  });
+
+  it("sends poolSource null when the pool has no cube behind it, so a stale source is cleared", async () => {
+    stubFetch({ draftPool: [withQty(105, 2), withQty(106, 1)] });
+    const onUpdate = await openEdit(builtHere as unknown as typeof fromGoat);
+    expect(screen.getByRole("region", { name: "Pool status" })).toHaveTextContent("Not saved as a cube.");
+    await userEvent.click(screen.getByRole("button", { name: "Save setup" }));
+    await waitFor(() => expect(onUpdate).toHaveBeenCalled());
+    expect((onUpdate.mock.calls[0][0] as { config: Record<string, unknown> }).config).toMatchObject({
+      setNames: [],
+      customCardIds: [105, 105, 106],
+      poolSource: null,
+    });
+  });
+
+  it("disables Save setup and reads Loading in the rail until the pool has loaded", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    stubFetch({ extra: { "GET /api/drafts/my-slug/pool": () => gate.then(() => Response.json({ cards: goatPool })) } });
+    render(<DraftManageView draft={fromGoat} slug="my-slug" isCreator isParticipant={false} onStart={noop} onCancel={noop} onUpdate={noop} onJoin={noop} />);
+    await userEvent.click(screen.getByRole("button", { name: /edit setup/i }));
+    const save = await screen.findByRole("button", { name: "Save setup" });
+    expect(save).toBeDisabled();
+    expect(save).toHaveAttribute("aria-busy", "true");
+    const setup = screen.getByRole("heading", { name: "Setup" }).closest("section")!;
+    expect(within(setup).getByText("Pool").nextElementSibling).toHaveTextContent("Loading…");
+    release();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save setup" })).toBeEnabled());
+    expect(within(setup).getByText("Pool").nextElementSibling).toHaveTextContent("Goat cube");
+  });
+
+  it("will not save an empty pool", async () => {
+    stubFetch({ draftPool: [withQty(105, 1)] });
+    const onUpdate = await openEdit(builtHere as unknown as typeof fromGoat);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Cipher Soldier from the pool" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save setup" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Add cards to the pool first");
     expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  it("Cancel drops the edits, and opening again starts from the saved pool", async () => {
+    stubFetch({ draftPool: goatPool });
+    await openEdit(fromGoat);
+    fireEvent.change(await screen.findByLabelText("Search cards by name"), { target: { value: "cipher" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Add one copy of Cipher Soldier" }));
+    expect(screen.getByRole("region", { name: "Pool status" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(screen.getByRole("button", { name: /edit setup/i }));
+    await screen.findByRole("heading", { name: "Pool" });
+    await waitFor(() => expect(screen.getByRole("region", { name: "Chosen cube" })).toHaveTextContent("From Goat cube"));
+    expect(screen.queryByRole("region", { name: "Pool status" })).toBeNull();
   });
 });
