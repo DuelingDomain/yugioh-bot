@@ -46,7 +46,6 @@ describe("findFlipSequences", () => {
     expect(sequence.target?.id).toBe(9);
     expect(sequence.resolving?.id).toBe(10);
     expect(sequence.chainEnd?.id).toBe(15);
-    expect(sequence.attackerLeft.id).toBe(11);
     expect(sequence.effects.map((e) => e.id)).toEqual([11, 14]);
     expect(sequence.aftermath.map((e) => e.id)).toEqual([16, 17]);
     expect(flipSequenceOf(recorded(), 5)?.flip.id).toBe(6);
@@ -55,7 +54,7 @@ describe("findFlipSequences", () => {
 
   it("works for the opponent's attack and for other seats of a multi-seat table", () => {
     expect(findFlipSequences(recorded(1, 0))).toHaveLength(1);
-    expect(findFlipSequences(recorded(2, 0))[0].attackerLeft.id).toBe(11);
+    expect(findFlipSequences(recorded(2, 0))[0].effects.map((e) => e.id)).toEqual([11, 14]);
     expect(findFlipSequences(recorded(0, 3))[0].aftermath.map((e) => e.id)).toEqual([16, 17]);
   });
 
@@ -76,9 +75,20 @@ describe("findFlipSequences", () => {
     expect(findFlipSequences(events)).toEqual([]);
   });
 
-  it("ignores a flip effect that does not remove the attacker (the old behavior stays)", () => {
+  it("also finds a flip effect that leaves the attacker on the field (the battle then resolves)", () => {
     const kept = recorded().filter((e) => e.id !== 11 && e.id !== 14);
-    expect(findFlipSequences(kept)).toEqual([]);
+    const [sequence] = findFlipSequences(kept);
+    expect(sequence.activate.id).toBe(8);
+    expect(sequence.effects).toEqual([]);
+    expect(sequence.aftermath.map((e) => e.id)).toEqual([16, 17]);
+  });
+
+  it("puts battle damage after the chain end into the aftermath, not the damage of an effect", () => {
+    const events = recorded();
+    events.splice(events.length - 1, 0, { id: 17.5, kind: "damage", seat: 0, amount: 300, cause: "battle", text: "damage" } as DuelEvent);
+    events.splice(events.findIndex((e) => e.id === 15), 0, { id: 14.5, kind: "damage", seat: 1, amount: 500, cause: "effect", text: "effect damage" } as DuelEvent);
+    const [sequence] = findFlipSequences(events);
+    expect(sequence.aftermath.map((e) => e.id)).toEqual([16, 17, 17.5]);
   });
 
   it("ignores a flip with no activation", () => {
@@ -111,6 +121,37 @@ describe("flip sequence timing", () => {
     // The battle death of the flipped card waits for the chain end.
     expect(at(events, 17)).toBe(at(events, 16));
     expect(at(events, 16)).toBeGreaterThanOrEqual(chainBeatAt(15));
+  });
+
+  it("lays a sequence the engine sends in two batches (the player chose between two targets)", () => {
+    // The engine stops after the activation to ask for the target, so the target and the rest come later.
+    const all = recorded().map((e) => (e.kind === "target" && e.id === 9 ? { ...e, targets: [zone(0, MZONE, 1)] } : e));
+    const first = all.filter((e) => e.id <= 8);
+    const second = all.filter((e) => e.id > 8);
+    plan(first);
+    const steps = flipSequenceSteps(false);
+    expect(flipAttackAt(5)).toBe(NOW);
+    expect(at(first, 6)).toBe(NOW + steps.attackMs);
+    expect(at(first, 8)).toBe(NOW + steps.attackMs + steps.flipMs);
+    // The second batch arrives while the first beats are still running; nothing in it starts earlier.
+    plan(second, false, NOW + 250);
+    expect(chainBeatAt(9)).toBeGreaterThanOrEqual(chainBeatAt(8));
+    expect(chainBeatAt(10) - chainBeatAt(9)).toBe(steps.targetMs);
+    expect(at(second, 11)).toBe(chainBeatAt(10) + chainEffectLead(false));
+    expect(at(second, 16)).toBeGreaterThanOrEqual(chainBeatAt(15));
+    expect(flipAttackAt(5)).toBe(NOW);
+    // The flip is delayed in the first batch only.
+    expect(isSequenceFlip(6)).toBe(true);
+  });
+
+  it("does not delay a flip that played in an earlier batch", () => {
+    const all = recorded();
+    plan(all.filter((e) => e.id <= 7));
+    expect(isSequenceFlip(6)).toBe(false);
+    plan(all.filter((e) => e.id === 8), false, NOW + 100);
+    expect(isSequenceFlip(6)).toBe(false);
+    expect(flipAttackAt(5)).toBe(NOW + 100);
+    expect(chainEffectAt(8)).toBe(NOW + 100 + flipSequenceSteps(false).attackMs);
   });
 
   it("keeps the wanted pace in virtual ms (the FX speed clock scales it)", () => {

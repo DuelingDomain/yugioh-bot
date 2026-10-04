@@ -1,6 +1,6 @@
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { chainEffectLead, chainStepDelay, isChainEvent } from "./chain-state";
-import { findFlipSequences, flipSequenceSteps, type FlipSequence } from "./flip-sequence";
+import { advanceFlipTracks, flipSequenceSteps, type FlipStep, type FlipTrack } from "./flip-sequence";
 
 /**
  * The beats of a chain on the board: when each chain event plays, and when the effect of a
@@ -47,6 +47,8 @@ const closers = new Map<number, number>();
 const flipAttacks = new Map<number, number>();
 /** Position events that are the flip of a sequence. */
 const sequenceFlips = new Set<number>();
+/** Attacks that may become a flip sequence; the next batch of the same fight continues them. */
+const flipTracks: FlipTrack[] = [];
 const state = { key: "", freeAt: 0, resolvingAt: null as number | null, resolvingId: 0 };
 
 export function resetChainBeats(key = ""): void {
@@ -58,6 +60,7 @@ export function resetChainBeats(key = ""): void {
   closers.clear();
   flipAttacks.clear();
   sequenceFlips.clear();
+  flipTracks.length = 0;
   state.key = key;
   state.freeAt = 0;
   state.resolvingAt = null;
@@ -126,26 +129,25 @@ function trim(map: Map<number, number>): void {
 }
 
 /**
- * Lays the first beats of each flip-effect sequence: the attack, then the flip, then the chain
- * (which starts at `state.freeAt`, so every chain beat of the batch moves back by the same amount).
- * The flip and the activation card effect are read through `chainEffectAt`, like a link's effect.
+ * Lays the first beats of a flip-effect sequence when its activation arrives: the attack, then the
+ * flip, then the chain (which starts at `state.freeAt`, so every chain beat moves back by the same
+ * amount). The flip and the activation card effect are read through `chainEffectAt`, like a link's
+ * effect. A flip that already played in an earlier batch is not delayed again.
  */
-function planFlipSequences(ordered: readonly DuelEvent[], now: number, reduced: boolean): FlipSequence[] {
-  const sequences = findFlipSequences(ordered).filter((sequence) => !flipAttacks.has(sequence.attack.id));
+function planFlipOpening(step: Extract<FlipStep, { role: "open" }>, now: number, reduced: boolean): void {
   const steps = flipSequenceSteps(reduced);
-  for (const sequence of sequences) {
-    const startAt = Math.max(now, state.freeAt);
-    const flipAt = startAt + steps.attackMs;
-    const chainAt = flipAt + steps.flipMs;
-    flipAttacks.set(sequence.attack.id, startAt);
-    sequenceFlips.add(sequence.flip.id);
-    effects.set(sequence.flip.id, flipAt);
-    effects.set(sequence.activate.id, chainAt);
-    state.freeAt = Math.max(state.freeAt, chainAt);
+  const startAt = Math.max(now, state.freeAt);
+  const flipAt = startAt + steps.attackMs;
+  const chainAt = step.flipFresh ? flipAt + steps.flipMs : flipAt;
+  flipAttacks.set(step.track.attack.id, startAt);
+  if (step.flipFresh && step.track.flip) {
+    sequenceFlips.add(step.track.flip.id);
+    effects.set(step.track.flip.id, flipAt);
   }
+  effects.set(step.event.id, chainAt);
+  state.freeAt = Math.max(state.freeAt, chainAt);
   trim(flipAttacks);
   while (sequenceFlips.size > MAX_KEPT) sequenceFlips.delete(sequenceFlips.values().next().value as number);
-  return sequences;
 }
 
 /**
@@ -157,14 +159,15 @@ export function planChainBeats(fresh: readonly DuelEvent[], options: PlanOptions
   if (state.key !== duelKey) resetChainBeats(duelKey);
   const ordered = fresh.filter((event) => typeof event.id === "number" && !handled.has(event.id)).sort((a, b) => a.id - b.id);
   const total = ordered.filter(isChainEvent).length;
-  const sequences = planFlipSequences(ordered, now, reduced);
+  const flipSteps = advanceFlipTracks(flipTracks, ordered);
   const targetSteps = new Map<number, number>();
-  const aftermath = new Map<number, number>();
-  const linkEffects = new Map<number, number>();
-  for (const sequence of sequences) {
-    if (sequence.resolving) for (const event of sequence.effects) linkEffects.set(event.id, sequence.resolving.id);
-    if (sequence.target) targetSteps.set(sequence.target.id, flipSequenceSteps(reduced).targetMs);
-    for (const event of sequence.aftermath) if (sequence.chainEnd) aftermath.set(event.id, sequence.chainEnd.id);
+  const lateEffects = new Map<number, FlipTrack>();
+  const aftermath = new Map<number, FlipTrack>();
+  for (const step of flipSteps) {
+    if (step.role === "open") planFlipOpening(step, now, reduced);
+    else if (step.role === "target") targetSteps.set(step.event.id, flipSequenceSteps(reduced).targetMs);
+    else if (step.role === "effect") lateEffects.set(step.event.id, step.track);
+    else if (step.role === "aftermath") aftermath.set(step.event.id, step.track);
   }
   let cursor = Math.max(now, state.freeAt);
   let played = 0;
@@ -185,17 +188,17 @@ export function planChainBeats(fresh: readonly DuelEvent[], options: PlanOptions
       cursor += targetSteps.get(event.id) ?? chainStepDelay(event.kind, total - played, reduced);
       continue;
     }
-    const resolvingId = linkEffects.get(event.id);
-    if (resolvingId != null) {
+    const effectOf = lateEffects.get(event.id);
+    if (effectOf?.resolving && beats.has(effectOf.resolving.id)) {
       // The engine sends a destroy after the link has resolved; its effect still belongs to the resolving beat.
-      const at = (beats.get(resolvingId) ?? cursor) + chainEffectLead(reduced);
+      const at = (beats.get(effectOf.resolving.id) as number) + chainEffectLead(reduced);
       if (at > now + 30) effects.set(event.id, at);
       continue;
     }
-    const endId = aftermath.get(event.id);
-    if (endId != null) {
-      // The fight's own result waits for the end of the chain, like the link's effects wait for their badge.
-      const at = (beats.get(endId) ?? cursor) + chainEffectLead(reduced);
+    const resultOf = aftermath.get(event.id);
+    if (resultOf?.chainEnd && beats.has(resultOf.chainEnd.id)) {
+      // The fight's own result (a battle destroy, battle damage) waits for the end of the chain.
+      const at = (beats.get(resultOf.chainEnd.id) as number) + chainEffectLead(reduced);
       if (at > now + 30) effects.set(event.id, at);
       continue;
     }

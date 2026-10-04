@@ -1,12 +1,13 @@
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 
 /**
- * A flip effect that answers an attack, found in one engine batch.
+ * A flip effect that answers an attack.
  *
  * A face-down monster that is attacked and flips up with an effect ("FLIP: target 1 monster on the
- * field; destroy it") sends all of this at once: the attack, the flip, the activation, the target,
- * the destruction of the attacker, the end of the chain and, last, the battle result. Played with no
- * order the board shows the flip, the chain and the destroy together, and the attack not at all.
+ * field; destroy it") sends the attack, the flip, the activation, the target, the effect, the end of
+ * the chain and, last, the battle result. With one legal target they come in one engine batch; with
+ * a real choice the engine stops after the activation, so they come in two or more. Played with no
+ * order the board shows the flip, the chain and the effect together, and the attack not at all.
  *
  * The beats of this case, one after the other (virtual ms, so the FX speed setting scales them):
  *
@@ -17,9 +18,12 @@ import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
  *   effect      the destroy of the chain link (its normal chain lead after the resolving badge)
  *   aftermath   the battle result of the flipped card, after the chain has ended
  *
- * Only the case where the effect removes the attacker is a sequence: the attack then has no battle
- * to play (battle-trigger.ts fizzles it), so the lunge here is its only beat. Pure: events in, one
- * description out. chain-beats.ts lays the times; BattleFx, PositionFx and ChainFx read them.
+ * The sequence starts when the flip is followed by its activation, whether or not the attacker
+ * survives. The lunge here is then the attack's only beat: BattleFx plays no battle for it, and the
+ * result of the fight (a battle destroy, battle damage) waits for the chain end. The sequence is a
+ * small state machine over the event stream, so it works across batches: `advanceFlipTracks` takes
+ * the new events and returns what each one is for. chain-beats.ts lays the times; BattleFx,
+ * PositionFx and ChainFx read them.
  */
 
 export const FLIP_SEQUENCE_TIMING = {
@@ -35,6 +39,85 @@ export const FLIP_SEQUENCE_TIMING = {
   reducedTargetMs: 320,
 } as const;
 
+/** One attack that may become a flip sequence, with what the stream has shown of it so far. */
+export type FlipTrack = {
+  attack: DuelEvent;
+  flip: DuelEvent | null;
+  activate: DuelEvent | null;
+  target: DuelEvent | null;
+  resolving: DuelEvent | null;
+  chainEnd: DuelEvent | null;
+};
+
+/** What a new event is for in a flip sequence. `open` is the activation that makes the sequence. */
+export type FlipStep =
+  | { role: "open"; track: FlipTrack; event: DuelEvent; flipFresh: boolean }
+  | { role: "target" | "resolving" | "effect" | "chain-end" | "aftermath"; track: FlipTrack; event: DuelEvent };
+
+const sameZone = (a: DuelZoneRef | undefined, b: DuelZoneRef | undefined): boolean =>
+  a != null && b != null && a.controller === b.controller && a.location === b.location && a.sequence === b.sequence;
+
+const byId = (events: readonly DuelEvent[]): DuelEvent[] => [...events].filter((event) => typeof event.id === "number").sort((a, b) => a.id - b.id);
+
+/** True for a cause that did not come from the fight. An event with no cause is not an effect. */
+const isEffectCause = (cause: string | undefined): boolean => cause != null && cause !== "battle";
+
+/** True for the fight's own result: a battle destroy or move, or battle damage. */
+function isFightResult(event: DuelEvent): boolean {
+  if (event.kind === "damage") return event.cause == null || event.cause === "battle";
+  return (event.kind === "move" || event.kind === "destroy") && !isEffectCause(event.cause);
+}
+
+/**
+ * Feeds new events (any batch, in any number of calls) to the open tracks. A track opens at an
+ * attack on a monster, learns the flip of that monster, and becomes a sequence when the flipped card
+ * activates. A new attack, a phase or the Damage Step end closes the open tracks. Mutates `tracks`
+ * and returns the role of each event that belongs to a sequence, in id order.
+ */
+export function advanceFlipTracks(tracks: FlipTrack[], events: readonly DuelEvent[]): FlipStep[] {
+  const ordered = byId(events);
+  const freshIds = new Set(ordered.map((event) => event.id));
+  const steps: FlipStep[] = [];
+  for (const event of ordered) {
+    if (event.kind === "phase" || event.kind === "attack" || event.kind === "battle-end") {
+      tracks.length = 0;
+      if (event.kind === "attack" && event.zone && event.target) {
+        tracks.push({ attack: event, flip: null, activate: null, target: null, resolving: null, chainEnd: null });
+      }
+      continue;
+    }
+    const track = tracks[tracks.length - 1];
+    if (!track) continue;
+    const { attack } = track;
+    if (!track.activate) {
+      if (event.kind === "position" && event.flip === true && !track.flip && sameZone(event.zone, attack.target)) track.flip = event;
+      else if (event.kind === "activate" && track.flip && typeof event.chainIndex === "number" && sameZone(event.zone, attack.target)) {
+        track.activate = event;
+        steps.push({ role: "open", track, event, flipFresh: freshIds.has(track.flip.id) });
+      }
+      continue;
+    }
+    const index = track.activate.chainIndex;
+    if (!track.chainEnd) {
+      if (event.kind === "target" && event.chainIndex === index && !track.target && !track.resolving) {
+        track.target = event;
+        steps.push({ role: "target", track, event });
+      } else if (event.kind === "chain-resolving" && event.chainIndex === index && !track.resolving) {
+        track.resolving = event;
+        steps.push({ role: "resolving", track, event });
+      } else if (event.kind === "chain-end") {
+        track.chainEnd = event;
+        steps.push({ role: "chain-end", track, event });
+      } else if ((event.kind === "move" || event.kind === "destroy") && isEffectCause(event.cause)) {
+        steps.push({ role: "effect", track, event });
+      }
+    } else if (isFightResult(event)) {
+      steps.push({ role: "aftermath", track, event });
+    }
+  }
+  return steps;
+}
+
 export type FlipSequence = {
   attack: DuelEvent;
   /** The position event that turns the attacked card face-up. */
@@ -45,69 +128,36 @@ export type FlipSequence = {
   target: DuelEvent | null;
   /** The chain-resolving event of that link. */
   resolving: DuelEvent | null;
-  /** The chain-end that closes the chain, when it is in the batch. */
+  /** The chain-end that closes the chain, when it is in the window. */
   chainEnd: DuelEvent | null;
-  /** The effect removing the attacker (a move or a destroy with a non-battle cause). */
-  attackerLeft: DuelEvent;
   /** Moves and destroys of the link's effect: the engine sends some of them after the link has resolved. */
   effects: DuelEvent[];
-  /** Moves and destroys after the chain end that the fight itself caused (the flipped card's death). */
+  /** The fight's own result after the chain end: a battle destroy or move, battle damage. */
   aftermath: DuelEvent[];
 };
 
-const sameZone = (a: DuelZoneRef | undefined, b: DuelZoneRef | undefined): boolean =>
-  a != null && b != null && a.controller === b.controller && a.location === b.location && a.sequence === b.sequence;
-
-const byId = (events: readonly DuelEvent[]): DuelEvent[] => [...events].filter((event) => typeof event.id === "number").sort((a, b) => a.id - b.id);
-
-/** True for a cause that did not come from the fight. An event with no cause is not an effect. */
-const isEffectCause = (cause: string | undefined): boolean => cause != null && cause !== "battle";
-
-/**
- * Every flip-effect sequence in `events` (a batch or a window). An attack counts when the card it
- * targets flips, activates from the same zone, and the attacker then leaves by an effect, all before
- * the next attack or phase.
- */
+/** Every flip sequence in `events` (a whole log or a window). Stateless: runs the tracker over it. */
 export function findFlipSequences(events: readonly DuelEvent[]): FlipSequence[] {
-  const ordered = byId(events);
-  const found: FlipSequence[] = [];
-  ordered.forEach((attack, at) => {
-    if (attack.kind !== "attack" || !attack.zone || !attack.target) return;
-    const window: DuelEvent[] = [];
-    for (const event of ordered.slice(at + 1)) {
-      if (event.kind === "attack" || event.kind === "phase") break;
-      window.push(event);
+  const tracks: FlipTrack[] = [];
+  const found = new Map<FlipTrack, FlipSequence>();
+  for (const step of advanceFlipTracks(tracks, events)) {
+    const { track, event } = step;
+    if (step.role === "open") {
+      found.set(track, {
+        attack: track.attack, flip: track.flip as DuelEvent, activate: event,
+        target: null, resolving: null, chainEnd: null, effects: [], aftermath: [],
+      });
+      continue;
     }
-    const flip = window.find((event) => event.kind === "position" && event.flip === true && sameZone(event.zone, attack.target));
-    if (!flip) return;
-    const activate = window.find((event) => event.kind === "activate" && event.id > flip.id && typeof event.chainIndex === "number" && sameZone(event.zone, attack.target));
-    if (!activate) return;
-    const index = activate.chainIndex;
-    const attackerLeft = window.find((event) => event.id > activate.id && (
-      (event.kind === "destroy" && sameZone(event.zone, attack.zone) && isEffectCause(event.cause)) ||
-      (event.kind === "move" && sameZone(event.from, attack.zone) && event.cause !== "battle")
-    ));
-    if (!attackerLeft) return;
-    const link = (kind: string) => window.find((event) => event.kind === kind && event.chainIndex === index && event.id > activate.id) ?? null;
-    const chainEnd = window.find((event) => event.kind === "chain-end" && event.id > activate.id) ?? null;
-    const effects = window.filter((event) => event.id > activate.id && (!chainEnd || event.id < chainEnd.id) &&
-      (event.kind === "move" || event.kind === "destroy") && isEffectCause(event.cause));
-    const aftermath = chainEnd
-      ? window.filter((event) => event.id > chainEnd.id && (event.kind === "move" || event.kind === "destroy") && !isEffectCause(event.cause))
-      : [];
-    found.push({
-      attack,
-      flip,
-      activate,
-      target: link("target"),
-      resolving: link("chain-resolving"),
-      chainEnd,
-      attackerLeft,
-      effects,
-      aftermath,
-    });
-  });
-  return found;
+    const sequence = found.get(track);
+    if (!sequence) continue;
+    if (step.role === "target") sequence.target = event;
+    else if (step.role === "resolving") sequence.resolving = event;
+    else if (step.role === "chain-end") sequence.chainEnd = event;
+    else if (step.role === "effect") sequence.effects.push(event);
+    else sequence.aftermath.push(event);
+  }
+  return [...found.values()];
 }
 
 /** The flip sequence that begins with this attack, or null. */
