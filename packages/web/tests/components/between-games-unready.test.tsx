@@ -147,6 +147,28 @@ describe("BetweenGamesScreen: Not ready button", () => {
     expect(screen.getByRole("button", { name: "Not ready" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Ready" })).toBeNull();
   });
+
+  it("re-reads the room after a failed Not ready, since the request may have landed", async () => {
+    api.unreadySeries.mockRejectedValue(new DuelRequestError("Request failed (502)", 502));
+    const view = setup({ sideReady: [true, false] });
+    fireEvent.click(screen.getByRole("button", { name: "Not ready" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Request failed (502)");
+    await waitFor(() => expect(view.onChanged).toHaveBeenCalledTimes(1));
+    // The room now says the server dropped Ready: the panel follows it, not the click.
+    view.rerender(view.element(between({ sideReady: [false, false] })));
+    expect(status().textContent).toBe("You are not ready.");
+    expect(ready()).toBeTruthy();
+  });
+
+  it("re-reads the room after a failed Ready", async () => {
+    api.readySeries.mockRejectedValue(new DuelRequestError("Request failed (502)", 502));
+    const view = setup({ sideReady: [false, false] });
+    await waitFor(() => expect(ready().disabled).toBe(false));
+    fireEvent.click(ready());
+    expect((await screen.findByRole("alert")).textContent).toBe("Request failed (502)");
+    await waitFor(() => expect(view.onChanged).toHaveBeenCalled());
+    expect(status().textContent).toBe("You are not ready.");
+  });
 });
 
 describe("BetweenGamesScreen: editing after Ready", () => {

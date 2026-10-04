@@ -605,6 +605,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     );
   }
   if (!data) return null;
+  // The series already points at the next game and this room is about to follow: not the result of the game that is over.
+  if (nextTarget && data.series) {
+    return <NextGameStarting room={data} game={data.series.gameNumber} onShowTable={() => goToGame(nextTarget)} />;
+  }
   // The next game of a Best of 3 is made in a lobby that starts by itself: no table settings between games.
   if (isStartingNextGame(data) && !showTable && !ownWindowGate) {
     return <NextGameStarting room={data} onShowTable={() => setShowTable(true)} />;
