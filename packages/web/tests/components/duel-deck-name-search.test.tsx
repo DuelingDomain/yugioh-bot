@@ -59,27 +59,42 @@ const cardsIn = (title: string) => section(title).queryAllByRole("button", { nam
 
 /** The dropdown's options (the saved-deck select also holds <option>s). */
 const optionsNow = () => within(screen.getByRole("listbox")).getAllByRole("option");
-const findOptions = async () => { await screen.findByRole("listbox"); return optionsNow(); };
+
+/** Lets timers and resolved searches run; fake timers keep the 250 ms pause out of real time. */
+const flush = (ms = 0) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+const PAUSE = 260;
 
 function type(text: string) {
   fireEvent.focus(field());
   fireEvent.change(field(), { target: { value: text } });
 }
 
+async function search(text: string) {
+  type(text);
+  await flush(PAUSE);
+  return optionsNow();
+}
+
 beforeEach(() => {
+  vi.useFakeTimers();
   queryDeckCards.mockReset();
   getDeckCardFacets.mockReset().mockResolvedValue({ archetypes: [], banlists: {} });
   validateDuelDeck.mockReset().mockResolvedValue({ issues: [] });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("deck editor add card by name", () => {
   it("shows the closest matches with image, name and type while typing", async () => {
     queryDeckCards.mockResolvedValue(answer([BLUE_EYES, BLUE_EYES_ULTIMATE, POT]));
     renderEditor();
     type("blue eyes");
+    expect(queryDeckCards).not.toHaveBeenCalled();
+    await flush(PAUSE);
 
-    const options = await findOptions();
+    const options = optionsNow();
     expect(options).toHaveLength(3);
     expect(options[0].textContent).toContain("Blue-Eyes White Dragon");
     expect(options[0].textContent).toContain("Normal");
@@ -96,8 +111,7 @@ describe("deck editor add card by name", () => {
   it("moves with the arrow keys, adds with Enter, and defaults an Extra Deck monster to Extra", async () => {
     queryDeckCards.mockResolvedValue(answer([BLUE_EYES, BLUE_EYES_ULTIMATE, POT]));
     renderEditor();
-    type("blue");
-    await findOptions();
+    await search("blue");
 
     fireEvent.keyDown(field(), { key: "ArrowDown" });
     const options = optionsNow();
@@ -115,8 +129,7 @@ describe("deck editor add card by name", () => {
   it("adds the best match with Enter alone, to Main for a Main Deck card", async () => {
     queryDeckCards.mockResolvedValue(answer([BLUE_EYES, BLUE_EYES_ULTIMATE]));
     renderEditor();
-    type("blue-eyes white");
-    await findOptions();
+    await search("blue-eyes white");
     fireEvent.keyDown(field(), { key: "Enter" });
     expect(cardsIn("Main")).toHaveLength(1);
     expect(cardsIn("Main")[0].getAttribute("aria-label")).toContain("89631139");
@@ -126,18 +139,32 @@ describe("deck editor add card by name", () => {
     queryDeckCards.mockResolvedValue(answer([BLUE_EYES]));
     renderEditor();
     fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "side" } });
-    type("blue");
-    fireEvent.click((await findOptions())[0]);
+    fireEvent.click((await search("blue"))[0]);
     expect(cardsIn("Side")).toHaveLength(1);
     expect(cardsIn("Main")).toHaveLength(0);
+  });
+
+  it("uses a chosen Section for one add only, then goes back to the default", async () => {
+    queryDeckCards.mockImplementation(async (request: CardQuery) =>
+      answer(request.text === "ash" ? [POT] : [BLUE_EYES_ULTIMATE]));
+    renderEditor();
+    fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "side" } });
+    await search("ash");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(cardsIn("Side")).toHaveLength(1);
+    expect((screen.getByRole("combobox", { name: "Section" }) as HTMLSelectElement).value).toBe("main");
+
+    await search("decode");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(cardsIn("Extra")).toHaveLength(1);
+    expect(cardsIn("Side")).toHaveLength(1);
   });
 
   it("keeps a chosen Section for an Extra Deck monster", async () => {
     queryDeckCards.mockResolvedValue(answer([BLUE_EYES_ULTIMATE]));
     renderEditor();
     fireEvent.change(screen.getByRole("combobox", { name: "Section" }), { target: { value: "main" } });
-    type("ultimate");
-    await findOptions();
+    await search("ultimate");
     fireEvent.keyDown(field(), { key: "Enter" });
     expect(cardsIn("Main")).toHaveLength(1);
     expect(cardsIn("Extra")).toHaveLength(0);
@@ -146,25 +173,46 @@ describe("deck editor add card by name", () => {
   it("closes the dropdown on Escape and reopens it when typing", async () => {
     queryDeckCards.mockResolvedValue(answer([BLUE_EYES]));
     renderEditor();
-    type("blue");
-    await findOptions();
+    await search("blue");
     fireEvent.keyDown(field(), { key: "Escape" });
     expect(screen.queryByRole("listbox")).toBeNull();
     expect(field().getAttribute("aria-expanded")).toBe("false");
     fireEvent.change(field(), { target: { value: "blue e" } });
-    expect(await screen.findByRole("listbox")).toBeTruthy();
+    await flush(PAUSE);
+    expect(screen.getByRole("listbox")).toBeTruthy();
+  });
+
+  it("closes the dropdown when the field loses focus", async () => {
+    queryDeckCards.mockResolvedValue(answer([BLUE_EYES]));
+    renderEditor();
+    await search("blue");
+    fireEvent.blur(field());
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(field().getAttribute("aria-expanded")).toBe("false");
   });
 
   it("still adds a plain number as a passcode", async () => {
     queryDeckCards.mockResolvedValue(answer([]));
     renderEditor();
     type("46986414");
+    await flush(PAUSE);
     fireEvent.keyDown(field(), { key: "Enter" });
     expect(cardsIn("Main")).toHaveLength(1);
     expect(cardsIn("Main")[0].getAttribute("aria-label")).toContain("46986414");
     type("0");
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
-    expect((await screen.findByRole("alert")).textContent).toBe("Enter a positive passcode.");
+    await flush();
+    expect(screen.getByRole("alert").textContent).toBe("Enter a positive passcode.");
+  });
+
+  it("shows the Extra default for a typed passcode of an Extra Deck monster, and adds it there", async () => {
+    queryDeckCards.mockResolvedValue(answer([BLUE_EYES_ULTIMATE]));
+    renderEditor();
+    await search("23995346");
+    expect((screen.getByRole("combobox", { name: "Section" }) as HTMLSelectElement).value).toBe("extra");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(cardsIn("Extra")).toHaveLength(1);
+    expect(cardsIn("Main")).toHaveLength(0);
   });
 
   it("ignores a slow answer for an older search", async () => {
@@ -172,22 +220,71 @@ describe("deck editor add card by name", () => {
     queryDeckCards.mockImplementation(() => new Promise<CardQueryResult>((resolve) => { pending.push(resolve); }));
     renderEditor();
     type("blue");
-    await waitFor(() => expect(queryDeckCards).toHaveBeenCalledTimes(1));
+    await flush(PAUSE);
     type("pot of");
-    await waitFor(() => expect(queryDeckCards).toHaveBeenCalledTimes(2));
+    await flush(PAUSE);
+    expect(queryDeckCards).toHaveBeenCalledTimes(2);
 
     await act(async () => { pending[1](answer([POT])); });
-    expect((await findOptions()).map((option) => option.textContent)).toEqual([expect.stringContaining("Pot of Greed")]);
+    expect(optionsNow().map((option) => option.textContent)).toEqual([expect.stringContaining("Pot of Greed")]);
     await act(async () => { pending[0](answer([BLUE_EYES, BLUE_EYES_ULTIMATE])); });
     expect(optionsNow()).toHaveLength(1);
     expect(screen.queryByText(/Blue-Eyes White Dragon/)).toBeNull();
   });
 
+  it("searches at once when Enter comes before the results, then adds the best match", async () => {
+    queryDeckCards.mockResolvedValue(answer([BLUE_EYES, BLUE_EYES_ULTIMATE]));
+    renderEditor();
+    type("blue-eyes white");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    expect(cardsIn("Main")).toHaveLength(0);
+    await flush(0);
+    expect(queryDeckCards).toHaveBeenCalledTimes(1);
+    expect(cardsIn("Main")).toHaveLength(1);
+    expect(cardsIn("Main")[0].getAttribute("aria-label")).toContain("89631139");
+  });
+
+  it("cancels an early Enter when the text changes before the results come", async () => {
+    const pending: Array<(value: CardQueryResult) => void> = [];
+    queryDeckCards.mockImplementation(() => new Promise<CardQueryResult>((resolve) => { pending.push(resolve); }));
+    renderEditor();
+    type("blue");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    await flush(0);
+    expect(queryDeckCards).toHaveBeenCalledTimes(1);
+
+    type("pot");
+    await act(async () => { pending[0](answer([BLUE_EYES])); });
+    await flush(PAUSE);
+    await act(async () => { pending[1](answer([POT])); });
+    expect(cardsIn("Main")).toHaveLength(0);
+    expect(optionsNow()).toHaveLength(1);
+  });
+
+  it("checks a typed passcode against the pool when Enter comes before the results", async () => {
+    queryDeckCards.mockResolvedValue(answer([OCG_ONLY]));
+    renderEditor(normalSettings({ cardPool: "tcg" }));
+    type("70000001");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    await flush(0);
+    expect(cardsIn("Main")).toHaveLength(0);
+    expect(screen.getByRole("alert").textContent).toContain("Blue-Eyes OCG Promo cannot be added: Not TCG legal.");
+  });
+
+  it("sends an early-Enter passcode of an Extra Deck monster to Extra", async () => {
+    queryDeckCards.mockResolvedValue(answer([BLUE_EYES_ULTIMATE]));
+    renderEditor();
+    type("23995346");
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await flush(0);
+    expect(cardsIn("Extra")).toHaveLength(1);
+    expect(cardsIn("Main")).toHaveLength(0);
+  });
+
   it("shows a card outside the room's card pool as disabled and cannot add it", async () => {
     queryDeckCards.mockResolvedValue(answer([OCG_ONLY, BLUE_EYES]));
     renderEditor(normalSettings({ cardPool: "tcg" }));
-    type("blue");
-    const options = await findOptions();
+    const options = await search("blue");
     expect(options[0].getAttribute("aria-disabled")).toBe("true");
     expect(options[0].textContent).toContain("Not TCG legal");
     expect(options[1].getAttribute("aria-disabled")).toBeNull();
@@ -200,20 +297,19 @@ describe("deck editor add card by name", () => {
     expect(field().getAttribute("aria-activedescendant")).toBe(options[1].id);
 
     // Typing its passcode does not get around the pool either.
-    type("70000001");
-    await waitFor(() => expect(optionsNow()).toHaveLength(2));
+    await search("70000001");
     fireEvent.keyDown(field(), { key: "Enter" });
     expect(cardsIn("Main")).toHaveLength(0);
-    expect((await screen.findByRole("alert")).textContent).toContain("Blue-Eyes OCG Promo cannot be added: Not TCG legal.");
+    expect(screen.getByRole("alert").textContent).toContain("Blue-Eyes OCG Promo cannot be added: Not TCG legal.");
   });
 
   it("marks a card the room's banlist forbids", async () => {
     getDeckCardFacets.mockResolvedValue({ archetypes: [], banlists: { "tcg-2026-09": { [POT.code]: 0 } } });
     queryDeckCards.mockResolvedValue(answer([POT]));
     renderEditor(normalSettings({ banlist: "tcg-2026-09", validateDeck: true }));
-    type("pot");
-    const [option] = await findOptions();
-    await waitFor(() => expect(option.getAttribute("aria-disabled")).toBe("true"));
+    const [option] = await search("pot");
+    await flush(0);
+    expect(option.getAttribute("aria-disabled")).toBe("true");
     expect(option.textContent).toContain("Forbidden");
     fireEvent.click(option);
     expect(cardsIn("Main")).toHaveLength(0);

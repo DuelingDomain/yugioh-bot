@@ -49,7 +49,11 @@ export type CardNameSearch = { query: string; cards?: DeckCardInfo[]; error?: st
  * Name search for the "Add card" field: waits for typing to pause, then asks the deck-builder card
  * search (best name match first). A reply that no longer matches the field is ignored.
  */
-export function useCardNameSearch(query: string): { search: CardNameSearch | null; pending: boolean } {
+export function useCardNameSearch(
+  query: string,
+  /** Skip the pause: the player pressed Enter or Add and is waiting for the answer. */
+  immediate = false,
+): { search: CardNameSearch | null; pending: boolean } {
   const trimmed = query.trim();
   const [search, setSearch] = useState<CardNameSearch | null>(null);
   const reqId = useRef(0);
@@ -69,12 +73,12 @@ export function useCardNameSearch(query: string): { search: CardNameSearch | nul
           setSearch({ query: trimmed, error: error instanceof Error ? error.message : "Could not search cards." });
         },
       );
-    }, ADD_SEARCH_DEBOUNCE_MS);
+    }, immediate ? 0 : ADD_SEARCH_DEBOUNCE_MS);
     return () => {
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [trimmed]);
+  }, [trimmed, immediate]);
 
   const current = trimmed && search?.query === trimmed ? search : null;
   return { search: current, pending: trimmed !== "" && current === null };

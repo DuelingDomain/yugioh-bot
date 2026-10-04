@@ -27,10 +27,13 @@ export function CardAddField({ settings, sideAllowed, onAdd, onError }: {
   const [picked, setPicked] = useState<number | null>(null);
   const [section, setSection] = useState<AddSection | null>(null);
   const [added, setAdded] = useState("");
+  // The query Enter or Add was pressed for before its results came; it runs when they arrive.
+  const [waitingFor, setWaitingFor] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const trimmed = query.trim();
   const isPasscode = /^\d+$/.test(trimmed);
-  const { search, pending } = useCardNameSearch(query);
+  const { search, pending } = useCardNameSearch(query, waitingFor === query.trim());
   const limits = useBanlistLimits(settings.banlist, settings.validateDeck, trimmed !== "");
   const cards = search?.cards ?? [];
   const blocks = cards.map((card) => cardAddBlock(card, settings, limits));
@@ -40,11 +43,29 @@ export function CardAddField({ settings, sideAllowed, onAdd, onError }: {
   const activeCard: DeckCardInfo | undefined = cards[active];
   const showPanel = open && trimmed !== "";
   const showList = showPanel && cards.length > 0;
-  const chosenSection = section ?? (activeCard ? defaultAddSection(activeCard) : "main");
+  // A typed passcode that the search found shows (and gets) that card's default section.
+  const exactCard = isPasscode ? cards.find((card) => card.code === Number(trimmed)) : undefined;
+  const shownCard = activeCard ?? exactCard;
+  const chosenSection = section ?? (shownCard ? defaultAddSection(shownCard) : "main");
 
   useEffect(() => {
-    if (showList && active >= 0) document.getElementById(`${listId}-${active}`)?.scrollIntoView?.({ block: "nearest" });
+    // Scroll inside the list only; scrollIntoView would also move the page.
+    const panel = panelRef.current;
+    const option = showList && active >= 0 ? document.getElementById(`${listId}-${active}`) : null;
+    if (!panel || !option) return;
+    if (option.offsetTop < panel.scrollTop) panel.scrollTop = option.offsetTop;
+    else if (option.offsetTop + option.offsetHeight > panel.scrollTop + panel.clientHeight) {
+      panel.scrollTop = option.offsetTop + option.offsetHeight - panel.clientHeight;
+    }
   }, [showList, active, listId]);
+
+  useEffect(() => {
+    if (waitingFor === null || waitingFor !== trimmed || search === null) return;
+    setWaitingFor(null);
+    submit();
+    // submit reads this render's results; it runs once when they arrive.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitingFor, trimmed, search]);
 
   function sectionFor(card?: DeckCardInfo): AddSection {
     const wanted = section ?? (card ? defaultAddSection(card) : "main");
@@ -58,7 +79,14 @@ export function CardAddField({ settings, sideAllowed, onAdd, onError }: {
     setQuery("");
     setPicked(null);
     setOpen(false);
+    setSection(null);
     inputRef.current?.focus();
+  }
+
+  /** Enter and Add: acts at once when the results are here, else asks for them now and acts on arrival. */
+  function requestSubmit() {
+    if (trimmed && pending) setWaitingFor(trimmed);
+    else submit();
   }
 
   function submit() {
@@ -83,12 +111,12 @@ export function CardAddField({ settings, sideAllowed, onAdd, onError }: {
       }
       onAdd(code, sectionFor(known >= 0 ? cards[known] : undefined));
       setAdded(`Added passcode ${code}.`);
+      setSection(null);
       setQuery("");
       setPicked(null);
       setOpen(false);
       return;
     }
-    if (pending) return;
     if (search?.error) onError(search.error);
     else if (cards.length === 0) onError(`No card found for "${trimmed}". Try another name or a passcode.`);
     else onError("None of these cards can be added to this room.");
@@ -128,6 +156,7 @@ export function CardAddField({ settings, sideAllowed, onAdd, onError }: {
             setQuery(event.target.value);
             setPicked(null);
             setAdded("");
+            setWaitingFor(null);
             setOpen(true);
           }}
           onFocus={() => setOpen(true)}
@@ -139,7 +168,7 @@ export function CardAddField({ settings, sideAllowed, onAdd, onError }: {
               else move(event.key === "ArrowDown" ? 1 : -1);
             } else if (event.key === "Enter") {
               event.preventDefault();
-              submit();
+              requestSubmit();
             } else if (event.key === "Escape" && showPanel) {
               event.stopPropagation();
               setOpen(false);
@@ -147,7 +176,8 @@ export function CardAddField({ settings, sideAllowed, onAdd, onError }: {
           }}
         />
         {showPanel ? (
-          <div className={styles.addPanel}>
+          // Keep focus in the field so the list stays open until a click lands.
+          <div ref={panelRef} className={styles.addPanel} onMouseDown={(event) => event.preventDefault()}>
             {showList ? (
               <ul id={listId} role="listbox" aria-label="Matching cards" className={styles.addList}>
                 {cards.map((card, index) => {
@@ -162,8 +192,6 @@ export function CardAddField({ settings, sideAllowed, onAdd, onError }: {
                       className={styles.addOption}
                       data-active={index === active ? "true" : undefined}
                       data-blocked={block ? "true" : undefined}
-                      // Keep focus in the field so the list stays open until the click lands.
-                      onMouseDown={(event) => event.preventDefault()}
                       onMouseMove={() => { if (!block && picked !== index) setPicked(index); }}
                       onClick={() => { if (!block) addCard(card); }}
                     >
@@ -200,7 +228,7 @@ export function CardAddField({ settings, sideAllowed, onAdd, onError }: {
         ]}
         onChange={setSection}
       />
-      <SheetButton size="sm" className={styles.addBtn} onClick={submit}>
+      <SheetButton size="sm" className={styles.addBtn} onClick={requestSubmit}>
         <Plus size={15} strokeWidth={1.7} aria-hidden />Add
       </SheetButton>
     </div>
