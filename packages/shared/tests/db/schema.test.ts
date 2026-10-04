@@ -11,6 +11,30 @@ function getTableInfo(db: Database.Database, tableName: string) {
 }
 
 describe("shared database schema", () => {
+  it("adds a reusable expression index used by the held-copy artwork join", () => {
+    const db = new Database(":memory:");
+    try {
+      migrate(db);
+      db.exec("drop index if exists card_catalog_normalized_name_type_idx");
+      migrate(db);
+      migrate(db);
+
+      const plan = db.prepare(`
+        explain query plan
+        select coalesce(art.ygoprodeck_id, dc.catalog_card_id) as catalog_card_id, count(*) as n
+        from draft_picks pk
+        inner join draft_cards dc on dc.id = pk.draft_card_id
+        left join card_catalog picked on picked.ygoprodeck_id = dc.catalog_card_id
+        left join card_catalog art on lower(trim(art.name)) = lower(trim(picked.name)) and art.type = picked.type
+        where pk.draft_id = ? and pk.player_id = ?
+        group by coalesce(art.ygoprodeck_id, dc.catalog_card_id)
+      `).all(1, 1) as Array<{ detail: string }>;
+      expect(plan.map((row) => row.detail)).toContainEqual(
+        expect.stringMatching(/SEARCH art USING (?:COVERING )?INDEX card_catalog_normalized_name_type_idx \(<expr>=\? AND type=\?\)/),
+      );
+    } finally { db.close(); }
+  });
+
   it("creates draft tables with the approved column shapes", () => {
     const db = new Database(":memory:");
 

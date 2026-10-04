@@ -506,17 +506,21 @@ describe("DraftManageView — editing config syncs the card pool pane", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /edit setup/i }));
 
+    expect(screen.getByLabelText("Limit 3 copies per card")).toBeChecked();
+    await userEvent.click(screen.getByLabelText("Limit 3 copies per card"));
+    expect(screen.getByLabelText("Limit 3 copies per card")).not.toBeChecked();
+
     // The synced pane resolves the in-progress pool and exposes remove actions.
     await waitFor(() => expect(screen.getByRole("button", { name: /remove dark magician from pool/i })).toBeTruthy());
     // The duplicate inline "Pool preview" grid is gone — only the left pane remains.
     expect(screen.queryByText(/pool preview/i)).toBeNull();
     // 3 copies before removal.
-    await waitFor(() => expect(screen.getAllByText(/3 copies/i).length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText((text) => /3 copies/i.test(text) && !text.includes("Limit")).length).toBeGreaterThan(0));
 
     await userEvent.click(screen.getByRole("button", { name: /remove dark magician from pool/i }));
 
     // Removal is local (no save) and the synced pane updates to 2 copies.
-    await waitFor(() => expect(screen.queryAllByText(/3 copies/i)).toHaveLength(0));
+    await waitFor(() => expect(screen.queryAllByText((text) => /3 copies/i.test(text) && !text.includes("Limit"))).toHaveLength(0));
     expect(onUpdate).not.toHaveBeenCalled();
   });
 });

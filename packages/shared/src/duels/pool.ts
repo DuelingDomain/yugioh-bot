@@ -64,7 +64,7 @@ export function checkDeckAgainstPool(
   }
   const issues: DeckPoolIssue[] = [];
   for (const [code, used] of deckCardCounts(deck, resolve)) {
-    const available = availableCounts.get(code) ?? 0;
+    const available = Math.min(3, availableCounts.get(code) ?? 0);
     if (used > available) issues.push({ code, used, available });
   }
   return issues.sort((a, b) => a.code - b.code);

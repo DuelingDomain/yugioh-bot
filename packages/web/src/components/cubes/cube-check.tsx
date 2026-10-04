@@ -82,7 +82,7 @@ function ThemeCheck({ pools }: { pools: CubePoolsDto }) {
 }
 
 function BoosterCheck({ pools, settings }: { pools: CubePoolsDto; settings: BoosterSettings }) {
-  const r = boosterReadiness(pools.main.length, settings);
+  const r = boosterReadiness(poolTotals(pools.main).copies, poolTotals(pools.main).usable, settings);
   return (
     <section className={styles.check} aria-labelledby="ce-rd">
       <SectionHead
@@ -98,23 +98,25 @@ function BoosterCheck({ pools, settings }: { pools: CubePoolsDto; settings: Boos
       />
       <Row
         label="Pool"
-        bar={`${r.names2.have} of ${r.names2.need} different cards for 2 players`}
-        pool={r.names2}
-        short={r.names2.short > 0}
+        bar={`${r.copies2.have} of ${r.copies2.need} copies for 2 players`}
+        pool={r.copies2}
+        short={r.copies2.short > 0}
       />
-      {r.names2.short > 0 ? (
+      {r.cardsPerPlayer > r.waves * r.packSize ? (
+        <StatusLine tone="warn">Packs hold {r.waves * r.packSize} cards per player; {r.cardsPerPlayer} are needed.</StatusLine>
+      ) : r.copies2.short > 0 ? (
         <StatusLine tone="warn">
           <b>
-            {r.names2.short} more different {plural(r.names2.short, "card", "cards")} needed.
+            {r.copies2.short} more {plural(r.copies2.short, "copy", "copies")} needed.
           </b>{" "}
-          Two players need {r.names2.need} different cards at {r.packSize} a pack.
+          Two players need {r.copies2.need} copies.
         </StatusLine>
       ) : r.reach.short > 0 ? (
         <StatusLine tone="warn">
           <b>
             One player can reach {r.reach.have} of {r.reach.need} cards.
           </b>{" "}
-          A player gets 3 copies of a card at most. Add more different cards.
+          A draft can start. A deck can use 3 copies of a card at most.
         </StatusLine>
       ) : (
         <StatusLine tone="ready">
@@ -128,7 +130,7 @@ function BoosterCheck({ pools, settings }: { pools: CubePoolsDto; settings: Boos
 /** A plain cube is used for either draft: both checks as short lines, nothing alarming. */
 function AnyCheck({ pools, settings }: { pools: CubePoolsDto; settings: BoosterSettings }) {
   const theme = cubeReadiness(poolTotals(pools.main).usable, poolTotals(pools.extra).usable);
-  const booster = boosterReadiness(pools.main.length, settings);
+  const booster = boosterReadiness(poolTotals(pools.main).copies, poolTotals(pools.main).usable, settings);
   return (
     <section className={styles.check} aria-labelledby="ce-rd">
       <SectionHead id="ce-rd" title="Cube check" note="Works for theme drafts and cube drafts" />
@@ -143,10 +145,12 @@ function AnyCheck({ pools, settings }: { pools: CubePoolsDto; settings: BoosterS
           {theme.extra.short > 0 ? ` Extra may come up short (${theme.extra.have} of ${THEME_EXTRA_NEEDED}).` : ""}
         </StatusLine>
       )}
-      {booster.names2.short > 0 ? (
+      {booster.cardsPerPlayer > booster.waves * booster.packSize ? (
+        <StatusLine tone="warn"><b>Cube draft:</b> Packs hold {booster.waves * booster.packSize} cards per player; {booster.cardsPerPlayer} are needed.</StatusLine>
+      ) : booster.copies2.short > 0 ? (
         <StatusLine tone="neutral">
-          <b>Cube draft:</b> needs {booster.names2.short} more different {plural(booster.names2.short, "card", "cards")}{" "}
-          ({booster.names2.have} of {booster.names2.need} for 2 players).
+          <b>Cube draft:</b> needs {booster.copies2.short} more {plural(booster.copies2.short, "copy", "copies")}{" "}
+          ({booster.copies2.have} of {booster.copies2.need} for 2 players).
         </StatusLine>
       ) : booster.reach.short > 0 ? (
         <StatusLine tone="neutral">
@@ -172,6 +176,9 @@ export function CubeCheck({
   pools: CubePoolsDto;
   settings?: BoosterSettings;
 }) {
+  if (type !== "theme" && pools.main.length === 0 && settings.poolFromConfig) {
+    return <section className={styles.check}><SectionHead title="Cube draft check" /><StatusLine tone="neutral">Pool from sets or passcodes; checked at draft start.</StatusLine></section>;
+  }
   if (type === "theme") return <ThemeCheck pools={pools} />;
   if (type === "booster") return <BoosterCheck pools={pools} settings={settings} />;
   return <AnyCheck pools={pools} settings={settings} />;

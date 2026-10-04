@@ -139,4 +139,24 @@ describe("draft room blocked cards", () => {
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("You pass this pick"));
     expect(screen.getByRole("status").textContent).toContain("Bo");
   });
+
+  it("tells a player the pick stays in their pool only when the whole pack is forced", async () => {
+    load({
+      currentPack: [1, 2, 3].map((id) => mk(id, { held: 3, blocked: false, forced: true })),
+    });
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+
+    const note = screen.getByText("You have 3 of each card here. This pick stays in your pool only.");
+    expect(note.getAttribute("aria-live")).toBe("polite");
+    expect(note.hasAttribute("data-on")).toBe(true);
+  });
+
+  it("shows no forced-pick note on a normal pack", async () => {
+    renderRoom();
+    await waitFor(() => expect(card(1)).toBeTruthy());
+
+    expect(screen.queryByText(/This pick stays in your pool only/)).toBeNull();
+    expect(document.body.querySelector(".status.forced")?.hasAttribute("data-on")).toBe(false);
+  });
 });

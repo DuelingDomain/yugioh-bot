@@ -33,7 +33,7 @@ function fixture(packSize = 2) {
     (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at)
     values (?, ?, 'Normal Monster', 'normal', '', '', '[]', '2026-01-01')`);
   for (const id of ids) insert.run(id, `Card ${id}`);
-  const draft = drafts.create("guild", "channel", "Draft", { cubeCardIds: ids, packSize, packsPerPlayer: 1, pickSeconds: 45 }, "creator", a.id);
+  const draft = drafts.create("guild", "channel", "Draft", { cubeCardIds: ids, packSize, packsPerPlayer: 1, cardsPerPlayer: packSize, pickSeconds: 45 }, "creator", a.id);
   drafts.join(draft.id, b.id);
   db.prepare("update drafts set web_slug = 'draft-cup' where id = ?").run(draft.id);
   const tournaments = createTournamentService(db);

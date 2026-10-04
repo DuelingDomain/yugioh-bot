@@ -72,7 +72,7 @@ export async function handleModal(
     }
 
     const templateName = interaction.fields.getTextInputValue("template").trim();
-    let config: { setNames: string[]; includeNames: string[]; excludeNames: string[] };
+    let config: { setNames: string[]; includeNames: string[]; excludeNames: string[]; copyLimit?: boolean };
 
     if (templateName) {
       const template = deps.templates.findByName(guildId, templateName);
@@ -84,6 +84,7 @@ export async function handleModal(
 
       config = {
         setNames: template.config.setNames ?? [],
+        copyLimit: template.config.copyLimit ?? true,
         includeNames: template.config.includeNames ?? [],
         excludeNames: template.config.excludeNames ?? [],
       };
@@ -96,7 +97,7 @@ export async function handleModal(
     }
 
     const creator = deps.players.upsert(guildId, interaction.user.id, interaction.user.displayName ?? interaction.user.username);
-    const draft = deps.drafts.create(guildId, channelId, name, config, interaction.user.id, creator.id);
+    const draft = deps.drafts.create(guildId, channelId, name, { ...config, randomizeSeats: true }, interaction.user.id, creator.id);
 
     await interaction.reply(draftSignupPostReply(draft));
     return;

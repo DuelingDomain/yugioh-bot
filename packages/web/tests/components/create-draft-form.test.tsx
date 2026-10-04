@@ -36,6 +36,8 @@ describe("CreateDraftForm", () => {
     fireEvent.change(screen.getByLabelText(/custom card ids/i), {
       target: { value: "46986414\n83764718, 46986414" },
     });
+    expect(screen.getByLabelText("Limit 3 copies per card")).toBeChecked();
+    fireEvent.click(screen.getByLabelText("Limit 3 copies per card"));
     fireEvent.click(screen.getByRole("button", { name: /create draft/i }));
 
     await waitFor(() => expect(push).toHaveBeenCalledWith("/draft/custom-pool"));
@@ -47,6 +49,7 @@ describe("CreateDraftForm", () => {
       name: "Custom Pool Draft",
       config: {
         setNames: [],
+        copyLimit: false,
         customCardIds: [46986414, 83764718, 46986414],
       },
     });

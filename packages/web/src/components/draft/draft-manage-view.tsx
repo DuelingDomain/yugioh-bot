@@ -48,6 +48,7 @@ interface DraftManageViewProps {
       customCardIds?: number[];
       alternatePassDirection?: boolean;
       randomizeSeats?: boolean;
+      copyLimit?: boolean;
       mode?: "booster" | "theme";
       themeSelection?: "host_assigned" | "random" | "player_pick";
       uniqueThemes?: boolean;
@@ -550,6 +551,7 @@ export function DraftManageView({
             isCreator ? (
               <CubeDraftBuilder
                 slug={slug}
+                copyLimit={draft.config.copyLimit ?? true}
                 allowedCubes={allowedCubes}
                 uniqueThemes={uniqueThemes}
                 themeSelection={themeSelection}
@@ -559,6 +561,7 @@ export function DraftManageView({
             ) : (
               <CubeLobbyPanel
                 slug={slug}
+                copyLimit={draft.config.copyLimit ?? true}
                 allowedCubes={allowedCubes}
                 themeSelection={themeSelection}
                 uniqueThemes={uniqueThemes}
@@ -581,7 +584,7 @@ export function DraftManageView({
             {isCreator && !isTheme && !isEditingConfig && (
               <SvButton variant="quiet" className={styles.editBtn} onClick={handleStartEditConfig}>Edit setup</SvButton>
             )}
-            {isCreator && isTheme && <RailNote>Can&apos;t be changed here.</RailNote>}
+            {isCreator && isTheme && <label><input type="checkbox" checked={draft.config.copyLimit ?? true} onChange={(e) => void onUpdateWithPoolRefresh({ config: { copyLimit: e.target.checked } })} /> Limit 3 copies per card</label>}
           </RailSection>
 
           {isCreator && (
