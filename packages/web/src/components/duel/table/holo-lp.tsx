@@ -39,6 +39,8 @@ export interface HoloLpProps {
   onInspectMaster?: (card: DuelCardInfo) => void;
   /** Hangs under the panel (your Deck Master chip). It sits outside the panel body, so it never changes the panel's own box. */
   footer?: ReactNode;
+  /** The footer chip stays within the panel's width. */
+  footerTight?: boolean;
   reducedMotion: boolean;
 }
 
@@ -98,6 +100,7 @@ export function HoloLp({
   onInspectMaster,
   lastDamage = null,
   footer = null,
+  footerTight = false,
   reducedMotion,
 }: HoloLpProps) {
   const hex = SEAT_TONE_HEX[tone];
@@ -188,7 +191,7 @@ export function HoloLp({
         </button>
       ) : null}
       <span className={styles.beam} aria-hidden="true" />
-      {footer ? <div className={styles.footer}>{footer}</div> : null}
+      {footer ? <div className={styles.footer} data-tight={footerTight ? "true" : undefined}>{footer}</div> : null}
     </div>
   );
 }

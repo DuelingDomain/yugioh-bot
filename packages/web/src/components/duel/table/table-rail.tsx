@@ -56,7 +56,7 @@ export interface TableRailProps {
  */
 export function TableRail({ panes, pane, open, unread, viewOpen, history, onPane, onView, register, onKeyDown }: TableRailProps) {
   return (
-    <nav className={styles.rail} aria-label="Table panels" data-testid="table-rail" onKeyDown={onKeyDown}>
+    <nav className={styles.rail} aria-label="Table panels" data-testid="table-rail" data-table-chrome="" onKeyDown={onKeyDown}>
       {history}
       <div className={styles.group}>
         {panes.map((tab) => {
@@ -133,6 +133,7 @@ export function TableDrawer({ panes, pane, open, unread, settled, card, log, mas
       id={DRAWER_ID}
       className={styles.drawer}
       data-testid="table-drawer"
+      data-table-chrome=""
       data-open={open ? "true" : "false"}
       data-settled={settled ? "true" : "false"}
       aria-label="Panel drawer"

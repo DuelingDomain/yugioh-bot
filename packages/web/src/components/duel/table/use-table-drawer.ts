@@ -118,9 +118,10 @@ export function useTableDrawer(ui: TableUi, opts: { domain: boolean; reducedMoti
   }, [enabled]);
 
   useEffect(() => {
-    if (!settled) return;
+    // Only while the drawer exists: under 901px it is forced shut, and that must not overwrite the viewer's stored choice.
+    if (!settled || !enabled) return;
     writeStoredDrawer({ open, pane });
-  }, [open, pane, settled]);
+  }, [open, pane, settled, enabled]);
 
   // The reflow window: from the frame the drawer toggles until its slide is over.
   const lastOpen = useRef(open);

@@ -39,7 +39,7 @@ import { CardStrip, type StripCard } from "./card-strip";
 import { optionNotes } from "./option-strip";
 import { battleStepLabel, type BattleStep } from "./station-track";
 import { PrecheckBar } from "./prompt-precheck";
-import { placeSelectBar, samePlace, type BarPlace, type BarRect } from "./select-bar-place";
+import { BAR_MAX_WIDTH, BAR_ROW_FIT, placeSelectBar, samePlace, type BarPlace, type BarRect } from "./select-bar-place";
 import { selectBarCopy, sumSelectionValues, synchroSelectionValues, type BarCopy } from "./select-bar-copy";
 import { backOutAnswer, backOutLabel } from "./pick-backout";
 import { tributeState } from "./tribute-pick";
@@ -1447,6 +1447,15 @@ export function PromptCenter(props: PromptCenterProps) {
       setDockPlace((current) => (sameDock(current, place) ? current : place));
       return;
     }
+    // A table of 3 or 4 measures a free room for the bar (table/geometry.ts promptRoom): it never sits over a rival's field.
+    const room = board.dataset.barRoom?.split(",").map(Number);
+    if (room && room.length === 4 && room.every(Number.isFinite)) {
+      const [x, y, width, height] = room;
+      const fit = Math.min(width, BAR_MAX_WIDTH);
+      const roomPlace: BarPlace = { mode: "mid", top: Math.round(y + height / 2), left: Math.round(x + width / 2), fit: Math.round(fit), stack: fit < BAR_ROW_FIT };
+      setBarPlace((current) => (samePlace(current, roomPlace) ? current : roomPlace));
+      return;
+    }
     const next = placeSelectBar({
       board: rectOf(board),
       emz: Array.from(board.querySelectorAll<HTMLElement>('[data-kind="emz"][data-zones]')).map((zone) => ({
@@ -1464,7 +1473,13 @@ export function PromptCenter(props: PromptCenterProps) {
     if (!board || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(placeBar);
     observer.observe(board);
-    return () => observer.disconnect();
+    // The table re-measures its free room when the drawer or the window changes: follow it.
+    const mutations = typeof MutationObserver !== "undefined" ? new MutationObserver(placeBar) : null;
+    mutations?.observe(board, { attributes: true, attributeFilter: ["data-bar-room"] });
+    return () => {
+      observer.disconnect();
+      mutations?.disconnect();
+    };
   }, [kind, onBoard, placeBar, revision, promptId]);
 
   // Focus moves into the panel so Enter takes the primary answer.

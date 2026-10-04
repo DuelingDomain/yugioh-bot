@@ -2,7 +2,7 @@
 
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { connectionLabel as labelForConnection } from "../connection-label";
-import { useCallback, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { Circle, Diamond, Eye, Radio, Volume2, VolumeX } from "lucide-react";
 import type { DuelCard } from "@yugidraft/shared/duels";
@@ -227,6 +227,25 @@ function TableShellBody({
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
   const dockMode = !promptMine || prompt == null || centered ? "idle" : actionPrompt ? (prompt.cancelable || prompt.finishable ? "float" : "idle") : "flow";
   const trackCaption = terminal ? "Duel finished" : prompt == null ? null : promptMine ? (actionPrompt ? null : prompt.title) : `${nameOf(prompt.seat)} is choosing…`;
+  // Esc closes the drawer from anywhere on the table: a card inspect opens it and leaves focus on the card, outside it. A prompt
+  // that owns the Escape (its hide, pass or back), a menu, the pile viewer, a live aim and a modal get it first; inside the rail
+  // or the drawer their own keys close it and hand focus back to the button.
+  const escRef = useRef({ open: false, owned: false, close: () => {} });
+  const escOwned = suspended || flow.aiming || flow.seatKeys || centered || camera.state.mode === "fly" || (promptMine && (prompt?.cancelable === true || prompt?.finishable === true));
+  escRef.current = { open: drawer.open, owned: escOwned, close: () => drawer.close(false) };
+  useEffect(() => {
+    if (narrow) return;
+    const onKey = (event: KeyboardEvent) => {
+      const state = escRef.current;
+      if (event.key !== "Escape" || !state.open || state.owned || event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.("[data-table-chrome], input, textarea, select, [contenteditable='true'], [aria-modal='true']") || document.querySelector("[aria-modal='true']")) return;
+      event.preventDefault();
+      state.close();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [narrow]);
   const canAct = base.canAct && !base.busy;
   // Who may answer the open chain, in order (the panel of the chain and the response prompt list it).
   const chainOpen = engine.chain.length > 0 && !terminal;

@@ -152,6 +152,93 @@ describe("the drawer on the wide table", () => {
     expect(railButton(container, "card").getAttribute("aria-expanded")).toBe("true");
   });
 
+  /** Looks at a rival's face-up card, which opens the Card drawer. */
+  const inspectRivalCard = (container: HTMLElement) => {
+    const arts = [...container.querySelectorAll<HTMLElement>("[data-zones] [data-card-art]")].filter((node) => node.closest('[data-side="opp"]'));
+    for (const art of arts) {
+      fireEvent.click(art.closest("button, [role='button']") ?? art);
+      if (layoutOf(container).getAttribute("data-drawer") === "open") return;
+    }
+  };
+
+  it("shows the Card pane when a card is looked at, even if the drawer was last on Settings", async () => {
+    const { container } = render(<Shell />);
+    await settle();
+    fireEvent.click(railButton(container, "settings"));
+    fireEvent.click(railButton(container, "settings"));
+    expect(layoutOf(container).getAttribute("data-drawer")).toBe("closed");
+    inspectRivalCard(container);
+    expect(layoutOf(container).getAttribute("data-drawer")).toBe("open");
+    expect(railButton(container, "card").getAttribute("aria-expanded")).toBe("true");
+    expect(railButton(container, "settings").getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("closes a drawer that a card inspect opened on Escape, with focus left on the card", async () => {
+    const { container } = render(<Shell />);
+    await settle();
+    inspectRivalCard(container);
+    expect(layoutOf(container).getAttribute("data-drawer")).toBe("open");
+    // The walk over a rival's cards may also have opened a pile viewer: it owns the first Escape, the drawer gets the next.
+    const pile = document.querySelector<HTMLElement>("[data-pile-viewer]");
+    if (pile) {
+      fireEvent.keyDown(pile, { key: "Escape" });
+      expect(layoutOf(container).getAttribute("data-drawer")).toBe("open");
+    }
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(layoutOf(container).getAttribute("data-drawer")).toBe("closed");
+  });
+
+  it("leaves Escape to an open modal: the drawer stays", async () => {
+    const { container } = render(<Shell />);
+    await settle();
+    fireEvent.click(railButton(container, "log"));
+    const modal = document.createElement("div");
+    modal.setAttribute("aria-modal", "true");
+    document.body.appendChild(modal);
+    try {
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(layoutOf(container).getAttribute("data-drawer")).toBe("open");
+    } finally {
+      modal.remove();
+    }
+  });
+
+  it("is not a keyboard trap: Tab and Space on a rail or drawer control are left to the browser, not the camera", async () => {
+    const { container } = render(<Shell />);
+    await settle();
+    fireEvent.click(railButton(container, "log"));
+    const close = container.querySelector("[data-testid='table-drawer'] button") as HTMLButtonElement;
+    for (const target of [railButton(container, "card"), close]) {
+      target.focus();
+      for (const key of ["Tab", " ", "s"]) expect(fireEvent.keyDown(target, { key }), `${key} on ${target.className}`).toBe(true);
+    }
+  });
+
+  it("keeps the stored drawer when the window narrows and the drawer is forced shut", async () => {
+    let narrow = false;
+    const listeners = new Set<() => void>();
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("max-width: 900px") ? narrow : false,
+      media: query,
+      addEventListener: (_: string, cb: () => void) => listeners.add(cb),
+      removeEventListener: (_: string, cb: () => void) => listeners.delete(cb),
+    }));
+    try {
+      const { container } = render(<Shell />);
+      await settle();
+      fireEvent.click(railButton(container, "log"));
+      await settle();
+      expect(JSON.parse(window.localStorage.getItem(DRAWER_STORAGE_KEY) ?? "null")).toEqual({ open: true, pane: "log" });
+      narrow = true;
+      await act(async () => { for (const cb of [...listeners]) cb(); });
+      await settle();
+      expect(JSON.parse(window.localStorage.getItem(DRAWER_STORAGE_KEY) ?? "null")).toEqual({ open: true, pane: "log" });
+    } finally {
+      vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    }
+  });
+
   it("gives the drawer, the rail and the board each their own grid area so nothing sits under the drawer", async () => {
     const { container } = render(<Shell />);
     await settle();

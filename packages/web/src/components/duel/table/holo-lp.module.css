@@ -341,3 +341,6 @@
   width: max-content;
   max-width: 270px;
 }
+.footer[data-tight="true"] {
+  max-width: 100%;
+}

@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import { engineFormat } from "../multi-seat";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
-import { flyWorld, holoAnchor, normalizeAngle, ringAngles, CAMERA_HINT, promptLane, ringPose, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
+import { flyWorld, holoAnchor, normalizeAngle, ringAngles, CAMERA_HINT, promptRooms, ringPose, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
@@ -103,7 +103,19 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
 
   // Docked holo panels of a wide table (home and look); other cameras keep the panels of the 1100 px stage.
   const hasChip = masterChip != null;
-  const wideAnchors = useMemo(() => wideHoloAnchors(layout, camera, poses, spread, hasChip, k > 0 ? { dock: promptLane(box, k), hint: { width: CAMERA_HINT.width / k, height: CAMERA_HINT.height / k } } : undefined), [layout, camera, poses, spread, hasChip, k, box]);
+  const hint = useMemo(() => ({ width: CAMERA_HINT.width / (k || 1), height: CAMERA_HINT.height / (k || 1) }), [k]);
+  const wideAnchors = useMemo(() => wideHoloAnchors(layout, camera, poses, spread, hasChip, k > 0 ? { hint } : undefined), [layout, camera, poses, spread, hasChip, k, hint]);
+  // Free rooms for the prompts (a seat choice, "Activate?", the card-pick bar): off every board and plate, so a prompt that is
+  // about a rival's field never covers it. In screen px of the board box; the prompt CSS and the select bar read them.
+  const rooms = useMemo(() => {
+    if (!(k > 0) || fly) return null;
+    const anchors = new Map(layout.slots.map((slot) => [slot.seat, wideAnchors?.get(slot.seat) ?? holoAnchor(layout, slot.seat, camera)] as const));
+    const found = promptRooms({ layout, camera, poses, anchors, spread, meFooter: hasChip, box, k });
+    const dx = (box.width - STAGE.width * k) / 2;
+    const dy = (box.height - canvasHeight * k) / 2;
+    const toBox = (room: PromptRoom | null) => room && { x: Math.round(dx + room.x * k), y: Math.round(dy + room.y * k), width: Math.round(room.width * k), height: Math.round(room.height * k) };
+    return { panel: toBox(found.panel), bar: toBox(found.bar) };
+  }, [layout, camera, poses, spread, hasChip, k, fly, box, canvasHeight, wideAnchors]);
 
   const world = useMemo(() => flyWorld(layout, camera.fly), [layout, camera.fly]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);
@@ -169,6 +181,10 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       data-stage-spread={spread}
       data-ready={k > 0 ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
+      data-panel-room={rooms?.panel ? "true" : undefined}
+      data-room-snug={rooms?.panel && (rooms.panel.width < 262 || rooms.panel.height < 300) ? "true" : undefined}
+      data-bar-room={rooms?.bar ? `${rooms.bar.x},${rooms.bar.y},${rooms.bar.width},${rooms.bar.height}` : undefined}
+      style={rooms?.panel ? ({ "--room-x": `${rooms.panel.x}px`, "--room-y": `${rooms.panel.y}px`, "--room-w": `${rooms.panel.width}px`, "--room-h": `${rooms.panel.height}px` } as CSSProperties) : undefined}
     >
       <div ref={canvasRef} className={styles.canvas} style={canvas} data-fly-capable={threeWay ? "true" : undefined}>
         {threeWay ? (
@@ -255,6 +271,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
               onPick={() => picks?.onPick(slot.seat)}
               onHover={(hover) => controller.onAim?.(hover ? { lpSeat: slot.seat } : null)}
               footer={anchor.me ? masterChip : null}
+              footerTight={anchor.footerTight}
               reducedMotion={reducedMotion}
             />
           );
