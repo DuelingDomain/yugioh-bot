@@ -8,9 +8,10 @@
   --hw-bot: var(--hand-room);
   /* Sizes the V1 Tally and HandStrip read (set on .playmat in the classic board). */
   --tally-h: 64px;
-  --head-h: calc(var(--tally-h) * 0.32);
-  --lp-h: calc(var(--tally-h) * 0.68);
-  --lp-fs: calc(var(--lp-h) * 0.94);
+  --head-h: 22px;
+  --lp-h: 40px;
+  --lp-fs: 36px;
+  --r: 6px;
   --tally-w: var(--rail-side);
   --fs-name: 15px;
   --fs-small: 12px;
@@ -26,9 +27,10 @@
   min-height: 0;
 }
 .rail[data-sv-rail="opp"] {
-  --oh: 64px;
+  --oh: 67px;
   --ohcw: calc(var(--oh) * 0.686);
-  --ohg: calc(var(--ohcw) * 0.06);
+  --ohg: 8px;
+  --r: 4px;
   --top-hide: 0;
   height: var(--opp-h);
   align-items: start;
@@ -36,7 +38,7 @@
 .rail[data-sv-rail="you"] {
   --lh: var(--hand-h);
   --lhcw: calc(var(--lh) * 0.686);
-  --lhg: calc(var(--s) * 0.07);
+  --lhg: 10px;
   height: var(--you-h);
   align-items: end;
 }
@@ -54,7 +56,331 @@
     grid-template-areas: "plate chip" "hand hand";
     row-gap: 2px;
   }
-  .rail[data-sv-rail="opp"] { --oh: 56px; height: auto; }
-  .rail[data-sv-rail="you"] { --lh: var(--hand-h); height: auto; }
+  .rail[data-sv-rail="opp"] { --oh: 44px; --ohg: 5px; --r: 3px; height: auto; }
+  .rail[data-sv-rail="you"] { --lh: var(--hand-h); --lhg: 6px; --r: 5px; height: auto; }
   .railChip { display: block; }
+}
+
+@media (min-width: 1800px) {
+  .rail { --rail-side: 250px; }
+  .rail[data-sv-rail="opp"] { --oh: 79px; }
+}
+
+/* ---------------------------------------------------------------------------------------------------------------
+   W2 skin. Everything below hangs on `.rail` and on the V1 data-* hooks, never on V1 class names, so it never shares
+   a key with field.module.css or another worker's file. Only sizes, colours and shadows change: the V1 transitions,
+   the hand fan and every transform stay, because the FLIP code reads the computed `translate`/`transform`.
+   Icons are CSS masks (user, burst, coin, plus, chevron) so no markup is added.
+   --------------------------------------------------------------------------------------------------------------- */
+
+/* ----- hands ----- */
+
+.railHand {
+  display: flex;
+  justify-content: center;
+  counter-reset: svhand;
+}
+.rail[data-sv-rail="opp"] .railHand { align-items: flex-start; }
+.rail[data-sv-rail="you"] .railHand { align-items: flex-end; }
+.railHand > :first-child { flex: 0 1 auto; }
+.railHand [data-hand-card] { counter-increment: svhand; }
+
+/* "Hand 5": their card count, beside the backs (a counter, so no markup and no logic). */
+.rail[data-sv-rail="opp"] .railHand::after {
+  content: "Hand " counter(svhand);
+  align-self: center;
+  flex: none;
+  margin-left: 6px;
+  color: var(--tx-3);
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rail[data-sv-rail="opp"] [data-hand-seat] { padding-top: 4px; }
+
+/* Card shadows: the frame is the first div inside the card button. */
+.rail [data-hand-card] button > div {
+  border-radius: var(--r);
+  background-color: #000;
+}
+.rail[data-sv-rail="you"] [data-hand-card] button > div {
+  box-shadow: 0 10px 20px -10px rgb(0 0 0 / 0.95), 0 0 0 1px rgb(0 0 0 / 0.7);
+}
+.rail[data-sv-rail="opp"] [data-hand-card] button > div {
+  box-shadow: 0 6px 12px -6px rgb(0 0 0 / 0.9), 0 0 0 1px rgb(0 0 0 / 0.6);
+}
+
+/* Usable: a purple ring and a soft glow (no outline, no dimming). Picked: a bright ring and a halo.
+   The glow span is the first span with data-state inside the frame; the tab is the span after it. */
+.rail [data-hand-card] button > div > span[data-state] {
+  border-radius: var(--r);
+  animation: none;
+  opacity: 1;
+  box-shadow: 0 0 0 1.5px var(--pur), 0 0 14px rgb(143 118 242 / 0.45);
+}
+.rail [data-hand-card] button > div > span[data-state="picked"] {
+  box-shadow: 0 0 0 2px var(--pur-hi), 0 0 0 5px rgb(143 118 242 / 0.25);
+}
+
+/* The small top icon: the concept's gold chevron tab on ink, sitting on the top edge of the card. */
+.rail [data-hand-card] button > div > span[data-state] + span {
+  --mk-h: 16px;
+  top: -11px;
+  min-width: 0;
+  height: 12px;
+  padding: 0 6px 1px;
+  border: 1px solid var(--gold);
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  background: var(--ink-1);
+  box-shadow: none;
+  color: var(--gold-hi);
+}
+.rail[data-sv-rail="opp"] [data-hand-card] button > div > span[data-state] + span {
+  top: 0;
+  border: 1px solid var(--gold);
+  border-top: 0;
+  border-radius: 0 0 5px 5px;
+  padding: 1px 6px 0;
+}
+.rail [data-hand-card] button > div > span[data-state] + span svg {
+  width: 10px;
+  height: 10px;
+  stroke-width: 2.2;
+}
+
+/* ----- plate (Tally): name + Turn tag on the first line, LP below ----- */
+
+.railPlate { position: relative; }
+.rail[data-sv-rail="you"] .railPlate { align-self: end; padding-bottom: 6px; }
+
+.railPlate [data-lp-seat] {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  row-gap: 2px;
+  width: 100%;
+  min-width: 0;
+  color: var(--tx);
+  font-family: var(--font);
+}
+
+/* line 1 */
+.railPlate [data-lp-seat] > div:first-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: auto;
+  min-width: 0;
+  color: var(--tx);
+  font-size: 15px;
+  font-weight: 500;
+}
+.railPlate [data-lp-seat] > div:first-child > span:first-child {
+  gap: 7px;
+  min-width: 0;
+}
+.railPlate [data-lp-seat] > div:first-child > span:first-child::before {
+  content: "";
+  flex: none;
+  width: 15px;
+  height: 15px;
+  background: var(--tx-3);
+  -webkit-mask: var(--sv-user) center / contain no-repeat;
+  mask: var(--sv-user) center / contain no-repeat;
+}
+.railPlate [data-lp-seat] > div:first-child > span:first-child > span:first-child {
+  max-width: 120px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--tx);
+}
+
+/* Turn tag: yours purple, theirs ember. */
+.railPlate [data-lp-seat] > div:first-child > span:not(:first-child):not(:has([data-priority-full])) {
+  gap: 0;
+  height: 18px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.railPlate [data-lp-seat][data-side="you"] > div:first-child > span:not(:first-child):not(:has([data-priority-full])) {
+  background: rgb(143 118 242 / 0.18);
+  color: var(--pur-hi);
+}
+.railPlate [data-lp-seat][data-side="opp"] > div:first-child > span:not(:first-child):not(:has([data-priority-full])) {
+  background: rgb(224 145 106 / 0.14);
+  color: var(--ember);
+}
+
+/* Priority label: small gold text at the end of line 1. */
+.railPlate [data-lp-seat] > div:first-child > span:has([data-priority-full]) {
+  margin-left: auto;
+  color: var(--gold-hi);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+/* line 2: LP label + the number */
+.railPlate [data-lp-seat] > div:last-child {
+  display: flex;
+  align-items: center;
+  height: auto;
+  min-width: 0;
+  border: 0;
+  font-size: var(--lp-fs);
+  --lp-size: var(--lp-fs);
+}
+.railPlate [data-lp-seat] > div:last-child > strong {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  color: var(--tx);
+  font-family: var(--font-num);
+  font-weight: 500;
+}
+.railPlate [data-lp-seat] > div:last-child > strong > span:first-child {
+  color: var(--tx-2);
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+/* The number. LifePoints has its own roll; only the face, the ink and the cell width change. */
+.railPlate [data-lp-seat] [data-size] {
+  --lp-ink: var(--tx);
+  --lp-ink-loss: var(--loss);
+  --lp-ink-gain: var(--gold-hi);
+  font-family: var(--font-num);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+/* Quiet: on their turn your number steps back. */
+.railPlate [data-lp-seat][data-side="you"][data-active="false"] [data-size] { --lp-ink: var(--tx-2); }
+
+.railPlate .digit { width: 0.5em; }
+.railPlate .roll { min-width: 2.4em; }
+.railPlate .digit > :first-child { margin-top: 0.02em; }
+
+/* ----- delta chip (the V1 tally after a change; same animation and delay as V1) ----- */
+
+.railPlate .tallyInner {
+  --chip-ink: var(--loss);
+  --chip-line: rgb(242 122 107 / 0.5);
+  --chip-fill: var(--ink-2);
+  flex-direction: row;
+  align-items: center;
+  gap: 0;
+}
+.railPlate .tallyInner.gain {
+  --chip-ink: var(--gold-hi);
+  --chip-line: var(--gold-a);
+}
+.railPlate .old { display: none; }
+
+.railPlate .roll + span {
+  height: auto;
+  min-width: 0;
+  margin-left: 8px;
+  font-size: 13px;
+}
+.railPlate .tallyInner > :last-child {
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--chip-fill);
+  box-shadow: inset 0 0 0 1px var(--chip-line);
+  color: var(--chip-ink);
+  font-family: var(--font-num);
+  font-size: 17px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.railPlate .tallyInner > :last-child::before {
+  content: "";
+  flex: none;
+  width: 14px;
+  height: 14px;
+  background: currentColor;
+  -webkit-mask: var(--sv-burst) center / contain no-repeat;
+  mask: var(--sv-burst) center / contain no-repeat;
+}
+.railPlate .tallyInner > :last-child::after {
+  content: "damage";
+  margin-left: 5px;
+  font-family: var(--font);
+  font-size: 13px;
+}
+.railPlate .tallyInner.gain > :last-child::before {
+  -webkit-mask-image: var(--sv-plus);
+  mask-image: var(--sv-plus);
+}
+.railPlate .tallyInner.gain > :last-child::after { content: "gain"; }
+
+/* ----- icon masks ----- */
+
+.rail {
+  --sv-user: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='8' r='3.5'/%3E%3Cpath d='M5 20c1-4 4-6 7-6s6 2 7 6'/%3E%3C/svg%3E");
+  --sv-burst: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3l1.6 5 5-2.2-2.3 4.9 5 1.7-5 1.6 2.3 5-5-2.3L12 21l-1.6-5.3-5 2.3 2.3-5-5-1.6 5-1.7L5.4 5.8l5 2.2z'/%3E%3C/svg%3E");
+  --sv-plus: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E");
+}
+
+/* ----- mobile ----- */
+
+@media (max-width: 900px) {
+  .railPlate { padding: 0 2px; }
+  .rail[data-sv-rail="you"] .railPlate { align-self: center; padding-bottom: 0; }
+  .rail[data-sv-rail="you"] { row-gap: 12px; align-items: center; }
+  .rail[data-sv-rail="opp"] { row-gap: 4px; }
+
+  /* One line: name, tag, LP, value. The chip floats under (above, for you) the plate. */
+  .railPlate [data-lp-seat] {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+  .railPlate [data-lp-seat] > div:first-child { font-size: 13px; gap: 6px; }
+  .railPlate [data-lp-seat] > div:first-child > span:first-child > span:first-child { max-width: 84px; font-size: 13px; }
+  .railPlate [data-lp-seat] > div:first-child > span:not(:first-child):not(:has([data-priority-full])) {
+    height: 16px;
+    padding: 0 5px;
+    font-size: 10px;
+    line-height: 16px;
+  }
+  .railPlate [data-lp-seat] > div:first-child > span:has([data-priority-full]) { font-size: 11px; line-height: 16px; }
+  .railPlate [data-priority-full] { display: none; }
+  .railPlate [data-lp-seat] > div:first-child > span:has([data-priority-full]) > :last-child { display: inline; }
+
+  .rail { --lp-fs: 26px; }
+  .railPlate [data-lp-seat] > div:last-child > strong > span:first-child { font-size: 12px; }
+
+  .railPlate [data-lp-seat] > div:last-child,
+  .railPlate [data-lp-seat] [data-size] { position: static; }
+  .railPlate .roll + span {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 5;
+    margin: 0;
+  }
+  .rail[data-sv-rail="you"] .railPlate .roll + span { top: auto; bottom: calc(100% + 4px); }
+  .railPlate .tallyInner > :last-child { height: 22px; padding: 0 7px; font-size: 15px; }
+  .railPlate .tallyInner > :last-child::after { font-size: 12px; }
+
+  .rail[data-sv-rail="opp"] .railHand { justify-content: center; }
+  .rail[data-sv-rail="opp"] .railHand::after { font-size: 12px; }
+  .rail[data-sv-rail="opp"] [data-hand-seat] { padding-top: 0; }
+  .rail[data-sv-rail="you"] [data-hand-card] button > div > span[data-state] + span { top: -10px; }
 }
