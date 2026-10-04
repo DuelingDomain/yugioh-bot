@@ -14,6 +14,7 @@ import {
   chooseMaster,
   clearSection,
   copyProblems,
+  deckYdkText,
   placeCard,
   removeCard,
   sectionBreakdown,
@@ -56,6 +57,14 @@ const catalog: CardCatalog = new Map([
 function selection(main: number[], extra: number[] = [], side: number[] = [], deckMaster?: number): DeckMasterSelection {
   return { deck: { main, extra, side, ...(deckMaster != null ? { deckMaster } : {}) }, masterOrigin: null };
 }
+
+describe("YDK export", () => {
+  it("preserves alternate artwork ids in every section and the Deck Master", () => {
+    const text = deckYdkText(selection([81480461], [81480461], [81480461], 81480461).deck);
+    expect(text).not.toContain("81480460");
+    expect(text.match(/81480461/g)).toHaveLength(4);
+  });
+});
 
 describe("placeCard", () => {
   it("adds a list card at the end, or at a position", () => {

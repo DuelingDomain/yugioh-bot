@@ -54,7 +54,7 @@ export async function POST(request: Request) {
         deck = actor.decks.create(actor.guildId, actor.ownerUserId, {
           name: body.name,
           mode: body.mode,
-          deck: body.deck,
+          deck: checked.deck,
           draftId: draftId.draftId,
         });
       } catch (error) {

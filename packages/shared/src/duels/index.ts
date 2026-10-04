@@ -70,8 +70,8 @@ export {
   isRpsMove,
   rpsWinner,
 } from "./opening.js";
-export type { DeckPoolIssue } from "./pool.js";
-export { checkDeckAgainstPool, deckCardCounts } from "./pool.js";
+export type { CardIdentityCatalog, DeckPoolIssue } from "./pool.js";
+export { canonicalCardCode, checkDeckAgainstPool, deckCardCounts, mapDeckCodes } from "./pool.js";
 export { DUEL_BANLIST_OPTIONS } from "./banlist-options.js";
 
 export interface DuelDeck {

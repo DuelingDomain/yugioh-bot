@@ -27,7 +27,7 @@ import {
 import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf } from "./engine.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
 import { DeckLegalityError, inspectDeck, validateDeck } from "./deck-legality.js";
-import { normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
+import { canonicalEngineCardCode, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards } from "./card-search.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "./multi-scripts.js";
@@ -2189,13 +2189,13 @@ export function createDuelHost(options: {
       if (!info.playerIds.includes(actor)) throw new RequestError("Only the players of this series can do that", 403);
       if (op === "series-side") {
         if (info.status !== "between_games") throw new RequestError("Side decking is only open between games", 409);
-        // Same setting as check-deck: a code the card data cannot resolve stays as it is, so the
-        // "same cards" check in setSideDeck compares like with like. validateSessionDeck still rejects it.
+        // Like check-deck, unresolved ids stay as sent so validateSessionDeck can report them.
         const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
         validateSessionDeck(room.session.mode, deck, room.session.settings, room.session.format);
         // `info` is read before the await above, so a Ready sent meanwhile (through another game slug)
         // is not in it: the transaction reports whether this save cleared Ready.
-        const saved = series.saveSideDeck(seriesId, guildId, actor, deck);
+        const saved = series.saveSideDeck(seriesId, guildId, actor, deck,
+          (code) => canonicalEngineCardCode(code, options.dataDirectory));
         // A changed deck clears this player's Ready: refresh both players' views so the room shows it.
         if (saved.readyCleared) await emitChange(saved.series.currentDuelSlug ?? slug, guildId);
         return { series: saved.series };

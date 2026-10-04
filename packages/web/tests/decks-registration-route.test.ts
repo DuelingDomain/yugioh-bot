@@ -18,7 +18,7 @@ describe("deck registration marks", () => {
     auth.mockResolvedValue({ user: { id: "drafter", name: "Yugi" } });
     callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({
       ok: true,
-      data: { codes: Object.fromEntries(input.codes.map((id) => [String(id), passcodeOf(id)])) },
+      data: { codes: Object.fromEntries(input.codes.map((id) => [String(id), id === 81480461 ? 81480460 : id >= 100000 ? id : passcodeOf(id)])) },
     }));
   });
   afterEach(() => {
@@ -83,6 +83,38 @@ describe("deck registration marks", () => {
     const [deck] = (await listDecks()).decks;
     expect(deck.id).toBe(created.id);
     expect(deck.registration).toMatchObject({ locked: true });
+  });
+
+  it("maps a high artwork id on save, registration and load", async () => {
+    const { draftId } = await seed({ picks: [...mainIds(39), 81480461] });
+    await withDb((db) => db.prepare("update card_catalog set type = 'Effect Monster', frame_type = 'effect' where ygoprodeck_id = 81480461").run());
+    const raw = { main: [...mainIds(39), 81480461], extra: [], side: [] };
+    const mapped = { ...raw, main: [...main(39), 81480460] };
+    const { POST } = await import("../app/api/decks/route");
+    const res = await POST(new Request("http://localhost/api/decks", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Art", mode: "normal", deck: raw, draftId }),
+    }));
+    expect(res.status).toBe(201);
+    const saved = (await res.json()).deck;
+    expect(saved.deck).toEqual(mapped);
+    expect(saved.registration).toMatchObject({ locked: false });
+    expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "normalize-codes", codes: expect.arrayContaining([81480461]) }));
+    await withDb((db) => {
+      const registered = db.prepare("select deck_json from tournament_participants").get() as { deck_json: string };
+      expect(JSON.parse(registered.deck_json)).toEqual(mapped);
+      db.prepare("update saved_decks set deck_json = ? where id = ?").run(JSON.stringify(raw), saved.id);
+    });
+    callDuelHost.mockClear();
+    const { GET } = await import("../app/api/decks/[id]/route");
+    const loaded = await GET(new Request(`http://localhost/api/decks/${saved.id}`), { params: Promise.resolve({ id: String(saved.id) }) });
+    expect(loaded.status).toBe(200);
+    expect((await loaded.json()).deck.deck).toEqual(mapped);
+    expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "normalize-codes", codes: raw.main }));
+    await withDb((db) => {
+      const stored = db.prepare("select deck_json from saved_decks where id = ?").get(saved.id) as { deck_json: string };
+      expect(JSON.parse(stored.deck_json)).toEqual(raw);
+    });
   });
 
   it("is null once the tournament has finished, and for a deck in no tournament", async () => {

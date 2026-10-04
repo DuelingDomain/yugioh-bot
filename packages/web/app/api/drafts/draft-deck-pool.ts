@@ -16,6 +16,7 @@ export type DraftDeckPool = {
   cards: Array<{ code: number; count: number }>;
   /** Copies of each passcode; the input to checkDeckAgainstPool. */
   byCode: Map<number, number>;
+  codeMap: Map<number, number | null>;
   /** Pool cards that go in the Main Deck (not Fusion, Synchro, Xyz or Link, Pendulum variants included). */
   mainPoolCount: number;
   /** YGOPRODeck ids the duel engine does not know; they are not in `cards`. */
@@ -80,13 +81,14 @@ export async function loadDraftDeckPool(
   db: Database.Database,
   guildId: string,
   draft: DraftDeckContext,
+  deckCodes: number[] = [],
 ): Promise<{ ok: true; pool: DraftDeckPool } | { ok: false; response: NextResponse }> {
-  const loaded = await loadDraftPool({ db, guildId, playerId: draft.playerId, draftId: draft.id });
+  const loaded = await loadDraftPool({ db, guildId, playerId: draft.playerId, draftId: draft.id, deckCodes });
   if (!loaded.ok) return loaded;
   const cards = [...loaded.counts].map(([code, count]) => ({ code, count })).sort((a, b) => a.code - b.code);
   return {
     ok: true,
-    pool: { cards, byCode: loaded.counts, mainPoolCount: loaded.mainPoolCount, unresolved: loaded.unresolved },
+    pool: { cards, byCode: loaded.counts, codeMap: loaded.codeMap, mainPoolCount: loaded.mainPoolCount, unresolved: loaded.unresolved },
   };
 }
 
