@@ -1,5 +1,5 @@
-import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelFormat, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
-import { teamOfSeat } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelErrorCode, DuelFormat, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
+import { DUEL_SEAT_LEFT_ERROR_CODE, teamOfSeat } from "@yugidraft/shared/duels";
 import { chainWindowPasses, effectYesNoPasses, effectiveChainMode } from "./chain-mode.js";
 import {
   OcgLocation,
@@ -106,7 +106,7 @@ export function recallPromptContext(
 }
 
 export class EngineAnswerError extends Error {
-  constructor(message: string) {
+  constructor(message: string, readonly code?: DuelErrorCode) {
     super(message);
     this.name = "EngineAnswerError";
   }
@@ -919,7 +919,7 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
   }
 }
 
-export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: string, answer: DuelAnswer, cards: CardDatabase): OcgResponse {
+export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: string, answer: DuelAnswer, cards: CardDatabase, leftSeats?: ReadonlySet<number>): OcgResponse {
   if (seat !== pending.seat) throw new EngineAnswerError("Wrong seat");
   if (promptId !== pending.id) throw new EngineAnswerError("Stale prompt");
   const { message, prompt } = pending;
@@ -989,6 +989,14 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
     }
     case OcgMessageType.SELECT_OPTION: {
       if (!answer.choice) throw new EngineAnswerError("Invalid answer");
+      if (isOpponentPick(message.options) && typeof answer.choice === "string" && /^opt:(0|[1-9]\d*)$/.test(answer.choice)) {
+        // Read the core's options too: prompt mapping may already have removed this seat.
+        const desc = message.options[Number(answer.choice.slice(4))];
+        const pickedSeat = desc === undefined ? null : opponentPickSeat(desc);
+        if (pickedSeat !== null && (leftSeats?.has(pickedSeat) || !prompt.options.some((option) => option.id === answer.choice))) {
+          throw new EngineAnswerError("That player has left. Pick again.", DUEL_SEAT_LEFT_ERROR_CODE);
+        }
+      }
       const option = optionById(prompt, answer.choice);
       const index = option.values?.[0];
       if (index == null) throw new EngineAnswerError("Invalid answer");

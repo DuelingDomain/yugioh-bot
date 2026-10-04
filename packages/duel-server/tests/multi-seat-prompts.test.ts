@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OcgLocation, OcgMessageType, OcgResponseType } from "ocgcore-wasm";
-import type { DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
+import { DUEL_SEAT_LEFT_ERROR_CODE, type DuelAnswer, type DuelEngineView, type DuelPrompt } from "@yugidraft/shared/duels";
 import type { CardDatabase } from "../src/cards.js";
 import { HINT_PLACE_SEAT, autoResponse, directAttackSeat, isOpponentPick, mapPrompt, nextLivingOpponentSeat, opponentPickSeat, placeSeatHint, resolveAnswer } from "../src/prompts.js";
 import { botTableOf, choosePracticeBotAnswer, chooseSeatOption, chooseSurrenderedAnswer, isSeatPick } from "../src/practice-bot.js";
@@ -50,6 +50,51 @@ describe("opponent pick decode", () => {
 });
 
 describe("opponent pick prompt", () => {
+  it("gives a distinct error when the answer names a seat removed from the pick", () => {
+    const pending = mapPrompt(pickMessage(0, [1, 2]), cards, "p1", undefined, { livingSeats: [0, 2] });
+    expect(() => resolveAnswer(pending, 0, "p1", { choice: "opt:0" }, cards)).toThrowError(
+      expect.objectContaining({ code: DUEL_SEAT_LEFT_ERROR_CODE, message: "That player has left. Pick again." }),
+    );
+  });
+
+  it("rejects a seat that left after the prompt was made", () => {
+    const pending = mapPrompt(pickMessage(0, [1, 2]), cards, "p1");
+    expect(() => resolveAnswer(pending, 0, "p1", { choice: "opt:0" }, cards, new Set([1]))).toThrowError(
+      expect.objectContaining({ code: DUEL_SEAT_LEFT_ERROR_CODE, message: "That player has left. Pick again." }),
+    );
+  });
+
+  it("still accepts a living seat after a different seat leaves", () => {
+    const pending = mapPrompt(pickMessage(0, [1, 2]), cards, "p1");
+    expect(resolveAnswer(pending, 0, "p1", { choice: "opt:1" }, cards, new Set([1]))).toEqual({
+      type: OcgResponseType.SELECT_OPTION, index: 1,
+    });
+  });
+
+  it("keeps the old error for invalid choices outside an opponent pick", () => {
+    const pending = mapPrompt({ type: OcgMessageType.SELECT_OPTION, player: 0, options: [30n, 31n] } as never, cards, "p1");
+    expect(() => resolveAnswer(pending, 0, "p1", { choice: "opt:99" }, cards, new Set([1]))).toThrowError("Invalid answer");
+  });
+
+  it("keeps wrong-seat and stale-prompt checks before the seat-left check", () => {
+    const pending = mapPrompt(pickMessage(0, [1, 2]), cards, "p1", undefined, { livingSeats: [0, 2] });
+    expect(() => resolveAnswer(pending, 1, "p1", { choice: "opt:0" }, cards)).toThrowError("Wrong seat");
+    expect(() => resolveAnswer(pending, 0, "old", { choice: "opt:0" }, cards)).toThrowError("Stale prompt");
+  });
+
+  it.each(["opt:99", "opt:-1", "opt:00", "opt:0junk", ""])("keeps the old error for invalid opponent choice %j", (choice) => {
+    const pending = mapPrompt(pickMessage(0, [1, 2]), cards, "p1", undefined, { livingSeats: [0, 2] });
+    expect(() => resolveAnswer(pending, 0, "p1", { choice }, cards)).toThrowError("Invalid answer");
+    try { resolveAnswer(pending, 0, "p1", { choice }, cards); } catch (error) {
+      expect(error).not.toHaveProperty("code", "seat_left");
+    }
+  });
+
+  it.each([{ choice: ["opt:99"] }, { choice: ["opt:0"] }, { choice: 1 }, { choice: {} }])("keeps the old error for non-string opponent choice $choice", ({ choice }) => {
+    const pending = mapPrompt(pickMessage(0, [1, 2]), cards, "p1", undefined, { livingSeats: [0, 2] });
+    expect(() => resolveAnswer(pending, 0, "p1", { choice } as unknown as DuelAnswer, cards)).toThrowError("Invalid answer");
+  });
+
   it("maps to a choice with the opponent context and seat options", () => {
     const { prompt } = mapPrompt(pickMessage(0, [1, 2, 3]), cards, "p1");
     const choice = prompt as DuelPrompt;
