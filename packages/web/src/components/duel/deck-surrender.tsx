@@ -17,6 +17,8 @@ export type DeckSurrenderValue = {
   busy: boolean;
   /** Opens the "Are you sure?" confirm. The confirm itself calls the existing surrender action. */
   onSurrender: () => void;
+  /** Tells the room the menu is open, so the prompt keys and the right-click decline stay quiet meanwhile. */
+  onMenuOpenChange?: (open: boolean) => void;
 };
 
 export const DeckSurrenderContext = createContext<DeckSurrenderValue | null>(null);

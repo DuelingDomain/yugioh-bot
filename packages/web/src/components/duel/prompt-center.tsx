@@ -1394,6 +1394,8 @@ export function PromptCenter(props: PromptCenterProps) {
     const key = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing) return;
       if (event.metaKey || event.ctrlKey || event.altKey || menuRef.current) return;
+      // A menu owns its keys: Escape closes it, and n / y in it must not answer the prompt behind.
+      if (event.target instanceof Element && event.target.closest("[data-duel-menu],[role='menu']")) return;
       if (kindRef.current == null || barRef.current) return;
       const current = promptRef.current;
       if (!current || !revealedRef.current) return;

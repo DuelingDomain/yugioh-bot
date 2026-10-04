@@ -172,6 +172,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const narrow = useIsNarrow();
   const [mobileInspect, setMobileInspect] = useState(false);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
+  // The Surrender menu on your own deck is open: prompt keys and the right-click decline wait for it.
+  const [deckMenuOpen, setDeckMenuOpen] = useState(false);
   const [hideResult, setHideResult] = useState(false);
   // The next game of a series waits in its lobby for a moment; "Open the table" shows that lobby anyway.
   const [showTable, setShowTable] = useState(false);
@@ -696,7 +698,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // Your own deck opens a Surrender menu. It uses the same confirm and the same surrender call as the header button.
   const deckSurrender: DeckSurrenderValue = {
     seat: data.mySeat, available: canSurrender, busy: busy || catchingUp || Boolean(error),
-    onSurrender: () => setConfirmSurrender(true),
+    onSurrender: () => setConfirmSurrender(true), onMenuOpenChange: setDeckMenuOpen,
   };
   // The series has moved on to its next game and this room is about to follow it (the effect on nextTarget).
   // The old game's result is history by now: do not flash "You win" for the second the next room takes to
@@ -745,7 +747,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // One seam set for both live shells, so the room stays one code path.
     const shellProps: TableShellProps = {
       controller: liveController, fillViewport: true, boardRef, pickContinuation: pick, preferences,
-      inputSuspended: surrenderOpen,
+      inputSuspended: surrenderOpen || deckMenuOpen,
       fxActive: !error && !realtime.recovering, busy: busy || Boolean(error) || catchingUp,
       initialOutOrder: eliminationOrder(liveController.engine),
       connection: { ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy },
@@ -1027,7 +1029,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           data-prompt-surface={dockMode === "idle" ? undefined : ""}
         >
           <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
-            draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu)}
+            draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu) || deckMenuOpen}
             active={data.session.status === "active" && !viewerOut} aim={promptAim} headless={centered} suspended={centered && !revealed}
             waitingName={multi && prompt ? playerName(prompt.seat) : null} />
         </div>
@@ -1070,7 +1072,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
                 </FxBoundary>
                 <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}
                   busy={busy || Boolean(error) || catchingUp || (prompt == null && pick.waiting != null)} draft={draft} onSubmit={onSubmitAnswer}
-                  menuOpen={Boolean(activeMenu)} chain={engine.chain} aim={promptAim}
+                  menuOpen={Boolean(activeMenu) || deckMenuOpen} chain={engine.chain} aim={promptAim}
                   aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
                   reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
                   revealed={revealed} onInspectCard={inspectInfo} nameOf={playerName} />

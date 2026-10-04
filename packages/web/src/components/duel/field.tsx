@@ -417,6 +417,13 @@ function PileSlot({
   useEffect(() => {
     if (!deckMenu) setMenuAnchor(null);
   }, [deckMenu]);
+  // The room mutes the prompt keys and the right-click decline while the menu is open.
+  const reportMenu = surrender?.onMenuOpenChange;
+  const menuIsOpen = deckMenu && menuAnchor != null;
+  useEffect(() => {
+    reportMenu?.(menuIsOpen);
+    return () => reportMenu?.(false);
+  }, [reportMenu, menuIsOpen]);
   useEffect(() => clearHold, []);
 
   function activate(anchor: HTMLElement) {

@@ -82,4 +82,61 @@ describe("deck menu next to an open prompt", () => {
     expect(screen.getByRole("menu")).toBeTruthy();
     expect(onSubmit).not.toHaveBeenCalled();
   });
+
+  it("closes the menu on Escape without answering the prompt", () => {
+    const onSubmit = vi.fn();
+    const { container } = render(<Room onSubmit={onSubmit} />);
+    fireEvent.click(deck(container));
+    const item = screen.getByRole("menuitem", { name: "Surrender" });
+    fireEvent.keyDown(item, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("does not answer the prompt for other keys typed while the menu is open", () => {
+    const onSubmit = vi.fn();
+    const { container } = render(<Room onSubmit={onSubmit} />);
+    fireEvent.click(deck(container));
+    const item = screen.getByRole("menuitem", { name: "Surrender" });
+    for (const key of ["1", "2", "n", "y", "f"]) fireEvent.keyDown(item, { key });
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("mutes the prompt keys while the menu is open even when focus is elsewhere", () => {
+    const onSubmit = vi.fn();
+    const { container } = render(<Room onSubmit={onSubmit} />);
+    fireEvent.click(deck(container));
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    // A real right-click is a pointerdown (button 2) and then the contextmenu event.
+    fireEvent.pointerDown(document.body, { button: 2 });
+    fireEvent.contextMenu(document.body);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("answers the prompt again once the menu is closed", () => {
+    const onSubmit = vi.fn();
+    const { container } = render(<Room onSubmit={onSubmit} />);
+    fireEvent.click(deck(container));
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: "Surrender" }), { key: "Escape" });
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onSubmit).toHaveBeenCalledWith({ cancel: true });
+  });
+});
+
+describe("prompt panel key guard", () => {
+  it("ignores keys that come from inside any menu, even when the room did not flag one", () => {
+    const onSubmit = vi.fn();
+    render(
+      <div>
+        <PromptCenter prompt={prompt} mySeat={0} active slug="s" busy={false} draft={draft} onSubmit={onSubmit}
+          menuOpen={false} chain={[]} aimLocked={false} reducedMotion revision={0} />
+        <div role="menu"><button type="button" role="menuitem">Row</button></div>
+      </div>,
+    );
+    const row = screen.getByRole("menuitem", { name: "Row" });
+    for (const key of ["Escape", "n", "y"]) fireEvent.keyDown(row, { key });
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onSubmit).toHaveBeenCalledWith({ cancel: true });
+  });
 });
