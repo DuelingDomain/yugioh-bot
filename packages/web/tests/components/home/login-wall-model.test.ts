@@ -118,7 +118,9 @@ describe("the deck", () => {
     expect(railDeck(2, 8)[0]).not.toBe(railDeck(7, 8)[0]);
   });
   it("reads card art from YGOPRODeck's small images, which need no sign-in", () => {
-    expect(cardImageSrc(5405694)).toBe("https://images.ygoprodeck.com/images/cards_small/5405694.jpg");
+    expect(cardImageSrc(5405694)).toBe(
+      `/_next/image?url=${encodeURIComponent("https://images.ygoprodeck.com/images/cards_small/5405694.jpg")}&w=256&q=75`,
+    );
   });
 });
 

@@ -12,11 +12,15 @@ export const WALL_CARD_IDS: readonly number[] = [
 ];
 
 /**
- * Small card art from YGOPRODeck. `/api/cards/<passcode>/image` would cache the art on our server,
- * but the proxy sends signed-out requests for it to a 401, and this page is shown signed out.
+ * Small card art from YGOPRODeck, fetched through Next's image optimizer so our server downloads
+ * and caches each image once instead of every visitor hotlinking YGOPRODeck. `/api/cards/<passcode>/image`
+ * isn't usable here: the proxy sends signed-out requests for it to a 401, and this page is shown signed out.
+ * `/_next/image` is outside the proxy matcher, and `cards_small` is in `images.remotePatterns`.
+ * 256 is one of Next's default image sizes; the source art is 168 wide, so it is never upscaled.
  */
 export function cardImageSrc(id: number): string {
-  return `https://images.ygoprodeck.com/images/cards_small/${id}.jpg`;
+  const source = `https://images.ygoprodeck.com/images/cards_small/${id}.jpg`;
+  return `/_next/image?url=${encodeURIComponent(source)}&w=256&q=75`;
 }
 
 export type WallMode = "walls" | "bands";

@@ -19,9 +19,9 @@ import styles from "./login-wall.module.css";
 type Built = { layout: WallLayout; key: string; reduced: boolean; first: boolean; delay: number };
 
 /**
- * Wall cards are plain <img>, not next/image: there are 30 to 100 of them, all small, all
- * decoration, and the optimizer would only add a request hop per card. Width and height are the
- * art's own ratio so nothing shifts while they load.
+ * Wall cards are plain <img>, not the next/image component: there are 30 to 100 of them, all small,
+ * all decoration, built after load. The src still goes through the optimizer (see cardImageSrc).
+ * Width and height are the art's own ratio so nothing shifts while they load.
  */
 function WallCard({ id }: { id: number }) {
   return (
