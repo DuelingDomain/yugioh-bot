@@ -91,8 +91,12 @@ export function AimArrow({ fromKey, tone, targetTone, pointer, snap, label }: Ai
     const root = document.documentElement;
     // The table root holds the attacker, the targets and the LP panels: a frame searches that, not the whole page.
     let scope: ParentNode = document;
+    // The table's own attack line steps aside only while this arrow is drawn: set once, and cleared when the attacker is gone.
+    let flagged = false;
     const hide = () => {
       layer.setAttribute("data-found", "false");
+      if (flagged) root.removeAttribute("data-aim-arrow-on");
+      flagged = false;
     };
     const draw = () => {
       frame = requestAnimationFrame(draw);
@@ -131,9 +135,9 @@ export function AimArrow({ fromKey, tone, targetTone, pointer, snap, label }: Ai
         chip.style.transform = `translate(${x}px, ${below ? tip.y + gap : Math.max(40, tip.y - gap)}px) translate(-50%, ${below ? "0" : "-100%"})`;
       }
       layer.setAttribute("data-found", "true");
+      if (!flagged) root.setAttribute("data-aim-arrow-on", "true");
+      flagged = true;
     };
-    // The table's own attack line steps aside while this arrow is mounted.
-    root.setAttribute("data-aim-arrow-on", "true");
     draw();
     return () => {
       cancelAnimationFrame(frame);

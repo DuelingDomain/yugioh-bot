@@ -34,8 +34,11 @@ beforeAll(() => {
 });
 afterEach(cleanup);
 
-function Shell({ id, onAnswer }: { id: "direct-attack" | "battle-aim"; onAnswer: (answer: DuelAnswer) => void }) {
-  const source = (TAG_FIXTURES.states as Record<string, TableFixtureState>)[id];
+function Shell({ id, onAnswer, cancelable }: { id: "direct-attack" | "battle-aim"; onAnswer: (answer: DuelAnswer) => void; cancelable?: boolean }) {
+  const fixture = (TAG_FIXTURES.states as Record<string, TableFixtureState>)[id];
+  const source = cancelable
+    ? ({ ...fixture, room: { ...fixture.room, engine: { ...fixture.room.engine!, prompt: { ...fixture.room.engine!.prompt!, cancelable: true } } } } as TableFixtureState)
+    : fixture;
   const controller = useFixtureController(source, { reducedMotion: true });
   return <TagShell controller={{ ...controller, onAnswer }} />;
 }
@@ -116,10 +119,14 @@ describe("aim arrow on the Tag table: a direct attack", () => {
     expect(onAnswer).toHaveBeenCalledWith({ choice: `direct-${OPEN_RIVAL}` });
   });
 
-  it("tells the player to click, with the Esc way out", () => {
+  it("tells the player to click, with the Esc way out only when the pick can be cancelled", () => {
     const { container } = render(<Shell id="battle-aim" onAnswer={vi.fn()} />);
-    expect(container.textContent).toContain("Click a target to attack. Esc to cancel.");
+    expect(container.textContent).toContain("Click a target to attack.");
+    expect(container.textContent).not.toContain("Esc to cancel");
     expect(container.textContent).not.toContain("Point at a target");
+    cleanup();
+    const cancelable = render(<Shell id="battle-aim" onAnswer={vi.fn()} cancelable />);
+    expect(cancelable.container.textContent).toContain("Click a target to attack. Esc to cancel.");
   });
 });
 
