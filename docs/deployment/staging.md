@@ -149,8 +149,8 @@ The 84-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Their
 
 | CI core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `cf4d7b4723756901199f45b152a495b0e4fe24afc42ef5000d2f50b9f0a0743f` |
-| Domain multiplayer | `a9bed74b80a3614237dd20b14b094d8b82aebfa5438dd2c2d7a9eac65af1f301` |
+| Standard multiplayer | `6c42beb4e1e1aa7ac65a6e4fae58df07f8066f5222d6fadba32fb449c103c179` |
+| Domain multiplayer | `b84f5ae09345c989f8579c7f239570728b98b253736bd1f5ee84875b72e904fd` |
 | Domain 1v1 (unchanged) | `16f60edf2c1e246886d1962fad32238fde0dd969c36bc959251df488c83aefc7` |
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all

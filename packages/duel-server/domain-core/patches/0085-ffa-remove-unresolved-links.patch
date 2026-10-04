@@ -1,0 +1,143 @@
+From cfa714821326367b1b4ab8492a608a07dfbfe205 Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 4 Oct 2026 00:00:00 +0000
+Subject: [PATCH] Remove unresolved FFA links without resolving them
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ field.cpp     |  9 ++++++++-
+ field.h       |  2 ++
+ libdebug.cpp  |  2 +-
+ processor.cpp | 33 +++++++++++++++++++++++----------
+ 4 files changed, 34 insertions(+), 12 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index 4822a0a..20e0476 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -155,7 +155,14 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 	// 2. p's turn runs out without prompts (Turn then skips p).
+ 	if(infos.turn_player == p)
+ 		core.force_turn_end = true;
+-	// 3. Chain entries that p would add. Chain links already on the chain are negated in SolveChain.
++	// 3. Unresolved FFA links are removed, without resolution events. Keep their
++	// storage until SolveChain can release relations and interpreter references safely.
++	if(n_teams == n_duelists) {
++		for(auto& ch : core.current_chain)
++			if(ch.triggering_player == p && !ch.resolution_started)
++				ch.removed_by_elimination = true;
++	}
++	// Chain entries that p would add.
+ 	for(auto* lst : { &core.new_fchain, &core.new_fchain_s, &core.new_ochain, &core.new_ochain_s, &core.new_fchain_b,
+ 			&core.new_ochain_b, &core.new_ochain_h, &core.new_chains }) {
+ 		lst->remove_if([p](const chain& ch) { return ch.triggering_player == p; });
+diff --git a/field.h b/field.h
+index 28d90ab..c5d3eb9 100644
+--- a/field.h
++++ b/field.h
+@@ -66,6 +66,8 @@ struct chain {
+ 	// The causal seat and event saved before the prompt, separate from a free declaration.
+ 	uint8_t causal_opp{ DUELIST_NONE };
+ 	bool causal_activation_failed{ false };
++	bool removed_by_elimination{ false };
++	bool resolution_started{ false };
+ 	// n_duelists > 2: the opponent whose zones the last Duel.SelectDisableField or Duel.SelectFieldZone of this link
+ 	// offered (DUELIST_NONE: none yet). The target and the operation of a link are two scopes; this keeps the seat
+ 	// between them, whatever other links prompt in between.
+diff --git a/libdebug.cpp b/libdebug.cpp
+index 9a5e895..6b282a0 100644
+--- a/libdebug.cpp
++++ b/libdebug.cpp
+@@ -339,7 +339,7 @@ LUA_STATIC_FUNCTION(EliminateDuelist) {
+ // A host surrender can remove a seat while a living seat's prompt stays open.
+ // Only pending surrenders are checked here: an unfinished operation must
+ // finish before its LP, Deck or effect-win losses are checked. An open chain
+-// always defers the removal; surrender links resolve normally.
++// removes unstarted FFA links without resolution.
+ LUA_STATIC_FUNCTION(SurrenderDuelist) {
+ 	check_param_count(L, 1);
+ 	auto& field = pduel->game_field;
+diff --git a/processor.cpp b/processor.cpp
+index def8094..e8a43c2 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -4491,6 +4491,13 @@ bool field::process(Processors::SolveChain& arg) {
+ 	if(core.current_chain.size() == 0 && step == 0)
+ 		return TRUE;
+ 	auto cait = core.current_chain.rbegin();
++	if(n_duelists > 2 && n_teams == n_duelists && (step == 0 || step == 2)
++		&& (cait->removed_by_elimination || !is_alive(cait->triggering_player))) {
++		cait->removed_by_elimination = true;
++		core.chain_solving = false;
++		arg.step = 9; // cleanup only: no activating, solving, solved or negation event
++		return FALSE;
++	}
+ 	switch(step) {
+ 	case 0: {
+ 		if(core.spsummon_rst) {
+@@ -4552,7 +4559,7 @@ bool field::process(Processors::SolveChain& arg) {
+ 			core.spsummon_state_count_tmp[p] = core.spsummon_state_count[p];
+ 		// The link of an eliminated duelist resolves with no effect (no EVENT_CHAIN_DISABLED). A duelist with a pending loss
+ 		// (Debug.EliminateDuelist) is out already. A surrender (0x200) waits for the whole chain and its links act normally.
+-		if(n_duelists > 2 && is_duelist(cait->triggering_player) && (player[cait->triggering_player].eliminated || (player[cait->triggering_player].pending_loss && player[cait->triggering_player].pending_loss != 0x200))) {
++		if(n_duelists > 2 && n_teams != n_duelists && is_duelist(cait->triggering_player) && (player[cait->triggering_player].eliminated || (player[cait->triggering_player].pending_loss && player[cait->triggering_player].pending_loss != 0x200))) {
+ 			if(!(cait->flag & CHAIN_DISABLE_EFFECT)) {
+ 				auto message = pduel->new_message(MSG_CHAIN_DISABLED);
+ 				message->write<uint8_t>(cait->chain_count);
+@@ -4611,6 +4618,7 @@ bool field::process(Processors::SolveChain& arg) {
+ 		return FALSE;
+ 	}
+ 	case 3 : {
++		cait->resolution_started = true;
+ 		effect* peffect = cait->triggering_effect;
+ 		card* pcard = peffect->get_handler();
+ 		if((cait->flag & CHAIN_CONTINUOUS_CARD) && !pcard->is_has_relation(*cait)){
+@@ -4639,6 +4647,11 @@ bool field::process(Processors::SolveChain& arg) {
+ 		return FALSE;
+ 	}
+ 	case 5: {
++		// Apply losses between links, after the operation's coroutine has finished.
++		if(n_duelists > 2 && n_teams == n_duelists) {
++			core.chain_solving = false;
++			check_losses_n();
++		}
+ 		if(std::exchange(arg.backed_up_operation, 0) == 0) {
+ 			if(cait->opinfos.count(0x200) && cait->opinfos[0x200].op_count) {
+ 				if(is_flag(DUEL_CANNOT_SUMMON_OATH_OLD)) {
+@@ -4721,8 +4734,14 @@ bool field::process(Processors::SolveChain& arg) {
+ 		return FALSE;
+ 	}
+ 	case 10: {
+-		auto message = pduel->new_message(MSG_CHAIN_SOLVED);
+-		message->write<uint8_t>(cait->chain_count);
++		if(!cait->removed_by_elimination) {
++			auto message = pduel->new_message(MSG_CHAIN_SOLVED);
++			message->write<uint8_t>(cait->chain_count);
++		} else {
++			release_oath_relation(cait->triggering_effect);
++			delete cait->applied_chain_counters;
++			cait->applied_chain_counters = nullptr;
++		}
+ 		effect* peffect = cait->triggering_effect;
+ 		card* pcard = peffect->get_handler();
+ 		if((peffect->type & EFFECT_TYPE_ACTIVATE) && (cait->flag & CHAIN_ACTIVATING))
+@@ -4899,15 +4918,9 @@ int32_t field::break_effect(bool clear_sent) {
+ // resolves or a script runs. Then: no team is left = draw MSG_WIN(0xFF), one team is left = MSG_WIN(team),
+ // else every loser is eliminated in turn order from the turn player.
+ void field::check_losses_n(bool surrenders_only) {
+-	if((core.chain_solving && (!surrenders_only || n_teams == n_duelists))
++	if((core.chain_solving && !surrenders_only)
+ 		|| (!surrenders_only && !pduel->lua->coroutines.empty()))
+ 		return;
+-	// Surrenders wait for the whole chain. Other loss reasons keep their timing.
+-	if(n_teams == n_duelists && !core.current_chain.empty()) {
+-		for(uint8_t p = 0; p < n_duelists; ++p)
+-			if(player[p].pending_loss == 0x200)
+-				return;
+-	}
+ 	uint8_t order[MAX_DUELISTS];
+ 	uint8_t count = 0;
+ 	for(uint8_t i = 0; i < n_duelists; ++i) {
+-- 
+2.43.0
+

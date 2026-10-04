@@ -146,6 +146,8 @@ The reference trace is a replay, not the self-play run. Self-play makes extra qu
 
 Without these two measures, a 200 seed run gave stock-against-stock differences in 4 seeds.
 
+Patch `0085-ffa-remove-unresolved-links.patch` applies the 2026-10-04 owner decision: FFA links of a removed player are cleaned up without resolution events; living links and response windows remain. Tag and 1v1 keep their existing rules.
+
 ## How to add a patch
 
 1. Prepare the tree with all patches applied.

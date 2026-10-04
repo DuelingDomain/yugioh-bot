@@ -67,9 +67,14 @@ ELIMINATION_RETURN_PROOFS.push(proof("team-loss-keeps-stock", "tag", add(9701712
 // Query the underlying zones in the Domain runner as well as the views of all seats.
 for (const format of ["ffa3", "ffa4", "tag"] as const) {
   ELIMINATION_RETURN_PROOFS.push({
+    fixture: format === "tag" ? "" : `local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_CHAIN_SOLVED)
+e:SetOperation(function(e,tp,eg,ep,ev,re) if re:GetHandler():IsCode(60082869) then Duel.SetLP(2,7777) end end)
+Duel.RegisterEffect(e,2)`,
     ...defineScenario({
       id: `elimination-returns-${format}-removed-chain-card-stays-out`,
-      title: format === "tag" ? "Tag surrender ends the duel before the chain resolves" : "A surrendered duelist's link resolves normally before its cards leave play",
+      title: format === "tag" ? "Tag surrender ends the duel before the chain resolves" : "A surrendered duelist's unresolved link is removed and living links still resolve",
       source: "ADR-0002; remove-eliminated-chain-cards",
       rules: format === "tag" ? ["R-TAG-LOSS", "R-COMMON-SURRENDER-EOT"] : ["R-FFA-ELIMINATION", "R-FFA-CHAIN", "R-COMMON-SURRENDER-EOT"],
       tags: ["multiplayer", "elimination", "chain", format],
@@ -77,13 +82,13 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
       steps: [activate("Pot of Greed", "p0"), activate("Dust Tornado", "p1"),
         ...(format === "tag" ? [] : [pickOpponent("p0", "p1")]), select("Swords of Revealing Light"),
         expectPrompt({ by: "p2", context: "chain" }), surrender("p1"),
-        ...(format === "tag" ? [] : [expectChain("Pot of Greed", "Dust Tornado"), expectPrompt({ by: "p2", context: "chain" }), pass("p2")]),
+        ...(format === "tag" ? [] : [expectChain("Pot of Greed"), expectPrompt({ by: "p2", context: "chain" }), pass("p2")]),
         expectEliminated(...(format === "tag" ? ["p1", "p3"] as const : ["p1"] as const)),
         ...(format === "tag" ? [expectResult({ team: 0 })] : []),
         expectBoard({
           // Standard MR5 skips the opening draw. The surviving Pot of Greed draws two cards.
           p0: { ...empty, lp: format === "tag" ? 16000 : 8000, extra: [], hand: { count: format === "tag" ? 0 : 2 }, deckCount: format === "tag" ? 20 : 18,
-            spells: format === "tag" ? ["Swords of Revealing Light", "Pot of Greed"] : [], grave: format === "tag" ? [] : ["Swords of Revealing Light", "Pot of Greed"] },
+            spells: format === "tag" ? ["Swords of Revealing Light", "Pot of Greed"] : ["Swords of Revealing Light"], grave: format === "tag" ? [] : ["Pot of Greed"] },
           p1: { ...empty, lp: format === "tag" ? 16000 : 8000, extra: [], hand: [], deckCount: 0 }, p2: { ...empty, lp: format === "tag" ? 16000 : 8000, extra: [], spells: ["Dust Tornado"], hand: [], deckCount: 20 },
           ...(format === "ffa3" ? {} : { p3: { ...empty, lp: format === "tag" ? 16000 : 8000, extra: [], hand: [], deckCount: format === "tag" ? 0 : 20 } }),
         }),

@@ -1060,7 +1060,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         handIdentities: eventContext.handIdentities,
         mode: options.mode,
         domainState: readDomainState(),
-        ...(multi ? { format, eliminated, leaving: new Set([...leaving].filter(isLeaving)), chain: chainMemory.slice(0, liveChainSize) } : {}),
+        ...(multi ? { format, eliminated, leaving: new Set([...leaving].filter(isLeaving)), chain: chainMemory.slice(0, liveChainSize).filter((link) => !eliminated.has(link.seat)) } : {}),
       });
       // Disabled zones are public board facts. The field is set only for seats that have one.
       if (multi) projected.eliminationOrder = eliminationOrder.map((group) => [...group]);
