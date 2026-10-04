@@ -295,7 +295,8 @@ export function createDuelHost(options: {
   /** The last view built for each seat of each duel (key -1: the spectator). Only views that were built for that seat are kept. */
   const lastViews = new Map<string, Map<number, DuelEngineView>>();
   function rememberView(slug: string, seat: number | null, view: DuelEngineView | null | undefined): void {
-    if (!view) return;
+    const live = games.get(slug);
+    if (!view || !live?.game.running || service.get(slug, live.guildId).status !== "active") return;
     let perSeat = lastViews.get(slug);
     if (!perSeat) lastViews.set(slug, (perSeat = new Map()));
     perSeat.set(seat ?? -1, view);

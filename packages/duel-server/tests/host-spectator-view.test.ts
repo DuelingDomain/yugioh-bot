@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import Database from "better-sqlite3";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createDuelService } from "@yugidraft/shared/services";
 import type { DuelEngineView, DuelFormat } from "@yugidraft/shared/duels";
@@ -25,13 +25,14 @@ async function table(format: DuelFormat = "ffa3", eliminated = true) {
   let running = true;
   let pending = false;
   const reads: Array<number | null> = [];
+  let blockedView: { started: () => void; wait: Promise<void> } | null = null;
   const view = (seat: number | null): DuelEngineView => ({ revision: 1, format, turn: 2, turnSeat: 1, phase: "main1",
     seats: players.map((_, index) => ({ seat: index, lp: 8000, eliminated: index === 0 && eliminated,
       pendingElimination: index === 0 && pending, hand: index === 0 && eliminated ? [] : [{ controller: index, location: 2, sequence: 0, position: 8, ...(seat === index ? { code: 123, name: "Private hand" } : {}) }], deckCount: 35, extraCount: 0, extra: [], monsters: [], spells: [], graveyard: [], banished: [] })),
     prompt: seat === 1 ? { id: "p", seat: 1, kind: "choice", title: "Main", options: [{ id: "to_ep", label: "End" }], context: { type: "action", phase: "main" } } : null,
     chain: [], events: [], log: [], result: null, eliminationOrder: eliminated ? [[0]] : [],
   });
-  const worker: DuelGameWorker = { get running() { return running; }, async create() {}, async view(seat) { reads.push(seat); return view(seat); }, async answer() {}, async search() { return []; }, async close() { running = false; } };
+  const worker: DuelGameWorker = { get running() { return running; }, async create() {}, async view(seat) { reads.push(seat); if (blockedView) { blockedView.started(); await blockedView.wait; } return view(seat); }, async answer() {}, async search() { return []; }, async close() { running = false; } };
   const host = createDuelHost({ db, secret: SECRET, dataDirectory: DATA, searchCards: () => [], pollIntervalMs: 60_000, createWorker: () => worker }); hosts.push(host);
   const actor = { slug: session.slug, guildId: "g", playerId: players[0] };
   async function post(body: Record<string, unknown>) {
@@ -40,7 +41,14 @@ async function table(format: DuelFormat = "ffa3", eliminated = true) {
     return { status: response.status, data: await response.json() };
   }
   expect((await post({ op: "start" })).status).toBe(200);
-  return { db, duels, session, post, reads, view, pending: () => { pending = true; } };
+  function holdView() {
+    let release!: () => void;
+    let started!: () => void;
+    const entered = new Promise<void>(resolve => { started = resolve; });
+    blockedView = { started, wait: new Promise<void>(resolve => { release = resolve; }) };
+    return { entered, release };
+  }
+  return { db, duels, session, post, reads, view, holdView, pending: () => { pending = true; } };
 }
 
 it.each(["ffa3", "ffa4"] as const)("projects an eliminated %s player through the public worker view and preserves seats", async format => {
@@ -113,4 +121,57 @@ it.each(["tag", "1v1"] as const)("shows a seated %s player their own seat view w
   expect(result.status, JSON.stringify(result.data)).toBe(200);
   expect(result.data).toMatchObject({ role: "player", mySeat: 0, session: { status: "completed" } });
   expect(result.data.engine).toMatchObject({ ...seats[0], prioritySeat: null });
+});
+
+
+it.each(["completed", "interrupted"] as const)("does not retain %s views after the worker is disposed", async status => {
+  const writes = vi.spyOn(Map.prototype, "set");
+  let t: Awaited<ReturnType<typeof table>>;
+  let cached: Map<string, Map<number, DuelEngineView>>;
+  try {
+    t = await table();
+    const index = writes.mock.calls.findIndex(([key, value]) => key === t.session.slug && value instanceof Map);
+    expect(index).toBeGreaterThanOrEqual(0);
+    cached = writes.mock.contexts[index] as Map<string, Map<number, DuelEngineView>>;
+  } finally {
+    writes.mockRestore();
+  }
+  expect(cached!.get(t!.session.slug)?.has(0)).toBe(true);
+  finish(t!, status);
+  // Archive disposes the worker and clears all cached views of this duel.
+  expect((await t!.post({ op: "archive" })).status).toBe(200);
+  expect(cached!.has(t!.session.slug)).toBe(false);
+  for (const spectate of [false, true]) {
+    const result = await t!.post({ op: "view", spectate });
+    expect(result.status).toBe(200);
+    expect(result.data).toMatchObject({ role: "player", mySeat: 0, session: { status } });
+    expect(result.data.engine).not.toBeNull();
+    expect(cached!.has(t!.session.slug)).toBe(false);
+  }
+});
+
+it("does not retain a public view that returns after disposal", async () => {
+  const writes = vi.spyOn(Map.prototype, "set");
+  let t: Awaited<ReturnType<typeof table>>;
+  let cached: Map<string, Map<number, DuelEngineView>>;
+  try {
+    t = await table();
+    const index = writes.mock.calls.findIndex(([key, value]) => key === t.session.slug && value instanceof Map);
+    expect(index).toBeGreaterThanOrEqual(0);
+    cached = writes.mock.contexts[index] as Map<string, Map<number, DuelEngineView>>;
+  } finally {
+    writes.mockRestore();
+  }
+  const held = t!.holdView();
+  const pending = t!.post({ op: "bug-context" });
+  try {
+    await held.entered;
+    finish(t!);
+    expect((await t!.post({ op: "archive" })).status).toBe(200);
+    expect(cached!.has(t!.session.slug)).toBe(false);
+  } finally {
+    held.release();
+  }
+  expect((await pending).status).toBe(200);
+  expect(cached!.has(t!.session.slug)).toBe(false);
 });
