@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { isSolidStateId, SOLID_STATE_IDS, solidFixture } from "@/components/duel/solid/fixtures/states";
 
 describe("3D mode preview fixtures", () => {
-  it("builds all seven states of the concept", () => {
-    expect([...SOLID_STATE_IDS]).toEqual(["m1", "summon", "battle", "chain", "damage", "m2", "end"]);
+  it("builds all eight states of the preview", () => {
+    expect([...SOLID_STATE_IDS]).toEqual(["m1", "summon", "battle", "chain", "chains", "damage", "m2", "end"]);
     for (const id of SOLID_STATE_IDS) {
       const { room } = solidFixture(id);
       expect(room.engine?.seats).toHaveLength(2);
