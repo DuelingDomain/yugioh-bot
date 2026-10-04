@@ -82,7 +82,7 @@ export function FlipStrike({ plan }: { plan: FlipStrikePlan }) {
           style={{ position: "absolute", left: from.left, top: from.top, width: from.width, height: from.height, opacity: 0, filter: "drop-shadow(0 0 14px rgb(190 140 255 / 0.85))", willChange: "transform, opacity" }}
         >
           <div
-            style={{ position: "absolute", top: "50%", left: "50%", width: cut.innerW, height: cut.innerH, translate: "-50% -50%" }}
+            style={{ position: "absolute", top: "50%", left: "50%", width: cut.innerW, height: cut.innerH, translate: "-50% -50%", rotate: cut.turn ? `${cut.turn}deg` : undefined }}
             dangerouslySetInnerHTML={{ __html: cut.html }}
           />
         </div>

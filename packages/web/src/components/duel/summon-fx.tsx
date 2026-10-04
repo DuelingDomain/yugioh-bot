@@ -32,6 +32,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { duelFxClock } from "./fx-clock";
+import { screenPose } from "./attack-fx";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
 import { cardArtUrl, isDefenseAt, LOCATION_GRAVE, LOCATION_PZONE, LOCATION_SZONE, TYPE_LINK, TYPE_XYZ } from "./constants";
 import {
@@ -239,7 +240,12 @@ type Geo = {
   overlayH: number;
   side: "you" | "opp";
   defense: boolean;
+  /** Set in a seat field of a multiplayer table (it defines --dfit): the field is turned, so the zone's box on screen is not the card's. */
+  seat?: SeatPose;
 };
+
+/** The card box of a zone inside a seat field: its edges, the screen angle of its top edge and the Defense fit. */
+type SeatPose = { turn: number; fit: number; w: number; h: number };
 
 /* ---------- small helpers ---------- */
 
@@ -264,6 +270,8 @@ function measure(overlay: HTMLElement, zone: HTMLElement): Geo | null {
   if (z.width < 4 || z.height < 4 || o.width < 4) return null;
   const h = z.height;
   const w = Math.min(z.width, h * CARD_ASPECT);
+  const fit = Number.parseFloat(getComputedStyle(zone).getPropertyValue("--dfit"));
+  const pose = Number.isFinite(fit) && fit > 0 ? screenPose(zone) : null;
   const cx = z.left - o.left + z.width / 2;
   const cy = z.top - o.top + z.height / 2;
   return {
@@ -278,8 +286,24 @@ function measure(overlay: HTMLElement, zone: HTMLElement): Geo | null {
     overlayH: o.height,
     side: zone.dataset.side === "opp" ? "opp" : "you",
     defense: zone.dataset.defense === "true",
+    seat: pose ? { turn: pose.turn, fit, w: Math.min(pose.w, pose.h * CARD_ASPECT), h: pose.h } : undefined,
   };
 }
+
+/** The geo of a card copy that lies in its zone the way the real card does: on the card's own box, not the turned field's bounding box. */
+function cardGeo(geo: Geo): Geo {
+  const seat = geo.seat;
+  if (!seat) return geo;
+  return { ...geo, left: geo.cx - seat.w / 2, top: geo.cy - seat.h / 2, w: seat.w, h: seat.h, radius: Math.max(2, seat.w * 0.05) };
+}
+
+/** Screen vector (dx, dy) as seen inside an element turned by `deg` and scaled by `scale` (the way CSS applies a turn, then a scale). */
+function localShift(dx: number, dy: number, deg: number, scale: number): Pt2 {
+  const rad = (deg * Math.PI) / 180;
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+  return [(dx * cos + dy * sin) / scale, (-dx * sin + dy * cos) / scale];
+}
+type Pt2 = [number, number];
 
 function placeAnchor(anchor: HTMLElement, geo: Geo): void {
   anchor.style.left = `${geo.left}px`;
@@ -720,10 +744,16 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
   const claimed = item.claim3d === true;
   useEffectSetup(overlay, item, done, ({ track, geo }) => {
     const defense = item.event.fromPosition == null ? geo.defense : isDefenseAt(item.event.zone?.location, item.event.fromPosition);
+    // In a seat field the stand-in repeats the field's turn (and the Defense fit), so it stays inside its zone.
+    const seat = geo.seat;
+    const cg = cardGeo(geo);
+    const turn = (seat?.turn ?? 0) + (defense ? 90 : 0);
+    const scale = seat && defense ? seat.fit : 1;
     if (anchor.current) {
-      placeAnchor(anchor.current, geo);
+      placeAnchor(anchor.current, cg);
       // The zone can already be empty. Keep the whole stand-in and every shard in its departure pose.
-      anchor.current.style.rotate = defense ? "90deg" : "";
+      anchor.current.style.rotate = turn ? `${turn}deg` : "";
+      anchor.current.style.scale = scale !== 1 ? String(scale) : "";
     }
     const d = item.delayMs;
     const breakAt = item.breakMs ?? (item.event.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs);
@@ -744,8 +774,7 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
     const screenDx = gyGeo ? gyGeo.cx - geo.cx : 0;
     const screenDy = gyGeo ? gyGeo.cy - geo.cy : geo.side === "opp" ? -geo.h : geo.h;
     // Shard motion is local to the rotated anchor; its destination remains in screen space.
-    const dxGy = defense ? screenDy : screenDx;
-    const dyGy = defense ? -screenDx : screenDy;
+    const [dxGy, dyGy] = seat ? localShift(screenDx, screenDy, turn, scale) : defense ? [screenDy, -screenDx] : [screenDx, screenDy];
 
     // The card stands as it was until the break, with a red rim and the fissures appearing.
     track.play(
@@ -771,8 +800,8 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
       if (!el || !shard || handoff) return;
       const ox = (shard.cx - 50) / 50;
       const oy = (shard.cy - 50) / 50;
-      const burstX = ox * geo.w * (0.32 + rand() * 0.22);
-      const burstY = oy * geo.h * (0.2 + rand() * 0.14) - geo.h * 0.05;
+      const burstX = ox * cg.w * (0.32 + rand() * 0.22);
+      const burstY = oy * cg.h * (0.2 + rand() * 0.14) - cg.h * 0.05;
       const spin = (rand() - 0.5) * 70 + ox * 24;
       const lag = rand() * 100;
       const flyX = dxGy * (0.7 + rand() * 0.25) + burstX * 0.3;

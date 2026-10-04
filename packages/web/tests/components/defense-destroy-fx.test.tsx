@@ -76,3 +76,52 @@ describe("Defense Position casualty presentation", () => {
     expect(flight![0][0].transform).toContain(`rotate(${viewer === 1 ? 90 : 270}.00deg)`);
   });
 });
+
+describe("Casualty in a turned seat field", () => {
+  const TURN = 30;
+  /** The zone sits in a seat field turned by TURN degrees: its corners (and probes put on them) are turned around the zone's top-left. */
+  function turnField(fit: number) {
+    const zone = board.firstElementChild as HTMLElement;
+    zone.style.position = "relative";
+    zone.style.setProperty("--dfit", String(fit));
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const own = this.closest("[data-zones]");
+      if (this !== own && own && this.getAttribute("aria-hidden") === "true") {
+        const el = this as HTMLElement;
+        const x = el.style.left === "100%" ? 70 : 0, y = el.style.top === "100%" ? 100 : 0;
+        const rad = (TURN * Math.PI) / 180;
+        return { left: 100 + x * Math.cos(rad) - y * Math.sin(rad), top: 100 + x * Math.sin(rad) + y * Math.cos(rad), width: 0, height: 0 } as DOMRect;
+      }
+      return { left: own?.getAttribute("data-zones") === "1:16:0" ? 450 : 100, top: 100, width: own ? 70 : 1200, height: own ? 100 : 900 } as DOMRect;
+    });
+    return zone;
+  }
+  function stand(defense: boolean) {
+    const { container, rerender } = render(<SummonFx events={[]} duelKey="defense" reducedMotion={false} shake="off" />);
+    rerender(<SummonFx events={[{ ...destroy, fromPosition: defense ? 4 : 1 }]} duelKey="defense" reducedMotion={false} shake="off" />);
+    return container.querySelector('img[src*="/cards/"]')!.parentElement!.parentElement as HTMLElement;
+  }
+
+  it("turns the stand-in with its field and keeps the card box of the zone", () => {
+    turnField(0.686).setAttribute("data-side", "opp");
+    const anchor = stand(false);
+    expect(anchor.style.rotate).toBe(`${TURN}deg`);
+    expect(anchor.style.scale).toBe("");
+    expect(Number.parseFloat(anchor.style.height)).toBeCloseTo(100, 3);
+  });
+
+  it("lays a Defense stand-in on its side, at the field's Defense fit, in the field's turn", () => {
+    turnField(0.686).setAttribute("data-side", "opp");
+    document.querySelector("[data-zones='1:4:0']")!.setAttribute("data-defense", "true");
+    const anchor = stand(true);
+    expect(anchor.style.rotate).toBe(`${TURN + 90}deg`);
+    expect(anchor.style.scale).toBe("0.686");
+  });
+
+  it("leaves a 1v1 zone (no seat field) as it was", () => {
+    const anchor = stand(false);
+    expect(anchor.style.rotate).toBe("");
+    expect(anchor.style.scale).toBe("");
+  });
+});
+
