@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chain responses switch: workshop</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sofia+Sans+Semi+Condensed:wght@400;500;600&family=Sofia+Sans+Extra+Condensed:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* Tokens copied from station-track.module.css and the duel shell. */
+:root {
+  --ground: #070b15;
+  --floor: #050811;
+  --panel: #0a1120;
+  --panel-2: #0e1729;
+  --panel-3: #132037;
+  --ink: #efe7d5;
+  --ink-2: #c3bba8;
+  --ink-3: #958f81;
+  --rule-rgb: 181 153 99;
+  --rule: rgb(var(--rule-rgb) / 0.34);
+  --rule-lo: rgb(var(--rule-rgb) / 0.2);
+  --rule-hi: rgb(var(--rule-rgb) / 0.66);
+  --gold: rgb(var(--rule-rgb));
+  --gold-ink: #dcc58f;
+  --pen: #9b7eff;
+  --pen-ink: #c6b6ff;
+  --pen-fill: #5733d1;
+  --focus: #ddd2ff;
+  --font: "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
+  --num: "Sofia Sans Extra Condensed", "Arial Narrow", sans-serif;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 32px 32px 80px; background: #03050b; color: #d8d4c8; font: 400 15px/1.5 var(--font); }
+h1 { margin: 0 0 6px; font-size: 26px; font-weight: 600; color: var(--ink); }
+h2 { margin: 44px 0 4px; font-size: 19px; font-weight: 600; color: var(--ink); }
+h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; color: var(--ink); }
+p { margin: 0 0 10px; max-width: 760px; }
+.lede { max-width: 820px; color: var(--ink-2); }
+.dim { color: var(--ink-3); }
+code, kbd { font: 500 12.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+kbd { display: inline-block; min-width: 20px; padding: 3px 6px; border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 5px; background: var(--panel-2); color: var(--ink); text-align: center; }
+.tag { display: inline-block; margin-left: 8px; padding: 1px 8px; border: 1px solid var(--rule-lo); border-radius: 999px; color: var(--ink-3); font-size: 11.5px; font-weight: 500; vertical-align: 2px; }
+.tag.pick { border-color: var(--pen); color: var(--pen-ink); }
+.grid { display: grid; gap: 28px; align-items: start; }
+.cap { margin: 10px 0 0; max-width: 560px; color: var(--ink-3); font-size: 13.5px; }
+.cap b { color: var(--ink-2); font-weight: 500; }
+.wide .cap { max-width: 1120px; }
+.grid > div, .flow { min-width: 0; max-width: 100%; }
+.label { margin: 14px 0 8px; color: var(--ink-3); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* =============== mock frames =============== */
+.frame { position: relative; overflow: hidden; border: 1px solid #1a2030; border-radius: 8px; background: var(--floor); }
+.frame.desk { width: 1280px; }
+.scroll { max-width: 100%; overflow-x: auto; }
+.frame.phone { width: 390px; }
+
+.mhead { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 16px; border-bottom: 1px solid var(--rule-lo); background: var(--panel); color: var(--ink-2); font-size: 14px; }
+.mhead strong { color: var(--ink); font-weight: 600; }
+.mhead .pill { margin-left: 10px; padding: 2px 10px; border: 1px solid var(--pen); border-radius: 999px; color: var(--pen-ink); font-size: 12.5px; }
+.mhead .pill.opp { border-color: rgb(217 141 82 / .7); color: #e7b48b; }
+.mhead .r { color: var(--ink-3); font-size: 12.5px; }
+.board { position: relative; height: 170px; background:
+  repeating-linear-gradient(90deg, rgb(181 153 99 / .05) 0 1px, transparent 1px 86px),
+  repeating-linear-gradient(0deg, rgb(181 153 99 / .05) 0 1px, transparent 1px 56px),
+  linear-gradient(#070d1b, #050811); }
+.board > span.t { position: absolute; left: 16px; top: 12px; color: var(--ink-3); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+.tray { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; padding: 10px 14px; border: 1px solid var(--pen); border-radius: 10px; background: rgb(14 23 41 / .96); color: var(--ink); font-size: 14px; white-space: nowrap; box-shadow: 0 14px 30px -14px rgb(87 51 209 / .8); }
+.tray b { font-weight: 600; }
+.tray .btn { height: 30px; padding: 0 12px; border: 1px solid var(--rule); border-radius: 7px; background: transparent; color: var(--ink-2); font: inherit; font-size: 13px; }
+.tray .btn.go { border-color: rgb(255 255 255 / .16); background: var(--pen-fill); color: #fff; }
+
+/* ---- track (bottom bar) ---- */
+.track { display: grid; grid-template-columns: minmax(230px, 1fr) minmax(0, 32rem) minmax(520px, 1.2fr); align-items: center; height: 68px; background: linear-gradient(rgb(7 11 21 / .96), rgb(5 8 15 / .98)); border-top: 1px solid var(--rule); color: var(--ink); font-size: 14px; }
+.seat { display: flex; align-items: center; gap: 10px; padding: 0 12px 0 18px; }
+.lamp { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--pen); box-shadow: 0 0 10px var(--pen); }
+.lamp.opp { background: #d98d52; box-shadow: 0 0 10px #d98d52; }
+.seat strong { display: block; font-size: 15px; font-weight: 500; line-height: 1.1; }
+.seat small { color: var(--ink-3); font-size: 12.5px; }
+.rail { display: grid; gap: 4px; justify-items: center; }
+.plates { display: flex; align-items: center; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.plates li { display: grid; justify-items: center; width: 50px; padding: 4px 0 3px; border: 1px solid var(--rule-lo); border-radius: 7px; color: var(--ink-3); line-height: 1.05; }
+.plates li b { font: 600 15px/1 var(--num); color: var(--ink-2); }
+.plates li small { font-size: 10.5px; }
+.plates li.on { width: 62px; padding: 6px 0 4px; border-color: var(--pen); background: rgb(155 126 255 / .16); color: var(--ink); box-shadow: 0 0 14px -4px rgb(155 126 255 / .7); }
+.plates li.on.opp { border-color: rgb(217 141 82 / .8); background: rgb(217 141 82 / .14); box-shadow: 0 0 14px -4px rgb(217 141 82 / .6); }
+.plates li.on b { color: #fff; }
+.plates li.done { border-color: rgb(var(--rule-rgb) / .45); }
+.cap-line { color: var(--ink-3); font-size: 12.5px; white-space: nowrap; }
+.cap-line b { color: var(--pen-ink); font-weight: 500; }
+.actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 0 16px 0 8px; }
+.act-sec { height: 40px; padding: 0 14px; border: 1px solid var(--rule); border-radius: 8px; background: transparent; color: var(--ink-2); font: inherit; font-size: 14px; white-space: nowrap; }
+.act-sec:disabled { opacity: .45; }
+.act-pri { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px 0 18px; border: 1px solid rgb(255 255 255 / .16); border-radius: 8px; background: var(--pen-fill); color: #fff; font: inherit; font-size: 16px; font-weight: 500; box-shadow: 0 10px 22px -10px rgb(87 51 209); white-space: nowrap; }
+.sep { flex: none; width: 1px; height: 30px; background: var(--rule-lo); }
+
+/* =============== THE SWITCH (this is what gets built) =============== */
+.rs { display: inline-flex; align-items: center; gap: 8px; }
+.rs-label { display: grid; gap: 3px; justify-items: start; color: var(--ink-3); font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; line-height: 1; white-space: nowrap; }
+.rs-label kbd { min-width: 0; padding: 2px 5px; border-bottom-width: 1px; font-size: 10px; letter-spacing: 0; color: var(--ink-3); background: transparent; border-color: var(--rule-lo); }
+.rs-seg { display: inline-flex; padding: 2px; border: 1px solid var(--rule-lo); border-radius: 9px; background: var(--panel-2); }
+.rs-seg button { height: 30px; min-width: 54px; padding: 0 11px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--ink-3); font: 500 14px/1 var(--font); cursor: pointer; transition: background-color .18s var(--ease), border-color .18s var(--ease), color .18s var(--ease); }
+.rs-seg button:hover { color: var(--ink); }
+.rs-seg button[aria-checked="true"] { border-color: rgb(155 126 255 / .85); background: rgb(155 126 255 / .18); color: var(--pen-ink); }
+.rs-seg button[aria-checked="true"][data-mode="off"] { border-color: rgb(var(--rule-rgb) / .85); background: rgb(var(--rule-rgb) / .16); color: var(--gold-ink); }
+.rs-seg button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.rs.is-off .rs-seg { border-color: rgb(var(--rule-rgb) / .5); }
+
+/* phone */
+.phone .track { display: block; height: auto; }
+.phone .row1 { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px 4px; }
+.phone .row1 .seat { padding: 0; }
+.phone .row1 .seat strong { display: inline; }
+.phone .row2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 14px 10px; }
+.phone .row2 .plates { gap: 4px; min-width: 0; }
+.phone .row2 .plates li { width: 28px; padding: 6px 0; }
+.phone .row2 .plates li.on { width: 36px; padding: 8px 0; }
+.phone .row2 .act-sec { height: 38px; padding: 0 9px; font-size: 13px; }
+.phone .row2 .act-pri { height: 38px; padding: 0 10px; font-size: 14px; }
+.phone .row3 { display: flex; align-items: center; padding: 8px 14px 10px; border-top: 1px solid var(--rule-lo); }
+.phone .row3 .rs { flex: 1; }
+.phone .row3 .rs-seg { flex: 1; }
+.phone .row3 .rs-seg button { flex: 1; height: 36px; min-width: 0; }
+.phone .tabs { display: grid; grid-template-columns: repeat(3, 1fr); height: 40px; border-top: 1px solid var(--rule-lo); background: var(--panel); text-align: center; line-height: 40px; color: var(--ink-2); font-size: 14px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid rgb(155 126 255 / .55); border-radius: 999px; background: rgb(155 126 255 / .12); color: var(--pen-ink); font: 500 13px/1 var(--font); white-space: nowrap; }
+.chip small { color: var(--ink-3); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+.pop { margin: 0 14px 8px; padding: 6px; border: 1px solid var(--rule); border-radius: 12px; background: var(--panel-2); }
+.pop div { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 12px; border-radius: 8px; color: var(--ink-2); font-size: 15px; }
+.pop div small { color: var(--ink-3); font-size: 12.5px; }
+.pop div.on { background: rgb(155 126 255 / .16); color: var(--pen-ink); }
+
+.flow { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.flow .arrow { color: var(--gold-ink); font-size: 24px; }
+
+table { border-collapse: collapse; margin: 12px 0 0; font-size: 14px; }
+th, td { padding: 8px 14px; border: 1px solid var(--rule-lo); text-align: left; vertical-align: top; }
+th { color: var(--ink-3); font-weight: 500; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; background: var(--panel); }
+td b { color: var(--ink); font-weight: 600; }
+ul { margin: 6px 0 12px; padding-left: 20px; max-width: 800px; }
+li { margin: 4px 0; }
+.shots { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+.shots figure { margin: 0; max-width: 100%; }
+.shots img { display: block; max-width: 100%; border: 1px solid #1a2030; border-radius: 6px; }
+.shots figcaption { margin-top: 6px; color: var(--ink-3); font-size: 12.5px; }
+@media (max-width: 700px) { body { padding: 20px 16px 60px; } .frame.phone { width: 100%; } .frame[style*="520px"] { width: 100% !important; } .grid[style] { grid-template-columns: minmax(0, 1fr) !important; } }
+</style>
+</head>
+<body>
+
+<h1>Chain responses switch</h1>
+<p class="lede">A per-player switch with three states: <b>Auto</b>, <b>Always</b>, <b>Off</b>. It decides when the duel stops for <i>your</i> response windows. The opponent sees the duel pause when you are asked, so the switch is how you stop giving away that you hold a card, or bluff that you do. Only you see it, and the server applies it, so a switch never shows up as a delay on their side.</p>
+
+<h2>1. Where it lives</h2>
+<p>In the bottom station track, right side, just before End Turn. All three shells already mount the same <code>StationTrack</code> (the 1v1 room, the 3 and 4 seat table, the Rooftop), so one component with one slot covers them. It is always visible, never inside a menu, and does not move when the phase changes.</p>
+
+<p><b>Width note.</b> The switch adds about 190 px to the right cluster, which today is about 280 px. The real track needs its right column raised to a 520 px minimum from 1280 px up (the seat tables already do this at 380 to 520 px). Between 900 and 1279 px the "Responses" label and the key cap hide and only the three segments show. Below 900 px it becomes the third phone row.</p>
+<p class="label">1v1 room, desktop, three states</p>
+<div class="grid wide">
+
+  <div id="f-auto">
+    <div class="scroll"><div class="frame desk">
+      <div class="mhead"><span><strong>Turn 5</strong> &nbsp;Main Phase 1 <span class="pill">Your turn</span></span><span class="r">MR5 &middot; 1v1 &nbsp;&middot;&nbsp; Live duel</span></div>
+      <div class="board"><span class="t">Duel field</span></div>
+      <div class="track">
+        <div class="seat"><i class="lamp"></i><div><strong>Aster Vale</strong><small>Turn 5</small></div></div>
+        <div class="rail"><ol class="plates"><li class="done"><b>DP</b><small>Draw</small></li><li class="done"><b>SP</b><small>Standby</small></li><li class="on"><b>M1</b><small>Main 1</small></li><li><b>BP</b><small>Battle</small></li><li><b>M2</b><small>Main 2</small></li><li><b>EP</b><small>End</small></li></ol><span class="cap-line">Main 1 &middot; Summon or Set a monster &middot; <b>Next: Battle</b></span></div>
+        <div class="actions">
+          <div class="rs" role="radiogroup" aria-label="Chain responses">
+            <span class="rs-label">Responses<kbd>R</kbd></span>
+            <div class="rs-seg">
+              <button role="radio" aria-checked="true" data-mode="auto" title="Ask only when a card can respond">Auto</button>
+              <button role="radio" aria-checked="false" data-mode="always" title="Ask at every window that lists a card">Always</button>
+              <button role="radio" aria-checked="false" data-mode="off" title="Skip response windows. Trigger effects still ask.">Off</button>
+            </div>
+          </div>
+          <i class="sep"></i>
+          <button class="act-sec">End Turn</button>
+          <button class="act-pri">To Battle &rarr;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+    <p class="cap"><b>Auto</b> (default for 1v1). Ask only when a listed card fits the window. This is how the room behaves today.</p>
+  </div>
+
+  <div id="f-always">
+    <div class="scroll"><div class="frame desk">
+      <div class="mhead"><span><strong>Turn 5</strong> &nbsp;Main Phase 1 <span class="pill opp">Mirelle's turn</span></span><span class="r">MR5 &middot; 1v1 &nbsp;&middot;&nbsp; Live duel</span></div>
+      <div class="board"><span class="t">Duel field</span>
+        <div class="tray"><span><b>Select a chain link or pass</b> &nbsp;<span class="dim">No card here fits this window</span></span><button class="btn">Pass</button><button class="btn go">Dimensional Barrier</button></div>
+      </div>
+      <div class="track">
+        <div class="seat"><i class="lamp opp"></i><div><strong>Mirelle</strong><small>Turn 5</small></div></div>
+        <div class="rail"><ol class="plates"><li class="done"><b>DP</b><small>Draw</small></li><li class="done"><b>SP</b><small>Standby</small></li><li class="on opp"><b>M1</b><small>Main 1</small></li><li><b>BP</b><small>Battle</small></li><li><b>M2</b><small>Main 2</small></li><li><b>EP</b><small>End</small></li></ol><span class="cap-line">Mirelle's Main Phase 1</span></div>
+        <div class="actions">
+          <div class="rs" role="radiogroup" aria-label="Chain responses">
+            <span class="rs-label">Responses<kbd>R</kbd></span>
+            <div class="rs-seg">
+              <button role="radio" aria-checked="false" data-mode="auto">Auto</button>
+              <button role="radio" aria-checked="true" data-mode="always">Always</button>
+              <button role="radio" aria-checked="false" data-mode="off">Off</button>
+            </div>
+          </div>
+          <i class="sep"></i>
+          <button class="act-sec" disabled>End Turn</button>
+        </div>
+      </div>
+    </div>
+  </div>
+    <p class="cap"><b>Always</b> (default for 3 and 4 seat tables and scenarios). Stop at every window that lists one of your cards, even when none fits. Mirelle cannot tell this pause from a real one, so it bluffs.</p>
+  </div>
+
+  <div id="f-off">
+    <div class="scroll"><div class="frame desk">
+      <div class="mhead"><span><strong>Turn 5</strong> &nbsp;Standby Phase <span class="pill opp">Mirelle's turn</span></span><span class="r">MR5 &middot; 1v1 &nbsp;&middot;&nbsp; Live duel</span></div>
+      <div class="board"><span class="t">Duel field</span></div>
+      <div class="track">
+        <div class="seat"><i class="lamp opp"></i><div><strong>Mirelle</strong><small>Turn 5</small></div></div>
+        <div class="rail"><ol class="plates"><li class="done"><b>DP</b><small>Draw</small></li><li class="on opp"><b>SP</b><small>Standby</small></li><li><b>M1</b><small>Main 1</small></li><li><b>BP</b><small>Battle</small></li><li><b>M2</b><small>Main 2</small></li><li><b>EP</b><small>End</small></li></ol><span class="cap-line">Mirelle's Standby Phase</span></div>
+        <div class="actions">
+          <div class="rs is-off" role="radiogroup" aria-label="Chain responses">
+            <span class="rs-label">Responses<kbd>R</kbd></span>
+            <div class="rs-seg">
+              <button role="radio" aria-checked="false" data-mode="auto">Auto</button>
+              <button role="radio" aria-checked="false" data-mode="always">Always</button>
+              <button role="radio" aria-checked="true" data-mode="off">Off</button>
+            </div>
+          </div>
+          <i class="sep"></i>
+          <button class="act-sec" disabled>End Turn</button>
+        </div>
+      </div>
+    </div>
+  </div>
+    <p class="cap"><b>Off</b>. Response windows pass at once on the server, even with a legal card, so the opponent sees no pause. Forced effects, mandatory triggers and costs still ask. Optional trigger effects still ask. Gold, not violet, because this is the state that can cost you a play.</p>
+  </div>
+</div>
+
+<h2>2. Flipping while a window is open</h2>
+<p>The switch is live. Changing it applies to the next window and to one that is already open: flip to <b>Off</b> with a "Select a chain link or pass" tray showing and the window passes on the spot. No confirmation, no extra "Pass now" button. The same rule runs for Auto, so flipping from Always to Auto passes an open window where nothing fits.</p>
+<div class="flow" id="f-flip">
+  <div class="frame" style="width:520px;height:150px">
+    <div class="board" style="height:150px"><span class="t">Window open (Always)</span>
+      <div class="tray" style="bottom:46px"><span><b>Select a chain link or pass</b></span><button class="btn">Pass</button><button class="btn go">Dimensional Barrier</button></div>
+      <div class="rs" style="position:absolute;right:14px;bottom:8px"><span class="rs-label">Responses</span><div class="rs-seg"><button role="radio" aria-checked="false">Auto</button><button role="radio" aria-checked="true">Always</button><button role="radio" aria-checked="false" data-mode="off">Off</button></div></div>
+    </div>
+  </div>
+  <span class="arrow">&rarr;</span>
+  <div class="frame" style="width:520px;height:150px">
+    <div class="board" style="height:150px"><span class="t">Passed on the server</span>
+      <div class="rs is-off" style="position:absolute;right:14px;bottom:8px"><span class="rs-label">Responses</span><div class="rs-seg"><button role="radio" aria-checked="false">Auto</button><button role="radio" aria-checked="false">Always</button><button role="radio" aria-checked="true" data-mode="off">Off</button></div></div>
+    </div>
+  </div>
+</div>
+<p class="cap">If you click a card at the same moment you flip to Off, the switch usually wins and the click comes back as "That choice is stale". The room already handles that message.</p>
+
+<h2>3. Phone (390 px)</h2>
+<p>A phone has no spare width in the track, so two options. Both keep the current state visible without opening anything.</p>
+<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(390px,max-content))">
+
+  <div id="f-phone-a">
+    <h3>P1. Slim third row <span class="tag pick">Recommended</span></h3>
+    <div class="frame phone">
+      <div class="mhead"><span><strong>Turn 5</strong> &nbsp;Main 1 <span class="pill">Your turn</span></span></div>
+      <div class="board" style="height:150px"><span class="t">Duel field</span></div>
+      <div class="track">
+        <div class="row1"><div class="seat"><i class="lamp"></i><span><strong>Aster Vale</strong> <small>Turn 5</small></span></div><span class="cap-line">Main 1 &middot; <b>Next: Battle</b></span></div>
+        <div class="row2"><ol class="plates"><li class="done"><b>DP</b></li><li class="done"><b>SP</b></li><li class="on"><b>M1</b></li><li><b>BP</b></li><li><b>M2</b></li><li><b>EP</b></li></ol><span style="display:flex;gap:6px"><button class="act-sec">End</button><button class="act-pri">To Battle &rarr;</button></span></div>
+        <div class="row3">
+          <div class="rs" role="radiogroup" aria-label="Chain responses"><span class="rs-label">Responses</span>
+            <div class="rs-seg"><button role="radio" aria-checked="true" data-mode="auto">Auto</button><button role="radio" aria-checked="false" data-mode="always">Always</button><button role="radio" aria-checked="false" data-mode="off">Off</button></div>
+          </div>
+        </div>
+        <div class="tabs"><span>Card</span><span>Log</span><span>Settings</span></div>
+      </div>
+    </div>
+    <p class="cap">A 36 px row of full-width segments, one tap per state. It costs 46 px of board height.</p>
+  </div>
+
+  <div id="f-phone-a-off">
+    <h3>P1 in Off</h3>
+    <div class="frame phone">
+      <div class="mhead"><span><strong>Turn 5</strong> &nbsp;Standby <span class="pill opp">Mirelle's turn</span></span></div>
+      <div class="board" style="height:150px"><span class="t">Duel field</span></div>
+      <div class="track">
+        <div class="row1"><div class="seat"><i class="lamp opp"></i><span><strong>Mirelle</strong> <small>Turn 5</small></span></div><span class="cap-line">Standby Phase</span></div>
+        <div class="row2"><ol class="plates"><li class="done"><b>DP</b></li><li class="on opp"><b>SP</b></li><li><b>M1</b></li><li><b>BP</b></li><li><b>M2</b></li><li><b>EP</b></li></ol><span style="display:flex;gap:6px"><button class="act-sec" disabled>End</button></span></div>
+        <div class="row3">
+          <div class="rs is-off" role="radiogroup" aria-label="Chain responses"><span class="rs-label">Responses</span>
+            <div class="rs-seg"><button role="radio" aria-checked="false" data-mode="auto">Auto</button><button role="radio" aria-checked="false" data-mode="always">Always</button><button role="radio" aria-checked="true" data-mode="off">Off</button></div>
+          </div>
+        </div>
+        <div class="tabs"><span>Card</span><span>Log</span><span>Settings</span></div>
+      </div>
+    </div>
+    <p class="cap">The same row with Off set. Gold, so a glance at the board shows you are not being asked.</p>
+  </div>
+
+  <div id="f-phone-b">
+    <h3>P2. Chip and sheet <span class="tag">Alternative</span></h3>
+    <div class="frame phone">
+      <div class="mhead"><span><strong>Turn 5</strong> &nbsp;Main 1 <span class="pill">Your turn</span></span></div>
+      <div class="board" style="height:100px"><span class="t">Duel field</span></div>
+      <div class="pop" style="margin-top:8px">
+        <div><span>Auto</span><small>Ask when a card fits</small></div>
+        <div class="on"><span>Always</span><small>Ask at every window</small></div>
+        <div><span>Off</span><small>Skip response windows</small></div>
+      </div>
+      <div class="track">
+        <div class="row1"><div class="seat"><i class="lamp"></i><span><strong>Aster Vale</strong> <small>Turn 5</small></span></div><span class="chip"><small>Resp</small>Always</span></div>
+        <div class="row2"><ol class="plates"><li class="done"><b>DP</b></li><li class="done"><b>SP</b></li><li class="on"><b>M1</b></li><li><b>BP</b></li><li><b>M2</b></li><li><b>EP</b></li></ol><span style="display:flex;gap:6px"><button class="act-sec">End</button><button class="act-pri">To Battle &rarr;</button></span></div>
+        <div class="tabs"><span>Card</span><span>Log</span><span>Settings</span></div>
+      </div>
+    </div>
+    <p class="cap">No extra height, but two taps to change. Use it only if the owner would rather keep the 46 px for the board.</p>
+  </div>
+</div>
+
+<h2>4. States</h2>
+<div class="scroll"><table>
+  <tr><th>State</th><th>A listed card fits the window</th><th>A listed card does not fit</th><th>Optional trigger</th><th>Forced / mandatory</th></tr>
+  <tr><td><b>Auto</b></td><td>Asks</td><td>Passes silently (asks in the Draw and Standby Phase)</td><td>Asks</td><td>Asks</td></tr>
+  <tr><td><b>Always</b></td><td>Asks</td><td>Asks</td><td>Asks</td><td>Asks</td></tr>
+  <tr><td><b>Off</b></td><td>Passes</td><td>Passes</td><td>Asks</td><td>Asks</td></tr>
+</table></div>
+<p class="cap">A window that lists no card of yours passes by itself in every state. Prompts for a card's own choices (a yes/no inside an effect, choosing targets) are not response windows and are not affected.</p>
+
+<h2>5. Behaviour of the control</h2>
+<ul>
+  <li><b>Keyboard.</b> <kbd>R</kbd> flips between Off and your last "on" state (Auto or Always). The three segments also take Arrow keys and Space as a radio group. <kbd>R</kbd> is free in every shell: the table camera uses <code>h o f s a k c p</code> and digits, the Rooftop adds <code>q e i v</code>, bug marks use <code>M</code>, prompts use <code>F</code>, digits, Enter and Esc. It is ignored while typing, under a dialog, or with Ctrl, Cmd or Alt held.</li>
+  <li><b>Announce.</b> A polite live region says "Responses: Off". Colour is never the only signal; the state is also the word.</li>
+  <li><b>Motion.</b> A 180 ms colour change on the segments, nothing else. Nothing moves, so there is nothing for reduced motion to remove.</li>
+  <li><b>Remembered.</b> Auto and Always are remembered in this browser and applied when a new duel starts. Off is not: it resets to the duel default, so a forgotten Off cannot carry into next week's duel.</li>
+  <li><b>Hidden</b> for spectators, replays, finished duels, and scenario or preset duels (those are written against every window).</li>
+  <li><b>Failure.</b> If the request fails the segment snaps back and the existing action error banner shows the message.</li>
+</ul>
+
+<h2>6. Screenshots</h2>
+<div class="shots" id="shots-list"></div>
+<script>
+const names = [["f-auto","1v1 desktop, Auto"],["f-always","1v1 desktop, Always, window open"],["f-off","1v1 desktop, Off"],["f-phone-a","Phone P1, Auto"],["f-phone-a-off","Phone P1, Off"],["f-phone-b","Phone P2, sheet open"]];
+const box = document.getElementById("shots-list");
+for (const [id, text] of names) {
+  const fig = document.createElement("figure");
+  const img = new Image(); img.src = "shots/" + id + ".png"; img.alt = text;
+  img.style.maxWidth = id.startsWith("f-phone") ? "min(300px, 100%)" : "min(560px, 100%)";
+  img.onerror = () => fig.remove();
+  const cap = document.createElement("figcaption"); cap.textContent = text;
+  fig.append(img, cap); box.append(fig);
+}
+</script>
+</body>
+</html>
