@@ -1,0 +1,170 @@
+// @vitest-environment jsdom
+import React from "react";
+import { act, cleanup, render } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("next/font/google", () => {
+  const font = () => ({ variable: "font-var", className: "font-class" });
+  return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
+});
+
+import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
+import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
+import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
+import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
+import { TableShell } from "@/components/duel/table/table-shell";
+
+beforeAll(() => {
+  class RO {
+    constructor(private cb: () => void) {}
+    observe() { this.cb(); }
+    disconnect() {}
+    unobserve() {}
+  }
+  vi.stubGlobal("ResizeObserver", RO);
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1100 });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 860 });
+});
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
+/** The fixture state with some seats out: boards and hands emptied, as the engine view does. */
+function withOut(state: TableFixtureState, seats: readonly number[]): TableFixtureState {
+  const engine = state.room.engine!;
+  return {
+    ...state,
+    room: {
+      ...state.room,
+      engine: {
+        ...engine,
+        seats: engine.seats.map((view) =>
+          seats.includes(view.seat)
+            ? { ...view, lp: 0, eliminated: true, hand: [], monsters: view.monsters.map(() => null), spells: view.spells.map(() => null) }
+            : view,
+        ),
+      },
+    },
+  };
+}
+
+function Shell({ state, reducedMotion = false }: { state: TableFixtureState; reducedMotion?: boolean }) {
+  const controller = useFixtureController(state, { reducedMotion });
+  return <TableShell controller={controller} />;
+}
+
+const placeOf = (container: HTMLElement, seat: number) => {
+  const node = container.querySelector<HTMLElement>(`[data-seat-slot='${seat}']`);
+  return node ? { transform: node.style.transform, hidden: node.hidden } : null;
+};
+const places = (container: HTMLElement, seats: readonly number[]) => Object.fromEntries(seats.map((seat) => [seat, placeOf(container, seat)]));
+const crumbles = (container: HTMLElement) => container.querySelectorAll("[data-seat-exit]").length;
+const ringTones = (container: HTMLElement) =>
+  [...container.querySelectorAll("[data-lp-seat]")].map((node) => `${node.getAttribute("data-lp-seat")}:${(node as HTMLElement).style.getPropertyValue("--seat-main")}`);
+const settle = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
+
+describe("the elimination crumble on a 4-way table", () => {
+  const main = FFA4_FIXTURES.states.main;
+
+  it("keeps every place after 4 to 3 and after 3 to 2, and the crumble mounts then unmounts", () => {
+    const { container, rerender } = render(<Shell state={main} />);
+    const before = places(container, [0, 1, 2, 3]);
+    expect(crumbles(container)).toBe(0);
+
+    rerender(<Shell state={withOut(main, [3])} />);
+    expect(crumbles(container)).toBe(1);
+    expect(container.querySelector("[data-seat-exit='3']")).not.toBeNull();
+    // The seat that left has no live board any more, the others did not move.
+    expect(container.querySelector("[data-seat-slot='3']")).toBeNull();
+    expect(places(container, [0, 1, 2])).toEqual({ 0: before[0], 1: before[1], 2: before[2] });
+    settle(2000);
+    expect(crumbles(container)).toBe(0);
+    expect(places(container, [0, 1, 2])).toEqual({ 0: before[0], 1: before[1], 2: before[2] });
+
+    rerender(<Shell state={withOut(main, [3, 2])} />);
+    expect(container.querySelector("[data-seat-exit='2']")).not.toBeNull();
+    expect(places(container, [0, 1])).toEqual({ 0: before[0], 1: before[1] });
+    settle(2000);
+    expect(crumbles(container)).toBe(0);
+    expect(places(container, [0, 1])).toEqual({ 0: before[0], 1: before[1] });
+  });
+
+  it("keeps the panels of the seats that left, and notes them in the log with a place", () => {
+    const { container, rerender } = render(<Shell state={main} />);
+    rerender(<Shell state={withOut(main, [3])} />);
+    settle(2000);
+    expect(container.querySelector("[data-lp-seat='3']")).not.toBeNull();
+    const note = container.querySelector("[data-testid='seat-out']");
+    expect(note?.textContent).toContain("is out");
+    expect(note?.getAttribute("data-fresh")).toBe("true");
+  });
+
+  it("does not crumble when the seats are already out on the first render", () => {
+    const { container } = render(<Shell state={withOut(main, [2, 3])} />);
+    expect(crumbles(container)).toBe(0);
+    expect(container.querySelector("[data-crumble]")).toBeNull();
+    expect(container.querySelector("[data-seat-slot='2']")).toBeNull();
+    expect(container.querySelector("[data-seat-slot='1']")).not.toBeNull();
+    for (const note of container.querySelectorAll("[data-testid='seat-out']")) expect(note.hasAttribute("data-fresh")).toBe(false);
+    settle(2000);
+    expect(crumbles(container)).toBe(0);
+  });
+
+  it("uses a short fade and no pieces under reduced motion", () => {
+    const { container, rerender } = render(<Shell state={main} reducedMotion />);
+    rerender(<Shell state={withOut(main, [3])} reducedMotion />);
+    expect(container.querySelector("[data-seat-exit='3']")?.getAttribute("data-exit-motion")).toBe("reduced");
+    expect(container.querySelector("[data-crumble='reduced']")).not.toBeNull();
+    settle(700);
+    expect(crumbles(container)).toBe(0);
+  });
+
+  it("shows a Spectating chip and drops the hand when the viewer is the seat that left", () => {
+    const { container, rerender } = render(<Shell state={main} />);
+    expect(container.querySelector("[data-hand-seat='0']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='spectating-chip']")).toBeNull();
+    rerender(<Shell state={withOut(main, [0])} />);
+    expect(container.querySelector("[data-testid='spectating-chip']")?.textContent).toContain("Spectating");
+    expect(container.querySelector("[data-hand-seat='0']")).toBeNull();
+    expect(container.querySelector("[data-seat-exit='0']")).not.toBeNull();
+    settle(2000);
+    expect(crumbles(container)).toBe(0);
+  });
+});
+
+describe("the elimination crumble on a 3-way table", () => {
+  const main = FFA3_FIXTURES.states.main;
+
+  it("regroups the two seats left face to face, keeps their tones, and ends the crumble", () => {
+    const { container, rerender } = render(<Shell state={main} />);
+    const tonesBefore = ringTones(container);
+    const before = places(container, [0, 1, 2]);
+    rerender(<Shell state={withOut(main, [2])} />);
+    expect(container.querySelector("[data-seat-exit='2']")).not.toBeNull();
+    expect(container.querySelector("[data-seat-slot='2']")).toBeNull();
+    const after = places(container, [0, 1]);
+    // The rival board moved to the far side of the face-off (the viewer's own board stays home), and the table glides.
+    expect(after[1]).not.toEqual(before[1]);
+    expect(after[1]!.transform).not.toEqual(after[0]!.transform);
+    expect(container.querySelector("[data-seat-slot='1']")?.getAttribute("data-glide")).toBe("true");
+    expect(container.querySelector("[data-plaza]")?.getAttribute("data-glide")).toBe("true");
+    settle(2000);
+    expect(crumbles(container)).toBe(0);
+    expect(container.querySelector("[data-seat-slot='1']")?.hasAttribute("data-glide")).toBe(false);
+    expect(places(container, [0, 1])).toEqual(after);
+    // The seats that stay keep their tones.
+    const toneAfter = ringTones(container);
+    for (const entry of tonesBefore.filter((tone) => !tone.startsWith("2:"))) expect(toneAfter).toContain(entry);
+  });
+
+  it("shows the face-off at once when two seats are already out on load", () => {
+    const { container } = render(<Shell state={withOut(main, [2])} />);
+    expect(crumbles(container)).toBe(0);
+    expect(container.querySelector("[data-crumble]")).toBeNull();
+    const after = places(container, [0, 1]);
+    expect(after[0]!.transform).not.toEqual(after[1]!.transform);
+  });
+});
