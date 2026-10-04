@@ -1,10 +1,11 @@
 "use client";
 
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
+import { flushSync } from "react-dom";
 import { engineFormat } from "../multi-seat";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
-import { flyWorld, holoAnchor, normalizeAngle, ringAngles, ringPose, seatPoses, slotPlan, stageFit, STAGE } from "./geometry";
+import { flyWorld, holoAnchor, normalizeAngle, ringAngles, ringPose, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
@@ -45,7 +46,7 @@ export interface TableStageViewProps extends TableStageProps {
  * overlay are slots over the whole box, so they measure the real screen position of `[data-zones]` and
  * `[data-lp-seat]` nodes. `camera` is the camera to draw (the shell passes the effective one).
  */
-export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, out = [], ring = true }: TableStageViewProps) {
+export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, masterChip, wantMode, locked = false, out = [], ring = true }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -56,12 +57,16 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   useLayoutEffect(() => {
     const node = rootRef.current;
     if (!node) return;
-    const read = () => setBox((prev) => {
+    const measure = () => setBox((prev) => {
       const next = { width: node.clientWidth, height: node.clientHeight, screenWidth: window.innerWidth };
       return prev.width === next.width && prev.height === next.height && prev.screenWidth === next.screenWidth ? prev : next;
     });
+    const read = () => measure();
     read();
-    const observer = new ResizeObserver(read);
+    // The board box changes with a drawer opening beside it: draw the new fit in the same frame, so the stage
+    // never shows one frame of the old fit clipped by the new box. The microtask runs before the frame paints, and
+    // keeps flushSync out of any render or effect that happens to be running.
+    const observer = new ResizeObserver(() => queueMicrotask(() => flushSync(measure)));
     observer.observe(node);
     window.addEventListener("resize", read);
     return () => {
@@ -80,6 +85,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const [cityOn, setCityOn] = useState(fly);
   if (fly && !cityOn) setCityOn(true);
   const rawPoses = useMemo(() => seatPoses(layout, camera, fitBox), [layout, camera, fitBox]);
+  // How much plaza a wide box shows beyond each side of the 1100 px stage; zero for a box that is not wider.
+  const spread = useMemo(() => stageSpread(fitBox), [fitBox]);
 
   // A seat turns by the short way between two places: the angle it draws is the previous one plus the smallest turn.
   const turned = useRef(new Map<number, number>());
@@ -93,6 +100,10 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     }
     return next;
   }, [rawPoses]);
+
+  // Docked holo panels of a wide table (home and look); other cameras keep the panels of the 1100 px stage.
+  const hasChip = masterChip != null;
+  const wideAnchors = useMemo(() => wideHoloAnchors(layout, camera, poses, spread, hasChip), [layout, camera, poses, spread, hasChip]);
 
   const world = useMemo(() => flyWorld(layout, camera.fly), [layout, camera.fly]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);
@@ -136,6 +147,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     height: canvasHeight,
     transform: `translate(${(box.width - STAGE.width * k) / 2}px, ${(box.height - canvasHeight * k) / 2}px) scale(${k})`,
     "--ss": tiltSupersample(k),
+    "--spread": `${spread}px`,
   };
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
@@ -154,6 +166,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       data-fly={fly ? "true" : "false"}
       data-upright={camera.upright ? "true" : "false"}
       data-stage-scale={k.toFixed(3)}
+      data-stage-spread={spread}
       data-ready={k > 0 ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
     >
@@ -215,7 +228,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
         {layout.slots.map((slot, place) => {
           const view = engine.seats.find((entry) => entry.seat === slot.seat);
           if (!view) return null;
-          const anchor = holoAnchor(layout, slot.seat, camera);
+          const anchor = (!fly && wideAnchors?.get(slot.seat)) || holoAnchor(layout, slot.seat, camera);
           const pickable = picks?.options.has(slot.seat) === true;
           const index = pickOrder.indexOf(slot.seat);
           return (
@@ -241,6 +254,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
               hotkey={pickable && index >= 0 ? index + 1 : null}
               onPick={() => picks?.onPick(slot.seat)}
               onHover={(hover) => controller.onAim?.(hover ? { lpSeat: slot.seat } : null)}
+              footer={anchor.me ? masterChip : null}
               reducedMotion={reducedMotion}
             />
           );

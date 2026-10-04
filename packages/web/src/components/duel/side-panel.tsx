@@ -59,7 +59,7 @@ export function unreadLabel(count: number): string {
   return count > 9 ? "9+" : String(count);
 }
 
-export function SideTabs({ panes, selected, onSelect, unread = 0, mobile = false }: {
+export function SideTabs({ panes, selected, onSelect, unread = 0, mobile = false, labels }: {
   panes: readonly SidePane[];
   selected: SidePane;
   onSelect: (pane: SidePane) => void;
@@ -67,6 +67,8 @@ export function SideTabs({ panes, selected, onSelect, unread = 0, mobile = false
   unread?: number;
   /** The bottom bar: plain buttons that open the sheet, not a tablist. */
   mobile?: boolean;
+  /** Other words for some tabs (the wide table calls its Masters tab "Master"). */
+  labels?: Partial<Record<SidePane, string>>;
 }) {
   const roomStyles = useSkinStyles(baseRoomStyles, "side");
   const styles = useSkinStyles(baseStyles, "side");
@@ -87,11 +89,11 @@ export function SideTabs({ panes, selected, onSelect, unread = 0, mobile = false
         <button key={tab} type="button" id={mobile ? undefined : tabId(tab)}
           role={mobile ? undefined : "tab"}
           aria-selected={mobile ? undefined : selected === tab}
-          aria-controls={mobile || tab === "masters" ? undefined : panelId(tab)}
+          aria-controls={mobile ? undefined : panelId(tab)}
           aria-haspopup={mobile ? "dialog" : undefined}
           tabIndex={mobile || selected === tab ? 0 : -1}
           onClick={() => onSelect(tab)}>
-          {SIDE_PANE_LABEL[tab]}
+          {labels?.[tab] ?? SIDE_PANE_LABEL[tab]}
           {tab === "log" && unread > 0 ? (
             <>
               <span className={styles.badge} data-testid="log-unread" aria-hidden="true">{unreadLabel(unread)}</span>

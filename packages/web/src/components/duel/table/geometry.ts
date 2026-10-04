@@ -205,10 +205,11 @@ export function seatPoses(
   const table = slotTable(layout.format);
   const fit = viewport ? stageFit(viewport) : 0;
   const screenWidth = viewport?.screenWidth ?? viewport?.width ?? 0;
+  const wide = viewport ? wideHomeSlots(layout.format, stageSpread(viewport)) : null;
   const poses = new Map<number, SeatPose>();
   layout.slots.forEach((slot, place) => {
     const name = plan?.[place];
-    const at = name ? table[name] : home[Math.min(place, home.length - 1)];
+    const at = name ? (wide?.[name] ?? table[name]) : home[Math.min(place, home.length - 1)];
     // Compact chips are a 4-way table feature: in the fly-in view the camera zooms in, so fields stay whole.
     const compact = layout.format === "ffa4" && camera.mode !== "fly" && name != null && fit > 0
       ? compactFor({ scale: at.scale, slot: name }, fit, screenWidth, camera.compact ?? "auto")
@@ -228,6 +229,196 @@ export function seatPoses(
     });
   });
   return poses;
+}
+
+/* ---------- The wide plaza ----------
+ * The stage coordinate system stays 1100 wide and centred on x = 550, so the canvas, the world, the fly-in camera and every
+ * effect that measures the canvas keep working. A box wider than the stage shows more of the plaza at both sides:
+ * `stageSpread` is how many stage px are visible beyond x = 0 and x = 1100 on each side, and the home places use that
+ * room (the side rivals grow and move to the outer edges). With no spread every pose is exactly today's. */
+
+/** Size of a seat box at scale 1 and --sf-z 112, in px (measured on the 4-way preview: 653 by 380). */
+export const SEAT_BOX = { width: 653, height: 380 } as const;
+/** Most spread (stage px at each side) the plaza uses. A wider box keeps the extra room as empty floor. */
+export const MAX_SPREAD = 450;
+/** How far a rival's hand fan reaches beyond the outer edge of its board, at scale 1 (measured: about 76 px). */
+const HAND_OUT = 76;
+const HOME_PLACES = new Set<PoseSlot>(["home", "vL", "vN", "vR"]);
+
+/** Stage px visible beyond each side of the 1100 wide stage in a box. Zero for a box that is not wider than the stage. */
+export function stageSpread(box: { width: number; height: number }): number {
+  const k = stageFit(box);
+  if (!(k > 0)) return 0;
+  const spread = (box.width / k - STAGE.width) / 2;
+  // Whole stage px in steps of two: a drag of the window edge does not move every seat on every pixel.
+  return Math.min(MAX_SPREAD, Math.max(0, Math.floor(spread / 2) * 2));
+}
+
+const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
+
+/**
+ * The home places of a table when the box is wider than the stage (null when it is not). Home and look read these.
+ * 4-way: the side rivals grow up to .9 of your size and sit at the outer edges, the far one grows a little.
+ * 3-way: the two rivals grow to about .78 and move apart so their boards stay clear of each other.
+ */
+export function wideHomeSlots(format: TableFormat, spread: number): Partial<Record<PoseSlot, HomeSlot>> | null {
+  if (!(spread > 0) || (format !== "ffa3" && format !== "ffa4")) return null;
+  const t = clamp01(spread / 250);
+  if (format === "ffa4") {
+    const home = FFA4_HOME[0];
+    // Room beside your board: the side board (rotated, so it is SEAT_BOX.height wide) must end before yours starts.
+    // The hand fan reaches past the outer edge of the board, so it needs room there as well.
+    const sideScale = Math.min(0.9, Math.max(0.6, (spread + 191) / (SEAT_BOX.height + HAND_OUT)));
+    const sideW = SEAT_BOX.height * sideScale;
+    const sideH = SEAT_BOX.width * sideScale;
+    const sideY = 18 + sideH / 2;
+    const sideX = 10 + HAND_OUT * sideScale + sideW / 2;
+    const farScale = 0.6 + 0.08 * t;
+    // The far board is tilted: its top row is the narrow, short one. Keep its hand backs (above it) on screen.
+    const farY = 52 + (SEAT_BOX.height * farScale * 0.96) / 2;
+    const west = { x: -spread + sideX, y: sideY, rotateDeg: 90, scale: sideScale, tiltDeg: 0 };
+    return {
+      home,
+      vL: west,
+      vN: { x: 550, y: farY, rotateDeg: 180, scale: farScale, tiltDeg: 16 },
+      vR: { ...west, x: 1100 + spread - sideX, rotateDeg: 270 },
+    };
+  }
+  const home = FFA3_HOME[0];
+  const rivalScale = 0.66 + 0.12 * t;
+  const half = Math.max(252, (SEAT_BOX.width * rivalScale * 0.93) / 2 + 24);
+  return {
+    home,
+    vL: { x: 550 - half, y: 222, rotateDeg: 158, scale: rivalScale, tiltDeg: 12 },
+    vN: { x: 550 - half, y: 222, rotateDeg: 158, scale: rivalScale, tiltDeg: 12 },
+    vR: { x: 550 + half, y: 222, rotateDeg: 202, scale: rivalScale, tiltDeg: 12 },
+  };
+}
+
+export interface Bounds {
+  l: number;
+  r: number;
+  t: number;
+  b: number;
+}
+
+const PERSPECTIVE = 1700;
+
+/**
+ * The box a seat board covers on the stage, in stage px: its four corners put through the same transform the seat wrapper
+ * gets (`seatTransform`: tilt with perspective, then turn, then scale about the centre). Pure, so a holo panel can dock to a
+ * corner of a board that is still gliding to its place.
+ */
+export function boardBounds(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "tiltDeg" | "scale">): Bounds {
+  const rot = (pose.rotateDeg * Math.PI) / 180;
+  const tilt = ((pose.tiltDeg ?? 0) * Math.PI) / 180;
+  const cos = Math.cos(rot);
+  const sin = Math.sin(rot);
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      const px = (sx * SEAT_BOX.width * pose.scale) / 2;
+      const py = (sy * SEAT_BOX.height * pose.scale) / 2;
+      const x = px * cos - py * sin;
+      const y = px * sin + py * cos;
+      const depth = y * Math.sin(tilt);
+      const w = 1 - depth / PERSPECTIVE;
+      xs.push(pose.x + x / w);
+      ys.push(pose.y + (y * Math.cos(tilt)) / w);
+    }
+  }
+  return { l: Math.min(...xs), r: Math.max(...xs), t: Math.min(...ys), b: Math.max(...ys) };
+}
+
+const HOLO_RIVAL = { width: 196, height: 92 } as const;
+const HOLO_ME = { width: 212, height: 113 } as const;
+/** Room the Deck Master chip under your panel takes: its widest case, and its height with the gap above it. */
+const HOLO_MASTER_CHIP = { width: 270, height: 58 } as const;
+
+const overlaps = (a: Bounds, b: Bounds, gap = 0) => a.l < b.r + gap && b.l < a.r + gap && a.t < b.b + gap && b.t < a.b + gap;
+
+/**
+ * Where each holo LP panel docks at a wide table (home and look). A panel sits at a corner of its own board, off every other
+ * board and panel: yours to the right of your board, a side rival's below its board at the corner nearer the middle,
+ * the far rival's beside its front-left corner (tucked under it next to the ring when the west board is in the way).
+ * Null when the camera is not at the home places or the box is not wider than the stage. Top-left of each panel, stage px.
+ */
+export function wideHoloAnchors(
+  layout: TableLayout,
+  camera: CameraView,
+  poses: ReadonlyMap<number, SeatPose>,
+  spread: number,
+  /** A chip hangs under your panel (your Deck Master): its room is kept clear too. */
+  meFooter = false,
+): Map<number, HoloAnchor> | null {
+  const plan = slotPlan(layout, camera);
+  if (!(spread > 0) || !plan || !plan.every((name) => HOME_PLACES.has(name))) return null;
+  const four = layout.slots.length === 4;
+  const boards = new Map<number, Bounds>();
+  for (const slot of layout.slots) {
+    const pose = poses.get(slot.seat);
+    if (pose) boards.set(slot.seat, boardBounds(pose));
+  }
+  const left = -spread + 6;
+  const right = STAGE.width + spread - 6;
+  // The turn ring in the middle is never covered.
+  const taken: Bounds[] = [{ l: ARENA_CENTER.x - 62, r: ARENA_CENTER.x + 62, t: ARENA_CENTER.y - 62, b: ARENA_CENTER.y + 76 }];
+  const anchors = new Map<number, HoloAnchor>();
+  const rectAt = (x: number, y: number, size: { width: number; height: number }): Bounds => ({ l: x, r: x + size.width, t: y, b: y + size.height });
+  const inside = (r: Bounds) => r.l >= left && r.r <= right && r.t >= 4 && r.b <= 952;
+  const clear = (r: Bounds, own: number) =>
+    inside(r) && !taken.some((t) => overlaps(t, r, 4)) && ![...boards].some(([seat, board]) => seat !== own && overlaps(board, r, 4));
+  // The first candidate that is clear; else the first one, pushed down until it is.
+  const settle = (cands: ReadonlyArray<readonly [number, number]>, size: { width: number; height: number }, own: number) => {
+    const found = cands.find(([x, y]) => clear(rectAt(x, y, size), own));
+    const [x, y0] = found ?? cands[0];
+    let y = y0;
+    if (!found) {
+      let guard = 0;
+      while (guard++ < 60 && !clear(rectAt(x, y, size), own) && y + size.height < 940) y += 6;
+    }
+    const x2 = Math.min(right - size.width, Math.max(left, x));
+    taken.push(rectAt(x2, y, size));
+    return { x: x2, y };
+  };
+  const mineSeat = camera.mode !== "look" && layout.viewerSeat != null ? layout.viewerSeat : null;
+  const ordered = layout.slots.map((slot, place) => ({ slot, place, name: plan[place] }));
+  // Yours first (the others settle around it), then the sides, then the far or second rival.
+  // The far rival picks right after you: it has the fewest places to go, the sides can sit under their own boards.
+  const order = (name: string) => (name === "home" ? 0 : name === "vN" ? 1 : 2);
+  ordered.sort((a, b) => order(a.name) - order(b.name));
+  const me = ordered[0].name === "home" ? boards.get(ordered[0].slot.seat) : undefined;
+  const ringX = ARENA_CENTER.x;
+  for (const { slot, name } of ordered) {
+    const board = boards.get(slot.seat);
+    if (!board) continue;
+    const isMine = mineSeat === slot.seat;
+    const plate = isMine ? HOLO_ME : HOLO_RIVAL;
+    const size = isMine && meFooter ? { width: HOLO_MASTER_CHIP.width, height: plate.height + HOLO_MASTER_CHIP.height } : plate;
+    let at: { x: number; y: number };
+    if (name === "home") {
+      // Beside your board, low enough that a rival's panel above it stays clear; the Deck Master chip hangs below.
+      const y = board.b - plate.height;
+      at = settle([[board.r + 14, y + 34], [board.r + 14, y + 22], [board.r + 14, y - 30], [board.r + 14, board.t + 20]], size, slot.seat);
+    } else if (four && name === "vL") {
+      at = settle([[board.r - size.width, board.b + 10], [board.r + 10, board.b - size.height], [board.l, board.b + 10]], size, slot.seat);
+    } else if (four && name === "vR") {
+      at = settle([[board.l, board.b + 10], [board.r - size.width, board.b + 10], [board.l - size.width - 10, board.b - size.height]], size, slot.seat);
+    } else if (four) {
+      // vN: beside the front-left corner; else under the board, left of the ring.
+      at = settle([[board.l - 14 - size.width, board.b - size.height], [ringX - 64 - 12 - size.width, board.b + 4], [ringX + 64 + 12, board.b + 4], [board.r + 14, board.b - size.height]], size, slot.seat);
+    } else {
+      // 3-way: on the flank of its rival, below it and off your board.
+      const west = name === "vL";
+      const flank = west ? (me ? me.l - 18 - size.width : left) : (me ? me.r + 18 : right - size.width);
+      const edge = west ? left : right - size.width;
+      const ys = [board.b + 10, me ? me.t + (me.b - me.t) / 2 - size.height / 2 : board.b + 60, me ? me.b - size.height : board.b + 120];
+      at = settle([...ys.map((y) => [flank, y] as const), ...ys.map((y) => [edge, y] as const)], size, slot.seat);
+    }
+    anchors.set(slot.seat, { x: at.x, y: at.y, me: isMine, beam: "none" });
+  }
+  return anchors;
 }
 
 /** Stack order of a place: the nearer and larger a field is drawn, the higher it sits. */

@@ -53,6 +53,8 @@
   left: 0;
   top: 0;
   transform-origin: 0 0;
+  /* The fit glides only while a drawer reflows the table: the shell sets --glide for that window (table-shell.module.css). */
+  transition: transform var(--glide, 0s) var(--glide-ease, linear);
 }
 
 /*

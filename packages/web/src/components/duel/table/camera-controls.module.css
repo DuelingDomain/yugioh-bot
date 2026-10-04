@@ -339,3 +339,10 @@
 .chip {
   pointer-events: none;
 }
+
+/* The wide table's rail owns the toggle: with it the panel is only the grid, and it opens beside the rail. */
+.panel[data-side="left"] {
+  right: auto;
+  left: 10px;
+  bottom: 10px;
+}

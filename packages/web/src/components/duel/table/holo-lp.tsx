@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
 import { LifePoints } from "../life-points";
@@ -37,6 +37,8 @@ export interface HoloLpProps {
   /** A rival's Deck Master: a small art thumb at the top right of the panel. A click inspects it. */
   master?: DuelCardInfo | null;
   onInspectMaster?: (card: DuelCardInfo) => void;
+  /** Hangs under the panel (your Deck Master chip). It sits outside the panel body, so it never changes the panel's own box. */
+  footer?: ReactNode;
   reducedMotion: boolean;
 }
 
@@ -95,6 +97,7 @@ export function HoloLp({
   master = null,
   onInspectMaster,
   lastDamage = null,
+  footer = null,
   reducedMotion,
 }: HoloLpProps) {
   const hex = SEAT_TONE_HEX[tone];
@@ -185,6 +188,7 @@ export function HoloLp({
         </button>
       ) : null}
       <span className={styles.beam} aria-hidden="true" />
+      {footer ? <div className={styles.footer}>{footer}</div> : null}
     </div>
   );
 }
