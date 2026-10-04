@@ -58,6 +58,14 @@ export function draftRuleText(mainPoolCount: number): string {
     : `Main deck: ${minimum} to ${DRAFT_MAIN_MAX} cards. Extra deck: up to ${DRAFT_EXTRA_MAX}.`;
 }
 
+/** The same rule in a form that fits on one line in the editor's bar; the full sentence goes in its tooltip. */
+export function draftRuleShort(mainPoolCount: number): string {
+  const minimum = draftMainMinimum(mainPoolCount);
+  return mainPoolCount < DRAFT_MAIN_MIN
+    ? `Main: all ${minimum} cards. Extra: up to ${DRAFT_EXTRA_MAX}.`
+    : `Main: ${minimum} to ${DRAFT_MAIN_MAX}. Extra: up to ${DRAFT_EXTRA_MAX}.`;
+}
+
 export function draftDeckNotes(deck: DuelDeck, mainPoolCount: number): string[] {
   const notes: string[] = [];
   const minimum = draftMainMinimum(mainPoolCount);

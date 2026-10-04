@@ -11,8 +11,10 @@
 .de-fmt { flex: none; }
 .de-fmt button { min-height: 30px; padding: 0 12px; font-size: 13.5px; }
 .de-banf { flex: 0 1 210px; min-width: 0; }
-.de-rule { display: grid; gap: 1px; min-width: 0; color: var(--ink-3); font-size: 13px; line-height: 1.35; }
+.de-rule { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1px; min-width: 0; color: var(--ink-3); font-size: 13px; line-height: 1.35; }
 .de-rule b { color: var(--ink-2); font-weight: 600; }
+/* Two lines at most, one each: the page bar has a fixed height, so a long name or rule is cut short, never wrapped. */
+.de-rule b, .de-rule span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .de-acts { display: flex; align-items: center; gap: 8px; flex: none; }
 .de-status { display: inline-flex; align-items: center; gap: 8px; margin-right: 4px; color: var(--ink-3); font-size: 13px; white-space: nowrap; }
 .de-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }

@@ -93,6 +93,7 @@ import {
   deckUsage,
   draftDeckNotes,
   draftMainMinimum,
+  draftRuleShort,
   draftRuleText,
   poolCounts,
   remainingCopies,
@@ -826,9 +827,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
           <div className={styles["de-prow"]}>
             {pool ? (
               <>
-                <p className={styles["de-rule"]}>
+                <p className={styles["de-rule"]} title={draftRuleText(pool.mainPoolCount)}>
                   <b>Draft deck from {pool.draftName}</b>
-                  <span>{draftRuleText(pool.mainPoolCount)}</span>
+                  <span>{draftRuleShort(pool.mainPoolCount)}</span>
                 </p>
                 {isPhone ? <SvButton variant="quiet" onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
               </>
