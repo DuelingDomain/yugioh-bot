@@ -29,7 +29,7 @@
  * Keyframes are not scoped, but renamed with an `ms-` prefix so they cannot clash
  * (board name -> app name): lamp -> ms-lamp, livepulse -> ms-livepulse,
  * gemglow -> ms-gemglow, medalpop -> ms-medalpop, scspin -> ms-scspin,
- * sk -> ms-sk, si-spin -> ms-si-spin.
+ * si-spin -> ms-si-spin.
  *
  * Left out: review-page chrome (.rv*, .board*, .notes, .needs, .cap, .decisions,
  * .screen, .app, .app-top, .app-side, .who-me, .phones, .phone, .vp, .dim-shell,
@@ -1163,18 +1163,14 @@
 .ms .ns-who .sb { display: flex; align-items: baseline; gap: 7px; color: var(--ink-3); font-size: 12.5px; white-space: nowrap; }
 .ms .ns-who .sb .tier { font-size: 12.5px; }
 .ms .ns-who .sb .elo { font-size: 14px; }
+/* Skeleton block: still, no shimmer (site motion, part 3). It is only a place held for what is coming. */
 .ms .sk {
   display: block;
   height: 10px;
   border-radius: 5px;
-  background: linear-gradient(90deg, rgb(239 231 213 / 0.05), rgb(239 231 213 / 0.11), rgb(239 231 213 / 0.05));
-  background-size: 200% 100%;
-  animation: ms-sk 1.4s linear infinite;
+  background: rgb(239 231 213 / 0.08);
 }
 .ms .ns-av.sk { height: 34px; border-radius: 50%; }
-@keyframes ms-sk {
-  to { background-position: -200% 0; }
-}
 
 /* collapsed rail */
 .ms .ns[data-c] .ns-side { padding-inline: 10px; }
