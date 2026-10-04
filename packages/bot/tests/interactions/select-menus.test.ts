@@ -143,6 +143,16 @@ describe("select menu interactions", () => {
     await handleSelectMenu(interaction, app);
     expect(replies[0]).toEqual({ content: expect.stringMatching(/You picked Card/i), ephemeral: true });
     expect(replies[0].content).not.toMatch(/already picked/i);
+    expect(replies[0].content).toContain("You have 3 of each card here. This pick stays in your pool only.");
+    app.db.close();
+  });
+
+  it("does not add the forced-pick line to a normal pick", async () => {
+    const { app, menu } = cappedMenuDraft();
+    const { interaction, replies } = menu();
+    await handleSelectMenu(interaction, app);
+    expect(replies[0].content).toMatch(/You picked Card/i);
+    expect(replies[0].content).not.toMatch(/stays in your pool only/);
     app.db.close();
   });
 

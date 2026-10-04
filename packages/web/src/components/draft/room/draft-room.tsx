@@ -5,6 +5,7 @@
  * Ported from the approved mock; the simulator is replaced by the live draft (see use-room-state.ts).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { PLAYER_COPY_CAP } from "@/components/cubes/readiness";
 import { useDraftStore } from "@/lib/stores/draft-store";
 import { useTalkStore } from "@/lib/stores/talk-store";
 import { TALK_COOLDOWN_MS, type TalkLineId } from "@yugidraft/shared/ws/talk";
@@ -22,6 +23,7 @@ import {
   attributeTint,
   blockedLabel,
   dialModel,
+  forcedPackNote,
   filterWords,
   isFiltering,
   joinNames,
@@ -435,6 +437,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   }, [rs.completed]);
 
   /* ---------- time's nearly up: a selected card is the pick (hover alone never counts) ---------- */
+  const forcedPack = useDraftStore((s) => s.currentPack.some((card) => card.forced));
   const lastCall = useDraftStore((s) => s.timerSeconds <= AUTO_PICK_AT);
   const passed = useDraftStore((s) => s.passed);
   const autoPicked = useRef(-1);
@@ -863,6 +866,9 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               <div className="status" role="status" data-on={status ? "" : undefined}>
                 {status}
               </div>
+              <p className="status forced" aria-live="polite" data-on={forcedPack && turn === "picking" ? "" : undefined}>
+                {forcedPack && turn === "picking" ? forcedPackNote(PLAYER_COPY_CAP) : null}
+              </p>
             </div>
             <div className="lens" hidden={!lens}>
               <span>

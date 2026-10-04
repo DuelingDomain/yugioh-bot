@@ -144,7 +144,10 @@ export async function handleSelectMenu(
     const catalogCards = deps.cards.findByIds([pickedCard.catalogCardId]);
     const cardName = catalogCards[0]?.name ?? "Unknown";
 
-    await interaction.reply({ content: `You picked ${cardName}.`, ephemeral: true });
+    const forcedNote = pickedCard.forced
+      ? ` You have ${MAX_COPIES_PER_PLAYER} of each card here. This pick stays in your pool only.`
+      : "";
+    await interaction.reply({ content: `You picked ${cardName}.${forcedNote}`, ephemeral: true });
 
     if (updatedDraft.status === "active" && advancedPickStep) {
       await deps.messenger.updateStatus(updatedDraft);
