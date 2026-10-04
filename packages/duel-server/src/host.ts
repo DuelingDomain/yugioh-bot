@@ -2300,6 +2300,11 @@ export function createDuelHost(options: {
       await emitChange(slug, guildId);
       return { session: await autoStart(slug, guildId, session) };
     }
+    if (op === "unready") {
+      const session = service.markUnready(slug, guildId, actor);
+      await emitChange(slug, guildId);
+      return { session };
+    }
     if (op === "deck" || op === "validate-deck") {
       if (room.session.status !== "lobby") throw new RequestError("Decks are locked after the duel starts", 409);
       if (op === "deck" && room.session.seriesId) {

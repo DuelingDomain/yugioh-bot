@@ -97,6 +97,7 @@ export function RoomLobby({
   onRemoveBot,
   onReady,
   onMarkReady,
+  onMarkUnready,
   onStart,
   onCancel,
   onLeave,
@@ -115,8 +116,9 @@ export function RoomLobby({
   /** Organizer only: takes a practice bot out of its seat so a human can join. `seat` is the bot's 0-based seat. */
   onRemoveBot: (seat?: number) => void;
   onReady: (deck: DuelDeck) => void;
-  /** Tournament games: ready up with the registered deck. */
+  /** Ready with the registered tournament deck or the saved deck for a later game. */
   onMarkReady?: () => void;
+  onMarkUnready?: () => void;
   onStart: () => void;
   onCancel: () => void;
   onLeave: () => void;
@@ -140,10 +142,11 @@ export function RoomLobby({
   const seatsLocked = session.status !== "lobby" || starting || room.opening != null || session.seriesId != null || series != null;
   const tournamentGame = series != null && series.tournamentId != null;
   const lockedDeck = tournamentGame && mySeat != null;
+  const readyWithSavedDeck = lockedDeck || (series != null && mySeat != null && (session.gameNumber ?? 1) > 1);
   // A series game starts by itself once both players are ready, so the organizer has no Start button.
   const autoStart = series != null;
   const showPreview = mySeat != null && !lockedDeck;
-  const seriesCancel = series != null && mySeat != null && occupied >= 2;
+  const seriesCancel = series != null && !tournamentGame && series.tournamentMatchId == null && (session.gameNumber ?? 1) <= 1 && mySeat != null && occupied >= 2;
   const canAddBot = isOrganizer && occupied >= 1 && occupied < seatCount && !seatsLocked;
   const showBotPanel = canAddBot;
   // A Best of 3 against the bot is a full match, and a Best of 1 is one game. Neither counts, ranked or not.
@@ -208,11 +211,11 @@ export function RoomLobby({
                 <p className={styles.help} role="status">
                   {tournamentGame
                     ? myMeta?.ready
-                      ? "You are ready. The game starts when both players are ready."
+                      ? "You are ready. The game starts when both players are ready. Click Not ready if you need to step away."
                       : "Your registered deck is locked for this tournament. Click Ready when you can play."
                     : myMeta?.ready
-                      ? autoStart ? "Your deck is ready. The game starts when both players are ready." : `Your deck is ready. ${everyoneWord} must be ready before the organizer starts.`
-                      : "Import your deck, then click Ready with this deck. Deck needed means no valid deck has been submitted yet."}
+                      ? autoStart ? "Your deck is ready. The game starts when both players are ready. Click Not ready if you need to step away." : `Your deck is ready. ${everyoneWord} must be ready before the organizer starts. Click Not ready if you need to step away.`
+                      : readyWithSavedDeck ? "Your deck for this game is saved. Click Ready when you can play." : "Import your deck, then click Ready with this deck. Deck needed means no valid deck has been submitted yet."}
                 </p>
               ) : (
                 <p className={styles.help} role="status">
@@ -224,26 +227,32 @@ export function RoomLobby({
               )}
               {actionError ? <p role="alert" className={ui.alert}>{actionError}</p> : null}
               <div className={styles.footer}>
+                {myMeta?.ready ? (
+                  <SheetButton kind="secondary" size="lg" disabled={busy || starting || room.opening != null || !onMarkUnready} onClick={onMarkUnready}>
+                    Not ready
+                  </SheetButton>
+                ) : null}
                 {mySeat != null && canStart ? (
                   <SheetButton kind="primary" size="lg" loading={busy} disabled={busy} onClick={onStart}>
                     {startButtonLabel(starting)}{starting ? null : <Swords size={17} strokeWidth={1.6} aria-hidden />}
                   </SheetButton>
-                ) : lockedDeck ? (
-                  <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || myMeta?.ready || !onMarkReady} onClick={onMarkReady}>
+                ) : readyWithSavedDeck && !myMeta?.ready ? (
+                  <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || !onMarkReady} onClick={onMarkReady}>
                     Ready<CheckCircle2 size={17} strokeWidth={1.6} aria-hidden />
                   </SheetButton>
-                ) : autoStart && mySeat != null ? (
+                ) : autoStart && mySeat != null && !readyWithSavedDeck ? (
                   <p className={styles.startHint}>Starts when both players are ready</p>
-                ) : isOrganizer ? (
+                ) : isOrganizer && !readyWithSavedDeck ? (
                   <p className={styles.startHint}>Start unlocks when {seatCount === 2 ? "both seats are" : `all ${seatCount} seats are`} ready.</p>
                 ) : null}
                 {seriesCancel ? (
                   <SheetButton kind="quiet" disabled={busy} onClick={onCancel}>Cancel series</SheetButton>
-                ) : isOrganizer ? (
+                ) : series == null && session.seriesId == null && isOrganizer ? (
                   <SheetButton kind="quiet" disabled={busy} onClick={onCancel}>Cancel table</SheetButton>
                 ) : mySeat != null && !seatsLocked ? (
                   <SheetButton kind="quiet" disabled={busy} onClick={onLeave}>Watch instead</SheetButton>
                 ) : null}
+                {tournamentGame ? <p className={ui.hint}>Only the tournament organizer can cancel this match.</p> : null}
               </div>
             </section>
 
