@@ -1,5 +1,6 @@
 import type {
   DuelBestOf,
+  DuelChainMode,
   DuelCardInfo,
   DuelCommand,
   DuelDeck,
@@ -271,6 +272,17 @@ export async function sendDuelAction(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(command),
+    }),
+  );
+}
+
+/** Set your own chain response switch. The answer is your room view, like an action. */
+export async function setChainResponseMode(slug: string, mode: DuelChainMode): Promise<DuelRoom> {
+  return parseBody(
+    await fetch(`/api/duels/${encodeURIComponent(slug)}/chain-mode`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode }),
     }),
   );
 }

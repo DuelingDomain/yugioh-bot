@@ -2,7 +2,8 @@
 // duels in production before the n-seat work. It runs when DUEL_1V1_ENGINE=legacy (the default) for tables with two seats.
 // Do not "fix" or tidy this file, ./views.ts or ./prompts.ts: they must stay equal to main. Every line that differs from main is
 // marked "LEGACY-1V1:". See packages/duel-server/legacy-1v1/README.md.
-import type { DuelAnswer, DuelBattleStep, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import { defaultChainMode } from "@yugidraft/shared/duels"; // LEGACY-1V1: chain response mode (Auto, Always, Off)
 import createCore, {
   OcgDuelMode,
   OcgHintType,
@@ -84,6 +85,8 @@ export interface EngineGame {
   view(seat: number | null): DuelEngineView;
   answer(seat: number, promptId: string, answer: DuelAnswer): void;
   searchCards(query: string): DuelCardInfo[];
+  /** LEGACY-1V1: set a seat's chain response mode; true when it passed the open window. See ../engine.ts EngineGame.setChainMode. */
+  setChainMode(seat: number, mode: DuelChainMode): boolean;
   close(): void;
 }
 
@@ -314,6 +317,8 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
 
   let revision = 0;
   let promptSeq = 0;
+  // LEGACY-1V1: chain response mode per seat. Both seats start at the duel setting (stopAtEveryWindow: false = Auto, else Always).
+  const chainModes: DuelChainMode[] = [defaultChainMode(options.settings), defaultChainMode(options.settings)];
   let turn = 0;
   let turnSeat = 0;
   let phase = "draw";
@@ -590,7 +595,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         },
       );
       lastSelectHint = undefined;
-      const automated = autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, phase });
+      const automated = autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase }); // LEGACY-1V1: per-seat chain mode
       if (automated) {
         lib.duelSetResponse(handle, automated);
         continue;
@@ -614,7 +619,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     view(seat) {
       if (closed) throw new Error("Engine is closed");
       if (seat != null && seat !== 0 && seat !== 1) throw new Error("Invalid seat");
-      return projectView({
+      const projected = projectView({
         lib,
         handle,
         cards,
@@ -636,6 +641,30 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
         mode: options.mode,
         domainState: readDomainState(),
       });
+      if (seat != null) projected.chainMode = chainModes[seat]; // LEGACY-1V1: private to the seat
+      return projected;
+    },
+    // LEGACY-1V1: chain response mode. See ../engine.ts EngineGame.setChainMode.
+    setChainMode(seat, mode) {
+      if (closed) throw new Error("Engine is closed");
+      if (result) throw new EngineAnswerError("Duel is over");
+      if (seat !== 0 && seat !== 1) throw new Error("Invalid seat");
+      chainModes[seat] = mode;
+      const open = pending;
+      if (!open || open.seat !== seat) return false;
+      if (open.message.type !== OcgMessageType.SELECT_CHAIN && open.message.type !== OcgMessageType.SELECT_EFFECTYN) return false;
+      const automated = autoResponse(open, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: mode, phase });
+      if (!automated) return false;
+      sawRetry = false;
+      lib.duelSetResponse(handle, automated);
+      processUntilWait();
+      if (sawRetry) {
+        pending = open;
+        sawRetry = false;
+        throw new Error(`The core refused the automatic pass of the open window of seat ${seat} (prompt ${open.id})`);
+      }
+      revision += 1;
+      return true;
     },
     answer(seat, promptId, answer) {
       if (closed) throw new Error("Engine is closed");

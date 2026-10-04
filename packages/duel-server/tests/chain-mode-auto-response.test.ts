@@ -11,7 +11,7 @@ import {
   type OcgMessage,
 } from "ocgcore-wasm";
 import type { CardDatabase } from "../src/cards.js";
-import { OFF_SKIPS_OPTIONAL_TRIGGERS, OPTIONAL_TRIGGER_SPE_COUNT, TRIGGER_EFFECT_YN_DESCRIPTION, chainWindowPasses, effectYesNoPasses, effectiveChainMode } from "../src/chain-mode.js";
+import { OFF_SKIPS_OPTIONAL_TRIGGERS, TRIGGER_EFFECT_YN_DESCRIPTION, chainWindowPasses, effectYesNoPasses, effectiveChainMode } from "../src/chain-mode.js";
 import { autoResponse as mergedAutoResponse, mapPrompt as mergedMapPrompt } from "../src/prompts.js";
 import { autoResponse as legacyAutoResponse, mapPrompt as legacyMapPrompt } from "../src/legacy/prompts.js";
 
@@ -67,7 +67,7 @@ const engines = [
 ] as const;
 
 const PHASES = ["draw", "standby", "main1", "battle", "main2", "end"];
-const TRIGGER = OPTIONAL_TRIGGER_SPE_COUNT;
+const TRIGGER = 0x7f; // not what the core sends (it sends the trigger count), kept as an arbitrary large spe_count in the matrix
 
 describe.each(engines)("chain mode in autoResponse: $name", ({ autoResponse, mapPrompt }) => {
   const run = (message: OcgMessage, mode: DuelChainMode | undefined, phase?: string, stopAtEveryWindow?: boolean) =>

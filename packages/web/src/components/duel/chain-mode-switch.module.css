@@ -1,0 +1,128 @@
+/* The chain response switch. It lives inside the station track, so it reads the track's tokens (--ink-3, --rule-lo,
+   --pen, --gold, ...) with the same values as fallbacks. No transitions: the state change is instant and quiet. */
+
+.root {
+  --cm-ink: var(--ink, #efe7d5);
+  --cm-ink-3: var(--ink-3, #958f81);
+  --cm-rule-rgb: var(--rule-rgb, 181 153 99);
+  --cm-pen-ink: var(--pen-ink, #c6b6ff);
+  --cm-gold-ink: var(--gold-ink, #dcc58f);
+  --cm-focus: var(--focus, #ddd2ff);
+
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.label {
+  display: grid;
+  justify-items: start;
+  gap: 3px;
+  color: var(--cm-ink-3);
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.key {
+  min-width: 0;
+  padding: 2px 5px;
+  border: 1px solid rgb(var(--cm-rule-rgb) / 0.2);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--cm-ink-3);
+  font: 500 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.seg {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid rgb(var(--cm-rule-rgb) / 0.2);
+  border-radius: 9px;
+  background: var(--panel-2, #0e1729);
+}
+.root[data-mode="off"] .seg {
+  border-color: rgb(var(--cm-rule-rgb) / 0.5);
+}
+
+.option {
+  box-sizing: border-box;
+  height: 30px;
+  min-width: 54px;
+  margin: 0;
+  padding: 0 11px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--cm-ink-3);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+}
+.option:hover {
+  color: var(--cm-ink);
+}
+.option[aria-checked="true"] {
+  border-color: rgb(155 126 255 / 0.85);
+  background: rgb(155 126 255 / 0.18);
+  color: var(--cm-pen-ink);
+}
+.option[aria-checked="true"][data-mode="off"] {
+  border-color: rgb(var(--cm-rule-rgb) / 0.85);
+  background: rgb(var(--cm-rule-rgb) / 0.16);
+  color: var(--cm-gold-ink);
+}
+.option:focus-visible {
+  outline: 2px solid var(--cm-focus);
+  outline-offset: 1px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Between 900 and 1279px the track has no room for the word and the key: the three segments stand alone. */
+@media (max-width: 1279px) {
+  .label {
+    display: none;
+  }
+}
+
+/* Tables of 3 and 4 seats share the actions column with the seat strip: slimmer segments. */
+:global([data-seats="true"]) .option {
+  min-width: 46px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+
+/* Phone: the third row of the track. The group fills the row and each segment is a full-height touch target. */
+@media (max-width: 900px) {
+  .root {
+    display: flex;
+    width: 100%;
+  }
+  .seg {
+    flex: 1;
+  }
+  .option {
+    flex: 1;
+    height: 36px;
+    min-width: 0;
+    padding: 0 6px;
+  }
+}

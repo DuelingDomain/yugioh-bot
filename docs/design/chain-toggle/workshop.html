@@ -171,7 +171,7 @@ li { margin: 4px 0; }
             <div class="rs-seg">
               <button role="radio" aria-checked="true" data-mode="auto" title="Ask only when a card can respond">Auto</button>
               <button role="radio" aria-checked="false" data-mode="always" title="Ask at every window that lists a card">Always</button>
-              <button role="radio" aria-checked="false" data-mode="off" title="Skip response windows. Trigger effects still ask.">Off</button>
+              <button role="radio" aria-checked="false" data-mode="off" title="Off: pass every optional response, including your own 'you can' effects.">Off</button>
             </div>
           </div>
           <i class="sep"></i>
@@ -233,7 +233,7 @@ li { margin: 4px 0; }
       </div>
     </div>
   </div>
-    <p class="cap"><b>Off</b>. Response windows pass at once on the server, even with a legal card, so the opponent sees no pause. Forced effects, mandatory triggers and costs still ask. Optional trigger effects still ask. Gold, not violet, because this is the state that can cost you a play.</p>
+    <p class="cap"><b>Off</b>. Response windows pass at once on the server, even with a legal card, so the opponent sees no pause. Optional trigger effects (your own "you can" effects) pass too, like the ignore-chain button in YGOPro. Forced effects, mandatory triggers, costs and choices inside an effect still ask. Gold, not violet, because this is the state that can cost you a play.</p>
   </div>
 </div>
 
@@ -322,7 +322,7 @@ li { margin: 4px 0; }
   <tr><th>State</th><th>A listed card fits the window</th><th>A listed card does not fit</th><th>Optional trigger</th><th>Forced / mandatory</th></tr>
   <tr><td><b>Auto</b></td><td>Asks</td><td>Passes silently (asks in the Draw and Standby Phase)</td><td>Asks</td><td>Asks</td></tr>
   <tr><td><b>Always</b></td><td>Asks</td><td>Asks</td><td>Asks</td><td>Asks</td></tr>
-  <tr><td><b>Off</b></td><td>Passes</td><td>Passes</td><td>Asks</td><td>Asks</td></tr>
+  <tr><td><b>Off</b></td><td>Passes</td><td>Passes</td><td>Passes (the owner's decision: Off skips your own optional "you can" effects too)</td><td>Asks</td></tr>
 </table></div>
 <p class="cap">A window that lists no card of yours passes by itself in every state. Prompts for a card's own choices (a yes/no inside an effect, choosing targets) are not response windows and are not affected.</p>
 
@@ -330,16 +330,17 @@ li { margin: 4px 0; }
 <ul>
   <li><b>Keyboard.</b> <kbd>R</kbd> flips between Off and your last "on" state (Auto or Always). The three segments also take Arrow keys and Space as a radio group. <kbd>R</kbd> is free in every shell: the table camera uses <code>h o f s a k c p</code> and digits, the Rooftop adds <code>q e i v</code>, bug marks use <code>M</code>, prompts use <code>F</code>, digits, Enter and Esc. It is ignored while typing, under a dialog, or with Ctrl, Cmd or Alt held.</li>
   <li><b>Announce.</b> A polite live region says "Responses: Off". Colour is never the only signal; the state is also the word.</li>
-  <li><b>Motion.</b> A 180 ms colour change on the segments, nothing else. Nothing moves, so there is nothing for reduced motion to remove.</li>
+  <li><b>Motion.</b> None as built: the segments change colour at once. Nothing moves, so there is nothing for reduced motion to remove.</li>
   <li><b>Remembered.</b> Auto and Always are remembered in this browser and applied when a new duel starts. Off is not: it resets to the duel default, so a forgotten Off cannot carry into next week's duel.</li>
   <li><b>Hidden</b> for spectators, replays, finished duels, and scenario or preset duels (those are written against every window).</li>
   <li><b>Failure.</b> If the request fails the segment snaps back and the existing action error banner shows the message.</li>
 </ul>
 
 <h2>6. Screenshots</h2>
+<p>The first six below are the workshop mock. The last four are the built component: the real StationTrack in a temporary harness page (since deleted); the Tag and FFA shells show the same switch through <code>?chain=</code> on the table preview pages.</p>
 <div class="shots" id="shots-list"></div>
 <script>
-const names = [["f-auto","1v1 desktop, Auto"],["f-always","1v1 desktop, Always, window open"],["f-off","1v1 desktop, Off"],["f-phone-a","Phone P1, Auto"],["f-phone-a-off","Phone P1, Off"],["f-phone-b","Phone P2, sheet open"]];
+const names = [["f-auto","1v1 desktop, Auto"],["f-always","1v1 desktop, Always, window open"],["f-off","1v1 desktop, Off"],["f-phone-a","Phone P1, Auto"],["f-phone-a-off","Phone P1, Off"],["f-phone-b","Phone P2, sheet open"],["built-1v1-auto-1440","Built: 1v1 track, 1440 px, Auto"],["built-1v1-off-theirs-1280","Built: 1v1 track, 1280 px, Off, opponent's turn"],["built-1v1-off-950","Built: 1v1 track, 950 px, Off (label hidden)"],["built-phone-off","Built: phone, Off (third row)"]];
 const box = document.getElementById("shots-list");
 for (const [id, text] of names) {
   const fig = document.createElement("figure");

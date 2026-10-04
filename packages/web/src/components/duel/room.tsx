@@ -17,6 +17,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useDuelWebsocket } from "@/lib/hooks/use-duel-websocket";
 import { createEchoWindow } from "@/lib/duel-echo-window";
 import { applyAnswerResult } from "./answer-result";
+import { useChainModeControl } from "./use-chain-mode";
 import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import {
   acceptDuelInvite,
@@ -34,6 +35,7 @@ import {
   sendDuelAction,
   setDuelDeck,
   startDuel,
+  setChainResponseMode,
   surrenderDuel,
 } from "./api";
 import { RoomLobby } from "./room-lobby";
@@ -599,6 +601,17 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onInspect: showInspector,
   });
 
+  // The chain response switch. The server reports a mode only in the seated player's own view of a live duel; a spectator,
+  // a replay or a scenario table gets none, and then there is nothing to draw.
+  const chainMode = useChainModeControl({
+    slug,
+    serverMode: data?.engine?.chainMode,
+    enabled: data?.mySeat != null && !spectate && !viewerOut && !ownWindowGate && data.session.status === "active" && !data.engine?.result,
+    suspended: confirmSurrender || deckMenuOpen,
+    send: async (mode) => { await applyAnswerResult(mutate, await setChainResponseMode(slug, mode)); },
+    onError: setActionError,
+  });
+
   useBugReportRoom(data ?? null);
   if (isLoading && !data) return <div className="p-6 text-sm text-text-secondary">Loading table…</div>;
   if (error && !data) {
@@ -753,6 +766,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     const shellProps: TableShellProps = {
       controller: liveController, fillViewport: true, boardRef, pickContinuation: pick, preferences,
       inputSuspended: surrenderOpen || deckMenuOpen,
+      chainMode,
       fxActive: !error && !realtime.recovering, busy: busy || Boolean(error) || catchingUp,
       initialOutOrder: eliminationOrder(liveController.engine),
       connection: { ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy },
@@ -1111,6 +1125,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           clock={data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} /> : null}
           caption={trackCaption}
           reducedMotion={preferences.reducedMotion}
+          chainMode={chainMode}
         />
       </div>
       <div className={styles.mobileBar}>{tabs(true)}</div>
