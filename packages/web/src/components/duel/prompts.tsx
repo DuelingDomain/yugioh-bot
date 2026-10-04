@@ -49,6 +49,18 @@ export function isAttackTargetPrompt(prompt: DuelPrompt | null, attackerChosen =
   );
 }
 
+/**
+ * "Select a duelist to attack": the choice that follows an attacker on a table of 3 or 4 seats. Every option names one
+ * seat to hit directly (a controller, no zone, no prompt context). It is the step before, or instead of, the target pick.
+ */
+export function isAttackDuelistPrompt(prompt: DuelPrompt | null): boolean {
+  if (!prompt || prompt.kind !== "choice" || prompt.context) return false;
+  return (
+    prompt.options.length > 0 &&
+    prompt.options.every((option) => option.controller != null && option.location == null && /^attack\b.*\bdirectly$/i.test(option.label))
+  );
+}
+
 /** "Attack directly?" yes/no, asked when an attacker could hit the player but monsters are also attackable. */
 export function isDirectAttackPrompt(prompt: DuelPrompt | null): boolean {
   if (!prompt || prompt.kind !== "choice" || prompt.context) return false;

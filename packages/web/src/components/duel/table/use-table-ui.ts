@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DuelAnswer, DuelCard, DuelPromptOption } from "@yugidraft/shared/duels";
 import { zoneKey } from "../constants";
-import { activatePromptFromField, isAttackTargetPrompt, optionsForCard } from "../prompts";
+import { activatePromptFromField, isAttackDuelistPrompt, isAttackTargetPrompt, optionsForCard } from "../prompts";
 import { livePileCards, shouldClosePileForPrompt, type PileView } from "../pile-focus";
 import type { CardMenuState } from "../card-interactions";
 import { promptLegalKeys } from "../prompts";
@@ -59,9 +59,9 @@ export function useTableUi(base: TableController): TableUi {
   useEffect(() => {
     if (!activeMenu) setPreview(null);
   }, [activeMenu]);
-  // The declared attacker belongs to the attack target step only.
+  // The declared attacker belongs to the attack steps only: the duelist pick (a direct attack) and the target pick.
   useEffect(() => {
-    if (!prompt || !isAttackTargetPrompt(prompt, true)) setPendingAttack(null);
+    if (!prompt || !(isAttackTargetPrompt(prompt, true) || isAttackDuelistPrompt(prompt))) setPendingAttack(null);
   }, [prompt]);
 
   // A new prompt that wants cards outside the open pile must not stay hidden behind the pile's scrim.
@@ -139,6 +139,13 @@ export function useTableUi(base: TableController): TableUi {
       if (mine && (prompt.kind === "choice" || prompt.kind === "toggle")) {
         const options = optionsForCard(prompt, card, keys);
         if (prompt.kind === "toggle" && options.length === 1) {
+          submit({ choice: options[0].id });
+          return;
+        }
+        // A monster whose only move is to attack declares the attack at once: the arrow starts from it and the next click
+        // is the target, so choosing the attacker and the target feels like one gesture. Any other card keeps its menu.
+        if (prompt.context?.type === "action" && options.length === 1 && options[0].id.startsWith("attack:")) {
+          setMenu(null);
           submit({ choice: options[0].id });
           return;
         }

@@ -1,0 +1,94 @@
+/* The aim arrow of a pointer-driven attack: a fixed layer over the page, in client px. It never takes the pointer. */
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+}
+
+.svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.layer[data-found="false"] > .svg > :not(defs),
+.layer[data-found="false"] > .label {
+  visibility: hidden;
+}
+
+.march {
+  stroke-dasharray: 14 6;
+  animation: march 0.8s linear infinite;
+}
+
+.solid {
+  stroke-dasharray: none;
+}
+
+.ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: spin 6s linear infinite;
+}
+
+.label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 280px;
+  padding: 5px 11px 5px 9px;
+  border: 1px solid rgb(255 210 173 / 0.6);
+  border-radius: 999px;
+  background: rgb(13 10 22 / 0.92);
+  box-shadow: 0 6px 22px rgb(0 0 0 / 0.5), 0 0 16px rgb(240 164 106 / 0.25);
+  color: #ffe9d6;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.label[hidden] {
+  display: none;
+}
+
+.label > i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
+}
+
+@keyframes march {
+  from {
+    stroke-dashoffset: 40;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .march,
+  .ring {
+    animation: none;
+  }
+}

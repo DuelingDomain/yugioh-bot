@@ -9,6 +9,11 @@
   pointer-events: none;
 }
 
+/* The aim arrow of a pointer-driven attack draws instead of this line. */
+:global(html[data-aim-arrow-on]) .line {
+  display: none;
+}
+
 .line[data-found="false"] > :not(defs) {
   visibility: hidden;
 }
