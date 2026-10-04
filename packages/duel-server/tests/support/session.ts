@@ -617,6 +617,9 @@ export class Session {
     if (step.error && !refused.message.includes(step.error)) {
       this.fail(stepNo, step, `The error is "${refused.message}", expected it to contain "${step.error}".`);
     }
+    if (step.code !== undefined && refused.code !== step.code) {
+      this.fail(stepNo, step, `The error code is "${refused.code}", expected "${step.code}".`);
+    }
     // A Lua script error is a bug in a card script, not a refused answer: it passes only when the step names that error.
     if (isLuaScriptError(refused.message) && !(step.error && isLuaScriptError(step.error))) {
       this.fail(stepNo, step, `The refusal is a Lua script error ("${refused.message}"), not a refused answer. Fix the script, or name the script error in the step.`);

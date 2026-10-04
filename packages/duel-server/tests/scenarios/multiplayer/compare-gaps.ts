@@ -526,7 +526,7 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       expectEliminated("p1"),
       // ADR:34: the living duelist's opponent pick keeps its option IDs.
       expectPickOptions([{ id: "opt:0", seat: "p1" }, { id: "opt:1", seat: "p2" }], "p0"),
-      expectRetry({ choice: "opt:0" }, { error: "Invalid answer", by: "p0" }),
+      expectRetry({ choice: "opt:0" }, { error: "That player has left. Pick again.", code: "seat_left", by: "p0" }),
       pickOpponent("p2", "p0"),
       zone("p0", "s0", "p0"),
       // R-FFA-OPP-ONE: p2's two effect monsters keep the target choice open.
