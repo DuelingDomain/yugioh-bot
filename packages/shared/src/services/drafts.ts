@@ -5,7 +5,7 @@ import { generateWebSlug } from "../util/web-slug.js";
 import { MAX_COPIES_PER_PLAYER } from "./constants.js";
 import { buildDraftDeck, createDraftDeckService } from "./draft-decks.js";
 import { isExtraDeckFrame } from "./card-catalog.js";
-import { analyzeCube, buildDealWithRemainder, seededShuffle, type ShuffleSeed } from "./deal.js";
+import { analyzeCube, buildDealWithRemainder, prepareBoosterPool, seededShuffle, type ShuffleSeed } from "./deal.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
 export type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../types/index.js";
@@ -875,7 +875,7 @@ export function createDraftService(
     const packSize = draft.config.packSize ?? defaultDraftConfig.packSize;
     const packsPerPlayer = draft.config.packsPerPlayer ?? defaultDraftConfig.packsPerPlayer;
 
-    const cubeCardIds =
+    const poolCardIds =
       draft.config.cubeCardIds && draft.config.cubeCardIds.length > 0
         ? draft.config.cubeCardIds
         : draft.config.poolCardIds && draft.config.poolCardIds.length > 0
@@ -884,6 +884,7 @@ export function createDraftService(
 
     const players = playerIds.length;
     const waves = packsPerPlayer;
+    const cubeCardIds = prepareBoosterPool(poolCardIds, draft.config, players * waves * packSize);
     const analysis = analyzeCube(cubeCardIds, players, waves, packSize, draft.config.cardsPerPlayer);
     if (!analysis.ok) {
       throw new Error(analysis.errors.join(" "));

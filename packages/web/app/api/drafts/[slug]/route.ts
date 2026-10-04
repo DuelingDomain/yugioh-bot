@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
-import { analyzeCube, themeDraftNumberError, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
+import { analyzeCube, prepareBoosterPool, themeDraftNumberError, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "./helpers";
 import { announcer, broadcaster } from "@/lib/notify";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
@@ -227,7 +227,7 @@ export async function PUT(
       // Advisory feasibility check at edit time (min start count = 2 players).
       // Non-blocking: startDraft is the authoritative gate.
       analysisWarnings = analyzeCube(
-        cubeCardIds,
+        prepareBoosterPool(cubeCardIds, mergedConfig, 2 * (mergedConfig.packsPerPlayer ?? 5) * (mergedConfig.packSize ?? 8)),
         2,
         (mergedConfig as any).packsPerPlayer ?? 5,
         (mergedConfig as any).packSize ?? 8,

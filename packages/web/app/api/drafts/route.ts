@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
-import { analyzeCube, themeDraftNumberError, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
+import { analyzeCube, prepareBoosterPool, themeDraftNumberError, createCardCatalogService, createDraftService, createPlayerService } from "@yugidraft/shared/services";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import { announcer } from "@/lib/notify";
 import { toUtcIso } from "@/lib/utils";
@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
   // before start, and startDraft is the authoritative gate.
   const expectedPlayers = 2;
   const analysis = analyzeCube(
-    cubeCardIds,
+    prepareBoosterPool(cubeCardIds, config, expectedPlayers * (config.packsPerPlayer ?? 5) * (config.packSize ?? 8)),
     expectedPlayers,
     config.packsPerPlayer ?? 5,
     config.packSize ?? 8,

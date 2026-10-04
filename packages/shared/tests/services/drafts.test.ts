@@ -63,6 +63,26 @@ function seedCatalogCards(db: Database.Database, count: number) {
 }
 
 describe("shared draft service", () => {
+  it.each([3, 4, 8].flatMap((count) => ["set", "names"].map((source) => ({ count, source }))))("deals one shuffle of evenly expanded $source copies for $count players", ({ count, source }) => {
+    const { db, drafts } = setup({ seedSource: () => 7 });
+    try {
+      seedCatalogCards(db, 100);
+      const players = Array.from({ length: count }, (_, i) => insertPlayer(db, "guild-1", `u${i}`, `P${i}`));
+      const pool = source === "set" ? { setNames: ["Metal Raiders"] } : { includeNames: Array.from({ length: 100 }, (_, i) => `Card ${i + 1}`) };
+      const draft = drafts.create("guild-1", "channel-1", "set night", { ...pool, packSize: 8, packsPerPlayer: 5 }, "u0", players[0].id);
+      for (const player of players.slice(1)) drafts.join(draft.id, player.id);
+      expect(drafts.start(draft.id).status).toBe("active");
+      const slots = count * 8 * 5;
+      const ids = Array.from({ length: 100 }, (_, i) => i + 1);
+      const copies = ids.flatMap((id) => Array(Math.ceil(slots / ids.length)).fill(id));
+      const dealt = db.prepare("select catalog_card_id as id from draft_deal where draft_id = ? order by position").all(draft.id) as Array<{ id: number }>;
+      const remainder = db.prepare("select catalog_card_id as id from draft_undealt where draft_id = ? order by position").all(draft.id) as Array<{ id: number }>;
+      expect([...dealt, ...remainder].map((card) => card.id)).toEqual(seededShuffle(copies, 7));
+      expect(dealt).toHaveLength(slots);
+      for (const player of players) expect(drafts.currentPackOptions(draft.id, player.id)).toHaveLength(8);
+    } finally { db.close(); }
+  });
+
   it.each(["injected", "default crypto"])("persists different deals for identical drafts using %s seeds", (source) => {
     const dealForSeed = (seed?: number | string) => {
       const { db, drafts } = setup(seed === undefined ? {} : { seedSource: () => seed });
@@ -631,9 +651,9 @@ describe("shared draft service", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
-    const draft = app.drafts.create("guild-1", "channel-1", "small cube", { setNames: ["Metal Raiders"] }, "user-1", yugi.id);
+    const draft = app.drafts.create("guild-1", "channel-1", "small cube", { cubeCardIds: Array.from({ length: 15 }, (_, i) => i + 1) }, "user-1", yugi.id);
     app.drafts.join(draft.id, kaiba.id);
-    // 2 players × packSize 8 => need 16 distinct; provide 15.
+    // 2 players × 5 packs × 8 cards needs 80 authored copies; provide 15.
     seedCatalogCards(app.db, 15);
 
     expect(() => app.drafts.start(draft.id)).toThrow(/15.*80/);

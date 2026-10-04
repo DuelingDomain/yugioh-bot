@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import type { DraftConfig } from "../types/index.js";
 import { MAX_COPIES_PER_PLAYER } from "./constants.js";
 
 /** Numeric seeds preserve existing test fixtures; production uses secret string seeds. */
@@ -38,6 +39,15 @@ export interface CubeAnalysis {
   ok: boolean;
   errors: string[];
   warnings: string[];
+}
+
+/** Sets and named pools have no authored quantities; expand evenly before the single shuffle. */
+export function prepareBoosterPool(cardIds: number[], config: DraftConfig, slots: number): number[] {
+  const fromNames = Boolean(config.setNames?.length || config.includeNames?.length);
+  const authored = Boolean(config.customCardIds?.length || (!fromNames && (config.cubeCardIds?.length || config.poolCardIds?.length)));
+  if (authored || cardIds.length === 0) return cardIds;
+  const copies = Math.max(1, Math.ceil(slots / cardIds.length));
+  return cardIds.flatMap((id) => Array<number>(copies).fill(id));
 }
 
 export function analyzeCube(
