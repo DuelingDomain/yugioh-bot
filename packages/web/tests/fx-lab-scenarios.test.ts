@@ -9,7 +9,7 @@ import { ADD_TO_HAND } from "@/components/duel/duel-timing";
 
 const KINDS = new Set<DuelEvent["kind"]>([
   "summon", "set", "activate", "chain-resolving", "chain-resolved", "chain-negated", "chain-end",
-  "attack", "battle", "battle-end", "phase", "damage", "destroy", "move", "position", "equip",
+  "attack", "battle", "battle-end", "phase", "damage", "destroy", "move", "position", "equip", "target",
 ]);
 
 function cardAt(board: LabBoard, ref: DuelZoneRef): DuelCard | null | undefined {
