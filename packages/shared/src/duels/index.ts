@@ -6,6 +6,10 @@ export type DuelStatus = "lobby" | "active" | "completed" | "interrupted" | "can
 export type DuelActorRole = "player" | "spectator";
 export type DuelMasterRule = 1 | 2 | 3 | 4 | 5;
 
+/** An opponent pick named a seat that is eliminated or leaving the duel. */
+export const DUEL_SEAT_LEFT_ERROR_CODE = "seat_left" as const;
+export type DuelErrorCode = typeof DUEL_SEAT_LEFT_ERROR_CODE;
+
 export type {
   DuelCardPool,
   DuelClock,

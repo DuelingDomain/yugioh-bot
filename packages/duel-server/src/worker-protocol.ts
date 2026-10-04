@@ -1,6 +1,6 @@
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
 import type { PromptTraceEntry } from "./prompt-trace.js";
-import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelErrorCode, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 
 export interface DuelWorkerCreateOptions {
   mode: DuelMode;
@@ -33,4 +33,4 @@ export type DuelWorkerRequest =
 
 export type DuelWorkerResponse =
   | { id: number; ok: true; value?: DuelEngineView | DuelCardInfo[] | EngineDiagnostic[] | boolean; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry }
-  | { id: number; ok: false; error: string };
+  | { id: number; ok: false; error: string; code?: DuelErrorCode };

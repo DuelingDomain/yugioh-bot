@@ -69,16 +69,16 @@ export function duelErrorResponse(error: unknown) {
   return NextResponse.json({ error: "Failed to process duel request" }, { status: 500 });
 }
 
-function hostErrorMessage(text: string) {
+function hostErrorBody(text: string): { error: string; code?: string } {
   try {
     const parsed: unknown = JSON.parse(text);
     if (parsed && typeof parsed === "object" && "error" in parsed && typeof parsed.error === "string") {
-      return parsed.error;
+      return { error: parsed.error, ...("code" in parsed && typeof parsed.code === "string" ? { code: parsed.code } : {}) };
     }
   } catch {
     // Host may return a plain-text error body.
   }
-  return text.trim() || "Duel engine error";
+  return { error: text.trim() || "Duel engine error" };
 }
 
 export function duelHostConfigProblem(cfg: { url: string; secret: string }): string | null {
@@ -166,7 +166,7 @@ export async function callDuelHost(input: {
     }
     return {
       ok: false,
-      response: NextResponse.json({ error: hostErrorMessage(result.text) }, { status: result.status }),
+      response: NextResponse.json(hostErrorBody(result.text), { status: result.status }),
     };
   }
   if (!result.text) {
