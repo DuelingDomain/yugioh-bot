@@ -436,12 +436,26 @@ describe("cube service Discord-template-compatible ops", () => {
     expect(cubes.findByName("g", "Modern")).toBeUndefined();
   });
 
-  it("applyCubeToConfig unions cube_cards into customCardIds and preserves setNames", () => {
+  it("applyCubeToConfig expands each main-pool copy", () => {
+    const { cubes } = setup();
+    const cube = cubes.createBlank("g", "Three copies", "u");
+    cubes.addCard(cube.id, 1, "main", 3);
+    cubes.addCard(cube.id, 2, "extra", 3);
+    expect(cubes.applyCubeToConfig(cube.id).customCardIds).toEqual([1, 1, 1]);
+  });
+
+  it("applyCubeToConfig keeps config copies and excludes the Extra pool", () => {
     const { cubes } = setup(); // catalog cards 1 (main/normal) and 2 (extra/xyz)
     const cube = cubes.save("g", "Hybrid", { setNames: ["Metal Raiders"], customCardIds: [1] }, "u");
     cubes.addCard(cube.id, 2, "extra"); // explicit extra-pool card
     const out = cubes.applyCubeToConfig(cube.id, { customCardIds: [3] });
     expect(out.setNames).toEqual(["Metal Raiders"]);
-    expect([...out.customCardIds!].sort((a, b) => a - b)).toEqual([1, 2, 3]);
+    expect([...out.customCardIds!].sort((a, b) => a - b)).toEqual([1, 3]);
+  });
+  it("applyCubeToConfig keeps listed quantities when the same card has a pool row", () => {
+    const { cubes } = setup();
+    const cube = cubes.save("g", "Listed copies", { customCardIds: [1, 1] }, "u");
+    cubes.addCard(cube.id, 1, "main", 3);
+    expect(cubes.applyCubeToConfig(cube.id, { customCardIds: [3, 3] }).customCardIds).toEqual([3, 3, 1, 1]);
   });
 });

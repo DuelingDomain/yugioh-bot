@@ -330,18 +330,19 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
 
     /**
      * Flatten a cube into a shared-draft config: the cube's own config (pack/mode
-     * settings + setNames) merged over `base`, with `customCardIds` unioned from
-     * base, the cube's config, and every explicit cube_cards entry (main + extra).
+     * settings + setNames) merged over `base`. Preserve every custom copy in base
+     * and the cube config, then add Main pool copies not already listed there.
      * Lets a saved cube drive a shared (non-theme) draft through the unchanged
      * resolveCubeCardIds -> buildDeal path.
      */
     applyCubeToConfig(cubeId: number, base: DraftConfig = {}): DraftConfig {
       const cube = findCube(cubeId);
       const pools = getCubePools(cubeId);
-      const flat = [...pools.main, ...pools.extra].map((c) => c.catalogCardId);
-      const customCardIds = Array.from(
-        new Set([...(base.customCardIds ?? []), ...(cube.config.customCardIds ?? []), ...flat]),
-      );
+      const listedIds = [...(base.customCardIds ?? []), ...(cube.config.customCardIds ?? [])];
+      const listed = new Set(listedIds);
+      const flat = pools.main.filter((card) => !listed.has(card.catalogCardId))
+        .flatMap((card) => Array<number>(card.maxCopies).fill(card.catalogCardId));
+      const customCardIds = [...listedIds, ...flat];
       return {
         ...base,
         ...cube.config,
