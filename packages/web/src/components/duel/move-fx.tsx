@@ -23,7 +23,7 @@
 import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
-import { cardArtUrl, isDefenseAt, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED } from "./constants";
+import { cardArtUrl, isDefenseAt, LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_REMOVED, TYPE_PENDULUM } from "./constants";
 import { collectFreshEvents, findMoveDestination, followMoveDestination, handArrivalTarget, maxEventId, moveDestinationRect, moveDestinationRotation } from "./event-queue";
 import {
   getMovePlan,
@@ -317,7 +317,12 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   // Face at the start: the sleeve unless the card was showing its face where it was.
   const source = plan.source;
   const startUp = card != null && (source ? source.faceUp || (source.side === "you" && plan.event.from?.location === LOCATION_HAND) : true);
-  const endUp = card != null && plan.event.faceDown !== true;
+  // A card put back in the Deck or the Extra Deck turns face-down on the way: a pile is a stack of sleeves.
+  // The one exception is a Pendulum Monster, which goes to the Extra Deck face-up (the server marks no face for it).
+  const toLocation = plan.event.zone?.location;
+  const faceUpInPile = toLocation === LOCATION_EXTRA && card != null && (card.type & TYPE_PENDULUM) !== 0;
+  const toDeckPile = toLocation === LOCATION_DECK || (toLocation === LOCATION_EXTRA && !faceUpInPile);
+  const endUp = card != null && plan.event.faceDown !== true && !toDeckPile;
   // A destroyed card leaves as the pieces it broke into, never as the intact card.
   const pieces = card != null && source != null ? plan.pieces : null;
   const startAngle = card == null ? 0 : startUp ? 0 : 180;
