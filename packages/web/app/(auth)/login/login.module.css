@@ -5,6 +5,7 @@
   --ease-move: cubic-bezier(0.77, 0, 0.175, 1);
   display: grid;
   place-items: center;
+  position: relative;
   min-height: 100dvh;
   padding: 40px 16px;
   overflow-x: clip;
@@ -13,6 +14,9 @@
 }
 
 .stack {
+  /* Above the card wall (login-wall.module.css), which sits at z-index 0 behind it. */
+  position: relative;
+  z-index: 1;
   display: grid;
   justify-items: center;
   width: min(100%, 608px);
@@ -277,6 +281,18 @@
 
 .c5 {
   animation-delay: 620ms;
+}
+
+/* Phone: the card wall becomes two bands, one above the ring and one below the fine print.
+   The page is a column so the bands sit in the flow, and the padding is 10px so both fit at 390 by 844. */
+@media (max-width: 899px) {
+  .page {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 16px;
+  }
 }
 
 @media (max-width: 480px) {
