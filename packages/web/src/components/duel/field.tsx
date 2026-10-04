@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -44,101 +44,32 @@ import type { InspectTarget } from "./inspector";
 import { RivalHand } from "./table/rival-hand";
 import { hexToRgbTriplet, isStraight, labelTurnDeg, normalizeDeg, textScale } from "./table/seat-angle";
 import { SEAT_TONE_HEX, type SeatFieldProps } from "./table/types";
-import styles from "./field.module.css";
+import { useDuelFieldModel, type DuelFieldProps } from "./field-model";
+import {
+  anyLegal,
+  anySelected,
+  cardZoneKey,
+  extraMonster,
+  extraMonsterKeys,
+  pileHighlightKeys,
+  slot,
+  stKeys,
+  withExact,
+  type DuelActivateHandler,
+  type DuelHoverHandler,
+  type FieldCallbacks,
+} from "./field-keys";
+import { useSkinStyles } from "./skin";
+import baseStyles from "./field.module.css";
+
+export { extraMonster, extraMonsterKeys, pileHighlightKeys, stKeys, withExact };
+export type { DuelActivateHandler, DuelHoverHandler, ExtraMonsterMode, FieldCallbacks, ZoneRef } from "./field-keys";
+export { EquipLinksContext };
 
 type CssVars = CSSProperties & Record<`--${string}`, string | number>;
 
-export type ZoneRef = { controller: number; location: number; sequence: number };
-
-export type DuelActivateHandler = (
-  keys: string[],
-  card: DuelCard | null,
-  anchor: HTMLElement,
-) => void;
-
-export type DuelHoverHandler = (card: DuelCard | null, anchor: HTMLElement | null) => void;
-
-type FieldCallbacks = {
-  legalKeys: Set<string>;
-  selectedKeys: Set<string>;
-  onActivate: DuelActivateHandler;
-  onInspect: (target: InspectTarget) => void;
-  onHoverCard?: DuelHoverHandler;
-};
-
-function slot(cards: Array<DuelCard | null> | undefined, index: number): DuelCard | null {
-  if (!cards || index < 0 || index >= cards.length) return null;
-  return cards[index] ?? null;
-}
-
-function extraMonster(
-  bottom: DuelSeatView | undefined,
-  top: DuelSeatView | undefined,
-  side: "left" | "right",
-): DuelCard | null {
-  if (side === "left") return slot(bottom?.monsters, 5) ?? slot(top?.monsters, 6);
-  return slot(bottom?.monsters, 6) ?? slot(top?.monsters, 5);
-}
-
-/**
- * Zone keys of one Extra Monster Zone slot. `shared-bottom` (1v1, today): the slot is the bottom seat's
- * zone 5 or 6 and the top seat's mirrored zone 6 or 5. `own` (3 or more seats): every seat has its own two
- * slots, so a slot holds only its seat's zone 5 (left) or 6 (right). The seat is `bottomSeat`.
- */
-export type ExtraMonsterMode = "shared-bottom" | "shared-top" | "own";
-
-export function extraMonsterKeys(
-  bottomSeat: number,
-  topSeat: number,
-  side: "left" | "right",
-  mode: ExtraMonsterMode = "shared-bottom",
-): string[] {
-  if (mode === "own") return [zoneKey(bottomSeat, LOCATION_MZONE, side === "left" ? 5 : 6)];
-  if (mode === "shared-top") side = side === "left" ? "right" : "left";
-  if (side === "left") {
-    return [zoneKey(bottomSeat, LOCATION_MZONE, 5), zoneKey(topSeat, LOCATION_MZONE, 6)];
-  }
-  return [zoneKey(bottomSeat, LOCATION_MZONE, 6), zoneKey(topSeat, LOCATION_MZONE, 5)];
-}
-
-function anyLegal(keys: string[], legal: Set<string>): boolean {
-  for (const key of keys) {
-    if (legal.has(key)) return true;
-  }
-  return false;
-}
-
-function anySelected(keys: string[], selected: Set<string>): boolean {
-  for (const key of keys) {
-    if (selected.has(key)) return true;
-  }
-  return false;
-}
-
-function cardZoneKey(card: DuelCard): string {
-  return zoneKey(card.controller, card.location, card.sequence);
-}
-
-function withExact(card: DuelCard | null, keys: string[]): string[] {
-  if (!card) return keys;
-  const exact = cardZoneKey(card);
-  if (keys[0] === exact) return keys;
-  return [exact, ...keys.filter((key) => key !== exact)];
-}
-
-function pileHighlightKeys(seat: number, location: number, cards: DuelCard[]): string[] {
-  if (cards.length === 0) return [zoneKey(seat, location, 0)];
-  return cards.map(cardZoneKey);
-}
-
-function stKeys(seat: number, sequence: number, card: DuelCard | null, masterRule: DuelMasterRule): string[] {
-  const keys = [zoneKey(seat, LOCATION_SZONE, sequence)];
-  const left = masterRule === 3 ? 6 : 0;
-  const right = masterRule === 3 ? 7 : ST_COUNT - 1;
-  if (masterRule >= 3 && sequence === left) keys.push(zoneKey(seat, LOCATION_PZONE, 0));
-  if (masterRule >= 3 && sequence === right) keys.push(zoneKey(seat, LOCATION_PZONE, 1));
-  return withExact(card, keys);
-}
+// DuelField, SeatField and the row components keep the base styles; the skinned primitives below read the skin.
+const styles = baseStyles;
 
 function findByCode(view: DuelSeatView, code: number): DuelCard | null {
   const zones: Array<DuelCard | null | undefined> = [
@@ -214,7 +145,7 @@ function NibIcon() {
  * plus a tag (a nib, or a check once picked).
  * A legal pile with a summoning circle already shows that signal, so it skips the glow and tag until selected.
  */
-function ZoneMarks({
+export function ZoneMarks({
   legal,
   selected,
   circle = false,
@@ -223,6 +154,7 @@ function ZoneMarks({
   selected: boolean;
   circle?: boolean;
 }) {
+  const styles = useSkinStyles(baseStyles, "field");
   if (!legal && !selected) return null;
   if (circle && !selected) return null;
   return (
@@ -243,7 +175,8 @@ const PILE_WORDS: Record<string, [string, string]> = {
   field: ["Field", "Fld"],
 };
 
-function PileLabel({ kind, count }: { kind: string; count: number }) {
+export function PileLabel({ kind, count }: { kind: string; count: number }) {
+  const styles = useSkinStyles(baseStyles, "field");
   const [full, short] = PILE_WORDS[kind] ?? [kind, kind];
   return (
     <span className={styles.pileLabel}>
@@ -254,7 +187,7 @@ function PileLabel({ kind, count }: { kind: string; count: number }) {
   );
 }
 
-function ZoneSlot({
+export function ZoneSlot({
   card,
   label,
   kind,
@@ -288,6 +221,7 @@ function ZoneSlot({
   onActivate: DuelActivateHandler;
   onHoverCard?: DuelHoverHandler;
 }) {
+  const styles = useSkinStyles(baseStyles, "field");
   const legal = anyLegal(keys, legalKeys);
   const selected = anySelected(keys, selectedKeys);
   const stats = cardFieldStats(card, showStats);
@@ -365,7 +299,7 @@ const HOLD_MOVE_LIMIT = 8;
 
 const CHIP_TEXT: Record<string, string> = { gy: "Open GY", banish: "Open Banished", extra: "Open Extra Deck" };
 
-function PileSlot({
+export function PileSlot({
   label,
   count,
   kind,
@@ -400,6 +334,7 @@ function PileSlot({
   onInspect: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
 }) {
+  const styles = useSkinStyles(baseStyles, "field");
   const legal = anyLegal(keys, legalKeys);
   const selected = anySelected(keys, selectedKeys);
   const circleTone = pileSummonTone({ kind, side, count, keys, legalKeys });
@@ -566,7 +501,7 @@ function PileSlot({
   );
 }
 
-function Tally({
+export function Tally({
   side,
   name,
   lp,
@@ -585,6 +520,7 @@ function Tally({
   spectator: boolean;
   reducedMotion: boolean;
 }) {
+  const styles = useSkinStyles(baseStyles, "field");
   const priority = priorityLabel ? (
     <span className={styles.tPriority} title={priorityLabel}>
       <span className={styles.visuallyHidden}>{priorityLabel}</span>
@@ -614,7 +550,7 @@ function Tally({
   );
 }
 
-function HandStrip({
+export function HandStrip({
   seat,
   cards,
   mine,
@@ -633,6 +569,7 @@ function HandStrip({
   onActivate: DuelActivateHandler;
   onHoverCard?: DuelHoverHandler;
 }) {
+  const styles = useSkinStyles(baseStyles, "field");
   const vars: CssVars = { "--hn": cards.length, "--hn1": Math.max(1, cards.length - 1) };
   return (
     <div className={`${styles.handRail}`}>
@@ -767,6 +704,72 @@ function SpellRow({
   );
 }
 
+export type PileKind = "deck" | "gy" | "banish" | "extra";
+
+type PileSlotProps = ComponentProps<typeof PileSlot>;
+type ZoneSlotProps = ComponentProps<typeof ZoneSlot>;
+
+/**
+ * The props of one pile of a seat (Main Deck, Graveyard, Banished or Extra Deck). The classic `PileColumn` and the
+ * 3D table build their piles from this, so keys, labels and counts cannot drift apart. `flip` is the far side of the board.
+ */
+export function pileSlotProps(
+  view: DuelSeatView | undefined,
+  kind: PileKind,
+  options: { ownerLabel: string; flip: boolean; column: "left" | "right"; callbacks: FieldCallbacks },
+): PileSlotProps {
+  const { ownerLabel: whose, flip, column, callbacks } = options;
+  const seat = view?.seat ?? 0;
+  const side: "opp" | "you" = flip ? "opp" : "you";
+  const common = {
+    side,
+    column,
+    legalKeys: callbacks.legalKeys,
+    selectedKeys: callbacks.selectedKeys,
+    onActivate: callbacks.onActivate,
+    onInspect: callbacks.onInspect,
+    onHoverCard: callbacks.onHoverCard,
+  };
+  if (kind === "deck") {
+    return { ...common, label: `${whose} Main Deck`, count: view?.deckCount ?? 0, kind, keys: [zoneKey(seat, LOCATION_DECK, 0)],
+      cards: [], inspectable: false, sleeve: "deck", ownerSeat: seat };
+  }
+  if (kind === "gy") {
+    const gy = view?.graveyard ?? [];
+    return { ...common, label: `${whose} Graveyard`, count: gy.length, kind, keys: pileHighlightKeys(seat, LOCATION_GRAVE, gy), cards: gy, inspectable: true };
+  }
+  if (kind === "banish") {
+    const banished = view?.banished ?? [];
+    return { ...common, label: `${whose} Banished`, count: banished.length, kind, keys: pileHighlightKeys(seat, LOCATION_REMOVED, banished), cards: banished, inspectable: true };
+  }
+  const extra = view?.extra ?? [];
+  return { ...common, label: `${whose} Extra Deck`, count: view?.extraCount ?? extra.length, kind, keys: pileHighlightKeys(seat, LOCATION_EXTRA, extra),
+    cards: extra, inspectable: true, sleeve: "extra" };
+}
+
+/** The props of a seat's Field Spell zone (keys `[FZONE 0, SZONE 5]`, the pile label shows 0 or 1). */
+export function fieldZoneProps(
+  view: DuelSeatView | undefined,
+  options: { ownerLabel: string; flip: boolean; callbacks: FieldCallbacks },
+): ZoneSlotProps {
+  const { ownerLabel, flip, callbacks } = options;
+  const seat = view?.seat ?? 0;
+  const fieldSpell = slot(view?.spells, 5);
+  return {
+    card: fieldSpell,
+    label: `${ownerLabel} Field Spell`,
+    kind: "field",
+    offId: disabledZones(view).field ? `${seat}-f-0` : undefined,
+    keys: withExact(fieldSpell, [zoneKey(seat, LOCATION_FZONE, 0), zoneKey(seat, LOCATION_SZONE, 5)]),
+    legalKeys: callbacks.legalKeys,
+    selectedKeys: callbacks.selectedKeys,
+    pileCount: fieldSpell ? 1 : 0,
+    flip,
+    onActivate: callbacks.onActivate,
+    onHoverCard: callbacks.onHoverCard,
+  };
+}
+
 function PileColumn({
   view,
   opponent,
@@ -786,104 +789,14 @@ function PileColumn({
   flip?: boolean;
 }) {
   const seat = view?.seat ?? 0;
-  const gy = view?.graveyard ?? [];
-  const banished = view?.banished ?? [];
-  const extra = view?.extra ?? [];
-  const fieldSpell = slot(view?.spells, 5);
   const whose = ownerLabel;
   const turned = flip ?? opponent;
-  const owner = turned ? "opp" : "you";
-  const deck = (
-    <PileSlot
-      key="deck"
-      label={`${whose} Main Deck`}
-      count={view?.deckCount ?? 0}
-      kind="deck"
-      keys={[zoneKey(seat, LOCATION_DECK, 0)]}
-      cards={[]}
-      inspectable={false}
-      sleeve="deck"
-      side={owner}
-      column={side}
-      ownerSeat={seat}
-      legalKeys={callbacks.legalKeys}
-      selectedKeys={callbacks.selectedKeys}
-      onActivate={callbacks.onActivate}
-      onInspect={callbacks.onInspect}
-      onHoverCard={callbacks.onHoverCard}
-    />
-  );
-  const grave = (
-    <PileSlot
-      key="gy"
-      label={`${whose} Graveyard`}
-      count={gy.length}
-      kind="gy"
-      keys={pileHighlightKeys(seat, LOCATION_GRAVE, gy)}
-      cards={gy}
-      inspectable
-      side={owner}
-      column={side}
-      legalKeys={callbacks.legalKeys}
-      selectedKeys={callbacks.selectedKeys}
-      onActivate={callbacks.onActivate}
-      onInspect={callbacks.onInspect}
-      onHoverCard={callbacks.onHoverCard}
-    />
-  );
-  const banish = (
-    <PileSlot
-      key="banish"
-      label={`${whose} Banished`}
-      count={banished.length}
-      kind="banish"
-      keys={pileHighlightKeys(seat, LOCATION_REMOVED, banished)}
-      cards={banished}
-      inspectable
-      side={owner}
-      column={side}
-      legalKeys={callbacks.legalKeys}
-      selectedKeys={callbacks.selectedKeys}
-      onActivate={callbacks.onActivate}
-      onInspect={callbacks.onInspect}
-      onHoverCard={callbacks.onHoverCard}
-    />
-  );
-  const extraPile = (
-    <PileSlot
-      key="extra"
-      label={`${whose} Extra Deck`}
-      count={view?.extraCount ?? extra.length}
-      kind="extra"
-      keys={pileHighlightKeys(seat, LOCATION_EXTRA, extra)}
-      cards={extra}
-      inspectable
-      sleeve="extra"
-      side={owner}
-      column={side}
-      legalKeys={callbacks.legalKeys}
-      selectedKeys={callbacks.selectedKeys}
-      onActivate={callbacks.onActivate}
-      onInspect={callbacks.onInspect}
-      onHoverCard={callbacks.onHoverCard}
-    />
-  );
-  const fieldPile = (
-    <ZoneSlot
-      key="field"
-      card={fieldSpell}
-      label={`${whose} Field Spell`}
-      kind="field"
-      offId={disabledZones(view).field ? `${seat}-f-0` : undefined}
-      keys={withExact(fieldSpell, [zoneKey(seat, LOCATION_FZONE, 0), zoneKey(seat, LOCATION_SZONE, 5)])}
-      legalKeys={callbacks.legalKeys}
-      selectedKeys={callbacks.selectedKeys}
-      pileCount={fieldSpell ? 1 : 0}
-      flip={turned}
-      onActivate={callbacks.onActivate}
-      onHoverCard={callbacks.onHoverCard}
-    />
-  );
+  const pile = (kind: PileKind) => <PileSlot key={kind} {...pileSlotProps(view, kind, { ownerLabel, flip: turned, column: side, callbacks })} />;
+  const deck = pile("deck");
+  const grave = pile("gy");
+  const banish = pile("banish");
+  const extraPile = pile("extra");
+  const fieldPile = <ZoneSlot key="field" {...fieldZoneProps(view, { ownerLabel, flip: turned, callbacks })} />;
 
   const items = opponent
     ? side === "left"
@@ -929,83 +842,12 @@ function TurnGlow({ side, turn, priority }: { side: "top" | "bottom"; turn: bool
  * It fills its parent (width and height 100%) and is a size container: the zone size `--z` is derived
  * from the smaller of the width-bound and height-bound fit, so the whole board is visible without scrolling.
  */
-export function DuelField({
-  engine,
-  mySeat,
-  masterRule,
-  reducedMotion,
-  legalKeys,
-  selectedKeys,
-  onActivate,
-  onInspect,
-  onHoverCard,
-  bottomName,
-  topName,
-  topSeat,
-  topLabel: topLabelOverride,
-  showExtraZones = true,
-  priorityLive,
-}: {
-  engine: DuelEngineView;
-  mySeat: number | null;
-  masterRule: DuelMasterRule;
-  reducedMotion: boolean;
-  legalKeys: Set<string>;
-  selectedKeys: Set<string>;
-  onActivate: DuelActivateHandler;
-  onInspect: (target: InspectTarget) => void;
-  onHoverCard?: DuelHoverHandler;
-  bottomName: string;
-  topName: string;
-  /** 3 and 4 seat tables: the seat shown in the top half. Default: the other seat of a 1v1. */
-  topSeat?: number | null;
-  /** 3 and 4 seat tables: owner name in the top half's aria labels (default "Opponent"). */
-  topLabel?: string;
-  /** False when MultiSeatStage draws this seat's EMZ in an FFA4 shared row. */
-  showExtraZones?: boolean;
-  /** Room action/reveal gate. Local priority follows this directly; previews can omit it. */
-  priorityLive?: boolean;
-}) {
-  const bottomIndex = mySeat ?? 0;
-  const topIndex = topSeat ?? (bottomIndex === 0 ? 1 : 0);
-  const bottom = engine.seats.find((seat) => seat.seat === bottomIndex);
-  const top = engine.seats.find((seat) => seat.seat === topIndex);
-  const callbacks: FieldCallbacks = { legalKeys, selectedKeys, onActivate, onInspect, onHoverCard };
-  const topLabel = topLabelOverride ?? (mySeat == null ? topName : "Opponent");
-  const bottomLabel = mySeat == null ? bottomName : "Your";
-  const battle = isBattlePhase(engine.phase);
+export function DuelField(props: DuelFieldProps) {
+  const { engine, mySeat, masterRule, reducedMotion, legalKeys, selectedKeys, onActivate, onHoverCard, bottomName, topName,
+    showExtraZones = true } = props;
   const boardRef = useRef<HTMLElement | null>(null);
-  const pending = deriveFieldActivity(engine);
-  // The room owns local reveal. The parent also contains sibling board effects, which gate
-  // private opponent prompts and standalone previews.
-  const priorityReady = useFieldPriorityReady({
-    events: engine.events,
-    waiting: pending.prioritySeat != null,
-    revealed: priorityLive === true && pending.prioritySeat === mySeat,
-    board: boardRef,
-    reducedMotion,
-  });
-  const priorityShown = priorityLive !== false && priorityReady;
-  const turnSeat = useFieldTurnSeat(engine, pending.turnSeat);
-  const activity = { ...deriveFieldActivity(engine, !priorityShown), turnSeat };
-  const priorityLabel = (seat: number, name: string) => activity.prioritySeat !== seat ? null
-    : mySeat == null ? `${name} to act` : mySeat === seat ? "Your move" : "Opponent to act";
-
-  const leftEmz = extraMonster(bottom, top, "left");
-  const rightEmz = extraMonster(bottom, top, "right");
-  const leftEmzKeys = withExact(leftEmz, extraMonsterKeys(bottomIndex, topIndex, "left"));
-  const rightEmzKeys = withExact(rightEmz, extraMonsterKeys(bottomIndex, topIndex, "right"));
-
-  // Extra Monster Zones: the bottom seat's bit 5/6, or the top seat's bit 6/5 (mirrored band, 1v1 only).
-  // At 3+ seats the focused opponent's own Extra Monster Zones are drawn in their own row, not here.
-  const bottomOff = disabledZones(bottom);
-  const topOff = engine.seats.length > 2 ? null : disabledZones(top);
-  const emzOff = (left: boolean): string | undefined => {
-    if (left ? bottomOff.monsters[5] : bottomOff.monsters[6]) return `${bottomIndex}-m-${left ? 5 : 6}`;
-    if (topOff && (left ? topOff.monsters[6] : topOff.monsters[5])) return `${topIndex}-m-${left ? 6 : 5}`;
-    return undefined;
-  };
-  const equipLinks = useMemo(() => resolveEquipLinks(engine.seats), [engine.seats]);
+  const { bottomIndex, topIndex, bottom, top, callbacks, topLabel, bottomLabel, battle, activity, priorityLabel,
+    leftEmz, rightEmz, leftEmzKeys, rightEmzKeys, emzOff, equipLinks } = useDuelFieldModel({ ...props, boardRef });
 
   return (
     <EquipLinksContext.Provider value={equipLinks}>
@@ -1283,7 +1125,7 @@ export function SeatField({
   );
 }
 
-function MasterDock({
+export function MasterDock({
   title,
   view,
   local,
@@ -1308,6 +1150,7 @@ function MasterDock({
   onInspect: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
 }) {
+  const styles = useSkinStyles(baseStyles, "field");
   const master = view?.deckMaster;
   const card = view ? masterCard(view) : null;
   const keys = view ? withExact(card, [zoneKey(view.seat, LOCATION_DMZONE, 0)]) : [];
@@ -1436,6 +1279,7 @@ export function DeckMasterRail({
   /** The heading of the bottom dock, for example "Mika's Master" to a spectator of a table of 3. Default: "Your Master" / "Seat 1 Master". */
   selfTitle?: string;
 }) {
+  const styles = useSkinStyles(baseStyles, "field");
   const bottomIndex = mySeat ?? 0;
   const topIndex = topSeat ?? (bottomIndex === 0 ? 1 : 0);
   const bottom = engine.seats.find((seat) => seat.seat === bottomIndex);
