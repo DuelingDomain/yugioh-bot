@@ -122,6 +122,10 @@ The triage of 457 cards that needed a product decision is in `.status/multiplaye
 
 These cards stay legal in the deck check. Their rules are listed in `MULTIPLAYER_CARD_RULES` (`packages/duel-server/src/banlists/multiplayer.ts`). `engine: "native"` means that the engine does the rule and a live scenario proves it for that card (the proven tables are in `proven`). `engine: "pending"` means that no live scenario proves it for that card yet. The details, and the list of proven cards, are in `docs/specs/2026-09-30-multiplayer-card-scenarios.md`.
 
+## Card decision (2026-10-04, product owner)
+
+Convulsion of Nature (62966332) is forbidden in 3-player free-for-all, 4-player free-for-all and 2v2 Tag. Its category is `symmetry`. It reverses Decks through one global check for two sides. A multiplayer table has more than two Decks. Script evidence: `c62966332.lua:5` (`GLOBALFLAG_DECK_REVERSE_CHECK`), `c62966332.lua:14` (`EFFECT_REVERSE_DECK`) and `c62966332.lua:17` (`SetTargetRange(1,1)`).
+
 ## Domain deck rules (2026-10-02)
 
 Domain uses exactly 60 Main Deck cards and at most 15 Extra Deck cards. Main and Extra are singleton by card identity, including alternate art and treated-as names. The Deck Master is separate from these counts and cannot also be in the decks. There is no Side Deck and no banlist by default; the host may choose a banlist, and the multiplayer safety list still applies.
