@@ -33,7 +33,7 @@ type YgoprodeckCard = {
 type FetchLike = (
   input: string | URL | globalThis.Request,
   init?: globalThis.RequestInit,
-) => Promise<Pick<Response, "ok" | "status" | "json">>;
+) => Promise<Pick<Response, "ok" | "json"> & Partial<Pick<Response, "status">>>;
 
 export type CardCatalogCard = Card;
 
@@ -146,7 +146,8 @@ export function createCardCatalogService(
         return [];
       }
       if (response.status !== 400) {
-        throw new Error(`Could not reach the card database (HTTP ${response.status}). Check connectivity and try again.`);
+        const reason = response.status === undefined ? "request failed" : `HTTP ${response.status}`;
+        throw new Error(`Could not reach the card database (${reason}). Check connectivity and try again.`);
       }
       throw new Error(`YGOPRODeck request failed for ${new URLSearchParams(params).toString()}`);
     }

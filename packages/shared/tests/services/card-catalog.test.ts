@@ -51,7 +51,7 @@ function setup(
         async json() {
           return { data };
         },
-      } as Response;
+      };
     },
   });
 
@@ -364,6 +364,27 @@ describe("card name search", () => {
 
     await expect(catalog.syncCardsByFuzzyName("blue eyes")).rejects.toThrow(/Could not reach the card database/);
     expect(calls).toEqual(["?fname=blue+eyes"]);
+  });
+
+  it("rejects a failed response without a status instead of treating it as no match", async () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    let calls = 0;
+    const catalog = createCardCatalogService(db, {
+      fetch: async () => {
+        calls++;
+        return { ok: false, async json() { throw new Error("Failed responses must not be parsed"); } };
+      },
+    });
+
+    try {
+      await expect(catalog.syncCardsByFuzzyName("blue eyes")).rejects.toThrow(
+        "Could not reach the card database (request failed). Check connectivity and try again.",
+      );
+      expect(calls).toBe(1);
+    } finally {
+      db.close();
+    }
   });
 
   it.each([429, 500])("stops when a fallback probe gets HTTP %s", async (status) => {
