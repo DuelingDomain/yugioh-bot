@@ -45,6 +45,7 @@ describe("fx lab: Best of 3 scenarios", () => {
       "match-bot-side",
       "match-bot-won",
       "match-won",
+      "match-lost",
       "match-spectator-siding",
       "match-spectator-next-live",
       "match-spectator-private-siding",
