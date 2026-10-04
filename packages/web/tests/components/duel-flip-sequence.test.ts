@@ -3,6 +3,7 @@ import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import { findFlipSequences, flipSequenceOf, flipSequenceSteps, FLIP_SEQUENCE_TIMING } from "../../src/components/duel/flip-sequence";
 import { chainBeatAt, chainEffectAt, flipAttackAt, flipFightDamageAt, flipStrikeHideMs, isSequenceFlip, planChainBeats, resetChainBeats } from "../../src/components/duel/chain-beats";
 import { chainEffectLead, deriveChainState } from "../../src/components/duel/chain-state";
+import { CHAIN_TIMING } from "../../src/components/duel/duel-timing";
 import { sequenceOwners, targetLinksOf } from "../../src/components/duel/chain-fx";
 
 const MZONE = 4;
@@ -109,9 +110,12 @@ describe("flip sequence timing", () => {
     const steps = flipSequenceSteps(false);
     expect(flipAttackAt(5)).toBe(NOW);
     expect(at(events, 6) - flipAttackAt(5)).toBe(steps.attackMs);
-    expect(at(events, 8) - at(events, 6)).toBe(steps.flipMs);
+    // The activation ghost starts with the flip (the readable activation beat of CARD_FX holds the turn);
+    // the chain's own activate beat starts when the flip ends.
+    expect(chainEffectAt(8)).toBe(chainEffectAt(6));
+    expect(chainBeatAt(8) - chainEffectAt(6)).toBe(steps.flipMs);
     expect(isSequenceFlip(6)).toBe(true);
-    const order = [flipAttackAt(5), at(events, 6), at(events, 8), chainBeatAt(9), chainBeatAt(10), at(events, 11), chainBeatAt(15), at(events, 16)];
+    const order = [flipAttackAt(5), at(events, 6), chainBeatAt(8), chainBeatAt(9), chainBeatAt(10), at(events, 11), chainBeatAt(15), at(events, 16)];
     for (let i = 1; i < order.length; i += 1) expect(order[i]).toBeGreaterThan(order[i - 1]);
     // The target is marked for its whole step before the link resolves.
     expect(chainBeatAt(10) - chainBeatAt(9)).toBe(steps.targetMs);
@@ -123,6 +127,16 @@ describe("flip sequence timing", () => {
     expect(at(events, 16)).toBeGreaterThanOrEqual(chainBeatAt(15));
   });
 
+  it("shares the readable activation beat with the flip: the turn and the glow add up to one beat", () => {
+    const events = recorded();
+    plan(events);
+    const steps = flipSequenceSteps(false);
+    // From the start of the flip to the target beat: one activation beat (#136's pace), not flip plus a full beat.
+    expect(chainBeatAt(9) - chainEffectAt(6)).toBe(CHAIN_TIMING.activateMs);
+    expect(chainBeatAt(9) - chainBeatAt(8)).toBe(CHAIN_TIMING.activateMs - steps.flipMs);
+    expect(chainBeatAt(9) - chainBeatAt(8)).toBeGreaterThanOrEqual(CHAIN_TIMING.readableFloorMs.activate);
+  });
+
   it("lays a sequence the engine sends in two batches (the player chose between two targets)", () => {
     // The engine stops after the activation to ask for the target, so the target and the rest come later.
     const all = recorded().map((e) => (e.kind === "target" && e.id === 9 ? { ...e, targets: [zone(0, MZONE, 1)] } : e));
@@ -132,7 +146,8 @@ describe("flip sequence timing", () => {
     const steps = flipSequenceSteps(false);
     expect(flipAttackAt(5)).toBe(NOW);
     expect(at(first, 6)).toBe(NOW + steps.attackMs);
-    expect(at(first, 8)).toBe(NOW + steps.attackMs + steps.flipMs);
+    expect(chainEffectAt(8)).toBe(NOW + steps.attackMs);
+    expect(chainBeatAt(8)).toBe(NOW + steps.attackMs + steps.flipMs);
     // The second batch arrives while the first beats are still running; nothing in it starts earlier.
     plan(second, false, NOW + 250);
     expect(chainBeatAt(9)).toBeGreaterThanOrEqual(chainBeatAt(8));
@@ -167,7 +182,7 @@ describe("flip sequence timing", () => {
     const steps = flipSequenceSteps(true);
     expect(steps.attackMs).toBeLessThan(flipSequenceSteps(false).attackMs);
     expect(at(events, 6) - flipAttackAt(5)).toBe(steps.attackMs);
-    expect(at(events, 8) - at(events, 6)).toBe(steps.flipMs);
+    expect(chainBeatAt(8) - chainEffectAt(6)).toBe(steps.flipMs);
     expect(chainBeatAt(10) - chainBeatAt(9)).toBe(steps.targetMs);
     expect(at(events, 11)).toBeGreaterThan(chainBeatAt(10) - 1);
   });

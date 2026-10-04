@@ -1,5 +1,6 @@
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { zoneKey } from "./constants";
+import { CHAIN_TIMING } from "./duel-timing";
 import { chainEffectLead, chainStepDelay, isChainEvent } from "./chain-state";
 import { advanceFlipTracks, flipSequenceSteps, type FlipStep, type FlipTrack } from "./flip-sequence";
 
@@ -48,6 +49,8 @@ const closers = new Map<number, number>();
 const flipAttacks = new Map<number, number>();
 /** Attacker zone key -> when its strike ends (absolute FX ms). */
 const strikeEnds = new Map<string, number>();
+/** Activation event id -> the flip time that its chain beat shares (the flip is part of the readable activation beat). */
+const flipLeads = new Map<number, number>();
 /** Battle damage of a flip sequence -> when its LP roll may start (absolute FX ms). */
 const fightDamage = new Map<number, number>();
 /** Position events that are the flip of a sequence. */
@@ -66,6 +69,7 @@ export function resetChainBeats(key = ""): void {
   flipAttacks.clear();
   strikeEnds.clear();
   fightDamage.clear();
+  flipLeads.clear();
   sequenceFlips.clear();
   flipTracks.length = 0;
   state.key = key;
@@ -174,7 +178,10 @@ function planFlipOpening(step: Extract<FlipStep, { role: "open" }>, now: number,
     sequenceFlips.add(step.track.flip.id);
     effects.set(step.track.flip.id, flipAt);
   }
-  effects.set(step.event.id, chainAt);
+  // The activation ghost is one readable beat that already holds the card turning over (duel-timing.ts,
+  // CARD_FX.activationMs): it starts with the flip, and the chain's activate beat is shorter by the flip.
+  effects.set(step.event.id, flipAt);
+  if (step.flipFresh) flipLeads.set(step.event.id, steps.flipMs);
   state.freeAt = Math.max(state.freeAt, chainAt);
   trim(flipAttacks);
   while (strikeEnds.size > MAX_KEPT) strikeEnds.delete(strikeEnds.keys().next().value as string);
@@ -216,7 +223,9 @@ export function planChainBeats(fresh: readonly DuelEvent[], options: PlanOptions
       if (event.kind === "chain-resolving") { state.resolvingAt = cursor; state.resolvingId = event.id; }
       else if (event.kind === "chain-resolved" || event.kind === "chain-end" || event.kind === "activate") state.resolvingAt = null;
       played += 1;
-      cursor += targetSteps.get(event.id) ?? chainStepDelay(event.kind, total - played, reduced);
+      const delay = chainStepDelay(event.kind, total - played, reduced);
+      const lead = flipLeads.get(event.id) ?? 0;
+      cursor += targetSteps.get(event.id) ?? (lead > 0 ? Math.max(CHAIN_TIMING.readableFloorMs.activate, delay - lead) : delay);
       continue;
     }
     const effectOf = lateEffects.get(event.id);
@@ -247,5 +256,6 @@ export function planChainBeats(fresh: readonly DuelEvent[], options: PlanOptions
   trim(closers);
   trim(activations);
   trim(fightDamage);
+  trim(flipLeads);
   while (handled.size > MAX_KEPT * 2) handled.delete(handled.values().next().value as number);
 }
