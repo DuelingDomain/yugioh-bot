@@ -1,0 +1,308 @@
+/* Solid Vision room shell (3D mode). Owned by the integration worker after the foundation.
+   Tokens come from the concept styles.css 5-66, scoped to .root. The layout numbers are spec 2.5 and 2.6. */
+
+.root {
+  /* obsidian */
+  --ink-0: #04060b;
+  --ink-1: #080b14;
+  --ink-2: #0d1221;
+  --ink-3: #131b2e;
+  --ink-4: #1b2540;
+  --hair: #242e46;
+  /* antique gold */
+  --gold: #c8a55f;
+  --gold-hi: #e8cf94;
+  --gold-lo: #7d6639;
+  --gold-a: rgb(200 165 95 / 0.42);
+  --gold-b: rgb(200 165 95 / 0.2);
+  /* restrained purple (active, selected, yours) */
+  --pur: #8f76f2;
+  --pur-hi: #b8a8ff;
+  --pur-btn: #5a43c6;
+  --pur-btn-hi: #6a52da;
+  --pur-a: rgb(143 118 242 / 0.34);
+  /* opponent ownership, loss */
+  --ember: #e0916a;
+  --loss: #f27a6b;
+  /* text */
+  --tx: #ece6d6;
+  --tx-2: #c4bdab;
+  --tx-3: #979080;
+
+  --font: var(--sv-font), "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+  --font-num: var(--sv-font-num), "Barlow Condensed", "Barlow Semi Condensed", sans-serif;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* The V1 --duel-* tokens, redefined so every V1 node inside the room (header tools, notices, panes, prompts)
+     takes the solid look. The portals that render outside the room (card menu, hover info) set their own. */
+  --duel-unit: 1px;
+  --duel-ground: var(--ink-1);
+  --duel-panel: var(--ink-2);
+  --duel-panel-2: var(--ink-3);
+  --duel-panel-3: var(--ink-4);
+  --duel-ink: var(--tx);
+  --duel-ink-2: var(--tx-2);
+  --duel-ink-3: var(--tx-3);
+  --duel-rule-rgb: 200 165 95;
+  --duel-rule-a: 0.2;
+  --duel-rule: rgb(var(--duel-rule-rgb) / var(--duel-rule-a));
+  --duel-rule-hi: rgb(var(--duel-rule-rgb) / 0.42);
+  --duel-rule-lo: rgb(var(--duel-rule-rgb) / 0.1);
+  --duel-ember-rgb: 224 145 106;
+  --duel-frame-rgb: var(--duel-rule-rgb);
+  --duel-frame-a: var(--duel-rule-a);
+  --duel-frame: rgb(var(--duel-frame-rgb) / var(--duel-frame-a));
+  --duel-pen: var(--pur);
+  --duel-pen-ink: var(--pur-hi);
+  --duel-pen-fill: var(--pur-btn);
+  --duel-pen-soft: rgb(143 118 242 / 0.13);
+  --duel-chain: var(--gold);
+  --duel-chain-ink: var(--gold-hi);
+  --duel-chain-soft: rgb(200 165 95 / 0.11);
+  --duel-loss: var(--loss);
+  --duel-loss-ink: #ff9d90;
+  --duel-gold: var(--gold);
+  --duel-edge: var(--duel-rule-hi);
+  --duel-f-ui: var(--font);
+  --duel-f-num: var(--font-num);
+  --duel-t-xs: 11px;
+  --duel-t-sm: 12px;
+  --duel-t-body: 13px;
+  --duel-t-head: 15px;
+  --duel-t-name: 19px;
+  --duel-t-num: 22px;
+
+  /* layout (desktop, spec 2.5); --strip is 0 because there is no dev strip */
+  --hdr: 48px;
+  --pad: 12px;
+  --insp-w: 268px;
+  --dock-w: 0px;
+  --opp-h: 78px;
+  --hand-h: clamp(100px, 13vh, 150px);
+  --you-h: calc(var(--hand-h) + 14px);
+  --phase-h: 46px;
+  --stage-w: calc(100vw - var(--insp-w) - var(--dock-w) - 4 * var(--pad));
+  --s: min(
+    calc((100dvh - var(--hdr) - var(--opp-h) - var(--you-h) - var(--phase-h) - var(--pad) - 52px) / 5),
+    calc((100vw - var(--insp-w) - var(--dock-w) - 4 * var(--pad) - 70px) / 7.1)
+  );
+  --g: calc(var(--s) * 0.07);
+  --pile: calc(var(--s) * 0.74);
+  --pp: calc(var(--s) * 0.12);
+  --cw: calc(var(--s) * 0.6);
+  --ch: calc(var(--s) * 0.875);
+  --tilt: 15deg;
+  --persp: 1400px;
+
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--insp-w) minmax(0, 1fr);
+  grid-template-rows: var(--hdr) minmax(0, 1fr) auto;
+  grid-template-areas:
+    "hdr hdr"
+    "insp stage"
+    "prompt stage";
+  column-gap: var(--pad);
+  height: 100dvh;
+  min-width: 0;
+  padding: 0 var(--pad) var(--pad);
+  /* clip, unlike hidden, cannot be scrolled by focus or scrollIntoView, so the room never shifts.
+     No transform, filter, perspective or will-change here or on .stage and .board: BattleFx and
+     MasterReturnFx are position: fixed and need the viewport as their containing block (spec 2.2). */
+  overflow: hidden;
+  overflow: clip;
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: dark;
+  background:
+    radial-gradient(90% 60% at 50% 45%, #0b1020 0%, transparent 70%),
+    radial-gradient(60% 50% at 0% 100%, #0a0d18 0%, transparent 70%),
+    var(--ink-0);
+}
+.root[data-domain="true"] {
+  --dock-w: 252px;
+  grid-template-columns: var(--insp-w) minmax(0, 1fr) var(--dock-w);
+  grid-template-areas:
+    "hdr hdr hdr"
+    "insp stage docks"
+    "prompt stage docks";
+}
+.root[data-view="flat"] { --tilt: 0deg; }
+
+@media (min-width: 1800px) {
+  .root { --insp-w: 300px; --opp-h: 88px; }
+  .root[data-domain="true"] { --dock-w: 280px; }
+}
+
+.root ::selection { background: rgb(143 118 242 / 0.45); color: #fff; }
+.root :focus { outline: none; }
+.root :focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; border-radius: 6px; }
+.root * { scrollbar-width: thin; scrollbar-color: var(--gold-lo) transparent; }
+.root *::-webkit-scrollbar { width: 8px; height: 8px; }
+.root *::-webkit-scrollbar-thumb { background: var(--gold-lo); border-radius: 8px; border: 2px solid var(--ink-1); }
+.root *::-webkit-scrollbar-track { background: transparent; }
+.root button { cursor: pointer; }
+.root button:disabled { cursor: default; }
+
+/* The header (SolidHeader) spans the top; it paints over the opponent's hand. */
+.root > header {
+  grid-area: hdr;
+  position: relative;
+  z-index: 4;
+  margin: 0 calc(var(--pad) * -1);
+  padding: 0 var(--pad);
+}
+/* Notices float over the top of the room (V1 .notices is absolute). */
+
+/* The series bar floats under the header, over the stage, like the notices (it must not add a grid row). */
+.banner {
+  position: absolute;
+  top: calc(var(--hdr) + 6px);
+  left: calc(var(--insp-w) + var(--pad));
+  right: calc(var(--dock-w) + var(--pad));
+  z-index: var(--duel-z-prompt);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.banner > * { pointer-events: auto; }
+.insp {
+  grid-area: insp;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--gold-b);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #0b0f1c, #080b15);
+  box-shadow: 0 18px 40px -18px rgb(0 0 0 / 0.9);
+}
+
+.stage {
+  grid-area: stage;
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) var(--phase-h);
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The field measures this box: it must stay definite and never scroll. Overflow stays visible so a lifted hand
+   card grows outward; the FX layers clip themselves. */
+.board {
+  position: relative;
+  z-index: var(--duel-z-board, 1);
+  min-width: 0;
+  min-height: 0;
+  overflow: visible;
+}
+/* The opening hands wait hidden until the card layers are ready to deal them (copy of the V1 rule in room.module.css). */
+.board[data-deal-wait="true"] [data-hand-seat] {
+  visibility: hidden;
+}
+/* Their Decks already show the count after the deal; the layers count it down card by card from the
+   count before the last card leaves. Show no number until then, or it would jump 35 -> 39 -> 35. */
+.board[data-deal-wait="true"] [data-zones*=":1:0"] [data-pile-count] {
+  visibility: hidden;
+}
+/* Battle phase: a faint ember wash over the whole board (copy of V1 .board::after). */
+.board::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(60% 55% at 50% 50%, rgb(var(--duel-ember-rgb) / 0.07), transparent 72%),
+    linear-gradient(180deg, rgb(var(--duel-ember-rgb) / 0.04), transparent 40%);
+  transition: opacity 0.6s;
+}
+.root[data-phase="battle"] .board::after { opacity: 1; }
+.root[data-reduced="true"] .board::after { transition: none; }
+
+.phase {
+  min-width: 0;
+  border-top: 1px solid var(--gold-b);
+}
+.peek { display: none; }
+
+/* A prompt for you sits in the left column under the inspector, so the board never resizes (V1 .promptDock sets grid-area: prompt). */
+.docks {
+  grid-area: docks;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--gold-b);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #0b0f1c, #080b15);
+}
+.docks > * { flex: 1 1 auto; min-height: 0; }
+
+.mobileBar { display: none; }
+
+/* ---------- phones and narrow windows (spec 2.6) ---------- */
+@media (max-width: 900px) {
+  .banner { left: var(--pad); right: var(--pad); }
+  .root {
+    --hdr: 46px;
+    --pad: 8px;
+    --hand-h: 100px;
+    --dock-w: 0px;
+    --s: min(calc((100vw - 2 * var(--pad) - 8px) / 6.68), 66px);
+    --g: calc(var(--s) * 0.06);
+    --pile: calc(var(--s) * 0.66);
+    --pp: 4px;
+    --stage-w: calc(100vw - 2 * var(--pad));
+    --tilt: 8deg;
+    --persp: 760px;
+    height: 100dvh;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: var(--hdr) minmax(0, 1fr) auto;
+    grid-template-areas:
+      "hdr"
+      "stage"
+      "prompt";
+    padding: 0 var(--pad) max(var(--pad), env(safe-area-inset-bottom));
+    font-size: 13px;
+  }
+  .root[data-domain="true"] {
+    --dock-w: 0px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "hdr"
+      "stage"
+      "prompt";
+  }
+  .root[data-view="flat"] { --tilt: 0deg; }
+  .insp, .docks { display: none; }
+  .stage {
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    row-gap: 6px;
+  }
+  .peek { display: block; }
+  .phase { border-top: 0; }
+  .mobileBar { display: none; }
+  /* The prompt overlays the bottom of the board, above the phase bar, so the table never resizes. */
+  .root > div[data-mode="float"], .root > div[data-mode="flow"] {
+    grid-area: auto;
+    position: absolute;
+    z-index: var(--duel-z-prompt, 5);
+    left: var(--pad);
+    right: var(--pad);
+    bottom: 52px;
+    margin: 0;
+    max-height: 40dvh;
+    border-radius: 12px 12px 0 0;
+  }
+  .root > div[data-mode="flow"] { max-height: 52dvh; }
+}

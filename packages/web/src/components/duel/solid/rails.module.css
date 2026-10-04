@@ -1,0 +1,60 @@
+/* Solid Vision rails: the LP plate and the hand on each side of the table, and the mobile Deck Master chip.
+   Foundation minimum: the grid and the hand sizes the V1 HandStrip needs. The rails worker (W2) owns the look. */
+
+.rail {
+  --rail-side: 244px;
+  --hand-room: calc(var(--stage-w) - 2 * var(--rail-side) - 24px);
+  --hw-top: var(--hand-room);
+  --hw-bot: var(--hand-room);
+  /* Sizes the V1 Tally and HandStrip read (set on .playmat in the classic board). */
+  --tally-h: 64px;
+  --head-h: calc(var(--tally-h) * 0.32);
+  --lp-h: calc(var(--tally-h) * 0.68);
+  --lp-fs: calc(var(--lp-h) * 0.94);
+  --tally-w: var(--rail-side);
+  --fs-name: 15px;
+  --fs-small: 12px;
+  --hpad: 4px;
+  --lift-k: 0.12;
+  position: relative;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: var(--rail-side) minmax(0, 1fr) var(--rail-side);
+  grid-template-areas: "plate hand .";
+  align-items: center;
+  min-width: 0;
+  min-height: 0;
+}
+.rail[data-sv-rail="opp"] {
+  --oh: 64px;
+  --ohcw: calc(var(--oh) * 0.686);
+  --ohg: calc(var(--ohcw) * 0.06);
+  --top-hide: 0;
+  height: var(--opp-h);
+  align-items: start;
+}
+.rail[data-sv-rail="you"] {
+  --lh: var(--hand-h);
+  --lhcw: calc(var(--lh) * 0.686);
+  --lhg: calc(var(--s) * 0.07);
+  height: var(--you-h);
+  align-items: end;
+}
+
+.railPlate { grid-area: plate; min-width: 0; padding: 4px 6px; }
+.railHand { grid-area: hand; min-width: 0; min-height: 0; height: 100%; }
+.railChip { grid-area: chip; display: none; }
+
+@media (max-width: 900px) {
+  .rail {
+    --rail-side: 0px;
+    --hand-room: var(--stage-w);
+    --tally-w: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "plate chip" "hand hand";
+    row-gap: 2px;
+  }
+  .rail[data-sv-rail="opp"] { --oh: 56px; height: auto; }
+  .rail[data-sv-rail="you"] { --lh: var(--hand-h); height: auto; }
+  .railChip { display: block; }
+}

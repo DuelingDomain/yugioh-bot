@@ -1,0 +1,139 @@
+/* Solid Vision table: the SolidField root, the field wrapper, the tilted plane and its 7x5 grid.
+   Foundation minimum: structure and tilt rules (spec 2.2, 2.5). The table worker (W1) owns the look from here. */
+
+/* .felt (field.module.css) gives the V1 tokens (--sheet, --ink ...). Container-type is normal, so the V1
+   @container (max-width: 640px) phone rules never match. */
+.root[data-duel-field] {
+  --f-ui: var(--font);
+  --f-num: var(--font-num);
+  container-type: normal;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  place-items: stretch;
+  width: 100%;
+  height: 100%;
+  background: none;
+}
+
+.fieldwrap {
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  /* Perspective goes on the parent of the plane only (spec 2.2 rule 1). */
+  perspective: var(--persp);
+  perspective-origin: 50% 50%;
+}
+
+@property --light-y {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 78%;
+}
+
+/* The ONLY tilted node. No preserve-3d, will-change, overflow, opacity or filter here. */
+.plane {
+  --light-y: 78%;
+  /* The V1 primitive variables, mapped from the cell size (spec 2.5). */
+  --z: var(--ch);
+  --gy: var(--g);
+  --r: 3px;
+  --pk: 0.86;
+  --fs-name: 13px;
+  --fs-small: 11px;
+  --n3: clamp(9px, calc(var(--ch) * 0.13), 19px);
+  --n4: clamp(9.5px, calc(var(--ch) * 0.104), 15px);
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--pile) repeat(5, var(--s)) var(--pile);
+  grid-template-rows: repeat(5, var(--s));
+  gap: var(--g);
+  padding: var(--pp) calc(var(--pp) * 1.2);
+  border-radius: 12px;
+  transform: rotateX(var(--tilt));
+  transform-origin: 50% 80%;
+  transition: transform 0.55s var(--ease-out), --light-y 0.9s var(--ease-out);
+  background:
+    radial-gradient(70% 38% at 50% var(--light-y), rgb(143 118 242 / 0.13), transparent 70%),
+    radial-gradient(40% 30% at 18% 12%, rgb(52 66 104 / 0.3), transparent 70%),
+    radial-gradient(50% 40% at 86% 86%, rgb(40 52 88 / 0.28), transparent 70%),
+    linear-gradient(118deg, transparent 38%, rgb(255 255 255 / 0.022) 48%, transparent 58%),
+    linear-gradient(180deg, #0c1222 0%, #080c18 100%);
+  box-shadow:
+    0 0 0 1px rgb(200 165 95 / 0.55),
+    0 0 0 4px rgb(8 11 20 / 0.95),
+    0 0 0 5px rgb(200 165 95 / 0.18),
+    0 40px 60px -24px rgb(0 0 0 / 0.95);
+}
+:global([data-reduced="true"]) .plane { transition: none; }
+.plane[data-light="opp"] { --light-y: 22%; }
+
+/* Your-half / their-half light split. */
+.plane::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border-radius: 12px;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(180deg, rgb(4 6 11 / 0.5) 0%, rgb(4 6 11 / 0.5) 50%, transparent 50%);
+  transition: opacity 0.6s;
+}
+.plane[data-light="opp"]::after {
+  background: linear-gradient(0deg, rgb(4 6 11 / 0.42) 0%, rgb(4 6 11 / 0.42) 50%, transparent 50%);
+  opacity: 1;
+}
+:global([data-reduced="true"]) .plane::after { transition: none; }
+
+.emblem {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--s) * 2.6);
+  height: calc(var(--s) * 2.6);
+  translate: -50% -50%;
+  pointer-events: none;
+  color: var(--gold);
+  opacity: 0.16;
+}
+
+/* The two halves only carry data-* hooks; their cells sit on the plane grid. */
+.halfWrap { display: contents; }
+
+.cell {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: stretch;
+  min-width: 0;
+  min-height: 0;
+}
+.cell[data-cell="band-pile"] { align-self: center; height: calc(var(--s) * 0.9); }
+
+/* Centre-band gaps: the opponent's clock (left, turned to face them, ember) and yours (right, purple). */
+.clock {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  font-family: var(--font-num);
+  font-size: calc(var(--s) * 0.3);
+  line-height: 1;
+}
+.clock[data-sv-clock="opp"] { color: var(--ember); transform: rotate(180deg); }
+.clock[data-sv-clock="you"] { color: var(--pur-hi); }
+
+.planeSvg {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  color: var(--gold-hi);
+}
