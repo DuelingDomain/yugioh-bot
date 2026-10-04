@@ -15,10 +15,12 @@ image="$(node -p "const e=require('./$pins').emscripten; e.image+'@'+e.digest")"
 docker pull "$image"
 docker run --rm --ulimit core=1:1 --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -e DOMAIN_ROOT=/src -e "DUEL_DATA_DIR=/src/$out/bundle" \
-  -e EM_CACHE=/src/.cache/emscripten -e "CI_SERIAL=${CI_SERIAL:-0}" \
+  -e "CI_SERIAL=${CI_SERIAL:-0}" \
   -v "$PWD":/src -w /src "$image" bash -c '
     set -euo pipefail
     target="$1"
+    # The emsdk entrypoint clears EM_CACHE. Set it after startup so Actions can restore it.
+    export EM_CACHE=/src/.cache/emscripten
     export EMCC_CORES="$(nproc)"
     if [[ "$CI_SERIAL" != 1 ]]; then
       export CI_REAL_EMXX="$(command -v em++)"
