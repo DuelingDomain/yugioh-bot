@@ -169,13 +169,13 @@ describe("the opening deal through the room hand-over", () => {
     view.rerender(<Room clock={clock} recovering />);
     await tick(250);
     view.rerender(<Room clock={clock} />);
-    const { landed } = await watch(view, 4000);
-    const before = new Set(ORDER.filter((id) => !landed.has(id)));
-    // Cards 1 and 2 had landed (or were in flight) before the blip; every later card still lands alone, in order.
+    const { hiddenAtStart, landed } = await watch(view, 4000);
+    // Every card still hidden when the watch began (the blip had passed) lands alone, in order, and none stays hidden.
     const times = sorted(landed).map(([, at]) => at);
-    expect(sorted(landed).map(([id]) => id)).toEqual(ORDER.filter((id) => landed.has(id)));
-    expect(landed.size + before.size).toBe(10);
-    expect(landed.size).toBeGreaterThanOrEqual(7);
+    expect(hiddenAtStart.size).toBeGreaterThanOrEqual(7);
+    expect([...landed.keys()].sort()).toEqual([...hiddenAtStart].sort());
+    expect(sorted(landed).map(([id]) => id)).toEqual(ORDER.filter((id) => hiddenAtStart.has(id)));
+    expect(landed.has("sleeve-10")).toBe(true);
     for (let i = 1; i < times.length; i += 1) expect(times[i] - times[i - 1]).toBeGreaterThanOrEqual(150);
   });
 
