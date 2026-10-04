@@ -223,6 +223,10 @@
   }
   .view { padding: 0 8px; }
 }
+@media (max-width: 480px) {
+  .wordmark a { font-size: 15px; }
+  .turnbox .dot, .phase { display: none; }
+}
 @media (max-width: 420px) {
   .view b { display: none; }
   .view { padding: 0 7px; }
