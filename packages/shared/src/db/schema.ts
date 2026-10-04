@@ -718,7 +718,8 @@ export function migrate(db: Database.Database) {
  * Cubes saved from the create form kept their cards only in config_json.customCardIds, so the library and
  * editor (which read cube_cards) showed them empty. Move those ids into cube_cards. Only cubes with no
  * cube_cards rows are touched. cube_cards.catalog_card_id references card_catalog, so ids missing from the
- * catalog stay in customCardIds; everything else is removed from config, except copies beyond the 99 a cube holds. Idempotent.
+ * catalog stay in customCardIds; everything else is removed from config. A cube with more than 99 copies of one card is left alone, since a split would leave
+ * the overflow as the only dealt copies (the deal skips cube_cards rows whose id is listed in config). Idempotent.
  */
 function migrateConfigPoolsToCubeCards(db: Database.Database) {
   const candidates = db.prepare(
@@ -750,6 +751,7 @@ function migrateConfigPoolsToCubeCards(db: Database.Database) {
       if (ids.length === 0) continue;
       const counts = new Map<number, number>();
       for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1);
+      if ([...counts.values()].some((count) => count > 99)) continue;
       const unmigrated: number[] = [];
       for (const [id, count] of counts) {
         const card = findCard.get(id) as { type: string; frame_type: string } | undefined;
@@ -757,9 +759,7 @@ function migrateConfigPoolsToCubeCards(db: Database.Database) {
           for (let n = 0; n < count; n += 1) unmigrated.push(id);
           continue;
         }
-        insert.run(cube.id, id, isExtraDeckFrame({ frameType: card.frame_type, type: card.type }) ? "extra" : "main", Math.min(count, 99));
-        // A cube holds at most 99 copies of a card; the excess stays in the config.
-        for (let n = 99; n < count; n += 1) unmigrated.push(id);
+        insert.run(cube.id, id, isExtraDeckFrame({ frameType: card.frame_type, type: card.type }) ? "extra" : "main", count);
       }
       if (unmigrated.length > 0) config.customCardIds = unmigrated;
       else delete config.customCardIds;

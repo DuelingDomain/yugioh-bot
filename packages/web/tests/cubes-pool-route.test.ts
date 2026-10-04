@@ -152,7 +152,7 @@ describe("cube pool routes", () => {
       return (body: object) => POST(json(body), { params: Promise.resolve({ id: "1" }) });
     }
 
-    it("replaces main, leaves extra, strips customCardIds and counts skipped extra cards", async () => {
+    it("replaces main, leaves extra, strips customCardIds and setNames and counts skipped extra cards", async () => {
       const post = await seededCube();
       vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [] })));
       const res = await post({ op: "replaceMain", cards: [{ id: 3, copies: 2 }, { id: 2, copies: 1 }, { id: 888, copies: 1 }] });
@@ -163,7 +163,6 @@ describe("cube pool routes", () => {
       expect(body.pools.extra.map((c: any) => [c.catalogCardId, c.maxCopies])).toEqual([[2, 4]]);
       const db = await rawDb();
       expect(JSON.parse((db.prepare("select config_json from cubes where id = 1").get() as any).config_json)).toEqual({
-        setNames: ["S"],
         draftType: "theme",
       });
       db.close();

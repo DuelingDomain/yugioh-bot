@@ -25,7 +25,7 @@ const pools = (db: Database.Database, id: number) =>
   db.prepare("select catalog_card_id id, pool, max_copies copies from cube_cards where cube_id = ? order by catalog_card_id").all(id);
 
 describe("replaceMain", () => {
-  it("replaces main rows, keeps extra rows, strips customCardIds and keeps other config", () => {
+  it("replaces main rows, keeps extra rows, strips customCardIds and setNames and keeps other config", () => {
     const { db, cubes } = setup();
     const cube = cubes.save("g", "C", { setNames: ["S"], customCardIds: [1, 1], draftType: "booster" } as any, "u");
     cubes.addCard(cube.id, 1, "main", 2);
@@ -40,7 +40,15 @@ describe("replaceMain", () => {
       { id: 2, pool: "main", copies: 5 },
       { id: 3, pool: "extra", copies: 1 },
     ]);
-    expect(cubes.findCube(cube.id).config).toEqual({ setNames: ["S"], draftType: "booster" });
+    expect(cubes.findCube(cube.id).config).toEqual({ draftType: "booster" });
+  });
+
+  it("drops setNames from a config that has only setNames, so removed set cards stay removed", () => {
+    const { db, cubes } = setup();
+    const cube = cubes.save("g", "C", { setNames: ["S"] } as any, "u");
+    cubes.replaceMain(cube.id, [{ id: 2, copies: 1 }]);
+    expect(cubes.findCube(cube.id).config).toEqual({});
+    expect(pools(db, cube.id)).toEqual([{ id: 2, pool: "main", copies: 1 }]);
   });
 
   it("rejects bad copies without changing anything", () => {
@@ -100,8 +108,8 @@ describe("config pool migration", () => {
     expect(cubes.findCube(sets.id).config).toEqual({ setNames: ["S"] });
     expect(pools(db, sets.id)).toEqual([]);
     expect(cubes.findCube(filled.id).config).toEqual({ customCardIds: [1] });
-    expect(pools(db, many.id)).toEqual([{ id: 2, pool: "main", copies: 99 }]);
-    // 120 copies: 99 fit, the other 21 stay in the config instead of being lost.
-    expect(cubes.findCube(many.id).config).toEqual({ customCardIds: Array.from({ length: 21 }, () => 2) });
+    // 120 copies of one card cannot fit a cube_cards row: the cube is left as it was.
+    expect(pools(db, many.id)).toEqual([]);
+    expect(cubes.findCube(many.id).config).toEqual({ customCardIds: Array.from({ length: 120 }, () => 2) });
   });
 });

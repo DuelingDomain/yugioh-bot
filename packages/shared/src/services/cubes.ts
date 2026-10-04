@@ -299,8 +299,10 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         } catch {
           // unreadable config: nothing to keep
         }
-        if ("customCardIds" in config) {
+        // The replaced main pool already holds the expanded set cards; keeping setNames would bring removed ones back.
+        if ("customCardIds" in config || "setNames" in config) {
           delete config.customCardIds;
+          delete config.setNames;
           db.prepare("update cubes set config_json = ? where id = ?").run(JSON.stringify(config), cubeId);
         }
         bump(cubeId);

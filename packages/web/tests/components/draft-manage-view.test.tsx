@@ -504,7 +504,7 @@ describe("DraftManageView — editing the setup", () => {
     render(<DraftManageView draft={fromGoat} slug="my-slug" isCreator isParticipant={false} onStart={noop} onCancel={noop} onUpdate={noop} onJoin={noop} />);
     const setup = screen.getByRole("heading", { name: "Setup" }).closest("section")!;
     await waitFor(() => expect(within(setup).getByText("Pool").nextElementSibling).toHaveTextContent("Goat cube9 cards"));
-    expect(within(setup).getByText(/Only enough different cards for 0 players/)).toBeInTheDocument();
+    expect(within(setup).getByText(/Only enough cards for 0 players/)).toBeInTheDocument();
   });
 
   it("says Built for this draft when the pool has no cube behind it", async () => {

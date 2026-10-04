@@ -26,10 +26,10 @@ export function PoolRailValue({ ctl }: { ctl: Pick<PoolEditor, "meta" | "edited"
   return <PoolRailText baseName={ctl.meta?.name ?? null} edited={ctl.edited} total={ctl.total} empty={ctl.pool.size === 0} />;
 }
 
-/** A gentle line under the rail rows: enough different cards for 8 players, or how many more it takes. */
-export function SeatNote({ distinct, packSize }: { distinct: number; packSize: number }) {
-  if (distinct === 0) return null;
-  const check = seatCheck(distinct, packSize);
+/** A gentle line under the rail rows: enough cards for 8 players, or how many more it takes. */
+export function SeatNote({ total, perPlayer }: { total: number; perPlayer: number }) {
+  if (total === 0) return null;
+  const check = seatCheck(total, perPlayer);
   return (
     <p className={`${styles.seats} ${check.enough ? styles.seatsOk : styles.seatsWarn}`} role="status">
       {check.enough ? <Check size={16} aria-hidden="true" /> : <TriangleAlert size={16} aria-hidden="true" />}

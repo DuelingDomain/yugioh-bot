@@ -286,7 +286,8 @@ export function DraftManageView({
   const summary = startSummary(draft.config, playerCount);
   const savedPoolName = draft.config.poolSource?.cubeName ?? null;
   const poolDetail = savedPoolName ? `From ${savedPoolName}` : "Built for this draft";
-  const editPackSize = configFromFields(editFields).packSize;
+  const editConfig = configFromFields(editFields);
+  const editPerPlayer = editConfig.packsPerPlayer * editConfig.packSize;
   const livePool = isEditingConfig && poolEditor.ready && !poolEditor.loadError;
   const sets = !isTheme ? draft.config.setNames ?? [] : [];
   const savedTotal = poolCards ? poolCards.reduce((sum, card) => sum + (card.qty ?? 1), 0) : 0;
@@ -543,8 +544,8 @@ export function DraftManageView({
             <Rules rows={rows.map((row) => ({ label: row.label, value: row.value }))} />
             {!isTheme && (
               <SeatNote
-                distinct={livePool ? poolEditor.distinct : poolCards?.length ?? 0}
-                packSize={livePool ? editPackSize : draft.config.packSize ?? 15}
+                total={livePool ? poolEditor.total : savedTotal}
+                perPlayer={livePool ? editPerPlayer : (draft.config.packsPerPlayer ?? 3) * (draft.config.packSize ?? 15)}
               />
             )}
             {sets.length > 0 && (

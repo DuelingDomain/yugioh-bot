@@ -202,7 +202,7 @@ export function CreateDraftForm() {
               { label: "Seats", value: "Shuffled at the start" },
             ]}
           />
-          <SeatNote distinct={pool.distinct} packSize={config.packSize} />
+          <SeatNote total={pool.total} perPlayer={config.packsPerPlayer * config.packSize} />
         </RailSection>
         <RailSection>
           <PoolPreview cards={previewCards} unknownIds={[]} loading={!pool.ready} />

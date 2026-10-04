@@ -180,20 +180,20 @@ describe("diffPools", () => {
 });
 
 describe("seat check", () => {
-  it("says it seats 8 when there are 8 x pack size different cards", () => {
-    expect(seatCheck(120, 15)).toEqual({ supported: 8, enough: true, text: "Enough different cards for 8 players" });
+  it("says it seats 8 when total copies cover 8 x cards per player", () => {
+    expect(seatCheck(360, 45)).toEqual({ supported: 8, enough: true, text: "Enough cards for 8 players" });
   });
 
   it("uses the owner's wording for a pool that is too small", () => {
-    const r = seatCheck(90, 15);
+    const r = seatCheck(200, 45);
     expect(r.enough).toBe(false);
-    expect(r.supported).toBe(6);
-    expect(r.text).toBe("Only enough different cards for 6 players. Add 30 more different cards to seat 8.");
+    expect(r.supported).toBe(4);
+    expect(r.text).toBe("Only enough cards for 4 players. Add 160 more cards to seat 8.");
   });
 
-  it("follows the pack size and counts different cards, not copies", () => {
-    expect(seatCheck(120, 20).text).toBe("Only enough different cards for 6 players. Add 40 more different cards to seat 8.");
-    expect(seatCheck(15, 15).text).toBe("Only enough different cards for 1 player. Add 105 more different cards to seat 8.");
+  it("follows the cards dealt per player and counts copies", () => {
+    expect(seatCheck(360, 60).text).toBe("Only enough cards for 6 players. Add 120 more cards to seat 8.");
+    expect(seatCheck(45, 45).text).toBe("Only enough cards for 1 player. Add 315 more cards to seat 8.");
   });
 });
 

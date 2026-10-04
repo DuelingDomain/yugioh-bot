@@ -246,6 +246,9 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
   const setMode = React.useCallback(
     (next: Mode) => {
       sessionRef.current += 1;
+      // A pick still loading must not land after the mode changed.
+      pickSeq.current += 1;
+      setPicking(null);
       setModeState(next);
       if (next === "cube" && !cubeSlot) setPickerOpen(true);
     },
@@ -458,6 +461,9 @@ export function usePoolEditor(options: PoolEditorOptions): PoolEditor {
     },
     closePicker: () => {
       sessionRef.current += 1;
+      // Closing the picker cancels a pick still loading.
+      pickSeq.current += 1;
+      setPicking(null);
       setPickerOpen(false);
     },
     picking,

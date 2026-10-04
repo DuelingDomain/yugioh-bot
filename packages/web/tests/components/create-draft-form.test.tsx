@@ -371,28 +371,29 @@ describe("CreateDraftForm rail", () => {
     expect(rail).toHaveTextContent(/3 of 15/);
     expect(rail).toHaveTextContent(/45 s/);
     expect(rail).toHaveTextContent("Shuffled at the start");
-    expect(within(rail).queryByText(/different cards/)).toBeNull();
+    expect(within(rail).queryByText(/enough cards/i)).toBeNull();
     expect(screen.getByText(/the last 5 cards of pack 3 aren't picked/i)).toBeInTheDocument();
   });
 
-  it("warns how many more different cards seating eight takes, and updates as the pack size changes", async () => {
+  it("warns how many more cards seating eight takes, and updates as the pack size changes", async () => {
     stubFetch();
     render(<CreateDraftForm />);
     await pickGoat();
     const rail = screen.getByRole("complementary", { name: /draft summary/i });
-    // 4 different cards, pack size 15: seats 0 players, 8 x 15 = 120 needed.
-    expect(rail).toHaveTextContent("Only enough different cards for 0 players. Add 116 more different cards to seat 8.");
+    // Goat has 9 copies; 3 packs of 15 = 45 per player, 8 x 45 = 360 needed.
+    expect(rail).toHaveTextContent("Only enough cards for 0 players. Add 351 more cards to seat 8.");
     fireEvent.change(screen.getByLabelText(/size of each pack/i), { target: { value: "5" } });
-    expect(rail).toHaveTextContent("Only enough different cards for 0 players. Add 36 more different cards to seat 8.");
+    // 8 packs of 5 = 40 per player: 320 needed.
+    expect(rail).toHaveTextContent("Only enough cards for 0 players. Add 311 more cards to seat 8.");
   });
 
-  it("says when the different cards are enough", async () => {
-    const many = Array.from({ length: 125 }, (_, i) => ({ id: 5000 + i, copies: 1 }));
+  it("says when the copies are enough", async () => {
+    const many = Array.from({ length: 125 }, (_, i) => ({ id: 5000 + i, copies: 3 }));
     stubFetch({ cubes: [{ ...GOAT, mainCards: many }] });
     render(<CreateDraftForm />);
     fireEvent.click(await screen.findByRole("button", { name: /Goat cube/ }));
     const rail = screen.getByRole("complementary", { name: /draft summary/i });
-    await waitFor(() => expect(rail).toHaveTextContent("Enough different cards for 8 players"));
+    await waitFor(() => expect(rail).toHaveTextContent("Enough cards for 8 players"));
   });
 });
 
@@ -560,6 +561,25 @@ describe("CreateDraftForm pool: loading and slow answers", () => {
     expect(screen.queryByText("Saved to Goat cube")).toBeNull();
     expect(screen.getByRole("region", { name: "Chosen cube" })).toHaveTextContent("Despia cube");
     expect(screen.queryByRole("region", { name: "Pool status" })).toBeNull();
+  });
+
+  it("does not let a cube that was still loading replace the kept cube after Keep is pressed", async () => {
+    const slow = deferred();
+    stubFetch({ extra: { "GET /api/cubes/2": () => slow.promise } });
+    render(<CreateDraftForm />);
+    await openEditor();
+    await addCardByName("cipher", "Cipher Soldier");
+    fireEvent.click(screen.getByRole("button", { name: "Change cube" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Despia cube/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Keep Goat cube/ }));
+
+    slow.release(
+      Response.json({ pools: { main: [{ catalogCardId: 105, maxCopies: 2 }], extra: [] }, cards: [] }),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByRole("region", { name: "Chosen cube" })).toHaveTextContent("Goat cube");
+    expect(screen.getByRole("region", { name: "Pool status" })).toHaveTextContent("1 card added");
+    expect(screen.getByRole("button", { name: /create draft/i })).toBeEnabled();
   });
 
   it("searches sets on the server, not in the first 25", async () => {

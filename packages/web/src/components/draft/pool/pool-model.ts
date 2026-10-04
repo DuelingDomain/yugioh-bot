@@ -3,7 +3,7 @@
  *
  * A pool is a Map of passcode to copies. The draft config stores it as `customCardIds`, one entry per copy.
  * Copies run from 1 to 99; the per-player cap of 3 is applied when packs are dealt, not here. What decides how many
- * players a pool can seat is the number of DIFFERENT cards in it (each round deals players x pack size distinct cards).
+ * players a pool can seat is its total copies (the deal needs players x packs per player x pack size copies).
  */
 
 import { isExtraDeckMonster, isMonster, isSpell, isTrap, type CardSummary } from "@/lib/card-types";
@@ -393,22 +393,22 @@ export function railPool(args: { baseName: string | null; edited: boolean; total
   return { name: args.edited ? `${args.baseName}, edited` : args.baseName, count };
 }
 
-/** How many players this pool can seat, and what is missing to seat the target. Each round deals players x pack size different cards. */
+/** How many players this pool can seat, and what is missing to seat the target. The deal needs total copies >= players x cards dealt per player. */
 export function seatCheck(
-  distinct: number,
-  packSize: number,
+  totalCopies: number,
+  perPlayer: number,
   target: number = TARGET_PLAYERS,
 ): { supported: number; enough: boolean; text: string } {
-  const size = Math.max(1, packSize);
-  const supported = Math.floor(distinct / size);
+  const size = Math.max(1, perPlayer);
+  const supported = Math.floor(totalCopies / size);
   if (supported >= target) {
-    return { supported, enough: true, text: `Enough different cards for ${target} players` };
+    return { supported, enough: true, text: `Enough cards for ${target} players` };
   }
-  const missing = target * size - distinct;
+  const missing = target * size - totalCopies;
   return {
     supported,
     enough: false,
-    text: `Only enough different cards for ${plural(supported, "player")}. Add ${missing} more different cards to seat ${target}.`,
+    text: `Only enough cards for ${plural(supported, "player")}. Add ${missing} more cards to seat ${target}.`,
   };
 }
 
