@@ -35,6 +35,9 @@ const effects = new Map<number, number>();
 /** Presentation of a paired event can precede its deferred engine marker. */
 const presentations = new Map<number, number>();
 const handled = new Set<number>();
+/** The link a chain event belongs to: the last activation of each chain index, and the beat event that first resolves it. */
+const activations = new Map<number, number>();
+const closers = new Map<number, number>();
 const state = { key: "", freeAt: 0, resolvingAt: null as number | null, resolvingId: 0 };
 
 export function resetChainBeats(key = ""): void {
@@ -42,6 +45,8 @@ export function resetChainBeats(key = ""): void {
   effects.clear();
   presentations.clear();
   handled.clear();
+  activations.clear();
+  closers.clear();
   state.key = key;
   state.freeAt = 0;
   state.resolvingAt = null;
@@ -56,6 +61,15 @@ export function chainBeatAt(eventId: number): number {
 /** The earliest start of the effect carried by this event; 0 when nothing holds it. */
 export function chainEffectAt(eventId: number): number {
   return presentations.get(eventId) ?? effects.get(eventId) ?? 0;
+}
+
+/**
+ * When the link activated by this event stops being announced: the beat on which it starts to
+ * resolve (or is negated). 0 while that is not known (an open response window) or never planned.
+ */
+export function activationEndAt(activateId: number): number {
+  const closer = closers.get(activateId);
+  return closer == null ? 0 : chainBeatAt(closer);
 }
 
 export function presentEffectAt(eventId: number, at: number): void {
@@ -105,6 +119,13 @@ export function planChainBeats(fresh: readonly DuelEvent[], options: PlanOptions
     handled.add(event.id);
     if (isChainEvent(event)) {
       beats.set(event.id, cursor);
+      if (event.chainIndex != null) {
+        if (event.kind === "activate") activations.set(event.chainIndex, event.id);
+        else if (event.kind === "chain-resolving" || event.kind === "chain-negated") {
+          const opened = activations.get(event.chainIndex);
+          if (opened != null && !closers.has(opened)) closers.set(opened, event.id);
+        }
+      }
       if (event.kind === "chain-resolving") { state.resolvingAt = cursor; state.resolvingId = event.id; }
       else if (event.kind === "chain-resolved" || event.kind === "chain-end" || event.kind === "activate") state.resolvingAt = null;
       played += 1;
@@ -119,5 +140,7 @@ export function planChainBeats(fresh: readonly DuelEvent[], options: PlanOptions
   if (played > 0) state.freeAt = cursor;
   trim(beats);
   trim(effects);
+  trim(closers);
+  trim(activations);
   while (handled.size > MAX_KEPT * 2) handled.delete(handled.values().next().value as number);
 }

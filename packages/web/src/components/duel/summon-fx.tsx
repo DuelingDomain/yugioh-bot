@@ -647,11 +647,14 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
       const flips = flat && !item.plan && !item.reduced;
       const initialTransform = flips ? "perspective(520px) rotateY(84deg)" : "none";
       const finalTransform = flips ? "perspective(520px) rotateY(0deg)" : "none";
+      // The face turns over fast, then stays up (CARD_FX.activationFaceMs) and fades in the last part of it.
+      const flipAt = item.reduced ? 0.4 * activationMs / total : CARD_FX.activationFlipMs / total;
+      const fadeAt = (activationMs - (item.reduced ? 0.25 * activationMs : CARD_FX.activationFadeMs)) / total;
       const frames: Keyframe[] = item.activationHoldMs ? [
         { opacity: 0, transform: initialTransform },
-        { opacity: 1, transform: finalTransform, offset: activationMs * 0.4 / total },
+        { opacity: 1, transform: finalTransform, offset: flipAt },
         { opacity: 1, offset: 0.9999 }, { opacity: 0 },
-      ] : [{ opacity: 0, transform: initialTransform }, { opacity: 1, transform: finalTransform, offset: 0.4 }, { opacity: 1, offset: 0.75 }, { opacity: 0 }];
+      ] : [{ opacity: 0, transform: initialTransform }, { opacity: 1, transform: finalTransform, offset: flipAt }, { opacity: 1, offset: fadeAt }, { opacity: 0 }];
       track.play(ghost.current, frames, {
         duration: total,
         delay: d,
