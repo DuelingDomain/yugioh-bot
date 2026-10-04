@@ -238,7 +238,8 @@ describe("DraftFinale", () => {
     expect(document.activeElement).toBe(document.body);
 
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(onClose).toHaveBeenCalledTimes(1);
+    // the exit plays first, then the page is told
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
 
     unmount();
     fireEvent.keyDown(document, { key: "Escape" });
@@ -251,7 +252,22 @@ describe("DraftFinale", () => {
     const first = await screen.findByRole("link", { name: "View your deck" });
 
     fireEvent.keyDown(first, { key: "Escape" });
-    expect(onClose).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(first, { key: "Escape" });
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it("plays the exit before it tells the page, and is inert while it does", async () => {
+    const onClose = vi.fn();
+    render(<DraftFinale {...props} onClose={onClose} />);
+    const close = await screen.findByRole("button", { name: "Close" });
+    const finale = document.querySelector(".finale")!;
+    expect(finale).toHaveAttribute("data-state", "open");
+
+    fireEvent.click(close);
+    expect(finale).toHaveAttribute("data-state", "closed");
+    expect(finale).toHaveAttribute("inert");
+    expect(onClose).not.toHaveBeenCalled();
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
   it("does not move focus back to the first action when export state changes", async () => {

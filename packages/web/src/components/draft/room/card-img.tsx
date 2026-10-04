@@ -4,7 +4,20 @@ import { useState } from "react";
 import type { RoomCard } from "./room-model";
 
 /** A card image from the card cache. If the small one fails it tries the large one, then shows the name. */
-export function CardImg({ card, large = false, crop = false, className }: { card: RoomCard; large?: boolean; crop?: boolean; className?: string }) {
+export function CardImg({
+  card,
+  large = false,
+  crop = false,
+  eager = false,
+  className,
+}: {
+  card: RoomCard;
+  large?: boolean;
+  crop?: boolean;
+  /** Load now instead of when scrolled near: for the reader, which swaps as the pointer sweeps. */
+  eager?: boolean;
+  className?: string;
+}) {
   const cls = `${crop ? "crop " : ""}${className ?? ""}`.trim() || undefined;
   const first = large ? card.imageUrl || card.imageUrlSmall : card.imageUrlSmall || card.imageUrl;
   const second = large ? card.imageUrlSmall : card.imageUrl;
@@ -24,7 +37,7 @@ export function CardImg({ card, large = false, crop = false, className }: { card
       src={src}
       alt=""
       draggable={false}
-      loading="lazy"
+      loading={eager ? "eager" : "lazy"}
       onError={() => setTries((t) => t + 1)}
     />
   );

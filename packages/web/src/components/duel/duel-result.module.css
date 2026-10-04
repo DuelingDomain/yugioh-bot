@@ -690,6 +690,19 @@
     min-height: 54px;
   }
 }
+/* A short phone (360 x 740 and the like): the match-won and spectator-won columns are the tallest and ran
+   8px past the screen. Tighter ground padding and gaps give back about 40px, so they fit without scrolling. */
+@media (max-width: 600px) and (max-height: 780px) {
+  .root {
+    --gap: 10px;
+  }
+  .scroll {
+    padding-block: max(clamp(10px, 2vh, 20px), env(safe-area-inset-top)) max(clamp(10px, 2vh, 20px), env(safe-area-inset-bottom));
+  }
+  .hero {
+    gap: 10px;
+  }
+}
 @media (max-height: 560px) {
   .dmArt,
   .dmName {

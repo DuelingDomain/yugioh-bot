@@ -1,6 +1,7 @@
 "use client";
 
 import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { segmentSlide } from "@/components/sheet";
 import { cn } from "@/lib/utils";
 
 /** Deck controls use the Match Sheet's foundation classes. */
@@ -27,7 +28,7 @@ export function DeckSegmented<T extends string>({ label, value, choices, onChang
   return (
     <div className={className}>
       {hideLabel ? null : <span className="label">{label}</span>}
-      <div className="seg" role="group" aria-label={label} style={full ? { display: "grid" } : undefined}>
+      <div className="seg" role="group" aria-label={label} {...segmentSlide(choices.length, choices.findIndex((choice) => choice.value === value), full ? { display: "grid" } : undefined)}>
         {choices.map((choice) => <button key={choice.value} type="button" aria-pressed={value === choice.value} disabled={disabled} onClick={() => onChange(choice.value)}>{choice.label}</button>)}
       </div>
     </div>

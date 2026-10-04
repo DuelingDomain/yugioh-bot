@@ -182,21 +182,21 @@ describe("Say button in the room bar", () => {
 
 describe("say menu", () => {
   it("offers exactly the fixed lines, in the design's words", () => {
-    render(<SayMenu anchor={null} waiting={false} onSay={() => {}} onClose={() => {}} />);
+    render(<SayMenu open anchor={null} waiting={false} onSay={() => {}} onClose={() => {}} />);
     const dialog = screen.getByRole("dialog", { name: "Say something to the table" });
     expect(within(dialog).getAllByRole("button").map((b) => b.textContent)).toEqual(["gg", "lol", "nice", "hurry up", "no way", "gl"]);
   });
 
   it("sends the line id, not the words", () => {
     const onSay = vi.fn();
-    render(<SayMenu anchor={null} waiting={false} onSay={onSay} onClose={() => {}} />);
+    render(<SayMenu open anchor={null} waiting={false} onSay={onSay} onClose={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "hurry up" }));
     expect(onSay).toHaveBeenCalledWith("hurry");
   });
 
   it("holds the lines back right after you spoke, and says why", () => {
     const onSay = vi.fn();
-    render(<SayMenu anchor={null} waiting onSay={onSay} onClose={() => {}} />);
+    render(<SayMenu open anchor={null} waiting onSay={onSay} onClose={() => {}} />);
     for (const button of screen.getAllByRole("button")) expect(button).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "gg" }));
     expect(onSay).not.toHaveBeenCalled();
@@ -207,7 +207,7 @@ describe("say menu", () => {
     const anchor = document.createElement("button");
     document.body.appendChild(anchor);
     const onClose = vi.fn();
-    render(<SayMenu anchor={anchor} waiting={false} onSay={() => {}} onClose={onClose} />);
+    render(<SayMenu open anchor={anchor} waiting={false} onSay={() => {}} onClose={onClose} />);
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
     expect(document.activeElement).toBe(anchor);
@@ -218,7 +218,7 @@ describe("say menu", () => {
     const anchor = document.createElement("button");
     document.body.appendChild(anchor);
     const onClose = vi.fn();
-    render(<SayMenu anchor={anchor} waiting={false} onSay={() => {}} onClose={onClose} />);
+    render(<SayMenu open anchor={anchor} waiting={false} onSay={() => {}} onClose={onClose} />);
     fireEvent.pointerDown(screen.getByRole("dialog"));
     fireEvent.pointerDown(anchor);
     expect(onClose).not.toHaveBeenCalled();

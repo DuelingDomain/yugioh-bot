@@ -64,6 +64,13 @@ describe("tokens", () => {
     expect(token("d-page-in")).toBe(`${DURATION.pageIn}ms`);
     expect(token("d-flip")).toBe(`${DURATION.flip}ms`);
     expect(token("d-rm")).toBe(`${DURATION.reduced}ms`);
+    expect(token("d-modal-out")).toBe(`${DURATION.modalOut}ms`);
+    expect(token("d-pop-out")).toBe(`${DURATION.popOut}ms`);
+    expect(token("d-drawer-out")).toBe(`${DURATION.drawerOut}ms`);
+    expect(token("d-toast-out")).toBe(`${DURATION.toastOut}ms`);
+    expect(token("d-roll")).toBe(`${DURATION.roll}ms`);
+    expect(token("d-arrive")).toBe(`${DURATION.arrive}ms`);
+    expect(token("d-wash")).toBe(`${DURATION.wash}ms`);
   });
 });
 

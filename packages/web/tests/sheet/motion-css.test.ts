@@ -58,3 +58,23 @@ describe("match-sheet.css press", () => {
     expect(new Set(pressed.values())).toEqual(new Set(["var(--motion-press)", "var(--motion-press-row)"]));
   });
 });
+
+describe("match-sheet.css segmented indicator", () => {
+  const root = load(FILES[0]);
+
+  it("slides one box with transform only and hides it when nothing is selected", () => {
+    const decls = new Map<string, Map<string, string>>();
+    root.walkRules((r) => {
+      if (!r.selector.includes(".seg[data-slide") || r.parent?.type !== "root") return;
+      const props = decls.get(r.selector) ?? new Map<string, string>();
+      r.walkDecls((d) => { props.set(d.prop, d.value); });
+      decls.set(r.selector, props);
+    });
+    const bar = decls.get(".ms .seg[data-slide]::before");
+    expect(bar?.get("transform")).toContain("translateX(calc(var(--seg-i, 0) * 100%))");
+    expect(bar?.get("width")).toContain("var(--seg-n, 1)");
+    expect(bar?.get("transition")).toBe("transform var(--d-tab) var(--ease-in-out)");
+    expect(decls.get('.ms .seg[data-slide="none"]::before')?.get("display")).toBe("none");
+    expect(decls.get('.ms .seg[data-slide] button[aria-pressed="true"]')?.get("background")).toBe("none");
+  });
+});

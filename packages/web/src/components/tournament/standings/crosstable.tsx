@@ -1,9 +1,11 @@
 "use client";
 
+import { useRef } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { Mono, YouPill, ringColour } from "@/components/sheet";
-import { prefersReducedMotion } from "@/lib/motion";
+import { Roll } from "@/components/motion/roll";
+import { prefersReducedMotion, useFlipList } from "@/lib/motion";
 import { requestMatch } from "../floor/select-match";
 import type { CrosstableRow } from "./standings-model";
 import styles from "./standings.module.css";
@@ -36,6 +38,9 @@ export function StandingsGrid({ rows, currentUserPlayerId, narrow }: {
   currentUserPlayerId: number | null;
   narrow: boolean;
 }) {
+  const body = useRef<HTMLTableSectionElement>(null);
+  // Rows swap places when the standings change; the grid keeps its own scope so list and grid never compare.
+  useFlipList(body, { enter: true });
   return (
     <>
       <div className={`xt-wrap${narrow ? " xt-pin" : ""}`} role="region" aria-label="Standings grid" tabIndex={0}>
@@ -48,11 +53,11 @@ export function StandingsGrid({ rows, currentUserPlayerId, narrow }: {
               {!narrow && <><th scope="col">W</th><th scope="col" style={{ paddingRight: 14 }}>L</th></>}
             </tr>
           </thead>
-          <tbody>
+          <tbody ref={body} data-flip-scope="grid">
             {rows.map((row) => {
               const me = row.playerId === currentUserPlayerId;
               return (
-                <tr key={row.playerId} className={me ? "me" : undefined}>
+                <tr key={row.playerId} className={me ? "me" : undefined} data-flip-id={row.playerId}>
                   <td className="pos">{row.place}</td>
                   <td className="who"><span className={styles.gridWho}>
                     {!narrow && <Mono name={row.displayName} size="sm" ring={ringColour(row.playerId)} you={me} />}
@@ -62,11 +67,11 @@ export function StandingsGrid({ rows, currentUserPlayerId, narrow }: {
                   {row.cells.map((cell, index) => (
                     <td key={rows[index].playerId} aria-label={cell.accessibleName}>
                       {cell.result === "you" && cell.matchId != null
-                        ? <button type="button" className="cell" data-r="you" aria-label={cell.accessibleName} onClick={() => goToMatch(cell.matchId!)}>{cell.text}</button>
-                        : <span className="cell" data-r={cell.result}>{cell.text}{cell.label && <small>{cell.label}</small>}</span>}
+                        ? <button type="button" className="cell" data-r="you" aria-label={cell.accessibleName} onClick={() => goToMatch(cell.matchId!)}><Roll value={cell.text} /></button>
+                        : <span className="cell" data-r={cell.result}><Roll value={cell.text} />{cell.label && <small>{cell.label}</small>}</span>}
                     </td>
                   ))}
-                  {!narrow && <><td className="rec w">{row.wins}</td><td className="rec l">{row.losses}</td></>}
+                  {!narrow && <><td className="rec w"><Roll value={row.wins} /></td><td className="rec l"><Roll value={row.losses} /></td></>}
                 </tr>
               );
             })}

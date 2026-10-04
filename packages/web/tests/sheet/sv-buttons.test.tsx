@@ -77,6 +77,19 @@ describe("Segmented", () => {
     fireEvent.click(screen.getByRole("button", { name: "All-time" }));
     expect(onChange).toHaveBeenCalledWith("all");
   });
+  it("sets the sliding indicator from the option count and the selected index", () => {
+    const options = [{ value: "a", label: "A" }, { value: "b", label: "B" }, { value: "c", label: "C" }];
+    const { rerender } = render(<Segmented label="Pick" value="a" options={options} />);
+    const group = screen.getByRole("group", { name: "Pick" });
+    expect(group).toHaveAttribute("data-slide", "");
+    expect(group.style.getPropertyValue("--seg-n")).toBe("3");
+    expect(group.style.getPropertyValue("--seg-i")).toBe("0");
+    rerender(<Segmented label="Pick" value="c" options={options} />);
+    expect(group.style.getPropertyValue("--seg-i")).toBe("2");
+    // A value that is not an option hides the indicator instead of pointing at the first one.
+    rerender(<Segmented label="Pick" value={"zz" as "a"} options={options} />);
+    expect(group).toHaveAttribute("data-slide", "none");
+  });
   it("disables every button", () => {
     render(<Segmented label="Scope" value="a" disabled options={[{ value: "a", label: "A" }, { value: "b", label: "B" }]} />);
     expect(screen.getByRole("button", { name: "A" })).toBeDisabled();

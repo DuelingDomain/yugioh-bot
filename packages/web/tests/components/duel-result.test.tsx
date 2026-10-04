@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelRoom } from "@yugidraft/shared/duels";
@@ -429,5 +431,15 @@ describe("result title logic", () => {
     expect(titleFontSize({ available: 40, widthAt100: 800, viewportHeight: 900, rows: 1, max: 210 })).toBe(28);
     // No layout (jsdom): leave the stylesheet's size.
     expect(titleFontSize({ available: 0, widthAt100: 0, viewportHeight: 900, rows: 1, max: 210 })).toBe(0);
+  });
+});
+
+describe("short phone layout", () => {
+  it("tightens the ground padding and gaps on a short phone so the match-won column fits 360 x 740", () => {
+    const css = readFileSync(join(__dirname, "../../src/components/duel/duel-result.module.css"), "utf8");
+    const block = css.match(/@media \(max-width: 600px\) and \(max-height: 780px\) \{([\s\S]*?)\n\}/);
+    expect(block, "the short-phone media query").not.toBeNull();
+    expect(block![1]).toMatch(/--gap:\s*10px/);
+    expect(block![1]).toMatch(/\.scroll\s*\{[^}]*padding-block/);
   });
 });
