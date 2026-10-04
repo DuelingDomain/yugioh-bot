@@ -172,6 +172,20 @@ describe("live room table mount", () => {
       expect(screen.queryByRole("menuitem", { name: "Surrender" })).toBeNull();
     });
 
+    it("keeps the open prompt unanswered while the deck menu is open and closes on Escape", () => {
+      room(FFA3_FIXTURES.states.main.room);
+      state.room!.engine!.prompt = { id: "p-deck", seat: 0, kind: "choice", title: "Select an option", cancelable: true,
+        options: [{ id: "a", label: "Option A" }, { id: "b", label: "Option B" }] };
+      state.room!.engine!.revision += 1;
+      const { container } = mount();
+      fireEvent.contextMenu(deckOf(container, 0));
+      expect(screen.getByRole("menu")).toBeTruthy();
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      fireEvent.keyDown(screen.getByRole("menuitem", { name: "Surrender" }), { key: "Escape" });
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(state.send).not.toHaveBeenCalled();
+    });
+
     it("offers no Surrender to a spectator or after the duel ends", () => {
       room(FFA3_FIXTURES.states.spectator.room);
       const view = mount();
