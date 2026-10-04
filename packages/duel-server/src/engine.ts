@@ -1138,7 +1138,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           eliminatedSeats: [...eliminated],
           removedCards: fresh.flatMap((message) => message.type === OcgMessageType.REMOVE_CARDS ? message.cards : []),
         });
-        if (pending.prompt.options.length !== previous.prompt.options.length) {
+        // answerForLeavingSeats consumes the core's close signal before advancing. An automatic
+        // answer here would leave that signal armed for the next response of the same living seat.
+        if (pending.prompt.options.length !== previous.prompt.options.length && !mustCloseResponseWindow()) {
           // SelectCounter checks changed sources before reading its response. A zero response lets
           // the core refresh the offer or cancel an unpaid cost without selecting a removed card.
           const response = pending.message.type === OcgMessageType.SELECT_COUNTER
