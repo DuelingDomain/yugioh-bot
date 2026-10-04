@@ -7,7 +7,7 @@ import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { battleTrigger } from "./battle-trigger";
 import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 import { runAttackFx, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
-import { flipAttackAt } from "./chain-beats";
+import { chainEffectAt, flipAttackAt } from "./chain-beats";
 import { FlipStrike, type FlipStrikePlan } from "./flip-strike";
 import { flipSequenceSteps } from "./flip-sequence";
 import { armBattleDestroy, attackImpactAt, clearBattleHolds, noteAttackImpact } from "./battle-hold";
@@ -667,6 +667,8 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   // The declared attack that waits for its battle to resolve (see battle-trigger.ts).
   const pendingRef = useRef<PendingAttack | null>(null);
   const seqRef = useRef(0);
+  // Attacks whose strike (a flip-effect sequence) was started.
+  const struckRef = useRef(new Set<number>());
   // Per attack: which layer draws it (chosen once, in the render phase) and when it started.
   const routeRef = useRef(new Map<number, { three: boolean; clock: BattleClock }>());
   const controllersRef = useRef(new Set<AbortController>());
@@ -694,7 +696,16 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     if (latest && !capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest, prevIndexRef.current, nowIndex));
     const stamp = duelFxClock.now();
     const incoming: PendingAttack | null = latest ? { attack: latest, capture: capturesRef.current.get(latest.id) ?? null, at: stamp } : null;
-    const ready = [pendingRef.current, incoming].find((entry) => entry != null && battleTrigger(events, entry.attack, stamp - entry.at).action === "play") ?? null;
+    // The battle damage of a flip-effect sequence waits for the end of its chain (chain-beats.ts).
+    if (!reducedMotion) {
+      for (const event of events) {
+        if (event.id <= initialRef.current || event.kind !== "damage" || event.seat == null) continue;
+        const at = chainEffectAt(event.id);
+        if (at > stamp) armLpHold(event.seat, at - stamp, `damage-${event.id}`, { startedAt: stamp });
+      }
+    }
+    // A flip-effect sequence has its own attack beat (flip-strike.tsx) and no battle play.
+    const ready = [pendingRef.current, incoming].find((entry) => entry != null && flipAttackAt(entry.attack.id) === 0 && battleTrigger(events, entry.attack, stamp - entry.at).action === "play") ?? null;
     if (ready) {
       const cap = ready.capture ? battleCapture(ready.capture, events, ready.attack) : null;
       let route = routeRef.current.get(ready.attack.id);
@@ -760,22 +771,24 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
       incoming = { attack: latest, capture, at: stamp };
     }
     const earlier = pendingRef.current;
-    const decide = (entry: PendingAttack | null) => (entry ? battleTrigger(events, entry.attack, stamp - entry.at).action : null);
+    const decide = (entry: PendingAttack | null) => (entry ? (flipAttackAt(entry.attack.id) > 0 ? "fizzle" : battleTrigger(events, entry.attack, stamp - entry.at).action) : null);
     // The battle that resolves in this snapshot plays; one that is still open stays pending.
     const ready = [earlier, incoming].find((entry) => decide(entry) === "play") ?? null;
     pendingRef.current = incoming ? (decide(incoming) === "wait" ? incoming : null) : decide(earlier) === "wait" ? earlier : null;
     const marker = pendingRef.current ? declaredAim(pendingRef.current.attack) : null;
     setDeclared((current) => (aimSignature(current) === aimSignature(marker) ? current : marker));
-    if (latest) {
-      const startAt = flipAttackAt(latest.id);
-      const capture = capturesRef.current.get(latest.id) ?? null;
-      if (startAt > 0 && capture) {
+    // The attack beat of a flip-effect sequence: the attack that opened it, in this batch or an earlier one.
+    const struck = incoming ?? earlier;
+    if (struck?.capture && !struckRef.current.has(struck.attack.id)) {
+      const startAt = flipAttackAt(struck.attack.id);
+      if (startAt > 0) {
+        struckRef.current.add(struck.attack.id);
+        if (struckRef.current.size > 20) struckRef.current.delete(struckRef.current.values().next().value as number);
         const reduced = reducedRef.current;
-        const ms = flipSequenceSteps(reduced).attackMs;
-        const seq = ++seqRef.current;
         setStrike({
-          seq, from: capture.from, to: capture.to, cut: capture.attacker, ms, reduced,
-          delayMs: Math.max(0, startAt - duelFxClock.now()), aim: declaredAim(latest),
+          seq: ++seqRef.current, from: struck.capture.from, to: struck.capture.to, cut: struck.capture.attacker,
+          ms: flipSequenceSteps(reduced).attackMs, reduced,
+          delayMs: Math.max(0, startAt - duelFxClock.now()), aim: declaredAim(struck.attack),
         });
       }
     }
