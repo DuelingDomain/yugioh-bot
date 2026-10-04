@@ -286,3 +286,6 @@ body {
 html[data-duel-no-callout] {
   -webkit-touch-callout: none;
 }
+html[data-duel-no-callout] :is(input, textarea, [contenteditable='true']) {
+  -webkit-touch-callout: default;
+}
