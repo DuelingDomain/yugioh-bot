@@ -97,7 +97,8 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   const [hasMouse, setHasMouse] = useState(false);
   /** The last pointer was a finger: a tap has no hover, so a board is aimed by the first tap and sent by the second. */
   const touching = useRef(false);
-  const [touchMode, setTouchMode] = useState(false);
+  // A touch-only device (a coarse primary pointer) shows the tap words from the start; a pointer event then corrects it.
+  const [touchMode, setTouchMode] = useState(() => typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true);
 
   useEffect(() => {
     setLock(null);
@@ -403,7 +404,8 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   const promptAim = useMemo<PromptAim | null>(() => {
     if (!attackTarget) return null;
     return {
-      hint: touchMode ? "Tap a target, then tap again to attack." : "Click a target to attack. Esc to cancel.",
+      // Esc only where the engine lets the pick be cancelled: a forced attack has no way back.
+      hint: touchMode ? "Tap a target, then tap again to attack." : prompt?.cancelable ? "Click a target to attack. Esc to cancel." : "Click a target to attack.",
       lockedId: live?.optionId ?? null,
       onAim: (option) => {
         const [key] = optionZoneKeys(option);
@@ -417,7 +419,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
         setHover(key ? { zones: [key] } : null);
       },
     };
-  }, [attackTarget, confirm, live, lockTo, touchMode]);
+  }, [attackTarget, confirm, live, lockTo, prompt?.cancelable, touchMode]);
 
   const controller = useMemo<TableController>(
     () => ({ ...base, aim, seatPick, onActivate, onAim }),

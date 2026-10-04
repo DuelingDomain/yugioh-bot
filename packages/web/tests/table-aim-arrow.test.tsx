@@ -9,7 +9,7 @@ vi.mock("next/font/google", () => {
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
 });
 
-import { aimArrowPath } from "@/components/duel/table/aim-arrow";
+import { AimArrow, aimArrowPath } from "@/components/duel/table/aim-arrow";
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import type { TableFixtureSet, TableFixtureState } from "@/components/duel/table/fixtures/common";
@@ -330,10 +330,32 @@ describe("the attacker stays declared through the Attack directly? question", ()
 });
 
 describe("the prompt words of the pointer flow", () => {
-  it("say to click, and Esc cancels", () => {
-    const { container } = render(<Shell set={FFA3_FIXTURES} id="battle-aim" onAnswer={vi.fn()} />);
+  const withCancel = (cancelable: boolean) => (state: TableFixtureState) =>
+    ({ ...state, room: { ...state.room, engine: { ...state.room.engine!, prompt: { ...state.room.engine!.prompt!, cancelable } } } }) as TableFixtureState;
+
+  it("say to click, and Esc cancels, when the pick can be cancelled", () => {
+    const { container } = render(<Shell set={FFA3_FIXTURES} id="battle-aim" onAnswer={vi.fn()} edit={withCancel(true)} />);
     expect(container.textContent).toContain("Click a target to attack. Esc to cancel.");
     expect(container.textContent).not.toContain("Point at a target");
+  });
+
+  it("do not offer Esc on a pick that cannot be cancelled (a forced attack)", () => {
+    const { container } = render(<Shell set={FFA3_FIXTURES} id="battle-aim" onAnswer={vi.fn()} edit={withCancel(false)} />);
+    expect(container.textContent).toContain("Click a target to attack.");
+    expect(container.textContent).not.toContain("Esc to cancel");
+  });
+
+  it("start with the tap words on a touch-only device (coarse pointer)", () => {
+    const stub = (coarse: boolean) =>
+      vi.stubGlobal("matchMedia", (query: string) => ({ matches: coarse && query === "(pointer: coarse)", media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+    stub(true);
+    try {
+      const { container } = render(<Shell set={FFA3_FIXTURES} id="battle-aim" onAnswer={vi.fn()} />);
+      expect(container.textContent).toContain("Tap a target, then tap again to attack.");
+      expect(container.textContent).not.toContain("Click a target");
+    } finally {
+      stub(false);
+    }
   });
 
   it("say to tap twice once a finger is used", () => {
@@ -359,5 +381,38 @@ describe("a finger on the direct-attack step", () => {
     pointerClick(field);
     expect(onAnswer).toHaveBeenCalledTimes(1);
     expect(onAnswer).toHaveBeenCalledWith({ choice: "direct-1" });
+  });
+});
+
+describe("the old attack line comes back when the arrow cannot find the attacker", () => {
+  const frame = () => act(() => new Promise<void>((resolve) => void requestAnimationFrame(() => resolve())));
+  const flag = () => document.documentElement.hasAttribute("data-aim-arrow-on");
+
+  it("sets the root flag only while the attacker is on the page", async () => {
+    const pointer = { current: { x: 300, y: 200 } };
+    render(<AimArrow fromKey="0:4:0" tone="violet" targetTone={null} pointer={pointer} snap={null} label={null} />);
+    await frame();
+    expect(flag()).toBe(false);
+    const attacker = document.createElement("div");
+    attacker.setAttribute("data-zones", "0:4:0");
+    document.body.appendChild(attacker);
+    await frame();
+    expect(flag()).toBe(true);
+    attacker.remove();
+    await frame();
+    expect(flag()).toBe(false);
+  });
+
+  it("clears the flag when the arrow goes away", async () => {
+    const attacker = document.createElement("div");
+    attacker.setAttribute("data-zones", "0:4:0");
+    document.body.appendChild(attacker);
+    const pointer = { current: { x: 300, y: 200 } };
+    const { unmount } = render(<AimArrow fromKey="0:4:0" tone="violet" targetTone={null} pointer={pointer} snap={null} label={null} />);
+    await frame();
+    expect(flag()).toBe(true);
+    unmount();
+    expect(flag()).toBe(false);
+    attacker.remove();
   });
 });
