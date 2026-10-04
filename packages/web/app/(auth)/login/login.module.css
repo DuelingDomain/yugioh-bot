@@ -1,70 +1,99 @@
-/* Sign in: a lit field with one card in each half, and the form under it. Nothing moves. */
+/* Sign in: the ring. Three fanned cards in two gold rings and a faint hexagram, then the form.
+   The entrance is CSS only, so the page stays a server component and the button works from the first frame. */
 .page {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-move: cubic-bezier(0.77, 0, 0.175, 1);
   display: grid;
   place-items: center;
   min-height: 100dvh;
   padding: 40px 16px;
-  background: var(--floor);
+  overflow-x: clip;
+  /* a very faint beam vignette on the floor */
+  background: radial-gradient(ellipse 60% 46% at 50% 34%, rgb(var(--beam) / 0.045), transparent 72%), var(--floor);
 }
 
 .stack {
   display: grid;
-  gap: 30px;
   width: min(100%, 520px);
 }
 
-.field {
-  height: 280px;
-}
-
-.field > :global(.sv-field-body) {
+/* Ring and fan. The fan box is square, so the ring centre is the box centre. */
+.fan {
+  --size: 248px;
+  --cw: 88px;
+  --ch: calc(var(--cw) * 1185 / 813);
+  --gy: -0.3px;
   position: relative;
-  height: 100%;
+  width: var(--size);
+  height: var(--size);
+  margin: 0 auto 26px;
 }
 
-.slots {
+.rings,
+.hex,
+.dots,
+.rings svg,
+.hex svg {
   position: absolute;
   inset: 0;
 }
 
-.slot {
-  position: absolute;
-  width: 84px;
-  height: 123px;
+.rings,
+.hex {
+  color: var(--gold-ink);
+  opacity: 0.5;
+  pointer-events: none;
 }
 
-.slot[data-half="top"] {
-  top: 8px;
-  left: calc(27% - 42px);
+.hex {
+  opacity: 0.55;
 }
 
-.slot[data-half="bottom"] {
-  bottom: 8px;
-  right: calc(27% - 42px);
-}
-
-.slot > .zone.zone {
-  position: absolute;
-  inset: 0;
-}
-
-.card {
-  position: absolute;
-  inset: 0;
+.rings svg,
+.hex svg {
+  display: block;
   width: 100%;
   height: 100%;
+  overflow: visible;
+}
+
+.deck {
+  position: absolute;
+  inset: 0;
+  transform: translateY(var(--gy));
+}
+
+.fc {
+  position: absolute;
+  left: 50%;
+  top: calc(50% - var(--ch) / 2);
+  width: var(--cw);
+  height: var(--ch);
   border-radius: 5px;
-  box-shadow: 0 14px 30px -10px rgb(0 0 0 / 0.75);
+  box-shadow: 0 14px 34px -8px rgb(0 0 0 / 0.7);
+  transform-origin: 50% 130%;
+  transform: translate(-50%, var(--dy)) rotate(var(--r));
 }
 
-.slot[data-half="top"] .card {
-  rotate: -5deg;
+.dm {
+  --r: -15deg;
+  --dy: 0px;
+  z-index: 1;
 }
 
-.slot[data-half="bottom"] .card {
-  rotate: 4deg;
+.ud {
+  --r: 15deg;
+  --dy: 0px;
+  z-index: 1;
 }
 
+.be {
+  --r: 0deg;
+  --dy: -12px;
+  z-index: 2;
+}
+
+/* The copy */
 .copy {
   display: grid;
   justify-items: center;
@@ -82,6 +111,7 @@
 
 .mark {
   display: block;
+  flex: none;
   width: 30px;
   height: 30px;
 }
@@ -122,9 +152,15 @@
   margin-top: 26px;
 }
 
-.form > :global(.sv-btn) {
+.form > button:global(.sv-btn) {
   gap: 10px;
   justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 160ms var(--ease-out);
+}
+
+.form > button:global(.sv-btn):active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .spin {
@@ -137,15 +173,110 @@
   font: 400 13px/1.55 var(--f-ui);
 }
 
+/* Entrance. Fill mode is backwards, so once an animation ends the element's own styles apply
+   (the button's press scale still works) and nothing here ever blocks input. */
+@keyframes login-ring-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes login-front-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(var(--dy) + 10px)) rotate(0deg) scale(0.96);
+  }
+}
+
+@keyframes login-swing {
+  from {
+    transform: translate(-50%, -12px) rotate(0deg);
+  }
+}
+
+@keyframes login-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes login-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes login-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes login-spin {
   to {
     transform: rotate(360deg);
   }
 }
 
+.rings {
+  animation: login-ring-in 450ms var(--ease-out) backwards;
+}
+
+.hex {
+  animation: login-ring-in 450ms var(--ease-out) 120ms backwards;
+}
+
+.be {
+  animation: login-front-in 420ms var(--ease-out) 200ms backwards;
+}
+
+.dm {
+  animation: login-swing 480ms var(--ease-move) 280ms backwards, login-fade 200ms var(--ease-out) 280ms backwards;
+}
+
+.ud {
+  animation: login-swing 480ms var(--ease-move) 360ms backwards, login-fade 200ms var(--ease-out) 360ms backwards;
+}
+
+.dots {
+  animation: login-turn 90s linear 1100ms infinite;
+}
+
+.c1,
+.c2,
+.c3,
+.c4,
+.c5 {
+  animation: login-rise 320ms var(--ease-out) backwards;
+}
+
+.c1 {
+  animation-delay: 420ms;
+}
+
+.c2 {
+  animation-delay: 470ms;
+}
+
+.c3 {
+  animation-delay: 520ms;
+}
+
+.c4 {
+  animation-delay: 570ms;
+}
+
+.c5 {
+  animation-delay: 620ms;
+}
+
 @media (max-width: 480px) {
-  .field {
-    height: 250px;
+  .fan {
+    --size: 232px;
+    --cw: 82px;
+    --gy: 0.1px;
   }
 
   .brand {
@@ -153,8 +284,31 @@
   }
 }
 
+/* Reduced motion: a short opacity fade, no movement, and the ring does not turn. */
 @media (prefers-reduced-motion: reduce) {
+  .rings,
+  .hex,
+  .be,
+  .dm,
+  .ud,
+  .c1,
+  .c2,
+  .c3,
+  .c4,
+  .c5 {
+    animation: login-fade 200ms ease-out 0ms backwards;
+  }
+
+  .dots,
   .spin {
     animation: none;
+  }
+
+  .form > button:global(.sv-btn) {
+    transition: none;
+  }
+
+  .form > button:global(.sv-btn):active:not(:disabled) {
+    transform: none;
   }
 }

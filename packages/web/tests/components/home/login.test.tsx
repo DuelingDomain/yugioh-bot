@@ -15,7 +15,7 @@ const { signIn, redirect, rethrow } = vi.hoisted(() => ({
 vi.mock("@/lib/auth", () => ({ signIn }));
 vi.mock("next/navigation", () => ({ redirect, unstable_rethrow: rethrow }));
 vi.mock("next/image", () => ({
-  default: ({ alt, ...props }: { alt: string }) => <img alt={alt} {...props} />,
+  default: ({ alt, priority: _priority, ...props }: { alt: string; priority?: boolean }) => <img alt={alt} {...props} />,
 }));
 
 let formStatus = { pending: false };
@@ -49,24 +49,36 @@ describe("login error copy", () => {
 });
 
 describe("LoginPage", () => {
-  it("draws a lit field with a centre line and two real cards, one in each half", async () => {
+  it("draws the ring with three real cards in an aria-hidden group, behind two first", async () => {
     const { container } = render(await LoginPage({ searchParams: Promise.resolve({}) }));
-    const field = container.querySelector(".sv-field");
-    expect(field).toHaveAttribute("data-lit", "true");
-    expect(field).toHaveAttribute("data-centre", "true");
-    const cards = field!.querySelectorAll("img");
-    expect(Array.from(cards, (card) => card.getAttribute("src"))).toEqual([
-      "https://images.ygoprodeck.com/images/cards_small/46986418.jpg",
-      "https://images.ygoprodeck.com/images/cards_small/89631146.jpg",
+    const images = Array.from(container.querySelectorAll("img"));
+    expect(images.map((card) => card.getAttribute("src"))).toEqual([
+      "https://images.ygoprodeck.com/images/cards/46986418.jpg",
+      "https://images.ygoprodeck.com/images/cards/23995346.jpg",
+      "https://images.ygoprodeck.com/images/cards/89631146.jpg",
     ]);
-    expect(container.querySelectorAll("[data-half]")).toHaveLength(2);
-    expect(field!.querySelectorAll(".sv-zone")).toHaveLength(2);
+    for (const card of images) {
+      expect(card).toHaveAttribute("alt", "");
+      expect(card.closest("[aria-hidden='true']")).not.toBeNull();
+    }
+    const group = images[0].closest("[aria-hidden='true']")!;
+    expect(group.querySelectorAll("img")).toHaveLength(3);
+    expect(group.querySelectorAll("svg circle")).toHaveLength(2);
+    expect(group.querySelectorAll("svg path")).toHaveLength(1);
+    expect(screen.queryByRole("img")).toBeNull();
   });
 
-  it("has no summon circle and no third card", async () => {
+  it("is the ring, not the old lit field", async () => {
     const { container } = render(await LoginPage({ searchParams: Promise.resolve({}) }));
-    expect(container.querySelector("svg.si-smn, .si-smn, .si-fan")).toBeNull();
-    expect(container.querySelectorAll("img")).toHaveLength(2);
+    expect(container.querySelector(".sv-field, .sv-zone, .si-smn, .si-fan")).toBeNull();
+  });
+
+  it("puts one thin beam rule under the brand and the copy in order", async () => {
+    const { container } = render(await LoginPage({ searchParams: Promise.resolve({}) }));
+    const rules = container.querySelectorAll("hr.sv-rule");
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toHaveAttribute("data-beam", "true");
+    screen.getByText("Drafts, tournaments and duels for your Discord server. Sign in with the account you use there.");
   });
 
   it("uses the flat primary button at full width", async () => {
