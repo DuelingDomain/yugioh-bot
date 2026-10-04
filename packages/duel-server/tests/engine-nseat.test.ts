@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import type { DuelCardInfo, DuelDeck, DuelFormat, DuelPrompt } from "@yugidraft/shared/duels";
 import { DIAGNOSTICS_LIMIT, acceptsResult, createEngineGame, eliminationCodeOf } from "../src/engine.js";
 import { chooseSurrenderedAnswer } from "../src/practice-bot.js";
-import { autoResponse, mapPrompt, directAttackSeat, parseFieldPlaces } from "../src/prompts.js";
+import { autoResponse, mapPrompt, directAttackSeat, parseFieldPlaces, resolveAnswer } from "../src/prompts.js";
 import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, parseDuelistMessages, splitMessages } from "../src/raw-messages.js";
 import { createRevealMap, projectView, type StoredChainLink } from "../src/views.js";
 import type { CardDatabase } from "../src/cards.js";
@@ -25,7 +25,7 @@ function info(code: number): DuelCardInfo {
   return { code, name: `Card ${code}`, description: "", type: 1, attack: 1000, defense: 1000, level: 4, attribute: 1, race: "warrior" };
 }
 
-const cards = { get: (code: number) => info(code), search: () => [], cardData: () => null } as unknown as CardDatabase;
+const cards = { get: (code: number) => info(code), search: () => [], cardData: () => null, resolveLabel: () => "", counter: () => null } as unknown as CardDatabase;
 
 function message(...bytes: number[]): number[] {
   return [bytes.length, 0, 0, 0, ...bytes];
@@ -234,6 +234,33 @@ describe("direct-attack pick", () => {
     expect(places.some((place) => place.player === 3)).toBe(false);
   });
 
+  it.each([3, 4])("FFA%i filters dead direct targets and keeps response indices", (count) => {
+    const mapped = mapPrompt({ type: OcgMessageType.SELECT_OPTION, player: 0,
+      options: Array.from({ length: count - 1 }, (_, index) => BigInt(0xffff0001 + index)),
+    } as never, cards, "p1", undefined, { livingSeats: [0, 2] });
+    expect(mapped.prompt.options.map((option) => [option.id, option.controller])).toEqual([["opt:1", 2]]);
+    expect(autoResponse(mapped)).toEqual({ type: OcgResponseType.SELECT_OPTION, index: 1 });
+    expect(() => resolveAnswer(mapped, 0, "p1", { choice: "opt:0" }, cards)).toThrow("Invalid answer");
+  });
+
+  it("does not offer a dead monster or auto-select it", () => {
+    const mapped = mapPrompt({ type: OcgMessageType.SELECT_CARD, player: 0, min: 1, max: 1, can_cancel: false,
+      selects: [{ code: 100, controller: 1, location: OcgLocation.MZONE, sequence: 0 },
+        { code: 101, controller: 2, location: OcgLocation.MZONE, sequence: 0 }],
+    } as never, cards, "p1", "Select an attack target", { eliminatedSeats: [1] });
+    expect(mapped.prompt.options.map((option) => option.id)).toEqual(["card:1"]);
+    expect(autoResponse(mapped)).toEqual({ type: OcgResponseType.SELECT_CARD, indicies: [1] });
+    expect(() => resolveAnswer(mapped, 0, "p1", { selected: ["card:0"] }, cards)).toThrow("Invalid answer");
+  });
+
+  it("cancels a suspended attack choice when all listed monsters are eliminated", () => {
+    const mapped = mapPrompt({ type: OcgMessageType.SELECT_CARD, player: 0, min: 1, max: 1, can_cancel: true,
+      selects: [{ code: 100, controller: 1, location: OcgLocation.MZONE, sequence: 0 }],
+    } as never, cards, "p1", "Select an attack target", { eliminatedSeats: [1] });
+    expect(mapped.prompt.options).toEqual([]);
+    expect(autoResponse(mapped)).toEqual({ type: OcgResponseType.SELECT_CARD, indicies: null });
+  });
+
   it("names a living seat for the opponent half of a place prompt at seat 2 of ffa3 (fuzz ffa3-3, ffa3-12)", () => {
     // Seat 2 places a token on another field: the upper half has MZONE 0, 2, 3 and 4 free. player ^ 1 is 3, no seat.
     const mask = ~(0b11101 << 16) >>> 0;
@@ -247,6 +274,64 @@ describe("direct-attack pick", () => {
     ]);
     const single = mapPrompt({ type: OcgMessageType.SELECT_PLACE, player: 2, count: 1, field_mask: ~(1 << 16) >>> 0 } as never, cards, "p2", undefined, { placeOpponent: 1 });
     expect(autoResponse(single)).toEqual({ type: OcgResponseType.SELECT_PLACE, places: [{ player: 1, location: OcgLocation.MZONE, sequence: 0 }] });
+  });
+});
+
+describe("filtered card choice responses", () => {
+  const dead = { code: 100, controller: 1, location: OcgLocation.MZONE, sequence: 0 };
+  const alive = { code: 101, controller: 2, location: OcgLocation.MZONE, sequence: 0 };
+  const map = (message: Record<string, unknown>) => mapPrompt({ player: 0, ...message } as never, cards, "p1", undefined, { eliminatedSeats: [1] });
+
+  it("keeps the original chain index after an earlier card is removed", () => {
+    const pending = map({ type: OcgMessageType.SELECT_CHAIN, forced: false, selects: [dead, alive] });
+    expect(resolveAnswer(pending, 0, "p1", { choice: "card:1" }, cards)).toEqual({ type: OcgResponseType.SELECT_CHAIN, index: 1 });
+  });
+
+  it("auto-selects the sole living forced chain with its original index", () => {
+    const pending = map({ type: OcgMessageType.SELECT_CHAIN, forced: true, selects: [dead, alive] });
+    expect(autoResponse(pending)).toEqual({ type: OcgResponseType.SELECT_CHAIN, index: 1 });
+  });
+
+  it("passes a chain window with no living card choices", () => {
+    const pending = map({ type: OcgMessageType.SELECT_CHAIN, forced: false, selects: [dead] });
+    expect(autoResponse(pending)).toEqual({ type: OcgResponseType.SELECT_CHAIN, index: null });
+  });
+
+  it("consumes a removed mandatory trigger instead of sending an invalid forced pass", () => {
+    const pending = map({ type: OcgMessageType.SELECT_CHAIN, forced: true, selects: [dead, dead] });
+    expect(autoResponse(pending)).toEqual({ type: OcgResponseType.SELECT_CHAIN, index: 0 });
+  });
+
+  it.each(["select:1", "unselect:1"])("keeps the original toggle index for %s", (choice) => {
+    const pending = map({ type: OcgMessageType.SELECT_UNSELECT_CARD, select_cards: [dead, alive], unselect_cards: [dead, alive] });
+    expect(resolveAnswer(pending, 0, "p1", { choice }, cards)).toEqual({ type: OcgResponseType.SELECT_UNSELECT_CARD, index: choice.startsWith("unselect") ? 3 : 1 });
+  });
+
+  it("auto-selects the sole living toggle card with its original index", () => {
+    const pending = map({ type: OcgMessageType.SELECT_UNSELECT_CARD, select_cards: [dead, alive], unselect_cards: [], min: 1, max: 1, can_cancel: false, can_finish: false });
+    expect(autoResponse(pending)).toEqual({ type: OcgResponseType.SELECT_UNSELECT_CARD, index: 1 });
+  });
+
+  it("finishes a toggle prompt with no living card choices", () => {
+    const pending = map({ type: OcgMessageType.SELECT_UNSELECT_CARD, select_cards: [dead], unselect_cards: [], can_finish: true });
+    expect(autoResponse(pending)).toEqual({ type: OcgResponseType.SELECT_UNSELECT_CARD, index: null });
+  });
+
+  it("auto-selects only the living tribute and rejects removed choices", () => {
+    const pending = map({ type: OcgMessageType.SELECT_TRIBUTE, selects: [{ ...dead, release_param: 1 }, { ...alive, release_param: 1 }], min: 1, max: 1, can_cancel: false });
+    expect(autoResponse(pending)).toEqual({ type: OcgResponseType.SELECT_TRIBUTE, indicies: [1] });
+    expect(() => resolveAnswer(pending, 0, "p1", { selected: ["card:0"] }, cards)).toThrow("Invalid answer");
+  });
+
+  it("rejects a removed sum choice", () => {
+    const pending = map({ type: OcgMessageType.SELECT_SUM, selects_must: [], selects: [{ ...dead, amount: 1 }, { ...alive, amount: 1 }], min: 1, max: 1, amount: 1 });
+    expect(() => resolveAnswer(pending, 0, "p1", { selected: ["card:0"] }, cards)).toThrow("Invalid answer");
+  });
+
+  it("rejects counters on a removed card", () => {
+    const pending = map({ type: OcgMessageType.SELECT_COUNTER, cards: [{ ...dead, count: 1 }, { ...alive, count: 1 }], count: 1, counter_type: 1 });
+    expect(() => resolveAnswer(pending, 0, "p1", { counts: { "card:0": 1 } }, cards)).toThrow("Invalid answer");
+    expect(resolveAnswer(pending, 0, "p1", { counts: { "card:1": 1 } }, cards)).toEqual({ type: OcgResponseType.SELECT_COUNTER, counters: [0, 1] });
   });
 });
 

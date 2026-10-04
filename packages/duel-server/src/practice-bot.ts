@@ -56,12 +56,11 @@ export function botTableOf(view: Pick<DuelEngineView, "seats">): BotTable {
   return { living, lp };
 }
 
-/** Options that name a seat (`controller`) and that a living seat can take. If none is left the list stays whole: no deadlock. */
+/** Options without a seat, or whose seat is still in the duel. */
 function livingOptions(options: readonly DuelPromptOption[], table: BotTable | undefined): DuelPromptOption[] {
   const living = table?.living;
   if (!living) return [...options];
-  const kept = options.filter((option) => option.controller == null || living.includes(option.controller));
-  return kept.length > 0 ? kept : [...options];
+  return options.filter((option) => option.controller == null || living.includes(option.controller));
 }
 
 /** A choice where every option is a seat to pick: the opponent pick or the direct attack pick. */
@@ -264,6 +263,7 @@ export function choosePracticeBotAnswer(
   prompt: DuelPrompt,
   options?: { permittedCards?: DuelCardInfo[]; table?: BotTable },
 ): DuelAnswer {
+  prompt = { ...prompt, options: livingOptions(prompt.options, options?.table) };
   switch (prompt.kind) {
     case "choice":
       return chooseChoice(prompt, options?.table);
