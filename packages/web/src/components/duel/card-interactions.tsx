@@ -467,7 +467,6 @@ export function AttackConfirm({
         </button>
         <button type="button" className={fx.confirmBack} disabled={busy} aria-keyshortcuts="Escape" onClick={onBack}>
           Back
-          {skinned ? <kbd data-keycap aria-hidden="true">Esc</kbd> : null}
         </button>
       </div>
       <span className={fx.confirmHint}><kbd>Enter</kbd> attack · <kbd>Esc</kbd> back</span>
