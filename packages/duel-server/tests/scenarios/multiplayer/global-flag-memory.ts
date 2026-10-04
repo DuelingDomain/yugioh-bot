@@ -1,5 +1,5 @@
 // Real tribute events after p0 reaches LP 0. The shared global memory must use a key that still has flags.
-import { activate, attack, auto, changePhase, endTurn, expectEliminated, normalSummon, select, yes, xyz, type Scenario } from "../../support/dsl.js";
+import { pickOpponent, activate, attack, auto, changePhase, endTurn, expectEliminated, normalSummon, select, yes, xyz, type Scenario } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat } from "./seat-kit.js";
@@ -50,8 +50,8 @@ function panther(format: "ffa3" | "ffa4"): Scenario {
     }),
     steps: [
       endTurn("p0"), attack({ card: ELF, nth: 0 }, "direct", "p1"), yes("p1"), changePhase("main2", "p1"), expectEliminated("p0"),
-      activate(GATE, "p1"), select({ card: ELF, nth: 0 }), auto("p1"),
-      activate(GATE, "p1"), select({ card: ELF, nth: 0 }), auto("p1"),
+      activate(GATE, "p1"), ...(format === "ffa4" ? [pickOpponent("p2", "p1")] : []), select({ card: ELF, nth: 0 }), auto("p1"),
+      activate(GATE, "p1"), ...(format === "ffa4" ? [pickOpponent("p2", "p1")] : []), select({ card: ELF, nth: 0 }), auto("p1"),
       everySeat(format, {
         p0: { lp: 0, hand: [] },
         p1: { monsters: { include: [ELF], count: 3 }, grave: [ELF, ELF, GATE, GATE], hand: { count: 1 } },

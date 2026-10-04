@@ -5,9 +5,13 @@ Date: 2026-09-30. Updated 2026-10-01 with the card decisions of the product owne
 Rules: [ADR-0002](../adr/0002-multiplayer-duel-rules.md). Design: [multiplayer core design](2026-09-30-multiplayer-core-design.md).
 
 Data in code:
+- P3 Dogmatikamatrix proofs declare before the opponent Extra Deck read and check every seat.
+- P3 Branded in Central Dogmatika proofs declare before the opponent Extra Deck read and check every seat.
 - Forbidden list and card rules: `packages/duel-server/src/banlists/multiplayer.ts` (`MULTIPLAYER_FORBIDDEN` and `MULTIPLAYER_CARD_RULES`).
 - Scenario sketches and script evidence: `packages/duel-server/tests/scenarios/multiplayer/catalog.ts`.
 - Check test: `packages/duel-server/tests/scenarios/multiplayer/catalog.test.ts`. It reads every cited line of every script.
+- Compare proof: `compare.ts` checks that Raigeki makes a new declaration after Evenly Matched.
+- Thundercross proof: `compare.ts` passes the earlier End, Draw and Standby Phase windows, then activates in response to the Normal Summon. Every seat is checked.
 - Deck check: `inspectDeck(mode, deck, dir, settings, { table })` in `packages/duel-server/src/deck-legality.ts`. The default table is `"1v1"` and changes nothing.
 
 This page tables are made from the catalog data. Change the data first, then change this page.
@@ -33,7 +37,7 @@ These rules come from ADR-0002 and spec section 4.2.
 8. **Count and compare cards (owner answer to triage question 2, 2026-10-01).** A card that compares field, hand or card counts ("your opponent controls more ...", Evenly Matched, Pineapple Blast, about 50 cards) does not add all opponents together. In FFA the activator picks ONE opponent when they activate it, and the card compares with that opponent only. In Tag the card compares with the combined field or hand of the two opposing duelists.
 9. **One opponent chooses (owner answer to triage question 5, 2026-10-01).** When the card says "your opponent chooses" in the singular, ONE opponent chooses: the picked (bound) opponent, in FFA and in Tag. All opponents choose only when the card text says "all" or "each". This replaces the old proposal "each affected opponent chooses from their own cards".
 10. **Tribute of an opponent monster (owner answer to triage question 8, 2026-10-01).** A Tribute of a monster of an opponent works for the monsters of any opponent, not only seat 1. This includes the Kaiju, Lava Golem and The Winged Dragon of Ra - Sphere Mode. For Ra Sphere Mode, all Tributed monsters come from ONE opponent, and it goes to the field of that opponent.
-11. **Turn count (owner answer to triage question 1, 2026-10-01).** Every turn of any opponent counts as one opponent turn (in Tag, only a turn of the two opposing duelists). The turn-count review found no card to ban. The 5 free-for-all turn-count bans in group (c) stay.
+11. **Turn count (owner answer to triage question 1, 2026-10-01).** Every turn of any opponent counts as one opponent turn (in Tag, only a turn of the two opposing duelists). The turn-count review found no card to ban. The 4 free-for-all turn-count bans in group (c) stay. Swords of Revealing Light is legal and protects only its controller in FFA (R-FFA-SWORDS-PROTECT).
 
 ## Corpus counts
 
@@ -100,7 +104,7 @@ Binding: field, GY and banish use the union of the opponents. There is no pick.
 | Torrential Tribute | 53582587 | `c53582587.lua:29`, `c53582587.lua:34` | When a monster is Summoned, destroys all monsters on the field. | Destroys all monsters of all 3 players. | Destroys all monsters of all 4 players. | Destroys all monsters of all 4 players, the partner included. | U |
 | Dark Magic Attack | 2314238 | `c2314238.lua:17`, `c2314238.lua:24`, `c2314238.lua:29` | If you control Dark Magician, destroys all Spells and Traps of the opponent. | Destroys the Spells and Traps of both opponents. | Destroys the Spells and Traps of all 3 opponents. | Destroys the Spells and Traps of both opposing members. The condition counts Dark Magician of the partner (you control includes the partner). | U |
 | Lightning Storm | 14532163 | `c14532163.lua:18`, `c14532163.lua:21`, `c14532163.lua:39` | If you control no face-up cards, choose: destroy all Attack Position monsters or all Spells and Traps of the opponent. | Destroys the chosen card type of both opponents. | Destroys the chosen card type of all 3 opponents. | Destroys the chosen card type of both opposing members. The condition checks the own field, which includes the partner. | U |
-| Book of Eclipse | 35480699 | `c35480699.lua:17`, `c35480699.lua:38`, `c35480699.lua:40` | Changes all face-up monsters to face-down. The opponent draws one card for each face-down monster. | Field part uses all opponents. The draw part goes to ONE bound opponent (lazy prompt). | Same as 3-FFA: one bound opponent draws. | Field part uses both opposing members. The draw goes to one bound opposing member. | O |
+| Book of Eclipse | 35480699 | `c35480699.lua:17`, `c35480699.lua:38`, `c35480699.lua:40` | Changes all face-up monsters to face-down. In the End Phase, the opponent flips its face-down monsters and draws one card for each. | The initial flip affects every seat. The End Phase flip and draw affect only the opponent declared at activation. | Same as 3-FFA. | The initial flip affects every seat. Each opposing member flips and draws for its own monsters in the End Phase. | O |
 | Cyber Dragon | 70095154 | `c70095154.lua:16`, `c70095154.lua:17` | If only the opponent controls a monster, you can Special Summon this card from the hand. | Legal when P0 controls no monster and any opponent controls one. | Legal when P0 controls no monster and any opponent controls one. | Legal when the team of P0 controls no monster and any opposing member controls one. | U |
 | Gameciel, the Sea Turtle Kaiju | 55063751 | `c55063751.lua:5`, `cards_specific_functions.lua:347`, `cards_specific_functions.lua:362` | Tribute 1 monster of the opponent to Special Summon this card to their field. | The Kaiju goes to the field of the player whose monster was Tributed (owner decision 2026-10-01). | Same as 3-FFA. | Goes to the field of the player whose monster was Tributed (an opposing member). | O |
 | Gravity Bind | 85742772 | `c85742772.lua:15` | Level 4 or higher monsters cannot attack. | No level 4 or higher monster on any of the 3 fields can attack. | No level 4 or higher monster on any of the 4 fields can attack. | No level 4 or higher monster on any field can attack. The partner is affected too. | U |
@@ -134,7 +138,7 @@ Binding: field, GY and banish use the union of the opponents. There is no pick.
 | Torrential Tribute | P0 has Torrential Tribute set. P1 controls one monster. P2 and P3 (or the partner) control one monster each. | P1 Normal Summons a monster. P0 activates Torrential Tribute. | All monsters on the field are destroyed. |
 | Dark Magic Attack | Tag: the partner controls face-up Dark Magician and P0 controls none. All opponents control one Spell or Trap. | P0 activates Dark Magic Attack. | The activation is legal only in Tag through the partner. All opponent Spells and Traps are destroyed. |
 | Lightning Storm | P0 controls no face-up card. Each opponent controls one attack position monster and one Spell. | P0 activates Lightning Storm and chooses the monster option. | Attack position monsters of all opponents are destroyed. Spells stay. |
-| Book of Eclipse | Each seat controls one face-up monster. | P0 activates Book of Eclipse. P0 picks the draw target when asked. | All face-up monsters become face-down. The picked opponent draws the count of face-down opponent monsters. |
+| Book of Eclipse | Each seat controls one face-up monster. | P0 activates Book of Eclipse and declares one opponent in FFA. The turn ends. | All face-up monsters become face-down. In FFA, only the declared opponent flips and draws for its own monsters. In Tag, each opposing member flips and draws for its own monsters. |
 | Cyber Dragon | P0 has Cyber Dragon in hand and no monster. Only P2 controls a monster. | P0 tries to Special Summon Cyber Dragon. | The summon is legal. In Tag, it is illegal if the partner controls a monster. |
 | Gameciel, the Sea Turtle Kaiju | P1 and P2 control one monster each. P0 has Gameciel in hand. | P0 Tributes the monster of P2 to summon Gameciel. | Gameciel appears on the field of P2 (target-controller binding). The same rule holds for the other 6 Kaiju and the Lava cards (see "Card rules"). |
 | Gravity Bind | Each seat controls one level 4 monster. P0 controls Gravity Bind. | Each seat tries to declare an attack on its turn. | No attack is possible for any seat. |
@@ -254,7 +258,6 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 | Kaiser Colosseum | 35059553 | symmetry | It compares the monster count of two sides to limit summons. | `c35059553.lua:16`, `c35059553.lua:30` | 3-FFA, 4-FFA | no |
 | Skull Invitation | 98139712 | symmetry | Damage goes by card owner to 'you' and 'the opponent' only. | `c98139712.lua:19`, `c98139712.lua:27` | 3-FFA, 4-FFA | no |
 | Ring of Destruction | 83555666 | symmetry | It damages the activator and one opponent. The opponent LP check reads one player. | `c83555666.lua:25`, `c83555666.lua:41` | 3-FFA, 4-FFA | no |
-| Swords of Revealing Light | 72302403 | turn-count | It lasts for 3 'opponent turns'. In FFA, one round has more than one opponent turn. | `c72302403.lua:41`, `c72302403.lua:63` | 3-FFA, 4-FFA | no |
 | Doom Virus Dragon | 22804644 | turn-count | Its effect lasts 3 'opponent turns'. | `c22804644.lua:48`, `c22804644.lua:56` | 3-FFA, 4-FFA | no |
 | The Wicked Avatar | 21208154 | turn-count | Its effect lasts 2 'opponent turns'. | `c21208154.lua:62`, `c21208154.lua:71` | 3-FFA, 4-FFA | no |
 | Grisaille Prison | 22888900 | turn-count | Its effect lasts 2 'opponent turns'. | `c22888900.lua:28`, `c22888900.lua:45` | 3-FFA, 4-FFA | no |
@@ -293,9 +296,9 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 | Dummy Golem | 13532663 | control-swap | The script swaps control between the activator and a monster chosen by one named opponent. | `c13532663.lua:25`, `c13532663.lua:26` | 3-FFA, 4-FFA | no |
 | Life Equalizer | 17178486 | lp-reset | It sets the LP of one named opponent and compares two LP totals. | `c17178486.lua:18` | 3-FFA, 4-FFA | no |
 
-Turn-count rows: these 5 bans stay (owner answer 2026-10-01). Other cards with an opponent-turn count are legal and follow rule 11; the review is in `.status/multiplayer-turncount-review.md`.
+Turn-count rows: these 4 bans stay. Swords of Revealing Light is legal under R-FFA-SWORDS-PROTECT (owner correction, 2026-10-02 night). Other cards with an opponent-turn count are legal and follow rule 11; the review is in `.status/multiplayer-turncount-review.md`.
 
-Total: 47 cards. 3-FFA and 4-FFA: 47 cards (24 only in free-for-all). Tag: 23 cards.
+Total: 45 cards. 3-FFA and 4-FFA: 45 cards (22 only in free-for-all). Tag: 23 cards.
 
 Error message format: `<card> is forbidden in 4-player free-for-all: <reason>`. The table name is "3-player free-for-all", "4-player free-for-all" or "2v2 Tag Duel".
 
@@ -376,8 +379,8 @@ Decision 4: the other cards use the defaults.
 | Royal Tribute | 72405967 | Every opponent discards the monsters in their hand. You discard yours too, as in 1v1. In Tag, 'both players' means every duelist, the partner included (R-COMMON-EACH-PLAYER, owner decision 2026-10-01). | `c72405967.lua:22` |
 | Soul Exchange | 68005187 | You may target 1 monster of any opponent. This turn, a Tribute may use it as if you controlled it. | `c68005187.lua:35`, `c68005187.lua:45` |
 | Snatch Steal | 45986603 | The owner of the monster gains the 1000 LP, in the own Standby Phase of that owner. In Tag, the Standby Phase of the own duelist turn counts, and the team LP gains. | `c45986603.lua:33`, `c45986603.lua:37` |
-| Book of Eclipse | 35480699 | In your End Phase, each opponent changes its OWN face-down monsters to face-up Defense Position and draws 1 card for each of its own (R-COMMON-EACH-PLAYER, lead decision 2026-10-01). In Tag, each opposing member does the same for the monsters it controls. The stock script lets one opponent draw for all of them (script fix, overlay `c35480699.lua`). | `c35480699.lua:37` |
-| Prediction Princess Astromorrigan | 5010422 | In the End Phase of the turn you flip it, each opponent takes 500 damage for each of its OWN Defense Position monsters destroyed this way (R-COMMON-EACH-PLAYER, follows the Book of Eclipse decision). In Tag the opposing members share one LP pool, so the sum is the stock value. The stock script lets one opponent take the damage for all of them (script fix, overlay `c5010422.lua`). | `c5010422.lua:25`, `c5010422.lua:30` |
+| Book of Eclipse | 35480699 | The initial flip affects every seat. In FFA, the End Phase flip and draw affect only the opponent declared at activation (R-FFA-OPP-ONE, owner decision 2026-10-02). An eliminated declared opponent gives no result. In Tag, each opposing member flips and draws for its own monsters. The suffix retains the declared opponent for the delayed effect. | `c35480699.lua:37` |
+| Prediction Princess Astromorrigan | 5010422 | In FFA, declare one opponent when the flip effect enters the chain. In the End Phase, destroy that opponent's Defense Position monsters and deal 500 damage for each destroyed monster (R-FFA-OPP-ONE, owner decision 2026-10-02). Tag uses both opposing fields and their shared LP pool. | `c5010422.lua:25`, `c5010422.lua:30` |
 
 Decision 7: cards that were legal but gave a wrong result at 3 or more duelists (cross-seat review, 2026-10-01). Each row names the live proof (FFA3, FFA4 and Tag, Standard and Domain cores). "Fixed" means an overlay in `domain-core/multi-scripts`; "proven" means the stock script is right and a live scenario shows it.
 

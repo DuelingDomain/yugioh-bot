@@ -1,0 +1,848 @@
+From 3dfd25426f4dcd5f40118c0ace06cd72af43c95a Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] Bind activated FFA effects to one declared opponent
+
+---
+ card.cpp         |  2 +-
+ effect.cpp       | 70 +++++++++++++++++++++++++++++++++--
+ effect.h         |  2 +
+ field.cpp        | 96 ++++++++++++++++++++++++++++++++++--------------
+ field.h          | 10 +++--
+ fold.h           | 30 +++++++++++----
+ fold_lib.h       |  2 +-
+ interpreter.cpp  | 51 +++++++++++++++++++++----
+ interpreter.h    | 17 +++++++--
+ libduel.cpp      | 32 +++++++++++++---
+ operations.cpp   | 15 +++++---
+ playerop.cpp     |  2 +-
+ processor_unit.h | 15 +++++---
+ 13 files changed, 272 insertions(+), 72 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index 890feb1..ab310a4 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -3229,7 +3229,7 @@ int32_t card::is_spsummonable(effect* peffect) {
+ 		pduel->lua->add_param<LuaParam::INT>(pduel->game_field->core.forced_summon_maxc);
+ 		param_count += 2;
+ 	}
+-	if (pduel->lua->check_condition(peffect->condition, param_count))
++	if (pduel->lua->check_condition(peffect->condition, param_count, nullptr, DUELIST_NONE, oreason))
+ 		result = TRUE;
+ 	pduel->game_field->restore_lp_cost();
+ 	pduel->game_field->core.reason_effect = oreason;
+diff --git a/effect.cpp b/effect.cpp
+index 6bb8b94..ded0671 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -362,9 +362,42 @@ int32_t effect::is_activate_ready(effect* reason_effect, uint8_t playerid, const
+ 		pduel->lua->add_param<LuaParam::EFFECT>(e.reason_effect);
+ 		pduel->lua->add_param<LuaParam::INT>(e.reason);
+ 		pduel->lua->add_param<LuaParam::PLAYER>(e.reason_player);
+-		if(!pduel->lua->check_condition(condition, 8, nullptr, playerid)) {
++		// R-FFA-OPP-ONE: condition reads test eligibility, not declaration.
++		// Keep an explicit causal binding, but do not pass read touches to the cost/target probe.
++		auto* I = pduel->lua;
++		auto S = [I]() { return I->current_scope(); };
++		const auto& f = *pduel->game_field;
++		const bool condition_probe = f.n_duelists > 2 && f.n_teams == f.n_duelists
++			&& S() && S()->pinned && S()->eff == reason_effect && S()->P == playerid
++			&& I->scope_raw_bound(S()) == DUELIST_NONE;
++		const auto check = [&]() {
++			if(!condition_probe)
++				return I->check_condition(condition, 8, nullptr, playerid);
++			const bool touched = S()->touched;
++			const auto saved_params = I->params;
++			S()->touched = false;
++			bool ready = I->check_condition(condition, 8, nullptr, playerid);
++			if(S()->touched && !S()->declaration_requested && I->scope_raw_bound(S()) == DUELIST_NONE) {
++				// A joined read can pass or fail when no single opponent does the same.
++				// Run the complete condition for one opponent at a time. One pass is enough.
++				uint8_t opponents[MAX_DUELISTS];
++				const auto count = f.pick_opponents(playerid, opponents);
++				ready = false;
++				for(uint8_t i = 0; i < count; ++i) {
++					S()->own_bound = opponents[i];
++					I->params = saved_params;
++					if(I->check_condition(condition, 8, nullptr, playerid)) {
++						ready = true;
++						break;
++					}
++				}
++				S()->own_bound = DUELIST_NONE;
++			}
++			S()->touched = touched || S()->declaration_requested;
++			return ready;
++		};
++		if(!check())
+ 			return FALSE;
+-		}
+ 	}
+ 	if(!neglect_cost && cost && !(type & EFFECT_TYPE_CONTINUOUS)) {
+ 		pduel->lua->add_param<LuaParam::EFFECT>(reason_effect);
+@@ -417,6 +450,23 @@ int32_t effect::probe_bind(uint8_t playerid, const tevent& e, int32_t neglect_co
+ 	auto* s = S();
+ 	if(f.n_duelists <= 2 || !s || !s->pinned || s->eff != this || s->bound || !f.is_duelist(playerid) || s->P != playerid)
+ 		return is_activate_ready(this, playerid, e, neglect_cond, neglect_cost, neglect_target);
++	// A fresh condition evaluation cannot inherit a prior phase condition.
++	if(!neglect_cond)
++		phase_opponent_turn = 0;
++	// Only the turn player meets an opponent-phase condition. The condition
++	// ran when the trigger entered the queue; probe_chain can skip it later.
++	if(neglect_cond && f.n_teams == f.n_duelists && phase_opponent_turn == f.infos.turn_id
++		&& phase_opponent_turn != 0 && (e.event_code & EVENT_PHASE)
++		&& f.is_alive(f.infos.turn_player) && !f.same_team(playerid, f.infos.turn_player)) {
++		const uint8_t turn = f.infos.turn_player;
++		S()->own_bound = turn;
++		bound = turn;
++		const int32_t result = is_activate_ready(this, playerid, e, neglect_cond, neglect_cost, neglect_target);
++		S()->own_bound = DUELIST_NONE;
++		if(result)
++			mask = static_cast<uint8_t>(1u << turn);
++		return result;
++	}
+ 	// the event opponent: the damaged player, the activator of the chain link that is answered, ...
+ 	// Rule: when the event names an opponent, only that one is tried. If the checks fail for it, the effect is not
+ 	// activateable. No other opponent is tried (the event decides, not the activator).
+@@ -432,7 +482,18 @@ int32_t effect::probe_bind(uint8_t playerid, const tevent& e, int32_t neglect_co
+ 	// first run: nothing bound. A check that never asked for "an opponent" does not depend on one.
+ 	S()->touched = false;
+ 	const int32_t first = is_activate_ready(this, playerid, e, neglect_cond, neglect_cost, neglect_target);
+-	if(!first || !S()->touched) {
++	// A response overlay can identify its causal opponent by a binding read.
++	// Keep that seat from the first probe; do not replace it with a free declaration.
++	if(first && f.n_teams == f.n_duelists && I->scope_raw_bound(S()) != DUELIST_NONE) {
++		bound = I->scope_raw_bound(S());
++		if(f.is_alive(bound) && !f.same_team(playerid, bound))
++			mask = static_cast<uint8_t>(1u << bound);
++		S()->own_bound = DUELIST_NONE;
++		S()->touched = false;
++		return mask != 0;
++	}
++	// In FFA a broad check can fail while one opponent passes (a maximum count, or a negative condition).
++	if(!S()->touched || (!first && f.n_teams != f.n_duelists)) {
+ 		S()->touched = false;
+ 		return first;
+ 	}
+@@ -472,6 +533,9 @@ void effect::probe_chain(uint8_t playerid, const tevent& e, uint8_t& bound, uint
+ }
+ // check functions: condition
+ int32_t effect::is_condition_check(uint8_t playerid, const tevent& e) {
++	// This metadata belongs to this condition evaluation, never to a later turn.
++	if(pduel->game_field->n_duelists > 2)
++		phase_opponent_turn = 0;
+ 	card* phandler = get_handler();
+ 	if(!(type & EFFECT_TYPE_ACTIVATE) && (phandler->current.location & (LOCATION_ONFIELD | LOCATION_REMOVED)) && !phandler->is_position(POS_FACEUP))
+ 		return FALSE;
+diff --git a/effect.h b/effect.h
+index 2fe3d57..be2d7ab 100644
+--- a/effect.h
++++ b/effect.h
+@@ -34,6 +34,8 @@ public:
+ 	// n_duelists > 2 (F7 part P2, R2 core rule). A global effect: registered by Duel.RegisterEffect while a card
+ 	// script runs initial_effect (the GlobalCheck pattern), or made by Effect.GlobalEffect. It belongs to no seat:
+ 	// its Lua runs without a perspective fold, so it sees the real rp, ep and tp of the event.
++	// A phase condition reads the opponent turn. It binds only that turn player.
++	int16_t phase_opponent_turn{ 0 };
+ 	bool global_effect{ false };
+ 	// n_duelists > 2, Tag only: a player flag effect (Duel.RegisterFlagEffect) that counts for the whole team of
+ 	// its owner, not for the owner seat alone.
+diff --git a/field.cpp b/field.cpp
+index 3978d71..3c1c773 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -1834,36 +1834,56 @@ void field::build_range_list(range_list& rl, uint8_t self, uint32_t loc1, uint32
+ 	// oppo side. F5: a summon procedure scope (Lava Golem) with one bound opponent reads that opponent only. F7: an open
+ 	// one-opponent window does the same (also for a dead or missing seat: the side is empty, never widened)
+ 	uint8_t seat = DUELIST_NONE;
+-	const bool restricted = opp_restrict(self, seat, use);
++	// Shared location bits read all eligible seats. Opponent-only bits keep the declared seat.
++	const uint32_t shared = implicit_all_fields(true, true) ? loc1 & loc2 : 0;
++	const uint32_t single = loc2 & ~shared;
++	const bool restricted = single && opp_restrict(self, seat, use);
+ 	if(loc2 & ~individual) {
+ 		for(uint8_t q = 0; q < n_duelists; ++q) {
+-			if(is_alive(q) && !same_team(self, q) && (!restricted || q == seat))
+-				add(q, loc2 & ~individual);
++			if(!is_alive(q) || same_team(self, q))
++				continue;
++			uint32_t locations = shared & ~individual;
++			if(!restricted || q == seat)
++				locations |= single & ~individual;
++			if(locations)
++				add(q, locations);
+ 		}
+ 	}
+ 	if(loc2 & individual) {
+-		if(restricted) {
+-			if(seat != DUELIST_NONE)
+-				add(seat, loc2 & individual);
+-		} else {
+-			// the bound opponent belongs to the scope of the duelist that Lua runs for
++		uint8_t bound = seat;
++		bool all_single = false;
++		if((single & individual) && !restricted) {
++			// The bound opponent belongs to the scope of the duelist that Lua runs for.
+ 			const auto* scope = pduel->lua->current_scope();
+-			const uint8_t bound = (scope && is_duelist(scope->P) && same_team(scope->P, self))
++			bound = (scope && is_duelist(scope->P) && same_team(scope->P, self))
+ 				? ((use & OPP_WINDOW) ? pduel->lua->scope_bound_opp() : pduel->lua->scope_raw_bound(scope)) : DUELIST_NONE;
+-			if(bound != DUELIST_NONE) {
+-				// F5 (ADR 0002): a bound opponent that is not alive any more gives nothing, no fallback to the others
+-				if(is_alive(bound) && !same_team(self, bound))
+-					add(bound, loc2 & individual);
+-			} else {
++			if(bound == DUELIST_NONE) {
+ 				pduel->lua->scope_mark_touched();
+-				for(uint8_t q = 0; q < n_duelists; ++q) {
+-					if(is_alive(q) && !same_team(self, q))
+-						add(q, loc2 & individual);
+-				}
++				all_single = true;
+ 			}
+ 		}
++		for(uint8_t q = 0; q < n_duelists; ++q) {
++			if(!is_alive(q) || same_team(self, q))
++				continue;
++			uint32_t locations = shared & individual;
++			if(all_single || q == bound)
++				locations |= single & individual;
++			if(locations)
++				add(q, locations);
++		}
+ 	}
+ }
++bool field::implicit_all_fields(bool self, bool oppo) const {
++	const auto* scope = pduel->lua->current_scope();
++	return n_duelists > 2 && n_teams == n_duelists && self && oppo && scope && scope->mp.implicit;
++}
++uint8_t field::opponent_field_mask(uint8_t playerid, bool self, bool oppo) {
++	uint8_t seat = DUELIST_NONE;
++	if(n_duelists <= 2 || n_teams != n_duelists || !oppo || implicit_all_fields(self, oppo)
++		|| !opp_restrict(playerid, seat))
++		return 0xff;
++	return is_duelist(seat) ? static_cast<uint8_t>(1u << seat) : 0;
++}
+ bool field::opp_restrict(uint8_t self, uint8_t& seat, uint8_t use) {
+ 	seat = DUELIST_NONE;
+ 	if(n_duelists <= 2)
+@@ -1878,6 +1898,15 @@ bool field::opp_restrict(uint8_t self, uint8_t& seat, uint8_t use) {
+ 			pduel->lua->scope_mark_touched();
+ 			return false;
+ 		}
++		// A late read must select one opponent too. The Lua library call resumes after the
++		// lazy prompt. A callback that cannot yield has an empty side, never a broad read.
++		if(sc->mp.implicit && pduel->lua->scope_raw_bound(sc) == DUELIST_NONE) {
++			pduel->lua->lazy_bind("opp_restrict");
++			if(pduel->lua->scope_raw_bound(sc) == DUELIST_NONE) {
++				pduel->lua->fold_trap('e', "opp_restrict");
++				return true;
++			}
++		}
+ 		const uint8_t w = pduel->lua->window_seat(sc);
+ 		if(w == DUELIST_NONE)
+ 			pduel->lua->fold_trap('W', "opp_restrict");
+@@ -2466,7 +2495,18 @@ void field::get_ritual_material(uint8_t playerid, effect* peffect, card_set* mat
+ 		if(pcard && mzonecheck(pcard) && pcard->is_releasable_by_nonsummon(playerid, REASON_EFFECT))
+ 			material->insert(pcard);
+ 	}
+-	for(auto& pcard : side_cards(playerid, true, &player_info::list_mzone, oppo_mzone_tmp)) {
++	// Eligibility for an own Ritual Summon is a non-binding material read.
++	// Scan the EXTRA_RELEASE candidates before a real material choice.
++	const card_vector* opponent_material = nullptr;
++	if(n_duelists > 2 && n_teams == n_duelists) {
++		for(uint8_t seat = 0; seat < n_duelists; ++seat)
++			if(is_alive(seat) && !same_team(playerid, seat))
++				oppo_mzone_tmp.insert(oppo_mzone_tmp.end(), player[seat].list_mzone.begin(), player[seat].list_mzone.end());
++		opponent_material = &oppo_mzone_tmp;
++	} else {
++		opponent_material = &side_cards(playerid, true, &player_info::list_mzone, oppo_mzone_tmp);
++	}
++	for(auto& pcard : *opponent_material) {
+ 		if(pcard && pcard->is_position(POS_FACEUP) && mzonecheck(pcard) && pcard->is_releasable_by_nonsummon(playerid, REASON_EFFECT) && pcard->is_affected_by_effect(EFFECT_EXTRA_RELEASE))
+ 			material->insert(pcard);
+ 	}
+@@ -2533,7 +2573,7 @@ void field::ritual_release(const card_set& material, bool release_deck) {
+ 	release(std::move(rel), core.reason_effect, REASON_RITUAL + REASON_EFFECT + REASON_MATERIAL, core.reason_player);
+ 	send_to(std::move(rem), core.reason_effect, REASON_RITUAL + REASON_EFFECT + REASON_MATERIAL, core.reason_player, none_id(), LOCATION_REMOVED, 0, POS_FACEUP);
+ }
+-void field::get_overlay_group(uint8_t playerid, uint8_t self, uint8_t oppo, card_set* pset, group* pgroup) {
++void field::get_overlay_group(uint8_t playerid, uint8_t self, uint8_t oppo, card_set* pset, group* pgroup, uint8_t opponent_mask) {
+ 	if(pgroup) {
+ 		for(auto& pcard : pgroup->container) {
+ 			if(pcard && !pcard->get_status(STATUS_SUMMONING | STATUS_SPSUMMON_STEP))
+@@ -2542,10 +2582,10 @@ void field::get_overlay_group(uint8_t playerid, uint8_t self, uint8_t oppo, card
+ 	} else {
+ 		// F7: an open one-opponent window reads one opponent only (n > 2)
+ 		uint8_t seat = DUELIST_NONE;
+-		const bool restricted = oppo && n_duelists > 2 && opp_restrict(playerid, seat);
++		const bool restricted = oppo && n_duelists > 2 && !implicit_all_fields(self, oppo) && opp_restrict(playerid, seat);
+ 		for(int i = 0; i < n_duelists; ++i) {
+ 			if(n_duelists == 2 ? ((i == playerid && self) || (i == opponent_of(playerid) && oppo))
+-			                  : (is_alive(i) && (same_team(playerid, i) ? self : (oppo && (!restricted || i == seat))))) {
++			                  : (is_alive(i) && (same_team(playerid, i) ? self : (oppo && (opponent_mask & (1u << i)) && (!restricted || i == seat))))) {
+ 				for(auto& pcard : player[i].list_mzone) {
+ 					if(pcard && !pcard->get_status(STATUS_SUMMONING | STATUS_SPSUMMON_STEP))
+ 						pset->insert(pcard->xyz_materials.begin(), pcard->xyz_materials.end());
+@@ -2554,7 +2594,7 @@ void field::get_overlay_group(uint8_t playerid, uint8_t self, uint8_t oppo, card
+ 		}
+ 	}
+ }
+-int32_t field::get_overlay_count(uint8_t playerid, uint8_t self, uint8_t oppo, group* pgroup) {
++int32_t field::get_overlay_count(uint8_t playerid, uint8_t self, uint8_t oppo, group* pgroup, uint8_t opponent_mask) {
+ 	size_t count = 0;
+ 	if(pgroup) {
+ 		for(auto& pcard : pgroup->container) {
+@@ -2565,10 +2605,10 @@ int32_t field::get_overlay_count(uint8_t playerid, uint8_t self, uint8_t oppo, g
+ 	}
+ 	// F7: an open one-opponent window reads one opponent only (n > 2)
+ 	uint8_t seat = DUELIST_NONE;
+-	const bool restricted = oppo && n_duelists > 2 && opp_restrict(playerid, seat);
++	const bool restricted = oppo && n_duelists > 2 && !implicit_all_fields(self, oppo) && opp_restrict(playerid, seat);
+ 	for(int i = 0; i < n_duelists; ++i) {
+ 		if(n_duelists == 2 ? ((i == playerid && self) || (i == opponent_of(playerid) && oppo))
+-		                  : (is_alive(i) && (same_team(playerid, i) ? self : (oppo && (!restricted || i == seat))))) {
++		                  : (is_alive(i) && (same_team(playerid, i) ? self : (oppo && (opponent_mask & (1u << i)) && (!restricted || i == seat))))) {
+ 			for(auto& pcard : player[i].list_mzone) {
+ 				if(pcard && !pcard->get_status(STATUS_SUMMONING | STATUS_SPSUMMON_STEP))
+ 					count += pcard->xyz_materials.size();
+@@ -2939,17 +2979,17 @@ void field::restore_lp_cost() {
+ 	}
+ }
+ */
+-uint32_t field::get_field_counter(uint8_t playerid, uint8_t self, uint8_t oppo, uint16_t countertype) {
++uint32_t field::get_field_counter(uint8_t playerid, uint8_t self, uint8_t oppo, uint16_t countertype, uint8_t opponent_mask) {
+ 	uint8_t c = self;
+ 	uint32_t count = 0;
+ 	if(n_duelists > 2) {
+ 		// F7: an open one-opponent window reads one opponent only
+ 		uint8_t seat = DUELIST_NONE;
+-		const bool restricted = oppo && opp_restrict(playerid, seat);
++		const bool restricted = oppo && !implicit_all_fields(self, oppo) && opp_restrict(playerid, seat);
+ 		for(uint8_t q = 0; q < n_duelists; ++q) {
+ 			if(!is_alive(q) || !(same_team(playerid, q) ? self : oppo))
+ 				continue;
+-			if(restricted && !same_team(playerid, q) && q != seat)
++			if(!same_team(playerid, q) && (!(opponent_mask & (1u << q)) || (restricted && q != seat)))
+ 				continue;
+ 			for(auto& pcard : player[q].list_mzone) {
+ 				if(pcard)
+diff --git a/field.h b/field.h
+index 430dc5e..d83714d 100644
+--- a/field.h
++++ b/field.h
+@@ -561,7 +561,7 @@ public:
+ 	// battle steps, leaving the field) or the turn player (the start of a phase, the end of the turn): those name nobody.
+ 	static bool event_player_is_subject(uint32_t code) {
+ 		switch(code) {
+-		case EVENT_DRAW: case EVENT_DAMAGE: case EVENT_RECOVER: case EVENT_BATTLE_DAMAGE: case EVENT_PRE_BATTLE_DAMAGE:
++		case EVENT_PREDRAW: case EVENT_DRAW: case EVENT_DAMAGE: case EVENT_RECOVER: case EVENT_BATTLE_DAMAGE: case EVENT_PRE_BATTLE_DAMAGE:
+ 		case EVENT_BE_BATTLE_TARGET: case EVENT_ATTACK_ANNOUNCE: case EVENT_PAY_LPCOST:
+ 		case EVENT_CHAINING: case EVENT_CHAIN_ACTIVATING: case EVENT_CHAIN_SOLVING: case EVENT_CHAIN_SOLVED:
+ 		case EVENT_CHAIN_NEGATED: case EVENT_CHAIN_DISABLED:
+@@ -775,6 +775,8 @@ public:
+ 	// first run of an activation probe: a ONE window with nothing bound marks `touched` and reads every opponent
+ 	// there (the check errs to yes, probe_bind then runs it once per opponent).
+ 	bool opp_restrict(uint8_t self, uint8_t& seat, uint8_t use = OPP_BOTH);
++	bool implicit_all_fields(bool self, bool oppo) const;
++	uint8_t opponent_field_mask(uint8_t playerid, bool self, bool oppo);
+ 	// The cards of one list of the team of p (oppo = false) or of every living opponent of p
+ 	// (oppo = true). With 2 duelists this is the list of p or of opponent_of(p) itself, no copy.
+ 	const card_vector& side_cards(uint8_t p, bool oppo, card_vector player_info::* list, card_vector& tmp);
+@@ -848,8 +850,8 @@ public:
+ 	void get_ritual_material(uint8_t playerid, effect* peffect, card_set* material, bool check_level);
+ 	void get_fusion_material(uint8_t playerid, card_set* material);
+ 	void ritual_release(const card_set& material, bool release_deck);
+-	void get_overlay_group(uint8_t playerid, uint8_t self, uint8_t oppo, card_set* pset, group* pgroup);
+-	int32_t get_overlay_count(uint8_t playerid, uint8_t self, uint8_t oppo, group* pgroup);
++	void get_overlay_group(uint8_t playerid, uint8_t self, uint8_t oppo, card_set* pset, group* pgroup, uint8_t opponent_mask = 0xff);
++	int32_t get_overlay_count(uint8_t playerid, uint8_t self, uint8_t oppo, group* pgroup, uint8_t opponent_mask = 0xff);
+ 	void update_disable_check_list(effect* peffect);
+ 	void add_to_disable_check_list(card* pcard);
+ 	void adjust_disable_check_list();
+@@ -873,7 +875,7 @@ public:
+ 	void restore_lp_cost() {}
+ 	bool process(Processors::PayLPCost& arg);
+ 
+-	uint32_t get_field_counter(uint8_t playerid, uint8_t self, uint8_t oppo, uint16_t countertype);
++	uint32_t get_field_counter(uint8_t playerid, uint8_t self, uint8_t oppo, uint16_t countertype, uint8_t opponent_mask = 0xff);
+ 	int32_t effect_replace_check(uint32_t code, const tevent& e);
+ 	int32_t get_attack_target(card* pcard, card_vector* v, bool chain_attack = false, bool select_target = true, std::multimap<effect*, card*>* must_attack_map = nullptr);
+ 	bool confirm_attack_target();
+diff --git a/fold.h b/fold.h
+index 2dfa2ff..6c13237 100644
+--- a/fold.h
++++ b/fold.h
+@@ -20,6 +20,7 @@
+ #include <cstdint>
+ #include "common.h"
+ #include "duel.h"
++#include "effect.h"
+ #include "field.h"
+ #include "interpreter.h"
+ #include "scriptlib.h"
+@@ -56,13 +57,13 @@ inline uint8_t next_opponent(const field& f, uint8_t P) {
+ }
+ 
+ // Class "individual action" (Draw, Damage, Recover, hand and Deck moves, a player that acts): the Lua value
+-// names ONE duelist. 0 = P. 1 = the bound opponent; with nothing bound it is the next living opponent of P
+-// in turn order and a kind (a) record is written (the fallback does not bind: the lazy prompt of F5 will).
++// names ONE duelist. 0 = P. 1 = the bound opponent. A resolving implicit ONE window must bind or give
++// an empty result. Outside that window the legacy next-opponent fallback writes a kind (a) record.
+ // PLAYER_NONE and PLAYER_ALL give none_id() and all_id(). Returns INVALID for kind (d) or when no opponent
+ // lives. team_level = the function only changes the team LP (lp_ref): in Tag any seat of the other team
+ // is right, so no record is written there.
+ // Identity (returns v) when the fold is not active: the caller keeps its own is_duelist test.
+-inline uint8_t unfold_action(duel* pduel, uint8_t v, const char* fn, bool team_level = false) {
++inline uint8_t unfold_action(duel* pduel, uint8_t v, const char* fn, bool team_level = false, bool tag_chooser = false) {
+ 	const auto* s = active(pduel);
+ 	if(!s)
+ 		return v;
+@@ -84,14 +85,19 @@ inline uint8_t unfold_action(duel* pduel, uint8_t v, const char* fn, bool team_l
+ 		// another opponent, no prompt and no record: the function gives its empty result, the link does nothing.
+ 		return (f.is_alive(bound) && !f.same_team(P, bound)) ? bound : INVALID;
+ 	}
+-	// F5 lazy prompt: in a yieldable cost or target (the operation step is the logged fallback) the first
++	// F5 lazy prompt: in a yieldable cost, target or operation the first
+ 	// single-opponent access asks P and binds. A team-level Tag call needs no opponent. Does not return when
+ 	// it asks: the library function runs again after the answer.
+-	if(!(team_level && f.n_teams != f.n_duelists) && pduel->lua->lazy_bind(fn)) {
++	if(!(team_level && f.n_teams != f.n_duelists) && pduel->lua->lazy_bind(fn, tag_chooser)) {
+ 		const uint8_t b = pduel->lua->scope_bound_opp();
+ 		if(f.is_alive(b) && !f.same_team(P, b))
+ 			return b;
+ 	}
++	// A resolving implicit ONE window cannot fall back to a different opponent.
++	if(s->mp.implicit && s->operation && !pduel->lua->scope_probing(s)) {
++		pduel->lua->fold_trap('e', fn);
++		return INVALID;
++	}
+ 	const uint8_t next = next_opponent(f, P);
+ 	if(next == DUELIST_NONE)
+ 		return INVALID;
+@@ -157,6 +163,10 @@ inline uint8_t query_list(duel* pduel, uint8_t v, uint8_t (&out)[MAX_DUELISTS],
+ 			return 1;
+ 		}
+ 	}
++	if(s->mp.implicit && s->operation && !pduel->lua->scope_probing(s)) {
++		pduel->lua->fold_trap('e', fn);
++		return 0;
++	}
+ 	pduel->lua->scope_mark_touched();
+ 	uint8_t count = 0;
+ 	for(uint8_t q = 0; q < f.n_duelists; ++q) {
+@@ -273,8 +283,14 @@ inline void push_player(lua_State* L, duel* pduel, uint8_t d, bool bind = true)
+ 	if(bind) {
+ 		if(const auto* s = active(pduel)) {
+ 			const auto& f = *pduel->game_field;
+-			if(f.is_alive(d) && !f.same_team(s->P, d) && !pduel->lua->scope_bind(d))
+-				pduel->lua->fold_trap('b', "push_player");
++			if(f.is_alive(d) && !f.same_team(s->P, d)) {
++				if(!pduel->lua->scope_bind(d))
++					pduel->lua->fold_trap('b', "push_player");
++				else if(f.n_teams == f.n_duelists && d == f.infos.turn_player
++					&& s->eff && (s->eff->code & EVENT_PHASE)
++					&& (s->eff->type & (EFFECT_TYPE_TRIGGER_O | EFFECT_TYPE_TRIGGER_F)))
++					s->eff->phase_opponent_turn = f.infos.turn_id;
++			}
+ 		}
+ 	}
+ 	lua_pushinteger(L, pduel->lua->fold_out(d));
+diff --git a/fold_lib.h b/fold_lib.h
+index 5dbd656..f949ffc 100644
+--- a/fold_lib.h
++++ b/fold_lib.h
+@@ -116,7 +116,7 @@ inline void record_disfield_opp(duel* pduel, effect* peffect, uint8_t handler_pl
+ // The player that chooses: unfold_action, and at n > 2 a chooser that is not a living duelist gives INVALID
+ // (the caller returns the stock result of an invalid player: a prompt never goes to an eliminated seat).
+ inline uint8_t chooser(duel* pduel, uint8_t v, const char* fn) {
+-	const auto playerid = unfold_action(pduel, v, fn);
++	const auto playerid = unfold_action(pduel, v, fn, false, true);
+ 	const auto& f = *pduel->game_field;
+ 	if(f.n_duelists > 2 && playerid != INVALID && !f.is_alive(playerid))
+ 		return INVALID;
+diff --git a/interpreter.cpp b/interpreter.cpp
+index 655b251..4dbf482 100644
+--- a/interpreter.cpp
++++ b/interpreter.cpp
+@@ -313,6 +313,14 @@ bool interpreter::scope_guard::push(uint8_t P, uint8_t* bound, bool yieldable, b
+ 	if(!unfolded && !gf->is_duelist(P))
+ 		return false;
+ 	I->push_scope(unfolded ? DUELIST_NONE : P, bound, yieldable, probe, eff, pinned);
++	// Domain Format: activated FFA effects read one declared opponent. Continuous effects keep their ranges.
++	if(!unfolded && gf->n_teams == gf->n_duelists && eff
++		&& (eff->type & EFFECT_TYPE_ACTIONS) && !(eff->type & EFFECT_TYPE_CONTINUOUS)) {
++		auto* s = I->current_scope();
++		s->chain_one = true;
++		s->mp.open = true;
++		s->mp.implicit = true;
++	}
+ 	pushed = true;
+ 	return true;
+ }
+@@ -371,7 +379,7 @@ uint8_t interpreter::scope_bound_opp() {
+ 	const uint8_t w = window_seat(&s);
+ 	if(w != DUELIST_NONE)
+ 		return w;
+-	if(s.mp.kind == MPW_ONE && scope_probing(&s))
++	if(s.mp.implicit || (s.mp.kind == MPW_ONE && scope_probing(&s)))
+ 		return DUELIST_NONE;
+ 	fold_trap('W', "scope_bound_opp");
+ 	return DUELIST_WINDOW_EMPTY;
+@@ -511,7 +519,7 @@ static int lazy_continue(lua_State* L, int /*status*/, lua_KContext ctx) {
+ 	lua_settop(L, I.lazy_top);
+ 	return reinterpret_cast<lua_CFunction>(static_cast<intptr_t>(ctx))(L);
+ }
+-bool interpreter::lazy_bind(const char* fn) {
++bool interpreter::lazy_bind(const char* fn, bool tag_chooser) {
+ 	const auto* gf = pduel->game_field;
+ 	auto* s = current_scope();
+ 	if(!s || !gf || gf->n_duelists <= 2 || !gf->is_duelist(s->P))
+@@ -546,7 +554,9 @@ bool interpreter::lazy_bind(const char* fn) {
+ 	}
+ 	if(!running)
+ 		return false;
+-	if(s->operation)
++	// Q5 permits the opposing Tag chooser to be selected during the operation.
++	// Other Tag reads still require a declaration and must retain trap c.
++	if(s->operation && !s->chain_one && !(tag_chooser && gf->n_teams != gf->n_duelists))
+ 		fold_trap('c', fn);
+ 	lazy_mask = legal;
+ 	lazy_P = s->P;
+@@ -676,15 +686,18 @@ bool interpreter::call_function_scoped(int param_count, int ret_count, effect* s
+ 		const uint8_t parent_bound = (copy_window && cur->mp.open && cur->mp.kind == MPW_ONE) ? scope_raw_bound(cur) : DUELIST_NONE;
+ 		// F7 P2: the MPBindSeat bind goes with the window (same effect, same P)
+ 		const uint8_t parent_seat_bind = copy_window ? cur->seat_bind : DUELIST_NONE;
++		const bool parent_operation = copy_window && cur->operation;
+ 		if(!inherit) {
+ 			// A summon procedure reads the other side through its one bound opponent (the probe of
+ 			// check_condition seeds it; the later runs use the slot of the procedure effect)
+ 			const bool proc = is_proc_effect(eff);
+ 			uint8_t* slot = (proc && proc_seed == DUELIST_NONE) ? proc_slot(eff) : nullptr;
+-			if(sg.push(P, slot, false, false, eff)) {
+-				current_scope()->mp = parent_mp;
++			if(sg.push(P, slot, false, !parent_operation, eff)) {
++				if(copy_window)
++					current_scope()->mp = parent_mp;
+ 				current_scope()->own_bound = parent_bound;
+ 				current_scope()->seat_bind = parent_seat_bind;
++				current_scope()->operation = parent_operation;
+ 				if(proc) {
+ 					current_scope()->exclusive = true;
+ 					if(!slot)
+@@ -756,7 +769,7 @@ bool interpreter::call_code_function(uint32_t code, const char* function_name, u
+ 	init_depth -= is_init ? 1 : 0;
+ 	return ok;
+ }
+-bool interpreter::check_condition(int32_t function, uint32_t param_count, effect* scope_eff, uint8_t scope_P) {
++bool interpreter::check_condition(int32_t function, uint32_t param_count, effect* scope_eff, uint8_t scope_P, effect* summon_reason) {
+ 	if(!function) {
+ 		params.clear();
+ 		return true;
+@@ -777,8 +790,32 @@ bool interpreter::check_condition(int32_t function, uint32_t param_count, effect
+ 			const auto saved = params;
+ 			uint8_t mask = 0;
+ 			for(uint8_t i = 0; i < n; ++i) {
+-				params = saved;
+ 				proc_seed = opp[i];
++				auto& gf = *pduel->game_field;
++				if(gf.n_duelists > 2) {
++					// Procedure picks must also pass the summon restriction for this field.
++					// The checks use Lua parameters; keep the procedure parameters separate.
++					params.clear();
++					card* pcard = peff->get_handler();
++					const uint32_t sumtype = peff->get_value(pcard);
++					bool legal;
++					// is_spsummonable has set core.reason_effect to peff. Use its saved outer reason,
++					// with the same procedure fallback as filter_spsummon_procedure.
++					// Other callers, such as is_available, keep their current reason effect.
++					if(peff->code == EFFECT_SPSUMMON_PROC)
++						legal = gf.is_player_can_spsummon(summon_reason ? summon_reason :
++							(gf.core.reason_effect ? gf.core.reason_effect : peff),
++							sumtype, static_cast<uint8_t>(peff->s_range), P, opp[i], pcard, peff);
++					else if(peff->code == EFFECT_SET_PROC || peff->code == EFFECT_LIMIT_SET_PROC)
++						legal = gf.is_player_can_mset(sumtype, P, pcard, opp[i]);
++					else
++						legal = gf.is_player_can_summon(sumtype, P, pcard, opp[i]);
++					if(!legal) {
++						proc_seed = DUELIST_NONE;
++						continue;
++					}
++				}
++				params = saved;
+ 				const bool ok = call_function(function, param_count, 1, scope_eff, scope_P);
+ 				proc_seed = DUELIST_NONE;
+ 				if(ok) {
+diff --git a/interpreter.h b/interpreter.h
+index a3bcb7e..e6b3d8a 100644
+--- a/interpreter.h
++++ b/interpreter.h
+@@ -74,6 +74,7 @@ public:
+ 	enum : uint8_t { MPW_ONE = 0, MPW_SEAT = 1 };
+ 	struct mp_window {
+ 		bool open{ false };
++		bool implicit{ false };
+ 		uint8_t kind{ MPW_ONE };
+ 		uint8_t seat{ DUELIST_NONE };
+ 	};
+@@ -93,6 +94,8 @@ public:
+ 		bool yieldable{ false };
+ 		bool probe{ false };
+ 		bool touched{ false };
++		// An explicit MPNeedPick/MPBindOpponent request is a declaration, even in a condition.
++		bool declaration_requested{ false };
+ 		bool pinned{ false };
+ 		effect* eff{ nullptr };
+ 		// The bound opponent of a scope that has no chain link (`bound` is nullptr then).
+@@ -102,7 +105,8 @@ public:
+ 		// F5: a summon procedure scope. With a bound opponent the field reads of the other side see only
+ 		// that opponent (Lava Golem: both Tributes come from one opponent).
+ 		bool exclusive{ false };
+-		// F7: the one-opponent window of the scope (closed by default)
++		// FFA chain effects open an implicit ONE window. Explicit windows replace it until MPWindowEnd.
++		bool chain_one{ false };
+ 		mp_window mp;
+ 		// F7 P2: Duel.MPBindSeat. The real seat that "1" means in this scope, DUELIST_WINDOW_EMPTY for "no opponent
+ 		// side" (a dead seat, or a seat of the own team), DUELIST_NONE for no seat bind. It wins over `bound`.
+@@ -204,12 +208,18 @@ public:
+ 		if(!scopes.empty())
+ 			scopes.back().touched = true;
+ 	}
++	void scope_request_opponent() {
++		if(!scopes.empty()) {
++			scopes.back().touched = true;
++			scopes.back().declaration_requested = true;
++		}
++	}
+ 	// F5 lazy prompt (see fold.h). Nothing is bound in the current scope and the caller needs one opponent.
+ 	// Returns true when the scope has a bound opponent afterwards (one opponent could be chosen without a
+ 	// question). Does not return when it asks P: it throws the yield of the Lua coroutine, and the library
+ 	// function that runs (found on the Lua call stack) runs again after the answer, with the answer bound.
+ 	// Returns false when the call cannot ask (not a yieldable chain scope): the caller keeps its fallback.
+-	bool lazy_bind(const char* fn);
++	bool lazy_bind(const char* fn, bool tag_chooser = false);
+ 	// What lazy_bind asked: the seats of the question (bit q = seat q) and the size of the stack of the
+ 	// library function that asked (its own arguments).
+ 	uint8_t lazy_mask{ 0 };
+@@ -284,6 +294,7 @@ public:
+ 	// Fold trap record. Trap build (YGO_N_TRAP) only: one stderr line
+ 	// "NFOLD <kind> card=<code> P=<seat> fn=<name>"; it never aborts. Other builds write nothing.
+ 	// kind: a unbound fallback, b binding conflict, c pick during the operation step, d bad player value,
++	// e an empty implicit read in a callback that cannot yield,
+ 	// W (F7) an open window with no seat (empty side), U (F7) an operation that needed a bound opponent
+ 	// and had none.
+ 	void fold_trap(char kind, const char* fn);
+@@ -324,7 +335,7 @@ public:
+ 	bool call_function(int32_t f, uint32_t param_count, int32_t ret_count, effect* scope_eff = nullptr, uint8_t scope_P = DUELIST_NONE);
+ 	bool call_card_function(card* pcard, const char* f, uint32_t param_count, int32_t ret_count, bool forced = true);
+ 	bool call_code_function(uint32_t code, const char* f, uint32_t param_count, int32_t ret_count);
+-	bool check_condition(int32_t f, uint32_t param_count, effect* scope_eff = nullptr, uint8_t scope_P = DUELIST_NONE);
++	bool check_condition(int32_t f, uint32_t param_count, effect* scope_eff = nullptr, uint8_t scope_P = DUELIST_NONE, effect* summon_reason = nullptr);
+ 	bool check_matching(card* pcard, int32_t findex, int32_t extraargs);
+ 	bool check_matching_table(card* pcard, int32_t findex, int32_t table_index);
+ 	lua_Integer get_operation_value(card* pcard, int32_t findex, int32_t extraargs);
+diff --git a/libduel.cpp b/libduel.cpp
+index 4997c0f..e516e17 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -66,7 +66,19 @@ LUA_STATIC_FUNCTION(GetTurnPlayer) {
+ LUA_STATIC_FUNCTION(IsTurnPlayer) {
+ 	check_param_count(L, 1);
+ 	const auto playerid = lua_get<uint8_t>(L, 1);
+-	lua_pushboolean(L, fold::matches(pduel, playerid, pduel->game_field->infos.turn_player));
++	const auto& gf = *pduel->game_field;
++	const bool matches = fold::matches(pduel, playerid, gf.infos.turn_player);
++	if(gf.n_duelists > 2 && gf.n_teams == gf.n_duelists) {
++		const auto* scope = fold::active(pduel);
++		if(scope && scope->eff && (scope->eff->code & EVENT_PHASE)
++			&& (scope->eff->type & (EFFECT_TYPE_TRIGGER_O | EFFECT_TYPE_TRIGGER_F))
++			&& matches && playerid <= 1 && !fold::is_own(gf, scope->P, playerid)) {
++			scope->eff->phase_opponent_turn = gf.infos.turn_id;
++			if(matches)
++				pduel->lua->scope_bind(gf.infos.turn_player);
++		}
++	}
++	lua_pushboolean(L, matches);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(GetTurnCount) {
+@@ -4786,7 +4798,7 @@ LUA_STATIC_FUNCTION(MPOppCount) {
+ // per living opponent and the activator is asked at activation. Harmless when an opponent is bound already.
+ LUA_STATIC_FUNCTION(MPNeedPick) {
+ 	if(f7_scope(pduel))
+-		pduel->lua->scope_mark_touched();
++		pduel->lua->scope_request_opponent();
+ 	return 0;
+ }
+ // Duel.MPBindOpponent(needs_pick): binds ONE opponent to the scope or chain link (lazy_bind: asks P in a yieldable
+@@ -4816,7 +4828,7 @@ LUA_STATIC_FUNCTION(MPBindOpponent) {
+ 	uint8_t opp[MAX_DUELISTS];
+ 	if(f.living_opponents(s->P, opp) != 0) {
+ 		if(f7_first_run(s)) {
+-			pduel->lua->scope_mark_touched();
++			pduel->lua->scope_request_opponent();
+ 			lua_pushboolean(L, TRUE);
+ 			return 1;
+ 		} else {
+@@ -4842,6 +4854,7 @@ LUA_STATIC_FUNCTION(MPWindow) {
+ 		lua_pushboolean(L, FALSE);
+ 		return 1;
+ 	}
++	s->mp.implicit = false;
+ 	if(i == 0) {
+ 		s->mp.open = true;
+ 		s->mp.kind = interpreter::MPW_ONE;
+@@ -4867,8 +4880,13 @@ LUA_STATIC_FUNCTION(MPWindow) {
+ }
+ // Duel.MPWindowEnd(): closes the window.
+ LUA_STATIC_FUNCTION(MPWindowEnd) {
+-	if(auto* s = f7_scope(pduel))
++	if(auto* s = f7_scope(pduel)) {
+ 		s->mp = interpreter::mp_window{};
++		if(s->chain_one) {
++			s->mp.open = true;
++			s->mp.implicit = true;
++		}
++	}
+ 	return 0;
+ }
+ // Duel.MPAssertBound(): the operation (or a value that the operation uses) needs the bound opponent. True when one
+@@ -5038,8 +5056,12 @@ LUA_STATIC_FUNCTION(MPTurnOwns) {
+ 	const uint8_t owner = pcard->owner;
+ 	const bool yes = owner == f.infos.turn_player && (f.n_duelists <= 2 || f.is_alive(owner));
+ 	if(yes) {
+-		if(const auto* s = f7_scope(pduel); s && !f.same_team(s->P, owner))
++		if(const auto* s = f7_scope(pduel); s && !f.same_team(s->P, owner)) {
+ 			pduel->lua->scope_bind(owner);
++			if(f.n_teams == f.n_duelists && s->eff && (s->eff->code & EVENT_PHASE)
++				&& (s->eff->type & (EFFECT_TYPE_TRIGGER_O | EFFECT_TYPE_TRIGGER_F)))
++				s->eff->phase_opponent_turn = f.infos.turn_id;
++		}
+ 	}
+ 	lua_pushboolean(L, yes);
+ 	return 1;
+diff --git a/operations.cpp b/operations.cpp
+index 5cd0a0c..5edc965 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -151,10 +151,13 @@ void field::change_target_param(uint8_t chaincount, int32_t param) {
+ 	core.current_chain[chaincount - 1].target_param = param;
+ }
+ void field::remove_counter(uint32_t reason, card* pcard, uint32_t rplayer, uint8_t self, uint8_t oppo, uint32_t countertype, uint32_t count) {
+-	emplace_process<Processors::RemoveCounter>(reason, pcard, rplayer, self, oppo, countertype, count);
++	// Save the field recipient before the Lua coroutine yields.
++	const uint8_t mask = !pcard ? opponent_field_mask(rplayer, self, oppo) : 0xff;
++	emplace_process<Processors::RemoveCounter>(reason, pcard, rplayer, self, oppo, countertype, count, mask);
+ }
+ void field::remove_overlay_card(uint32_t reason, group* pgroup, uint32_t rplayer, uint8_t self, uint8_t oppo, uint16_t min, uint16_t max) {
+-	emplace_process<Processors::RemoveOverlay>(reason, pgroup, rplayer, self, oppo, min, max);
++	const uint8_t mask = !pgroup ? opponent_field_mask(rplayer, self, oppo) : 0xff;
++	emplace_process<Processors::RemoveOverlay>(reason, pgroup, rplayer, self, oppo, min, max, mask);
+ }
+ void field::xyz_overlay(card* target, card_set materials, bool send_materials_to_grave) {
+ 	auto ng = pduel->new_group(std::move(materials));
+@@ -860,7 +863,7 @@ bool field::process(Processors::RemoveCounter& arg) {
+ 	case 0: {
+ 		core.select_options.clear();
+ 		core.select_effects.clear();
+-		if((pcard && pcard->get_counter(countertype) >= count) || (!pcard && get_field_counter(rplayer, self, oppo, countertype))) {
++		if((pcard && pcard->get_counter(countertype) >= count) || (!pcard && get_field_counter(rplayer, self, oppo, countertype, arg.opponent_mask))) {
+ 			core.select_options.push_back(10);
+ 			core.select_effects.push_back(nullptr);
+ 		}
+@@ -910,7 +913,7 @@ bool field::process(Processors::RemoveCounter& arg) {
+ 			arg.step = 3;
+ 			return FALSE;
+ 		}
+-		emplace_process<Processors::SelectCounter>(rplayer, countertype, count, self, oppo);
++		emplace_process<Processors::SelectCounter>(rplayer, countertype, count, self, oppo, arg.opponent_mask);
+ 		return FALSE;
+ 	}
+ 	case 2: {
+@@ -943,7 +946,7 @@ bool field::process(Processors::RemoveOverlay& arg) {
+ 	case 0: {
+ 		core.select_options.clear();
+ 		core.select_effects.clear();
+-		if(get_overlay_count(rplayer, self, oppo, pgroup) >= min) {
++		if(get_overlay_count(rplayer, self, oppo, pgroup, arg.opponent_mask) >= min) {
+ 			core.select_options.push_back(12);
+ 			core.select_effects.push_back(nullptr);
+ 		}
+@@ -1005,7 +1008,7 @@ bool field::process(Processors::RemoveOverlay& arg) {
+ 		}
+ 		core.select_cards.clear();
+ 		card_set cset;
+-		get_overlay_group(rplayer, self, oppo, &cset, pgroup);
++		get_overlay_group(rplayer, self, oppo, &cset, pgroup, arg.opponent_mask);
+ 		for(auto& xcard : cset)
+ 			core.select_cards.push_back(xcard);
+ 		auto message = pduel->new_message(MSG_HINT);
+diff --git a/playerop.cpp b/playerop.cpp
+index 429ad51..7a6fe3e 100644
+--- a/playerop.cpp
++++ b/playerop.cpp
+@@ -802,7 +802,7 @@ bool field::process(Processors::SelectCounter& arg) {
+ 		if(n_duelists > 2 && !is_alive(playerid))
+ 			return TRUE;
+ 		for(int p = 0; p < n_duelists; ++p) {
+-			if(avail) {
++			if(avail && (n_duelists <= 2 || same_team(playerid, fp) || (arg.opponent_mask & (1u << fp)))) {
+ 				for(auto& pcard : player[fp].list_mzone) {
+ 					if(pcard && pcard->get_counter(countertype)) {
+ 						core.select_cards.push_back(pcard);
+diff --git a/processor_unit.h b/processor_unit.h
+index 744fc11..446901b 100644
+--- a/processor_unit.h
++++ b/processor_unit.h
+@@ -152,10 +152,11 @@ struct SelectCounter : public Process<true> {
+ 	uint8_t playerid;
+ 	uint8_t self;
+ 	uint8_t oppo;
++	uint8_t opponent_mask;
+ 	SelectCounter(uint16_t step_, uint8_t playerid_, uint16_t countertype_, uint16_t count_,
+-				  uint8_t self_, uint8_t oppo_) :
++				  uint8_t self_, uint8_t oppo_, uint8_t opponent_mask_ = 0xff) :
+ 		Process(step_), countertype(countertype_), count(count_), playerid(playerid_), self(self_),
+-		oppo(oppo_) {}
++		oppo(oppo_), opponent_mask(opponent_mask_) {}
+ };
+ struct SelectSum : public Process<true> {
+ 	uint8_t playerid;
+@@ -632,13 +633,14 @@ struct RemoveCounter : public Process<false> {
+ 	uint8_t rplayer;
+ 	uint8_t self;
+ 	uint8_t oppo;
++	uint8_t opponent_mask;
+ 	uint16_t countertype;
+ 	uint16_t count;
+ 	uint32_t reason;
+ 	card* pcard;
+ 	RemoveCounter(uint16_t step_, uint32_t reason_, card* pcard_, uint8_t rplayer_, uint8_t self_,
+-						   uint8_t oppo_, uint16_t countertype_, uint16_t count_) :
+-		Process(step_), rplayer(rplayer_), self(self_), oppo(oppo_), countertype(countertype_), count(count_),
++						   uint8_t oppo_, uint16_t countertype_, uint16_t count_, uint8_t opponent_mask_ = 0xff) :
++		Process(step_), rplayer(rplayer_), self(self_), oppo(oppo_), opponent_mask(opponent_mask_), countertype(countertype_), count(count_),
+ 		reason(reason_), pcard(pcard_) {}
+ };
+ struct AttackDisable : public Process<false> {
+@@ -740,13 +742,14 @@ struct RemoveOverlay : public Process<false> {
+ 	uint8_t rplayer;
+ 	uint8_t self;
+ 	uint8_t oppo;
++	uint8_t opponent_mask;
+ 	uint32_t reason;
+ 	owned_lua<group> pgroup;
+ 	RemoveOverlay(uint16_t step_, uint32_t reason_, owned_lua<group> pgroup_, uint8_t rplayer_,
+-						   uint8_t self_, uint8_t oppo_, uint16_t min_, uint16_t max_) :
++						   uint8_t self_, uint8_t oppo_, uint16_t min_, uint16_t max_, uint8_t opponent_mask_ = 0xff) :
+ 		Process(step_), min(min_), max(max_), replaced_amount(0),
+ 		has_used_overlay_remove_replace_effect(false), rplayer(rplayer_), self(self_),
+-		oppo(oppo_), reason(reason_), pgroup(pgroup_) {}
++		oppo(oppo_), opponent_mask(opponent_mask_), reason(reason_), pgroup(pgroup_) {}
+ };
+ struct XyzOverlay : public Process<false> {
+ 	bool send_materials_to_grave;
+-- 
+2.43.0
+

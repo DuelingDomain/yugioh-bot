@@ -1,0 +1,37 @@
+From aab0349c51ad9cdc57ee49dc2806600a9bdf7391 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] Expose the real turn seat and controller turn checks
+
+---
+ libduel.cpp | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/libduel.cpp b/libduel.cpp
+index dfa74e1..807e67c 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -5172,6 +5172,20 @@ LUA_STATIC_FUNCTION(MPTurnOwns) {
+ 	lua_pushboolean(L, yes);
+ 	return 1;
+ }
++// Real turn-player seat. This query changes no scope or binding.
++LUA_STATIC_FUNCTION(MPTurnSeat) {
++	lua_pushinteger(L, pduel->game_field->infos.turn_player);
++	return 1;
++}
++// True only in the current controller's own turn; Tag partners have separate turns.
++LUA_STATIC_FUNCTION(MPTurnControls) {
++	check_param_count(L, 1);
++	const auto* pcard = lua_get<card*, true>(L, 1);
++	const auto& f = *pduel->game_field;
++	const uint8_t seat = pcard->current.controler;
++	lua_pushboolean(L, seat == f.infos.turn_player && (f.n_duelists <= 2 || f.is_alive(seat)));
++	return 1;
++}
+ // Duel.MPAttackedSeat(): the real seat of the duelist that the current attack goes at (the controller of the attack target, or the
+ // defender of a direct attack), or nil when there is no attack, no such seat, or the seat is not alive. More than two duelists
+ // only: with two duelists it gives nil (the Lua player of the attacked side is always 1 - the attacker's, so it is not needed).
+-- 
+2.43.0
+

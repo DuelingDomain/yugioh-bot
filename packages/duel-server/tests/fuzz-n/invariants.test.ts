@@ -49,3 +49,41 @@ describe("privacy check: hand cards that a field card reveals", () => {
     expect(privacyViolations([card(2, 8, DON_THOUSAND, 8)])).not.toHaveLength(0);
   });
 });
+
+function firstAttackChecks(format: DuelFormat, turns: number[], attackTurn: number, eliminated: number[] = []) {
+  const checker = new NChecker(format);
+  const n = format === "ffa3" ? 3 : 4;
+  return turns.flatMap((seat, i) => {
+    const snapshot = view([], []);
+    snapshot.format = format;
+    snapshot.turn = i + 1;
+    snapshot.turnSeat = seat;
+    snapshot.revision = i + 1;
+    snapshot.seats = snapshot.seats.slice(0, n).map((row) => ({ ...row, eliminated: eliminated.includes(row.seat) }));
+    snapshot.events = i + 1 === attackTurn ? [{ id: 1, kind: "attack", text: "A real attack was reported", seat }] : [];
+    return checker.check(i, { seats: Array.from({ length: n }, () => snapshot), spectator: snapshot })
+      .filter((row) => row.invariant === CHECKS.firstAttack);
+  });
+}
+
+describe("first attack check", () => {
+  it("allows the last living FFA seat to attack on its first turn", () => {
+    expect(firstAttackChecks("ffa3", [0, 1, 2], 3)).toEqual([]);
+    expect(firstAttackChecks("ffa4", [0, 1, 2, 3], 4)).toEqual([]);
+  });
+
+  it("does not wait for an eliminated FFA seat to have a turn", () => {
+    expect(firstAttackChecks("ffa3", [0, 1], 2, [2])).toEqual([]);
+    expect(firstAttackChecks("ffa4", [0, 2, 3], 3, [1])).toEqual([]);
+  });
+
+  it("rejects an FFA attack while a living seat still needs its first turn", () => {
+    expect(firstAttackChecks("ffa3", [0, 1], 2)).toHaveLength(1);
+    expect(firstAttackChecks("ffa4", [0, 1, 2], 3)).toHaveLength(1);
+  });
+
+  it("keeps the Tag turn-four rule", () => {
+    expect(firstAttackChecks("tag", [0, 1, 2], 3)).toHaveLength(1);
+    expect(firstAttackChecks("tag", [0, 1, 2, 3], 4)).toEqual([]);
+  });
+});

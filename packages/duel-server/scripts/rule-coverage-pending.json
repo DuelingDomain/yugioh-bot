@@ -1,9 +1,1 @@
-{
-  "R-FFA-OPP-ONE": "Pending engine change; earlier rule scenarios do not prove the new Domain Format outcome.",
-  "R-FFA-OPP-RESPONSE": "Pending engine change; earlier rule scenarios do not prove the new Domain Format outcome.",
-  "R-FFA-ACTIVATED-LOCK": "Pending engine change; earlier rule scenarios do not prove the new Domain Format outcome.",
-  "R-FFA-RESOURCE-ROTATION": "Pending engine change; earlier rule scenarios do not prove the new Domain Format outcome.",
-  "R-FFA-ACROSS-EMZ": "Pending engine change; earlier rule scenarios do not prove the new Domain Format outcome.",
-  "R-FFA-RETURN-OWNED-CARDS": "Pending engine change; earlier rule scenarios do not prove the new Domain Format outcome.",
-  "R-FFA-SURRENDER": "Pending engine change; surrender timing (end of turn, own turn immediate) is not in the merged engine yet."
-}
+{}

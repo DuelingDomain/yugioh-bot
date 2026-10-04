@@ -56,7 +56,7 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
       }
       case "eliminate": {
         if (!game) return { id: request.id, ok: false, error: "No game" };
-        game.eliminate(request.seat, request.reason);
+        game.eliminate(request.seat, request.reason, request.atTurnEnd);
         return { id: request.id, ok: true };
       }
       case "chain-mode": {

@@ -1,0 +1,32 @@
+From 86602be651d8389f2cfaa0c9b6ca80cd2892019f Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] Check whether a real duelist seat is alive
+
+---
+ libduel.cpp | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/libduel.cpp b/libduel.cpp
+index 807e67c..711391f 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -5186,6 +5186,15 @@ LUA_STATIC_FUNCTION(MPTurnControls) {
+ 	lua_pushboolean(L, seat == f.infos.turn_player && (f.n_duelists <= 2 || f.is_alive(seat)));
+ 	return 1;
+ }
++// A real living-seat query for global callbacks. The argument is never folded.
++LUA_STATIC_FUNCTION(MPIsAlive) {
++	check_param_count(L, 1);
++	const auto seat = lua_get<int64_t>(L, 1);
++	const auto& f = *pduel->game_field;
++	lua_pushboolean(L, seat >= 0 && seat < f.n_duelists
++		&& (f.n_duelists <= 2 || f.is_alive(static_cast<uint8_t>(seat))));
++	return 1;
++}
+ // Duel.MPAttackedSeat(): the real seat of the duelist that the current attack goes at (the controller of the attack target, or the
+ // defender of a direct attack), or nil when there is no attack, no such seat, or the seat is not alive. More than two duelists
+ // only: with two duelists it gives nil (the Lua player of the attacked side is always 1 - the attacker's, so it is not needed).
+-- 
+2.43.0
+

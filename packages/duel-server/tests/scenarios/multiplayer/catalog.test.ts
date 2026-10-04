@@ -30,11 +30,13 @@ const cardName = (code: number): string | undefined =>
   (db.prepare("SELECT t.name AS name FROM datas d JOIN texts t USING (id) WHERE d.id = ?").get(code) as { name: string } | undefined)
     ?.name;
 
+const overlay = join(__dirname, "../../../domain-core/multi-scripts");
+const evidenceFile = (file: string) => file.startsWith("overlay/") ? join(overlay, file.slice(8)) : join(scripts, file);
 const fileLines = new Map<string, string[]>();
 function linesOf(file: string): string[] {
   let lines = fileLines.get(file);
   if (!lines) {
-    lines = readFileSync(join(scripts, file), "utf8").split(/\r?\n/);
+    lines = readFileSync(evidenceFile(file), "utf8").split(/\r?\n/);
     fileLines.set(file, lines);
   }
   return lines;
@@ -43,7 +45,14 @@ function linesOf(file: string): string[] {
 function evidenceProblems(evidence: Evidence[]): string[] {
   const problems: string[] = [];
   for (const item of evidence) {
-    if (!existsSync(join(scripts, item.file))) {
+    if (item.file.startsWith("manifest/")) {
+      const code = Number(item.file.slice(9));
+      const manifest = JSON.parse(readFileSync(join(overlay, "MANIFEST.json"), "utf8")) as { cards: { code: number; kind: string }[] };
+      const entry = manifest.cards.find((card) => card.code === code);
+      if (!entry || `kind:${entry.kind}` !== item.token) problems.push(`${item.file} does not contain "${item.token}"`);
+      continue;
+    }
+    if (!existsSync(evidenceFile(item.file))) {
       problems.push(`${item.file} does not exist`);
       continue;
     }
@@ -61,10 +70,67 @@ const formatOf = async () =>
   new Map(((await loadScenarios()) as (ScenarioLike & { setup?: { format?: string } })[]).map((scenario) => [scenario.id, scenario.setup?.format ?? "1v1"]));
 
 describe("multiplayer card catalog", () => {
-  it("has about 30 cards in each of the groups (a) and (b)", () => {
-    expect(GROUP_ALL.length).toBeGreaterThanOrEqual(28);
-    expect(GROUP_ONE.length).toBeGreaterThanOrEqual(28);
+  it("keeps 21 all-seat or ongoing cards and 45 one-opponent cards after the FFA rule change", () => {
+    expect(GROUP_ALL).toHaveLength(21);
+    expect(GROUP_ONE).toHaveLength(45);
     expect(MULTIPLAYER_FORBIDDEN.length).toBeGreaterThanOrEqual(25);
+  });
+
+  it("puts opponent-field cards in the one-opponent group with the declaration or response rule", () => {
+    for (const code of [12580477, 18144506, 44095762, 2314238, 14532163, 35480699, 55063751, 69162969, 66788016, 88240808]) {
+      const row = SCENARIOS.find((scenario) => scenario.code === code);
+      expect(row?.group, String(code)).toBe("one");
+      expect(row?.binding, String(code)).toBeDefined();
+      expect(row?.rules, String(code)).toContain(row?.binding === "event-opponent" ? "R-FFA-OPP-RESPONSE" : "R-FFA-OPP-ONE");
+    }
+    for (const row of GROUP_ONE.filter((scenario) => scenario.binding === "event-opponent")) {
+      expect(row.rules, row.id).not.toContain("R-FFA-OPP-ONE");
+      expect(row.rules, row.id).toContain("R-FFA-OPP-RESPONSE");
+    }
+    expect(SCENARIOS.find((scenario) => scenario.code === 14532163)?.rules).not.toContain("R-COMMON-ALL-BOTH");
+    expect(SCENARIOS.find((scenario) => scenario.code === 44095762)?.rules).toContain("R-FFA-OPP-RESPONSE");
+    expect(SCENARIOS.find((scenario) => scenario.code === 35480699)?.rules).toContain("R-COMMON-ALL-BOTH");
+    expect(SCENARIOS.flatMap((scenario) => scenario.rules)).not.toContain("R-COMMON-OPP-FIELD");
+  });
+
+  it("binds Kycoo to the opponent that took the battle damage and registers both new proofs", () => {
+    const kycoo = GROUP_ONE.find(row => row.code === 88240808)!;
+    expect(kycoo.binding).toBe("event-opponent");
+    expect(kycoo.rules).toContain("R-FFA-OPP-RESPONSE");
+    for (const text of [kycoo.oneVsOne, ...Object.values(kycoo.results)]) {
+      expect(text).toContain("up to 2 monsters");
+      expect(text).toContain("GY");
+      expect(text).not.toContain("field");
+    }
+    for (const format of ["ffa3", "ffa4"] as const) {
+      expect(kycoo.results[format]).toContain("the opponent that took the battle damage");
+      expect(kycoo.results[format]).not.toContain("declared");
+    }
+    for (const [code, slug] of [[88240808, "kycoo-battle-opponent"], [55063751, "gameciel-tribute-controller"]] as const) {
+      for (const format of ["ffa3", "ffa4", "tag"]) {
+        expect(LIVE_PROOF[code]).toContain(`p3-catalog-${format}-${slug}`);
+        expect(LIVE_PROOF[code]).toContain(`p3-catalog-${format}-${slug}-domain`);
+      }
+    }
+  });
+
+  it("keeps Creature Swap legal and states the FFA rotation and Tag swap", () => {
+    const row = SCENARIOS.find((scenario) => scenario.code === 31036355)!;
+    expect(row.group).toBe("all");
+    expect(row.forbidden).not.toBe(true);
+    expect(row.binding).toBeUndefined();
+    expect(row.formats).toEqual(["ffa3", "ffa4", "tag"]);
+    expect(row.rules).toContain("R-COMMON-EACH-PLAYER");
+    expect(row.rules).toContain("R-FFA-RESOURCE-ROTATION");
+    expect(row.rules).not.toContain("R-FFA-OPP-ONE");
+    expect(row.results.ffa3).toMatch(/next living seat/);
+    expect(row.results.tag).toMatch(/swap control/);
+    expect(FORBIDDEN_EVIDENCE[31036355]).toBeUndefined();
+    expect(MULTIPLAYER_FORBIDDEN.some((entry) => entry.code === 31036355)).toBe(false);
+  });
+
+  it("names every one-opponent catalog row with the current group", () => {
+    for (const row of GROUP_ONE) expect(row.id).toBe(`mp-one-${row.code}`);
   });
 
   it("uses only passcodes that exist in cards.cdb and have an official script", () => {
@@ -91,6 +157,7 @@ describe("multiplayer card catalog", () => {
     expect(dup(MULTIPLAYER_FORBIDDEN.map((e) => e.code))).toEqual([]);
     expect(dup(MULTIPLAYER_CARD_RULES.map((e) => e.code))).toEqual([]);
     expect(dup(SCENARIOS.map((s) => s.id))).toEqual([]);
+    expect(dup(SCENARIOS.map((s) => s.code))).toEqual([]);
   });
 
   it("puts every card in at most one of the forbidden list and the rule list", () => {

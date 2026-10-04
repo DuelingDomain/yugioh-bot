@@ -12,9 +12,11 @@ import type { DuelGameWorker } from "../src/worker-client.js";
 import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
+export { HOST_FORBIDDEN_RULE_IDS } from "./host-rule-forbidden.rules.js";
+
 const SECRET = "rule-forbidden-test";
 const DESTINY_BOARD = 94212438;
-const SWORDS = 72302403;
+const GRISAILLE_PRISON = 22888900;
 
 function legalDeck(mode: DuelMode): DuelDeck {
   const cards = new Database(join(DATA, "cards.cdb"), { readonly: true, fileMustExist: true });
@@ -34,8 +36,10 @@ const cases = (["normal", "domain"] as const).flatMap((mode) =>
   (["ffa3", "ffa4", "tag"] as const).flatMap((format) =>
     Array.from({ length: seatCountFor(format) }, (_, seat) => ({ mode, format, seat }))));
 
-describeWithCores("live host forbidden list", [needs.installedMulti(DATA), ...needs.domainMulti()], () => {
-  it.each(cases)("R-COMMON-FL-LIST: $mode $format refuses seat $seat and starts after repair", async ({ mode, format, seat }) => {
+for (const mode of ["normal", "domain"] as const) {
+describeWithCores("live host forbidden list (" + mode + ")",
+  mode === "normal" ? [needs.installedMulti(DATA)] : needs.domainMulti(), () => {
+  it.each(cases.filter((entry) => entry.mode === mode))("R-COMMON-FL-LIST: $mode $format refuses seat $seat and starts after repair", async ({ mode, format, seat }) => {
     const db = new Database(":memory:");
     migrate(db);
     const count = seatCountFor(format);
@@ -69,7 +73,7 @@ describeWithCores("live host forbidden list", [needs.installedMulti(DATA), ...ne
     };
     try {
       const legal = legalDeck(mode);
-      const banned = format === "tag" ? DESTINY_BOARD : SWORDS;
+      const banned = format === "tag" ? DESTINY_BOARD : GRISAILLE_PRISON;
       const invalid = { ...legal, main: [banned, ...legal.main.slice(1)] };
       for (let index = 0; index < count; index++) {
         const submitted = await post(players[index]!, { op: "deck", deck: index === seat ? invalid : legal });
@@ -104,3 +108,4 @@ describeWithCores("live host forbidden list", [needs.installedMulti(DATA), ...ne
     } finally { await host.close(); db.close(); }
   }, 30_000);
 });
+}

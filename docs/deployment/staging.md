@@ -139,11 +139,19 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0068). No experimental patches or
-  `PATCH_LIMIT`. The current series hash is `441ed76499bd6a57fb6136c5c786c00fd7a2bd27c2925c9293baaf457a6b3096`.
+- All numbered patches in `domain-core/patches` (currently 0001–0084; 84 patches). No experimental patches or
+  `PATCH_LIMIT`. The current series hash is `1c66c92b62827c5635fc0132ac665dd22b479efa79bae3933339d90f08481810`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `cf5100707bce7701cb0be0ac4a8ff47308a13b278174f03c157f2f2e46dd849a`.
+
+The 84-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Their verified hashes are:
+
+| CI core | SHA-256 |
+| --- | --- |
+| Standard multiplayer | `cf4d7b4723756901199f45b152a495b0e4fe24afc42ef5000d2f50b9f0a0743f` |
+| Domain multiplayer | `a9bed74b80a3614237dd20b14b094d8b82aebfa5438dd2c2d7a9eac65af1f301` |
+| Domain 1v1 (unchanged) | `16f60edf2c1e246886d1962fad32238fde0dd969c36bc959251df488c83aefc7` |
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
 build/packaging scripts, pins, patches and Domain sources. Each cache stores both WASMs and their
@@ -229,7 +237,8 @@ MR1/MR2 draw on turn 1; MR3-MR5 do not. The pinned engine draws on turn 1 in eve
 Domain seat layout. Standard on the pinned engine uses the stock Master Rule draw rule.
 
 Old records have no saved flag. Production ran `main`; after migration, all its old duels are 1v1
-and need no action. Staging ran this branch before and after `0fb46df`, but never `d4338a2` or a later commit.
+and need no action. Before 2026-10-02 (this change), staging ran this branch before and after `0fb46df`,
+but never `d4338a2` or a later commit.
 Only FFA gained the new draw rule at `0fb46df`. Standard and Domain
 1v1 and Tag therefore used the stock Master Rule draw flag: MR1/MR2 drew on turn 1; MR3-MR5 did not.
 The server infers those old rules. No backfill is needed for Domain 1v1 or Tag records.
@@ -246,12 +255,14 @@ to find ambiguous active FFA duels and let them finish. The FFA repair is for st
 To restore an old replay, first establish the server
 rule used at its start from deployment records, then save the flag in its setup: `true` for Standard or
 Domain FFA under `0fb46df`, `false` for either FFA mode before that change. The per-row SQL statement is
-in [the production runbook](vm-runbook.md#first-turn-draw-records-2026-10-02). Do not set an old flag from
+in [the runbook](vm-runbook.md#first-turn-draw-records-2026-10-02). Do not set an old flag from
 the current mode or creation date alone. This change does not alter existing database rows.
 Rollback: an older server ignores the key and can drop it on its next setup write. Keep a backup of the
 saved flags; a later upgrade can again refuse an FFA record whose flag was lost.
 
-**Developers:** Local/test databases that ran `d4338a2..42e66c3` may hold Domain 1v1/Tag duels that drew on turn 1 with no saved flag; interrupt/delete those duels, or set the flag to `true` with this statement for each verified local/test row.
+**Developers:** Local/test databases that ran builds from `d4338a2` up to, but not including, `42e66c3`
+may hold Domain 1v1/Tag duels with no saved flag. These duels drew on turn 1.
+Interrupt or delete those duels, or set the flag to `true` with this statement for each verified local/test row.
 
 ```sql
 UPDATE duels

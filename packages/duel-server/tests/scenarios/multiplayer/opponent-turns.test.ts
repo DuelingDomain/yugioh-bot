@@ -27,20 +27,24 @@ describe("opponent-turn scenario list", () => {
   });
 });
 
-// ADR-0002 Q1: the 5 turn-count cards stay banned at the free-for-all tables. In 1v1 they are legal. The list names Tag as legal too
+// ADR-0002 Q1: the 4 turn-count cards stay banned at the free-for-all tables. In 1v1 they are legal. The list names Tag as legal too
 // (a partner turn does not count, so the cards are fair there): this test pins that as it is, see tests/host-table-legality.test.ts.
 const TURN_COUNT_BANS: Array<[number, string]> = [
-  [72302403, "Swords of Revealing Light"],
   [22804644, "Doom Virus Dragon"],
   [21208154, "The Wicked Avatar"],
   [22888900, "Grisaille Prison"],
   [23746827, "Million-Century Ice Prison"],
 ];
 
-describe("the 5 turn-count cards stay banned after the R3 rule", () => {
-  it("the list has these 5 turn-count cards and no other", () => {
+describe("the 4 turn-count cards stay banned after the R3 rule", () => {
+  it("the list has these 4 turn-count cards and no other", () => {
     const listed = MULTIPLAYER_FORBIDDEN.filter((entry) => entry.category === "turn-count").map((entry) => [entry.code, entry.name]);
     expect(listed.sort()).toEqual([...TURN_COUNT_BANS].sort());
+  });
+
+  it.each(["1v1", "ffa3", "ffa4", "tag"] as const)("Swords of Revealing Light is legal at %s", (format) => {
+    expect(multiplayerForbiddenFor(format, 72302403)).toBeUndefined();
+    expect(multiplayerForbiddenFor(format, 99999999, 72302403)).toBeUndefined();
   });
 
   for (const [code, name] of TURN_COUNT_BANS) {

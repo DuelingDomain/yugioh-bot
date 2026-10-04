@@ -1,11 +1,10 @@
 // Live scenarios for the rules that had no scenario in the rule table (review B, test proof quality): R-COMMON-ALL-BOTH (Dark Hole),
 // R-FFA-NEGATE (Solemn Judgment in free-for-all), R-COMMON-CONT-NEG (Jinzo, with a control without Jinzo, and a Tag partner Jinzo),
-// R-COMMON-ONGOING (Swords of Revealing Light on all opponents, not on the
-// partner). Plain data, also read by scripts/rule-coverage.ts. Every scenario ends with the state of EVERY seat (LP, field, hand, GY, banished).
+// R-COMMON-ONGOING (Swords protects its controller in FFA; Tag keeps its stock lock). Plain data, also read by scripts/rule-coverage.ts. Every scenario ends with the state of EVERY seat (LP, field, hand, GY, banished).
 // Tag: team 0 is p0 and p2, team 1 is p1 and p3. Turn order is p0, p1, p2, p3.
 
 import {
-  activate, changePhase, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, expectResponseOrder, normalSummon, type BoardExpect, type DuelistExpect, type Scenario, type Step,
+  activate, choose, select, expectPickOptions, changePhase, endTurn, expectBoard, expectNotOffered, expectOffered, expectPrompt, expectResponseOrder, normalSummon, pickOpponent, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -98,6 +97,8 @@ function solemnSpell(): Scenario {
     },
     steps: [
       activate(RAIGEKI, "p0"),
+      // R-FFA-OPP-ONE: declare the opponent before the response window.
+      pickOpponent("p1", "p0"),
       expectPrompt({ by: "p2", context: "chain" }),
       activate(SOLEMN, "p2"),
       everySeat("ffa3", {
@@ -168,11 +169,11 @@ function jinzoPartnerTag(): Scenario {
   });
 }
 
-// --- Ongoing restriction on "your opponent": every opponent, never the partner ---------------------------------------------------------
+// --- Swords: controller protection in FFA, stock opposing-team lock in Tag -------------------------------------------------------------
 const ONGOING_RULE = "R-COMMON-ONGOING";
 
-// A duelist cannot attack in its first turn, so the opposing monsters are checked in the second turn of their controller (the Battle Phase is offered, the attack is not). Swords of Revealing Light
-// lasts for 3 turns of the opponents: the monsters of an opposing duelist cannot attack (no attack is offered in the Battle Phase).
+// A duelist cannot attack in its first turn. Check attacks in its second turn.
+// Swords lasts for 3 opponent turns. FFA protects its controller; Tag keeps the stock attack lock.
 const attackTurn = (by: Seat, monster: string, canAttack: boolean): Step[] => [
   changePhase("battle", by),
   canAttack ? expectOffered("attack", monster, by) : expectNotOffered("attack", monster, by),
@@ -181,19 +182,27 @@ const attackTurn = (by: Seat, monster: string, canAttack: boolean): Step[] => [
 
 function swordsFfa3(): Scenario {
   return defineScenario({
-    id: "rule-gaps-swords-all-opponents-ffa3",
-    title: "FFA3: Swords of Revealing Light of p0 (turn 1) stops the attack of the monsters of p1 (its second turn 5) and not the attack of p0 (turn 4); after the 3 turns of the opponents (2, 3 and 5) it is destroyed and p2 attacks in turn 6",
+    // In FFA, Swords protects its controller. Other opponents can attack each other.
+    // Each opponent turn counts toward the stock three-turn duration (R3).
+    // This case does not check expiry; the Swords expiry proof is separate.
+    id: "rule-gaps-swords-protects-controller-ffa3",
+    title: "FFA3: Swords protects p0 while p1 can attack p2 in turn 5; it is destroyed after opponent turns 2, 3 and 5 and p2 can attack in turn 6",
     source: `${SOURCE} [${ONGOING_RULE}]`,
-    rules: [ONGOING_RULE],
+    rules: [ONGOING_RULE, "R-FFA-SWORDS-PROTECT"],
     tags: ["multiplayer", "ongoing", "ffa3", "card:72302403"],
-    setup: { format: "ffa3", p0: { hand: [SWORDS], monsters: [RAT] }, p1: { monsters: [OX] }, p2: { monsters: [AXE] } },
+    setup: { format: "ffa3", p0: { hand: [SWORDS], monsters: [RAT] }, p1: { monsters: [OX] }, p2: { monsters: [AXE, AXE] } },
     steps: [
       activate(SWORDS, "p0"),
+      // Owner 2026-10-02 night: Swords protects p0; p1 and p2 can attack each other.
       endTurn("p0"), endTurn("p1"), endTurn("p2"),
       ...attackTurn("p0", RAT, true),
-      ...attackTurn("p1", OX, false),
+      changePhase("battle", "p1"), expectOffered("attack", OX, "p1"), choose("attack:0", "p1"),
+      // Exact choices exclude p0's monster and its direct seat.
+      expectPickOptions([{ card: AXE, seat: "p2" }, { card: AXE, seat: "p2" }], "p1"),
+      select({ card: AXE, owner: "p2", nth: 0 }),
+      endTurn("p1"),
       ...attackTurn("p2", AXE, true),
-      everySeat("ffa3", { p0: { monsters: [RAT], grave: [SWORDS], hand: [ELF, ELF] }, p1: { monsters: [OX], hand: [ELF, ELF] }, p2: { monsters: [AXE], hand: [ELF, ELF] } }),
+      everySeat("ffa3", { p0: { monsters: [RAT], grave: [SWORDS], hand: [ELF, ELF] }, p1: { grave: [OX], hand: [ELF, ELF] }, p2: { monsters: [AXE], grave: [AXE], hand: [ELF, ELF] } }),
     ],
   });
 }

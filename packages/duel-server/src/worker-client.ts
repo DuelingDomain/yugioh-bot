@@ -42,8 +42,8 @@ export interface DuelGameWorker {
   view(seat: number | null): Promise<DuelEngineView>;
   answer(seat: number, promptId: string, answer: DuelAnswer): Promise<void>;
   search(query: string): Promise<DuelCardInfo[]>;
-  /** Remove a duelist from a duel with more than two seats. Rejects when the core has no `Debug.EliminateDuelist`. Optional so that test doubles may omit it (the host then uses autopilot). */
-  eliminate?(seat: number, reason: number): Promise<void>;
+  /** Flag a core loss. `atTurnEnd` identifies retired journal commands, which the engine refuses. */
+  eliminate?(seat: number, reason: number, atTurnEnd?: boolean): Promise<void>;
   /**
    * Set a seat's chain response mode. True when it passed the window that was open for the seat (the duel moved on);
    * false when it only stored the mode. Optional so that test doubles may omit it (the host then refuses the toggle).
@@ -153,8 +153,8 @@ export class GameWorker implements DuelGameWorker {
     return this.request({ op: "search", query });
   }
 
-  eliminate(seat: number, reason: number): Promise<void> {
-    return this.request({ op: "eliminate", seat, reason });
+  eliminate(seat: number, reason: number, atTurnEnd = false): Promise<void> {
+    return this.request({ op: "eliminate", seat, reason, atTurnEnd });
   }
 
   setChainMode(seat: number, mode: DuelChainMode): Promise<boolean> {

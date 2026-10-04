@@ -118,6 +118,29 @@ function aux.MPForEachDuelist(fn)
 	Duel.MPNthDuelist(0)
 end
 
+-- All living duelists choose from the real turn seat, in normal turn order.
+-- Keep MPForEachDuelist actor-first for effects whose card text requires it.
+function aux.MPForEachDuelistFromTurn(fn)
+	if Duel.MPMode()==0 or not Duel.MPNthDuelist then return aux.MPForEachDuelist(fn) end
+	local turn=Duel.MPTurnSeat()
+	local order,first={},1
+	local i=1
+	while true do
+		local ok,seat=Duel.MPNthDuelist(i)
+		if not ok then break end
+		order[#order+1]={index=i,seat=seat}
+		if seat==turn then first=#order end
+		i=i+1
+	end
+	Duel.MPNthDuelist(0)
+	for offset=0,#order-1 do
+		local item=order[(first+offset-1)%#order+1]
+		local ok,seat=Duel.MPNthDuelist(item.index)
+		if ok and fn(Duel.MPMode()==2 and mp_team(seat) or 0,seat) then break end
+	end
+	Duel.MPNthDuelist(0)
+end
+
 -- The same loop for code that can run in a GLOBAL effect (a check that a card registers in initial_effect, a turn-end or adjust handler).
 -- A global effect has no scope player, so Duel.MPNthDuelist gives nothing there and aux.MPForEachDuelist would run fn zero times.
 -- Here the Lua values are real seats (no fold): fn(tp_i,seat_i) runs for every seat 0 to 3 that is in the duel and has LP > 0, in seat
@@ -332,3 +355,105 @@ function aux.MPGlobalFlagOperation(op)
 		return table.unpack(result,2,result.n)
 	end
 end
+
+-- Duel.MPActionSeat() keeps the original actor through a recipient rebind.
+-- Its optional argument is a REAL seat from MPSeatOf/MPOwnerSeat or the host.
+-- Never pass folded tp or 1-tp. In a card effect use no argument for the actor.
+-- The marker can name a chooser, a ConfirmCards viewer, or a summon player/destination.
+
+-- Shared FFA4 geometry compares real seats. Other formats keep the stock tests.
+function aux.MPGeometryShared()
+ return Duel.MPSharedZones and Duel.MPSharedZones()
+end
+function aux.MPGeometryPreviousFilter(fn)
+	return function(c,tp,...)
+		if aux.MPGeometryShared() then
+			-- Previous-Link filters pass a Link card instead of a Lua player.
+			-- Read that card's physical mask and restore the exact seat override.
+			if type(tp)=="Card" then
+				local ec=tp
+				if c:IsLocation(LOCATION_MZONE) then return fn(c,ec,...) end
+				local saved=Duel.MPSeatBinding()
+				local own=Duel.MPSeat(0)
+				local seat=Duel.MPSeatOf(ec)
+				if seat~=own then Duel.MPBindSeat(seat) end
+				local cp=ec:GetControler()
+				local same=c:IsPreviousControler(ec)
+				local across=c:IsPreviousAcross(cp)
+				local result=false
+				if same or across then
+					if seat==own then Duel.MPBindSeat(Duel.MPAcrossSeat(seat)) end
+					local mask=ec:GetLinkedZone()
+					if not same then mask=mask>>16 end
+					result=(mask&(1<<c:GetPreviousSequence()))~=0
+				end
+				if saved==255 then Duel.MPBindSeat() else Duel.MPBindSeat(saved) end
+				return result
+			end
+			if not c:IsPreviousControler(tp) and not c:IsPreviousAcross(tp) then return false end
+		end
+		return fn(c,tp,...)
+	end
+end
+function aux.MPGeometryChainFilter(fn)
+ return function(e,tp,eg,ep,ev,re,r,rp,...)
+  if aux.MPGeometryShared() and re then
+   local seat=Duel.MPChainSeat(ev)
+   local own=Duel.MPSeat(tp)
+   if seat~=own and seat~=Duel.MPAcrossSeat(own) then return false end
+  end
+  return fn(e,tp,eg,ep,ev,re,r,rp,...)
+ end
+end
+local mp_get_to_be_linked_zone=Card.GetToBeLinkedZone
+function Card.GetToBeLinkedZone(tc,c,tp,clink,emz)
+ if aux.MPGeometryShared() and not tc:IsControler(tp) and not tc:IsAcross(tp) then return 0 end
+ return mp_get_to_be_linked_zone(tc,c,tp,clink,emz)
+end
+
+-- A trigger mask describes the event cards, independent of the reason player.
+-- Restore the exact temporary seat override before any resource action runs.
+function aux.MPGeometryLinkedZone(c,cp)
+ if not aux.MPGeometryShared() then
+  if cp==nil then return c:GetLinkedZone() end
+  return c:GetLinkedZone(cp)
+ end
+ local previous=Duel.MPSeatBinding()
+ local across=Duel.MPAcrossSeat(Duel.MPSeat(0))
+ Duel.MPBindSeat(across)
+ local zone=cp==nil and c:GetLinkedZone() or c:GetLinkedZone(cp)
+ if previous==255 then Duel.MPBindSeat() else Duel.MPBindSeat(previous) end
+ return zone
+end
+
+-- Official Link triggers share this previous-controller filter.
+aux.zptfilter=aux.MPGeometryPreviousFilter(aux.zptfilter)
+
+-- Resolve exact seats before choosing the stock own-column comparison.
+local mp_is_column=Card.IsColumn
+function Card.IsColumn(c,seq,tp,loc,source)
+	if not aux.MPGeometryShared() or not c:IsOnField() then return mp_is_column(c,seq,tp,loc) end
+	local seat=Duel.MPSeatOf(c)
+	-- An immunity value can run in an unbound scope. Its source effect carries
+	-- an exact card or chain seat; never infer it from an unbound Lua 1.
+	local origin=seat
+	if type(source)=="Effect" then
+		if Chain.IsTriggeringEffect(0,source) then origin=Duel.MPChainSeat(0)
+		else origin=Duel.MPSeatOf(source:GetOwner()) end
+	elseif type(source)=="Card" then origin=Duel.MPSeatOf(source)
+	elseif tp~=nil then
+		if tp~=0 and not Duel.MPBound() and Duel.MPSeatBinding()==255 then return false end
+		origin=Duel.MPSeat(tp)
+	end
+	if seat==origin then return mp_is_column(c,seq,c:GetControler(),loc) end
+	if seat~=Duel.MPAcrossSeat(origin) then return false end
+	-- Normalize the source sequence before mirroring; the stock call normalizes c.
+	local source_loc=loc or c:GetLocation()
+	if source_loc==LOCATION_MZONE then
+		if seq==5 then seq=1 elseif seq==6 then seq=3 end
+	elseif seq==6 then seq=5 end
+	return mp_is_column(c,4-seq,c:GetControler(),loc)
+end
+
+-- Fork-private player effect. Keep the C++ constant equal.
+EFFECT_CANNOT_BE_DIRECT_ATTACKED=0x7F000101

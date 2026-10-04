@@ -48,3 +48,19 @@ end
 function s.tgcon(e,tp)
 	return Duel.GetFlagEffect(tp,id)>0
 end
+
+-- The turn player sends cards from its own Deck, including in a Tag partner turn.
+function s.tgtg(e,tp,eg,ep,ev,re,r,rp,chk)
+	if chk==0 then return true end
+	aux.MPForEachDuelistFromTurn(function(tp_i)
+		Duel.SetOperationInfo(0,CATEGORY_DECKDES,nil,0,tp_i,5)
+		return true
+	end)
+end
+function s.tgop(e,tp,eg,ep,ev,re,r,rp)
+	if not e:GetHandler():IsRelateToEffect(e) then return end
+	aux.MPForEachDuelistFromTurn(function(tp_i)
+		Duel.DiscardDeck(tp_i,5,REASON_EFFECT)
+		return true
+	end)
+end

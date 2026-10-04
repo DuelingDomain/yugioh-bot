@@ -12,11 +12,8 @@ const EARTH = "Battle Ox";
 
 function world(format: Format, attribute: "fire" | "water" | "earth"): Scenario {
   const holder: Seat = format === "ffa3" ? "p2" : "p3";
-  const tag = format === "tag";
   const monster = attribute === "fire" ? FIRE : attribute === "water" ? WATER : EARTH;
-  const lead = tag
-    ? [endTurn("p0"), endTurn("p1"), choose("Pay 500 LP", holder), endTurn("p2")]
-    : turnsBefore(format, holder);
+  const lead = turnsBefore(format, holder);
   const spec: Parameters<typeof everySeat>[1] = {};
   for (const seat of SEATS[format]) spec[seat] = { hand: seat === "p0" ? [] : [ELF] };
   spec.p0 = { hand: [ELF] }; // The next turn starts after all End Phase effects finish.
@@ -24,7 +21,7 @@ function world(format: Format, attribute: "fire" | "water" | "earth"): Scenario 
     hand: [ELF],
     spells: [WORLD],
     ...(attribute === "earth" ? { grave: [EARTH] } : { monsters: [monster], ...(attribute === "water" ? { grave: [ELF] } : {}) }),
-    lp: baseLp(format) - (tag ? 1000 : 500) - (attribute === "fire" ? 1000 : 0),
+    lp: baseLp(format) - 500 - (attribute === "fire" ? 1000 : 0),
   };
   return defineScenario({
     id: `clear-world-seats-${format}-${holder}-${attribute}`,

@@ -6,7 +6,7 @@ function s.checkop(e,tp,eg,ep,ev,re,r,rp)
 		local seq=Duel.GetChainInfo(cid,CHAININFO_TRIGGERING_SEQUENCE)
 		local te=Duel.GetChainInfo(cid,CHAININFO_TRIGGERING_EFFECT)
 		local tc=te:GetHandler()
-		s.mp_detach_seat=tc:IsRelateToEffect(te) and Duel.MPSeatOf(tc) or tc:GetPreviousControler()
+		s.mp_detach_seat=aux.MPGeometryShared() and Duel.MPChainSeat(cid) or (tc:IsRelateToEffect(te) and Duel.MPSeatOf(tc) or tc:GetPreviousControler())
 		s[2]=seq
 	end
 end
@@ -15,7 +15,8 @@ function s.descon(e,tp,eg,ep,ev,re,r,rp)
 	local c=e:GetHandler()
 	local loc,seq=s[1],s[2]
 	if c:IsStatus(STATUS_BATTLE_DESTROYED) or not seq then return false end
+	if aux.MPGeometryShared() and s.mp_detach_seat~=Duel.MPSeatOf(c) and s.mp_detach_seat~=Duel.MPAcrossSeat(Duel.MPSeatOf(c)) then return false end
 	if s.mp_detach_seat~=Duel.MPSeatOf(c) then seq=seq+16 end
 	return Duel.GetChainInfo(ev,CHAININFO_CHAIN_ID)==s[0]
-		and re:IsActiveType(TYPE_XYZ) and (loc&LOCATION_MZONE)~=0 and bit.extract(c:GetLinkedZone(),seq)~=0
+		and re:IsActiveType(TYPE_XYZ) and (loc&LOCATION_MZONE)~=0 and bit.extract(aux.MPGeometryLinkedZone(c),seq)~=0
 end

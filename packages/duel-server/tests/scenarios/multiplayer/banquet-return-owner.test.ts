@@ -1,9 +1,9 @@
+import { runScenarios } from "../../support/runner.js";
 import { createEngineGame } from "../../../src/engine.js";
 import { compileBoard } from "../../support/board.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
-import { runScenarios } from "../../support/runner.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
 import { expectPrompt, type DuelistId } from "../../support/dsl.js";
 import { BANQUET_RETURN_OWNER_SCENARIOS } from "./banquet-return-owner.js";

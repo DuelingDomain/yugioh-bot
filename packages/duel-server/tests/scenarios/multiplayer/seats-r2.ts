@@ -263,6 +263,7 @@ export const SEATS_R2_SCENARIOS: Scenario[] = [
     steps: [
       expectOffered("specialSummon", GOYO, "p0"),
       activate(CURSE, "p0"),
+      pickOpponent("p1", "p0"),
       select({ card: OX, owner: "p1" }),
       expectOffered("specialSummon", GOYO, "p0"),
       endTurn("p0"),
@@ -293,8 +294,8 @@ export const SEATS_R2_SCENARIOS: Scenario[] = [
     },
     steps: [
       activate(CHALICE, "p0"),
+      pickOpponent("p2", "p0"),
       zone("p0", "s0", "p0"),
-      select({ card: RAT, owner: "p2" }),
       endTurn("p0"),
       everySeat("ffa3", {
         p0: { grave: [CHALICE] },

@@ -15,7 +15,7 @@ import { Session } from "./support/session.js";
 
 function core(mode: DuelMode) {
   const file = mode === "domain" ? "ocgcore.multi-domain.wasm" : "ocgcore.multi.wasm";
-  const path = (mode === "domain" ? process.env.DOMAIN_MULTI_WASM : process.env.NSEAT_WASM) ?? join(dataDirectory, file);
+  const path = (mode === "domain" ? process.env.DOMAIN_MULTI_WASM : process.env.MULTI_WASM ?? process.env.NSEAT_WASM) ?? join(dataDirectory, file);
   try {
     const bytes = readFileSync(path);
     const sha = createHash("sha256").update(bytes).digest("hex");
@@ -56,15 +56,14 @@ for (const mode of ["normal", "domain"] as const) {
   const loaded = core(mode);
   describeWithCores(`${mode} live shared EMZ view`, [needs.file(`${mode} multi core`, loaded.path), needs.cards(dataDirectory),
     needs.scripts(dataDirectory), needs.liveNseat(true), mode === "domain" ? [needs.domain(dataDirectory), needs.domainScript(dataDirectory)] : needs.standard(dataDirectory)], () => {
-    it("keeps the pair pending and clears it after real MSG 200", async () => {
+    it("clears the pair immediately after surrender emits real MSG 200", async () => {
       const { game } = await start(mode, "ffa4", loaded.binary);
       try {
         expect(game.coreInfo().wasmSha).toBe(loaded.sha);
         const pairs = loaded.c6 ? [2, 3, 0, 1] : [null, null, null, null];
         expectPairing(game, pairs);
         game.eliminate(2, 0);
-        expect(game.view(null).seats[2]).toMatchObject({ pendingElimination: true, eliminated: false });
-        expectPairing(game, pairs);
+        expect(game.view(null).seats[2]).toMatchObject({ pendingElimination: false, eliminated: true });
         for (let guard = 0; guard < 12 && !game.diagnostics().some((entry) => entry.kind === "msg200" && entry.seat === 2); guard++) {
           const holder = viewers("ffa4").find((seat) => seat != null && game.view(seat).prompt);
           expect(holder).toBeTypeOf("number");

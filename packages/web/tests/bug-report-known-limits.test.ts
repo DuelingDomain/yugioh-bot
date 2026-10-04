@@ -13,12 +13,10 @@ describe("known limits", () => {
     expect(new Set(KNOWN_LIMITS.map((l) => l.id)).size).toBe(KNOWN_LIMITS.length);
   });
 
-  it("matches surrender in 3-way and 4-way duels only", () => {
+  it("does not list surrender as a known problem (it is immediate now)", () => {
     const text = "I surrendered but my monsters stayed on the field";
-    expect(ids(text, { format: "ffa3" })).toEqual(["ffa-surrender-end-of-turn"]);
-    expect(ids(text, { format: "ffa4" })).toEqual(["ffa-surrender-end-of-turn"]);
-    expect(ids(text, { format: "1v1" })).toEqual([]);
-    expect(ids(text, { format: "tag" })).toEqual([]);
+    expect(KNOWN_LIMITS.map((l) => l.id)).not.toContain("ffa-surrender-end-of-turn");
+    for (const format of ["ffa3", "ffa4", "1v1", "tag"] as const) expect(ids(text, { format })).toEqual([]);
   });
 
   it("does not hide Domain 3-way and 4-way reports (those tables are live)", () => {

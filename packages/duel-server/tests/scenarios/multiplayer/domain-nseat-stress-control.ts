@@ -39,13 +39,13 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
           [owner]: { monsters: [MASTERS[owner]], grave: ["Mystical Elf"], deckMaster: OUT } })],
     }),
     scenario(format, "drawing-empty-deck-loses-seat-or-team", {
-      setup: { ...setup(format), deckSize: 1 },
+      // Use a captured opening board in Tag so the opposing team is the intended first Deck-out loser.
+      setup: { ...setup(format), deckSize: 1, ...(format === "tag" ? { skipOpeningDraw: true } : {}) },
       rules: [format === "tag" ? "R-TAG-LOSS" : "R-FFA-ELIMINATION"],
-      // Domain: every seat draws its only card on its first turn. At the turn 5 draw p0 loses, and in Tag its whole team with it.
-      steps: [...SEATS[format].map((seat) => endTurn(seat)),
-        expectEliminated(format === "tag" ? ["p0", "p2"] : SEATS[format].slice(0, -1)),
-        expectResult({ team: format === "tag" ? 1 : SEATS[format].length - 1, reason: "drawn" }),
-        board(format, Object.fromEntries((format === "tag" ? ["p0", "p2"] : SEATS[format].slice(0, -1)).map((s) => [s, { deckMaster: OUT, hand: [], deckCount: 0 }])) )],
+      steps: [...SEATS[format].map((seat) => endTurn(seat)), ...(format === "tag" ? [endTurn("p0")] : []),
+        expectEliminated(format === "tag" ? ["p1", "p3"] : SEATS[format].slice(0, -1)),
+        expectResult({ team: format === "tag" ? 0 : SEATS[format].length - 1, reason: "drawn" }),
+        board(format, Object.fromEntries((format === "tag" ? ["p1", "p3"] : SEATS[format].slice(0, -1)).map((s) => [s, { deckMaster: OUT, hand: [], deckCount: 0 }])) )],
     }),
     scenario(format, "all-sides-lose-together-with-masters-in-their-zones", {
       setup: setup(format, Object.fromEntries(SEATS[format].map((seat) => [seat, { lp: 100, ...(seat === "p0" ? { hand: ["Dark Snake Syndrome"] } : {}) }]))),
@@ -69,12 +69,14 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
 }
 
 for (const format of ["ffa3", "ffa4"] as const) {
-  DOMAIN_NSEAT_STRESS_CONTROL.push(scenario(format, "lost-thief-sends-master-to-living-owner-grave", {
+  DOMAIN_NSEAT_STRESS_CONTROL.push(scenario(format, "eliminated-thief-returns-master-to-living-owner-field", {
     setup: setup(format, { p0: { hand: ["Change of Heart"] }, p2: { monsters: ["Mystical Elf"] } }),
+    rules: ["R-COMMON-SEP-FIELDS", "R-FFA-ELIMINATION", "R-FFA-RETURN-OWNED-CARDS"],
     steps: [...turnsBefore(format, "p2"), normalSummon({ card: MASTERS.p2, from: "dmz" }, "p2"),
       ...SEATS[format].slice(2).map((seat) => endTurn(seat)), activate("Change of Heart", "p0"), select({ card: MASTERS.p2, owner: "p2" }),
-      surrender("p0"), expectPrompt({ by: "p2", context: "deck-master-recall" }), no("p2"), expectEliminated("p0"),
-      board(format, { p0: { hand: [], deckMaster: OUT }, p2: { monsters: ["Mystical Elf"], grave: [MASTERS.p2], deckMaster: OUT } })],
+      board(format, { p0: { monsters: [MASTERS.p2], grave: ["Change of Heart"] }, p2: { monsters: ["Mystical Elf"], deckMaster: OUT } }),
+      surrender("p0"), expectEliminated("p0"), expectPrompt({ by: "p1", context: "action" }),
+      board(format, { p0: { hand: [], deckMaster: OUT }, p2: { monsters: ["Mystical Elf", MASTERS.p2], deckMaster: OUT } })],
   }));
 }
 
@@ -86,4 +88,31 @@ for (const format of ["ffa3", "ffa4"] as const) {
       expectEliminated(owner), expectPrompt({ by: "p0", context: "action", offers: ["to_bp"] }),
       board(format, { [owner]: { hand: [], deckMaster: OUT } })],
   }));
+}
+
+// A seat-zero thief cannot expose a folded-control value used as an absolute seat.
+// Keep the original battle case, and test actual theft and return with each later thief.
+for (const format of ["ffa3", "ffa4", "tag"] as const) {
+  for (const thief of SEATS[format].slice(1)) {
+    const ti = SEATS[format].indexOf(thief);
+    const owner = SEATS[format][(ti + 1) % SEATS[format].length];
+    const order = SEATS[format];
+    const oi = order.indexOf(owner);
+    const toThief = [];
+    for (let i = oi; i !== ti; i = (i + 1) % order.length) toThief.push(endTurn(order[i]));
+    for (const spell of ["Snatch Steal", "Change of Heart"] as const) {
+      DOMAIN_NSEAT_STRESS_CONTROL.push(scenario(format, `later-thief-${thief}-${spell.toLowerCase().replaceAll(" ", "-")}-from-${owner}`, {
+        setup: setup(format, { [thief]: { hand: [spell, ...(spell === "Snatch Steal" ? ["Heavy Storm"] : [])] },
+          [owner]: { monsters: ["Mystical Elf"] } }),
+        steps: [...turnsBefore(format, owner), normalSummon({ card: MASTERS[owner], from: "dmz" }, owner), ...toThief,
+          activate(spell, thief), select({ card: MASTERS[owner], owner }), expectPrompt({ by: thief, context: "action" }),
+          board(format, { [thief]: { monsters: [MASTERS[owner]], ...(spell === "Snatch Steal" ? { spells: [spell] } : { grave: [spell] }) },
+            [owner]: { monsters: ["Mystical Elf"], deckMaster: OUT } }),
+          ...(spell === "Snatch Steal" ? [activate("Heavy Storm", thief)] : [endTurn(thief)]),
+          expectPrompt({ by: spell === "Snatch Steal" ? thief : owner, context: "action" }),
+          board(format, { [thief]: { grave: [spell, ...(spell === "Snatch Steal" ? ["Heavy Storm"] : [])] },
+            [owner]: { monsters: ["Mystical Elf", MASTERS[owner]], deckMaster: OUT } })],
+      }));
+    }
+  }
 }

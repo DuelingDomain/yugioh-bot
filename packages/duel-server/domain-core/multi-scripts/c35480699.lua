@@ -1,16 +1,54 @@
 if not aux.MPForEachController then return end
--- Book of Eclipse (script fix, R1 each opponent, R-COMMON-EACH-PLAYER): "Your opponent changes all face-down monsters they control to face-up Defense
--- Position, and draws 1 card for each". The stock End Phase operation reads ONE group (every face-down monster of every opponent) and calls
--- Duel.Draw(1-tp,ct): in FFA the Lua value 1 is ONE opponent, so that one opponent drew for the monsters of all the others. Each opponent now
--- changes its OWN face-down monsters and draws 1 card for each of its own (lead decision 2026-10-01). All face-down monsters change in ONE call, as the
--- stock script does; aux.MPForEachController then groups the changed cards (the operated group) by real controller seat and binds the value 1
--- to that seat while fn runs, and each seat draws for its own changed cards; in Tag each opposing member is such a controller, so each member draws
--- for the monsters it controls (the team field is joined, the draw is per duelist: R-COMMON-EACH-PLAYER, the partner included). The activation
--- (all monsters of both sides are turned face-down) and the condition (some opponent has a face-down monster) are stock. Two seats: the stock script.
+-- FFA declares one opponent at activation and saves that seat for the End Phase.
+-- The first position change still affects every field. Tag flips and draws per opposing member.
+local eclipse_target=s.target
+function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
+	if Duel.MPMode()==1 then
+		if chk==0 then Duel.MPNeedPick() else Duel.MPBindOpponent(true) end
+	end
+	return eclipse_target(e,tp,eg,ep,ev,re,r,rp,chk)
+end
+local eclipse_activate=s.activate
+function s.activate(e,tp,eg,ep,ev,re,r,rp)
+	if Duel.MPMode()~=1 then return eclipse_activate(e,tp,eg,ep,ev,re,r,rp) end
+	local opponent=Duel.MPSeat(1-tp)
+	local g=Duel.GetMatchingGroup(Card.IsCanTurnSet,tp,LOCATION_MZONE,LOCATION_MZONE,nil)
+	if #g>0 then Duel.ChangePosition(g,POS_FACEDOWN_DEFENSE) end
+	local e1=Effect.CreateEffect(e:GetHandler())
+	e1:SetType(EFFECT_TYPE_FIELD+EFFECT_TYPE_CONTINUOUS)
+	e1:SetCode(EVENT_PHASE+PHASE_END)
+	e1:SetCountLimit(1)
+	e1:SetReset(RESET_PHASE|PHASE_END)
+	e1:SetLabel(opponent)
+	e1:SetCondition(s.flipcon)
+	e1:SetOperation(s.flipop)
+	Duel.RegisterEffect(e1,tp)
+end
+local eclipse_flipcon=s.flipcon
+function s.flipcon(e,tp,eg,ep,ev,re,r,rp)
+	if Duel.MPMode()~=1 then return eclipse_flipcon(e,tp,eg,ep,ev,re,r,rp) end
+	if not Duel.MPBindSeat(e:GetLabel()) then return false end
+	Duel.MPWindow(0)
+	local result=eclipse_flipcon(e,tp,eg,ep,ev,re,r,rp)
+	Duel.MPWindowEnd()
+	Duel.MPBindSeat()
+	return result
+end
 function s.flipop(e,tp,eg,ep,ev,re,r,rp)
+	local ffa=Duel.MPMode()==1
+	if ffa then
+		if not Duel.MPBindSeat(e:GetLabel()) then return end
+		Duel.MPWindow(0)
+	end
 	local g=Duel.GetMatchingGroup(Card.IsFacedown,tp,0,LOCATION_MZONE,nil)
-	Duel.ChangePosition(g,POS_FACEUP_DEFENSE)
-	aux.MPForEachController(Duel.GetOperatedGroup(),function(sg,seat,p)
-		Duel.Draw(p,#sg,REASON_EFFECT)
-	end)
+	local ct=Duel.ChangePosition(g,POS_FACEUP_DEFENSE)
+	if ffa then
+		Duel.Draw(1-tp,ct,REASON_EFFECT)
+		Duel.MPWindowEnd()
+		Duel.MPBindSeat()
+	else
+		aux.MPForEachController(Duel.GetOperatedGroup(),function(sg,seat,p)
+			Duel.Draw(p,#sg,REASON_EFFECT)
+		end)
+	end
 end

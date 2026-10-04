@@ -1,7 +1,7 @@
 // Swiftwind Panther Warrior of a later seat cannot attack before a Tribute. Its real Quick Effect Tributes a monster,
 // sends Dark Time Wizard from the Deck to the Graveyard, and enables an attack through the global Tribute flag.
 
-import { activate, attack, changePhase, expectNotOffered, pass, select, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, changePhase, expectNotOffered, pass, pickOpponent, select, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseLp, baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
@@ -20,6 +20,9 @@ function swiftwindPantherWarrior(format: Format, tribute: boolean): Scenario {
   const action: Step[] = tribute
     ? [
       activate(PANTHER, holder),
+      // Swiftwind has no LP read or opponent reference; its effect uses the activator's own cards.
+      // The fix2 core still asks for an opponent before the Tribute. This is an open core/overlay item.
+      ...(format !== "tag" ? [pickOpponent("p0", holder)] : []),
       select({ card: ELF, owner: holder, from: "mzone" }),
       select({ card: WIZARD, owner: holder, from: "deck", nth: 0 }),
       attack(PANTHER, { card: AXE, owner: "p0" }, holder),

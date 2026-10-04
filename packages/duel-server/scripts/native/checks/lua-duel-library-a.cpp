@@ -588,14 +588,16 @@ static void check_probe(const Scenario& sc, const Outcome& out, const std::vecto
 	EXPECT(count_kind(nfold, 'd') == 0 && count_kind(nfold, 'b') == 0, "%s %s: unexpected kind b/d records (d=%d b=%d)", sc.name, g_probe.c_str(),
 	       count_kind(nfold, 'd'), count_kind(nfold, 'b'));
 	if(n > 2) {
-		// F5: no guess at all (no kind a). The pick prompt is the logged kind (c): one per firing of a probe that reads
-		// a single "1" (the event names nobody, on every turn), none when only one opponent lives (silent bind) or
-		// when the probe reads no single "1".
+		// Valid bound FFA operations are not kind (c) diagnostics. Tag keeps its stock count.
+		// Still require each single-opponent read to prompt, or silently bind the sole opponent.
 		EXPECT(count_kind(nfold, 'a') == 0, "%s %s: %d kind (a) records (an unbound fallback), want 0", sc.name, g_probe.c_str(), count_kind(nfold, 'a'));
 		const bool reads_one = g_probe == "draw" || g_probe == "sendtohand" || g_probe == "moveopp";
-		const int want_c = (reads_one && M.eliminate < 0) ? firings : 0;
+		const int want_picks = (reads_one && M.eliminate < 0) ? firings : 0;
+		// Model.tag enables multiplayer setup, including FFA; the team map identifies Tag.
+		const bool is_tag = std::set<int>(M.team.begin(), M.team.end()).size() < static_cast<size_t>(M.n);
+		const int want_c = is_tag ? want_picks : 0;
 		EXPECT(count_kind(nfold, 'c') == want_c, "%s %s: %d kind (c) records, want %d", sc.name, g_probe.c_str(), count_kind(nfold, 'c'), want_c);
-		EXPECT(out.picks == static_cast<size_t>(want_c), "%s %s: %zu pick prompts, want %d", sc.name, g_probe.c_str(), out.picks, want_c);
+		EXPECT(out.picks == static_cast<size_t>(want_picks), "%s %s: %zu pick prompts, want %d", sc.name, g_probe.c_str(), out.picks, want_picks);
 		EXPECT(out.pick_bad.empty(), "%s %s: a pick prompt is wrong: %s", sc.name, g_probe.c_str(), out.pick_bad.empty() ? "" : out.pick_bad[0].c_str());
 	} else {
 		EXPECT(nfold.empty() && out.picks == 0, "%s %s: %zu fold records and %zu pick prompts at n == 2", sc.name, g_probe.c_str(), nfold.size(), out.picks);

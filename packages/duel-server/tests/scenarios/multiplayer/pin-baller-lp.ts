@@ -25,7 +25,7 @@ function pin(format: Format, lower: boolean): Scenario {
   return defineScenario({
     id: `pin-baller-lp-${format}-${actor}-${lower ? "lower-protected" : "higher-negated"}`,
     title: `${format}: ${actor}'s Fusion Summoned Pin Baller ${lower ? "keeps lower LP after Solemn Strike's cost and equips p0's monster" : "has higher LP and p0 negates it with Solemn Strike"}`,
-    source: `${SOURCE} [R-COMMON-OPP-PICK] compare LP with the picked opponent`,
+    source: `${SOURCE} [R-COMMON-OPP-PICK] one living opponent must have higher LP`,
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "global-effect", "lp", format, "card:28497830"],
     setup: baseSetup(format, {
@@ -40,7 +40,7 @@ function pin(format: Format, lower: boolean): Scenario {
       yes(actor),
       ...(format === "tag" ? [] : [pickOpponent("p0", actor)]),
       activate(STRIKE, "p0"),
-      ...(lower ? [{ op: "select", sels: [{ card: ELF, owner: "p0" }], by: actor } satisfies Step] : []),
+      ...(lower && format === "tag" ? [{ op: "select", sels: [{ card: ELF, owner: "p0" }], by: actor } satisfies Step] : []),
       expectPrompt({ by: actor, context: "action" }),
       everySeat(format, spec),
     ],

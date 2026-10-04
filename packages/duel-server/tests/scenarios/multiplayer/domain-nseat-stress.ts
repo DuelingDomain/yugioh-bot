@@ -32,11 +32,11 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
       setup: setup(format, { p0: { hand: ["Raigeki"] } }),
       steps: [expectNotOffered("activate", "Raigeki", "p0"), endTurn("p0"), board(format)],
     }),
-    scenario(format, "eliminated-owner-loses-its-zone", {
+    scenario(format, format === "tag" ? "team-loss-ends-duel" : "eliminated-owner-loses-its-zone", {
       setup: setup(format, { [owner]: { monsters: ["Mystical Elf"] } }),
-      steps: [surrender(owner), endTurn("p0"), expectEliminated(format === "tag" ? ["p1", "p3"] : [owner]),
+      steps: [surrender(owner), ...(format === "tag" ? [] : [endTurn("p0")]), expectEliminated(format === "tag" ? ["p1", "p3"] : [owner]),
         ...(format === "tag" ? [expectResult({ team: 0 })] : [expectTurn("p1", 2)]),
-        board(format, Object.fromEntries((format === "tag" ? ["p1", "p3"] : [owner]).map((s) => [s, { deckMaster: FIELD, hand: [] }]))),
+        ...(format === "tag" ? [] : [board(format, { [owner]: { deckMaster: FIELD, hand: [] } })]),
       ],
     }),
     scenario(format, "opponent-destroys-late-seat-master", {
@@ -46,9 +46,19 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
         board(format, { p0: { grave: ["Raigeki"] }, [owner]: { grave: [MASTER[owner]], deckMaster: FIELD } })],
     }),
     scenario(format, "opponent-banishes-late-seat-master", {
-      setup: setup(format, { p0: { hand: ["Soul Release"] } }),
-      steps: [...turnsBefore(format, owner), normalSummon({ card: MASTER[owner], from: "dmz" }, owner), endTurn(owner),
-        // First destroy the master from a later seat, then banish it from its owner's Graveyard.
+      setup: setup(format, { p0: { hand: ["Dark Hole", "Soul Release"] } }),
+      steps: [
+        ...turnsBefore(format, owner),
+        normalSummon({ card: MASTER[owner], from: "dmz" }, owner),
+        endTurn(owner),
+        activate("Dark Hole", "p0"), no(owner),
+        activate("Soul Release", "p0"),
+        select({ card: MASTER[owner], owner, from: "grave" }),
+        expectPrompt({ by: owner, context: "deck-master-recall" }), no(owner),
+        board(format, {
+          p0: { grave: ["Dark Hole", "Soul Release"] },
+          [owner]: { banished: [MASTER[owner]], deckMaster: FIELD },
+        }),
       ],
     }),
     scenario(format, "battle-damage-goes-to-master-controller", {
@@ -63,28 +73,18 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
       steps: [...turnsBefore(format, owner), normalSummon({ card: MASTER[owner], from: "dmz" }, owner), endTurn(owner),
         activate("Change of Heart", "p0"), select({ card: MASTER[owner], owner }),
         board(format, { p0: { monsters: [MASTER[owner]], grave: ["Change of Heart"] }, [owner]: { monsters: ["Mystical Elf"], deckMaster: FIELD } }),
-        surrender(owner), endTurn("p0"), expectEliminated(format === "tag" ? ["p1", "p3"] : [owner]),
+        surrender(owner), ...(format === "tag" ? [] : [endTurn("p0")]), expectEliminated(format === "tag" ? ["p1", "p3"] : [owner]),
         board(format, { p0: { grave: ["Change of Heart"], ...(format === "tag" ? { monsters: [MASTER[owner]] } : {}) }, ...Object.fromEntries((format === "tag" ? ["p1", "p3"] : [owner]).map((s) => [s, { deckMaster: FIELD, hand: [] }])) })],
     }),
     scenario(format, "first-turn-draw-and-battle-window", {
       setup: setup(format, {}, false),
       steps: [...SEATS[format].flatMap((seat, index): Step[] => [expectTurn(seat, index + 1),
-        expectPrompt({ by: seat, ...(format === "tag" && index === 3 ? { offers: ["to_bp"] } : { notOffers: ["to_bp"] }) }),
+        expectPrompt({ by: seat, ...(index === SEATS[format].length - 1 ? { offers: ["to_bp"] } : { notOffers: ["to_bp"] }) }),
         board(format, Object.fromEntries(SEATS[format].map((s, at) => [s, { hand: { count: at > 0 && at <= index ? 1 : 0 }, deckCount: at > 0 && at <= index ? 19 : 20 }]))), endTurn(seat)]),
         expectTurn("p0", SEATS[format].length + 1), expectPrompt({ by: "p0", offers: ["to_bp"] }),
         board(format, Object.fromEntries(SEATS[format].map((s) => [s, { hand: { count: 1 }, deckCount: 19 }])))],
     }),
   );
-}
-
-// A field removal uses a real opponent effect, not a debug move.
-for (const s of DOMAIN_NSEAT_STRESS.filter((s) => s.id.endsWith("opponent-banishes-late-seat-master"))) {
-  const format = s.setup.format as Format;
-  const owner: Seat = format === "ffa3" ? "p2" : "p3";
-  s.setup.p0 = { ...s.setup.p0, hand: ["Dark Hole", "Soul Release"] };
-  s.steps.push(activate("Dark Hole", "p0"), no(owner), activate("Soul Release", "p0"), select({ card: MASTER[owner], owner, from: "grave" }),
-    expectPrompt({ by: owner, context: "deck-master-recall" }), no(owner),
-    board(format, { p0: { grave: ["Dark Hole", "Soul Release"] }, [owner]: { banished: [MASTER[owner]], deckMaster: FIELD } }));
 }
 
 DOMAIN_NSEAT_STRESS.push(

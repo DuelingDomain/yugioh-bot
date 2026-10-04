@@ -35,7 +35,9 @@ function ritual(format: Format, partner: boolean): Scenario {
     tags: ["multiplayer", format, "ritual", "grave", "card:77153811", "card:55761792"],
     setup,
     steps: [
-      expectOffered("activate", RITUAL, "p0"), activate(RITUAL, "p0"), zone("p0", "s0", "p0"),
+      expectOffered("activate", RITUAL, "p0"), activate(RITUAL, "p0"),
+      // R-FFA-OPP-ONE: own Ritual material checks do not declare an opponent.
+      zone("p0", "s0", "p0"),
       expectPickOptions({ count: 2, include: [{ card: OX, seat: "p0" }, { card: DJINN, seat: holder }] }, "p0"),
       select(OX, { card: DJINN, owner: holder, from: "grave" }),
       everySeat(format, state),

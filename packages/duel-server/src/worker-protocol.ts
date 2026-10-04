@@ -26,7 +26,7 @@ export type DuelWorkerRequest =
   | { id: number; op: "view"; seat: number | null }
   | { id: number; op: "answer"; seat: number; promptId: string; answer: DuelAnswer }
   | { id: number; op: "search"; query: string }
-  | { id: number; op: "eliminate"; seat: number; reason: number }
+  | { id: number; op: "eliminate"; seat: number; reason: number; atTurnEnd?: boolean }
   | { id: number; op: "chain-mode"; seat: number; mode: DuelChainMode }
   | { id: number; op: "diagnostics" }
   | { id: number; op: "close" };

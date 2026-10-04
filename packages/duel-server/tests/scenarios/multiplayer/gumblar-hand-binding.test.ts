@@ -1,10 +1,10 @@
+import { runScenarios } from "../../support/runner.js";
 import { expect } from "vitest";
 import { createEngineGame } from "../../../src/engine.js";
 import { compileBoard } from "../../support/board.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
-import { runScenarios } from "../../support/runner.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
 import { expectPickOptions, expectPrompt, pickOpponent, type DuelistId } from "../../support/dsl.js";
 import { GUMBLAR_HAND_BINDING_SCENARIOS } from "./gumblar-hand-binding.js";
@@ -24,12 +24,14 @@ describeWithCores("live Gumblar hand binding", liveNseat, () => {
     try {
       const session = new Session(scenario, game);
       session.reachMainPhase(); session.startRecording();
-      let at = 1;
+      let at = 1; let opponentPicks = 0;
       for (const step of scenario.steps) {
         if (step.op !== "zone") session.run(expectPrompt({}), at++);
         const prompt = Array.from({ length: count }, (_, seat) => game.view(seat).prompt).find(Boolean);
         if (prompt?.context?.type === "opponent") {
+          ++opponentPicks;
           if (scenario.tags.includes("picker-timing")) {
+            expect(opponentPicks).toBe(1);
             expect(game.view(0).seats[0].hand.map(card => card.code)).toEqual([97017120]);
             expect(game.view(0).seats[0].graveyard.map(card => card.code)).toEqual([83764718]);
           }

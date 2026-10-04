@@ -99,10 +99,10 @@ function dangerousMachine(format: Format, die: 2 | 4 | 5): Scenario {
   }
   const start = structuredClone(spec);
   const what =
-    die === 2 ? `the hand card of ${picked} is discarded` : die === 4 ? `${picked} draws 1 card` : `p0 selects the monster of p1 (a field is not bound to the pick, any opponent) and it is destroyed`;
+    die === 2 ? `the hand card of ${picked} is discarded` : die === 4 ? `${picked} draws 1 card` : `the monster of the declared opponent is destroyed`;
   if (die === 2) spec[picked] = { ...spec[picked], hand: [], grave: [MACHINE_HAND[picked]] };
   if (die === 4) spec[picked] = { ...spec[picked], hand: [MACHINE_HAND[picked], MACHINE_DECK[picked]] };
-  if (die === 5) spec.p1 = { ...spec.p1, monsters: [], grave: [MACHINE_FIELD.p1] };
+  if (die === 5) spec[format === "tag" ? "p1" : picked] = { ...spec[format === "tag" ? "p1" : picked], monsters: [], grave: [MACHINE_FIELD[format === "tag" ? "p1" : picked]] };
   return defineScenario({
     id: `gaps-r1-${format}-dangerous-machine-die-${die}-${die === 2 ? "discard-of-the-picked-opponent" : die === 4 ? "draw-of-the-picked-opponent" : "destroy-of-an-opponent-monster"}`,
     title: `${labelOf(format)}: the Standby Phase effect of Dangerous Machine Type-6 of p0, p0 picks ${picked}, the die is ${die}: ${what}; every other seat keeps its hand, field and Graveyard`,
@@ -115,7 +115,7 @@ function dangerousMachine(format: Format, die: 2 | 4 | 5): Scenario {
     steps: [
       expectPickSeats(MACHINE_PICKS[format], "p0"), expectNoLog("Dice roll"), everySeat(format, start),
       pickOpponent(picked, "p0"), expectLog(`Dice roll: ${die}`),
-      ...(die === 5 ? [select({ card: MACHINE_FIELD.p1, owner: "p1" })] : []), everySeat(format, spec),
+      ...(die === 5 && format === "tag" ? [select({ card: MACHINE_FIELD.p1, owner: "p1" })] : []), everySeat(format, spec),
     ],
   });
 }

@@ -23,7 +23,7 @@ function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
 	Duel.SetOperationInfo(0,CATEGORY_SPECIAL_SUMMON,nil,2,PLAYER_ALL,0)
 end
 function s.operation(e,tp,eg,ep,ev,re,r,rp)
-	aux.MPForEachDuelist(function(tp_i,seat_i)
+	aux.MPForEachDuelistFromTurn(function(tp_i,seat_i)
 		if Duel.GetLocationCount(tp_i,LOCATION_MZONE)>0 then
 			Duel.Hint(HINT_SELECTMSG,tp_i,HINTMSG_SPSUMMON)
 			local g=Duel.SelectMatchingCard(tp_i,function(c)

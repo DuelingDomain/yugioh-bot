@@ -7,7 +7,7 @@ import { engineDataDirectory } from "./engine-data-dir.js";
 
 describeWithCores("Domain fuzz proves real Deck Master play", [liveNseat, ...needs.domainMulti()], () => {
   for (const format of ["ffa3", "ffa4", "tag"] as const) {
-    it(`${format}: counts real leaves from the zone`, async () => {
+    it(`${format}: counts real leaves and completed returns`, async () => {
       const bytes = readFileSync(currentDomainMultiWasm());
       const result = await playDuel({ format, seed: 1, mode: "domain", masterRule: 5, maxSteps: 1000, eliminateRate: 0.5 }, {
         dataDirectory: engineDataDirectory,
@@ -17,6 +17,7 @@ describeWithCores("Domain fuzz proves real Deck Master play", [liveNseat, ...nee
       expect(result.decks.every((deck) => !!deck.deckMaster)).toBe(true);
       expect(result.stats["domain-masters"]).toBe(result.decks.length);
       expect(Object.entries(result.stats).filter(([key]) => key.startsWith("domain-leaves-seat-")).reduce((sum, [, n]) => sum + n, 0)).toBeGreaterThan(0);
+      expect(Object.entries(result.stats).filter(([key]) => key.startsWith("domain-returns-seat-")).reduce((sum, [, n]) => sum + n, 0)).toBeGreaterThan(0);
     }, 30_000);
   }
 });

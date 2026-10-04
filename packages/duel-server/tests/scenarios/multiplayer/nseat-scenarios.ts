@@ -51,7 +51,7 @@ export const NSEAT_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "nseat-ffa3-no-attack-first-round",
-    title: "FFA3: no Battle Phase until every duelist had one turn, then p0 may attack on turn 4",
+    title: "FFA3: p2 gets the first Battle Phase on turn 3; p0 and p1 cannot attack before it",
     source: `${SOURCE} [R-FFA-NO-ATTACK]`,
     rules: ["R-FFA-NO-ATTACK"],
     tags: ["multiplayer", "battle", "ffa3"],
@@ -59,7 +59,14 @@ export const NSEAT_SCENARIOS: Scenario[] = [
     steps: [
       expectPrompt({ by: "p0", notOffers: ["to_bp"] }),
       endTurn("p0"), expectPrompt({ by: "p1", notOffers: ["to_bp"] }),
-      endTurn("p1"), expectPrompt({ by: "p2", notOffers: ["to_bp"] }),
+      endTurn("p1"), expectTurn("p2", 3), expectPrompt({ by: "p2", offers: ["to_bp"] }),
+      changePhase("battle", "p2"),
+      attack(ELF, { card: ELF, owner: "p0" }, "p2"),
+      expectBoard({
+        p0: { lp: 8000, monsters: [], spells: [], grave: [ELF], banished: [], hand: [], deckCount: 20 },
+        p1: { lp: 8000, monsters: [ELF], spells: [], grave: [], banished: [], hand: [ELF], deckCount: 19 },
+        p2: { lp: 8000, monsters: [], spells: [], grave: [ELF], banished: [], hand: [ELF], deckCount: 19 },
+      }),
       endTurn("p2"), expectPrompt({ by: "p0", offers: ["to_bp"] }),
     ],
   }),

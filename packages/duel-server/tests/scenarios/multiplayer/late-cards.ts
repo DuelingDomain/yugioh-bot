@@ -4,7 +4,7 @@
 // card scripts and the overlay, on the Standard multi core and again on the Domain multi core. Every scenario ends with the state of EVERY seat.
 
 import {
-  activate, attack, changePhase, changePosition, endTurn, expectBoard, expectEliminated, expectTurn, expectNotOffered, expectOffered, expectPickSeats, expectPrompt, faceDown, no, pickOpponent, select, surrender, yes, zone,
+  activate, attack, changePhase, changePosition, endTurn, expectBoard, expectEliminated, expectTurn, expectNotOffered, expectOffered, expectPickOptions, expectPickSeats, expectPrompt, faceDown, no, pickOpponent, select, surrender, yes, zone,
   type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
@@ -71,7 +71,7 @@ function royalTribute(format: Format): Scenario {
 // The card of p0 is face up on its field. Its ATK limit (1500 or more cannot attack) holds for the monsters of every duelist. The 100 LP
 // are asked only in the Standby Phase of p0 (in Tag: of the duelist that owns the card, not of the partner). In Tag the 100 LP are paid
 // from the one LP total of the team. Attacks are allowed in the 1st round (attackFirstTurn).
-const PEACE = `${SOURCE} [R-COMMON-OPP-FIELD], card decisions 2026-10-01: Messenger of Peace (the ATK limit holds for all opponents, the 100 LP only in the own Standby Phase)`;
+const PEACE = `${SOURCE} [R-COMMON-ONGOING], card decisions 2026-10-01: Messenger of Peace (the ATK limit holds for all opponents, the 100 LP only in the own Standby Phase)`;
 const BIG: Record<Seat, string> = { p0: OX, p1: AXE, p2: OX, p3: AXE };
 
 function messengerSetup(format: Format): Scenario["setup"] {
@@ -121,7 +121,7 @@ function messengerOfPeace(format: Format, pay: boolean): Scenario {
     id: `late-${format}-messenger-of-peace-${pay ? "limit-for-all-and-payment-only-in-own-standby" : "declined-payment-destroys-it"}`,
     title: `${label}: Messenger of Peace of p0: ${pay ? "no monster with 1500 ATK or more of any duelist attacks; only p0 is asked for the 100 LP, once in each of its own Standby Phases" : "p0 does not pay in its Standby Phase and the card is destroyed"}`,
     source: PEACE,
-    rules: ["R-COMMON-OPP-FIELD", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
+    rules: ["R-COMMON-ONGOING", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
     tags: ["multiplayer", "late-cards", "opp-field", "standby-cost", format, "card:44656491", "card:47355498"],
     setup: messengerSetup(format),
     steps,
@@ -165,13 +165,14 @@ function diceJar(format: Format, ownerWins: boolean): Scenario {
 }
 
 // --- Cup of Ace (a coin toss with an effect on an opponent) ------------------------------------------------------------------------
-// "Toss a coin: heads, you draw 2 cards; tails, your opponent draws 2 cards." The stock script is used. The tails draw reaches ONE opponent: the
-// activator picks it when the script first reads "your opponent" (R-COMMON-OPP-PICK). The heads draw reaches only the activator and never reads
-// an opponent, so no pick is asked.
+// The stock script gives 2 cards to the activator on Heads and to one opponent on Tails.
+// In FFA, declare the opponent at activation for both results (R-COMMON-OPP-PICK).
+// The owner accepts this C4 declaration because Tails can make an opponent draw.
+// In Tag, the opponent choice occurs only on Tails. Heads changes only the hand and Deck of p0.
 // The coin is the first draw of the duel generator (xoshiro256**, no shuffle runs before it): its result is the lowest bit of rotl(5 * seed[1], 7),
 // that is bit 57 of 5 * seed[1]. A small seed word (5, 6, 7, 8) leaves that bit clear, so the first draw is even and the coin is tails; seed[1] = 2^57
 // sets the bit and gives heads. Both results come from the seed alone, so they are the same on every format and on both cores.
-const COIN = `${SOURCE} [R-COMMON-OPP-PICK], card decisions 2026-10-01 Q4: Cup of Ace (a coin toss; the draw goes to one picked opponent)`;
+const COIN = `${SOURCE} [R-COMMON-OPP-PICK], accepted C4 declaration: Cup of Ace (Heads draws for the activator; Tails draws for one declared opponent)`;
 const DECK_OF: Record<Seat, [string, string]> = { p0: [RAT, OX], p1: [OX, AXE], p2: [AXE, FANG], p3: [FANG, ELF] };
 const SEED_TAILS = ["5", "6", "7", "8"];
 const SEED_HEADS = ["5", "144115188075855872", "7", "8"];
@@ -185,16 +186,23 @@ function cupOfAce(format: Format, heads = false): Scenario {
   const spec: Partial<Record<Seat, DuelistExpect>> = {};
   for (const seat of seats) {
     const draws = heads ? seat === "p0" : seat === picked;
-    spec[seat] = { hand: draws ? [...DECK_OF[seat]] : [], grave: seat === "p0" ? [CUP] : [] };
+    spec[seat] = {
+      hand: draws ? [...DECK_OF[seat]] : [],
+      grave: seat === "p0" ? [CUP] : [],
+      // The board fixture fills each Deck to setup.deckSize, or 20 cards by default.
+      deckCount: (setup.deckSize ?? 20) - (draws ? 2 : 0),
+    };
   }
-  const steps: Step[] = heads
-    // Heads: p0 draws 2 at once. No pick prompt comes up: the prompt after the activation is the main phase of p0.
-    ? [activate(CUP, "p0"), expectPrompt({ by: "p0", context: "action" }), everySeat(format, spec)]
-    : [activate(CUP, "p0"), expectPickSeats(PICKS[format], "p0"), pickOpponent(picked, "p0"), everySeat(format, spec)];
+  const steps: Step[] = [
+    activate(CUP, "p0"),
+    ...(!heads || format !== "tag" ? [expectPickSeats(PICKS[format], "p0"), pickOpponent(picked, "p0")] : []),
+    ...(heads ? [expectPrompt({ by: "p0", context: "action" })] : []),
+    everySeat(format, spec),
+  ];
   return defineScenario({
-    id: heads ? `late-${format}-cup-of-ace-heads-the-activator-draws-2-and-no-opponent-is-picked` : `late-${format}-cup-of-ace-tails-the-picked-opponent-draws-2`,
+    id: heads ? `late-${format}-cup-of-ace-heads-the-activator-draws-2-and-other-seats-keep-their-resources` : `late-${format}-cup-of-ace-tails-the-picked-opponent-draws-2`,
     title: heads
-      ? `${label}: p0 activates Cup of Ace: the coin is heads, so p0 draws 2 cards and is asked for no opponent; every other duelist (the Tag partner too) draws nothing`
+      ? `${label}: p0 activates Cup of Ace: Heads makes p0 draw 2 cards; every other duelist keeps its resources`
       : `${label}: p0 activates Cup of Ace and picks ${picked}: the coin is tails, so only ${picked} draws 2 cards; p0 and every other duelist draw nothing`,
     source: COIN,
     rules: ["R-COMMON-OPP-PICK", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
@@ -296,9 +304,9 @@ function anteEmptyHand(format: Format): Scenario {
   });
 }
 
-// --- Hero Counterattack and Foolish Revival in Tag, Foolish Revival with a Graveyard that is not the picked one ----------------------
+// --- Hero Counterattack and Foolish Revival ----------------------------------------------------------------------------------------
 const HERO_RULE = `${SOURCE} [R-COMMON-OPP-PICK], the other cards use the defaults: Hero Counterattack (the opponent that attacked picks at random from your hand)`;
-const REVIVAL_RULE = `${SOURCE} [R-COMMON-OPP-PICK], [R-COMMON-OPP-FIELD], a summon to the field of an opponent: the summoning player picks one opponent, the target may be in the Graveyard of any opponent`;
+const REVIVAL_RULE = `${SOURCE} [R-FFA-OPP-ONE] [R-COMMON-OPP-PICK]: in FFA, select a target from the declared opponent's Graveyard and summon it to that opponent's field; in Tag, the target may be in either opposing Graveyard`;
 const AVIAN = "Elemental HERO Avian";
 const SPARKMAN = "Elemental HERO Sparkman";
 const HERO_COUNTERATTACK = "Hero Counterattack";
@@ -337,41 +345,51 @@ const heroCounterattackTag = defineScenario({
   ],
 });
 
-// A Graveyard of an opponent that is NOT the picked one: the target may be there (R-COMMON-OPP-FIELD) and the card goes to the field of the
-// picked opponent only. The Skull of p1 goes to the field of p2 and p1 keeps nothing, p2 keeps its own Graveyard card.
+// In FFA, the declaration limits the target and the summon to one opponent.
+// In Tag, the two opposing Graveyards are shared; the summon goes to the picked duelist.
 function foolishRevivalOtherGrave(format: "ffa3" | "tag"): Scenario {
   const label = format === "tag" ? "Tag" : "FFA3";
+  const ffa = format === "ffa3";
   const picked: Seat = format === "tag" ? "p3" : "p2";
   const source: Seat = "p1";
+  const target = ffa ? DARK_MAGICIAN : SKULL;
   const setup: Scenario["setup"] = { format, p0: { spells: [{ card: FOOLISH_REVIVAL, pos: "set" }] }, p1: { grave: [SKULL] } };
-  (setup as Record<string, unknown>)[picked] = { grave: [DARK_MAGICIAN] };
+  // Two legal FFA targets keep the card prompt open so the test can check its options.
+  (setup as Record<string, unknown>)[picked] = { grave: ffa ? [DARK_MAGICIAN, ELF] : [DARK_MAGICIAN] };
   const lp = format === "tag" ? 16000 : 8000;
   const spec: Partial<Record<Seat, DuelistExpect>> = {
     p0: { grave: [FOOLISH_REVIVAL] },
-    [source]: {},
-    [picked]: { monsters: [SKULL], grave: [DARK_MAGICIAN] },
+    [source]: { grave: ffa ? [SKULL] : [] },
+    [picked]: { monsters: [target], grave: ffa ? [ELF] : [DARK_MAGICIAN], zones: { m0: { card: target, pos: "def" } } },
   };
+  for (const seat of seatsOf(format)) spec[seat] = { hand: [], deckCount: 20, ...spec[seat] };
   return defineScenario({
-    id: `late-${format}-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked`,
-    title: `${label}: p0 activates Foolish Revival and picks ${picked}, then targets the Summoned Skull in the Graveyard of ${source}: the Skull goes to the field of ${picked}; ${picked} keeps its own Graveyard card`,
+    id: ffa
+      ? "late-ffa3-foolish-revival-target-and-summon-use-the-declared-opponent"
+      : `late-${format}-foolish-revival-target-in-the-grave-of-the-opponent-that-is-not-picked`,
+    title: ffa
+      ? "FFA3: p0 declares p2 for Foolish Revival: only p2's Graveyard cards are offered; Dark Magician goes to p2 in Defense Position; p1 keeps Summoned Skull"
+      : `${label}: p0 activates Foolish Revival and picks ${picked}, then targets the Summoned Skull in the Graveyard of ${source}: the Skull goes to the field of ${picked}; ${picked} keeps its own Graveyard card`,
     source: REVIVAL_RULE,
-    rules: ["R-COMMON-OPP-PICK", "R-COMMON-OPP-FIELD", ...(format === "tag" ? ["R-TAG-PARTNER"] : [])],
+    rules: ["R-COMMON-OPP-PICK", ...(ffa ? ["R-FFA-OPP-ONE"] : ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER"])],
     tags: ["multiplayer", "late-cards", "opponent-field-summon", format, "card:83778600"],
     setup,
     steps: [
       activate(FOOLISH_REVIVAL, "p0"),
       expectPickSeats(format === "tag" ? ["p1", "p3"] : ["p1", "p2"], "p0"),
       pickOpponent(picked, "p0"),
-      select({ card: SKULL, owner: source }),
+      ...(ffa ? [expectPickOptions([{ card: DARK_MAGICIAN, seat: picked }, { card: ELF, seat: picked }], "p0")] : []),
+      select({ card: target, owner: ffa ? picked : source }),
       everySeat(format, spec, lp),
     ],
   });
 }
 
 // --- R3 (Q1): cards that last "until the end of your opponent's next turn" or for N opponent turns ------------------------------------
-// Every turn of an opposing duelist counts, in turn order; a partner turn does not count; a seat that lost takes no turn. The stock scripts are
-// used (the core counts the turns, patch 0048). The state of EVERY living seat is asserted after each step that matters.
-const R3_RULE = `${SOURCE} [R-FFA-ORDER] Q1 R3: every turn of any opponent counts; in Tag only a turn of an opposing duelist; a seat that lost takes no turn`;
+// In FFA, a player effect's RESET_OPPO_TURN without RESET_SELF_TURN counts only the living declared opponent's turns.
+// Card effects and player effects with no living declared opponent keep R3. Tag counts opposing turns; a partner turn does not count.
+// A seat that lost takes no turn. The state of every living seat is checked after each step that matters.
+const R3_RULE = `${SOURCE} [R-FFA-ORDER] Q1 R3: card effects and player effects with no declared opponent count every opponent turn; player effects with a declared opponent follow R-FFA-DECLARED-DURATION; in Tag only a turn of an opposing duelist; a seat that lost takes no turn`;
 const TIME_SEAL = "Time Seal";
 
 /** The table of the living `seats`: every seat has the hand size of `hands` (0 when it is missing), p0 has the Graveyard and Spell/Trap zones given. */
@@ -387,50 +405,108 @@ function table(seats: Seat[], hands: Partial<Record<Seat, number>>, p0: { grave?
 }
 
 const timeSealSetup = { spells: [{ card: TIME_SEAL, pos: "set" as const }] };
+const TIME_SEAL_RULE = `${SOURCE} [R-FFA-OPP-ONE] [R-FFA-ACTIVATED-LOCK] [R-FFA-DECLARED-DURATION] [R-FFA-FIRST-DRAW]: Time Seal skips the declared opponent's next Draw Phase; other opponents' turns do not end the lock; all first draws follow the duel mode and Master Rule`;
 const timeSealFfa3 = defineScenario({
-  id: "r3-ffa3-time-seal-skips-the-draw-of-the-next-opponent-turn-in-turn-order",
-  title: "FFA3: p0 activates Time Seal in its turn: the Draw Phase of the NEXT opponent turn (p1) is skipped, p2 draws in its own turn, and p1 draws again in its next turn",
-  source: R3_RULE,
-  rules: ["R-FFA-ORDER"],
+  id: "r3-ffa3-time-seal-skips-the-draw-of-the-declared-opponent",
+  title: "FFA3: p0 declares p1 for Time Seal: p1 skips its next Draw Phase, p2 draws on its turn, and p1 draws on its second turn",
+  source: TIME_SEAL_RULE,
+  rules: ["R-FFA-ORDER", "R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-DECLARED-DURATION", "R-FFA-FIRST-DRAW"],
   tags: ["multiplayer", "late-cards", "turn-count", "r3", "ffa3", "card:35316708"],
   setup: { format: "ffa3", p0: timeSealSetup },
   steps: [
     activate(TIME_SEAL, "p0"),
+    expectPrompt({ by: "p0", context: "opponent" }),
+    expectPickSeats(["p1", "p2"], "p0"),
+    pickOpponent("p1", "p0"),
     table(["p0", "p1", "p2"], {}, { grave: [TIME_SEAL] }),
     endTurn("p0"), expectTurn("p1", 2),
-    // The next opponent turn is the turn of p1: no draw.
+    // The lock is bound to p1: p1 does not draw.
     table(["p0", "p1", "p2"], {}, { grave: [TIME_SEAL] }),
+    expectBoard({ p1: { deckCount: 20 }, p2: { deckCount: 20 } }),
     endTurn("p1"), expectTurn("p2", 3),
-    // The skip ended with the turn of p1: p2 draws.
+    // The lock does not affect p2: p2 draws.
     table(["p0", "p1", "p2"], { p2: 1 }, { grave: [TIME_SEAL] }),
+    expectBoard({ p1: { deckCount: 20 }, p2: { deckCount: 19 } }),
     endTurn("p2"), expectTurn("p0", 4),
     endTurn("p0"), expectTurn("p1", 5),
     table(["p0", "p1", "p2"], { p0: 1, p1: 1, p2: 1 }, { grave: [TIME_SEAL] }),
+    expectBoard({ p0: { deckCount: 19 }, p1: { deckCount: 19 }, p2: { deckCount: 19 } }),
   ],
 });
 
-// p1 gives up before its turn comes: the next opponent turn is the turn of p2, so the skip moves to the Draw Phase of p2.
+const timeSealFfa3P2 = defineScenario({
+  id: "r3-ffa3-time-seal-declares-p2-and-skips-only-its-next-draw",
+  title: "FFA3: p0 declares p2 for Time Seal: p1 draws on both turns, p2 skips its first draw and draws on its second turn",
+  source: TIME_SEAL_RULE,
+  rules: ["R-FFA-ORDER", "R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-DECLARED-DURATION", "R-FFA-FIRST-DRAW"],
+  tags: ["multiplayer", "late-cards", "turn-count", "r3", "ffa3", "card:35316708"],
+  setup: { format: "ffa3", p0: timeSealSetup },
+  steps: [
+    activate(TIME_SEAL, "p0"),
+    expectPrompt({ by: "p0", context: "opponent" }),
+    expectPickSeats(["p1", "p2"], "p0"),
+    pickOpponent("p2", "p0"),
+    everySeat("ffa3", {
+      p0: { hand: [], deckCount: 20, grave: [TIME_SEAL] },
+      p1: { hand: [], deckCount: 20 },
+      p2: { hand: [], deckCount: 20 },
+    }),
+    endTurn("p0"), expectTurn("p1", 2),
+    // p1 is the next seat, but the lock applies only to the declared p2.
+    everySeat("ffa3", {
+      p0: { hand: [], deckCount: 20, grave: [TIME_SEAL] },
+      p1: { hand: [ELF], deckCount: 19 },
+      p2: { hand: [], deckCount: 20 },
+    }),
+    endTurn("p1"), expectTurn("p2", 3),
+    // p2 skips one draw. Its hand and Deck do not change.
+    everySeat("ffa3", {
+      p0: { hand: [], deckCount: 20, grave: [TIME_SEAL] },
+      p1: { hand: [ELF], deckCount: 19 },
+      p2: { hand: [], deckCount: 20 },
+    }),
+    endTurn("p2"), expectTurn("p0", 4),
+    endTurn("p0"), expectTurn("p1", 5),
+    endTurn("p1"), expectTurn("p2", 6),
+    everySeat("ffa3", {
+      p0: { hand: [ELF], deckCount: 19, grave: [TIME_SEAL] },
+      p1: { hand: [ELF, ELF], deckCount: 18 },
+      p2: { hand: [ELF], deckCount: 19 },
+    }),
+  ],
+});
+
+// p1 leaves before its turn. The lock stays bound to p1, so p2 draws on both of its turns.
 const timeSealCutShort = defineScenario({
-  id: "r3-ffa3-time-seal-opponent-out-before-its-turn-the-skip-moves-to-the-next-living-opponent",
-  title: "FFA3: p0 activates Time Seal, p1 gives up before its turn: p1 takes no turn, so the Draw Phase of p2 (the next opponent turn) is skipped and p2 draws in its following turn",
-  source: `${R3_RULE} [R-FFA-ELIMINATION]`,
-  rules: ["R-FFA-ORDER", "R-FFA-ELIMINATION"],
+  id: "r3-ffa3-time-seal-declared-opponent-leaves-the-lock-does-not-move",
+  title: "FFA3: p0 declares p1 for Time Seal, then p1 gives up: p1 takes no turn; the lock stays bound to p1 and p2 draws on both of its turns",
+  source: `${TIME_SEAL_RULE}. [R-FFA-ELIMINATION]: p1 leaves the duel. [R-FFA-OPP-ONE] [R-FFA-ACTIVATED-LOCK]: the lock applies only to p1 and does not move to p2`,
+  rules: ["R-FFA-ORDER", "R-FFA-OPP-ONE", "R-FFA-ACTIVATED-LOCK", "R-FFA-DECLARED-DURATION", "R-FFA-ELIMINATION", "R-FFA-FIRST-DRAW"],
   tags: ["multiplayer", "late-cards", "turn-count", "r3", "elimination", "ffa3", "card:35316708"],
   setup: { format: "ffa3", p0: timeSealSetup },
   steps: [
     activate(TIME_SEAL, "p0"),
+    expectPrompt({ by: "p0", context: "opponent" }),
+    expectPickSeats(["p1", "p2"], "p0"),
+    pickOpponent("p1", "p0"),
+    table(["p0", "p1", "p2"], {}, { grave: [TIME_SEAL] }),
     surrender("p1"),
-    endTurn("p0"), expectEliminated("p1"), expectTurn("p2", 2),
-    table(["p0", "p2"], {}, { grave: [TIME_SEAL] }),
+    // p1 leaves at once. p0's action prompt stays open because it does not respond to p1.
+    expectPrompt({ by: "p0", context: "action", offers: ["to_ep"] }),
+    expectEliminated("p1"), endTurn("p0"), expectTurn("p2", 2),
+    table(["p0", "p2"], { p2: 1 }, { grave: [TIME_SEAL] }),
+    expectBoard({ p2: { deckCount: 19 } }),
     endTurn("p2"), expectTurn("p0", 3),
-    table(["p0", "p2"], { p0: 1 }, { grave: [TIME_SEAL] }),
-    endTurn("p0"), expectTurn("p2", 4),
     table(["p0", "p2"], { p0: 1, p2: 1 }, { grave: [TIME_SEAL] }),
+    endTurn("p0"), expectTurn("p2", 4),
+    expectEliminated("p1"),
+    table(["p0", "p2"], { p0: 1, p2: 2 }, { grave: [TIME_SEAL] }),
+    expectBoard({ p0: { deckCount: 19 }, p2: { deckCount: 18 } }),
   ],
 });
 
-// Appointer of the Red Lotus: pay 2000 LP, show your hand, pick one opponent (hand effect, R-COMMON-OPP-PICK), banish 1 card of its hand; the card
-// returns to the hand of that opponent in the End Phase of the NEXT opponent turn: the turn of p1 (turn order), not the turn of the picked p2.
+// Appointer of the Red Lotus: pay 2000 LP, show your hand, pick one opponent and banish one card from that hand.
+// In FFA, the card returns during the declared opponent's next End Phase. In Tag, it returns during the next opposing End Phase.
 const APPOINTER = "Appointer of the Red Lotus";
 const appointerTag = defineScenario({
   id: "r3-tag-appointer-of-the-red-lotus-card-returns-to-the-picked-opponent-at-the-end-of-the-next-opposing-turn",
@@ -467,10 +543,10 @@ const appointerTag = defineScenario({
   ],
 });
 const appointerFfa3 = defineScenario({
-  id: "r3-ffa3-appointer-of-the-red-lotus-card-returns-at-the-end-of-the-next-opponent-turn",
-  title: "FFA3: p0 pays 2000 and banishes the Axe Raider from the hand of the picked p2: the card returns to the hand of p2 at the end of the turn of p1 (the next opponent turn); p1 and p0 are unchanged",
-  source: `${R3_RULE} [R-COMMON-OPP-PICK] (a hand effect picks one opponent at activation)`,
-  rules: ["R-FFA-ORDER", "R-COMMON-OPP-PICK"],
+  id: "r3-ffa3-appointer-of-the-red-lotus-card-returns-during-the-declared-opponents-next-end-phase",
+  title: "FFA3: p0 pays 2000 and banishes Axe Raider from the hand of the declared p2: the card stays banished through p1's turn and returns to p2 during p2's next End Phase",
+  source: `${R3_RULE} [R-COMMON-OPP-PICK] [R-FFA-OPP-ONE]: Appointer banishes the card until the declared opponent's next End Phase`,
+  rules: ["R-FFA-ORDER", "R-COMMON-OPP-PICK", "R-FFA-OPP-ONE", "R-FFA-DECLARED-DURATION"],
   tags: ["multiplayer", "late-cards", "turn-count", "r3", "opp-pick", "ffa3", "card:43262273"],
   setup: {
     format: "ffa3",
@@ -483,20 +559,31 @@ const appointerFfa3 = defineScenario({
     expectPickSeats(["p1", "p2"], "p0"),
     pickOpponent("p2", "p0"),
     select({ card: AXE, owner: "p2" }),
-    expectBoard({
-      p0: { lp: 6000, hand: [ELF], monsters: [], spells: [], grave: [APPOINTER], banished: [] },
-      p1: { lp: 8000, hand: [RAT], monsters: [], spells: [], grave: [], banished: [] },
-      p2: { lp: 8000, hand: [FANG], monsters: [], spells: [], grave: [], banished: [AXE] },
+    everySeat("ffa3", {
+      p0: { lp: 6000, hand: [ELF], deckCount: 20, grave: [APPOINTER] },
+      p1: { hand: [RAT], deckCount: 20 },
+      p2: { hand: [FANG], deckCount: 20, banished: [AXE] },
     }),
     endTurn("p0"), expectTurn("p1", 2),
-    // Still banished during the turn of p1.
-    expectBoard({ p2: { hand: [FANG], banished: [AXE] } }),
+    // p1 draws. Axe Raider stays banished.
+    everySeat("ffa3", {
+      p0: { lp: 6000, hand: [ELF], deckCount: 20, grave: [APPOINTER] },
+      p1: { hand: [RAT, ELF], deckCount: 19 },
+      p2: { hand: [FANG], deckCount: 20, banished: [AXE] },
+    }),
     endTurn("p1"), expectTurn("p2", 3),
-    // The next opponent turn of p0 was the turn of p1: the card is back in the hand of its owner p2, the draw of p2 comes on top.
-    expectBoard({
-      p0: { lp: 6000, hand: [ELF], monsters: [], spells: [], grave: [APPOINTER], banished: [] },
-      p1: { lp: 8000, hand: [RAT, ELF], monsters: [], spells: [], grave: [], banished: [] },
-      p2: { lp: 8000, hand: [AXE, FANG, ELF], monsters: [], spells: [], grave: [], banished: [] },
+    // p2 draws. Its next End Phase has not started, so Axe Raider stays banished.
+    everySeat("ffa3", {
+      p0: { lp: 6000, hand: [ELF], deckCount: 20, grave: [APPOINTER] },
+      p1: { hand: [RAT, ELF], deckCount: 19 },
+      p2: { hand: [FANG, ELF], deckCount: 19, banished: [AXE] },
+    }),
+    endTurn("p2"), expectTurn("p0", 4),
+    // Axe Raider returns during p2's End Phase. Then p0 draws on turn 4.
+    everySeat("ffa3", {
+      p0: { lp: 6000, hand: [ELF, ELF], deckCount: 19, grave: [APPOINTER] },
+      p1: { hand: [RAT, ELF], deckCount: 19 },
+      p2: { hand: [AXE, FANG, ELF], deckCount: 19 },
     }),
   ],
 });
@@ -585,6 +672,7 @@ export const LATE_CARD_SCENARIOS: Scenario[] = [
   foolishRevivalOtherGrave("ffa3"),
   foolishRevivalOtherGrave("tag"),
   timeSealFfa3,
+  timeSealFfa3P2,
   timeSealCutShort,
   appointerFfa3,
   appointerTag,

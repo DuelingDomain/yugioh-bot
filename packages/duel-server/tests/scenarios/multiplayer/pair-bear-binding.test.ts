@@ -1,10 +1,10 @@
+import { runScenarios } from "../../support/runner.js";
 import { expect } from "vitest";
 import { createEngineGame } from "../../../src/engine.js";
 import { compileBoard } from "../../../src/presets/board.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
-import { runScenarios } from "../../support/runner.js";
 import { nseatWasmBinary, Session } from "../../support/session.js";
 import { PAIR_BEAR_BINDING_SCENARIOS } from "./pair-bear-binding.js";
 

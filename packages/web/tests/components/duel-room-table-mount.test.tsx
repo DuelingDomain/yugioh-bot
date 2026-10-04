@@ -371,7 +371,7 @@ describe("live room table mount", () => {
     room(fixtures.states.main.room);
     state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, pendingElimination: true } : seat);
     const view = mount();
-    expect(screen.getByTestId("self-leaving")).toHaveTextContent("Leaving — you surrendered; you leave at the end of this turn");
+    expect(screen.getByTestId("self-leaving")).toHaveTextContent("Leaving — you leave the duel when the current chain finishes");
     expect(screen.queryByRole("button", { name: "Surrender" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Stay and watch" })).toBeNull();
     expect(state.replace).not.toHaveBeenCalled();
@@ -471,7 +471,9 @@ describe("live room table mount", () => {
     fireEvent.click(screen.getByRole("button", { name: "Surrender" }));
     expect(screen.getByRole("dialog", { name: "Surrender" })).toHaveTextContent("Leaving");
     expect(screen.getByRole("dialog", { name: "Surrender" })).toHaveTextContent("automatically spectate");
-    expect(screen.getByRole("dialog", { name: "Surrender" })).toHaveTextContent("your own turn");
+    expect(screen.getByRole("dialog", { name: "Surrender" })).toHaveTextContent("You leave at once.");
+    expect(screen.getByRole("dialog", { name: "Surrender" })).toHaveTextContent("when the chain finishes");
+    expect(screen.getByRole("dialog", { name: "Surrender" })).not.toHaveTextContent("end of this turn");
     expect(screen.getByRole("dialog", { name: "Surrender" })).not.toHaveTextContent("This ends the duel.");
   });
 

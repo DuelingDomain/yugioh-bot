@@ -1,10 +1,8 @@
-// Native check for core patch 0057 (a pick of an opponent skips a seat with a pending loss and refuses an answer that names one, at n > 2).
-// A seat that gives up (Debug.EliminateDuelist) is still alive until the next Adjust. The test card of seat 0 is a mandatory trigger at its
-// Standby Phase that hits "the opponent" (the folded 1, bound by the pick) for 100. Variants: cond (Duel.MPNeedPick in the condition: the
-// chain-link pick), tgt (Duel.MPBindOpponent(true) in the target: the lazy pick), tgtloss (like tgt, the target first gives seat 2 a pending
-// loss). Cases: a control pick of seat 2 (accepted, seat 2 loses 100), a pick answer that names a seat with a pending loss (FFA3 and FFA4:
-// MSG_RETRY, then the other seat is hit), Tag (no pick), and a lazy pick that is built when seat 2 already has a pending loss (the list
-// has only the living seat).
+// Native check for patch 0057: an opponent pick excludes a seat with a pending loss and rejects a stale answer.
+// R-FFA-OPP-ONE declares before the target callback. The tgtloss variants lose seat 2 during target processing;
+// their declaration still offers the seats that are alive before that loss. The preloss variants set
+// before_loss_seat before declaration and exclude it. FFA3 preloss has only one living opponent and no prompt.
+// Cases also check stale-answer retry, Tag, and the exact LP and loss state of every seat.
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -38,7 +36,8 @@ static std::string g_variant;
 // for 100: the folded 1 is the bound opponent. Variants:
 //   cond     the condition calls Duel.MPNeedPick(): the pick prompt is asked when the chain link is built (processor path)
 //   tgt      the target calls Duel.MPBindOpponent(true): the pick prompt is asked in the target (lazy_bind)
-//   tgtloss  like tgt, and the target first calls Debug.EliminateDuelist(2, 7): seat 2 has a pending loss when the pick is built
+//   tgtloss  R-FFA-OPP-ONE: declare first, then the target flags seat 2. This is not a loss before declaration.
+//   preloss  R-FFA-ELIMINATION: seat 2 is flagged before processing, so the declaration list excludes it.
 static const char* kTestScript = R"LUA(
 local s,id=GetID()
 function s.initial_effect(c)
@@ -52,7 +51,7 @@ function s.initial_effect(c)
 	else
 		e1:SetTarget(function(e,tp,eg,ep,ev,re,r,rp,chk)
 			if chk==0 then return true end
-			if VARIANT=='tgtloss' then Debug.EliminateDuelist(2,7) end
+			if VARIANT=='tgtloss' then Debug.EliminateDuelist(2,7) Debug.Message("PA target-loss") end
 			Duel.MPBindOpponent(true)
 		end)
 	end
@@ -64,7 +63,7 @@ end
 static OCG_Duel g_duel = nullptr;
 static long g_errors = 0;
 static std::vector<std::string> g_error_text;
-static int g_ops = 0;
+static int g_ops = 0, g_picks_seen = 0, g_target_losses = 0;
 static field& F(OCG_Duel d) { return *static_cast<duel*>(d)->game_field; }
 
 // ---- card data, scripts, log
@@ -135,6 +134,11 @@ static void on_log(void*, const char* text, int type) {
 		return;
 	}
 	if(text && std::strncmp(text, "PA op", 5) == 0) ++g_ops;
+	if(text && std::strcmp(text, "PA target-loss") == 0) {
+		++g_target_losses;
+		EXPECT(g_picks_seen == 1, "R-FFA-OPP-ONE: target loss ran before the declaration answer");
+		EXPECT(F(g_duel).player[2].pending_loss != 0, "target did not flag seat 2");
+	}
 }
 
 static void add_card(OCG_Duel d, uint8_t con, uint32_t loc, uint32_t code, uint32_t pos) {
@@ -158,11 +162,12 @@ struct Scenario {
 	int want_prompts;  // number of pick prompts that open (the first one counted once, a RETRY is not a prompt)
 	int hit_seat;    // the seat that must lose 100 LP (-1: not checked)
 	int unhit_seat;  // a seat that must keep its LP (-1: not checked)
+	int before_loss_seat = -1; // R-FFA-ELIMINATION: flag this seat before the declaration
 };
 
 static void run(const Scenario& sc) {
 	g_variant = sc.variant;
-	g_errors = 0; g_error_text.clear(); g_ops = 0;
+	g_errors = 0; g_error_text.clear(); g_ops = 0; g_picks_seen = 0; g_target_losses = 0;
 	OCG_DuelOptions options;
 	std::memset(&options, 0, sizeof(options));
 	options.seed[0] = 7; options.seed[1] = 2; options.seed[2] = 3; options.seed[3] = 4;
@@ -191,6 +196,9 @@ static void run(const Scenario& sc) {
 	OCG_StartDuel(d);
 	int32_t lp0[4];
 	for(int s = 0; s < sc.n; ++s) lp0[s] = F(d).lp_ref(static_cast<uint8_t>(s));
+
+	if(sc.before_loss_seat >= 0)
+		F(d).player[sc.before_loss_seat].pending_loss = 0x100 | 7;
 
 	int turns = 0, prompts = 0, retries = 0, stage = 0, picks_offered_loss = 0, accepted_after = 0;
 	bool done = false;
@@ -225,9 +233,19 @@ static void run(const Scenario& sc) {
 				seats.push_back(static_cast<int>(desc & 0xFF));
 			}
 			if(pick) {
+				EXPECT(m->p[0] == 0, "%s: declaration went to seat %d", sc.name, m->p[0]);
+				std::vector<int> expected;
+				for(int seat = 1; seat < sc.n; ++seat)
+					if(seat != sc.before_loss_seat) expected.push_back(seat);
+				EXPECT(seats == expected, "%s: declaration list is wrong", sc.name);
 				auto index_of = [&](int seat) { for(size_t i = 0; i < seats.size(); ++i) if(seats[i] == seat) return static_cast<int>(i); return -1; };
 				if(stage == 0) {
 					++prompts;
+					++g_picks_seen;
+					if(g_variant == "tgtloss") {
+						EXPECT(g_target_losses == 0 && index_of(2) >= 0,
+						       "%s: declaration must offer seat 2 before the target flags it", sc.name);
+					}
 					if(sc.loss_seat >= 0)
 						F(d).player[sc.loss_seat].pending_loss = 0x100 | 7;
 					const int want = sc.first_seat;
@@ -290,6 +308,15 @@ static void run(const Scenario& sc) {
 		EXPECT(F(d).lp_ref(static_cast<uint8_t>(sc.hit_seat)) == lp0[sc.hit_seat] - 100, "%s: LP of seat %d is %d, want %d", sc.name, sc.hit_seat, F(d).lp_ref(static_cast<uint8_t>(sc.hit_seat)), lp0[sc.hit_seat] - 100);
 	if(sc.unhit_seat >= 0)
 		EXPECT(F(d).lp_ref(static_cast<uint8_t>(sc.unhit_seat)) == lp0[sc.unhit_seat], "%s: LP of seat %d is %d, want %d", sc.name, sc.unhit_seat, F(d).lp_ref(static_cast<uint8_t>(sc.unhit_seat)), lp0[sc.unhit_seat]);
+	// Keep the original hit checks and assert the LP and loss state of every seat.
+	for(int seat = 0; seat < sc.n; ++seat) {
+		const int expected = lp0[seat] - (sc.hit_seat >= 0 && sc.team[seat] == sc.team[sc.hit_seat] ? 100 : 0);
+		EXPECT(F(d).lp_ref(static_cast<uint8_t>(seat)) == expected,
+		       "%s: seat %d LP is %d, want %d", sc.name, seat, F(d).lp_ref(static_cast<uint8_t>(seat)), expected);
+		const bool lost = seat == sc.loss_seat || seat == sc.before_loss_seat || (g_variant == "tgtloss" && seat == 2);
+		EXPECT(F(d).is_alive(static_cast<uint8_t>(seat)) == !lost, "%s: seat %d loss state is wrong", sc.name, seat);
+	}
+	EXPECT(g_target_losses == (g_variant == "tgtloss" ? 1 : 0), "%s: target-loss count %d", sc.name, g_target_losses);
 	std::printf("%-14s n=%d variant=%-8s pick prompts=%d retries=%d operation=%d LP=%d/%d/%d/%d\n", sc.name, sc.n, sc.variant, prompts, retries, g_ops,
 	            F(d).lp_ref(0), sc.n > 1 ? F(d).lp_ref(1) : 0, sc.n > 2 ? F(d).lp_ref(2) : 0, sc.n > 3 ? F(d).lp_ref(3) : 0);
 	(void)picks_offered_loss; (void)accepted_after;
@@ -299,14 +326,19 @@ static void run(const Scenario& sc) {
 
 int main(int argc, char** argv) {
 	const std::string only = argc > 1 ? argv[1] : "";
-	// name, n, teams, variant, loss seat, first answer, want retry, second answer, want prompts, hit seat, unhit seat
+	// name, n, teams, variant, loss seat, first answer, want retry, second answer, want prompts, hit seat, unhit seat, before_loss_seat
 	const std::vector<Scenario> scenarios = {
 		{ "ffa3-ctl-s2",    3, { 0, 1, 2 }, "cond",    -1, 2, 0, -1, 1, 2, 1 },
 		{ "ffa3-stale",     3, { 0, 1, 2 }, "cond",     2, 2, 1,  1, 1, 1, 2 },
 		{ "ffa4-stale",     4, { 0, 1, 2, 3 }, "cond",  2, 2, 1,  3, 1, 3, 2 },
 		{ "tag-no-pick",    4, { 0, 1, 0, 1 }, "cond",  -1, 3, 0, -1, 0, 1, 2 },
 		{ "ffa3-tgt-ctl",   3, { 0, 1, 2 }, "tgt",     -1, 2, 0, -1, 1, 2, 1 },
-		{ "ffa3-tgt-loss",  3, { 0, 1, 2 }, "tgtloss", -1, 1, 0, -1, 0, 1, 2 },
+		// R-FFA-OPP-ONE: the one declaration precedes the callback loss. LP outcomes stay equal.
+		{ "ffa3-tgt-loss",  3, { 0, 1, 2 }, "tgtloss", -1, 1, 0, -1, 1, 1, 2 },
+		{ "ffa4-tgt-loss",  4, { 0, 1, 2, 3 }, "tgtloss", -1, 3, 0, -1, 1, 3, 2 },
+		// Loss before declaration: only p1 is legal in FFA3. FFA4 still offers p1 and p3.
+		{ "ffa3-preloss",   3, { 0, 1, 2 }, "preloss", -1, 1, 0, -1, 0, 1, 2, 2 },
+		{ "ffa4-preloss",   4, { 0, 1, 2, 3 }, "preloss", -1, 3, 0, -1, 1, 3, 2, 2 },
 	};
 	for(const auto& sc : scenarios) {
 		if(!only.empty() && only != sc.name) continue;

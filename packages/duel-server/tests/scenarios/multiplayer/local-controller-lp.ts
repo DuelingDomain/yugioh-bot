@@ -13,13 +13,16 @@ function probe(format: Format, actor: 0 | 1, [code,card]: typeof CARDS[number]):
  if(code===75249652){
   setup[seat(actor)]!.spells=[{card,pos:"set"}]; setup[seat(actor)]!.monsters=[{card:"Beaver Warrior",pos:"def"}];setup[seat(other)]!.monsters=["Battle Ox"];setup[seat(late)]!.monsters=["Luster Dragon"];
   if(format==="ffa4")setup.p2!.monsters=["Silver Fang"];
+  if(format==="tag"){const partner=actor+2;setup[seat(partner)]!.monsters=["Silver Fang"];board[seat(partner)]!.monsters=["Silver Fang"];}
   const turns=actor===0?n+1:n;for(let j=0;j<turns;j++)turn(j%n);
   steps.push(attack("Battle Ox",{card:"Beaver Warrior",owner:seat(actor)},seat(other)),activate(card,seat(actor)));
-  board[seat(actor)]!.monsters=["Beaver Warrior"];board[seat(actor)]!.grave=[card];board[seat(other)]!.grave=["Battle Ox"];board[seat(late)]!.grave=["Luster Dragon"];if(format==="ffa4")board.p2!.grave=["Silver Fang"];
-  const amount=format==="ffa4"?2400:1800;damage(actor,amount);damage(other,amount);
+  board[seat(actor)]!.monsters=["Beaver Warrior"];board[seat(actor)]!.grave=[card];board[seat(other)]!.grave=["Battle Ox"];// R-FFA-OPP-RESPONSE: in FFA, the battle event binds destruction and damage to the attacker.
+  if(format==="tag")board[seat(late)]!.grave=["Luster Dragon"];else board[seat(late)]!.monsters=["Luster Dragon"];if(format==="ffa4")board.p2!.monsters=["Silver Fang"];
+  const amount=format==="tag"?1800:850;damage(actor,amount);damage(other,amount);
  }else if(code===52038441){
   setup[seat(actor)]!.hand=[card];setup[seat(late)]!.hand=[...(setup[seat(late)]!.hand as string[]),"Monster Reborn","Dark Hole"];setup[seat(late)]!.grave=["Beaver Warrior"];setup[seat(other)]!.grave=["Celtic Guardian"];board[seat(other)]!.grave=["Celtic Guardian"];
   for(let j=0;j<late;j++)turn(j);
+  // Monster Reborn reads either GY. Choose the card without an opponent declaration.
   steps.push(activate("Monster Reborn",seat(late)),select({card:"Beaver Warrior",owner:seat(late)}),activate(card,seat(actor)),activate("Dark Hole",seat(late)));
   board[seat(actor)]!.grave=[card];board[seat(late)]!.grave=["Beaver Warrior","Monster Reborn","Dark Hole"];damage(late,1200);
  }else if(code===81385346||code===13574687){
@@ -35,6 +38,6 @@ function probe(format: Format, actor: 0 | 1, [code,card]: typeof CARDS[number]):
   for(let j=0;j<n;j++)turn((actor+j)%n);damage(late,500);
  }
  steps.push(expectBoard(board));
- return defineScenario({id:`local-controller-lp-${code}-${format}-p${actor}`,title:`${card}: the real card controller receives the stated damage`,source:`${SOURCE} [R-COMMON-CTRL]`,rules:["R-COMMON-CTRL"],tags:["multiplayer","local-controller-lp",format,`card:${code}`],setup,steps});
+ return defineScenario({id:`local-controller-lp-${code}-${format}-p${actor}`,title:`${card}: the real card controller receives the stated damage`,source:SOURCE + " [R-COMMON-CTRL]" + (format === "tag" ? " [R-TAG-LP]" : "") + (format === "tag" && code === 75249652 ? " [R-TAG-PARTNER]" : ""),rules:["R-COMMON-CTRL",...(format === "tag" ? ["R-TAG-LP"] : []),...(format === "tag" && code === 75249652 ? ["R-TAG-PARTNER"] : [])],tags:["multiplayer","local-controller-lp",format,`card:${code}`],setup,steps});
 }
 export const LOCAL_CONTROLLER_LP_SCENARIOS=CARDS.flatMap(card=>([["ffa3",0],["ffa4",0],["tag",0],["tag",1]] as const).map(([format,actor])=>probe(format,actor,card)));

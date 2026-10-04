@@ -25,13 +25,8 @@ function s.PlayerControlsAttributeOrIsAffectedByClearWall(player,attribute)
 end
 local function mp_hint(e,tp)
 	Duel.Hint(HINT_CARD,0,id)
-	local own=aux.MPKeyOfSeat(tp)
-	for seat=0,3 do
-		local lp=Duel.GetLP(seat)
-		if lp and lp>0 and aux.MPKeyOfSeat(seat)~=own then
-			Duel.Hint(HINT_OPSELECTED,seat,e:GetDescription())
-		end
-	end
+	-- Global callbacks use real seats; patch 0067 expands this caller's opponents.
+	Duel.Hint(HINT_OPSELECTED,tp,e:GetDescription())
 end
 function s.desop(e,tp,eg,ep,ev,re,r,rp)
 	e:GetHandler():RegisterFlagEffect(id,RESETS_STANDARD_PHASE_END,0,1)
@@ -61,6 +56,13 @@ local mp_ops={[s.desop]=true,[s.discardop]=true,[s.damop]=true}
 local mp_wrapped={}
 local mp_initial=s.initial_effect
 function s.initial_effect(c)
+	local card_register=Card.RegisterEffect
+	Card.RegisterEffect=function(card,e,...)
+		if card==c and e:GetOperation()==s.maintop then
+			e:SetCondition(function(e) return Duel.MPTurnControls(e:GetHandler()) end)
+		end
+		return card_register(card,e,...)
+	end
 	local reg=Duel.RegisterEffect
 	Duel.RegisterEffect=function(e,p,...)
 		local op=e:GetOperation()
@@ -83,5 +85,6 @@ function s.initial_effect(c)
 	end
 	local ok,err=pcall(mp_initial,c)
 	Duel.RegisterEffect=reg
+	Card.RegisterEffect=card_register
 	if not ok then error(err,0) end
 end

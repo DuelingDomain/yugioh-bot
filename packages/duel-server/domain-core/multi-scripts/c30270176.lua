@@ -1,7 +1,7 @@
 if not aux.MPForEachDuelist then return end
--- Only the card owner's own End Phase counts; the Tag partner's turn does not count.
+-- Only the card controller's own End Phase counts; the Tag partner's turn does not count.
 function s.damcon(e,tp,eg,ep,ev,re,r,rp)
-	return Duel.MPTurnOwns(e:GetHandler())
+	return Duel.MPTurnControls(e:GetHandler())
 end
 -- Every duelist takes 3000 damage (R1, Q3, Tag partner included).
 function s.damop(e,tp,eg,ep,ev,re,r,rp)

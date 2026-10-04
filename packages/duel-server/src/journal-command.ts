@@ -1,8 +1,8 @@
 import { chainModeOf, type DuelAnswer } from "@yugidraft/shared/duels";
-import { eliminationCodeOf, type EngineGame } from "./engine.js";
+import { eliminationAtTurnEnd, eliminationCodeOf, type EngineGame } from "./engine.js";
 
 /**
- * The journal commands that answer no prompt: an elimination (`eliminate:<reason>`) and a chain response mode change
+ * The journal commands that answer no prompt: an elimination (`eliminate:<reason>` or retired `eliminate-eot:<reason>`) and a chain response mode change
  * (`chain-mode:<mode>`). Their promptId is a sentinel, so a replay checks only the revision for them.
  */
 export function isPromptlessCommand(promptId: string): boolean {
@@ -14,6 +14,6 @@ export function applyJournaledCommand(game: EngineGame, seat: number, command: {
   const elimination = eliminationCodeOf(command.promptId);
   const mode = chainModeOf(command.promptId);
   if (mode !== null) game.setChainMode(seat, mode);
-  else if (elimination !== null) game.eliminate(seat, elimination);
+  else if (elimination !== null) game.eliminate(seat, elimination, eliminationAtTurnEnd(command.promptId));
   else game.answer(seat, command.promptId, command.answer);
 }

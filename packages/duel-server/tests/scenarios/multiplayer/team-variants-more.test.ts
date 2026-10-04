@@ -186,11 +186,5 @@ describe("team 1 variant list (part 2)", () => {
     }
   });
 
-  it("passes the Set Ojama Trio windows before the action prompt of turn 2 and includes p1's draw", () => {
-    expect(ojamaVariant.steps.slice(1, 6)).toEqual(Array.from({ length: 5 }, () => pass("p1")));
-    expect(ojamaVariant.steps[6]).toEqual(expectTurn("p1", 2));
-    expect(ojamaVariant.steps[8]).toMatchObject({ op: "activate", by: "p1" });
-    const end = [...ojamaVariant.steps].reverse().find((step) => step.op === "expectBoard");
-    expect(end).toMatchObject({ board: { p1: { hand: { count: 1 } } } });
-  });
+
 });

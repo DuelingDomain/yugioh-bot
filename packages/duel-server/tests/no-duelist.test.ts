@@ -242,26 +242,29 @@ describe("raw 200 and 201 with duelist 0xFF", () => {
   });
 });
 
-describe("wrapper parse warning for ids 200, 201 and 202", () => {
+describe("wrapper parse warning for ids 200, 201, 202 and 203", () => {
   const original = console.warn;
   afterEach(() => {
     console.warn = original;
   });
 
-  it("drops only the three warnings of the ids the tap reads", () => {
+  it("drops only the four exact warnings of the ids the tap reads", () => {
     const seen: string[] = [];
     console.warn = (...args: unknown[]) => void seen.push(args.map(String).join(" "));
     const result = withoutDuelistParseWarnings(() => {
-      for (const id of [200, 201, 202, 203, 41]) console.warn(`failed to parse a message: ${id}`);
+      // R-COMMON-SURRENDER-EOT: the raw tap reads surrender window closure 203.
+      for (const id of [200, 201, 202, 203, 204, 41]) console.warn(`failed to parse a message: ${id}`);
       console.warn("failed to parse a message: 7 (boom)");
+      console.warn("failed to parse a message: 203 (boom)");
       console.warn("another warning");
       return 42;
     });
     expect(result).toBe(42);
     expect(seen).toEqual([
-      "failed to parse a message: 203",
+      "failed to parse a message: 204",
       "failed to parse a message: 41",
       "failed to parse a message: 7 (boom)",
+      "failed to parse a message: 203 (boom)",
       "another warning",
     ]);
   });

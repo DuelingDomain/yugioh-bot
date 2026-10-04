@@ -4,15 +4,14 @@
 // Decisions: docs/adr/0002-multiplayer-duel-rules.md (question 2 and 5). FFA: the activator picks ONE opponent and compares with that
 // opponent only. Tag: the joined field of the two opposing duelists, and the picked opposing duelist chooses.
 
-import {
-  activate, attack, changePhase, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, expectPrompt,
-  normalSummon, pass, pickOpponent, select, expectTurn, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
-} from "../../support/dsl.js";
+import { activate, attack, changePhase, endTurn, expectBoard, expectNotOffered, expectOffered, expectPickSeats, expectPrompt,
+  no, normalSummon, pass, pickOpponent, select, expectTurn, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
+import { ffa4Variant } from "./ffa4-variants.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
-/** The state of EVERY seat of a format (monsters, Spell and Trap zones, Graveyard, banished zone and Life Points exact; the hand is not checked). */
+/** The state of EVERY seat of a format (monsters, Spell and Trap zones, Graveyard, banished zone and Life Points exact; the hand and Deck count are checked when the spec names them). */
 function everySeat(format: "ffa3" | "ffa4" | "tag", spec: Partial<Record<Seat, DuelistExpect>>): Step {
   const seats: Seat[] = format === "ffa3" ? ["p0", "p1", "p2"] : ["p0", "p1", "p2", "p3"];
   const board: BoardExpect = {};
@@ -125,9 +124,9 @@ export const COMPARE_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "compare-ffa3-window-closes-after-evenly-matched",
-    title: "FFA3: after Evenly Matched resolved on one opponent, Raigeki of the same duelist destroys the monsters of EVERY opponent (W5)",
-    source: `${SOURCE} [R-COMMON-OPP-FIELD]`,
-    rules: ["R-COMMON-OPP-FIELD", "R-COMMON-OPP-PICK"],
+    title: "FFA3: after Evenly Matched resolves on p1, Raigeki declares p2 and destroys only p2 monsters (W5)",
+    source: `${SOURCE} [R-FFA-OPP-ONE], owner decision 2026-10-02`,
+    rules: ["R-FFA-OPP-ONE", "R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "compare", "chooser", "ffa3", "card:15693423", "card:12580477"],
     // Evenly Matched is a Trap that p0 activates from the hand in the Battle Phase (no card on the field, an opponent with 2 or more).
     setup: {
@@ -148,8 +147,16 @@ export const COMPARE_SCENARIOS: Scenario[] = [
       // p1 banishes 3 - 0 - 1 (the card in the hand) = 2 of its own cards. p2 is not touched.
       select(SANGAN, WITCH),
       expectBoard({ p1: { monsters: [BUG] }, p2: { monsters: [OX, GUARDIAN] } }),
+      // Reason: activated opponent-field effects now declare one opponent; a later chain link must not reuse the Evenly Matched bind.
       activate("Raigeki", "p0"),
-      expectBoard({ p1: { monsters: { count: 0 } }, p2: { monsters: { count: 0 } } }),
+      expectPickSeats(["p1", "p2"], "p0"),
+      pickOpponent("p2", "p0"),
+      expectBoard({
+        // Standard MR5 skips turn 1's draw. p0 draws once, on turn 4.
+        p0: { lp: 8000, monsters: [], spells: [], grave: ["Evenly Matched", "Raigeki"], banished: [], hand: { count: 1 } },
+        p1: { lp: 8000, monsters: [BUG], spells: [], grave: [], banished: { count: 2 }, hand: { count: 1 } },
+        p2: { lp: 8000, monsters: [], spells: [], grave: [OX, GUARDIAN], banished: [], hand: { count: 1 } },
+      }),
     ],
   }),
   defineScenario({
@@ -309,12 +316,23 @@ export const COMPARE_SCENARIOS: Scenario[] = [
     steps: [
       // A Trap: p0 activates it on the turn of p1, in response to the Normal Summon of p1.
       endTurn("p0"),
+      // Decline the End Phase, pre-draw, post-draw and Standby Phase windows.
+      ...Array.from({ length: 4 }).flatMap(() => [
+        expectPrompt({ by: "p0", context: "chain" }),
+        expectOffered("activate", "Gigantic Thundercross", "p0"), pass("p0"),
+      ]),
       normalSummon(ELF, "p1"),
       activate("Gigantic Thundercross", "p0"),
       expectPickSeats(["p1", "p2"], "p0"),
       pickOpponent("p1", "p0"),
       select(OX, GUARDIAN),
-      expectBoard({ p1: { monsters: [ELF] }, p2: { monsters: [AXE] } }),
+      expectPrompt({ by: "p1", offers: ["yes", "no"] }),
+      no("p1"),
+      everySeat("ffa3", {
+        p0: { grave: ["Gigantic Thundercross"], banished: [ELF], hand: [], deckCount: 20 },
+        p1: { monsters: [ELF], banished: [SANGAN, WITCH, BUG, OX, GUARDIAN], hand: [], deckCount: 19 },
+        p2: { monsters: [AXE], banished: [FANG, RAT], hand: [], deckCount: 20 },
+      }),
     ],
   }),
   defineScenario({
@@ -332,6 +350,11 @@ export const COMPARE_SCENARIOS: Scenario[] = [
     },
     steps: [
       endTurn("p0"),
+      // Decline the End Phase, pre-draw, post-draw and Standby Phase windows.
+      ...Array.from({ length: 4 }).flatMap(() => [
+        expectPrompt({ by: "p0", context: "chain" }),
+        expectOffered("activate", "Gigantic Thundercross", "p0"), pass("p0"),
+      ]),
       normalSummon(BEAVER, "p1"),
       activate("Gigantic Thundercross", "p0"),
       expectPickSeats(["p1", "p2"], "p0"),
@@ -340,9 +363,9 @@ export const COMPARE_SCENARIOS: Scenario[] = [
       yes("p1"),
       select(ELF),
       everySeat("ffa3", {
-        p0: { grave: ["Gigantic Thundercross"], banished: [ELF] },
-        p1: { monsters: [BEAVER, ELF], banished: [SANGAN, WITCH, BUG, OX, GUARDIAN] },
-        p2: { monsters: [AXE], banished: [FANG, RAT] },
+        p0: { grave: ["Gigantic Thundercross"], banished: [ELF], hand: [], deckCount: 20 },
+        p1: { monsters: [BEAVER, ELF], banished: [SANGAN, WITCH, BUG, OX, GUARDIAN], hand: [], deckCount: 18 },
+        p2: { monsters: [AXE], banished: [FANG, RAT], hand: [], deckCount: 20 },
       }),
     ],
   }),
@@ -371,10 +394,10 @@ export const COMPARE_SCENARIOS: Scenario[] = [
       yes("p3"),
       select(ELF),
       everySeat("tag", {
-        p0: { grave: ["Gigantic Thundercross"], banished: [ELF] },
-        p1: { banished: [SANGAN, WITCH, OX] },
-        p2: { monsters: [AXE] },
-        p3: { monsters: [ELF], banished: [BUG, GUARDIAN] },
+        p0: { grave: ["Gigantic Thundercross"], banished: [ELF], hand: [], deckCount: 20 },
+        p1: { banished: [SANGAN, WITCH, OX], hand: [BEAVER], deckCount: 19 },
+        p2: { monsters: [AXE], hand: [], deckCount: 20 },
+        p3: { monsters: [ELF], banished: [BUG, GUARDIAN], hand: [], deckCount: 19 },
       }),
     ],
   }),
@@ -582,3 +605,15 @@ export const COMPARE_SCENARIOS: Scenario[] = [
     ],
   }),
 ];
+
+// Run both Normal Summon responses with a third FFA opponent. Its banished count
+// equals p0's count, so it is not a legal declared opponent for this Trap.
+COMPARE_SCENARIOS.push(...COMPARE_SCENARIOS.filter(scenario =>
+  scenario.setup.format === "ffa3" && scenario.id.includes("thundercross")
+).map(scenario => {
+  const variant = ffa4Variant(scenario, { p3: { banished: [ELF] }, pickP3: false });
+  for (const step of variant.steps) if (step.op === "expectBoard") {
+    step.board.p3 = { lp: 8000, monsters: [], spells: [], grave: [], banished: [ELF], hand: [], deckCount: 20 };
+  }
+  return variant;
+}));
