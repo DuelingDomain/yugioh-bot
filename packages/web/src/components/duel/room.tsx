@@ -247,8 +247,12 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     clock: data?.clock,
     duelKey: slug,
     reducedMotion: preferences.reducedMotion,
-    ready: Boolean(data?.engine) && data?.session.status !== "lobby" && !ownWindowGate && !error && !realtime.recovering,
+    ready: Boolean(data?.engine) && data?.session.status !== "lobby" && !ownWindowGate && !error,
+    recovering: realtime.recovering,
   });
+  // The card layers go while the connection recovers (their events are history when they return), except while
+  // the opening deal plays: a focus or a socket retry in those seconds must not drop the cards still in flight.
+  const fxUp = !error && (!realtime.recovering || startBeats.dealing);
   const catchingUp = syncing || startBeats.active;
   // The engine drops its prompt when the duel ends; guard here too, so no answer path can open between the end and the result screen.
   const prompt = data?.engine?.result ? null : (data?.engine?.prompt ?? null);
@@ -1034,20 +1038,20 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
                   topName={playerName(top?.seat ?? 1 - localSeat)} />
                 )}
                 <FxBoundary>
-                {!error && !realtime.recovering ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
+                {fxUp ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
                   soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
-                {!error && !realtime.recovering ? <SummonFx events={engine.events} duelKey={slug}
+                {fxUp ? <SummonFx events={engine.events} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
-                {!error && !realtime.recovering ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
-                {!error && !realtime.recovering ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
-                {!error && !realtime.recovering ? <ChainFx events={engine.events} chain={engine.chain} duelKey={slug}
+                {fxUp ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
+                {fxUp ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
+                {fxUp ? <ChainFx events={engine.events} chain={engine.chain} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} ended={duelOver} /> : null}
-                {!error && !realtime.recovering ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
+                {fxUp ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
                 <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}
-                  active={!error && !realtime.recovering} aim={battleAim} result={engine.result} battleStep={battleStep} />
+                  active={fxUp} aim={battleAim} result={engine.result} battleStep={battleStep} />
                 <DestroyFx key={`destroy-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
-                  active={!error && !realtime.recovering} mySeat={localSeat} />
+                  active={fxUp} mySeat={localSeat} />
                 </FxBoundary>
                 <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}
                   busy={busy || Boolean(error) || catchingUp || (prompt == null && pick.waiting != null)} draft={draft} onSubmit={onSubmitAnswer}
