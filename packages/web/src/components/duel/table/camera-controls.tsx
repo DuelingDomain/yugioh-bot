@@ -23,6 +23,11 @@ export interface CameraControlsProps {
    * puts the panel in a column renders `panel` there and `stage` over the board.
    */
   variant?: "float" | "panel" | "stage";
+  /**
+   * The wide table: the View button lives on its rail and owns whether the grid is open. The panel then has no toggle of
+   * its own and opens at the left edge of the board, next to the rail.
+   */
+  view?: { open: boolean };
 }
 
 function toneVars(layout: TableLayout, seat: number): CSSProperties {
@@ -88,8 +93,9 @@ function ViewButton({ action, label, icon, seatStyle, hotkey, pressed, disabled,
  * upright and auto switches, the Keep pin), the camera chip with its FX lock mark, the auto-camera cue and the
  * look-from-seat banner. It only dispatches camera actions. While the FX lock is on the buttons are off.
  */
-export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, out = [], variant = "float" }: CameraControlsProps) {
-  const [open, setOpen] = useState(false);
+export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, out = [], variant = "float", view }: CameraControlsProps) {
+  const [ownOpen, setOpen] = useState(false);
+  const open = view ? view.open : ownOpen;
   const rivals = layout.slots.filter((slot) => slot.seat !== layout.anchorSeat && !out.includes(slot.seat));
   const flyOn = camera.mode === "fly";
   const flyReady = camera.flyIn !== false;
@@ -107,10 +113,11 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
         className={styles.panel}
         data-camera-panel
         data-variant={variant === "panel" ? "column" : undefined}
+        data-side={view ? "left" : undefined}
         data-open={open ? "true" : "false"}
         data-locked={locked ? "true" : undefined}
       >
-        <button
+        {view ? null : <button
           type="button"
           className={styles.toggle}
           aria-expanded={open}
@@ -120,7 +127,7 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
           <Video size={13} aria-hidden="true" />
           <span>View</span>
           <Key>{open ? "close" : "H"}</Key>
-        </button>
+        </button>}
         {open ? (
           <div id="camera-view-grid" className={styles.grid} role="group" aria-label="Camera">
             <ViewButton action="home" label="Home" icon={<House size={13} aria-hidden="true" />} hotkey="H" pressed={camera.mode === "home"} disabled={locked} onClick={() => dispatch({ type: "home" })} />
