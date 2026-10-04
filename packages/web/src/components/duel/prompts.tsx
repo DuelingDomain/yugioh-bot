@@ -14,7 +14,8 @@ import { searchDuelCards } from "./api";
 import { cardArtUrl, LOCATION_MZONE, zoneKey } from "./constants";
 import { backOutAnswer } from "./pick-backout";
 import { selectBarCopy, sumSelectionValues } from "./select-bar-copy";
-import styles from "./prompts.module.css";
+import baseStyles from "./prompts.module.css";
+import { useSkinStyles } from "./skin";
 
 export interface PromptDraft {
   selected: string[];
@@ -301,6 +302,7 @@ function OptionButton({
   disabled?: boolean;
   onHover?: (option: DuelPromptOption | null) => void;
 }) {
+  const styles = useSkinStyles(baseStyles, "tray");
   return (
     <button
       type="button"
@@ -337,6 +339,7 @@ export function AnnounceSearch({
   busy: boolean;
   onPick: (card: DuelCardInfo) => void;
 }) {
+  const styles = useSkinStyles(baseStyles, "tray");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<DuelCardInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -407,6 +410,7 @@ export function AnnounceSearch({
 }
 
 function PromptHeader({ prompt, badge, tone }: { prompt: DuelPrompt; badge?: string; tone?: "gold" | "forced" }) {
+  const styles = useSkinStyles(baseStyles, "tray");
   return (
     <div className={styles.header}>
       <h2 className={styles.title}>{prompt.title}</h2>
@@ -435,6 +439,7 @@ function EngineActions({
   onFinish: () => void;
   onCancel: () => void;
 }) {
+  const styles = useSkinStyles(baseStyles, "tray");
   const showConfirm = Boolean(onConfirm) && needsExplicitConfirm(prompt);
   const chain = prompt.context?.type === "chain";
   if (!showConfirm && !prompt.finishable && !prompt.cancelable) return null;
@@ -470,6 +475,7 @@ function ChoiceButtons({
   onChoice: (id: string) => void;
   highlight: number;
 }) {
+  const styles = useSkinStyles(baseStyles, "tray");
   const yes = prompt.options.find((option) => option.id === "yes");
   const no = prompt.options.find((option) => option.id === "no");
   if (yes && no && prompt.options.length === 2) {
@@ -535,6 +541,7 @@ export function PromptTray({
   /** 3 and 4 seat tables: the name of the seat that must answer. */
   waitingName?: string | null;
 }) {
+  const styles = useSkinStyles(baseStyles, "tray");
   const seated = prompt != null && mySeat != null && prompt.seat === mySeat;
   const answering = seated && active !== false;
   const context: DuelPromptContext | undefined = prompt?.context;
