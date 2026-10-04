@@ -5,6 +5,7 @@ import { Check, CircleAlert, Info, Plus, Search } from "lucide-react";
 import { svButtonClass } from "@/components/sheet";
 import { isExtraDeckMonster, type CardSummary } from "@/lib/card-types";
 import { parseCustomCardIds } from "@/lib/custom-card-pool";
+import { useResultNav } from "@/lib/hooks/use-result-nav";
 import { fetchArchetypes, fetchSets, resolveCards, resolvePasscodes, type SetInfo } from "./pool-api";
 import { CardThumb } from "./pool-bits";
 import {
@@ -140,6 +141,14 @@ function CardTab({ ctl, setNote }: TabProps) {
   }, [query]);
 
   const trimmed = query.trim();
+  const addOne = (card: CardSummary) => setNote({ tone: "ok", text: addCopyLine(card.name, ctl.addCopy(card)) });
+  const nav = useResultNav({
+    items: results,
+    query,
+    setQuery,
+    onPick: addOne,
+    canPick: (card) => (ctl.pool.get(card.id) ?? 0) < MAX_COPIES,
+  });
   return (
     <>
       <div className={styles.in}>
@@ -153,17 +162,18 @@ function CardTab({ ctl, setNote }: TabProps) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           autoComplete="off"
+          {...nav.inputProps}
         />
       </div>
-      {!trimmed && <Hint>Type a card name. + adds one copy.</Hint>}
+      {!trimmed && <Hint>Type a card name. Enter or + adds one copy.</Hint>}
       {trimmed && searching && results.length === 0 && <Hint>Searching.</Hint>}
       {trimmed && !searching && results.length === 0 && <Hint>No main-deck card matches that.</Hint>}
       {results.length > 0 && (
-        <ul className={styles.res} aria-label={`Results for ${trimmed}`} aria-busy={searching || undefined}>
-          {results.map((card) => {
+        <ul className={styles.res} aria-label={`Results for ${trimmed}`} aria-busy={searching || undefined} {...nav.listProps}>
+          {results.map((card, index) => {
             const copies = ctl.pool.get(card.id) ?? 0;
             return (
-              <li key={card.id} className={styles.resRow}>
+              <li key={card.id} className={styles.resRow} {...nav.optionProps(index)}>
                 <CardThumb id={card.id} src={card.imageUrlSmall} className={styles.thumb} />
                 <div className={styles.resN}>
                   <b>{card.name}</b>
@@ -176,7 +186,7 @@ function CardTab({ ctl, setNote }: TabProps) {
                     className={`${styles.ib} ${styles.ibAdd}`}
                     aria-label={`Add one copy of ${card.name}`}
                     disabled={copies >= MAX_COPIES}
-                    onClick={() => setNote({ tone: "ok", text: addCopyLine(card.name, ctl.addCopy(card)) })}
+                    onClick={() => addOne(card)}
                   >
                     <Plus size={16} aria-hidden="true" />
                   </button>

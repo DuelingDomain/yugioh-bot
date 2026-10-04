@@ -6,6 +6,7 @@ import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
 import { parseCustomCardIds } from "@/lib/custom-card-pool";
 import { isExtraDeckCardClient } from "@/lib/cube-pools";
+import { useResultNav } from "@/lib/hooks/use-result-nav";
 import type { AddTab } from "./library-model";
 import styles from "./cubes.module.css";
 
@@ -71,7 +72,7 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
       fetch("/api/cards/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fuzzyName: q }),
+        body: JSON.stringify({ fuzzyName: q, includeExtra: true }),
       })
         .then((res) => (res.ok ? res.json() : Promise.reject(new Error("search failed"))))
         .then((data: { cards: CardSummary[] }) => {
@@ -90,6 +91,13 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
   }, [query]);
 
   const trimmed = query.trim();
+  const nav = useResultNav({
+    items: results,
+    query,
+    setQuery,
+    onPick: onAddCard,
+    canPick: (card) => !busy && copiesInCube(card.id) === 0,
+  });
   return (
     <>
       <div>
@@ -101,20 +109,21 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
           className="input"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="blue-eyes, dark magician, ..."
+          placeholder="blue eyes, dark magician, ..."
           autoComplete="off"
+          {...nav.inputProps}
         />
         <p className="hint">
-          Adds 3 copies. Extra deck monsters go to the Extra pool. Select a card in the cube to change its copies.
+          Type a name, press Enter or pick a card. Adds 3 copies. Extra deck monsters go to the Extra pool. Select a card in the cube to change its copies.
         </p>
       </div>
-      {trimmed.length > 0 && (
-        <ul className="ce-res" aria-label={`Results for ${trimmed}`} aria-busy={searching || undefined}>
-          {results.map((card) => {
+      {trimmed.length > 0 && results.length > 0 && (
+        <ul className="ce-res" aria-label={`Results for ${trimmed}`} aria-busy={searching || undefined} {...nav.listProps}>
+          {results.map((card, index) => {
             const copies = copiesInCube(card.id);
             const pool = isExtraDeckCardClient(card) ? "Extra" : "Main";
             return (
-              <li key={card.id} data-testid="card-search-result">
+              <li key={card.id} data-testid="card-search-result" {...nav.optionProps(index)}>
                 <span className={styles.resThumb}>
                   <img src={card.imageUrlSmall || card.imageUrl} alt="" loading="lazy" />
                 </span>

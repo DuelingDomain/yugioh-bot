@@ -38,6 +38,7 @@ let banlist: string | null;
 let draftType: string | undefined;
 let settings: Record<string, number>;
 let puts: Array<Record<string, unknown>>;
+let resolves: Array<Record<string, unknown>>;
 
 function detail() {
   return { pools: { main: [...main], extra: [...extra] }, cards: CARDS };
@@ -51,6 +52,7 @@ beforeEach(() => {
   draftType = undefined;
   settings = {};
   puts = [];
+  resolves = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: unknown, init?: RequestInit) => {
@@ -93,6 +95,7 @@ beforeEach(() => {
         } as Response;
       }
       if (url.endsWith("/api/cards/resolve")) {
+        resolves.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
         return { ok: true, json: async () => ({ cards: CARDS }) } as Response;
       }
       return { ok: true, json: async () => ({ cards: [] }) } as Response;
@@ -109,6 +112,29 @@ async function open() {
   render(<CubeEditor cubeId={5} />);
   await screen.findByRole("heading", { name: "Custom" });
 }
+
+describe("CubeEditor card name search", () => {
+  it("lists matches for a typed name, asks for Extra Deck cards too, and Enter adds the top match", async () => {
+    await open();
+    const input = screen.getByLabelText("Card name");
+    fireEvent.change(input, { target: { value: "xyz b" } });
+
+    const list = await screen.findByRole("listbox", { name: "Results for xyz b" });
+    const rows = within(list).getAllByRole("option");
+    expect(rows.map((row) => within(row).getByRole("button").getAttribute("aria-label"))).toEqual(["Add Main A", "Add Xyz B"]);
+    expect(rows[1]).toHaveTextContent("XYZ Monster, Extra");
+    expect(resolves.at(-1)).toEqual({ fuzzyName: "xyz b", includeExtra: true });
+    expect(input).toHaveAttribute("role", "combobox");
+    expect(input).toHaveAttribute("aria-activedescendant", rows[0].id);
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(within(list).getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toMatchObject({ op: "add", catalogCardId: 2, pool: "extra" });
+  });
+});
 
 describe("CubeEditor", () => {
   it.each(["TCG", null])("lists header facts as plain items while saving (%s banlist)", async (currentBanlist) => {

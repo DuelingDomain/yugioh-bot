@@ -38,6 +38,53 @@ function postedDraft(stub: ReturnType<typeof stubFetch>) {
   return stub.find("/api/drafts", "POST")[0]?.body as { name: string; config: Record<string, unknown> };
 }
 
+describe("CreateDraftForm pool: card name search", () => {
+  const openSearch = async () => {
+    const stub = stubFetch();
+    render(<CreateDraftForm />);
+    await openEditor();
+    const input = await screen.findByLabelText("Search cards by name");
+    return { stub, input };
+  };
+
+  it("lists the closest matches for a partial name, the best match first, and leaves Extra Deck cards out", async () => {
+    const { input } = await openSearch();
+    fireEvent.change(input, { target: { value: "blue-eyes" } });
+
+    const list = await screen.findByRole("listbox", { name: "Results for blue-eyes" });
+    const names = within(list).getAllByRole("option").map((o) => within(o).getByRole("button").getAttribute("aria-label"));
+    expect(names).toEqual(["Add one copy of Blue-Eyes White Dragon", "Add one copy of Blue-Eyes Alternative"]);
+    expect(input).toHaveAttribute("role", "combobox");
+    expect(input).toHaveAttribute("aria-expanded", "true");
+    expect(input).toHaveAttribute("aria-controls", list.id);
+  });
+
+  it("adds the top match with Enter, moves with the arrow keys and never submits the form", async () => {
+    const { stub, input } = await openSearch();
+    fireEvent.change(input, { target: { value: "blue-eyes" } });
+    const results = () => within(screen.getByRole("listbox", { name: "Results for blue-eyes" })).getAllByRole("option");
+    await screen.findByRole("listbox", { name: "Results for blue-eyes" });
+    const options = results();
+    expect(options[0]).toHaveAttribute("aria-selected", "true");
+    expect(input).toHaveAttribute("aria-activedescendant", options[0].id);
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    const pool = screen.getByRole("list", { name: "Pool cards" });
+    expect(within(pool).getByText("Blue-Eyes White Dragon")).toBeInTheDocument();
+    expect(within(pool).queryByText("Blue-Eyes Alternative")).toBeNull();
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(results()[1]).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(within(pool).getByText("Blue-Eyes White Dragon")).toBeInTheDocument();
+    expect(within(pool).getByText("Blue-Eyes Alternative")).toBeInTheDocument();
+
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(input).toHaveValue("");
+    expect(stub.find("/api/drafts", "POST")).toHaveLength(0);
+  });
+});
+
 describe("CreateDraftForm pool: starting from a cube", () => {
   it("opens the cube picker when cubes exist, hides theme cubes and says who made each", async () => {
     stubFetch();

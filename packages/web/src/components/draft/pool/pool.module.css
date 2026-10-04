@@ -93,7 +93,8 @@
 .edEmpty { margin: 0; color: var(--ink-2); font-size: 15px; }
 .res { display: grid; gap: 2px; max-height: 262px; overflow-y: auto; margin: 0 -6px; padding: 0 6px; list-style: none; scrollbar-width: thin; scrollbar-color: var(--rule) transparent; }
 .resRow { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 6px 4px; border-radius: 8px; }
-.resRow:hover { background: rgb(239 231 213 / 0.04); }
+.resRow:hover, .resRow[data-active] { background: rgb(239 231 213 / 0.04); }
+.resRow[data-active] { box-shadow: inset 2px 0 0 var(--pen-ink); }
 .thumb { width: 26px; height: 38px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px rgb(239 231 213 / 0.12); background: var(--panel-2); }
 .resN { min-width: 0; }
 .resN b { display: block; font-weight: 500; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
