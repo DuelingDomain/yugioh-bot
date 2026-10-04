@@ -333,16 +333,14 @@ export function ringPose(layout: TableLayout, camera: CameraView): { x: number; 
 }
 
 /**
- * The three sizes of the phase hub strip, in stage px (the PhaseHub "table" variant draws exactly this, by the
+ * The two sizes of the phase hub strip, in stage px (the PhaseHub "table" variant draws exactly this, by the
  * `data-hub-size` of its wrapper). The stage is scaled to the window (about 0.79 at 1440 x 900).
  *   lg  chips 41px (32px on screen) with 13px labels, a wide lit chip with the phase's name, a caption line above.
- *   sm  chips 33px (26px), the lit phase named in the caption.
- *   xs  the strip alone, chips as sm.
+ *   sm  chips 33px (26px) and 30px wide, the lit phase named in the caption.
  */
 export const HUB_STRIP = {
   lg: { width: 389, height: 70 },
-  sm: { width: 217, height: 61 },
-  xs: { width: 217, height: 43 },
+  sm: { width: 205, height: 61 },
 } as const;
 export type HubSize = keyof typeof HUB_STRIP;
 
@@ -360,35 +358,82 @@ export const ARENA_SIGN = { x: 517, y: 18, width: 66, height: 17 } as const;
 
 /**
  * Where the phase hub strip stands in a camera mode. Each place was found by scanning the stage for a rectangle that
- * overlaps no seat field, no holo LP panel, not the ARENA 07 sign and not the ring itself (the geometry test repeats the
- * check, so a change to the poses fails loudly). In order of preference: centred on the ring, above or below it; beside it;
- * and, where the seats leave no room near the ring, the open strip of stage under your own field. Only a 4-way table
- * has room for the first two, and a 3-way table at home none at all.
+ * keeps 5px clear of every seat's field, hand and name label (see `seatObstacles`), every holo LP plate, the ARENA 07
+ * sign and the turn ring; the geometry test repeats the check, so a change to the poses fails loudly. In order of
+ * preference: beside the ring; and, where the seats leave no room there, the open stage level with the top half of your
+ * own field, to the right of it. Never over cards, hands or plates.
  * The strip is a flat overlay on the canvas: it never tilts with the world, so in the fly view it keeps the home place.
  */
 export function hubPose(layout: TableLayout, camera: CameraView): HubPose {
   const ring = ringPose(layout, camera);
-  let size: HubSize = "lg";
+  let size: HubSize;
   let at: { x: number; y: number };
   if (layout.format === "ffa4") {
     if (camera.mode === "overview") {
       // Centred above the ring.
+      size = "lg";
       at = { x: ring.x, y: 298 };
     } else if (camera.mode === "focus") {
-      // Left of the ring in the top right corner, with no room for the caption.
-      size = "xs";
-      at = { x: 881, y: 26 };
+      // The far rival's field and name fill the top row, so the strip stands right of your own small field instead,
+      // under the right-hand rival.
+      size = "sm";
+      at = { x: 985, y: 563 };
     } else {
       // Right of the ring, between it and the right-hand rival.
       size = "sm";
       at = { x: 725, y: 342 };
     }
+  } else if (camera.mode === "overview") {
+    // Left of the ring, in the top row of the stage.
+    size = "sm";
+    at = { x: 384, y: 40 };
+  } else if (camera.mode === "focus") {
+    // Above the small ring beside the docked rival.
+    size = "sm";
+    at = layout.slots.findIndex((slot) => slot.seat === camera.focusSeat) === 2 ? { x: 952, y: 326 } : { x: 109, y: 326 };
   } else {
-    // The seats of a 3-way table close in on the ring from every side, so the strip docks under your field.
-    at = { x: 550, y: 812 };
+    // Home, look and fly: the seats close in on the ring from every side, so the strip stands in the open stage right
+    // of your own field, level with its top half and above your LP plate.
+    size = "sm";
+    at = { x: 988, y: 490 };
   }
   const { width, height } = HUB_STRIP[size];
   return { ...at, size, width, height };
+}
+
+/** A rotated rectangle in stage px: centre, size and turn. */
+export interface StageRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotateDeg: number;
+}
+
+/**
+ * Everything one seat draws, as rectangles on the stage: the 653 x 380 field, the hand hanging off its back edge
+ * (your face-up hand is 605 wide and 116 deep, with room to grow; a rival's backs about 420 by 100 with their hover lift)
+ * and the name label under the field's left side. The phase hub keeps clear of all three, so it never lands on cards.
+ */
+export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotateDeg">, own: boolean): StageRect[] {
+  const r = (pose.rotateDeg * Math.PI) / 180;
+  const cos = Math.cos(r);
+  const sin = Math.sin(r);
+  // A rect given in the seat's own frame (origin at the field centre, +y toward its back edge), placed on the stage.
+  const rect = (lx: number, ly: number, width: number, height: number): StageRect => ({
+    x: pose.x + (lx * cos - ly * sin) * pose.scale,
+    y: pose.y + (lx * sin + ly * cos) * pose.scale,
+    width: width * pose.scale,
+    height: height * pose.scale,
+    rotateDeg: pose.rotateDeg,
+  });
+  const handW = own ? 605 : 420;
+  const handH = own ? 116 : 100;
+  return [
+    rect(0, 0, 653, 380),
+    rect(0, 190 + handH / 2 - 2, handW, handH),
+    rect(-653 / 2 + 0.17 * 653, 190 + 14, 150, 28),
+  ];
 }
 
 /** Screen angle of every seat on the turn ring (degrees, 0 = right, 90 = down), by seat number. */

@@ -290,8 +290,7 @@ button.chip:focus-visible {
    Sizes are stage px (the stage is scaled to the window, about 0.79 at 1440 x 900). The wrapper in the table stage says
    which size the place holds with data-hub-size:
      lg  chips 41px (32px on screen), labels 16.5px (13px), the lit chip says its name; owner and turn in a caption above.
-     sm  chips 33px (26px), the lit chip stays a code and the caption also names the phase.
-     xs  the strip alone. */
+     sm  chips 33px (26px), the lit chip stays a code and the caption also names the phase. */
 
 .root[data-variant="table"] {
   --hc: 41px;
@@ -319,6 +318,7 @@ button.chip:focus-visible {
   gap: 0.6em;
   min-width: 0;
   height: 16px;
+  overflow: hidden;
   padding-left: 6px;
   font-size: 12.5px;
   line-height: 1;
@@ -341,35 +341,25 @@ button.chip:focus-visible {
   color: var(--ink-3);
 }
 
-:global([data-hub-size="sm"]) .root[data-variant="table"],
-:global([data-hub-size="xs"]) .root[data-variant="table"] {
+:global([data-hub-size="sm"]) .root[data-variant="table"] {
   --hc: 33px;
-  --cw: 32px;
+  --cw: 30px;
   --gap: 3px;
-  width: 217px;
+  width: 205px;
   height: 61px;
 }
 :global([data-hub-size="sm"]) .root[data-variant="table"] .captionLit {
   display: block;
 }
-:global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"],
-:global([data-hub-size="xs"]) .root[data-variant="table"] .chip[data-state="current"] {
+:global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"] {
   width: var(--cw);
   padding: 0;
   letter-spacing: 0.04em;
 }
-:global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"] .code,
-:global([data-hub-size="xs"]) .root[data-variant="table"] .chip[data-state="current"] .code {
+:global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"] .code {
   display: inline;
 }
-:global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"] .name,
-:global([data-hub-size="xs"]) .root[data-variant="table"] .chip[data-state="current"] .name {
-  display: none;
-}
-:global([data-hub-size="xs"]) .root[data-variant="table"] {
-  height: 43px;
-}
-:global([data-hub-size="xs"]) .root[data-variant="table"] .caption {
+:global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"] .name {
   display: none;
 }
 

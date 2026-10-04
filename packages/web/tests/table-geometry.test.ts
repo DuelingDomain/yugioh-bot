@@ -12,6 +12,7 @@ import {
   ringAngles,
   ringPose,
   seatNormal,
+  seatObstacles,
   seatPoses,
   stageFit,
   slotPlan,
@@ -420,16 +421,19 @@ describe("hubPose", () => {
     const card = box(at.x, at.y, at.width, at.height);
     expect(at.width).toBe(HUB_STRIP[at.size].width);
     expect(at.height).toBe(HUB_STRIP[at.size].height);
-    // Whole 653 x 380 seat boxes: a conservative bound of each field, hand and all.
-    for (const pose of poses.values()) {
-      if (pose.hidden) continue;
-      expect(overlaps(card, box(pose.x, pose.y, 653 * pose.scale, 380 * pose.scale, pose.rotateDeg))).toBe(false);
-    }
+    // 5px of air around the whole of every seat (field, hand and name label), see seatObstacles.
+    layout.slots.forEach((slot, place) => {
+      const pose = poses.get(slot.seat)!;
+      if (pose.hidden) return;
+      for (const rect of seatObstacles(pose, place === 0)) {
+        expect(overlaps(card, box(rect.x, rect.y, rect.width + 10, rect.height + 10, rect.rotateDeg))).toBe(false);
+      }
+    });
     for (const slot of layout.slots) {
       const anchor = holoAnchor(layout, slot.seat, view);
-      const w = anchor.me ? 212 : 196;
-      const h = anchor.me ? 74 : 62;
-      expect(overlaps(card, box(anchor.x + w / 2, anchor.y + h / 2, w, h))).toBe(false);
+      const w = (anchor.me ? 212 : 196) + 10;
+      const h = (anchor.me ? 74 : 62) + 10;
+      expect(overlaps(card, box(anchor.x + w / 2 - 5, anchor.y + h / 2 - 5, w, h))).toBe(false);
     }
     // The ARENA 07 sign on the plaza.
     expect(overlaps(card, box(ARENA_SIGN.x + ARENA_SIGN.width / 2, ARENA_SIGN.y + ARENA_SIGN.height / 2, ARENA_SIGN.width, ARENA_SIGN.height))).toBe(false);
@@ -444,29 +448,35 @@ describe("hubPose", () => {
     expect(at.y + at.height / 2).toBeLessThanOrEqual(860);
   });
 
-  it("uses the large strip wherever it fits, the small one beside a 4-way ring at home and the bare one in its corner", () => {
+  it("uses the small strip at a 3-way table, the large one above a 4-way ring in the overview", () => {
     const three = tableLayout("ffa3", engine("ffa3", 3), 0);
     const four = tableLayout("ffa4", engine("ffa4", 4), 0);
     for (const over of [{}, { mode: "overview" as const }, { mode: "focus" as const, focusSeat: 1 }, { mode: "focus" as const, focusSeat: 2 }]) {
-      expect(hubPose(three, camera(over)).size).toBe("lg");
+      expect(hubPose(three, camera(over)).size).toBe("sm");
     }
     expect(hubPose(four, camera()).size).toBe("sm");
     expect(hubPose(four, camera({ mode: "overview" })).size).toBe("lg");
-    expect(hubPose(four, camera({ mode: "focus", focusSeat: 2 })).size).toBe("xs");
+    expect(hubPose(four, camera({ mode: "focus", focusSeat: 2 })).size).toBe("sm");
   });
 
-  it("centres a 4-way strip on the ring in the overview, above it, and puts a 3-way strip under your own field", () => {
+  it("centres a 4-way overview strip on the ring, above it", () => {
     const four = tableLayout("ffa4", engine("ffa4", 4), 0);
     const view = camera({ mode: "overview" });
     const ring = ringPose(four, view);
     const above = hubPose(four, view);
     expect(above.x).toBe(ring.x);
     expect(above.y + above.height / 2).toBeLessThan(ring.y - 62 * ring.scale);
+  });
+
+  it("puts a 3-way home strip to the right of your own field, level with its top half, never over the hand", () => {
     const three = tableLayout("ffa3", engine("ffa3", 3), 0);
     const home = seatPoses(three, camera()).get(0)!;
-    const dock = hubPose(three, camera());
-    expect(dock.x).toBe(550);
-    expect(dock.y - dock.height / 2).toBeGreaterThan(home.y + (380 * home.scale) / 2);
+    for (const over of [{}, { mode: "look" as const, lookSeat: 1 }, { mode: "fly" as const }]) {
+      const at = hubPose(three, camera(over));
+      expect(at.x - at.width / 2).toBeGreaterThan(home.x + 653 / 2);
+      expect(at.y).toBeGreaterThan(home.y - 190);
+      expect(at.y).toBeLessThan(home.y);
+    }
   });
 
   it("keeps the home place in the fly-in view", () => {
