@@ -1,95 +1,68 @@
-/* Duel result screen.
-   Obsidian ground, antique-gold hairlines, one heavy stamped wordmark.
-   Purple accents the win, a red hairline marks the loss, gold stays neutral.
-   Base rules describe the SETTLED frame. Animations exist only under
-   [data-phase="play"] and only carry a `from` keyframe, so a skip (which drops
-   the attribute value to "settled") lands on exactly the final frame. */
-
-@property --frame {
-  syntax: "<color>";
-  inherits: true;
-  initial-value: rgb(181 153 99 / 0.5);
-}
+/* Duel result screen, "shattered".
+   One column of one width on a dark ground. The title is a physical object: on a loss it breaks along
+   one jagged line (two clipped copies of the word, parted, with the light showing only through the gap);
+   on a win it is whole and gold; on a draw, a spectator view or a quiet ending it is whole and ivory.
+   Nothing is drawn as a stroke over the letters.
+   Base rules describe the SETTLED frame. Animations exist only under [data-phase="play"] and only carry
+   a `from` keyframe, so a skip (which drops the attribute value to "settled") lands on exactly the final
+   frame. Only transform and opacity animate. */
 
 .root {
   --ground: #070b15;
+  --panel: #0a1120;
+  --panel-2: #0e1729;
   --ink: #efe7d5;
   --ink-2: #c3bba8;
   --ink-3: #958f81;
-  --gold: #e4b64f;
-  --gold-rgb: 181 153 99;
-  --rule: rgb(var(--gold-rgb) / 0.5);
-  --rule-lo: rgb(var(--gold-rgb) / 0.22);
-  --rule-hi: rgb(var(--gold-rgb) / 0.78);
+  --rule-rgb: 181 153 99;
+  --rule-lo: rgb(var(--rule-rgb) / 0.17);
+  --rule: rgb(var(--rule-rgb) / 0.34);
+  --rule-hi: rgb(var(--rule-rgb) / 0.65);
   --pen: #9b7eff;
   --pen-ink: #c6b6ff;
   --pen-fill: #5733d1;
+  --pen-hi: #6a48e6;
+  --gold: #e4b64f;
+  --gold-ink: #f4d690;
   --loss: #e45a4d;
   --loss-ink: #ff9489;
-  --frame: var(--rule);
-  --word: #f6e6b8;
-  --word-shadow: 0 0.04em 0.14em rgb(87 51 209 / 0.6);
-  --ray: var(--gold);
-  --ring: var(--gold-rgb);
+  /* The colour of the light in the scene: red in the break, gold on a win, pale on everything else. */
+  --glow: 255 86 60;
+  --out: cubic-bezier(0.23, 1, 0.32, 1);
+  --col-w: 820px;
+  --gap: clamp(12px, 2.2vh, 22px);
   --font-display: var(--font-duel-display), "Arial Black", Impact, sans-serif;
   --font-ui: var(--font-duel-ui), "Arial Narrow", sans-serif;
   --font-ink: var(--font-duel-ink), Georgia, serif;
-  /* The plate behind each block: the ground colour, nearly opaque, so text reads over the burst. */
-  --panel: rgb(7 11 21 / 0.88);
-  --panel-soft: rgb(7 11 21 / 0.5);
-  --panel-edge: rgb(var(--gold-rgb) / 0.36);
 
   position: fixed;
   inset: 0;
   z-index: var(--duel-z-result);
-  /* When the stack is taller than the screen (a series on a phone, or a phone held sideways) the
-     overlay scrolls; the ground and frame stay put. */
+  /* When the column is taller than the screen (a series on a phone, or a phone held sideways) the
+     overlay scrolls; the ground stays put. */
   overflow-x: hidden;
   overflow-y: auto;
   color: var(--ink);
   font-family: var(--font-ui);
-  font-size: clamp(15px, calc(6.5px + 0.6vw), 22px);
-  line-height: 1.35;
+  font-size: 16px;
+  line-height: 1.4;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: contain;
-}
-/* Centres the stack and grows with it, so a tall stack scrolls from its top instead of being cut off.
-   The clip keeps the burst, which is wider and taller than the screen, from adding scroll room. */
-.scroll {
-  display: grid;
-  place-items: center;
-  min-height: 100%;
-  overflow: clip;
-  padding: max(28px, env(safe-area-inset-top)) max(28px, env(safe-area-inset-right))
-    max(28px, env(safe-area-inset-bottom)) max(28px, env(safe-area-inset-left));
 }
 .root:focus,
 .root:focus-visible {
   outline: none;
 }
+.root :where(h1, p, ul) {
+  margin: 0;
+}
 
-.root[data-outcome="spectator"] {
-  --word: #f3e2b0;
-  --word-shadow: 0 0.04em 0.14em rgb(122 98 48 / 0.55);
+.root[data-outcome="win"] {
+  --glow: 244 190 80;
 }
-.root[data-outcome="draw"] {
-  --word: #e9e2d0;
-  --word-shadow: 0 0.03em 0.12em rgb(var(--gold-rgb) / 0.35);
-  --ray: #b9a570;
-}
-.root[data-outcome="lose"] {
-  --word: #bdb7aa;
-  --word-shadow: none;
-  --ray: #6a6e79;
-  --ring: 120 124 135;
-  --frame: rgb(228 90 77 / 0.62);
-}
-.root[data-outcome="interrupted"],
-.root[data-outcome="cancelled"],
-.root[data-outcome="ended"] {
-  --word: #aaa495;
-  --word-shadow: none;
-  --frame: var(--rule-lo);
+/* Draw, spectator, interrupted, cancelled, ended: no winner for you to be glad or sorry about. */
+.root[data-title="calm"] {
+  --glow: 200 196 184;
 }
 
 .srOnly {
@@ -104,337 +77,343 @@
   border: 0;
 }
 
-/* ---- Ground and frame ------------------------------------------------- */
+/* ---- Ground ------------------------------------------------------------ */
 
 .backdrop {
   position: fixed;
   inset: 0;
-  background: radial-gradient(75% 65% at 50% 44%, rgb(17 26 48 / 0.95), rgb(5 8 15 / 0.97) 82%);
+  background: radial-gradient(70% 62% at 50% 38%, rgb(12 17 30 / 0.9), rgb(3 5 10 / 0.975) 86%);
 }
-.root[data-outcome="lose"] .backdrop {
-  background: radial-gradient(75% 65% at 50% 44%, rgb(14 18 30 / 0.96), rgb(4 6 11 / 0.98) 82%);
-}
-
-.frame {
+.flash {
   position: fixed;
-  inset: clamp(10px, 2.2vmin, 26px);
-  border: 1px solid var(--frame);
+  inset: 0;
+  opacity: 0;
   pointer-events: none;
 }
-.frame::before {
-  content: "";
-  position: absolute;
-  inset: 5px;
-  border: 1px solid var(--rule-lo);
+.root[data-outcome="win"] .flash {
+  background: radial-gradient(60% 46% at 50% 40%, rgb(255 236 180 / 0.3), transparent 80%);
 }
-.corner {
-  position: absolute;
-  width: 9px;
-  height: 9px;
-  border: 1px solid var(--frame);
-  background: var(--ground);
-  rotate: 45deg;
+.root[data-outcome="lose"] .flash {
+  background: radial-gradient(60% 46% at 50% 40%, rgb(255 120 90 / 0.3), transparent 80%);
 }
-.corner[data-corner="tl"] { top: -5px; left: -5px; }
-.corner[data-corner="tr"] { top: -5px; right: -5px; }
-.corner[data-corner="bl"] { bottom: -5px; left: -5px; }
-.corner[data-corner="br"] { bottom: -5px; right: -5px; }
 
-/* ---- Stage ------------------------------------------------------------ */
-
-.stage {
+/* Centres the column and grows with it, so a tall column scrolls from its top instead of being cut off.
+   `isolation` keeps the light (z-index -1) above the ground and below the words. */
+.scroll {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: min(100%, 1500px);
-  gap: clamp(8px, 1.8vh, 18px);
-  text-align: center;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  overflow: clip;
+  padding: max(clamp(20px, 4vh, 48px), env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(clamp(20px, 4vh, 48px), env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
+.col {
+  position: relative;
+  display: grid;
+  gap: var(--gap);
+  width: min(var(--col-w), 100%);
+  min-width: 0;
+}
+.col > * {
+  min-width: 0;
+}
+
+/* ---- Title ------------------------------------------------------------- */
 
 .hero {
   position: relative;
   display: grid;
-  place-items: center;
-  max-width: 100%;
-}
-
-/* ---- Sunburst and rosette --------------------------------------------- */
-
-.burst {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: max(118vmin, 74vmax);
-  aspect-ratio: 1;
-  translate: -50% -50%;
-  pointer-events: none;
-}
-.raysSpin {
-  position: absolute;
-  inset: 0;
-  color: var(--ray);
-  -webkit-mask-image: radial-gradient(closest-side, #000 22%, transparent 94%);
-  mask-image: radial-gradient(closest-side, #000 22%, transparent 94%);
-}
-.raysSvg,
-.rosette {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-.wedges {
-  fill: currentColor;
-  fill-opacity: 0.13;
-}
-.hairRays {
-  fill: none;
-  stroke: currentColor;
-  stroke-opacity: 0.4;
-  stroke-width: 0.22;
-}
-.rosette {
-  fill: none;
-}
-.ringSoft {
-  stroke: rgb(var(--ring) / 0.2);
-  stroke-width: 0.22;
-}
-.ringRule {
-  stroke: rgb(var(--ring) / 0.5);
-  stroke-width: 0.3;
-}
-.ringDots {
-  stroke: rgb(var(--ring) / 0.5);
-  stroke-width: 0.5;
-  stroke-dasharray: 0.35 1.6;
-}
-.ticks {
-  stroke: rgb(var(--ring) / 0.45);
-  stroke-width: 0.22;
-}
-.starOuter {
-  stroke: rgb(var(--ring) / 0.42);
-  stroke-width: 0.24;
-  stroke-linejoin: miter;
-}
-.starInner {
-  stroke: rgb(var(--ring) / 0.32);
-  stroke-width: 0.22;
-}
-.gem {
-  fill: rgb(var(--ring) / 0.85);
-  stroke: none;
-}
-.root[data-outcome="win"] .starOuter,
-.root[data-outcome="win"] .starInner {
-  stroke: var(--pen);
-  stroke-opacity: 0.5;
-}
-.root[data-outcome="win"] .gem {
-  fill: var(--pen);
-}
-.root[data-spin="true"][data-reduced="false"] .raysSpin {
-  animation: spin 90s linear infinite;
-}
-
-.flash {
-  position: fixed;
-  inset: 0;
-  z-index: 3;
-  opacity: 0;
-  pointer-events: none;
-  background: radial-gradient(60% 50% at 50% 44%, rgb(255 244 214 / 0.34), transparent 80%);
-}
-
-/* ---- Cards -------------------------------------------------------------
-   Each block (headline and reason, each player's LP, the series, the actions) sits on its own
-   plate. The burst keeps spinning around and between them; only the text area is covered. */
-
-.card {
-  position: relative;
-  z-index: 1;
-  border: 1px solid var(--panel-edge);
-  border-radius: 2px;
-  background: var(--panel);
-  box-shadow: 0 24px 56px -28px rgb(0 0 0 / 0.95);
-}
-
-.titleCard {
-  display: grid;
   justify-items: center;
-  gap: clamp(4px, 1.1vh, 12px);
-  max-width: 100%;
-  padding: clamp(10px, 2.2vh, 24px) clamp(18px, 3.4vw, 52px) clamp(12px, 2.4vh, 24px);
-  /* Lighter behind the word so the rosette still glows through it; solid under the reason line. */
-  background:
-    radial-gradient(60% 75% at 50% 38%, var(--panel-soft), transparent 100%),
-    linear-gradient(180deg, var(--panel-soft) 0%, var(--panel-soft) 45%, var(--panel) 72%);
-}
-.root[data-outcome="lose"] .titleCard {
-  border-color: rgb(228 90 77 / 0.42);
-}
-
-/* ---- Wordmark ---------------------------------------------------------- */
-
-.wordmark {
-  position: relative;
-  z-index: 1;
-  margin: 0;
-  max-width: 100%;
-  font-family: var(--font-display);
-  font-weight: 800;
-  line-height: 0.96;
-  letter-spacing: 0.015em;
+  gap: clamp(10px, 1.8vh, 18px);
+  padding-block: clamp(4px, 1vh, 12px) 2px;
   text-align: center;
-  text-transform: uppercase;
-  text-wrap: balance;
-  overflow-wrap: anywhere;
-  color: var(--word);
 }
-.wordmark[data-tier="xl"] { font-size: clamp(2.6rem, min(16vw, 21vh), 14rem); }
-.wordmark[data-tier="lg"] { font-size: clamp(2.2rem, min(12.5vw, 17vh), 10.5rem); }
-.wordmark[data-tier="md"] { font-size: clamp(1.9rem, min(8.6vw, 14vh), 8rem); }
-.wordmark[data-tier="sm"] { font-size: clamp(1.6rem, min(7vw, 11vh), 6rem); }
-/* A series adds a card under the scores: the word gives up some height for it. */
-.root[data-series="true"] .wordmark[data-tier="xl"] { font-size: clamp(2.4rem, min(14vw, 15vh), 11rem); }
-.root[data-series="true"] .wordmark[data-tier="lg"] { font-size: clamp(2.1rem, min(11vw, 13vh), 8.5rem); }
-.root[data-series="true"] .wordmark[data-tier="md"] { font-size: clamp(1.8rem, min(8vw, 11vh), 6.5rem); }
-.root[data-series="true"] .wordmark[data-tier="sm"] { font-size: clamp(1.5rem, min(6.5vw, 9vh), 5rem); }
-
-.face {
-  position: relative;
+.light {
+  position: absolute;
+  inset: -70% -20vw -40%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 36vmin 28vmin at 50% 46%, rgb(var(--glow) / 0.24), transparent 100%),
+    radial-gradient(ellipse 70vmin 44vmin at 50% 56%, rgb(var(--glow) / 0.09), transparent 100%);
+}
+.root[data-title="calm"] .light {
+  opacity: 0.6;
+}
+.title {
   display: grid;
   justify-items: center;
-}
-.layer {
-  grid-area: 1 / 1;
-  text-shadow: var(--word-shadow);
-}
-
-/* Lose: three clipped copies of the word, split along two cracks. */
-.root[data-outcome="lose"] .layer[data-shard="a"] {
-  clip-path: polygon(-6% -6%, 41% -2%, 47% 26%, 38% 49%, 46% 74%, 40% 102%, -6% 106%);
-  transform: translate(-0.03em, 0.045em) rotate(-1.4deg);
-  transform-origin: 0% 100%;
-}
-.root[data-outcome="lose"] .layer[data-shard="b"] {
-  clip-path: polygon(41% -2%, 69% -2%, 63% 30%, 72% 58%, 64% 82%, 70% 102%, 40% 102%, 46% 74%, 38% 49%, 47% 26%);
-  transform: translate(0.004em, 0.085em) rotate(0.5deg);
-}
-.root[data-outcome="lose"] .layer[data-shard="c"] {
-  clip-path: polygon(69% -2%, 106% -6%, 106% 106%, 70% 102%, 64% 82%, 72% 58%, 63% 30%);
-  transform: translate(0.036em, 0.02em) rotate(1.7deg);
-  transform-origin: 100% 100%;
-}
-.crack {
-  position: absolute;
-  inset: 0;
   width: 100%;
-  height: 100%;
-  overflow: visible;
-  pointer-events: none;
-  fill: none;
-  stroke: var(--loss);
-  stroke-width: 1.5px;
-  stroke-linejoin: miter;
-  clip-path: inset(-20% -20% -20% -20%);
+  font-size: inherit;
+  font-weight: inherit;
 }
-
-/* ---- Reason ------------------------------------------------------------ */
-
 .reason {
-  position: relative;
-  z-index: 1;
-  margin: 0;
-  max-width: 34em;
+  max-width: 30em;
   font-family: var(--font-ink);
   font-style: italic;
-  font-size: clamp(1.1em, min(2.4vw, 3vh), 1.6em);
-  line-height: 1.3;
-  color: var(--ink);
+  font-weight: 400;
+  font-size: clamp(20px, 2.6vh, 25px);
+  line-height: 1.25;
+  color: var(--ink-2);
   text-wrap: balance;
 }
 
-/* ---- Scoreboard -------------------------------------------------------- */
+/* The word. --fs is set on the title by the component (it fills the column); the clamp is what shows
+   before that runs. */
+.word {
+  position: relative;
+  display: inline-grid;
+  isolation: isolate;
+  max-width: 100%;
+  margin-bottom: 0.1em;
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: var(--fs, clamp(2.4rem, 13vw, 8rem));
+  line-height: 0.9;
+  letter-spacing: 0.012em;
+  text-transform: uppercase;
+  /* The break depends on the number of rows (one on a wide screen, two when the words stack on a phone). */
+  --clip-top: var(--top-1);
+  --clip-bottom: var(--bottom-1);
+  --clip-strip: var(--strip-1);
+  --h0: var(--h0-1);
+  --h1: var(--h1-1);
+  --h2: var(--h2-1);
+  --h3: var(--h3-1);
+  --l0: var(--l0-1);
+  --l1: var(--l1-1);
+  --l2: var(--l2-1);
+  --l3: var(--l3-1);
+  --l4: var(--l4-1);
+}
+.piece,
+.lit {
+  grid-area: 1 / 1;
+  position: relative;
+}
+.ink {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+/* A space between the words that becomes a line break when they stack. */
+.brk {
+  display: inline;
+}
+.word[data-stack="1"] .brk {
+  display: block;
+  height: 0;
+  overflow: hidden;
+}
+
+/* Loss: cold steel, warm only at the two lips of the break. */
+.word[data-kind="lose"] .piece .ink {
+  background-image:
+    linear-gradient(180deg, rgb(255 255 255 / 0.2) 0, transparent 30%),
+    linear-gradient(180deg, #6d7383 0%, #a9afbc var(--h0), #e4a08e var(--h1), #e4a08e var(--h2), #a9afbc var(--h3), #6d7383 100%);
+}
+.word[data-kind="lose"] .piece {
+  filter: drop-shadow(0 0 0.02em rgb(255 84 56 / 0.3));
+}
+.word[data-kind="lose"] .piece[data-p="t"] .ink {
+  clip-path: var(--clip-top);
+}
+.word[data-kind="lose"] .piece[data-p="b"] .ink {
+  clip-path: var(--clip-bottom);
+}
+/* The two halves, pulled apart: top up and left, bottom down and right, a hair of opposite tilt. */
+.word[data-kind="lose"] .piece[data-p="t"] {
+  transform: translate(-0.014em, -0.03em) rotate(-0.35deg);
+}
+.word[data-kind="lose"] .piece[data-p="b"] {
+  transform: translate(0.014em, 0.03em) rotate(0.35deg);
+}
+
+/* The light in the gap: an unmoved copy of the word sits under both halves and is cut to a strip around
+   the break, so it shows only inside the letters, only where the halves have parted. */
+.lit {
+  pointer-events: none;
+  filter: drop-shadow(0 0 0.07em rgb(var(--glow) / 0.85));
+}
+.lit .ink {
+  clip-path: var(--clip-strip);
+  background-image: linear-gradient(180deg, #4a0c05 var(--l0), #ff3d1c var(--l1), #ffb07a var(--l2), #ff3d1c var(--l3), #4a0c05 var(--l4));
+}
+.lit.hot {
+  filter: none;
+  opacity: 0;
+}
+.lit.hot .ink {
+  background-image: linear-gradient(180deg, #fff, #ffe2cc);
+}
+
+/* Chips that fall out of the break. They are invisible once settled. */
+.dust {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.dust i {
+  position: absolute;
+  top: var(--y-1);
+  width: calc(var(--sz) * 1.5);
+  height: var(--sz);
+  margin: calc(var(--sz) * -0.5) 0 0 calc(var(--sz) * -0.75);
+  background: #9aa1b0;
+  clip-path: polygon(0 20%, 70% 0, 100% 60%, 40% 100%);
+  opacity: 0;
+  transform: translate(var(--dx), var(--dy)) rotate(var(--r));
+}
+.dust i:nth-child(odd) {
+  background: #cfd3dc;
+  clip-path: polygon(10% 0, 100% 30%, 60% 100%, 0 70%);
+}
+
+/* Win: gold with light on it. */
+.word[data-kind="win"] .ink {
+  background-image: linear-gradient(180deg, #fffbe8 0%, #f9e3a0 26%, #e4b64f 58%, #b3862a 100%);
+}
+.word[data-kind="win"] .piece {
+  filter: drop-shadow(0 0 0.08em rgb(244 190 80 / 0.45));
+}
+/* Draw and everything else: ivory, level. */
+.word[data-kind="calm"] .ink {
+  background-image: linear-gradient(180deg, #ffffff 0%, #e6dfcf 40%, #a9a290 100%);
+}
+.word[data-kind="calm"] .piece {
+  filter: drop-shadow(0 0 0.05em rgb(200 196 184 / 0.3));
+}
+
+/* ---- Scores: one tray ---------------------------------------------------- */
 
 .scoreboard {
   position: relative;
-  z-index: 1;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: clamp(8px, 1.2vw, 14px);
-  width: min(39em, 100%);
-  margin: 0;
+  overflow: hidden;
   padding: 0;
   list-style: none;
+  border: 1px solid var(--rule-lo);
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  box-shadow: 0 24px 50px -30px #000;
 }
+.scoreboard[data-layout="duo"] {
+  grid-template-columns: 1fr 1fr;
+}
+.scoreboard[data-layout="duo"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  translate: -50% -50%;
+  rotate: 45deg;
+  background: var(--ground);
+  border: 1px solid var(--rule);
+}
+.scoreboard[data-layout="rows"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .score {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding: clamp(6px, 1.3vh, 12px) clamp(10px, 2vw, 18px);
-  text-align: left;
+  padding: clamp(12px, 2.2vh, 20px) clamp(14px, 2.6vw, 28px) clamp(12px, 2vh, 18px);
 }
-.score + .score {
+.scoreboard[data-layout="duo"] .score + .score {
   flex-direction: row-reverse;
   text-align: right;
+  border-left: 1px solid var(--rule-lo);
 }
-/* The winner's plate carries a gold edge on top. */
+.scoreboard[data-layout="rows"] .score {
+  padding-block: clamp(10px, 1.7vh, 15px);
+}
+.scoreboard[data-layout="rows"] .score + .score {
+  border-top: 1px solid var(--rule-lo);
+}
+/* The winner's cell carries a gold edge on top and a warm wash under it. */
+.score::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+}
+.score[data-winner="true"]::before {
+  background: linear-gradient(90deg, transparent, var(--gold) 30%, var(--gold) 70%, transparent);
+}
 .score[data-winner="true"] {
-  border-color: rgb(228 182 79 / 0.55);
-  box-shadow: inset 0 2px 0 var(--gold), 0 24px 56px -28px rgb(0 0 0 / 0.95);
+  background: radial-gradient(90% 130% at 50% 0%, rgb(228 182 79 / 0.14), transparent 72%);
 }
+
 .dmArt {
   flex: none;
   width: clamp(30px, 4vh, 40px);
   aspect-ratio: 59 / 86;
   object-fit: cover;
   border: 1px solid var(--rule);
-  background: #0a1120;
+  border-radius: 3px;
+  background: var(--panel);
 }
 .scoreText {
   display: grid;
-  gap: 1px;
+  gap: 2px;
   min-width: 0;
   flex: 1;
+  justify-items: start;
+}
+.scoreboard[data-layout="duo"] .score + .score .scoreText {
+  justify-items: end;
 }
 .scoreName {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px 7px;
+  gap: 4px 8px;
   min-width: 0;
+  max-width: 100%;
   font-weight: 600;
-  font-size: clamp(1em, 2.3vh, 1.15em);
+  font-size: clamp(17px, 2.5vh, 21px);
   color: var(--ink);
 }
-.score + .score .scoreName {
+.scoreboard[data-layout="duo"] .score + .score .scoreName {
   justify-content: flex-end;
 }
 .name {
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100%;
 }
 .tag {
-  padding: 1px 6px;
-  font-size: 0.68em;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  line-height: 1.4;
+  line-height: 1;
   border: 1px solid var(--rule-hi);
   color: var(--ink-2);
 }
 .tag[data-tag="winner"] {
   border-color: var(--gold);
-  color: #f4d690;
+  color: var(--gold-ink);
 }
 .tag[data-tag="you"] {
   border-color: var(--pen);
@@ -443,163 +422,272 @@
 .scoreLp {
   display: inline-flex;
   align-items: baseline;
-  gap: 5px;
+  gap: 6px;
   font-family: var(--font-display);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
-  font-size: clamp(1.7em, min(4.6vw, 5.2vh), 2.7em);
-  line-height: 1.05;
+  font-size: clamp(42px, 7.4vh, 64px);
+  line-height: 1;
   color: var(--ink);
 }
-.score + .score .scoreLp {
+.scoreboard[data-layout="duo"] .score + .score .scoreLp {
   justify-content: flex-end;
 }
-.score[data-out="true"] .scoreLp {
+.scoreLp b {
+  font-weight: 700;
+}
+.score[data-out="true"] .scoreLp b {
   color: var(--loss-ink);
+  text-shadow: 0 0 0.5em rgb(228 90 77 / 0.45);
+}
+.score[data-winner="true"]:not([data-out="true"]) .scoreLp b {
+  color: #fff6dc;
 }
 .lpUnit {
-  font-size: 0.42em;
-  font-weight: 700;
+  font-style: normal;
+  font-size: 0.4em;
   letter-spacing: 0.1em;
   color: var(--ink-3);
 }
 .dmName {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-ink);
   font-style: italic;
-  font-size: 0.8em;
+  font-size: 0.9em;
   color: var(--ink-3);
 }
 
-/* ---- Actions ----------------------------------------------------------- */
+/* One row per duelist, place first (3 and 4 seat tables, and any table that is not two duelists). */
+.scoreboard[data-layout="rows"] .scoreText {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 12px;
+  align-items: center;
+}
+.scoreboard[data-layout="rows"] .scoreName {
+  grid-column: 1;
+  grid-row: 1;
+}
+.scoreboard[data-layout="rows"] .scoreLp {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  justify-self: end;
+  font-size: clamp(26px, 4.4vh, 38px);
+}
+.scoreboard[data-layout="rows"] .dmName {
+  grid-column: 1;
+  grid-row: 2;
+}
+.scoreboard[data-layout="rows"] .score[data-winner="true"] {
+  background: radial-gradient(70% 150% at 12% 0%, rgb(228 182 79 / 0.14), transparent 72%);
+}
+.place {
+  flex: none;
+  min-width: 2.4em;
+  font-family: var(--font-display);
+  font-size: clamp(18px, 2.7vh, 24px);
+  font-weight: 700;
+  text-align: center;
+  color: var(--ink-3);
+}
+.place[data-place="1"] {
+  color: var(--gold-ink);
+}
+
+/* ---- Series: a tinted strip, no frame ----------------------------------- */
+
+.seriesBlock {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: clamp(14px, 2.2vh, 20px) 24px;
+  border-radius: 12px;
+  text-align: center;
+  background: linear-gradient(180deg, rgb(var(--glow) / 0.09), rgb(var(--glow) / 0.02));
+}
+.seriesBlock[data-state="between"],
+.seriesBlock[data-state="next-live"] {
+  background: linear-gradient(180deg, rgb(155 126 255 / 0.11), rgb(155 126 255 / 0.03));
+}
+/* The between-games part (countdown, Ready states, buttons) is the same strip. */
+.seriesBlock > section {
+  width: 100%;
+}
+.root .seriesBlock .sHead {
+  font-size: clamp(20px, 3vh, 25px);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+.root .seriesBlock [data-final="true"] .sHead {
+  font-size: clamp(22px, 3.4vh, 29px);
+  color: var(--gold-ink);
+}
+.root .seriesBlock .sLine {
+  color: var(--ink-2);
+}
+.root .seriesBlock .sLine b,
+.root .seriesBlock [role="timer"] b {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--gold-ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.root .seriesBlock .sLine b {
+  font-size: 1.35em;
+}
+.root .seriesBlock .sRecord {
+  color: var(--ink-3);
+}
+.root .seriesBlock [role="timer"] {
+  margin-top: 2px;
+}
+/* The solid primary of the strip ("Ready for next game", "Watch game N"). */
+.seriesBlock .btn[data-kind="primary"] {
+  width: min(100%, 24em);
+}
+
+.root[data-phase="play"] .seriesBlock {
+  pointer-events: none;
+}
+
+/* ---- Buttons ----------------------------------------------------------- */
 
 .actions {
   position: relative;
-  z-index: 1;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  display: grid;
+  grid-template-columns: repeat(calc(var(--n, 2) + 1), 1fr);
   gap: 10px;
-  margin-top: 2px;
+  margin-top: 4px;
+}
+.actions[data-lead="true"] {
+  grid-template-columns: 1.7fr repeat(var(--n, 2), 1fr);
+}
+.root[data-phase="play"] .actions {
+  pointer-events: none;
 }
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: max(44px, 2.9em);
-  padding: 0 1.45em;
+  min-height: 50px;
+  padding: 0 14px;
   font-family: var(--font-ui);
-  font-size: 0.95em;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  font-size: 16.5px;
+  font-weight: 600;
+  line-height: 1.1;
   text-decoration: none;
   white-space: nowrap;
   border: 1px solid transparent;
-  border-radius: 2px;
+  border-radius: 10px;
   background: transparent;
   appearance: none;
   color: var(--ink);
   cursor: pointer;
-  transition: background-color 0.16s, border-color 0.16s, color 0.16s;
+  transition: transform 0.12s var(--out);
+}
+.btn:active {
+  transform: scale(0.97);
 }
 .btn:focus-visible {
-  outline: 2px solid var(--ink);
+  outline: 2px solid var(--pen-ink);
   outline-offset: 3px;
 }
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 .btn[data-kind="primary"] {
-  background: var(--pen-fill);
+  min-height: 54px;
+  font-size: 17.5px;
+  background: linear-gradient(180deg, var(--pen-hi), var(--pen-fill));
   border-color: var(--pen);
   color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.25), 0 10px 26px -12px rgb(87 51 209 / 0.8);
 }
-.btn[data-kind="primary"]:hover {
-  background: #6a48e6;
+.btn[data-kind="primary"]:hover:not(:disabled) {
+  background: linear-gradient(180deg, #7a5cf0, var(--pen-hi));
 }
 .btn[data-kind="secondary"] {
   border-color: var(--rule-hi);
 }
-.btn[data-kind="secondary"]:hover {
+.btn[data-kind="secondary"]:hover:not(:disabled) {
   border-color: var(--gold);
-  background: rgb(228 182 79 / 0.1);
+  background: rgb(228 182 79 / 0.08);
 }
 .btn[data-kind="quiet"] {
-  color: var(--ink-2);
-  border-color: var(--rule-lo);
-}
-.btn[data-kind="quiet"]:hover {
-  color: var(--ink);
-  border-color: var(--rule-hi);
-}
-
-/* ---- Standings (3 and 4 seat tables): one row per duelist, place first ---- */
-
-.scoreboard[data-placings] {
-  grid-template-columns: 1fr;
-  width: min(30em, 100%);
-}
-.scoreboard[data-placings] .score,
-.scoreboard[data-placings] .score + .score {
-  flex-direction: row;
-  text-align: left;
-  border-left: 0;
-}
-.scoreboard[data-placings] .score + .score {
-  border-top: 1px solid var(--rule);
-}
-.scoreboard[data-placings] .score + .score .scoreName,
-.scoreboard[data-placings] .score + .score .scoreLp {
-  justify-content: flex-start;
-}
-.scoreboard[data-placings] .scoreLp {
-  font-size: clamp(1.3em, min(3.2vw, 3.6vh), 1.9em);
-}
-.place {
-  flex: none;
-  min-width: 2.6em;
-  font-family: var(--font-display);
-  font-size: clamp(1.1em, 2.6vh, 1.5em);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-align: center;
   color: var(--ink-3);
 }
-.place[data-place="1"] {
-  color: #f4d690;
-  text-shadow: 0 0 14px rgb(228 182 79 / 0.5);
-}
-.score[data-winner="true"] {
-  background: linear-gradient(90deg, rgb(228 182 79 / 0.1), transparent 70%);
+.btn[data-kind="quiet"]:hover:not(:disabled) {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 
 /* ---- Small screens ----------------------------------------------------- */
 
-@media (max-width: 560px) {
-  .scroll {
-    padding-inline: max(20px, env(safe-area-inset-left));
+@media (max-width: 600px) {
+  .root {
+    --gap: 14px;
   }
-  /* Exit on its own row, the other two side by side. */
-  .actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    width: min(340px, 100%);
+  /* Two rows: the break crosses the LOSE row. */
+  .word {
+    --clip-top: var(--top-2);
+    --clip-bottom: var(--bottom-2);
+    --clip-strip: var(--strip-2);
+    --h0: var(--h0-2);
+    --h1: var(--h1-2);
+    --h2: var(--h2-2);
+    --h3: var(--h3-2);
+    --l0: var(--l0-2);
+    --l1: var(--l1-2);
+    --l2: var(--l2-2);
+    --l3: var(--l3-2);
+    --l4: var(--l4-2);
   }
-  .actions > :first-child:nth-last-child(odd) {
-    grid-column: 1 / -1;
+  .word .brk {
+    display: block;
+    height: 0;
+    overflow: hidden;
   }
-  .actions .btn {
-    padding-inline: 0.6em;
-    letter-spacing: 0.04em;
+  .dust i {
+    top: var(--y-2);
+  }
+  .light {
+    inset: -40% -20vw -30%;
   }
   .score {
-    gap: 8px;
-    padding-inline: 10px;
+    padding-inline: 14px;
   }
-  .tag {
-    font-size: 0.62em;
-    padding-inline: 5px;
+  .scoreName {
+    font-size: 17px;
+  }
+  .scoreLp {
+    font-size: clamp(34px, 9.4vw, 44px);
+  }
+  .scoreboard[data-layout="rows"] .scoreLp {
+    font-size: clamp(24px, 7vw, 30px);
+  }
+  .seriesBlock {
+    padding-inline: 16px;
+  }
+  .actions,
+  .actions[data-lead="true"] {
+    grid-template-columns: repeat(var(--n, 2), 1fr);
+  }
+  .actions > :first-child {
+    grid-column: 1 / -1;
+  }
+  .btn {
+    min-height: 48px;
+    font-size: 16px;
+  }
+  .btn[data-kind="primary"] {
+    min-height: 54px;
   }
 }
 @media (max-height: 560px) {
@@ -607,170 +695,80 @@
   .dmName {
     display: none;
   }
-  .actions {
-    flex-direction: row;
-    width: auto;
+}
+
+/* ---- Reveal --------------------------------------------------------------
+   Settled by about 0.95 s. Entrances ease out. Only opacity and transform move. */
+
+.root[data-phase="play"] .backdrop { animation: fade 180ms ease-out both; }
+.root[data-phase="play"] .word { animation: drop 240ms 40ms var(--out) both; }
+.root[data-phase="play"] .light { animation: fade 520ms 260ms ease-out both; }
+.root[data-phase="play"] .col { animation: thud 260ms 280ms var(--out) both; }
+.root[data-phase="play"] .flash { animation: flash 240ms 270ms ease-out both; }
+
+/* Loss: it lands whole, then breaks. */
+.root[data-phase="play"][data-outcome="lose"] .piece { animation: split 420ms 280ms var(--out) both; }
+.root[data-phase="play"][data-outcome="lose"] .lit:not(.hot) { animation: fade 160ms 280ms ease-out both; }
+.root[data-phase="play"][data-outcome="lose"] .lit.hot { animation: seam-hot 420ms 280ms ease-out both; }
+.root[data-phase="play"] .dust i {
+  animation: spark 720ms 280ms var(--out) both, spark-fade 720ms 280ms linear both;
+}
+
+/* Win: it slams in whole. */
+.root[data-phase="play"][data-outcome="win"] .word { animation: slam 300ms 40ms var(--out) both; }
+.root[data-phase="play"][data-outcome="win"] .col { animation-name: lift; }
+
+/* Draw and the quiet endings: no impact. */
+.root[data-phase="play"][data-title="calm"] .word { animation: settle 360ms 40ms var(--out) both; }
+.root[data-phase="play"][data-title="calm"] .col,
+.root[data-phase="play"][data-title="calm"] .flash { animation: none; }
+
+/* The rest arrives under the title, in order. */
+.root[data-phase="play"] .reason { animation: rise 260ms 420ms var(--out) both; }
+.root[data-phase="play"] .scoreboard { animation: rise 280ms 500ms var(--out) both; }
+.root[data-phase="play"] .seriesBlock { animation: rise 280ms 580ms var(--out) both; }
+.root[data-phase="play"] .actions { animation: rise 280ms 660ms var(--out) both; }
+
+@keyframes fade { from { opacity: 0; } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes drop { from { opacity: 0; transform: translateY(-0.14em) scale(1.06); } }
+@keyframes slam { from { opacity: 0; transform: scale(1.14); } }
+@keyframes settle { from { opacity: 0; transform: scale(1.03); } }
+@keyframes split { from { transform: none; } }
+@keyframes spark { from { transform: none; } }
+@keyframes spark-fade { 0% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes seam-hot { from { opacity: 1; } }
+@keyframes flash { 0% { opacity: 0; } 25% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes thud { 0%, 100% { transform: translateY(0); } 30% { transform: translateY(5px); } }
+@keyframes lift { 0%, 100% { transform: translateY(0); } 30% { transform: translateY(2px); } }
+
+/* ---- Reduced motion: the settled frame with a short fade ------------------ */
+
+.root[data-reduced="true"] .col {
+  animation: fade 180ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .root .backdrop,
+  .root .flash,
+  .root .light,
+  .root .word,
+  .root .piece,
+  .root .lit,
+  .root .dust i,
+  .root .reason,
+  .root .scoreboard,
+  .root .seriesBlock,
+  .root .actions {
+    animation: none !important;
+  }
+  .root .col {
+    animation: fade 180ms ease-out both !important;
+  }
+  .root .seriesBlock,
+  .root .actions {
+    pointer-events: auto !important;
   }
   .btn {
-    min-height: 40px;
-    padding: 0 16px;
+    transition: none;
   }
 }
-
-/* ---- Reduced motion: settled frame, short fade -------------------------- */
-
-.root[data-reduced="true"] .stage {
-  animation: fade 0.18s ease-out both;
-}
-
-/* ---- Intro (win, spectator, draw, quiet screens) ------------------------ */
-
-.root[data-phase="play"] .backdrop { animation: fade 0.24s ease-out both; }
-.root[data-phase="play"] .frame { animation: fade 0.5s 0.05s ease-out both; }
-.root[data-phase="play"] .titleCard { animation: fade 0.3s 0.12s ease-out both; }
-.root[data-phase="play"] .reason { animation: rise 0.4s 0.8s ease-out both; }
-.root[data-phase="play"] .scoreboard { animation: rise 0.4s 0.92s ease-out both; }
-.root[data-phase="play"] .actions { animation: rise 0.4s 1.05s ease-out both; pointer-events: none; }
-
-.root[data-phase="play"] .burst { animation: burst-in 0.95s 0.05s cubic-bezier(0.16, 1, 0.3, 1) both; }
-.root[data-phase="play"] .layer { animation: slam 0.22s 0.18s cubic-bezier(0.5, 0, 0.9, 0.5) both; }
-.root[data-phase="play"] .flash { animation: flash 0.5s 0.4s ease-out both; }
-.root[data-phase="play"] .stage { animation: shake 0.32s 0.4s linear both; }
-
-/* Spectator: gold and neutral, a softer landing. */
-.root[data-phase="play"][data-outcome="spectator"] .flash { animation-name: flash-soft; }
-.root[data-phase="play"][data-outcome="spectator"] .stage { animation-name: shake-soft; }
-
-/* Draw, interrupted, cancelled: no impact. */
-.root[data-phase="play"][data-outcome="draw"] .layer,
-.root[data-phase="play"][data-outcome="interrupted"] .layer,
-.root[data-phase="play"][data-outcome="cancelled"] .layer,
-.root[data-phase="play"][data-outcome="ended"] .layer {
-  animation: settle-in 0.5s 0.15s ease-out both;
-}
-.root[data-phase="play"][data-outcome="draw"] .flash,
-.root[data-phase="play"][data-outcome="draw"] .stage,
-.root[data-phase="play"][data-outcome="interrupted"] .flash,
-.root[data-phase="play"][data-outcome="interrupted"] .stage,
-.root[data-phase="play"][data-outcome="cancelled"] .flash,
-.root[data-phase="play"][data-outcome="cancelled"] .stage,
-.root[data-phase="play"][data-outcome="ended"] .flash,
-.root[data-phase="play"][data-outcome="ended"] .stage {
-  animation: none;
-}
-.root[data-phase="play"][data-outcome="interrupted"] .reason,
-.root[data-phase="play"][data-outcome="cancelled"] .reason,
-.root[data-phase="play"][data-outcome="ended"] .reason {
-  animation-delay: 0.45s;
-}
-.root[data-phase="play"][data-outcome="interrupted"] .scoreboard,
-.root[data-phase="play"][data-outcome="cancelled"] .scoreboard,
-.root[data-phase="play"][data-outcome="ended"] .scoreboard {
-  animation-delay: 0.55s;
-}
-.root[data-phase="play"][data-outcome="interrupted"] .actions,
-.root[data-phase="play"][data-outcome="cancelled"] .actions,
-.root[data-phase="play"][data-outcome="ended"] .actions {
-  animation-delay: 0.65s;
-}
-
-/* Lose: the word lands, cracks, and the rays drain to grey. */
-.root[data-phase="play"][data-outcome="lose"] .burst { animation: fade 0.4s 0.05s ease-out both; }
-.root[data-phase="play"][data-outcome="lose"] .raysSpin { animation: drain 0.9s 0.5s ease-in-out both; }
-.root[data-phase="play"][data-outcome="lose"] .frame {
-  animation: fade 0.5s 0.05s ease-out both, frame-fall 0.45s 0.55s ease-in-out both;
-}
-.root[data-phase="play"][data-outcome="lose"] .face { animation: drop 0.3s 0.2s cubic-bezier(0.4, 0, 0.7, 1) both; }
-.root[data-phase="play"][data-outcome="lose"] .layer { animation: none; }
-.root[data-phase="play"][data-outcome="lose"] .layer[data-shard] { animation: split 0.55s 0.62s cubic-bezier(0.16, 1, 0.3, 1) both; }
-.root[data-phase="play"][data-outcome="lose"] .crack { animation: wipe 0.22s 0.58s ease-out both; }
-.root[data-phase="play"][data-outcome="lose"] .flash { animation: none; }
-.root[data-phase="play"][data-outcome="lose"] .stage { animation: thud 0.26s 0.5s ease-out both; }
-.root[data-phase="play"][data-outcome="lose"] .reason { animation-delay: 0.95s; }
-.root[data-phase="play"][data-outcome="lose"] .scoreboard { animation-delay: 1.05s; }
-.root[data-phase="play"][data-outcome="lose"] .actions { animation-delay: 1.15s; }
-
-@keyframes fade {
-  from { opacity: 0; }
-}
-@keyframes rise {
-  from { opacity: 0; transform: translateY(8px); }
-}
-@keyframes burst-in {
-  from { opacity: 0; transform: scale(0.55); }
-}
-@keyframes slam {
-  from { opacity: 0; transform: scale(1.75); }
-}
-@keyframes settle-in {
-  from { opacity: 0; transform: scale(1.04); }
-}
-@keyframes flash {
-  0% { opacity: 0; }
-  18% { opacity: 1; }
-  100% { opacity: 0; }
-}
-@keyframes flash-soft {
-  0% { opacity: 0; }
-  18% { opacity: 0.45; }
-  100% { opacity: 0; }
-}
-@keyframes shake {
-  0%, 100% { translate: 0 0; }
-  12% { translate: -9px 5px; }
-  28% { translate: 8px -6px; }
-  44% { translate: -6px 4px; }
-  60% { translate: 4px -2px; }
-  78% { translate: -2px 1px; }
-}
-@keyframes shake-soft {
-  0%, 100% { translate: 0 0; }
-  20% { translate: -4px 3px; }
-  45% { translate: 3px -2px; }
-  70% { translate: -1px 1px; }
-}
-@keyframes drop {
-  from { opacity: 0; transform: translateY(-0.2em) scale(1.06); }
-}
-@keyframes thud {
-  0%, 100% { translate: 0 0; }
-  25% { translate: 0 6px; }
-  55% { translate: 0 -2px; }
-}
-@keyframes drain {
-  from { color: #e4b64f; }
-}
-@keyframes frame-fall {
-  from { --frame: rgb(181 153 99 / 0.5); }
-}
-@keyframes split {
-  from { transform: none; }
-}
-@keyframes wipe {
-  from { clip-path: inset(-20% -20% 120% -20%); }
-}
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-/* ---- Series (Best of 3, ranked, tournament) ---------------------------- */
-
-.seriesBlock {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  width: min(39em, 100%);
-  padding: clamp(10px, 1.6vh, 16px) clamp(14px, 2vw, 22px);
-}
-/* The decided series gets the winner's gold edge. */
-.seriesBlock[data-state="decided"] {
-  border-color: rgb(228 182 79 / 0.55);
-  box-shadow: inset 0 2px 0 var(--gold), 0 24px 56px -28px rgb(0 0 0 / 0.95);
-}
-/* The between-games part (countdown, Ready states, buttons) under a hairline. */
-.seriesBlock > section {
-  width: 100%;
-  padding-top: clamp(8px, 1.4vh, 12px);
-  border-top: 1px solid var(--rule-lo);
-}
-.root[data-phase="play"] .seriesBlock { animation: rise 0.4s 1s ease-out both; pointer-events: none; }
