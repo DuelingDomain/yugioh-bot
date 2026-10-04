@@ -84,6 +84,27 @@ describe("the duel room between games", () => {
     expect(screen.queryByRole("region", { name: "Seats" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Table" })).toBeNull();
   });
+
+  it("hands a player from the side deck screen to game 2 without showing game 1's result", () => {
+    swr.data = betweenRoom();
+    const view = render(<DuelRoomView slug="game-1" />);
+    expect(screen.getByTestId("between-games")).toBeTruthy();
+
+    // The server made game 2: the series points at it, but this room still holds the finished game 1.
+    const handoff = makeSeriesRoom({ series: makeSeries({ status: "active", gameNumber: 2, currentDuelSlug: "game-2", wins: [1, 0] }) });
+    swr.data = handoff;
+    view.rerender(<DuelRoomView slug="game-1" />);
+    expect(screen.queryByTestId("duel-result")).toBeNull();
+    expect(screen.queryByTestId("between-games")).toBeNull();
+    expect(screen.getByTestId("next-game-starting").textContent).toContain("Game 2 of 3");
+  });
+
+  it("does not show game 1's result to a player who opens it after game 2 started", () => {
+    swr.data = makeSeriesRoom({ series: makeSeries({ status: "active", gameNumber: 2, currentDuelSlug: "game-2", wins: [1, 0] }) });
+    render(<DuelRoomView slug="game-1" />);
+    expect(screen.queryByTestId("duel-result")).toBeNull();
+    expect(screen.getByTestId("next-game-starting")).toBeTruthy();
+  });
 });
 
 describe("the old game's room once the series moves on", () => {

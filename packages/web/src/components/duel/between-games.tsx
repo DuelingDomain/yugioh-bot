@@ -4,7 +4,7 @@ import { Children, useCallback, useEffect, useMemo, useRef, useState, type React
 import type { DuelDeck, DuelRoom, DuelSeriesSummary } from "@yugidraft/shared/duels";
 import { CardArt } from "@/components/decks/card-art";
 import deckStyles from "@/components/decks/editor.module.css";
-import { cancelSeries, chooseSeriesFirst, DuelRequestError, getDuelCards, readySeries, saveSeriesSideDeck, unreadySeries } from "./api";
+import { cancelSeries, chooseSeriesFirst, getDuelCards, readySeries, saveSeriesSideDeck, unreadySeries } from "./api";
 import { DeckCardPreview } from "./deck-card-preview";
 import { cx, sheetRoot, SheetButton } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
@@ -111,6 +111,8 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
   const index = seriesPlayerIndex(room, series);
   const info = betweenGamesInfo(room, slug);
   const seconds = useSecondsUntil(series.nextGameAt);
+  // The window is over and the server is making the next game. A server restart or a missed socket message can delay it.
+  const startingNext = seconds === 0 && series.status === "between_games";
   const side = room.mySide ?? null;
   const serverDeck = side?.currentDeck ?? EMPTY_DECK;
   const serverDeckKey = JSON.stringify(serverDeck);
@@ -218,6 +220,12 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
     return () => { cancelled = true; };
   }, [codesKey]);
 
+  useEffect(() => {
+    if (!startingNext || !autoSave) return;
+    // Read the room as soon as the window ends instead of at the next poll, in case the socket missed the new game.
+    void Promise.resolve().then(onChanged).catch(() => undefined);
+  }, [startingNext, autoSave, onChanged]);
+
   const types = useMemo(() => new Map([...meta].map(([code, info]) => [code, info.type] as const)), [meta]);
   const plan = useMemo(() => planSideDeck(current, marks, types, base), [current, marks, types, base]);
 
@@ -297,8 +305,8 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
         }
         unreadyFailed.current = true;
         setError(cause instanceof Error ? cause.message : "Could not take back your Ready. Try again.");
-        // A closed series rejects editing; let the room recover its current state.
-        if (cause instanceof DuelRequestError && cause.status === 409) void refresh();
+        // The request may have landed (a 502 while the server restarts) or the series may be closed: show what the server holds.
+        void refresh();
       },
     ).finally(() => {
       unreadying.current = null;
@@ -451,7 +459,8 @@ export function BetweenGamesScreen({ room, slug, onChanged, onNavigate, knownCar
           </span>
           <span className={styles.chip}>{kind}</span>
           <span className={styles.chip} data-tone={seconds != null ? "gold" : undefined} role="timer" data-testid="between-timer">
-            {seconds != null ? <>Starts in <b>{formatCountdown(seconds)}</b></> : "Waiting for both players"}
+            {startingNext ? `Starting game ${series.gameNumber + 1}…`
+              : seconds != null ? <>Starts in <b>{formatCountdown(seconds)}</b></> : "Waiting for both players"}
           </span>
         </div>
       </header>
@@ -549,9 +558,16 @@ export function isStartingNextGame(room: Pick<DuelRoom, "session" | "series">): 
 /**
  * The moment between Ready and the first prompt of the next game. Both players are already seated and
  * ready, so the table lobby and its settings never show. If the server is slow, a link opens the table.
+ * The finished game's room shows it too once the series points at the next game, so the result screen
+ * of the game that is over never flashes before the route changes.
  */
-export function NextGameStarting({ room, onShowTable }: { room: DuelRoom; onShowTable: () => void }) {
-  const game = room.session.gameNumber ?? 2;
+export function NextGameStarting({ room, game: gameOverride, onShowTable }: {
+  room: DuelRoom;
+  /** The game that is starting, when this room is the finished game before it. */
+  game?: number;
+  onShowTable: () => void;
+}) {
+  const game = gameOverride ?? room.session.gameNumber ?? 2;
   const bestOf = room.series?.bestOf ?? 3;
   const [slow, setSlow] = useState(false);
   useEffect(() => {

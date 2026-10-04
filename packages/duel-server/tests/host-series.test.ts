@@ -758,6 +758,28 @@ describe("series advance", () => {
     expect(workers).toHaveLength(2);
   });
 
+  it("times a between-games series that is not due yet when the host boots, instead of waiting for the next sweep", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    // Game 1 ends with no host running; the host then restarts a few seconds before the 60 s window ends.
+    const first = challenge(app, 3);
+    app.duels.setDeck(first.duel.slug, GUILD, app.p1, deckWithSide());
+    app.duels.setDeck(first.duel.slug, GUILD, app.p2, deckWithSide(true));
+    app.duels.activate(first.duel.slug, GUILD, null, ["s"], "v", null);
+    app.duels.complete(first.duel.slug, GUILD, 0, "done");
+    await vi.advanceTimersByTimeAsync(52_000);
+
+    const { workers } = openHost(app, { pollIntervalMs: 30_000 });
+    await settle();
+    expect(app.series.get(first.series.id, GUILD).gameNumber).toBe(1);
+
+    // The deadline passes 8 s after boot; the next sweep is 30 s after boot, so only a timer starts it on time.
+    await vi.advanceTimersByTimeAsync(9_000);
+    await settle();
+    expect(app.series.get(first.series.id, GUILD).gameNumber).toBe(2);
+    expect(workers).toHaveLength(1);
+  });
+
   it("does not advance after the host closes", async () => {
     vi.useFakeTimers();
     const app = setup();
