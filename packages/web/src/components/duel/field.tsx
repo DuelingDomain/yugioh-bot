@@ -821,23 +821,16 @@ function PileColumn({
   );
 }
 
-/** Outline follows the zone grid, including the third-row Banished pile on each side. */
-function HalfSignals({ side, masterRule }: { side: "top" | "bottom"; masterRule: DuelMasterRule }) {
-  // Grid units match --wk, --pile-col, --z and --gy in field.module.css; SVG scales with the fit.
-  const width = masterRule === 3 ? 8.344 : 6.822;
-  const pile = masterRule === 3 ? 1.447 : 0.686;
-  const turnPath = side === "top"
-    ? `M0 0 H${width} V2.04 H${pile} V3.08 H0 Z`
-    : `M0 5.16 H${width} V2.08 H${width - pile} V3.12 H0 Z`;
-  const priorityPath = side === "top"
-    ? `M0 0 V3.08 H${pile} V2.04 M${width} 0 V2.04`
-    : `M0 3.12 V5.16 M${width} 5.16 V2.08 H${width - pile} V3.12`;
+/**
+ * The turn light: a soft glow behind one half of the board, strongest at the outer edge of the screen
+ * (like the turn side in Master Duel). Cool blue-violet below, warm amber-red above. No lines. It sits
+ * under the sheet, so it never covers a card, a zone glow, the chain or a prompt. A response window
+ * without the turn lifts a faint violet bloom on that half instead (`data-priority`).
+ */
+function TurnGlow({ side, turn, priority }: { side: "top" | "bottom"; turn: boolean; priority: boolean }) {
   return (
-    <svg className={styles.halfSignals} data-field-signals data-side={side} aria-hidden="true"
-      viewBox={`0 0 ${width} 5.16`} preserveAspectRatio="none">
-      <path className={styles.turnEdge} d={turnPath} vectorEffect="non-scaling-stroke" />
-      <path className={styles.priorityEdge} d={priorityPath} vectorEffect="non-scaling-stroke" />
-    </svg>
+    <div className={styles.turnGlow} data-turn-glow data-side={side}
+      data-turn={turn ? "true" : "false"} data-priority={priority ? "true" : "false"} aria-hidden="true" />
   );
 }
 
@@ -937,6 +930,8 @@ export function DuelField({
       data-master-rule={masterRule}
     >
       <div className={styles.wash} aria-hidden="true" />
+      <TurnGlow side="top" turn={activity.turnSeat === topIndex} priority={activity.prioritySeat === topIndex} />
+      <TurnGlow side="bottom" turn={activity.turnSeat === bottomIndex} priority={activity.prioritySeat === bottomIndex} />
       <div className={styles.playmat}>
         <span className={styles.marginRule} aria-hidden="true" />
         <div className={`${styles.strip} ${styles.stripTop}`}>
@@ -969,7 +964,6 @@ export function DuelField({
           <div className={styles.half} data-field-seat={topIndex} data-side="top"
             data-turn={activity.turnSeat === topIndex ? "true" : "false"}
             data-priority={activity.prioritySeat === topIndex ? "true" : "false"}>
-            <HalfSignals side="top" masterRule={masterRule} />
             <PileColumn view={top} opponent side="left" callbacks={callbacks} ownerLabel={topLabel} masterRule={masterRule} />
             <div className={styles.rows}>
               <SpellRow view={top} reversed callbacks={callbacks} masterRule={masterRule} />
@@ -1015,7 +1009,6 @@ export function DuelField({
           <div className={`${styles.half} ${styles.halfLocal}`} data-field-seat={bottomIndex} data-side="bottom"
             data-turn={activity.turnSeat === bottomIndex ? "true" : "false"}
             data-priority={activity.prioritySeat === bottomIndex ? "true" : "false"}>
-            <HalfSignals side="bottom" masterRule={masterRule} />
             <PileColumn view={bottom} opponent={false} side="left" callbacks={callbacks} ownerLabel={bottomLabel} masterRule={masterRule} />
             <div className={styles.rows}>
               <MonsterRow view={bottom} reversed={false} callbacks={callbacks} />
