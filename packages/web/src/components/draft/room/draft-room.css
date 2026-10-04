@@ -1443,33 +1443,3 @@
 /* the draft API sends the whole card, not cropped art: show the artwork window of the card face in the square portraits */
 .dr .portrait img.crop { display: block; width: 128.2%; height: auto; max-width: none; margin: -33.6% 0 0 -14.1%; object-fit: fill; }
 .dr a.pick-btn { text-decoration: none; }
-
-/* ---------- large card preview (desktop, mouse or keyboard) ----------
-   Flat and upright over the table, never in the way of a click. It sits where placePreview puts it. */
-.dr .pv {
-  position: absolute;
-  top: 0;
-  left: 0;
-  z-index: 6;
-  pointer-events: none;
-}
-.dr .pv-card {
-  aspect-ratio: 59 / 86;
-  overflow: hidden;
-  border-radius: 9px;
-  background: #06080e;
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6), 0 24px 54px rgb(0 0 0 / 0.7), 0 0 36px rgb(var(--lamp) / 0.12);
-  transform-origin: 50% 100%;
-}
-.dr .pv-card img { display: block; width: 100%; height: 100%; object-fit: fill; }
-@media (max-width: 900px) {
-  .dr .pv { display: none; }
-}
-
-/* a roomy monitor gives the reader a wider column; its art already follows the column up to a third of the height */
-@media (min-width: 1700px) and (min-height: 1000px) {
-  .dr { --insp-w: 340px; }
-}
-@media (min-width: 2200px) and (min-height: 1250px) {
-  .dr { --insp-w: 400px; }
-}

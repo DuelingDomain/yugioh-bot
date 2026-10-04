@@ -44,20 +44,9 @@ interface TableProps {
   onCardFocus: (card: RoomCard) => void;
   onCardPointerDown: () => void;
   onCardHover: (card: RoomCard | null) => void;
-  /** The card that has keyboard focus, or null when focus leaves it. */
-  onCardKeyFocus?: (card: RoomCard | null) => void;
 }
 
 const hoverable = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia("(hover: hover)").matches;
-
-/** True when the browser shows a focus ring on this element, as it does for the keyboard and not for a click. */
-const focusVisible = (el: Element) => {
-  try {
-    return el.matches(":focus-visible");
-  } catch {
-    return false;
-  }
-};
 
 export const Table = memo(function Table(props: TableProps) {
   const { geometry: g, deal, theme, phase, turn, direction, seatCount, settle, stepKey, pickSeconds, hold, ribboned } = props;
@@ -325,7 +314,6 @@ export const Table = memo(function Table(props: TableProps) {
         } : undefined}
         onFocus={interactive ? (e) => {
           props.onCardFocus(it.card);
-          if (props.onCardKeyFocus && focusVisible(e.currentTarget)) props.onCardKeyFocus(it.card);
           if (g.tall) {
             e.currentTarget.scrollIntoView?.({
               block: "nearest",
@@ -333,7 +321,6 @@ export const Table = memo(function Table(props: TableProps) {
             });
           }
         } : undefined}
-        onBlur={interactive && props.onCardKeyFocus ? () => props.onCardKeyFocus?.(null) : undefined}
         onPointerDown={interactive ? props.onCardPointerDown : undefined}
         onPointerEnter={interactive && canHover ? () => props.onCardHover(it.card) : undefined}
         onPointerLeave={interactive && canHover ? () => props.onCardHover(null) : undefined}
