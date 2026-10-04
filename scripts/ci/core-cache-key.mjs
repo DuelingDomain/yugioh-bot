@@ -9,10 +9,10 @@ if (target === "legacy-domain") inputs.push(pkg + "legacy-1v1/");
 else if (target === "standard" || target === "domain") {
   inputs.push(pkg + `scripts/build-${target}-core.sh`, pkg + "domain-core/src/apply-core-fixes.mjs");
   if (target === "domain") inputs.push(pkg + "domain-core/src/apply-domain-patch.mjs", pkg + "domain-core/src/domain_master.cpp", pkg + "domain-core/src/domain_master.h", pkg + "domain-core/lua/");
-} else if (["multi", "multi-domain", "multi-ref", "multi-ref-domain", "multi-trap"].includes(target)) {
+} else if (["multi", "multi-domain", "multi-ref", "multi-ref-domain", "multi-trap", "multi-domain-trap"].includes(target)) {
   inputs.push(pkg + "scripts/build-multi-core.sh", pkg + "scripts/prepare-multi-core-tree.sh", pkg + "scripts/multi-core-common.sh");
   inputs.push(...(target.startsWith("multi-ref") ? [pkg + "domain-core/patches/0001-*.patch", pkg + "domain-core/patches/0002-*.patch"] : [pkg + "domain-core/patches/*.patch"]));
-  if (target.endsWith("domain")) inputs.push(pkg + "domain-core/src/");
+  if (target.includes("domain")) inputs.push(pkg + "domain-core/src/");
 } else throw new Error(`unknown core target: ${target}`);
 const files = execFileSync("git", ["ls-files", "-z", "--", ...inputs], { encoding: "utf8" }).split("\0").filter(Boolean).sort();
 const hash = createHash("sha256");

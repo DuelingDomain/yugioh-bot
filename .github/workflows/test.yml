@@ -105,7 +105,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [standard, domain, legacy-domain, multi, multi-domain, multi-ref, multi-ref-domain, multi-trap]
+        target: [standard, domain, legacy-domain, multi, multi-domain, multi-ref, multi-ref-domain, multi-trap, multi-domain-trap]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -140,7 +140,7 @@ jobs:
           npx patch-package --error-on-fail
       - name: Build core with all runner CPUs
         if: steps.core.outputs.cache-hit != 'true'
-        run: bash scripts/ci/build-core.sh ${{ matrix.target }}
+        run: prlimit --core=1:1 -- bash scripts/ci/build-core.sh ${{ matrix.target }}
       - name: Save compiled core
         if: steps.core.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -220,7 +220,7 @@ jobs:
           for f in ocgcore.standard.wasm ocgcore.domain.wasm ocgcore.multi.wasm ocgcore.multi-domain.wasm ocgcore.multi.SOURCE cards.cdb; do
             test -s "$BUNDLE_DIR/$f" || { echo "bundle file missing or empty: $BUNDLE_DIR/$f" >&2; exit 1; }
           done
-          for f in ocgcore.multi.sync.wasm ocgcore.multi-ref.sync.wasm ocgcore.multi-domain.sync.wasm ocgcore.multi-ref-domain.sync.wasm ocgcore.multi-trap.sync.wasm; do
+          for f in ocgcore.multi.sync.wasm ocgcore.multi-ref.sync.wasm ocgcore.multi-domain.sync.wasm ocgcore.multi-ref-domain.sync.wasm ocgcore.multi-trap.sync.wasm ocgcore.multi-domain-trap.sync.wasm; do
             test -s "packages/duel-server/domain-core/dist/$f" || { echo "differential core missing or empty: $f" >&2; exit 1; }
           done
           DUEL_DATA_DIR="$PWD/$BUNDLE_DIR" sh packages/duel-server/scripts/install-engine-bundle.sh
@@ -357,6 +357,7 @@ jobs:
       NSEAT_LIVE: "1"
       # The Table test (tests/multi-scripts-table.test.ts) needs the debug core of the cores job; in require mode a missing file fails.
       TABLE_TRAP_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-trap.sync.wasm
+      TABLE_TRAP_DOMAIN_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain-trap.sync.wasm
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -442,6 +443,7 @@ jobs:
       DOMAIN_MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
       NSEAT_LIVE: "1"
       TABLE_TRAP_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-trap.sync.wasm
+      TABLE_TRAP_DOMAIN_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain-trap.sync.wasm
       # Production starts 1v1 duels on the legacy engine. Run only its tests and host/worker gates. The setup file
       # (tests/support/setup.ts) keeps a value that is already set. tests/legacy-main is main's engine tests, unchanged
       # except for the import paths, and they always use the legacy engine.

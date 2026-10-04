@@ -9,7 +9,7 @@ mkdirSync(dist, { recursive: true });
 const manifestPath = join(bundle, "manifest.json");
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 // Preserve the serial build's manifest insertion order and its final (legacy) bundleVersion calculation.
-for (const target of ["domain", "standard", "legacy-domain", "multi", "multi-domain", "multi-ref", "multi-ref-domain", "multi-trap"]) {
+for (const target of ["domain", "standard", "legacy-domain", "multi", "multi-domain", "multi-ref", "multi-ref-domain", "multi-trap", "multi-domain-trap"]) {
   const root = join(process.env.CI_CORE_OUTPUT ?? "ci-core", target);
   const fragment = JSON.parse(readFileSync(join(root, "bundle/manifest.json"), "utf8"));
   Object.assign(manifest.sources, fragment.sources);

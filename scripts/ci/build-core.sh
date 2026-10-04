@@ -3,7 +3,7 @@
 set -euo pipefail
 target="${1:?core target required}"
 case "$target" in
-  standard|domain|legacy-domain|multi|multi-domain|multi-ref|multi-ref-domain|multi-trap) ;;
+  standard|domain|legacy-domain|multi|multi-domain|multi-ref|multi-ref-domain|multi-trap|multi-domain-trap) ;;
   *) echo "unknown core target: $target" >&2; exit 1 ;;
 esac
 out="${CI_CORE_OUTPUT:-ci-core}/$target"
@@ -33,9 +33,9 @@ docker run --rm --ulimit core=1:1 --user "$(id -u):$(id -g)" -e HOME=/tmp \
         export LUA_FIXED_SEED=1 OUT_NAME="ocgcore.$target.sync.wasm"
         export MULTI_TREE="/src/packages/duel-server/domain-core/.build/$target-tree"
         case "$target" in multi-ref*) export PATCH_LIMIT=2 ;; esac
-        case "$target" in multi-domain|multi-ref-domain) export APPLY_DOMAIN=1 ;; esac
-        if [[ "$target" == multi-domain ]]; then export DOMAIN_MULTI=1; fi
-        if [[ "$target" == multi-trap ]]; then export EXTRA_CXXFLAGS=-DYGO_N_TRAP; fi
+        case "$target" in multi-domain|multi-ref-domain|multi-domain-trap) export APPLY_DOMAIN=1 ;; esac
+        case "$target" in multi-domain|multi-domain-trap) export DOMAIN_MULTI=1 ;; esac
+        case "$target" in multi-trap|multi-domain-trap) export EXTRA_CXXFLAGS=-DYGO_N_TRAP ;; esac
         bash packages/duel-server/scripts/build-multi-core.sh
         ;;
     esac
