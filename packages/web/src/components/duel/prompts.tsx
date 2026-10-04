@@ -12,6 +12,7 @@ import type {
 import { Button } from "@/components/ui/button";
 import { searchDuelCards } from "./api";
 import { cardArtUrl, LOCATION_MZONE, zoneKey } from "./constants";
+import { nextEnabledIndex } from "./multi-seat";
 import { backOutAnswer } from "./pick-backout";
 import { selectBarCopy, sumSelectionValues } from "./select-bar-copy";
 import { tributeClick, tributeState } from "./tribute-pick";
@@ -49,6 +50,18 @@ export function isAttackTargetPrompt(prompt: DuelPrompt | null, attackerChosen =
   );
 }
 
+/**
+ * "Select a duelist to attack": the choice that follows an attacker on a table of 3 or 4 seats. Every option names one
+ * seat to hit directly (a controller, no zone, no prompt context). It is the step before, or instead of, the target pick.
+ */
+export function isAttackDuelistPrompt(prompt: DuelPrompt | null): boolean {
+  if (!prompt || prompt.kind !== "choice" || prompt.context) return false;
+  return (
+    prompt.options.length > 0 &&
+    prompt.options.every((option) => option.controller != null && option.location == null && /^attack\b.*\bdirectly$/i.test(option.label))
+  );
+}
+
 /** "Attack directly?" yes/no, asked when an attacker could hit the player but monsters are also attackable. */
 export function isDirectAttackPrompt(prompt: DuelPrompt | null): boolean {
   if (!prompt || prompt.kind !== "choice" || prompt.context) return false;
@@ -60,6 +73,8 @@ export interface PromptAim {
   lockedId: string | null;
   onAim: (option: DuelPromptOption) => void;
   onHover: (option: DuelPromptOption | null) => void;
+  /** Words for the prompt while aiming, when the table points with a cursor and sends on one click (3-way, 4-way, Tag). */
+  hint?: string;
 }
 
 export function optionZoneKeys(option: DuelPromptOption): string[] {
@@ -522,6 +537,7 @@ export function PromptTray({
   headless,
   suspended,
   waitingName,
+  disabledIds,
 }: {
   prompt: DuelPrompt | null;
   mySeat: number | null;
@@ -542,6 +558,11 @@ export function PromptTray({
   aim?: PromptAim;
   /** 3 and 4 seat tables: the name of the seat that must answer. */
   waitingName?: string | null;
+  /**
+   * Ids of options that cannot be answered (seat rows that are out or leaving, see outSeatOptionIds). Arrow keys skip
+   * them, their number keys do nothing, and Enter never sends one. Ids and order of the options stay as they are.
+   */
+  disabledIds?: ReadonlySet<string>;
 }) {
   const styles = useSkinStyles(baseStyles, "tray");
   const seated = prompt != null && mySeat != null && prompt.seat === mySeat;
@@ -557,6 +578,8 @@ export function PromptTray({
   const confirmableRef = useRef(confirmable);
   const aimRef = useRef(aim);
   const suspendedRef = useRef(Boolean(suspended));
+  const disabledRef = useRef(disabledIds);
+  disabledRef.current = disabledIds;
   aimRef.current = aim;
   suspendedRef.current = Boolean(suspended);
   promptRef.current = prompt;
@@ -587,11 +610,14 @@ export function PromptTray({
       if (event.metaKey || event.ctrlKey || event.altKey) return;
 
       const options = current.options;
+      const disabled = disabledRef.current;
       const numberKey = parseNumberKey(event.key);
       const submitKey = event.key === "Enter" || event.key === "Escape" || event.key === "f" || event.key === "F";
       if (busyRef.current && (submitKey || numberKey != null)) return;
       if (event.repeat && submitKey) return;
 
+      // A disabled seat row keeps its number, but that key answers nothing.
+      if (numberKey != null && options[numberKey - 1] && disabled?.has(options[numberKey - 1].id)) return;
       if (numberKey != null && options[numberKey - 1]) {
         event.preventDefault();
         const option = options[numberKey - 1];
@@ -627,16 +653,17 @@ export function PromptTray({
 
       if ((event.key === "ArrowDown" || event.key === "ArrowRight") && options.length > 0) {
         event.preventDefault();
-        currentDraft.setHighlight((index) => (index + 1) % options.length);
+        currentDraft.setHighlight((index) => (disabled && disabled.size > 0 ? nextEnabledIndex(current, disabled, index, 1) : (index + 1) % options.length));
         return;
       }
       if ((event.key === "ArrowUp" || event.key === "ArrowLeft") && options.length > 0) {
         event.preventDefault();
-        currentDraft.setHighlight((index) => (index - 1 + options.length) % options.length);
+        currentDraft.setHighlight((index) => (disabled && disabled.size > 0 ? nextEnabledIndex(current, disabled, index, -1) : (index - 1 + options.length) % options.length));
         return;
       }
       if (event.key === "Enter") {
         const highlighted = options[currentDraft.highlight];
+        if (highlighted && disabled?.has(highlighted.id)) return;
         if (highlighted && (current.kind === "choice" || current.kind === "toggle")) {
           event.preventDefault();
           submitAnswer({ choice: highlighted.id });
@@ -934,7 +961,7 @@ export function PromptTray({
         </p>
       ) : null}
       {aim ? (
-        <p className={styles.hint}>Point at a target, then confirm the attack. Esc goes back.</p>
+        <p className={styles.hint}>{aim.hint ?? "Point at a target, then confirm the attack. Esc goes back."}</p>
       ) : null}
       {!aim && (prompt.kind === "cards" || prompt.kind === "places" || prompt.kind === "order") ? (
         <p className={styles.status}>

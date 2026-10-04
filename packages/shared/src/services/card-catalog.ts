@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import type { Card } from "../types/index.js";
+import { foldCardText } from "../duels/card-query.js";
 
 type CardSet = {
   set_name: string;
@@ -32,7 +33,7 @@ type YgoprodeckCard = {
 type FetchLike = (
   input: string | URL | globalThis.Request,
   init?: globalThis.RequestInit,
-) => Promise<Pick<Response, "ok" | "json">>;
+) => Promise<Pick<Response, "ok" | "json"> & Partial<Pick<Response, "status">>>;
 
 export type CardCatalogCard = Card;
 
@@ -50,6 +51,28 @@ const EXTRA_DECK_FRAME_TYPES = new Set(["fusion", "synchro", "xyz", "link"]);
 
 function normalizeName(name: string) {
   return name.trim().toLowerCase();
+}
+
+/**
+ * Orders cards for a typed name: the exact name first, then names that start with it, then names that
+ * contain it, then names that have every word in any order. Case, accents and punctuation do not matter,
+ * so "blue eyes" matches "Blue-Eyes White Dragon". Shorter names come before longer ones in a tier.
+ */
+export function rankCardsByName<T extends { name: string }>(cards: readonly T[], query: string): T[] {
+  const phrase = foldCardText(query);
+  const words = phrase.split(" ").filter(Boolean);
+  const tier = (name: string) => {
+    if (name === phrase) return 0;
+    if (name.startsWith(phrase)) return 1;
+    if (name.includes(phrase)) return 2;
+    if (words.every((word) => name.includes(word))) return 3;
+    return 4;
+  };
+  return cards
+    .map((card) => ({ card, name: foldCardText(card.name) }))
+    .map((entry) => ({ ...entry, tier: tier(entry.name) }))
+    .sort((a, b) => a.tier - b.tier || a.name.length - b.name.length || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .map((entry) => entry.card);
 }
 
 /**
@@ -104,7 +127,7 @@ export function createCardCatalogService(
     return fetchImpl(input, init);
   };
 
-  const fetchCardsWith = async (params: Record<string, string>) => {
+  const fetchCardsWith = async (params: Record<string, string>, options: { allowNoMatch?: boolean } = {}) => {
     const url = new URL(YGOPRODECK_API_URL);
     for (const [key, value] of Object.entries(params)) {
       url.searchParams.set(key, value);
@@ -119,6 +142,13 @@ export function createCardCatalogService(
     }
 
     if (!response.ok) {
+      if (response.status === 400 && options.allowNoMatch) {
+        return [];
+      }
+      if (response.status !== 400) {
+        const reason = response.status === undefined ? "request failed" : `HTTP ${response.status}`;
+        throw new Error(`Could not reach the card database (${reason}). Check connectivity and try again.`);
+      }
       throw new Error(`YGOPRODeck request failed for ${new URLSearchParams(params).toString()}`);
     }
 
@@ -285,11 +315,50 @@ export function createCardCatalogService(
       return findByIds([card.id])[0];
     },
 
-    async syncCardsByFuzzyName(name: string) {
-      const cards = await fetchCards("fname", name);
-      const nonExtra = cards.filter((card) => !isExtraDeckCard(card));
-      upsertCards(nonExtra);
-      return findByIds(nonExtra.map((card) => card.id));
+    /**
+     * Cards whose name matches typed text, best match first (see rankCardsByName). The card database only
+     * matches the exact text and answers HTTP 400 for no match, so "blue eyes" would miss "Blue-Eyes":
+     * when the text finds nothing, try up to two distinct words of at least three characters, longest unchanged words first,
+     * and keep names that have every folded word. Never repeat the folded full text as a probe.
+     * A full passcode finds that card. Extra Deck monsters are left out unless `includeExtra` is set.
+     */
+    async syncCardsByFuzzyName(name: string, options: { includeExtra?: boolean; limit?: number } = {}) {
+      const text = name.trim();
+      const phrase = foldCardText(text);
+      const words = phrase.split(" ").filter(Boolean);
+      if (words.length === 0) {
+        return [];
+      }
+
+      // Only HTTP 400 means no match; other HTTP failures and lost connections must reach the caller.
+      const lookup = (params: Record<string, string>) => fetchCardsWith(params, { allowNoMatch: true });
+
+      let cards: YgoprodeckCard[] = /^\d{6,10}$/.test(text) ? await lookup({ id: String(Number(text)) }) : [];
+      if (cards.length === 0) {
+        cards = await lookup({ fname: text });
+      }
+      if (cards.length === 0) {
+        const unchangedWords = new Set(text.toLowerCase().split(/\s+/).filter((word) => foldCardText(word) === word));
+        const probes = [...new Set(words)]
+          .filter((word) => word.length >= 3 && word !== phrase)
+          .sort((a, b) => Number(unchangedWords.has(b)) - Number(unchangedWords.has(a)) || b.length - a.length)
+          .slice(0, 2);
+        for (const probe of probes) {
+          const probed = await lookup({ fname: probe });
+          cards = probed.filter((card) => {
+            const folded = foldCardText(card.name);
+            return words.every((word) => folded.includes(word));
+          });
+          if (cards.length > 0) {
+            break;
+          }
+        }
+      }
+
+      const usable = options.includeExtra ? cards : cards.filter((card) => !isExtraDeckCard(card));
+      upsertCards(usable);
+      const ranked = rankCardsByName(findByIds(usable.map((card) => card.id)), text);
+      return ranked.slice(0, options.limit ?? 24);
     },
 
     listSets(query?: string): Array<{ setName: string; setCode: string; cardCount: number }> {

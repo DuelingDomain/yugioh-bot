@@ -35,6 +35,8 @@ export interface BarCopyInput {
   toggling?: boolean;
   /** An attack-target pick: picking a card aims. */
   aiming?: boolean;
+  /** The instruction while aiming, when the table sends on the click itself. */
+  aimHint?: string;
   /** Name of the card the prompt is about, when the engine says. */
   sourceName?: string | null;
   /** The prompt is a position pick (context "position"), whatever its title says. */
@@ -154,7 +156,7 @@ function classify(input: BarCopyInput): BarKind {
 
 function progressParts(input: BarCopyInput): { instruction: string; counter: string | null } {
   const { min, max, count, values, target } = input;
-  if (input.aiming) return { instruction: "Point at a target, then confirm", counter: null };
+  if (input.aiming) return { instruction: input.aimHint ?? "Point at a target, then confirm", counter: null };
   if (synchroMaterials(input)) {
     const running = input.total ?? (input.kind === "sum" ? values || "0" : undefined);
     return { instruction: "", counter: target != null && running != null

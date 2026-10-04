@@ -11,6 +11,7 @@ import createCore, {
   OcgMessageType,
   OcgPosition,
   OcgProcessResult,
+  OcgResponseType,
   OcgType,
   cardMatchesOpcode,
   type OcgCardData,
@@ -20,7 +21,7 @@ import createCore, {
   type OcgOpCode,
 } from "ocgcore-wasm";
 import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
-import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, isWaitingMessage, mapPrompt, nextLivingOpponentSeat, placeSeatHint, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
+import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, filterPromptOptions, isWaitingMessage, mapPrompt, nextLivingOpponentSeat, placeSeatHint, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
 import {
   DOMAIN_RECALL_DESC,
   LOCATION_DECKMASTER,
@@ -924,6 +925,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           ...(multi && "player" in waiting ? { placeOpponent: nextLivingOpponent(waiting.player) } : {}),
           ...(multi && lastPlaceSeat != null ? { placeSeat: lastPlaceSeat } : {}),
           ...(multi ? { livingSeats: Array.from({ length: seatCount }, (_, seat) => seat).filter((seat) => !eliminated.has(seat) && !isLeaving(seat)) } : {}),
+          ...(multi ? { eliminatedSeats: [...eliminated] } : {}),
           synchroSummon,
         },
       );
@@ -1129,10 +1131,39 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       while (nextExtra < extras.length) applyRaw(extras[nextExtra++]!);
       flushDeferredDestroys();
       if (result) pending = null;
+      if (pending && !eliminated.has(pending.seat)) {
+        const previous = pending;
+        pending = filterPromptOptions(pending, {
+          livingSeats: Array.from({ length: seatCount }, (_, seat) => seat).filter((seat) => !eliminated.has(seat) && !isLeaving(seat)),
+          eliminatedSeats: [...eliminated],
+          removedCards: fresh.flatMap((message) => message.type === OcgMessageType.REMOVE_CARDS ? message.cards : []),
+        });
+        if (pending.prompt.options.length !== previous.prompt.options.length) {
+          // SelectCounter checks changed sources before reading its response. A zero response lets
+          // the core refresh the offer or cancel an unpaid cost without selecting a removed card.
+          const response = pending.message.type === OcgMessageType.SELECT_COUNTER
+            ? { type: OcgResponseType.SELECT_COUNTER as const, counters: pending.message.cards.map(() => 0) }
+            : autoResponse(pending, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[pending.seat], phase });
+          if (response) {
+            const current = pending;
+            sawRetry = false;
+            lib.duelSetResponse(handle, response);
+            processUntilWait();
+            if (sawRetry) {
+              // Surrender already changed the board. A refused automatic answer must leave
+              // the command recorded and the suspended core selection available to the player.
+              pending = current.message.type === OcgMessageType.SELECT_COUNTER ||
+                current.message.type === OcgMessageType.SELECT_CHAIN && current.message.forced ? previous : current;
+              sawRetry = false;
+              diagnose("eliminate-retry", current.seat, `prompt ${current.id}`);
+            }
+          }
+        }
+      }
       // Do not run the core here. A call with no new response is no no-op: the core takes the old response buffer as the answer
       // of the open prompt (a chain window gets a pass), so the prompt of ANOTHER seat would be answered without that seat.
-      // Living choices stay open. The core identifies an optional response to the departed
-      // turn player; only that window and prompts held by leavers receive automatic answers.
+      // Living choices with multiple legal options stay open. The core identifies an optional response to
+      // the departed turn player; that window and prompts held by leavers also receive automatic answers.
       answerForLeavingSeats();
       revision += 1;
     },

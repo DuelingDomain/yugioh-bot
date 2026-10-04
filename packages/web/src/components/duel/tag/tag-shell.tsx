@@ -9,6 +9,7 @@ import { SeatField } from "../field";
 import { MoveSourceBoundary } from "../fx-boundary";
 import { duelFxClock } from "../fx-clock";
 import { duelFontClasses } from "../fonts";
+import { leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds } from "../multi-seat";
 import { usePickContinuation } from "../pick-continuation";
 import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import { centerKind, PromptCenter } from "../prompt-center";
@@ -21,6 +22,7 @@ import { hasNoLegalMoves, resolveBattleStep, StationTrack } from "../station-tra
 import { OpponentBar } from "../table/opponent-bar";
 import { toneBySeat } from "../table/seat-state";
 import { tableLayout } from "../table/geometry";
+import { AimArrow } from "../table/aim-arrow";
 import { useAimFlow } from "../table/use-aim-flow";
 import { useTableUi } from "../table/use-table-ui";
 import { tableZoneAnchor } from "../table/zone-find";
@@ -222,6 +224,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       headless={centered}
       suspended={suspended || flow.seatKeys || centeredUnrevealed}
       waitingName={prompt ? nameOf(prompt.seat) : null}
+      disabledIds={outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats))}
     />
   );
   const side = (
@@ -305,6 +308,8 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
                     reducedMotion={controller.reducedMotion}
                     revision={engine.revision}
                     battleStep={battleStep}
+                    outSeats={outOrLeavingSeats(engine.seats)}
+                    leavingSeats={leavingOnlySeats(engine.seats)}
                     revealed={controller.revealed}
                     onInspectCard={(card) => ui.setInspect({ type: "info", card })}
                     nameOf={nameOf}
@@ -401,6 +406,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
           }}
         />
       ) : null}
+      {flow.arrow ? <AimArrow {...flow.arrow} /> : null}
       {lockAnchor && flow.pointed && !controller.busy ? (
         <AttackConfirm
           anchor={lockAnchor}

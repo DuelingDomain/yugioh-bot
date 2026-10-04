@@ -47,10 +47,13 @@ export interface MapPromptExtras {
    */
   placeSeat?: number;
   /**
-   * Seats that may be offered in an opponent pick (the seats still in the duel and not leaving). Other seats are
-   * left out of the prompt. When that would leave no option, the full list stays so that the duel cannot deadlock.
+   * Seats preferred in an opponent or direct-attack pick. Leaving seats stay when no preferred seat is listed.
    */
   livingSeats?: readonly number[];
+  /** Seats whose loss has landed. Their cards and zones are no longer part of the board. */
+  eliminatedSeats?: readonly number[];
+  /** Old zones of cards the core removed while a choice was open, including cards on living fields. */
+  removedCards?: readonly DuelZoneRef[];
   /** The Synchro monster explicitly chosen for an inherent summon, with its queried Level. */
   synchroSummon?: DuelZoneRef & { code: number; level: number };
 }
@@ -317,7 +320,36 @@ function idleOptions(message: Extract<OcgMessage, { type: OcgMessageType.SELECT_
   return options;
 }
 
+/** Filter a new or suspended prompt without changing the indices the core expects. */
+export function filterPromptOptions(pending: PendingPrompt, extras: Pick<MapPromptExtras, "livingSeats" | "eliminatedSeats" | "removedCards">): PendingPrompt {
+  const seatPick = pending.message.type === OcgMessageType.SELECT_OPTION &&
+    pending.message.options.every((option) => directAttackSeat(option) != null || opponentPickSeat(option) != null);
+  let options = pending.prompt.options.filter((option) => {
+    if (option.card && extras.removedCards?.some((zone) => zone.controller === option.controller &&
+      zone.location === option.location && zone.sequence === option.sequence)) return false;
+    if (option.controller == null) return true;
+    return !extras.eliminatedSeats?.includes(option.controller);
+  });
+  if (seatPick && extras.livingSeats) {
+    // The core keeps losing seats when every eligible opponent is losing (patch 0057).
+    const living = options.filter((option) => option.controller == null || extras.livingSeats!.includes(option.controller));
+    if (living.length > 0) options = living;
+  }
+  if (!pending.prompt.cancelable && !pending.prompt.finishable &&
+    ["cards", "toggle", "sum", "order"].includes(pending.prompt.kind) &&
+    options.length < (pending.prompt.min ?? 0)) {
+    // The core retains suspended selections through surrender. Keep their original indices
+    // when removing cards would make a required selection impossible.
+    return pending;
+  }
+  return { ...pending, prompt: { ...pending.prompt, options } };
+}
+
 export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, selectHint?: string, extras?: MapPromptExtras): PendingPrompt {
+  return filterPromptOptions(buildPrompt(message, cards, id, selectHint, extras), extras ?? {});
+}
+
+function buildPrompt(message: OcgMessage, cards: CardDatabase, id: string, selectHint?: string, extras?: MapPromptExtras): PendingPrompt {
   // The card the prompt is about: named by the message itself, else by the core's last HINT_CARD.
   const subjectCode = "code" in message && typeof message.code === "number" && message.code ? message.code : extras?.hintCard;
   const subjectName = subjectCode ? cardInfoLabel(cards, subjectCode) : undefined;
@@ -448,14 +480,12 @@ export function mapPrompt(message: OcgMessage, cards: CardDatabase, id: string, 
       if (opponentPick) {
         // The option index stays the core's index (values[0]); only the seats that can still be picked are listed.
         const all = pickSeats.map((seat, index) => ({ seat: seat as number, index }));
-        const living = extras?.livingSeats ? all.filter((entry) => extras.livingSeats!.includes(entry.seat)) : all;
-        const offered = living.length > 0 ? living : all;
         const pick: DuelPrompt = {
           id,
           seat: message.player,
           kind: "choice",
           title: hint || "Choose an opponent",
-          options: offered.map(({ seat, index }) => ({ id: `opt:${index}`, label: `Player ${seat + 1}`, controller: seat, values: [index] })),
+          options: all.map(({ seat, index }) => ({ id: `opt:${index}`, label: `Player ${seat + 1}`, controller: seat, values: [index] })),
           min: 1,
           max: 1,
           context: { type: "opponent" },
@@ -834,8 +864,12 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
   const { message, prompt } = pending;
   switch (message.type) {
     case OcgMessageType.SELECT_CHAIN:
-      if (message.selects.length === 0) return { type: OcgResponseType.SELECT_CHAIN, index: null };
-      if (message.forced && message.selects.length === 1) return { type: OcgResponseType.SELECT_CHAIN, index: 0 };
+      if (prompt.options.length === 0) {
+        // A mandatory trigger already offered by the core must be consumed, even if its handler
+        // was removed. The core controls its resolution and rejects a pass in a forced window.
+        return { type: OcgResponseType.SELECT_CHAIN, index: message.forced && message.selects.length > 0 ? 0 : null };
+      }
+      if (message.forced && prompt.options.length === 1) return { type: OcgResponseType.SELECT_CHAIN, index: uniqueIndices([prompt.options[0]!.id], "card:")[0]! };
       // spe_count is the core's count of listed effects that belong to this window: optional triggers, and
       // free-chain or quick effects whose declared hint timing matches it (every listed card during an
       // attack declaration or a chain). The EDOPro client passes a non-forced window at 0; a Battle Step or
@@ -848,16 +882,21 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
       }
       return null;
     case OcgMessageType.SELECT_CARD:
-      if (message.min === message.max && message.max === message.selects.length && message.selects.length > 0) {
-        return { type: OcgResponseType.SELECT_CARD, indicies: message.selects.map((_, index) => index) };
+      if (prompt.options.length === 0 && message.selects.length > 0 && message.can_cancel) {
+        return { type: OcgResponseType.SELECT_CARD, indicies: null };
+      }
+      if (message.min === message.max && message.max === prompt.options.length && prompt.options.length > 0) {
+        return { type: OcgResponseType.SELECT_CARD, indicies: uniqueIndices(prompt.options.map((option) => option.id), "card:") };
       }
       if (message.min === 0 && message.max === 0) return { type: OcgResponseType.SELECT_CARD, indicies: [] };
       return null;
-    case OcgMessageType.SELECT_TRIBUTE:
-      if (!message.can_cancel && message.selects.length > 0 && message.selects.every((card) => card.release_param === 1) && message.min === message.max && message.min === message.selects.length) {
-        return { type: OcgResponseType.SELECT_TRIBUTE, indicies: message.selects.map((_, index) => index) };
+    case OcgMessageType.SELECT_TRIBUTE: {
+      const indicies = uniqueIndices(prompt.options.map((option) => option.id), "card:");
+      if (!message.can_cancel && indicies.length > 0 && indicies.every((index) => message.selects[index]!.release_param === 1) && message.min === message.max && message.min === indicies.length) {
+        return { type: OcgResponseType.SELECT_TRIBUTE, indicies };
       }
       return null;
+    }
     case OcgMessageType.SELECT_POSITION: {
       const positions = ocgPositionParse(message.positions);
       if (positions.length === 1) return { type: OcgResponseType.SELECT_POSITION, position: positions[0] };
@@ -880,7 +919,7 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
       return null;
     }
     case OcgMessageType.SELECT_OPTION:
-      if (message.options.length === 1) return { type: OcgResponseType.SELECT_OPTION, index: 0 };
+      if (prompt.options.length === 1) return { type: OcgResponseType.SELECT_OPTION, index: prompt.options[0]!.values![0]! };
       return null;
     case OcgMessageType.SELECT_SUM: {
       if (message.selects.length === 0 && message.min === 0) {
@@ -889,11 +928,11 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
       return null;
     }
     case OcgMessageType.SELECT_UNSELECT_CARD:
-      if (message.select_cards.length + message.unselect_cards.length === 0 && message.can_finish) {
+      if (prompt.options.length === 0 && message.can_finish) {
         return { type: OcgResponseType.SELECT_UNSELECT_CARD, index: null };
       }
-      if (message.select_cards.length === 1 && message.unselect_cards.length === 0 && message.min === 1 && message.max === 1 && !message.can_cancel && !message.can_finish) {
-        return { type: OcgResponseType.SELECT_UNSELECT_CARD, index: 0 };
+      if (prompt.options.length === 1 && prompt.options[0]!.id.startsWith("select:") && message.min === 1 && message.max === 1 && !message.can_cancel && !message.can_finish) {
+        return { type: OcgResponseType.SELECT_UNSELECT_CARD, index: uniqueIndices([prompt.options[0]!.id], "select:")[0]! };
       }
       return null;
     case OcgMessageType.SORT_CARD:
@@ -996,6 +1035,7 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
     }
     case OcgMessageType.SELECT_CARD: {
       const ids = selectedIds(prompt, answer);
+      for (const id of ids) optionById(prompt, id);
       if (ids.length < message.min || ids.length > message.max) throw new EngineAnswerError("Invalid answer");
       const indicies = uniqueIndices(ids, "card:");
       if (indicies.some((index) => index >= message.selects.length)) throw new EngineAnswerError("Invalid answer");
@@ -1003,6 +1043,7 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
     }
     case OcgMessageType.SELECT_TRIBUTE: {
       const ids = selectedIds(prompt, answer);
+      for (const id of ids) optionById(prompt, id);
       const indicies = uniqueIndices(ids, "card:");
       if (indicies.some((index) => index >= message.selects.length)) throw new EngineAnswerError("Invalid answer");
       const tribute = indicies.reduce((sum, index) => sum + message.selects[index].release_param, 0);
@@ -1015,8 +1056,7 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
         return { type: OcgResponseType.SELECT_CHAIN, index: null };
       }
       const option = optionById(prompt, answer.choice);
-      const index = prompt.options.indexOf(option);
-      if (index < 0) throw new EngineAnswerError("Invalid answer");
+      const index = uniqueIndices([option.id], "card:")[0]!;
       return { type: OcgResponseType.SELECT_CHAIN, index };
     }
     case OcgMessageType.SELECT_PLACE:
@@ -1047,6 +1087,7 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
       const counters = message.cards.map((card, index) => {
         const count = answer.counts?.[`card:${index}`] ?? 0;
         if (!Number.isInteger(count) || count < 0 || count > card.count) throw new EngineAnswerError("Invalid answer");
+        if (count > 0) optionById(prompt, `card:${index}`);
         return count;
       });
       const total = counters.reduce((sum, count) => sum + count, 0);
@@ -1055,6 +1096,7 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
     }
     case OcgMessageType.SELECT_SUM: {
       const ids = selectedIds(prompt, answer).filter((id) => id.startsWith("card:"));
+      for (const id of ids) optionById(prompt, id);
       const indicies = uniqueIndices(ids, "card:");
       if (indicies.some((index) => index >= message.selects.length)) throw new EngineAnswerError("Invalid answer");
       if (!message.select_max && (indicies.length < message.min || indicies.length > message.max)) {
@@ -1065,8 +1107,9 @@ export function resolveAnswer(pending: PendingPrompt, seat: number, promptId: st
     case OcgMessageType.SELECT_UNSELECT_CARD: {
       if (!answer.choice) throw new EngineAnswerError("Invalid answer");
       const option = optionById(prompt, answer.choice);
-      const index = prompt.options.indexOf(option);
-      if (index < 0) throw new EngineAnswerError("Invalid answer");
+      const index = option.id.startsWith("select:")
+        ? uniqueIndices([option.id], "select:")[0]!
+        : message.select_cards.length + uniqueIndices([option.id], "unselect:")[0]!;
       return { type: OcgResponseType.SELECT_UNSELECT_CARD, index };
     }
     case OcgMessageType.SORT_CARD:

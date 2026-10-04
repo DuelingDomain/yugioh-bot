@@ -20,6 +20,15 @@ describe("seat-state", () => {
     expect(seatsOut(engineOf("elimination"))).toEqual([2]);
   });
 
+  it("never reads a Leaving seat as next to play: next goes to the next living seat", () => {
+    const engine = engineOf("main");
+    const seats = engine.seats.map((view) => (view.seat === 1 ? { ...view, pendingElimination: true } : view));
+    const layout = tableLayout("ffa3", engine, 0);
+    const strip = seatStrip(layout, { turnSeat: 0, seats }, null, (seat) => `P${seat}`);
+    expect(strip.find((entry) => entry.seat === 1)?.status).toBe("leaving");
+    expect(strip.find((entry) => entry.seat === 2)?.status).toBe("next");
+  });
+
   it("keeps the order in which seats left, as groups", () => {
     const first = trackOutOrder([], engineOf("elimination"));
     expect(first).toEqual([[2]]);

@@ -38,6 +38,11 @@ let banlist: string | null;
 let draftType: string | undefined;
 let settings: Record<string, number>;
 let puts: Array<Record<string, unknown>>;
+let resolves: Array<Record<string, unknown>>;
+/** When set, the next card search answers only after this promise settles. */
+let resolveGate: Promise<void> | null;
+/** When true, card searches answer 502 like an unreachable card database. */
+let resolveFails: boolean;
 
 function detail() {
   return { pools: { main: [...main], extra: [...extra] }, cards: CARDS };
@@ -51,6 +56,9 @@ beforeEach(() => {
   draftType = undefined;
   settings = {};
   puts = [];
+  resolves = [];
+  resolveGate = null;
+  resolveFails = false;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: unknown, init?: RequestInit) => {
@@ -93,6 +101,9 @@ beforeEach(() => {
         } as Response;
       }
       if (url.endsWith("/api/cards/resolve")) {
+        resolves.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        if (resolveGate) await resolveGate;
+        if (resolveFails) return { ok: false, status: 502, json: async () => ({ error: "unavailable" }) } as Response;
         return { ok: true, json: async () => ({ cards: CARDS }) } as Response;
       }
       return { ok: true, json: async () => ({ cards: [] }) } as Response;
@@ -109,6 +120,81 @@ async function open() {
   render(<CubeEditor cubeId={5} />);
   await screen.findByRole("heading", { name: "Custom" });
 }
+
+describe("CubeEditor card name search", () => {
+  it("lists matches for a typed name, asks for Extra Deck cards too, and Enter adds the top match", async () => {
+    await open();
+    const input = screen.getByLabelText("Card name");
+    fireEvent.change(input, { target: { value: "xyz b" } });
+
+    const list = await screen.findByRole("listbox", { name: "Results for xyz b" });
+    const rows = within(list).getAllByRole("option");
+    expect(rows.map((row) => row.querySelector(".n")?.textContent)).toEqual(["Main A", "Xyz B"]);
+    // The row is the only control: no button sits inside an option.
+    expect(within(list).queryAllByRole("button")).toHaveLength(0);
+    expect(rows[1]).toHaveTextContent("XYZ Monster, Extra");
+    expect(resolves.at(-1)).toEqual({ fuzzyName: "xyz b", includeExtra: true });
+    expect(input).toHaveAttribute("role", "combobox");
+    expect(input).toHaveAttribute("aria-activedescendant", rows[0].id);
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(within(list).getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
+    expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toMatchObject({ op: "add", catalogCardId: 2, pool: "extra" });
+  });
+
+  it("says the search failed instead of no match and searches again on Try again", async () => {
+    await open();
+    resolveFails = true;
+    const input = screen.getByLabelText("Card name");
+    fireEvent.change(input, { target: { value: "xyz b" } });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/did not work/i);
+    expect(screen.queryByText("No cards match.")).toBeNull();
+    expect(screen.queryByText("Searching...")).toBeNull();
+
+    resolveFails = false;
+    fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    await screen.findByRole("listbox", { name: "Results for xyz b" });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("adds a card with a click on its row", async () => {
+    await open();
+    fireEvent.change(screen.getByLabelText("Card name"), { target: { value: "xyz b" } });
+    const list = await screen.findByRole("listbox", { name: "Results for xyz b" });
+    fireEvent.click(within(list).getAllByRole("option")[0]);
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toMatchObject({ op: "add", catalogCardId: 1 });
+  });
+
+  it("does nothing on Enter while the results answer an older text, and ignores an IME Enter", async () => {
+    await open();
+    const input = screen.getByLabelText("Card name");
+    fireEvent.change(input, { target: { value: "xyz b" } });
+    const list = await screen.findByRole("listbox", { name: "Results for xyz b" });
+    expect(fireEvent.keyDown(input, { key: "Enter", isComposing: true })).toBe(false);
+
+    let release!: () => void;
+    resolveGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    fireEvent.change(input, { target: { value: "xyz bb" } });
+    await waitFor(() => expect(resolves.at(-1)).toEqual({ fuzzyName: "xyz bb", includeExtra: true }));
+    expect(list).toHaveAttribute("data-stale");
+    expect(fireEvent.keyDown(input, { key: "Enter" })).toBe(false);
+    expect(posts).toHaveLength(0);
+
+    release();
+    await waitFor(() => expect(screen.getByRole("listbox")).not.toHaveAttribute("data-stale"));
+    expect(posts).toHaveLength(0);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(posts).toHaveLength(1));
+  });
+});
 
 describe("CubeEditor", () => {
   it.each(["TCG", null])("lists header facts as plain items while saving (%s banlist)", async (currentBanlist) => {
@@ -287,7 +373,7 @@ describe("CubeEditor", () => {
       fireEvent.change(screen.getByLabelText("Card name"), { target: { value: "Main A" } });
       await act(async () => { await vi.advanceTimersByTimeAsync(250); });
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: "Add Main A" }));
+        fireEvent.click(screen.getByRole("option", { name: /Main A/ }));
       });
       fireEvent.click(screen.getByRole("button", { name: "Main A, 3 copies" }));
       await act(async () => {

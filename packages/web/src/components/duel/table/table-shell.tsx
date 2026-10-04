@@ -22,7 +22,7 @@ import { DuelHistoryRail } from "../history-rail";
 import { CardInspector, type InspectTarget } from "../inspector";
 import { MasterReturnFx } from "../master-return-fx";
 import { MoveFx } from "../move-fx";
-import { engineFormat, formatLabel } from "../multi-seat";
+import { engineFormat, formatLabel, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds } from "../multi-seat";
 import { PileViewer } from "../pile-viewer";
 import { livePileCards } from "../pile-focus";
 import { MatchSheetLog } from "../text-log";
@@ -51,6 +51,7 @@ import { TableSettings, type TableConnection } from "./table-settings";
 import { TablePhonePanes } from "./table-phone-panes";
 import { TableStage } from "./table-stage";
 import { tableZoneAnchor } from "./zone-find";
+import { AimArrow } from "./aim-arrow";
 import { useAimFlow } from "./use-aim-flow";
 import { useCamera } from "./use-camera";
 import { useTableUi } from "./use-table-ui";
@@ -421,6 +422,7 @@ function TableShellBody({
             headless={centered}
             suspended={suspended || flow.seatKeys || (centered && !controller.revealed)}
             waitingName={prompt ? nameOf(prompt.seat) : null}
+            disabledIds={outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats))}
           />
         </div>
         <section className={roomStyles.boardColumn} aria-label="Duel field">
@@ -463,6 +465,8 @@ function TableShellBody({
                     reducedMotion={controller.reducedMotion}
                     revision={engine.revision}
                     battleStep={battleStep}
+                    outSeats={outOrLeavingSeats(engine.seats)}
+                    leavingSeats={leavingOnlySeats(engine.seats)}
                     revealed={controller.revealed}
                     onInspectCard={(card) => ui.setInspect({ type: "info", card })}
                     nameOf={nameOf}
@@ -568,6 +572,7 @@ function TableShellBody({
           }}
         />
       ) : null}
+      {flow.arrow ? <AimArrow {...flow.arrow} /> : null}
       {lockAnchor && flow.pointed && !controller.busy ? (
         <AttackConfirm
           anchor={lockAnchor}

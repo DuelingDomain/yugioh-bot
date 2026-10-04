@@ -1,5 +1,6 @@
 import type { DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
-import { isEliminated, nextSeatAfter } from "../multi-seat";
+import { isEliminated } from "../multi-seat";
+import { nextLivingSeat } from "./seat-state";
 import { optionZoneKeys } from "../prompts";
 import type { CameraState, SeatStatus, TargetChoice } from "./types";
 
@@ -48,7 +49,7 @@ export function seatStatus(engine: Pick<DuelEngineView, "seats" | "turnSeat">, s
   if (view?.pendingElimination === true) return "leaving";
   if (promptSeat === seat && engine.turnSeat !== seat) return "choosing";
   if (engine.turnSeat === seat) return "turn";
-  if (nextSeatAfter(engine.seats, engine.turnSeat) === seat) return "next";
+  if (nextLivingSeat(engine.seats, engine.turnSeat) === seat) return "next";
   return "active";
 }
 
