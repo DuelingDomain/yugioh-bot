@@ -17,6 +17,21 @@ describe("duelActionErrorText", () => {
     expect(duelActionErrorText(err, { seatPick: true })).toBe(CHOICE_CLOSED_NOTICE);
   });
 
+  it.each([true, false])("uses the seat-left code before the 400 fallback (seatPick: %s)", (seatPick) => {
+    const err = new DuelRequestError("Invalid answer", 400, "seat_left");
+    expect(duelActionErrorText(err, { seatPick })).toBe("That player has left. Pick again.");
+  });
+
+  it.each([true, false])("keeps the exact seat-left text without a code (seatPick: %s)", (seatPick) => {
+    const err = new DuelRequestError("That player has left. Pick again.", 400);
+    expect(duelActionErrorText(err, { seatPick })).toBe("That player has left. Pick again.");
+  });
+
+  it("keeps the old seat-pick fallback for an unknown code or a different text", () => {
+    expect(duelActionErrorText(new DuelRequestError("Invalid answer", 400, "unknown"), { seatPick: true })).toBe(ANSWER_REJECTED_NOTICE);
+    expect(duelActionErrorText(new DuelRequestError("That player has left", 400), { seatPick: true })).toBe(ANSWER_REJECTED_NOTICE);
+  });
+
   it("gives a general notice for a 400 on a seat pick, never a guess about the cause", () => {
     const err = new DuelRequestError("Invalid answer", 400);
     expect(duelActionErrorText(err, { seatPick: true })).toBe(ANSWER_REJECTED_NOTICE);

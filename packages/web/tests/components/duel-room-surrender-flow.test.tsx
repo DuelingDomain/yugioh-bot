@@ -45,6 +45,47 @@ const mount = () => render(<DuelRoomView slug="live" windowed />);
 const notice = () => screen.queryByRole("alert");
 
 describe("duel room failed requests", () => {
+  describe.each([
+    { name: "seat-left code", message: "Invalid answer", code: "seat_left" },
+    { name: "exact seat-left text", message: "That player has left. Pick again.", code: undefined },
+  ])("$name", ({ message, code }) => {
+    it("shows the seat-left notice on an opponent pick and refreshes the room", async () => {
+      room(FFA3_FIXTURES.states["choose-opponent"].room);
+      state.send.mockRejectedValueOnce(new DuelRequestError(message, 400, code));
+      mount();
+      state.mutate.mockClear();
+      await act(async () => { fireEvent.click(screen.getByTestId("holo-pick-2")); });
+      await waitFor(() => expect(notice()).toHaveTextContent("That player has left. Pick again."));
+      expect(state.send).toHaveBeenCalledTimes(1);
+      expect(state.mutate).toHaveBeenCalledExactlyOnceWith();
+    });
+
+    it("shows the seat-left notice on a direct-attack pick and refreshes the room", async () => {
+      room(FFA3_FIXTURES.states["direct-attack"].room);
+      state.send.mockRejectedValueOnce(new DuelRequestError(message, 400, code));
+      const { container } = mount();
+      state.mutate.mockClear();
+      fireEvent.click(container.querySelector("[data-opponent-bar='direct'] [data-rival-seat='1']")!);
+      await act(async () => { fireEvent.click(screen.getByTestId("aim-confirm")); });
+      await waitFor(() => expect(notice()).toHaveTextContent("That player has left. Pick again."));
+      expect(state.send).toHaveBeenCalledTimes(1);
+      expect(state.mutate).toHaveBeenCalledExactlyOnceWith();
+    });
+
+    it("shows the seat-left notice on any other answer and refreshes the room", async () => {
+      room(FFA3_FIXTURES.states["choose-opponent"].room);
+      state.room!.engine!.prompt = { id: "plain", seat: 0, kind: "choice", title: "Pick one",
+        options: [{ id: "a", label: "First" }, { id: "b", label: "Second" }] };
+      state.send.mockRejectedValueOnce(new DuelRequestError(message, 400, code));
+      mount();
+      state.mutate.mockClear();
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: /First/ })); });
+      await waitFor(() => expect(notice()).toHaveTextContent("That player has left. Pick again."));
+      expect(state.send).toHaveBeenCalledTimes(1);
+      expect(state.mutate).toHaveBeenCalledExactlyOnceWith();
+    });
+  });
+
   it("answers a plain 400 on an opponent pick with a general notice and refreshes the room", async () => {
     room(FFA3_FIXTURES.states["choose-opponent"].room);
     state.send.mockRejectedValueOnce(new DuelRequestError("Invalid answer", 400));
