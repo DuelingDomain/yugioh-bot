@@ -23,7 +23,8 @@ import { createDuelFeedbackAudio, type DuelFeedbackAudio } from "./feedback-audi
 import { pairedMovePlan } from "./move-plan";
 import { getPhaseBeat, planPhaseBeats } from "./phase-beats";
 import { duelFxClock } from "./fx-clock";
-import styles from "./feedback.module.css";
+import { useSkinStyles } from "./skin";
+import baseStyles from "./feedback.module.css";
 
 export type DuelFeedbackProps = {
   events: readonly DuelEvent[];
@@ -106,6 +107,7 @@ function FeedbackCue({
   reducedMotion: boolean;
   durationMs: number;
 }) {
+  const styles = useSkinStyles(baseStyles, "feedback");
   const timing = cueTiming(durationMs, reducedMotion);
   if (event.kind === "phase") {
     const title = event.text.trim() || KIND_LABEL.phase;
@@ -184,6 +186,7 @@ export function DuelFeedback({
   replayFrom = null,
   skipThrough = null,
 }: DuelFeedbackProps) {
+  const styles = useSkinStyles(baseStyles, "feedback");
   const [current, setCurrent] = useState<{ event: DuelEvent; durationMs: number } | null>(null);
   const [confirmations, setConfirmations] = useState<ConfirmationAnnouncement[]>([]);
   const currentRef = useRef<DuelEvent | null>(null);

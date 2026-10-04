@@ -1,0 +1,36 @@
+/* The dev-only state switcher of /dev/solid-preview. A small corner control; it is not part of the board. */
+.switcher {
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  z-index: 60;
+  font-size: 11px;
+  line-height: 1.2;
+  color: #c3bba8;
+}
+.switcher summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid rgb(181 153 99 / 0.34);
+  background: rgb(7 11 21 / 0.82);
+  opacity: 0.6;
+}
+.switcher summary::-webkit-details-marker { display: none; }
+.switcher details[open] summary { opacity: 1; }
+.switcher ul {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  margin: 0 0 4px;
+  padding: 4px;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+  border-radius: 6px;
+  border: 1px solid rgb(181 153 99 / 0.34);
+  background: rgb(7 11 21 / 0.96);
+}
+.switcher a { display: block; padding: 3px 10px; border-radius: 4px; color: #efe7d5; white-space: nowrap; }
+.switcher a[aria-current="page"] { background: rgb(139 108 255 / 0.28); }

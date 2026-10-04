@@ -6,6 +6,8 @@ const worktreeRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // The "N" badge covers the corner of the board in screenshots and in the 3D mode preview (dev only; no effect in a build).
+  devIndicators: false,
   ...(process.env.E2E_NEXT_DIST_DIR ? { distDir: process.env.E2E_NEXT_DIST_DIR } : {}),
   // Parent-repo lockfile made Next trace standalone under
   // .next/standalone/.worktrees/domain-multiplayer/... so Docker

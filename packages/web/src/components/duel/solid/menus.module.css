@@ -1,0 +1,334 @@
+/* Solid Vision: menus, attack confirm, hover info, refusal toast and pile viewer (3D mode).
+   Concept: docs/design/duel-3d-mode/concept/solid-vision/styles.css (.amenu, .tag, .preview, .toast).
+   This file feeds the skin slots `menu` and `pile`. A key here adds classes to the V1 element of the same name
+   (room.module.css: cardMenu, menuTitle, menuList, menuLabel, cardTooltip, tooltipStats; battle-fx.module.css:
+   confirm*; pile-viewer.module.css: root, panel, head, ...). The V1 rule has the same specificity and may load later,
+   so every rule here repeats its first class (.a.a) to win.
+   The card menu, the hover info and the confirm render in portals outside the room, so they carry their own tokens
+   and read the font from the anchor (see usePortalFont in card-interactions.tsx). */
+
+.cardMenu.cardMenu,
+.cardTooltip.cardTooltip,
+.confirm.confirm {
+  --ink-1: #080b14;
+  --ink-2: #0d1221;
+  --ink-3: #131b2e;
+  --ink-4: #1b2540;
+  --hair: #242e46;
+  --gold: #c8a55f;
+  --gold-hi: #e8cf94;
+  --gold-lo: #7d6639;
+  --gold-a: rgb(200 165 95 / 0.42);
+  --gold-b: rgb(200 165 95 / 0.2);
+  --pur: #8f76f2;
+  --pur-hi: #b8a8ff;
+  --pur-btn: #5a43c6;
+  --pur-btn-hi: #6a52da;
+  --pur-a: rgb(143 118 242 / 0.34);
+  --loss: #f27a6b;
+  --tx: #ece6d6;
+  --tx-2: #c4bdab;
+  --tx-3: #979080;
+  --sv-ui: var(--sv-font, "Barlow Semi Condensed"), "Arial Narrow", sans-serif;
+  --sv-num: var(--sv-font-num, "Barlow Condensed"), "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+  --sv-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  font-family: var(--sv-ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- card action menu (.amenu) ---------- */
+
+.cardMenu.cardMenu {
+  --menu-ring: var(--gold-a);
+  min-width: 168px;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 5px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--menu-ring), 0 16px 30px -12px rgb(0 0 0 / 0.95);
+  color: var(--tx);
+  font-size: 15px;
+  line-height: 1.25;
+  animation: menuPop 0.32s var(--sv-ease) both;
+}
+.cardMenu.cardMenu[data-side="above"] { transform-origin: var(--ax, 50%) 100%; }
+.cardMenu.cardMenu[data-side="below"] { transform-origin: var(--ax, 50%) 0; }
+@keyframes menuPop {
+  from { opacity: 0; scale: 0.94; translate: 0 4px; }
+  to { opacity: 1; scale: 1; translate: 0 0; }
+}
+
+/* The 10px diamond follows --ax (the V1 anchor x). */
+.cardMenu.cardMenu::after {
+  left: var(--ax, 50%);
+  width: 10px;
+  height: 10px;
+  border: 0;
+  background: var(--ink-2);
+}
+.cardMenu.cardMenu[data-side="above"]::after { bottom: -6px; top: auto; border: 0; box-shadow: 1px 1px 0 var(--menu-ring); }
+.cardMenu.cardMenu[data-side="below"]::after { top: -6px; bottom: auto; border: 0; box-shadow: -1px -1px 0 var(--menu-ring); }
+
+/* The concept menu has no title row: the card is named by the notch and the aria-label. */
+.cardMenu.cardMenu .menuTitle { display: none; }
+.cardMenu.cardMenu .menuList { gap: 2px; max-height: calc(100dvh - 96px); }
+
+.cardMenu.cardMenu button {
+  min-height: 36px;
+  gap: 9px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--tx);
+  font-size: 15px;
+  font-weight: 400;
+  transition: background-color 0.12s;
+}
+.cardMenu.cardMenu button svg { color: var(--gold-hi); }
+.cardMenu.cardMenu button:hover,
+.cardMenu.cardMenu button:focus-visible {
+  background: var(--pur-btn);
+  color: #fff;
+  outline: none;
+}
+.cardMenu.cardMenu button:hover svg,
+.cardMenu.cardMenu button:focus-visible svg { color: #fff; }
+.cardMenu.cardMenu button[data-primary="true"] { background: transparent; color: var(--tx); }
+.cardMenu.cardMenu button[data-primary="true"]:hover,
+.cardMenu.cardMenu button[data-primary="true"]:focus-visible { background: var(--pur-btn); color: #fff; }
+.cardMenu.cardMenu button[data-danger="true"] { color: var(--loss); }
+.cardMenu.cardMenu button[data-danger="true"] svg { color: var(--loss); }
+.cardMenu.cardMenu button[data-danger="true"]:hover,
+.cardMenu.cardMenu button[data-danger="true"]:focus-visible { background: rgb(242 122 107 / 0.2); color: #fff; }
+.cardMenu.cardMenu button:disabled { opacity: 0.45; }
+.cardMenu.cardMenu .menuLabel { line-height: 1.2; }
+.cardMenu.cardMenu .menuLabel small { font-size: 12px; opacity: 1; color: var(--tx-3); }
+.cardMenu.cardMenu button:hover .menuLabel small,
+.cardMenu.cardMenu button:focus-visible .menuLabel small { color: #e6e0ff; }
+
+/* Chain response: the same menu with a gold accent. */
+.cardMenu.cardMenu[data-tone="chain"] { --menu-ring: rgb(232 207 148 / 0.7); }
+.cardMenu.cardMenu[data-tone="chain"] button { color: var(--gold-hi); }
+.cardMenu.cardMenu[data-tone="chain"] button[data-primary="true"] { background: transparent; color: var(--gold-hi); }
+.cardMenu.cardMenu[data-tone="chain"] button:hover,
+.cardMenu.cardMenu[data-tone="chain"] button:focus-visible,
+.cardMenu.cardMenu[data-tone="chain"] button[data-primary="true"]:hover,
+.cardMenu.cardMenu[data-tone="chain"] button[data-primary="true"]:focus-visible {
+  background: rgb(200 165 95 / 0.24);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px var(--gold-a);
+}
+
+@media (max-width: 900px) {
+  .cardMenu.cardMenu { min-width: 150px; }
+  .cardMenu.cardMenu button { min-height: 44px; }
+}
+
+/* ---------- hover info (.tag) and the refusal toast (.toast) ---------- */
+
+.cardTooltip.cardTooltip {
+  gap: 2px;
+  max-width: min(300px, calc(100vw - 16px));
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(6 8 14 / 0.94);
+  box-shadow: inset 0 0 0 1px var(--gold-a), 0 12px 24px -12px rgb(0 0 0 / 0.95);
+  color: var(--tx-2);
+  font-size: 13px;
+  line-height: 1.3;
+}
+.cardTooltip.cardTooltip strong { color: var(--tx); font-size: 14px; font-weight: 500; }
+.cardTooltip.cardTooltip .tooltipStats {
+  font-family: var(--sv-num);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.1;
+  color: var(--gold-hi);
+}
+
+/* PickRefusalHint: the concept toast. */
+.cardTooltip.cardTooltip[data-pick-hint] {
+  padding: 9px 14px;
+  border-radius: 10px;
+  background: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--gold-a), 0 16px 30px -12px rgb(0 0 0 / 0.95);
+  color: var(--tx);
+  font-size: 14px;
+  animation: menuPop 0.2s var(--sv-ease) both;
+}
+
+/* ---------- attack confirm (.preview) ---------- */
+
+.confirm.confirm {
+  display: block;
+  width: 262px;
+  max-width: calc(100vw - 16px);
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--gold-a), 0 18px 34px -14px rgb(0 0 0 / 0.95);
+  color: var(--tx);
+  font-size: 14px;
+  line-height: 1.3;
+}
+.confirm.confirm::after { width: 10px; height: 10px; border: 0; background: var(--ink-2); }
+.confirm.confirm[data-side="above"]::after { bottom: -6px; border: 0; box-shadow: 1px 1px 0 var(--gold-a); }
+.confirm.confirm[data-side="below"]::after { top: -6px; border: 0; box-shadow: -1px -1px 0 var(--gold-a); }
+
+/* Optional "2500 vs 1700" head and outcome lines (only when the room passes `preview`). */
+.confirm.confirm [data-confirm-vs] {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--sv-num);
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.05;
+}
+.confirm.confirm [data-confirm-vs] small { font-family: var(--sv-ui); font-size: 14px; font-weight: 400; color: var(--tx-3); }
+.confirm.confirm [data-confirm-vs] [data-win] { color: var(--pur-hi); }
+.confirm.confirm [data-confirm-lines] { display: grid; gap: 2px; margin: 6px 0 10px; font-size: 14px; color: var(--tx-2); }
+.confirm.confirm [data-confirm-lines] b { color: var(--tx); font-weight: 500; }
+
+.confirm.confirm .confirmRow { display: flex; gap: 6px; align-items: stretch; }
+.confirm.confirm .confirmRow button {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+.confirm.confirm .confirmGo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  background: var(--pur-btn);
+  color: #fff;
+  text-align: center;
+  box-shadow: inset 0 0 0 1px rgb(184 168 255 / 0.35), 0 6px 14px -8px rgb(90 67 198 / 0.9);
+}
+.confirm.confirm .confirmGo:hover:not(:disabled) { background: var(--pur-btn-hi); }
+.confirm.confirm .confirmBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: var(--ink-3);
+  color: var(--tx-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+.confirm.confirm .confirmBack:hover:not(:disabled) { background: var(--ink-4); color: var(--tx); }
+.confirm.confirm button:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 2px; }
+.confirm.confirm button:disabled { opacity: 0.5; }
+.confirm.confirm [data-keycap] {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px currentColor;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+  opacity: 0.75;
+}
+/* The keys are on the buttons; the V1 hint line is redundant here. */
+.confirm.confirm .confirmHint { display: none; }
+
+/* Mobile: the confirm docks above the peek bar and the phase bar, full width, no notch. */
+@media (max-width: 900px) {
+  .confirm.confirm {
+    left: 8px !important;
+    right: 8px !important;
+    top: auto !important;
+    bottom: calc(112px + env(safe-area-inset-bottom)) !important;
+    width: auto;
+    max-width: none;
+    padding: 14px 16px;
+    border-radius: 14px;
+    box-shadow: inset 0 0 0 1px var(--gold-a), 0 -12px 30px -10px rgb(0 0 0 / 0.9);
+  }
+  .confirm.confirm::after { display: none; }
+  .confirm.confirm .confirmGo { flex: 1 1 auto; }
+  .confirm.confirm .confirmGo,
+  .confirm.confirm .confirmBack { min-height: 44px; }
+}
+
+/* ---------- pile viewer ---------- */
+
+.root.root {
+  --pv-ink: var(--tx);
+  --pv-ink-2: var(--tx-2);
+  --pv-ink-3: var(--tx-3);
+  --pv-rule: var(--gold-b);
+  --pv-rule-hi: var(--gold-a);
+  --pv-rule-lo: rgb(200 165 95 / 0.1);
+  --pv-pen: var(--pur);
+  --pv-pen-ink: var(--pur-hi);
+  --pv-pen-fill: var(--pur-btn);
+  --pv-panel: var(--ink-2);
+  --pv-f-ui: var(--font);
+  --pv-f-num: var(--font-num);
+  --pv-t-xs: 12px;
+  --pv-t-sm: 13px;
+  --pv-t-body: 14px;
+  --pv-t-head: 15px;
+  --pv-t-name: 17px;
+  --pv-ease: var(--ease-out);
+}
+.root.root .scrim { background: rgb(4 6 11 / 0.62); }
+.root.root .panel.panel {
+  border: 0;
+  border-radius: 12px;
+  background: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--gold-a), 0 22px 56px -16px rgb(0 0 0 / 0.95);
+}
+.root.root[data-owner="you"] .panel.panel { box-shadow: inset 0 0 0 1px rgb(143 118 242 / 0.5), 0 22px 56px -16px rgb(0 0 0 / 0.95); }
+.root.root[data-toned="true"] .panel.panel { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--seat-main) 55%, transparent), 0 22px 56px -16px rgb(0 0 0 / 0.95); }
+.root.root .head.head,
+.root.root[data-owner="you"] .head.head,
+.root.root[data-toned="true"] .head.head { border-bottom: 1px solid var(--gold-b); }
+.root.root .title { font-size: 17px; font-weight: 500; letter-spacing: 0; }
+.root.root .count b { font-family: var(--font-num); font-size: 15px; font-weight: 500; color: var(--gold-hi); }
+.root.root .close {
+  border-radius: 8px;
+  color: var(--tx-2);
+}
+.root.root .close:hover { border-color: transparent; background: var(--ink-3); color: var(--tx); }
+.root.root .close:focus-visible { outline: 2px solid var(--gold-hi); }
+.root.root .preview.preview {
+  border-bottom: 1px solid var(--gold-b);
+  background: linear-gradient(180deg, rgb(19 27 46 / 0.55), transparent);
+}
+.root.root .previewArt { box-shadow: 0 10px 26px -8px rgb(0 0 0 / 0.9); }
+.root.root .previewPos { color: var(--gold); letter-spacing: 0.04em; }
+.root.root .previewName { font-size: 17px; font-weight: 500; }
+.root.root .previewCombat { font-family: var(--font-num); font-size: 22px; font-weight: 500; color: var(--tx); }
+.root.root .previewText { border-top-color: var(--gold-b); color: var(--tx-2); }
+.root.root .grid {
+  scrollbar-color: var(--gold-lo) transparent;
+}
+.root.root .art { border-radius: 4px; box-shadow: 0 4px 10px -4px rgb(0 0 0 / 0.9); }
+.root.root .card:hover .art::after,
+.root.root .card[data-active="true"] .art::after { border-color: var(--gold-hi); }
+.root.root .card:focus-visible .art::after { border: 2px solid var(--pur-hi); }
+.root.root .name { color: var(--tx-2); font-size: 12px; }
+.root.root .card:hover .name,
+.root.root .card[data-active="true"] .name { color: var(--tx); }
+.root.root .ring { border-color: var(--pur-hi); box-shadow: 0 0 0 4px rgb(143 118 242 / 0.22); }
+.root.root .mark { border-color: var(--pur-hi); background: var(--pur-btn); }
+
+/* Sideways: the confirm docks in the rail column above the foot row, not across the table. */
+@media (max-width: 900px) and (max-height: 540px) and (orientation: landscape) {
+  .confirm.confirm {
+    right: auto !important;
+    bottom: calc(60px + env(safe-area-inset-bottom)) !important;
+    /* The confirm is not inside the room, so --plane-w is not set here: the same width written from the viewport. */
+    width: calc(100vw - 101.55dvh - 8px);
+  }
+}

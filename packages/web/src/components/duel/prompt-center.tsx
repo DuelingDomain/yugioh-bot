@@ -45,7 +45,8 @@ import { backOutAnswer, backOutLabel } from "./pick-backout";
 import { tributeState } from "./tribute-pick";
 import { placeTributeDock, sameDock, type DockPlace } from "./tribute-dock-place";
 import base from "./prompts.module.css";
-import styles from "./prompt-center.module.css";
+import baseStyles from "./prompt-center.module.css";
+import { useSkinExtra, useSkinStyles } from "./skin";
 
 /**
  * Prompts answered in the middle of the board.
@@ -404,12 +405,18 @@ function effectText(option: DuelPromptOption): { name: string; effect: string; c
 }
 
 function CardArt({ option, className }: { option: DuelPromptOption; className: string }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   if (!option.card) return <span className={`${className} ${styles.noArt}`} aria-hidden />;
+  // 3D mode: a square art crop on a background, so the projection scanlines can sit on the art alone.
+  if (styles !== baseStyles) {
+    return <span className={className} style={{ backgroundImage: `url(${cardArtUrl(option.card.code, "small")})` }} aria-hidden />;
+  }
   return <img src={cardArtUrl(option.card.code, "small")} alt="" className={className} draggable={false} />;
 }
 
 /** Printed card text: clamped to a few lines with a toggle when long, scrollable when open. */
 function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: string; label?: string; open?: boolean }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   const [open, setOpen] = useState(Boolean(forceOpen));
   const long = text.length > 200 || text.split(/\r?\n/).length > 3;
   const shown = open || !long;
@@ -481,6 +488,8 @@ function Actions({
   /** Single picks answer at once on the board; in a grid they select first, then confirm. */
   forceConfirm?: boolean;
 }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
+  const solid = useSkinExtra("prompt");
   const showConfirm = confirm && (forceConfirm || needsExplicitConfirm(prompt));
   const ok = canConfirm(prompt, draft);
   return (
@@ -505,6 +514,7 @@ function Actions({
       {prompt.cancelable ? (
         <button type="button" className={styles.btn} data-kind="quiet" disabled={busy} onClick={() => onSubmit({ cancel: true })}>
           {declineLabel(prompt)}
+          {styles !== baseStyles && prompt.context?.type === "chain" ? <kbd className={solid?.kbd}>Esc</kbd> : null}
         </button>
       ) : null}
     </>
@@ -513,9 +523,55 @@ function Actions({
 
 /* ---------------------------------------------------------- response panel */
 
-function ChainStrip({ chain, compact = false }: { chain: readonly DuelChainLink[]; compact?: boolean }) {
+function ChainStrip({
+  chain,
+  compact = false,
+  mySeat = null,
+  nameOf,
+}: {
+  chain: readonly DuelChainLink[];
+  compact?: boolean;
+  mySeat?: number | null;
+  nameOf?: (seat: number) => string;
+}) {
+  const styles = useSkinStyles(baseStyles, "prompt");
+  const solid = useSkinExtra("prompt");
   if (chain.length === 0) return null;
   const shown = chain.slice(-4);
+  // 3D mode: the links are tiles, the newest on top (it resolves first), like the concept chain stack.
+  if (styles !== baseStyles && !compact) {
+    return (
+      <div className={styles.chainStrip} aria-label="Chain so far">
+        <div className={solid?.chainHead}>
+          <span>Chain</span>
+          <small>top link resolves first</small>
+        </div>
+        <ol>
+          {[...shown].reverse().map((link) => {
+            const owner = link.seat === mySeat ? "you" : "opp";
+            return (
+              <li key={link.index} className={solid?.chainTile} data-owner={owner}>
+                <b className={solid?.clink}>{link.index}</b>
+                {link.code != null ? (
+                  <span className={solid?.cart} style={{ backgroundImage: `url(${cardArtUrl(link.code, "small")})` }} aria-hidden />
+                ) : (
+                  <span className={solid?.cart} aria-hidden />
+                )}
+                <span className={solid?.cmeta}>
+                  <span className={solid?.cname}>{link.name ?? "Effect"}</span>
+                  <span className={solid?.cowner}>
+                    <i aria-hidden />
+                    {ownerWord(link.seat, mySeat, "you", nameOf)}
+                  </span>
+                </span>
+                {link.description ? <span className={solid?.ceff}>{link.description}</span> : null}
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+    );
+  }
   return (
     <div className={styles.chainStrip} data-compact={compact ? "true" : undefined} aria-label="Chain so far">
       <Link2 size={13} strokeWidth={1.75} aria-hidden />
@@ -551,6 +607,7 @@ function ChainRows({
   seatTones?: PromptSeatTones;
   nameOf?: (seat: number) => string;
 }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   return (
     <div className={styles.rows} data-toned={seatTones ? "true" : undefined} style={toneVars(seatTones, prompt.seat)}>
@@ -630,6 +687,7 @@ function PositionTiles({
   busy: boolean;
   choose: (id: string) => void;
 }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   return (
     <div className={styles.positions}>
       {prompt.options.map((option, index) => {
@@ -693,6 +751,8 @@ function ResponseBody({
   seatTones?: PromptSeatTones;
   priority?: readonly PrioritySlot[];
 }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
+  const tray = useSkinStyles(base, "tray");
   const context = prompt.context;
   const choose = (id: string) => onSubmit({ choice: id });
   const source = promptSource(prompt);
@@ -714,7 +774,7 @@ function ResponseBody({
   if (prompt.kind === "number") {
     const ok = canConfirm(prompt, draft);
     return (
-      <label className={base.numberField}>
+      <label className={tray.numberField}>
         <span>Value</span>
         <input
           type="number"
@@ -740,7 +800,7 @@ function ResponseBody({
     const cards = isChainStripPrompt(prompt);
     return (
       <>
-        <ChainStrip chain={chain} compact={cards} />
+        <ChainStrip chain={chain} compact={cards} mySeat={mySeat} nameOf={seatTones ? nameOf : undefined} />
         {priority && nameOf ? <PriorityChips order={priority} mySeat={mySeat} nameOf={nameOf} seatTones={seatTones} compact={cards} /> : null}
         {cards ? (
           <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} />
@@ -857,6 +917,7 @@ function YesNo({
   busy: boolean;
   choose: (id: string) => void;
 }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   const yes = prompt.options.find((option) => option.id === "yes");
   const no = prompt.options.find((option) => option.id === "no");
   if (!yes || !no) return null;
@@ -1042,6 +1103,7 @@ function GridPicker({
   onCollapse: () => void;
   onInspectCard?: InspectCardHandler;
 }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   const counters = prompt.kind === "counters";
   const { min, max } = selectionBounds(prompt);
   const single = !counters && min === 1 && max === 1 && prompt.kind !== "order";
@@ -1240,6 +1302,7 @@ export interface PromptCenterProps {
  * Panels carry `data-prompt-panel`: hover tooltips read it to stay clear of an open prompt.
  */
 export function PromptCenter(props: PromptCenterProps) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   const { prompt, mySeat, active, draft, busy, onSubmit, chain, aim, reducedMotion, revision, slug, battleStep, onInspectCard } = props;
   const revealed = props.revealed ?? true;
   const answering = prompt != null && mySeat != null && prompt.seat === mySeat && active;

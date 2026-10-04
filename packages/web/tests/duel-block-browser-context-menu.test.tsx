@@ -55,7 +55,7 @@ describe("useBlockBrowserContextMenu", () => {
   });
 
   it("is called by DuelRoomView, the root of every live duel surface", () => {
-    const source = readFileSync(join(process.cwd(), "packages/web/src/components/duel/room.tsx"), "utf8");
+    const source = readFileSync(join(__dirname, "../src/components/duel/room.tsx"), "utf8");
     expect(source).toMatch(/import \{ useBlockBrowserContextMenu \} from "@\/lib\/hooks\/use-block-browser-context-menu"/);
     const body = source.slice(source.indexOf("export function DuelRoomView"));
     expect(body.slice(0, 1200)).toContain("useBlockBrowserContextMenu();");

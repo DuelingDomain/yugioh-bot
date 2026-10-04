@@ -24,7 +24,8 @@ import { armLpHold } from "./life-points";
 import { battleCalculation } from "./battle-calculation";
 import { ATTACK_TIMING, paceAttack } from "./duel-timing";
 import { duelFxClock } from "./fx-clock";
-import styles from "./battle-fx.module.css";
+import baseStyles from "./battle-fx.module.css";
+import { useSkinStyles } from "./skin";
 import fieldStyles from "./field.module.css";
 
 /**
@@ -460,6 +461,8 @@ function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events
 /* ---------- attack playback ---------- */
 
 function AttackPlay({ play, showStats }: { play: Play; showStats: boolean }) {
+  const styles = baseStyles;
+  const skinned = useSkinStyles(baseStyles, "battle");
   const htmlRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   // Each play mounts with its own key; CSS advances itself after this initial seek.
@@ -488,7 +491,7 @@ function AttackPlay({ play, showStats }: { play: Play; showStats: boolean }) {
       <div ref={htmlRef} className={styles.htmlLayer} />
       <svg ref={svgRef} className={styles.svg} aria-hidden />
       {showStats ? play.stats.map(stat => (
-        <span key={stat.role} className={styles.calculationStat} data-battle-stat={stat.role}
+        <span key={stat.role} className={skinned.calculationStat} data-battle-stat={stat.role}
           data-edge={stat.above ? "top" : "bottom"}
           title="Damage calculation"
           style={{ left: stat.box.left + stat.box.width / 2,
@@ -528,6 +531,8 @@ function aimSignature(aim: BattleAim | null | undefined): string {
 }
 
 function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
+  // Classic: the module's own classes. 3D mode: the same keys with the gold aim classes added.
+  const styles = useSkinStyles(baseStyles, "battle");
   const [geom, setGeom] = useState<AimGeom | null>(null);
   const aimRef = useRef(aim);
   aimRef.current = aim;
@@ -844,7 +849,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   // inside it. In the board context the layer takes --duel-z-fx-front, below --duel-z-prompt. The board
   // has no transformed ancestor, so `position: fixed` still measures against the viewport.
   return (
-    <div className={`${styles.layer} ${duelFontClasses}`} aria-hidden>
+    <div className={`${baseStyles.layer} ${duelFontClasses}`} aria-hidden>
       {shownAim ? <AimLayer aim={shownAim} reduced={reducedMotion} /> : null}
       {strike ? <FlipStrike key={strike.seq} plan={strike} /> : null}
       {play ? <AttackPlay key={play.seq} play={play}

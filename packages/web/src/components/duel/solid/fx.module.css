@@ -1,0 +1,179 @@
+/* Solid Vision: FX skins for the chain link badges and stack (slot `chain`) and the battle aim (slot `battle`).
+   Classes here are added after the V1 class of the same name (SOLID_SKIN, merge of chain-fx.module.css and
+   battle-fx.module.css keys), so each rule raises its specificity above the V1 one and never moves anything:
+   sizes, translate and every animation are V1's (placement logic and timings are untouched). The tokens
+   (--gold, --pur ...) come from .root in solid-room.module.css; the battle layer is `position: fixed`, so it
+   reads them from the room root it is mounted in (no transformed ancestor, spec 2.2). */
+
+/* ---------- chain link badge: the concept .linkbadge (gold-hi tile, radius 5; yours pur-hi) ---------- */
+
+.slot[data-placed] .badge {
+  border: 0;
+  border-radius: 5px;
+  background: var(--gold-hi);
+  color: #1b1406;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.7);
+}
+.slot[data-placed][data-mine="true"] .badge {
+  background: var(--pur-hi);
+  color: #150f2c;
+}
+.slot[data-placed] .num {
+  font-family: var(--font-num);
+  font-weight: 500;
+  font-size: calc(var(--b, 24px) * 0.66);
+  letter-spacing: 0;
+}
+/* The concept badge is the number alone: the V1 chain-link chip is not drawn. */
+.slot[data-placed] .chip { display: none; }
+
+.slot[data-placed] .badge::after {
+  inset: -2px;
+  border-color: var(--gold-hi);
+  border-radius: 7px;
+}
+.slot[data-placed][data-mine="true"] .badge::after { border-color: var(--pur-hi); }
+
+.slot[data-placed][data-status="resolving"] .badge {
+  border: 0;
+  background: var(--gold-hi);
+  color: #1b1406;
+  box-shadow: 0 0 0 2px var(--pur-hi), 0 0 14px 2px var(--pur-a), 0 2px 8px rgb(0 0 0 / 0.55);
+}
+.slot[data-placed][data-status="resolving"][data-mine="true"] .badge {
+  background: var(--pur-hi);
+  color: #150f2c;
+  box-shadow: 0 0 0 2px var(--gold-hi), 0 0 14px 2px var(--gold-b), 0 2px 8px rgb(0 0 0 / 0.55);
+}
+.slot[data-placed][data-next="true"] .badge {
+  box-shadow: 0 0 0 2px var(--gold-a), 0 2px 7px rgb(0 0 0 / 0.55);
+}
+.slot[data-placed][data-negated="true"] .badge {
+  border: 0;
+  background: var(--ink-3);
+  color: var(--loss);
+  box-shadow: 0 0 0 2px rgb(242 122 107 / 0.5), 0 2px 7px rgb(0 0 0 / 0.55);
+}
+.slot[data-placed][data-negated="true"] .badge::before {
+  inset: 2px;
+  border-radius: 3px;
+  background: linear-gradient(to top right, transparent 44%, var(--loss) 46% 54%, transparent 56%);
+}
+.slot[data-placed][data-negated="true"] .badge::after { border-color: var(--loss); }
+
+/* ---------- link card: a thin gold ring and a soft halo; the resolving link takes purple ---------- */
+
+.slot[data-placed] .ring { border-width: 1.5px; border-color: var(--gold); }
+.slot[data-placed][data-next="true"] .ring { border-color: var(--gold-hi); }
+.slot[data-placed][data-status="resolving"] .ring { border-color: var(--pur-hi); }
+.slot[data-placed][data-negated="true"] .ring { border-color: var(--loss); }
+.slot[data-placed] .glow {
+  box-shadow: 0 0 0 2px rgb(232 207 148 / 0.85), 0 0 16px 4px rgb(200 165 95 / 0.6), 0 0 34px 8px rgb(200 165 95 / 0.28);
+}
+.slot[data-placed][data-status="resolving"] .glow {
+  box-shadow: 0 0 0 2px rgb(184 168 255 / 0.9), 0 0 16px 4px rgb(143 118 242 / 0.62), 0 0 34px 8px rgb(143 118 242 / 0.28);
+}
+.slot[data-placed][data-negated="true"] .glow {
+  box-shadow: 0 0 0 2px rgb(242 122 107 / 0.85), 0 0 16px 4px rgb(242 122 107 / 0.5);
+}
+.slot[data-placed] .wash {
+  background: radial-gradient(ellipse at 50% 40%, rgb(232 207 148 / 0.5), rgb(200 165 95 / 0.12) 72%);
+}
+.slot[data-placed][data-negated="true"] .wash {
+  background: radial-gradient(ellipse at 50% 40%, rgb(242 122 107 / 0.45), rgb(242 122 107 / 0.1) 72%);
+}
+
+/* ---------- callout tag ---------- */
+
+.slot[data-placed] .tag {
+  border: 0;
+  border-radius: 6px;
+  background: var(--ink-1);
+  box-shadow: inset 0 0 0 1px var(--gold-a), 0 4px 14px rgb(0 0 0 / 0.6);
+  font-family: var(--font);
+}
+.slot[data-placed][data-negated="true"] .tag { box-shadow: inset 0 0 0 1px rgb(242 122 107 / 0.6), 0 4px 14px rgb(0 0 0 / 0.6); }
+.slot[data-placed] .tag b { color: var(--gold-hi); }
+.slot[data-placed] .tagAction { color: var(--pur-hi); }
+
+/* ---------- target marks (an FX ring around a target card, not a card outline) ---------- */
+
+.target[data-placed] .targetRing {
+  border-width: 2px;
+  border-color: var(--pur-hi);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--ink-0), 0 0 12px rgb(143 118 242 / 0.55);
+}
+.target[data-placed] .targetTag {
+  border-radius: 4px;
+  background: var(--ink-2);
+  color: var(--pur-hi);
+  font-family: var(--font);
+  box-shadow: inset 0 0 0 1px var(--pur-a);
+}
+.targetWire { stroke: var(--pur-hi); }
+
+/* ---------- the chain stack ---------- */
+
+.dock .panel {
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgb(18 24 44 / 0.96), rgb(10 14 26 / 0.96));
+  box-shadow: inset 0 0 0 1px var(--gold-a), 0 14px 26px -12px rgb(0 0 0 / 0.95);
+  font-family: var(--font);
+}
+.dock .panel .head {
+  border-bottom: 1px solid var(--gold-b);
+  color: var(--gold-hi);
+  font-weight: 500;
+}
+.dock .panel .row { border-bottom-color: var(--gold-b); }
+.dock .panel .row[data-focus="true"] { background: rgb(200 165 95 / 0.1); }
+.dock .panel .row[data-status="resolving"],
+.dock .panel .row[data-status="resolving"][data-focus="true"] { background: rgb(143 118 242 / 0.14); }
+.dock .panel .row[data-status="resolving"]::before { background: var(--pur-hi); }
+.dock .panel .rowNum {
+  border: 0;
+  border-radius: 5px;
+  background: var(--gold-hi);
+  color: #1b1406;
+  font-family: var(--font-num);
+  font-weight: 500;
+}
+.dock .panel .row[data-mine="true"] .rowNum { background: var(--pur-hi); color: #150f2c; }
+.dock .panel .row[data-status="resolving"] .rowNum { border: 0; box-shadow: 0 0 0 2px var(--pur-hi); }
+.dock .panel .row[data-negated="true"] .rowNum { background: var(--ink-3); color: var(--loss); }
+.dock .panel .thumb { border-radius: 6px; }
+.dock .panel .who { color: var(--ember); }
+.dock .panel .row[data-mine="true"] .who { color: var(--pur-hi); }
+.dock .panel .flowEffect,
+.dock .panel .flowTargets { color: var(--tx-2); }
+
+@media (max-width: 900px) {
+  .slot[data-placed] .num { font-size: calc(var(--b, 16px) * 0.7); }
+}
+
+/* ---------- battle aim: gold arrow, gold dashed target ring (FX ring, styles only) ---------- */
+
+.aim {
+  --fx-ember: var(--gold, #c8a55f);
+  --fx-ember-hi: var(--gold-hi, #e8cf94);
+}
+.aim .aimLine { filter: drop-shadow(0 0 4px rgb(232 207 148 / 0.5)); }
+.aim .aimHead { filter: drop-shadow(0 0 4px rgb(232 207 148 / 0.55)); }
+.aim .aimRing {
+  stroke: var(--gold-hi, #e8cf94);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  filter: drop-shadow(0 0 5px rgb(200 165 95 / 0.55));
+}
+.aim .aimOrigin { fill: var(--gold-hi, #e8cf94); }
+.aim.aim[data-mode="preview"] .aimLine,
+.aim.aim[data-mode="preview"] .aimHead { filter: none; }
+
+/* The stat plates beside the fighters while a battle calculates. */
+.calculationStat {
+  border-color: var(--gold-a, rgb(200 165 95 / 0.42));
+  background: var(--ink-1, rgb(7 11 21 / 0.94));
+  color: var(--gold-hi, #e8cf94);
+}

@@ -13,5 +13,7 @@ vi.mock("next/font/google", () => {
     Sofia_Sans_Semi_Condensed: font,
     Russo_One: font,
     Chakra_Petch: font,
+    Barlow_Semi_Condensed: font,
+    Barlow_Condensed: font,
   };
 });
