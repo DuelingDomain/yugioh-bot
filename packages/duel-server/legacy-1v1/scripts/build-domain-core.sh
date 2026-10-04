@@ -6,7 +6,7 @@
 #   - it writes ocgcore.domain.legacy.wasm and card-scripts/domain.legacy.lua next to the merged files,
 #   - it writes its own manifest keys (domainLegacyWasm, domainLegacyLua, domainLegacyPatch, sources.domainCoreLegacy) and
 #     leaves integrity.wrapper (the merged wrapper hash) and the merged Domain keys alone.
-# The wasm it makes has the same sha256 as the one that main's own script makes from commit 2a5a959.
+# The expected pin includes the owner-approved Deck Master corrections of 2026-10-04 (ADR-0002).
 #
 # Inside the already-pulled toolchain image:
 #   docker run --rm --user "$(id -u):$(id -g)" \

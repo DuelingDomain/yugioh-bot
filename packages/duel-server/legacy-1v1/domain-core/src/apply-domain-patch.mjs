@@ -926,7 +926,7 @@ patch("processor.cpp", [
 			clit.set_triggering_state(phandler);
 		}
 		if(phandler->previous.location == LOCATION_DECKMASTER && (peffect->type & EFFECT_TYPE_ACTIVATE))
-			domain_pay_leave_tax(clit.triggering_player, peffect, true);
+			domain_pay_leave_tax(clit.triggering_player);
 		auto message = pduel->new_message(MSG_CHAINING);`,
   ],
 ]);

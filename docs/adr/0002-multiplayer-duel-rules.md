@@ -128,6 +128,10 @@ Domain uses exactly 60 Main Deck cards and at most 15 Extra Deck cards. Main and
 
 The Domain includes the Deck Master's archetypes, Attributes and Monster Types, and those mentioned in its effect text. A specifically named card is allowed, and its archetypes are included. Flavor text does not add Domain membership. Divine Attribute and Divine-Beast are in every Domain. Spell and Trap Cards have no Domain restriction.
 
+## Deck Master core rules (owner approved 2026-10-04)
+
+The cumulative DMZ leave cost is 500 LP per completed return and the first leave is free. This pays for the action, including activating a Main Deck Pendulum Deck Master as a Pendulum Spell. It carries no spell activation effect as its LP-cost reason, so Spell Economics cannot waive it. Ordinary card costs, including Chain Energy on a monster summoned from hand, still apply. These rules apply to the pinned 1v1, multiplayer Domain and legacy 1v1 Domain cores.
+
 ## Retired rule ID
 
 - `[R-COMMON-OPP-FIELD]` **Retired on 2026-10-02.** This ID records earlier scenarios for the old rule that an opponent-field effect hits all opponents. It is not an active FFA rule, and those scenarios do not prove R-FFA-OPP-ONE. The new rules above replace it. Tag retains the official opposing-team field rule.
