@@ -18,6 +18,9 @@ export function selectTests(sources, changed) {
   for (const [file, text] of Object.entries(sources)) {
     const deps = new Set();
     const directories = new Set();
+    // loadScenarios walks join(packageRoot, "tests", "scenarios"). Static imports
+    // cannot describe that registry; its callers depend on new/deleted scenarios too.
+    if (file === "packages/duel-server/scripts/rule-coverage.ts") directories.add(prefix + "scenarios/");
     const add = (reference) => {
       const path = reference.startsWith(".")
         ? posix.normalize(posix.join(posix.dirname(file), reference))

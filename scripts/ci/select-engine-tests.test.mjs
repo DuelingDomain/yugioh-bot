@@ -84,6 +84,17 @@ test("helper callers remain selected through production source and script module
   assert.deepEqual(selected([prefix + "fuzz/rng.ts"], sources), ["triage.test.ts"]);
 });
 
+test("scenario discovery selects catalog checks for edited, new and deleted modules", () => {
+  const sources = {
+    ["packages/duel-server/scripts/rule-coverage.ts"]: 'walk(join(root, "tests", "scenarios"));',
+    [prefix + "scenarios/multiplayer/catalog.test.ts"]: 'import { loadScenarios } from "../../../scripts/rule-coverage.js";',
+    [prefix + "scenarios/multiplayer/seats.ts"]: "",
+  };
+  for (const name of ["seats.ts", "new.ts", "deleted.ts"]) {
+    assert.deepEqual(selected([prefix + "scenarios/multiplayer/" + name], sources), ["scenarios/multiplayer/catalog.test.ts"]);
+  }
+});
+
 test("only PRs confined to tests get a narrow selection; source/patch/script changes stay full", () => {
   assert.deepEqual(changedLayers([prefix + "one.test.ts"], "pull_request"), { engine: true, web_engine: true, tests_only: true });
   for (const file of ["packages/duel-server/src/engine.ts", "packages/duel-server/domain-core/patches/0001.patch", "scripts/ci/run-engine-tests.mjs", "package-lock.json", ".github/workflows/test.yml"]) {
