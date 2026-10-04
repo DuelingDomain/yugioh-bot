@@ -32,8 +32,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
       const found = findDraftDeckContext(getDb(), ctx.actor.guildId, ctx.actor.ownerUserId, { id: deck.draftId });
       if (!found.ok) return found.response;
       const mapped = await normalizeDraftDeck({ guildId: ctx.actor.guildId, playerId: found.draft.playerId, deck: deck.deck });
-      if (!mapped.ok) return mapped.response;
-      deck.deck = mapped.deck;
+      // Reads stay available when the host cannot map ids; writes still require a valid mapping.
+      if (mapped.ok) deck.deck = mapped.deck;
     }
     return NextResponse.json({ deck: withRegistration(deck, loadDeckRegistrations(ctx.actor.guildId, ctx.actor.ownerUserId)) });
   } catch (error) {

@@ -1,4 +1,5 @@
 import { rmSync } from "node:fs";
+import { NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mainIds, passcodeOf, seedDraftDeck, type DraftDeckFixture } from "./helpers/draft-deck-fixture";
 
@@ -222,6 +223,27 @@ describe("draft decks through /api/decks", () => {
       const json = await res.json();
       expect(json.deck.draftId).toBe(draftId);
       expect(json.warning).toMatch(/not registered for the tournament/);
+    });
+  });
+
+  describe("GET", () => {
+    it.each(["unavailable", "invalid"])("returns the stored draft deck when the engine mapping is %s", async (failure) => {
+      const { draftId } = await seed({ picks: [...mainIds(39), 81480461] });
+      const { getDb } = await import("@/lib/db");
+      const { createSavedDeckService } = await import("@yugidraft/shared/services");
+      const db = getDb();
+      const raw = { main: [...mainIds(39), 81480461], extra: [2001], side: [81480461], deckMaster: 81480461 };
+      const saved = createSavedDeckService(db).create("guild-1", "drafter", { name: "Stored art", mode: "domain", deck: raw, draftId });
+      callDuelHost.mockResolvedValue(failure === "unavailable"
+        ? { ok: false, response: NextResponse.json({ error: "Duel engine unavailable" }, { status: 503 }) }
+        : { ok: true, data: { codes: {} } });
+
+      const { GET } = await import("../app/api/decks/[id]/route");
+      const res = await GET(new Request(`http://localhost/api/decks/${saved.id}`), { params: Promise.resolve({ id: String(saved.id) }) });
+      expect(res.status).toBe(200);
+      expect((await res.json()).deck).toMatchObject({ id: saved.id, name: "Stored art", draftId, deck: raw });
+      expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "normalize-codes", codes: expect.arrayContaining([81480461, 2001]) }));
+      expect(createSavedDeckService(db).get(saved.id, "guild-1", "drafter").deck).toEqual(raw);
     });
   });
 
