@@ -6,11 +6,11 @@ import type { BattleStep } from "../../station-track";
 import { SOLID_CARDS as C } from "./cards";
 
 /** The seven states of the 3D mode preview. They mirror the concept states (`app.js` STATES) with the same cards. */
-export const SOLID_STATE_IDS = ["m1", "summon", "battle", "chain", "damage", "m2", "end"] as const;
+export const SOLID_STATE_IDS = ["m1", "summon", "battle", "chain", "chains", "damage", "m2", "end"] as const;
 export type SolidStateId = (typeof SOLID_STATE_IDS)[number];
 
 export const SOLID_STATE_LABEL: Readonly<Record<SolidStateId, string>> = {
-  m1: "Main 1", summon: "Summon", battle: "Battle", chain: "Chain", damage: "Damage", m2: "Main 2", end: "End",
+  m1: "Main 1", summon: "Summon", battle: "Battle", chain: "Chain", chains: "Chain (2 options)", damage: "Damage", m2: "Main 2", end: "End",
 };
 
 export function isSolidStateId(value: string | null | undefined): value is SolidStateId {
@@ -72,6 +72,7 @@ const STAGES: Record<SolidStateId, SolidStateId[]> = {
   summon: ["summon"],
   battle: ["summon"],
   chain: ["summon", "chain"],
+  chains: ["summon", "chain"],
   damage: ["summon", "chain", "damage"],
   m2: ["summon", "chain", "damage", "m2"],
   end: ["summon", "chain", "damage", "m2", "end"],
@@ -88,6 +89,7 @@ const HISTORY: Record<SolidStateId, EventSpec[]> = {
     ev.attack(ME, MZ(ME, 2), MZ(FOE, 2)),
     ev.activate(FOE, C.bookOfMoon, SZ(FOE, 1), 1),
   ],
+  chains: [],
   damage: [
     ev.activate(ME, C.solemn, SZ(ME, 1), 2),
     ev.chain("chain-resolved", ME, C.solemn, 2),
@@ -104,15 +106,16 @@ const LOG: Record<SolidStateId, string[]> = {
   summon: ["Sulman Normal Summons Celtic Guardian to Main Monster Zone 2.", "Sulman Special Summons Dark Magician from the Deck Master Zone to Main Monster Zone 3."],
   battle: ["Battle Phase."],
   chain: ["Dark Magician attacks Battle Ox.", "Practice Bot activates Book of Moon (Chain Link 1), targeting Dark Magician."],
+  chains: [],
   damage: ["Sulman activates Solemn Judgment (Chain Link 2) and pays 4000 LP.", "Chain Link 2 resolves: Book of Moon is negated and destroyed.", "Battle Ox is destroyed.", "Practice Bot takes 800 battle damage."],
   m2: ["Main Phase 2."],
   end: ["End Phase.", "Turn 4 · Practice Bot"],
 };
 
 const PHASE: Record<SolidStateId, string> = {
-  m1: "main1", summon: "main1", battle: "battle", chain: "battle", damage: "battle", m2: "main2", end: "draw",
+  m1: "main1", summon: "main1", battle: "battle", chain: "battle", chains: "battle", damage: "battle", m2: "main2", end: "draw",
 };
-const STEP: Partial<Record<SolidStateId, BattleStep>> = { battle: "battle", chain: "battle", damage: "damage" };
+const STEP: Partial<Record<SolidStateId, BattleStep>> = { battle: "battle", chain: "battle", chains: "battle", damage: "damage" };
 
 const option = (id: string, label: string, ref: DuelZoneRef | null, card?: DuelPromptOption["card"]): DuelPromptOption => ({
   id, label, ...(card ? { card } : {}),
@@ -155,6 +158,18 @@ function chainPrompt(): DuelPrompt {
   };
 }
 
+/** Several answers to one chain link: two Activate tiles, with the chain strip showing the link they answer. */
+function chainsPrompt(): DuelPrompt {
+  return {
+    id: "preview-chains", seat: ME, kind: "choice", title: "Respond to the chain?", cancelable: true,
+    context: { type: "chain", forced: false },
+    options: [
+      option("activate-solemn", `Activate ${C.solemn.name}`, SZ(ME, 1), C.solemn),
+      option("activate-fissure", `Activate ${C.fissure.name}`, handRef(2), C.fissure),
+    ],
+  };
+}
+
 function placePrompt(): DuelPrompt {
   return {
     id: "preview-place", seat: ME, kind: "places", title: `Set ${C.trapHole.name}`, min: 1, max: 1, cancelable: true,
@@ -174,12 +189,13 @@ function build(id: SolidStateId): SolidFixtureState {
   const seats = board.seats;
   const turn = id === "end" ? 4 : 3;
 
-  const chain: DuelChainLink[] = id === "chain" ? [link(1, FOE, C.bookOfMoon)] : [];
+  const chain: DuelChainLink[] = id === "chain" || id === "chains" ? [link(1, FOE, C.bookOfMoon)] : [];
   let prompt: DuelPrompt | null = null;
   if (id === "m1") prompt = mainPrompt(seats, true, ["to_bp", "to_ep"]);
   else if (id === "summon") prompt = mainPrompt(seats, false, ["to_bp", "to_ep"]);
   else if (id === "battle" || id === "damage") prompt = battlePrompt();
   else if (id === "chain") prompt = chainPrompt();
+  else if (id === "chains") prompt = chainsPrompt();
   else if (id === "m2") prompt = placePrompt();
 
   let next = 0;
@@ -195,7 +211,7 @@ function build(id: SolidStateId): SolidFixtureState {
   const ui: SolidFixtureState["ui"] = { inspect: { kind: "info", card: "celtic" } };
   if (id === "m1") ui.menuHand = 0;
   if (id === "summon" || id === "battle") ui.inspect.card = "darkMagician";
-  if (id === "chain") ui.inspect.card = "bookOfMoon";
+  if (id === "chain" || id === "chains") ui.inspect.card = "bookOfMoon";
   if (id === "damage") ui.inspect.card = "solemn";
   if (id === "m2" || id === "end") ui.inspect.card = "trapHole";
   if (id === "battle") ui.confirm = { attacker: "0:4:2", target: "1:4:2" };
@@ -203,7 +219,7 @@ function build(id: SolidStateId): SolidFixtureState {
   return { id, label: SOLID_STATE_LABEL[id], room: roomOf(engine), history, ui };
 }
 
-const STAGE_ORDER: SolidStateId[] = ["m1", "summon", "battle", "chain", "damage", "m2", "end"];
+const STAGE_ORDER: SolidStateId[] = ["m1", "summon", "battle", "chain", "chains", "damage", "m2", "end"];
 
 function roomOf(engine: DuelEngineView): DuelRoom {
   const mode = "domain";

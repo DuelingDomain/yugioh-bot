@@ -86,7 +86,7 @@ function findByCode(view: DuelSeatView, code: number): DuelCard | null {
   return null;
 }
 
-function masterCard(view: DuelSeatView): DuelCard | null {
+export function masterCard(view: DuelSeatView): DuelCard | null {
   const master = view.deckMaster;
   if (!master) return null;
   if (master.inZone) {

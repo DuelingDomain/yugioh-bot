@@ -1,9 +1,13 @@
 "use client";
 
-import { useCallback, type ReactNode, type RefObject, type TransitionEvent } from "react";
-import type { DuelEngineView } from "@yugidraft/shared/duels";
+import { useCallback, useEffect, useMemo, type ReactNode, type RefObject, type TransitionEvent } from "react";
+import type { DuelCard, DuelEngineView, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { cn } from "@/lib/utils";
+import type { BattleAim } from "../battle-fx";
 import type { BoardTilt, BoardView } from "../board-view";
+import { LOCATION_DMZONE, zoneKey } from "../constants";
+import { masterCard } from "../field";
+import { withExact } from "../field-keys";
 import { duelFontClasses } from "../fonts";
 import type { DuelFieldProps } from "../field-model";
 import type { InspectTarget } from "../inspector";
@@ -12,7 +16,10 @@ import { useQuietViewChange } from "../quiet-view-change";
 import { DuelSkinProvider } from "../skin";
 import { useIsNarrow, type SidePane } from "../side-panel";
 import type { BattleStep } from "../station-track";
+import { DmChipActionsContext, type DmChipActions } from "./dm-chip";
+import { SolidDmSummonFx } from "./dm-summon-fx";
 import { solidFontClasses } from "./fonts";
+import { useSolidFx3dSync } from "./fx-sync";
 import { PeekBar } from "./peek-bar";
 import { SolidField } from "./solid-field";
 import { SolidHeader } from "./solid-header";
@@ -52,6 +59,11 @@ export type SolidRoomProps = {
   inspectorNode: ReactNode;
   promptDockNode: ReactNode;
   masterRail: ReactNode;
+  /** The Deck Master actions the rail offers (`DeckMasterRail`); the chip on the phone rails offers the same ones. */
+  legalActionsFor: (card: DuelCard | null, keys: string[]) => DuelPromptOption[];
+  onChooseAction: (option: DuelPromptOption) => void;
+  /** The room's attack aim. The arrow is drawn on the plane; the room passes `aim={null}` to `BattleFx`. */
+  battleAim?: BattleAim | null;
   trackNode: ReactNode;
   /** The narrow-screen tab bar that opens the side sheet. */
   mobileTabs: ReactNode;
@@ -80,9 +92,26 @@ export type SolidRoomProps = {
 export function SolidRoom(props: SolidRoomProps) {
   const { slug, boardRef, dealWait, domain, battle, spectator, myTurn, reducedMotion, view, engine, format, turnText, headerPhase,
     battleStep, wordmark, spectatorTag, seriesLabel, connectionStatus, headerTools, seriesBanner, noticesNode, inspectorNode,
-    promptDockNode, masterRail, trackNode, mobileTabs, overlaysNode, fieldProps, renderBoard, renderClock, inspect, setPane, setMobileInspect,
+    promptDockNode, masterRail, legalActionsFor, onChooseAction, battleAim, trackNode, mobileTabs, overlaysNode, fieldProps, renderBoard, renderClock, inspect, setPane, setMobileInspect,
     boardQuiet, onBeforeViewChange } = props;
   const narrow = useIsNarrow();
+  // The tilted plane, found when asked (it mounts once the engine view is up). The FX canvas follows its tilt.
+  const planeRef = useMemo<RefObject<Element | null>>(() => ({
+    get current() { return boardRef.current?.querySelector("[data-sv-plane]") ?? null; },
+  }), [boardRef]);
+  useSolidFx3dSync(planeRef, view);
+  const planeUp = fieldProps != null;
+  useEffect(() => {
+    // The plane appeared after the first sync: read the tilt again.
+    if (planeUp) window.dispatchEvent(new Event("resize"));
+  }, [planeUp]);
+  const chipActions = useMemo<DmChipActions>(() => ({
+    actionsFor: (seatView: DuelSeatView) => {
+      const card = masterCard(seatView);
+      return legalActionsFor(card, withExact(card, [zoneKey(seatView.seat, LOCATION_DMZONE, 0)]));
+    },
+    onChoose: onChooseAction,
+  }), [legalActionsFor, onChooseAction]);
   const changeView = useQuietViewChange(boardQuiet, onBeforeViewChange);
   const onTilt = useCallback((tilt: BoardTilt) => {
     if (tilt === view.tilt) return;
@@ -112,6 +141,7 @@ export function SolidRoom(props: SolidRoomProps) {
   const light = turnSeat == null || turnSeat === bottomSeat ? "you" : "opp";
 
   return (
+    <DmChipActionsContext.Provider value={chipActions}>
     <div
       className={cn(styles.root, duelFontClasses, solidFontClasses, "-mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8")}
       data-duel-fx-speed-root
@@ -149,10 +179,13 @@ export function SolidRoom(props: SolidRoomProps) {
         <main className={styles.stage} aria-label="Duel field">
           <div className={styles.board} ref={boardRef} data-deal-wait={dealWait ? "true" : undefined} data-prompt-scope>
             {renderBoard(fieldProps ? (
-              <SolidField key={slug} {...fieldProps} renderClock={renderClock} onOpenMasters={() => openPane("masters")} />
+              <>
+                <SolidField key={slug} {...fieldProps} renderClock={renderClock} onOpenMasters={() => openPane("masters")} battleAim={battleAim ?? null} />
+                {engine ? <SolidDmSummonFx events={engine.events} seats={engine.seats} duelKey={slug} reducedMotion={reducedMotion} planeRef={planeRef} /> : null}
+              </>
             ) : null)}
           </div>
-          <div className={styles.phase}>{trackNode}</div>
+          <div className={styles.phase} data-sv-phasebar="">{trackNode}</div>
           <div className={styles.peek}>
             <PeekBar target={inspect} onCard={() => openPane("card")} onLog={() => openPane("log")} />
           </div>
@@ -162,5 +195,6 @@ export function SolidRoom(props: SolidRoomProps) {
         {overlaysNode}
       </DuelSkinProvider>
     </div>
+    </DmChipActionsContext.Provider>
   );
 }
