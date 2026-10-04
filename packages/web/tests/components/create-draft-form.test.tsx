@@ -479,6 +479,31 @@ describe("CreateDraftForm pool: opening the editor", () => {
   });
 });
 
+describe("CreateDraftForm pool: opening the editor after a cube change", () => {
+  it("keeps the editor closed after cube A, cube B, cube A until Customize is clicked", async () => {
+    stubFetch();
+    render(<CreateDraftForm />);
+    await openEditor();
+    for (const name of [/Despia cube/, /Goat cube/]) {
+      fireEvent.click(screen.getByRole("button", { name: "Change cube" }));
+      fireEvent.click(await screen.findByRole("button", { name }));
+      await screen.findByRole("button", { name: "Customize for this draft" });
+      expect(screen.queryByRole("list", { name: "Pool cards" })).toBeNull();
+    }
+    await customize();
+  });
+
+  it("keeps the editor closed after scratch and back to the same cube until Customize is clicked", async () => {
+    stubFetch();
+    render(<CreateDraftForm />);
+    await openEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Start from scratch" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use a cube" }));
+    await screen.findByRole("button", { name: "Customize for this draft" });
+    expect(screen.queryByRole("list", { name: "Pool cards" })).toBeNull();
+  });
+});
+
 describe("CreateDraftForm pool: from scratch", () => {
   it("builds a pool with no cube, saves without copyExtraFromCubeId and posts no poolSource", async () => {
     const stub = stubFetch();

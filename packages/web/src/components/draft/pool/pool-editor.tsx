@@ -19,8 +19,8 @@ import styles from "./pool.module.css";
 export function PoolEditor({ ctl }: { ctl: PoolEditorState }) {
   const lobby = ctl.variant === "lobby";
   const cubeId = ctl.meta?.cubeId ?? null;
-  // The cube the user opened the editor for. Deriving `customizing` from it closes the editor when the cube
-  // changes without a reset effect, which could run after a click and undo it (`undefined` = never opened).
+  // The cube the user opened the editor for (`undefined` = not open). A cube change or a switch to scratch
+  // clears it in the event that causes it. A reset effect would run late and could undo a click.
   const [customizingFor, setCustomizingFor] = React.useState<number | null | undefined>(undefined);
   const customizing = customizingFor === cubeId;
 
@@ -40,7 +40,16 @@ export function PoolEditor({ ctl }: { ctl: PoolEditorState }) {
 
   return (
     <div className={styles.pool}>
-      {!lobby && <StartPoint mode={ctl.mode} hasCubes={ctl.cubes.length > 0} onChange={ctl.setMode} />}
+      {!lobby && (
+        <StartPoint
+          mode={ctl.mode}
+          hasCubes={ctl.cubes.length > 0}
+          onChange={(mode) => {
+            setCustomizingFor(undefined);
+            ctl.setMode(mode);
+          }}
+        />
+      )}
       {showPicker && (
         <CubePicker
           cubes={ctl.cubes}
@@ -50,7 +59,10 @@ export function PoolEditor({ ctl }: { ctl: PoolEditorState }) {
           picking={ctl.picking}
           error={ctl.pickError}
           keepName={cubeId !== null ? ctl.meta?.name ?? null : null}
-          onPick={(id) => void ctl.pickCube(id)}
+          onPick={(id) => {
+            setCustomizingFor(undefined);
+            void ctl.pickCube(id);
+          }}
           onKeep={ctl.closePicker}
         />
       )}
