@@ -360,6 +360,9 @@ function fanEntries(kind: string, cards: DuelCard[], count: number): FanEntry[] 
   ];
 }
 
+/** A touch that drifts further than this (px) is a scroll or a drag, not a long press. */
+const HOLD_MOVE_LIMIT = 8;
+
 const CHIP_TEXT: Record<string, string> = { gy: "Open GY", banish: "Open Banished", extra: "Open Extra Deck" };
 
 function PileSlot({
@@ -411,9 +414,9 @@ function PileSlot({
   const deckActs = legal || selected;
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const closeMenu = useCallback(() => setMenuAnchor(null), []);
-  const hold = useRef<number | null>(null);
+  const hold = useRef<{ timer: number; x: number; y: number } | null>(null);
   const clearHold = () => {
-    if (hold.current != null) window.clearTimeout(hold.current);
+    if (hold.current != null) window.clearTimeout(hold.current.timer);
     hold.current = null;
   };
   // The menu belongs to the deck: it goes when the duel ends or the deck stops being the viewer's.
@@ -482,10 +485,18 @@ function PileSlot({
           if (event.pointerType !== "touch") return;
           const target = event.currentTarget;
           clearHold();
-          hold.current = window.setTimeout(() => {
-            hold.current = null;
-            setMenuAnchor(target);
-          }, 500);
+          hold.current = {
+            x: event.clientX,
+            y: event.clientY,
+            timer: window.setTimeout(() => {
+              hold.current = null;
+              setMenuAnchor(target);
+            }, 500),
+          };
+        } : undefined}
+        onPointerMove={deckMenu ? (event) => {
+          const start = hold.current;
+          if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > HOLD_MOVE_LIMIT) clearHold();
         } : undefined}
         onPointerUp={deckMenu ? clearHold : undefined}
         onPointerCancel={deckMenu ? clearHold : undefined}

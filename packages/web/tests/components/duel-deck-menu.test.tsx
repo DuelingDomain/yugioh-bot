@@ -182,6 +182,29 @@ describe("deck menu", () => {
     fireEvent.click(item);
     expect(value.onSurrender).not.toHaveBeenCalled();
   });
+
+  it("cancels a long press when the finger drifts more than 8px", () => {
+    vi.useFakeTimers();
+    const { container } = table();
+    const button = deck(container, "bottom");
+    fireEvent.pointerDown(button, { pointerType: "touch", clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(button, { pointerType: "touch", clientX: 104, clientY: 103 });
+    act(() => { vi.advanceTimersByTime(300); });
+    fireEvent.pointerMove(button, { pointerType: "touch", clientX: 100, clientY: 110 });
+    act(() => { vi.advanceTimersByTime(600); });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+
+  it("keeps a long press that drifts less than 8px", () => {
+    vi.useFakeTimers();
+    const { container } = table();
+    const button = deck(container, "bottom");
+    fireEvent.pointerDown(button, { pointerType: "touch", clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(button, { pointerType: "touch", clientX: 104, clientY: 103 });
+    act(() => { vi.advanceTimersByTime(500); });
+    expect(screen.getByRole("menu")).toBeTruthy();
+  });
 });
 
 describe("deck menu model", () => {
