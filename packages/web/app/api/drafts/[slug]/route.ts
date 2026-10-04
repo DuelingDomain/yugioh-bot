@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
-import { analyzeCube, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
+import { analyzeCube, themeDraftNumberError, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "./helpers";
 import { announcer, broadcaster } from "@/lib/notify";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
@@ -149,6 +149,10 @@ export async function PUT(
     const drafts = createDraftService(db);
     const existing = drafts.findById(draft.id);
     const mergedConfig = { ...existing.config, ...(config as object) };
+    if (mergedConfig.mode === "theme") {
+      const numberError = themeDraftNumberError(mergedConfig);
+      if (numberError) return NextResponse.json({ error: numberError }, { status: 400 });
+    }
     // Edits can retain library cubes deleted since attachment, including in the request body.
     const denied = cubeReferenceAccess(db, mergedConfig.allowedCubeIds, { allowMissing: true });
     if (denied) return denied;

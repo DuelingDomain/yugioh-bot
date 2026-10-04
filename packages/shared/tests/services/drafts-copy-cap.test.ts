@@ -494,7 +494,7 @@ describe("per-player copy cap in theme drafts", () => {
   it("refuses to start when a cube cannot fill a deck within the three-copy limit", () => {
     // 2 cards x 99 copies is 198 cards, but one player can take only 6 of them.
     const heavy: Array<[number, number]> = [[1, 99], [2, 99]];
-    const { start } = themeDraft([heavy, heavy], { cardsPerPlayer: 10, themePackSize: 1 });
+    const { start } = themeDraft([heavy, heavy], { cardsPerPlayer: 10, themePackSize: 2 });
     expect(() => start()).toThrow(/at most 3 copies of a card/);
   });
 

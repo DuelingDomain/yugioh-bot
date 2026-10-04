@@ -120,6 +120,17 @@ function normalizeDraftConfig(config: DraftConfig): DraftConfig {
   };
 }
 
+/** Shared by theme start and the web create/edit routes. */
+export function themeDraftNumberError(config: DraftConfig): string | null {
+  const choices = config.themePackSize ?? 3;
+  const main = config.cardsPerPlayer ?? defaultDraftConfig.cardsPerPlayer;
+  const extra = config.extraDeckSize ?? 15;
+  if (!Number.isInteger(choices) || choices < 2) return "Choices per pick must be a whole number of 2 or more";
+  if (!Number.isInteger(main) || main < 1) return "Cards per player must be a positive whole number";
+  if (!Number.isInteger(extra) || extra < 0) return "Extra deck size must be a whole number of 0 or more";
+  return null;
+}
+
 /** Per-player total rounds for a theme draft: main rounds + optional extra rounds. */
 export function totalThemeRounds(config: DraftConfig): number {
   const main = config.cardsPerPlayer ?? defaultDraftConfig.cardsPerPlayer;
@@ -646,6 +657,7 @@ export function createDraftService(
       }
 
       const chosen = [...new Set(seededShuffle(candidates, seedSource()))].slice(0, themePackSize);
+      if (chosen.length === 0) continue;
       const packId = Number(insertPack.run(draftId, roundNumber, seat, seat, 1).lastInsertRowid);
       chosen.forEach((catalogCardId, index) => {
         insertDraftCard.run(draftId, roundNumber, packId, catalogCardId, index);
@@ -782,6 +794,8 @@ export function createDraftService(
   };
 
   const startThemeDraft = (draftId: number, draft: Draft, now: Date): Draft => {
+    const numberError = themeDraftNumberError(draft.config);
+    if (numberError) throw new Error(numberError);
     const playerIds = db
       .prepare("select player_id from draft_players where draft_id = ? order by joined_at asc, rowid asc")
       .all(draftId)
