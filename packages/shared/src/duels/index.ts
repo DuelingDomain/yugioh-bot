@@ -405,6 +405,8 @@ export interface DuelEvent {
   handShuffled?: true;
   /** attack: the attacked monster's zone; absent for a direct attack. equip: the monster it was equipped to. */
   target?: DuelZoneRef;
+  /** attack: the defending seat of a direct attack. Absent in 1v1 and older events. */
+  targetSeat?: number;
   /** battle: public MSG_BATTLE values; a direct attack has no target. These never replace live board stats. */
   battle?: { attacker: DuelBattleStats; target?: DuelBattleStats };
   /** damage: LP lost by `seat` (positive number). */
