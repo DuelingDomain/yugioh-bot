@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
@@ -91,7 +92,10 @@ import { DuelHistoryRail } from "./history-rail";
 import { centerKind, PromptCenter } from "./prompt-center";
 import { skipsAnswerableWait, usePickContinuation } from "./pick-continuation";
 import { usePromptAnswerable, usePromptReveal } from "./prompt-reveal";
-import { useResultGate } from "./result-reveal";
+import { boardQuietNow, useResultGate } from "./result-reveal";
+import { useBoardView, type BoardMode } from "./board-view";
+import { useQuietViewChange } from "./quiet-view-change";
+import type { SolidRoomProps } from "./solid/solid-room";
 import { PileViewer } from "./pile-viewer";
 import { livePileCards, shouldClosePileForPrompt, type PileView } from "./pile-focus";
 import { MatchSheetLog } from "./text-log";
@@ -100,12 +104,21 @@ import {
 } from "./side-panel";
 
 
+// The 3D mode look loads on demand: classic users never download it. The fallback is the table's own colour,
+// inline because no solid CSS has loaded yet.
+const SolidRoom = dynamic<SolidRoomProps>(() => import("./solid/solid-room").then((module) => module.SolidRoom), {
+  ssr: false,
+  loading: () => <div style={{ minHeight: "100dvh", background: "#04060b" }} />,
+});
+
 /** The attack target the player pointed at; only the confirm submits it. */
 type AimLock = { promptId: string; optionId: string; key: string; anchor: HTMLElement; name: string };
 
 
-export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage = false, spectate = false, actorPlayerId = null }: {
+export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage = false, spectate = false, actorPlayerId = null, viewOverride }: {
   slug: string; inviteCode?: string; windowed?: boolean; legacyStage?: boolean; spectate?: boolean; actorPlayerId?: number | null;
+  /** The page query `?view=3d|classic`: wins over the saved board look for this visit and is not saved. */
+  viewOverride?: BoardMode;
 }) {
   const router = useRouter();
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
@@ -237,6 +250,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const [pinnedFocus, setPinnedFocus] = useState<number | null>(null);
   const preferences = useDuelPreferences();
   useDuelAnimationSpeed(preferences.reducedMotion);
+  const view = useBoardView(viewOverride);
+  // The chunk of the 3D look starts loading before the room data arrives, so the table appears at once.
+  useEffect(() => {
+    if (view.mode === "3d") void import("./solid/solid-room");
+  }, [view.mode]);
   const viewerOut = isMultiSeat(data?.engine) && data?.engine?.seats.some((seat) =>
     seat.seat === data.mySeat && (seat.eliminated === true || seat.pendingElimination === true)) === true;
   // The server flips to active before it answers Start duel; the pop-up already has the duel then.
@@ -265,6 +283,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const closeMenu = useCallback(() => setMenu(null), []);
   const pickHintShown = pickHint != null && pickHint.promptId === prompt?.id && !menu && pickHint.anchor.isConnected;
   const boardRef = useRef<HTMLDivElement>(null);
+  // 3D mode and Tilt|Flat change the look only when the board is quiet (see quiet-view-change.ts).
+  const boardQuiet = useCallback(() => boardQuietNow(boardRef.current), []);
+  const beforeViewChange = useCallback(() => { closeMenu(); setHover(null); }, [closeMenu]);
+  const changeView = useQuietViewChange(boardQuiet, beforeViewChange);
   // The result screen waits for the last attack, LP roll and card flights to finish, then a short human pause.
   const resultReady = useResultGate({
     slug,
@@ -902,6 +924,26 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         </div>
         <p className={fxStyles.shakeNote}>How hard heavy summons rattle the field.</p>
       </div>
+      {multi ? null : (
+        <>
+          <label className="flex items-center justify-between gap-3">3D mode
+            <input type="checkbox" role="switch" checked={view.mode === "3d"}
+              onChange={(event) => { const next = event.target.checked ? "3d" : "classic"; changeView(() => view.setMode(next)); }} />
+          </label>
+          <p>Tilted Solid Vision table for 1v1 duels</p>
+          {view.mode === "3d" ? (
+            <div className={`${fxStyles.shakeRow} ${duelFontClasses}`}>
+              <span>Table view</span>
+              <div className={fxStyles.segment} role="group" aria-label="Table view">
+                {(["tilt", "flat"] as const).map((tilt) => (
+                  <button key={tilt} type="button" aria-pressed={view.tilt === tilt}
+                    onClick={() => changeView(() => view.setTilt(tilt))}>{tilt === "tilt" ? "Tilt" : "Flat"}</button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
       <p>Effects never pause the duel or submit a response.</p>
       {actionOptions.filter((option) => option.id === "shuffle").map((option) => (
         <Button key={option.id} type="button" size="sm" variant="secondary" disabled={!canAct}
@@ -952,168 +994,166 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       onSelect={(tab) => { setPane(tab); if (mobile) setMobileInspect(true); }} />
   );
 
-  return (
-    <DeckSurrenderContext.Provider value={deckSurrender}>
-    <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
-      data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
-      data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
-      data-reduced={preferences.reducedMotion ? "true" : "false"}>
-      <header className={styles.header}>
-        <div className={styles.identity}>
-          <Link href="/duels" replace={inDuelWindow}>Duelists Kingdom</Link>
-          {spectator ? <strong className={styles.viewerRole} title="You are watching. Both players' hidden cards remain private.">
-            <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
-          </strong> : null}
-          <span className={styles.format}>{domain ? isCustomDomain(data.session.masterRule, data.session.settings) ? "Custom Domain" : "Domain" : `MR${data.session.masterRule}`} · {formatLabel(format)}</span>
-        </div>
-        <div className={styles.turn}>
-          <strong>Turn {engine?.turn ?? "—"}</strong><span className={styles.phaseName} data-step={battleStep ?? undefined}>{headerPhase}</span>
-          {turnText ? (
-            <span className={styles.whoPill} data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}>
-              {spectator ? <Eye size={13} strokeWidth={1.75} aria-hidden /> : myTurn
-                ? <Diamond size={13} strokeWidth={1.75} fill="currentColor" aria-hidden />
-                : <Circle size={13} strokeWidth={1.75} aria-hidden />}
-              {turnText}
-            </span>
-          ) : null}
-        </div>
-        <div className={styles.status}>
-          <SeriesGameLabel room={data} />
-          <span className={styles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
-            {connectionLabel === "Live" ? <i className={styles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
-            <span className={styles.connectionText}>
-              {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
-            </span>
-          </span>
-          <BugReportHeaderButton room={data} />
-          <ReportButton slug={slug} />
-          {popOutControl}
-          {leaveControl}
-          {hasResult && hideResult ? (
-            <button type="button" className={styles.tool} onClick={() => setHideResult(false)}>
-              <span>Show result</span>
-            </button>
-          ) : null}
-          {hasResult && resultReady ? (
-            <button type="button" className={styles.tool} onClick={exitDuel}>
-              <span>Exit duel</span>
-            </button>
-          ) : null}
-          <button type="button" className={`${styles.tool} ${styles.pref}`}
-            aria-label={`Sound effects ${soundLabel.toLowerCase()}`}
-            onClick={() => preferences.setSoundEnabled(!preferences.soundEnabled)}>
-            {preferences.soundEnabled ? <Volume2 size={16} strokeWidth={1.75} aria-hidden /> : <VolumeX size={16} strokeWidth={1.75} aria-hidden />}
-            <span>Sound <b>{soundLabel}</b></span>
-          </button>
-        </div>
-      </header>
-      {series && !showResult && !(betweenGames && myIndex != null) ? (
-        <SeriesBanner room={data} slug={slug} onChanged={() => void refreshRoom()} onNavigate={goToGame} />
+  const solid = view.mode === "3d" && !multi && !liveTable;
+
+  // The pieces of the flat page, built once so the classic page and the 3D mode page (SolidRoom) show the same nodes.
+  const wordmark = <Link href="/duels" replace={inDuelWindow}>Duelists Kingdom</Link>;
+  const spectatorTag = spectator ? <strong className={styles.viewerRole} title="You are watching. Both players' hidden cards remain private.">
+    <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
+  </strong> : null;
+  const formatText = `${domain ? isCustomDomain(data.session.masterRule, data.session.settings) ? "Custom Domain" : "Domain" : `MR${data.session.masterRule}`} · ${formatLabel(format)}`;
+  const headerIdentity = (
+    <div className={styles.identity}>
+      {wordmark}
+      {spectatorTag}
+      <span className={styles.format}>{formatText}</span>
+    </div>
+  );
+  const headerTurn = (
+    <div className={styles.turn}>
+      <strong>Turn {engine?.turn ?? "—"}</strong><span className={styles.phaseName} data-step={battleStep ?? undefined}>{headerPhase}</span>
+      {turnText ? (
+        <span className={styles.whoPill} data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}>
+          {spectator ? <Eye size={13} strokeWidth={1.75} aria-hidden /> : myTurn
+            ? <Diamond size={13} strokeWidth={1.75} fill="currentColor" aria-hidden />
+            : <Circle size={13} strokeWidth={1.75} aria-hidden />}
+          {turnText}
+        </span>
       ) : null}
-      <div className={styles.layout}>
-        {/* Notices float over the top of the layout. In flow they would take height from the board
-            and shrink it for as long as the notice shows. */}
-        {error || actionError || data.error || viewerLeaving ? (
-          <div className={styles.notices} data-prompt-surface="">
-            {leavingNotice}
-            {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
-              <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
-            {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
-            {data.error ? <div className={styles.error} role="alert">{data.error}</div> : null}
-          </div>
-        ) : null}
-        <aside className={styles.inspector}>
-          {tabs()}
-          <div className={styles.sideContent}>{sidePanes(true)}</div>
-        </aside>
-        <div
-          className={styles.promptDock}
-          data-mode={dockMode}
-          data-tone={prompt?.context?.type === "chain" ? "chain" : "action"}
-          data-idle={dockMode === "idle" ? "true" : "false"}
-          data-prompt-surface={dockMode === "idle" ? undefined : ""}
-        >
-          <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
-            draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu) || deckMenuOpen}
-            active={data.session.status === "active" && !viewerOut} aim={promptAim} headless={centered} suspended={centered && !revealed}
-            waitingName={multi && prompt ? playerName(prompt.seat) : null} />
-        </div>
-        <section className={styles.boardColumn} aria-label="Duel field">
-          <div className={styles.board} ref={boardRef} data-deal-wait={startBeats.waiting ? "true" : undefined}>
-            {engine ? (
-              <MoveSourceBoundary events={engine.events} duelKey={slug} root={boardRef}>
-                {multi ? (
-                  <MultiSeatStage key={slug} engine={engine} mySeat={data.mySeat} masterRule={data.session.masterRule}
-                    reducedMotion={preferences.reducedMotion}
-                    legalKeys={legalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
-                    onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
-                    nameOf={playerName} promptSeat={prompt?.seat ?? null}
-                    focusSeat={focusSeat} onFocusSeat={setPinnedFocus} seatPick={seatPick} />
-                ) : (
-                <DuelField key={slug} engine={engine} mySeat={data.mySeat} masterRule={data.session.masterRule}
-                  reducedMotion={preferences.reducedMotion}
-                  priorityLive={!busy && !error && !realtime.recovering && !catchingUp &&
-                    (data.mySeat == null || (engine.prioritySeat ?? prompt?.seat) !== data.mySeat || revealed)}
-                  legalKeys={legalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
-                  onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
-                  bottomName={playerName(localSeat)}
-                  topName={playerName(top?.seat ?? 1 - localSeat)} />
-                )}
-                <FxBoundary>
-                {fxUp ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
-                  soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
-                {fxUp ? <SummonFx events={engine.events} duelKey={slug}
-                  reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
-                {fxUp ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
-                {fxUp ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
-                {fxUp ? <ChainFx events={engine.events} chain={engine.chain} duelKey={slug}
-                  reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} ended={duelOver} /> : null}
-                {fxUp ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
-                  reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
-                <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}
-                  active={fxUp} aim={battleAim} result={engine.result} battleStep={battleStep} />
-                <DestroyFx key={`destroy-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
-                  active={fxUp} mySeat={localSeat} />
-                </FxBoundary>
-                <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}
-                  busy={busy || Boolean(error) || catchingUp || (prompt == null && pick.waiting != null)} draft={draft} onSubmit={onSubmitAnswer}
-                  menuOpen={Boolean(activeMenu) || deckMenuOpen} chain={engine.chain} aim={promptAim}
-                  aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
-                  reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
-                  revealed={revealed} onInspectCard={inspectInfo} nameOf={playerName} />
-                {pile ? (
-                  <PileViewer title={pile.title} owner={pile.owner} open={pile.open}
-                    cards={livePileCards(pile, engine, localSeat)} onClose={closePile}
-                    onInspectCard={(card) => { setInspect({ type: "card", card }); if (pane !== "log") setPane("card"); }}
-                    onHoverCard={(card) => { if (pane === "card") setInspect({ type: "card", card }); }}
-                    onActivateCard={onInspectorActivate}
-                    legalKeys={legalKeys} selectedKeys={selectedKeys}
-                    reducedMotion={preferences.reducedMotion} />
-                ) : null}
-              </MoveSourceBoundary>
-            ) : <p className="p-4">{data.session.status === "active" ? "Waiting for engine view…" : "No saved final board is available for this record."}</p>}
-          </div>
-        </section>
-        {masterRail ? <aside className={styles.masters} aria-label="Deck Masters">{masterRail}</aside> : null}
-      </div>
-      <div className={styles.track}>
-        <StationTrack
-          phase={shownPhase}
-          battleStep={battleStep}
-          turn={engine?.turn}
-          turnSeat={engine?.turnSeat}
-          mySeat={data.mySeat}
-          playerName={playerName}
-          actionOptions={mine ? actionOptions : []}
-          canAct={canAct}
-          noLegalMoves={canAct && hasNoLegalMoves(actionOptions)}
-          onChoose={(id) => onSubmitAnswer({ choice: id })}
-          clock={data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} /> : null}
-          caption={trackCaption}
-          reducedMotion={preferences.reducedMotion}
-        />
-      </div>
-      <div className={styles.mobileBar}>{tabs(true)}</div>
+    </div>
+  );
+  const connectionStatus = (
+    <span className={styles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
+      {connectionLabel === "Live" ? <i className={styles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
+      <span className={styles.connectionText}>
+        {connectionLabel === "Live" ? (spectator ? "Live duel · watching" : "Live duel") : connectionLabel}
+      </span>
+    </span>
+  );
+  const headerTools = (
+    <>
+      <BugReportHeaderButton room={data} />
+      <ReportButton slug={slug} />
+      {popOutControl}
+      {leaveControl}
+      {hasResult && hideResult ? (
+        <button type="button" className={styles.tool} onClick={() => setHideResult(false)}>
+          <span>Show result</span>
+        </button>
+      ) : null}
+      {hasResult && resultReady ? (
+        <button type="button" className={styles.tool} onClick={exitDuel}>
+          <span>Exit duel</span>
+        </button>
+      ) : null}
+      <button type="button" className={`${styles.tool} ${styles.pref}`}
+        aria-label={`Sound effects ${soundLabel.toLowerCase()}`}
+        onClick={() => preferences.setSoundEnabled(!preferences.soundEnabled)}>
+        {preferences.soundEnabled ? <Volume2 size={16} strokeWidth={1.75} aria-hidden /> : <VolumeX size={16} strokeWidth={1.75} aria-hidden />}
+        <span>Sound <b>{soundLabel}</b></span>
+      </button>
+    </>
+  );
+  const seriesBanner = series && !showResult && !(betweenGames && myIndex != null) ? (
+    <SeriesBanner room={data} slug={slug} onChanged={() => void refreshRoom()} onNavigate={goToGame} />
+  ) : null;
+  const noticesNode = error || actionError || data.error || viewerLeaving ? (
+    <div className={styles.notices} data-prompt-surface="">
+      {leavingNotice}
+      {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
+        <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
+      {actionError ? <div className={styles.error} role="alert">{actionError}</div> : null}
+      {data.error ? <div className={styles.error} role="alert">{data.error}</div> : null}
+    </div>
+  ) : null;
+  const inspectorNode = (
+    <>
+      {tabs()}
+      <div className={styles.sideContent}>{sidePanes(true)}</div>
+    </>
+  );
+  const promptDockNode = (
+    <div
+      className={styles.promptDock}
+      data-mode={dockMode}
+      data-tone={prompt?.context?.type === "chain" ? "chain" : "action"}
+      data-idle={dockMode === "idle" ? "true" : "false"}
+      data-prompt-surface={dockMode === "idle" ? undefined : ""}
+    >
+      <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
+        draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu) || deckMenuOpen}
+        active={data.session.status === "active" && !viewerOut} aim={promptAim} headless={centered} suspended={centered && !revealed}
+        waitingName={multi && prompt ? playerName(prompt.seat) : null} />
+    </div>
+  );
+  // What DuelField (classic) and SolidField (3D mode) take: one object, so both looks drive the same logic.
+  const fieldProps = engine ? {
+    engine, mySeat: data.mySeat, masterRule: data.session.masterRule,
+    reducedMotion: preferences.reducedMotion,
+    priorityLive: !busy && !error && !realtime.recovering && !catchingUp &&
+      (data.mySeat == null || (engine.prioritySeat ?? prompt?.seat) !== data.mySeat || revealed),
+    legalKeys, selectedKeys, onActivate: onFieldActivate,
+    onHoverCard, onInspect: (target: InspectTarget) => showInspector(target, true),
+    bottomName: playerName(localSeat),
+    topName: playerName(top?.seat ?? 1 - localSeat),
+  } : null;
+  // The board: the field (given by the caller), the FX layers as flat siblings of it, the prompt layer and the pile viewer.
+  const renderBoard = (field: ReactNode): ReactNode => engine ? (
+    <MoveSourceBoundary events={engine.events} duelKey={slug} root={boardRef}>
+      {field}
+      <FxBoundary>
+      {fxUp ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
+        soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
+      {fxUp ? <SummonFx events={engine.events} duelKey={slug}
+        reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
+      {fxUp ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
+      {fxUp ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
+      {fxUp ? <ChainFx events={engine.events} chain={engine.chain} duelKey={slug}
+        reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} ended={duelOver} /> : null}
+      {fxUp ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
+        reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
+      <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}
+        active={fxUp} aim={battleAim} result={engine.result} battleStep={battleStep} />
+      <DestroyFx key={`destroy-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
+        active={fxUp} mySeat={localSeat} />
+      </FxBoundary>
+      <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}
+        busy={busy || Boolean(error) || catchingUp || (prompt == null && pick.waiting != null)} draft={draft} onSubmit={onSubmitAnswer}
+        menuOpen={Boolean(activeMenu) || deckMenuOpen} chain={engine.chain} aim={promptAim}
+        aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
+        reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
+        revealed={revealed} onInspectCard={inspectInfo} nameOf={playerName} />
+      {pile ? (
+        <PileViewer title={pile.title} owner={pile.owner} open={pile.open}
+          cards={livePileCards(pile, engine, localSeat)} onClose={closePile}
+          onInspectCard={(card) => { setInspect({ type: "card", card }); if (pane !== "log") setPane("card"); }}
+          onHoverCard={(card) => { if (pane === "card") setInspect({ type: "card", card }); }}
+          onActivateCard={onInspectorActivate}
+          legalKeys={legalKeys} selectedKeys={selectedKeys}
+          reducedMotion={preferences.reducedMotion} />
+      ) : null}
+    </MoveSourceBoundary>
+  ) : <p className="p-4">{data.session.status === "active" ? "Waiting for engine view…" : "No saved final board is available for this record."}</p>;
+  const trackNode = (
+    <StationTrack
+      phase={shownPhase}
+      battleStep={battleStep}
+      turn={engine?.turn}
+      turnSeat={engine?.turnSeat}
+      mySeat={data.mySeat}
+      playerName={playerName}
+      actionOptions={mine ? actionOptions : []}
+      canAct={canAct}
+      noLegalMoves={canAct && hasNoLegalMoves(actionOptions)}
+      onChoose={(id) => onSubmitAnswer({ choice: id })}
+      clock={!solid && data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} /> : null}
+      caption={trackCaption}
+      reducedMotion={preferences.reducedMotion}
+    />
+  );
+  const mobileTabs = tabs(true);
+  const overlaysNode = (
+    <>
       {activeMenu ? <CardActionMenu anchor={activeMenu.anchor} title={activeMenu.title}
         options={activeMenu.options} busy={busy} onClose={closeMenu}
         tone={activeMenu.tone}
@@ -1140,6 +1180,100 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           soundEnabled={preferences.soundEnabled} onClose={() => setHideResult(true)} onExit={exitDuel}
           onSeriesChanged={() => void refreshRoom()} onNavigate={goToGame} />
       ) : null}
+    </>
+  );
+
+  if (solid) {
+    return (
+      <DeckSurrenderContext.Provider value={deckSurrender}>
+        <SolidRoom
+          slug={slug}
+          boardRef={boardRef}
+          dealWait={startBeats.waiting}
+          domain={domain}
+          battle={battle}
+          spectator={spectator}
+          myTurn={myTurn}
+          reducedMotion={preferences.reducedMotion}
+          view={view}
+          preferences={preferences}
+          engine={engine ?? null}
+          mySeat={data.mySeat}
+          playerName={playerName}
+          format={formatText}
+          turnText={turnText}
+          headerPhase={headerPhase}
+          battleStep={battleStep}
+          connectionStatus={connectionStatus}
+          wordmark={wordmark}
+          spectatorTag={spectatorTag}
+          seriesLabel={<SeriesGameLabel room={data} />}
+          headerTools={headerTools}
+          seriesBanner={seriesBanner}
+          noticesNode={noticesNode}
+          inspectorNode={inspectorNode}
+          promptDockNode={promptDockNode}
+          masterRail={masterRail}
+          trackNode={trackNode}
+          mobileTabs={mobileTabs}
+          overlaysNode={overlaysNode}
+          fieldProps={fieldProps}
+          renderBoard={renderBoard}
+          renderClock={(seat) => data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} seats={[seat]} /> : null}
+          inspect={inspect}
+          pane={pane}
+          setPane={setPane}
+          setMobileInspect={setMobileInspect}
+          boardQuiet={boardQuiet}
+          onBeforeViewChange={beforeViewChange}
+        />
+      </DeckSurrenderContext.Provider>
+    );
+  }
+
+  return (
+    <DeckSurrenderContext.Provider value={deckSurrender}>
+    <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
+      data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
+      data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
+      data-reduced={preferences.reducedMotion ? "true" : "false"}>
+      <header className={styles.header}>
+        {headerIdentity}
+        {headerTurn}
+        <div className={styles.status}>
+          <SeriesGameLabel room={data} />
+          {connectionStatus}
+          {headerTools}
+        </div>
+      </header>
+      {seriesBanner}
+      <div className={styles.layout}>
+        {/* Notices float over the top of the layout. In flow they would take height from the board
+            and shrink it for as long as the notice shows. */}
+        {noticesNode}
+        <aside className={styles.inspector}>
+          {inspectorNode}
+        </aside>
+        {promptDockNode}
+        <section className={styles.boardColumn} aria-label="Duel field">
+          <div className={styles.board} ref={boardRef} data-deal-wait={startBeats.waiting ? "true" : undefined}>
+            {renderBoard(multi ? (
+              <MultiSeatStage key={slug} engine={engine!} mySeat={data.mySeat} masterRule={data.session.masterRule}
+                reducedMotion={preferences.reducedMotion}
+                legalKeys={legalKeys} selectedKeys={selectedKeys} onActivate={onFieldActivate}
+                onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)}
+                nameOf={playerName} promptSeat={prompt?.seat ?? null}
+                focusSeat={focusSeat} onFocusSeat={setPinnedFocus} seatPick={seatPick} />
+            ) : fieldProps ? <DuelField key={slug} {...fieldProps} /> : null)}
+          </div>
+        </section>
+        {masterRail ? <aside className={styles.masters} aria-label="Deck Masters">{masterRail}</aside> : null}
+      </div>
+      <div className={styles.track}>
+        {trackNode}
+      </div>
+      <div className={styles.mobileBar}>{mobileTabs}</div>
+      {overlaysNode}
     </div>
     </DeckSurrenderContext.Provider>
   );
