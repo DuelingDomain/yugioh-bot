@@ -11,6 +11,7 @@ import { toUtcIso } from "@/lib/utils";
 import { broadcaster } from "@/lib/notify";
 import { lookupDraftCardTypes, type EngineCardTypes } from "@/lib/draft-engine-types";
 import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
+import { checkDiscordWebAccess } from "@/lib/discord-web-access";
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
   if (!pickDeadlineAt) {
@@ -314,6 +315,30 @@ export async function buildDraftResponse(slug: string, userId: string) {
       )
     : null;
 
+  // The tournament made from this draft, so the finale and results can link straight to it.
+  const tournament = draft.tournament_id != null
+    ? degrade(slug, "tournament lookup", null as { name: string; webSlug: string | null } | null, () => {
+        const row = db.prepare("select name, web_slug from tournaments where id = ? and guild_id = ?").get(draft.tournament_id, draft.guild_id) as
+          | { name: string; web_slug: string | null }
+          | undefined;
+        return row ? { name: row.name, webSlug: row.web_slug } : null;
+      })
+    : null;
+
+  let canCreateTournament = false;
+  if (draft.status === "completed" && draft.tournament_id == null) {
+    if (draft.created_by_user_id === userId) {
+      canCreateTournament = true;
+    } else {
+      try {
+        canCreateTournament = (await checkDiscordWebAccess(userId, "admin")).ok;
+      } catch {
+        // The draft remains readable when Discord verification is unavailable.
+        canCreateTournament = false;
+      }
+    }
+  }
+
   return {
     id: draft.id,
     guildId: draft.guild_id,
@@ -332,6 +357,9 @@ export async function buildDraftResponse(slug: string, userId: string) {
     endedAt: toUtcIso(draft.ended_at),
     playerCount: draft.player_count,
     tournamentId: draft.tournament_id ?? null,
+    tournamentName: tournament?.name ?? null,
+    tournamentSlug: tournament?.webSlug ?? null,
+    canCreateTournament,
     players,
     participantPickCount,
     myDeckId,
