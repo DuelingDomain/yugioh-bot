@@ -1,0 +1,77 @@
+/* The Tribute animation (tribute-fx.tsx): a card rises, burns away in slices and sends motes of energy into the
+   zone of the monster being summoned. Placed on the Tribute's zone (left, top, width, height set in JS); every
+   animation moves transform or opacity only. Nothing here takes pointer input. */
+
+.tribute {
+  position: absolute;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.lift {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+/* One band of the card. The clip-path never changes; the band moves and fades as a whole. */
+.slice {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  will-change: transform, opacity;
+}
+
+.art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--fx-r, 4px);
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.6);
+}
+
+/* The scorched edge of a band: amber at the bottom, clear above, faded in as the band goes. */
+.burn {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: linear-gradient(180deg, rgb(255 190 90 / 0) 30%, rgb(255 150 50 / 0.55) 78%, rgb(255 238 190 / 0.85) 100%);
+  mix-blend-mode: screen;
+}
+
+/* A mote of energy: gold with a violet halo, in the middle of the card until it is told to travel. */
+.orb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--orb, 12px);
+  height: var(--orb, 12px);
+  margin: calc(var(--orb, 12px) / -2) 0 0 calc(var(--orb, 12px) / -2);
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff7d6 0 28%, #f1c557 52%, rgb(155 126 255 / 0.65) 78%, rgb(155 126 255 / 0) 100%);
+  box-shadow: 0 0 10px 3px rgb(228 182 79 / 0.55), 0 0 18px 6px rgb(155 126 255 / 0.35);
+  will-change: transform, opacity;
+}
+
+/* Where the energy gathers, over the summon zone. */
+.flash {
+  position: absolute;
+  left: -25%;
+  top: 0;
+  width: 150%;
+  height: 100%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgb(255 247 214 / 0.95) 0, rgb(241 197 87 / 0.55) 34%, rgb(155 126 255 / 0.28) 62%, rgb(155 126 255 / 0) 78%);
+  will-change: transform, opacity;
+}
+
+/* The ring that the Graveyard throws when it takes the burned card. */
+.pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--fx-r, 4px);
+  border: 2px solid rgb(244 214 144 / 0.9);
+  box-shadow: 0 0 14px rgb(228 182 79 / 0.55), inset 0 0 10px rgb(228 182 79 / 0.3);
+  will-change: transform, opacity;
+}
