@@ -6,6 +6,7 @@ import {
   flyWorld,
   flyYawFor,
   holoAnchor,
+  holoObstacle,
   ARENA_SIGN,
   HUB_STRIP,
   hubPose,
@@ -410,7 +411,9 @@ describe("hubPose", () => {
     ["ffa4 home", "ffa4", 4, {}],
     ["ffa4 look", "ffa4", 4, { mode: "look", lookSeat: 1 }],
     ["ffa4 overview", "ffa4", 4, { mode: "overview" }],
-    ["ffa4 focus", "ffa4", 4, { mode: "focus", focusSeat: 2 }],
+    ["ffa4 focus on the far rival", "ffa4", 4, { mode: "focus", focusSeat: 2 }],
+    ["ffa4 focus on the left rival", "ffa4", 4, { mode: "focus", focusSeat: 1 }],
+    ["ffa4 focus on the right rival", "ffa4", 4, { mode: "focus", focusSeat: 3 }],
   ];
 
   it.each(cases)("%s: the strip overlaps no seat field, no LP panel, not the ARENA 07 sign and not the ring", (_label, format, count, over) => {
@@ -429,11 +432,10 @@ describe("hubPose", () => {
         expect(overlaps(card, box(rect.x, rect.y, rect.width + 10, rect.height + 10, rect.rotateDeg))).toBe(false);
       }
     });
+    // 8px of air around every LP plate at the place the camera mode puts it.
     for (const slot of layout.slots) {
-      const anchor = holoAnchor(layout, slot.seat, view);
-      const w = (anchor.me ? 212 : 196) + 10;
-      const h = (anchor.me ? 74 : 62) + 10;
-      expect(overlaps(card, box(anchor.x + w / 2 - 5, anchor.y + h / 2 - 5, w, h))).toBe(false);
+      const plate = holoObstacle(holoAnchor(layout, slot.seat, view));
+      expect(overlaps(card, box(plate.x, plate.y, plate.width + 16, plate.height + 16))).toBe(false);
     }
     // The ARENA 07 sign on the plaza.
     expect(overlaps(card, box(ARENA_SIGN.x + ARENA_SIGN.width / 2, ARENA_SIGN.y + ARENA_SIGN.height / 2, ARENA_SIGN.width, ARENA_SIGN.height))).toBe(false);
@@ -457,6 +459,17 @@ describe("hubPose", () => {
     expect(hubPose(four, camera()).size).toBe("sm");
     expect(hubPose(four, camera({ mode: "overview" })).size).toBe("lg");
     expect(hubPose(four, camera({ mode: "focus", focusSeat: 2 })).size).toBe("sm");
+  });
+
+  it("stands in the gap between the right-hand rival's plate and yours in the 4-way focus view", () => {
+    const four = tableLayout("ffa4", engine("ffa4", 4), 0);
+    const view = camera({ mode: "focus", focusSeat: 3 });
+    const at = hubPose(four, view);
+    const rival = holoObstacle(holoAnchor(four, 2, view));
+    const mine = holoObstacle(holoAnchor(four, 0, view));
+    expect(rival.x).toBeGreaterThan(900);
+    expect(at.y - at.height / 2).toBeGreaterThanOrEqual(rival.y + rival.height / 2 + 8);
+    expect(at.y + at.height / 2).toBeLessThanOrEqual(mine.y - mine.height / 2 - 8);
   });
 
   it("centres a 4-way overview strip on the ring, above it", () => {

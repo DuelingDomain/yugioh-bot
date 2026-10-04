@@ -358,8 +358,8 @@ export const ARENA_SIGN = { x: 517, y: 18, width: 66, height: 17 } as const;
 
 /**
  * Where the phase hub strip stands in a camera mode. Each place was found by scanning the stage for a rectangle that
- * keeps 5px clear of every seat's field, hand and name label (see `seatObstacles`), every holo LP plate, the ARENA 07
- * sign and the turn ring; the geometry test repeats the check, so a change to the poses fails loudly. In order of
+ * keeps 5px clear of every seat's field, hand and name label (see `seatObstacles`), 8px clear of every holo LP
+ * plate (see `holoObstacle`; plates move with the camera), and clear of the ARENA 07 sign and the turn ring; the geometry test repeats the check, so a change to the poses fails loudly. In order of
  * preference: beside the ring; and, where the seats leave no room there, the open stage level with the top half of your
  * own field, to the right of it. Never over cards, hands or plates.
  * The strip is a flat overlay on the canvas: it never tilts with the world, so in the fly view it keeps the home place.
@@ -372,12 +372,12 @@ export function hubPose(layout: TableLayout, camera: CameraView): HubPose {
     if (camera.mode === "overview") {
       // Centred above the ring.
       size = "lg";
-      at = { x: ring.x, y: 298 };
+      at = { x: ring.x, y: 282 };
     } else if (camera.mode === "focus") {
-      // The far rival's field and name fill the top row, so the strip stands right of your own small field instead,
-      // under the right-hand rival.
+      // The far rival's field and name fill the top row, so the strip stands right of your own small field instead, in the
+      // gap between the right-hand rival's LP plate and yours.
       size = "sm";
-      at = { x: 985, y: 563 };
+      at = { x: 985, y: 636 };
     } else {
       // Right of the ring, between it and the right-hand rival.
       size = "sm";
@@ -434,6 +434,16 @@ export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotate
     rect(0, 190 + handH / 2 - 2, handW, handH),
     rect(-653 / 2 + 0.17 * 653, 190 + 14, 150, 28),
   ];
+}
+
+/**
+ * The most a holo LP panel can cover: its anchor is the top left; it is 196 wide (212 for yours) and, with the clock, the
+ * state line and "choosing..." all shown, about 122 tall (128), and a rival's Deck Master thumb rises 14 above it.
+ */
+export function holoObstacle(anchor: Pick<HoloAnchor, "x" | "y" | "me">): StageRect {
+  const width = anchor.me ? 212 : 196;
+  const height = (anchor.me ? 128 : 122) + (anchor.me ? 0 : 14);
+  return { x: anchor.x + width / 2, y: anchor.y - (anchor.me ? 0 : 14) + height / 2, width, height, rotateDeg: 0 };
 }
 
 /** Screen angle of every seat on the turn ring (degrees, 0 = right, 90 = down), by seat number. */
