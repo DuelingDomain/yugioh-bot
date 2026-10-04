@@ -237,7 +237,7 @@ describe("card name search", () => {
   });
 
   /** The card database: it matches the text as written inside a name and answers HTTP 400 when nothing matches. */
-  function cardDatabase(cards: YgoprodeckCard[]) {
+  function cardDatabase(cards: YgoprodeckCard[], failure?: { status: number; fname?: string }) {
     const db = new Database(":memory:");
     migrate(db);
     const calls: string[] = [];
@@ -247,8 +247,11 @@ describe("card name search", () => {
         calls.push(url.search);
         const fname = url.searchParams.get("fname")?.toLowerCase();
         const id = url.searchParams.get("id");
+        if (failure && (failure.fname === undefined || failure.fname === fname)) {
+          return { ok: false, status: failure.status, async json() { return {}; } } as Response;
+        }
         const data = cards.filter((card) => (fname ? card.name.toLowerCase().includes(fname) : String(card.id) === id));
-        return { ok: data.length > 0, async json() { return { data }; } } as Response;
+        return { ok: data.length > 0, status: data.length > 0 ? 200 : 400, async json() { return { data }; } } as Response;
       },
     });
     return { catalog, calls };
@@ -280,6 +283,87 @@ describe("card name search", () => {
     // The closest match is first; a name with both words in another order still shows below it.
     expect(names).toEqual(["Blue-Eyes White Dragon", "Sage with Eyes of Blue"]);
     expect(calls).toEqual(["?fname=blue+eyes", "?fname=blue"]);
+  });
+
+  const harpies = [
+    monster(6, "Flight of the Harpies"),
+    monster(7, "Harpies' Hunting Ground"),
+    monster(8, "Harpie's Feather Duster"),
+  ];
+
+  it("tries the next word when the first probe finds no cards with all the words", async () => {
+    const { catalog, calls } = cardDatabase(harpies);
+
+    expect((await catalog.syncCardsByFuzzyName("harpies feather duster")).map((card) => card.name)).toEqual([
+      "Harpie's Feather Duster",
+    ]);
+    expect(calls).toEqual(["?fname=harpies+feather+duster", "?fname=harpies", "?fname=feather"]);
+  });
+
+  it.each(["harpie's", "harpie’s", "harpies!"])("prefers an unchanged probe word for %s", async (word) => {
+    const { catalog, calls } = cardDatabase(harpies);
+
+    expect((await catalog.syncCardsByFuzzyName(`${word} duster feather`)).map((card) => card.name)).toEqual([
+      "Harpie's Feather Duster",
+    ]);
+    expect(calls.map((call) => new URLSearchParams(call).get("fname"))).toEqual([
+      `${word} duster feather`, "feather",
+    ]);
+  });
+
+  it("prefers a shorter unchanged word to a longer word with punctuation", async () => {
+    const { catalog, calls } = cardDatabase([monster(9, "Blue-Eyes Dragon")]);
+
+    expect((await catalog.syncCardsByFuzzyName("dragon! blue")).map((card) => card.name)).toEqual(["Blue-Eyes Dragon"]);
+    expect(calls).toEqual(["?fname=dragon%21+blue", "?fname=blue"]);
+  });
+
+  it("tries the next word when a probe gets HTTP 400", async () => {
+    const { catalog, calls } = cardDatabase([monster(10, "Harpie's Feather")]);
+
+    expect((await catalog.syncCardsByFuzzyName("harpies feather")).map((card) => card.name)).toEqual([
+      "Harpie's Feather",
+    ]);
+    expect(calls).toEqual(["?fname=harpies+feather", "?fname=harpies", "?fname=feather"]);
+  });
+
+  it("does not repeat a fallback probe for repeated query words", async () => {
+    const { catalog, calls } = cardDatabase(harpies);
+
+    expect((await catalog.syncCardsByFuzzyName("harpies harpies feather duster")).map((card) => card.name)).toEqual([
+      "Harpie's Feather Duster",
+    ]);
+    expect(calls).toEqual(["?fname=harpies+harpies+feather+duster", "?fname=harpies", "?fname=feather"]);
+  });
+
+  it("sends at most two distinct fallback probes", async () => {
+    const { catalog, calls } = cardDatabase([monster(11, "Duster Feather Harpie's")]);
+
+    await expect(catalog.syncCardsByFuzzyName("harpies harpies nonexistent feather duster")).resolves.toEqual([]);
+    expect(calls).toEqual([
+      "?fname=harpies+harpies+nonexistent+feather+duster", "?fname=nonexistent", "?fname=harpies",
+    ]);
+  });
+
+  it("does not repeat a probe that folds to the full text", async () => {
+    const { catalog, calls } = cardDatabase(pool);
+
+    await expect(catalog.syncCardsByFuzzyName("gaia's")).resolves.toEqual([]);
+    expect(calls).toEqual(["?fname=gaia%27s"]);
+  });
+
+  it.each([429, 500])("throws for HTTP %s without sending a fallback probe", async (status) => {
+    const { catalog, calls } = cardDatabase(pool, { status });
+
+    await expect(catalog.syncCardsByFuzzyName("blue eyes")).rejects.toThrow(/Could not reach the card database/);
+    expect(calls).toEqual(["?fname=blue+eyes"]);
+  });
+
+  it.each([429, 500])("stops when a fallback probe gets HTTP %s", async (status) => {
+    const { catalog, calls } = cardDatabase(harpies, { status, fname: "harpies" });
+
+    await expect(catalog.syncCardsByFuzzyName("harpies feather duster")).rejects.toThrow(/Could not reach the card database/);
+    expect(calls).toEqual(["?fname=harpies+feather+duster", "?fname=harpies"]);
   });
 
   it("finds a card when the words are typed in pieces, in any case and in any order", async () => {

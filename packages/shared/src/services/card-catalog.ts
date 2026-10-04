@@ -33,7 +33,7 @@ type YgoprodeckCard = {
 type FetchLike = (
   input: string | URL | globalThis.Request,
   init?: globalThis.RequestInit,
-) => Promise<Pick<Response, "ok" | "json">>;
+) => Promise<Pick<Response, "ok" | "status" | "json">>;
 
 export type CardCatalogCard = Card;
 
@@ -127,7 +127,7 @@ export function createCardCatalogService(
     return fetchImpl(input, init);
   };
 
-  const fetchCardsWith = async (params: Record<string, string>) => {
+  const fetchCardsWith = async (params: Record<string, string>, options: { allowNoMatch?: boolean } = {}) => {
     const url = new URL(YGOPRODECK_API_URL);
     for (const [key, value] of Object.entries(params)) {
       url.searchParams.set(key, value);
@@ -142,6 +142,12 @@ export function createCardCatalogService(
     }
 
     if (!response.ok) {
+      if (response.status === 400 && options.allowNoMatch) {
+        return [];
+      }
+      if (response.status !== 400) {
+        throw new Error(`Could not reach the card database (HTTP ${response.status}). Check connectivity and try again.`);
+      }
       throw new Error(`YGOPRODeck request failed for ${new URLSearchParams(params).toString()}`);
     }
 
@@ -311,40 +317,40 @@ export function createCardCatalogService(
     /**
      * Cards whose name matches typed text, best match first (see rankCardsByName). The card database only
      * matches the exact text and answers HTTP 400 for no match, so "blue eyes" would miss "Blue-Eyes":
-     * when the text finds nothing, its longest word is looked up and the names that have every word are kept.
+     * when the text finds nothing, try up to two distinct words, longest unchanged words first,
+     * and keep names that have every folded word. Never repeat the folded full text as a probe.
      * A full passcode finds that card. Extra Deck monsters are left out unless `includeExtra` is set.
      */
     async syncCardsByFuzzyName(name: string, options: { includeExtra?: boolean; limit?: number } = {}) {
       const text = name.trim();
-      const words = foldCardText(text).split(" ").filter(Boolean);
+      const phrase = foldCardText(text);
+      const words = phrase.split(" ").filter(Boolean);
       if (words.length === 0) {
         return [];
       }
 
-      // A lost connection is a real failure; a 400 means the database knows no such card.
-      const lookup = async (params: Record<string, string>) => {
-        try {
-          return await fetchCardsWith(params);
-        } catch (error) {
-          if (error instanceof Error && error.message.startsWith("YGOPRODeck request failed")) {
-            return [];
-          }
-          throw error;
-        }
-      };
+      // Only HTTP 400 means no match; other HTTP failures and lost connections must reach the caller.
+      const lookup = (params: Record<string, string>) => fetchCardsWith(params, { allowNoMatch: true });
 
       let cards: YgoprodeckCard[] = /^\d{6,10}$/.test(text) ? await lookup({ id: String(Number(text)) }) : [];
       if (cards.length === 0) {
         cards = await lookup({ fname: text });
       }
       if (cards.length === 0) {
-        const probe = [...words].sort((a, b) => b.length - a.length)[0]!;
-        if (probe !== text.toLowerCase()) {
+        const unchangedWords = new Set(text.toLowerCase().split(/\s+/).filter((word) => foldCardText(word) === word));
+        const probes = [...new Set(words)]
+          .filter((word) => word !== phrase)
+          .sort((a, b) => Number(unchangedWords.has(b)) - Number(unchangedWords.has(a)) || b.length - a.length)
+          .slice(0, 2);
+        for (const probe of probes) {
           const probed = await lookup({ fname: probe });
           cards = probed.filter((card) => {
             const folded = foldCardText(card.name);
             return words.every((word) => folded.includes(word));
           });
+          if (cards.length > 0) {
+            break;
+          }
         }
       }
 

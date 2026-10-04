@@ -82,8 +82,13 @@ export async function POST(request: Request) {
 
   if (fuzzyName) {
     // Best match first. Extra Deck monsters only when the caller can hold them (a cube has an Extra pool).
-    const cards = await catalog.syncCardsByFuzzyName(fuzzyName, { includeExtra: body.includeExtra === true });
-    return NextResponse.json({ cards: cards.map(toCardSummary), unknownIds: [] });
+    try {
+      const cards = await catalog.syncCardsByFuzzyName(fuzzyName, { includeExtra: body.includeExtra === true });
+      return NextResponse.json({ cards: cards.map(toCardSummary), unknownIds: [] });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not search the card database. Try again.";
+      return NextResponse.json({ error: message }, { status: 502 });
+    }
   }
 
   // Sets not in card_catalog yet are fetched first, the way POST /api/drafts does.
