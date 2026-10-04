@@ -20,6 +20,7 @@ export function isFxLabPublicPath(pathname: string): boolean {
     pathname.startsWith("/dev/table-preview/") ||
     pathname === "/dev/solid-preview" ||
     pathname.startsWith("/dev/solid-preview/") ||
-    /^\/api\/cards\/\d+\/image$/.test(pathname)
+    /^\/api\/cards\/\d+\/image$/.test(pathname) ||
+    /^\/duel\/[\w-]+\.(webp|svg)$/.test(pathname)
   );
 }

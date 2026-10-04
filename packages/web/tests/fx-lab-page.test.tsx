@@ -74,6 +74,8 @@ describe("fx lab public paths", () => {
   it("names only the page and the card art route", () => {
     expect(isFxLabPublicPath("/dev/fx-lab")).toBe(true);
     expect(isFxLabPublicPath("/api/cards/89631139/image")).toBe(true);
+    expect(isFxLabPublicPath("/duel/card-back-main-hd.webp")).toBe(true);
+    expect(isFxLabPublicPath("/duel/x/card-back.webp")).toBe(false);
     expect(isFxLabPublicPath("/api/cards/resolve")).toBe(false);
     expect(isFxLabPublicPath("/dev/fx-lab/x")).toBe(false);
   });
