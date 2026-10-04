@@ -1184,21 +1184,22 @@ export function createDuelHost(options: {
     const setup = room.session.format === "1v1" ? null : service.privateState(slug, guildId);
     // Retired commands identify old setup flags; they are not accepted for new surrender.
     const retiredTurnEndSeats = new Set((setup?.commands ?? []).filter((input) => eliminationAtTurnEnd(input.command.promptId)).map((input) => input.seat));
-    const markLegacyLosses = (view: DuelEngineView | null) => {
-      for (const gone of setup?.setup?.surrenderedSeats ?? []) {
-        if (retiredTurnEndSeats.has(gone)) continue;
+    const legacyLossSeats = new Set((setup?.setup?.surrenderedSeats ?? []).filter((seat) => !retiredTurnEndSeats.has(seat)));
+    const markLegacyLosses = (views: Iterable<DuelEngineView | null>) => {
+      for (const view of views) for (const gone of legacyLossSeats) {
         const seat = view?.seats.find((seat) => seat.seat === gone);
         if (seat) seat.eliminated = true;
       }
     };
     if (game && game.running && room.session.status === "active") {
       room.engine = await game.view(room.mySeat);
-      markLegacyLosses(room.engine);
       if (room.engine.result) {
         await persistComplete(slug, guildId, game, room.engine.result.winnerSeat, room.engine.result.reason);
         return project(slug, guildId, playerId, undefined, spectate);
       }
     }
+    const playerView = room.engine;
+    let replayedView: DuelEngineView | null = null;
     // With no final board, replay the journal to check that the loss did land.
     let noBoardLoss = false;
     const lossForViewer = room.mySeat !== null && [
@@ -1210,29 +1211,25 @@ export function createDuelHost(options: {
       try {
         const publicReplay = await replay(slug, guildId, { ...room, role: "spectator", mySeat: null, myDeck: null });
         const last = publicReplay.frames.at(-1)?.view ?? null;
-        markLegacyLosses(last);
-        noBoardLoss = last?.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated) === true;
+        replayedView = last;
+        noBoardLoss = last?.seats.some((seat) => seat.seat === room.mySeat && (seat.eliminated || legacyLossSeats.has(seat.seat))) === true;
       } catch (error) {
         // A missing replay must not prevent a room read. No board is exposed in this case.
         if (!(error instanceof RequestError) || (error.status !== 409 && error.status !== 503)) throw error;
       }
     }
-    markLegacyLosses(room.engine);
-    rememberView(slug, room.mySeat, room.engine);
     // Per-seat snapshots of a finished duel still hold that seat's final hand. Returning the room is safe only because
     // service.room picks the actor's OWN snapshot, so a loser who spectated during the duel still sees "lose" and their
     // own row. Never return another seat's or a stored snapshot from this branch.
-    if (spectate && room.mySeat !== null && (room.session.status === "completed" || room.session.status === "interrupted")) {
-      return room;
-    }
-    if (spectate) {
+    const ownResult = room.mySeat !== null && (room.session.status === "completed" || room.session.status === "interrupted");
+    const playerSeat = room.mySeat;
+    if (spectate && !ownResult) {
       if ((room.session.format !== "ffa3" && room.session.format !== "ffa4") ||
-          (room.mySeat !== null && !(noBoardLoss || room.engine?.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated)))) {
+          (room.mySeat !== null && !(noBoardLoss || legacyLossSeats.has(room.mySeat) || room.engine?.seats.some((seat) => seat.seat === room.mySeat && seat.eliminated)))) {
         throw new RequestError("You can watch after your seat is eliminated", 409);
       }
       if (game?.running && room.session.status === "active") {
         room.engine = await game.view(null);
-        rememberView(slug, null, room.engine);
       } else {
         // Keep the seat record for standings; the saved public view has spectator privacy.
         const saved = options.db.prepare<[string, string], { snapshot_public_json: string | null }>(
@@ -1246,7 +1243,10 @@ export function createDuelHost(options: {
       room.mySide = null;
       if (room.engine) room.engine.prompt = null;
     }
-    markLegacyLosses(room.engine);
+    // Keep the player, replay and spectator views consistent. A Set avoids marking the same view twice.
+    markLegacyLosses(new Set([playerView, replayedView, room.engine]));
+    rememberView(slug, playerSeat, playerView);
+    if (spectate && !ownResult) rememberView(slug, room.mySeat, room.engine);
     return room;
   }
 
