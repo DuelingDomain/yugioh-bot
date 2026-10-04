@@ -156,3 +156,87 @@ describe("aim arrow on the Tag table: an attack target", () => {
     expect(onAnswer).not.toHaveBeenCalled();
   });
 });
+
+describe("aim arrow on the Tag table: the card menu draws no aim", () => {
+  const MZONE = 4;
+  const attackLine = () => document.querySelector("[data-attack-line]")?.getAttribute("data-attack-line") ?? "off";
+
+  /** Step 0: a monster with Activate and Attack in its menu. Step 1: the attack target pick the engine sends after Attack. */
+  function Menu({ onAnswer, attackLabel = "Attack with Blue-Eyes Spirit Dragon" }: { onAnswer: (answer: DuelAnswer) => void; attackLabel?: string }) {
+    const [step, setStep] = React.useState<0 | 1>(0);
+    const base = (TAG_FIXTURES.states as Record<string, TableFixtureState>)["battle-aim"];
+    const prompt =
+      step === 0
+        ? ({
+            id: "attack-action",
+            seat: ME,
+            kind: "choice",
+            title: "Battle",
+            context: { type: "action", phase: "battle" },
+            options: [
+              { id: "act:0", label: "Activate \u2014 Special Summon", controller: ME, location: MZONE, sequence: 0 },
+              { id: "attack:0", label: attackLabel, controller: ME, location: MZONE, sequence: 0 },
+            ],
+          } as const)
+        : base.room.engine!.prompt!;
+    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, prompt: { ...prompt } } } } as unknown as TableFixtureState;
+    const controller = useFixtureController(state, { reducedMotion: true });
+    return (
+      <TagShell
+        controller={{
+          ...controller,
+          onAnswer: (answer) => {
+            onAnswer(answer);
+            if (answer.choice === "attack:0") setStep(1);
+          },
+        }}
+      />
+    );
+  }
+
+  const openMenu = (container: HTMLElement) => {
+    const monster = board(container, ME);
+    pointerClick(monster.matches("button") ? monster : (monster.querySelector<HTMLElement>("button") ?? monster));
+    const items = Array.from(document.querySelectorAll<HTMLElement>("[role='menu'] [role='menuitem']"));
+    return items.find((item) => /^Attack/.test(item.textContent?.trim() ?? ""))!;
+  };
+
+  it.each([
+    ["a monster target", "Attack with Blue-Eyes Spirit Dragon"],
+    ["a direct attack", "Attack directly with Blue-Eyes Spirit Dragon"],
+  ])("no arrow and no target mark while the menu is open, on hover or focus of Attack (%s)", (_name, attackLabel) => {
+    const onAnswer = vi.fn();
+    const { container } = render(<Menu onAnswer={onAnswer} attackLabel={attackLabel} />);
+    const attack = openMenu(container);
+    expect(attack).toBeTruthy();
+    const stage = () => container.querySelector("[data-battle]")?.getAttribute("data-battle");
+    const marked = () => container.querySelector("[data-locked='true']");
+    const before = stage();
+    expect(marked()).toBeNull();
+    act(() => void fireEvent.mouseEnter(attack));
+    act(() => void fireEvent.focus(attack));
+    expect(attackLine()).toBe("off");
+    expect(arrow()).toBeNull();
+    expect(marked()).toBeNull();
+    expect(stage()).toBe(before);
+    expect(document.querySelector("[data-aim-hot='true']")).toBeNull();
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it("Attack starts the aim with no target until the player aims", () => {
+    const onAnswer = vi.fn();
+    const { container } = render(<Menu onAnswer={onAnswer} />);
+    const attack = openMenu(container);
+    act(() => void fireEvent.click(attack));
+    expect(onAnswer).toHaveBeenCalledWith({ choice: "attack:0" });
+    expect(arrow()).toBeNull();
+    expect(document.querySelector("[data-aim-hot='true']")).toBeNull();
+    move(container.querySelector("[data-table-stage]")!);
+    expect(arrow()?.getAttribute("data-aim-arrow")).toBe("free");
+    expect(label()).toBeNull();
+    expect(document.querySelector("[data-aim-hot='true']")).toBeNull();
+    move(container.querySelector<HTMLElement>("[data-zones][data-legal='true']")!);
+    expect(arrow()?.getAttribute("data-aim-arrow")).toBe("snapped");
+    expect(label()).toMatch(/^Attack: /);
+  });
+});
