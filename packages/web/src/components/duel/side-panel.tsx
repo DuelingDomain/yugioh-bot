@@ -59,7 +59,7 @@ export function unreadLabel(count: number): string {
   return count > 9 ? "9+" : String(count);
 }
 
-export function SideTabs({ panes, selected, onSelect, unread = 0, mobile = false, labels }: {
+export function SideTabs({ panes, selected, onSelect, unread = 0, mobile = false, labels, controlsMasters = false }: {
   panes: readonly SidePane[];
   selected: SidePane;
   onSelect: (pane: SidePane) => void;
@@ -69,6 +69,8 @@ export function SideTabs({ panes, selected, onSelect, unread = 0, mobile = false
   mobile?: boolean;
   /** Other words for some tabs (the wide table calls its Masters tab "Master"). */
   labels?: Partial<Record<SidePane, string>>;
+  /** The Masters tab has a tabpanel to point at (the wide table's drawer); elsewhere that pane lives outside the tablist. */
+  controlsMasters?: boolean;
 }) {
   const roomStyles = useSkinStyles(baseRoomStyles, "side");
   const styles = useSkinStyles(baseStyles, "side");
@@ -89,7 +91,7 @@ export function SideTabs({ panes, selected, onSelect, unread = 0, mobile = false
         <button key={tab} type="button" id={mobile ? undefined : tabId(tab)}
           role={mobile ? undefined : "tab"}
           aria-selected={mobile ? undefined : selected === tab}
-          aria-controls={mobile ? undefined : panelId(tab)}
+          aria-controls={mobile || (tab === "masters" && !controlsMasters) ? undefined : panelId(tab)}
           aria-haspopup={mobile ? "dialog" : undefined}
           tabIndex={mobile || selected === tab ? 0 : -1}
           onClick={() => onSelect(tab)}>

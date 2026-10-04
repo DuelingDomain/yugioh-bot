@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import { engineFormat } from "../multi-seat";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
-import { flyWorld, holoAnchor, normalizeAngle, ringAngles, ringPose, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
+import { flyWorld, holoAnchor, normalizeAngle, ringAngles, CAMERA_HINT, promptLane, ringPose, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
@@ -103,7 +103,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
 
   // Docked holo panels of a wide table (home and look); other cameras keep the panels of the 1100 px stage.
   const hasChip = masterChip != null;
-  const wideAnchors = useMemo(() => wideHoloAnchors(layout, camera, poses, spread, hasChip), [layout, camera, poses, spread, hasChip]);
+  const wideAnchors = useMemo(() => wideHoloAnchors(layout, camera, poses, spread, hasChip, k > 0 ? { dock: promptLane(box, k), hint: { width: CAMERA_HINT.width / k, height: CAMERA_HINT.height / k } } : undefined), [layout, camera, poses, spread, hasChip, k, box]);
 
   const world = useMemo(() => flyWorld(layout, camera.fly), [layout, camera.fly]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);

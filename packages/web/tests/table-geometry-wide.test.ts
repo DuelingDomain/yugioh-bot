@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared/duels";
 import {
   boardBounds,
+  promptLane,
   seatPoses,
   stageSpread,
   tableLayout,
@@ -114,6 +115,35 @@ describe("the wide plaza", () => {
           }
         }
       }
+    }
+  });
+
+  it("keeps every plate off the camera hint corner, and off the prompt card corner whenever there is room for that", () => {
+    for (const box of [WIDE, TIGHT]) {
+      const k = Math.min(box.width / 1100, box.height / 956);
+      const spread = stageSpread(box);
+      const hint = { width: 250 / k, height: 40 / k };
+      const dock = promptLane(box, k);
+      for (const layout of [four, three]) {
+        const poses = seatPoses(layout, camera(), box);
+        const anchors = wideHoloAnchors(layout, camera(), poses, spread, true, { dock, hint })!;
+        for (const [seat, a] of anchors) {
+          const r = { l: a.x, t: a.y, r: a.x + (a.me ? 270 : 196), b: a.y + (a.me ? 171 : 92) };
+          const corner = { l: -spread, r: -spread + hint.width, t: 952 - hint.height, b: 952 };
+          const apart = r.r <= corner.l || corner.r <= r.l || r.b <= corner.t || corner.b <= r.t;
+          expect(apart, `${layout.format} ${box.width}: plate ${seat} vs the camera hint`).toBe(true);
+        }
+      }
+    }
+    // With room (a big screen) no plate is under the prompt card either.
+    const spread = stageSpread(WIDE);
+    const k = WIDE.height / 956;
+    const dock = promptLane(WIDE, k);
+    const anchors = wideHoloAnchors(four, camera(), seatPoses(four, camera(), WIDE), spread, true, { dock, hint: { width: 250 / k, height: 40 / k } })!;
+    for (const [seat, a] of anchors) {
+      const r = { l: a.x, t: a.y, r: a.x + (a.me ? 270 : 196), b: a.y + (a.me ? 171 : 92) };
+      const apart = r.r <= -spread || -spread + dock.width <= r.l || r.b <= dock.top || dock.bottom <= r.t;
+      expect(apart, `plate ${seat} vs the prompt card corner`).toBe(true);
     }
   });
 

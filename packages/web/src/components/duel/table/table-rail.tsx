@@ -141,7 +141,7 @@ export function TableDrawer({ panes, pane, open, unread, settled, card, log, mas
       onKeyDown={onKeyDown}
     >
       <div className={styles.head}>
-        <SideTabs panes={panes} selected={pane} unread={unread} onSelect={onSelect} labels={{ masters: "Master" }} />
+        <SideTabs panes={panes} selected={pane} unread={unread} onSelect={onSelect} labels={{ masters: "Master" }} controlsMasters />
         <button type="button" className={styles.close} onClick={onClose} aria-label="Close panel" title="Close (Esc)">
           <X size={16} strokeWidth={1.75} aria-hidden />
           <kbd>Esc</kbd>

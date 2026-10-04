@@ -184,3 +184,13 @@ button.hit:focus-visible {
   padding: 0 4px;
   line-height: 13px;
 }
+/* Narrow desktops: shorter names keep the phase strip clear of the End Turn block. */
+@media (min-width: 901px) and (max-width: 1500px) {
+  .compact .name {
+    max-width: 6ch;
+  }
+  .compact .hit {
+    padding: 3px 7px 3px 6px;
+    gap: 4px;
+  }
+}

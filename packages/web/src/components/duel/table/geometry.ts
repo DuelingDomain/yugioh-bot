@@ -336,6 +336,18 @@ const HOLO_ME = { width: 212, height: 113 } as const;
 /** Room the Deck Master chip under your panel takes: its widest case, and its height with the gap above it. */
 const HOLO_MASTER_CHIP = { width: 270, height: 58 } as const;
 
+/**
+ * The lane the table's seat-choice and "Activate?" panels open in (table-stage.module.css): 10px in from the left, from 58 to
+ * 88 percent of the table area's height, 220 to 320 screen px wide (27 percent). Returned in stage px for a table area of
+ * `box` screen px at scale `k`; a plate stays out of it when there is room.
+ */
+export function promptLane(box: { width: number; height: number }, k: number): { width: number; top: number; bottom: number } {
+  const width = Math.min(320, Math.max(220, box.width * 0.27)) + 10;
+  return { width: width / k, top: (box.height * 0.58) / k, bottom: (box.height * 0.88) / k };
+}
+/** Screen px of the camera hint pill in the same corner: always kept clear. */
+export const CAMERA_HINT = { width: 250, height: 40 } as const;
+
 const overlaps = (a: Bounds, b: Bounds, gap = 0) => a.l < b.r + gap && b.l < a.r + gap && a.t < b.b + gap && b.t < a.b + gap;
 
 /**
@@ -351,6 +363,8 @@ export function wideHoloAnchors(
   spread: number,
   /** A chip hangs under your panel (your Deck Master): its room is kept clear too. */
   meFooter = false,
+  /** Corner rooms in stage px: the prompt card (kept clear when there is room, else given up) and the camera hint (always clear). */
+  corner?: { dock: { width: number; top: number; bottom: number }; hint: { width: number; height: number } },
 ): Map<number, HoloAnchor> | null {
   const plan = slotPlan(layout, camera);
   if (!(spread > 0) || !plan || !plan.every((name) => HOME_PLACES.has(name))) return null;
@@ -363,15 +377,25 @@ export function wideHoloAnchors(
   const left = -spread + 6;
   const right = STAGE.width + spread - 6;
   // The turn ring in the middle is never covered.
-  const taken: Bounds[] = [{ l: ARENA_CENTER.x - 62, r: ARENA_CENTER.x + 62, t: ARENA_CENTER.y - 62, b: ARENA_CENTER.y + 76 }];
+  const ringHalf = 62;
+  const taken: Bounds[] = [{ l: ARENA_CENTER.x - ringHalf, r: ARENA_CENTER.x + ringHalf, t: ARENA_CENTER.y - 62, b: ARENA_CENTER.y + 76 }];
+  // Your hand fans along the bottom edge under your board: up to ten cards, about 660 stage px.
+  taken.push({ l: ARENA_CENTER.x - 330, r: ARENA_CENTER.x + 330, t: STAGE.height - 4, b: 960 });
+  // The camera hint pill lives in the bottom left corner of the table area.
+  if (corner) taken.push({ l: left - 6, r: left + corner.hint.width, t: 952 - corner.hint.height, b: 952 });
+  // The prompt card for you opens above it: a plate avoids it when there is room, else the card has its hide button.
+  const dockRect: Bounds | null = corner ? { l: left - 6, r: left + corner.dock.width, t: corner.dock.top, b: corner.dock.bottom } : null;
   const anchors = new Map<number, HoloAnchor>();
   const rectAt = (x: number, y: number, size: { width: number; height: number }): Bounds => ({ l: x, r: x + size.width, t: y, b: y + size.height });
   const inside = (r: Bounds) => r.l >= left && r.r <= right && r.t >= 4 && r.b <= 952;
-  const clear = (r: Bounds, own: number) =>
-    inside(r) && !taken.some((t) => overlaps(t, r, 4)) && ![...boards].some(([seat, board]) => seat !== own && overlaps(board, r, 4));
+  const clear = (r: Bounds, own: number, withDock = false) =>
+    inside(r) &&
+    !taken.some((t) => overlaps(t, r, 4)) &&
+    !(withDock && dockRect && overlaps(dockRect, r, 4)) &&
+    ![...boards].some(([seat, board]) => seat !== own && overlaps(board, r, 4));
   // The first candidate that is clear; else the first one, pushed down until it is.
   const settle = (cands: ReadonlyArray<readonly [number, number]>, size: { width: number; height: number }, own: number) => {
-    const found = cands.find(([x, y]) => clear(rectAt(x, y, size), own));
+    const found = cands.find(([x, y]) => clear(rectAt(x, y, size), own, true)) ?? cands.find(([x, y]) => clear(rectAt(x, y, size), own));
     const [x, y0] = found ?? cands[0];
     let y = y0;
     if (!found) {
@@ -402,12 +426,14 @@ export function wideHoloAnchors(
       const y = board.b - plate.height;
       at = settle([[board.r + 14, y + 34], [board.r + 14, y + 22], [board.r + 14, y - 30], [board.r + 14, board.t + 20]], size, slot.seat);
     } else if (four && name === "vL") {
-      at = settle([[board.r - size.width, board.b + 10], [board.r + 10, board.b - size.height], [board.l, board.b + 10]], size, slot.seat);
+      const clearOfDock = corner ? left + corner.dock.width + 8 : board.r + 10;
+      const belowLane = corner ? corner.dock.bottom + 6 : board.b + 10;
+      at = settle([[board.r - size.width, board.b + 10], [board.r - size.width, belowLane], [corner ? left + corner.hint.width + 6 : board.r, belowLane], [clearOfDock, board.b + 10], [board.r + 10, board.b - size.height], [board.l, board.b + 10]], size, slot.seat);
     } else if (four && name === "vR") {
       at = settle([[board.l, board.b + 10], [board.r - size.width, board.b + 10], [board.l - size.width - 10, board.b - size.height]], size, slot.seat);
     } else if (four) {
       // vN: beside the front-left corner; else under the board, left of the ring.
-      at = settle([[board.l - 14 - size.width, board.b - size.height], [ringX - 64 - 12 - size.width, board.b + 4], [ringX + 64 + 12, board.b + 4], [board.r + 14, board.b - size.height]], size, slot.seat);
+      at = settle([[board.l - 14 - size.width, board.b - size.height], [ringX - ringHalf - 14 - size.width, board.b + 4], [ringX + ringHalf + 14, board.b + 4], [board.r + 14, board.b - size.height]], size, slot.seat);
     } else {
       // 3-way: on the flank of its rival, below it and off your board.
       const west = name === "vL";
