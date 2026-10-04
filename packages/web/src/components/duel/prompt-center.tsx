@@ -44,8 +44,7 @@ import { selectBarCopy, sumSelectionValues, synchroSelectionValues, type BarCopy
 import { backOutAnswer, backOutLabel } from "./pick-backout";
 import base from "./prompts.module.css";
 import baseStyles from "./prompt-center.module.css";
-import solid from "./solid/prompts.module.css";
-import { useSkinStyles } from "./skin";
+import { useSkinExtra, useSkinStyles } from "./skin";
 
 /**
  * Prompts answered in the middle of the board.
@@ -487,6 +486,7 @@ function Actions({
   forceConfirm?: boolean;
 }) {
   const styles = useSkinStyles(baseStyles, "prompt");
+  const solid = useSkinExtra("prompt");
   const showConfirm = confirm && (forceConfirm || needsExplicitConfirm(prompt));
   const ok = canConfirm(prompt, draft);
   return (
@@ -511,7 +511,7 @@ function Actions({
       {prompt.cancelable ? (
         <button type="button" className={styles.btn} data-kind="quiet" disabled={busy} onClick={() => onSubmit({ cancel: true })}>
           {declineLabel(prompt)}
-          {styles !== baseStyles && prompt.context?.type === "chain" ? <kbd className={solid.kbd}>Esc</kbd> : null}
+          {styles !== baseStyles && prompt.context?.type === "chain" ? <kbd className={solid?.kbd}>Esc</kbd> : null}
         </button>
       ) : null}
     </>
@@ -532,13 +532,14 @@ function ChainStrip({
   nameOf?: (seat: number) => string;
 }) {
   const styles = useSkinStyles(baseStyles, "prompt");
+  const solid = useSkinExtra("prompt");
   if (chain.length === 0) return null;
   const shown = chain.slice(-4);
   // 3D mode: the links are tiles, the newest on top (it resolves first), like the concept chain stack.
   if (styles !== baseStyles && !compact) {
     return (
       <div className={styles.chainStrip} aria-label="Chain so far">
-        <div className={solid.chainHead}>
+        <div className={solid?.chainHead}>
           <span>Chain</span>
           <small>top link resolves first</small>
         </div>
@@ -546,21 +547,21 @@ function ChainStrip({
           {[...shown].reverse().map((link) => {
             const owner = link.seat === mySeat ? "you" : "opp";
             return (
-              <li key={link.index} className={solid.chainTile} data-owner={owner}>
-                <b className={solid.clink}>{link.index}</b>
+              <li key={link.index} className={solid?.chainTile} data-owner={owner}>
+                <b className={solid?.clink}>{link.index}</b>
                 {link.code != null ? (
-                  <span className={solid.cart} style={{ backgroundImage: `url(${cardArtUrl(link.code, "small")})` }} aria-hidden />
+                  <span className={solid?.cart} style={{ backgroundImage: `url(${cardArtUrl(link.code, "small")})` }} aria-hidden />
                 ) : (
-                  <span className={solid.cart} aria-hidden />
+                  <span className={solid?.cart} aria-hidden />
                 )}
-                <span className={solid.cmeta}>
-                  <span className={solid.cname}>{link.name ?? "Effect"}</span>
-                  <span className={solid.cowner}>
+                <span className={solid?.cmeta}>
+                  <span className={solid?.cname}>{link.name ?? "Effect"}</span>
+                  <span className={solid?.cowner}>
                     <i aria-hidden />
                     {ownerWord(link.seat, mySeat, "you", nameOf)}
                   </span>
                 </span>
-                {link.description ? <span className={solid.ceff}>{link.description}</span> : null}
+                {link.description ? <span className={solid?.ceff}>{link.description}</span> : null}
               </li>
             );
           })}

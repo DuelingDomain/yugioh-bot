@@ -19,7 +19,7 @@ import {
   type PileKind,
 } from "../field";
 import baseStyles from "../field.module.css";
-import { stKeys, withExact, type FieldCallbacks } from "../field-keys";
+import { slot, stKeys, withExact, type FieldCallbacks } from "../field-keys";
 import { useDuelFieldModel, type DuelFieldModel, type DuelFieldProps } from "../field-model";
 import type { BattleAim } from "../battle-fx";
 import { Emblem, Notches } from "./emblem";
@@ -119,7 +119,14 @@ function Half({ view, seatIndex, opponent, ownerLabel, masterRule, callbacks, ac
       data-turn={activity.turnSeat === seatIndex ? "true" : "false"}
       data-priority={activity.prioritySeat === seatIndex ? "true" : "false"}>
       {order.map((sequence, index) => {
-        const props = spellZoneProps(view, sequence, { flip: opponent, callbacks, masterRule, pendulum: masterRule >= 3 && (sequence === 0 || sequence === ST_COUNT - 1) });
+        const shared = { flip: opponent, callbacks, masterRule, pendulum: masterRule >= 3 && (sequence === 0 || sequence === ST_COUNT - 1) };
+        const own = spellZoneProps(view, sequence, shared);
+        // Master Rule 3: the Pendulum zones (spells[6], [7]) share S1/S5 here. V1 draws them as own zones; with the
+        // ordinary zone empty, this cell draws the Pendulum card so a legal pick on it is not an empty cell.
+        const pendulumSequence = masterRule === 3 && shared.pendulum ? (sequence === 0 ? 6 : 7) : null;
+        const props = own.card == null && pendulumSequence != null && slot(view?.spells, pendulumSequence) != null
+          ? spellZoneProps(view, pendulumSequence, shared)
+          : own;
         return (
           <Cell key={`st-${sequence}`} col={2 + index} row={spellRow} kind="st">
             <ZoneSlot {...props} keys={spellKeys(seat, sequence, props.card, masterRule)} />

@@ -33,3 +33,11 @@ export function useSkinStyles<T extends Readonly<Record<string, string>>>(base: 
     return out;
   }, [base, extra]);
 }
+
+/**
+ * The skin's own class map for a slot, for classes the V1 module does not have (`useSkinStyles` only adds classes to
+ * keys of `base`). Null on the classic board, so classic code never loads the skin's CSS.
+ */
+export function useSkinExtra(slot: DuelSkinSlot): Readonly<Record<string, string>> | null {
+  return useContext(SkinContext)?.[slot] ?? null;
+}

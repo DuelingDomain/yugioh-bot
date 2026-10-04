@@ -140,3 +140,18 @@ describe("SolidField anchors", () => {
     expect(new Set(texts).size).toBe(2);
   });
 });
+
+describe("SolidField Master Rule 3 Pendulum zones", () => {
+  const filledSpells = (container: ParentNode) =>
+    container.querySelectorAll('[data-field-seat="0"] [data-kind="st"][data-occupied="true"]').length;
+
+  it("draws a card in a Pendulum zone (spells[6]) in the S1 cell", () => {
+    const empty = render(<SolidField {...props(solidEngine(), 3)} />);
+    const before = filledSpells(empty.container);
+    cleanup();
+    const engine = solidEngine();
+    engine.seats[0].spells[6] = { ...engine.seats[0].spells[1]!, sequence: 6, position: 1 };
+    const { container } = render(<SolidField {...props(engine, 3)} />);
+    expect(filledSpells(container)).toBe(before + 1);
+  });
+});

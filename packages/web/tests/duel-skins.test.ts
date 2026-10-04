@@ -35,4 +35,9 @@ describe("solid skin", () => {
     const shared = solid.flatMap((keys) => [...keys].filter((key) => base.has(key)));
     expect(shared.every((key) => base.has(key))).toBe(true);
   });
+
+  it("keeps the classic prompt bundle free of the solid CSS", () => {
+    const source = readFileSync(resolve(dir, "prompt-center.tsx"), "utf8");
+    expect(source).not.toMatch(/from\s+["']\.\/solid\//);
+  });
 });
