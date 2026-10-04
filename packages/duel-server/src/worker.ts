@@ -4,6 +4,7 @@ import { createLegacyEngineGame } from "./legacy/index.js";
 import type { DuelWorkerRequest, DuelWorkerResponse } from "./worker-protocol.js";
 import { seatCountFor } from "@yugidraft/shared/duels";
 import { tracePrompt } from "./prompt-trace.js";
+import { EngineAnswerError } from "./prompts.js";
 
 let game: EngineGame | null = null;
 let queue = Promise.resolve();
@@ -76,7 +77,8 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
         return { id: (request as DuelWorkerRequest).id, ok: false, error: "Unknown op" };
     }
   } catch (error) {
-    return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error) };
+    return { id: request.id, ok: false, error: error instanceof Error ? error.message : String(error),
+      ...(error instanceof EngineAnswerError && error.code ? { code: error.code } : {}) };
   }
 }
 

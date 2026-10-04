@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { OcgLocation, OcgMessageType, OcgResponseType } from "ocgcore-wasm";
-import type { DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
+import { DUEL_SEAT_LEFT_ERROR_CODE, type DuelAnswer, type DuelEngineView, type DuelPrompt } from "@yugidraft/shared/duels";
 import type { CardDatabase } from "../src/cards.js";
 import { HINT_PLACE_SEAT, autoResponse, directAttackSeat, filterPromptOptions, isOpponentPick, mapPrompt, nextLivingOpponentSeat, opponentPickSeat, placeSeatHint, resolveAnswer } from "../src/prompts.js";
 import { botTableOf, choosePracticeBotAnswer, chooseSeatOption, chooseSurrenderedAnswer, isSeatPick } from "../src/practice-bot.js";
@@ -50,6 +50,55 @@ describe("opponent pick decode", () => {
 });
 
 describe("opponent pick prompt", () => {
+  it("gives a distinct error when the answer names a seat removed from the pick", () => {
+    const pending = mapPrompt(pickMessage(0, [1, 2]), cards, "p1", undefined, { livingSeats: [0, 2] });
+    expect(() => resolveAnswer(pending, 0, "p1", { choice: "opt:0" }, cards)).toThrowError(
+      expect.objectContaining({ code: DUEL_SEAT_LEFT_ERROR_CODE, message: "That player has left. Pick again." }),
+    );
+  });
+
+  it("accepts a leaving seat that is still in the prompt", () => {
+    const pending = mapPrompt(pickMessage(0, [1, 2]), cards, "p1");
+    const view = viewOf([8000, 8000, 8000]);
+    view.seats[1]!.pendingElimination = true;
+    expect(botTableOf(view).living).toEqual([0, 2]);
+    expect(pending.prompt.options.map((option) => option.id)).toContain("opt:0");
+    expect(resolveAnswer(pending, 0, "p1", { choice: "opt:0" }, cards)).toEqual({
+      type: OcgResponseType.SELECT_OPTION, index: 0,
+    });
+  });
+
+  it("still accepts a living seat after a different seat leaves", () => {
+    const pending = mapPrompt(pickMessage(0, [1, 2]), cards, "p1");
+    expect(resolveAnswer(pending, 0, "p1", { choice: "opt:1" }, cards)).toEqual({
+      type: OcgResponseType.SELECT_OPTION, index: 1,
+    });
+  });
+
+  it("keeps the old error for invalid choices outside an opponent pick", () => {
+    const pending = mapPrompt({ type: OcgMessageType.SELECT_OPTION, player: 0, options: [30n, 31n] } as never, cards, "p1");
+    expect(() => resolveAnswer(pending, 0, "p1", { choice: "opt:99" }, cards)).toThrowError("Invalid answer");
+  });
+
+  it("keeps wrong-seat and stale-prompt checks before the seat-left check", () => {
+    const pending = mapPrompt(pickMessage(0, [1, 2]), cards, "p1", undefined, { livingSeats: [0, 2] });
+    expect(() => resolveAnswer(pending, 1, "p1", { choice: "opt:0" }, cards)).toThrowError("Wrong seat");
+    expect(() => resolveAnswer(pending, 0, "old", { choice: "opt:0" }, cards)).toThrowError("Stale prompt");
+  });
+
+  it.each(["opt:99", "opt:-1", "opt:00", "opt:0junk", ""])("keeps the old error for invalid opponent choice %j", (choice) => {
+    const pending = mapPrompt(pickMessage(0, [1, 2]), cards, "p1", undefined, { livingSeats: [0, 2] });
+    expect(() => resolveAnswer(pending, 0, "p1", { choice }, cards)).toThrowError("Invalid answer");
+    try { resolveAnswer(pending, 0, "p1", { choice }, cards); } catch (error) {
+      expect(error).not.toHaveProperty("code", "seat_left");
+    }
+  });
+
+  it.each([{ choice: ["opt:99"] }, { choice: ["opt:0"] }, { choice: 1 }, { choice: {} }])("keeps the old error for non-string opponent choice $choice", ({ choice }) => {
+    const pending = mapPrompt(pickMessage(0, [1, 2]), cards, "p1", undefined, { livingSeats: [0, 2] });
+    expect(() => resolveAnswer(pending, 0, "p1", { choice } as unknown as DuelAnswer, cards)).toThrowError("Invalid answer");
+  });
+
   it("maps to a choice with the opponent context and seat options", () => {
     const { prompt } = mapPrompt(pickMessage(0, [1, 2, 3]), cards, "p1");
     const choice = prompt as DuelPrompt;
@@ -78,6 +127,24 @@ describe("opponent pick prompt", () => {
     const { prompt, message } = mapPrompt(pickMessage(0, [1, 2, 3]), cards, "p1", undefined, { livingSeats: [0, 2, 3] });
     expect(prompt.options.map((option) => option.controller)).toEqual([2, 3]);
     expect(resolveAnswer({ id: "p1", seat: 0, prompt, message }, 0, "p1", { choice: "opt:1" }, cards)).toEqual({ type: OcgResponseType.SELECT_OPTION, index: 1 });
+  });
+
+  it.each([
+    { format: "ffa3", offered: [1, 2], living: [0] },
+    { format: "ffa4", offered: [1, 2, 3], living: [0] },
+    { format: "tag", offered: [1, 3], living: [0, 2] },
+  ])("accepts every fallback option and the bot answer when all offered seats are leaving in $format", ({ offered, living }) => {
+    const pending = mapPrompt(pickMessage(0, offered), cards, "p1", undefined, { livingSeats: living, eliminatedSeats: [] });
+    expect(pending.prompt.options.map((option) => option.controller)).toEqual(offered);
+    for (const [index, option] of pending.prompt.options.entries()) {
+      expect(resolveAnswer(pending, 0, "p1", { choice: option.id }, cards)).toEqual({
+        type: OcgResponseType.SELECT_OPTION, index,
+      });
+    }
+    const answer = choosePracticeBotAnswer(pending.prompt, { table: { living, eliminated: [] } });
+    expect(resolveAnswer(pending, 0, "p1", answer, cards)).toEqual({
+      type: OcgResponseType.SELECT_OPTION, index: 0,
+    });
   });
 
   it("never restores eliminated seats when no living option remains", () => {

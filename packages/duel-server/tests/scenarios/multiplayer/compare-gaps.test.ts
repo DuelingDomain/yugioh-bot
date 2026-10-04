@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { readManifest } from "../../../scripts/generate-multi-scripts.js";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
-import { describeWithCores } from "../../support/cores.js";
+import { describeWithCores, needs } from "../../support/cores.js";
+import type { Scenario } from "../../support/dsl.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import { runScenario } from "../../support/session.js";
 import { COMPARE_GAP_SCENARIOS } from "./compare-gaps.js";
+import { domainVariant } from "./domain-variants.js";
 
 const proof = vi.hoisted(() => ({
   checkSkyNegation: false,
@@ -36,27 +38,38 @@ vi.mock("ocgcore-wasm", async (importOriginal) => {
   } };
 });
 
+const W8_IDS = [
+  "compare-gaps-ffa3-surrender-while-the-opponent-pick-is-open",
+  "compare-gaps-ffa4-surrender-while-the-opponent-pick-is-open",
+];
+
+async function runCompareGap(scenario: Scenario): Promise<void> {
+  proof.checkSkyNegation = W8_IDS.some((id) => scenario.id === id || scenario.id === `${id}-domain`);
+  try {
+    await runScenario(scenario);
+    if (proof.checkSkyNegation) {
+      expect(proof.bug?.code, "p2.m0 is the selected Man-Eater Bug").toBe(54652250);
+      expect(proof.witch?.code, "p2.m2 is the unselected Witch of the Black Forest").toBe(78010363);
+      expect(proof.bug?.status).toBeDefined();
+      expect(proof.witch?.status).toBeDefined();
+      // constant.lua: STATUS_DISABLED = 0x1. Only the selected target is negated.
+      expect(proof.bug!.status! & 0x1, "Man-Eater Bug is negated by Ultimate Sky").toBe(0x1);
+      expect(proof.witch!.status! & 0x1, "Witch of the Black Forest remains enabled").toBe(0);
+    }
+  } finally {
+    proof.checkSkyNegation = false;
+    proof.bug = proof.witch = null;
+  }
+}
+
 // Live scenarios of the scan-gap compare cards (Three in One, Sangen Kaiho, Exciton Knight, Ghost Reaper, Mimighoul Slime), Kaiser Colosseum and the per-opponent Mystic Mine (domain-core/multi-scripts). Same gate as compare.test.ts:
 // NSEAT_LIVE=1 and a multi core.
 describeWithCores("live compare scenarios of the scan-gap cards, Kaiser Colosseum, Ultimate Sky and Mystic Mine", liveNseat, () => {
-  runScenarios("multiplayer/compare-gaps", COMPARE_GAP_SCENARIOS, async (scenario) => {
-    proof.checkSkyNegation = scenario.id === "compare-gaps-ffa3-surrender-while-the-opponent-pick-is-open";
-    try {
-      await runScenario(scenario);
-      if (proof.checkSkyNegation) {
-        expect(proof.bug?.code, "p2.m0 is the selected Man-Eater Bug").toBe(54652250);
-        expect(proof.witch?.code, "p2.m2 is the unselected Witch of the Black Forest").toBe(78010363);
-        expect(proof.bug?.status).toBeDefined();
-        expect(proof.witch?.status).toBeDefined();
-        // constant.lua: STATUS_DISABLED = 0x1. Only the selected target is negated.
-        expect(proof.bug!.status! & 0x1, "Man-Eater Bug is negated by Ultimate Sky").toBe(0x1);
-        expect(proof.witch!.status! & 0x1, "Witch of the Black Forest remains enabled").toBe(0);
-      }
-    } finally {
-      proof.checkSkyNegation = false;
-      proof.bug = proof.witch = null;
-    }
-  });
+  runScenarios("multiplayer/compare-gaps", COMPARE_GAP_SCENARIOS, runCompareGap);
+});
+
+describeWithCores("live Domain W8 opponent pick after surrender", [liveNseat, ...needs.domainMulti()], () => {
+  runScenarios("multiplayer/compare-gaps-domain", COMPARE_GAP_SCENARIOS.filter((scenario) => W8_IDS.includes(scenario.id)).map(domainVariant), runCompareGap);
 });
 
 describe("compare gap scenario list", () => {
