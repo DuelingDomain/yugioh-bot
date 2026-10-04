@@ -88,7 +88,7 @@
 }
 /* how far through the draft you are: fills toward your full pool */
 .dr .progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: rgb(255 255 255 / 0.04); }
-.dr .progress i { position: absolute; inset: 0; background: var(--pen); transform-origin: 0 50%; transform: scaleX(var(--p, 0)); transition: transform 0.5s var(--ease); box-shadow: 0 0 8px rgb(155 126 255 / 0.6); }
+.dr .progress i { position: absolute; inset: 0; background: var(--pen); transform-origin: 0 50%; transform: scaleX(var(--p, 0)); transition: transform var(--rm-move) var(--ease-out); box-shadow: 0 0 8px rgb(155 126 255 / 0.6); }
 .dr[data-phase="extra"] .progress i { background: var(--k-extra); }
 .dr .id { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .dr .back {
@@ -164,7 +164,13 @@
   border-radius: 12px;
   background: var(--panel-2);
   box-shadow: 0 24px 50px rgb(0 0 0 / 0.6);
+  /* grows from the button it hangs under; the script sets the exact origin */
+  transform-origin: 100% 0;
 }
+.dr .pop[data-state="open"] { animation: dr-pop-in var(--rm-pop-in) var(--ease-out) backwards; }
+.dr .pop[data-state="closed"] { animation: dr-pop-out var(--rm-pop-out) var(--ease-out) forwards; pointer-events: none; }
+@keyframes dr-pop-in { from { opacity: 0; transform: scale(var(--rm-pop-scale)); } }
+@keyframes dr-pop-out { to { opacity: 0; transform: scale(var(--rm-pop-scale)); } }
 .dr .pop h3 { margin: 0 0 10px; font-size: 15px; font-weight: 500; }
 .dr .seg { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); padding: 3px; border: 1px solid var(--rule-lo); border-radius: 9px; background: rgb(0 0 0 / 0.25); }
 .dr .seg button { min-height: 34px; padding: 0 10px; border: 0; border-radius: 6px; background: none; color: var(--ink-3); font-size: 14px; cursor: pointer; }
@@ -270,12 +276,12 @@
   font-size: 16px;
   font-weight: 500;
   cursor: pointer;
-  transition: transform 120ms var(--ease-out);
+  transition: transform var(--rm-press) var(--ease-out);
 }
 .dr .pick-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dr .pick-btn kbd { flex: none; padding: 1px 6px; border: 1px solid rgb(255 255 255 / 0.3); border-radius: 4px; font: 500 12px/1.4 var(--f-ui); opacity: 0.8; }
 .dr .pick-btn:hover:not(:disabled):not([aria-disabled="true"]) { filter: brightness(1.12); }
-.dr .pick-btn:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(0.985); }
+.dr .pick-btn:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(var(--motion-press)); }
 .dr .pick-btn:disabled, .dr .pick-btn[aria-disabled="true"] { border-color: var(--rule-lo); background: var(--panel-3); box-shadow: none; color: var(--ink-3); cursor: default; }
 .dr .pick-btn:disabled kbd, .dr .pick-btn[aria-disabled="true"] kbd { display: none; }
 .dr .keys { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-3); font-size: 12.5px; }
@@ -525,12 +531,12 @@
   height: var(--h);
   transform: translate3d(var(--x), var(--y), 0);
   transform-style: preserve-3d;
-  transition: transform 0.5s var(--ease);
+  transition: transform var(--rm-move) var(--ease-in-out);
   cursor: pointer;
   outline: none;
 }
 .dr .tcard .mv, .dr .tcard .lift, .dr .tcard .flip { position: absolute; inset: 0; transform-style: preserve-3d; }
-.dr .tcard .lift { transform-origin: 50% 100%; transition: transform 0.38s var(--ease); }
+.dr .tcard .lift { transform-origin: 50% 100%; transition: transform var(--rm-stand) var(--ease-out); }
 .dr .tcard .face, .dr .tcard .back {
   position: absolute;
   inset: 0;
@@ -539,7 +545,7 @@
   backface-visibility: hidden;
   background: #06080e;
   box-shadow: 0 1px 0 rgb(0 0 0 / 0.6), 0 6px 14px rgb(0 0 0 / 0.55);
-  transition: box-shadow 0.25s, filter 0.3s;
+  transition: box-shadow var(--rm-stand), filter var(--rm-stand);
 }
 .dr .tcard .face img { width: 100%; height: 100%; object-fit: cover; }
 /* the lamp catches a card now and then while you choose */
@@ -565,7 +571,7 @@
   border-radius: 50%;
   background: radial-gradient(closest-side, rgb(0 0 0 / 0.55), transparent);
   opacity: 0;
-  transition: opacity 0.38s;
+  transition: opacity var(--rm-stand) var(--ease-out);
 }
 .dr .tcard .ix {
   display: none;
@@ -654,7 +660,7 @@
   border-radius: 3px;
   background: #120e0c url("/duel/card-back-main-hd.webp") center / cover;
   box-shadow: 0 0 14px rgb(228 182 79 / 0.42);
-  transition: transform 0.45s var(--ease), opacity 0.3s, box-shadow 0.3s;
+  transition: transform var(--rm-move) var(--ease-in-out), opacity var(--rm-stand), box-shadow var(--rm-stand);
 }
 .dr[data-phase="extra"] .seat .pk i { border-color: #8a6bb0; background-image: url("/duel/card-back-extra-hd.webp"); }
 .dr .seat[data-state="picking"] .pk i { animation: dr-hold 2.6s ease-in-out infinite; }
@@ -830,7 +836,7 @@
 }
 .dr .slot .win img { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); object-fit: cover; border-radius: 2px; }
 .dr .slot .win::after { content: ""; position: absolute; inset: -1px; border-radius: 4px; box-shadow: 0 0 0 1px var(--kc), 0 0 16px var(--kc); opacity: 0; }
-.dr .slot[data-land] .win::after { animation: dr-land 0.9s ease-out; }
+.dr .slot[data-land] .win::after { animation: dr-land var(--rm-wash) var(--ease-out); }
 @keyframes dr-land { 0% { opacity: 1; } 100% { opacity: 0; } }
 .dr .slot b { font: 500 20px/1 var(--f-num); font-variant-numeric: tabular-nums; }
 .dr .slot small { color: var(--ink-3); font-size: 12px; line-height: 1.1; white-space: nowrap; }
@@ -839,8 +845,9 @@
 .dr [data-kind="spell"] { --kc: var(--k-spell); }
 .dr [data-kind="trap"] { --kc: var(--k-trap); }
 .dr [data-kind="extra"] { --kc: var(--k-extra); }
-.dr .slot b.bump { animation: dr-bump 0.5s cubic-bezier(0.34, 1.3, 0.5, 1); }
-@keyframes dr-bump { 40% { transform: scale(1.4); } }
+/* a count changes: the new digit comes up from below while it fades in */
+.dr .slot b.roll, .dr .dial b.roll { animation: dr-roll var(--rm-roll) var(--ease-out) backwards; }
+@keyframes dr-roll { from { opacity: 0; transform: translateY(calc(55% * var(--rm-travel))); } }
 .dr[data-phase="extra"] .slot[data-kind="extra"] .win { border-color: var(--k-extra); box-shadow: inset 0 2px 6px rgb(0 0 0 / 0.6), 0 0 14px rgb(169 144 255 / 0.5); }
 .dr .kit-ghost.pack-ghost { border: 1px solid #b08a3e; border-radius: 3px; }
 
@@ -1003,7 +1010,7 @@
   font-size: 13.5px;
   cursor: pointer;
 }
-.dr .more svg { width: 12px; height: 12px; transition: transform 0.2s; }
+.dr .more svg { width: 12px; height: 12px; transition: transform var(--rm-stand) var(--ease-out); }
 .dr .more[aria-expanded="true"] svg { transform: rotate(90deg); }
 .dr .more span { color: var(--ink-4); }
 .dr .facets { display: grid; gap: 9px; margin-top: 9px; }
@@ -1041,8 +1048,8 @@
 .dr .lbars { display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); gap: 3px; height: 62px; }
 .dr .lb { display: grid; grid-template-rows: minmax(0, 1fr) auto; justify-items: center; gap: 4px; min-width: 0; }
 .dr .lbx { position: relative; width: 100%; max-width: 14px; height: 100%; }
-.dr .lbx i { position: absolute; left: 0; right: 0; bottom: 0; height: 36px; border-radius: 2px 2px 1px 1px; background: var(--k-monster); opacity: 0.9; transform: scaleY(calc(var(--h) * 0.95 + 0.05)); transform-origin: 50% 100%; transition: transform 0.4s var(--ease); }
-.dr .lbx b { position: absolute; left: 50%; bottom: 0; color: var(--ink); font: 500 12.5px/1 var(--f-num); font-variant-numeric: tabular-nums; transform: translate(-50%, calc(var(--h) * -34px - 6px)); transition: transform 0.4s var(--ease); }
+.dr .lbx i { position: absolute; left: 0; right: 0; bottom: 0; height: 36px; border-radius: 2px 2px 1px 1px; background: var(--k-monster); opacity: 0.9; transform: scaleY(calc(var(--h) * 0.95 + 0.05)); transform-origin: 50% 100%; transition: transform var(--rm-move) var(--ease-out); }
+.dr .lbx b { position: absolute; left: 50%; bottom: 0; color: var(--ink); font: 500 12.5px/1 var(--f-num); font-variant-numeric: tabular-nums; transform: translate(-50%, calc(var(--h) * -34px - 6px)); transition: transform var(--rm-move) var(--ease-out); }
 .dr .lb[data-zero] i { opacity: 0.22; }
 .dr .lb small { color: var(--ink-3); font: 400 11px/1 var(--f-num); }
 .dr .lt { display: block; padding-top: 5px; border-top: 1px solid var(--rule-lo); color: var(--ink-3); font-size: 12px; text-align: center; white-space: nowrap; }
@@ -1091,8 +1098,21 @@
 .dr .row-btn .clockpick { color: var(--chain-ink); }
 .dr .row-btn .no { color: var(--ink-3); font: 500 13px/1 var(--f-num); }
 .dr li[data-new] > .row-btn { background: var(--pen-soft); box-shadow: inset 2px 0 0 var(--pen); }
-.dr li[data-new] > .row-btn.flash { animation: dr-rowin 0.9s var(--ease); }
-@keyframes dr-rowin { from { background: rgb(155 126 255 / 0.35); } }
+/* a new pick arrives like any list row, with a violet wash laid over it that fades out (opacity only) */
+.dr li[data-new] > .row-btn.flash { position: relative; isolation: isolate; animation: dr-rowin var(--rm-fade) var(--ease-out) backwards; }
+.dr li[data-new] > .row-btn.flash::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: rgb(155 126 255 / 0.35);
+  opacity: 0;
+  pointer-events: none;
+  animation: dr-rowwash var(--rm-wash) var(--ease-out);
+}
+@keyframes dr-rowin { from { opacity: 0; transform: translateY(var(--rm-rise)); } }
+@keyframes dr-rowwash { from { opacity: 1; } }
 .dr .rd { margin: 2px 6px 8px 46px; color: var(--ink-2); font-size: 13.5px; line-height: 1.45; white-space: pre-line; }
 .dr .empty { margin: 18px 8px; color: var(--ink-3); font-size: 14px; line-height: 1.5; }
 .dr .empty button { padding: 0; border: 0; background: none; color: var(--pen-ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
@@ -1112,6 +1132,10 @@
   overflow: auto;
   background: radial-gradient(75% 65% at 50% 44%, rgb(17 26 48 / 0.985), rgb(5 8 15 / 0.995) 82%);
 }
+.dr .finale[data-state="open"] { animation: dr-fade-in var(--rm-fade) var(--ease-out) backwards; }
+.dr .finale[data-state="closed"] { animation: dr-fade-out var(--rm-pop-out) var(--ease-out) forwards; pointer-events: none; }
+@keyframes dr-fade-in { from { opacity: 0; } }
+@keyframes dr-fade-out { to { opacity: 0; } }
 .dr .frame {
   position: relative;
   display: grid;
@@ -1195,7 +1219,7 @@
     z-index: 45;
     width: min(380px, 92vw);
     transform: translateX(104%);
-    transition: transform 0.32s var(--ease);
+    transition: transform var(--rm-sheet-out) var(--ease-drawer);
   }
   .dr .binder {
     border: 1px solid var(--rule);
@@ -1203,11 +1227,11 @@
     box-shadow: -20px 0 50px rgb(0 0 0 / 0.55);
     background: var(--panel-2);
   }
-  .dr[data-binder] .binder-panel { transform: none; }
+  .dr[data-binder] .binder-panel { transform: none; transition-duration: var(--rm-sheet-in); }
   .dr .bd-bar { background: var(--panel-2); }
   .dr .bd-x { display: block; }
-  .dr .scrim { display: block; position: fixed; inset: var(--bar-h) 0 0; z-index: 44; background: rgb(3 6 12 / 0.45); opacity: 0; pointer-events: none; transition: opacity 0.25s; }
-  .dr[data-binder] .scrim { opacity: 1; pointer-events: auto; }
+  .dr .scrim { display: block; position: fixed; inset: var(--bar-h) 0 0; z-index: 44; background: rgb(3 6 12 / 0.45); opacity: 0; pointer-events: none; transition: opacity var(--rm-sheet-out) var(--ease-out); }
+  .dr[data-binder] .scrim { opacity: 1; pointer-events: auto; transition-duration: var(--rm-sheet-in); }
 }
 
 /* ---------- phone ---------- */
@@ -1369,9 +1393,9 @@
     z-index: 40;
     max-height: 86dvh;
     transform: translateY(105%);
-    transition: transform 0.32s var(--ease);
+    transition: transform var(--rm-sheet-out) var(--ease-drawer);
   }
-  .dr[data-sheet="card"] .dock { transform: none; }
+  .dr[data-sheet="card"] .dock { transform: none; transition-duration: var(--rm-sheet-in); }
   .dr .insp {
     padding: 14px 16px max(16px, env(safe-area-inset-bottom));
     border: 1px solid var(--rule);
@@ -1380,8 +1404,8 @@
     background: var(--panel-2);
     box-shadow: 0 -20px 50px rgb(0 0 0 / 0.6);
   }
-  .dr .scrim { display: block; position: fixed; inset: 0; z-index: 39; background: rgb(3 6 12 / 0.5); opacity: 0; pointer-events: none; transition: opacity 0.25s; }
-  .dr[data-sheet] .scrim { opacity: 1; pointer-events: auto; }
+  .dr .scrim { display: block; position: fixed; inset: 0; z-index: 39; background: rgb(3 6 12 / 0.5); opacity: 0; pointer-events: none; transition: opacity var(--rm-sheet-out) var(--ease-out); }
+  .dr[data-sheet] .scrim { opacity: 1; pointer-events: auto; transition-duration: var(--rm-sheet-in); }
   .dr .insp-art { display: none; }
   .dr .insp-mini { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 14px; align-items: end; }
   .dr .insp-mini .portrait { --hw: 132px; width: 132px; }
@@ -1398,9 +1422,9 @@
     z-index: 40;
     height: calc(100dvh - 44px);
     transform: translateY(103%);
-    transition: transform 0.32s var(--ease);
+    transition: transform var(--rm-sheet-out) var(--ease-drawer);
   }
-  .dr[data-sheet="binder"] .binder-panel { transform: none; }
+  .dr[data-sheet="binder"] .binder-panel { transform: none; transition-duration: var(--rm-sheet-in); }
   .dr .binder {
     border: 1px solid var(--rule);
     border-bottom: 0;
@@ -1423,8 +1447,86 @@
 @keyframes dr-breathe { 50% { box-shadow: 0 0 0 2px var(--chain), 0 0 2px rgb(228 182 79 / 0.2); } }
 
 /* ---------- motion setting ----------
-   calm: no looping light effects. Cards still move when you pick and when packs pass.
-   off: nothing moves at all; script animations are skipped too (kit-night.js). */
+   "Quick and quiet": the room uses the site's durations and curves (app/globals.css). Only transform and
+   opacity move, and nothing new loops.
+   full: as the site has it.
+   calm: no looping light effects, 0.6x the length, and nothing travels: the fades stay, the distances go.
+   off: nothing moves at all; script animations are skipped too (kit-night.js).
+   A device that asks for reduced motion gets the same as calm, with --d-rm as the only duration. */
+.dr {
+  --rm-travel: 1;
+  --rm-rise: 4px;
+  --rm-pop-scale: var(--motion-pop-scale);
+  --rm-pop-in: var(--d-pop-in);
+  --rm-pop-out: var(--d-pop-out);
+  --rm-sheet-in: var(--d-drawer-in);
+  --rm-sheet-out: var(--d-drawer-out);
+  --rm-press: var(--d-press);
+  --rm-fade: var(--d-arrive);
+  --rm-roll: var(--d-roll);
+  --rm-wash: var(--d-wash);
+  --rm-move: var(--d-flip);
+  --rm-stand: 200ms;
+}
+/* the room itself comes in with a short fade. It has no exit: the page replaces it with the finale or the
+   summary, and the finale covers it. */
+.dr[data-turn] { animation: dr-fade-in var(--rm-fade) var(--ease-out) backwards; }
+.dr[data-turn][data-motion="off"] { animation-duration: 0s; }
+.dr[data-motion="calm"] {
+  --rm-travel: 0;
+  --rm-rise: 0px;
+  --rm-pop-scale: 1;
+  --rm-pop-in: calc(var(--d-pop-in) * 0.6);
+  --rm-pop-out: calc(var(--d-pop-out) * 0.6);
+  --rm-sheet-in: calc(var(--d-drawer-in) * 0.6);
+  --rm-sheet-out: calc(var(--d-drawer-out) * 0.6);
+  --rm-press: calc(var(--d-press) * 0.6);
+  --rm-fade: calc(var(--d-arrive) * 0.6);
+  --rm-roll: calc(var(--d-roll) * 0.6);
+  --rm-wash: calc(var(--d-wash) * 0.6);
+  --rm-move: calc(var(--d-flip) * 0.6);
+  --rm-stand: 120ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dr, .dr[data-motion] {
+    --rm-travel: 0;
+    --rm-rise: 0px;
+    --rm-pop-scale: 1;
+    --rm-pop-in: var(--d-rm);
+    --rm-pop-out: var(--d-rm);
+    --rm-sheet-in: var(--d-rm);
+    --rm-sheet-out: var(--d-rm);
+    --rm-press: var(--d-rm);
+    --rm-fade: var(--d-rm);
+    --rm-roll: var(--d-rm);
+    --rm-wash: var(--d-rm);
+    --rm-move: var(--d-rm);
+    --rm-stand: var(--d-rm);
+  }
+  /* a card standing up or sliding to a new place is movement, so it just changes */
+  .dr .tcard, .dr .tcard .lift { transition: none; }
+}
+/* calm: a card that is re-placed on the table just changes place; a card standing up still rises, shorter */
+.dr[data-motion="calm"] .tcard { transition: none; }
+/* reduced motion: the sheets fade where they would have slid. The slide itself is held back until the fade is
+   done, so a closing sheet stays in place while it fades and an opening one is in place at once. */
+@media (prefers-reduced-motion: reduce) and (max-width: 1359px) {
+  .dr .binder-panel { opacity: 0; transition: opacity var(--rm-sheet-out) var(--ease-out), transform 0s linear var(--rm-sheet-out); }
+  .dr[data-binder] .binder-panel, .dr[data-sheet="binder"] .binder-panel { opacity: 1; transition: opacity var(--rm-sheet-in) var(--ease-out), transform 0s; }
+}
+@media (prefers-reduced-motion: reduce) and (max-width: 900px) {
+  .dr .dock { opacity: 0; transition: opacity var(--rm-sheet-out) var(--ease-out), transform 0s linear var(--rm-sheet-out); }
+  .dr[data-sheet="card"] .dock { opacity: 1; transition: opacity var(--rm-sheet-in) var(--ease-out), transform 0s; }
+}
+/* calm does the same: the sheets fade, they do not slide */
+@media (max-width: 1359px) {
+  .dr[data-motion="calm"] .binder-panel { opacity: 0; transition: opacity var(--rm-sheet-out) var(--ease-out), transform 0s linear var(--rm-sheet-out); }
+  .dr[data-motion="calm"][data-binder] .binder-panel, .dr[data-motion="calm"][data-sheet="binder"] .binder-panel { opacity: 1; transition: opacity var(--rm-sheet-in) var(--ease-out), transform 0s; }
+}
+@media (max-width: 900px) {
+  .dr[data-motion="calm"] .dock { opacity: 0; transition: opacity var(--rm-sheet-out) var(--ease-out), transform 0s linear var(--rm-sheet-out); }
+  .dr[data-motion="calm"][data-sheet="card"] .dock { opacity: 1; transition: opacity var(--rm-sheet-in) var(--ease-out), transform 0s; }
+}
 .dr[data-motion="calm"] .portrait .scan,
 .dr[data-motion="calm"] .portrait .sweep,
 .dr[data-motion="calm"] .flow i,

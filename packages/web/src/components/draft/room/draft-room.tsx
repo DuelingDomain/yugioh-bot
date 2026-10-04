@@ -14,7 +14,7 @@ import { CardReader, TAG_CHOSEN, TAG_PICKED, TAG_POINTING } from "./card-reader"
 import { FullscreenLayer } from "./layer";
 import { MotionMenu } from "./motion-menu";
 import { SayMenu } from "./say-menu";
-import { animate, flight, motionOff, useMotionSetting, wait } from "./motion";
+import { animate, canTravel, flight, motionOff, prefersReducedMotion, useMotionSetting, wait } from "./motion";
 import { RoomBar } from "./room-bar";
 import {
   EMPTY_FILTER,
@@ -382,7 +382,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
         setLastPick(card);
         setPickNote(null);
         closeCardSheet();
-        if (!f || !f.from || !f.to || motionOff()) {
+        if (!f || !f.from || !f.to || !canTravel()) {
           landCard(card);
           return;
         }
@@ -399,8 +399,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
           to: f.to,
           src: card.imageUrlSmall || card.imageUrl,
           glow: tint(card).main,
-          arc: window.matchMedia?.(PHONE).matches ? 60 : 140,
-          duration: 640,
+          arc: window.matchMedia?.(PHONE).matches ? 24 : 48,
+          duration: 300,
         }).then(land);
         // a hidden tab can stall animations: land anyway
         wait(1500).then(land);
@@ -521,7 +521,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
       setRibbonOn(false);
       setRibbonDone(ribbon.seq);
     };
-    if (motionOff() || !r) {
+    // the ribbon is information, so reduced motion shows it still rather than flashing it for 140ms
+    if (motionOff() || prefersReducedMotion() || !r) {
       wait(1300).then(hide);
     } else {
       Promise.all([
@@ -582,9 +583,9 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
         to: dest,
         src: back,
         glow: "228 182 79",
-        arc: phone ? 26 : 70,
-        duration: 640,
-        swell: 0.3,
+        arc: phone ? 16 : 36,
+        duration: 300,
+        swell: 0.12,
         keepRatio: true,
         rotate: direction * 12,
         className: "pack-ghost",
@@ -933,17 +934,14 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
           </div>
         </div>
       </div>
-      {sayAnchor && canSay ? (
-        <SayMenu anchor={sayAnchor} waiting={sayWait} onSay={say} onClose={() => setSayAnchor(null)} />
-      ) : null}
-      {motionOpen ? (
-        <MotionMenu
-          anchor={motionBtn.current}
-          level={motion}
-          onChoose={setMotion}
-          onClose={() => setMotionOpen(false)}
-        />
-      ) : null}
+      <SayMenu open={sayAnchor != null && canSay} anchor={sayAnchor} waiting={sayWait} onSay={say} onClose={() => setSayAnchor(null)} />
+      <MotionMenu
+        open={motionOpen}
+        anchor={motionBtn.current}
+        level={motion}
+        onChoose={setMotion}
+        onClose={() => setMotionOpen(false)}
+      />
       <div className="kit-fx" ref={layerRef} aria-hidden="true" />
     </FullscreenLayer>
   );

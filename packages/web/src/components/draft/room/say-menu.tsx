@@ -1,57 +1,39 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef } from "react";
 import { TALK_LINES, type TalkLineId } from "@yugidraft/shared/ws/talk";
+import { usePopover } from "./popover";
 
 /** The fixed lines you can say to the table, as a popover under the Say button. */
 export function SayMenu({
+  open,
   anchor,
   waiting,
   onSay,
   onClose,
 }: {
+  /** False starts the exit; the menu leaves the DOM once it has played. */
+  open: boolean;
   anchor: HTMLElement | null;
   /** True right after you spoke: the table only takes one line every few seconds. */
   waiting: boolean;
   onSay: (line: TalkLineId) => void;
   onClose: () => void;
 }) {
-  const pop = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    const el = pop.current;
-    if (!el || !anchor) return;
-    const r = anchor.getBoundingClientRect();
-    const w = el.offsetWidth;
-    const h = el.offsetHeight;
-    const below = r.bottom + 8 + h < window.innerHeight;
-    el.style.top = `${below ? r.bottom + 8 : r.top - 8 - h}px`;
-    el.style.left = `${Math.max(10, Math.min(window.innerWidth - w - 10, r.right - w))}px`;
-    el.querySelector<HTMLElement>("button:not(:disabled)")?.focus();
-  }, [anchor]);
-
-  useEffect(() => {
-    const down = (e: PointerEvent) => {
-      const t = e.target as Node;
-      if (pop.current?.contains(t) || anchor?.contains(t)) return;
-      onClose();
-    };
-    window.addEventListener("pointerdown", down);
-    return () => window.removeEventListener("pointerdown", down);
-  }, [anchor, onClose]);
+  const { mounted, props, anchor: at } = usePopover(open, anchor, onClose, (el) => el.querySelector<HTMLElement>("button:not(:disabled)"));
+  if (!mounted) return null;
 
   return (
     <div
       className="pop"
       id="sayPop"
-      ref={pop}
+      {...props}
       role="dialog"
       aria-label="Say something to the table"
       onKeyDown={(e) => {
         if (e.key === "Escape") {
           e.stopPropagation();
           onClose();
-          anchor?.focus();
+          at?.focus();
         }
       }}
     >
