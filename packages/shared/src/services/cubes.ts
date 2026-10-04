@@ -17,9 +17,20 @@ function requiredPoolSize(rounds: number, themePackSize: number, burnUnpicked: b
   return burnUnpicked ? rounds * themePackSize : rounds + (themePackSize - 1);
 }
 
-/** Cards one player can take from a pool: the per-player cap limits each card, whatever the cube holds. */
-function playerReachableSize(cards: Array<{ maxCopies: number }>): number {
-  return cards.reduce((sum, c) => sum + Math.min(c.maxCopies, MAX_COPIES_PER_PLAYER), 0);
+/** Count authored copies and copies reachable under the combined artwork cap. */
+export function cubePoolSizes(db: Database.Database, cubeId: number, pool: CubePool): { size: number; reachable: number } {
+  return db.prepare(`
+    select coalesce(sum(copies), 0) as size,
+           coalesce(sum(min(copies, ${MAX_COPIES_PER_PLAYER})), 0) as reachable
+    from (
+      select sum(tc.max_copies) as copies
+      from cube_cards tc
+      left join card_catalog cc on cc.ygoprodeck_id = tc.catalog_card_id
+      where tc.cube_id = ? and tc.pool = ?
+      group by lower(trim(cc.name)), cc.type,
+               case when cc.ygoprodeck_id is null then tc.catalog_card_id end
+    )
+  `).get(cubeId, pool) as { size: number; reachable: number };
 }
 
 /** Copies of one card in a cube: any whole number from 1 to MAX_CUBE_COPIES. */
@@ -266,11 +277,10 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     },
 
     analyzeCubePools(cubeId: number, config: AnalyzeCubePoolsConfig): CubeAnalysis {
-      const pools = getCubePools(cubeId);
       const errors: string[] = [];
       const warnings: string[] = [];
 
-      const mainSize = pools.main.reduce((sum, c) => sum + c.maxCopies, 0);
+      const { size: mainSize, reachable: mainReachable } = cubePoolSizes(db, cubeId, "main");
       const mainNeeded = requiredPoolSize(config.cardsPerPlayer, config.themePackSize, config.burnUnpicked);
       if (mainSize < mainNeeded) {
         errors.push(
@@ -278,7 +288,6 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         );
       } else {
         // A player never gets more than 3 copies of one card, so a few card names with many copies cannot fill a deck.
-        const mainReachable = playerReachableSize(pools.main);
         // Burned choices also spend reachable copies; excess copies above the
         // player cap cannot stand in for the choices needed in later rounds.
         const mainReachableNeeded = mainNeeded;
@@ -290,11 +299,11 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       }
 
       if (config.extraDeckEnabled) {
-        const extraSize = pools.extra.reduce((sum, c) => sum + c.maxCopies, 0);
+        const { size: extraSize, reachable: extraReachable } = cubePoolSizes(db, cubeId, "extra");
         const extraNeeded = requiredPoolSize(config.extraDeckSize, config.themePackSize, config.burnUnpicked);
-        if (extraSize < extraNeeded || playerReachableSize(pools.extra) < extraNeeded) {
+        if (extraSize < extraNeeded || extraReachable < extraNeeded) {
           warnings.push(
-            `Extra pool has ${Math.min(extraSize, playerReachableSize(pools.extra))} cards but needs ${extraNeeded} for a full ${config.extraDeckSize}-card Extra Deck; players may end with fewer Extra cards.`,
+            `Extra pool has ${Math.min(extraSize, extraReachable)} cards but needs ${extraNeeded} for a full ${config.extraDeckSize}-card Extra Deck; players may end with fewer Extra cards.`,
           );
         }
       }

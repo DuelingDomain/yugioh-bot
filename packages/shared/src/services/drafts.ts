@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../types/index.js";
 import { generateWebSlug } from "../util/web-slug.js";
+import { cubePoolSizes } from "./cubes.js";
 import { MAX_COPIES_PER_PLAYER } from "./constants.js";
 import { buildDraftDeck, createDraftDeckService } from "./draft-decks.js";
 import { isExtraDeckFrame } from "./card-catalog.js";
@@ -282,16 +283,18 @@ export function createDraftService(
     hasPickedCurrentStep(draftId, playerId, packRound, pickStep) ||
     hasPassedStep(draftId, playerId, packRound, pickStep);
 
-  // Copies of each passcode a player holds in this draft (main and extra picks together).
+  // Combined copies by name and type, exposed under every artwork id (main and extra together).
   const heldCopies = (draftId: number, playerId: number): Map<number, number> => {
     const rows = db
       .prepare(
         `
-          select dc.catalog_card_id as catalog_card_id, count(*) as n
+          select coalesce(art.ygoprodeck_id, dc.catalog_card_id) as catalog_card_id, count(*) as n
           from draft_picks pk
           inner join draft_cards dc on dc.id = pk.draft_card_id
+          left join card_catalog picked on picked.ygoprodeck_id = dc.catalog_card_id
+          left join card_catalog art on lower(trim(art.name)) = lower(trim(picked.name)) and art.type = picked.type
           where pk.draft_id = ? and pk.player_id = ?
-          group by dc.catalog_card_id
+          group by coalesce(art.ygoprodeck_id, dc.catalog_card_id)
         `,
       )
       .all(draftId, playerId) as Array<{ catalog_card_id: number; n: number }>;
@@ -416,12 +419,12 @@ export function createDraftService(
     if (draft.status !== "completed" && playerProgress(draftId, playerId).pick_count < (draft.config.cardsPerPlayer ?? defaultDraftConfig.cardsPerPlayer)) {
       throw new Error("Deck is not complete yet");
     }
-    const rows = db.prepare(`select dc.catalog_card_id, cc.type, cc.frame_type
+    const rows = db.prepare(`select dc.catalog_card_id, cc.name, cc.type, cc.frame_type
       from draft_picks pk join draft_cards dc on dc.id = pk.draft_card_id
       left join card_catalog cc on cc.ygoprodeck_id = dc.catalog_card_id
       where pk.draft_id = ? and pk.player_id = ? order by pk.id`)
-      .all(draftId, playerId) as Array<{ catalog_card_id: number; type: string | null; frame_type: string | null }>;
-    const deck = buildDraftDeck(rows.map((row) => ({ catalogId: row.catalog_card_id,
+      .all(draftId, playerId) as Array<{ catalog_card_id: number; name: string | null; type: string | null; frame_type: string | null }>;
+    const deck = buildDraftDeck(rows.map((row) => ({ catalogId: row.catalog_card_id, name: row.name, type: row.type,
       extra: isExtraDeckFrame({ type: row.type ?? "", frameType: row.frame_type ?? "" }) })));
     return ["#main", ...deck.main, "#extra", ...deck.extra, "", "!side", ...deck.side, ""].join("\n");
   };
@@ -753,17 +756,8 @@ export function createDraftService(
     const burnUnpicked = config.burnUnpicked ?? false;
     const requiredMain = burnUnpicked ? cardsPerPlayer * themePackSize : cardsPerPlayer + (themePackSize - 1);
 
-    const rows = db
-      .prepare(
-        `select dpt.cube_id as cube_id,
-                coalesce(sum(tc.max_copies), 0) as main_size,
-                coalesce(sum(min(tc.max_copies, ${MAX_COPIES_PER_PLAYER})), 0) as reachable_size
-           from draft_player_cube dpt
-           left join cube_cards tc on tc.cube_id = dpt.cube_id and tc.pool = 'main'
-          where dpt.draft_id = ?
-          group by dpt.cube_id`,
-      )
-      .all(draftId) as Array<{ cube_id: number; main_size: number; reachable_size: number }>;
+    const rows = db.prepare("select distinct cube_id from draft_player_cube where draft_id = ?")
+      .all(draftId) as Array<{ cube_id: number }>;
 
     // A player never gets more than MAX_COPIES_PER_PLAYER of one card, so a cube with many
     // copies of a few cards cannot fill a deck even when the raw count looks big enough.
@@ -772,14 +766,15 @@ export function createDraftService(
     const requiredReachable = requiredMain;
 
     for (const row of rows) {
-      if (row.main_size < requiredMain) {
+      const { size: mainSize, reachable: reachableSize } = cubePoolSizes(db, row.cube_id, "main");
+      if (mainSize < requiredMain) {
         throw new Error(
-          `Cube ${row.cube_id} has only ${row.main_size} main-pool cards but needs ${requiredMain} to fill a ${cardsPerPlayer}-card main deck.`,
+          `Cube ${row.cube_id} has only ${mainSize} main-pool cards but needs ${requiredMain} to fill a ${cardsPerPlayer}-card main deck.`,
         );
       }
-      if (config.copyLimit !== false && row.reachable_size < requiredReachable) {
+      if (config.copyLimit !== false && reachableSize < requiredReachable) {
         throw new Error(
-          `Cube ${row.cube_id} gives one player only ${row.reachable_size} main-pool cards (at most ${MAX_COPIES_PER_PLAYER} copies of a card) but needs ${requiredReachable} to fill a ${cardsPerPlayer}-card main deck${burnUnpicked ? " including burned choices (burn on)" : ""}.`,
+          `Cube ${row.cube_id} gives one player only ${reachableSize} main-pool cards (at most ${MAX_COPIES_PER_PLAYER} copies of a card) but needs ${requiredReachable} to fill a ${cardsPerPlayer}-card main deck${burnUnpicked ? " including burned choices (burn on)" : ""}.`,
         );
       }
     }

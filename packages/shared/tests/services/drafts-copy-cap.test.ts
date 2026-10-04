@@ -79,6 +79,65 @@ function boosterDraft(config: Partial<DraftConfig>, cubeCardIds: number[], cardC
 const distinctCube = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
 
 describe("per-player copy cap in booster drafts", () => {
+  it("counts two artwork ids as one card for manual and automatic picks", () => {
+    const { db, drafts, draftId, a } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, [1, 2, ...distinctCube(20)]);
+    try {
+      db.prepare("update card_catalog set name = '  CARD 1  ' where ygoprodeck_id = 2").run();
+      grantCopies(db, draftId, a, 1, 2);
+      grantCopies(db, draftId, a, 2, 1);
+      const pack = drafts.currentPackOptions(draftId, a);
+      db.prepare("update draft_cards set catalog_card_id = 2 where id = ?").run(pack[0].id);
+      expect(drafts.heldCopies(draftId, a)[2]).toBe(3);
+      expect(drafts.pickOptions(draftId, a).map((card) => card.catalogCardId)).not.toContain(2);
+      expect(() => drafts.pickCard(draftId, a, pack[0].id)).toThrow(/already have 3 copies/);
+      expireNow(db, draftId);
+      drafts.expireCurrentPickStep(draftId);
+      expect(heldByPlayer(db, draftId, a).get(2)).toBe(1);
+    } finally { db.close(); }
+  });
+
+  it("skips capped artwork ids in the undealt pile", () => {
+    const { db, drafts, draftId, a } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, [1, 2, ...distinctCube(20)]);
+    try {
+      db.prepare("update card_catalog set name = 'Card 1' where ygoprodeck_id = 2").run();
+      const pack = drafts.currentPackOptions(draftId, a);
+      db.prepare("update draft_cards set catalog_card_id = 2 where draft_pack_id = (select draft_pack_id from draft_cards where id = ?)").run(pack[0].id);
+      db.prepare("delete from draft_undealt where draft_id = ?").run(draftId);
+      db.prepare("insert into draft_undealt (draft_id, position, catalog_card_id) values (?, 100, 2), (?, 101, 3)").run(draftId, draftId);
+      grantCopies(db, draftId, a, 1, 3);
+      expect(drafts.pickOptions(draftId, a).map((card) => card.catalogCardId)).toEqual([3]);
+    } finally { db.close(); }
+  });
+
+  it("keeps a card with the same name and a different type separate", () => {
+    const { db, drafts, draftId, a } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, [1, 2, ...distinctCube(20)]);
+    try {
+      db.prepare("update card_catalog set name = 'Card 1', type = 'Effect Monster' where ygoprodeck_id = 2").run();
+      grantCopies(db, draftId, a, 1, 3);
+      const pack = drafts.currentPackOptions(draftId, a);
+      db.prepare("update draft_cards set catalog_card_id = 2 where id = ?").run(pack[0].id);
+      expect(drafts.pickOptions(draftId, a).map((card) => card.catalogCardId)).toContain(2);
+      drafts.pickCard(draftId, a, pack[0].id);
+      expect(drafts.heldCopies(draftId, a)[2]).toBe(1);
+    } finally { db.close(); }
+  });
+
+  it("saves and exports only three combined artwork copies and counts a legal main pool", () => {
+    const { db, drafts, draftId, a } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, [1, 2, ...distinctCube(20)]);
+    try {
+      db.prepare("update card_catalog set name = '  CARD 1  ' where ygoprodeck_id = 2").run();
+      grantCopies(db, draftId, a, 1, 2);
+      grantCopies(db, draftId, a, 2, 2);
+      db.prepare("update drafts set status = 'completed', ended_at = current_timestamp where id = ?").run(draftId);
+      const decks = createDraftDeckService(db);
+      expect(decks.mainPoolCount(draftId, a)).toBe(3);
+      decks.saveForDraft(draftId);
+      const saved = db.prepare("select deck_json from saved_decks where draft_id = ? and owner_user_id = 'u-A'").get(draftId) as { deck_json: string };
+      expect(JSON.parse(saved.deck_json)).toEqual({ main: [1, 1, 2], extra: [], side: [] });
+      expect(drafts.exportYdk(draftId, a)).toBe("#main\n1\n1\n2\n#extra\n\n!side\n");
+    } finally { db.close(); }
+  });
+
   it.each([16, 17, 18, 19])("rejects %i singletons and a deck larger than the deal", (distinct) => {
     expect(() => boosterDraft({ packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 60 }, distinctCube(distinct))).toThrow(/needs 80.*needs 60/);
   });
@@ -429,6 +488,27 @@ describe("per-player copy cap in theme drafts", () => {
     for (const playerId of players.slice(1)) drafts.join(draft.id, playerId);
     return { db, drafts, cubesService, cubeIds, players, draftId: draft.id, start: () => drafts.start(draft.id) };
   }
+
+  it.each([true, false])("uses combined artwork capacity for theme preflight (copyLimit %s)", (copyLimit) => {
+    const cube: Array<[number, number]> = [[1, 3], [2, 3]];
+    const { db, drafts, draftId, start, cubesService, cubeIds } = themeDraft([cube, cube], {
+      copyLimit, cardsPerPlayer: 4, themePackSize: 2,
+    });
+    try {
+      db.prepare("update card_catalog set name = '  CARD 1  ' where ygoprodeck_id = 2").run();
+      const analysis = cubesService.analyzeCubePools(cubeIds[0], {
+        copyLimit, cardsPerPlayer: 4, themePackSize: 2, burnUnpicked: false, extraDeckEnabled: false, extraDeckSize: 0,
+      });
+      expect(analysis.ok).toBe(!copyLimit);
+      expect((copyLimit ? analysis.errors : analysis.warnings).join(" ")).toMatch(/gives 3 cards/);
+      if (copyLimit) {
+        expect(start).toThrow(/only 3 main-pool cards/);
+        expect(drafts.findById(draftId).status).toBe("pending");
+      } else {
+        expect(start().status).toBe("active");
+      }
+    } finally { db.close(); }
+  });
 
   it("never deals a card the player already holds three of, and rejects picking it", () => {
     // Card 1 is in the cube 10 times; cards 2 and 3 once each. Packs hold 2 choices.
