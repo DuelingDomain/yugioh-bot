@@ -305,6 +305,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
                     reducedMotion={controller.reducedMotion}
                     revision={engine.revision}
                     battleStep={battleStep}
+                    outSeats={new Set(engine.seats.filter((seat) => seat.eliminated || seat.pendingElimination).map((seat) => seat.seat))}
                     revealed={controller.revealed}
                     onInspectCard={(card) => ui.setInspect({ type: "info", card })}
                     nameOf={nameOf}

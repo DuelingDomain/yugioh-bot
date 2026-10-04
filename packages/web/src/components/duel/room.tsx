@@ -1159,6 +1159,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         menuOpen={Boolean(activeMenu) || deckMenuOpen} chain={engine.chain} aim={promptAim}
         aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
         reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
+        outSeats={new Set(engine.seats.filter((seat) => seat.eliminated || seat.pendingElimination).map((seat) => seat.seat))}
         revealed={revealed} onInspectCard={inspectInfo} nameOf={playerName} />
       {pile ? (
         <PileViewer title={pile.title} owner={pile.owner} open={pile.open}
