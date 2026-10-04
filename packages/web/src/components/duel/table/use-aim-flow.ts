@@ -131,8 +131,12 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     // (targetChoices keeps Leaving seats because card targets stay legal until the seat is out.)
     const living = choices.filter((choice) => !isOutOrLeaving(engine.seats.find((view) => view.seat === choice.seat)));
     const offered = living.length > 0 ? living : choices;
-    return new Map<number, string>(offered.map((choice) => [choice.seat,
-      prompt.options.find((option) => option.controller === choice.seat && option.location == null)!.id]));
+    const map = new Map<number, string>();
+    for (const choice of offered) {
+      const option = prompt.options.find((option) => option.controller === choice.seat && option.location == null);
+      if (option) map.set(choice.seat, option.id);
+    }
+    return map.size > 0 ? map : null;
   }, [base.seatPick, canAct, engine, nameOf, prompt, viewerSeat]);
 
   // A pointer-driven attack: the attacker is known and a target or a seat is to be chosen.

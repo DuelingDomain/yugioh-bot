@@ -872,6 +872,14 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     return getDomainState();
   };
 
+  // The native selection rechecks targets after a defender leaves. Answer its original indices
+  // rather than exposing a required combined choice with nothing a player can select.
+  const emptyAttackTargetResponse = (current: PendingPrompt) => {
+    if (!current.attackTargetPick || current.prompt.options.length > 0) return null;
+    const native = mapPrompt(current.message, cards, current.id);
+    return resolveAnswer(native, native.seat, native.id, chooseSurrenderedAnswer(native.prompt), cards);
+  };
+
   const processUntilWait = () => {
     if (closed) throw new Error("Engine is closed");
     // Native materials move before position/place selection, so those prompts continue the same summon.
@@ -965,8 +973,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       }
       lastSelectHint = undefined;
       lastPlaceSeat = undefined;
-      const automated = next.attackTargetPick || completingAttackPick && (waiting.type === OcgMessageType.SELECT_CARD || waiting.type === OcgMessageType.SELECT_OPTION)
-        ? null : autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase });
+      const automated = emptyAttackTargetResponse(next) ?? (next.attackTargetPick || completingAttackPick && (waiting.type === OcgMessageType.SELECT_CARD || waiting.type === OcgMessageType.SELECT_OPTION)
+        ? null : autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase }));
       if (automated) {
         lib.duelSetResponse(handle, automated);
         continue;
@@ -1118,7 +1126,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       if (expandTargetPick && cancelAttackPick && pending?.message.type === OcgMessageType.SELECT_CARD) {
         lib.duelSetResponse(handle, resolveAnswer(pending, seat, pending.id, { cancel: true }, cards));
         processUntilWait();
-      } else if (expandTargetPick && targetPick && pending?.message.type === OcgMessageType.SELECT_OPTION && targetPick.id.startsWith("direct:")) {
+      } else if (expandTargetPick && targetPick && pending?.message.type === OcgMessageType.SELECT_OPTION && targetPick.id.startsWith("direct:") &&
+        pending.message.options.every(option => directAttackSeat(option) != null) &&
+        pending.message.options.some(option => directAttackSeat(option) === targetPick.controller)) {
         const option = pending.prompt.options.find(option => option.controller === targetPick.controller);
         if (!option) throw new Error("The core did not offer the chosen direct-attack seat");
         lib.duelSetResponse(handle, resolveAnswer(pending, pending.seat, pending.id, { choice: option.id }, cards));
@@ -1213,7 +1223,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           // the core refresh the offer or cancel an unpaid cost without selecting a removed card.
           const response = pending.message.type === OcgMessageType.SELECT_COUNTER
             ? { type: OcgResponseType.SELECT_COUNTER as const, counters: pending.message.cards.map(() => 0) }
-            : autoResponse(pending, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[pending.seat], phase });
+            : emptyAttackTargetResponse(pending) ?? autoResponse(pending, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[pending.seat], phase });
           if (response) {
             const current = pending;
             sawRetry = false;

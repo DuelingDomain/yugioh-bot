@@ -24,7 +24,7 @@ function clown(format: "ffa3" | "ffa4"): Scenario {
       ...(format === "ffa4" ? { p3: { monsters: [BEWD] } } : {}),
     }),
     steps: [
-      endTurn("p0"), attack(ELF, "direct", "p1"), yes("p1"), changePhase("main2", "p1"), expectEliminated("p0"), endTurn("p1"),
+      endTurn("p0"), attack(ELF, "direct", "p1"), pickOpponent("p0", "p1"), changePhase("main2", "p1"), expectEliminated("p0"), endTurn("p1"),
       normalSummon(BEWD, "p2"), select({ card: COWBOY, seq: 0 }, { card: COWBOY, seq: 1 }),
       endTurn("p2"), yes("p2"),
       everySeat(format, {
@@ -49,7 +49,7 @@ function panther(format: "ffa3" | "ffa4"): Scenario {
       p2: { monsters: [BEWD] }, ...(format === "ffa4" ? { p3: { monsters: [BEWD] } } : {}),
     }),
     steps: [
-      endTurn("p0"), attack({ card: ELF, nth: 0 }, "direct", "p1"), yes("p1"), changePhase("main2", "p1"), expectEliminated("p0"),
+      endTurn("p0"), attack({ card: ELF, nth: 0 }, "direct", "p1"), pickOpponent("p0", "p1"), changePhase("main2", "p1"), expectEliminated("p0"),
       activate(GATE, "p1"), ...(format === "ffa4" ? [pickOpponent("p2", "p1")] : []), select({ card: ELF, nth: 0 }), auto("p1"),
       activate(GATE, "p1"), ...(format === "ffa4" ? [pickOpponent("p2", "p1")] : []), select({ card: ELF, nth: 0 }), auto("p1"),
       everySeat(format, {

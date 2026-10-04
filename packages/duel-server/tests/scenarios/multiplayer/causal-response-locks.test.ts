@@ -22,7 +22,7 @@ function proof(format:"ffa3"|"ffa4"|"tag",domain:boolean,ogre:boolean):Scenario 
   if(ogre) {
     setup.p0!.hand=[OGRE];setup.p1!.monsters=[RAT,OX,AXE];
     setup.p2!.monsters=tag ? [] : [ELF];if(format!=="ffa3")setup.p3!.monsters=[ELF];
-    steps.push(endTurn("p0"),changePhase("battle","p1"),attack(RAT,"direct","p1"),...(tag ? [pickOpponent("p0","p1")] : [yes("p1")]),attack(OX,"direct","p1"),...(tag ? [pickOpponent("p0","p1")] : [yes("p1")]),activate(OGRE,"p0"),expectPrompt({by:"p1",offers:["yes","no"]}),no("p1"));
+    steps.push(endTurn("p0"),changePhase("battle","p1"),attack(RAT,"direct","p1"),pickOpponent("p0","p1"),attack(OX,"direct","p1"),pickOpponent("p0","p1"),activate(OGRE,"p0"),expectPrompt({by:"p1",offers:["yes","no"]}),no("p1"));
     // The real lock is inspected by the continuous observer. Only p1 is marked in FFA.
     board.p0!.monsters=[OGRE];board.p0!.lp=(tag ? 16000 : 8000)-1400;
     board.p1!.monsters=[RAT,OX,AXE];board.p1!.lp=tag ? 15800 : 7900;

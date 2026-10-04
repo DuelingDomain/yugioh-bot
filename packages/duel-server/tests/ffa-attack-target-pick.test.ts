@@ -48,6 +48,52 @@ async function battle(format: DuelFormat, attacker: string, opponents: BoardSpec
 }
 
 describeWithCores("live FFA combined attack target pick", liveNseat, () => {
+  it("leaves Vampire Lord's card-type choice open after an auto-selected direct defender and replays it", async () => {
+    const { game, options, commands } = await battle("ffa3", "Vampire Lord", [{ monsters: ["Battle Ox"] }, {}]);
+    game.answer(0, game.view(0).prompt!.id, { choice: "direct:2" });
+    expect(game.view(0).seats[2].lp).toBe(6000);
+    const effect = game.view(0).prompt!;
+    expect(effect.kind).toBe("choice");
+    expect(effect.options.map(option => option.label)).toEqual(["Monster card", "Spell card", "Trap card"]);
+    game.answer(0, effect.id, { choice: effect.options[0]!.id });
+    const discard = game.view(2).prompt!;
+    expect(discard.kind).toBe("cards");
+    game.answer(2, discard.id, { selected: [discard.options[0]!.id] });
+    expect(game.view(2).seats[2].graveyard).toHaveLength(1);
+    expect(game.view(0).prompt?.options.some(option => option.id === "to_m2")).toBe(true);
+    const replay = await createEngineGame(options);
+    games.push(replay);
+    for (const command of commands) replay.answer(command.seat, command.promptId, command.answer);
+    for (const seat of [null, 0, 1, 2]) expect(replay.view(seat)).toEqual(game.view(seat));
+  });
+
+  for (const format of ["ffa3", "ffa4"] as const) {
+    it(`${format} an empty paid-cost pick after surrender resumes without charging Toll again and replays`, async () => {
+      const { game, options, commands } = await battle(format, "Jinzo #7", [
+        { monsters: ["Battle Ox"] }, { spells: ["Swords of Revealing Light"] }, { spells: ["Swords of Revealing Light"] },
+      ], { spells: ["Toll"] });
+      const pick = game.view(0).prompt!;
+      expect(pick.title).toBe("Select an attack target");
+      expect(pick.cancelable).toBe(false);
+      expect(pick.options.length).toBeGreaterThan(0);
+      expect(pick.options.every(option => option.controller === 1)).toBe(true);
+      expect(game.view(0).seats[0].lp).toBe(7500);
+      const surrenderAt = commands.length;
+      game.eliminate(1, 0);
+      expect(game.view(0).seats[1].eliminated).toBe(true);
+      expect(game.view(0).seats[0].lp).toBe(7500);
+      expect(game.view(0).prompt?.context?.type).toBe("action");
+      expect(game.view(0).prompt?.options.some(option => option.id === "to_m2")).toBe(true);
+      const replay = await createEngineGame(options);
+      games.push(replay);
+      for (const command of commands.slice(0, surrenderAt)) replay.answer(command.seat, command.promptId, command.answer);
+      replay.eliminate(1, 0);
+      for (const seat of [null, ...Array.from({ length: seatCountFor(format) }, (_, seat) => seat)]) {
+        expect(replay.view(seat)).toEqual(game.view(seat));
+      }
+    });
+  }
+
   for (const format of ["ffa3", "ffa4"] as const) {
     const count = seatCountFor(format) - 1;
     for (const attacker of ["Jinzo #7", "Drillago"]) {

@@ -7,7 +7,7 @@
 // The holder (a seat of the turn) destroys the 2 monsters of the opponents (Ignis Heat and Majesty Maiden are both True Draco monsters) with Dark Hole and
 // draws with the Heritage: ONE card, because both are Monster cards.
 
-import { activate, attack, changePhase, endTurn, expectEliminated, expectPrompt, surrender, yes, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, attack, changePhase, endTurn, expectEliminated, expectPrompt, pickOpponent, surrender, yes, type Scenario, type Step } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 import { baseSetup, everySeat, label, SEATS, turnsBefore, type Format, type Seat } from "./seat-kit.js";
@@ -71,7 +71,7 @@ function heritageAtLpZero(format: "ffa3" | "ffa4"): Scenario {
       ...(format === "ffa4" ? { p3: { monsters: ["Blue-Eyes White Dragon"] } } : {}),
     }),
     steps: [
-      endTurn("p0"), attack("Mystical Elf", "direct", "p1"), yes("p1"), changePhase("main2", "p1"), expectEliminated("p0"),
+      endTurn("p0"), attack("Mystical Elf", "direct", "p1"), pickOpponent("p0", "p1"), changePhase("main2", "p1"), expectEliminated("p0"),
       activate(HOLE, "p1"), activate({ card: HERITAGE, from: "szone" }, "p1"),
       expectPrompt({ by: "p1", context: "action" }),
       everySeat(format, {

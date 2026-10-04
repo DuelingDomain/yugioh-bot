@@ -44,9 +44,10 @@ export function isAttackTargetPrompt(prompt: DuelPrompt | null, attackerChosen =
   if ((prompt.min ?? 1) !== 1 || (prompt.max ?? 1) !== 1) return false;
   if (prompt.kind === "choice") {
     // N-seat combined choice: direct seats and monster zones share one core option list.
-    return ATTACK_TARGET_TITLE.test(prompt.title) && prompt.options.length > 0 &&
+    return !prompt.context && ATTACK_TARGET_TITLE.test(prompt.title) && prompt.options.length > 0 &&
       prompt.options.every((option) => option.controller != null &&
-        (option.location === LOCATION_MZONE || option.location == null && /^attack\b.*\bdirectly$/i.test(option.label)));
+        (option.location === LOCATION_MZONE && option.sequence != null && /^card:\d+$/.test(option.id) ||
+          option.location == null && option.id === `direct:${option.controller}` && /^attack\b.*\bdirectly$/i.test(option.label)));
   }
   if (prompt.kind !== "cards") return false;
   if (ATTACK_TARGET_TITLE.test(`${prompt.title} ${prompt.description ?? ""}`)) return true;

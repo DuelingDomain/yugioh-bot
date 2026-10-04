@@ -26,6 +26,27 @@ it("recognizes the combined attack choice for board targeting", () => {
   expect(isAttackTargetPrompt(prompt)).toBe(true);
 });
 
+it.each(["1v1", "tag"])("does not treat a native %s effect choice as a combined attack pick", () => {
+  const effect: DuelPrompt = { ...prompt, options: [
+    { id: "opt:0", label: "Battle Ox", controller: 1, location: 4, sequence: 0 },
+  ] };
+  expect(isAttackTargetPrompt(effect, true)).toBe(false);
+  expect(isAttackTargetPrompt({ ...prompt, context: { type: "opponent" } }, true)).toBe(false);
+});
+
+it("ignores an incomplete zone option instead of assuming it has a direct-seat option", () => {
+  const state = FFA3_FIXTURES.states["choose-opponent"];
+  const incomplete: DuelPrompt = { ...prompt, options: [
+    { id: "card:0", label: "Battle Ox", controller: 1, location: 4 },
+  ] };
+  const fixture = { ...state, room: { ...state.room, engine: { ...state.room.engine!, prompt: incomplete } } };
+  const { result } = renderHook(() => {
+    const base = useFixtureController(fixture);
+    return useAimFlow({ ...base, seatPick: null, aim: null }, tableLayout("ffa3", fixture.room.engine!, 0), { current: null });
+  });
+  expect(result.current.controller.seatPick).toBeNull();
+});
+
 it.each(["direct:1", "card:0"])("the prompt panel submits %s as one target choice", (id) => {
   const submit = vi.fn();
   function Panel() {

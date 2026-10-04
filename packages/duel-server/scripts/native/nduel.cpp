@@ -879,7 +879,7 @@ int main(int argc, char** argv) {
 	g_rng = &rng;
 	const int n = opt.n;
 	const std::vector<int> teams = team_of_seats();
-	const int first_attack_turn = n == 2 ? 2 : (opt.tag ? 4 : n + 1);
+	const int first_attack_turn = n == 2 ? 2 : (opt.tag ? 4 : n);
 	const bool multi = n > 2;
 	if(multi) load_overlay();
 
