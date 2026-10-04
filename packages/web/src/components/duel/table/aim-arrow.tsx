@@ -89,20 +89,22 @@ export function AimArrow({ fromKey, tone, targetTone, pointer, snap, label }: Ai
       return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width };
     };
     const root = document.documentElement;
+    // The table root holds the attacker, the targets and the LP panels: a frame searches that, not the whole page.
+    let scope: ParentNode = document;
     const hide = () => {
       layer.setAttribute("data-found", "false");
-      root.removeAttribute("data-aim-arrow-on");
     };
     const draw = () => {
       frame = requestAnimationFrame(draw);
-      const fromEl = findShown(document, `[data-zones~="${escape(fromKey)}"]`);
+      if (!(scope instanceof Element) || !scope.isConnected) scope = document.querySelector("[data-table-stage]") ?? document;
+      const fromEl = findShown(scope, `[data-zones~="${escape(fromKey)}"]`);
       const toEl =
         lpSeat != null
-          ? findShown(document, `[data-holo="${lpSeat}"], [data-lp-seat="${lpSeat}"]`)
+          ? findShown(scope, `[data-holo="${lpSeat}"], [data-lp-seat="${lpSeat}"]`)
           : zones
               .split(" ")
               .filter(Boolean)
-              .map((key) => findShown(document, `[data-zones~="${escape(key)}"]`))
+              .map((key) => findShown(scope, `[data-zones~="${escape(key)}"]`))
               .find((node): node is Element => node != null) ?? null;
       const tip: Pt | null = toEl ? point(toEl) : pointer.current ? { ...pointer.current, w: 0 } : null;
       if (!fromEl || !tip) return hide();
@@ -129,9 +131,9 @@ export function AimArrow({ fromKey, tone, targetTone, pointer, snap, label }: Ai
         chip.style.transform = `translate(${x}px, ${below ? tip.y + gap : Math.max(40, tip.y - gap)}px) translate(-50%, ${below ? "0" : "-100%"})`;
       }
       layer.setAttribute("data-found", "true");
-      // The table's own attack line steps aside while this arrow is drawn.
-      root.setAttribute("data-aim-arrow-on", "true");
     };
+    // The table's own attack line steps aside while this arrow is mounted.
+    root.setAttribute("data-aim-arrow-on", "true");
     draw();
     return () => {
       cancelAnimationFrame(frame);

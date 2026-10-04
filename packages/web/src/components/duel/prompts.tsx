@@ -72,6 +72,8 @@ export interface PromptAim {
   lockedId: string | null;
   onAim: (option: DuelPromptOption) => void;
   onHover: (option: DuelPromptOption | null) => void;
+  /** Words for the prompt while aiming, when the table points with a cursor and sends on one click (3-way, 4-way, Tag). */
+  hint?: string;
 }
 
 export function optionZoneKeys(option: DuelPromptOption): string[] {
@@ -946,7 +948,7 @@ export function PromptTray({
         </p>
       ) : null}
       {aim ? (
-        <p className={styles.hint}>Point at a target, then confirm the attack. Esc goes back.</p>
+        <p className={styles.hint}>{aim.hint ?? "Point at a target, then confirm the attack. Esc goes back."}</p>
       ) : null}
       {!aim && (prompt.kind === "cards" || prompt.kind === "places" || prompt.kind === "order") ? (
         <p className={styles.status}>

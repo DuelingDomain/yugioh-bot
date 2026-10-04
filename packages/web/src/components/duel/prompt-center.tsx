@@ -437,7 +437,7 @@ function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: s
  * The words of a pick surface (the select bar and the card-grid header): a short title, the card or purpose,
  * and the progress line. See select-bar-copy.ts.
  */
-export function pickCopy(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean): BarCopy {
+export function pickCopy(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean, aimHint?: string): BarCopy {
   const { min, max } = selectionBounds(prompt);
   const source = promptSource(prompt);
   const toggling = prompt.kind === "toggle";
@@ -458,6 +458,7 @@ export function pickCopy(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean
     sumMode: prompt.sumMode,
     toggling,
     aiming,
+    aimHint,
     sourceName: source?.name,
     position: prompt.context?.type === "position",
   });
@@ -1109,7 +1110,7 @@ function GridPicker({
   const single = !counters && min === 1 && max === 1 && prompt.kind !== "order";
   const valueDetail = prompt.kind === "sum" || prompt.kind === "tribute";
   const total = counters ? prompt.options.reduce((sum, option) => sum + (draft.counts[option.id] ?? 0), 0) : 0;
-  const copy = pickCopy(prompt, draft, Boolean(aim));
+  const copy = pickCopy(prompt, draft, Boolean(aim), aim?.hint);
   const status = counters
     ? prompt.target != null
       ? `${total} of ${prompt.target} placed`
@@ -1563,7 +1564,7 @@ export function PromptCenter(props: PromptCenterProps) {
     const ok = toggling ? Boolean(prompt.finishable) : canConfirm(prompt, draft);
     const source = promptSource(prompt);
     // A short whole title, the card or purpose and the progress. The tooltip and aria-label keep the full engine text.
-    const copy = pickCopy(prompt, draft, aiming);
+    const copy = pickCopy(prompt, draft, aiming, aim?.hint);
     // After the first material the engine drops Cancel; Undo unselects the last pick instead.
     const canUndo = toggling && backOutLabel(prompt) === "Undo";
     // A Tribute pick sends itself once it cannot change; Summon is for a pick that is worth enough but still open.

@@ -92,3 +92,21 @@
     animation: none;
   }
 }
+
+/* The legal target under the arrow: aim-arrow.tsx sets data-aim-hot on the card, or on the field mat and LP panel of a seat.
+   The rules live while the layer is mounted (:has keeps each selector local, as CSS modules need). */
+:root:has(.layer) :global([data-aim-hot="true"]) {
+  outline: 2px solid rgb(255 210 173 / 0.92);
+  outline-offset: 3px;
+  border-radius: 12px;
+  box-shadow: 0 0 24px 4px rgb(240 164 106 / 0.5);
+}
+
+:root:has(.layer) :global([data-zones][data-aim-hot="true"]) {
+  border-radius: 8px;
+}
+
+:root:has(.layer) :global([data-seat-field][data-aim-hot="true"]) {
+  border-radius: 18px;
+  box-shadow: 0 0 46px 8px rgb(240 164 106 / 0.42), inset 0 0 64px rgb(240 164 106 / 0.14);
+}

@@ -95,6 +95,9 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   const sentFor = useRef<string | null>(null);
   const pointer = useRef<AimPointerSpot | null>(null);
   const [hasMouse, setHasMouse] = useState(false);
+  /** The last pointer was a finger: a tap has no hover, so a board is aimed by the first tap and sent by the second. */
+  const touching = useRef(false);
+  const [touchMode, setTouchMode] = useState(false);
 
   useEffect(() => {
     setLock(null);
@@ -148,6 +151,8 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   );
   const resolveRef = useRef(resolve);
   resolveRef.current = resolve;
+  const hoverRef = useRef(hover);
+  hoverRef.current = hover;
 
   const confirm = useCallback(() => {
     if (!live) return;
@@ -245,8 +250,18 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       setHasMouse(false);
       return;
     }
+    const onDown = (event: PointerEvent) => {
+      touching.current = event.pointerType === "touch";
+      setTouchMode(touching.current);
+      if (touching.current) {
+        pointer.current = null;
+        setHasMouse(false);
+      }
+    };
     const onMove = (event: PointerEvent) => {
-      if (event.pointerType === "touch") {
+      touching.current = event.pointerType === "touch";
+      setTouchMode(touching.current);
+      if (touching.current) {
         pointer.current = null;
         setHasMouse(false);
         return;
@@ -261,6 +276,20 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       // Only a pointer click: Enter or Space on a focused card (detail 0) keeps the lock-then-confirm flow.
       if (event.detail === 0 || event.button !== 0 || suspendedFlag.current || sentFor.current === promptId) return;
       const hit = resolveRef.current(event.target);
+      if (touching.current) {
+        // A finger on a card keeps the lock-then-confirm flow of the card itself. A finger on a board (a direct attack)
+        // aims at it with the first tap, which lights it and shows the label, and sends with the second tap.
+        if (!hit || hit.to.lpSeat == null) {
+          if (!hit) setHover(null);
+          return;
+        }
+        if (!sameTo(hoverRef.current, hit.to)) {
+          event.preventDefault();
+          event.stopPropagation();
+          setHover(hit.to);
+          return;
+        }
+      }
       if (!hit) return;
       event.preventDefault();
       event.stopPropagation();
@@ -270,9 +299,11 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       setHover(null);
       answerRef.current.onAnswer(answerRef.current.answerFor(hit.optionId));
     };
+    window.addEventListener("pointerdown", onDown, { capture: true, passive: true });
     window.addEventListener("pointermove", onMove, { passive: true });
     window.addEventListener("click", onClick, true);
     return () => {
+      window.removeEventListener("pointerdown", onDown, true);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("click", onClick, true);
     };
@@ -325,7 +356,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   }, [attackerKey, base.aim, hover, live]);
 
   const arrow = useMemo<AimArrowProps | null>(() => {
-    if (!aimActive || !attackerKey || !hasMouse || live) return null;
+    if (!aimActive || !attackerKey || live) return null;
     const toneOf = (seat: number | null) => (seat == null ? null : (layout.slots.find((slot) => slot.seat === seat)?.tone ?? null));
     const attackerSeat = Number(attackerKey.split(":")[0]);
     let label: string | null = null;
@@ -338,6 +369,8 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       label = option ? `Attack: ${targetName(option)}` : null;
       targetSeat = Number(hover.zones[0].split(":")[0]);
     }
+    // No mouse (a finger): the arrow shows only once a tap aimed at a target, and then runs to that target.
+    if (!hasMouse && !label) return null;
     return {
       fromKey: attackerKey,
       tone: toneOf(attackerSeat) ?? "violet",
@@ -370,6 +403,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   const promptAim = useMemo<PromptAim | null>(() => {
     if (!attackTarget) return null;
     return {
+      hint: touchMode ? "Tap a target, then tap again to attack." : "Click a target to attack. Esc to cancel.",
       lockedId: live?.optionId ?? null,
       onAim: (option) => {
         const [key] = optionZoneKeys(option);
@@ -383,7 +417,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
         setHover(key ? { zones: [key] } : null);
       },
     };
-  }, [attackTarget, confirm, live, lockTo]);
+  }, [attackTarget, confirm, live, lockTo, touchMode]);
 
   const controller = useMemo<TableController>(
     () => ({ ...base, aim, seatPick, onActivate, onAim }),

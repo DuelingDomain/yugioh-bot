@@ -289,20 +289,3 @@ html[data-duel-no-callout] {
 html[data-duel-no-callout] :is(input, textarea, [contenteditable='true']) {
   -webkit-touch-callout: default;
 }
-
-/* The legal target under the aim arrow (table/aim-arrow.tsx sets the attribute on the card, or on the field mat and LP panel of a seat). */
-[data-aim-hot="true"] {
-  outline: 2px solid rgb(255 210 173 / 0.92);
-  outline-offset: 3px;
-  border-radius: 12px;
-  box-shadow: 0 0 24px 4px rgb(240 164 106 / 0.5);
-}
-
-[data-zones][data-aim-hot="true"] {
-  border-radius: 8px;
-}
-
-[data-seat-field][data-aim-hot="true"] {
-  border-radius: 18px;
-  box-shadow: 0 0 46px 8px rgb(240 164 106 / 0.42), inset 0 0 64px rgb(240 164 106 / 0.14);
-}

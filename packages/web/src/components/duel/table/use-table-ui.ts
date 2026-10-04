@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DuelAnswer, DuelCard, DuelPromptOption } from "@yugidraft/shared/duels";
 import { zoneKey } from "../constants";
-import { activatePromptFromField, isAttackDuelistPrompt, isAttackTargetPrompt, optionsForCard } from "../prompts";
+import { activatePromptFromField, isAttackDuelistPrompt, isDirectAttackPrompt, isAttackTargetPrompt, optionsForCard } from "../prompts";
 import { livePileCards, shouldClosePileForPrompt, type PileView } from "../pile-focus";
 import type { CardMenuState } from "../card-interactions";
 import { promptLegalKeys } from "../prompts";
@@ -61,7 +61,7 @@ export function useTableUi(base: TableController): TableUi {
   }, [activeMenu]);
   // The declared attacker belongs to the attack steps only: the duelist pick (a direct attack) and the target pick.
   useEffect(() => {
-    if (!prompt || !(isAttackTargetPrompt(prompt, true) || isAttackDuelistPrompt(prompt))) setPendingAttack(null);
+    if (!prompt || !(isAttackTargetPrompt(prompt, true) || isAttackDuelistPrompt(prompt) || isDirectAttackPrompt(prompt))) setPendingAttack(null);
   }, [prompt]);
 
   // A new prompt that wants cards outside the open pile must not stay hidden behind the pile's scrim.
@@ -120,11 +120,15 @@ export function useTableUi(base: TableController): TableUi {
         prompt?.context?.type === "action" && answer.choice?.startsWith("attack:")
           ? prompt.options.find((option) => option.id === answer.choice)
           : undefined;
-      setPendingAttack(
-        attack && attack.controller != null && attack.location != null && attack.sequence != null
-          ? { key: zoneKey(attack.controller, attack.location, attack.sequence), direct: /directly/i.test(attack.label) }
-          : null,
-      );
+      if (attack) {
+        setPendingAttack(
+          attack.controller != null && attack.location != null && attack.sequence != null
+            ? { key: zoneKey(attack.controller, attack.location, attack.sequence), direct: /directly/i.test(attack.label) }
+            : null,
+        );
+      } else if (!isDirectAttackPrompt(prompt)) {
+        setPendingAttack(null);
+      }
       onAnswer(answer);
     },
     [onAnswer, prompt],
@@ -142,9 +146,15 @@ export function useTableUi(base: TableController): TableUi {
           submit({ choice: options[0].id });
           return;
         }
-        // A monster whose only move is to attack declares the attack at once: the arrow starts from it and the next click
-        // is the target, so choosing the attacker and the target feels like one gesture. Any other card keeps its menu.
-        if (prompt.context?.type === "action" && options.length === 1 && options[0].id.startsWith("attack:")) {
+        // A monster whose only move is to attack with a card pick to follow declares the attack at once: the arrow starts
+        // from it and the next click is the target. A direct attack never does: the engine may then start the hit with
+        // no further prompt, or ask a duelist pick that cannot be cancelled. Its menu stays, so the click is a choice.
+        if (
+          prompt.context?.type === "action" &&
+          options.length === 1 &&
+          options[0].id.startsWith("attack:") &&
+          !/directly/i.test(options[0].label)
+        ) {
           setMenu(null);
           submit({ choice: options[0].id });
           return;
