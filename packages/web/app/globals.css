@@ -281,3 +281,8 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .pack-fade-in { animation: none; }
 }
+
+/* Duel pages: no iOS long-press callout (link/image sheet). Set by useBlockBrowserContextMenu. */
+html[data-duel-no-callout] {
+  -webkit-touch-callout: none;
+}
