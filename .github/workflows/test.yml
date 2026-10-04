@@ -55,9 +55,11 @@ jobs:
     outputs:
       engine: ${{ steps.diff.outputs.engine }}
       web_engine: ${{ steps.diff.outputs.web_engine }}
+      tests_only: ${{ steps.diff.outputs.tests_only }}
+      base: ${{ steps.diff.outputs.base }}
+      head: ${{ steps.diff.outputs.head }}
     steps:
       - name: Checkout
-        if: github.event_name == 'pull_request'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -65,26 +67,10 @@ jobs:
       - name: Diff against the base
         id: diff
         env:
+          EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "engine=true" >> "$GITHUB_OUTPUT"
-            echo "web_engine=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          files=$(git diff --name-only "$BASE...$HEAD")
-          echo "$files"
-          engine=false
-          web_engine=false
-          if echo "$files" | grep -qE '^(packages/(duel-server|shared|e2e)/|patches/|scripts/|\.github/workflows/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$)'; then
-            engine=true
-            web_engine=true
-          elif echo "$files" | grep -qE '^packages/web/(src/components/duel/|tests/|package\.json$|vitest\.config\.ts$|tsconfig[^/]*\.json$)'; then
-            web_engine=true
-          fi
-          echo "engine=$engine" | tee -a "$GITHUB_OUTPUT"
-          echo "web_engine=$web_engine" | tee -a "$GITHUB_OUTPUT"
+        run: node scripts/ci/changed-layers.mjs
 
   cores:
     name: Engine cores (build or restore)
@@ -199,12 +185,15 @@ jobs:
 
   unit-packages:
     name: Unit packages and typecheck
+    needs: changes
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ needs.changes.outputs.tests_only == 'true' && '0' || '1' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -227,9 +216,32 @@ jobs:
       - name: Test bot
         run: npm test --workspace=packages/bot
 
+      - name: Test CI helpers
+        run: |
+          node --test scripts/ci/*.test.mjs
+
+      - name: Select changed test files
+        id: selection
+        if: needs.changes.outputs.tests_only == 'true'
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+          HEAD: ${{ needs.changes.outputs.head }}
+        run: node scripts/ci/select-engine-tests.mjs
+
       # Needs the test:unit script of duel-server: the tests that load no wasm core.
       - name: Test duel-server (no core)
-        run: npm run test:unit --workspace=@yugidraft/duel-server
+        env:
+          CI_TEST_FILES: ${{ steps.selection.outputs.files }}
+        run: |
+          node --input-type=module <<'JS'
+          import { spawnSync } from 'node:child_process';
+          const files = process.env.CI_TEST_FILES ? JSON.parse(process.env.CI_TEST_FILES) : ['tests'];
+          if (!files.length) process.exit(0);
+          const result = spawnSync('npm', ['exec', '--workspace=packages/duel-server', '--', 'vitest', 'run', ...files,
+            '--config=vitest.unit.config.ts', '--testTimeout=15000', ...(process.env.CI_TEST_FILES ? ['--passWithNoTests'] : [])], { stdio: 'inherit' });
+          if (result.error) throw result.error;
+          process.exit(result.status ?? 1);
+          JS
 
       - name: Test e2e helpers
         run: npm run test:unit --workspace=@yugidraft/e2e
@@ -294,6 +306,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ needs.changes.outputs.tests_only == 'true' && '0' || '1' }}
 
       - name: Restore engine bundle
         uses: actions/cache/restore@v4
@@ -316,16 +330,19 @@ jobs:
       - name: Build shared
         run: npm run build --workspace=@yugidraft/shared
 
+      - name: Select changed test files
+        id: selection
+        if: needs.changes.outputs.tests_only == 'true'
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+          HEAD: ${{ needs.changes.outputs.head }}
+        run: node scripts/ci/select-engine-tests.mjs
+
       - name: Engine tests
         if: needs.changes.outputs.engine == 'true'
-        run: npm run test:engine --workspace=packages/duel-server -- --shard=${{ matrix.shard }}/6 --exclude=tests/multi-scripts-table.test.ts
-
-      # Vitest cannot split one file. The Table file took 580 s, so partition its card rows too.
-      - name: Table card tests
-        if: needs.changes.outputs.engine == 'true'
         env:
-          TABLE_SHARD: ${{ matrix.shard }}/6
-        run: npm exec --workspace=packages/duel-server -- vitest run tests/multi-scripts-table.test.ts --testTimeout=15000
+          CI_TEST_FILES: ${{ steps.selection.outputs.files }}
+        run: node scripts/ci/run-engine-tests.mjs pinned ${{ matrix.shard }}/6
 
       # Web tests that run a real stock-core duel. The unit job has no engine bundle, so they skip there.
       # DUEL_REQUIRE_CORES=1 (from the job env) makes a missing bundle a failure here.
@@ -334,7 +351,7 @@ jobs:
       # Only direct imports of the cores helper are found. A web test that gets the helper through another module is not run here.
       # The full web suite (about 400 files) already runs in the unit job, so only the matching files run again.
       - name: Web tests with the engine
-        if: matrix.shard == 1
+        if: matrix.shard == 1 && needs.changes.outputs.tests_only != 'true'
         run: |
           set -o pipefail
           # Lines that start with // or * are comments: a comment that names the helper does not count.
@@ -342,6 +359,12 @@ jobs:
           if [ -z "$files" ]; then echo "No web test imports the cores helper. Fix this step."; exit 1; fi
           echo "$files"
           npm exec --workspace=packages/web -- vitest run $files
+
+      - name: Web engine tests that depend on changed duel helpers
+        if: matrix.shard == 1 && needs.changes.outputs.tests_only == 'true'
+        env:
+          CI_TEST_FILES: ${{ steps.selection.outputs.web_files }}
+        run: node scripts/ci/run-engine-tests.mjs web 1/1
 
       # tests/*.smoke.ts are plain assert scripts (vitest does not match them); one failing script fails the step.
       - name: Engine smoke scripts
@@ -372,6 +395,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ needs.changes.outputs.tests_only == 'true' && '0' || '1' }}
 
       - name: Restore engine bundle
         uses: actions/cache/restore@v4
@@ -394,8 +419,18 @@ jobs:
       - name: Build shared
         run: npm run build --workspace=@yugidraft/shared
 
+      - name: Select changed test files
+        id: selection
+        if: needs.changes.outputs.tests_only == 'true'
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+          HEAD: ${{ needs.changes.outputs.head }}
+        run: node scripts/ci/select-engine-tests.mjs
+
       - name: Engine tests, legacy 1v1 engine
-        run: npm run test:engine --workspace=packages/duel-server -- --config=vitest.legacy.config.ts --shard=${{ matrix.shard }}/6
+        env:
+          CI_TEST_FILES: ${{ steps.selection.outputs.files }}
+        run: node scripts/ci/run-engine-tests.mjs legacy ${{ matrix.shard }}/6
 
   engine:
     name: Engine tests (cores required)
