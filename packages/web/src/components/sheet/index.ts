@@ -17,7 +17,7 @@ export { FloorList, FloorRow, type FloorListProps, type FloorRowProps } from "./
 export { Tip, Zone, LocatorStrip, FieldOutline, type ZoneState, type ZoneProps, type LocatorSlot, type TipAlign } from "./sv-zone";
 export { LiveDot, StatusLine, SizeBar, DeckMark, StageLine, type StatusTone, type StageStep } from "./sv-status";
 export {
-  SvButton, svButtonClass, DuelAction, DUEL_ACTION_LABELS, Segmented,
+  SvButton, svButtonClass, DuelAction, DUEL_ACTION_LABELS, Segmented, segmentSlide,
   type SvButtonProps, type SvButtonVariant, type DuelActionKind, type SegmentedOption,
 } from "./sv-buttons";
 export { CopyLinkRow } from "./sv-copy";
