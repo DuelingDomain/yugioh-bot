@@ -845,8 +845,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       const attack = events.at(-1);
       if (attack?.kind === "attack" && !attack.target) {
         noteDirectAttackTarget(attack, raw.duelist, format);
-        const declared = log.findLast((line) => line.text === "A monster declares a direct attack");
-        if (declared) declared.text = attack.text;
+        for (let i = log.length - 1; i >= 0; i--) {
+          if (log[i].text !== "A monster declares a direct attack") continue;
+          log[i].text = attack.text;
+          break;
+        }
       }
     } else if (raw.type === MSG_FIELD_DISABLED_N) {
       for (const zone of raw.zones) {
