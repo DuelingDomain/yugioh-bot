@@ -6,6 +6,7 @@ import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
 import { cubeDetail } from "@/lib/cube-detail";
 import { importYdkIntoCube } from "@/lib/cube-ydk";
+import { ensureCatalogCards, parsePoolEntries } from "@/lib/cube-pool";
 import { IMPORT_MAX_DISTINCT, YDK_MAX_CHARS, tooManyDistinct } from "@/lib/ydk-file";
 
 export const runtime = "nodejs";
@@ -15,6 +16,7 @@ type Op =
   | { op: "remove"; catalogCardId: number }
   | { op: "setMaxCopies"; catalogCardId: number; maxCopies: number }
   | { op: "import"; codes: number[]; pool?: "main" | "extra" }
+  | { op: "replaceMain"; cards: Array<{ id: number; copies: number }> }
   | { op: "importYdk"; text: string }
   | { op: "seedArchetype"; archetype: string; banlist?: string };
 
@@ -59,6 +61,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
           return NextResponse.json({ error: tooManyDistinct(distinct) }, { status: 400 });
         }
         const result = await cubes.importPasscodes(cubeId, codes, { pool: body.pool });
+        return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result });
+      }
+      case "replaceMain": {
+        const parsed = parsePoolEntries(body.cards);
+        if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+        await ensureCatalogCards(catalog, parsed.entries.map((e) => e.id));
+        const result = cubes.replaceMain(cubeId, parsed.entries);
         return NextResponse.json({ ...cubeDetail(cubeId, cubes, catalog), ...result });
       }
       case "importYdk": {

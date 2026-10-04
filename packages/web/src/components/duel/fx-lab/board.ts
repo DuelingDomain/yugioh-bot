@@ -150,7 +150,8 @@ export const SZ = (seat: number, sequence: number): DuelZoneRef => z(seat, LOCAT
 export const HAND = (seat: number, sequence: number): DuelZoneRef => z(seat, LOCATION_HAND, sequence);
 export const GY = (seat: number, sequence: number): DuelZoneRef => z(seat, LOCATION_GRAVE, sequence);
 export const BANISHED = (seat: number, sequence: number): DuelZoneRef => z(seat, LOCATION_REMOVED, sequence);
-export const DECK = (seat: number): DuelZoneRef => z(seat, LOCATION_DECK, 0);
+/** The Deck pile. The engine numbers its cards (the top card has the highest sequence), the pile is one anchor. */
+export const DECK = (seat: number, sequence = 0): DuelZoneRef => z(seat, LOCATION_DECK, sequence);
 export const EXTRA = (seat: number, sequence: number): DuelZoneRef => z(seat, LOCATION_EXTRA, sequence);
 export const FIELD = (seat: number): DuelZoneRef => z(seat, LOCATION_SZONE, 5);
 

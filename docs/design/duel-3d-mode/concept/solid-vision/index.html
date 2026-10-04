@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" data-motion="full" data-view="tilt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Solid Vision</title>
+<meta name="description" content="Yugidraft duel field, concept B: the field is a duel-disk projection over a tilted obsidian table.">
+<meta name="theme-color" content="#06080f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500&family=Barlow+Semi+Condensed:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }</script>
+</head>
+<body>
+
+<!-- Prototype storyboard: NOT product UI. Keys 1-7 jump, H hides. -->
+<div class="devstrip" id="devstrip" role="toolbar" aria-label="Prototype storyboard, not part of the product">
+  <span class="dev-name">Storyboard</span>
+  <div class="dev-steps" id="devSteps"></div>
+  <button class="dev-btn" id="devPlay" type="button" aria-pressed="false">Play demo</button>
+  <span class="dev-gl" id="devGl">WebGL: loading</span>
+  <span class="dev-hint">1–7 jump · H hides this strip · Space or Esc skips a moment</span>
+</div>
+
+<div class="app" id="app">
+  <header class="hdr">
+    <div class="brand"><span class="wordmark">Yugidraft</span><span class="slash">/</span><span class="fmt">Domain · 1v1</span></div>
+    <div class="turnbox" aria-live="polite">
+      <span class="turn-text" id="turnText">Turn 3 · Main 1</span>
+      <span class="owner-pill" id="ownerPill" data-owner="you"></span>
+    </div>
+    <div class="tools">
+      <span class="live" title="Connected to the duel host"><i class="live-dot"></i>Live</span>
+      <button class="tool" id="tChain" type="button" title="Chain responses: Auto stops only when you can respond; On always stops; Off never stops">Chain: <b>Auto</b></button>
+      <button class="tool" id="tSound" type="button">Sound: <b>On</b></button>
+      <button class="tool" id="tMotion" type="button">Motion: <b>Full</b></button>
+      <span class="tsep" aria-hidden="true"></span>
+      <button class="tool keep" id="tView" type="button" aria-pressed="false"></button>
+      <button class="tool iconic keep" id="tGear" type="button" aria-label="Options" aria-haspopup="dialog"></button>
+    </div>
+  </header>
+
+  <aside class="insp panel" id="insp" aria-label="Inspector"></aside>
+
+  <main class="stage" id="stage" aria-label="Duel field">
+    <section class="rail opp" id="railOpp" aria-label="Practice Bot"></section>
+    <div class="field-wrap" id="fieldWrap">
+      <div class="plane" id="plane" data-light="you"></div>
+    </div>
+    <section class="rail you" id="railYou" aria-label="You"></section>
+    <div class="peek" id="peek"></div>
+    <nav class="phasebar" id="phasebar" aria-label="Phases"></nav>
+  </main>
+
+  <aside class="docks" id="docks" aria-label="Deck Masters"></aside>
+</div>
+
+<div class="overlay" id="overlay"></div>
+<canvas id="proj" aria-hidden="true"></canvas>
+<div class="fx" id="fx" aria-hidden="true"></div>
+<div class="skiphint" id="skipHint" aria-hidden="true">Skip <span class="kbd">Space</span><span class="kbd">Esc</span> or click</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="scrim" id="scrim"></div>
+<div class="popover" id="options" role="dialog" aria-label="Options"></div>
+
+<script src="textures.js"></script>
+<script src="projection.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -67,7 +67,8 @@ import {
   type HistoryState,
 } from "./history-model";
 import { categoryForEntry, summonMethodForIcon } from "./log-category";
-import styles from "./history-rail.module.css";
+import baseStyles from "./history-rail.module.css";
+import { useSkinStyles } from "./skin";
 
 export type DuelHistoryRailProps = {
   events: DuelEvent[];
@@ -155,6 +156,7 @@ function toneStyle(tones: SeatTones | undefined, seat: number | null | undefined
 }
 
 function Thumb({ thumb, handlers, iconBadge, tones }: { thumb: HistoryThumb; handlers: ThumbHandlers; iconBadge?: ReactNode; tones?: SeatTones }) {
+  const styles = useSkinStyles(baseStyles, "history");
   const toned = toneStyle(tones, thumb.seat);
   if (thumb.role === "portrait") {
     return (
@@ -208,6 +210,7 @@ function Thumb({ thumb, handlers, iconBadge, tones }: { thumb: HistoryThumb; han
 }
 
 function CrackMark() {
+  const styles = useSkinStyles(baseStyles, "history");
   return (
     <svg className={styles.crack} viewBox="0 0 24 34" aria-hidden="true" focusable="false">
       <path d="M13 1 L9 11 L15 15 L8 23 L13 27 L10 33" pathLength={1} />
@@ -217,6 +220,7 @@ function CrackMark() {
 }
 
 function IconBadge({ kind, corner = false }: { kind: HistoryIconKind; corner?: boolean }) {
+  const styles = useSkinStyles(baseStyles, "history");
   const { Icon, label } = ICONS[kind];
   return (
     <span className={styles.badge} data-summon={summonMethodForIcon(kind) ?? undefined} data-corner={corner || undefined}
@@ -235,6 +239,7 @@ type RowProps = {
 };
 
 const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers, tones }: RowProps) {
+  const styles = useSkinStyles(baseStyles, "history");
   const rowTone = toneStyle(tones, entry.seat);
   const attack = entry.icon === "attack" || entry.icon === "direct";
   const [first, second] = entry.thumbs;
@@ -309,6 +314,7 @@ const EntryRow = memo(function EntryRow({ entry, latest, animate, handlers, tone
   a.handlers === b.handlers);
 
 const PhaseRow = memo(function PhaseRow({ row }: { row: HistoryPhaseRow }) {
+  const styles = useSkinStyles(baseStyles, "history");
   return (
     <li className={styles.phase} data-battle={row.battle || undefined}>
       <span>{row.label}</span>
@@ -323,6 +329,7 @@ const Group = memo(function Group({ group, latestKey, animateAfter, handlers, to
   handlers: ThumbHandlers;
   tones?: SeatTones;
 }) {
+  const styles = useSkinStyles(baseStyles, "history");
   return (
     <li className={styles.group}>
       <h4 className={styles.turn} data-turn>{group.label}</h4>
@@ -343,6 +350,7 @@ const Group = memo(function Group({ group, latestKey, animateAfter, handlers, to
 const TOP_SLACK = 12;
 
 export function DuelHistoryRail({ events, engine, mySeat, playerName, onInspectCard, reducedMotion, active = true, onUnread, seatTones }: DuelHistoryRailProps) {
+  const styles = useSkinStyles(baseStyles, "history");
   const [stored, setStored] = useState<HistoryState>(() => ingestHistory(emptyHistory(), events, contextFor(engine)));
   const [hover, setHover] = useState<Hover | null>(null);
   const [atTop, setAtTop] = useState(true);

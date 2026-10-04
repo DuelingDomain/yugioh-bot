@@ -2606,3 +2606,22 @@
   .ms .sv-size-fill { transition: none; }
   .ms .sv-tipped > .sv-tip { animation: none; }
 }
+
+/* Checkbox (components/sheet/sv-check.tsx): a real input drawn as a box; the label's ::after makes the whole row the hit area. */
+.ms .sv-check { position: relative; display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 2px 12px; align-items: start; min-width: 0; }
+.ms .sv-check-in { appearance: none; -webkit-appearance: none; grid-column: 1; grid-row: 1; width: 18px; height: 18px; margin: 1px 0 0; padding: 0; border: 1px solid var(--rule-hi); border-radius: 4px; background: var(--panel-2); cursor: pointer; }
+.ms .sv-check-in:checked { border-color: var(--pen); background: var(--pen) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath d='M4.5 9.5l3 3 6-7' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 18px 18px no-repeat; }
+.ms .sv-check-in:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
+.ms .sv-check-t { grid-column: 2; grid-row: 1; color: var(--ink-2); font-size: 14px; line-height: 20px; cursor: pointer; }
+.ms .sv-check-t::after { content: ""; position: absolute; inset: 0; }
+.ms .sv-check-h { grid-column: 2; grid-row: 2; margin: 0; color: var(--ink-3); font-size: 12.5px; line-height: 1.5; }
+.ms .sv-check[data-prominent] .sv-check-t { color: var(--ink); font-size: 15px; font-weight: 600; }
+.ms .sv-check[data-compact] { gap: 0 10px; }
+.ms .sv-check[data-compact] .sv-check-t { font-size: 14px; }
+@media (hover: hover) and (pointer: fine) {
+  .ms .sv-check:hover .sv-check-in:not(:checked):not(:disabled) { border-color: var(--pen); background: var(--pen-soft); }
+  .ms .sv-check:hover .sv-check-in:checked:not(:disabled) { background-color: #8467f2; }
+  .ms .sv-check:hover .sv-check-t { color: var(--ink); }
+}
+.ms .sv-check:has(.sv-check-in:disabled) { opacity: 0.55; }
+.ms .sv-check-in:disabled, .ms .sv-check:has(.sv-check-in:disabled) .sv-check-t { cursor: default; }

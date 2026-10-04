@@ -32,7 +32,7 @@ import { fieldPlacementMs, isFieldPlacementLocation } from "./placement-timing";
 import { MOVE_PACE, TRIBUTE_FLIGHT_MS, TRIBUTE_TIMING } from "./duel-timing";
 import { isAddToHand, showcaseGateMs, showcaseOrigin, showcasePhases, type ShowcaseOrigin, type ShowcasePhases } from "./add-to-hand";
 import { chainEffectAt } from "./chain-beats";
-import { findZoneElement, findMoveDestination, handArrivalTarget, moveDestinationRect } from "./event-queue";
+import { findMoveZoneElement, findMoveDestination, handArrivalTarget, moveDestinationRect } from "./event-queue";
 import { artCodeOf } from "./destroy-hide";
 import { resetEffectSequence, sequenceEffects } from "./effect-sequence";
 
@@ -127,6 +127,15 @@ const plans = new Map<number, MovePlan>();
 /** follow-up event id (summon/set/activate/destroy) -> the move plan that carries it. */
 const pairs = new Map<number, number>();
 const state = { key: "", nextStartAt: 0 };
+
+/**
+ * 3D mode seam: a rule that marks a move silent (nothing drawn, the real card is not hidden by MoveFx) because the
+ * 3D mode room draws that arrival itself (the Deck Master hologram). Null in classic, so classic plans are unchanged.
+ */
+let silentMoveRule: ((event: DuelEvent) => boolean) | null = null;
+export function setSilentMoveRule(rule: ((event: DuelEvent) => boolean) | null): void {
+  silentMoveRule = rule;
+}
 
 export function resetMoveSchedule(key = ""): void {
   resetEffectSequence();
@@ -282,7 +291,7 @@ export function resolveSource(zone: DuelZoneRef, eventId?: number): ZoneSnapshot
     const snap = getZoneSnapshot(zone);
     if (snap) return snap;
   }
-  const live = findZoneElement(zone);
+  const live = findMoveZoneElement(zone);
   if (!live) return null;
   const r = moveDestinationRect(live);
   if (r.width < 4 || r.height < 4) return null;
@@ -427,9 +436,12 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     if (chainAt > now) notBefore = Math.max(notBefore, chainAt + lead);
     // A card that also breaks away from a destroyed zone keeps its flight.
     if (lead > 0) silent = false;
+    // The room draws this arrival itself, but it keeps the V1 time slot (the flight's duration) in the queue.
+    const roomDraws = !silent && lead === 0 && !destroy && !takeover && silentMoveRule?.(event) === true;
+    if (roomDraws) silent = true;
     const source = resolveSource(from, event.id);
     const origin = style === "add" ? showcaseOrigin(event, now, source != null) : null;
-    candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance, reduced, isFieldPlacementLocation(to.location)), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin, tribute, tributeWait });
+    candidates.push({ event, style, base: silent && !roomDraws ? 0 : baseDuration(style, geo.distance, reduced, isFieldPlacementLocation(to.location)), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin, tribute, tributeWait });
   }
   if (candidates.length === 0) {
     sequenceEffects(fresh, [...plans.values()], now, reduced);

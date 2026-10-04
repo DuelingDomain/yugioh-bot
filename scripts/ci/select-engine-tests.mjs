@@ -69,7 +69,7 @@ export function selectTests(sources, changed) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const changed = execFileSync("git", ["diff", "--name-only", "-z", `${process.env.BASE}...${process.env.HEAD}`], { encoding: "utf8" }).split("\0").filter(Boolean);
+  const changed = execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", `${process.env.BASE}...${process.env.HEAD}`], { encoding: "utf8" }).split("\0").filter(Boolean);
   if (!changed.every((file) => file.startsWith(prefix))) throw new Error("Narrow test selection requires a tests-only PR");
   const tracked = execFileSync("git", ["ls-files", "-z", "--", prefix, webPrefix], { encoding: "utf8" }).split("\0").filter((file) => /\.[cm]?[jt]sx?$/.test(file));
   const sources = Object.fromEntries(tracked.map((file) => [file, readFileSync(file, "utf8")]));

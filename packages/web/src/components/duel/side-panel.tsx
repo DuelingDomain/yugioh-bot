@@ -5,8 +5,9 @@
 // the rows it has built and the Log tab can count what arrived while you were elsewhere.
 import { useSyncExternalStore, type ReactNode } from "react";
 import { MousePointer2 } from "lucide-react";
-import roomStyles from "./room.module.css";
-import styles from "./side-panel.module.css";
+import baseRoomStyles from "./room.module.css";
+import baseStyles from "./side-panel.module.css";
+import { useSkinStyles } from "./skin";
 
 /** `masters` only exists in the narrow layout; on desktop the Deck Masters have their own column. */
 export type SidePane = "card" | "log" | "settings" | "masters";
@@ -67,6 +68,8 @@ export function SideTabs({ panes, selected, onSelect, unread = 0, mobile = false
   /** The bottom bar: plain buttons that open the sheet, not a tablist. */
   mobile?: boolean;
 }) {
+  const roomStyles = useSkinStyles(baseRoomStyles, "side");
+  const styles = useSkinStyles(baseStyles, "side");
   return (
     <div className={roomStyles.tabs} role={mobile ? undefined : "tablist"}
       aria-label={mobile ? "Mobile duel panels" : "Duel panels"}
@@ -113,6 +116,7 @@ export function SidePanel({ pane, selected, semantic = true, keepMounted = false
   keepMounted?: boolean;
   children: ReactNode;
 }) {
+  const styles = useSkinStyles(baseStyles, "side");
   const active = selected === pane;
   if (!active && !keepMounted) return null;
   return (
@@ -127,6 +131,7 @@ export function SidePanel({ pane, selected, semantic = true, keepMounted = false
 
 /** The Card tab before any card is hovered or clicked. */
 export function CardTabEmpty() {
+  const styles = useSkinStyles(baseStyles, "side");
   return (
     <div className={styles.empty} data-testid="card-tab-empty">
       <MousePointer2 size={22} strokeWidth={1.5} aria-hidden />

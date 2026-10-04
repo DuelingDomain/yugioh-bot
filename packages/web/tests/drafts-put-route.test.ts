@@ -202,6 +202,58 @@ describe("PUT /api/drafts/[slug]", () => {
     expect(response.status).toBe(400);
   });
 
+  async function putConfig(config: Record<string, unknown>) {
+    const { PUT } = await import("../app/api/drafts/[slug]/route");
+    const response = await PUT(new Request("http://localhost/api/drafts/test-slug", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config }),
+    }) as NextRequest, { params: Promise.resolve({ slug: "test-slug" }) });
+    return { response, data: await response.json() };
+  }
+
+  it("stores the lobby's pack fields as typed: 40 cards in packs of 15", async () => {
+    await setupDraftWithCustomPool();
+    const { response, data } = await putConfig({ cardsPerPlayer: 40, packSize: 15, packsPerPlayer: 3 });
+    expect(response.status).toBe(200);
+    expect(data.config.cardsPerPlayer).toBe(40);
+    expect(data.config.packSize).toBe(15);
+    expect(data.config.packsPerPlayer).toBe(3);
+  });
+
+  it("derives the pack count from cards per player and pack size, and rejects junk without changing the draft", async () => {
+    await setupDraftWithCustomPool();
+    const derived = await putConfig({ cardsPerPlayer: 45, packSize: 10 });
+    expect(derived.data.config).toMatchObject({ cardsPerPlayer: 45, packSize: 10, packsPerPlayer: 5 });
+    const junk = await putConfig({ cardsPerPlayer: "lots", packSize: -3 });
+    expect(junk.response.status).toBe(400);
+    const { getDb } = await import("@/lib/db");
+    const stored = JSON.parse((getDb().prepare("select config_json from drafts where web_slug='test-slug'").get() as { config_json: string }).config_json);
+    expect(stored).toMatchObject({ cardsPerPlayer: 45, packSize: 10, packsPerPlayer: 5 });
+  });
+
+  it("stores a poolSource that names a cube in this guild, with the cube's name from the database", async () => {
+    await setupDraftWithCustomPool();
+    const { getDb } = await import("@/lib/db");
+    const cubeId = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Goat','creator-user')").run().lastInsertRowid);
+    const { data } = await putConfig({ poolSource: { cubeId, cubeName: "Spoofed" } });
+    expect(data.config.poolSource).toEqual({ cubeId, cubeName: "Goat" });
+  });
+
+  it("drops a foreign or unknown poolSource and clears the stored one", async () => {
+    await setupDraftWithCustomPool();
+    const { getDb } = await import("@/lib/db");
+    const own = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Goat','creator-user')").run().lastInsertRowid);
+    const foreign = Number(getDb().prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other-guild','Foreign','x')").run().lastInsertRowid);
+    expect((await putConfig({ poolSource: { cubeId: own, cubeName: "Goat" } })).data.config.poolSource).toBeDefined();
+    const dropped = await putConfig({ poolSource: { cubeId: foreign, cubeName: "Foreign" } });
+    expect(dropped.data.config.poolSource).toBeUndefined();
+    await putConfig({ poolSource: { cubeId: own, cubeName: "Goat" } });
+    const unknown = await putConfig({ poolSource: { cubeId: 99999, cubeName: "Nope" } });
+    expect(unknown.data.config.poolSource).toBeUndefined();
+    expect(JSON.parse((getDb().prepare("select config_json from drafts where web_slug='test-slug'").get() as { config_json: string }).config_json).poolSource).toBeUndefined();
+  });
+
   it("recomputes the pool from the new selection instead of reusing the stale snapshot", async () => {
     await setupDraftWithCustomPool(); // seeded with poolCardIds = [1..30]
     const { PUT } = await import("../app/api/drafts/[slug]/route");

@@ -7,7 +7,8 @@ import { useEffect, useMemo, useRef, type Ref } from "react";
 import { phaseTitle } from "./constants";
 import { categoriesForLog, categoryForLogText, summonMethodForLogText, type LogCategory } from "./log-category";
 import { LogCategoryGlyph } from "./log-category-glyph";
-import styles from "./room.module.css";
+import baseStyles from "./room.module.css";
+import { useSkinStyles } from "./skin";
 
 const LOG_PHASE_KEYS: ReadonlySet<string> = new Set([
   "draw", "standby", "main1", "battle_start", "battle_step", "damage", "damage_cal", "battle", "main2", "end",
@@ -51,6 +52,7 @@ export function DuelLogLine({
   className?: string;
   ref?: Ref<HTMLLIElement>;
 }) {
+  const styles = useSkinStyles(baseStyles, "history");
   const kind = logKind(text);
   // Classify the raw line: a display name can never pass for one of the engine's sentence templates.
   const category = given === undefined ? categoryForLogText(text) : given;
@@ -73,6 +75,7 @@ export function MatchSheetLog({
   playerName: (seat: number) => string;
   players: string;
 }) {
+  const styles = useSkinStyles(baseStyles, "history");
   const listRef = useRef<HTMLOListElement>(null);
   const categories = useLogCategories(entries);
   const count = entries.length;

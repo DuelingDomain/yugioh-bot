@@ -2,16 +2,14 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import type { DraftConfig } from "@yugidraft/shared/types";
-import { Check } from "lucide-react";
 import { StatusLine, SvButton } from "@/components/sheet";
 import { DraftLayout, DraftMain, DraftRail, Num, RailSection, Rules } from "./draft-frame";
-import { parseCustomCardIds } from "@/lib/custom-card-pool";
-import { PoolBuilder } from "@/components/cards/pool-builder";
-import { ArchetypeAdd } from "./create/archetype-add";
 import { PoolPreview } from "./create/pool-preview";
-import { loadedPoolHint, poolRowText, savedPoolIds, secondsText, type SavedPoolCard } from "./create/format";
+import { secondsText } from "./create/format";
 import styles from "./create/create.module.css";
+import { PoolEditor } from "./pool/pool-editor";
+import { PoolRailValue, SeatNote } from "./pool/pool-rail";
+import { usePoolEditor } from "./pool/use-pool-editor";
 import type { CardSummary } from "@/lib/card-types";
 import {
   CARDS_PER_PLAYER_DEFAULT,
@@ -24,7 +22,6 @@ import {
 } from "./draft-config-fields";
 
 type Channel = { id: string; name: string };
-type DraftTemplate = { id: number; name: string; config: DraftConfig; extraCount?: number };
 
 export function CreateDraftForm() {
   const router = useRouter();
@@ -32,36 +29,16 @@ export function CreateDraftForm() {
   const [channelId, setChannelId] = React.useState("");
   const [channels, setChannels] = React.useState<Channel[]>([]);
   const [channelsLoading, setChannelsLoading] = React.useState(true);
-  const [templates, setTemplates] = React.useState<DraftTemplate[]>([]);
-  const [selectedTemplateName, setSelectedTemplateName] = React.useState("");
-  const [templateName, setTemplateName] = React.useState("");
-  const [loadedHint, setLoadedHint] = React.useState<string | null>(null);
-  const [archetypeStatus, setArchetypeStatus] = React.useState<string | null>(null);
-  const [savedName, setSavedName] = React.useState<string | null>(null);
   const [nameError, setNameError] = React.useState(false);
   const nameRef = React.useRef<HTMLInputElement>(null);
-  const savedTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fields, setFields] = React.useState<DraftConfigFieldsValue>({
-    setNames: [],
-    customCardText: "",
     cardsPerPlayerText: String(CARDS_PER_PLAYER_DEFAULT),
     packSizeText: String(PACK_SIZE_DEFAULT),
     pickSecondsText: String(PICK_SECONDS_DEFAULT),
   });
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const [poolCards, setPoolCards] = React.useState<CardSummary[]>([]);
-  const [poolUnknownIds, setPoolUnknownIds] = React.useState<number[]>([]);
-  const [poolLoading, setPoolLoading] = React.useState(false);
-
-  const handlePool = React.useCallback(
-    (cards: CardSummary[], unknownIds: number[], loading: boolean) => {
-      setPoolCards(cards);
-      setPoolUnknownIds(unknownIds);
-      setPoolLoading(loading);
-    },
-    [],
-  );
+  const pool = usePoolEditor({ variant: "create" });
 
   React.useEffect(() => {
     let cancelled = false;
@@ -74,123 +51,6 @@ export function CreateDraftForm() {
     return () => { cancelled = true; };
   }, []);
 
-  React.useEffect(() => {
-    let cancelled = false;
-    fetch("/api/cubes")
-      .then((res) => (res.ok ? res.json() : { cubes: [] }))
-      .then(
-        (data: {
-          cubes?: Array<{
-            id: number;
-            name: string;
-            setNames?: string[];
-            customCardIds?: number[];
-            mainCards?: SavedPoolCard[];
-            extraCount?: number;
-            draftType?: string;
-          }>;
-        }) => {
-          if (cancelled) return;
-          // A cube's pool is its config sets/passcodes plus the cards in its main pool (a card
-          // once per copy); surface both as loadable saved pools for the shared cube draft.
-          // A cube made for theme drafts stays out of this list; theme-less ("any") ones show.
-          setTemplates(
-            (data.cubes ?? []).filter((c) => c.draftType !== "theme").map((c) => ({
-              id: c.id,
-              name: c.name,
-              config: { setNames: c.setNames ?? [], customCardIds: savedPoolIds(c.customCardIds, c.mainCards) },
-              extraCount: c.extraCount ?? 0,
-            })),
-          );
-        },
-      )
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
-  // Resolve a whole archetype to card ids and union them into the custom pool.
-  const handleAddArchetype = async (archetype: string) => {
-    setError(null);
-    setArchetypeStatus(null);
-    try {
-      const res = await fetch("/api/cards/resolve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ archetype }),
-      });
-      if (!res.ok) {
-        setError(`Couldn't add "${archetype}" — the card database may be unreachable.`);
-        return;
-      }
-      const data = (await res.json()) as { cards: Array<{ id: number }> };
-      const ids = data.cards.map((c) => c.id);
-      setFields((f) => {
-        const existing = parseCustomCardIds(f.customCardText).cardIds;
-        const union = Array.from(new Set([...existing, ...ids]));
-        return { ...f, customCardText: union.join("\n") };
-      });
-      setArchetypeStatus(`Added ${ids.length} card${ids.length === 1 ? "" : "s"} from "${archetype}".`);
-    } catch {
-      setError(`Couldn't add "${archetype}" — the card database may be unreachable.`);
-    }
-  };
-
-  const applyTemplate = (template: DraftTemplate) => {
-    const c = template.config;
-    setSelectedTemplateName(template.name);
-    setTemplateName(template.name);
-    setFields((f) => ({
-      ...f,
-      setNames: c.setNames ?? [],
-      customCardText: (c.customCardIds ?? []).join("\n"),
-    }));
-    setSavedName(null);
-    const nSets = (c.setNames ?? []).length;
-    const nIds = (c.customCardIds ?? []).length;
-    setLoadedHint(loadedPoolHint(template.name, nSets, nIds, template.extraCount ?? 0));
-  };
-
-  const handleTemplateChange = (tName: string) => {
-    const t = templates.find((item) => item.name === tName);
-    if (t) applyTemplate(t);
-  };
-
-  const handleSaveTemplate = async () => {
-    setSavedName(null);
-    setError(null);
-    if (!templateName.trim()) { setError("Template name is required"); return; }
-    const poolError = validateFields(fields);
-    if (poolError) { setError(poolError); return; }
-
-    const { cardIds: customCardIds } = parseCustomCardIds(fields.customCardText);
-    const res = await fetch("/api/cubes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: templateName.trim(), config: { setNames: fields.setNames, customCardIds } }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setError(data.error ?? "Failed to save pool");
-      return;
-    }
-    const data = (await res.json()) as { cube?: { id: number; name: string; config?: DraftConfig } };
-    const cube = data.cube;
-    const saved: DraftTemplate = {
-      id: cube?.id ?? 0,
-      name: cube?.name ?? templateName.trim(),
-      config: cube?.config ?? { setNames: fields.setNames, customCardIds },
-    };
-    setTemplates((cur) =>
-      [...cur.filter((item) => item.name !== saved.name), saved].sort((a, b) => a.name.localeCompare(b.name)),
-    );
-    setSelectedTemplateName(saved.name);
-    setSavedName(saved.name);
-    if (savedTimer.current) clearTimeout(savedTimer.current);
-    savedTimer.current = setTimeout(() => setSavedName(null), 4000);
-  };
-
-  React.useEffect(() => () => { if (savedTimer.current) clearTimeout(savedTimer.current); }, []);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -200,8 +60,13 @@ export function CreateDraftForm() {
       nameRef.current?.focus();
       return;
     }
-    const poolError = validateFields(fields);
-    if (poolError) { setError(poolError); return; }
+    if (pool.loading) return;
+    if (pool.pool.size === 0) {
+      setError("Add cards to the pool first");
+      return;
+    }
+    const packError = validateFields(fields);
+    if (packError) { setError(packError); return; }
 
     setSubmitting(true);
     try {
@@ -211,7 +76,7 @@ export function CreateDraftForm() {
         body: JSON.stringify({
           name: name.trim(),
           channelId: channelId || undefined,
-          config: configFromFields(fields),
+          config: { ...configFromFields(fields), ...pool.config(), includeNames: [], excludeNames: [] },
         }),
       });
       if (!res.ok) {
@@ -227,9 +92,16 @@ export function CreateDraftForm() {
     }
   };
 
-  const { cardIds } = parseCustomCardIds(fields.customCardText);
   const config = configFromFields(fields);
   const unnamed = !name.trim();
+  const previewCards = React.useMemo<CardSummary[]>(() => {
+    const out: CardSummary[] = [];
+    for (const [id, copies] of pool.pool) {
+      const card = pool.info(id);
+      if (card) out.push({ ...card, qty: copies });
+    }
+    return out;
+  }, [pool.pool, pool.info]);
 
   return (
     <DraftLayout as="form" onSubmit={handleSubmit}>
@@ -291,79 +163,11 @@ export function CreateDraftForm() {
           <section className={styles.sec} aria-labelledby="dc-p">
             <div className={styles.secSide}>
               <h2 id="dc-p">Pool</h2>
-              <p>The cards everyone drafts from. Mix whole sets, whole archetypes and single passcodes.</p>
+              <p>The cards everyone drafts from. Start from a cube or build one here.</p>
             </div>
             <div className="fields">
-              <div className={`wide ${styles.load}`}>
-                <div>
-                  <label className="label" htmlFor="saved-pool">
-                    Saved pool
-                  </label>
-                  <select
-                    className="input select"
-                    id="saved-pool"
-                    value={selectedTemplateName}
-                    onChange={(e) => handleTemplateChange(e.target.value)}
-                  >
-                    <option value="">Choose a saved pool</option>
-                    {templates.map((t) => (
-                      <option key={t.id} value={t.name}>{t.name}</option>
-                    ))}
-                  </select>
-                </div>
-                {loadedHint && <p className="hint" role="status">{loadedHint}</p>}
-              </div>
-
-              <PoolBuilder
-                value={{ setNames: fields.setNames, customCardText: fields.customCardText }}
-                onChange={(pb) => setFields((f) => ({ ...f, setNames: pb.setNames, customCardText: pb.customCardText }))}
-                showPreview={false}
-                onPool={handlePool}
-                afterSets={
-                  <div className="wide">
-                    <ArchetypeAdd
-                      inputId="draft-archetype-search"
-                      onSelect={(archetype) => void handleAddArchetype(archetype)}
-                      hint={
-                        <p className="hint">
-                          Adds every card in the archetype to the passcodes below.
-                          {archetypeStatus ? ` ${archetypeStatus}` : ""}
-                        </p>
-                      }
-                    />
-                  </div>
-                }
-              />
-
-              <div className={`wide ${styles.save}`}>
-                <div>
-                  <label className="label" htmlFor="template-name">
-                    Save this pool as
-                  </label>
-                  <input
-                    className="input"
-                    id="template-name"
-                    type="text"
-                    value={templateName}
-                    onChange={(e) => setTemplateName(e.target.value)}
-                    placeholder="Goat cube"
-                  />
-                </div>
-                <SvButton variant="ghost" onClick={handleSaveTemplate}>
-                  {savedName ? (
-                    <>
-                      <Check size={15} aria-hidden="true" />
-                      Saved
-                    </>
-                  ) : (
-                    "Save pool"
-                  )}
-                </SvButton>
-                {savedName && (
-                  <p className={styles.status} role="status">
-                    Saved {savedName}
-                  </p>
-                )}
+              <div className="wide">
+                <PoolEditor ctl={pool} />
               </div>
             </div>
           </section>
@@ -381,7 +185,7 @@ export function CreateDraftForm() {
       <DraftRail
         aria-label="Draft summary"
         actions={
-          <SvButton type="submit" variant="primary" big wide disabled={submitting} aria-busy={submitting || undefined}>
+          <SvButton type="submit" variant="primary" big wide disabled={submitting || pool.loading} aria-busy={submitting || pool.loading || undefined}>
             Create draft
           </SvButton>
         }
@@ -391,16 +195,17 @@ export function CreateDraftForm() {
           <p className={`${styles.railName}${unnamed ? ` ${styles.unnamed}` : ""}`}>{unnamed ? "Untitled draft" : name.trim()}</p>
           <Rules
             rows={[
-              { label: "Pool", value: poolRowText(fields.setNames.length, cardIds.length) },
+              { label: "Pool", value: <PoolRailValue ctl={pool} /> },
               { label: "Each player", value: <><Num>{config.cardsPerPlayer}</Num> cards</> },
               { label: "Packs", value: <><Num>{config.packsPerPlayer}</Num> of <Num>{config.packSize}</Num></> },
               { label: "Pick duration", value: secondsText(config.pickSeconds ?? 0) },
               { label: "Seats", value: "Shuffled at the start" },
             ]}
           />
+          <SeatNote total={pool.total} perPlayer={config.packsPerPlayer * config.packSize} />
         </RailSection>
         <RailSection>
-          <PoolPreview cards={poolCards} unknownIds={poolUnknownIds} loading={poolLoading} />
+          <PoolPreview cards={previewCards} unknownIds={[]} loading={!pool.ready} />
         </RailSection>
         <RailSection title="What happens next">
           <ol className={styles.steps} aria-label="What happens next">

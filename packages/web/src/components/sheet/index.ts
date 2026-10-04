@@ -22,3 +22,4 @@ export {
 } from "./sv-buttons";
 export { CopyLinkRow } from "./sv-copy";
 export { ringColour, RING_PALETTE } from "./sv-ring";
+export { SvCheck, type SvCheckProps } from "./sv-check";

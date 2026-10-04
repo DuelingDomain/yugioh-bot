@@ -146,9 +146,11 @@ function carriedPops(key: string): [ClockPop | null, ClockPop | null] {
 }
 
 // The parent keys this sampler by serverNow so each authoritative snapshot resets elapsed time.
-export function DuelClockDisplay({ clock, session, reducedMotion = false, compact = false }: { clock: DuelClock; session: DuelSession; reducedMotion?: boolean; compact?: boolean }) {
+// `seats` limits it to some seats (3D mode shows one clock per cell); each choice keeps its own pop memory.
+export function DuelClockDisplay({ clock, session, reducedMotion = false, compact = false, seats }: { clock: DuelClock; session: DuelSession; reducedMotion?: boolean; compact?: boolean; seats?: readonly number[] }) {
+  const memoryKey = seats ? `${session.slug}#${seats.join(",")}` : session.slug;
   const [elapsed, setElapsed] = useState(0);
-  const [pops, setPops] = useState<[ClockPop | null, ClockPop | null]>(() => carriedPops(session.slug));
+  const [pops, setPops] = useState<[ClockPop | null, ClockPop | null]>(() => carriedPops(memoryKey));
   useEffect(() => {
     if (clock.activeSeat == null || clock.startedAt == null) return;
     const receivedAt = performance.now();
@@ -156,7 +158,7 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false, compac
     return () => window.clearInterval(timer);
   }, [clock.activeSeat, clock.startedAt]);
   useEffect(() => {
-    const key = session.slug;
+    const key = memoryKey;
     const memory = clockMemory.get(key);
     const now = performance.now();
     const gains = memory && memory.clock !== clock ? clockGains(memory.clock, clock) : [0, 0];
@@ -171,10 +173,11 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false, compac
     }
     clockMemory.set(key, { clock, pops: nextPops, until });
     if (changed) setPops(nextPops);
-  }, [clock, session.slug]);
+  }, [clock, memoryKey]);
   return (
     <div className={styles.clock} role="timer" aria-label="Decision clocks" aria-live="off">
       {clock.remainingMs.map((remaining, seat) => {
+        if (seats && !seats.includes(seat)) return null;
         if (compact && clock.activeSeat !== seat) return null;
         const active = clock.activeSeat === seat && clock.startedAt != null;
         const seconds = Math.ceil(Math.max(0, remaining - (active ? Math.max(0, clock.serverNow + elapsed - clock.startedAt!) : 0)) / 1000);

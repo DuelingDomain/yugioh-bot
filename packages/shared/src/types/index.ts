@@ -16,6 +16,8 @@ export interface DraftConfig {
   cubeCardIds?: number[];
   /** @deprecated legacy key, still read for drafts created before the rename */
   poolCardIds?: number[];
+  /** The saved cube a cube draft's pool started from (display and Reset only; the pool itself is customCardIds). */
+  poolSource?: { cubeId: number; cubeName: string };
 
   // ----- theme mode -----
   /** Draft mode. Absent or "booster" => existing behavior. */

@@ -83,7 +83,7 @@ describe("PoolPreview", () => {
 
   it("asks for a pool when there are no cards", () => {
     render(<PoolPreview cards={[]} unknownIds={[]} loading={false} />);
-    expect(screen.getByText(/add sets or card ids to preview the pool/i)).toBeInTheDocument();
+    expect(screen.getByText(/add cards to preview the pool/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /see all/i })).toBeNull();
   });
 });

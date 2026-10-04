@@ -1,0 +1,238 @@
+/**
+ * The requests the pool editor makes. Each one returns plain data or throws an Error whose message is fit to show.
+ * Kept apart from the hook so the hook reads as state, and so tests can stub `fetch` once.
+ */
+
+import type { CardSummary } from "@/lib/card-types";
+import { isExtraDeckMonster } from "@/lib/card-types";
+import { putCards } from "@/lib/cards-cache";
+import { clampCopies, poolFromEntries, poolToIds, type Pool, type PoolSource } from "./pool-model";
+
+export interface CubeOption {
+  id: number;
+  name: string;
+  createdByUserId: string;
+  createdByName: string | null;
+  canEdit: boolean;
+  draftType: string | null;
+  /** Different cards in the main pool. */
+  mainDistinct: number;
+  /** Copies in the main pool. */
+  mainCopies: number;
+  extraCount: number;
+  /** The first cards of the main pool, for the picker's thumbnails. */
+  thumbIds: number[];
+  /** Config-only cubes (made before cubes held cards) keep their pool here. */
+  setNames: string[];
+  customCardIds: number[];
+}
+
+interface CubeListRow {
+  id: number;
+  name: string;
+  draftType?: string | null;
+  createdByUserId?: string;
+  createdByName?: string | null;
+  canEdit?: boolean;
+  extraCount?: number;
+  setNames?: string[];
+  customCardIds?: number[];
+  mainCards?: Array<{ id: number; copies: number }>;
+}
+
+async function readError(res: Response, fallback: string): Promise<string> {
+  const data = (await res.json().catch(() => ({}))) as { error?: unknown };
+  return typeof data.error === "string" && data.error ? data.error : fallback;
+}
+
+export async function fetchCubeOptions(): Promise<CubeOption[]> {
+  const res = await fetch("/api/cubes");
+  if (!res.ok) return [];
+  const data = (await res.json()) as { cubes?: CubeListRow[] };
+  return (data.cubes ?? []).map((c) => {
+    const main = c.mainCards ?? [];
+    return {
+      id: c.id,
+      name: c.name,
+      createdByUserId: c.createdByUserId ?? "",
+      createdByName: c.createdByName ?? null,
+      canEdit: c.canEdit ?? false,
+      draftType: c.draftType ?? null,
+      mainDistinct: main.length,
+      mainCopies: main.reduce((sum, card) => sum + card.copies, 0),
+      extraCount: c.extraCount ?? 0,
+      thumbIds: main.slice(0, 3).map((card) => card.id),
+      setNames: c.setNames ?? [],
+      customCardIds: c.customCardIds ?? [],
+    };
+  });
+}
+
+export async function fetchSessionUserId(): Promise<string | null> {
+  try {
+    const res = await fetch("/api/auth/session");
+    if (!res.ok) return null;
+    const data = (await res.json()) as { user?: { id?: string } } | null;
+    return data?.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export interface Resolved {
+  cards: CardSummary[];
+  unknownIds: number[];
+}
+
+/** Resolves cards through the card list and remembers them. Throws when the card database can't be reached. */
+export async function resolveCards(body: {
+  setNames?: string[];
+  customCardIds?: number[];
+  archetype?: string;
+  fuzzyName?: string;
+}): Promise<Resolved> {
+  const res = await fetch("/api/cards/resolve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await readError(res, "The card database may be unreachable."));
+  const data = (await res.json()) as { cards?: CardSummary[]; unknownIds?: number[] };
+  const cards = data.cards ?? [];
+  putCards(cards);
+  return { cards, unknownIds: data.unknownIds ?? [] };
+}
+
+/** Passcodes resolved in chunks, so a long paste is not one huge request. Passcodes the card list lacks come back as unknown. */
+export async function resolvePasscodes(ids: number[]): Promise<Resolved> {
+  const distinct = Array.from(new Set(ids));
+  const chunks: number[][] = [];
+  for (let i = 0; i < distinct.length; i += 100) chunks.push(distinct.slice(i, i + 100));
+  const results = await Promise.all(chunks.map((chunk) => resolveCards({ customCardIds: chunk })));
+  const byId = new Map<number, CardSummary>();
+  const unknown = new Set<number>();
+  for (const r of results) {
+    for (const card of r.cards) byId.set(card.id, card);
+    for (const id of r.unknownIds) unknown.add(id);
+  }
+  return { cards: [...byId.values()], unknownIds: [...unknown] };
+}
+
+export interface CubeDetail {
+  main: Pool;
+  extraCount: number;
+}
+
+/**
+ * A cube's main pool as copies, with its cards remembered. A cube made before cubes held cards can also carry
+ * sets and passcodes in its config, and a migrated cube can carry both. The pool is all of them; a card that
+ * comes from more than one source keeps the largest count, not the sum.
+ */
+export async function fetchCubeDetail(cube: Pick<CubeOption, "id" | "setNames" | "customCardIds">): Promise<CubeDetail> {
+  const res = await fetch(`/api/cubes/${cube.id}`);
+  if (!res.ok) throw new Error(await readError(res, "Couldn't open that cube."));
+  const data = (await res.json()) as {
+    pools?: { main?: Array<{ catalogCardId: number; maxCopies: number }>; extra?: unknown[] };
+    cards?: CardSummary[];
+  };
+  putCards(data.cards ?? []);
+  const main = data.pools?.main ?? [];
+  const extraCount = data.pools?.extra?.length ?? 0;
+  const copies = new Map<number, number>();
+  const take = (id: number, n: number) => {
+    if (Number.isInteger(id) && id > 0 && n >= 1) copies.set(id, Math.max(copies.get(id) ?? 0, clampCopies(n)));
+  };
+  for (const c of main) take(c.catalogCardId, c.maxCopies);
+  if (cube.setNames.length > 0) {
+    const resolved = await resolveCards({ setNames: cube.setNames });
+    for (const c of resolved.cards) if (!isExtraDeckMonster(c)) take(c.id, c.qty ?? 1);
+  }
+  if (cube.customCardIds.length > 0) {
+    const counts = new Map<number, number>();
+    for (const id of cube.customCardIds) counts.set(id, (counts.get(id) ?? 0) + 1);
+    const resolved = await resolveCards({ customCardIds: Array.from(counts.keys()) });
+    for (const c of resolved.cards) if (!isExtraDeckMonster(c)) take(c.id, counts.get(c.id) ?? 1);
+  }
+  return { main: poolFromEntries(Array.from(copies, ([id, n]) => ({ id, copies: n }))), extraCount };
+}
+
+/** The pool a draft will deal: its resolved cards with copies. Remembers the cards. */
+export async function fetchDraftPool(slug: string): Promise<Pool> {
+  const res = await fetch(`/api/drafts/${encodeURIComponent(slug)}/pool`);
+  if (!res.ok) throw new Error(await readError(res, "Couldn't load the pool."));
+  const data = (await res.json()) as { cards?: CardSummary[] };
+  const cards = data.cards ?? [];
+  putCards(cards);
+  return poolFromEntries(cards.map((c) => ({ id: c.id, copies: c.qty ?? 1 })));
+}
+
+export interface SavedCube {
+  id: number;
+  name: string;
+}
+
+export class NameTakenError extends Error {}
+
+/** Saves a pool as a real cube. `copyExtraFromCubeId` carries the Extra Deck of the cube the pool started from. */
+export async function createPoolCube(args: {
+  name: string;
+  cards: Array<{ id: number; copies: number }>;
+  copyExtraFromCubeId?: number;
+}): Promise<SavedCube> {
+  const res = await fetch("/api/cubes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      kind: "pool",
+      name: args.name,
+      cards: args.cards,
+      ...(args.copyExtraFromCubeId !== undefined ? { copyExtraFromCubeId: args.copyExtraFromCubeId } : {}),
+    }),
+  });
+  if (res.status === 409) throw new NameTakenError(await readError(res, "That name is taken."));
+  if (!res.ok) throw new Error(await readError(res, "Couldn't save the cube."));
+  const data = (await res.json()) as { cube?: { id: number; name: string } };
+  if (!data.cube) throw new Error("Couldn't save the cube.");
+  return { id: data.cube.id, name: data.cube.name };
+}
+
+export async function replaceCubeMain(cubeId: number, cards: Array<{ id: number; copies: number }>): Promise<void> {
+  const res = await fetch(`/api/cubes/${cubeId}/cards`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ op: "replaceMain", cards }),
+  });
+  if (res.status === 403) throw new Error("Only the cube's owner or an admin can change it.");
+  if (!res.ok) throw new Error(await readError(res, "Couldn't save the changes."));
+}
+
+export interface SetInfo {
+  setName: string;
+  setCode: string;
+  cardCount: number;
+}
+
+/** The server matches the text against set names and returns the first 25. */
+export async function fetchSets(query = ""): Promise<SetInfo[]> {
+  const q = query.trim();
+  const res = await fetch(q ? `/api/sets?q=${encodeURIComponent(q)}` : "/api/sets");
+  if (!res.ok) throw new Error("Couldn't load the sets.");
+  const data = (await res.json()) as { sets?: SetInfo[] };
+  return data.sets ?? [];
+}
+
+export async function fetchArchetypes(query: string): Promise<string[]> {
+  const res = await fetch(`/api/archetypes?query=${encodeURIComponent(query)}`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { archetypes?: string[] };
+  return (data.archetypes ?? []).slice(0, 8);
+}
+
+/** The pool a draft config carries: one passcode per copy, no sets, and the cube it started from. */
+export function configPool(pool: Pool, source: PoolSource | null): {
+  setNames: string[];
+  customCardIds: number[];
+  poolSource: PoolSource | null;
+} {
+  return { setNames: [], customCardIds: poolToIds(pool), poolSource: source };
+}

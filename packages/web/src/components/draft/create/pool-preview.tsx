@@ -37,7 +37,7 @@ export function PoolPreview({ cards, unknownIds, loading }: PoolPreviewProps) {
         <small aria-live="polite">{loading ? "Resolving" : cards.length > 0 ? `${tally.total} cards` : ""}</small>
       </p>
       {cards.length === 0 && unknownIds.length === 0 ? (
-        <p className={styles.pvEmpty}>{loading ? "Looking up the cards." : "Add sets or card IDs to preview the pool."}</p>
+        <p className={styles.pvEmpty}>{loading ? "Looking up the cards." : "Add cards to preview the pool."}</p>
       ) : (
         <>
           {cards.length > 0 && (
@@ -93,7 +93,7 @@ export function PoolPreview({ cards, unknownIds, loading }: PoolPreviewProps) {
               cards={cards}
               unknownIds={unknownIds}
               loading={loading}
-              emptyMessage="Add sets or card IDs to preview the pool."
+              emptyMessage="Add cards to preview the pool."
               countMode="copies"
               heightClassName="h-[calc(100vh-9rem)]"
             />

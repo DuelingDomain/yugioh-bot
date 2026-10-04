@@ -11,8 +11,8 @@ name: Test
 #   rule-coverage  every rule of ADR-0002 has a covering test (--strict).
 #   nduel-nightly  scheduled: the nduel fuzz (n2, n3, n4, tag) with --check-future, and the golden hash check.
 #
-# Pushes to main run every job except nduel-nightly. Pull requests skip the engine jobs they cannot affect (see changes). A manual run (workflow_dispatch) runs
-# every job, nduel-nightly too. The schedule runs cores and nduel-nightly only.
+# Pushes to main run every job except nduel-nightly. Pull requests skip engine jobs they cannot affect.
+# A manual run runs every job, including nduel-nightly. The schedule runs cores and nduel-nightly only.
 
 on:
   pull_request:
@@ -42,12 +42,12 @@ env:
   BUNDLE_DIR: data/duel-engine-next
 
 jobs:
-  # Which layers a pull request can affect. Pushes to main, manual runs and the schedule always run everything.
-  #   engine      the duel engine, the shared package, the engine bundle inputs, the lockfile or this workflow changed:
+  # Which layers a pull request can affect. Main pushes, manual runs and the schedule run full suites.
+  #   engine      the duel engine, its shared dependencies, the engine bundle inputs, the lockfile or this workflow changed:
   #               the engine, legacy engine and native jobs run.
   #   web_engine  engine, or the duel UI or web tests changed: the engine job runs, for the web tests that drive a real
   #               duel (prompts.tsx, prompt-center.tsx). Its engine-only steps still need engine.
-  # A UI-only pull request (web outside the duel components, bot, ws, docs) runs the unit and rule coverage jobs only.
+  # Changes outside these paths run the unit and rule coverage jobs; cores still builds or restores the bundle.
   changes:
     name: Changed layers
     runs-on: ubuntu-latest
@@ -64,7 +64,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Diff against the base
+      - name: Diff changed files
         id: diff
         env:
           EVENT: ${{ github.event_name }}

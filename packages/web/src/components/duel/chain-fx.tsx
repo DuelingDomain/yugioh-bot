@@ -76,7 +76,8 @@ import { chainBeatAt, chainBeatsEndAt, planChainBeats, resetChainBeats } from ".
 import { findFlipSequences } from "./flip-sequence";
 import { holdPromptReveal } from "./prompt-reveal";
 import { PriorityChips, type PrioritySlot } from "./priority-chips";
-import styles from "./chain-fx.module.css";
+import baseStyles from "./chain-fx.module.css";
+import { useSkinStyles } from "./skin";
 
 export type ChainFxProps = {
   /** engine.events (a rolling window; ids only grow). */
@@ -297,7 +298,7 @@ const SHEET_MIN = 140;
 /** Two interlocked links. */
 function ChainGlyph() {
   return (
-    <svg className={styles.glyph} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <svg className={baseStyles.glyph} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <g transform="rotate(-40 12 12)" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round">
         <rect x="1.5" y="8" width="12" height="8" rx="4" />
         <rect x="10.5" y="8" width="12" height="8" rx="4" />
@@ -347,6 +348,9 @@ export function sequenceOwners(events: readonly DuelEvent[]): Map<number, number
 }
 
 export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority, ended = false, table, seats }: ChainFxProps) {
+  // Classic: the module's own classes (the same object). 3D mode: the same keys with the solid classes added.
+  const styles = useSkinStyles(baseStyles, "chain");
+  const skinned = styles !== baseStyles;
   const named = seatTones != null;
   // On Tag the partner's zones read "partner's"; every other seat that is not yours reads by name or "opponent's".
   const partner = table === "tag" && mySeat != null ? partnerSeatOf("tag", mySeat) : null;
@@ -724,6 +728,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
     "data-top": link.index === topIndex ? "true" : "false",
     "data-next": link.index === nextIndex ? "true" : "false",
     "data-focus": focus?.index === link.index ? "true" : "false",
+    // Only for the solid look (yours wear purple); the classic slot keeps its attributes.
+    ...(skinned ? { "data-mine": mySeat != null && link.seat === mySeat ? "true" : "false" } : {}),
   });
   const showPanel = view != null;
 

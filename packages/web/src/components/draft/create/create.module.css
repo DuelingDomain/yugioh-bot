@@ -36,28 +36,6 @@
 .secSide p { margin: 0; color: var(--ink-3); font-size: 14px; line-height: 1.5; max-width: 28ch; }
 .alert { margin: 0; }
 
-.load { display: grid; gap: 0; }
-.search { display: flex; flex-wrap: wrap; gap: 8px; }
-.in { position: relative; flex: 1 1 200px; min-width: 0; }
-.in > svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-3); pointer-events: none; }
-:global(.ms) .in :global(.input) { padding-left: 34px; }
-:global(.ms) .ib { width: 42px; padding: 0; justify-content: center; }
-.spin { animation: spin 900ms linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.suggest { position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); max-height: 240px; overflow-y: auto; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel-2); box-shadow: 0 24px 40px -20px #000; }
-.suggest button { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 5px; background: none; color: var(--ink); font: inherit; font-size: 14.5px; text-align: left; cursor: pointer; }
-.suggest button:hover { background: rgb(239 231 213 / 0.06); }
-.suggest button:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: -2px; }
-.suggest small { display: block; color: var(--ink-3); font-size: 13px; }
-.suggest .added { color: var(--pen-ink); }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
-:global(.ms) .chips > li:global(.chip) { max-width: 100%; padding-right: 4px; }
-.chips button { display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 50%; background: none; color: inherit; cursor: pointer; }
-.chips button:hover { background: rgb(239 231 213 / 0.08); }
-.chips button:focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 1px; }
-.save { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
-.save > div { flex: 1 1 200px; }
-.status { flex-basis: 100%; margin: 0; color: var(--chain-ink); font-size: 14px; }
 :global(.ms) .three:global(.fields) { grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); }
 .three > :global(.wide) { grid-column: 1 / -1; }
 .unit { position: relative; display: block; }
@@ -85,7 +63,6 @@
 .zoneOpt b { color: var(--ink); font-size: 15.5px; font-weight: 600; }
 .zoneOpt span { color: var(--ink-3); font-size: 14px; line-height: 1.5; }
 .zoneOpt:has(input:focus-visible) { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
-.stack { display: grid; gap: 20px; min-width: 0; }
 
 /* ---- the rail: name, numbers, steps ---- */
 .railKind { margin: 0 0 4px; color: var(--ink-3); font-size: 14px; }
@@ -126,12 +103,7 @@
   .secSide p { max-width: none; }
   .zoneOpts { grid-template-columns: minmax(0, 1fr); }
 }
-@container (max-width: 560px) {
-  .browseText { display: none; }
-  :global(.ms) .browseBtn { width: 42px; padding: 0; justify-content: center; }
-}
 @media (prefers-reduced-motion: reduce) {
   .kind { transition: none; }
   .kind:hover { transform: none; }
-  .spin { animation: none; }
 }

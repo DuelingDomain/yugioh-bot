@@ -80,3 +80,15 @@ test("only PRs confined to tests get a narrow selection; source/patch/script cha
   assert.deepEqual(changedLayers(["packages/web/tests/duel.test.ts"], "pull_request"), { engine: false, web_engine: true, tests_only: false });
   assert.equal(changedLayers([], "pull_request").tests_only, false);
 });
+
+test("PR selection retains main's reviewed non-engine paths and web engine dependencies", () => {
+  for (const file of ["packages/shared/tests/draft.test.ts", "packages/shared/src/services/cubes.ts", "scripts/seed.ts"]) {
+    assert.deepEqual(changedLayers([file], "pull_request"), { engine: false, web_engine: false, tests_only: false });
+  }
+  for (const file of ["packages/web/src/components/ui/button.tsx", "packages/web/src/lib/utils.ts", "packages/web/e2e/duel.ts"]) {
+    assert.deepEqual(changedLayers([file], "pull_request"), { engine: false, web_engine: true, tests_only: false });
+  }
+  assert.equal(changedLayers(["packages/shared/src/services/duels.ts"], "pull_request").engine, true);
+  assert.equal(changedLayers(["packages/shared/src/services/unknown.ts"], "pull_request").engine, true);
+  assert.equal(changedLayers(["packages/shared/src/services/cubes.ts"], "push").engine, true);
+});

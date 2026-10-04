@@ -1,0 +1,364 @@
+/* Solid Vision Deck Master docks (desktop right column), the mobile Deck Master chip and the mobile peek bar.
+   Spec section 4 W4; concept styles.css 402-420 (docks), 708-728 (chip, peek).
+
+   The dock rules re-skin the V1 MasterDock/DeckMasterRail classes (field.module.css) through the `field` skin slot.
+   Each selector starts with [data-look="solid"] (the Solid room root), so it outranks the V1 rule and its media queries
+   no matter which stylesheet loads last. There is no dashed border anywhere (owner rule): the away state and the
+   disabled buttons use a solid gold-lo line. Keep data-master-dock on .masterArt: MasterReturnFx finds the dock by it.
+
+   The obsidian greys are written as hex here, not var(--ink-N): .felt and .masterRail (field.module.css) redefine
+   --ink, --ink-2 and --ink-3 as the V1 cream text tones, which would turn these backgrounds beige. */
+
+/* ---------- dock column ---------- */
+
+[data-look="solid"] .masterRail {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--pad);
+  height: 100%;
+  min-height: 0;
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+[data-look="solid"] .masterDock,
+[data-look="solid"] .masterDock[data-local="true"] {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+  padding: 12px 14px;
+  overflow: hidden;
+  border: 1px solid var(--gold-b);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #0b0f1c, #080b15);
+  box-shadow: 0 18px 40px -18px rgb(0 0 0 / 0.9);
+  transition: border-color 0.25s, box-shadow 0.25s;
+}
+/* A Deck Master action is open for you (the card is a legal pick): the purple "can act" border. */
+[data-look="solid"] .masterDock[data-local="true"][data-legal="true"],
+[data-look="solid"] .masterDock[data-local="true"][data-selected="true"] {
+  border-color: rgb(143 118 242 / 0.6);
+  box-shadow: 0 0 0 1px rgb(143 118 242 / 0.25), 0 18px 40px -18px rgb(0 0 0 / 0.9);
+}
+
+[data-look="solid"] .masterTitle {
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--hair);
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  text-align: center;
+}
+
+/* The picture button: art centred under the title. The name and detail lines stay in the DOM (the button has an
+   aria-label) but the concept shows the art alone. */
+[data-look="solid"] .masterHit {
+  --dm-w: auto;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  border-radius: 8px;
+}
+[data-look="solid"] .masterHit:focus-visible {
+  outline: 2px solid var(--gold-hi);
+  outline-offset: 3px;
+}
+[data-look="solid"] .masterId { display: none; }
+
+[data-look="solid"] .masterArt {
+  /* The ZoneMarks glow and tag size from --z (the art height), as on the field. */
+  --z: clamp(100px, 17vh, 196px);
+  --cw: calc(var(--z) * 0.686);
+  position: relative;
+  flex: none;
+  width: auto;
+  height: var(--z);
+  aspect-ratio: 813 / 1185;
+  border-radius: 6px;
+  box-shadow: 0 10px 22px -10px rgb(0 0 0 / 0.95), 0 0 0 1px rgb(0 0 0 / 0.6);
+}
+[data-look="solid"] .masterArt img {
+  width: 100%;
+  height: 100%;
+  border-radius: 6px;
+  object-fit: cover;
+  transition: opacity 0.3s;
+}
+
+/* Away (V1 sets data-away when the Deck Master is elsewhere, not on the field): the picture dims to 22% behind a solid gold-lo line and a tag. */
+[data-look="solid"] .masterArt[data-away="true"] img { opacity: 0.22; filter: none; }
+[data-look="solid"] .masterArt[data-away="true"]::before {
+  inset: 0;
+  border: 1px solid var(--gold-lo);
+  border-radius: 6px;
+}
+[data-look="solid"] .masterArt[data-away="true"]::after {
+  content: "Elsewhere";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  translate: -50% -50%;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: rgb(6 8 14 / 0.92);
+  box-shadow: inset 0 0 0 1px var(--gold-a);
+  color: var(--gold-hi);
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+[data-look="solid"] .masterMeta {
+  display: grid;
+  flex: none;
+  gap: 3px;
+  width: 100%;
+  margin: 12px 0 0;
+  border-top: 0;
+  font-size: 14px;
+}
+[data-look="solid"] .masterMeta > div {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0;
+  border-bottom: 0;
+}
+[data-look="solid"] .masterMeta dt { color: var(--tx-3); }
+[data-look="solid"] .masterMeta dd { margin: 0; color: var(--tx); font-weight: 500; text-align: right; }
+
+[data-look="solid"] .masterActions {
+  display: grid;
+  flex: none;
+  gap: 6px;
+  width: 100%;
+  margin-top: auto;
+  padding-top: 8px;
+}
+[data-look="solid"] .masterAction,
+[data-look="solid"] .masterInspect {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: #131b2e;
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 500;
+  transition: background 0.15s;
+}
+[data-look="solid"] .masterAction:hover:not(:disabled),
+[data-look="solid"] .masterInspect:hover:not(:disabled) {
+  background: #1b2540;
+  color: var(--tx);
+}
+[data-look="solid"] .masterAction[data-primary="true"] {
+  background: var(--pur-btn);
+  box-shadow: inset 0 0 0 1px rgb(184 168 255 / 0.35), 0 6px 14px -8px rgb(90 67 198 / 0.9);
+  color: #fff;
+}
+[data-look="solid"] .masterAction[data-primary="true"]:hover:not(:disabled) {
+  background: var(--pur-btn-hi);
+  color: #fff;
+}
+[data-look="solid"] .masterAction:disabled,
+[data-look="solid"] .masterInspect:disabled {
+  border-style: solid;
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--tx-3);
+}
+[data-look="solid"] .masterAction[data-primary="true"]:disabled { background: #131b2e; }
+[data-look="solid"] .masterAction:focus-visible,
+[data-look="solid"] .masterInspect:focus-visible {
+  outline: 2px solid var(--gold-hi);
+  outline-offset: 2px;
+}
+[data-look="solid"] .masterEmpty { color: var(--tx-3); font-size: 14px; }
+
+/* The Deck Masters sheet (phones): two docks stacked, the picture beside the facts. */
+@media (max-width: 900px) {
+  [data-look="solid"] .masterRail {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    height: auto;
+  }
+  [data-look="solid"] .masterDock,
+  [data-look="solid"] .masterDock[data-local="true"] {
+    flex: none;
+    overflow: visible;
+    padding: 10px 12px;
+  }
+  [data-look="solid"] .masterTitle { margin-bottom: 8px; padding-bottom: 6px; font-size: 15px; }
+  [data-look="solid"] .masterArt { --z: clamp(96px, 16dvh, 130px); }
+  [data-look="solid"] .masterMeta { margin-top: 8px; }
+  [data-look="solid"] .masterAction,
+  [data-look="solid"] .masterInspect { min-height: 40px; height: 40px; }
+}
+
+/* ---------- mobile Deck Master chip (height 48) ---------- */
+
+.dmChip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 48px;
+  padding: 4px 5px;
+  border-radius: 9px;
+  background: #0d1221;
+  box-shadow: inset 0 0 0 1px var(--gold-b);
+  transition: box-shadow 0.25s;
+}
+.dmChip[data-can-act="true"] { box-shadow: inset 0 0 0 1px rgb(143 118 242 / 0.6); }
+
+.chipMain {
+  display: grid;
+  grid-template-columns: 28px auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  min-width: 0;
+  height: 40px;
+  padding: 0 4px 0 0;
+  border: 0;
+  background: none;
+  color: var(--tx);
+  font-family: var(--font);
+  text-align: left;
+  touch-action: manipulation;
+}
+/* The thumb carries data-master-dock when the chip is the visible dock (narrow screens). */
+.chipArt {
+  grid-row: 1 / 3;
+  display: block;
+  width: 28px;
+  height: 40px;
+  border-radius: 3px;
+}
+.chipArt img {
+  display: block;
+  width: 28px;
+  height: 40px;
+  border-radius: 3px;
+  object-fit: cover;
+  transition: opacity 0.3s;
+}
+.dmChip[data-away="true"] .chipArt img { opacity: 0.3; }
+.chipName { font-size: 12px; font-weight: 500; line-height: 1.15; white-space: nowrap; }
+.chipStatus { font-size: 11px; line-height: 1.2; color: var(--tx-3); white-space: nowrap; }
+
+.chipAct {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--pur-btn);
+  color: #fff;
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  touch-action: manipulation;
+}
+.chipAct:active { background: var(--pur-btn-hi); }
+.chipMain:focus-visible, .chipAct:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 1px; }
+
+/* ---------- mobile peek bar (height 46) ---------- */
+
+.peekBar {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  height: 46px;
+  padding: 4px 6px 4px 5px;
+  border-radius: 10px;
+  background: #080b14;
+  box-shadow: inset 0 0 0 1px var(--gold-b);
+}
+.peekThumb {
+  display: block;
+  width: 28px;
+  height: 40px;
+  border-radius: 3px;
+  object-fit: cover;
+}
+.peekThumbEmpty { width: 28px; height: 40px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--hair); }
+.peekText { min-width: 0; }
+.peekName {
+  display: block;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.peekMeta {
+  display: block;
+  overflow: hidden;
+  color: var(--tx-3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.peekBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 8px;
+  background: #131b2e;
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  touch-action: manipulation;
+}
+.peekBtn:active { background: #1b2540; }
+.peekBtn:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 1px; }
+
+/* ---------- phones: tap targets for the Deck Master chip and the peek bar ---------- */
+@media (max-width: 900px) {
+  .dmChip { height: 52px; }
+  .chipMain { height: 44px; min-width: 44px; }
+  .chipAct { height: 40px; min-width: 44px; padding: 0 12px; }
+  .peekBar { height: 52px; }
+  .peekBtn { height: 42px; min-width: 56px; }
+}
+
+@media (max-width: 900px) and (max-height: 540px) and (orientation: landscape) {
+  .peekBar { height: 44px; }
+  .peekBtn { height: 36px; }
+}

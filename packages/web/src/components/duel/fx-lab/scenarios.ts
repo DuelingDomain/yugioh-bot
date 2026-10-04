@@ -7,8 +7,10 @@ import {
   EXTRA,
   GY,
   HAND,
+  hiddenAt,
   MZ,
   SZ,
+  cardAt,
   edit,
   ev,
   link,
@@ -1061,7 +1063,36 @@ const MOVES: LabScenario[] = [
   moveScenario("move-send", "Send from the Deck to the Graveyard", "Foolish Burial: a card goes from the Deck to the Graveyard.", () =>
     script(
       board(),
-      [{ at: 0, events: [ev.move(ME, C.sangan, DECK(ME), GY(ME, 0), "send")], edits: [edit.drawFromDeck(ME), edit.grave(ME, C.sangan)] }],
+      // The engine reports the top card of a 28 card Deck at sequence 27.
+      [{ at: 0, events: [ev.move(ME, C.sangan, DECK(ME, 27), GY(ME, 0), "send")], edits: [edit.drawFromDeck(ME), edit.grave(ME, C.sangan)] }],
+      2800,
+    ),
+  ),
+  moveScenario("move-deck-top", "Place on top of the Deck", "Phoenix Wing Wind Blast: a monster of the opponent goes back on top of their Deck (engine sequence = new Deck size - 1).", () =>
+    script(
+      board((e) => e.push(edit.monster(OPP, 2, C.blueEyes))),
+      [{ at: 0, events: [ev.move(OPP, C.blueEyes, MZ(OPP, 2), DECK(OPP, 29), "return")], edits: [edit.monster(OPP, 2, null), edit.deckCount(OPP, 30)] }],
+      2800,
+    ),
+  ),
+  moveScenario("move-deck-top-own", "Place your card on top of the Deck", "Your own monster goes back on top of your Deck and turns face-down on the way.", () =>
+    script(
+      board((e) => e.push(edit.monster(ME, 2, C.celtic))),
+      [{ at: 0, events: [ev.move(ME, C.celtic, MZ(ME, 2), DECK(ME, 28), "return")], edits: [edit.monster(ME, 2, null), edit.deckCount(ME, 29)] }],
+      2800,
+    ),
+  ),
+  moveScenario("move-deck-bottom", "Place on the bottom of the Deck", "Lightning Chidori: a Set card of the opponent goes to the bottom of their Deck (sequence 0, identity hidden).", () =>
+    script(
+      board((e) => e.push(edit.hiddenSpell(OPP, 1))),
+      [{ at: 0, events: [ev.move(OPP, null, SZ(OPP, 1), DECK(OPP, 0), "return")], edits: [edit.spell(OPP, 1, null), edit.deckCount(OPP, 30)] }],
+      2800,
+    ),
+  ),
+  moveScenario("move-deck-shuffle", "Shuffle into the Deck", "Jelly Cannon: a monster is shuffled into the Deck.", () =>
+    script(
+      board((e) => e.push(edit.monster(OPP, 1, C.summonedSkull))),
+      [{ at: 0, events: [ev.move(OPP, C.summonedSkull, MZ(OPP, 1), DECK(OPP, 29), "return")], edits: [edit.monster(OPP, 1, null), edit.deckCount(OPP, 30)] }],
       2800,
     ),
   ),
@@ -1137,7 +1168,7 @@ const MOVES: LabScenario[] = [
       2400,
     ),
   ),
-  moveScenario("move-extra", "Return to the Extra Deck", "A card returns from the field to the Extra Deck.", () =>
+  moveScenario("move-extra", "Return to the Extra Deck", "A Synchro Monster returns from the field to the Extra Deck and turns face-down on the way.", () =>
     script(
       board((e) => e.push(edit.monster(ME, 2, C.stardust))),
       [
@@ -1147,6 +1178,29 @@ const MOVES: LabScenario[] = [
           edits: [edit.monster(ME, 2, null), (b) => { b.seats[ME].extra.push({ controller: ME, location: EXTRA(ME, 3).location, sequence: 3, position: POS_FACEDOWN_DEFENSE }); b.seats[ME].extraCount += 1; }],
         },
       ],
+      2800,
+    ),
+  ),
+  moveScenario("move-extra-pendulum", "Pendulum Monster to the Extra Deck", "A face-up Pendulum Monster goes to the Extra Deck and stays face-up (it does not turn into a sleeve).", () =>
+    script(
+      board((e) => e.push(edit.monster(ME, 2, C.oddEyes))),
+      [
+        {
+          at: 0,
+          events: [ev.move(ME, C.oddEyes, MZ(ME, 2), EXTRA(ME, 3), "return")],
+          edits: [edit.monster(ME, 2, null), (b) => { b.seats[ME].extra.push(cardAt(C.oddEyes, EXTRA(ME, 3), POS_FACEUP_ATTACK)); b.seats[ME].extraCount += 1; }],
+        },
+      ],
+      2800,
+    ),
+  ),
+  moveScenario("move-extra-opp-pendulum", "To an opponent Extra Deck with a face-up Pendulum", "The opponent's Extra Deck piles are keyed at sequences 7 to 10 (the Pendulum Monster at 10 is face-up), with no sequence 0: an Xyz Monster of the opponent still flies into that pile and turns face-down.", () =>
+    script(
+      board((e) => {
+        e.push(edit.monster(OPP, 2, C.utopia));
+        e.push((b) => { b.seats[OPP].extra = [...[7, 8, 9].map((sequence) => hiddenAt(EXTRA(OPP, sequence), POS_FACEDOWN_DEFENSE)), cardAt(C.oddEyes, EXTRA(OPP, 10), POS_FACEUP_ATTACK)]; b.seats[OPP].extraCount = 4; });
+      }),
+      [{ at: 0, events: [ev.move(OPP, C.utopia, MZ(OPP, 2), EXTRA(OPP, 3), "return")], edits: [edit.monster(OPP, 2, null), (b) => { b.seats[OPP].extra.push(hiddenAt(EXTRA(OPP, 3), POS_FACEDOWN_DEFENSE)); b.seats[OPP].extraCount += 1; }] }],
       2800,
     ),
   ),
