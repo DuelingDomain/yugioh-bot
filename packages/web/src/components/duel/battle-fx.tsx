@@ -284,7 +284,11 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
   const fromNode = zoneNode(fromKey);
   const from = fromNode ? zoneBox(fromKey) : null;
   if (!fromNode || !from) return null;
-  const lp: Record<number, Box | undefined> = { 0: lpBox(0) ?? undefined, 1: lpBox(1) ?? undefined };
+  const lp: Record<number, Box | undefined> = {};
+  for (const node of document.querySelectorAll<HTMLElement>("[data-lp-seat]")) {
+    const seat = Number(node.dataset.lpSeat);
+    lp[seat] = lpBox(seat) ?? undefined;
+  }
   const attackerCard = readCard(fromKey, fromNode, prev, now);
   const attacker = cutSourceOf(fromNode, attackerCard);
   const base = {
@@ -306,7 +310,7 @@ function captureAttack(event: DuelEvent, prev: CardIndex, now: CardIndex): Attac
     const targetInDefense = targetCard.position == null ? node.dataset.defense === "true" : isDefense(targetCard.position);
     return { ...base, to, direct: false, target, toEl: node.querySelector("[data-card-art]"), targetCard, targetInDefense, targetTurned: node.closest('[data-side="opp"]') != null };
   }
-  const to = lpBox(1 - zone.controller);
+  const to = lpBox(event.targetSeat ?? 1 - zone.controller);
   if (!to) return null;
   return { ...base, to, direct: true, target: null, toEl: null, targetCard: null, targetInDefense: false, targetTurned: false };
 }
@@ -657,7 +661,7 @@ function declaredAim(attack: DuelEvent): BattleAim | null {
   if (!attack.zone) return null;
   const from = keyOfZone(attack.zone);
   if (attack.target) return { mode: "locked", from, to: { zones: [keyOfZone(attack.target)] } };
-  return { mode: "locked", from, to: { lpSeat: 1 - attack.zone.controller } };
+  return { mode: "locked", from, to: { lpSeat: attack.targetSeat ?? 1 - attack.zone.controller } };
 }
 
 export function BattleFx({ events, reducedMotion, active = true, aim = null, seats, result = null }: BattleFxProps) {

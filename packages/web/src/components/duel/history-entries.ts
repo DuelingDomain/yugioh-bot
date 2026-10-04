@@ -359,7 +359,7 @@ function destroyedSentence(name: string | null, loss: HistoryLoss | undefined): 
   return `${name ?? "A card"} was destroyed${phrase ? ` ${phrase}` : ""}.`;
 }
 
-function sentenceFor(tile: HistoryTile, who: HistoryViewOptions["who"], mySeat: number | null): string {
+function sentenceFor(tile: HistoryTile, who: HistoryViewOptions["who"], mySeat: number | null, seatCount: number): string {
   const actor = who(tile.seat);
   const name = mayReveal(tile, tile.card, mySeat) ? nameOf(tile.card) : null;
   const parts: string[] = [];
@@ -382,8 +382,10 @@ function sentenceFor(tile: HistoryTile, who: HistoryViewOptions["who"], mySeat: 
       break;
     case "attack": {
       const attacker = name ?? "a monster";
-      if (tile.target?.direct) parts.push(`${actor} attacked directly with ${attacker}.`);
-      else parts.push(`${actor} attacked ${nameOf(tile.target?.card) ?? "a monster"} with ${attacker}.`);
+      if (tile.target?.direct) {
+        const defender = seatCount > 2 && tile.target.seat != null ? `${who(tile.target.seat)} ` : "";
+        parts.push(`${actor} attacked ${defender}directly with ${attacker}.`);
+      } else parts.push(`${actor} attacked ${nameOf(tile.target?.card) ?? "a monster"} with ${attacker}.`);
       break;
     }
     case "destroy":
@@ -543,7 +545,7 @@ export function entryFor(tile: HistoryTile, options: HistoryViewOptions): Histor
     actor: who(actorSeat),
     verb: verbFor(tile),
     title: titleFor(tile, who, mySeat),
-    sentence: sentenceFor(tile, who, mySeat),
+    sentence: sentenceFor(tile, who, mySeat, options.seatCount ?? 2),
     thumbs: withThumbSeats(thumbsFor(tile, side, mySeat, who), tile, actorSeat),
     lp: lpFor(tile, mySeat, who),
     tags: tagsFor(tile),

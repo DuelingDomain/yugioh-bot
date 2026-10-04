@@ -82,7 +82,11 @@ describe("BattleFx", () => {
   const boxes: Record<string, DOMRect> = {
     "0:4:0": { left: 100, top: 400, width: 60, height: 88 } as DOMRect,
     "1:4:0": { left: 100, top: 100, width: 60, height: 88 } as DOMRect,
+    "3:4:0": { left: 900, top: 400, width: 60, height: 88 } as DOMRect,
+    lp0: { left: 20, top: 500, width: 200, height: 50 } as DOMRect,
     lp1: { left: 20, top: 20, width: 200, height: 50 } as DOMRect,
+    lp2: { left: 500, top: 20, width: 200, height: 50 } as DOMRect,
+    lp3: { left: 900, top: 20, width: 200, height: 50 } as DOMRect,
   };
 
   beforeEach(() => {
@@ -91,11 +95,13 @@ describe("BattleFx", () => {
     board.innerHTML = `
       <div data-zones="0:4:0"><div data-card-art></div></div>
       <div data-zones="1:4:0"><div data-card-art></div></div>
-      <div data-lp-seat="1"><strong>8000</strong></div>`;
+      <div data-zones="3:4:0"><div data-card-art></div></div>
+      ${[0, 1, 2, 3].map(seat => `<div data-lp-seat="${seat}" data-side="${seat === 0 ? "you" : "opp"}"><strong>8000</strong></div>`).join("")}`;
     document.body.appendChild(board);
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
       const zone = this.closest("[data-zones]")?.getAttribute("data-zones");
-      const box = zone ? boxes[zone] : this.closest("[data-lp-seat]") ? boxes.lp1 : undefined;
+      const lpSeat = this.closest("[data-lp-seat]")?.getAttribute("data-lp-seat");
+      const box = zone ? boxes[zone] : lpSeat != null ? boxes[`lp${lpSeat}`] : undefined;
       return (box ?? { left: 0, top: 0, width: 0, height: 0 }) as DOMRect;
     });
   });
@@ -130,6 +136,59 @@ describe("BattleFx", () => {
   // A Warrior (slash: two halves), a Machine (beam: 24 tiles) and a Spellcaster (arcane: 24 tiles).
   const warrior = { code: 6368038, name: "Gaia The Fierce Knight", race: "Warrior", attribute: 1, attack: 2300, defense: 2100 };
   const machine = { code: 77585513, name: "Jinzo", race: "Machine", attribute: 32, attack: 2400, defense: 1500 };
+
+  it.each([[1, 2, 0], [1, 3, 0], [3, 0, 2]])("aims seat %i's direct attack at defending seat %i for third-party viewer %i", (attacker, defender, viewer) => {
+    for (const node of board.querySelectorAll<HTMLElement>("[data-lp-seat]")) {
+      node.dataset.side = Number(node.dataset.lpSeat) === viewer ? "you" : "opp";
+    }
+    const declaration: DuelEvent = { ...direct, id: 2, seat: attacker, targetSeat: defender,
+      zone: { controller: attacker, location: 4, sequence: 0 } };
+    const box = boxes[`lp${defender}`];
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
+    rerender(<BattleFx events={[phase, declaration]} reducedMotion />);
+    // The locked aim rings the defender's LP, independent of the viewer's local LP.
+    const aim = document.querySelector('[data-aim="locked"]');
+    expect(aim).not.toBeNull();
+    expect(aim!.querySelector(`rect[x="${box.left - 5}"][y="${box.top - 5}"]`)).not.toBeNull();
+    const damage: DuelEvent = { id: 3, kind: "damage", seat: defender, amount: 1400, cause: "battle", text: "" };
+    rerender(<BattleFx events={[phase, declaration, damage]} reducedMotion />);
+    // The reduced-motion strike and the LP flash use the same defending seat.
+    expect(playLayer()).not.toBeNull();
+    expect(playLayer()!.querySelector(`rect[x="${box.left - 5}"][y="${box.top - 5}"]`)).not.toBeNull();
+    const flash = playLayer()!.querySelector<HTMLElement>('[class*="lpFlash"]');
+    expect(flash?.style.left).toBe(`${box.left - 8}px`);
+    expect(takeLpHold(defender)).toBe(0);
+  });
+
+  it.each([2, 3])("lands canvas playback, LP flash and sound on defending seat %i", defender => {
+    const play = vi.fn((_id: string, _request: FxRequest) => Promise.resolve());
+    setSharedFx3d({ host: board, api: { ready: true, play, prefetchArt() {}, cancelAll() {} } });
+    const cues: DuelFxCueDetail[] = [];
+    const listen = (event: Event) => cues.push((event as CustomEvent<DuelFxCueDetail>).detail);
+    window.addEventListener(DUEL_FX_CUE_EVENT, listen);
+    try {
+      const declaration: DuelEvent = { ...direct, id: 2, seat: 1, targetSeat: defender, zone: attack.target };
+      const box = boxes[`lp${defender}`];
+      const seats = seatsOf(warrior, machine);
+      const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
+      rerender(<BattleFx events={[phase, declaration]} reducedMotion={false} seats={seats} />);
+      rerender(<BattleFx events={[phase, declaration, { ...hurt, seat: defender }]} reducedMotion={false} seats={seats} />);
+      expect(play.mock.calls[0]?.[1].battle?.strikes[0].to).toEqual({ x: box.left, y: box.top, w: box.width, h: box.height });
+      expect(playLayer()!.querySelector<HTMLElement>('[class*="lpFlash"]')?.style.left).toBe(`${box.left - 8}px`);
+      expect(cues.find(cue => cue.cue === "battle")?.battle?.lpAt).toHaveLength(1);
+      expect(takeLpHold(defender)).toBeGreaterThan(0);
+      expect(takeLpHold(0)).toBe(0);
+    } finally {
+      setSharedFx3d(null);
+      window.removeEventListener(DUEL_FX_CUE_EVENT, listen);
+    }
+  });
+
+  it("keeps the 1v1 LP destination for older events without targetSeat", () => {
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion />);
+    rerender(<BattleFx events={[phase, { ...direct, id: 2 }]} reducedMotion />);
+    expect(document.querySelector('[data-aim="locked"] rect[x="15"][y="15"]')).not.toBeNull();
+  });
 
   it.each([0, 1, null])("keeps a face-down Defense target's calculation stats hidden for viewer %s", viewer => {
     const node = board.querySelector<HTMLElement>('[data-zones="1:4:0"]')!;

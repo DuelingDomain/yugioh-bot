@@ -577,6 +577,16 @@ describe("history entries: positions in Yu-Gi-Oh! words", () => {
 });
 
 describe("history entries: seats", () => {
+  it.each([3, 4])("names the actual direct-attack defender at a %i-seat table", seatCount => {
+    const targetSeat = seatCount - 1;
+    const names = ["Viewer", "Incursion", "themankaran", "themankaran"];
+    const list = entries([
+      { id: 1, kind: "attack", seat: 1, targetSeat, text: "Player 2 attacks directly", zone: zone(1, MZONE) },
+    ], ctx({ seatCount }), { mySeat: 0, seatCount, who: seat => seat == null ? "Unknown" : names[seat] });
+    expect(list[0].thumbs.map(thumb => thumb.seat)).toEqual([1, targetSeat]);
+    expect(list[0].sentence).toBe("Incursion attacked themankaran directly with a monster.");
+  });
+
   it("carries the acting seat on the row and on each thumb", () => {
     const list = entries(
       [{ id: 1, kind: "attack", seat: 0, card: info(1, "Attacker"), text: "", zone: zone(0, MZONE, 0), target: zone(2, MZONE, 0) }],

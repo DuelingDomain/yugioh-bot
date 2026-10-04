@@ -449,7 +449,7 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
         const direct = !event.target && (/direct/i.test(event.text) || Boolean(event.zone));
         tile.target = event.target
           ? { seat: event.target.controller, card: lookupZone(event.target), direct: false }
-          : { seat: otherSeat(event.seat), card: null, direct };
+          : { seat: event.targetSeat ?? otherSeat(event.seat), card: null, direct };
         if (event.zone) tile.attackerZone = fieldKey(event.zone);
         if (event.target) tile.targetZone = fieldKey(event.target);
         items.push(tile);
