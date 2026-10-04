@@ -71,7 +71,9 @@ export function TurnRing({ layout, engine, angles, pose, promptSeat, locked = fa
     const a0 = angle(slot.seat);
     let a1 = angle(next.seat);
     while (a1 <= a0) a1 += 360;
-    if (a1 - a0 > 240) a1 = a0 + 120;
+    // A long arc is cut short so it does not run across the table, except on a two-seat ring: its two arcs must
+    // reach the other seat, even when one of them spans 270 degrees.
+    if (ring.length > 2 && a1 - a0 > 240) a1 = a0 + 120;
     const s = at(a0 + 16);
     const e = at(a1 - 16);
     const hex = tone(slot.seat).main;

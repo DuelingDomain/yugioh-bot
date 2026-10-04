@@ -106,6 +106,20 @@ describe("TurnRing with seats out (4-way)", () => {
     expect(container.querySelector("[data-ring-seat='3']")?.getAttribute("data-status")).toBe("next");
   });
 
+  it("lets the long arc of the last two seats reach the other seat instead of cutting it at 120 degrees", () => {
+    // Seats 0 and 1 are adjacent (90 and 180 degrees): arc 1 to 0 spans 270 degrees.
+    const { container } = ringOf(withSeats(main, { 2: { eliminated: true }, 3: { eliminated: true } }, 1), "ffa4");
+    expect(arcsOf(container)).toEqual([
+      { from: 0, to: 1, lit: false },
+      { from: 1, to: 0, lit: true },
+    ]);
+    const d = container.querySelector("[data-arc='1']")!.getAttribute("d")!;
+    const [ex, ey] = d.match(/ ([\d.]+) ([\d.]+)$/)!.slice(1).map(Number);
+    const endAngle = ((Math.atan2(ey - 62, ex - 62) * 180) / Math.PI + 360) % 360;
+    // Seat 0 sits at 90 degrees; the arc stops 16 degrees short of it (at 74, after the full turn), not at 284.
+    expect(Math.round(endAngle)).toBe(74);
+  });
+
   it("draws no arcs when one seat is left", () => {
     const { container } = ringOf(withSeats(main, { 1: { eliminated: true }, 2: { eliminated: true }, 3: { eliminated: true } }, 0), "ffa4");
     expect(arcsOf(container)).toEqual([]);
