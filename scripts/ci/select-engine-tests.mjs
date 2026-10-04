@@ -22,7 +22,7 @@ export function selectTests(sources, changed) {
       const path = reference.startsWith(".")
         ? posix.normalize(posix.join(posix.dirname(file), reference))
         : reference.startsWith("tests/") ? posix.join(file.split("/tests/")[0], reference) : "";
-      if (!path.startsWith(prefix) && !path.startsWith(webPrefix)) return;
+      if (!path || path.startsWith("../")) return;
       const candidates = /\.[cm]?jsx?$/.test(path)
         ? [path.replace(/\.[cm]?jsx?$/, ".ts"), path.replace(/\.[cm]?jsx?$/, ".tsx"), path]
         : [path, path + ".ts", path + ".tsx", path + ".js", path + "/index.ts"];
@@ -65,13 +65,15 @@ export function selectTests(sources, changed) {
       }
     }
   } while (added);
-  return Object.keys(sources).filter((file) => isTest(file) && affected.has(file)).sort();
+  return Object.keys(sources).filter((file) => (file.startsWith(prefix) || file.startsWith(webPrefix)) && isTest(file) && affected.has(file)).sort();
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const changed = execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", `${process.env.BASE}...${process.env.HEAD}`], { encoding: "utf8" }).split("\0").filter(Boolean);
   if (!changed.every((file) => file.startsWith(prefix))) throw new Error("Narrow test selection requires a tests-only PR");
-  const tracked = execFileSync("git", ["ls-files", "-z", "--", prefix, webPrefix], { encoding: "utf8" }).split("\0").filter((file) => /\.[cm]?[jt]sx?$/.test(file));
+  // A helper can reach a test through src/ or scripts/ (for example the issue registry).
+  // Keep those graph nodes, but emit only duel-server and web test files.
+  const tracked = execFileSync("git", ["ls-files", "-z", "--", "packages/", "scripts/"], { encoding: "utf8" }).split("\0").filter((file) => /\.[cm]?[jt]sx?$/.test(file));
   const sources = Object.fromEntries(tracked.map((file) => [file, readFileSync(file, "utf8")]));
   const selected = selectTests(sources, changed);
   const files = selected.filter((file) => file.startsWith(prefix)).map((file) => file.slice("packages/duel-server/".length));

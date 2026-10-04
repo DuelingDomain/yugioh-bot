@@ -70,6 +70,20 @@ test("duel helpers also select web test dependents across packages", () => {
   assert.deepEqual(selectTests(sources, [prefix + "material-count-fixture.ts"]), ["packages/web/tests/components/material-count.test.ts"]);
 });
 
+test("helper callers remain selected through production source and script modules", () => {
+  const sources = {
+    [prefix + "fuzz-n/known-issues.ts"]: "",
+    ["packages/duel-server/scripts/lib/issue-registry.ts"]: 'import { issues } from "../../tests/fuzz-n/known-issues.js";',
+    [prefix + "triage-nseat.test.ts"]: 'import { issues } from "../scripts/lib/issue-registry.js";',
+    [prefix + "fuzz/rng.ts"]: "",
+    ["packages/duel-server/scripts/lib/replay-source.ts"]: 'import { rng } from "../../tests/fuzz/rng.js";',
+    [prefix + "triage.test.ts"]: 'import { replay } from "../scripts/lib/replay-source.js";',
+    ["packages/shared/tests/unrelated.test.ts"]: "",
+  };
+  assert.deepEqual(selected([prefix + "fuzz-n/known-issues.ts"], sources), ["triage-nseat.test.ts"]);
+  assert.deepEqual(selected([prefix + "fuzz/rng.ts"], sources), ["triage.test.ts"]);
+});
+
 test("only PRs confined to tests get a narrow selection; source/patch/script changes stay full", () => {
   assert.deepEqual(changedLayers([prefix + "one.test.ts"], "pull_request"), { engine: true, web_engine: true, tests_only: true });
   for (const file of ["packages/duel-server/src/engine.ts", "packages/duel-server/domain-core/patches/0001.patch", "scripts/ci/run-engine-tests.mjs", "package-lock.json", ".github/workflows/test.yml"]) {
