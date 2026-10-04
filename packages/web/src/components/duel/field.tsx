@@ -897,7 +897,7 @@ export function DuelField(props: DuelFieldProps) {
       <div className={styles.wash} aria-hidden="true" />
       <TurnGlow side="top" turn={activity.turnSeat === topIndex} priority={activity.prioritySeat === topIndex} />
       <TurnGlow side="bottom" turn={activity.turnSeat === bottomIndex} priority={activity.prioritySeat === bottomIndex} />
-      <div className={styles.playmat}>
+      <div className={styles.playmat} data-hub={props.hub ? "true" : undefined}>
         <span className={styles.marginRule} aria-hidden="true" />
         <div className={`${styles.strip} ${styles.stripTop}`}>
           <Tally
@@ -937,7 +937,6 @@ export function DuelField(props: DuelFieldProps) {
             <PileColumn view={top} opponent side="right" callbacks={callbacks} ownerLabel={topLabel} masterRule={masterRule} />
           </div>
           <div className={styles.emzBand}>
-            {props.hub ? <div className={styles.emzHub}>{props.hub}</div> : null}
             {showExtraZones && masterRule >= 4 ? (
               <div className={styles.emzRow}>
                 <div />
@@ -947,6 +946,7 @@ export function DuelField(props: DuelFieldProps) {
                 <div />
               </div>
             ) : <div />}
+            {props.hub ? <div className={styles.emzHub}>{props.hub}</div> : null}
           </div>
           <div className={`${styles.half} ${styles.halfLocal}`} data-field-seat={bottomIndex} data-side="bottom"
             data-turn={activity.turnSeat === bottomIndex ? "true" : "false"}

@@ -247,21 +247,14 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
           );
         })}
         {hubAt ? (
-          <>
-            {hubAt.joint ? (
-              <svg className={styles.hubJoint} viewBox="0 0 1100 860" aria-hidden="true" data-hub-joint="true">
-                <line x1={hubAt.joint.x1} y1={hubAt.joint.y1} x2={hubAt.joint.x2} y2={hubAt.joint.y2} />
-              </svg>
-            ) : null}
-            <div
-              className={styles.hub}
-              data-hub-slot="true"
-              data-hub-size={hubAt.size}
-              style={{ width: hubAt.width, height: hubAt.height, transform: `translate(${hubAt.x - hubAt.width / 2}px, ${hubAt.y - hubAt.height / 2}px)` }}
-            >
-              {hub}
-            </div>
-          </>
+          <div
+            className={styles.hub}
+            data-hub-slot="true"
+            data-hub-size={hubAt.size}
+            style={{ width: hubAt.width, height: hubAt.height, transform: `translate(${hubAt.x - hubAt.width / 2}px, ${hubAt.y - hubAt.height / 2}px)` }}
+          >
+            {hub}
+          </div>
         ) : null}
         {controller.aim?.from ? <AttackLine aim={controller.aim} tone={attackerTone} /> : null}
       </div>

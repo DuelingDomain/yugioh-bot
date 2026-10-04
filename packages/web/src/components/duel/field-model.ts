@@ -33,8 +33,8 @@ export type DuelFieldProps = {
   /** Room action/reveal gate. Local priority follows this directly; previews can omit it. */
   priorityLive?: boolean;
   /**
-   * The phase hub for a 1v1: drawn in the gap between the two fields (the free cells of the Extra Monster Zone band),
-   * over nothing. Only the hub's chips take the pointer. Leave it out and the band is as before.
+   * The phase hub for a 1v1: a strip in its own lane, directly under the Extra Monster Zone band and above your monster
+   * zones. The lane takes height from the board (the zones shrink a little). Leave it out and the board is as before.
    */
   hub?: ReactNode;
 };

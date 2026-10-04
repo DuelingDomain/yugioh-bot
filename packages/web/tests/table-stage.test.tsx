@@ -42,12 +42,12 @@ describe("TableShell on the 3-way fixtures", () => {
     expect(container.querySelector('nav[aria-label="Duel phases"]')).toHaveTextContent("Turn 5");
   });
 
-  it("puts the phase hub on the board beside the turn ring, and not the phases in the bar", () => {
+  it("puts the phase hub on the board at its place on the stage, and not the phases in the bar", () => {
     const { container } = render(<Shell id="main" />);
     const slot = container.querySelector<HTMLElement>("[data-hub-slot]")!;
     expect(slot).not.toBeNull();
     const hub = slot.querySelector('nav[aria-label="Duel phases"]')!;
-    expect(hub.getAttribute("data-variant")).toBe("card");
+    expect(hub.getAttribute("data-variant")).toBe("table");
     expect(hub.querySelectorAll("[data-state]")).toHaveLength(6);
     // The bar has no plate list and no turn owner label any more.
     expect(container.querySelector('nav[aria-label="Turn actions"] ol')).toBeNull();

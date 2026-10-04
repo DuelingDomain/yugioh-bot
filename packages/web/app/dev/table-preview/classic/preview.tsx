@@ -86,7 +86,7 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced }: { stateI
                 bottomName={playerName(mySeat ?? 0)} topName={playerName(1 - (mySeat ?? 0))}
                 hub={
                   <PhaseHub
-                    variant="band" phase={engine.phase} battleStep={battleStep} turn={engine.turn} turnSeat={engine.turnSeat}
+                    variant="lane" phase={engine.phase} battleStep={battleStep} turn={engine.turn} turnSeat={engine.turnSeat}
                     mySeat={mySeat} playerName={playerName} actionOptions={canAct ? actionOptions : []} canAct={canAct}
                     onChoose={choose} reducedMotion={reduced}
                   />

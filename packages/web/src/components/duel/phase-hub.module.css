@@ -60,44 +60,55 @@
   border: 0;
 }
 
-/* ---------- shared parts ---------- */
+/* ---------- the strip ----------
+   DP SP M1 BP M2 EP in one row on a hairline track, inside one pill. Done chips carry a tick, later ones are dim, and the
+   lit chip is wider and says the phase's full name in the seat colour. The lit layer is the only thing that moves (opacity
+   and transform); the width change itself is instant. Sizes come from --hc (chip height), --hfs (label), --cw (a chip's
+   width) and --lw (the lit chip's width); the two variants and the table stage's data-hub-size set them. */
 
-.head,
-.foot {
+.root {
+  --gap: 4px;
+  --pad: 3px;
+}
+
+.plate {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
+  gap: calc(var(--hc) * 0.3);
   min-width: 0;
   max-width: 100%;
-  height: calc(var(--hfs) * 1.3);
-  font-size: var(--hfs);
-  white-space: nowrap;
+  padding: var(--pad);
+  border: 1px solid rgb(var(--rule-rgb) / 0.34);
+  border-radius: 999px;
+  background: linear-gradient(rgb(10 17 34 / 0.94), rgb(7 11 21 / 0.94));
 }
-.foot {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--foot-ink);
-  font-weight: 600;
-  letter-spacing: 0.02em;
+.root[data-tone="mine"] .plate {
+  border-color: rgb(155 126 255 / 0.55);
 }
+
+/* The owner and the turn. In the lane it is the start of the row, then a thin divider; at a table it is the caption. */
 .who {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 0.4em;
   min-width: 0;
+  max-width: 100%;
   color: var(--ink-2);
+  font-size: var(--hfs);
   font-weight: 500;
+  white-space: nowrap;
 }
 .dot {
   flex: none;
-  width: 7px;
-  height: 7px;
+  width: 0.55em;
+  height: 0.55em;
   border-radius: 50%;
   background: var(--who-dot);
 }
 .whoName {
   min-width: 0;
+  max-width: 11ch;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -105,14 +116,35 @@
   flex: none;
   color: var(--ink);
   font-family: var(--f-num);
-  font-size: calc(var(--hfs) * 1.1);
+  font-variant-caps: all-small-caps;
   font-weight: 600;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.07em;
+}
+.owner {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  flex: none;
+  padding: 0 calc(var(--hc) * 0.3) 0 calc(var(--hc) * 0.35);
+  border-right: 1px solid var(--rule-lo);
 }
 
-.chips {
+.track {
+  position: relative;
+  isolation: isolate;
   display: flex;
-  gap: 3px;
+  flex: none;
+  align-items: center;
+  gap: var(--gap);
+}
+/* The hairline the chips sit on. */
+.track::before {
+  content: "";
+  position: absolute;
+  inset: 50% 4px auto;
+  z-index: -1;
+  height: 1px;
+  background: rgb(var(--rule-rgb) / 0.4);
 }
 
 .chip {
@@ -123,20 +155,25 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: calc(var(--hc) * 1.1);
+  width: var(--cw);
   height: var(--hc);
   margin: 0;
   padding: 0;
   border: 1px solid var(--rule-lo);
-  border-radius: 7px;
+  border-radius: 999px;
   background: var(--panel-2);
   color: var(--ink-3);
   font: 600 var(--hfs) / 1 var(--f-ui);
   letter-spacing: 0.04em;
+  white-space: nowrap;
   pointer-events: auto;
 }
-.code {
+.code,
+.name {
   position: relative;
+}
+.name {
+  display: none;
 }
 
 /* The lit layer. It fades and settles in; leaving the chip fades it out. */
@@ -150,7 +187,7 @@
   background: var(--lit-bg);
   opacity: 0;
   transform: scale(0.88);
-  transition: opacity 180ms var(--hub-ease), transform 180ms var(--hub-ease);
+  transition: opacity 160ms var(--hub-ease), transform 160ms var(--hub-ease);
 }
 .chip[data-state="current"] {
   color: var(--lit-ink);
@@ -159,27 +196,44 @@
   opacity: 1;
   transform: none;
 }
+/* The lit chip drops its code for the phase's full name (the small table sizes put the name in the caption instead). */
+.root[data-variant] .chip[data-state="current"] {
+  width: var(--lw);
+  padding: 0 0.7em;
+  letter-spacing: 0.02em;
+}
+.root[data-variant] .chip[data-state="current"] .code {
+  display: none;
+}
+.root[data-variant] .chip[data-state="current"] .name {
+  display: inline;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .chip[data-state="done"] {
   border-color: rgb(var(--rule-rgb) / 0.5);
   color: var(--ink-2);
 }
+.chip[data-state="ahead"] {
+  color: var(--ink-3);
+}
 .tick {
   position: absolute;
-  top: -5px;
-  right: -5px;
+  top: -3px;
+  right: -2px;
   display: grid;
   place-items: center;
-  width: 12px;
-  height: 12px;
+  width: calc(var(--hc) * 0.36);
+  height: calc(var(--hc) * 0.36);
   border: 1px solid var(--gold);
   border-radius: 50%;
   background: var(--ground);
   color: var(--gold-ink);
 }
 .tick svg {
-  width: 8px;
-  height: 8px;
+  width: 62%;
+  height: 62%;
 }
 
 /* A phase you can move to now: the purple of your move. */
@@ -210,169 +264,113 @@ button.chip:focus-visible {
   }
 }
 
-/* ---------- band: the gap between the two fields of a 1v1 ----------
-   The free cells of the Extra Monster Zone band are about one zone wide (--z). The left one says whose turn it is and
-   which turn; the centre one is a card of all six phases, 3 x 2, like the multiplayer card. Chips are sized from the
-   zone: as tall as 30% of it (26px at the least, 36px at the most), a third of the cell wide. The lit name goes first when
-   the zone is too small to hold it (under about 84px, a 1280 x 720 window). */
+/* ---------- lane: under the Extra Monster Zones of a 1v1 ----------
+   field.module.css reserves a lane as tall as --lane-h (a chip and 14px); the strip is centred in it. The chip height
+   follows the field's own height (not the zone size, which the lane itself helps decide): 26px at the least, 34px at
+   the most, about 32px at 1440 x 900. */
 
-.root[data-variant="band"] {
-  --hc: clamp(26px, calc(var(--z, 90px) * 0.3), 36px);
-  --hfs: clamp(10px, calc(var(--z, 90px) * 0.115), 13.5px);
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  column-gap: var(--g, 8px);
-  align-items: center;
-  width: 100%;
-  height: 100%;
-  /* The wrapper sits over the Extra Monster Zones' row; only the chips take the pointer. */
-  pointer-events: none;
-}
-.cell {
-  grid-column: 1;
+.root[data-variant="lane"] {
+  --hc: clamp(26px, 4.6cqh, 34px);
+  --hfs: clamp(11px, calc(var(--hc) * 0.42), 13.5px);
+  --cw: calc(var(--hc) * 1.3);
+  --lw: calc(var(--hc) * 3.1);
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: calc(var(--hfs) * 0.5);
-  min-width: 0;
-  font-size: var(--hfs);
+  width: 100%;
+  height: 100%;
+  /* The lane has nothing under it that needs the pointer, but stay out of the way of what overlaps it. */
+  pointer-events: none;
 }
-.cell .who {
-  max-width: 100%;
-  font-size: var(--hfs);
-}
-.cell .turn {
-  font-size: calc(var(--hfs) * 1.15);
-}
-.panel {
-  grid-column: 3;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: 3px;
-  border: 1px solid rgb(var(--rule-rgb) / 0.34);
-  border-radius: 9px;
-  background: linear-gradient(rgb(10 17 34 / 0.94), rgb(7 11 21 / 0.94));
-}
-.root[data-variant="band"][data-tone="mine"] .panel {
-  border-color: rgb(155 126 255 / 0.55);
-}
-.root[data-variant="band"] .chips {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 3px;
-}
-.root[data-variant="band"] .chip {
-  width: auto;
-  border-radius: 6px;
-}
-.root[data-variant="band"] .tick {
-  top: -4px;
-  right: -4px;
-  width: 10px;
-  height: 10px;
-}
-.root[data-variant="band"] .tick svg {
-  width: 7px;
-  height: 7px;
-}
-/* The lit name: 0 high under a zone of 80px, full height from 84px, so a small window shows chips only. */
-.root[data-variant="band"] .foot {
-  height: clamp(0px, calc((var(--z, 90px) - 80px) * 100), calc(var(--hfs) * 1.25));
-  margin-top: clamp(0px, calc((var(--z, 90px) - 80px) * 100), 3px);
-  font-size: calc(var(--hfs) * 1.1);
+.root[data-variant="lane"] .plate {
+  flex: none;
 }
 
-/* ---------- card: beside the turn ring of a table of 3 or 4 ----------
-   Sizes are stage px (the stage is scaled to the window, about 0.79 at 1440 x 900). The reading size (lg) puts the chips
-   at 41px (about 32px on screen), their labels at 16.5px (13px) and the lit phase's name at 19px (15px). The wrapper in
-   the table stage says which size the pocket holds with data-hub-size; "sm" is the tight one. */
+/* ---------- table: beside or below the turn ring of a table of 3 or 4 ----------
+   Sizes are stage px (the stage is scaled to the window, about 0.79 at 1440 x 900). The wrapper in the table stage says
+   which size the place holds with data-hub-size:
+     lg  chips 41px (32px on screen), labels 16.5px (13px), the lit chip says its name; owner and turn in a caption above.
+     sm  chips 33px (26px), the lit chip stays a code and the caption also names the phase.
+     xs  the strip alone. */
 
-.root[data-variant="card"] {
+.root[data-variant="table"] {
   --hc: 41px;
   --hfs: 16.5px;
+  --cw: 46px;
+  --lw: 124px;
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 3px;
-  width: 168px;
-  height: 144px;
-  padding: 5px;
-  border: 1px solid rgb(var(--rule-rgb) / 0.34);
-  border-radius: 12px;
-  background: linear-gradient(rgb(10 17 34 / 0.94), rgb(7 11 21 / 0.94));
+  width: 389px;
+  height: 70px;
 }
-.root[data-variant="card"][data-tone="mine"] {
-  border-color: rgb(155 126 255 / 0.55);
+.root[data-variant="table"] .plate {
+  width: 100%;
+  justify-content: center;
 }
-.root[data-variant="card"] .head {
+.root[data-variant="table"] .track {
   justify-content: space-between;
-  height: 15px;
-  padding: 0 2px;
-  font-size: 12px;
+  width: 100%;
 }
-.root[data-variant="card"] .turn {
-  font-size: 13px;
+.caption {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  min-width: 0;
+  height: 16px;
+  padding-left: 6px;
+  font-size: 12.5px;
+  line-height: 1;
 }
-.root[data-variant="card"] .chips {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 4px;
+.caption .who {
+  font-size: inherit;
 }
-.root[data-variant="card"] .chip {
-  width: auto;
-  border-radius: 8px;
-}
-.root[data-variant="card"] .foot {
-  height: 23px;
-  font-size: 19px;
+.captionLit {
+  display: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--foot-ink);
   font-weight: 600;
-  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
-.root[data-variant="card"] .tick {
-  top: -6px;
-  right: -6px;
-  width: 14px;
-  height: 14px;
-}
-.root[data-variant="card"] .tick svg {
-  width: 9px;
-  height: 9px;
+.captionLit::before {
+  content: "\00b7";
+  margin-right: 0.6em;
+  color: var(--ink-3);
 }
 
-:global([data-hub-size="sm"]) .root[data-variant="card"] {
-  --hc: 30px;
-  --hfs: 12.5px;
-  gap: 3px;
-  width: 108px;
-  height: 96px;
-  padding: 4px;
-  border-radius: 10px;
+:global([data-hub-size="sm"]) .root[data-variant="table"],
+:global([data-hub-size="xs"]) .root[data-variant="table"] {
+  --hc: 33px;
+  --cw: 32px;
+  --gap: 3px;
+  width: 217px;
+  height: 61px;
 }
-/* No room for the name line at this size: the ring already shows whose turn it is, and the status line says it aloud. */
-:global([data-hub-size="sm"]) .root[data-variant="card"] .head {
+:global([data-hub-size="sm"]) .root[data-variant="table"] .captionLit {
+  display: block;
+}
+:global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"],
+:global([data-hub-size="xs"]) .root[data-variant="table"] .chip[data-state="current"] {
+  width: var(--cw);
+  padding: 0;
+  letter-spacing: 0.04em;
+}
+:global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"] .code,
+:global([data-hub-size="xs"]) .root[data-variant="table"] .chip[data-state="current"] .code {
+  display: inline;
+}
+:global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"] .name,
+:global([data-hub-size="xs"]) .root[data-variant="table"] .chip[data-state="current"] .name {
   display: none;
 }
-:global([data-hub-size="sm"]) .root[data-variant="card"] .chips {
-  gap: 3px;
+:global([data-hub-size="xs"]) .root[data-variant="table"] {
+  height: 43px;
 }
-:global([data-hub-size="sm"]) .root[data-variant="card"] .chip {
-  border-radius: 7px;
-}
-:global([data-hub-size="sm"]) .root[data-variant="card"] .foot {
-  height: 18px;
-  font-size: 14px;
-}
-:global([data-hub-size="sm"]) .root[data-variant="card"] .tick {
-  top: -5px;
-  right: -5px;
-  width: 12px;
-  height: 12px;
-}
-:global([data-hub-size="sm"]) .root[data-variant="card"] .tick svg {
-  width: 8px;
-  height: 8px;
+:global([data-hub-size="xs"]) .root[data-variant="table"] .caption {
+  display: none;
 }
 
 /* ---------- motion and size ---------- */
@@ -388,7 +386,7 @@ button.chip:focus-visible {
 
 /* The phone keeps the phase strip in the bar. */
 @media (max-width: 900px) {
-  .root {
+  .root[data-variant] {
     display: none;
   }
 }

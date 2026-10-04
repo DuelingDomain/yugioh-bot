@@ -29,7 +29,7 @@ const ALL_MOVES = [
 
 function hubProps(over: Partial<PhaseHubProps> = {}): PhaseHubProps {
   return {
-    variant: "band",
+    variant: "lane",
     phase: "main1",
     turn: 4,
     turnSeat: 0,
@@ -176,29 +176,48 @@ describe("PhaseHub turn owner", () => {
 
   it("carries the seat colour of the turn seat on a table", () => {
     const { container } = render(
-      <PhaseHub {...hubProps({ variant: "card", turnSeat: 1, canAct: false, tone: { main: "#5cb8f5", ink: "#a9dcfb" } })} />,
+      <PhaseHub {...hubProps({ variant: "table", turnSeat: 1, canAct: false, tone: { main: "#5cb8f5", ink: "#a9dcfb" } })} />,
     );
     expect(container.querySelector<HTMLElement>("nav")!.style.getPropertyValue("--seat")).toBe("#5cb8f5");
   });
 
-  it("draws the band as one track: all six chips in one card, the owner and turn in their own cell", () => {
-    const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
-    const phases = container.querySelector<HTMLElement>("[data-cell='phases']")!;
-    const who = container.querySelector<HTMLElement>("[data-cell='who']")!;
-    expect(container.querySelectorAll("[data-cell]")).toHaveLength(2);
-    expect([...phases.querySelectorAll("[data-phase]")].map((chip) => chip.getAttribute("data-phase"))).toEqual(["DP", "SP", "M1", "BP", "M2", "EP"]);
-    expect(phases.textContent).toContain("Battle · Damage");
-    expect(phases.textContent).not.toContain("Turn 4");
-    expect(who.querySelectorAll("[data-phase]")).toHaveLength(0);
-    expect(who.textContent).toContain("You");
-    expect(who.textContent).toContain("Turn 4");
-    expect(who.compareDocumentPosition(phases) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  it("draws the lane as one strip: owner and turn first, then DP SP M1 BP M2 EP on one track", () => {
+    const { container } = render(<PhaseHub {...hubProps({ phase: "main1" })} />);
+    const nav = container.querySelector("nav")!;
+    expect(nav.getAttribute("data-variant")).toBe("lane");
+    const owner = nav.querySelector<HTMLElement>("[data-part='owner']")!;
+    const track = nav.querySelector<HTMLElement>("[class*='track']")!;
+    expect(owner.textContent).toContain("You");
+    expect(owner.textContent).toContain("Turn 4");
+    expect(owner.querySelectorAll("[data-phase]")).toHaveLength(0);
+    expect([...track.children].map((chip) => chip.getAttribute("data-phase"))).toEqual(["DP", "SP", "M1", "BP", "M2", "EP"]);
+    expect(owner.compareDocumentPosition(track) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // One row inside one plate; no caption line in the lane.
+    expect(nav.querySelectorAll("[class*='plate']")).toHaveLength(1);
+    expect(nav.querySelector("[class*='caption']")).toBeNull();
   });
 
-  it("draws the card variant with all six chips in one block", () => {
-    const { container } = render(<PhaseHub {...hubProps({ variant: "card" })} />);
-    expect(container.querySelector("nav")!.getAttribute("data-variant")).toBe("card");
-    expect(container.querySelectorAll("[data-state]")).toHaveLength(6);
+  it("expands the lit chip to the phase's full name and leaves the others as codes", () => {
+    const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
+    const lit = container.querySelector<HTMLElement>("[aria-current='step']")!;
+    expect(lit.getAttribute("data-phase")).toBe("BP");
+    expect(lit.querySelector("[class*='name']")!.textContent).toBe("Battle · Damage");
+    expect(container.querySelectorAll("[class*='name']")).toHaveLength(1);
+    expect([...container.querySelectorAll("[data-state='done']")].map((chip) => chip.getAttribute("data-phase"))).toEqual(["DP", "SP", "M1"]);
+  });
+
+  it("puts the owner and turn in a caption line above the strip at a table", () => {
+    const { container } = render(<PhaseHub {...hubProps({ variant: "table", turnSeat: 1, canAct: false })} />);
+    const nav = container.querySelector("nav")!;
+    expect(nav.getAttribute("data-variant")).toBe("table");
+    const caption = nav.querySelector<HTMLElement>("[class*='caption']")!;
+    const plate = nav.querySelector<HTMLElement>("[class*='plate']")!;
+    expect(caption.textContent).toContain("Ryo Sato");
+    expect(caption.textContent).toContain("Turn 4");
+    expect(caption.compareDocumentPosition(plate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(plate.querySelectorAll("[data-phase]")).toHaveLength(6);
+    // The caption is decoration: the status line says it aloud.
+    expect(caption.getAttribute("aria-hidden")).toBe("true");
   });
 
   it("draws nothing on a phone, where the bar keeps the phases", () => {

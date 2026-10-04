@@ -113,7 +113,7 @@ describe("DuelField phase hub slot", () => {
     );
   }
 
-  it.each([1, 3, 5] as const)("draws the hub in the gap between the two fields under Master Rule %i", (rule) => {
+  it.each([1, 3, 5] as const)("draws the hub lane between the two fields, under the Extra Monster Zones, under Master Rule %i", (rule) => {
     const { container } = withHub(rule, <nav aria-label="Duel phases" data-testid="hub-probe" />);
     const hub = container.querySelector('[data-testid="hub-probe"]')!;
     const halves = [...container.querySelectorAll("[data-field-seat]")];
@@ -122,6 +122,17 @@ describe("DuelField phase hub slot", () => {
     expect(halves[0].compareDocumentPosition(hub) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(hub.compareDocumentPosition(halves[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(halves.some((half) => half.contains(hub))).toBe(false);
+    // The lane belongs to the board's middle row and the playmat knows to reserve its height.
+    expect(hub.closest("[data-hub='true']")).not.toBeNull();
+    // After the Extra Monster Zones in document order, as it is on screen.
+    for (const emz of container.querySelectorAll('[data-kind="emz"]')) {
+      expect(emz.compareDocumentPosition(hub) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
+  it("reserves no lane without a hub", () => {
+    const { container } = field(5);
+    expect(container.querySelector("[data-hub='true']")).toBeNull();
   });
 
   it("leaves both Extra Monster Zones in place beside the hub", () => {

@@ -442,7 +442,7 @@ function TableShellBody({
                 renderSeatField={(props) => <SeatField {...props} />}
                 hub={hubOn ? (
                   <PhaseHub
-                    variant="card"
+                    variant="table"
                     phase={engine.phase}
                     battleStep={battleStep}
                     turn={engine.turn}

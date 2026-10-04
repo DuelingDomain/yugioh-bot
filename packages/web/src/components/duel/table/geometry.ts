@@ -333,75 +333,62 @@ export function ringPose(layout: TableLayout, camera: CameraView): { x: number; 
 }
 
 /**
- * The two sizes of the phase hub card, in stage px (the PhaseHub "card" variant draws exactly this, by the `data-hub-size`
- * of its wrapper). "lg" is the reading size: at a 1440 x 900 window it puts the chips near 33px and the labels at 13px.
- * "sm" is for the two places that have no room for more: the open V of a 3-way table at home, and the corner a 4-way
- * table docks the ring in while one rival is across.
+ * The three sizes of the phase hub strip, in stage px (the PhaseHub "table" variant draws exactly this, by the
+ * `data-hub-size` of its wrapper). The stage is scaled to the window (about 0.79 at 1440 x 900).
+ *   lg  chips 41px (32px on screen) with 13px labels, a wide lit chip with the phase's name, a caption line above.
+ *   sm  chips 33px (26px), the lit phase named in the caption.
+ *   xs  the strip alone, chips as sm.
  */
-export const HUB_CARD = {
-  lg: { width: 168, height: 144 },
-  sm: { width: 108, height: 96 },
+export const HUB_STRIP = {
+  lg: { width: 389, height: 70 },
+  sm: { width: 217, height: 61 },
+  xs: { width: 217, height: 43 },
 } as const;
-export type HubSize = keyof typeof HUB_CARD;
+export type HubSize = keyof typeof HUB_STRIP;
 
 export interface HubPose {
-  /** Centre of the card in stage px. */
+  /** Centre of the strip in stage px. */
   x: number;
   y: number;
   size: HubSize;
   width: number;
   height: number;
-  /** A hairline from the ring to the card, when the clear space is not next to the ring. Null when they touch. */
-  joint: { x1: number; y1: number; x2: number; y2: number } | null;
 }
 
-/** The ARENA 07 sign on the plaza (plaza.tsx), in stage px. The card stays off it. */
+/** The ARENA 07 sign on the plaza (plaza.tsx), in stage px. The strip stays off it. */
 export const ARENA_SIGN = { x: 517, y: 18, width: 66, height: 17 } as const;
 
 /**
- * Where the phase hub card stands in a camera mode: the clear pocket nearest the turn ring, at the largest size that
- * pocket holds. Each place was found by scanning the stage for the nearest rectangle that overlaps no seat field, no
- * holo LP panel, not the ARENA 07 sign and not the ring itself (the geometry test repeats the scan, so a change to the
- * poses fails loudly). A 3-way table at home has no room beside the ring, so the small card stands in the open V between
- * the two rivals, under the sign, and a hairline ties it to the ring.
- * The card is a flat overlay on the canvas: it never tilts with the world, so in the fly view it keeps the home place.
+ * Where the phase hub strip stands in a camera mode. Each place was found by scanning the stage for a rectangle that
+ * overlaps no seat field, no holo LP panel, not the ARENA 07 sign and not the ring itself (the geometry test repeats the
+ * check, so a change to the poses fails loudly). In order of preference: centred on the ring, above or below it; beside it;
+ * and, where the seats leave no room near the ring, the open strip of stage under your own field. Only a 4-way table
+ * has room for the first two, and a 3-way table at home none at all.
+ * The strip is a flat overlay on the canvas: it never tilts with the world, so in the fly view it keeps the home place.
  */
 export function hubPose(layout: TableLayout, camera: CameraView): HubPose {
   const ring = ringPose(layout, camera);
-  let at: { x: number; y: number };
   let size: HubSize = "lg";
+  let at: { x: number; y: number };
   if (layout.format === "ffa4") {
-    if (camera.mode === "overview") at = { x: 402, y: 478 };
-    else if (camera.mode === "focus") {
+    if (camera.mode === "overview") {
+      // Centred above the ring.
+      at = { x: ring.x, y: 298 };
+    } else if (camera.mode === "focus") {
+      // Left of the ring in the top right corner, with no room for the caption.
+      size = "xs";
+      at = { x: 881, y: 26 };
+    } else {
+      // Right of the ring, between it and the right-hand rival.
       size = "sm";
-      at = { x: 930, y: 60 };
-    } else at = { x: 704, y: 342 };
-  } else if (camera.mode === "overview") {
-    at = { x: 550, y: 360 };
-  } else if (camera.mode === "focus") {
-    at = { x: ring.x, y: 284 };
+      at = { x: 725, y: 342 };
+    }
   } else {
-    size = "sm";
-    at = { x: 550, y: 86 };
+    // The seats of a 3-way table close in on the ring from every side, so the strip docks under your field.
+    at = { x: 550, y: 812 };
   }
-  const { width, height } = HUB_CARD[size];
-  const dx = at.x - ring.x;
-  const dy = at.y - ring.y;
-  const dist = Math.hypot(dx, dy);
-  const fly = camera.mode === "fly";
-  const ux = dist === 0 ? 0 : dx / dist;
-  const uy = dist === 0 ? 0 : dy / dist;
-  const exit = Math.min(
-    ux === 0 ? Infinity : width / 2 / Math.abs(ux),
-    uy === 0 ? Infinity : height / 2 / Math.abs(uy),
-  );
-  const reach = 62 * ring.scale;
-  // Next to the ring there is nothing to tie: draw the hairline only across a real gap.
-  if (fly || dist - reach - exit < 24) return { ...at, size, width, height, joint: null };
-  return {
-    ...at, size, width, height,
-    joint: { x1: ring.x + ux * reach, y1: ring.y + uy * reach, x2: at.x - ux * exit, y2: at.y - uy * exit },
-  };
+  const { width, height } = HUB_STRIP[size];
+  return { ...at, size, width, height };
 }
 
 /** Screen angle of every seat on the turn ring (degrees, 0 = right, 90 = down), by seat number. */

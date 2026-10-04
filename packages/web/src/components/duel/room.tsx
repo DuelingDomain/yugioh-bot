@@ -1152,7 +1152,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const phaseHub = Boolean(engine) && !solid && !multi && !liveTable;
   const hubNode = phaseHub && engine ? (
     <PhaseHub
-      variant="band"
+      variant="lane"
       phase={shownPhase}
       battleStep={battleStep}
       turn={engine.turn}

@@ -177,9 +177,8 @@
 }
 
 /*
- * The phase hub card: flat on the canvas (it never tilts with the world), beside the turn ring. It moves with the camera
- * on a transform-only transition, the way a seat does. The joint is a hairline from the ring to the card when the clear
- * pocket is not next to the ring. Both let the pointer through except on the card's own chips.
+ * The phase hub strip: flat on the canvas (it never tilts with the world), at the place hubPose found. It moves with the
+ * camera on a transform-only transition, the way a seat does. It lets the pointer through except on its own chips.
  */
 .hub {
   position: absolute;
@@ -188,29 +187,10 @@
   z-index: 40;
   transition: transform 0.76s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
-.hubJoint {
-  position: absolute;
-  left: 0;
-  top: 0;
-  z-index: 39;
-  width: 1100px;
-  height: 860px;
-  overflow: visible;
-  pointer-events: none;
-}
-.hubJoint line {
-  stroke: rgb(181 153 99 / 0.45);
-  stroke-width: 1.25;
-  stroke-dasharray: 2 4;
-  stroke-linecap: round;
-}
 @media (prefers-reduced-motion: reduce) {
   .hub {
     transition: none;
   }
-}
-.board[data-fly="true"] .hubJoint {
-  display: none;
 }
 
 /* Slots over the whole box. A child turns pointer events back on for its own panels. */

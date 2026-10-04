@@ -7,7 +7,7 @@ import {
   flyYawFor,
   holoAnchor,
   ARENA_SIGN,
-  HUB_CARD,
+  HUB_STRIP,
   hubPose,
   ringAngles,
   ringPose,
@@ -412,14 +412,14 @@ describe("hubPose", () => {
     ["ffa4 focus", "ffa4", 4, { mode: "focus", focusSeat: 2 }],
   ];
 
-  it.each(cases)("%s: the card overlaps no seat field, no LP panel and not the ring", (_label, format, count, over) => {
+  it.each(cases)("%s: the strip overlaps no seat field, no LP panel, not the ARENA 07 sign and not the ring", (_label, format, count, over) => {
     const layout = tableLayout(format as "ffa3", engine(format, count), 0);
     const view = camera(over);
     const poses = seatPoses(layout, view);
     const at = hubPose(layout, view);
     const card = box(at.x, at.y, at.width, at.height);
-    expect(at.width).toBe(HUB_CARD[at.size].width);
-    expect(at.height).toBe(HUB_CARD[at.size].height);
+    expect(at.width).toBe(HUB_STRIP[at.size].width);
+    expect(at.height).toBe(HUB_STRIP[at.size].height);
     // Whole 653 x 380 seat boxes: a conservative bound of each field, hand and all.
     for (const pose of poses.values()) {
       if (pose.hidden) continue;
@@ -444,34 +444,34 @@ describe("hubPose", () => {
     expect(at.y + at.height / 2).toBeLessThanOrEqual(860);
   });
 
-  it("is the reading size everywhere but the two tight pockets", () => {
+  it("uses the large strip wherever it fits, the small one beside a 4-way ring at home and the bare one in its corner", () => {
     const three = tableLayout("ffa3", engine("ffa3", 3), 0);
     const four = tableLayout("ffa4", engine("ffa4", 4), 0);
-    expect(hubPose(three, camera()).size).toBe("sm");
-    expect(hubPose(four, camera({ mode: "focus", focusSeat: 2 })).size).toBe("sm");
-    expect(hubPose(four, camera()).size).toBe("lg");
+    for (const over of [{}, { mode: "overview" as const }, { mode: "focus" as const, focusSeat: 1 }, { mode: "focus" as const, focusSeat: 2 }]) {
+      expect(hubPose(three, camera(over)).size).toBe("lg");
+    }
+    expect(hubPose(four, camera()).size).toBe("sm");
     expect(hubPose(four, camera({ mode: "overview" })).size).toBe("lg");
-    expect(hubPose(three, camera({ mode: "overview" })).size).toBe("lg");
-    expect(hubPose(three, camera({ mode: "focus", focusSeat: 1 })).size).toBe("lg");
+    expect(hubPose(four, camera({ mode: "focus", focusSeat: 2 })).size).toBe("xs");
   });
 
-  it("stands next to the ring at a 4-way table and ties a far 3-way card to it with a hairline", () => {
+  it("centres a 4-way strip on the ring in the overview, above it, and puts a 3-way strip under your own field", () => {
     const four = tableLayout("ffa4", engine("ffa4", 4), 0);
-    // The 4-way card stands against the ring: a gap under 24px has no hairline.
-    expect(hubPose(four, camera()).joint).toBeNull();
+    const view = camera({ mode: "overview" });
+    const ring = ringPose(four, view);
+    const above = hubPose(four, view);
+    expect(above.x).toBe(ring.x);
+    expect(above.y + above.height / 2).toBeLessThan(ring.y - 62 * ring.scale);
     const three = tableLayout("ffa3", engine("ffa3", 3), 0);
-    const far = hubPose(three, camera());
-    expect(far.joint).not.toBeNull();
-    const ring = ringPose(three, camera());
-    // The hairline starts on the ring's edge and ends on the card's edge, not in either.
-    expect(Math.hypot(far.joint!.x1 - ring.x, far.joint!.y1 - ring.y)).toBeCloseTo(62 * ring.scale, 5);
-    expect(far.joint!.y2).toBeCloseTo(far.y + far.height / 2, 5);
+    const home = seatPoses(three, camera()).get(0)!;
+    const dock = hubPose(three, camera());
+    expect(dock.x).toBe(550);
+    expect(dock.y - dock.height / 2).toBeGreaterThan(home.y + (380 * home.scale) / 2);
   });
 
-  it("keeps the home place in the fly-in view, with no hairline", () => {
+  it("keeps the home place in the fly-in view", () => {
     const three = tableLayout("ffa3", engine("ffa3", 3), 0);
     const fly = hubPose(three, camera({ mode: "fly" }));
-    expect(fly.joint).toBeNull();
     expect({ x: fly.x, y: fly.y }).toEqual({ x: hubPose(three, camera()).x, y: hubPose(three, camera()).y });
   });
 });

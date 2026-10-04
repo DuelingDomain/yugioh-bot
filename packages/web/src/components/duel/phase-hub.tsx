@@ -11,11 +11,11 @@ import styles from "./phase-hub.module.css";
 
 export type PhaseHubProps = {
   /**
-   * "band": the 1v1 board. The gap between the two fields: the owner and the turn number in the left free cell, one card
-   *   with all six phases in the centre cell, nothing in the right one. Clear of the Extra Monster Zones.
-   * "card": a table of 3 or 4. A small card beside the turn ring.
+   * "lane": the 1v1 board. A slim lane under the Extra Monster Zones; the strip carries the owner and the turn on its row.
+   * "table": a table of 3 or 4. The same strip at a place `hubPose` found; the owner and the turn sit in a caption line above it
+   * (the table stage's `data-hub-size` decides whether that caption, or the strip alone, fits).
    */
-  variant: "band" | "card";
+  variant: "lane" | "table";
   /** Raw engine phase (engine.phase). */
   phase: string | null | undefined;
   battleStep?: BattleStep | null;
@@ -37,12 +37,13 @@ export type PhaseHubProps = {
 };
 
 
-function Chip({ view, onChoose }: { view: StationView; onChoose: (optionId: string) => void }) {
+function Chip({ view, litName, onChoose }: { view: StationView; litName: string; onChoose: (optionId: string) => void }) {
   const { station, state, option } = view;
   const inner = (
     <>
       <span className={styles.code}>{station.code}</span>
-      {state === "done" ? <span className={styles.tick} aria-hidden="true"><Check strokeWidth={2.4} /></span> : null}
+      {state === "current" ? <span className={styles.name} aria-hidden="true">{litName}</span> : null}
+      {state === "done" ? <span className={styles.tick} aria-hidden="true"><Check strokeWidth={2.6} /></span> : null}
     </>
   );
   const common = {
@@ -71,10 +72,10 @@ function Chip({ view, onChoose }: { view: StationView; onChoose: (optionId: stri
 }
 
 /**
- * The phases of the turn, in the middle of the board. It reads the same model as the bar (`phaseStations`) and sends the
+ * The phases of the turn, in the middle of the board, as one strip: DP SP M1 BP M2 EP on a hairline track. It reads the same model as the bar (`phaseStations`) and sends the
  * same option ids through the same `onChoose`: Battle, Main 2 and End are buttons only while the local seat may answer
  * and the engine offers that move; on every other turn, and while anything else is being decided, it is read-only.
- * The lit phase gets its full name. Only opacity and transform ever animate.
+ * The lit chip is wider and carries the phase's full name. Only opacity and transform ever animate.
  */
 export function PhaseHub({
   variant, phase, battleStep, turn, turnSeat, mySeat, playerName, tone, actionOptions, canAct, onChoose, reducedMotion,
@@ -101,7 +102,13 @@ export function PhaseHub({
     <span className={styles.who} title={noTurn ? undefined : owner}>
       <i className={styles.dot} aria-hidden="true" />
       <span className={styles.whoName}>{noTurn ? "No turn" : myTurn ? "You" : owner}</span>
+      <b className={styles.turn}>Turn {turn ?? "—"}</b>
     </span>
+  );
+  const track = (
+    <div className={styles.track}>
+      {stations.map((view) => <Chip key={view.station.code} view={view} litName={litName} onChoose={onChoose} />)}
+    </div>
   );
 
   return (
@@ -116,29 +123,18 @@ export function PhaseHub({
       style={style}
     >
       <p className={styles.srOnly} role="status" aria-live="polite" aria-atomic="true">{summary}</p>
-      {variant === "band" ? (
-        <>
-          <div className={styles.cell} data-cell="who">
-            {who}
-            <b className={styles.turn}>Turn {turn ?? "—"}</b>
-          </div>
-          <div className={styles.panel} data-cell="phases">
-            <div className={styles.chips}>
-              {stations.map((view) => <Chip key={view.station.code} view={view} onChoose={onChoose} />)}
-            </div>
-            <div className={styles.foot} aria-hidden="true">{litName}</div>
-          </div>
-        </>
+      {variant === "lane" ? (
+        <div className={styles.plate}>
+          <div className={styles.owner} data-part="owner">{who}</div>
+          {track}
+        </div>
       ) : (
         <>
-          <div className={styles.head}>
+          <div className={styles.caption} data-part="owner" aria-hidden="true">
             {who}
-            <b className={styles.turn}>Turn {turn ?? "—"}</b>
+            <span className={styles.captionLit}>{litName}</span>
           </div>
-          <div className={styles.chips}>
-            {stations.map((view) => <Chip key={view.station.code} view={view} onChoose={onChoose} />)}
-          </div>
-          <div className={styles.foot} aria-hidden="true">{litName}</div>
+          <div className={styles.plate}>{track}</div>
         </>
       )}
     </nav>
