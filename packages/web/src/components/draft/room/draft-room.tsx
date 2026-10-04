@@ -498,11 +498,11 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
 
   /* ---------- the hologram ---------- */
   const [holoTarget, setHoloTarget] = useState<HoloTarget | null>(null);
-  // With a mouse and a wide room the large preview takes over from the hologram while a card is hovered or focused.
+  // With a mouse and a wide room the large preview takes over from the hologram while it is up.
   const previewing = finePointer && !phone;
   const previewTargetId = previewing && turn === "picking" && !holdDeal ? (hoverId ?? keyFocusId) : null;
   const preview = usePreviewCard(previewTargetId == null ? null : (rs.cards.find((c) => c.id === previewTargetId) ?? null));
-  const holoId = previewing ? (previewTargetId != null ? null : selectedId) : (hoverId ?? selectedId);
+  const holoId = previewing ? (preview ? null : selectedId) : (hoverId ?? selectedId);
   useLayoutEffect(() => {
     if (phone || turn !== "picking" || holoId == null) {
       setHoloTarget(null);

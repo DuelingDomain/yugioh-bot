@@ -121,6 +121,9 @@ describe("the large card preview in the draft room", () => {
     const holo = () => document.querySelector(".dr .holo");
     await waitFor(() => expect(holo()).toHaveAttribute("data-on"));
     fireEvent.pointerEnter(card(1));
+    // crossing a card does not blink the hologram: it waits for the preview
+    expect(preview()).toBeNull();
+    expect(holo()).toHaveAttribute("data-on");
     await waitFor(() => expect(preview()).not.toBeNull());
     await waitFor(() => expect(holo()).not.toHaveAttribute("data-on"));
     fireEvent.pointerLeave(card(1));

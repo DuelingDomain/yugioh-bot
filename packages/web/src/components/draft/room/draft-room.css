@@ -320,18 +320,25 @@
   80% { opacity: var(--o, 0.5); }
   100% { opacity: 0; transform: translate(var(--dx, 20px), var(--dy, 40px)); }
 }
-.dr .scene { position: absolute; inset: 0; perspective: 1500px; perspective-origin: 50% 12%; }
+.dr .scene {
+  position: absolute;
+  inset: 0;
+  perspective: 1500px;
+  perspective-origin: 50% 12%;
+  /* --lift raises the whole scene, eye point included, with the tray, so the group sits centred in a tall stage */
+  translate: 0 calc(0px - var(--lift, 0px));
+}
 .dr .stage[data-tall] .scene {
   position: relative;
   inset: auto;
+  translate: none;
   /* Keep the far seats above the mat and leave room for the disk below it. */
   height: calc(var(--th) + var(--disk-h) + 150px);
 }
 .dr .dr-table {
   position: absolute;
   left: 50%;
-  /* --lift raises the table and the tray together so the group sits centred in a tall stage */
-  bottom: calc(var(--disk-h) + 26px + var(--lift, 0px));
+  bottom: calc(var(--disk-h) + 26px);
   width: var(--tw, 900px);
   height: var(--th, 480px);
   translate: -50% 0;
@@ -1185,7 +1192,7 @@
 /* ---------- phone ---------- */
 @media (max-width: 900px) {
   .dr { --bar-h: 50px; --disk-h: 84px; }
-  .dr .scene { perspective: 1000px; perspective-origin: 50% 0%; }
+  .dr .scene { perspective: 1000px; perspective-origin: 50% 0%; translate: none; }
   .dr .room { grid-template-rows: var(--bar-h) 60px minmax(0, 1fr); }
   .dr .bar { grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; padding: 0 10px; }
   .dr .room-name, .dr .pass, .dr .clock small, .dr .ibtn .t { display: none; }
