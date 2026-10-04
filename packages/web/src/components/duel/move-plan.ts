@@ -120,6 +120,15 @@ const plans = new Map<number, MovePlan>();
 const pairs = new Map<number, number>();
 const state = { key: "", nextStartAt: 0 };
 
+/**
+ * 3D mode seam: a rule that marks a move silent (nothing drawn, the real card is not hidden by MoveFx) because the
+ * 3D mode room draws that arrival itself (the Deck Master hologram). Null in classic, so classic plans are unchanged.
+ */
+let silentMoveRule: ((event: DuelEvent) => boolean) | null = null;
+export function setSilentMoveRule(rule: ((event: DuelEvent) => boolean) | null): void {
+  silentMoveRule = rule;
+}
+
 export function resetMoveSchedule(key = ""): void {
   resetEffectSequence();
   plans.clear();
@@ -364,9 +373,12 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     if (chainAt > now) notBefore = Math.max(notBefore, chainAt + lead);
     // A card that also breaks away from a destroyed zone keeps its flight.
     if (lead > 0) silent = false;
+    // The room draws this arrival itself, but it keeps the V1 time slot (the flight's duration) in the queue.
+    const roomDraws = !silent && lead === 0 && !destroy && !takeover && silentMoveRule?.(event) === true;
+    if (roomDraws) silent = true;
     const source = resolveSource(from, event.id);
     const origin = style === "add" ? showcaseOrigin(event, now, source != null) : null;
-    candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance, reduced, isFieldPlacementLocation(to.location)), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin });
+    candidates.push({ event, style, base: silent && !roomDraws ? 0 : baseDuration(style, geo.distance, reduced, isFieldPlacementLocation(to.location)), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin });
   }
   if (candidates.length === 0) {
     sequenceEffects(fresh, [...plans.values()], now, reduced);

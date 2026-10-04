@@ -96,6 +96,7 @@ import { boardQuietNow, useResultGate } from "./result-reveal";
 import { useBoardView, type BoardMode } from "./board-view";
 import { useQuietViewChange } from "./quiet-view-change";
 import type { SolidRoomProps } from "./solid/solid-room";
+import { buildAttackPreview } from "./solid/attack-preview";
 import { PileViewer } from "./pile-viewer";
 import { livePileCards, shouldClosePileForPrompt, type PileView } from "./pile-focus";
 import { MatchSheetLog } from "./text-log";
@@ -110,6 +111,9 @@ const SolidRoom = dynamic<SolidRoomProps>(() => import("./solid/solid-room").the
   ssr: false,
   loading: () => <div style={{ minHeight: "100dvh", background: "#04060b" }} />,
 });
+
+/** The Card/Log/Settings sheet in 3D mode is a solid panel (the tokens come from the 3D mode root, which holds the sheet). */
+const SOLID_SHEET_CLASS = "bg-[color:var(--ink-1)] border-t border-[color:var(--gold-b)] rounded-t-[16px] md:rounded-t-none";
 
 /** The attack target the player pointed at; only the confirm submits it. */
 type AimLock = { promptId: string; optionId: string; key: string; anchor: HTMLElement; name: string };
@@ -865,18 +869,20 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       equipLinks={engine ? resolveEquipLinks(engine.seats) : undefined}
     />
   );
+  // The Deck Master actions: the rail (both looks) and the 3D mode chip offer the very same ones.
+  const legalActionsFor = (card: DuelCard | null, keys: string[]) =>
+    canAct && prompt?.kind === "choice" && prompt.context?.type === "action"
+      ? optionsForCard(prompt, card, keys)
+      : [];
+  const onChooseAction = (option: DuelPromptOption) => {
+    setMobileInspect(false);
+    onSubmitAnswer({ choice: option.id });
+  };
   const masterRail = domain && engine ? (
     <DeckMasterRail engine={engine} mySeat={data.mySeat} legalKeys={legalKeys}
       selectedKeys={selectedKeys} canAct={canAct}
-      legalActionsFor={(card, keys) =>
-        canAct && prompt?.kind === "choice" && prompt.context?.type === "action"
-          ? optionsForCard(prompt, card, keys)
-          : []
-      }
-      onChooseAction={(option) => {
-        setMobileInspect(false);
-        onSubmitAnswer({ choice: option.id });
-      }}
+      legalActionsFor={legalActionsFor}
+      onChooseAction={onChooseAction}
       onActivate={onFieldActivate} topSeat={multi ? focusSeat : undefined}
       onHoverCard={onHoverCard} onInspect={(target) => showInspector(target, true)} />
   ) : null;
@@ -1113,7 +1119,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       {fxUp ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
         reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
       <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}
-        active={fxUp} aim={battleAim} result={engine.result} battleStep={battleStep} />
+        active={fxUp} aim={solid ? null : battleAim} result={engine.result} battleStep={battleStep} />
       <DestroyFx key={`destroy-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
         active={fxUp} mySeat={localSeat} />
       </FxBoundary>
@@ -1165,12 +1171,14 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         }} /> : null}
       {attackTargetActive && aimLock && aimLock.promptId === prompt?.id && !busy && !error && !catchingUp ? (
         <AttackConfirm anchor={aimLock.anchor} targetName={aimLock.name} busy={busy}
+          preview={solid && engine ? buildAttackPreview(engine, attackerKey, aimLock.key, playerName) : undefined}
           prefer={confirmSide(attackerKey, aimLock.anchor)} onConfirm={confirmAim}
           onBack={() => setAimLock(null)} />
       ) : null}
       {pickHintShown && pickHint ? <PickRefusalHint anchor={pickHint.anchor} text={pickHint.text} onDone={clearPickHint} /> : null}
       {hover && !activeMenu && !pickHintShown && !mobileInspect && !pile?.open ? <CardHoverInfo card={hover.card} anchor={hover.anchor} /> : null}
       <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)}
+        className={solid ? SOLID_SHEET_CLASS : undefined}
         title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Settings"}>
         {sidePanes(false)}
       </Sheet>
@@ -1214,6 +1222,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           inspectorNode={inspectorNode}
           promptDockNode={promptDockNode}
           masterRail={masterRail}
+          legalActionsFor={legalActionsFor}
+          onChooseAction={onChooseAction}
+          battleAim={battleAim}
           trackNode={trackNode}
           mobileTabs={mobileTabs}
           overlaysNode={overlaysNode}

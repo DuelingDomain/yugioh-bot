@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Volume2 } from "lucide-react";
 import type { DuelCard } from "@yugidraft/shared/duels";
+import type { BattleAim } from "../../battle-fx";
 import { Sheet } from "@/components/ui/sheet";
 import { DuelAnimationSpeedControl, useDuelAnimationSpeed } from "../../animation-speed-control";
 import type { BoardTilt, BoardView } from "../../board-view";
@@ -23,6 +24,7 @@ import { CardTabEmpty, DESKTOP_PANES, desktopPane, mobilePanes, SidePanel, SideT
 import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack } from "../../station-track";
 import { MatchSheetLog } from "../../text-log";
 import type { DuelPreferences } from "../../preferences";
+import { buildAttackPreview } from "../attack-preview";
 import { SolidRoom } from "../solid-room";
 import { SOLID_CARDS } from "./cards";
 import { SOLID_STATE_IDS, SOLID_STATE_LABEL, solidFixture, type SolidStateId } from "./states";
@@ -79,6 +81,9 @@ export function SolidPreviewRoom({ stateId, flat, reduced }: { stateId: SolidSta
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
   const canAct = prompt != null && prompt.seat === mySeat && prompt.context?.type === "action";
   const myHand = engine.seats[mySeat ?? 0].hand;
+  // The battle state shows the locked attack arrow on the plane, so the plane path can be checked by eye.
+  const battleAim: BattleAim | null = ui.confirm ? { mode: "locked", from: ui.confirm.attacker, to: { zones: [ui.confirm.target] } } : null;
+  const legalActionsFor = (card: DuelCard | null, keys: string[]) => (canAct && prompt ? optionsForCard(prompt, card, keys) : []);
 
   // The menu and the attack confirm anchor on live board nodes, so they open once the board has laid out.
   useEffect(() => {
@@ -113,8 +118,8 @@ export function SolidPreviewRoom({ stateId, flat, reduced }: { stateId: SolidSta
   const inspectCard = SOLID_CARDS[ui.inspect.card];
   const cardPanel = <CardInspector target={{ type: "info", card: inspectCard }} />;
   const masterRail = domain ? (
-    <DeckMasterRail engine={engine} mySeat={mySeat} legalKeys={legalKeys} selectedKeys={NO_KEYS} canAct={false}
-      legalActionsFor={() => []} onActivate={noop} onChooseAction={noop} onInspect={noop} />
+    <DeckMasterRail engine={engine} mySeat={mySeat} legalKeys={legalKeys} selectedKeys={NO_KEYS} canAct={canAct}
+      legalActionsFor={legalActionsFor} onActivate={noop} onChooseAction={noop} onInspect={noop} />
   ) : null;
   const logPanel = (
     <div className={roomStyles.logPane}>
@@ -199,6 +204,9 @@ export function SolidPreviewRoom({ stateId, flat, reduced }: { stateId: SolidSta
         inspectorNode={<>{tabs()}<div className={roomStyles.sideContent}>{sidePanes(true)}</div></>}
         promptDockNode={null}
         masterRail={masterRail}
+        legalActionsFor={legalActionsFor}
+        onChooseAction={noop}
+        battleAim={battleAim}
         trackNode={
           <StationTrack phase={engine.phase} battleStep={battleStep} turn={engine.turn} turnSeat={engine.turnSeat} mySeat={mySeat}
             playerName={playerName} actionOptions={canAct ? actionOptions : []} canAct={canAct}
@@ -211,8 +219,10 @@ export function SolidPreviewRoom({ stateId, flat, reduced }: { stateId: SolidSta
             {menu ? <CardActionMenu anchor={menu.anchor} title={menu.title} options={menu.options} busy={false} onClose={() => setMenu(null)}
               onChoose={() => setMenu(null)} /> : null}
             {confirm ? <AttackConfirm anchor={confirm.anchor} targetName={confirm.name} busy={false} prefer={confirm.prefer}
+              preview={ui.confirm ? buildAttackPreview(engine, ui.confirm.attacker, ui.confirm.target, playerName) : undefined}
               onConfirm={() => setConfirm(null)} onBack={() => setConfirm(null)} /> : null}
             <Sheet open={mobileInspect} onClose={() => setMobileInspect(false)}
+              className="bg-[color:var(--ink-1)] border-t border-[color:var(--gold-b)] rounded-t-[16px] md:rounded-t-none"
               title={pane === "card" ? "Card" : pane === "log" ? "Duel log" : pane === "masters" ? "Deck Masters" : "Settings"}>
               {sidePanes(false)}
             </Sheet>
