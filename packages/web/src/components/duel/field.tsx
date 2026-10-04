@@ -471,7 +471,7 @@ function PileSlot({
         type="button"
         className={styles.zoneHit}
         aria-label={`${label} (${count})`}
-        aria-pressed={selected}
+        aria-pressed={deckMenu ? undefined : selected}
         data-duel-menu={deckMenu ? "" : undefined}
         onClick={(event) => activate(event.currentTarget)}
         onContextMenu={deckMenu ? (event) => {

@@ -205,6 +205,12 @@ describe("deck menu", () => {
     act(() => { vi.advanceTimersByTime(500); });
     expect(screen.getByRole("menu")).toBeTruthy();
   });
+
+  it("does not claim a pressed state on a deck that opens a menu", () => {
+    const { container } = table();
+    expect(deck(container, "bottom").hasAttribute("aria-pressed")).toBe(false);
+    expect(deck(container, "top").hasAttribute("aria-pressed")).toBe(true);
+  });
 });
 
 describe("deck menu model", () => {
