@@ -1,1 +1,230 @@
-/* Solid Vision: header (stub from the foundation). The owning worker fills this file; see docs/specs/2026-10-03-duel-3d-mode.md. */
+/* Solid Vision header (3D mode). Concept styles.css 134-160 and the mobile block 647-790, re-keyed to 900px.
+   The tokens (--tx, --gold-b, --pur ...) come from .root in solid-room.module.css. V1 nodes inside the header
+   (wordmark link, room tools, connection status) are restyled with element selectors, so no V1 class is needed. */
+
+.hdr {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  border-bottom: 1px solid var(--gold-b);
+  background: linear-gradient(180deg, #0a0e1a, #070a12);
+  color: var(--tx);
+}
+
+/* ---------- left: wordmark / format ---------- */
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.wordmark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.wordmark a {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  color: var(--tx);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.wordmark a:hover { color: #fff; }
+/* The spectator tag keeps its V1 look but sits quiet beside the wordmark. */
+.wordmark strong {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.slash { color: var(--gold-lo); font-size: 18px; }
+.fmt {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--tx-2);
+  font-size: 15px;
+}
+
+/* ---------- centre: turn + whose-turn pill ---------- */
+.turnbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-width: 0;
+}
+.turnText {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.dot { color: var(--gold-lo); }
+.phase { transition: color 0.4s; }
+:global([data-phase="battle"]) .phase { color: var(--ember); }
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 11px 0 9px;
+  border-radius: 13px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: rgb(143 118 242 / 0.16);
+  color: var(--pur-hi);
+  box-shadow: inset 0 0 0 1px var(--pur-a);
+  transition: background 0.4s, color 0.4s, box-shadow 0.4s;
+}
+.pill[data-owner="opp"] {
+  background: rgb(224 145 106 / 0.12);
+  color: var(--ember);
+  box-shadow: inset 0 0 0 1px rgb(224 145 106 / 0.4);
+}
+.pill[data-owner="watch"] {
+  background: rgb(196 189 171 / 0.08);
+  color: var(--tx-2);
+  box-shadow: inset 0 0 0 1px rgb(196 189 171 / 0.28);
+}
+.pillShort { display: none; }
+
+/* ---------- right: live dot, room tools, Tilt/Flat, gear ---------- */
+.tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 6px;
+  color: var(--tx-2);
+  font-size: 13px;
+  white-space: nowrap;
+}
+/* V1 series label + connection status: the green lamp and plain text of the concept. */
+.live [role="status"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--tx-2);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.live [role="status"] i {
+  width: 7px;
+  height: 7px;
+  background: #7fcf9a;
+  box-shadow: 0 0 0 3px rgb(127 207 154 / 0.14);
+  animation: none;
+}
+.live [role="status"] svg { width: 14px; height: 14px; }
+.live b { font-weight: 500; color: var(--tx); }
+
+.roomTools {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.roomTools button,
+.roomTools a,
+.view,
+.gear {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--tx-2);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+.roomTools button:hover,
+.roomTools a:hover,
+.view:hover,
+.gear:hover {
+  background: var(--ink-3);
+  color: var(--tx);
+}
+.roomTools button b,
+.view b { font-weight: 500; color: var(--tx); }
+.roomTools button:disabled { opacity: 0.5; }
+.sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--hair);
+}
+.gear { width: 34px; padding: 0; justify-content: center; }
+.view[data-view="flat"] { color: var(--tx); }
+
+.hdr button:focus-visible,
+.hdr a:focus-visible {
+  outline: 2px solid var(--gold-hi);
+  outline-offset: 2px;
+}
+
+:global([data-reduced="true"]) .pill,
+:global([data-reduced="true"]) .phase { transition: none; }
+
+@media (max-width: 1150px) {
+  .fmt, .slash { display: none; }
+}
+
+/* ---------- phones and narrow windows (spec 2.6) ---------- */
+@media (max-width: 900px) {
+  .hdr { grid-template-columns: auto 1fr auto; gap: 8px; }
+  .wordmark { flex-direction: column; align-items: flex-start; gap: 0; }
+  .wordmark a { font-size: 17px; }
+  .wordmark strong { font-size: 10px; line-height: 12px; padding: 0; border: 0; background: transparent; box-shadow: none; text-shadow: none; }
+  .slash, .fmt { display: none; }
+  .turnbox { gap: 8px; justify-content: center; }
+  .turnText { font-size: 15px; }
+  .pill { height: 22px; padding: 0 8px 0 7px; font-size: 12px; }
+  .pill svg { width: 12px; height: 12px; }
+  .pillFull { display: none; }
+  .pillShort { display: inline; }
+  .roomTools, .sep, .live > *:not([role="status"]) { display: none; }
+  .live { margin-right: 0; }
+  /* The live dot alone: the words stay for screen readers. Reconnecting or Offline keep their words. */
+  .live [role="status"][data-live="true"] { gap: 0; }
+  .live [role="status"][data-live="true"] span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .view { padding: 0 8px; }
+}
+@media (max-width: 420px) {
+  .view b { display: none; }
+  .view { padding: 0 7px; }
+  .turnText { font-size: 14px; }
+}

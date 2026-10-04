@@ -1,1 +1,177 @@
-/* Solid Vision: feedback (stub from the foundation). The owning worker fills this file; see docs/specs/2026-10-03-duel-3d-mode.md. */
+/* Solid Vision turn and event banners (3D mode): the V1 DuelFeedback cues skinned through the `feedback` slot as the
+   concept's `.handoff` panel (styles.css 543-549): ink panel, a 22px line, a 13px sub-line, an ember ring for the
+   opponent and a purple one for you. Only the look changes: the timings, keyframes and the markup are V1's
+   (BANNER_TIMING). The ring is the V1 border, not an inset shadow, so the edge-light keyframe cannot erase it.
+   Every rule doubles its class so it beats the V1 rule whatever order the two stylesheets load in. */
+
+.cue.cue {
+  gap: 14px;
+  padding: 10px 24px 11px 10px;
+  border-color: var(--pur-a);
+  border-radius: 12px;
+  background: rgb(8 11 20 / 0.95);
+  color: var(--tx);
+  font-family: var(--font);
+  box-shadow: 0 20px 36px -14px rgb(0 0 0 / 0.95);
+}
+:global([data-turn="opp"]) .cue.cue {
+  border-color: rgb(224 145 106 / 0.5);
+}
+:global([data-turn="watch"]) .cue.cue {
+  border-color: var(--gold-a);
+}
+.cue.cue[data-kind="attack"] {
+  border-color: rgb(224 145 106 / 0.55);
+}
+.cue.cue[data-kind="activate"],
+.cue.cue[data-kind="chain-resolving"] {
+  border-color: var(--pur);
+}
+.cue.cue[data-kind="activate"][data-chain="true"],
+.cue.cue[data-kind="chain-resolved"] {
+  border-color: var(--gold-a);
+}
+.cue.cue[data-kind="chain-negated"] {
+  border-color: rgb(242 122 107 / 0.7);
+}
+.cue.cue[data-compact="true"] {
+  gap: 8px;
+  padding: 6px 16px 6px 10px;
+  border-radius: 999px;
+}
+.cue.cue[data-reduced="true"] {
+  padding: 8px 14px 8px 8px;
+  gap: 10px;
+}
+
+.cue.cue .portrait {
+  width: 62px;
+  border-radius: 4px;
+}
+.cue.cue[data-reduced="true"] .portrait {
+  width: 38px;
+}
+.cue.cue .meta {
+  gap: 3px;
+}
+.cue.cue .kind,
+.cue.cue .chain {
+  height: 20px;
+  padding: 0 8px;
+  border-color: var(--gold-b);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--tx-2);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+}
+.cue.cue[data-kind="attack"] .kind {
+  border-color: rgb(224 145 106 / 0.5);
+  color: var(--ember);
+}
+.cue.cue[data-kind="activate"] .kind,
+.cue.cue[data-kind="chain-resolving"] .kind {
+  border-color: var(--pur-a);
+  color: var(--pur-hi);
+}
+.cue.cue[data-kind="chain-resolved"] .kind,
+.cue.cue .chain {
+  border-color: var(--gold-a);
+  color: var(--gold-hi);
+}
+.cue.cue[data-kind="chain-negated"] .kind,
+.cue.cue[data-kind="chain-negated"] .chain {
+  border-color: rgb(242 122 107 / 0.6);
+  color: var(--loss);
+}
+
+.cue.cue[data-feedback-cue] .title {
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+.cue.cue[data-feedback-cue][data-reduced="true"] .title,
+.cue.cue[data-compact="true"] .title {
+  font-size: 15px;
+  letter-spacing: 0;
+}
+.cue.cue .blurb {
+  font-family: var(--font);
+  font-size: 13px;
+  font-style: normal;
+  line-height: 1.35;
+  color: var(--tx-2);
+}
+.cue.cue[data-reduced="true"] .blurb {
+  font-size: 12px;
+}
+.cue.cue[data-kind="chain-negated"] .title::after {
+  background: var(--loss);
+}
+
+/* The turn banner: the same panel, centred, with the arrow of the concept's handoff line. */
+.phaseRibbon.phaseRibbon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-width: 0;
+  max-width: min(520px, calc(100% - 1.5rem));
+  padding: 10px 24px 11px;
+  border: 1px solid var(--pur-a);
+  border-radius: 12px;
+  background: rgb(8 11 20 / 0.95);
+  color: var(--tx);
+  box-shadow: 0 20px 36px -14px rgb(0 0 0 / 0.95);
+}
+:global([data-turn="opp"]) .phaseRibbon.phaseRibbon,
+:global([data-phase="battle"]) .phaseRibbon.phaseRibbon {
+  border-color: rgb(224 145 106 / 0.5);
+}
+:global([data-turn="watch"]) .phaseRibbon.phaseRibbon {
+  border-color: var(--gold-a);
+}
+.phaseTitle.phaseTitle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--font);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.phaseTitle.phaseTitle::before {
+  content: "";
+  flex: none;
+  width: 18px;
+  height: 18px;
+  background: var(--pur-hi);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12h15'/%3E%3Cpath d='M13 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12h15'/%3E%3Cpath d='M13 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+:global([data-turn="opp"]) .phaseTitle.phaseTitle::before,
+:global([data-phase="battle"]) .phaseTitle.phaseTitle::before {
+  background: var(--ember);
+}
+:global([data-turn="watch"]) .phaseTitle.phaseTitle::before {
+  background: var(--gold-hi);
+}
+
+@media (max-width: 900px) {
+  .cue.cue[data-feedback-cue] .title,
+  .phaseTitle.phaseTitle {
+    font-size: 18px;
+  }
+  .cue.cue[data-feedback-cue][data-reduced="true"] .title,
+  .cue.cue[data-compact="true"] .title {
+    font-size: 15px;
+  }
+  .phaseTitle.phaseTitle::before {
+    width: 16px;
+    height: 16px;
+  }
+}
