@@ -1,7 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import Database from "better-sqlite3";
-import type { DuelDeck } from "@yugidraft/shared/duels";
+import { canonicalCardCode, mapDeckCodes, type DuelDeck } from "@yugidraft/shared/duels";
 import { createCardCatalogService } from "@yugidraft/shared/services";
 import { DeckLegalityError } from "./deck-legality.js";
 
@@ -200,14 +200,8 @@ export async function normalizeImportedDeck(
   const allIds = deckMaster === undefined ? [...main, ...extra, ...side] : [...main, ...extra, ...side, deckMaster];
   const resolved = await resolveMissingIds(index, allIds, db, options);
 
-  const remap = (id: number): number => resolved.get(id) ?? id;
-  const normalized: DuelDeck = {
-    main: main.map(remap),
-    extra: extra.map(remap),
-    side: side.map(remap),
-  };
-  if (deckMaster !== undefined) normalized.deckMaster = remap(deckMaster);
-  return normalized;
+  const remap = (id: number): number => canonicalCardCode(resolved.get(id) ?? id, index.byId);
+  return mapDeckCodes({ main, extra, side, ...(deckMaster !== undefined ? { deckMaster } : {}) }, remap);
 }
 
 /** Engine passcode for each input id, resolved like `normalizeImportedDeck`; an id that cannot be resolved maps to null. */
@@ -222,7 +216,8 @@ export async function normalizeCardCodes(
   const resolved = await resolveMissingIds(index, ids, db, { ...options, keepUnresolved: true });
   const result = new Map<number, number | null>();
   for (const id of ids) {
-    result.set(id, index.byId.has(id) ? id : (resolved.get(id) ?? null));
+    const known = index.byId.has(id) ? id : resolved.get(id);
+    result.set(id, known === undefined ? null : canonicalCardCode(known, index.byId));
   }
   return result;
 }

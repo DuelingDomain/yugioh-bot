@@ -290,7 +290,7 @@ describe("normalizeImportedDeck unknown and aliases", () => {
       db,
       { fetch },
     );
-    expect(normalized.main).toEqual([101, 100, 100]);
+    expect(normalized.main).toEqual([100, 100, 100]);
   });
 
   it("treats the same name aliasing to different cards as ambiguous", async () => {
