@@ -1,4 +1,4 @@
-From bbef05b1d103827960daae7de6d7507cdac668af Mon Sep 17 00:00:00 2001
+From f4b68bddd3329a8fda695724833f168ad8f84aaa Mon Sep 17 00:00:00 2001
 From: yugidraft <yugidraft@localhost>
 Date: Sat, 3 Oct 2026 22:51:23 -0400
 Subject: [PATCH] Keep queued causal opponents bound after departure
@@ -62,7 +62,7 @@ index be9d20c..28d90ab 100644
  	uint8_t living_opponents(uint8_t P, uint8_t (&out)[MAX_DUELISTS]) const {
  		uint8_t count = 0;
 diff --git a/processor.cpp b/processor.cpp
-index f0998f5..86ba25b 100644
+index f0998f5..6ea9124 100644
 --- a/processor.cpp
 +++ b/processor.cpp
 @@ -1476,6 +1476,9 @@ int32_t field::process_instant_event() {
@@ -110,19 +110,19 @@ index f0998f5..86ba25b 100644
  			core.sub_solving_event.push_back(clit.evt);
  			emplace_process<Processors::ExecuteTarget>(peffect, clit.triggering_player);
  		}
-@@ -4525,6 +4538,12 @@ bool field::process(Processors::SolveChain& arg) {
- 	case 2: {
- 		for(uint8_t p = 0; p < n_duelists; ++p)
- 			core.spsummon_state_count_tmp[p] = core.spsummon_state_count[p];
+@@ -4563,6 +4576,12 @@ bool field::process(Processors::SolveChain& arg) {
+ 			}
+ 			adjust_instant();
+ 		}
 +		// The saved causal seat left before activation and its checks failed.
 +		// Complete the link with no effect, without a negation event or message.
 +		if(cait->causal_activation_failed) {
 +			arg.step = 3;
 +			return FALSE;
 +		}
- 		// The link of an eliminated duelist resolves with no effect (no EVENT_CHAIN_DISABLED). A duelist with a pending loss
- 		// (Debug.EliminateDuelist) is out already. A surrender (0x200) waits for the whole chain and its links act normally.
- 		if(n_duelists > 2 && is_duelist(cait->triggering_player) && (player[cait->triggering_player].eliminated || (player[cait->triggering_player].pending_loss && player[cait->triggering_player].pending_loss != 0x200))) {
+ 		// creating continuous target: peffect->is_flag(EFFECT_FLAG_CONTINUOUS_TARGET) && !cait->replace_op
+ 		// operation function creating continuous target should be executed even when disabled
+ 		if(is_chain_disablable(cait->chain_count) && (!peffect->is_flag(EFFECT_FLAG_CONTINUOUS_TARGET) || cait->replace_op)) {
 -- 
 2.43.0
 

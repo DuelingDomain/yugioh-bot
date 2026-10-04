@@ -80,3 +80,4 @@ swords-replay	swords-direct	replay	ready	Swords FFA controller protection; Tag a
 swords-redirect	swords-direct	redirect	ready	Swords FFA controller protection; Tag and 1v1 stock.
 swords-leaves	swords-direct	leaves	ready	Swords FFA controller protection; Tag and 1v1 stock.
 surrender-response-window	surrender-response-window	-	ready	R-COMMON-SURRENDER-EOT: empty phase window stays; non-turn cursor and Debug.SurrenderDuelist; no later empty cut-short windows
+queued-continuous-activation	queued-continuous-activation	-	ready	Failed causal Continuous Spell/Trap activation enables field effects (FFA3, FFA4, Tag processor control).
