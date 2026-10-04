@@ -35,7 +35,7 @@ import {
   type MoveStyle,
 } from "./move-plan";
 import styles from "./move-fx.module.css";
-import { beginDestroyHide, beginPileHold, startDestroyHideGuard } from "./destroy-hide";
+import { beginDestroyHide, beginPileHold, beginPileLift, startDestroyHideGuard } from "./destroy-hide";
 import { SHARDS, Track } from "./summon-fx";
 import { CARD_FX } from "./duel-timing";
 import { ShowcaseGhost } from "./add-fx";
@@ -821,6 +821,11 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
         // when the streak arrives, not before.
         releases.push(beginPileHold(`move:${plan.id}`, plan.event.zone, waitMs));
       }
+      const wait = plan.startAt - now;
+      // A card of a deal stays counted in its Deck until its flight sets off: the Deck counts down card by card.
+      if (plan.event.from?.location === LOCATION_DECK && plan.event.zone?.location === LOCATION_HAND && wait > 16) {
+        releases.push(beginPileLift(`move:${plan.id}`, { controller: plan.event.from.controller, location: LOCATION_DECK, sequence: 0 }, wait));
+      }
       if (releases.length > 0) {
         const release = () => {
           duelFxClock.clearTimeout(failsafe);
@@ -832,7 +837,6 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
         const failsafe = duelFxClock.setTimeout(release, waitMs);
         timersRef.current.add(failsafe);
       }
-      const wait = plan.startAt - now;
       if (wait <= 16) {
         started.push(plan);
       } else {

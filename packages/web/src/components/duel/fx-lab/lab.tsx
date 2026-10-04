@@ -22,7 +22,7 @@ import { isBattlePhase } from "../constants";
 import { getSharedFx3d } from "../fx3d/shared";
 import styles from "../room.module.css";
 import fx from "./fx-lab.module.css";
-import { applyEdits, numberSteps, scriptDurationMs, type LabBoard, type LabScenario, type LabScript } from "./board";
+import { applyEdits, numberSteps, scriptDurationMs, withHandIds, type LabBoard, type LabScenario, type LabScript } from "./board";
 import { LAB_CATEGORIES, LAB_SCENARIOS, findScenario, scenariosIn } from "./scenarios";
 import { installTimeShim, type TimeShim } from "./time-shim";
 import { labSeriesRoom, OpeningLabScreen, SeriesLabHeader, SeriesLabScreen } from "./series-view";
@@ -48,6 +48,8 @@ type Live = {
   chain: DuelChainLink[];
   events: DuelEvent[];
   revision: number;
+  /** The layers opened on a finished first step (a room's first load): they replay its events from the start. */
+  preloaded?: boolean;
 };
 
 const noop = () => undefined;
@@ -228,7 +230,16 @@ export function FxLab() {
         shim.setFactor(rate);
         shim.resetTimeline();
         setStatus("playing");
-        for (const { step, events } of numbered) {
+        let steps = numbered;
+        if (built.preload && numbered.length > 0) {
+          // A room's first load: the finished board and its events are there when the layers mount.
+          const [first, ...rest] = numbered;
+          const dealt = withHandIds(applyEdits(built.initial, first.step.edits ?? []), first.events, built.mySeat === undefined ? 0 : built.mySeat);
+          boardRef.current = dealt.board;
+          steps = rest;
+          setLive((prev) => ({ runKey: prev.runKey + 1, board: dealt.board, chain: first.step.chain ?? prev.chain, events: dealt.events, revision: prev.revision + 1, preloaded: true }));
+        }
+        for (const { step, events } of steps) {
           later(step.at / rate, () => {
             if (!started()) return;
             const nextBoard = applyEdits(boardRef.current, step.edits ?? []);
@@ -239,6 +250,7 @@ export function FxLab() {
               chain: step.chain ?? prev.chain,
               events: [...prev.events, ...events],
               revision: prev.revision + 1,
+              preloaded: prev.preloaded,
             }));
             if (step.result) setResult(step.result);
           });
@@ -403,9 +415,9 @@ export function FxLab() {
                       topName={viewerSeat == null ? "Seat 1" : "Practice Bot"}
                     />
                     <FxBoundary>
-                      <DuelFeedback events={engine.events} duelKey={duelKey} soundEnabled={sound} soundVolume={0.6} reducedMotion={reduced} />
+                      <DuelFeedback events={engine.events} duelKey={duelKey} soundEnabled={sound} soundVolume={0.6} reducedMotion={reduced} replayFrom={live.preloaded ? 0 : null} />
                       <SummonFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} shake="medium" />
-                      <MoveFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} />
+                      <MoveFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} replayFrom={live.preloaded ? 0 : null} />
                       <PositionFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} />
                       <ChainFx events={engine.events} chain={engine.chain} duelKey={duelKey} reducedMotion={reduced} mySeat={0} playerName={(seat) => (seat === 0 ? "You" : "Practice Bot")} />
                       <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={duelKey} reducedMotion={reduced} mySeat={0} />

@@ -19,7 +19,9 @@ vi.mock("next/link", () => ({ default: ({ href, children }: { href: string; chil
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), push: vi.fn() }) }));
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({ useDuelWebsocket: () => ({ syncing: state.syncing, recovering: state.recovering, connected: true, presence: null, resync: vi.fn() }) }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
-vi.mock("@/components/duel/use-start-beats", () => ({ useStartBeats: startBeats }));
+vi.mock("@/components/duel/use-start-beats", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/components/duel/use-start-beats")>(), useStartBeats: startBeats,
+}));
 vi.mock("@/components/duel/prompt-reveal", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/components/duel/prompt-reveal")>(), usePromptReveal: () => state.revealed,
 }));
