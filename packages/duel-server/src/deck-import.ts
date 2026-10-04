@@ -184,6 +184,11 @@ async function resolveMissingIds(
   return resolved;
 }
 
+/** Canonical identity for card-count checks, including artwork ids stored before normalization. */
+export function canonicalEngineCardCode(code: number, dataDirectory: string): number {
+  return canonicalCardCode(code, loadEngineIndex(dataDirectory).byId);
+}
+
 export async function normalizeImportedDeck(
   deck: DuelDeck,
   dataDirectory: string,
