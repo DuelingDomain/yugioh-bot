@@ -5,7 +5,7 @@ name: Test
 #   cores        build or restore the engine bundle (standard, domain and multi cores). Shared by the next jobs.
 #   unit         typecheck and the tests that need no core (shared, bot, web, duel-server unit, e2e unit).
 #   engine       real-engine tests with DUEL_REQUIRE_CORES=1: a missing core is a failure, never a silent skip.
-#   engine-legacy  the same suite with DUEL_1V1_ENGINE=legacy (the production default for 1v1), plus main's own engine tests
+#   engine-legacy  1v1 host/worker gates with DUEL_1V1_ENGINE=legacy (the production default), plus main's engine tests
 #                run against the legacy engine (tests/legacy-main). The engine job runs the merged engine ("pinned").
 #   native       ASan/UBSan build of the multi core and the committed native checks (npm run test:native).
 #   rule-coverage  every rule of ADR-0002 has a covering test (--strict).
@@ -197,8 +197,8 @@ jobs:
           # The legacy 1v1 files must be main's files (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
           sh packages/duel-server/scripts/check-legacy-pin.sh "$PWD/$BUNDLE_DIR"
 
-  unit:
-    name: Unit tests (no core)
+  unit-packages:
+    name: Unit packages and typecheck
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -227,9 +227,6 @@ jobs:
       - name: Test bot
         run: npm test --workspace=packages/bot
 
-      - name: Test web
-        run: npm test --workspace=packages/web
-
       # Needs the test:unit script of duel-server: the tests that load no wasm core.
       - name: Test duel-server (no core)
         run: npm run test:unit --workspace=@yugidraft/duel-server
@@ -237,12 +234,53 @@ jobs:
       - name: Test e2e helpers
         run: npm run test:unit --workspace=@yugidraft/e2e
 
-  engine:
-    name: Engine tests (cores required)
+  unit-web:
+    name: Web unit tests (${{ matrix.shard }}/4)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Build shared
+        run: npm run build --workspace=@yugidraft/shared
+      - name: Test web
+        run: npm test --workspace=packages/web -- --shard=${{ matrix.shard }}/4
+
+  # Keep the branch-protection check names. A failed or cancelled shard fails the aggregate.
+  unit:
+    name: Unit tests (no core)
+    if: always() && github.event_name != 'schedule'
+    needs: [unit-packages, unit-web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all unit jobs
+        env:
+          PACKAGES: ${{ needs.unit-packages.result }}
+          WEB: ${{ needs.unit-web.result }}
+        run: test "$PACKAGES" = success && test "$WEB" = success
+
+  engine-shards:
+    name: Engine tests shard (${{ matrix.shard }}/6)
     if: github.event_name != 'schedule' && needs.changes.outputs.web_engine == 'true'
     needs: [cores, changes]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
     env:
       DUEL_REQUIRE_CORES: "1"
       DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
@@ -280,7 +318,14 @@ jobs:
 
       - name: Engine tests
         if: needs.changes.outputs.engine == 'true'
-        run: npm run test:engine
+        run: npm run test:engine --workspace=packages/duel-server -- --shard=${{ matrix.shard }}/6 --exclude=tests/multi-scripts-table.test.ts
+
+      # Vitest cannot split one file. The Table file took 580 s, so partition its card rows too.
+      - name: Table card tests
+        if: needs.changes.outputs.engine == 'true'
+        env:
+          TABLE_SHARD: ${{ matrix.shard }}/6
+        run: npm exec --workspace=packages/duel-server -- vitest run tests/multi-scripts-table.test.ts --testTimeout=15000
 
       # Web tests that run a real stock-core duel. The unit job has no engine bundle, so they skip there.
       # DUEL_REQUIRE_CORES=1 (from the job env) makes a missing bundle a failure here.
@@ -289,6 +334,7 @@ jobs:
       # Only direct imports of the cores helper are found. A web test that gets the helper through another module is not run here.
       # The full web suite (about 400 files) already runs in the unit job, so only the matching files run again.
       - name: Web tests with the engine
+        if: matrix.shard == 1
         run: |
           set -o pipefail
           # Lines that start with // or * are comments: a comment that names the helper does not count.
@@ -299,15 +345,19 @@ jobs:
 
       # tests/*.smoke.ts are plain assert scripts (vitest does not match them); one failing script fails the step.
       - name: Engine smoke scripts
-        if: needs.changes.outputs.engine == 'true'
+        if: needs.changes.outputs.engine == 'true' && matrix.shard == 1
         run: npm run test:smoke --workspace=packages/duel-server
 
-  engine-legacy:
-    name: Engine tests, legacy 1v1 engine (cores required)
+  engine-legacy-shards:
+    name: Legacy 1v1 tests shard (${{ matrix.shard }}/6)
     if: github.event_name != 'schedule' && needs.changes.outputs.engine == 'true'
     needs: [cores, changes]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
     env:
       DUEL_REQUIRE_CORES: "1"
       DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
@@ -315,7 +365,7 @@ jobs:
       DOMAIN_MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
       NSEAT_LIVE: "1"
       TABLE_TRAP_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-trap.sync.wasm
-      # Production starts 1v1 duels on the legacy engine. This job runs the whole suite that way. The setup file
+      # Production starts 1v1 duels on the legacy engine. Run only its tests and host/worker gates. The setup file
       # (tests/support/setup.ts) keeps a value that is already set. tests/legacy-main is main's engine tests, unchanged
       # except for the import paths, and they always use the legacy engine.
       DUEL_1V1_ENGINE: legacy
@@ -345,7 +395,33 @@ jobs:
         run: npm run build --workspace=@yugidraft/shared
 
       - name: Engine tests, legacy 1v1 engine
-        run: npm run test:engine
+        run: npm run test:engine --workspace=packages/duel-server -- --config=vitest.legacy.config.ts --shard=${{ matrix.shard }}/6
+
+  engine:
+    name: Engine tests (cores required)
+    if: always() && github.event_name != 'schedule'
+    needs: [changes, engine-shards]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all engine shards
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          REQUIRED: ${{ needs.changes.outputs.web_engine }}
+          RESULT: ${{ needs.engine-shards.result }}
+        run: test "$CHANGES" = success && { test "$REQUIRED" != true || test "$RESULT" = success; }
+
+  engine-legacy:
+    name: Engine tests, legacy 1v1 engine (cores required)
+    if: always() && github.event_name != 'schedule'
+    needs: [changes, engine-legacy-shards]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all legacy shards
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          REQUIRED: ${{ needs.changes.outputs.engine }}
+          RESULT: ${{ needs.engine-legacy-shards.result }}
+        run: test "$CHANGES" = success && { test "$REQUIRED" != true || test "$RESULT" = success; }
 
   native:
     name: Native checks (ASan and UBSan)
