@@ -8,7 +8,7 @@
 // opponent (Q8), and Ra goes to the field of that opponent. A mixed Tribute of two opponents is not offered.
 
 import {
-  activate, choose, endTurn, eliminate, expectBoard, expectEliminated, expectNotOffered, expectPickOptions, expectPrompt,
+  activate, choose, endTurn, eliminate, expectBoard, expectEliminated, expectNotOffered, expectPickOptions, expectPrompt, expectRetry,
   faceDown, normalSummon, pickOpponent, raw, select, specialSummon, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
@@ -292,10 +292,12 @@ export const PROCEDURE_SCENARIOS: Scenario[] = [
       pickOpponent("p2", "p0"),
       expectPickOptions([{ id: "select:0", card: RAT, seat: "p2" }, { id: "select:1", card: OX, seat: "p2" }], "p0"),
       eliminate("p2"),
-      // R-FFA-ELIMINATION (ADR:28): removed cards have no name, but the living duelist's current choice stays open.
-      expectPickOptions([{ id: "select:0", label: "Unknown card" }, { id: "select:1", label: "Unknown card" }], "p0"),
+      // Removed cards cannot be selected. The living seat keeps its choice and can cancel the bound procedure.
+      expectPrompt({ by: "p0", kind: "toggle" }),
+      expectPickOptions({ count: 0 }, "p0"),
       expectEliminated("p2"),
-      raw({ choice: "select:1" }, "p0"),
+      expectRetry({ choice: "select:1" }, { by: "p0", error: "Invalid answer" }),
+      raw({ cancel: true }, "p0"),
       // The summon fails for the dead seat and does not move to the other opponent: p1 keeps its monster and gets no Kaiju.
       expectBoard({
         p0: seat({ hand: [KAIJU] }),
@@ -316,10 +318,12 @@ export const PROCEDURE_SCENARIOS: Scenario[] = [
       pickOpponent("p2", "p0"),
       expectPickOptions([{ id: "select:0", card: RAT, seat: "p2" }, { id: "select:1", card: OX, seat: "p2" }], "p0"),
       eliminate("p2"),
-      // R-FFA-ELIMINATION (ADR:28): the living duelist's current choice stays open; answer the saved Battle Ox option after its card leaves the game.
-      expectPickOptions([{ id: "select:0", label: "Unknown card" }, { id: "select:1", label: "Unknown card" }], "p0"),
+      // No living opponent replaces p2. The empty choice stays open for p0 to cancel.
+      expectPrompt({ by: "p0", kind: "toggle" }),
+      expectPickOptions({ count: 0 }, "p0"),
       expectEliminated("p2"),
-      raw({ choice: "select:1" }, "p0"),
+      expectRetry({ choice: "select:1" }, { by: "p0", error: "Invalid answer" }),
+      raw({ cancel: true }, "p0"),
       expectBoard({
         p0: seat({ hand: [KAIJU] }),
         p1: seat({ monsters: [ELF] }),
