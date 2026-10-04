@@ -186,8 +186,6 @@
   left: 0;
   top: 0;
   z-index: 40;
-  width: 108px;
-  height: 103px;
   transition: transform 0.76s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 .hubJoint {

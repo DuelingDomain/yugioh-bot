@@ -236,19 +236,22 @@ button.chip:focus-visible {
 .cell[data-cell="1"] { grid-column: 3; }
 .cell[data-cell="2"] { grid-column: 5; }
 
-/* ---------- card: beside the turn ring of a table of 3 or 4 ---------- */
+/* ---------- card: beside the turn ring of a table of 3 or 4 ----------
+   Sizes are stage px (the stage is scaled to the window, about 0.79 at 1440 x 900). The reading size (lg) puts the chips
+   at 41px (about 32px on screen), their labels at 16.5px (13px) and the lit phase's name at 19px (15px). The wrapper in
+   the table stage says which size the pocket holds with data-hub-size; "sm" is the tight one. */
 
 .root[data-variant="card"] {
-  --hc: 28px;
-  --hfs: 11.5px;
+  --hc: 41px;
+  --hfs: 16.5px;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  width: 108px;
-  height: 103px;
-  padding: 6px;
+  width: 168px;
+  height: 144px;
+  padding: 5px;
   border: 1px solid rgb(var(--rule-rgb) / 0.34);
-  border-radius: 10px;
+  border-radius: 12px;
   background: linear-gradient(rgb(10 17 34 / 0.94), rgb(7 11 21 / 0.94));
 }
 .root[data-variant="card"][data-tone="mine"] {
@@ -256,14 +259,71 @@ button.chip:focus-visible {
 }
 .root[data-variant="card"] .head {
   justify-content: space-between;
-  padding: 0 1px;
+  height: 15px;
+  padding: 0 2px;
+  font-size: 12px;
+}
+.root[data-variant="card"] .turn {
+  font-size: 13px;
 }
 .root[data-variant="card"] .chips {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
 }
 .root[data-variant="card"] .chip {
   width: auto;
+  border-radius: 8px;
+}
+.root[data-variant="card"] .foot {
+  height: 23px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.root[data-variant="card"] .tick {
+  top: -6px;
+  right: -6px;
+  width: 14px;
+  height: 14px;
+}
+.root[data-variant="card"] .tick svg {
+  width: 9px;
+  height: 9px;
+}
+
+:global([data-hub-size="sm"]) .root[data-variant="card"] {
+  --hc: 30px;
+  --hfs: 12.5px;
+  gap: 3px;
+  width: 108px;
+  height: 96px;
+  padding: 4px;
+  border-radius: 10px;
+}
+/* No room for the name line at this size: the ring already shows whose turn it is, and the status line says it aloud. */
+:global([data-hub-size="sm"]) .root[data-variant="card"] .head {
+  display: none;
+}
+:global([data-hub-size="sm"]) .root[data-variant="card"] .chips {
+  gap: 3px;
+}
+:global([data-hub-size="sm"]) .root[data-variant="card"] .chip {
+  border-radius: 7px;
+}
+:global([data-hub-size="sm"]) .root[data-variant="card"] .foot {
+  height: 18px;
+  font-size: 14px;
+}
+:global([data-hub-size="sm"]) .root[data-variant="card"] .tick {
+  top: -5px;
+  right: -5px;
+  width: 12px;
+  height: 12px;
+}
+:global([data-hub-size="sm"]) .root[data-variant="card"] .tick svg {
+  width: 8px;
+  height: 8px;
 }
 
 /* ---------- motion and size ---------- */

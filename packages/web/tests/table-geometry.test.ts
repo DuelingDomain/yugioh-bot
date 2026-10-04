@@ -6,6 +6,7 @@ import {
   flyWorld,
   flyYawFor,
   holoAnchor,
+  ARENA_SIGN,
   HUB_CARD,
   hubPose,
   ringAngles,
@@ -416,7 +417,9 @@ describe("hubPose", () => {
     const view = camera(over);
     const poses = seatPoses(layout, view);
     const at = hubPose(layout, view);
-    const card = box(at.x, at.y, HUB_CARD.width, HUB_CARD.height);
+    const card = box(at.x, at.y, at.width, at.height);
+    expect(at.width).toBe(HUB_CARD[at.size].width);
+    expect(at.height).toBe(HUB_CARD[at.size].height);
     // Whole 653 x 380 seat boxes: a conservative bound of each field, hand and all.
     for (const pose of poses.values()) {
       if (pose.hidden) continue;
@@ -428,19 +431,33 @@ describe("hubPose", () => {
       const h = anchor.me ? 74 : 62;
       expect(overlaps(card, box(anchor.x + w / 2, anchor.y + h / 2, w, h))).toBe(false);
     }
+    // The ARENA 07 sign on the plaza.
+    expect(overlaps(card, box(ARENA_SIGN.x + ARENA_SIGN.width / 2, ARENA_SIGN.y + ARENA_SIGN.height / 2, ARENA_SIGN.width, ARENA_SIGN.height))).toBe(false);
     const ring = ringPose(layout, view);
-    const dx = Math.max(Math.abs(at.x - ring.x) - HUB_CARD.width / 2, 0);
-    const dy = Math.max(Math.abs(at.y - ring.y) - HUB_CARD.height / 2, 0);
+    const dx = Math.max(Math.abs(at.x - ring.x) - at.width / 2, 0);
+    const dy = Math.max(Math.abs(at.y - ring.y) - at.height / 2, 0);
     expect(Math.hypot(dx, dy)).toBeGreaterThan(62 * ring.scale);
     // The card stays inside the 1100 x 860 stage.
-    expect(at.x - HUB_CARD.width / 2).toBeGreaterThanOrEqual(0);
-    expect(at.x + HUB_CARD.width / 2).toBeLessThanOrEqual(1100);
-    expect(at.y - HUB_CARD.height / 2).toBeGreaterThanOrEqual(0);
-    expect(at.y + HUB_CARD.height / 2).toBeLessThanOrEqual(860);
+    expect(at.x - at.width / 2).toBeGreaterThanOrEqual(0);
+    expect(at.x + at.width / 2).toBeLessThanOrEqual(1100);
+    expect(at.y - at.height / 2).toBeGreaterThanOrEqual(0);
+    expect(at.y + at.height / 2).toBeLessThanOrEqual(860);
+  });
+
+  it("is the reading size everywhere but the two tight pockets", () => {
+    const three = tableLayout("ffa3", engine("ffa3", 3), 0);
+    const four = tableLayout("ffa4", engine("ffa4", 4), 0);
+    expect(hubPose(three, camera()).size).toBe("sm");
+    expect(hubPose(four, camera({ mode: "focus", focusSeat: 2 })).size).toBe("sm");
+    expect(hubPose(four, camera()).size).toBe("lg");
+    expect(hubPose(four, camera({ mode: "overview" })).size).toBe("lg");
+    expect(hubPose(three, camera({ mode: "overview" })).size).toBe("lg");
+    expect(hubPose(three, camera({ mode: "focus", focusSeat: 1 })).size).toBe("lg");
   });
 
   it("stands next to the ring at a 4-way table and ties a far 3-way card to it with a hairline", () => {
     const four = tableLayout("ffa4", engine("ffa4", 4), 0);
+    // The 4-way card stands against the ring: a gap under 24px has no hairline.
     expect(hubPose(four, camera()).joint).toBeNull();
     const three = tableLayout("ffa3", engine("ffa3", 3), 0);
     const far = hubPose(three, camera());
@@ -448,7 +465,7 @@ describe("hubPose", () => {
     const ring = ringPose(three, camera());
     // The hairline starts on the ring's edge and ends on the card's edge, not in either.
     expect(Math.hypot(far.joint!.x1 - ring.x, far.joint!.y1 - ring.y)).toBeCloseTo(62 * ring.scale, 5);
-    expect(far.joint!.y2).toBeCloseTo(far.y + HUB_CARD.height / 2, 5);
+    expect(far.joint!.y2).toBeCloseTo(far.y + far.height / 2, 5);
   });
 
   it("keeps the home place in the fly-in view, with no hairline", () => {

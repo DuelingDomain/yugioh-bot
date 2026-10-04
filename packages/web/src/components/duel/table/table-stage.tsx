@@ -4,7 +4,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Mo
 import { engineFormat } from "../multi-seat";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
-import { flyWorld, holoAnchor, HUB_CARD, hubPose, normalizeAngle, ringAngles, ringPose, seatPoses, slotPlan, stageFit, STAGE } from "./geometry";
+import { flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, ringPose, seatPoses, slotPlan, stageFit, STAGE } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
@@ -256,7 +256,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
             <div
               className={styles.hub}
               data-hub-slot="true"
-              style={{ transform: `translate(${hubAt.x - HUB_CARD.width / 2}px, ${hubAt.y - HUB_CARD.height / 2}px)` }}
+              data-hub-size={hubAt.size}
+              style={{ width: hubAt.width, height: hubAt.height, transform: `translate(${hubAt.x - hubAt.width / 2}px, ${hubAt.y - hubAt.height / 2}px)` }}
             >
               {hub}
             </div>
