@@ -317,10 +317,11 @@ Live proof, by card (status 2026-10-01):
 | Pineapple Blast, Evenly Matched | 3-FFA, 4-FFA, Tag |
 | Ojama Trio, Black Garden, Foolish Revival | 3-FFA, Tag |
 | Mimighoul Slime | 3-FFA |
-| Mystic Mine, Number 100: Numeron Dragon, Ultimate Sky | 3-FFA |
+| Mystic Mine | 3-FFA, 4-FFA, Tag |
+| Number 100: Numeron Dragon, Ultimate Sky | 3-FFA |
 | Dice Jar, Royal Tribute, Messenger of Peace | 3-FFA, 4-FFA, Tag |
 
-No scenario proves these rules yet (`pending`): the other 6 Kaiju, Alien Skull, Santa Claws, Surgical Striker - H.A.M.P., Jormungardr the Nordic Serpent, Fenrir the Nordic Wolf, Grinder Golem, Fallen of Argyros, Soul Exchange, Snatch Steal, and the cards with an effect that summons to the field of an opponent (Ojama Trio, Black Garden, Mimighoul Slime and Foolish Revival above are the exceptions). The Tag result of Volcanic Queen, Ra, Mimighoul Slime, Mystic Mine, Numeron Dragon and Ultimate Sky also has no scenario. The target cap of Ultimate Sky has no scenario, so this page does not claim it.
+No scenario proves these rules yet (`pending`): the other 6 Kaiju, Alien Skull, Santa Claws, Surgical Striker - H.A.M.P., Jormungardr the Nordic Serpent, Fenrir the Nordic Wolf, Grinder Golem, Fallen of Argyros, Soul Exchange, Snatch Steal, and the cards with an effect that summons to the field of an opponent (Ojama Trio, Black Garden, Mimighoul Slime and Foolish Revival above are the exceptions). The Tag result of Volcanic Queen, Ra, Mimighoul Slime, Numeron Dragon and Ultimate Sky also has no scenario. The target cap of Ultimate Sky has no scenario, so this page does not claim it.
 
 Decision 2: Kaiju and Lava Golem. The card goes to the field of the player whose monster was Tributed. If the opponent that was picked for the Tribute is eliminated before the summon is done, the card is not summoned and stays in the hand (lead decision 2026-10-01, proven for Gameciel in 3-FFA and 4-FFA). The scan of `data/duel-engine-next/card-scripts` found 12 cards that use `aux.AddKaijuProcedure` or `aux.AddLavaProcedure`, and the catalog test checks that every one has a rule entry. The Winged Dragon of Ra - Sphere Mode is added to this table by the owner answer of 2026-10-01 (it has its own Tribute procedure). In Tag, the Tributed monster belongs to an opposing member, so the card goes to that member's field. The Kaiju summon with no Tribute (an opponent controls a Kaiju) goes to your own field.
 
@@ -364,7 +365,7 @@ Decision 6: cards that compare with the opponents or roll against one (lead deci
 
 | Card | Passcode | Rule | Script evidence |
 |---|---|---|---|
-| Mystic Mine | 76375976 | Only an opponent that alone controls more monsters than you is locked (no monster effect, no attack). The sum of two opponents does not count. It destroys itself in the End Phase when your count equals the count of any one opponent. | `c76375976.lua:53`, `c76375976.lua:57`, `c76375976.lua:63` |
+| Mystic Mine | 76375976 | Only an opponent that alone controls more monsters than you is locked (no monster effect, no attack). The sum of two opponents does not count. You are locked if at least one opponent controls fewer monsters than you. It destroys itself in the End Phase only when every living player controls the same number of monsters. In Tag, compare the joined monster counts of the two teams. | `c76375976.lua:53`, `c76375976.lua:57`, `c76375976.lua:63` |
 | Number 100: Numeron Dragon | 57314798 | It is offered only when a direct attack goes at YOU (in Tag, at your team). A direct attack at another seat does not offer it. Each duelist Sets from its own Graveyard. | `c57314798.lua:98` |
 | Ultimate Sky | 38817295 | In free-for-all, you pick one opponent when you activate it. It is offered when ONE opponent controls more monsters than you, and it reads only that opponent. | `c38817295.lua:15`, `c38817295.lua:30` |
 | Dice Jar | 3549275 | You and one opponent, picked when it flips, each roll a die. Only the side that loses the roll takes the damage. In Tag, the team LP takes it. | `c3549275.lua:22`, `c3549275.lua:26`, `c3549275.lua:32` |

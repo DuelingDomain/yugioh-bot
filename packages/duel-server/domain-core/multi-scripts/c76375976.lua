@@ -1,5 +1,5 @@
 --@replace
--- Mystic Mine: the two continuous conditions and the trigger ask about any one opponent (any opponent, not a picked one).
+-- Mystic Mine: the continuous conditions ask about any one opponent; self-destruction requires every living opponent to be equal.
 -- The lock of the opponents is PER OPPONENT: only an opponent that ALONE controls more monsters than you cannot activate monster
 -- effects and cannot declare an attack (FFA). A seat that controls fewer or as many monsters is free. Two seats and Tag (one joined
 -- opposing side) keep the stock lock. The original text follows, only the conditions, the lock of the opponents and the Destroy target changed.
@@ -90,7 +90,17 @@ function s.atktg(e,c)
 	return s.opponent_over(e:GetHandlerPlayer(),c)
 end
 function s.descon(e,tp,eg,ep,ev,re,r,rp)
-	return MPAny(function() return Duel.GetFieldGroupCount(tp,LOCATION_MZONE,0)==Duel.GetFieldGroupCount(tp,0,LOCATION_MZONE) end)()
+	-- FFA compares every living opponent, irrespective of a chain/event binding. Tag keeps the joined-team count.
+	if not Duel.MPMode or Duel.MPMode()~=1 then
+		return Duel.GetFieldGroupCount(tp,LOCATION_MZONE,0)==Duel.GetFieldGroupCount(tp,0,LOCATION_MZONE)
+	end
+	for i=1,Duel.MPOppCount() do
+		Duel.MPWindow(i)
+		local equal=Duel.GetFieldGroupCount(tp,LOCATION_MZONE,0)==Duel.GetFieldGroupCount(tp,0,LOCATION_MZONE)
+		Duel.MPWindowEnd()
+		if not equal then return false end
+	end
+	return true
 end
 function s.destg(e,tp,eg,ep,ev,re,r,rp,chk)
 	if chk==0 then return s.descon(e,tp,eg,ep,ev,re,r,rp) end

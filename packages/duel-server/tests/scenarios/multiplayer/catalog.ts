@@ -1041,7 +1041,14 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
   76375976: [
     "compare-gaps-ffa3-mystic-mine-only-the-opponent-with-more-monsters-is-locked",
     "compare-gaps-ffa3-mystic-mine-no-opponent-has-more-nobody-is-locked",
-    "compare-ffa3-mystic-mine-destroys-itself-on-any-equal-opponent",
+    "compare-ffa3-mystic-mine-stays-with-only-one-equal-opponent",
+    "compare-ffa3-mystic-mine-destroys-itself-when-all-counts-equal",
+    "compare-ffa4-mystic-mine-destroys-itself-when-all-counts-equal",
+    "compare-ffa4-mystic-mine-stays-when-only-the-last-opponent-differs",
+    "compare-gaps-ffa3-mystic-mine-self-locks-if-one-opponent-has-fewer",
+    "tag-copies-mystic-mine-locks-the-opposing-team-by-the-joined-count",
+    "tag-copies-mystic-mine-joined-counts-equal-locks-nobody-and-destroys-itself",
+    "tag-copies-mystic-mine-self-locks-by-unequal-joined-counts",
   ], // Mystic Mine
   57314798: [
     "compare-extra-ffa3-numeron-dragon-summons-itself-when-p0-is-attacked-directly",

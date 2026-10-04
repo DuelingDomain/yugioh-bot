@@ -117,7 +117,7 @@ const KAIJU_RULE = `${TRIBUTE_TO_FIELD} The summon with no Tribute needs a Kaiju
 const RA_RULE = "All Tributed monsters come from ONE opponent, and the card goes to the field of that opponent. In Tag, that opponent is an opposing member.";
 
 const MYSTIC_MINE_RULE =
-  "Only an opponent that alone controls more monsters than you is locked (no monster effect, no attack). The sum of two opponents does not count. It destroys itself in the End Phase when your count equals the count of any one opponent.";
+  "Only an opponent that alone controls more monsters than you is locked (no monster effect, no attack). The sum of two opponents does not count. You are locked if at least one opponent controls fewer monsters than you. It destroys itself in the End Phase only when every living player controls the same number of monsters. In Tag, compare the joined monster counts of the two teams.";
 const NUMERON_DRAGON_RULE =
   "It is offered only when a direct attack goes at YOU (in Tag, at your team). A direct attack at another seat does not offer it. Each duelist Sets from its own Graveyard.";
 const ULTIMATE_SKY_RULE =
@@ -294,7 +294,7 @@ export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat
   71645242: ["ffa3", "tag"], // Black Garden
   80551022: ["ffa3"], // Mimighoul Slime
   83778600: ["ffa3", "ffa4", "tag"], // Foolish Revival
-  76375976: ["ffa3"], // Mystic Mine
+  76375976: ["ffa3", "ffa4", "tag"], // Mystic Mine
   57314798: ["ffa3"], // Number 100: Numeron Dragon
   38817295: ["ffa3"], // Ultimate Sky
   3549275: ["ffa3", "ffa4", "tag"], // Dice Jar

@@ -556,13 +556,35 @@ export const COMPARE_SCENARIOS: Scenario[] = [
     ],
   }),
   defineScenario({
-    id: "compare-ffa3-mystic-mine-destroys-itself-on-any-equal-opponent",
-    title: "FFA3: Mystic Mine destroys itself at the End Phase when the monster count of p0 equals the count of any ONE opponent (F4)",
+    id: "compare-ffa3-mystic-mine-stays-with-only-one-equal-opponent",
+    title: "FFA3: Mystic Mine stays at the End Phase when only one opponent has the same monster count",
     source: OPP_PICK,
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "compare", "trigger", "ffa3", "card:76375976"],
     setup: { format: "ffa3", p0: { hand: ["Mystic Mine"], monsters: [ELF] }, p1: { monsters: [SANGAN, WITCH] }, p2: { monsters: [BUG] } },
-    steps: [activate("Mystic Mine", "p0"), endTurn("p0"), expectBoard({ p0: { grave: ["Mystic Mine"] } })],
+    steps: [activate("Mystic Mine", "p0"), endTurn("p0"), everySeat("ffa3", { p0: { monsters: [ELF], spells: ["Mystic Mine"] }, p1: { monsters: [SANGAN, WITCH] }, p2: { monsters: [BUG] } })],
+  }),
+  ...(["ffa3", "ffa4"] as const).map((format) => defineScenario({
+    id: `compare-${format}-mystic-mine-destroys-itself-when-all-counts-equal`,
+    title: `${format.toUpperCase()}: Mystic Mine destroys itself only when every living player has one monster`,
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "compare", format, "card:76375976"],
+    setup: { format, p0: { hand: ["Mystic Mine"], monsters: [ELF] }, p1: { monsters: [OX] }, p2: { monsters: [GUARDIAN] }, ...(format === "ffa4" ? { p3: { monsters: [AXE] } } : {}) },
+    steps: [activate("Mystic Mine", "p0"), endTurn("p0"), everySeat(format, {
+      p0: { monsters: [ELF], grave: ["Mystic Mine"] }, p1: { monsters: [OX] }, p2: { monsters: [GUARDIAN] }, ...(format === "ffa4" ? { p3: { monsters: [AXE] } } : {}),
+    })],
+  })),
+  defineScenario({
+    id: "compare-ffa4-mystic-mine-stays-when-only-the-last-opponent-differs",
+    title: "FFA4: Mystic Mine stays when p0, p1 and p2 have one monster but p3 has two",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "compare", "ffa4", "card:76375976"],
+    setup: { format: "ffa4", p0: { hand: ["Mystic Mine"], monsters: [ELF] }, p1: { monsters: [OX] }, p2: { monsters: [GUARDIAN] }, p3: { monsters: [AXE, FANG] } },
+    steps: [activate("Mystic Mine", "p0"), endTurn("p0"), everySeat("ffa4", {
+      p0: { monsters: [ELF], spells: ["Mystic Mine"] }, p1: { monsters: [OX] }, p2: { monsters: [GUARDIAN] }, p3: { monsters: [AXE, FANG] },
+    })],
   }),
   defineScenario({
     id: "compare-ffa3-kairyu-shin-each-opponent-keeps-one",

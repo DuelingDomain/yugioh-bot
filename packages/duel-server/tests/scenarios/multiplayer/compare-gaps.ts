@@ -450,6 +450,21 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       }),
     ],
   }),
+  defineScenario({
+    id: "compare-gaps-ffa3-mystic-mine-self-locks-if-one-opponent-has-fewer",
+    title: "FFA3: Mystic Mine locks its controller when one opponent has fewer monsters, even if another has more",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "compare", "ffa3", "card:76375976"],
+    setup: { format: "ffa3", p0: { hand: [MINE], monsters: [PIPER, ELF] }, p1: { monsters: [OX, GUARDIAN, AXE] }, p2: { monsters: [FANG] } },
+    steps: [
+      activate(MINE, "p0"), expectNotOffered("activate", PIPER, "p0"),
+      endTurn("p0"), endTurn("p1"), endTurn("p2"),
+      expectNotOffered("activate", PIPER, "p0"), changePhase("battle", "p0"),
+      expectNotOffered("attack", PIPER, "p0"), expectNotOffered("attack", ELF, "p0"),
+      everySeat("ffa3", { p0: { monsters: [PIPER, ELF], spells: [MINE] }, p1: { monsters: [OX, GUARDIAN, AXE] }, p2: { monsters: [FANG] } }),
+    ],
+  }),
   // Number 100: Numeron Dragon (destroy trigger): destroys every monster, then EVERY duelist Sets 1 Spell/Trap from its own Graveyard.
   // Each Set is done in the window of the seat that chose the card (the owner of a card is folded to 1 in FFA).
   defineScenario({
