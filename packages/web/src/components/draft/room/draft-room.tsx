@@ -10,7 +10,7 @@ import { useDraftStore } from "@/lib/stores/draft-store";
 import { useTalkStore } from "@/lib/stores/talk-store";
 import { TALK_COOLDOWN_MS, type TalkLineId } from "@yugidraft/shared/ws/talk";
 import { Binder, type BinderHandle } from "./binder";
-import { CardReader } from "./card-reader";
+import { CardReader, TAG_CHOSEN, TAG_PICKED, TAG_POINTING } from "./card-reader";
 import { Holo, type HoloTarget } from "./holo";
 import { FullscreenLayer } from "./layer";
 import { MotionMenu } from "./motion-menu";
@@ -319,6 +319,15 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     setPassing(false);
     closeCardSheet();
   }, [deal.seq, closeCardSheet]);
+  // The dock swaps cards the moment the pointer moves, so the big pictures are fetched as the pack lands.
+  const warmImages = useRef<HTMLImageElement[]>([]);
+  useEffect(() => {
+    warmImages.current = rs.cards.map((c) => {
+      const img = new Image();
+      img.src = c.imageUrl || c.imageUrlSmall;
+      return img;
+    });
+  }, [rs.cards]);
   useEffect(() => {
     if (selectedId != null && !rs.cards.some((c) => c.id === selectedId)) setSelectedId(null);
   }, [rs.cards, selectedId]);
@@ -663,9 +672,11 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     }
   }
 
-  // the card in the reader
+  // the card in the dock: the one under the pointer, else the chosen one, else your last pick
   const dealtCard = (id: number | null) => (id == null ? null : (rs.cards.find((c) => c.id === id) ?? null));
-  const reading = turn === "picking" ? (dealtCard(hoverId) ?? dealtCard(selectedId)) : null;
+  const hovered = turn === "picking" ? dealtCard(hoverId) : null;
+  const chosen = turn === "picking" ? dealtCard(selectedId) : null;
+  const reading = hovered ?? chosen;
   const peeking = peek && !hoverId ? peek : null;
   const showLast = !!lastPick && turn !== "picking";
   const readerCard = peeking?.card ?? reading ?? (showLast ? lastPick : null);
@@ -673,13 +684,14 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     ? peeking.tag
     : reading
       ? reading.id === selectedId
-        ? "Selected"
-        : ""
+        ? TAG_CHOSEN
+        : TAG_POINTING
       : showLast
-        ? "Your pick"
+        ? TAG_PICKED
         : "";
-  const pickable = !!reading && turn === "picking" && !reading.blocked;
-  const blockedNote = reading?.blocked ? blockedLabel(reading) : null;
+  // The Pick button follows the chosen card, never the one the pointer is over.
+  const pickable = !!chosen && !chosen.blocked;
+  const blockedNote = chosen?.blocked ? blockedLabel(chosen) : null;
 
   /* ---------- keys: 1-9 choose, arrows move, Enter picks, / searches, Esc closes ---------- */
   const latest = useRef({ rs, holdDeal, turn, selectedId, geometry, phone, drawer, binderOpen, motionOpen: motionOpen || sayOpen, sheet, drawerOpen, doPick, select, openSheet, closeSheets });
@@ -809,25 +821,6 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
         />
         <SeatStrip friends={friends} heard={heard} canSay={canSay} sayOpen={sayOpen} onSay={toggleSay} />
         <div className="body">
-          <div className="reader-panel" ref={readerPanelRef} inert={phone && sheet !== "card"} tabIndex={-1}>
-            <CardReader
-              card={readerCard}
-              tag={readerTag}
-              pickNote={showLast && !peeking ? pickNote : null}
-              buttonHidden={!!peeking || turn === "done"}
-              pickable={pickable}
-              blockedNote={blockedNote}
-              myTurn={turn === "picking"}
-              waitingOn={waitingOn}
-              showWaiting={!reading && !peeking && showLast}
-              phone={phone}
-              onPick={() => reading && doPick(reading.id)}
-              onClose={() => {
-                closeSheets();
-                setSelectedId(null);
-              }}
-            />
-          </div>
           <div
             className="scrim"
             onClick={() => {
@@ -916,6 +909,26 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               onKind={onKind}
             />
           </section>
+          <div className="dock" ref={readerPanelRef} inert={phone && sheet !== "card"} tabIndex={-1}>
+            <CardReader
+              card={readerCard}
+              tag={readerTag}
+              pickNote={showLast && !peeking ? pickNote : null}
+              buttonHidden={turn === "done"}
+              pickable={pickable}
+              chosen={chosen}
+              blockedNote={blockedNote}
+              myTurn={turn === "picking"}
+              waitingOn={waitingOn}
+              showWaiting={!reading && !peeking && showLast}
+              phone={phone}
+              onPick={() => chosen && doPick(chosen.id)}
+              onClose={() => {
+                closeSheets();
+                setSelectedId(null);
+              }}
+            />
+          </div>
           <div className="binder-panel" ref={binderPanelRef} inert={!binderOpen} tabIndex={-1}>
             <Binder
               ref={binderRef}
