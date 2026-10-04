@@ -359,7 +359,7 @@ export interface DuelEvent {
   id: number;
   kind:
     | "summon" | "set" | "activate" | "target" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
-    | "attack" | "battle" | "battle-end" | "phase" | "damage" | "destroy" | "move" | "position" | "equip" | "confirm";
+    | "attack" | "battle" | "battle-end" | "phase" | "damage" | "recover" | "destroy" | "move" | "position" | "equip" | "confirm";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
@@ -440,6 +440,10 @@ export interface DuelChainLink {
   code?: number;
   name?: string;
   description?: string;
+  /** Printed card text of the source, public like the name. Lets a reload mid-chain keep the effect text. */
+  text?: string;
+  /** Card type bits of the source (Spell/Trap/monster), so the client can pick the right part of the printed text. */
+  cardType?: number;
   /** Where the source activated; retained when its activation leaves the event window. */
   zone?: DuelZoneRef;
   /** Current target coordinates, public to every viewer. No target names or passcodes. */

@@ -437,7 +437,7 @@ function TableShellBody({
                     {fxActive ? <SummonFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
                     {fxActive ? <MoveFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
-                    {fxActive ? <ChainFx events={engine.events} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} /> : null}
+                    {fxActive ? <ChainFx events={engine.events} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} /> : null}
                     {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
                     <BattleFx events={engine.events} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} />
                     <DestroyFx events={engine.events} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />

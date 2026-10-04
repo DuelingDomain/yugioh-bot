@@ -236,6 +236,17 @@ export const CHAIN_TIMING = {
   effectLeadReducedMs: 200,
 } as const;
 
+/**
+ * The "Now resolving" panel (chain-fx.tsx). Real time is scaled by the viewer's pace through duelFxClock, like the
+ * chain beats. Not part of CHAIN_TIMING: the beats of a chain are paced separately from how long its recap stays.
+ */
+export const CHAIN_PANEL_TIMING = {
+  /** After the chain has ended, the panel keeps the last link and its result for this long. */
+  recapMs: 3200,
+  /** Reduced motion: the same recap, shorter, with no movement. */
+  recapReducedMs: 800,
+} as const;
+
 /** Plain numbers (not literals): the gates take a custom timing in tests and tools. */
 export const GATE_TIMING: Record<"resultPauseMs" | "resultCapMs" | "resultReducedPauseMs" | "promptBeatMs" | "promptSettleMs" | "promptCapMs" | "promptReducedMs" | "pickHoldMs", number> = {
   /** The result screen waits this long after the last blow. */
