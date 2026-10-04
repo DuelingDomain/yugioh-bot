@@ -52,6 +52,7 @@ int main() {
 			f.core.current_chain.push_back(queued);
 			c->create_relation(queued);
 			const auto pending = f.core.units.size();
+			const auto pending_callbacks = f.core.subunits.size();
 			adding.step = 6;
 			f.process(adding);
 			adding.step = 7;
@@ -64,7 +65,8 @@ int main() {
 				return 5;
 			}
 			if(c->current.location != LOCATION_SZONE || !c->is_position(POS_FACEUP)
-				|| f.core.units.size() != pending || solving.step != 3) return 6;
+				|| f.core.units.size() != pending || f.core.subunits.size() != pending_callbacks
+				|| solving.step != 3) return 6;
 			OCG_DestroyDuel(d);
 		}
 	}
