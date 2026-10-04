@@ -222,6 +222,8 @@
     white-space: nowrap;
   }
   .view { padding: 0 8px; }
+  /* Tap targets: the view switch and the gear are 40px square or wider. */
+  .view, .gear { height: 40px; min-width: 40px; justify-content: center; }
 }
 @media (max-width: 480px) {
   .wordmark a { font-size: 15px; }

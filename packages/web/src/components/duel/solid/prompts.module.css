@@ -746,3 +746,30 @@
   [data-look="solid"] .bar .btn,
   [data-look="solid"] .btns .btn { min-height: 40px; }
 }
+
+/* Yes/No chain precheck: V1 centres it on the board, over the zones. On phones it docks at the bottom of the board. The select bar (data-place) is left alone: it must not hide the zones. */
+@media (max-width: 900px) {
+  [data-look="solid"] .bar:not([data-place]) {
+    top: auto;
+    bottom: 6px;
+    left: 50%;
+    translate: -50% 0;
+    width: calc(100% - 16px);
+    max-width: none;
+    /* Tall enough to cover the plate and the hand, so no half plate shows above it. */
+    min-height: calc(var(--hand-h, 100px) + 84px);
+    flex-wrap: wrap;
+    align-content: center;
+  }
+}
+
+/* Sideways: the precheck stays in the rail column, so the table stays in view. */
+@media (max-width: 900px) and (max-height: 540px) and (orientation: landscape) {
+  [data-look="solid"] .bar:not([data-place]) {
+    left: 0;
+    translate: none;
+    width: calc(100% - var(--plane-w, 340px) - 10px);
+    min-height: 0;
+    bottom: 4px;
+  }
+}

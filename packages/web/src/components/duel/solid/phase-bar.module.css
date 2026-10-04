@@ -406,19 +406,19 @@ nav.root.root[data-reduced="true"] .plate {
   }
   nav.root.root .pool {
     width: calc((100% - 6px) / 6);
-    height: 34px;
+    height: 38px;
     transform: translateX(calc(var(--i, 0) * 100%));
   }
   nav.root.root .plates {
     grid-template-columns: repeat(6, 1fr);
   }
   nav.root.root .item {
-    height: 34px;
+    height: 38px;
   }
   nav.root.root .plate,
   nav.root.root .plate[data-state="current"],
   nav.root.root[data-tone="theirs"] .plate[data-state="current"] {
-    height: 34px;
+    height: 38px;
     border-radius: 7px;
   }
   nav.root.root .code {

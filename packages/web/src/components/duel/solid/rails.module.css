@@ -388,3 +388,19 @@
   .rail[data-sv-rail="opp"] [data-hand-seat] { padding-top: 0; }
   .rail[data-sv-rail="you"] [data-hand-card] button > div > span[data-state] + span { top: -10px; }
 }
+
+/* ---------- phones turned sideways: the rails fill the column left of the table ---------- */
+@media (max-width: 900px) and (max-height: 540px) and (orientation: landscape) {
+  .rail { --hand-room: calc(100vw - 2 * var(--pad) - var(--plane-w) - 10px); }
+  .rail[data-sv-rail="opp"] { grid-area: opp; --oh: 40px; }
+  .rail[data-sv-rail="you"] { grid-area: you; --lh: var(--hand-h); row-gap: 4px; }
+}
+
+/* Narrow phones (360px class): the plate, the tags and the chip share one row, so the numbers and gaps shrink a little
+   instead of clipping the player name. */
+@media (max-width: 380px) {
+  .rail { --lp-fs: 22px; }
+  .railPlate [data-lp-seat] { gap: 6px; }
+  .railPlate [data-lp-seat] > div:first-child { gap: 4px; }
+  .railPlate [data-lp-seat] > div:first-child > span:first-child > span:first-child { max-width: 72px; }
+}
