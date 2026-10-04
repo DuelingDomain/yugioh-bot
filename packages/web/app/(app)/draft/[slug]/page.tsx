@@ -363,6 +363,7 @@ export default function DraftDetailPage() {
         onExportYdk={handleExportYdk}
         onDelete={handleDelete}
         myPool={draft.myPool}
+        tournament={tournament}
       />
       {showFinale && (
         <DraftFinale

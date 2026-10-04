@@ -29,6 +29,7 @@ import { getPopupPosition } from "@/lib/card-popup-position";
 import { DangerConfirm } from "./danger-confirm";
 import { DraftFrame, DraftLayout, DraftMain, DraftRail, Gem, Pieces, RailNote, RailSection, Rules } from "./draft-frame";
 import { useInlineConfirm } from "./use-inline-confirm";
+import { useDraftTournament, type DraftTournament } from "./use-draft-tournament";
 
 interface DraftSummaryViewProps {
   draft: {
@@ -64,6 +65,8 @@ interface DraftSummaryViewProps {
     playerCount: number;
     participantPickCount?: number;
     tournamentId?: number | null;
+    tournamentName?: string | null;
+    tournamentSlug?: string | null;
     /** The viewer's saved draft deck, when they have built one. */
     myDeckId?: number | null;
   };
@@ -73,6 +76,8 @@ interface DraftSummaryViewProps {
   onExportYdk: () => Promise<string>;
   onDelete: () => Promise<void>;
   myPool?: DraftCardDetail[];
+  /** The tournament made from this draft. The page passes the one it shares with the finale. */
+  tournament?: DraftTournament;
 }
 
 const GROUP_PREVIEW = 12;
@@ -156,7 +161,11 @@ export function DraftSummaryView({
   onExportYdk,
   onDelete,
   myPool,
+  tournament: sharedTournament,
 }: DraftSummaryViewProps) {
+  const ownTournament = useDraftTournament(slug, draft);
+  const tournament = sharedTournament ?? ownTournament;
+  const linkedTournament = tournament.linked;
   const [exporting, setExporting] = React.useState(false);
   const [deleting, setDeleting] = React.useState(false);
   const deleteConfirm = useInlineConfirm(deleting);
@@ -168,11 +177,6 @@ export function DraftSummaryView({
   const [tapped, setTapped] = React.useState<{ card: CardSummary; position: { left: number; top: number } } | null>(null);
   const [popupPosition, setPopupPosition] = React.useState<{ left: number; top: number } | null>(null);
   const [imageErrors, setImageErrors] = React.useState<Set<number>>(new Set());
-  const [tournamentFormat, setTournamentFormat] = React.useState<"round_robin" | "single_elim">("round_robin");
-  const [tournamentBestOf, setTournamentBestOf] = React.useState<1 | 3>(3);
-  const [creatingTournament, setCreatingTournament] = React.useState(false);
-  const [tournamentError, setTournamentError] = React.useState<string | null>(null);
-  const [linkedTournament, setLinkedTournament] = React.useState<{ id: number; name: string; webSlug: string | null } | null>(null);
   const [poolOpen, setPoolOpen] = React.useState(false);
   const [fullPool, setFullPool] = React.useState<CardSummary[] | null>(null);
   const [poolLoading, setPoolLoading] = React.useState(false);
@@ -253,31 +257,6 @@ export function DraftSummaryView({
     }
   };
 
-  const handleCreateTournament = async () => {
-    setCreatingTournament(true);
-    setTournamentError(null);
-    try {
-      const res = await fetch(`/api/drafts/${slug}/tournament`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ format: tournamentFormat, bestOf: tournamentBestOf }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (res.status === 409 && data.webSlug) {
-          setLinkedTournament({ id: data.id, name: data.name, webSlug: data.webSlug });
-          return;
-        }
-        throw new Error(data.error ?? "Failed to create tournament");
-      }
-      setLinkedTournament({ id: data.id, name: data.name, webSlug: data.webSlug });
-    } catch (err) {
-      setTournamentError(err instanceof Error ? err.message : "Failed to create tournament");
-    } finally {
-      setCreatingTournament(false);
-    }
-  };
-
   const sortedPlayers = [...draft.players].sort((a, b) => {
     if (a.seatIndex !== undefined && b.seatIndex !== undefined) {
       return a.seatIndex - b.seatIndex;
@@ -328,8 +307,9 @@ export function DraftSummaryView({
   if (draft.startedAt) setupRows.push(["Started", formatStamp(draft.startedAt)]);
   if (draft.endedAt) setupRows.push(["Ended", formatStamp(draft.endedAt)]);
 
-  const showMakeTournament = isCompleted && isCreator && !linkedTournament && !draft.tournamentId;
-  const showTournamentPanel = isCompleted && (linkedTournament != null || draft.tournamentId != null);
+  // Only the draft host may make the tournament (the API refuses anyone else).
+  const showMakeTournament = isCompleted && isCreator && !linkedTournament;
+  const showTournamentPanel = isCompleted && linkedTournament != null;
 
 
   const kind = isTheme ? "Theme draft" : "Cube draft";
@@ -341,10 +321,11 @@ export function DraftSummaryView({
           <StatusLine tone="block">{error}</StatusLine>
         </div>
       )}
+      {/* The deck is saved when the draft ends. Building one here is only for a draft that has none. */}
       {canBuildDeck && (
-        <SvButton as="a" href={`/decks/draft/${slug}`} variant={hasDeck ? "ghost" : "primary"} big wide>
+        <SvButton as="a" href={`/decks/draft/${slug}`} variant="ghost" wide>
           <Layers size={18} aria-hidden="true" />
-          {hasDeck ? "Edit your deck" : "Build your deck"}
+          {hasDeck ? "View your deck" : "Build your deck"}
         </SvButton>
       )}
       {canExportYdk && (
@@ -376,7 +357,7 @@ export function DraftSummaryView({
             {canBuildDeck && (
               <div className={styles.next} role="group" aria-labelledby="df-next-t">
                 <h2 className={styles.nextT} id="df-next-t">
-                  {hasDeck ? "Your deck is ready" : `Your ${plural(participantPickCount, "card")} ${participantPickCount === 1 ? "is" : "are"} ready`}
+                  {hasDeck ? "Your deck is saved" : `Your ${plural(participantPickCount, "card")} ${participantPickCount === 1 ? "is" : "are"} ready`}
                 </h2>
                 <p className={styles.nextP}>
                   {canExportYdk
@@ -387,6 +368,9 @@ export function DraftSummaryView({
                       ? `It is saved in My decks. Editing it is optional. Export needs at least 40 picks. You made ${participantPickCount}.`
                       : `Export needs at least 40 picks. You made ${participantPickCount}, so build your deck here instead.`}
                 </p>
+                {!isCreator && !linkedTournament && (
+                  <p className={styles.nextP}>The host will start the tournament. Your deck is registered for it then.</p>
+                )}
               </div>
             )}
           </div>
@@ -529,9 +513,9 @@ export function DraftSummaryView({
           {showMakeTournament && (
             <RailSection title="Make it a tournament" id="df-tour-t">
               <RailNote>The {draft.playerCount} drafters become its players, in seat order.</RailNote>
-              {tournamentError && (
+              {tournament.error && (
                 <div role="alert" className={styles.tourErr}>
-                  <StatusLine tone="block">{tournamentError}</StatusLine>
+                  <StatusLine tone="block">{tournament.error}</StatusLine>
                 </div>
               )}
               <div className={styles.tourFields}>
@@ -540,8 +524,8 @@ export function DraftSummaryView({
                   <select
                     id="tournament-format"
                     className="input select"
-                    value={tournamentFormat}
-                    onChange={(e) => setTournamentFormat(e.target.value as "round_robin" | "single_elim")}
+                    value={tournament.format}
+                    onChange={(e) => tournament.setFormat(e.target.value === "single_elim" ? "single_elim" : "round_robin")}
                   >
                     <option value="round_robin">Round robin</option>
                     <option value="single_elim">Single elimination</option>
@@ -552,15 +536,15 @@ export function DraftSummaryView({
                   <select
                     id="tournament-best-of"
                     className="input select"
-                    value={tournamentBestOf}
-                    onChange={(e) => setTournamentBestOf(e.target.value === "1" ? 1 : 3)}
+                    value={tournament.bestOf}
+                    onChange={(e) => tournament.setBestOf(e.target.value === "1" ? 1 : 3)}
                   >
                     <option value={3}>Best of 3</option>
                     <option value={1}>Best of 1</option>
                   </select>
                 </div>
               </div>
-              <SvButton variant="ghost" wide className={styles.tourBtn} disabled={creatingTournament} aria-busy={creatingTournament || undefined} onClick={handleCreateTournament}>
+              <SvButton variant="primary" wide className={styles.tourBtn} disabled={tournament.creating} aria-busy={tournament.creating || undefined} onClick={() => void tournament.create()}>
                 Create tournament
               </SvButton>
             </RailSection>
@@ -571,8 +555,8 @@ export function DraftSummaryView({
               {linkedTournament?.webSlug ? (
                 <>
                   <RailNote>Made from this draft.</RailNote>
-                  <SvButton as="a" href={`/tournament/${linkedTournament.webSlug}`} variant="ghost" wide className={styles.tourBtn}>
-                    Open {linkedTournament.name}
+                  <SvButton as="a" href={`/tournament/${linkedTournament.webSlug}`} variant="primary" wide className={styles.tourBtn}>
+                    Go to tournament
                   </SvButton>
                 </>
               ) : (
