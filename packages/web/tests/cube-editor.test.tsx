@@ -35,6 +35,9 @@ let main: Entry[];
 let extra: Entry[];
 let posts: Array<Record<string, unknown>>;
 let banlist: string | null;
+let draftType: string | undefined;
+let settings: Record<string, number>;
+let puts: Array<Record<string, unknown>>;
 
 function detail() {
   return { pools: { main: [...main], extra: [...extra] }, cards: CARDS };
@@ -45,6 +48,9 @@ beforeEach(() => {
   extra = [];
   posts = [];
   banlist = null;
+  draftType = undefined;
+  settings = {};
+  puts = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: unknown, init?: RequestInit) => {
@@ -57,6 +63,14 @@ beforeEach(() => {
           extra = [{ catalogCardId: 2, pool: "extra", maxCopies: 1 }];
           return { ok: true, json: async () => ({ ...detail(), added: 2, unknown: [] }) } as Response;
         }
+        if (body.op === "importYdk") {
+          main = [{ catalogCardId: 1, pool: "main", maxCopies: 3 }];
+          extra = [{ catalogCardId: 2, pool: "extra", maxCopies: 1 }];
+          return {
+            ok: true,
+            json: async () => ({ ...detail(), added: 2, copies: 4, unknown: [777, 888] }),
+          } as Response;
+        }
         if (body.op === "setMaxCopies") {
           main = main.map((e) => (e.catalogCardId === body.catalogCardId ? { ...e, maxCopies: body.maxCopies } : e));
         } else if (body.op === "remove") {
@@ -67,9 +81,15 @@ beforeEach(() => {
         return { ok: true, json: async () => detail() } as Response;
       }
       if (url.endsWith("/api/cubes/5")) {
+        if (init?.method === "PUT") {
+          const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+          puts.push(body);
+          if (typeof body.draftType === "string") draftType = body.draftType;
+          return { ok: true, json: async () => ({ ok: true }) } as Response;
+        }
         return {
           ok: true,
-          json: async () => ({ cube: { id: 5, name: "Custom", archetype: null, banlist }, ...detail() }),
+          json: async () => ({ cube: { id: 5, name: "Custom", archetype: null, banlist, draftType, settings }, ...detail() }),
         } as Response;
       }
       if (url.endsWith("/api/cards/resolve")) {
@@ -143,6 +163,38 @@ describe("CubeEditor", () => {
     await screen.findByText(/Added 2 cards/);
     expect(screen.getByRole("button", { name: /Main\s*1/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Extra\s*1/ })).toBeInTheDocument();
+  });
+
+  it("imports a YDK list from the YDK tab and reports cards, copies and unknown passcodes", async () => {
+    await open();
+
+    fireEvent.click(screen.getByRole("button", { name: "YDK" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add deck list" }));
+    expect(posts).toEqual([]);
+    expect(screen.getByText(/Load a \.ydk file or paste/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Deck list (.ydk)"), { target: { value: "#main\n1\n1\n1\n#extra\n2\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add deck list" }));
+
+    await screen.findByText(/Added 2 cards, 4 copies/);
+    expect(posts[0]).toEqual({ op: "importYdk", text: "#main\n1\n1\n1\n#extra\n2\n" });
+    expect(screen.getByText(/Not found/)).toHaveTextContent("777, 888");
+    expect(screen.getByRole("button", { name: /Main\s*1/ })).toBeInTheDocument();
+  });
+
+  it("loads a .ydk file into the YDK box", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "YDK" }));
+    const file = new File(["#main\n1\n"], "deck.ydk", { type: "" });
+    fireEvent.change(screen.getByLabelText("Upload YDK file"), { target: { files: [file] } });
+    await waitFor(() => expect(screen.getByLabelText("Deck list (.ydk)")).toHaveValue("#main\n1\n"));
+  });
+
+  it("offers the cube as a .ydk download", async () => {
+    await open();
+    const link = screen.getByRole("link", { name: /Export YDK/ });
+    expect(link).toHaveAttribute("href", "/api/cubes/5/ydk");
+    expect(link).toHaveAttribute("download");
   });
 
   describe("with a card in the cube", () => {
@@ -249,12 +301,47 @@ describe("CubeEditor", () => {
       expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
     });
 
-    it("shows the theme draft check against 42 main and 17 extra", async () => {
+    it("shows the theme draft check against 42 main and 17 extra for a theme cube", async () => {
+      draftType = "theme";
       await open();
       expect(screen.getByRole("meter", { name: "2 of 42 main copies" })).toBeInTheDocument();
       expect(screen.getByRole("meter", { name: "0 of 17 Extra copies" })).toBeInTheDocument();
       expect(screen.getByRole("heading", { name: "Theme draft check" })).toBeInTheDocument();
       expect(screen.getByText(/40 main copies short/)).toBeInTheDocument();
+    });
+
+    it("shows a compact check with no warning headline for an Any cube, the default", async () => {
+      await open();
+      expect(screen.getByRole("group", { name: "Cube type" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Any" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("heading", { name: "Cube check" })).toBeInTheDocument();
+      expect(screen.getByText(/needs 40 more main copies/)).toBeInTheDocument();
+      expect(screen.getByText(/needs 29 more different cards/)).toBeInTheDocument();
+      expect(screen.queryByText(/can.t start/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("meter")).not.toBeInTheDocument();
+    });
+
+    it("shows the cube draft check for a Cube draft cube, from the saved pack settings", async () => {
+      draftType = "booster";
+      settings = { cardsPerPlayer: 45, packSize: 10 };
+      await open();
+      expect(screen.getByRole("heading", { name: "Cube draft check" })).toBeInTheDocument();
+      expect(screen.getByText("45 cards each, 5 packs of 10")).toBeInTheDocument();
+      expect(screen.getByRole("meter", { name: "3 of 45 cards one player can reach" })).toBeInTheDocument();
+      expect(screen.getByRole("meter", { name: "1 of 20 different cards for 2 players" })).toBeInTheDocument();
+      expect(screen.getByText(/19 more different cards needed/)).toBeInTheDocument();
+      expect(screen.queryByText(/theme draft/i)).not.toBeInTheDocument();
+    });
+
+    it("saves a new cube type from the editor and swaps the check panel", async () => {
+      await open();
+      fireEvent.click(screen.getByRole("button", { name: "Theme cube" }));
+      await screen.findByRole("heading", { name: "Theme draft check" });
+      expect(puts).toEqual([{ draftType: "theme" }]);
+      expect(screen.getByRole("button", { name: "Theme cube" })).toHaveAttribute("aria-pressed", "true");
+      fireEvent.click(screen.getByRole("button", { name: "Cube draft" }));
+      await screen.findByRole("heading", { name: "Cube draft check" });
+      expect(puts[1]).toEqual({ draftType: "booster" });
     });
   });
 });

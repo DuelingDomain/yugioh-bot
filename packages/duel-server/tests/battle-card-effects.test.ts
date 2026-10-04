@@ -3,7 +3,9 @@ import { OcgPosition } from "ocgcore-wasm";
 import type { DuelAnswer, DuelEngineView, DuelMode, DuelPrompt } from "@yugidraft/shared/duels";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
 import { choosePracticeBotAnswer } from "../src/practice-bot.js";
+import { compileBoard } from "../src/presets/board.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
+import { itWithCores, needs } from "./support/cores.js";
 
 const ENEMY_CONTROLLER = 98045062;
 const CATS_EAR_TRIBE = 95841282;
@@ -25,9 +27,10 @@ async function openGame(mode: DuelMode, heads: number[][], stopAtEveryWindow = f
 type Waiting = { seat: number; view: DuelEngineView; prompt: DuelPrompt };
 function drive(game: EngineGame, policy: (w: Waiting) => DuelAnswer | "stop" | null): void {
   for (let n = 0; n < 100; n++) {
-    const seat = game.view(0).prompt ? 0 : 1;
-    const view = game.view(seat), prompt = view.prompt;
-    if (!prompt) throw Error("No waiting prompt");
+    const view = game.view(0).seats.map(s => game.view(s.seat)).find(v => v.prompt);
+    const prompt = view?.prompt;
+    if (!view || !prompt) throw Error("No waiting prompt");
+    const seat = prompt.seat;
     const answer = policy({ seat, view, prompt });
     if (answer === "stop") return;
     const ids = prompt.options.map(o => o.id);
@@ -260,4 +263,69 @@ describe.each(["normal", "domain"] as const)("%s battle card effects", mode => {
     } finally { game.close(); }
   });
 
+});
+
+describe("Cat’s Ear Tribe at 3-player FFA tables", () => {
+  for (const targetSeat of [1, 2]) {
+    for (const defense of [false, true]) {
+      for (const boosted of [false, true]) {
+        itWithCores(`ffa3: seat ${targetSeat}, ${defense ? "Defense" : "Attack"} Position (ATK boost: ${boosted})`, needs.installedMulti(engineDataDirectory), async () => {
+          const position = defense ? OcgPosition.FACEUP_DEFENSE : OcgPosition.FACEUP_ATTACK;
+          const compiled = compileBoard({ format: "ffa3", attackFirstTurn: true,
+            p0: { monsters: [GEMINI_ELF], hand: boosted ? [AXE_OF_DESPAIR] : [] },
+            p1: { monsters: [{ card: CATS_EAR_TRIBE, pos: defense ? "def" : "atk" }] },
+            p2: { monsters: [{ card: CATS_EAR_TRIBE, pos: defense ? "def" : "atk" }] },
+          }, engineDataDirectory);
+          const game = await createEngineGame({ ...compiled.options, seed: ["1", "2", "3", "4"], dataDirectory: engineDataDirectory });
+          try {
+            let equipped = false, attacked = false;
+            drive(game, w => {
+              if (w.seat !== 0) return null;
+              if (boosted && !equipped) {
+                const activate = option(w, "activate:", AXE_OF_DESPAIR);
+                if (activate) { equipped = true; return { choice: activate }; }
+              }
+              if (w.prompt.kind === "cards") {
+                const target = w.prompt.options.find(o => o.controller === (attacked ? targetSeat : 0)
+                  && o.card?.code === (attacked ? CATS_EAR_TRIBE : GEMINI_ELF));
+                expect(target).toBeDefined();
+                return { selected: [target!.id] };
+              }
+              if (w.prompt.options.some(o => o.id === "to_bp")) return { choice: "to_bp" };
+              if (!attacked) {
+                const attack = option(w, "attack:", GEMINI_ELF);
+                if (attack) {
+                  expect(w.view.seats[0].monsters.find(c => c?.code === GEMINI_ELF)?.attack).toBe(boosted ? 2900 : 1900);
+                  attacked = true;
+                  return { choice: attack };
+                }
+              }
+              if (attacked && w.prompt.options.some(o => o.id === "to_m2")) return "stop";
+              return null;
+            });
+            expect(equipped).toBe(boosted);
+            expect(attacked).toBe(true);
+            for (const viewer of [0, 1, 2, null]) {
+              const view = game.view(viewer);
+              expect(view.events).toContainEqual(expect.objectContaining({
+                kind: "battle", zone: { controller: 0, location: 4, sequence: 0 },
+                target: { controller: targetSeat, location: 4, sequence: 0 },
+                battle: {
+                  attacker: { attack: boosted ? 1200 : 200, defense: 900, position: OcgPosition.FACEUP_ATTACK },
+                  target: { attack: 200, defense: 100, position },
+                },
+              }));
+              const expectedLP = [8000, 8000, 8000];
+              if (boosted && !defense) expectedLP[targetSeat] = 7000;
+              expect(view.seats.map(s => s.lp)).toEqual(expectedLP);
+              expect(view.seats[targetSeat].graveyard.map(c => c.code)).toEqual([CATS_EAR_TRIBE]);
+              expect(view.seats[3 - targetSeat].monsters.find(c => c?.code === CATS_EAR_TRIBE)?.position).toBe(position);
+              if (defense || boosted) expect(view.seats[0].monsters.find(c => c?.code === GEMINI_ELF)?.attack).toBe(boosted ? 2900 : 1900);
+              else expect(view.seats[0].graveyard.map(c => c.code)).toEqual([GEMINI_ELF]);
+            }
+          } finally { game.close(); }
+        });
+      }
+    }
+  }
 });

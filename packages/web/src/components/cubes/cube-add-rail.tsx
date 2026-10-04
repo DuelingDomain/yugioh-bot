@@ -17,6 +17,8 @@ export interface AddNote {
 export interface ImportOutcome {
   added?: number;
   unknown?: number[];
+  /** YDK import: copies the cube gained. */
+  copies?: number;
 }
 
 export interface AddRailProps {
@@ -28,12 +30,14 @@ export interface AddRailProps {
   /** Resolves null when the server refused (the editor shows the error). */
   onSeedArchetype: (archetype: string) => Promise<ImportOutcome | null>;
   onImportCodes: (codes: number[]) => Promise<ImportOutcome | null>;
+  onImportYdk: (text: string) => Promise<ImportOutcome | null>;
 }
 
 const TABS: Array<{ value: AddTab; label: string }> = [
   { value: "card", label: "Card" },
   { value: "archetype", label: "Archetype" },
   { value: "passcodes", label: "Passcodes" },
+  { value: "ydk", label: "YDK" },
 ];
 
 function Note({ note }: { note: AddNote | null }) {
@@ -373,7 +377,94 @@ function PasscodesTab({ busy, onImportCodes }: Pick<AddRailProps, "busy" | "onIm
   );
 }
 
-/** The "Add cards" rail body: one segmented control, three ways to add. */
+function YdkTab({ busy, onImportYdk }: Pick<AddRailProps, "busy" | "onImportYdk">) {
+  const areaId = React.useId();
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const [text, setText] = React.useState("");
+  const [note, setNote] = React.useState<AddNote | null>(null);
+
+  const readFile = (file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setText(String(reader.result ?? ""));
+    reader.readAsText(file);
+  };
+
+  const submit = async () => {
+    setNote(null);
+    if (text.trim() === "") {
+      setNote({ tone: "warn", text: "Load a .ydk file or paste a deck list first." });
+      return;
+    }
+    const result = await onImportYdk(text);
+    if (!result) return;
+    setText("");
+    const added = result.added ?? 0;
+    const copies = result.copies ?? 0;
+    const unknown = result.unknown ?? [];
+    const head = `Added ${added} card${added === 1 ? "" : "s"}, ${copies} cop${copies === 1 ? "y" : "ies"}.`;
+    if (unknown.length > 0) {
+      setNote({
+        tone: "warn",
+        text: (
+          <>
+            {head} Not found: <code>{unknown.slice(0, 5).join(", ")}</code>
+            {unknown.length > 5 ? ` and ${unknown.length - 5} more` : ""}.
+          </>
+        ),
+      });
+    } else {
+      setNote({ tone: "ok", text: head });
+    }
+  };
+
+  return (
+    <>
+      <div>
+        <label className="label" htmlFor={areaId}>
+          Deck list (.ydk)
+        </label>
+        <textarea
+          id={areaId}
+          className="input"
+          rows={6}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder={"#main\n46986414\n46986414\n#extra\n23995346\n!side"}
+          style={{ height: "auto", padding: "10px 12px", fontFamily: "ui-monospace, Menlo, Consolas, monospace", fontSize: 13 }}
+        />
+        <p className="hint">
+          Each line is one copy, up to 99. Copies add to the ones already in the cube. Extra Deck monsters and the #extra
+          section go to the Extra pool; main and side cards go to Main.
+        </p>
+      </div>
+      <div className="ce-file">
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".ydk,.txt,text/plain"
+          className={styles.fileInput}
+          aria-label="Upload YDK file"
+          tabIndex={-1}
+          onChange={(event) => {
+            readFile(event.target.files?.[0] ?? null);
+            event.target.value = "";
+          }}
+        />
+        <button className="btn btn-quiet btn-sm" type="button" onClick={() => fileRef.current?.click()}>
+          <Upload className="ic sm" aria-hidden="true" />
+          Load a .ydk file
+        </button>
+        <button className="btn btn-primary" type="button" disabled={busy} onClick={() => void submit()}>
+          Add deck list
+        </button>
+      </div>
+      <Note note={note} />
+    </>
+  );
+}
+
+/** The "Add cards" rail body: one segmented control, four ways to add. */
 export function AddCardsBody(props: AddRailProps) {
   const [tab, setTab] = React.useState<AddTab>(props.initialTab ?? "card");
   return (
@@ -388,6 +479,7 @@ export function AddCardsBody(props: AddRailProps) {
       {tab === "card" && <CardTab busy={props.busy} copiesInCube={props.copiesInCube} onAddCard={props.onAddCard} />}
       {tab === "archetype" && <ArchetypeTab busy={props.busy} onSeedArchetype={props.onSeedArchetype} />}
       {tab === "passcodes" && <PasscodesTab busy={props.busy} onImportCodes={props.onImportCodes} />}
+      {tab === "ydk" && <YdkTab busy={props.busy} onImportYdk={props.onImportYdk} />}
     </>
   );
 }

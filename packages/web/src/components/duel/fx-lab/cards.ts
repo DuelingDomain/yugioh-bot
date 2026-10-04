@@ -12,6 +12,7 @@ import {
   TYPE_QUICKPLAY,
   TYPE_RITUAL,
   TYPE_SPELL,
+  TYPE_SPIRIT,
   TYPE_SYNCHRO,
   TYPE_TRAP,
   TYPE_XYZ,
@@ -74,9 +75,12 @@ export const CARDS = {
   blackChaos: info(30208479, "Magician of Black Chaos", TYPE_MONSTER | TYPE_RITUAL, 2800, 2600, 8, ATTRIBUTE.DARK, "Spellcaster"),
   oddEyes: info(16178681, "Odd-Eyes Pendulum Dragon", EFFECT | TYPE_PENDULUM, 2500, 2000, 7, ATTRIBUTE.DARK, "Dragon"),
   chaosEmperor: info(82301904, "Chaos Emperor Dragon - Envoy of the End", EFFECT, 3000, 2500, 8, ATTRIBUTE.DARK, "Dragon"),
+  // The recorded chain from a live duel: a Normal Summon trigger, answered by a trap, with a prompt in response.
+  darkDustSpirit: info(89111398, "Dark Dust Spirit", EFFECT | TYPE_SPIRIT, 2200, 1800, 6, ATTRIBUTE.EARTH, "Zombie"),
   // Spells
   darkHole: spell(53129443, "Dark Hole", 0, "Destroy all monsters on the field."),
   raigeki: spell(12580477, "Raigeki", 0, "Destroy all monsters your opponent controls."),
+  myBodyAsAShield: spell(69279219, "My Body as a Shield", TYPE_QUICKPLAY, "Pay 1500 LP; negate the destruction of 1 monster you control."),
   mst: spell(5318639, "Mystical Space Typhoon", TYPE_QUICKPLAY, "Target 1 Spell/Trap on the field; destroy that target."),
   featherDuster: spell(18144506, "Harpie's Feather Duster", 0, "Destroy all Spells and Traps your opponent controls."),
   lightningVortex: spell(14472500, "Lightning Vortex", 0, "Discard 1 card; destroy all face-up monsters your opponent controls."),
@@ -93,6 +97,7 @@ export const CARDS = {
   torrential: trap(53582587, "Torrential Tribute", 0, "When a monster is Summoned: destroy all monsters on the field."),
   bottomless: trap(29401950, "Bottomless Trap Hole", 0, "When your opponent Summons a monster: destroy and banish it."),
   trapHole: trap(4206964, "Trap Hole", 0, "When your opponent Normal or Flip Summons a monster with 1000 or more ATK: destroy it."),
+  recklessGreed: trap(37576645, "Reckless Greed", 0, "Draw 2 cards, then skip your next 2 Draw Phases."),
   evenlyMatched: trap(15693423, "Evenly Matched", 0, "Banish cards your opponent controls until they control as many as you."),
   solemn: trap(41420027, "Solemn Judgment", 0, "Negate the Summon of a monster, or the activation of a Spell/Trap card."),
   magicCylinder: trap(62279055, "Magic Cylinder", 0, "When an opponent's monster declares an attack: negate the attack, then inflict damage."),

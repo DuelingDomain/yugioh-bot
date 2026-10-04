@@ -50,6 +50,9 @@ function mapCubeCard(row: any): CubeCard {
   };
 }
 
+/** Config keys that describe the cube itself, not a draft. Saving a draft config over a cube keeps them. */
+const CUBE_META_KEYS = ["draftType"] as const;
+
 export function createCubeService(db: Database.Database, catalog: CardCatalogService) {
   const touch = db.prepare("update cubes set updated_at = ? where id = ?");
   const bump = (cubeId: number) => touch.run(new Date().toISOString(), cubeId);
@@ -108,6 +111,57 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       main: rows.filter((c) => c.pool === "main"),
       extra: rows.filter((c) => c.pool === "extra"),
     };
+  };
+
+  /**
+   * Import several passcode lists in one go. Every passcode is looked up first, then all the
+   * cards are written in one transaction, so a failed lookup writes nothing. A passcode the card
+   * database rejects or does not know is returned in `unknown`. One copy per occurrence, capped
+   * at MAX_CUBE_COPIES; a card sits in one pool, so a later group wins.
+   */
+  const importPasscodeGroups = async (
+    cubeId: number,
+    groups: Array<{ codes: number[]; pool?: CubePool }>,
+  ): Promise<{ added: number; unknown: number[] }> => {
+    const cards = new Map<number, Card>();
+    const unknown: number[] = [];
+    const ids = [...new Set(groups.flatMap((g) => g.codes))];
+    for (const card of catalog.findByIds(ids)) cards.set(card.ygoprodeckId, card);
+    for (const id of ids) {
+      if (cards.has(id)) continue;
+      let card: Card | undefined;
+      try {
+        card = await catalog.syncCardById(id);
+      } catch (error) {
+        // YGOPRODeck answers HTTP 400 for a passcode it does not have. A lost connection is
+        // different: stop, and nothing has been written yet.
+        if (error instanceof Error && error.message.startsWith("Could not reach the card database")) throw error;
+      }
+      if (card) cards.set(id, card);
+      else unknown.push(id);
+    }
+
+    const written = new Set<number>();
+    db.transaction(() => {
+      for (const { codes, pool } of groups) {
+        const counts = new Map<number, number>();
+        for (const id of codes) counts.set(id, (counts.get(id) ?? 0) + 1);
+        for (const [id, count] of counts) {
+          const card = cards.get(id);
+          if (!card) continue;
+          upsertCard.run(
+            cubeId,
+            id,
+            pool ?? (isExtraDeckFrame(card) ? "extra" : "main"),
+            Math.min(count, MAX_CUBE_COPIES),
+            null,
+          );
+          written.add(id);
+        }
+      }
+      bump(cubeId);
+    })();
+    return { added: written.size, unknown };
   };
 
   return {
@@ -178,30 +232,10 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       codes: number[],
       opts: { pool?: CubePool } = {},
     ): Promise<{ added: number; unknown: number[] }> {
-      const counts = new Map<number, number>();
-      for (const id of codes) {
-        counts.set(id, (counts.get(id) ?? 0) + 1);
-      }
-
-      const unknown: number[] = [];
-      let added = 0;
-      for (const [id, count] of counts) {
-        let card: Card | undefined = catalog.findByIds([id])[0];
-        if (!card) {
-          card = await catalog.syncCardById(id);
-        }
-        if (!card) {
-          unknown.push(id);
-          continue;
-        }
-        const pool: CubePool = opts.pool ?? (isExtraDeckFrame(card) ? "extra" : "main");
-        upsertCard.run(cubeId, id, pool, Math.min(count, MAX_CUBE_COPIES), null);
-        added += 1;
-      }
-
-      bump(cubeId);
-      return { added, unknown };
+      return importPasscodeGroups(cubeId, [{ codes, pool: opts.pool }]);
     },
+
+    importPasscodeGroups,
 
     async seedArchetypeInto(
       cubeId: number,
@@ -331,6 +365,21 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
 
     save(guildId: string, name: string, config: DraftConfig, createdByUserId: string): Cube {
       const trimmed = name.trim();
+      // Saving over an existing cube replaces its draft config but keeps what the cube is for.
+      const previous = db.prepare("select config_json from cubes where guild_id = ? and name = ?").get(guildId, trimmed) as
+        | { config_json: string | null }
+        | undefined;
+      if (previous) {
+        let old: Record<string, unknown> = {};
+        try {
+          old = JSON.parse(previous.config_json ?? "{}") as Record<string, unknown>;
+        } catch {
+          // An unreadable old config has nothing to keep.
+        }
+        const kept: Record<string, unknown> = {};
+        for (const key of CUBE_META_KEYS) if (old[key] !== undefined && !(key in config)) kept[key] = old[key];
+        config = { ...kept, ...config };
+      }
       db.prepare(
         `
           insert into cubes (guild_id, name, config_json, created_by_user_id)

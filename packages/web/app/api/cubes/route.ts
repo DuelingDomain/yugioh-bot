@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
 import type { DraftConfig } from "@yugidraft/shared/types";
+import { cubeDraftTypeOf, parseCubeDraftType, setCubeDraftType } from "@/lib/cube-type";
 
 export const runtime = "nodejs";
 
@@ -15,6 +16,12 @@ type CubeRow = {
   banlist: string | null;
   config_json: string;
 };
+
+/** The created cube as the client reads it: the stored row plus its draft type. */
+function withDraftType<T extends object>(db: ReturnType<typeof getDb>, cubeId: number, cube: T) {
+  const row = db.prepare("select config_json from cubes where id = ?").get(cubeId) as { config_json: string } | undefined;
+  return { ...cube, draftType: cubeDraftTypeOf(row?.config_json) };
+}
 
 export async function GET() {
   const session = await auth();
@@ -64,6 +71,7 @@ export async function GET() {
       name: row.name,
       archetype: row.archetype,
       banlist: row.banlist,
+      draftType: cubeDraftTypeOf(row.config_json),
       mainCount: mainCards.length,
       extraCount: extraCountByCube.get(row.id) ?? 0,
       setNames: Array.isArray(config.setNames) ? config.setNames : [],
@@ -90,7 +98,12 @@ export async function POST(request: Request) {
     archetype?: string;
     banlist?: string;
     config?: DraftConfig;
+    draftType?: string;
   };
+  const draftType = body.draftType === undefined ? null : parseCubeDraftType(body.draftType);
+  if (body.draftType !== undefined && !draftType) {
+    return NextResponse.json({ error: "draftType must be theme, booster or any" }, { status: 400 });
+  }
 
   const db = getDb();
   const catalog = createCardCatalogService(db);
@@ -107,7 +120,8 @@ export async function POST(request: Request) {
         name: body.name?.trim() || archetype,
         banlist: body.banlist,
       });
-      return NextResponse.json({ cube }, { status: 201 });
+      if (draftType) setCubeDraftType(db, cube.id, draftType);
+      return NextResponse.json({ cube: withDraftType(db, cube.id, cube) }, { status: 201 });
     }
 
     const name = body.name?.trim();
@@ -132,11 +146,13 @@ export async function POST(request: Request) {
         ? incoming.customCardIds.filter((n): n is number => Number.isInteger(n))
         : [];
       const cube = cubes.save(guildId, name, { setNames, customCardIds }, session.user.id);
-      return NextResponse.json({ cube }, { status: 201 });
+      if (draftType) setCubeDraftType(db, cube.id, draftType);
+      return NextResponse.json({ cube: withDraftType(db, cube.id, cube) }, { status: 201 });
     }
 
     const cube = cubes.createBlank(guildId, name, session.user.id);
-    return NextResponse.json({ cube }, { status: 201 });
+    if (draftType) setCubeDraftType(db, cube.id, draftType);
+    return NextResponse.json({ cube: withDraftType(db, cube.id, cube) }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to create cube";
     return NextResponse.json({ error: message }, { status: 409 });

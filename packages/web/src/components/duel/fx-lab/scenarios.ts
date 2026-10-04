@@ -1,5 +1,5 @@
 import type { DuelCardInfo, DuelMasterRule } from "@yugidraft/shared/duels";
-import { LOCATION_HAND, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../constants";
+import { LOCATION_HAND, LOCATION_MZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../constants";
 import { ADD_TO_HAND } from "../duel-timing";
 import {
   BANISHED,
@@ -1057,9 +1057,15 @@ function chainScenario(id: string, name: string, description: string, links: num
         { info: C.mst, seat: OPP, zone: SZ(OPP, 1) },
         { info: C.solemn, seat: ME, zone: SZ(ME, 2) },
         { info: C.magicCylinder, seat: OPP, zone: SZ(OPP, 3) },
+        { info: C.recklessGreed, seat: ME, zone: SZ(ME, 3) },
+        { info: C.myBodyAsAShield, seat: OPP, zone: SZ(OPP, 4) },
+        { info: C.magicCylinder, seat: ME, zone: SZ(ME, 4) },
       ].slice(0, links);
       const start = board((e) => {
         e.push(edit.setSpell(ME, 2, C.solemn), edit.hiddenSpell(OPP, 1), edit.hiddenSpell(OPP, 3));
+        // Links 4 to 6 (the long chain) stand on their own Set cards.
+        if (links > 3) e.push(edit.setSpell(ME, 3, C.recklessGreed), edit.hiddenSpell(OPP, 4));
+        if (links > 5) e.push(edit.setSpell(ME, 4, C.magicCylinder));
         e.push(edit.monster(ME, 2, C.celtic), edit.monster(OPP, 2, C.harpie));
       });
       const flow = chainFlow(cards);
@@ -1087,11 +1093,112 @@ function chainScenario(id: string, name: string, description: string, links: num
   };
 }
 
+/**
+ * The chain from a recorded duel: Dark Dust Spirit is Normal Summoned and its trigger starts Chain Link 1
+ * ("Destroy all other face-up monsters"); the rival answers with My Body as a Shield (link 2). The engine
+ * does not say trigger or quick, so the callout says "activates its effect".
+ */
+function triggerChain(id: string, name: string, description: string, withPrompt: boolean): LabScenario {
+  return {
+    id,
+    category: "Chain",
+    name,
+    description,
+    build: () => {
+      const dust = C.darkDustSpirit;
+      const shield = C.myBodyAsAShield;
+      const effect = "Destroy all other face-up monsters";
+      const start = board((e) => {
+        e.push(edit.monster(ME, 2, dust), edit.monster(OPP, 2, C.harpie), edit.monster(OPP, 3, C.celtic), edit.hiddenSpell(OPP, 1), edit.setSpell(ME, 3, C.recklessGreed));
+      });
+      const first = { ...ev.activate(ME, dust, MZ(ME, 2), 1), description: effect };
+      const second = ev.activate(OPP, shield, SZ(OPP, 1), 2);
+      const chain1 = [{ ...link(1, ME, dust), description: effect }];
+      const chain2 = [...chain1, link(2, OPP, shield)];
+      const steps: LabStep[] = [
+        { at: 500, events: [first], chain: chain1 },
+        { at: 2400, events: [second], edits: [edit.spell(OPP, 1, shield)], chain: chain2 },
+      ];
+      if (!withPrompt) {
+        steps.push({
+          at: 5200,
+          events: [
+            ev.chain("chain-resolving", OPP, shield, 2), ev.chain("chain-resolved", OPP, shield, 2),
+            ev.chain("chain-resolving", ME, dust, 1), ev.chain("chain-resolved", ME, dust, 1),
+            ev.chainEnd(),
+          ],
+          chain: [],
+        });
+      }
+      return script(start, steps, withPrompt ? 1500 : 6500, withPrompt ? {
+        legalKeys: ["0:8:3"],
+        prompt: {
+          prompt: {
+            id: "lab-chain-prompt",
+            seat: ME,
+            kind: "choice",
+            title: "Activate its effect?",
+            cancelable: true,
+            context: { type: "chain", forced: false },
+            options: [{ id: "card:0", label: "Reckless Greed in response to My Body as a Shield", card: C.recklessGreed }],
+          },
+        },
+      } : {});
+    },
+  };
+}
+
+/**
+ * A chain link with a target while a card pick is open: the narrow-screen case. With no free gutter the stack
+ * becomes numbered chips, and the target ring of link 2 stays visible unless the pick panel sits over it.
+ */
+function targetSelectChain(id: string, name: string, description: string): LabScenario {
+  return {
+    id,
+    category: "Chain",
+    name,
+    description,
+    build: () => {
+      const dust = C.darkDustSpirit;
+      const shield = C.myBodyAsAShield;
+      const start = board((e) => {
+        e.push(edit.monster(ME, 2, dust), edit.monster(OPP, 2, C.harpie), edit.monster(OPP, 3, C.celtic), edit.hiddenSpell(OPP, 1));
+      });
+      const first = ev.activate(ME, dust, MZ(ME, 2), 1);
+      const second = { ...ev.activate(OPP, shield, SZ(OPP, 1), 2), targets: [MZ(OPP, 2)] };
+      const chain1 = [link(1, ME, dust)];
+      const chain2 = [...chain1, { ...link(2, OPP, shield), targets: [MZ(OPP, 2)] }];
+      const steps: LabStep[] = [
+        { at: 400, events: [first], chain: chain1 },
+        { at: 1200, events: [second], edits: [edit.spell(OPP, 1, shield)], chain: chain2 },
+      ];
+      const options = [C.harpie, C.celtic].map((card, index) => ({
+        id: `card:${index}`,
+        label: card.name,
+        card,
+        controller: OPP,
+        location: LOCATION_MZONE,
+        sequence: index + 2,
+      }));
+      return script(start, steps, 2400, {
+        legalKeys: options.map((option) => `${OPP}:${LOCATION_MZONE}:${option.sequence}`),
+        prompt: {
+          prompt: { id: "lab-chain-select", seat: ME, kind: "cards", title: "Select 1 monster to destroy", min: 1, max: 1, options },
+        },
+      });
+    },
+  };
+}
+
 const CHAIN: LabScenario[] = [
   chainScenario("chain-one", "One link", "A single activation: badge, resolving pulse and clear.", 1),
   chainScenario("chain-two", "Chain of two", "Two links. The last link resolves first.", 2),
   chainScenario("chain-three", "Chain of three", "Three links, the full resolution beat by beat.", 3),
   chainScenario("chain-negated", "Negated link", "Link 1 is negated: slash on the badge and the Negated banner.", 2, 1),
+  chainScenario("chain-long", "Chain of six", "Six links from both players: on a narrow screen the chips wrap to a second line and keep Chain Link 1 and the resolving link visible.", 6),
+  triggerChain("chain-trigger", "Trigger and a response", "Dark Dust Spirit's effect is Chain Link 1, My Body as a Shield answers as link 2. The callout names the card, the stack lists both links, and the rows light up as they resolve.", false),
+  triggerChain("chain-trigger-prompt", "Chain stack under a response prompt", "The same chain with the Activate its effect? prompt open. The prompt must not cover a badge, the callout tag or the stack; the tag flips to the far side of its card when the prompt would sit over it.", true),
+  targetSelectChain("chain-target-select", "Chain with a target under a card pick", "Link 2 targets a monster while a card pick is open. On a narrow screen the stack is numbered chips and the target ring stays visible."),
 ];
 
 /* ---------- LP ---------- */

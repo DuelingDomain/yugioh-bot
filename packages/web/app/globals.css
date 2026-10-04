@@ -29,13 +29,17 @@
    Inside the board box (the "board" stacking context) the order is: field < board FX < prompts.
    Board FX never go in a portal at the page root: a z-index there beats the whole board, prompts
    included. Anything above prompts lives outside the board box (portals), so it also clears the
-   board FX. A new duel layer takes the first token that fits; it does not take a new number. */
+   board FX. A layer that is not in a portal only counts inside its own stacking context: the pile
+   viewer mounts inside the board box, so its number never beats the chain front layer, which is in
+   the duel root. The chain front layer hides itself while the viewer is open (chain-fx.tsx).
+   A new duel layer takes the first token that fits; it does not take a new number. */
 :root {
   --duel-z-board: 1;            /* the board box: hand cards grow over the header and station track */
   --duel-z-fx: 10;              /* board FX: aim arrow, equip links, chain badges, card flights, wipe canvas */
   --duel-z-fx-front: 14;        /* FX that must clear the rest: attack play, Deck Master return, destroy ghosts */
   --duel-z-prompt: 20;          /* what the player must read or click: prompt panel, card strip, bars, prompt dock */
-  --duel-z-prompt-front: 24;    /* the pile viewer, opened over a prompt */
+  --duel-z-chain: 22;           /* the chain: numbered badges, the card callout and the chain stack, over the prompt */
+  --duel-z-prompt-front: 24;    /* the pile viewer, opened over a prompt (inside the board box: the chain front layer yields to it) */
   --duel-z-tooltip: 90;         /* hover card info (portal) */
   --duel-z-menu: 100;           /* anchored card action menu (portal) */
   --duel-z-confirm: 110;        /* attack confirm (portal), over the menu layer */

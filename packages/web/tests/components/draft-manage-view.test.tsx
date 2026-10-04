@@ -351,6 +351,28 @@ describe("DraftManageView — theme draft", () => {
     expect(screen.getByRole("button", { name: "Start a blank cube" })).toBeInTheDocument();
   });
 
+  it("offers theme and Any cubes to attach, but not a cube made for cube drafts", async () => {
+    stubFetch((url) =>
+      url === "/api/cubes"
+        ? Response.json({
+            cubes: [
+              { id: 9, name: "Branded", archetype: null, mainCount: 40, extraCount: 5, draftType: "theme" },
+              { id: 10, name: "Open pool", archetype: null, mainCount: 40, extraCount: 5, draftType: "any" },
+              { id: 11, name: "Booster pool", archetype: null, mainCount: 40, extraCount: 5, draftType: "booster" },
+              { id: 12, name: "Old pool", archetype: null, mainCount: 40, extraCount: 5 },
+            ],
+          })
+        : undefined,
+    );
+    render(<DraftManageView {...baseProps} slug="s" draft={themeDraft()} isCreator isParticipant />);
+    const picker = await screen.findByRole("combobox", { name: "Attach an existing cube" });
+    const names = Array.from(picker.querySelectorAll("option"), (o) => o.textContent ?? "");
+    expect(names.some((n) => n.includes("Branded"))).toBe(true);
+    expect(names.some((n) => n.includes("Open pool"))).toBe(true);
+    expect(names.some((n) => n.includes("Old pool"))).toBe(true);
+    expect(names.some((n) => n.includes("Booster pool"))).toBe(false);
+  });
+
   it("detaches a theme through the same endpoint", async () => {
     const detach = vi.fn();
     stubFetch((url, init) => {

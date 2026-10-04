@@ -128,6 +128,9 @@ describe("TagStage prompt centre", () => {
     const root = render(<Stage id="target-pick" withPrompt />).container;
     const bar = root.querySelector("[data-tag-stage] > div[class*='layer'] [data-place]");
     expect(bar).not.toBeNull();
+    // The chain effects keep clear of the bar: it carries the obstacle marker (not data-prompt-panel, which the tooltip reads).
+    expect(bar!.hasAttribute("data-prompt-surface")).toBe(true);
+    expect(bar!.hasAttribute("data-prompt-panel")).toBe(false);
   });
 });
 

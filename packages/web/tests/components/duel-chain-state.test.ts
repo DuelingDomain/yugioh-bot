@@ -5,8 +5,15 @@ import {
   badgeCenter,
   chainAnchor,
   chainAnnouncement,
+  chainCallout,
+  chainCardName,
+  chainFlow,
+  chainFocusLink,
   chainLinkLabel,
   chainSeatLabel,
+  chainStackRows,
+  chainStackSize,
+  coveredFraction,
   chainStepDelay,
   chainStateKey,
   chainWirePath,
@@ -14,7 +21,8 @@ import {
   EMPTY_CHAIN,
   isChainEvent,
   nextToResolve,
-  strayLinks,
+  placeCallout,
+  placeChips,
   type ChainState,
 } from "../../src/components/duel/chain-state";
 
@@ -184,33 +192,6 @@ describe("deriveChainState", () => {
   });
 });
 
-describe("strayLinks", () => {
-  const stack = () => fold([
-    activate(1, 0, 11, z(0, SZONE, 0)),
-    activate(2, 1, 22, z(1, SZONE, 0)),
-    activate(3, 0, 33, z(0, SZONE, 1)),
-  ]);
-
-  it("is empty while every link has a card on the board: the badges are the only view", () => {
-    expect(strayLinks(stack(), new Set())).toEqual([]);
-    expect(strayLinks(EMPTY_CHAIN, new Set([1]))).toEqual([]);
-  });
-
-  it("lists a link the board could not place, top of the chain first", () => {
-    expect(strayLinks(stack(), new Set([1, 3])).map((l) => l.index)).toEqual([3, 1]);
-  });
-
-  it("lists a link with no known zone without waiting for a measure", () => {
-    const state = deriveChainState([], [{ index: 1, seat: 0, code: 11, name: "Card 11" }]);
-    expect(strayLinks(state, new Set()).map((l) => l.index)).toEqual([1]);
-  });
-
-  it("never lists a link twice, and ignores lost indexes that are not in the chain", () => {
-    const rows = strayLinks(stack(), new Set([2, 2, 9]));
-    expect(rows.map((l) => l.index)).toEqual([2]);
-  });
-});
-
 describe("badgeCenter", () => {
   const box = { left: 100, top: 200, width: 60, height: 80 };
   it("sits on the top right corner of the card, a third of the badge outside it", () => {
@@ -244,7 +225,7 @@ describe("chainLinkLabel", () => {
   });
   it("names the card Effect when the engine gave none, and the player to a spectator", () => {
     const gap = fold([ev("chain-resolving", 1)]);
-    expect(chainLinkLabel(gap.links[0], null, names)).toBe("Chain Link 1: Effect, Player 1, resolving");
+    expect(chainLinkLabel(gap.links[0], null, names)).toBe("Chain Link 1: A card, Player 1, resolving");
   });
   it("says negated and resolved", () => {
     const done = fold([ev("chain-negated", 1), ev("chain-resolved", 1)], state);
@@ -378,5 +359,222 @@ describe("chainStateKey", () => {
     const b = fold([ev("chain-resolving", 1)], a);
     expect(chainStateKey(a)).not.toBe(chainStateKey(b));
     expect(chainStateKey(a)).toBe(chainStateKey(fold([{ ...activate(1, 0, 11, z(0, SZONE, 0)), id: 999 }])));
+  });
+});
+
+// The recorded chain from the report: Dark Dust Spirit's trigger (89111398), answered by My Body as a Shield (69279219).
+describe("chain stack and callout", () => {
+  const you = (seat: number) => (seat === 0 ? "You" : "Practice Bot");
+  const dust = (): DuelEvent => ({
+    id: nextId++, kind: "activate", text: "a", seat: 0, chainIndex: 1, zone: z(0, MZONE, 2),
+    card: info(89111398, "Dark Dust Spirit"), description: "Destroy all other face-up monsters",
+  });
+  const shield = (): DuelEvent => ({
+    id: nextId++, kind: "activate", text: "a", seat: 1, chainIndex: 2, zone: z(1, SZONE, 0),
+    card: info(69279219, "My Body as a Shield"),
+  });
+
+  it("lists the chain top first with its owner, so link 1 is at the bottom", () => {
+    const state = fold([dust(), shield()]);
+    const rows = chainStackRows(state);
+    expect(rows.map((r) => r.index)).toEqual([2, 1]);
+    expect(rows.map((r) => r.seat)).toEqual([1, 0]);
+    expect(chainStackRows(EMPTY_CHAIN)).toEqual([]);
+  });
+
+  it("does not reorder or change the state it reads", () => {
+    const state = fold([dust(), shield()]);
+    chainStackRows(state);
+    expect(state.links.map((l) => l.index)).toEqual([1, 2]);
+  });
+
+  it("focuses the newest activation, then the resolving link, and nothing when the chain is empty", () => {
+    const opened = fold([dust()]);
+    expect(chainFocusLink(opened)?.index).toBe(1);
+    const two = fold([shield()], opened);
+    expect(chainFocusLink(two)?.index).toBe(2);
+    const resolving = fold([ev("chain-resolving", 2)], two);
+    expect(chainFocusLink(resolving)?.index).toBe(2);
+    const next = fold([ev("chain-resolved", 2), ev("chain-resolving", 1)], resolving);
+    expect(chainFocusLink(next)?.index).toBe(1);
+    expect(chainFocusLink(fold([ev("chain-end")], next))).toBeNull();
+    expect(chainFocusLink(EMPTY_CHAIN)).toBeNull();
+  });
+
+  it("keeps the focus on the link that resolved last, not back on the top link", () => {
+    const base = fold([dust(), shield()]);
+    const afterTop = fold([ev("chain-resolving", 2), ev("chain-resolved", 2)], base);
+    expect(chainFocusLink(afterTop)?.index).toBe(2);
+    const afterLast = fold([ev("chain-resolving", 1), ev("chain-resolved", 1)], afterTop);
+    expect(afterLast.links.every((link) => link.status === "resolved")).toBe(true);
+    expect(chainFocusLink(afterLast)?.index).toBe(1);
+  });
+
+  it("clears the stack when the chain ends", () => {
+    const state = fold([dust(), shield(), ev("chain-resolving", 2), ev("chain-resolved", 2), ev("chain-end")]);
+    expect(chainStackRows(state)).toEqual([]);
+  });
+
+  it("marks a resolved link as resolved and keeps the others waiting", () => {
+    const state = fold([dust(), shield(), ev("chain-resolving", 2), ev("chain-resolved", 2)]);
+    expect(chainStackRows(state).map((r) => r.status)).toEqual(["resolved", "pending"]);
+  });
+
+  it("says a card activates its effect, with the engine's effect text, never trigger or quick", () => {
+    const callout = chainCallout(fold([dust()]).links[0], 0, you);
+    expect(callout.label).toBe("Chain 1");
+    expect(callout.title).toBe("Dark Dust Spirit");
+    expect(callout.owner).toBe("You");
+    expect(callout.action).toBe("activates its effect");
+    expect(chainFlow(fold([dust()]).links[0], 0, you).effect).toBe("Destroy all other face-up monsters");
+    expect(`${callout.label} ${callout.title} ${callout.action} ${callout.owner}`).not.toMatch(/trigger|quick/i);
+  });
+
+  it("names the rival as Opponent, or by name at a table", () => {
+    const link = fold([dust(), shield()]).links[1];
+    expect(chainCallout(link, 0, you).owner).toBe("Opponent");
+    expect(chainCallout(link, 0, you, true).owner).toBe("Practice Bot");
+    expect(chainCallout(link, null, you).owner).toBe("Practice Bot");
+    expect(chainFlow(link, 0, you).effect).toBeNull();
+  });
+
+  it("builds source, effect and public targets for one link from coordinates only", () => {
+    const withTarget: DuelEvent = { ...shield(), targets: [z(0, SZONE, 5), z(1, MZONE, 1)] };
+    const flow = chainFlow(fold([dust(), withTarget]).links[1], 0, you);
+    expect(flow.source).toBe("My Body as a Shield");
+    expect(flow.targets).toEqual(["your Field Zone", "opponent's Monster Zone 2"]);
+    expect(chainFlow(fold([dust(), withTarget]).links[1], null, you).targets[0]).toBe("You's Field Zone");
+    // A table of 3 or 4 names every rival; Tag calls the partner "partner's" and still names the rivals.
+    const mixed: DuelEvent = { ...shield(), targets: [z(1, MZONE, 1), z(2, SZONE, 5), z(3, MZONE, 0)] };
+    const link = fold([dust(), mixed]).links[1];
+    const name = (seat: number) => ["You", "Ryo", "Corvin", "Juniper"][seat];
+    expect(chainFlow(link, 0, name, { named: true }).targets).toEqual(["Ryo's Monster Zone 2", "Corvin's Field Zone", "Juniper's Monster Zone 1"]);
+    expect(chainFlow(link, 0, name, { named: true, partner: 2 }).targets).toEqual(["Ryo's Monster Zone 2", "partner's Field Zone", "Juniper's Monster Zone 1"]);
+    expect(chainFlow(link, 0, name).targets[0]).toBe("opponent's Monster Zone 2");
+    expect(chainFlow(fold([dust()]).links[0], 0, you).targets).toEqual([]);
+  });
+
+  it("shows no effect text and no name for a card the chain does not know", () => {
+    const hidden = deriveChainState([], [{ index: 1, seat: 1, code: 89111398, description: "Destroy all other face-up monsters" } as never]).links[0];
+    const flow = chainFlow(hidden, 0, you);
+    expect(flow.source).toBe("A card");
+    expect(flow.effect).toBeNull();
+    expect(JSON.stringify(flow)).not.toContain("89111398");
+  });
+
+  it("falls back to 'activates an effect' when the card is unknown", () => {
+    const state = fold([ev("chain-resolving", 3)]);
+    const callout = chainCallout(state.links[2], 0, you);
+    expect(callout.title).toBe("A card");
+    expect(callout.action).toBe("is resolving");
+    const pending = chainCallout(deriveChainState([], [{ index: 1, seat: 1 }]).links[0], 0, you);
+    expect(pending.action).toBe("activates an effect");
+    expect(pending.title).toBe("A card");
+  });
+
+  it("uses one label for an unknown card everywhere and never shows a passcode", () => {
+    const unnamed = deriveChainState([], [{ index: 1, seat: 1, code: 89111398 }]).links[0];
+    expect(unnamed.name).toBeNull();
+    expect(chainCardName(unnamed)).toBe("A card");
+    expect(chainCardName({ name: "  " })).toBe("A card");
+    expect(chainCallout(unnamed, 0, you).title).toBe("A card");
+    expect(chainLinkLabel(unnamed, 0, you)).toBe("Chain Link 1: A card, Opponent");
+    const said = chainAnnouncement(EMPTY_CHAIN, unnamed ? { links: [unnamed], resolving: null } : EMPTY_CHAIN, 0, you);
+    expect(said).toBe("Chain Link 1: A card, Opponent");
+    const resolving = { links: [{ ...unnamed, status: "resolving" as const }], resolving: 1 };
+    expect(chainAnnouncement({ links: [unnamed], resolving: null }, resolving, 0, you)).toBe("Chain Link 1 resolving: A card, Opponent");
+    expect(`${chainCallout(unnamed, 0, you).title}${chainLinkLabel(unnamed, 0, you)}`).not.toMatch(/89111398|Card \d/);
+  });
+
+  it("follows the link through resolving, resolved and negated", () => {
+    const base = fold([dust(), shield()]);
+    expect(chainCallout(fold([ev("chain-resolving", 2)], base).links[1], 0, you).action).toBe("is resolving");
+    expect(chainCallout(fold([ev("chain-resolving", 2), ev("chain-resolved", 2)], base).links[1], 0, you).action).toBe("resolved");
+    expect(chainCallout(fold([ev("chain-negated", 2)], base).links[1], 0, you).action).toBe("was negated");
+  });
+});
+
+describe("placeCallout", () => {
+  const board = { width: 900, height: 600 };
+  const tag = { width: 200, height: 30 };
+  const card = { left: 400, top: 100, width: 60, height: 80 };
+  const place = (over: Partial<Parameters<typeof placeCallout>[0]> = {}) =>
+    placeCallout({ card, board, tag, half: "high", panels: [], ...over });
+
+  it("opens on the default side when no prompt is near", () => {
+    expect(place()).toEqual({ dx: 0, side: "near" });
+    expect(place({ half: "low", card: { ...card, top: 400 } })).toEqual({ dx: 0, side: "near" });
+  });
+
+  it("slides sideways to stay on the board", () => {
+    expect(place({ card: { ...card, left: 0 } }).dx).toBe(74);
+    expect(place({ card: { ...card, left: 860 } }).dx).toBe(-94);
+  });
+
+  it("opens on the other side when the default side is under a prompt", () => {
+    // The default side (below the card) is covered by a Yes/No bar.
+    const bar = { left: 300, top: 185, width: 300, height: 70 };
+    expect(place({ panels: [bar] })).toEqual({ dx: 0, side: "far" });
+  });
+
+  it("hides the tag when both sides are covered or the other side is off the board", () => {
+    const below = { left: 300, top: 185, width: 300, height: 70 };
+    const above = { left: 300, top: 50, width: 300, height: 40 };
+    expect(place({ panels: [below, above] }).side).toBe("hidden");
+    // The card sits at the top edge: there is no room above it.
+    expect(place({ card: { ...card, top: 10 }, panels: [{ ...below, top: 95 }] }).side).toBe("hidden");
+  });
+
+  it("keeps a margin: a panel a few pixels away still counts as covering", () => {
+    const near = { left: 300, top: 188 + 30 + 3, width: 300, height: 70 };
+    expect(place({ panels: [near] }).side).toBe("far");
+    const apart = { left: 300, top: 188 + 30 + 20, width: 300, height: 70 };
+    expect(place({ panels: [apart] }).side).toBe("near");
+  });
+});
+
+describe("chain stack size and covered marks", () => {
+  it("is full with a wide gutter and compact without one, with a dead band between", () => {
+    expect(chainStackSize(228, undefined)).toBe("full");
+    expect(chainStackSize(60, undefined)).toBe("compact");
+    expect(chainStackSize(180, undefined)).toBe("compact");
+    // Between 170 and 190 the stack keeps the form it has: no flicker on the line.
+    expect(chainStackSize(180, "full")).toBe("full");
+    expect(chainStackSize(180, "compact")).toBe("compact");
+    expect(chainStackSize(169, "full")).toBe("compact");
+    expect(chainStackSize(190, "compact")).toBe("full");
+    // A stack that meets a prompt surface is the chips, whatever the gutter says.
+    expect(chainStackSize(300, "full", true)).toBe("compact");
+    expect(chainStackSize(300, undefined, true)).toBe("compact");
+  });
+
+  it("measures how much of a target an open prompt covers", () => {
+    const card = { left: 100, top: 100, width: 60, height: 80 };
+    expect(coveredFraction(card, [])).toBe(0);
+    expect(coveredFraction(card, [{ left: 0, top: 0, width: 50, height: 50 }])).toBe(0);
+    expect(coveredFraction(card, [{ left: 100, top: 100, width: 60, height: 40 }])).toBeCloseTo(0.5);
+    expect(coveredFraction(card, [{ left: 0, top: 0, width: 500, height: 500 }])).toBe(1);
+    expect(coveredFraction({ ...card, width: 0 }, [{ left: 0, top: 0, width: 500, height: 500 }])).toBe(0);
+  });
+});
+
+describe("placeChips", () => {
+  const board = { width: 900, height: 600 };
+  const chips = { width: 300, height: 30 };
+  it("starts in the top left corner", () => {
+    expect(placeChips(chips, board, [])).toEqual({ left: 4, top: 4 });
+  });
+  it("slides right past a plate in the corner", () => {
+    expect(placeChips(chips, board, [{ left: 10, top: 10, width: 160, height: 80 }])).toEqual({ left: 176, top: 4 });
+  });
+  it("drops below the plate when the row no longer fits to its right", () => {
+    expect(placeChips({ width: 800, height: 30 }, board, [{ left: 10, top: 10, width: 160, height: 80 }])).toEqual({ left: 4, top: 96 });
+  });
+  it("stops on a crowded board and stays on it", () => {
+    const wall: Array<{ left: number; top: number; width: number; height: number }> = [];
+    for (let i = 0; i < 30; i += 1) wall.push({ left: 0, top: i * 20, width: 900, height: 20 });
+    const place = placeChips(chips, board, wall);
+    expect(place.top).toBeLessThanOrEqual(board.height - chips.height - 4);
+    expect(place.left).toBeGreaterThanOrEqual(4);
   });
 });

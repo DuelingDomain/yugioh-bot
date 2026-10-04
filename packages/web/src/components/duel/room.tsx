@@ -988,7 +988,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {/* Notices float over the top of the layout. In flow they would take height from the board
             and shrink it for as long as the notice shows. */}
         {error || actionError || data.error || viewerLeaving ? (
-          <div className={styles.notices}>
+          <div className={styles.notices} data-prompt-surface="">
             {leavingNotice}
             {error ? <div className={styles.error} role="alert">Connection lost. Actions paused until reconnected.
               <button type="button" onClick={() => void mutate()}>Retry</button></div> : null}
@@ -1005,6 +1005,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           data-mode={dockMode}
           data-tone={prompt?.context?.type === "chain" ? "chain" : "action"}
           data-idle={dockMode === "idle" ? "true" : "false"}
+          data-prompt-surface={dockMode === "idle" ? undefined : ""}
         >
           <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
             draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu)}
@@ -1040,7 +1041,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
                 {!error && !realtime.recovering ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
                 {!error && !realtime.recovering ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
                 {!error && !realtime.recovering ? <ChainFx events={engine.events} chain={engine.chain} duelKey={slug}
-                  reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} /> : null}
+                  reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} ended={duelOver} /> : null}
                 {!error && !realtime.recovering ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
                 <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}

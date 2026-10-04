@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const css = readFileSync(join(__dirname, "../src/components/duel/table/table-stage.module.css"), "utf8");
+const chainCss = readFileSync(join(__dirname, "../src/components/duel/chain-fx.module.css"), "utf8");
 
 describe("table stage lanes", () => {
   it("puts the yes/no prompt bar in the lower-left lane, out of the middle", () => {
@@ -15,10 +16,14 @@ describe("table stage lanes", () => {
   });
 
   it("moves the chain stack up so it never crosses that lane", () => {
-    const rule = css.match(/\[data-slot="fx"\] :global\(\[data-chain-panel\]\)\s*\{([^}]*)\}/);
+    // The stack is portaled out of the fx slot, so its lane rule lives with the chain layer, not the table slot.
+    expect(css).not.toMatch(/data-chain-panel/);
+    const rule = chainCss.match(/\.front\[data-table="ffa3"\] \.panel,\s*\n\.front\[data-table="ffa4"\] \.panel\s*\{([^}]*)\}/);
     expect(rule).not.toBeNull();
     expect(rule![1]).toMatch(/align-self:\s*flex-start/);
     expect(rule![1]).toMatch(/max-height:\s*\d+%/);
+    // Tag has no lower-left bar lane: its stack keeps the 1v1 lane.
+    expect(chainCss).not.toMatch(/\.front\[data-table\] \.panel\s*\{/);
   });
 
   it("keeps rival hand backs off the top row of the rival field, on a table stage only", () => {

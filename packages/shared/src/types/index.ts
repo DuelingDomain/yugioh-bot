@@ -32,6 +32,10 @@ export interface DraftConfig {
   extraDeckSize?: number;
   /** If true, the (themePackSize - 1) unpicked cards are discarded each round; if false (default) they return. */
   burnUnpicked?: boolean;
+
+  // ----- cube metadata (kept in a saved cube's config; a draft ignores it) -----
+  /** What a cube is for: theme drafts, cube (booster) drafts, or either. Absent means "any". */
+  draftType?: "theme" | "booster" | "any";
 }
 
 export interface Draft {

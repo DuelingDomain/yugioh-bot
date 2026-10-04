@@ -1,9 +1,10 @@
 import type { DuelDeck } from "@yugidraft/shared/duels";
 
+/** A passcode is 1 to 10 plain digits: no hex, exponent, sign or decimal point. */
 function parseCode(line: string): number | null {
+  if (!/^\d{1,10}$/.test(line)) return null;
   const code = Number(line);
-  if (!Number.isInteger(code) || code <= 0) return null;
-  return code;
+  return code > 0 ? code : null;
 }
 
 export interface DeckMasterSelection {
