@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DraftTournament } from "../use-draft-tournament";
 import { FullscreenLayer } from "./layer";
 import { animate } from "./motion";
 import { KINDS, KIND_LABEL, countKinds, kindOf, type RoomCard } from "./room-model";
@@ -12,7 +13,10 @@ export interface FinaleProps {
   theme: boolean;
   /** How many of the picks are Extra deck cards (theme drafts). */
   extraCount: number;
-  canBuild: boolean;
+  /** The viewer is the draft host: the only person who may create the tournament. */
+  canCreateTournament: boolean;
+  /** Tournament made from this draft, plus the state to create one. */
+  tournament: DraftTournament;
   exporting: boolean;
   exportError: string | null;
   onExport: () => void;
@@ -28,13 +32,25 @@ export function DraftFinale(p: FinaleProps) {
   const mainCount = p.pool.length - p.extraCount;
   const sub = p.theme
     ? `${mainCount} main deck cards and ${p.extraCount} for the Extra Deck.`
-    : `${p.pool.length} cards drafted. Your deck starts here.`;
-  const focused = useRef(false);
-  const focusFirst = useCallback((el: HTMLAnchorElement | HTMLButtonElement | null) => {
-    if (!el || focused.current) return;
-    focused.current = true;
+    : `${p.pool.length} cards drafted. Your deck is saved.`;
+  const { tournament } = p;
+  const [formOpen, setFormOpen] = useState(false);
+  // Focus goes to the first action on each variant. Opening the form, closing it, or making the
+  // tournament swaps that action for another element, which takes focus the same way.
+  const focused = useRef<Element | null>(null);
+  const focusFirst = useCallback((el: HTMLAnchorElement | HTMLButtonElement | HTMLSelectElement | null) => {
+    if (!el || focused.current === el) return;
+    focused.current = el;
     el.focus();
   }, []);
+  const linked = tournament.linked;
+  const tournamentHref = linked?.webSlug ? `/tournament/${linked.webSlug}` : "/tournaments";
+  const showForm = p.canCreateTournament && !linked && formOpen;
+  const status = linked
+    ? "The tournament is ready. Every deck is registered for it."
+    : p.canCreateTournament
+      ? "Every deck is saved. Create the tournament when you are ready."
+      : "The host will start the tournament. Your deck is saved and will be registered for it.";
   const word = useRef<HTMLHeadingElement>(null);
   const fanRef = useRef<HTMLDivElement>(null);
 
@@ -107,13 +123,68 @@ export function DraftFinale(p: FinaleProps) {
             </div>
           </div>
           <p className="fin-note">{`${noTribute} of your ${monsters.length} main deck monsters need no tribute.`}</p>
+          <p className="fin-status">{status}</p>
+          {showForm && (
+            <form
+              className="fin-tour"
+              aria-label="Create tournament"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void tournament.create();
+              }}
+            >
+              <label>
+                <span>Format</span>
+                <select
+                  value={tournament.format}
+                  onChange={(e) => tournament.setFormat(e.target.value === "single_elim" ? "single_elim" : "round_robin")}
+                  disabled={tournament.creating}
+                  ref={focusFirst}
+                >
+                  <option value="round_robin">Round robin</option>
+                  <option value="single_elim">Single elimination</option>
+                </select>
+              </label>
+              <label>
+                <span>Match length</span>
+                <select
+                  value={tournament.bestOf}
+                  onChange={(e) => tournament.setBestOf(e.target.value === "1" ? 1 : 3)}
+                  disabled={tournament.creating}
+                >
+                  <option value={3}>Best of 3</option>
+                  <option value={1}>Best of 1</option>
+                </select>
+              </label>
+              {tournament.error && (
+                <p className="fin-error" role="alert">
+                  {tournament.error}
+                </p>
+              )}
+              <div className="fin-tour-actions">
+                <button className="pick-btn" type="submit" disabled={tournament.creating} aria-busy={tournament.creating || undefined}>
+                  <span>{tournament.creating ? "Creating…" : "Create tournament"}</span>
+                </button>
+                <button className="btn-2" type="button" onClick={() => setFormOpen(false)} disabled={tournament.creating}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
           <div className="fin-actions">
-            {p.canBuild ? (
-              <Link className="pick-btn" href={`/decks/draft/${p.slug}`} ref={focusFirst}>
-                <span>Build your deck</span>
+            {linked ? (
+              <Link className="pick-btn" href={tournamentHref} ref={focusFirst}>
+                <span>Go to tournament</span>
               </Link>
+            ) : p.canCreateTournament && !formOpen ? (
+              <button className="pick-btn" type="button" onClick={() => setFormOpen(true)} ref={focusFirst}>
+                <span>Create tournament</span>
+              </button>
             ) : null}
-            <button className="btn-2" type="button" onClick={p.onExport} disabled={p.exporting} ref={p.canBuild ? undefined : focusFirst}>
+            <Link className="btn-2" href={`/decks/draft/${p.slug}`} ref={p.canCreateTournament || linked ? undefined : focusFirst}>
+              View your deck
+            </Link>
+            <button className="btn-2" type="button" onClick={p.onExport} disabled={p.exporting}>
               {p.exporting ? "Exporting…" : "Export YDK"}
             </button>
             <Link className="btn-2" href="/drafts">

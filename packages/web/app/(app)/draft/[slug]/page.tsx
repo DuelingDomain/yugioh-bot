@@ -7,6 +7,7 @@ import { DraftState } from "@/components/draft/draft-state";
 import { DraftSummaryView } from "@/components/draft/draft-summary-view";
 import { DraftRoom } from "@/components/draft/room/draft-room";
 import { DraftFinale } from "@/components/draft/room/finale";
+import { useDraftTournament } from "@/components/draft/use-draft-tournament";
 import { useDraftStore } from "@/lib/stores/draft-store";
 import { useDraftWebsocket } from "@/lib/hooks/use-draft-websocket";
 import { useDraftCountdown } from "@/lib/hooks/use-draft-countdown";
@@ -66,6 +67,8 @@ interface DraftData {
   playerCount: number;
   participantPickCount?: number;
   tournamentId?: number | null;
+  tournamentName?: string | null;
+  tournamentSlug?: string | null;
   myDeckId?: number | null;
   isParticipant: boolean;
   /** Server says test bots are allowed (DRAFT_TEST_BOTS=1 or a non-production build). */
@@ -127,6 +130,13 @@ export default function DraftDetailPage() {
   const [finaleClosed, setFinaleClosed] = useState(false);
   const [finaleExporting, setFinaleExporting] = useState(false);
   const [finaleExportError, setFinaleExportError] = useState<string | null>(null);
+
+  // The tournament made from this draft, shared with the finale (and the results page).
+  const tournament = useDraftTournament(slug, {
+    tournamentId: draft?.tournamentId,
+    tournamentName: draft?.tournamentName,
+    tournamentSlug: draft?.tournamentSlug,
+  });
 
   const setFromServer = useDraftStore((s) => s.setFromServer);
   const storeCompleted = useDraftStore((s) => s.completed);
@@ -360,7 +370,8 @@ export default function DraftDetailPage() {
           pool={finalePool}
           theme={isThemeDraft}
           extraCount={finaleExtra}
-          canBuild
+          canCreateTournament={isCreator}
+          tournament={tournament}
           exporting={finaleExporting}
           exportError={finaleExportError}
           onExport={() => void downloadYdk()}
