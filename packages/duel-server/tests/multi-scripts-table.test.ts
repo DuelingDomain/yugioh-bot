@@ -424,14 +424,14 @@ const filler = (count: number): CardEntry[] => FILLERS.slice(0, count);
  * The same card, in every place it can act from, for p0: hand, field (a monster, a set Spell or Trap, or the Field Spell Zone),
  * Graveyard, banished, Extra Deck. `behind`: every opponent has more cards than p0, so a "more than you" compare passes.
  * `ahead`: p0 has more cards, so a "fewer than you" compare passes. Each opponent has a different count, so the compare differs by seat.
-  // Aiza needs a Special Summon. A Normal Summon does not raise this event.
-  if (format === "ffa3" && code === 63378869) p0.hand!.unshift("Monster Reborn");
  */
 export function boardFor(format: DuelFormat, code: number, layout: Layout): BoardSpec {
   const { type } = cardRow(code);
   const extra = (type & TYPE.extra) !== 0;
   const monster = (type & TYPE.monster) !== 0;
   const p0: DuelistSetup = { hand: extra ? [...filler(2)] : [code, ...filler(2)], grave: [code], banished: [code] };
+  // Aiza needs a Special Summon. A Normal Summon does not raise this event.
+  if (format === "ffa3" && code === 63378869) p0.hand!.unshift("Monster Reborn");
   if (extra) p0.extra = [code];
   // Keep the field copy for the event check. Extra Deck cards load before the probe.
   // A Link Summon of that copy can use the field copy and remove its wrapped callbacks.
