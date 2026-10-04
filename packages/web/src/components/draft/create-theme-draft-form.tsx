@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import type { DraftConfig } from "@yugidraft/shared/types";
-import { StatusLine, SvButton } from "@/components/sheet";
+import { StatusLine, SvButton, SvCheck } from "@/components/sheet";
 import { DraftLayout, DraftMain, DraftRail, Num, RailSection, Rules } from "./draft-frame";
 import { secondsText, themeSelectionText } from "./create/format";
 import styles from "./create/create.module.css";
@@ -213,7 +213,14 @@ export function CreateThemeDraftForm() {
                   Cards you pass on are gone for the rest of the draft. Off, they can come back in a later pick.
                 </span>
               </label>
-              <label><input type="checkbox" checked={copyLimit} onChange={(e) => setCopyLimit(e.target.checked)} /> Limit 3 copies per card</label>
+              <SvCheck
+                className="wide"
+                prominent
+                label="Limit 3 copies per card"
+                hint="Players can't take a 4th copy of any card."
+                checked={copyLimit}
+                onChange={(e) => setCopyLimit(e.target.checked)}
+              />
             </div>
           </section>
         </div>

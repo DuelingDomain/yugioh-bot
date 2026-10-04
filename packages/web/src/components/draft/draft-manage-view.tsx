@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Pencil, UserPlus } from "lucide-react";
-import { Mono, SectionHead, StageLine, StatusLine, SvButton, svButtonClass, type StageStep } from "@/components/sheet";
+import { Mono, SectionHead, StageLine, StatusLine, SvButton, SvCheck, svButtonClass, type StageStep } from "@/components/sheet";
 import { CubeDraftBuilder } from "@/components/cubes/cube-draft-builder";
 import { CubeLobbyPanel } from "@/components/cubes/cube-lobby-panel";
 import {
@@ -557,7 +557,15 @@ export function DraftManageView({
             {isCreator && !isTheme && !isEditingConfig && (
               <SvButton variant="quiet" className={styles.editBtn} onClick={handleStartEditConfig}>Edit setup</SvButton>
             )}
-            {isCreator && isTheme && <label><input type="checkbox" checked={draft.config.copyLimit ?? true} onChange={(e) => void onUpdateWithPoolRefresh({ config: { copyLimit: e.target.checked } })} /> Limit 3 copies per card</label>}
+            {isCreator && isTheme && (
+              <SvCheck
+                compact
+                className={styles.copyLimit}
+                label="Limit 3 copies per card"
+                checked={draft.config.copyLimit ?? true}
+                onChange={(e) => void onUpdateWithPoolRefresh({ config: { copyLimit: e.target.checked } })}
+              />
+            )}
           </RailSection>
 
           {isCreator && (

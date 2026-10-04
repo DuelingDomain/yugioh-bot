@@ -3,6 +3,7 @@
 import * as React from "react";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import { packsSentence } from "./create/format";
+import { SvCheck } from "@/components/sheet";
 import styles from "./create/create.module.css";
 
 export const CARDS_PER_PLAYER_MIN = 40;
@@ -169,7 +170,13 @@ export function PackFields({ value, onChange }: PackFieldsProps) {
         min={PICK_SECONDS_MIN}
         max={PICK_SECONDS_MAX}
       />
-      <label className="wide"><input type="checkbox" checked={value.copyLimit ?? true} onChange={(e) => onChange({ ...value, copyLimit: e.target.checked })} /> Limit 3 copies per card</label>
+      <SvCheck
+        className="wide"
+        label="Limit 3 copies per card"
+        hint="Players can't take a 4th copy of any card."
+        checked={value.copyLimit ?? true}
+        onChange={(e) => onChange({ ...value, copyLimit: e.target.checked })}
+      />
       <p className="hint wide">{packsSentence(cardsPerPlayer, packsPerPlayer, packSize)}</p>
     </div>
   );
