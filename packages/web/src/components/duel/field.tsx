@@ -617,6 +617,76 @@ export function HandStrip({
   );
 }
 
+/** The props of one Monster Zone of a seat. `flip` turns the art half way (the far side of the board). */
+export function monsterZoneProps(
+  view: DuelSeatView | undefined,
+  sequence: number,
+  options: { flip: boolean; callbacks: FieldCallbacks; owner?: string },
+): ZoneSlotProps {
+  const { flip, callbacks, owner } = options;
+  const seat = view?.seat ?? 0;
+  const card = slot(view?.monsters, sequence);
+  return {
+    card,
+    label: `${owner ? `${owner} m` : "M"}onster zone ${sequence + 1}`,
+    kind: "mz",
+    offId: disabledZones(view).monsters[sequence] ? `${seat}-m-${sequence}` : undefined,
+    keys: withExact(card, [zoneKey(seat, LOCATION_MZONE, sequence)]),
+    legalKeys: callbacks.legalKeys,
+    selectedKeys: callbacks.selectedKeys,
+    showStats: true,
+    flip,
+    onActivate: callbacks.onActivate,
+    onHoverCard: callbacks.onHoverCard,
+  };
+}
+
+/** The props of one Spell and Trap Zone of a seat (the first and last one are the Pendulum zones from Master Rule 4). */
+export function spellZoneProps(
+  view: DuelSeatView | undefined,
+  sequence: number,
+  options: { flip: boolean; callbacks: FieldCallbacks; masterRule: DuelMasterRule; owner?: string; keys?: string[]; pendulum?: boolean },
+): ZoneSlotProps {
+  const { flip, callbacks, masterRule, owner } = options;
+  const seat = view?.seat ?? 0;
+  const card = slot(view?.spells, sequence);
+  const pendulum = options.pendulum ?? (masterRule >= 4 && (sequence === 0 || sequence === ST_COUNT - 1));
+  return {
+    card,
+    label: `${owner ? `${owner} s` : "S"}pell and Trap zone ${sequence + 1}${pendulum ? ", pendulum" : ""}`,
+    kind: "st",
+    offId: disabledZones(view).spells[sequence] ? `${seat}-s-${sequence}` : undefined,
+    keys: options.keys ?? stKeys(seat, sequence, card, masterRule),
+    legalKeys: callbacks.legalKeys,
+    selectedKeys: callbacks.selectedKeys,
+    pendulum,
+    flip,
+    onActivate: callbacks.onActivate,
+    onHoverCard: callbacks.onHoverCard,
+  };
+}
+
+/** The props of one Extra Monster Zone (`left` is column 2, `right` column 4); the model gives card, keys and off id. */
+export function emzZoneProps(
+  side: "left" | "right",
+  options: { card: DuelCard | null; keys: string[]; offId: string | undefined; flip: boolean; callbacks: Pick<FieldCallbacks, "legalKeys" | "selectedKeys" | "onActivate" | "onHoverCard"> },
+): ZoneSlotProps {
+  const { card, keys, offId, flip, callbacks } = options;
+  return {
+    card,
+    label: `Extra monster zone, column ${side === "left" ? 2 : 4}`,
+    kind: "emz",
+    offId,
+    keys,
+    legalKeys: callbacks.legalKeys,
+    selectedKeys: callbacks.selectedKeys,
+    showStats: true,
+    flip,
+    onActivate: callbacks.onActivate,
+    onHoverCard: callbacks.onHoverCard,
+  };
+}
+
 function MonsterRow({
   view,
   reversed,
@@ -633,29 +703,12 @@ function MonsterRow({
   owner?: string;
 }) {
   const seat = view?.seat ?? 0;
-  const off = disabledZones(view);
   const order = reversed ? [4, 3, 2, 1, 0] : [0, 1, 2, 3, 4];
   return (
     <div className={styles.zones}>
-      {order.map((sequence) => {
-        const card = slot(view?.monsters, sequence);
-        return (
-          <ZoneSlot
-            key={`${seat}-mz-${sequence}`}
-            card={card}
-            label={`${owner ? `${owner} m` : "M"}onster zone ${sequence + 1}`}
-            kind="mz"
-            offId={off.monsters[sequence] ? `${seat}-m-${sequence}` : undefined}
-            keys={withExact(card, [zoneKey(seat, LOCATION_MZONE, sequence)])}
-            legalKeys={callbacks.legalKeys}
-            selectedKeys={callbacks.selectedKeys}
-            showStats
-            flip={flip ?? reversed}
-            onActivate={callbacks.onActivate}
-            onHoverCard={callbacks.onHoverCard}
-          />
-        );
-      })}
+      {order.map((sequence) => (
+        <ZoneSlot key={`${seat}-mz-${sequence}`} {...monsterZoneProps(view, sequence, { flip: flip ?? reversed, callbacks, owner })} />
+      ))}
     </div>
   );
 }
@@ -676,30 +729,12 @@ function SpellRow({
   owner?: string;
 }) {
   const seat = view?.seat ?? 0;
-  const off = disabledZones(view);
   const order = reversed ? [4, 3, 2, 1, 0] : [0, 1, 2, 3, 4];
   return (
     <div className={styles.zones}>
-      {order.map((sequence) => {
-        const card = slot(view?.spells, sequence);
-        const pendulum = masterRule >= 4 && (sequence === 0 || sequence === ST_COUNT - 1);
-        return (
-          <ZoneSlot
-            key={`${seat}-st-${sequence}`}
-            card={card}
-            label={`${owner ? `${owner} s` : "S"}pell and Trap zone ${sequence + 1}${pendulum ? ", pendulum" : ""}`}
-            kind="st"
-            offId={off.spells[sequence] ? `${seat}-s-${sequence}` : undefined}
-            keys={stKeys(seat, sequence, card, masterRule)}
-            legalKeys={callbacks.legalKeys}
-            selectedKeys={callbacks.selectedKeys}
-            pendulum={pendulum}
-            flip={flip ?? reversed}
-            onActivate={callbacks.onActivate}
-            onHoverCard={callbacks.onHoverCard}
-          />
-        );
-      })}
+      {order.map((sequence) => (
+        <ZoneSlot key={`${seat}-st-${sequence}`} {...spellZoneProps(view, sequence, { flip: flip ?? reversed, callbacks, masterRule, owner })} />
+      ))}
     </div>
   );
 }
@@ -905,33 +940,9 @@ export function DuelField(props: DuelFieldProps) {
             {showExtraZones && masterRule >= 4 ? (
               <div className={styles.emzRow}>
                 <div />
-                <ZoneSlot
-                  card={leftEmz}
-                  label="Extra monster zone, column 2"
-                  kind="emz"
-                  offId={emzOff(true)}
-                  keys={leftEmzKeys}
-                  legalKeys={legalKeys}
-                  selectedKeys={selectedKeys}
-                  showStats
-                  flip={leftEmz != null && leftEmz.controller === topIndex}
-                  onActivate={onActivate}
-                  onHoverCard={onHoverCard}
-                />
+                <ZoneSlot {...emzZoneProps("left", { card: leftEmz, keys: leftEmzKeys, offId: emzOff(true), flip: leftEmz != null && leftEmz.controller === topIndex, callbacks })} />
                 <div />
-                <ZoneSlot
-                  card={rightEmz}
-                  label="Extra monster zone, column 4"
-                  kind="emz"
-                  offId={emzOff(false)}
-                  keys={rightEmzKeys}
-                  legalKeys={legalKeys}
-                  selectedKeys={selectedKeys}
-                  showStats
-                  flip={rightEmz != null && rightEmz.controller === topIndex}
-                  onActivate={onActivate}
-                  onHoverCard={onHoverCard}
-                />
+                <ZoneSlot {...emzZoneProps("right", { card: rightEmz, keys: rightEmzKeys, offId: emzOff(false), flip: rightEmz != null && rightEmz.controller === topIndex, callbacks })} />
                 <div />
               </div>
             ) : <div />}
