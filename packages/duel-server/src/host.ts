@@ -2377,9 +2377,16 @@ export function createDuelHost(options: {
     }
     if (stopped) return;
     try {
-      for (const due of series.dueNextGames(t, SERIES_SWEEP_LIMIT)) {
+      // Windows that end before the next sweep get a timer too: after a restart nothing else has one, and the
+      // series would start up to a full sweep interval late.
+      for (const due of series.dueNextGames(t + pollIntervalMs, SERIES_SWEEP_LIMIT)) {
         if (stopped) return;
         try {
+          const info = series.get(due.seriesId, due.guildId);
+          if (!isSeriesDue(info, t)) {
+            if (!advanceTimers.has(due.seriesId)) scheduleAdvance(info, due.guildId);
+            continue;
+          }
           await advanceSeries(due.seriesId, due.guildId, t);
         } catch (error) {
           console.warn("[duel] series advance sweep failed", error);
