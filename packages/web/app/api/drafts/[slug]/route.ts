@@ -182,9 +182,17 @@ export async function PUT(
       delete (mergedConfig as { cubeCardIds?: number[] }).cubeCardIds;
       delete (mergedConfig as { poolCardIds?: number[] }).poolCardIds;
 
-      const clampedPacks = Math.min(10, Math.max(1, Number((mergedConfig as any).packsPerPlayer) || 5));
-      (mergedConfig as any).packsPerPlayer = clampedPacks;
-      (mergedConfig as any).packSize = Math.ceil(40 / clampedPacks);
+      const cardsPerPlayer = mergedConfig.cardsPerPlayer ?? 40;
+      const packSize = mergedConfig.packSize ?? 15;
+      if (!Number.isInteger(cardsPerPlayer) || cardsPerPlayer < 40 || cardsPerPlayer > 60) {
+        return NextResponse.json({ error: "Cards per player must be 40 to 60" }, { status: 400 });
+      }
+      if (!Number.isInteger(packSize) || packSize < 5 || packSize > cardsPerPlayer) {
+        return NextResponse.json({ error: "Pack size must be 5 to cards per player" }, { status: 400 });
+      }
+      mergedConfig.packSize = packSize;
+      mergedConfig.cardsPerPlayer = cardsPerPlayer;
+      mergedConfig.packsPerPlayer = Math.ceil(cardsPerPlayer / packSize);
 
       const hasPool =
         ((mergedConfig as any).setNames?.length ?? 0) > 0 ||
@@ -225,7 +233,9 @@ export async function PUT(
     }
 
     // Apply edits together after validation, so a rejected pool edit cannot silently rename the draft.
-    db.transaction(() => {
+    const edited = db.transaction(() => {
+      const current = db.prepare("select status from drafts where id = ?").get(draft.id) as { status: string } | undefined;
+      if (current?.status !== "pending") return false;
       if (name !== undefined) {
         db.prepare("update drafts set name = ? where id = ?").run(name, draft.id);
       }
@@ -235,7 +245,9 @@ export async function PUT(
           draft.id,
         );
       }
-    })();
+      return true;
+    }).immediate();
+    if (!edited) return NextResponse.json({ error: "Can only modify pending drafts" }, { status: 400 });
 
     const updated = db.prepare("select * from drafts where id = ?").get(draft.id) as any;
     if (name !== undefined || config !== undefined) {
