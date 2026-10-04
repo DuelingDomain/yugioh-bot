@@ -133,6 +133,12 @@ describe("PhaseHub on your turn", () => {
     const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
     expect(container.textContent).toContain("Battle · Damage");
   });
+
+  it("does not repeat the name when the battle step is called Battle", () => {
+    const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "battle" })} />);
+    expect(container.textContent).not.toContain("Battle · Battle");
+    expect(container.textContent).toContain("Battle step");
+  });
 });
 
 describe("PhaseHub on another turn", () => {

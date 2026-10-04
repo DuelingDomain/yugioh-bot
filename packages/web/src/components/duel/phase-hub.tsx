@@ -88,7 +88,8 @@ export function PhaseHub({
   const owner = turnSeat != null ? playerName(turnSeat) : "";
   const litStation = stations[current]?.station;
   const step = current === BATTLE ? battleStepInfo(resolveBattleStep(phase, battleStep)) : null;
-  const litName = litStation ? (step ? `${litStation.name} · ${step.short}` : litStation.name) : "";
+  // The opening step is itself called "Battle": say "Battle step" rather than "Battle · Battle".
+  const litName = litStation ? (step ? (step.short === litStation.name ? `${litStation.name} step` : `${litStation.name} · ${step.short}`) : litStation.name) : "";
   const style = (tone ? { "--seat": tone.main, "--seat-ink": tone.ink } : undefined) as CSSProperties | undefined;
   const summary = noTurn
     ? "No active turn"
