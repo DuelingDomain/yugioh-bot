@@ -2064,6 +2064,28 @@
   min-height: 0;
 }
 
+/* A seat zone is one card wide (--cw), not a landscape card wide as the 1v1 monster zone is. So the board draws ONE
+   guide per zone (the portrait .frame; the crossing landscape guide of .zoneHit::before would stick out half a zone
+   on both sides and read as a second grid), and a card in defense lies on its side shrunk to the zone width
+   (--dfit = --cw / --z), so it stays inside its own zone and never covers its neighbours. */
+.seatField {
+  --dfit: 0.686;
+}
+
+.seatField .zone[data-kind="mz"] .zoneHit::before,
+.seatField .zone[data-kind="emz"] .zoneHit::before {
+  content: none;
+}
+
+.seatField .cardFace[data-defense="true"],
+.seatField .artWrap[data-defense="true"] > .cardBack {
+  transform: rotate(90deg) scale(var(--dfit));
+}
+
+.seatField .zone[data-defense="true"] .glow {
+  inset: calc((var(--z) - var(--cw) * var(--dfit)) / 2 - 1px) -1px;
+}
+
 /* Labels, stats, counters and marks turn against the field so they read level (--lab). */
 .seatField .pileLabel,
 .seatField .plate,
