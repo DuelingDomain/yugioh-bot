@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { SheetRoot, StatusLine } from "@/components/sheet";
+import { prefersReducedMotion } from "@/lib/motion";
 import { Road } from "../bracket/road";
 import { LocatorFly, type Moment } from "../fx/locator-fly";
 import { useAnimations } from "../fx/use-animations";
@@ -68,8 +69,7 @@ export function TournamentSheet({ tournament, tournamentSlug, isHost, ratings, o
     scrolled.current = true;
     const id = TAB_TARGETS[tab ?? ""];
     if (!id) return;
-    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    document.getElementById(id)?.scrollIntoView?.({ behavior: reducedMotion ? "instant" : "smooth", block: "start" });
+    document.getElementById(id)?.scrollIntoView?.({ behavior: prefersReducedMotion() ? "instant" : "smooth", block: "start" });
   }, [pending, tab]);
 
   const section = { tournament, tournamentSlug, currentUserPlayerId: tournament.currentUserPlayerId, ratings };

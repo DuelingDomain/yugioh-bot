@@ -316,7 +316,7 @@ describe("CubeEditor", () => {
       expect(screen.getByRole("button", { name: "Any" })).toHaveAttribute("aria-pressed", "true");
       expect(screen.getByRole("heading", { name: "Cube check" })).toBeInTheDocument();
       expect(screen.getByText(/needs 40 more main copies/)).toBeInTheDocument();
-      expect(screen.getByText(/needs 29 more different cards/)).toBeInTheDocument();
+      expect(screen.getByText(/needs 88 more copies/)).toBeInTheDocument();
       expect(screen.queryByText(/can.t start/)).not.toBeInTheDocument();
       expect(screen.queryByRole("meter")).not.toBeInTheDocument();
     });
@@ -327,9 +327,9 @@ describe("CubeEditor", () => {
       await open();
       expect(screen.getByRole("heading", { name: "Cube draft check" })).toBeInTheDocument();
       expect(screen.getByText("45 cards each, 5 packs of 10")).toBeInTheDocument();
-      expect(screen.getByRole("meter", { name: "3 of 45 cards one player can reach" })).toBeInTheDocument();
-      expect(screen.getByRole("meter", { name: "1 of 20 different cards for 2 players" })).toBeInTheDocument();
-      expect(screen.getByText(/19 more different cards needed/)).toBeInTheDocument();
+      expect(screen.getByRole("meter", { name: "2 of 45 cards one player can reach" })).toBeInTheDocument();
+      expect(screen.getByRole("meter", { name: "2 of 100 copies for 2 players" })).toBeInTheDocument();
+      expect(screen.getByText(/98 more copies needed/)).toBeInTheDocument();
       expect(screen.queryByText(/theme draft/i)).not.toBeInTheDocument();
     });
 

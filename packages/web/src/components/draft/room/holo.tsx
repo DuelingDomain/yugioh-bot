@@ -73,7 +73,7 @@ export const Holo = memo(function Holo({ target, stage }: { target: HoloTarget |
         holo.removeAttribute("data-on");
         return;
       }
-      animate(holo, [{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: "ease-in" }).then(() => {
+      animate(holo, [{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: "ease-out" }).then(() => {
         if (!live.current) holo.removeAttribute("data-on");
       });
       return;

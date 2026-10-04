@@ -4,6 +4,8 @@ import { migrate } from "../../src/db/index.js";
 import { createCubeService } from "../../src/services/cubes.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
 import { MAX_CUBE_COPIES } from "../../src/services/constants.js";
+import { prepareBoosterPool } from "../../src/services/deal.js";
+import { createDraftService } from "../../src/services/drafts.js";
 
 function emptyCatalog(db: Database.Database) {
   return createCardCatalogService(db, {
@@ -319,6 +321,16 @@ describe("cube service core", () => {
     expect(a.errors[0]).toMatch(/at most 3 copies/);
   });
 
+  it("makes capped main reach a warning when the pick copy limit is off", () => {
+    const { db, cubes } = setup();
+    const cube = cubes.createBlank("g", "Limit off", "u");
+    cubes.addCard(cube.id, 1, "main", 20);
+    const analysis = cubes.analyzeCubePools(cube.id, { themePackSize: 2, cardsPerPlayer: 10, extraDeckSize: 0, burnUnpicked: false, extraDeckEnabled: false, copyLimit: false });
+    expect(analysis.ok).toBe(true);
+    expect(analysis.warnings).toHaveLength(1);
+    db.close();
+  });
+
   it("passes a main-sufficient cube and skips extra when extra disabled", () => {
     const { db, cubes } = setup();
     const t = cubes.createBlank("g", "Big", "u");
@@ -353,6 +365,20 @@ describe("cube service core", () => {
     });
     expect(a.ok).toBe(true); // warnings don't fail ok
     expect(a.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("warns when five Extra cards with five copies cannot fill the Extra choices", () => {
+    const { db, cubes } = setup();
+    const cube = cubes.createBlank("g", "Extra copies", "u");
+    cubes.addCard(cube.id, 1, "main", 3);
+    for (let id = 10; id < 15; id++) {
+      seedCard(db, id, `Extra ${id}`, "XYZ Monster", "xyz");
+      cubes.addCard(cube.id, id, "extra", 5);
+    }
+    const analysis = cubes.analyzeCubePools(cube.id, { themePackSize: 3, cardsPerPlayer: 1, extraDeckSize: 15, burnUnpicked: false, extraDeckEnabled: true });
+    expect(analysis.ok).toBe(true);
+    expect(analysis.warnings).toEqual([expect.stringMatching(/15.*17/)]);
+    db.close();
   });
 
   it("requires more cards under burnUnpicked (multiplied requirement)", () => {
@@ -412,12 +438,38 @@ describe("cube service Discord-template-compatible ops", () => {
     expect(cubes.findByName("g", "Modern")).toBeUndefined();
   });
 
-  it("applyCubeToConfig unions cube_cards into customCardIds and preserves setNames", () => {
+  it("applyCubeToConfig expands each main-pool copy", () => {
+    const { cubes } = setup();
+    const cube = cubes.createBlank("g", "Three copies", "u");
+    cubes.addCard(cube.id, 1, "main", 3);
+    cubes.addCard(cube.id, 2, "extra", 3);
+    expect(cubes.applyCubeToConfig(cube.id).customCardIds).toEqual([1, 1, 1]);
+  });
+
+  it("keeps saved cube quantities when its config also selects catalog cards", () => {
+    const { db, cubes } = setup();
+    try {
+      const cube = cubes.save("g", "Authored hybrid", { includeNames: ["Main A"] }, "u");
+      cubes.addCard(cube.id, 1, "main", 3);
+      const config = cubes.applyCubeToConfig(cube.id);
+      const ids = createDraftService(db).resolveCubeCardIds(config);
+      expect(ids).toEqual([1, 1, 1, 1]);
+      expect(prepareBoosterPool(ids, config, 120)).toEqual(ids);
+    } finally { db.close(); }
+  });
+
+  it("applyCubeToConfig keeps config copies and excludes the Extra pool", () => {
     const { cubes } = setup(); // catalog cards 1 (main/normal) and 2 (extra/xyz)
     const cube = cubes.save("g", "Hybrid", { setNames: ["Metal Raiders"], customCardIds: [1] }, "u");
     cubes.addCard(cube.id, 2, "extra"); // explicit extra-pool card
     const out = cubes.applyCubeToConfig(cube.id, { customCardIds: [3] });
     expect(out.setNames).toEqual(["Metal Raiders"]);
-    expect([...out.customCardIds!].sort((a, b) => a - b)).toEqual([1, 2, 3]);
+    expect([...out.customCardIds!].sort((a, b) => a - b)).toEqual([1, 3]);
+  });
+  it("applyCubeToConfig keeps listed quantities when the same card has a pool row", () => {
+    const { cubes } = setup();
+    const cube = cubes.save("g", "Listed copies", { customCardIds: [1, 1] }, "u");
+    cubes.addCard(cube.id, 1, "main", 3);
+    expect(cubes.applyCubeToConfig(cube.id, { customCardIds: [3, 3] }).customCardIds).toEqual([3, 3, 1, 1]);
   });
 });

@@ -37,7 +37,7 @@ export function deckUsage(deck: DuelDeck, catalog: CardIdentityCatalog = new Map
 
 /** Copies of a card the player can still add: pool copies minus copies in the deck. Never below 0. */
 export function remainingCopies(pool: ReadonlyMap<number, number>, used: ReadonlyMap<number, number>, code: number): number {
-  return Math.max(0, (pool.get(code) ?? 0) - (used.get(code) ?? 0));
+  return Math.max(0, Math.min(3, pool.get(code) ?? 0) - (used.get(code) ?? 0));
 }
 
 /** True when the pool still has a copy to add. A card that is not in the pool never can be added. */

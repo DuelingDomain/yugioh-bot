@@ -16,6 +16,22 @@ const renderPanel = (errors: string[], warnings: string[]) => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("theme lobby preflight", () => {
+  it("refreshes the same themes when the copy limit changes", async () => {
+    const issue = "Gaia knights: A player can take at most 3 copies of a card.";
+    const response = (limited: boolean) => ({ ok: true, json: async () => ({ errors: limited ? [issue] : [], warnings: limited ? [] : [issue] }) });
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(true)).mockResolvedValueOnce(response(false)).mockResolvedValueOnce(response(true));
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(<CubeLobbyPanel slug="s" allowedCubes={cubes} themeSelection="random" copyLimit />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(issue);
+    rerender(<CubeLobbyPanel slug="s" allowedCubes={cubes} themeSelection="random" copyLimit={false} />);
+    expect(await screen.findByRole("status")).toHaveTextContent(issue);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    rerender(<CubeLobbyPanel slug="s" allowedCubes={cubes} themeSelection="random" copyLimit />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(issue);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it("moves main and Extra shortfall counts onto their matching tiles below the tally", async () => {
     renderPanel([main("Gaia knights")], [extra("Toon")]);
     const mainLine = await screen.findByText("Main pool too small: 12 of 42 cards");

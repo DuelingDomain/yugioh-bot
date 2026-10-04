@@ -35,6 +35,7 @@ describe("DuelResultScreen placings", () => {
     render(<DuelResultScreen room={room} slug="x" reducedMotion soundEnabled={false} onClose={vi.fn()} placings={rows} />);
     const board = screen.getByRole("list", { name: "Final standings" });
     const items = [...board.querySelectorAll("li")];
+    expect(board).toHaveAttribute("data-layout", "rows");
     expect(items.map((item) => item.getAttribute("data-seat"))).toEqual(["0", "1", "2"]);
     expect(items.map((item) => item.querySelector("[data-place]")?.textContent)).toEqual(["1st", "2nd", "3rd"]);
     expect(items[0]).toHaveTextContent("Winner");

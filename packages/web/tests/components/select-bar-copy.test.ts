@@ -43,8 +43,9 @@ describe("selectBarCopy title", () => {
     expect(copy({ title: "Select the card(s) to discard", min: 0, max: 3 }).title).toBe("Discard cards");
   });
 
-  it("calls a tribute Tribute N", () => {
-    expect(copy({ kind: "tribute", title: "Select tribute(s)", min: 2, max: 3 }).title).toBe("Tribute 2");
+  it("calls a tribute Tribute N monsters", () => {
+    expect(copy({ kind: "tribute", title: "Select tribute(s)", min: 2, max: 3 }).title).toBe("Tribute 2 monsters");
+    expect(copy({ kind: "tribute", title: "Select tribute(s)", min: 1, max: 1 }).title).toBe("Tribute 1 monster");
     expect(copy({ kind: "tribute", title: "Select tribute(s)", min: 0, max: 3 }).title).toBe("Tribute");
     expect(copy({ title: "Select the card(s) to Tribute", min: 1, max: 1 }).title).toBe("Tribute 1");
   });
@@ -141,8 +142,11 @@ describe("selectBarCopy progress", () => {
     expect(copy({ kind: "sum", target: 8, min: 1, max: 3 }).progress).toBe("Total 8");
   });
 
-  it("counts tributes", () => {
-    expect(copy({ kind: "tribute", min: 2, max: 3, count: 1 }).progress).toBe("1 selected");
+  it("counts tributes by what they are worth against what is needed", () => {
+    expect(copy({ kind: "tribute", min: 2, max: 3, count: 1 }).progress).toBe("1/2");
+    // One card that counts as two completes a two-Tribute pick.
+    expect(copy({ kind: "tribute", min: 2, max: 2, count: 1, total: 2 })).toMatchObject({ counter: "2/2", met: true });
+    expect(copy({ kind: "tribute", min: 2, max: 2, count: 1, total: 1 })).toMatchObject({ counter: "1/2", met: false });
   });
 
   it("counts an order pick as ordered", () => {
@@ -172,7 +176,7 @@ describe("selectBarCopy ask, counter and remaining", () => {
 
   it("has no chip for a single pick and no help where the count is not plain", () => {
     expect(copy({ min: 1, max: 1 })).toMatchObject({ instruction: "Pick 1", counter: null });
-    expect(copy({ kind: "tribute", min: 2, max: 3, count: 1 })).toMatchObject({ instruction: "", counter: "1 selected", remaining: null });
+    expect(copy({ kind: "tribute", min: 2, max: 3, count: 1 })).toMatchObject({ instruction: "", counter: "1/2", remaining: null });
     expect(copy({ kind: "sum", target: 8, values: "4 + 4", min: 1, max: 3 })).toMatchObject({ instruction: "Total 8", counter: "4 + 4", remaining: null });
     expect(copy({ aiming: true })).toMatchObject({ instruction: "Point at a target, then confirm", counter: null, remaining: null });
   });

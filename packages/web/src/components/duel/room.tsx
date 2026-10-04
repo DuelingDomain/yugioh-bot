@@ -19,6 +19,7 @@ import { useDuelWebsocket } from "@/lib/hooks/use-duel-websocket";
 import { createEchoWindow } from "@/lib/duel-echo-window";
 import { applyAnswerResult } from "./answer-result";
 import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
+import { useBlockBrowserContextMenu } from "@/lib/hooks/use-block-browser-context-menu";
 import {
   acceptDuelInvite,
   addPracticeBot,
@@ -124,6 +125,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   /** The page query `?view=3d|classic`: wins over the saved board look for this visit and is not saved. */
   viewOverride?: BoardMode;
 }) {
+  // Every live surface (1v1, FFA tables, Tag, spectating) renders under this component.
+  useBlockBrowserContextMenu();
   const router = useRouter();
   const admitted = useRef<{ slug: string; inviteCode: string } | null>(null);
   const { data, error, isLoading, mutate } = useSWR(

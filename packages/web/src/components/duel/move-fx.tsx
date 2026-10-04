@@ -41,6 +41,7 @@ import { CARD_FX } from "./duel-timing";
 import { ShowcaseGhost } from "./add-fx";
 import { retargetFlight } from "./live-flight";
 import { ConfirmGhost, CONFIRM_MS } from "./confirm-fx";
+import { TributeGhost } from "./tribute-fx";
 
 export type MoveFxProps = {
   /** engine.events (a rolling window; ids only grow). Play only events newer than the first render. */
@@ -204,7 +205,9 @@ function hideTargetOf(dest: HTMLElement, plan: MovePlan): HTMLElement | null {
   // A drawn card, sleeve or face, shows only when it lands (the deal at the start of a duel is a row of these).
   if (plan.style === "draw" && location === LOCATION_HAND) return dest;
   if (location === LOCATION_GRAVE || location === LOCATION_REMOVED) {
-    return dest.querySelector<HTMLElement>('[data-fi="0"]');
+    // Several Tributes burn at once: each one waits at its own place in the pile, the newest on top.
+    const fi = plan.tribute ? Math.max(0, plan.tribute.count - 1 - plan.tribute.index) : 0;
+    return dest.querySelector<HTMLElement>(`[data-fi="${fi}"]`) ?? dest.querySelector<HTMLElement>('[data-fi="0"]');
   }
   if (location === LOCATION_EXTRA || location === LOCATION_DECK) return null;
   const art = dest.querySelector<HTMLElement>("[data-card-art]");
@@ -816,7 +819,7 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
         // and the pile counts it when the flight lands, not before.
         releases.push(beginDestroyHide(`move:${plan.id}`, plan.event.from, plan.event.card?.code, waitMs));
         releases.push(beginPileHold(`move:${plan.id}`, plan.event.zone, waitMs));
-      } else if (plan.takeover && plan.event.zone) {
+      } else if ((plan.takeover || plan.style === "tribute") && plan.event.zone) {
         // A wipe piece drew the card on the canvas (its own layer keeps the zone clear): the pile counts it
         // when the streak arrives, not before.
         releases.push(beginPileHold(`move:${plan.id}`, plan.event.zone, waitMs));
@@ -874,6 +877,8 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
         ? items.map((plan) => (
             plan.style === "add" ? (
               <ShowcaseGhost key={plan.id} plan={plan} confirmedCard={confirmedCards.get(plan.id)} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
+            ) : plan.style === "tribute" ? (
+              <TributeGhost key={plan.id} plan={plan} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
             ) : (
               <Ghost key={plan.id} plan={plan} overlay={overlay} landed={() => release(plan.id)} done={() => finish(plan.id)} />
             )

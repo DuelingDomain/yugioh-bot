@@ -5,6 +5,7 @@ import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
+const syncDraftPool = vi.fn().mockResolvedValue([]);
 const tempDirs: string[] = [];
 
 vi.mock("@/lib/auth", () => ({ auth }));
@@ -17,7 +18,7 @@ vi.mock("@yugidraft/shared/services", async (importOriginal) => {
     ...original,
     createCardCatalogService: (db: any) => ({
       ...original.createCardCatalogService(db),
-      syncDraftPool: vi.fn().mockResolvedValue([]),
+      syncDraftPool,
     }),
   };
 });
@@ -26,6 +27,7 @@ describe("PUT /api/drafts/[slug]", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
+    syncDraftPool.mockReset().mockResolvedValue([]);
     auth.mockResolvedValue({ user: { id: "creator-user", name: "Yugi" } });
   });
 
@@ -80,6 +82,35 @@ describe("PUT /api/drafts/[slug]", () => {
 
     return dbPath;
   }
+
+  it("keeps the stored deal and config when start wins an edit race", async () => {
+    await setupDraftWithCustomPool();
+    const { getDb } = await import("@/lib/db");
+    const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
+    const db = getDb();
+    const copies = Array.from({ length: 30 }, (_, i) => Array(3).fill(i + 1)).flat();
+    db.prepare("update drafts set config_json = ? where id = 1").run(JSON.stringify({ customCardIds: copies, packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 40 }));
+    const drafts = createDraftService(db, { seedSource: () => 7 });
+    const other = createPlayerService(db).findOrCreate("guild-1", "other", "Kaiba");
+    drafts.join(1, other.id);
+    let storedConfig: unknown;
+    let storedDeal: unknown;
+    syncDraftPool.mockImplementationOnce(async () => {
+      drafts.start(1);
+      storedConfig = db.prepare("select config_json from drafts where id = 1").get();
+      storedDeal = db.prepare("select * from draft_deal where draft_id = 1 order by position").all();
+      return [];
+    });
+    const { PUT } = await import("../app/api/drafts/[slug]/route");
+    const response = await PUT(new Request("http://localhost/api/drafts/test-slug", {
+      method: "PUT", body: JSON.stringify({ name: "Changed", config: { cardsPerPlayer: 60, packSize: 15, copyLimit: false } }),
+    }) as NextRequest, { params: Promise.resolve({ slug: "test-slug" }) });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe("Can only modify pending drafts");
+    expect(db.prepare("select config_json from drafts where id = 1").get()).toEqual(storedConfig);
+    expect(db.prepare("select * from draft_deal where draft_id = 1 order by position").all()).toEqual(storedDeal);
+    expect(db.prepare("select status, name from drafts where id = 1").get()).toEqual({ status: "active", name: "My Draft" });
+  });
 
   it("renames a pending draft and can keep its current name", async () => {
     await setupDraftWithCustomPool();
@@ -151,8 +182,24 @@ describe("PUT /api/drafts/[slug]", () => {
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data.config.customCardIds).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
-    expect(data.config.packsPerPlayer).toBe(3);
-    expect(data.config.packSize).toBe(14); // ceil(40/3)
+
+    expect(data.config.packSize).toBe(8); // Retain the configured pack size.
+    expect(data.config.packsPerPlayer).toBe(5);
+  });
+
+  it("keeps fifteen-card packs in a sixty-card draft", async () => {
+    await setupDraftWithCustomPool();
+    const { PUT } = await import("../app/api/drafts/[slug]/route");
+    const response = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config: { cardsPerPlayer: 60, packSize: 15 } }) }) as NextRequest, { params: Promise.resolve({ slug: "test-slug" }) });
+    expect(response.status).toBe(200);
+    expect((await response.json()).config).toMatchObject({ cardsPerPlayer: 60, packSize: 15, packsPerPlayer: 4 });
+  });
+
+  it.each([0, 4, 61, 5.5])("rejects bad pack size %s", async (packSize) => {
+    await setupDraftWithCustomPool();
+    const { PUT } = await import("../app/api/drafts/[slug]/route");
+    const response = await PUT(new Request("http://x", { method: "PUT", body: JSON.stringify({ config: { packSize } }) }) as NextRequest, { params: Promise.resolve({ slug: "test-slug" }) });
+    expect(response.status).toBe(400);
   });
 
   it("recomputes the pool from the new selection instead of reusing the stale snapshot", async () => {

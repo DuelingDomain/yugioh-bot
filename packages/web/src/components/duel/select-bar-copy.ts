@@ -169,7 +169,8 @@ function progressParts(input: BarCopyInput): { instruction: string; counter: str
       counter: levels ? `Level total ${running}` : values || null,
     };
   }
-  if (input.kind === "tribute") return { instruction: "", counter: `${count} selected` };
+  // Tributes are worth a value, not a count: "1/2" is what the picked cards are worth against what is needed.
+  if (input.kind === "tribute") return { instruction: "", counter: min > 0 ? `${input.total ?? count}/${min}` : `${count} selected` };
   if (input.kind === "order") return { instruction: "", counter: `${count} of ${max} ordered` };
   if (oneAtATime(input)) return { instruction: "", counter: `${count} selected` };
   if (!input.openEnded && min === max) {
@@ -208,7 +209,9 @@ export function selectBarCopy(input: BarCopyInput): BarCopy {
     }
     case "tribute": {
       const need = input.kind === "tribute" ? input.min : exact;
-      title = need != null && need > 0 ? `Tribute ${need}` : "Tribute";
+      title = need != null && need > 0
+        ? input.kind === "tribute" ? `Tribute ${need} monster${need === 1 ? "" : "s"}` : `Tribute ${need}`
+        : "Tribute";
       detail = source;
       break;
     }
@@ -257,7 +260,9 @@ export function selectBarCopy(input: BarCopyInput): BarCopy {
     progress,
     instruction,
     counter,
-    met: (input.kind === "sum" || synchroMaterials(input)) && input.target != null
+    met: input.kind === "tribute" && input.min > 0
+      ? (input.total ?? input.count) >= input.min
+      : (input.kind === "sum" || synchroMaterials(input)) && input.target != null
       // No total (a material with its own Synchro Level) is unknown, not unmet: the core's Finish state decides.
       ? input.sumMet ?? (input.total != null ? (input.sumMode === "at-least" ? input.total >= input.target : input.total === input.target) : null)
       : null,

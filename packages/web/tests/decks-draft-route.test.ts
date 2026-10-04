@@ -132,6 +132,13 @@ describe("draft decks through /api/decks", () => {
       expect(json.issues).toEqual([{ code: passcodeOf(2), used: 3, available: 1 }]);
     });
 
+    it("rejects a fourth copy even when five copies were drafted", async () => {
+      const { draftId } = await seed({ picks: [...mainIds(40), 1, 1, 1, 1] });
+      const res = await post(deckBody({ main: main(40), side: [passcodeOf(1), passcodeOf(1), passcodeOf(1)] }, { draftId }));
+      expect(res.status).toBe(400);
+      expect((await res.json()).issues).toEqual([{ code: passcodeOf(1), used: 4, available: 3 }]);
+    });
+
     it("400 for a card that is not in the pool", async () => {
       const { draftId } = await seed();
       const res = await post(deckBody({ main: [...main(39), passcodeOf(500)] }, { draftId }));

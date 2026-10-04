@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { env } from "@/lib/env";
-import { analyzeCube, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
+import { analyzeCube, prepareBoosterPool, themeDraftNumberError, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "./helpers";
 import { announcer, broadcaster } from "@/lib/notify";
 import { hostThemeAssignmentError } from "@/lib/theme-draft-validation";
@@ -79,6 +79,7 @@ export async function DELETE(
         db.prepare("delete from draft_picks where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_cards where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_packs where draft_id = ?").run(draft.id);
+        db.prepare("delete from draft_undealt where draft_id = ?").run(draft.id);
         db.prepare("delete from draft_deal where draft_id = ?").run(draft.id);
         // Theme drafts reference draft_player_cube(draft_id) -> drafts(id); clear it
         // before the drafts row or the FK blocks the delete.
@@ -148,6 +149,10 @@ export async function PUT(
     const drafts = createDraftService(db);
     const existing = drafts.findById(draft.id);
     const mergedConfig = { ...existing.config, ...(config as object) };
+    if (mergedConfig.mode === "theme") {
+      const numberError = themeDraftNumberError(mergedConfig);
+      if (numberError) return NextResponse.json({ error: numberError }, { status: 400 });
+    }
     // Edits can retain library cubes deleted since attachment, including in the request body.
     const denied = cubeReferenceAccess(db, mergedConfig.allowedCubeIds, { allowMissing: true });
     if (denied) return denied;
@@ -182,9 +187,17 @@ export async function PUT(
       delete (mergedConfig as { cubeCardIds?: number[] }).cubeCardIds;
       delete (mergedConfig as { poolCardIds?: number[] }).poolCardIds;
 
-      const clampedPacks = Math.min(10, Math.max(1, Number((mergedConfig as any).packsPerPlayer) || 5));
-      (mergedConfig as any).packsPerPlayer = clampedPacks;
-      (mergedConfig as any).packSize = Math.ceil(40 / clampedPacks);
+      const cardsPerPlayer = mergedConfig.cardsPerPlayer ?? 40;
+      const packSize = mergedConfig.packSize ?? 15;
+      if (!Number.isInteger(cardsPerPlayer) || cardsPerPlayer < 40 || cardsPerPlayer > 60) {
+        return NextResponse.json({ error: "Cards per player must be 40 to 60" }, { status: 400 });
+      }
+      if (!Number.isInteger(packSize) || packSize < 5 || packSize > cardsPerPlayer) {
+        return NextResponse.json({ error: "Pack size must be 5 to cards per player" }, { status: 400 });
+      }
+      mergedConfig.packSize = packSize;
+      mergedConfig.cardsPerPlayer = cardsPerPlayer;
+      mergedConfig.packsPerPlayer = Math.ceil(cardsPerPlayer / packSize);
 
       const hasPool =
         ((mergedConfig as any).setNames?.length ?? 0) > 0 ||
@@ -214,7 +227,7 @@ export async function PUT(
       // Advisory feasibility check at edit time (min start count = 2 players).
       // Non-blocking: startDraft is the authoritative gate.
       analysisWarnings = analyzeCube(
-        cubeCardIds,
+        prepareBoosterPool(cubeCardIds, mergedConfig, 2 * (mergedConfig.packsPerPlayer ?? 5) * (mergedConfig.packSize ?? 8)),
         2,
         (mergedConfig as any).packsPerPlayer ?? 5,
         (mergedConfig as any).packSize ?? 8,
@@ -225,7 +238,9 @@ export async function PUT(
     }
 
     // Apply edits together after validation, so a rejected pool edit cannot silently rename the draft.
-    db.transaction(() => {
+    const edited = db.transaction(() => {
+      const current = db.prepare("select status from drafts where id = ?").get(draft.id) as { status: string } | undefined;
+      if (current?.status !== "pending") return false;
       if (name !== undefined) {
         db.prepare("update drafts set name = ? where id = ?").run(name, draft.id);
       }
@@ -235,7 +250,9 @@ export async function PUT(
           draft.id,
         );
       }
-    })();
+      return true;
+    }).immediate();
+    if (!edited) return NextResponse.json({ error: "Can only modify pending drafts" }, { status: 400 });
 
     const updated = db.prepare("select * from drafts where id = ?").get(draft.id) as any;
     if (name !== undefined || config !== undefined) {

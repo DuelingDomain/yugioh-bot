@@ -6,6 +6,7 @@ import { DuelAction, LiveDot, Mono, RankGem, TierName, YouPill, ringColour } fro
 import { TierLine } from "@/components/rank/tier-line";
 import { didRankUp } from "@/components/rank/rank-up";
 import { getTierProgress } from "@/components/leaderboard/leaderboard-model";
+import { prefersReducedMotion } from "@/lib/motion";
 import { rankSeenKey } from "./profile-model";
 import styles from "./profile.module.css";
 
@@ -38,8 +39,7 @@ export function ProfileHeader({ playerId, displayName, isMe, rating, placeLabel,
     }
     if (didRankUp(prev, tier)) {
       setPromoted(true);
-      const still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      if (!still) setPopping(true);
+      if (!prefersReducedMotion()) setPopping(true);
     }
     try {
       window.localStorage.setItem(key, tier);

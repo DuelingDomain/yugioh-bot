@@ -844,6 +844,8 @@
   pointer-events: none;
 }
 .dr .status:not([data-on]) { display: none; }
+/* the copy limit left only capped cards: calm, one line, no colour alarm */
+.dr .status.forced { margin: 0; color: var(--ink-3); font-size: 13.5px; white-space: normal; text-align: center; }
 .dr .status em { color: var(--chain-ink); font-style: normal; }
 /* filter in use: says why cards are dark and clears in one click */
 .dr .lens {

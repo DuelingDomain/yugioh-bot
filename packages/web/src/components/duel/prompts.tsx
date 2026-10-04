@@ -14,6 +14,7 @@ import { searchDuelCards } from "./api";
 import { cardArtUrl, LOCATION_MZONE, zoneKey } from "./constants";
 import { backOutAnswer } from "./pick-backout";
 import { selectBarCopy, sumSelectionValues } from "./select-bar-copy";
+import { tributeClick, tributeState } from "./tribute-pick";
 import baseStyles from "./prompts.module.css";
 import { useSkinStyles } from "./skin";
 
@@ -215,9 +216,10 @@ export function canConfirm(prompt: DuelPrompt, draft: PromptDraft): boolean {
       return draft.selected.length >= min && draft.selected.length <= max;
     case "tribute": {
       if (prompt.mandatory?.some((id) => !draft.selected.includes(id))) return false;
-      // Tribute min is contribution value, not card count (one card may count as two).
-      // The engine validates the selected cards' actual contribution.
-      return draft.selected.length >= 1 && draft.selected.length <= max;
+      // Tribute min is contribution value, not card count (one card may count as two): the picked cards
+      // must be worth at least `min`, and there may be at most `max` of them (tribute-pick.ts).
+      const state = tributeState(prompt, draft.selected);
+      return state.count >= 1 && state.count <= max && state.met;
     }
     case "order":
       return draft.selected.length >= min && draft.selected.length <= max;
@@ -1031,9 +1033,21 @@ export function activatePromptFromField(
   const matches = optionsForCard(prompt, card, keys);
   if (matches.length !== 1) return false;
   const option = matches[0];
+  if (prompt.kind === "tribute") {
+    // Tributes are picked on the field and send themselves once the pick cannot change (tribute-pick.ts).
+    const click = tributeClick(prompt, draft.selected, option.id);
+    if (click.next === draft.selected) {
+      const refusal = pickRefusal(prompt, draft.selected, option.id);
+      if (refusal) onRefuse?.(refusal);
+      return true;
+    }
+    draft.setSelected(click.next);
+    if (click.send) onSubmit?.({ selected: click.next });
+    return true;
+  }
   const { min, max } = selectionBounds(prompt);
   if (
-    (prompt.kind === "cards" || prompt.kind === "places" || prompt.kind === "tribute" || prompt.kind === "sum") &&
+    (prompt.kind === "cards" || prompt.kind === "places" || prompt.kind === "sum") &&
     min === 1 &&
     max === 1
   ) {

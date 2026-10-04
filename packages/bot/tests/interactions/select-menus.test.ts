@@ -136,13 +136,23 @@ describe("select menu interactions", () => {
     vi.restoreAllMocks();
   });
 
-  it("explains a fully capped pack without claiming the player picked", async () => {
+  it("allows a forced pick from a fully capped pack", async () => {
     const { app, pack, cap, menu } = cappedMenuDraft();
     for (const card of pack) cap(card.catalogCardId);
     const { interaction, replies } = menu();
     await handleSelectMenu(interaction, app);
-    expect(replies[0]).toEqual({ content: expect.stringMatching(/nothing.*3 of each/i), ephemeral: true });
+    expect(replies[0]).toEqual({ content: expect.stringMatching(/You picked Card/i), ephemeral: true });
     expect(replies[0].content).not.toMatch(/already picked/i);
+    expect(replies[0].content).toContain("You have 3 of each card here. This pick stays in your pool only.");
+    app.db.close();
+  });
+
+  it("does not add the forced-pick line to a normal pick", async () => {
+    const { app, menu } = cappedMenuDraft();
+    const { interaction, replies } = menu();
+    await handleSelectMenu(interaction, app);
+    expect(replies[0].content).toMatch(/You picked Card/i);
+    expect(replies[0].content).not.toMatch(/stays in your pool only/);
     app.db.close();
   });
 

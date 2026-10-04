@@ -19,6 +19,9 @@ import {
   MIN_VISIBLE_MS,
   MOVE_PACE,
   PHASE_TIMING,
+  TRIBUTE_FLIGHT_MS,
+  TRIBUTE_TIMING,
+  TRIBUTE_VISIBLE_MS,
   VISIBLE_EFFECT_MS,
 } from "../../src/components/duel/duel-timing";
 import { rollDurationMs } from "../../src/components/duel/life-points";
@@ -34,6 +37,17 @@ describe("duel pace minimums", () => {
     for (const [name, ms] of Object.entries(VISIBLE_EFFECT_MS)) {
       expect(ms, name).toBeGreaterThanOrEqual(MIN_VISIBLE_MS);
     }
+  });
+
+  it("keeps the tribute animation in its own block and in the visible-effect floor", () => {
+    expect(TRIBUTE_TIMING.summonLeadMs).toBe(40);
+    for (const [name, ms] of Object.entries(TRIBUTE_VISIBLE_MS)) {
+      expect(VISIBLE_EFFECT_MS[name], name).toBe(ms);
+      expect(ms, name).toBeGreaterThanOrEqual(MIN_VISIBLE_MS);
+    }
+    // The offsets that only order the animation are not effects a player sees on their own.
+    expect(Object.keys(VISIBLE_EFFECT_MS).some((name) => /stagger|lead/i.test(name))).toBe(false);
+    expect(TRIBUTE_FLIGHT_MS).toBeGreaterThanOrEqual(MIN_VISIBLE_MS);
   });
 
   it("plays every attack at least 1.3 times as long as the first pace", () => {

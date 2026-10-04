@@ -13,6 +13,9 @@ import {
   classifyResultReason,
   describeDuelResult,
   DuelResultScreen,
+  fractureGeometry,
+  titleFontSize,
+  titleKindOf,
 } from "@/components/duel/duel-result";
 
 function seatView(seat: number, lp: number, deckMaster?: { code: number; name: string }) {
@@ -341,5 +344,90 @@ describe("DuelResultScreen", () => {
     setup({ mySeat: null, winner: 1 });
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Practice Bot wins");
     expect(screen.getByRole("dialog")).toHaveAttribute("data-outcome", "spectator");
+  });
+
+  it("breaks the title on a loss, keeps it whole and gold on a win and ivory on a draw or a spectator view", () => {
+    const variant = () => {
+      const word = document.querySelector<HTMLElement>("[data-kind]")!;
+      return { kind: word.dataset.kind, pieces: [...word.querySelectorAll<HTMLElement>("[data-p]")].map((piece) => piece.dataset.p) };
+    };
+    const lose = setup({ mySeat: 0, winner: 1, lp: [0, 900] });
+    expect(screen.getByRole("dialog")).toHaveAttribute("data-title", "lose");
+    expect(variant()).toEqual({ kind: "lose", pieces: ["t", "b"] });
+    expect(document.querySelectorAll("[data-kind=lose] i")).toHaveLength(5);
+    lose.unmount();
+
+    const win = setup({ mySeat: 0, winner: 0 });
+    expect(screen.getByRole("dialog")).toHaveAttribute("data-title", "win");
+    expect(variant()).toEqual({ kind: "win", pieces: ["whole"] });
+    win.unmount();
+
+    const draw = setup({ mySeat: 0, winner: null, reason: null });
+    expect(screen.getByRole("dialog")).toHaveAttribute("data-title", "calm");
+    expect(variant()).toEqual({ kind: "calm", pieces: ["whole"] });
+    draw.unmount();
+
+    setup({ mySeat: null, winner: 1 });
+    expect(variant()).toEqual({ kind: "calm", pieces: ["whole"] });
+  });
+
+  it("reads the title once: every painted copy is hidden from assistive tech", () => {
+    setup({ mySeat: 0, winner: 1, lp: [0, 900] });
+    const heading = screen.getByRole("heading", { level: 1 });
+    expect(heading).toHaveAccessibleName("YOU LOSE");
+    const painted = heading.querySelector("[data-kind]")!;
+    expect(painted).toHaveAttribute("aria-hidden", "true");
+    expect([...heading.children].filter((child) => !child.hasAttribute("aria-hidden")).map((child) => child.textContent)).toEqual(["YOU LOSE"]);
+  });
+
+  it("lays two duelists out side by side and anything else as one row each", () => {
+    setup();
+    expect(screen.getByRole("list", { name: "Final Life Points" })).toHaveAttribute("data-layout", "duo");
+  });
+
+  it("hides the LP unit from readers and spells out Life Points once", () => {
+    setup({ lp: [3450, 0] });
+    const first = screen.getByRole("list", { name: "Final Life Points" }).querySelector("li")!;
+    expect(first.querySelector("i[aria-hidden]")).toHaveTextContent("LP");
+    expect(first).toHaveTextContent("3,450LP Life Points");
+  });
+});
+
+describe("result title logic", () => {
+  it("maps outcomes to the three title looks", () => {
+    expect(titleKindOf("lose")).toBe("lose");
+    expect(titleKindOf("win")).toBe("win");
+    for (const outcome of ["draw", "spectator", "interrupted", "cancelled", "ended"] as const) {
+      expect(titleKindOf(outcome)).toBe("calm");
+    }
+  });
+
+  it("puts the break in the middle of the last row, for one and for two rows", () => {
+    const one = fractureGeometry(1);
+    const two = fractureGeometry(2);
+    expect(parseFloat(one.steel[1])).toBeLessThan(parseFloat(one.steel[2]));
+    expect(parseFloat(one.glow[2])).toBeCloseTo(50, 5);
+    expect(parseFloat(two.glow[2])).toBeCloseTo(75, 5);
+    expect(two.steel.map(parseFloat)).toEqual([...two.steel.map(parseFloat)].sort((a, b) => a - b));
+    expect(one.chipY).toHaveLength(5);
+    // The upper half ends where the lower one starts.
+    expect(one.top.startsWith("polygon(")).toBe(true);
+    expect(one.bottom).toContain("-40.00%");
+    expect(fractureGeometry(2)).toEqual(two);
+  });
+
+  it("sizes the title to its column but caps it by screen height and an upper limit", () => {
+    // Fits the column: 600 available, 300 wide at 100px, so ~199px; the height cap (27% of 900 = 243) and max 210 do not bite.
+    expect(titleFontSize({ available: 600, widthAt100: 300, viewportHeight: 900, rows: 1, max: 210 })).toBeCloseTo(199, 0);
+    // Height cap.
+    expect(titleFontSize({ available: 1200, widthAt100: 300, viewportHeight: 400, rows: 1, max: 210 })).toBeCloseTo(108, 5);
+    // Upper limit.
+    expect(titleFontSize({ available: 2000, widthAt100: 300, viewportHeight: 2000, rows: 1, max: 170 })).toBe(170);
+    // Stacked rows share a smaller slice of the height.
+    expect(titleFontSize({ available: 300, widthAt100: 150, viewportHeight: 800, rows: 2, max: 210 })).toBeCloseTo(120, 5);
+    // Floor.
+    expect(titleFontSize({ available: 40, widthAt100: 800, viewportHeight: 900, rows: 1, max: 210 })).toBe(28);
+    // No layout (jsdom): leave the stylesheet's size.
+    expect(titleFontSize({ available: 0, widthAt100: 0, viewportHeight: 900, rows: 1, max: 210 })).toBe(0);
   });
 });

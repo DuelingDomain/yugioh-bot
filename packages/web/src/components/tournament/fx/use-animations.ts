@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePrefersReducedMotion } from "@/lib/motion";
 
 export type Motion = "full" | "calm" | "off";
 
@@ -30,14 +31,6 @@ function writeStoredMotion(level: Motion) {
   }
 }
 
-function prefersReducedMotion(): boolean {
-  try {
-    return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
-  } catch {
-    return false;
-  }
-}
-
 /** Reduced motion turns Full into Calm. Off stays off. */
 export function effectiveMotion(chosen: Motion, reduced: boolean): Motion {
   return reduced && chosen === "full" ? "calm" : chosen;
@@ -49,17 +42,11 @@ export function effectiveMotion(chosen: Motion, reduced: boolean): Motion {
  */
 export function useAnimations() {
   const [chosen, setChosen] = useState<Motion>("full");
-  const [reduced, setReduced] = useState(false);
+  const reduced = usePrefersReducedMotion();
 
   useEffect(() => {
     const stored = readStoredMotion();
     if (stored) setChosen(stored);
-    setReduced(prefersReducedMotion());
-    const query = typeof window.matchMedia === "function" ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
-    if (!query?.addEventListener) return;
-    const change = () => setReduced(query.matches);
-    query.addEventListener("change", change);
-    return () => query.removeEventListener("change", change);
   }, []);
 
   const set = useCallback((level: Motion) => {

@@ -195,6 +195,17 @@ describe("DuelResultScreen with a series", () => {
     expect(within(block).getByRole("timer")).toBeTruthy();
   });
 
+  it("makes Ready the one solid button between games and steps Exit duel back", () => {
+    const series = makeSeries({ status: "between_games", wins: [1, 0], nextGameAt: soon(), hasSide: [true, false], firstChooser: 1 });
+    render(<DuelResultScreen room={makeSeriesRoom({ series })} {...screenProps} onExit={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Ready for next game" })).toHaveAttribute("data-kind", "primary");
+    expect(screen.getByRole("button", { name: "Exit duel" })).toHaveAttribute("data-kind", "secondary");
+    cleanup();
+    const done = makeSeries({ status: "completed", wins: [2, 0], winnerPlayerId: 1, gameNumber: 2 });
+    render(<DuelResultScreen room={makeSeriesRoom({ series: done })} {...screenProps} onExit={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Exit duel" })).toHaveAttribute("data-kind", "primary");
+  });
+
   it("has no side deck button: players side their deck on the Between games screen", () => {
     const series = makeSeries({ status: "between_games", nextGameAt: soon(), hasSide: [false, true] });
     render(<DuelResultScreen room={makeSeriesRoom({ series })} {...screenProps} />);

@@ -29,6 +29,7 @@ interface CubeLobbyPanelProps {
   /** Joined players (the host included) can claim a theme. Default true. */
   canClaim?: boolean;
   uniqueThemes?: boolean;
+  copyLimit?: boolean;
   /** Host-only: Edit cube link and the Detach / Delete menu on each theme. */
   hostTools?: CubeHostTools;
   /** Rendered under the theme cards (the host's "Add a theme" panel). */
@@ -43,6 +44,7 @@ export function CubeLobbyPanel({
   onClaimed,
   canClaim = true,
   uniqueThemes = true,
+  copyLimit = true,
   hostTools,
   children,
 }: CubeLobbyPanelProps) {
@@ -68,7 +70,7 @@ export function CubeLobbyPanel({
     return () => {
       live = false;
     };
-  }, [slug, cubesKey]);
+  }, [slug, cubesKey, copyLimit]);
 
   const claim = async (cubeId: number) => {
     setClaiming(cubeId);

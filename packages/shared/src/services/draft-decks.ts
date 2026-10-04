@@ -25,6 +25,15 @@ export function isTestBotDiscordId(discordUserId: string): boolean {
   return discordUserId.startsWith(TEST_BOT_DISCORD_PREFIX);
 }
 
+type DraftDeckCard = { catalogId: number; extra: boolean; name?: string | null; type?: string | null };
+
+/** Match artwork identity using the catalog's name and type; unknown ids stay separate. */
+function cardIdentity(card: DraftDeckCard): string {
+  return card.name != null && card.type != null
+    ? JSON.stringify([card.name.trim().toLowerCase(), card.type])
+    : `id:${card.catalogId}`;
+}
+
 /**
  * Splits a drafted pool into a deck. Extra Deck monsters go in extra, everything else in main.
  * A section over its limit puts the overflow in side (up to 15), so the deck stays one the duel
@@ -33,14 +42,19 @@ export function isTestBotDiscordId(discordUserId: string): boolean {
  * has no engine catalog. The web layer maps BOTH the deck and its pool to canonical engine
  * passcodes on load and validation, including old saves with artwork ids.
  */
-export function buildDraftDeck(cards: Array<{ catalogId: number; extra: boolean }>): DuelDeck {
+export function buildDraftDeck(cards: DraftDeckCard[]): DuelDeck {
   const main: number[] = [];
   const extra: number[] = [];
   const side: number[] = [];
   const overflow = (code: number) => {
     if (side.length < DRAFT_DECK_SIDE_MAX) side.push(code);
   };
+  const copies = new Map<string, number>();
   for (const card of cards) {
+    const identity = cardIdentity(card);
+    const count = copies.get(identity) ?? 0;
+    if (count >= 3) continue;
+    copies.set(identity, count + 1);
     if (card.extra) {
       if (extra.length < DRAFT_DECK_EXTRA_MAX) extra.push(card.catalogId);
       else overflow(card.catalogId);
@@ -106,7 +120,7 @@ export interface DraftDeckService {
 }
 
 type DraftRow = { id: number; guild_id: string; name: string; tournament_id: number | null; ended_at: string | null; created_at: string };
-type PickRow = { catalog_card_id: number; type: string | null; frame_type: string | null };
+type PickRow = { catalog_card_id: number; name: string | null; type: string | null; frame_type: string | null };
 
 const MAX_NAME_LENGTH = 100;
 
@@ -139,7 +153,7 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
      order by dp.joined_at asc, dp.rowid asc`,
   );
   const selectPicks = db.prepare<[number, number], PickRow>(
-    `select dc.catalog_card_id, cc.type, cc.frame_type
+    `select dc.catalog_card_id, cc.name, cc.type, cc.frame_type
      from draft_picks dp
      inner join draft_cards dc on dc.id = dp.draft_card_id
      left join card_catalog cc on cc.ygoprodeck_id = dc.catalog_card_id
@@ -186,13 +200,20 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
   const picksOf = (draftId: number, playerId: number) =>
     selectPicks.all(draftId, playerId).map((row) => ({
       catalogId: row.catalog_card_id,
+      name: row.name,
+      type: row.type,
       // A card missing from the catalog counts as Main, like the web pool loader.
       extra: row.type != null && isExtraDeckFrame({ type: row.type, frameType: row.frame_type ?? "" }),
     }));
 
   const service: DraftDeckService = {
     mainPoolCount(draftId, playerId) {
-      return picksOf(draftId, playerId).filter((card) => !card.extra).length;
+      const counts = new Map<string, number>();
+      for (const card of picksOf(draftId, playerId)) {
+        const identity = cardIdentity(card);
+        if (!card.extra) counts.set(identity, Math.min(3, (counts.get(identity) ?? 0) + 1));
+      }
+      return [...counts.values()].reduce((sum, count) => sum + count, 0);
     },
 
     linkTournament(tournamentId, onlyPlayerId) {
