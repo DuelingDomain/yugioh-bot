@@ -29,12 +29,26 @@
 .paste > label { display: block; width: 100%; }
 
 .addRow { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
-.addCode { display: block; width: 190px; }
+.addCard { position: relative; flex: 1 1 280px; max-width: 420px; min-width: 0; }
 .addSection { width: 132px; }
 .savedSelect { flex: 1 1 260px; min-width: 0; max-width: 480px; }
 .savedSelect select { width: 100%; }
 .compactInput { height: 36px; font-size: 14px; }
 .addBtn { align-self: flex-end; }
+
+/* ---------- add card: name search dropdown ---------- */
+.addPanel { position: absolute; z-index: 5; inset: auto 0 auto 0; margin-top: 4px; max-height: min(62vh, 440px); overflow-y: auto; background: var(--duel-panel-2); border: 1px solid var(--duel-rule); border-radius: 8px; box-shadow: 0 12px 28px rgb(0 0 0 / 0.45); }
+.addList { margin: 0; padding: 4px; list-style: none; display: grid; gap: 2px; }
+.addOption { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 8px; border: 1px solid transparent; border-radius: 6px; color: var(--duel-ink); cursor: pointer; }
+.addOption > img { flex: none; width: 30px; aspect-ratio: 59 / 86; object-fit: cover; border-radius: 2px; }
+.addOption[data-active="true"] { background: var(--duel-panel-3); border-color: var(--duel-chain); }
+.addOption[data-blocked="true"] { cursor: default; color: var(--duel-ink-3); }
+.addOption[data-blocked="true"] > img { opacity: 0.5; }
+.addText { display: grid; gap: 1px; min-width: 0; flex: 1 1 auto; font-size: 13px; }
+.addText strong { overflow-wrap: anywhere; font-weight: 500; }
+.addText span { color: var(--duel-ink-3); font-size: 12px; overflow-wrap: anywhere; }
+.addReason { flex: none; color: var(--duel-loss-ink); font-size: 12px; }
+.addNote { padding: 10px 12px; color: var(--duel-ink-3); font-size: 13px; }
 
 .muted { color: var(--duel-ink-3); }
 
@@ -95,7 +109,7 @@
 @media (max-width: 760px) {
   .import { grid-template-columns: minmax(0, 1fr); }
   .drop { min-height: 130px; }
-  .addCode { flex: 1 1 140px; width: auto; }
+  .addCard { flex: 1 1 100%; max-width: none; }
 }
 @media (max-width: 460px) {
   .headRow > button { width: 100%; }
