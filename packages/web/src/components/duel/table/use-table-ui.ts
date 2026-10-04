@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DuelAnswer, DuelCard, DuelPromptOption } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCard } from "@yugidraft/shared/duels";
 import { zoneKey } from "../constants";
 import { activatePromptFromField, isAttackDuelistPrompt, isDirectAttackPrompt, isAttackTargetPrompt, optionsForCard } from "../prompts";
 import { livePileCards, shouldClosePileForPrompt, type PileView } from "../pile-focus";
@@ -21,7 +21,6 @@ export interface TableUi {
   controller: TableController;
   menu: CardMenuState | null;
   closeMenu: () => void;
-  onMenuOptionHover: (option: DuelPromptOption | null) => void;
   hover: { card: DuelCard; anchor: HTMLElement } | null;
   pile: PileView | null;
   closePile: () => void;
@@ -45,7 +44,6 @@ export function useTableUi(base: TableController): TableUi {
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [pane, setPane] = useState<SidePane>(DEFAULT_SIDE_PANE);
   const [pendingAttack, setPendingAttack] = useState<{ key: string; direct: boolean } | null>(null);
-  const [preview, setPreview] = useState<{ from: string; direct: boolean } | null>(null);
 
   const promptId = prompt?.id ?? null;
   const revision = engine.revision;
@@ -56,9 +54,6 @@ export function useTableUi(base: TableController): TableUi {
     setMenu(null);
     setHover(null);
   }, [promptId, revision]);
-  useEffect(() => {
-    if (!activeMenu) setPreview(null);
-  }, [activeMenu]);
   // The declared attacker belongs to the attack steps only: the duelist pick (a direct attack) and the target pick.
   useEffect(() => {
     if (!prompt || !(isAttackTargetPrompt(prompt, true) || isAttackDuelistPrompt(prompt) || isDirectAttackPrompt(prompt))) setPendingAttack(null);
@@ -192,31 +187,15 @@ export function useTableUi(base: TableController): TableUi {
     [base, busy, canAct, draft, mine, prompt, revision, showInspector, submit],
   );
 
-  const onMenuOptionHover = useCallback((option: DuelPromptOption | null) => {
-    if (!option || !option.id.startsWith("attack:") || option.controller == null || option.location == null || option.sequence == null) {
-      setPreview(null);
-      return;
-    }
-    setPreview({ from: zoneKey(option.controller, option.location, option.sequence), direct: /directly/i.test(option.label) });
-  }, []);
-
   const attackerKey = pendingAttack?.key ?? base.aim?.from ?? null;
 
-  // The arrow the player is steering: a faint preview from the menu, or the declared attacker waiting for a target.
+  // The arrow the player is steering: only the declared attacker waiting for a target. A menu never draws one: the
+  // arrow starts after the player clicks Attack, and the player picks the target.
   const aim = useMemo<BattleAim | null>(() => {
     if (base.aim) return base.aim;
     if (pendingAttack) return { mode: "aim", from: pendingAttack.key, to: {} };
-    if (preview && activeMenu && viewerSeat != null) {
-      const rivals = engine.seats.filter((seat) => seat.seat !== viewerSeat && !seat.eliminated);
-      if (preview.direct) {
-        const open = rivals.find((seat) => seat.monsters.every((card) => card == null)) ?? rivals[0];
-        return open ? { mode: "preview", from: preview.from, to: { lpSeat: open.seat } } : null;
-      }
-      const zones = rivals.flatMap((seat) => seat.monsters).filter((card): card is DuelCard => card != null).map((card) => zoneKey(card.controller, card.location, card.sequence));
-      return { mode: "preview", from: preview.from, to: { zones } };
-    }
     return null;
-  }, [activeMenu, base.aim, engine.seats, pendingAttack, preview, viewerSeat]);
+  }, [base.aim, pendingAttack]);
 
   const controller = useMemo<TableController>(
     () => ({ ...base, aim, onAnswer: submit, onActivate, onInspect, onHoverCard }),
@@ -227,7 +206,6 @@ export function useTableUi(base: TableController): TableUi {
     controller,
     menu: activeMenu,
     closeMenu,
-    onMenuOptionHover,
     hover,
     pile,
     closePile,

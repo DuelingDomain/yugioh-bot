@@ -272,6 +272,93 @@ describe("choose the attacker, then the target, as one gesture", () => {
   });
 });
 
+describe("the card menu draws no aim: the arrow starts after Attack is clicked", () => {
+  const MZONE = 4;
+  const attacker = "0:4:0";
+  const attackLine = () => document.querySelector("[data-attack-line]")?.getAttribute("data-attack-line") ?? "off";
+
+  /** Step 0: a monster with Activate and Attack in its menu. Step 1: the attack target pick the engine sends after Attack. */
+  function Menu({ set, onAnswer }: { set: TableFixtureSet; onAnswer: Answer }) {
+    const [step, setStep] = React.useState<0 | 1>(0);
+    const base = (set.states as Record<string, TableFixtureState>)["battle-aim"];
+    const prompt =
+      step === 0
+        ? ({
+            id: "attack-action",
+            seat: 0,
+            kind: "choice",
+            title: "Battle",
+            context: { type: "action", phase: "battle" },
+            options: [
+              { id: "act:0", label: "Activate \u2014 Special Summon", controller: 0, location: MZONE, sequence: 0 },
+              { id: "attack:0", label: "Attack with Blue-Eyes Spirit Dragon", controller: 0, location: MZONE, sequence: 0 },
+            ],
+          } as const)
+        : base.room.engine!.prompt!;
+    const state = { ...base, ui: undefined, room: { ...base.room, engine: { ...base.room.engine!, prompt: { ...prompt } } } } as unknown as TableFixtureState;
+    const controller = useFixtureController(state, { reducedMotion: true });
+    return (
+      <TableShell
+        controller={{
+          ...controller,
+          onAnswer: (answer) => {
+            onAnswer(answer);
+            if (answer.choice === "attack:0") setStep(1);
+          },
+        }}
+      />
+    );
+  }
+
+  it.each([
+    ["3-way", FFA3_FIXTURES],
+    ["4-way", FFA4_FIXTURES],
+  ] as const)("no arrow and no target ring while the menu is open, on hover or focus of Attack (%s)", (_name, set) => {
+    const onAnswer = vi.fn();
+    const { container } = render(<Menu set={set} onAnswer={onAnswer} />);
+    const monster = container.querySelector<HTMLElement>(`[data-zones~="${attacker}"]`)!;
+    pointerClick(monster.matches("button") ? monster : (monster.querySelector<HTMLElement>("button") ?? monster));
+    const items = Array.from(document.querySelectorAll<HTMLElement>("[role='menu'] [role='menuitem']"));
+    expect(items.length).toBe(2);
+    const attack = items.find((item) => /^Attack/.test(item.textContent?.trim() ?? ""))!;
+    expect(attackLine()).toBe("off");
+    expect(arrow()).toBeNull();
+    act(() => void fireEvent.mouseEnter(attack));
+    act(() => void fireEvent.focus(attack));
+    expect(attackLine()).toBe("off");
+    expect(arrow()).toBeNull();
+    expect(document.querySelector("[data-aim-hot='true']")).toBeNull();
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["3-way", FFA3_FIXTURES],
+    ["4-way", FFA4_FIXTURES],
+  ] as const)("Attack starts the aim with no target until the player aims (%s)", (_name, set) => {
+    const onAnswer = vi.fn();
+    const { container } = render(<Menu set={set} onAnswer={onAnswer} />);
+    const monster = container.querySelector<HTMLElement>(`[data-zones~="${attacker}"]`)!;
+    pointerClick(monster.matches("button") ? monster : (monster.querySelector<HTMLElement>("button") ?? monster));
+    const attack = Array.from(document.querySelectorAll<HTMLElement>("[role='menu'] [role='menuitem']")).find((item) => /^Attack/.test(item.textContent?.trim() ?? ""))!;
+    act(() => void fireEvent.click(attack));
+    expect(onAnswer).toHaveBeenCalledWith({ choice: "attack:0" });
+    expect(document.querySelector("[role='menu']")).toBeNull();
+    // Declared, but nothing is aimed: no arrow before the mouse moves, then a free arrow with no label and no hot target.
+    expect(arrow()).toBeNull();
+    expect(document.querySelector("[data-aim-hot='true']")).toBeNull();
+    move(container.querySelector("[data-table-stage]")!);
+    expect(arrow()?.getAttribute("data-aim-arrow")).toBe("free");
+    expect(label()).toBeNull();
+    expect(document.querySelector("[data-aim-hot='true']")).toBeNull();
+    // Aiming at a target snaps the arrow to it.
+    const target = foeMonster(container);
+    move(target);
+    expect(arrow()?.getAttribute("data-aim-arrow")).toBe("snapped");
+    expect(label()).toMatch(/^Attack: /);
+    expect(document.querySelector("[data-aim-hot='true']")).not.toBeNull();
+  });
+});
+
 describe("the attacker stays declared through the Attack directly? question", () => {
   const MZONE = 4;
 
