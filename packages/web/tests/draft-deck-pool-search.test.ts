@@ -57,4 +57,23 @@ describe("queryPoolCards", () => {
     const found = queryPoolCards(cards, query({ banlist: "tcg", limits: ["forbidden"] }));
     expect(found).toHaveLength(3);
   });
+
+  it("puts the exact name first, then starts-with, then contains, then names with every word in another order", () => {
+    const pool = [
+      card(10, "Skilled Dark Magician"),
+      card(11, "Dark Magician Girl"),
+      card(12, "Dark Magician of Chaos"),
+      card(13, "Dark Magician"),
+      card(14, "Magician of Dark Illusion"),
+    ];
+    expect(codes(queryPoolCards(pool, query({ text: "dark magician", scope: "name" })))).toEqual([13, 11, 12, 10, 14]);
+  });
+
+  it("finds a name from a lowercase partial with no hyphen", () => {
+    const pool = [card(20, "Pot of Greed"), card(21, "Blue-Eyes White Dragon"), card(22, "Sage with Eyes of Blue")];
+    // Every word must be in the name, in any order; the name with the words together is first.
+    expect(codes(queryPoolCards(pool, query({ text: "blue eyes" })))).toEqual([21, 22]);
+    expect(codes(queryPoolCards(pool, query({ text: "BLUE-EYES white" })))).toEqual([21]);
+    expect(codes(queryPoolCards(pool, query({ text: "eyes" }))).sort()).toEqual([21, 22]);
+  });
 });

@@ -2,15 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DuelDeck, DuelDeckValidation, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
-import { AlertTriangle, CheckCircle2, FileUp, Info, Loader2, Plus, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileUp, Info, Loader2, X } from "lucide-react";
 import { cardArtUrl } from "./constants";
-import { cx, SheetButton, SheetSelect } from "./sheet-ui";
+import { cx, SheetButton } from "./sheet-ui";
 import ui from "./sheet-ui.module.css";
 import styles from "./deck-editor.module.css";
 import { applyDomainMaster, parseDeckText, selectDomainMaster, serializeYdk, type DeckMasterSelection } from "./ydk";
 import { DeckValidationSkippedError, validateDuelDeck } from "./api";
 import { DeckMasterPicker } from "./deck-master-picker";
 import { SavedDeckPicker } from "./saved-deck-picker";
+import { CardAddField } from "./card-add-field";
 
 type CardProblem = { name?: string; messages: string[] };
 
@@ -112,8 +113,6 @@ export function DeckEditor({
   const { deck } = selection;
   const { main, extra, side, deckMaster: masterCode } = deck;
   const [paste, setPaste] = useState(initial ? serializeYdk(initial) : "");
-  const [addCode, setAddCode] = useState("");
-  const [addSection, setAddSection] = useState<"main" | "extra" | "side">("main");
   const [parseError, setParseError] = useState<string | null>(null);
   const [edited, setEdited] = useState(false);
   // The deck as it came from the room or a saved deck. Replacing it asks for no confirmation.
@@ -234,15 +233,9 @@ export function DeckEditor({
     }
   }
 
-  function addPasscode() {
-    const code = Number(addCode.trim());
-    if (!Number.isInteger(code) || code <= 0) {
-      setParseError("Enter a positive passcode.");
-      return;
-    }
+  function addCard(code: number, addSection: "main" | "extra" | "side") {
     const section = addSection === "side" && !sideAllowed ? "main" : addSection;
     commitSelection({ ...selection, deck: { ...deck, [section]: [...deck[section], code] } });
-    setAddCode("");
   }
 
   function submit() {
@@ -384,34 +377,7 @@ export function DeckEditor({
           problem={masterProblem?.messages.join(" ")} custom={!settings.validateDeck} />
       ) : null}
 
-      <div className={styles.addRow}>
-        <label className={styles.addCode}>
-          <span className={ui.label}>Add passcode</span>
-          <input
-            value={addCode}
-            onChange={(event) => setAddCode(event.target.value)}
-            onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addPasscode(); } }}
-            inputMode="numeric"
-            placeholder="e.g. 46986414"
-            className={cx(ui.input, styles.compactInput)}
-          />
-        </label>
-        <SheetSelect
-          className={styles.addSection}
-          label="Section"
-          compact
-          value={addSection}
-          choices={[
-            { value: "main", label: "Main" },
-            { value: "extra", label: "Extra" },
-            ...(sideAllowed ? [{ value: "side" as const, label: "Side" }] : []),
-          ]}
-          onChange={setAddSection}
-        />
-        <SheetButton size="sm" className={styles.addBtn} onClick={addPasscode}>
-          <Plus size={15} strokeWidth={1.7} aria-hidden />Add
-        </SheetButton>
-      </div>
+      <CardAddField settings={settings} sideAllowed={sideAllowed} onAdd={addCard} onError={setParseError} />
 
       {parseError ? <p role="alert" className={ui.alert}>{parseError}</p> : null}
 

@@ -21,6 +21,7 @@ import { hasNoLegalMoves, resolveBattleStep, StationTrack } from "../station-tra
 import { OpponentBar } from "../table/opponent-bar";
 import { toneBySeat } from "../table/seat-state";
 import { tableLayout } from "../table/geometry";
+import { AimArrow } from "../table/aim-arrow";
 import { useAimFlow } from "../table/use-aim-flow";
 import { useTableUi } from "../table/use-table-ui";
 import { tableZoneAnchor } from "../table/zone-find";
@@ -402,6 +403,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
           }}
         />
       ) : null}
+      {flow.arrow ? <AimArrow {...flow.arrow} /> : null}
       {lockAnchor && flow.pointed && !controller.busy ? (
         <AttackConfirm
           anchor={lockAnchor}

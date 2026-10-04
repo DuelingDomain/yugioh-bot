@@ -160,6 +160,10 @@ describe("selectBarCopy progress", () => {
     expect(copy({ aiming: true }).progress).toBe("Point at a target, then confirm");
   });
 
+  it("uses the words of a table that sends on the click", () => {
+    expect(copy({ aiming: true, aimHint: "Click a target to attack. Esc to cancel." }).progress).toBe("Click a target to attack. Esc to cancel.");
+  });
+
   it("joins the detail and the progress on the second line", () => {
     expect(copy({ title: "Select the card(s) to discard", min: 2, max: 2, count: 1 }).sub).toBe("Pick 2 · 1/2 selected");
     expect(copy({ title: "Select the card(s) to send to the Graveyard", min: 1, max: 1 }).sub).toBe("Send to the Graveyard · Pick 1");

@@ -6,6 +6,7 @@ import type { CardSummary } from "@/lib/card-types";
 import { putCards } from "@/lib/cards-cache";
 import { parseCustomCardIds } from "@/lib/custom-card-pool";
 import { isExtraDeckCardClient } from "@/lib/cube-pools";
+import { useResultNav } from "@/lib/hooks/use-result-nav";
 import type { AddTab } from "./library-model";
 import styles from "./cubes.module.css";
 
@@ -55,6 +56,10 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
   const inputId = React.useId();
   const [query, setQuery] = React.useState("");
   const [results, setResults] = React.useState<CardSummary[]>([]);
+  const [resultsFor, setResultsFor] = React.useState("");
+  // The text whose search failed. It shows only while the input still holds that text.
+  const [failedFor, setFailedFor] = React.useState("");
+  const [retry, setRetry] = React.useState(0);
   const [searching, setSearching] = React.useState(false);
   const reqId = React.useRef(0);
 
@@ -62,34 +67,50 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
     const q = query.trim();
     if (q.length === 0) {
       setResults([]);
+      setResultsFor("");
+      setFailedFor("");
       setSearching(false);
       return;
     }
     const myReq = ++reqId.current;
     const timeout = setTimeout(() => {
       setSearching(true);
+      setFailedFor("");
       fetch("/api/cards/resolve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fuzzyName: q }),
+        body: JSON.stringify({ fuzzyName: q, includeExtra: true }),
       })
         .then((res) => (res.ok ? res.json() : Promise.reject(new Error("search failed"))))
         .then((data: { cards: CardSummary[] }) => {
           if (myReq !== reqId.current) return;
           putCards(data.cards);
           setResults(data.cards.slice(0, 8));
+          setResultsFor(q);
         })
         .catch(() => {
-          if (myReq === reqId.current) setResults([]);
+          if (myReq !== reqId.current) return;
+          // A failed search is not "no match": say so.
+          setResults([]);
+          setFailedFor(q);
         })
         .finally(() => {
           if (myReq === reqId.current) setSearching(false);
         });
     }, 250);
     return () => clearTimeout(timeout);
-  }, [query]);
+  }, [query, retry]);
 
   const trimmed = query.trim();
+  const failed = failedFor === trimmed && !searching;
+  const nav = useResultNav({
+    items: results,
+    query,
+    resultsFor,
+    setQuery,
+    onPick: onAddCard,
+    canPick: (card) => !busy && copiesInCube(card.id) === 0,
+  });
   return (
     <>
       <div>
@@ -101,20 +122,21 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
           className="input"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="blue-eyes, dark magician, ..."
+          placeholder="blue eyes, dark magician, ..."
           autoComplete="off"
+          {...nav.inputProps}
         />
         <p className="hint">
-          Adds 3 copies. Extra deck monsters go to the Extra pool. Select a card in the cube to change its copies.
+          Type a name, press Enter or pick a card. Adds 3 copies. Extra deck monsters go to the Extra pool. Select a card in the cube to change its copies.
         </p>
       </div>
-      {trimmed.length > 0 && (
-        <ul className="ce-res" aria-label={`Results for ${trimmed}`} aria-busy={searching || undefined}>
-          {results.map((card) => {
+      {trimmed.length > 0 && results.length > 0 && (
+        <ul className="ce-res" aria-label={`Results for ${trimmed}`} aria-busy={searching || nav.stale || undefined} data-stale={nav.stale ? "" : undefined} {...nav.listProps}>
+          {results.map((card, index) => {
             const copies = copiesInCube(card.id);
             const pool = isExtraDeckCardClient(card) ? "Extra" : "Main";
             return (
-              <li key={card.id} data-testid="card-search-result">
+              <li key={card.id} data-testid="card-search-result" {...nav.optionProps(index)}>
                 <span className={styles.resThumb}>
                   <img src={card.imageUrlSmall || card.imageUrl} alt="" loading="lazy" />
                 </span>
@@ -129,25 +151,31 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
                     <Check className="ic" aria-hidden="true" />×{copies} in cube
                   </span>
                 ) : (
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    type="button"
-                    aria-label={`Add ${card.name}`}
-                    disabled={busy}
-                    onClick={() => onAddCard(card)}
-                  >
-                    <Plus className="ic sm" aria-hidden="true" />
+                  // Only a look: the whole row is the option and the click target.
+                  <span className="btn btn-secondary btn-sm" aria-hidden="true" data-disabled={busy ? "" : undefined}>
+                    <Plus className="ic sm" />
                     Add
-                  </button>
+                  </span>
                 )}
               </li>
             );
           })}
         </ul>
       )}
-      {trimmed.length > 0 && results.length === 0 && (
+      {failed && (
+        <div className={styles.noMatch} role="alert">
+          <p style={{ margin: "0 0 8px" }}>The card search did not work.</p>
+          <button className="btn btn-secondary btn-sm" type="button" onClick={() => {
+            setFailedFor("");
+            setRetry((n) => n + 1);
+          }}>
+            Try again
+          </button>
+        </div>
+      )}
+      {trimmed.length > 0 && results.length === 0 && !failed && (
         <p className={styles.noMatch} role="status">
-          {searching ? "Searching..." : "No cards match."}
+          {searching || resultsFor !== trimmed ? "Searching..." : "No cards match."}
         </p>
       )}
     </>

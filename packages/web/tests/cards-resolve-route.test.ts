@@ -287,8 +287,27 @@ describe("POST /api/cards/resolve", () => {
       cards: [expect.objectContaining({ id: 89631139, name: "Blue-Eyes White Dragon" })],
       unknownIds: [],
     });
-    expect(syncCardsByFuzzyName).toHaveBeenCalledWith("blue-eyes");
+    expect(syncCardsByFuzzyName).toHaveBeenCalledWith("blue-eyes", { includeExtra: false });
     expect(syncDraftPool).not.toHaveBeenCalled();
     expect(syncCardByName).not.toHaveBeenCalled();
+  });
+
+  it("asks for Extra Deck monsters in a fuzzy search only when includeExtra is true, and keeps the best-match order", async () => {
+    await setupDb();
+    const found = (ygoprodeckId: number, name: string) => ({
+      ygoprodeckId, name, type: "Normal Monster", frameType: "normal", effectText: "", imageUrl: "u", imageUrlSmall: "s",
+    });
+    syncCardsByFuzzyName.mockResolvedValue([found(2, "Blue-Eyes White Dragon"), found(1, "Blue-Eyes Alternative White Dragon")]);
+    const { POST } = await import("../app/api/cards/resolve/route");
+
+    const res = await POST(new Request("http://localhost/api/cards/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fuzzyName: "blue eyes", includeExtra: true }),
+    }));
+
+    const body = (await res.json()) as { cards: Array<{ name: string }> };
+    expect(body.cards.map((card) => card.name)).toEqual(["Blue-Eyes White Dragon", "Blue-Eyes Alternative White Dragon"]);
+    expect(syncCardsByFuzzyName).toHaveBeenCalledWith("blue eyes", { includeExtra: true });
   });
 });

@@ -51,6 +51,7 @@ import { TableSettings, type TableConnection } from "./table-settings";
 import { TablePhonePanes } from "./table-phone-panes";
 import { TableStage } from "./table-stage";
 import { tableZoneAnchor } from "./zone-find";
+import { AimArrow } from "./aim-arrow";
 import { useAimFlow } from "./use-aim-flow";
 import { useCamera } from "./use-camera";
 import { useTableUi } from "./use-table-ui";
@@ -569,6 +570,7 @@ function TableShellBody({
           }}
         />
       ) : null}
+      {flow.arrow ? <AimArrow {...flow.arrow} /> : null}
       {lockAnchor && flow.pointed && !controller.busy ? (
         <AttackConfirm
           anchor={lockAnchor}
