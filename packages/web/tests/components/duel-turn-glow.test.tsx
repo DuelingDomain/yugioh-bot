@@ -63,17 +63,21 @@ describe("turn light", () => {
   });
 });
 
+const readCss = (name: string) =>
+  readFileSync(resolve(__dirname, `../../src/components/duel/${name}`), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+/** Every declaration body of the rules in `css` whose selector list holds `selector`, whatever the spacing or order. */
+const declsIn = (css: string, selector: string): string => {
+  const norm = (value: string) => value.replace(/\s+/g, " ").trim();
+  const found: string[] = [];
+  for (const match of css.matchAll(/([^{}@]+)\{([^{}]*)\}/g)) {
+    if (match[1].split(",").some((part) => norm(part) === selector)) found.push(match[2]);
+  }
+  return found.join(";");
+};
+
 describe("turn light style", () => {
-  const css = readFileSync(resolve(__dirname, "../../src/components/duel/field.module.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-  /** Every declaration body of the rules whose selector list holds `selector`, whatever the spacing or order. */
-  const decls = (selector: string): string => {
-    const norm = (value: string) => value.replace(/\s+/g, " ").trim();
-    const found: string[] = [];
-    for (const match of css.matchAll(/([^{}@]+)\{([^{}]*)\}/g)) {
-      if (match[1].split(",").some((part) => norm(part) === selector)) found.push(match[2]);
-    }
-    return found.join(";");
-  };
+  const css = readCss("field.module.css");
+  const decls = (selector: string) => declsIn(css, selector);
   const rgbOf = (selector: string, name: string) => decls(selector).match(new RegExp(`${name}:\\s*([\\d ]+);`))?.[1]?.trim();
 
   it("has no stroke, border or outline on the glow", () => {
@@ -119,5 +123,29 @@ describe("turn light style", () => {
   it("also stops under the system reduced-motion setting", () => {
     const media = css.slice(css.indexOf("prefers-reduced-motion: reduce)", css.indexOf(".turnGlow::after")));
     expect(media.slice(0, 400)).toMatch(/\.turnGlow::before[\s\S]*?transition:\s*none/);
+  });
+});
+
+describe("no outline-like turn signal is left", () => {
+  const field = readCss("field.module.css");
+
+  it("keeps the sheet the same for every seat of a 3-way, 4-way or Tag table", () => {
+    expect(declsIn(field, '.seatField[data-turn="false"]')).toBe("");
+    expect(declsIn(field, ".seatField:not([data-turn])")).toBe("");
+    expect(declsIn(field, '.seatField[data-turn="true"]')).not.toMatch(/--sheet/);
+  });
+
+  it("shows the turn on the legacy seat boards and seat strip as a glow, not a border", () => {
+    const board = declsIn(readCss("opponent-board.module.css"), '.board[data-active="true"]');
+    const item = declsIn(readCss("seat-strip.module.css"), '.item[data-turn="true"]');
+    for (const rule of [board, item]) {
+      expect(rule).toMatch(/box-shadow:\s*0 0 \d+px/);
+      expect(rule).not.toMatch(/border|outline/);
+      expect(rule).not.toMatch(/inset/);
+    }
+  });
+
+  it("gives the turn mat of a seat a wide soft glow", () => {
+    expect(declsIn(field, '.seatField[data-turn="true"] .sfMat')).toMatch(/0 0 \d{2,3}px -\d+px/);
   });
 });

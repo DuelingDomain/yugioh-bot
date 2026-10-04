@@ -1931,12 +1931,6 @@
   --seat-line: rgb(var(--t, 155 126 255) / 0.45);
 }
 
-.seatField[data-turn="false"],
-.seatField:not([data-turn]) {
-  --sheet: rgb(181 153 99 / 0.22);
-  --sheet-lo: rgb(181 153 99 / 0.1);
-}
-
 .sfMat {
   position: absolute;
   inset: 0;
