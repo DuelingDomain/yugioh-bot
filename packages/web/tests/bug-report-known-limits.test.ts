@@ -30,18 +30,20 @@ describe("known limits", () => {
     expect(ids("eliminated card in graveyard", { format: "tag" })).toEqual([]);
   });
 
-  it("matches Extra Monster Zone problems in Tag duels", () => {
-    expect(ids("I cannot use the Extra Monster Zone", { format: "tag" })).toEqual(["tag-extra-monster-zone"]);
-    expect(ids("EMZ is blocked for my partner", { format: "tag" })).toEqual(["tag-extra-monster-zone"]);
+  it("no longer lists the Tag Extra Monster Zone problem (the rules are right now)", () => {
+    expect(KNOWN_LIMITS.map((l) => l.id)).not.toContain("tag-extra-monster-zone");
+    expect(ids("I cannot use the Extra Monster Zone", { format: "tag" })).toEqual([]);
+    expect(ids("EMZ is blocked for my partner", { format: "tag" })).toEqual([]);
     expect(ids("Extra Monster Zone looks wrong", { format: "1v1" })).toEqual([]);
+    expect(ids("Tag Extra Monster Zone rules are wrong")).toEqual([]);
   });
 
-  it("matches on text alone when the report has no duel", () => {
-    expect(ids("Tag Extra Monster Zone rules are wrong")).toEqual(["tag-extra-monster-zone"]);
+  it("still matches on text alone when the report has no duel", () => {
+    expect(ids("A card of the eliminated player went to my graveyard")).toEqual(["eliminated-card-wrong-graveyard"]);
   });
 
   it("returns only the public fields and nothing for an unrelated report", () => {
-    const [match] = matchKnownLimits("Extra Monster Zone", { format: "tag" });
+    const [match] = matchKnownLimits("eliminated card in my graveyard", { format: "ffa3" });
     expect(Object.keys(match).sort()).toEqual(["explanation", "id", "title"]);
     expect(ids("The card art is blurry on my phone")).toEqual([]);
   });
