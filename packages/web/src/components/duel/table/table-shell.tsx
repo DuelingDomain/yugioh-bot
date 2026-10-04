@@ -305,6 +305,11 @@ function TableShellBody({
 
   const pileSeat = ui.pile?.seat;
   const out = standings.filter((entry) => engine.seats.find((view) => view.seat === entry.seat)?.eliminated === true);
+  const placeLabels = useMemo(() => new Map(out.map((entry) => [entry.seat, placeLabel(entry.place)])), [out]);
+  // Seats that were already out when the table opened (a reload, a late join) show their notes at once; a seat that
+  // leaves while you watch gets notes that wait for its board to crumble.
+  const [outAtOpen] = useState(() => new Set(out.map((entry) => entry.seat)));
+  const viewerEliminated = engine.seats.some((view) => view.seat === viewerSeat && view.eliminated === true);
 
   return (
     <div
@@ -435,6 +440,7 @@ function TableShellBody({
                 wantMode={camera.state.mode}
                 locked={camera.locked}
                 out={camera.out}
+                placeLabels={placeLabels}
                 dispatchCamera={camera.dispatch}
                 renderSeatField={(props) => <SeatField {...props} />}
                 fx={
@@ -490,7 +496,7 @@ function TableShellBody({
                     {out.length > 0 ? (
                       <ul className={styles.outNote} aria-label="Duelists who left">
                         {out.map((entry) => (
-                          <li key={entry.seat} data-testid="seat-out" data-you={entry.seat === viewerSeat} style={{ "--seat-main": toneOf(entry.seat).main, "--seat-ink": toneOf(entry.seat).ink } as CSSProperties}>
+                          <li key={entry.seat} data-testid="seat-out" data-you={entry.seat === viewerSeat} data-fresh={outAtOpen.has(entry.seat) ? undefined : "true"} style={{ "--seat-main": toneOf(entry.seat).main, "--seat-ink": toneOf(entry.seat).ink } as CSSProperties}>
                             <i aria-hidden="true" />
                             {entry.seat === viewerSeat ? "You are out" : `${nameOf(entry.seat)} is out`}
                             <b>{placeLabel(entry.place)}</b>
@@ -498,6 +504,11 @@ function TableShellBody({
                           </li>
                         ))}
                       </ul>
+                    ) : null}
+                    {viewerEliminated ? (
+                      <span className={styles.spectating} data-testid="spectating-chip" data-fresh={viewerSeat != null && outAtOpen.has(viewerSeat) ? undefined : "true"} role="status">
+                        <Eye size={14} strokeWidth={1.75} aria-hidden /> Spectating
+                      </span>
                     ) : null}
                     <CameraControls {...cameraProps} variant={masterRail ? "stage" : "float"} />
                     {ui.pile ? (
