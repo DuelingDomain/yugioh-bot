@@ -1346,7 +1346,10 @@ export function PromptCenter(props: PromptCenterProps) {
           bottom: Math.max(...cardRects.map((r) => r.bottom)),
         };
       }
-      const place = placeTributeDock({ board: rectOf(board), hand: handRect, centered: board.closest('[data-table-stage="tag"]') != null });
+      // The seat plates carry the LP and the turn clock: the dock keeps off them. `[data-holo]` is the table shell's
+      // plate, `[data-team-plate]` the Rooftop's, `[data-lp-seat]` the 1v1 room's tally (and the chips inside the others).
+      const plates = Array.from(board.querySelectorAll<HTMLElement>("[data-holo], [data-team-plate], [data-lp-seat]")).map(rectOf);
+      const place = placeTributeDock({ board: rectOf(board), hand: handRect, centered: board.closest('[data-table-stage="tag"]') != null, plates });
       setDockPlace((current) => (sameDock(current, place) ? current : place));
       return;
     }

@@ -230,10 +230,56 @@ describe("placeTributeDock", () => {
     expect(place.bottom).toBe(900 - 760 + 8);
   });
 
+  it("narrows the side dock to stop short of a seat plate beside the hand", () => {
+    const board = rect(0, 0, 1440, 900);
+    const plate = rect(1250, 700, 1420, 820);
+    const place = placeTributeDock({ board, hand: rect(300, 760, 900, 880), plates: [plate] });
+    expect(place.mode).toBe("side");
+    expect(place.left! + place.width!).toBeLessThanOrEqual(plate.left);
+    expect(place.width!).toBeGreaterThanOrEqual(260);
+  });
+
+  it("ignores a plate that is nowhere near the dock", () => {
+    const board = rect(0, 0, 1440, 900);
+    const alone = placeTributeDock({ board, hand: rect(300, 760, 900, 880) });
+    const far = placeTributeDock({ board, hand: rect(300, 760, 900, 880), plates: [rect(40, 20, 300, 120), rect(40, 780, 280, 880)] });
+    expect(far).toEqual(alone);
+  });
+
+  it("leaves the side for a row clear of the plates when the plate leaves under the minimum width", () => {
+    const board = rect(0, 0, 1440, 900);
+    const plate = rect(1100, 700, 1420, 820);
+    const place = placeTributeDock({ board, hand: rect(300, 760, 900, 880), plates: [plate] });
+    expect(place.mode).toBe("center");
+    expect(place.bottom).toBe(900 - 760 + 8);
+  });
+
+  it("lifts the above row over the plates when no row beside or above the hand is clear", () => {
+    const board = rect(0, 0, 1440, 900);
+    const plates = [rect(1100, 700, 1420, 820), rect(540, 700, 900, 820)];
+    const place = placeTributeDock({ board, hand: rect(300, 760, 900, 880), plates });
+    expect(place.mode).toBe("above");
+    expect(place.bottom).toBe(900 - 700 + 8);
+  });
+
   it("takes the full width on a phone", () => {
     const place = placeTributeDock({ board: rect(0, 0, 390, 700), hand: rect(10, 600, 380, 690) });
     expect(place.mode).toBe("full");
     expect(place.bottom).toBe(108);
+  });
+
+  it("drops the phone dock below the hand when a plate sits in the row above it", () => {
+    const place = placeTributeDock({ board: rect(0, 0, 390, 800), hand: rect(10, 500, 380, 580), plates: [rect(300, 430, 382, 490)] });
+    expect(place.mode).toBe("full");
+    // Its top edge sits just under the hand: the bottom edge is the board's, less the hand's bottom, less the dock.
+    expect(place.bottom).toBeLessThan(800 - 580);
+    expect(place.bottom).toBeGreaterThan(8);
+  });
+
+  it("lifts the phone dock over a plate when there is no room below the hand either", () => {
+    const place = placeTributeDock({ board: rect(0, 0, 390, 700), hand: rect(10, 600, 380, 690), plates: [rect(300, 520, 382, 580)] });
+    expect(place.mode).toBe("full");
+    expect(place.bottom).toBe(700 - 520 + 8);
   });
 
   it("falls back to a centred dock when the hand cannot be measured", () => {
