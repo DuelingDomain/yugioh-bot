@@ -52,7 +52,7 @@ describe("turn light", () => {
   });
 
   it("shows no light after the duel ends", () => {
-    const { container } = render(field(view({ turnSeat: 0, result: { winner: 0, reason: "lp" } as DuelEngineView["result"] })));
+    const { container } = render(field(view({ turnSeat: 0, result: { winnerSeat: 0, reason: "lp" } })));
     expect(container.querySelectorAll('[data-turn-glow][data-turn="true"]')).toHaveLength(0);
   });
 
