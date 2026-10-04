@@ -64,30 +64,60 @@ describe("turn light", () => {
 });
 
 describe("turn light style", () => {
-  const css = readFileSync(resolve(__dirname, "../../src/components/duel/field.module.css"), "utf8");
-  const block = (selector: string) => {
-    const start = css.indexOf(`${selector} {`);
-    return start < 0 ? "" : css.slice(start, css.indexOf("}", start));
+  const css = readFileSync(resolve(__dirname, "../../src/components/duel/field.module.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  /** Every declaration body of the rules whose selector list holds `selector`, whatever the spacing or order. */
+  const decls = (selector: string): string => {
+    const norm = (value: string) => value.replace(/\s+/g, " ").trim();
+    const found: string[] = [];
+    for (const match of css.matchAll(/([^{}@]+)\{([^{}]*)\}/g)) {
+      if (match[1].split(",").some((part) => norm(part) === selector)) found.push(match[2]);
+    }
+    return found.join(";");
   };
+  const rgbOf = (selector: string, name: string) => decls(selector).match(new RegExp(`${name}:\\s*([\\d ]+);`))?.[1]?.trim();
 
   it("has no stroke, border or outline on the glow", () => {
     for (const selector of [".turnGlow", '.turnGlow[data-side="top"]', ".turnGlow::before", ".turnGlow::after"]) {
-      expect(block(selector)).not.toMatch(/\b(border|outline|stroke)\b/);
+      expect(decls(selector), selector).not.toMatch(/\b(border|outline|stroke)\b/);
     }
     expect(css).not.toMatch(/\.(turnEdge|priorityEdge)/);
   });
 
   it("gives each side its own colour", () => {
-    const top = block('.turnGlow[data-side="top"]').match(/--tg-rgb:\s*([\d ]+);/)?.[1];
-    const bottom = block(".turnGlow").match(/--tg-rgb:\s*([\d ]+);/)?.[1];
+    const top = rgbOf('.turnGlow[data-side="top"]', "--tg-rgb");
+    const bottom = rgbOf(".turnGlow", "--tg-rgb");
     expect(top).toBeTruthy();
     expect(bottom).toBeTruthy();
     expect(top).not.toBe(bottom);
   });
 
+  it("shows the response window in a hue apart from both turn colours", () => {
+    const hue = (rgb: string) => {
+      const [r, g, b] = rgb.split(" ").map((value) => Number(value) / 255);
+      const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+      if (d === 0) return 0;
+      const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return (h * 60 + 360) % 360;
+    };
+    const gap = (a: string, b: string) => Math.min(Math.abs(hue(a) - hue(b)), 360 - Math.abs(hue(a) - hue(b)));
+    const mine = rgbOf(".turnGlow", "--tg-rgb")!;
+    const theirs = rgbOf('.turnGlow[data-side="top"]', "--tg-rgb")!;
+    const priority = rgbOf(".turnGlow", "--tp-rgb")!;
+    expect(priority).toBeTruthy();
+    expect(gap(priority, mine)).toBeGreaterThan(40);
+    expect(gap(priority, theirs)).toBeGreaterThan(40);
+    expect(decls(".turnGlow::after")).toContain("var(--tp-rgb)");
+  });
+
   it("fades in 0.3 to 0.4 seconds and stops when motion is reduced", () => {
-    expect(block(".turnGlow::before")).toMatch(/transition: opacity 0\.3[0-9]*s/);
-    expect(css).toMatch(/\.felt\[data-reduced-motion="true"\] \.turnGlow::before[\s\S]*?transition: none/);
-    expect(css).toMatch(/prefers-reduced-motion: reduce\)[\s\S]*?\.turnGlow::before/);
+    const seconds = Number(decls(".turnGlow::before").match(/transition:\s*opacity\s+([\d.]+)s/)?.[1]);
+    expect(seconds).toBeGreaterThanOrEqual(0.3);
+    expect(seconds).toBeLessThanOrEqual(0.4);
+    expect(decls('.felt[data-reduced-motion="true"] .turnGlow::before')).toMatch(/transition:\s*none/);
+  });
+
+  it("also stops under the system reduced-motion setting", () => {
+    const media = css.slice(css.indexOf("prefers-reduced-motion: reduce)", css.indexOf(".turnGlow::after")));
+    expect(media.slice(0, 400)).toMatch(/\.turnGlow::before[\s\S]*?transition:\s*none/);
   });
 });

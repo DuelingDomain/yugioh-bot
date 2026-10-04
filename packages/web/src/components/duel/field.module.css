@@ -611,6 +611,8 @@
    cool blue-violet for the bottom player, warm amber-red for the top player. */
 .turnGlow {
   --tg-rgb: 116 132 255;
+  /* A response window without the turn: a cool teal, apart from both turn colours. */
+  --tp-rgb: 78 205 190;
   position: absolute;
   right: 0;
   left: 0;
@@ -654,14 +656,14 @@
   opacity: 1;
 }
 
-/* A response window without the turn: a faint violet bloom, no line. */
+/* A response window without the turn: a faint teal bloom, no line. */
 .turnGlow::after {
-  background: radial-gradient(ellipse 52% 66% at 50% 100%, rgb(155 126 255 / 0.2), transparent 74%);
+  background: radial-gradient(ellipse 52% 66% at 50% 100%, rgb(var(--tp-rgb) / 0.17), transparent 74%);
   transition: opacity 0.36s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .turnGlow[data-side="top"]::after {
-  background: radial-gradient(ellipse 52% 66% at 50% 0%, rgb(155 126 255 / 0.2), transparent 74%);
+  background: radial-gradient(ellipse 52% 66% at 50% 0%, rgb(var(--tp-rgb) / 0.17), transparent 74%);
 }
 
 .turnGlow[data-priority="true"]:not([data-turn="true"])::after {
