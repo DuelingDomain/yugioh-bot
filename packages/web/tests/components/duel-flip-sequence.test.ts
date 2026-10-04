@@ -3,7 +3,7 @@ import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import { findFlipSequences, flipSequenceOf, flipSequenceSteps, FLIP_SEQUENCE_TIMING } from "../../src/components/duel/flip-sequence";
 import { chainBeatAt, chainEffectAt, flipAttackAt, isSequenceFlip, planChainBeats, resetChainBeats } from "../../src/components/duel/chain-beats";
 import { chainEffectLead, deriveChainState } from "../../src/components/duel/chain-state";
-import { targetLinksOf } from "../../src/components/duel/chain-fx";
+import { sequenceOwners, targetLinksOf } from "../../src/components/duel/chain-fx";
 
 const MZONE = 4;
 const GRAVE = 16;
@@ -207,22 +207,45 @@ describe("flip sequence timing", () => {
 describe("held target mark", () => {
   it("keeps the target of a flip link while it resolves and drops it when the link is resolved", () => {
     const events = recorded();
-    const sequenced = new Set([1]);
+    const sequenced = sequenceOwners(events);
+    expect([...sequenced]).toEqual([[1, 8]]);
     const held = new Map();
     const through = (upTo: number) => deriveChainState(events.filter((e) => e.id <= upTo));
     // After chain-end the live state is empty, yet the played state still shows the link resolving.
     const resolving = through(10);
     const live = deriveChainState(events);
     expect(targetLinksOf(live, resolving, sequenced, held).map((l) => l.index)).toEqual([1]);
-    expect(held.get(1)?.[0]).toEqual(zone(0));
+    expect(held.get(8)?.[0]).toEqual(zone(0));
     // The target the engine re-publishes in the grave does not replace the held mark.
     const moved = through(12);
     expect(targetLinksOf(live, moved, sequenced, held)[0].targets[0]).toEqual(zone(0));
     // A link that is not part of a flip sequence is not held.
-    expect(targetLinksOf(live, resolving, new Set(), new Map())).toEqual([]);
+    expect(targetLinksOf(live, resolving, new Map(), new Map())).toEqual([]);
     // Resolved: the mark goes.
     const resolved = { ...moved, links: moved.links.map((l) => ({ ...l, status: "resolved" as const })) };
     expect(targetLinksOf(live, resolved, sequenced, held)).toEqual([]);
-    expect(held.has(1)).toBe(false);
+    expect(held.has(8)).toBe(false);
   });
+
+  it("does not leak a held target into a later chain that reuses the link number", () => {
+    const events = recorded();
+    const held = new Map();
+    const resolving = deriveChainState(events.filter((e) => e.id <= 10));
+    targetLinksOf(deriveChainState(events), resolving, sequenceOwners(events), held);
+    expect(held.size).toBe(1);
+    // A later, ordinary chain: link 1 again, with its own target. The flip activation no longer owns link 1.
+    const later = [
+      ...events,
+      { id: 30, kind: "phase", text: "main" },
+      { id: 31, kind: "activate", seat: 0, zone: zone(0), chainIndex: 1, text: "a", card: { code: 1, name: "Other" } },
+      { id: 32, kind: "target", seat: 0, chainIndex: 1, targets: [zone(1)], text: "t" },
+    ] as DuelEvent[];
+    expect(sequenceOwners(later).size).toBe(0);
+    const liveLater = deriveChainState(later);
+    const playedLater = deriveChainState(later);
+    const links = targetLinksOf(liveLater, playedLater, sequenceOwners(later), held);
+    expect(links.every((l) => l.targets.every((t) => t.controller === 1))).toBe(true);
+    expect(held.size).toBe(0);
+  });
+
 });

@@ -307,20 +307,36 @@ function ChainGlyph() {
  * played beats instead: marked from the target beat, kept as chosen while the link resolves (the
  * engine publishes the target again after the card has moved), gone when the link resolves.
  */
-export function targetLinksOf(live: ChainState, played: ChainState, sequenced: ReadonlySet<number>, held: Map<number, ChainLinkState["targets"]>): ChainLinkState[] {
+export function targetLinksOf(live: ChainState, played: ChainState, sequenced: ReadonlyMap<number, number>, held: Map<number, ChainLinkState["targets"]>): ChainLinkState[] {
   const links = live.links.filter((link) => link.status !== "resolved");
+  // A held target belongs to the activation that made it, so a later chain that reuses the link number gets none.
+  const owners = new Set(sequenced.values());
+  for (const id of [...held.keys()]) if (!owners.has(id)) held.delete(id);
   for (const link of played.links) {
-    if (!sequenced.has(link.index)) continue;
+    const owner = sequenced.get(link.index);
+    if (owner == null) continue;
     if (link.status === "resolved") {
-      held.delete(link.index);
+      held.delete(owner);
       continue;
     }
-    if (link.status === "pending" || !held.has(link.index)) held.set(link.index, link.targets);
-    const targets = held.get(link.index) ?? [];
+    if (link.status === "pending" || !held.has(owner)) held.set(owner, link.targets);
+    const targets = held.get(owner) ?? [];
     if (targets.length === 0 || links.some((other) => other.index === link.index)) continue;
     links.push({ ...link, targets });
   }
   return links;
+}
+
+/** Link number -> id of the activation that owns it now, for the links that start a flip-effect sequence. */
+export function sequenceOwners(events: readonly DuelEvent[]): Map<number, number> {
+  const sequences = new Set(findFlipSequences(events).map((sequence) => sequence.activate.id));
+  const latest = new Map<number, number>();
+  for (const event of events) {
+    if (event.kind === "activate" && typeof event.chainIndex === "number" && event.id >= (latest.get(event.chainIndex) ?? -Infinity)) latest.set(event.chainIndex, event.id);
+  }
+  const owners = new Map<number, number>();
+  for (const [index, id] of latest) if (sequences.has(id)) owners.set(index, id);
+  return owners;
 }
 
 export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority, ended = false, table }: ChainFxProps) {
@@ -333,9 +349,10 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   // Badges play historical resolution beats; targeting follows the live engine so a replacement
   // occupant is never marked while old beats play, and chain-end clears target rings immediately.
   const live = useMemo(() => (ended ? EMPTY_CHAIN : deriveChainState(events, chain)), [events, chain, ended]);
-  const sequenceLinks = useMemo(() => new Set(findFlipSequences(events).map((sequence) => sequence.activate.chainIndex as number)), [events]);
-  const heldTargets = useRef(new Map<number, ChainLinkState["targets"]>());
-  const targetLinks = targetLinksOf(live, state, sequenceLinks, heldTargets.current);
+  const sequenceLinks = useMemo(() => sequenceOwners(events), [events]);
+  const heldTargets = useRef({ key: duelKey, map: new Map<number, ChainLinkState["targets"]>() });
+  if (heldTargets.current.key !== duelKey) heldTargets.current = { key: duelKey, map: new Map() };
+  const targetLinks = targetLinksOf(live, state, sequenceLinks, heldTargets.current.map);
   const targetsKey = chainStateKey({ links: targetLinks, resolving: null });
   const targetLinksRef = useRef(targetLinks);
   targetLinksRef.current = targetLinks;
