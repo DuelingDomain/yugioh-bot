@@ -99,6 +99,13 @@ describe("LoginPage", () => {
     expect(document.body.textContent).not.toMatch(/yugidraft/i);
     screen.getByRole("button", { name: "Sign in with Discord" });
   });
+  it("marks the page when a message shows, so the ring leaves room for it", async () => {
+    const plain = render(await LoginPage({ searchParams: Promise.resolve({}) }));
+    expect(plain.container.querySelector("main")).not.toHaveAttribute("data-message");
+    cleanup();
+    const withMessage = render(await LoginPage({ searchParams: Promise.resolve({ error: "Configuration" }) }));
+    expect(withMessage.container.querySelector("main")).toHaveAttribute("data-message");
+  });
   it("announces a cancel politely", async () => {
     render(await LoginPage({ searchParams: Promise.resolve({ error: "OAuthCallbackError" }) }));
     expect(screen.getByRole("status")).toHaveTextContent("Sign-in didn't finish.");

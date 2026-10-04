@@ -295,6 +295,25 @@
   }
 }
 
+/* Short desktop screens: the ring also shrinks with the viewport height so the whole stack fits.
+   The reserve is everything that is not the ring: 80px of page padding, the fan's 36px margin and the
+   copy (221px with no message, measured; 336px with the longest message, "Configuration", which wraps
+   to four lines), plus 8px of slack. Floor 360px: below it the page scrolls, as before.
+   Phones (below 900px wide) never match this block. Taller screens keep the 608px cap. */
+@media (min-width: 900px) {
+  .page {
+    --reserve: 345px;
+  }
+
+  .page[data-message] {
+    --reserve: 460px;
+  }
+
+  .fan {
+    --size: min(608px, calc(100vw - 32px), max(360px, calc(100dvh - var(--reserve))));
+  }
+}
+
 @media (max-width: 480px) {
   .brand {
     font-size: 28px;

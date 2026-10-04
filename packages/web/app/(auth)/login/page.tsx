@@ -17,7 +17,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   return (
     <SheetRoot>
-      <main className={styles.page}>
+      <main className={styles.page} data-message={message ? "" : undefined}>
         <LoginWall hasMessage={message !== null}>
           <div className={styles.stack}>
             <LoginRing />
