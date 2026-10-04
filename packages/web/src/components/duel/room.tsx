@@ -699,6 +699,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const deckSurrender: DeckSurrenderValue = {
     seat: data.mySeat, available: canSurrender, busy: busy || catchingUp || Boolean(error),
     onSurrender: () => setConfirmSurrender(true), onMenuOpenChange: setDeckMenuOpen,
+    scope: `${prompt?.id ?? ""}|${data.engine?.turnSeat ?? ""}`,
   };
   // The series has moved on to its next game and this room is about to follow it (the effect on nextTarget).
   // The old game's result is history by now: do not flash "You win" for the second the next room takes to

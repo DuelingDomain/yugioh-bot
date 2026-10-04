@@ -17,6 +17,8 @@ export type DeckSurrenderValue = {
   busy: boolean;
   /** Opens the "Are you sure?" confirm. The confirm itself calls the existing surrender action. */
   onSurrender: () => void;
+  /** Changes when the prompt or the turn changes; an open menu closes then, since its rows may shift. */
+  scope?: string;
   /** Tells the room the menu is open, so the prompt keys and the right-click decline stay quiet meanwhile. */
   onMenuOpenChange?: (open: boolean) => void;
 };

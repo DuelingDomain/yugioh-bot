@@ -417,6 +417,11 @@ function PileSlot({
   useEffect(() => {
     if (!deckMenu) setMenuAnchor(null);
   }, [deckMenu]);
+  // It also goes when the prompt or the turn changes, or the deck gains or loses its action: the rows would shift.
+  const menuScope = surrender?.scope;
+  useEffect(() => {
+    setMenuAnchor(null);
+  }, [menuScope, legal, selected]);
   // The room mutes the prompt keys and the right-click decline while the menu is open.
   const reportMenu = surrender?.onMenuOpenChange;
   const menuIsOpen = deckMenu && menuAnchor != null;

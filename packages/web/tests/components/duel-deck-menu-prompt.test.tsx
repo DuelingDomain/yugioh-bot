@@ -140,3 +140,41 @@ describe("prompt panel key guard", () => {
     expect(onSubmit).toHaveBeenCalledWith({ cancel: true });
   });
 });
+
+describe("deck menu closes when its context changes", () => {
+  const next: DuelPrompt = { ...prompt, id: "p2" };
+
+  it("closes on a new prompt", () => {
+    const onSubmit = vi.fn();
+    const view1 = render(<Room onSubmit={onSubmit} />);
+    fireEvent.click(deck(view1.container));
+    expect(screen.getByRole("menu")).toBeTruthy();
+    view1.rerender(<Room onSubmit={onSubmit} current={next} />);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("closes on a change of turn", () => {
+    const onSubmit = vi.fn();
+    const view1 = render(<Room onSubmit={onSubmit} />);
+    fireEvent.click(deck(view1.container));
+    view1.rerender(<Room onSubmit={onSubmit} engine={view({ turnSeat: 1 })} />);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("closes when the deck becomes usable, so the rows never shift under the pointer", () => {
+    const onSubmit = vi.fn();
+    const view1 = render(<Room onSubmit={onSubmit} />);
+    fireEvent.click(deck(view1.container));
+    const key = deck(view1.container).closest<HTMLElement>("[data-zones]")!.dataset.zones!;
+    view1.rerender(<Room onSubmit={onSubmit} legal={[key]} />);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("stays open when nothing changed", () => {
+    const onSubmit = vi.fn();
+    const view1 = render(<Room onSubmit={onSubmit} />);
+    fireEvent.click(deck(view1.container));
+    view1.rerender(<Room onSubmit={onSubmit} />);
+    expect(screen.getByRole("menu")).toBeTruthy();
+  });
+});
