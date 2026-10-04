@@ -30,7 +30,7 @@
 /* three panes */
 .de-body { display: grid; grid-template-columns: clamp(250px, 21%, 320px) minmax(0, 1fr) clamp(320px, 28%, 420px); min-height: 0; }
 .de-read { min-height: 0; overflow: auto; padding: 20px 20px 28px; border-right: 1px solid var(--rule-lo); background: rgb(4 7 14 / 0.35); }
-.de-deck { container: de-deck / inline-size; display: grid; align-content: start; gap: 22px; min-height: 0; overflow: auto; padding: 12px 22px 40px; }
+.de-deck { container: de-deck / inline-size; display: grid; align-content: start; gap: 22px; min-height: 0; overflow: auto; padding: 12px 22px 64px; }
 
 /* left pane: the deck check */
 .de-sum { display: grid; gap: 24px; }
@@ -174,9 +174,8 @@ button.de-flag:hover { text-decoration: underline; text-underline-offset: 3px; }
 .de-name:focus-visible, .host :focus-visible, .de-pop :focus-visible, .de-bs :focus-visible { outline: 2px solid var(--pen-ink); outline-offset: 2px; }
 .de-body { min-width: 0; }
 .de-read, .de-deck { scrollbar-width: thin; overscroll-behavior: contain; min-width: 0; }
-/* The floating Report bug button sits at the bottom-left of this route (there is no sidebar here). The last row of a
-   scrolling pane that can sit under it keeps 64px of room, so scrolling to the end always clears the button. */
-.de-read { padding: 20px 20px 64px; }
+/* The floating Report bug button sits at the bottom-right of this route (there is no sidebar here), over the deck pane.
+   The last row of a scrolling pane that can sit under it keeps 64px of room, so scrolling to the end clears the button. */
 .de-deck { gap: 22px; }
 .de-probs button { flex-wrap: wrap; gap: 2px 8px; }
 .de-pw { white-space: normal; }
