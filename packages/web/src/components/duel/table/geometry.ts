@@ -10,8 +10,8 @@ import type { Arrangement, CameraState, Compass, FlyPose, PoseSlot, SeatPose, Se
  * Look, focus, overview and fly pick the place of each seat from them. The Tag table draws its home pose in
  * every camera mode until its own step adds more.
  *
- * Seats that left the duel are not drawn, so the places follow the seats still in it (`aliveLayout`): 4 alive use the
- * 4-way places, 3 alive the 3-way places and 2 alive a face to face pair (`duo`: one near, one far, as in a 1v1).
+ * On a 3-way table the places follow the seats still in the duel (`aliveLayout`): 2 alive are a face to face pair
+ * (`duo`: one near, one far, as in a 1v1). A 4-way table keeps its places.
  */
 
 export const STAGE = { width: 1100, height: 860 } as const;
@@ -102,16 +102,16 @@ function slotTable(layout: Pick<TableLayout, "format" | "arrangement">): Readonl
 }
 
 /**
- * The layout of the seats that are still in the duel, in the same drawing order. The seats keep their tones (a seat
- * never changes colour when others leave). Nothing out gives the same layout back; Tag is never respaced.
+ * The layout of the seats that are still in the duel. Only a 3-way table regroups: when one seat leaves, the two that
+ * stay face each other (`duo`) and keep their order and tones. A 4-way table keeps its places for the whole duel (the
+ * place of a seat that left stays empty), and Tag is never respaced: both give the same layout back.
  */
 export function aliveLayout(layout: TableLayout, out: ReadonlySet<number> | readonly number[]): TableLayout {
-  if (layout.format === "tag") return layout;
+  if (layout.format !== "ffa3") return layout;
   const gone = out instanceof Set ? out : new Set(out);
   const slots = layout.slots.filter((slot) => !gone.has(slot.seat));
-  if (slots.length === layout.slots.length) return layout;
-  const arrangement: Arrangement = slots.length >= 4 ? "ffa4" : slots.length === 3 ? "ffa3" : "duo";
-  return { ...layout, slots, arrangement };
+  if (slots.length === layout.slots.length || slots.length >= 3) return layout;
+  return { ...layout, slots, arrangement: "duo" };
 }
 
 type CompassSlot = { compass: Compass; baseAngleDeg: number };
