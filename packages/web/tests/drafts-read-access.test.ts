@@ -125,4 +125,14 @@ describe("draft read access", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "The live feed is unavailable. Try again later." });
   });
+
+  it("names the tournament made from the draft so the finale can link to it", async () => {
+    const db = database.current!;
+    db.prepare("update drafts set status = 'completed' where id = 1").run();
+    expect(await (await read("draft")).json()).toMatchObject({ tournamentId: null, tournamentName: null, tournamentSlug: null });
+
+    db.prepare("insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug) values (7, 'guild-1', 'Draft Cup', 'round_robin', 'pending', 'creator', 'draft-cup')").run();
+    db.prepare("update drafts set tournament_id = 7 where id = 1").run();
+    expect(await (await read("draft")).json()).toMatchObject({ tournamentId: 7, tournamentName: "Draft Cup", tournamentSlug: "draft-cup" });
+  });
 });

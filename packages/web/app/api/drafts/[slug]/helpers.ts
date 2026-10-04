@@ -314,6 +314,16 @@ export async function buildDraftResponse(slug: string, userId: string) {
       )
     : null;
 
+  // The tournament made from this draft, so the finale and results can link straight to it.
+  const tournament = draft.tournament_id != null
+    ? degrade(slug, "tournament lookup", null as { name: string; webSlug: string | null } | null, () => {
+        const row = db.prepare("select name, web_slug from tournaments where id = ? and guild_id = ?").get(draft.tournament_id, draft.guild_id) as
+          | { name: string; web_slug: string | null }
+          | undefined;
+        return row ? { name: row.name, webSlug: row.web_slug } : null;
+      })
+    : null;
+
   return {
     id: draft.id,
     guildId: draft.guild_id,
@@ -332,6 +342,8 @@ export async function buildDraftResponse(slug: string, userId: string) {
     endedAt: toUtcIso(draft.ended_at),
     playerCount: draft.player_count,
     tournamentId: draft.tournament_id ?? null,
+    tournamentName: tournament?.name ?? null,
+    tournamentSlug: tournament?.webSlug ?? null,
     players,
     participantPickCount,
     myDeckId,
