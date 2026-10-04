@@ -2,15 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DuelAnswer, DuelPromptOption } from "@yugidraft/shared/duels";
-import { isAttackTargetPrompt, optionsForKeys, optionZoneKeys, type PromptAim } from "../prompts";
+import { targetName } from "../card-interactions";
+import { isAttackDuelistPrompt, isAttackTargetPrompt, optionsForKeys, optionZoneKeys, type PromptAim } from "../prompts";
+import type { AimArrowProps, AimPointerSpot } from "./aim-arrow";
 import { targetChoices } from "./targets";
 import type { BattleAim, DuelActivateHandler, SeatPick, SeatTone, TableController, TableLayout } from "./types";
 
 /**
  * The aim of an attack, on top of a controller.
  *
- * Hover on a legal target (a card, or a holo LP panel) aims; a click locks the aim; a second click, Enter or the
- * Attack button sends the answer; Esc lets go. While aimed or locked the camera does not move (`aiming`).
+ * Pointer flow: after the attacker is declared, an arrow runs from it to the mouse cursor (`arrow`). A legal target
+ * under the cursor (an opposing monster, or the whole board of a seat for a direct attack) lights up and the arrow
+ * snaps to it. One click on it sends the answer at once. Esc or a right click cancels (the prompt panel does that).
+ * Keyboard flow: hover or focus aims, Enter on a card or LP panel locks the aim, a second Enter, the Attack button
+ * or the number keys send it; Esc lets go. While aimed or locked the camera does not move (`aiming`).
  * A direct attack (a choice with a seat and no zone) works the same through a seat pick on the LP panels.
  * A room that owns its own aim state leaves this hook out and passes its controller to the stage as is.
  */
@@ -48,8 +53,22 @@ export interface AimFlow {
   seatKeys: boolean;
   /** The target the player pointed at and has not sent yet: a card (zone key) or a seat's LP panel. Null when none. */
   pointed: { zoneKey: string | null; lpSeat: number | null; label: string; optionId: string } | null;
+  /** Props of the pointer aim arrow, or null: no attack target is open, there is no mouse cursor, or an aim is locked. */
+  arrow: AimArrowProps | null;
   confirm: () => void;
   cancel: () => void;
+}
+
+const sameTo = (a: BattleAim["to"] | null, b: BattleAim["to"] | null): boolean =>
+  a === b || (a != null && b != null && (a.zones ?? []).join(" ") === (b.zones ?? []).join(" ") && (a.lpSeat ?? null) === (b.lpSeat ?? null));
+
+/** The seat that a node of the table belongs to: its field mat, LP panel or seat slot. */
+function seatOfNode(node: Element): number | null {
+  const host = node.closest("[data-seat-field],[data-holo],[data-lp-seat],[data-seat-slot]");
+  if (!host) return null;
+  const raw = host.getAttribute("data-seat-field") ?? host.getAttribute("data-holo") ?? host.getAttribute("data-lp-seat") ?? host.getAttribute("data-seat-slot");
+  const seat = raw == null ? NaN : Number(raw);
+  return Number.isInteger(seat) ? seat : null;
 }
 
 const isTyping = (target: EventTarget | null): boolean => {
@@ -72,10 +91,18 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   const [lock, setLock] = useState<Lock | null>(null);
   const [hover, setHover] = useState<BattleAim["to"] | null>(null);
   const live = lock && lock.promptId === promptId ? lock : null;
+  /** The prompt that a pointer click already answered: a second click on it must not send again. */
+  const sentFor = useRef<string | null>(null);
+  const pointer = useRef<AimPointerSpot | null>(null);
+  const [hasMouse, setHasMouse] = useState(false);
+  /** The last pointer was a finger: a tap has no hover, so a board is aimed by the first tap and sent by the second. */
+  const touching = useRef(false);
+  const [touchMode, setTouchMode] = useState(false);
 
   useEffect(() => {
     setLock(null);
     setHover(null);
+    sentFor.current = null;
   }, [promptId, engine.revision]);
 
   const targets = useMemo(() => {
@@ -100,6 +127,32 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     if (choices.length === 0) return null;
     return new Map<number, string>(choices.map((choice) => [choice.seat, choice.optionIds[0]]));
   }, [base.seatPick, canAct, engine, nameOf, prompt, viewerSeat]);
+
+  // A pointer-driven attack: the attacker is known and a target or a seat is to be chosen.
+  const aimActive = attackTarget || (direct != null && (attackerKey != null || isAttackDuelistPrompt(prompt)));
+
+  /** The legal target under a node: an opposing monster, or (direct attack) the board of a seat that can be hit. */
+  const resolve = useCallback(
+    (target: EventTarget | null): { optionId: string; to: NonNullable<BattleAim["to"]> } | null => {
+      if (!(target instanceof Element)) return null;
+      if (attackTarget) {
+        const keys = target.closest("[data-zones]")?.getAttribute("data-zones")?.split(" ") ?? [];
+        const key = keys.find((entry) => targets.has(entry));
+        if (key) return { optionId: targets.get(key)!.id, to: { zones: [key] } };
+      }
+      if (direct) {
+        const seat = seatOfNode(target);
+        const optionId = seat != null ? direct.get(seat) : undefined;
+        if (seat != null && optionId != null) return { optionId, to: { lpSeat: seat } };
+      }
+      return null;
+    },
+    [attackTarget, direct, targets],
+  );
+  const resolveRef = useRef(resolve);
+  resolveRef.current = resolve;
+  const hoverRef = useRef(hover);
+  hoverRef.current = hover;
 
   const confirm = useCallback(() => {
     if (!live) return;
@@ -185,6 +238,77 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     };
   }, [attackTarget, live, root, targets]);
 
+  // The mouse cursor drives the arrow: the board under it is the target, and one click on a legal target sends.
+  const answerRef = useRef({ answerFor, onAnswer, busy: base.busy });
+  answerRef.current = { answerFor, onAnswer, busy: base.busy };
+  const suspendedNow = options.suspended === true;
+  const suspendedFlag = useRef(suspendedNow);
+  suspendedFlag.current = suspendedNow;
+  useEffect(() => {
+    if (!aimActive) {
+      pointer.current = null;
+      setHasMouse(false);
+      return;
+    }
+    const onDown = (event: PointerEvent) => {
+      touching.current = event.pointerType === "touch";
+      setTouchMode(touching.current);
+      if (touching.current) {
+        pointer.current = null;
+        setHasMouse(false);
+      }
+    };
+    const onMove = (event: PointerEvent) => {
+      touching.current = event.pointerType === "touch";
+      setTouchMode(touching.current);
+      if (touching.current) {
+        pointer.current = null;
+        setHasMouse(false);
+        return;
+      }
+      pointer.current = { x: event.clientX, y: event.clientY };
+      setHasMouse(true);
+      if (liveRef.current) return;
+      const hit = resolveRef.current(event.target);
+      setHover((current) => (sameTo(current, hit?.to ?? null) ? current : (hit?.to ?? null)));
+    };
+    const onClick = (event: MouseEvent) => {
+      // Only a pointer click: Enter or Space on a focused card (detail 0) keeps the lock-then-confirm flow.
+      if (event.detail === 0 || event.button !== 0 || suspendedFlag.current || sentFor.current === promptId) return;
+      const hit = resolveRef.current(event.target);
+      if (touching.current) {
+        // A finger on a card keeps the lock-then-confirm flow of the card itself. A finger on a board (a direct attack)
+        // aims at it with the first tap, which lights it and shows the label, and sends with the second tap.
+        if (!hit || hit.to.lpSeat == null) {
+          if (!hit) setHover(null);
+          return;
+        }
+        if (!sameTo(hoverRef.current, hit.to)) {
+          event.preventDefault();
+          event.stopPropagation();
+          setHover(hit.to);
+          return;
+        }
+      }
+      if (!hit) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (answerRef.current.busy) return;
+      sentFor.current = promptId;
+      setLock(null);
+      setHover(null);
+      answerRef.current.onAnswer(answerRef.current.answerFor(hit.optionId));
+    };
+    window.addEventListener("pointerdown", onDown, { capture: true, passive: true });
+    window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("click", onClick, true);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("click", onClick, true);
+    };
+  }, [aimActive, promptId]);
+
   const pickable = useMemo(() => [...(seatPick?.options.keys() ?? [])], [seatPick]);
   const rivalOrder = useMemo(
     () => layout.slots.map((slot) => slot.seat).filter((seat) => pickable.includes(seat)),
@@ -231,6 +355,32 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     return base.aim;
   }, [attackerKey, base.aim, hover, live]);
 
+  const arrow = useMemo<AimArrowProps | null>(() => {
+    if (!aimActive || !attackerKey || live) return null;
+    const toneOf = (seat: number | null) => (seat == null ? null : (layout.slots.find((slot) => slot.seat === seat)?.tone ?? null));
+    const attackerSeat = Number(attackerKey.split(":")[0]);
+    let label: string | null = null;
+    let targetSeat: number | null = null;
+    if (hover?.lpSeat != null && !hover.zones?.length) {
+      label = `Direct attack: ${nameOf(hover.lpSeat)}`;
+      targetSeat = hover.lpSeat;
+    } else if (hover?.zones?.[0]) {
+      const option = targets.get(hover.zones[0]);
+      label = option ? `Attack: ${targetName(option)}` : null;
+      targetSeat = Number(hover.zones[0].split(":")[0]);
+    }
+    // No mouse (a finger): the arrow shows only once a tap aimed at a target, and then runs to that target.
+    if (!hasMouse && !label) return null;
+    return {
+      fromKey: attackerKey,
+      tone: toneOf(attackerSeat) ?? "violet",
+      targetTone: toneOf(targetSeat),
+      pointer,
+      snap: label ? hover : null,
+      label,
+    };
+  }, [aimActive, attackerKey, hasMouse, hover, layout.slots, live, nameOf, targets]);
+
   const bar = useMemo<AimBar | null>(() => {
     const toneOf = (seat: number) => layout.slots.find((slot) => slot.seat === seat)?.tone ?? "ice";
     if (direct) {
@@ -253,6 +403,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   const promptAim = useMemo<PromptAim | null>(() => {
     if (!attackTarget) return null;
     return {
+      hint: touchMode ? "Tap a target, then tap again to attack." : "Click a target to attack. Esc to cancel.",
       lockedId: live?.optionId ?? null,
       onAim: (option) => {
         const [key] = optionZoneKeys(option);
@@ -266,7 +417,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
         setHover(key ? { zones: [key] } : null);
       },
     };
-  }, [attackTarget, confirm, live, lockTo]);
+  }, [attackTarget, confirm, live, lockTo, touchMode]);
 
   const controller = useMemo<TableController>(
     () => ({ ...base, aim, seatPick, onActivate, onAim }),
@@ -280,6 +431,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     bar,
     promptAim,
     seatKeys: seatPick != null,
+    arrow,
     pointed: live ? { zoneKey: live.to.zones?.[0] ?? null, lpSeat: live.to.lpSeat ?? null, label: live.label, optionId: live.optionId } : null,
     confirm,
     cancel,
