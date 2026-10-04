@@ -69,6 +69,8 @@ interface DraftSummaryViewProps {
     tournamentSlug?: string | null;
     /** The viewer's saved draft deck, when they have built one. */
     myDeckId?: number | null;
+    /** Server-checked: completed, no tournament yet, and the viewer is the host or a guild admin. */
+    canCreateTournament?: boolean;
   };
   slug: string;
   isParticipant: boolean;
@@ -307,8 +309,9 @@ export function DraftSummaryView({
   if (draft.startedAt) setupRows.push(["Started", formatStamp(draft.startedAt)]);
   if (draft.endedAt) setupRows.push(["Ended", formatStamp(draft.endedAt)]);
 
-  // Only the draft host may make the tournament (the API refuses anyone else).
-  const showMakeTournament = isCompleted && isCreator && !linkedTournament;
+  // The API decides who may make the tournament: the draft host or a server admin.
+  const canCreateTournament = draft.canCreateTournament === true;
+  const showMakeTournament = isCompleted && canCreateTournament && !linkedTournament;
   const showTournamentPanel = isCompleted && linkedTournament != null;
 
 
@@ -368,8 +371,8 @@ export function DraftSummaryView({
                       ? `It is saved in My decks. Editing it is optional. Export needs at least 40 picks. You made ${participantPickCount}.`
                       : `Export needs at least 40 picks. You made ${participantPickCount}, so build your deck here instead.`}
                 </p>
-                {!isCreator && !linkedTournament && (
-                  <p className={styles.nextP}>The host will start the tournament. Your deck is registered for it then.</p>
+                {!canCreateTournament && !linkedTournament && (
+                  <p className={styles.nextP}>The host or a server admin will start the tournament.</p>
                 )}
               </div>
             )}

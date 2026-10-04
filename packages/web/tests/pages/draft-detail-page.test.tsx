@@ -42,8 +42,8 @@ vi.mock("../../src/components/draft/room/draft-room", () => ({
   DraftRoom: () => <div data-testid="draft-room">Room</div>,
 }));
 vi.mock("../../src/components/draft/room/finale", () => ({
-  DraftFinale: ({ onClose, pool }: { onClose: () => void; pool: Array<{ id: number; name: string }> }) => (
-    <button data-testid="draft-finale" onClick={onClose}>
+  DraftFinale: ({ onClose, pool, canCreateTournament }: { onClose: () => void; pool: Array<{ id: number; name: string }>; canCreateTournament: boolean }) => (
+    <button data-testid="draft-finale" data-can-create={String(canCreateTournament)} onClick={onClose}>
       Finale
       {pool.map((card) => <span key={card.id}>{card.name}</span>)}
     </button>
@@ -169,6 +169,32 @@ describe("DraftDetailPage — completion transition", () => {
     expect(screen.getByTestId("draft-summary-view")).toBeTruthy();
     act(() => screen.getByTestId("draft-finale").click());
     expect(screen.queryByTestId("draft-finale")).toBeNull();
+  });
+
+  it.each([
+    ["the host when the server refuses", "user-1", false, "false"],
+    ["a guild admin who is not the host", "admin-9", true, "true"],
+  ])("gives the finale the server's canCreateTournament for %s", async (_label, userId, canCreateTournament, expected) => {
+    const card = { id: 1, passcode: 100001, name: "A", type: "Effect Monster", frameType: "effect", effectText: "", imageUrl: "", imageUrlSmall: "" };
+    let completed = false;
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      const body = url === "/api/auth/session"
+        ? { user: { id: userId } }
+        : url === "/api/drafts/test-draft/pool"
+          ? { cards: [] }
+          : completed
+            ? { ...completedDraftResponse, myPool: [card], canCreateTournament }
+            : { ...activeDraftResponse, myPool: [card] };
+      return Promise.resolve({ ok: true, json: async () => body } as Response);
+    });
+    render(<DraftDetailPage />);
+    await waitFor(() => expect(screen.getByTestId("draft-room")).toBeTruthy());
+
+    completed = true;
+    act(() => vi.mocked(useDraftWebsocket).mock.calls.at(-1)?.[1]?.onResync?.());
+
+    await waitFor(() => expect(screen.getByTestId("draft-finale")).toBeTruthy());
+    expect(screen.getByTestId("draft-finale").getAttribute("data-can-create")).toBe(expected);
   });
 
   it("uses the completed response pool including the final timer pick", async () => {

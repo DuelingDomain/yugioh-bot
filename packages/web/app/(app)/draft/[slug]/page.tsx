@@ -70,6 +70,8 @@ interface DraftData {
   tournamentName?: string | null;
   tournamentSlug?: string | null;
   myDeckId?: number | null;
+  /** Server-checked: completed, no tournament yet, and the viewer is the host or a guild admin. */
+  canCreateTournament?: boolean;
   isParticipant: boolean;
   /** Server says test bots are allowed (DRAFT_TEST_BOTS=1 or a non-production build). */
   botsEnabled?: boolean;
@@ -371,7 +373,7 @@ export default function DraftDetailPage() {
           pool={finalePool}
           theme={isThemeDraft}
           extraCount={finaleExtra}
-          canCreateTournament={isCreator}
+          canCreateTournament={draft.canCreateTournament === true}
           tournament={tournament}
           exporting={finaleExporting}
           exportError={finaleExportError}

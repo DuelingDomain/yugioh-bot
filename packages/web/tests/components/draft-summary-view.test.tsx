@@ -402,14 +402,25 @@ describe("DraftSummaryView", () => {
   });
 
   it("makes Create tournament the primary action for the host", () => {
-    renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7 }, { isCreator: true });
+    renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7, canCreateTournament: true }, { isCreator: true });
     expect(screen.getByRole("button", { name: "Create tournament" })).toHaveClass("sv-btn", "primary");
-    expect(screen.queryByText(/the host will start the tournament/i)).toBeNull();
+    expect(screen.queryByText(/will start the tournament/i)).toBeNull();
+  });
+
+  it("offers Create tournament to a guild admin who is not the host", () => {
+    renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7, canCreateTournament: true }, { isCreator: false });
+    expect(screen.getByRole("button", { name: "Create tournament" })).toHaveClass("sv-btn", "primary");
+    expect(screen.queryByText(/will start the tournament/i)).toBeNull();
+  });
+
+  it("offers no create button to the host when the server refuses", () => {
+    renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7, canCreateTournament: false }, { isCreator: true });
+    expect(screen.queryByRole("button", { name: "Create tournament" })).toBeNull();
   });
 
   it("tells other players the host starts the tournament, with no create button", () => {
     renderView({ ...baseDraft, participantPickCount: 15, myDeckId: 7 });
-    expect(screen.getByText("The host will start the tournament. Your deck is registered for it then.")).toBeTruthy();
+    expect(screen.getByText("The host or a server admin will start the tournament.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create tournament" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Go to tournament" })).toBeNull();
   });
@@ -423,7 +434,7 @@ describe("DraftSummaryView", () => {
     expect(link.getAttribute("href")).toBe("/tournament/cup");
     expect(link).toHaveClass("sv-btn", "primary");
     expect(screen.queryByRole("button", { name: "Create tournament" })).toBeNull();
-    expect(screen.queryByText(/the host will start the tournament/i)).toBeNull();
+    expect(screen.queryByText(/will start the tournament/i)).toBeNull();
   });
 
   it("sends Best of 3 by default and the chosen length when the creator makes a tournament", async () => {
@@ -432,7 +443,7 @@ describe("DraftSummaryView", () => {
       json: async () => ({ id: 4, name: "T", webSlug: "t-4" }),
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderView({ ...baseDraft, participantPickCount: 15 }, { isCreator: true });
+    renderView({ ...baseDraft, participantPickCount: 15, canCreateTournament: true }, { isCreator: true });
 
     const select = screen.getByLabelText(/match length/i) as HTMLSelectElement;
     expect(select.value).toBe("3");
@@ -453,7 +464,7 @@ describe("DraftSummaryView", () => {
       json: async () => ({ id: 4, name: "T", webSlug: "t-4" }),
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderView({ ...baseDraft, participantPickCount: 15 }, { isCreator: true });
+    renderView({ ...baseDraft, participantPickCount: 15, canCreateTournament: true }, { isCreator: true });
     fireEvent.click(screen.getByRole("button", { name: "Create tournament" }));
     const link = await screen.findByRole("link", { name: "Go to tournament" });
     expect(link.getAttribute("href")).toBe("/tournament/t-4");

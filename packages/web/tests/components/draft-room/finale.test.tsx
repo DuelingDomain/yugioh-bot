@@ -141,7 +141,7 @@ describe("DraftFinale", () => {
       await waitFor(() => expect(document.activeElement).toBe(deck));
       expect(screen.queryByRole("button", { name: "Create tournament" })).toBeNull();
       expect(screen.queryByText("Build your deck")).toBeNull();
-      expect(screen.getByText("The host will start the tournament. Your deck is saved and will be registered for it.")).toBeTruthy();
+      expect(screen.getByText("The host or a server admin will start the tournament.")).toBeTruthy();
       expect(screen.getByRole("button", { name: "Export YDK" })).toBeTruthy();
     });
   });

@@ -13,7 +13,7 @@ export interface FinaleProps {
   theme: boolean;
   /** How many of the picks are Extra deck cards (theme drafts). */
   extraCount: number;
-  /** The viewer is the draft host: the only person who may create the tournament. */
+  /** The server says the viewer may create the tournament (the draft host or a server admin). */
   canCreateTournament: boolean;
   /** Tournament made from this draft, plus the state to create one. */
   tournament: DraftTournament;
@@ -50,7 +50,7 @@ export function DraftFinale(p: FinaleProps) {
     ? "The tournament is ready. Every deck is registered for it."
     : p.canCreateTournament
       ? "Every deck is saved. Create the tournament when you are ready."
-      : "The host will start the tournament. Your deck is saved and will be registered for it.";
+      : "The host or a server admin will start the tournament.";
   const word = useRef<HTMLHeadingElement>(null);
   const fanRef = useRef<HTMLDivElement>(null);
 
