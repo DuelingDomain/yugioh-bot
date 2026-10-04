@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   PREVIEW_DELAY_MS,
-  PREVIEW_GAP,
   PREVIEW_GRACE_MS,
   PREVIEW_MARGIN,
   placePreview,
@@ -50,61 +49,49 @@ describe("placePreview", () => {
   const h = Math.round(300 * (86 / 59));
   const card = { left: 350, top: 600, width: 100, height: 140 };
 
-  it("sits just above the card, centred on it", () => {
+  it("grows up out of the card: centred on it, bottom edge on the card's bottom edge", () => {
     const p = placePreview(card, stage, w);
-    expect(p.side).toBe("above");
     expect(p.width).toBe(w);
     expect(p.height).toBe(h);
-    expect(p.top + p.height).toBe(card.top - PREVIEW_GAP);
     expect(p.left + p.width / 2).toBe(card.left + card.width / 2);
+    expect(p.top + p.height).toBe(card.top + card.height);
+    expect(p.originX).toBeCloseTo(50);
+    expect(p.originY).toBeCloseTo(100);
   });
 
-  it("clamps to the stage edges", () => {
+  it("clamps to the stage sides", () => {
     const left = placePreview({ ...card, left: 4 }, stage, w);
     expect(left.left).toBe(PREVIEW_MARGIN);
+    expect(left.originX).toBeLessThan(50);
     const right = placePreview({ ...card, left: 700 }, stage, w);
     expect(right.left + right.width).toBe(stage.width - PREVIEW_MARGIN);
+    expect(right.originX).toBeGreaterThan(50);
   });
 
-  it("stays above, a little smaller, when the full size is just too tall", () => {
-    // 400px of room above holds 0.92 of the 437px preview
-    const p = placePreview({ ...card, top: 426 }, stage, w);
-    expect(p.side).toBe("above");
-    expect(p.height).toBeLessThan(h);
-    expect(p.height).toBeGreaterThanOrEqual(Math.floor(h * 0.75));
-    expect(p.top).toBeGreaterThanOrEqual(PREVIEW_MARGIN);
-    expect(p.top + p.height).toBe(426 - PREVIEW_GAP);
+  it("pushes down to the top margin when a top-row card has no room above", () => {
+    const p = placePreview({ left: 350, top: 100, width: 100, height: 140 }, stage, w);
+    expect(p.top).toBe(PREVIEW_MARGIN);
+    expect(p.height).toBe(h);
+    // the card is now inside the box, so the scale-in grows from where it sits
+    expect(p.originY).toBeCloseTo(((240 - PREVIEW_MARGIN) / h) * 100);
+    expect(p.originY).toBeLessThan(100);
   });
 
-  it("flips below when there is no room above", () => {
-    const p = placePreview({ left: 350, top: 100, width: 100, height: 140 }, { width: 800, height: 840 }, w);
-    expect(p.side).toBe("below");
-    expect(p.top).toBe(100 + 140 + PREVIEW_GAP);
-    expect(p.top + p.height).toBeLessThanOrEqual(840 - PREVIEW_MARGIN);
+  it("keeps the bottom margin for a card low in the stage", () => {
+    const p = placePreview({ left: 350, top: 760, width: 100, height: 140 }, stage, w);
+    expect(p.top + p.height).toBe(stage.height - PREVIEW_MARGIN);
   });
 
-  it("goes to the side when neither above nor below holds it", () => {
-    const short = { width: 900, height: 520 };
-    const p = placePreview({ left: 100, top: 200, width: 100, height: 140 }, short, 220);
-    expect(p.side).toBe("right");
-    expect(p.left).toBe(100 + 100 + PREVIEW_GAP);
-    expect(p.top).toBeGreaterThanOrEqual(PREVIEW_MARGIN);
-    expect(p.top + p.height).toBeLessThanOrEqual(short.height - PREVIEW_MARGIN);
-    const l = placePreview({ left: 700, top: 200, width: 100, height: 140 }, short, 220);
-    expect(l.side).toBe("left");
-    expect(l.left + l.width).toBe(700 - PREVIEW_GAP);
-  });
-
-  it("scales down when no side holds the full size, and never covers the card", () => {
-    const tiny = { width: 400, height: 460 };
-    const c = { left: 150, top: 160, width: 90, height: 130 };
-    const p = placePreview(c, tiny, 300);
-    expect(p.width).toBeLessThan(300);
-    expect(p.width).toBeGreaterThan(0);
-    const overlapX = p.left < c.left + c.width && p.left + p.width > c.left;
-    const overlapY = p.top < c.top + c.height && p.top + p.height > c.top;
-    expect(overlapX && overlapY).toBe(false);
-    expect(p.left).toBeGreaterThanOrEqual(PREVIEW_MARGIN - 0.5);
-    expect(p.top).toBeGreaterThanOrEqual(PREVIEW_MARGIN - 0.5);
+  it("always fits inside the stage when the width comes from previewWidth", () => {
+    for (const s of [{ width: 792, height: 842 }, { width: 1232, height: 1022 }, { width: 700, height: 420 }]) {
+      const pw = previewWidth(s);
+      for (const top of [0, s.height / 2, s.height - 140]) {
+        const p = placePreview({ left: 0, top, width: 90, height: 130 }, s, pw);
+        expect(p.left).toBeGreaterThanOrEqual(PREVIEW_MARGIN);
+        expect(p.top).toBeGreaterThanOrEqual(PREVIEW_MARGIN);
+        expect(p.left + p.width).toBeLessThanOrEqual(s.width - PREVIEW_MARGIN);
+        expect(p.top + p.height).toBeLessThanOrEqual(s.height - PREVIEW_MARGIN + 1);
+      }
+    }
   });
 });

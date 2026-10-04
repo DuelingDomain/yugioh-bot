@@ -44,7 +44,7 @@ export const CardPreview = memo(function CardPreview({
         previewWidth(size),
       );
       el.style.width = `${place.width}px`;
-      el.dataset.side = place.side;
+      if (inner.current) inner.current.style.transformOrigin = `${place.originX}% ${place.originY}%`;
       // The stage scrolls in the flat table mode, so the box is placed in its content space.
       el.style.transform = `translate(${place.left + stage.scrollLeft}px, ${place.top + stage.scrollTop}px)`;
       el.style.visibility = "visible";
@@ -77,7 +77,7 @@ export const CardPreview = memo(function CardPreview({
   }, [instant]);
 
   return (
-    <div className="pv" ref={root} aria-hidden="true" data-side="above" style={{ visibility: "hidden" }}>
+    <div className="pv" ref={root} aria-hidden="true" style={{ visibility: "hidden" }}>
       <div className="pv-card" ref={inner}>
         <CardImg key={card.id} card={card} large />
       </div>

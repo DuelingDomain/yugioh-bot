@@ -78,8 +78,7 @@ describe("the large card preview in the draft room", () => {
     const img = preview()!.querySelector("img")!;
     expect(img.getAttribute("src")).toBe("/c/1.jpg");
     expect(preview()!.getAttribute("aria-hidden")).toBe("true");
-    // it sits above the card, inside the stage
-    expect(preview()!.dataset.side).toBe("above");
+    // it grows out of the card, inside the stage
     expect(preview()!.style.transform).toMatch(/^translate\(/);
     expect(parseFloat(preview()!.style.width)).toBeGreaterThanOrEqual(300);
   });

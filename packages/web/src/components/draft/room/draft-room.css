@@ -1461,9 +1461,6 @@
   box-shadow: 0 0 0 1px rgb(0 0 0 / 0.6), 0 24px 54px rgb(0 0 0 / 0.7), 0 0 36px rgb(var(--lamp) / 0.12);
   transform-origin: 50% 100%;
 }
-.dr .pv[data-side="below"] .pv-card { transform-origin: 50% 0; }
-.dr .pv[data-side="right"] .pv-card { transform-origin: 0 50%; }
-.dr .pv[data-side="left"] .pv-card { transform-origin: 100% 50%; }
 .dr .pv-card img { display: block; width: 100%; height: 100%; object-fit: fill; }
 @media (max-width: 900px) {
   .dr .pv { display: none; }
