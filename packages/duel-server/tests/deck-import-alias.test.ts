@@ -9,7 +9,7 @@ const dirs: string[] = [];
 afterEach(() => { while (dirs.length) rmSync(dirs.pop()!, { recursive: true, force: true }); });
 
 describe("engine artwork identity", () => {
-  it("uses the same canonical passcode for pools and duel decks, including known aliases", async () => {
+  it("canonicalizes pool identities and preserves known artwork ids in imported decks", async () => {
     const dir = mkdtempSync(join(tmpdir(), "draft-alias-engine-"));
     dirs.push(dir);
     const cdb = new Database(join(dir, "cards.cdb"));
@@ -27,7 +27,7 @@ describe("engine artwork identity", () => {
       expect(await normalizeCardCodes([81480460, 81480461, 42, 10000100], dir, db))
         .toEqual(new Map([[81480460, 81480460], [81480461, 81480460], [42, 42], [10000100, 10000100]]));
       expect(await normalizeImportedDeck({ main: [81480461, 42, 10000100], extra: [81480461], side: [81480461], deckMaster: 81480461 }, dir, db))
-        .toEqual({ main: [81480460, 42, 10000100], extra: [81480460], side: [81480460], deckMaster: 81480460 });
+        .toEqual({ main: [81480461, 42, 10000100], extra: [81480461], side: [81480461], deckMaster: 81480461 });
     } finally { db.close(); }
   });
 });

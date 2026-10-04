@@ -58,15 +58,11 @@ function selection(main: number[], extra: number[] = [], side: number[] = [], de
   return { deck: { main, extra, side, ...(deckMaster != null ? { deckMaster } : {}) }, masterOrigin: null };
 }
 
-describe("draft YDK export", () => {
-  it("exports canonical passcodes for alternate artworks in every section", () => {
-    const cards = new Map([
-      [81480460, card(81480460, "Barrel Dragon", TYPE_MONSTER)],
-      [81480461, card(81480461, "Barrel Dragon", TYPE_MONSTER, 0, 81480460)],
-    ]);
-    const text = deckYdkText(selection([81480461], [81480461], [81480461]).deck, cards);
-    expect(text).not.toContain("81480461");
-    expect(text.match(/81480460/g)).toHaveLength(3);
+describe("YDK export", () => {
+  it("preserves alternate artwork ids in every section and the Deck Master", () => {
+    const text = deckYdkText(selection([81480461], [81480461], [81480461], 81480461).deck);
+    expect(text).not.toContain("81480460");
+    expect(text.match(/81480461/g)).toHaveLength(4);
   });
 });
 

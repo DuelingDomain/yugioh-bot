@@ -205,11 +205,11 @@ export async function normalizeImportedDeck(
   const allIds = deckMaster === undefined ? [...main, ...extra, ...side] : [...main, ...extra, ...side, deckMaster];
   const resolved = await resolveMissingIds(index, allIds, db, options);
 
-  const remap = (id: number): number => canonicalCardCode(resolved.get(id) ?? id, index.byId);
+  const remap = (id: number): number => resolved.get(id) ?? id;
   return mapDeckCodes({ main, extra, side, ...(deckMaster !== undefined ? { deckMaster } : {}) }, remap);
 }
 
-/** Engine passcode for each input id, resolved like `normalizeImportedDeck`; an id that cannot be resolved maps to null. */
+/** Canonical engine identity for pool and count checks; unresolved ids map to null. */
 export async function normalizeCardCodes(
   codes: number[],
   dataDirectory: string,

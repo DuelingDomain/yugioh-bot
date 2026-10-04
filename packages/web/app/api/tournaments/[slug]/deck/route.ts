@@ -176,9 +176,10 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         guildId: tournament.guild_id,
         playerId: player.id,
         draftId: rules.draftId,
+        deckCodes: [...deck.main, ...deck.extra, ...deck.side, ...(deck.deckMaster === undefined ? [] : [deck.deckMaster])],
       });
       if (!pool.ok) return pool.response;
-      const poolIssues = checkDeckAgainstPool(deck, pool.counts);
+      const poolIssues = checkDeckAgainstPool(deck, pool.counts, (code) => pool.codeMap.get(code) ?? code);
       if (poolIssues.length > 0) {
         return NextResponse.json(
           { error: "This deck uses cards you did not draft.", poolIssues },

@@ -68,7 +68,7 @@ describe("mapDraftTournamentDecks", () => {
     expect(s.deckOf(s.bob)).toEqual(MAPPED);
   });
 
-  it("maps Barrel Dragon catalog artworks and engine aliases before duel start", async () => {
+  it("maps missing Barrel Dragon artworks and keeps known engine artwork ids before duel start", async () => {
     const s = seed({ draft: true });
     const dir = mkdtempSync(join(tmpdir(), "ddcodes-engine-"));
     tempDirs.push(dir);
@@ -84,13 +84,14 @@ describe("mapDraftTournamentDecks", () => {
     const deck = { main: [81480461, 81480462], extra: [], side: [81480461] };
     s.db.prepare("update tournament_participants set deck_json = ? where tournament_id = ? and player_id = ?")
       .run(JSON.stringify(deck), s.tournamentId, s.alice);
-    const { normalizeImportedDeck } = await import("../../duel-server/src/deck-import.js");
+    const { normalizeCardCodes, normalizeImportedDeck } = await import("../../duel-server/src/deck-import.js");
     callDuelHost.mockImplementation(async (input: { deck: typeof deck }) => ({
       ok: true, data: { deck: await normalizeImportedDeck(input.deck, dir, s.db), report: { issues: [] } },
     }));
     const { mapDraftTournamentDecks } = await import("../src/lib/draft-deck-codes");
     expect(await mapDraftTournamentDecks(s.db, { tournamentId: s.tournamentId, guildId: "g1", playerIds: [s.alice] })).toEqual({ ok: true });
-    expect(s.deckOf(s.alice)).toEqual({ main: [81480460, 81480460], extra: [], side: [81480460] });
+    expect(s.deckOf(s.alice)).toEqual({ main: [81480460, 81480462], extra: [], side: [81480460] });
+    expect(await normalizeCardCodes([81480461, 81480462], dir, s.db)).toEqual(new Map([[81480461, 81480460], [81480462, 81480460]]));
     s.db.close();
   });
 

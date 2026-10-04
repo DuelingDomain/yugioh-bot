@@ -830,7 +830,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                   <b>Draft deck from {pool.draftName}</b>
                   <span>{draftRuleText(pool.mainPoolCount)}</span>
                 </p>
-                {isPhone ? <SvButton variant="quiet" onClick={() => downloadYdkFile(name, deck, catalog)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
+                {isPhone ? <SvButton variant="quiet" onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
               </>
             ) : (
               <>
@@ -861,7 +861,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onPaste={onPaste}
               />
             ) : null}
-            {!isPhone ? <SvButton variant="quiet" className={styles["de-export"]} onClick={() => downloadYdkFile(name, deck, catalog)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
+            {!isPhone ? <SvButton variant="quiet" className={styles["de-export"]} onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
             {!pool ? (
               <Popover
                 label="More deck actions"
@@ -887,7 +887,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                   </>
                 ) : (
                   <>
-                    {isPhone ? <><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); setParseError(null); setImportOpen(true); }}>Import</SvButton><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); downloadYdkFile(name, deck, catalog); }}>Export YDK</SvButton></> : null}
+                    {isPhone ? <><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); setParseError(null); setImportOpen(true); }}>Import</SvButton><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); downloadYdkFile(name, deck); }}>Export YDK</SvButton></> : null}
                     <SvButton variant="danger" role="menuitem" disabled={savedId == null || busy} onClick={() => { setMoreOpen(false); setDeleteOpen(true); setDeleteError(null); }}>
                       <Trash2 className="ic sm" aria-hidden />Delete
                     </SvButton>

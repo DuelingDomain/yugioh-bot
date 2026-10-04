@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createSavedDeckService, createTournamentService } from "@yugidraft/shared/services";
+import { mainIds, passcodeOf, seedDraftDeck } from "./helpers/draft-deck-fixture";
 
 const auth = vi.fn();
 const callDuelHost = vi.fn();
@@ -96,6 +97,36 @@ describe("tournament deck route", () => {
     expect(res.status).toBe(400);
     expect(((await res.json()) as { report: unknown }).report).toEqual(report);
     expect(s.db.prepare("select deck_json from tournament_participants where player_id = ?").get(s.a)).toEqual({ deck_json: null });
+  });
+
+  it.each([false, true])("PUT checks artwork ids in both the draft pool and deck (extra copy: %s)", async (extraCopy) => {
+    const fixture = await seedDraftDeck({ picks: [...mainIds(39), 81480461], tournamentUsers: ["drafter"] });
+    tempDirs.push(fixture.dir);
+    auth.mockResolvedValue({ user: { id: "drafter", name: "Yugi" } });
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+    db.prepare("update card_catalog set type = 'Effect Monster', frame_type = 'effect' where ygoprodeck_id = 81480461").run();
+    db.prepare("update tournaments set web_slug = 'cup'").run();
+    const deck = { main: [...mainIds(39).map(passcodeOf), 81480461], extra: [], side: extraCopy ? [81480460] : [] };
+    const saved = createSavedDeckService(db).create("guild-1", "drafter", { name: "Art", mode: "normal", deck, draftId: fixture.draftId });
+    callDuelHost.mockImplementation(async (input: { op: string; codes: number[] }) => input.op === "check-deck"
+      ? { ok: true, data: { deck, report: { issues: [] } } }
+      : { ok: true, data: { codes: Object.fromEntries(input.codes.map((id) => [id, id === 81480461 ? 81480460 : id >= 100000 ? id : passcodeOf(id)])) } });
+
+    const { PUT } = await import("../app/api/tournaments/[slug]/deck/route");
+    const res = await PUT(put({ savedDeckId: saved.id }), ctx);
+    expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "check-deck", deck }));
+    expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "normalize-codes", codes: expect.arrayContaining([81480461]) }));
+    expect(res.status).toBe(extraCopy ? 400 : 200);
+    const body = await res.json();
+    const row = db.prepare("select deck_json from tournament_participants where player_id = ?").get(fixture.players.drafter) as { deck_json: string | null };
+    if (extraCopy) {
+      expect(body.poolIssues).toEqual([{ code: 81480460, used: 2, available: 1 }]);
+      expect(row.deck_json).toBeNull();
+    } else {
+      expect(body.registration.deck).toEqual(deck);
+      expect(JSON.parse(row.deck_json!)).toEqual(deck);
+    }
   });
 
   it("PUT passes a host failure through and rejects a missing deck id", async () => {
