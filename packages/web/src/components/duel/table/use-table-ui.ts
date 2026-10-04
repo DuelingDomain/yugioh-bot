@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DuelAnswer, DuelCard, DuelPromptOption } from "@yugidraft/shared/duels";
 import { zoneKey } from "../constants";
 import { activatePromptFromField, isAttackDuelistPrompt, isDirectAttackPrompt, isAttackTargetPrompt, optionsForCard } from "../prompts";
@@ -64,13 +64,26 @@ export function useTableUi(base: TableController): TableUi {
     if (!prompt || !(isAttackTargetPrompt(prompt, true) || isAttackDuelistPrompt(prompt) || isDirectAttackPrompt(prompt))) setPendingAttack(null);
   }, [prompt]);
 
-  // A new prompt that wants cards outside the open pile must not stay hidden behind the pile's scrim.
+  // Set when an answer is sent; the next prompt (or the wait for one) then decides whether an open pile viewer stays.
+  const pileAnswered = useRef(false);
+
+  // A new prompt that wants cards outside the open pile must not stay hidden behind the pile's scrim. An answer sent
+  // while the viewer was open (an Extra Deck summon) closes it too, unless the next prompt wants a card in the pile.
   useEffect(() => {
-    if (!prompt) return;
+    const answered = pileAnswered.current;
+    pileAnswered.current = false;
+    if (!prompt) {
+      // Answered and now waiting (no prompt yet): let the player watch the board, not the pile.
+      if (answered) setPile((current) => (current?.open ? { ...current, open: false } : current));
+      return;
+    }
+    // The prompt's seat, not `canAct`: the live controller is busy while the answer is in flight, and the next prompt
+    // usually arrives before that flag clears. Judging it by `canAct` would leave the pile over the materials.
+    const promptMine = viewerSeat != null && prompt.seat === viewerSeat;
     setPile((current) => {
       if (!current?.open) return current;
       const cards = livePileCards(current, engine, viewerSeat);
-      return shouldClosePileForPrompt(cards, promptLegalKeys(prompt), canAct, false) ? { ...current, open: false } : current;
+      return shouldClosePileForPrompt(cards, promptLegalKeys(prompt), promptMine, answered) ? { ...current, open: false } : current;
     });
     // Only a new prompt decides this; later revisions of the same prompt must not close a pile the player opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -115,6 +128,8 @@ export function useTableUi(base: TableController): TableUi {
   const mine = prompt != null && viewerSeat != null && prompt.seat === viewerSeat;
   const submit = useCallback(
     (answer: DuelAnswer) => {
+      // An answer from the pile viewer leaves it open until the next prompt shows whether it is still needed.
+      if (canAct && !busy && prompt) pileAnswered.current = true;
       // Remember the declared attacker so the target step can draw the arrow from it.
       const attack =
         prompt?.context?.type === "action" && answer.choice?.startsWith("attack:")
@@ -131,7 +146,7 @@ export function useTableUi(base: TableController): TableUi {
       }
       onAnswer(answer);
     },
-    [onAnswer, prompt],
+    [busy, canAct, onAnswer, prompt],
   );
 
   const onActivate = useCallback<DuelActivateHandler>(
