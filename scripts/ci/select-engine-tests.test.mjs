@@ -30,7 +30,7 @@ test("scenario edits include the shim and the dynamic registry; a new family inc
   assert.deepEqual(selected([prefix + "scenarios/cases/new.ts"]), ["scenarios/registry.test.ts"]);
 });
 
-test("a deleted helper still selects tests with broken imports; a deleted test never becomes a full run", () => {
+test("a deleted helper still selects tests with broken imports; a deleted test is not emitted", () => {
   const sources = { ...files };
   delete sources[prefix + "support/inner.ts"];
   assert.deepEqual(selected([prefix + "support/inner.ts"], sources), ["one.test.ts", "two.test.ts"]);

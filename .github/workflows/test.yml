@@ -314,10 +314,12 @@ jobs:
         run: |
           node --input-type=module <<'JS'
           import { spawnSync } from 'node:child_process';
-          const files = process.env.CI_TEST_FILES ? JSON.parse(process.env.CI_TEST_FILES) : ['tests'];
-          if (!files.length) process.exit(0);
+          const selected = process.env.CI_TEST_FILES ? JSON.parse(process.env.CI_TEST_FILES) : undefined;
+          const narrow = selected?.length > 0;
+          const files = narrow ? selected : ['tests'];
+          if (selected?.length === 0) console.warn('Empty CI test selection; falling back to the full suite.');
           const result = spawnSync('npm', ['exec', '--workspace=packages/duel-server', '--', 'vitest', 'run', ...files,
-            '--config=vitest.unit.config.ts', '--testTimeout=15000', ...(process.env.CI_TEST_FILES ? ['--passWithNoTests'] : [])], { stdio: 'inherit' });
+            '--config=vitest.unit.config.ts', '--testTimeout=15000', ...(narrow ? ['--passWithNoTests'] : [])], { stdio: 'inherit' });
           if (result.error) throw result.error;
           process.exit(result.status ?? 1);
           JS
