@@ -11,6 +11,7 @@ import { toUtcIso } from "@/lib/utils";
 import { broadcaster } from "@/lib/notify";
 import { lookupDraftCardTypes, type EngineCardTypes } from "@/lib/draft-engine-types";
 import { draftTestBotsEnabled } from "@/lib/draft-test-bots";
+import { checkDiscordWebAccess } from "@/lib/discord-web-access";
 
 function getTimerSeconds(pickDeadlineAt: string | null | undefined): number {
   if (!pickDeadlineAt) {
@@ -324,6 +325,20 @@ export async function buildDraftResponse(slug: string, userId: string) {
       })
     : null;
 
+  let canCreateTournament = false;
+  if (draft.status === "completed" && draft.tournament_id == null) {
+    if (draft.created_by_user_id === userId) {
+      canCreateTournament = true;
+    } else {
+      try {
+        canCreateTournament = (await checkDiscordWebAccess(userId, "admin")).ok;
+      } catch {
+        // The draft remains readable when Discord verification is unavailable.
+        canCreateTournament = false;
+      }
+    }
+  }
+
   return {
     id: draft.id,
     guildId: draft.guild_id,
@@ -344,6 +359,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
     tournamentId: draft.tournament_id ?? null,
     tournamentName: tournament?.name ?? null,
     tournamentSlug: tournament?.webSlug ?? null,
+    canCreateTournament,
     players,
     participantPickCount,
     myDeckId,
