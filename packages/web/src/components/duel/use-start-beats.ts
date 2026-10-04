@@ -8,9 +8,10 @@
  */
 import { duelFxClock } from "./fx-clock";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { DuelClock, DuelEngineView } from "@yugidraft/shared/duels";
+import type { DuelClock, DuelEngineView, DuelEvent } from "@yugidraft/shared/duels";
 import { collectFreshEvents, maxEventId } from "./event-queue";
 import { isOpeningView, openingPresentationMs, planPhaseBeats, type PhaseBeatPlan } from "./phase-beats";
+import { DESTROY_HIDE_CAP_MS } from "./destroy-hide";
 
 export type StartBeats = {
   /** The turn-start phases are passing: nothing can be answered yet. */
@@ -37,6 +38,23 @@ const IDLE: Shown = { active: false, phase: null };
 // Each series game has its own duel slug. Keep this outside the room/layers so a reconnect,
 // FX recovery or route remount cannot present an unchanged revision-zero opening twice.
 const presentedOpenings = new Set<string>();
+
+/**
+ * Whether the card and banner layers are mounted: the duel can show them, and the connection is not
+ * recovering, except while the opening deal plays. The room and this hook use the same rule.
+ */
+export function fxLayersUp(ready: boolean, recovering: boolean, dealing: boolean): boolean {
+  return ready && (!recovering || dealing);
+}
+
+/**
+ * How long the layers stay up through a `recovering` blip after the opening is claimed. An opening
+ * with automatic effects has no known length (Infinity) and a duel without a clock has no grace
+ * limit: cap it, or the layers would ignore `recovering` for the whole duel.
+ */
+function dealHoldMs(events: readonly DuelEvent[], reduced: boolean): number {
+  return Math.min(DESTROY_HIDE_CAP_MS, openingPresentationMs(events, reduced) + 100);
+}
 
 export function useStartBeats({
   engine,
@@ -66,16 +84,17 @@ export function useStartBeats({
   // A duel that is still at its very start replays its opening; one the player joins halfway does not.
   // The deal that was claimed above keeps the layers up until its presentation is over.
   const dealEndsAtRef = useRef(0);
-  const dealing = duelFxClock.now() < dealEndsAtRef.current;
+  const keyRef = useRef(duelKey);
+  // keyRef still holds the old key for the render in which duelKey changes: the old deal does not count.
+  const dealing = keyRef.current === duelKey && duelFxClock.now() < dealEndsAtRef.current;
   // The card and banner layers are mounted.
-  const layersUp = ready && (!recovering || dealing);
+  const layersUp = fxLayersUp(ready, recovering, dealing);
   const replayFrom = opening && !presentedOpenings.has(duelKey)
     && duelFxClock.realMs(openingPresentationMs(engine.events, reducedMotion)) + 100 <= graceLeft ? 0 : null;
 
   const [shown, setShown] = useState<Shown>(IDLE);
   const [, setOpeningClaim] = useState<string | null>(null);
   const cursorRef = useRef<number | null>(null);
-  const keyRef = useRef(duelKey);
   const timersRef = useRef<Set<number>>(new Set());
   const releaseAtRef = useRef(0);
   const mountedRef = useRef(false);
@@ -104,6 +123,7 @@ export function useStartBeats({
       keyRef.current = duelKey;
       cursorRef.current = null;
       releaseAtRef.current = 0;
+      dealEndsAtRef.current = 0;
       clearTimers();
       setShown(IDLE);
     }
@@ -119,7 +139,7 @@ export function useStartBeats({
     if (opening && !presentedOpenings.has(duelKey)) {
       // The opening may arrive after an empty engine snapshot, when the cursor is already set.
       presentedOpenings.add(duelKey);
-      if (replayFrom === 0) dealEndsAtRef.current = duelFxClock.now() + openingPresentationMs(events, reducedRef.current) + 100;
+      if (replayFrom === 0) dealEndsAtRef.current = duelFxClock.now() + dealHoldMs(events, reducedRef.current);
       // Publish the consumed cursor to the layers even if this batch has no phase beats to show.
       setOpeningClaim(duelKey);
       if (replayFrom == null) {

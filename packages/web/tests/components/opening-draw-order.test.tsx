@@ -4,9 +4,9 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelClock, DuelEngineView, DuelEvent } from "@yugidraft/shared/duels";
 import { MoveFx } from "@/components/duel/move-fx";
-import { useStartBeats } from "@/components/duel/use-start-beats";
+import { fxLayersUp, useStartBeats } from "@/components/duel/use-start-beats";
 import { clearZoneSnapshots, planMoves, resetMoveSchedule } from "@/components/duel/move-plan";
-import { resetPhaseBeats } from "@/components/duel/phase-beats";
+import { openingPresentationMs, resetPhaseBeats } from "@/components/duel/phase-beats";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
@@ -61,12 +61,12 @@ function Hands({ deck = 35 }: { deck?: number }) {
 
 type RoomProps = { events?: DuelEvent[]; clock?: DuelClock | null; ready?: boolean; recovering?: boolean; reduced?: boolean };
 
-/** The room's wiring of useStartBeats into the move layer, with the same hand-over and the same layer gate. */
+/** The room's wiring of useStartBeats into the move layer, with the same hand-over and the room's own layer gate (fxLayersUp). */
 function Room({ events = opening, clock, ready = true, recovering = false, reduced = false }: RoomProps) {
   const beats = useStartBeats({ engine: { revision: 0, turn: 1, phase: "main1", events } as DuelEngineView, clock, duelKey: key, reducedMotion: reduced, ready, recovering });
   return <div>
     <Hands />
-    {ready && (!recovering || beats.dealing) ? <MoveFx events={events} duelKey={key} reducedMotion={reduced} replayFrom={beats.replayFrom} skipThrough={beats.skipThrough} /> : null}
+    {fxLayersUp(ready, recovering, beats.dealing) ? <MoveFx events={events} duelKey={key} reducedMotion={reduced} replayFrom={beats.replayFrom} skipThrough={beats.skipThrough} /> : null}
   </div>;
 }
 
@@ -218,5 +218,67 @@ describe("the opening deal through the room hand-over", () => {
     const { hiddenAtStart, ghosts } = await watch(view, 300);
     expect(hiddenAtStart.size).toBe(0);
     expect(ghosts).toBe(0);
+  });
+});
+
+/** Shows what useStartBeats says, without any layer. */
+function Probe({ events = opening, clock, duelKey, ready = true, recovering = false }: { events?: DuelEvent[]; clock?: DuelClock | null; duelKey: string; ready?: boolean; recovering?: boolean }) {
+  const beats = useStartBeats({ engine: { revision: 0, turn: 1, phase: "main1", events } as DuelEngineView, clock, duelKey, reducedMotion: false, ready, recovering });
+  return <div data-testid="probe" data-dealing={String(beats.dealing)} />;
+}
+const probe = (view: ReturnType<typeof render>) => view.getByTestId("probe").dataset;
+
+describe("how long the layers stay up through a recovering blip", () => {
+  // An opening with an effect move: no known length (Infinity). Without a clock the grace time is Infinity too.
+  const withEffect: DuelEvent[] = [
+    { ...opening[0], reason: "other" } as DuelEvent,
+    ...opening.slice(1),
+  ];
+
+  it("lets a recovering blip keep the layers up only for a capped time when the opening has no known length", async () => {
+    const view = render(<Probe events={withEffect} duelKey={key} />);
+    expect(probe(view).dealing).toBe("true");
+    await tick(7000);
+    view.rerender(<Probe events={withEffect} duelKey={key} />);
+    expect(probe(view).dealing).toBe("true");
+    // The cap (8 s) ends: a later recovering blip unmounts the layers as it does for any other duel.
+    await tick(1500);
+    view.rerender(<Probe events={withEffect} duelKey={key} recovering />);
+    expect(probe(view).dealing).toBe("false");
+    expect(fxLayersUp(true, true, probe(view).dealing === "true")).toBe(false);
+  });
+
+  it("ends the deal hold at the end of the deal for an ordinary opening", async () => {
+    const view = render(<Probe clock={graceClock(8000)} duelKey={key} />);
+    expect(probe(view).dealing).toBe("true");
+    // Held for the length of the presentation (flights and phase beats), then released.
+    await tick(openingPresentationMs(opening, false) - 200);
+    view.rerender(<Probe clock={graceClock(8000)} duelKey={key} />);
+    expect(probe(view).dealing).toBe("true");
+    await tick(500);
+    view.rerender(<Probe clock={graceClock(8000)} duelKey={key} />);
+    expect(probe(view).dealing).toBe("false");
+  });
+
+  it("forgets the deal of the old game when the duel key changes", async () => {
+    const view = render(<Probe clock={graceClock(8000)} duelKey={key} />);
+    expect(probe(view).dealing).toBe("true");
+    const next = `${key}-game-2`;
+    resetMoveSchedule(next);
+    resetPhaseBeats(next);
+    // The next game's room is not ready yet (no events): its first render must not inherit the old hold.
+    view.rerender(<Probe events={[]} clock={graceClock(8000)} duelKey={next} ready={false} />);
+    expect(probe(view).dealing).toBe("false");
+    view.rerender(<Probe events={[]} clock={graceClock(8000)} duelKey={next} ready={false} recovering />);
+    expect(fxLayersUp(true, true, probe(view).dealing === "true")).toBe(false);
+  });
+});
+
+describe("the layer gate", () => {
+  it("mounts the layers when ready, unless the connection recovers and no deal plays", () => {
+    expect(fxLayersUp(true, false, false)).toBe(true);
+    expect(fxLayersUp(true, true, false)).toBe(false);
+    expect(fxLayersUp(true, true, true)).toBe(true);
+    expect(fxLayersUp(false, false, true)).toBe(false);
   });
 });

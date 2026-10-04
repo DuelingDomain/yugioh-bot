@@ -82,7 +82,7 @@ import { DuelClockDisplay, DuelSettingsSummary, DuelSoundControls, RoomInvite } 
 import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
 import { MasterReturnFx } from "./master-return-fx";
 import { MoveFx } from "./move-fx";
-import { useStartBeats } from "./use-start-beats";
+import { fxLayersUp, useStartBeats } from "./use-start-beats";
 import { PositionFx } from "./position-fx";
 import { ChainFx } from "./chain-fx";
 import { SummonFx } from "./summon-fx";
@@ -252,7 +252,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   });
   // The card layers go while the connection recovers (their events are history when they return), except while
   // the opening deal plays: a focus or a socket retry in those seconds must not drop the cards still in flight.
-  const fxUp = !error && (!realtime.recovering || startBeats.dealing);
+  const fxUp = fxLayersUp(!error, realtime.recovering, startBeats.dealing);
   const catchingUp = syncing || startBeats.active;
   // The engine drops its prompt when the duel ends; guard here too, so no answer path can open between the end and the result screen.
   const prompt = data?.engine?.result ? null : (data?.engine?.prompt ?? null);
