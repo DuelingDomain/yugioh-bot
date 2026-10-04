@@ -11,11 +11,13 @@ import styles from "./phase-hub.module.css";
 
 export type PhaseHubProps = {
   /**
-   * "lane": the 1v1 board. A slim lane under the Extra Monster Zones; the strip carries the owner and the turn on its row.
+   * "band": the 1v1 board. Three pairs of chips (Draw and Standby, Main 1 and Battle, Main 2 and End) float on one hairline in the
+   * free cells of the Extra Monster Zone band; the owner and the turn sit above the left pair. The nav fills the band's top row (a
+   * five-column grid like the zones' own) and needs no lane of its own.
    * "table": a table of 3 or 4. The same strip at a place `hubPose` found; the owner and the turn sit in a caption line above it
    * (the table stage's `data-hub-size` decides whether that caption, or the strip alone, fits).
    */
-  variant: "lane" | "table";
+  variant: "band" | "table";
   /** Raw engine phase (engine.phase). */
   phase: string | null | undefined;
   battleStep?: BattleStep | null;
@@ -71,11 +73,15 @@ function Chip({ view, litName, onChoose }: { view: StationView; litName: string;
   );
 }
 
+/** The three cells of the Extra Monster Zone row that hold a pair of phases each (the zones take the two between them). */
+const PAIRS = [[0, 1], [2, 3], [4, 5]] as const;
+
 /**
- * The phases of the turn, in the middle of the board, as one strip: DP SP M1 BP M2 EP on a hairline track. It reads the same model as the bar (`phaseStations`) and sends the
+ * The phases of the turn, in the middle of the board: DP SP M1 BP M2 EP, as one strip at a table and as three pairs on one hairline in the 1v1 band. It reads the same model as the bar (`phaseStations`) and sends the
  * same option ids through the same `onChoose`: Battle, Main 2 and End are buttons only while the local seat may answer
  * and the engine offers that move; on every other turn, and while anything else is being decided, it is read-only.
- * The lit chip is wider and carries the phase's full name. Only opacity and transform ever animate.
+ * The lit chip is wider and carries the phase's full name (a cell too narrow for it keeps the code and puts the name under the pair).
+ * Only opacity and transform ever animate.
  */
 export function PhaseHub({
   variant, phase, battleStep, turn, turnSeat, mySeat, playerName, tone, actionOptions, canAct, onChoose, reducedMotion,
@@ -123,11 +129,19 @@ export function PhaseHub({
       style={style}
     >
       <p className={styles.srOnly} role="status" aria-live="polite" aria-atomic="true">{summary}</p>
-      {variant === "lane" ? (
-        <div className={styles.plate}>
-          <div className={styles.owner} data-part="owner">{who}</div>
-          {track}
-        </div>
+      {variant === "band" ? (
+        <>
+          <span className={styles.line} aria-hidden="true" />
+          {PAIRS.map((pair, p) => (
+            <div key={p} className={styles.cell} data-cell={p}>
+              <div className={styles.pair}>
+                {p === 0 ? <div className={styles.owner} data-part="owner">{who}</div> : null}
+                {pair.map((i) => <Chip key={stations[i].station.code} view={stations[i]} litName={litName} onChoose={onChoose} />)}
+                {litStation && (pair as readonly number[]).includes(current) ? <span className={styles.under} aria-hidden="true">{litName}</span> : null}
+              </div>
+            </div>
+          ))}
+        </>
       ) : (
         <>
           <div className={styles.caption} data-part="owner" aria-hidden="true">

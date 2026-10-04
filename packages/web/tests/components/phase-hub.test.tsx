@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -29,7 +31,7 @@ const ALL_MOVES = [
 
 function hubProps(over: Partial<PhaseHubProps> = {}): PhaseHubProps {
   return {
-    variant: "lane",
+    variant: "band",
     phase: "main1",
     turn: 4,
     turnSeat: 0,
@@ -181,20 +183,43 @@ describe("PhaseHub turn owner", () => {
     expect(container.querySelector<HTMLElement>("nav")!.style.getPropertyValue("--seat")).toBe("#5cb8f5");
   });
 
-  it("draws the lane as one strip: owner and turn first, then DP SP M1 BP M2 EP on one track", () => {
+  it("draws three pairs in the band's free cells on one hairline, with the owner above the left pair", () => {
     const { container } = render(<PhaseHub {...hubProps({ phase: "main1" })} />);
     const nav = container.querySelector("nav")!;
-    expect(nav.getAttribute("data-variant")).toBe("lane");
-    const owner = nav.querySelector<HTMLElement>("[data-part='owner']")!;
-    const track = nav.querySelector<HTMLElement>("[class*='track']")!;
-    expect(owner.textContent).toContain("You");
-    expect(owner.textContent).toContain("Turn 4");
-    expect(owner.querySelectorAll("[data-phase]")).toHaveLength(0);
-    expect([...track.children].map((chip) => chip.getAttribute("data-phase"))).toEqual(["DP", "SP", "M1", "BP", "M2", "EP"]);
-    expect(owner.compareDocumentPosition(track) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // One row inside one plate; no caption line in the lane.
-    expect(nav.querySelectorAll("[class*='plate']")).toHaveLength(1);
+    expect(nav.getAttribute("data-variant")).toBe("band");
+    const cells = [...nav.querySelectorAll<HTMLElement>("[data-cell]")];
+    expect(cells.map((cell) => cell.getAttribute("data-cell"))).toEqual(["0", "1", "2"]);
+    // Draw and Standby left, Main 1 and Battle in the centre, Main 2 and End right; the document order stays DP to EP.
+    expect(cells.map((cell) => [...cell.querySelectorAll("[data-phase]")].map((chip) => chip.getAttribute("data-phase")))).toEqual([
+      ["DP", "SP"], ["M1", "BP"], ["M2", "EP"],
+    ]);
+    // One hairline for the whole strip, decoration only; no pill, no track and no caption line.
+    const lines = nav.querySelectorAll("[class*='line']");
+    expect(lines).toHaveLength(1);
+    expect(lines[0].getAttribute("aria-hidden")).toBe("true");
+    expect(nav.querySelector("[class*='plate']")).toBeNull();
+    expect(nav.querySelector("[class*='track']")).toBeNull();
     expect(nav.querySelector("[class*='caption']")).toBeNull();
+    // The owner and the turn sit in the left pair, before its chips, and nowhere else.
+    const owner = nav.querySelector<HTMLElement>("[data-part='owner']")!;
+    expect(cells[0].contains(owner)).toBe(true);
+    expect(owner.compareDocumentPosition(cells[0].querySelector("[data-phase]")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(nav.querySelectorAll("[data-part='owner']")).toHaveLength(1);
+    expect(owner.textContent).toBe("YouTurn 4");
+    expect(owner.querySelector("[class*='turn']")!.textContent).toBe("Turn 4");
+    expect(owner.querySelectorAll("[data-phase]")).toHaveLength(0);
+  });
+
+  it("keeps the click path and the aria of the pairs exactly as the strip had them", () => {
+    const onChoose = vi.fn();
+    const { container } = render(<PhaseHub {...hubProps({ actionOptions: ALL_MOVES, onChoose })} />);
+    const live = [...container.querySelectorAll<HTMLElement>("button[data-phase]")];
+    expect(live.map((chip) => chip.getAttribute("data-phase"))).toEqual(["BP", "M2", "EP"]);
+    expect(live.map((chip) => chip.getAttribute("aria-label"))).toEqual(["Go to Battle Phase", "Go to Main Phase 2", "End turn"]);
+    fireEvent.click(live[2]);
+    expect(onChoose).toHaveBeenCalledExactlyOnceWith("to_ep");
+    expect(container.querySelectorAll("[aria-current='step']")).toHaveLength(1);
+    expect(screen.getByRole("status").textContent).toBe("Turn 4, your turn, Main 1");
   });
 
   it("expands the lit chip to the phase's full name and leaves the others as codes", () => {
@@ -206,6 +231,70 @@ describe("PhaseHub turn owner", () => {
     expect([...container.querySelectorAll("[data-state='done']")].map((chip) => chip.getAttribute("data-phase"))).toEqual(["DP", "SP", "M1"]);
   });
 
+  it("puts the lit name under its pair too, for a cell too narrow to hold it in the chip", () => {
+    const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
+    const under = container.querySelectorAll<HTMLElement>("[class*='under']");
+    // One label, in the pair of the lit chip (the centre one), decoration only.
+    expect(under).toHaveLength(1);
+    expect(under[0].textContent).toBe("Battle · Damage");
+    expect(under[0].getAttribute("aria-hidden")).toBe("true");
+    const lit = container.querySelector("[aria-current='step']")!;
+    expect(under[0].parentElement).toBe(lit.parentElement);
+    expect(under[0].closest("[data-cell]")!.getAttribute("data-cell")).toBe("1");
+    // It is the last child of its pair, so it can sit under the chips; no label without a lit phase.
+    expect(under[0].parentElement!.lastElementChild).toBe(under[0]);
+    cleanup();
+    const idle = render(<PhaseHub {...hubProps({ phase: null, turnSeat: null })} />);
+    expect(idle.container.querySelector("[class*='under']")).toBeNull();
+  });
+
+  it("marks the other seat's turn so the lit chip fills ember, and your own so it fills violet", () => {
+    const mine = render(<PhaseHub {...hubProps()} />);
+    expect(mine.container.querySelector("nav")!.getAttribute("data-tone")).toBe("mine");
+    cleanup();
+    const theirs = render(<PhaseHub {...hubProps({ turnSeat: 1, canAct: false })} />);
+    expect(theirs.container.querySelector("nav")!.getAttribute("data-tone")).toBe("theirs");
+    // Their turn: the ember fill is a band rule, quieter than the violet one, and it never reaches the table variant.
+    const css = readFileSync(join(__dirname, "../../src/components/duel/phase-hub.module.css"), "utf8");
+    const theirsRule = css.match(/\.root\[data-variant="band"\]\[data-tone="theirs"\]\s*\{([^}]*)\}/)![1];
+    expect(theirsRule).toMatch(/--lit-bg:[^;]*var\(--ember-rgb\) \/ 0\.34[^;]*var\(--ember-rgb\) \/ 0\.18/);
+    expect(theirsRule).toMatch(/--lit-edge:\s*rgb\(var\(--ember-rgb\)/);
+    expect(css).toMatch(/\.root\[data-tone="mine"\]\s*\{[^}]*--lit-bg:\s*linear-gradient\(#33268a/);
+  });
+});
+
+describe("PhaseHub band styles", () => {
+  const css = readFileSync(join(__dirname, "../../src/components/duel/phase-hub.module.css"), "utf8");
+  const block = (selector: string) => {
+    const at = css.indexOf(`\n${selector} {`);
+    expect(at, selector).toBeGreaterThan(-1);
+    return css.slice(at, css.indexOf("}", at));
+  };
+
+  it("sizes the chips with the zone, 26px at the least and 38px at the most", () => {
+    expect(block('.root[data-variant="band"]')).toMatch(/--hc:\s*clamp\(26px, calc\(var\(--hub-z\) \* 0\.28\), 38px\)/);
+  });
+
+  it("keeps the owner label to the cell, truncating the name, with 6px of air before the next zone", () => {
+    expect(block(".owner")).toMatch(/max-width:\s*calc\(50cqw \+ 50% - 6px\)/);
+    expect(block(".whoName")).toMatch(/text-overflow:\s*ellipsis/);
+    expect(block(".whoName")).toMatch(/overflow:\s*hidden/);
+    expect(block(".who")).toMatch(/min-width:\s*0/);
+  });
+
+  it("writes Turn in sentence case: no capitals, no tracking", () => {
+    const turn = block(".turn");
+    expect(turn).not.toMatch(/font-variant-caps|text-transform|letter-spacing/);
+    expect(css).not.toMatch(/all-small-caps|text-transform:\s*uppercase/);
+  });
+
+  it("falls back to the code and the label under the pair below 168px of cell", () => {
+    expect(css).toMatch(/@container \(max-width: 167px\)/);
+    expect(block(".under")).toMatch(/display:\s*none/);
+  });
+});
+
+describe("PhaseHub table", () => {
   it("puts the owner and turn in a caption line above the strip at a table", () => {
     const { container } = render(<PhaseHub {...hubProps({ variant: "table", turnSeat: 1, canAct: false })} />);
     const nav = container.querySelector("nav")!;

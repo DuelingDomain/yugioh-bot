@@ -152,7 +152,7 @@
   --ohkr: calc(var(--ohk) * (1 - var(--top-hide) + var(--top-lift-k)));
 
   --avail-w: calc(100cqw - var(--pl) - var(--pr) - 2px);
-  --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px - 2 * var(--hpad) - var(--lane-h, 0px));
+  --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px - 2 * var(--hpad));
   --zw: calc(var(--avail-w) / var(--wk));
   --zh: min(
     calc((var(--avail-h) - 2 * var(--tally-h)) / var(--hk)),
@@ -583,8 +583,7 @@
   display: grid;
   flex: none;
   grid-template-columns: var(--pile-col) minmax(0, 1fr) var(--pile-col);
-  /* The middle row holds the Extra Monster Zones and, on a 1v1 with the phase hub, the lane under them (--lane-h). */
-  grid-template-rows: var(--z) var(--z) calc(var(--z) + var(--lane-h, 0px)) var(--z) var(--z);
+  grid-template-rows: repeat(5, var(--z));
   gap: var(--gy) var(--g);
   min-width: 0;
 }
@@ -606,7 +605,7 @@
 }
 
 .arena::after {
-  top: calc(3 * var(--z) + var(--lane-h, 0px) + 2.5 * var(--gy) - 4px);
+  top: calc(3 * var(--z) + 2.5 * var(--gy) - 4px);
 }
 
 .half {
@@ -703,21 +702,16 @@
   min-height: 0;
 }
 
-/* The phase hub lane: the strip under the Extra Monster Zones, above your monster zones. --lane-h is set on a 1v1 that has
-   a hub (and a window wide enough to draw it); the row grows by that much and the zones shrink to pay for it. */
+/* The phase hub (1v1): the top row of the band, the same height as the Extra Monster Zones and a five-column grid like theirs, so
+   the three pairs of phases sit in its free cells. It is drawn before the zones and has no z-index of its own, so its hairline
+   lies under their outlines, labels and cards; the chips (z-index 3) lie over them. It takes no height from the zones. */
 .emzHub {
   position: absolute;
-  top: var(--z);
+  top: 0;
   right: 0;
-  bottom: 0;
   left: 0;
-  z-index: 1;
+  height: var(--z);
   pointer-events: none;
-}
-@media (min-width: 901px) {
-  .playmat[data-hub="true"] {
-    --lane-h: calc(clamp(26px, 4.6cqh, 34px) + 14px);
-  }
 }
 
 .rows {
@@ -744,7 +738,6 @@
   min-height: 0;
 }
 
-/* The zones take the top of the band; the hub lane, when there is one, takes the rest. */
 .emzRow {
   height: var(--z);
 }
@@ -1739,7 +1732,7 @@
     --mark-k: 0.085;
     --res-top-px: 6px;
     --pk: 0.8;
-    --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px - 2 * var(--hpad) - var(--lane-h, 0px));
+    --avail-h: calc(100cqh - 2 * var(--py) - 2 * var(--gs) - 2px - 2 * var(--hpad));
     /* Both tallies sit above their hands (full width rows), so the hands can be wide and barely overlap. */
     --fixed-h: calc(2 * var(--tally-h) + 2 * var(--gs) + var(--res-top-px) + var(--res-bot-px));
     --zh: calc((var(--avail-h) - var(--fixed-h)) / (var(--hk) + var(--lkr) + var(--ohkr)));

@@ -1147,12 +1147,12 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     </div>
   );
   // What DuelField (classic) and SolidField (3D mode) take: one object, so both looks drive the same logic.
-  // Classic 1v1: the phases live on the board, in the gap between the two fields. The bar keeps the caption, the clock
+  // Classic 1v1: the phases live on the board, in the free cells of the Extra Monster Zone row. The bar keeps the caption, the clock
   // and the Responses + turn group. The 3D board, the legacy multiseat stage and the tag table keep the phases in the bar.
   const phaseHub = Boolean(engine) && !solid && !multi && !liveTable;
   const hubNode = phaseHub && engine ? (
     <PhaseHub
-      variant="lane"
+      variant="band"
       phase={shownPhase}
       battleStep={battleStep}
       turn={engine.turn}

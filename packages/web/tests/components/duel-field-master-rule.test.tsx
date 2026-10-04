@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DuelMasterRule } from "@yugidraft/shared/duels";
@@ -113,7 +115,7 @@ describe("DuelField phase hub slot", () => {
     );
   }
 
-  it.each([1, 3, 5] as const)("draws the hub lane between the two fields, under the Extra Monster Zones, under Master Rule %i", (rule) => {
+  it.each([1, 3, 5] as const)("draws the hub in the Extra Monster Zone band, before the zones so its line lies under them, under Master Rule %i", (rule) => {
     const { container } = withHub(rule, <nav aria-label="Duel phases" data-testid="hub-probe" />);
     const hub = container.querySelector('[data-testid="hub-probe"]')!;
     const halves = [...container.querySelectorAll("[data-field-seat]")];
@@ -122,15 +124,22 @@ describe("DuelField phase hub slot", () => {
     expect(halves[0].compareDocumentPosition(hub) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(hub.compareDocumentPosition(halves[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(halves.some((half) => half.contains(hub))).toBe(false);
-    // The lane belongs to the board's middle row and the playmat knows to reserve its height.
+    // It belongs to the board's middle row, inside the Extra Monster Zone band, and takes no row of its own.
     expect(hub.closest("[data-hub='true']")).not.toBeNull();
-    // After the Extra Monster Zones in document order, as it is on screen.
+    expect(hub.closest("[class*='emzBand']")).not.toBeNull();
+    // Before the Extra Monster Zones in document order: at the same stacking level its hairline paints under their outlines.
     for (const emz of container.querySelectorAll('[data-kind="emz"]')) {
-      expect(emz.compareDocumentPosition(hub) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(hub.compareDocumentPosition(emz) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
   });
 
-  it("reserves no lane without a hub", () => {
+  it("takes no height from the zones: no lane in the field's size budget", () => {
+    const css = readFileSync(join(__dirname, "../../src/components/duel/field.module.css"), "utf8");
+    expect(css).not.toContain("--lane-h");
+    expect(css).toMatch(/grid-template-rows:\s*repeat\(5, var\(--z\)\)/);
+  });
+
+  it("draws no hub wrapper without a hub", () => {
     const { container } = field(5);
     expect(container.querySelector("[data-hub='true']")).toBeNull();
   });
