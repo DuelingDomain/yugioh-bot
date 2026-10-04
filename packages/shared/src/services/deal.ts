@@ -44,10 +44,17 @@ export interface CubeAnalysis {
 /** Sets and named pools have no authored quantities; expand evenly before the single shuffle. */
 export function prepareBoosterPool(cardIds: number[], config: DraftConfig, slots: number): number[] {
   const fromNames = Boolean(config.setNames?.length || config.includeNames?.length);
-  const authored = Boolean(config.customCardIds?.length || (!fromNames && (config.cubeCardIds?.length || config.poolCardIds?.length)));
+  const authored = Boolean(config.preservePoolCopies || (!fromNames && (config.customCardIds?.length || config.cubeCardIds?.length || config.poolCardIds?.length)));
   if (authored || cardIds.length === 0) return cardIds;
-  const copies = Math.max(1, Math.ceil(slots / cardIds.length));
-  return cardIds.flatMap((id) => Array<number>(copies).fill(id));
+
+  // catalogCardIdsForDraft returns baseIds first, then eligible custom copies.
+  // Use that boundary so overlapping passcodes keep their additive quantities.
+  const eligibleIds = new Set(cardIds);
+  const customCopies = (config.customCardIds ?? []).filter((id) => eligibleIds.has(id));
+  const baseIds = cardIds.slice(0, cardIds.length - customCopies.length);
+  if (baseIds.length === 0) return cardIds;
+  const copies = Math.max(1, Math.ceil((slots - customCopies.length) / baseIds.length));
+  return [...baseIds.flatMap((id) => Array<number>(copies).fill(id)), ...customCopies];
 }
 
 export function analyzeCube(

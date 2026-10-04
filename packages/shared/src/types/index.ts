@@ -11,6 +11,8 @@ export interface DraftConfig {
   randomizeSeats?: boolean;
   /** Limit picks to three copies, with booster swaps or forced picks when needed. Default true. */
   copyLimit?: boolean;
+  /** Internal: saved cubes keep authored quantities, including their catalog selections. */
+  preservePoolCopies?: boolean;
   cubeCardIds?: number[];
   /** @deprecated legacy key, still read for drafts created before the rename */
   poolCardIds?: number[];

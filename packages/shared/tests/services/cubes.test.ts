@@ -4,6 +4,8 @@ import { migrate } from "../../src/db/index.js";
 import { createCubeService } from "../../src/services/cubes.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
 import { MAX_CUBE_COPIES } from "../../src/services/constants.js";
+import { prepareBoosterPool } from "../../src/services/deal.js";
+import { createDraftService } from "../../src/services/drafts.js";
 
 function emptyCatalog(db: Database.Database) {
   return createCardCatalogService(db, {
@@ -442,6 +444,18 @@ describe("cube service Discord-template-compatible ops", () => {
     cubes.addCard(cube.id, 1, "main", 3);
     cubes.addCard(cube.id, 2, "extra", 3);
     expect(cubes.applyCubeToConfig(cube.id).customCardIds).toEqual([1, 1, 1]);
+  });
+
+  it("keeps saved cube quantities when its config also selects catalog cards", () => {
+    const { db, cubes } = setup();
+    try {
+      const cube = cubes.save("g", "Authored hybrid", { includeNames: ["Main A"] }, "u");
+      cubes.addCard(cube.id, 1, "main", 3);
+      const config = cubes.applyCubeToConfig(cube.id);
+      const ids = createDraftService(db).resolveCubeCardIds(config);
+      expect(ids).toEqual([1, 1, 1, 1]);
+      expect(prepareBoosterPool(ids, config, 120)).toEqual(ids);
+    } finally { db.close(); }
   });
 
   it("applyCubeToConfig keeps config copies and excludes the Extra pool", () => {

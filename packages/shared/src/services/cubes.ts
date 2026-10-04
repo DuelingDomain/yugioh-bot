@@ -356,6 +356,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         ...base,
         ...cube.config,
         customCardIds,
+        preservePoolCopies: true,
         setNames: cube.config.setNames ?? base.setNames,
       };
     },

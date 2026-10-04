@@ -63,6 +63,29 @@ function seedCatalogCards(db: Database.Database, count: number) {
 }
 
 describe("shared draft service", () => {
+  it.each(["set", "names"].flatMap((source) => [[61], [61, 1, 1, 62, 999]].map((customCardIds) => ({ source, customCardIds }))))("expands only the $source cards in a mixed pool and preserves custom copies $customCardIds", ({ source, customCardIds }) => {
+    const { db, drafts } = setup({ seedSource: () => 7 });
+    try {
+      seedCatalogCards(db, 62);
+      db.prepare("update card_catalog set card_sets_json = '[]' where ygoprodeck_id > 60").run();
+      db.prepare("update card_catalog set frame_type = 'fusion' where ygoprodeck_id = 62").run();
+      const players = Array.from({ length: 3 }, (_, i) => insertPlayer(db, "guild-1", `u${i}`, `P${i}`));
+      const baseIds = Array.from({ length: 60 }, (_, i) => i + 1);
+      const pool = source === "set" ? { setNames: ["Metal Raiders"] } : { includeNames: baseIds.map((id) => `Card ${id}`) };
+      const draft = drafts.create("guild-1", "channel-1", "mixed pool", {
+        ...pool, customCardIds, packSize: 8, packsPerPlayer: 5,
+      }, "u0", players[0].id);
+      for (const player of players.slice(1)) drafts.join(draft.id, player.id);
+
+      expect(drafts.start(draft.id).status).toBe("active");
+      const dealt = db.prepare("select catalog_card_id as id from draft_deal where draft_id = ? order by position").all(draft.id) as Array<{ id: number }>;
+      const remainder = db.prepare("select catalog_card_id as id from draft_undealt where draft_id = ? order by position").all(draft.id) as Array<{ id: number }>;
+      const copies = [...baseIds.flatMap((id) => [id, id]), ...customCardIds.filter((id) => id !== 62 && id !== 999)];
+      expect(dealt).toHaveLength(120);
+      expect([...dealt, ...remainder].map((card) => card.id)).toEqual(seededShuffle(copies, 7));
+    } finally { db.close(); }
+  });
+
   it.each([3, 4, 8].flatMap((count) => ["set", "names"].map((source) => ({ count, source }))))("deals one shuffle of evenly expanded $source copies for $count players", ({ count, source }) => {
     const { db, drafts } = setup({ seedSource: () => 7 });
     try {
