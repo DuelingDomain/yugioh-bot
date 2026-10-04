@@ -46,4 +46,18 @@ describe("battle effect lab scenes", () => {
       expect(seat.graveyard.length).toBe(1);
     }
   });
+  it("lets the attacker survive when the Bug's effect marks another monster, and the fight ends after the chain", () => {
+    const scene = BATTLE_EFFECT_SCENARIOS.find(s => s.id === "battle-flip-effect-bystander")!.build();
+    const events = numberSteps(scene.steps, 0).flatMap(n => n.events);
+    const [sequence] = findFlipSequences(events);
+    expect(sequence).toBeDefined();
+    expect(sequence.effects.length).toBeGreaterThan(0);
+    expect(sequence.aftermath.length).toBeGreaterThan(0);
+    expect(sequence.target?.targets).toEqual([{ controller: 0, location: 4, sequence: 3 }]);
+    const final = scene.steps.reduce((board, step) => applyEdits(board, step.edits ?? []), scene.initial);
+    expect(final.seats[0].monsters[2]?.name).toBe("Cyber Dragon");
+    expect(final.seats[0].monsters[3]).toBeNull();
+    expect(final.seats[0].graveyard.length).toBe(1);
+    expect(final.seats[1].monsters[2]).toBeNull();
+  });
 });
