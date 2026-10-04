@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared/duels";
 import {
   ARENA_CENTER,
+  aliveLayout,
+  arrangementOf,
   compactFor,
   flyWorld,
   flyYawFor,
@@ -366,5 +368,64 @@ describe("compactFor", () => {
     expect(compactFor({ scale: 0.52, slot: "oHome" }, 0.1, 1200)).toBe(false);
     expect(compactFor(unit(0.92), 1, 1600, "on")).toBe(true);
     expect(compactFor(unit(0.5), 0.3, 1200, "off")).toBe(false);
+  });
+});
+
+describe("aliveLayout", () => {
+  it("gives the same layout back when nothing is out, and never respaces Tag", () => {
+    const four = tableLayout("ffa4", engine("ffa4", 4), 0);
+    expect(aliveLayout(four, [])).toBe(four);
+    const tag = tableLayout("tag", engine("tag", 4), 0);
+    expect(aliveLayout(tag, [1])).toBe(tag);
+  });
+
+  it("keeps the order and the tones of the seats that stay", () => {
+    const four = tableLayout("ffa4", engine("ffa4", 4), 0);
+    const alive = aliveLayout(four, new Set([2]));
+    expect(alive.slots.map((s) => s.seat)).toEqual([0, 1, 3]);
+    expect(alive.slots.map((s) => s.tone)).toEqual(four.slots.filter((s) => s.seat !== 2).map((s) => s.tone));
+    expect(arrangementOf(four)).toBe("ffa4");
+    expect(arrangementOf(alive)).toBe("ffa3");
+    expect(arrangementOf(aliveLayout(four, [2, 3]))).toBe("duo");
+  });
+
+  it("places 3 alive of a 4-way table on the 3-way places", () => {
+    const four = tableLayout("ffa4", engine("ffa4", 4), 0);
+    const alive = aliveLayout(four, [3]);
+    expect(slotPlan(alive, camera())).toEqual(["home", "vL", "vR"]);
+    expect(ringPose(alive, camera())).toEqual(ringPose(tableLayout("ffa3", engine("ffa3", 3), 0), camera()));
+    const poses = seatPoses(alive, camera());
+    const ffa3 = seatPoses(tableLayout("ffa3", engine("ffa3", 3), 0), camera());
+    expect([...poses.values()].map((p) => [p.x, p.y, p.rotateDeg, p.scale])).toEqual([...ffa3.values()].map((p) => [p.x, p.y, p.rotateDeg, p.scale]));
+  });
+
+  it("places 2 alive face to face: one near, one far, in every camera mode", () => {
+    const three = tableLayout("ffa3", engine("ffa3", 3), 0);
+    const alive = aliveLayout(three, [1]);
+    expect(arrangementOf(alive)).toBe("duo");
+    for (const mode of ["home", "overview", "look", "focus", "fly"] as const) {
+      expect(slotPlan(alive, camera({ mode, focusSeat: 2, lookSeat: 2 }))).toEqual(["home", "focus"]);
+    }
+    const poses = seatPoses(alive, camera());
+    expect(poses.get(0)?.rotateDeg).toBe(0);
+    expect(Math.abs(poses.get(2)?.rotateDeg ?? 0)).toBe(180);
+    expect(holoAnchor(alive, 0, camera())).toMatchObject({ me: true, beam: "none" });
+    expect(holoAnchor(alive, 2, camera())).toMatchObject({ me: false, beam: "down" });
+    expect(ringPose(alive, camera())).toEqual({ x: 550, y: 322, scale: 1 });
+    expect(ringAngles(alive, camera()).get(0)).toBe(90);
+    expect(ringAngles(alive, camera()).get(2)).toBe(270);
+  });
+
+  it("puts the first living seat far and the next near when the viewer is out", () => {
+    const three = tableLayout("ffa3", engine("ffa3", 3), 1);
+    const alive = aliveLayout(three, [1]);
+    expect(alive.slots.map((s) => s.seat)).toEqual([2, 0]);
+    expect(slotPlan(alive, camera())).toEqual(["focus", "home"]);
+  });
+
+  it("falls back to the 3-way places for a lone seat and refuses a pair with more than 2", () => {
+    const three = tableLayout("ffa3", engine("ffa3", 3), 0);
+    expect(slotPlan(aliveLayout(three, [1, 2]), camera())).toEqual(["home"]);
+    expect(slotPlan({ ...three, arrangement: "duo" }, camera())).toBeNull();
   });
 });

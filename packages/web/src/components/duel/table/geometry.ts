@@ -1,7 +1,7 @@
 import type { DuelEngineView } from "@yugidraft/shared/duels";
 import { engineFormat, placementOrder, seatRelation } from "../multi-seat";
 import { tagSeatCode } from "../table-format";
-import type { CameraState, Compass, FlyPose, PoseSlot, SeatPose, SeatSlot, SeatTone, TableFormat, TableLayout } from "./types";
+import type { Arrangement, CameraState, Compass, FlyPose, PoseSlot, SeatPose, SeatSlot, SeatTone, TableFormat, TableLayout } from "./types";
 
 /**
  * Seat geometry of the table, pure. The stage is 1100 by 860 stage px and is scaled to fit the board box.
@@ -9,6 +9,9 @@ import type { CameraState, Compass, FlyPose, PoseSlot, SeatPose, SeatSlot, SeatT
  * the three overview places. The 4-way table has eleven: it adds the far (north) place at home and in overview.
  * Look, focus, overview and fly pick the place of each seat from them. The Tag table draws its home pose in
  * every camera mode until its own step adds more.
+ *
+ * Seats that left the duel are not drawn, so the places follow the seats still in it (`aliveLayout`): 4 alive use the
+ * 4-way places, 3 alive the 3-way places and 2 alive a face to face pair (`duo`: one near, one far, as in a 1v1).
  */
 
 export const STAGE = { width: 1100, height: 860 } as const;
@@ -85,8 +88,30 @@ const SLOT_ZINDEX: Readonly<Record<PoseSlot, number>> = { home: 5, vL: 3, vN: 3,
 const FFA3_RING_ANGLE: Readonly<Record<PoseSlot, number>> = { home: 90, oHome: 90, vL: 210, oL: 210, vN: 210, oN: 210, dockL: 180, vR: 330, oR: 330, dockR: 0, focus: 270 };
 const FFA4_RING_ANGLE: Readonly<Record<PoseSlot, number>> = { home: 90, oHome: 90, vL: 180, oL: 180, dockL: 180, vN: 270, oN: 270, focus: 270, vR: 0, oR: 0, dockR: 0 };
 
-function slotTable(format: TableFormat): Readonly<Record<PoseSlot, HomeSlot>> {
-  return format === "ffa4" ? FFA4_SLOTS : FFA3_SLOTS;
+/**
+ * How the seats of a layout are placed. A layout made by `tableLayout` has no `arrangement`: it follows its format.
+ * `aliveLayout` sets one when seats are out. Tag has none.
+ */
+export function arrangementOf(layout: Pick<TableLayout, "format" | "arrangement">): Arrangement | null {
+  if (layout.arrangement) return layout.arrangement;
+  return layout.format === "ffa4" ? "ffa4" : layout.format === "ffa3" ? "ffa3" : null;
+}
+
+function slotTable(layout: Pick<TableLayout, "format" | "arrangement">): Readonly<Record<PoseSlot, HomeSlot>> {
+  return arrangementOf(layout) === "ffa4" ? FFA4_SLOTS : FFA3_SLOTS;
+}
+
+/**
+ * The layout of the seats that are still in the duel, in the same drawing order. The seats keep their tones (a seat
+ * never changes colour when others leave). Nothing out gives the same layout back; Tag is never respaced.
+ */
+export function aliveLayout(layout: TableLayout, out: ReadonlySet<number> | readonly number[]): TableLayout {
+  if (layout.format === "tag") return layout;
+  const gone = out instanceof Set ? out : new Set(out);
+  const slots = layout.slots.filter((slot) => !gone.has(slot.seat));
+  if (slots.length === layout.slots.length) return layout;
+  const arrangement: Arrangement = slots.length >= 4 ? "ffa4" : slots.length === 3 ? "ffa3" : "duo";
+  return { ...layout, slots, arrangement };
 }
 
 type CompassSlot = { compass: Compass; baseAngleDeg: number };
@@ -141,7 +166,14 @@ type CameraView = Pick<CameraState, "mode"> & Partial<Pick<CameraState, "focusSe
  */
 export function slotPlan(layout: TableLayout, camera: CameraView): PoseSlot[] | null {
   const count = layout.slots.length;
-  if (!((layout.format === "ffa3" && count === 3) || (layout.format === "ffa4" && count === 4))) return null;
+  const arrangement = arrangementOf(layout);
+  if (arrangement === "duo") {
+    if (count < 1 || count > 2) return null;
+    // Face to face whatever the camera does. A viewer who is out watches: the first living seat goes far, the next near.
+    const spectating = layout.viewerSeat != null && layout.slots[0]?.seat !== layout.viewerSeat;
+    return count === 1 ? ["home"] : spectating ? ["focus", "home"] : ["home", "focus"];
+  }
+  if (!((arrangement === "ffa3" && count === 3) || (arrangement === "ffa4" && count === 4))) return null;
   const four = count === 4;
   const home: PoseSlot[] = four ? ["home", "vL", "vN", "vR"] : ["home", "vL", "vR"];
   const seatAt = (seat: number | null | undefined) => layout.slots.findIndex((slot) => slot.seat === seat);
@@ -202,7 +234,7 @@ export function seatPoses(
 ): Map<number, SeatPose> {
   const plan = slotPlan(layout, camera);
   const home = homeTable(layout.format);
-  const table = slotTable(layout.format);
+  const table = slotTable(layout);
   const fit = viewport ? stageFit(viewport) : 0;
   const screenWidth = viewport?.screenWidth ?? viewport?.width ?? 0;
   const poses = new Map<number, SeatPose>();
@@ -210,7 +242,7 @@ export function seatPoses(
     const name = plan?.[place];
     const at = name ? table[name] : home[Math.min(place, home.length - 1)];
     // Compact chips are a 4-way table feature: in the fly-in view the camera zooms in, so fields stay whole.
-    const compact = layout.format === "ffa4" && camera.mode !== "fly" && name != null && fit > 0
+    const compact = arrangementOf(layout) === "ffa4" && camera.mode !== "fly" && name != null && fit > 0
       ? compactFor({ scale: at.scale, slot: name }, fit, screenWidth, camera.compact ?? "auto")
       : false;
     poses.set(slot.seat, {
@@ -291,6 +323,11 @@ function ffa4Anchor(slot: PoseSlot): Omit<HoloAnchor, "me"> {
   }
 }
 
+/** Holo anchor of the two places of a face to face pair: the near panel bottom right, the far one top left (clear of the far hand). */
+function duoAnchor(slot: PoseSlot): Omit<HoloAnchor, "me"> {
+  return slot === "home" ? { x: 882, y: 686, beam: "none" } : { x: 8, y: 8, beam: "down" };
+}
+
 /**
  * Anchor of the holo LP panel of one seat. Home: bottom right for you, top corners for rivals. With a camera
  * the panel follows its seat to the corner of the place that seat now stands at.
@@ -301,7 +338,8 @@ export function holoAnchor(layout: TableLayout, seat: number, camera?: CameraVie
   const plan = camera ? slotPlan(layout, camera) : null;
   if (plan && place >= 0) {
     const focusPlace = layout.slots.findIndex((slot) => slot.seat === camera?.focusSeat);
-    const at = (count === 4 ? ffa4Anchor : ffa3Anchor)(plan[place], focusPlace);
+    const arrangement = arrangementOf(layout);
+    const at = arrangement === "duo" ? duoAnchor(plan[place]) : (arrangement === "ffa4" ? ffa4Anchor(plan[place]) : ffa3Anchor(plan[place], focusPlace));
     const mine = place === 0 && layout.viewerSeat === seat && camera?.mode !== "look";
     return { ...at, me: mine };
   }
@@ -315,7 +353,8 @@ export function holoAnchor(layout: TableLayout, seat: number, camera?: CameraVie
 
 /** Where the turn ring stands in a camera mode: it keeps clear of every field. */
 export function ringPose(layout: TableLayout, camera: CameraView): { x: number; y: number; scale: number } {
-  if (layout.format === "ffa4") {
+  if (arrangementOf(layout) === "duo") return camera.mode === "fly" ? { x: 550, y: 430, scale: 1 } : { x: 550, y: 322, scale: 1 };
+  if (arrangementOf(layout) === "ffa4") {
     if (camera.mode === "fly") return { x: 550, y: 410, scale: 1 };
     if (camera.mode === "overview") return { x: 550, y: 395, scale: 0.9 };
     // Between the far field and yours at home; in the top right corner while one rival is across.
@@ -339,7 +378,7 @@ export function ringAngles(layout: TableLayout, camera: CameraView): Map<number,
   const poses = plan ? null : seatPoses(layout, camera);
   layout.slots.forEach((slot, place) => {
     if (plan) {
-      angles.set(slot.seat, (layout.format === "ffa4" ? FFA4_RING_ANGLE : FFA3_RING_ANGLE)[plan[place]]);
+      angles.set(slot.seat, (arrangementOf(layout) === "ffa4" ? FFA4_RING_ANGLE : FFA3_RING_ANGLE)[plan[place]]);
       return;
     }
     const pose = poses?.get(slot.seat);
@@ -366,7 +405,7 @@ export function flyWorld(layout: TableLayout, fly: FlyPose): FlyWorld {
   const plan = slotPlan(layout, { mode: "fly" });
   const place = fly.targetSeat == null ? -1 : layout.slots.findIndex((slot) => slot.seat === fly.targetSeat);
   if (place < 0 || !plan) return { yawDeg: fly.yawDeg, tiltDeg: fly.tiltDeg, zoom: fly.zoom, fx: 0, fy: 6, oy: -6 };
-  const at = slotTable(layout.format)[plan[place]];
+  const at = slotTable(layout)[plan[place]];
   return { yawDeg: fly.yawDeg, tiltDeg: fly.tiltDeg, zoom: fly.zoom, fx: at.x - ARENA_CENTER.x, fy: at.y - ARENA_CENTER.y, oy: 36 };
 }
 
@@ -375,7 +414,7 @@ export function flyYawFor(layout: TableLayout, seat: number): number {
   const plan = slotPlan(layout, { mode: "fly" });
   const place = layout.slots.findIndex((slot) => slot.seat === seat);
   if (!plan || place < 0) return 0;
-  return normalizeAngle(-slotTable(layout.format)[plan[place]].rotateDeg);
+  return normalizeAngle(-slotTable(layout)[plan[place]].rotateDeg);
 }
 
 /** An angle in the range -180 to 180 (180 maps to -180). */

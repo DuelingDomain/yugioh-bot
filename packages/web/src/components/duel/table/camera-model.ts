@@ -1,5 +1,5 @@
 import type { DuelEvent, DuelSeatView } from "@yugidraft/shared/duels";
-import { flyYawFor, normalizeAngle } from "./geometry";
+import { aliveLayout, flyYawFor, normalizeAngle } from "./geometry";
 import { scaleLockMs as scaleLock } from "../camera-lock-time";
 import type { CameraAction, CameraLockReason, CameraMode, CameraState, FlyPose, TableLayout } from "./types";
 
@@ -109,7 +109,7 @@ export function cameraReducer(state: CameraState, action: CameraAction, layout: 
       if (state.mode === "fly" && state.fly.targetSeat === action.seat && !state.fly.free) {
         return { ...state, fly: FLY_HOME, pinned: true, autoMoved: false };
       }
-      const fly: FlyPose = { yawDeg: flyYawFor(layout, action.seat), tiltDeg: SEAT_TILT, zoom: SEAT_ZOOM, targetSeat: action.seat, free: false };
+      const fly: FlyPose = { yawDeg: flyYawFor(aliveLayout(layout, out), action.seat), tiltDeg: SEAT_TILT, zoom: SEAT_ZOOM, targetSeat: action.seat, free: false };
       if (state.mode === "fly") return { ...state, fly, pinned: true, autoMoved: false };
       return move({ ...state, flyIn: true }, { mode: "fly", fly });
     }
