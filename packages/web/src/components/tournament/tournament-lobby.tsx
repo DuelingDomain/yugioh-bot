@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CopyLinkRow, FloorList, FloorRow, Mono, SectionHead, Seat, StatusLine, SvButton, ringColour } from "@/components/sheet";
 import { generateSingleElimFirstRound } from "@yugidraft/shared/tournaments";
+import { useFlipList } from "@/lib/motion";
 import styles from "./tournament-lobby.module.css";
 import { MyDeckPanel } from "./my-deck-panel";
 import { DeckMarker } from "./deck-marker";
@@ -52,6 +53,9 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
 
   const isParticipant = tournament.isParticipant;
   const players = tournament.participants;
+  // Someone who joins arrives with a short rise; the rest stay put.
+  const seatsRef = useRef<HTMLDivElement>(null);
+  useFlipList(seatsRef, { enter: true });
   const count = players.length;
   const canStart = count >= 2;
   const single = tournament.format === "single_elim";
@@ -116,13 +120,14 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
 
         <section aria-labelledby="seats-t" className={styles.seats}>
           <SectionHead title="Who's in" id="seats-t" note={`${count} joined. At least 2 to start. No seat limit.`} />
+          <div ref={seatsRef}>
           <FloorList>
             {players.map((p, i) => {
               const you = p.playerId === tournament.currentUserPlayerId;
               const rating = ratings?.get(p.playerId);
               const rated = rating && rating.rating !== UNRATED_ELO;
               return (
-                <FloorRow key={p.playerId} you={you} cols={single ? "28px minmax(0, 1fr) auto auto" : "minmax(0, 1fr) auto auto"} phoneCols={undefined}>
+                <FloorRow key={p.playerId} flipId={p.playerId} you={you} cols={single ? "28px minmax(0, 1fr) auto auto" : "minmax(0, 1fr) auto auto"} phoneCols={undefined}>
                   {single && <span className={styles.no}>{i + 1}</span>}
                   <span className={styles.who}>
                     <Seat
@@ -155,6 +160,7 @@ export function TournamentLobby({ tournament, tournamentSlug, isCreator, onChang
               </FloorRow>
             ))}
           </FloorList>
+          </div>
           {single && count > 1 && <p className={styles.note}>{firstRoundNote(count)}</p>}
           {isParticipant && isCreator && (
             <div className={styles.joined}>

@@ -206,6 +206,25 @@ body {
   [data-mo][data-state="closed"] { animation: mo-fade-out var(--d-rm) var(--ease-out) forwards !important; }
 }
 
+/* ---------- Live updates (site motion, part 3) ----------
+   Roll (src/components/motion/roll.tsx): old and new text share one grid cell and a clip keeps the travel in the line.
+   Rows in a useFlipList: data-lifted while a row travels up (solid surface, above the rows it passes) and
+   data-wash for the 1.2s violet highlight on a row whose values changed. Opacity and transform only. */
+.mo-roll { display: inline-grid; overflow: clip; overflow-clip-margin: 0; vertical-align: top; }
+.mo-roll > .mo-roll-v { grid-area: 1 / 1; display: block; }
+@keyframes mo-wash { from { opacity: 1; } to { opacity: 0; } }
+[data-flip-id][data-lifted] { position: relative; z-index: 2; background: var(--panel-3, var(--color-bg-surface)); }
+[data-flip-id][data-wash] { position: relative; }
+[data-flip-id][data-wash]::before {
+  content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none;
+  background: rgb(155 126 255 / 0.22);
+  animation: mo-wash var(--d-wash) var(--ease-out) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The wash is the highlight, so it still fades; only the movement goes. */
+  [data-flip-id][data-wash]::before { animation-duration: var(--d-wash) !important; }
+}
+
 /* ---------- Rank badge animations ---------- */
 
 /* keep gem + label above the gloss streak */

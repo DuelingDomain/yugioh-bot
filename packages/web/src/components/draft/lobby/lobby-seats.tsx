@@ -1,4 +1,8 @@
+"use client";
+
+import { useRef } from "react";
 import { Mono, SectionHead, YouPill, ringColour } from "@/components/sheet";
+import { useFlipList } from "@/lib/motion";
 import styles from "./lobby.module.css";
 
 export interface LobbyPlayer {
@@ -30,15 +34,18 @@ export function LobbySeats({
   isCreator: boolean;
   aux: string;
 }) {
+  const list = useRef<HTMLUListElement>(null);
+  // A player who joins arrives with a short rise instead of appearing.
+  useFlipList(list, { enter: true });
   return (
     <section aria-labelledby="lobby-players-t" className={styles.seatsSec}>
       <SectionHead title="Players" note={aux} id="lobby-players-t" />
-      <ul className={styles.seats} data-many={players.length > 6 ? "" : undefined}>
+      <ul ref={list} className={styles.seats} data-many={players.length > 6 ? "" : undefined}>
         {players.map((p) => {
           const you = youIds.has(p.playerId);
           const time = joinedTime(p.joinedAt);
           return (
-            <li key={p.playerId} className={styles.seat} data-you={you ? "true" : undefined}>
+            <li key={p.playerId} className={styles.seat} data-you={you ? "true" : undefined} data-flip-id={p.playerId}>
               <Mono name={p.displayName} you={you} ring={you ? undefined : ringColour(p.playerId)} />
               <span className={styles.who}>
                 <span className={styles.nm}>

@@ -283,6 +283,12 @@
 }
 
 /* ---- Live now ---- */
+/* The row opens and closes in the flow: one grid row between 0fr and 1fr (the shared data-mo="grow" rules
+   in globals.css animate it). The clip keeps the rows below from seeing it; the side margins leave room
+   for the focus outline. */
+.liveGrow { display: grid; grid-template-rows: 1fr; }
+.liveClip { min-height: 0; overflow: hidden; padding-inline: 6px; margin-inline: -6px; }
+
 .liveWrap {
   display: flex;
   flex-direction: column;

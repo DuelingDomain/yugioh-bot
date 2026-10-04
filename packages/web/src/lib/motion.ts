@@ -184,7 +184,7 @@ export type FlipListOptions = FlipOptions & {
   enter?: boolean;
 };
 
-type ListMemory = { width: number; layout: Map<string, { x: number; y: number }>; sigs: Map<string, string>; key: string };
+type ListMemory = { width: number; layout: Map<string, { x: number; y: number }>; sigs: Map<string, string>; key: string; scope: string };
 
 const ARRIVE_RISE = 4;
 const ARRIVE_STAGGER = 20;
@@ -232,11 +232,18 @@ export function useFlipList(containerRef: RefObject<HTMLElement | null>, options
   // No dependency list on purpose: the cheap signature check below decides whether anything plays.
   useLayoutEffect(() => {
     const root = containerRef.current;
-    if (!root) return;
+    if (!root) {
+      memory.current = null; // the list is not on screen: the next time it shows is a fresh start
+      return;
+    }
     const rows = Array.from(root.querySelectorAll<HTMLElement>("[data-flip-id]"));
-    const key = rows.map((el) => `${el.dataset.flipId}|${el.dataset.flipSig ?? ""}`).join("\n");
-    const before = memory.current;
-    if (before && before.key === key) return;
+    // data-flip-scope on the container names the layout the rows are in (list or grid); a new scope
+    // is a fresh start, not a move.
+    const scope = root.dataset.flipScope ?? "";
+    const key = scope + "\n" + rows.map((el) => `${el.dataset.flipId}|${el.dataset.flipSig ?? ""}`).join("\n");
+    const last = memory.current;
+    if (last && last.key === key) return;
+    const before = last && last.scope === scope ? last : null;
 
     const reduced = prefersReducedMotion();
     const rootRect = root.getBoundingClientRect();
@@ -295,7 +302,7 @@ export function useFlipList(containerRef: RefObject<HTMLElement | null>, options
       if (startY > here.y) lifted.push(el);
     }
 
-    memory.current = { width, layout, sigs, key };
+    memory.current = { width, layout, sigs, key, scope };
     if (first.size === 0) return;
     for (const el of lifted) el.setAttribute("data-lifted", "");
     playFlip(first, optionsRef.current);
