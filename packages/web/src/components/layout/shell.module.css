@@ -481,6 +481,8 @@
   border-radius: 8px;
   background: var(--panel-3);
   box-shadow: 0 24px 60px -24px rgb(0 0 0 / 0.9);
+  /* Grows from the trigger (data-mo="pop"): the seat sits below and to the left of the menu. */
+  --mo-origin: bottom left;
 }
 
 .menu[data-rail="true"] {
@@ -490,6 +492,7 @@
 }
 
 .menu[data-variant="phone"] {
+  --mo-origin: top right;
   left: auto;
   right: 8px;
   top: 54px;
@@ -699,17 +702,20 @@
 }
 
 /* ---- Phone menu (portalled to body; fixed to the screen) ---- */
+/* Enter and exit come from the shared data-mo rules in globals.css; the drawer slides in from the left
+   and the scrim, which inherits the timing, fades with it. */
 .layer {
   position: fixed;
   inset: 0;
   z-index: 60;
+  --mo-in: var(--d-drawer-in);
+  --mo-out: var(--d-drawer-out);
 }
 
 .scrim {
   position: absolute;
   inset: 0;
   background: rgb(2 4 10 / 0.7);
-  animation: shell-fade 180ms ease-out backwards;
 }
 
 .drawer {
@@ -722,7 +728,7 @@
   width: min(320px, 86vw);
   overflow-y: auto;
   background: var(--panel);
-  animation: shell-slide 220ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  --mo-x: -100%;
 }
 
 .drawer::after {
@@ -736,27 +742,3 @@
   pointer-events: none;
 }
 
-@keyframes shell-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes shell-slide {
-  from {
-    transform: translateX(-100%);
-  }
-  to {
-    transform: translateX(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .scrim,
-  .drawer {
-    animation: none;
-  }
-}

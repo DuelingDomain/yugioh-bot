@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { BUG_TEXT_MAX, validateBugText, type BugFieldErrors } from "@/lib/bug-report";
+import { DURATION, usePresence } from "@/lib/motion";
 import type { CollectedContext } from "./context";
 
 type Result = { id: number; issue: { number: number; url: string } | null; duplicate: boolean };
@@ -66,7 +67,7 @@ async function precheck(payload: unknown, cancel: AbortSignal): Promise<{ knownL
   }
 }
 
-function ReportForm({ collect, onClose }: { collect: () => CollectedContext; onClose: () => void }) {
+function ReportForm({ collect, onClose, open }: { collect: () => CollectedContext; onClose: () => void; open: boolean }) {
   const [description, setDescription] = useState("");
   const [expected, setExpected] = useState("");
   const [step, setStep] = useState<Step>("write");
@@ -89,10 +90,12 @@ function ReportForm({ collect, onClose }: { collect: () => CollectedContext; onC
   const quality = validateBugText({ description, expected });
   const fieldErrors: BugFieldErrors = tried ? { ...serverErrors, ...quality } : {};
 
+  // The dialog stays mounted while it fades out, so closing is `open` going false, not the unmount.
   useEffect(() => {
-    closed.current = false;
-    return () => { closed.current = true; cancelCheck.current?.abort(); };
-  }, []);
+    closed.current = !open;
+    if (!open) cancelCheck.current?.abort();
+  }, [open]);
+  useEffect(() => () => { closed.current = true; cancelCheck.current?.abort(); }, []);
 
   // Screen readers should land on the new step, not on the removed form.
   useEffect(() => {
@@ -257,8 +260,8 @@ function ReportForm({ collect, onClose }: { collect: () => CollectedContext; onC
   );
 }
 
-/** Mounted only while open: Modal then takes focus and sets its trap on the first render. */
-function OpenDialog({ collect, onClose }: { collect: () => CollectedContext; onClose: () => void }) {
+/** Mounted from open until the exit ends: Modal takes focus and sets its trap on the first render, and lets go when `open` goes false. */
+function OpenDialog({ collect, onClose, open }: { collect: () => CollectedContext; onClose: () => void; open: boolean }) {
   // Read while rendering, before Modal moves focus into the dialog, so closing can give focus back.
   const [opener] = useState(() => (typeof document === "undefined" ? null : document.activeElement as HTMLElement | null));
   const body = useRef<HTMLDivElement>(null);
@@ -273,6 +276,7 @@ function OpenDialog({ collect, onClose }: { collect: () => CollectedContext; onC
   // Escape closes this dialog only. Listening on window in the capture phase runs before the document listeners of a
   // parent Sheet or Modal, and stopping the event keeps them from closing too.
   useEffect(() => {
+    if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.stopPropagation();
@@ -280,13 +284,13 @@ function OpenDialog({ collect, onClose }: { collect: () => CollectedContext; onC
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
+  }, [open]);
   // React events pass through a portal to the parent components. A swipe in this dialog must not close a parent Sheet.
   const keepTouch = (event: React.SyntheticEvent) => event.stopPropagation();
   return (
     <div onTouchStart={keepTouch} onTouchEnd={keepTouch}>
-      <Modal open onClose={close} title="Report a bug">
-        <div ref={body}><ReportForm collect={collect} onClose={close} /></div>
+      <Modal open={open} onClose={close} title="Report a bug">
+        <div ref={body}><ReportForm collect={collect} onClose={close} open={open} /></div>
       </Modal>
     </div>
   );
@@ -297,5 +301,7 @@ function OpenDialog({ collect, onClose }: { collect: () => CollectedContext; onC
  * inside a phone Sheet the translate and overflow of the Sheet would move and clip the fixed dialog.
  */
 export function BugReportDialog({ open, onClose, collect }: { open: boolean; onClose: () => void; collect: () => CollectedContext }) {
-  return open && typeof document !== "undefined" ? createPortal(<OpenDialog collect={collect} onClose={onClose} />, document.body) : null;
+  // Stays mounted for the exit fade; Modal inside releases the focus trap and the scroll lock at once.
+  const { mounted } = usePresence(open, DURATION.modalOut);
+  return mounted && typeof document !== "undefined" ? createPortal(<OpenDialog collect={collect} onClose={onClose} open={open} />, document.body) : null;
 }

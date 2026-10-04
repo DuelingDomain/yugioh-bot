@@ -4,6 +4,7 @@ import { useEffect, useRef, type KeyboardEvent } from "react";
 import { usePathname } from "next/navigation";
 import { X } from "lucide-react";
 import { LightRule, SheetPortal } from "@/components/sheet";
+import { DURATION, usePresence } from "@/lib/motion";
 import { AccountMenu } from "./account-menu";
 import { BrandMark } from "./brand-mark";
 import { NavList, SettingsLink } from "./nav-list";
@@ -21,7 +22,7 @@ interface MobileDrawerProps {
 
 const FOCUSABLE = 'a[href], button:not([disabled]), [role="menuitem"]:not([aria-disabled="true"]), [tabindex]:not([tabindex="-1"])';
 
-function DrawerDialog({ onClose, account, live, onReportBug }: Omit<MobileDrawerProps, "open">) {
+function DrawerDialog({ onClose, account, live, onReportBug, state }: Omit<MobileDrawerProps, "open"> & { state: "open" | "closed" }) {
   const pathname = usePathname();
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -56,11 +57,14 @@ function DrawerDialog({ onClose, account, live, onReportBug }: Omit<MobileDrawer
   };
 
   return (
-    <div className={styles.layer}>
-      <div className={styles.scrim} aria-hidden="true" onClick={onClose} />
+    // While it slides out the drawer is inert: focus has already gone back to the menu button.
+    <div className={styles.layer} inert={state === "closed"}>
+      <div className={styles.scrim} data-mo="scrim" data-state={state} aria-hidden="true" onClick={onClose} />
       <div
         ref={dialogRef}
         className={styles.drawer}
+        data-mo="slide"
+        data-state={state}
         role="dialog"
         aria-modal="true"
         aria-label="Navigation"
@@ -84,8 +88,12 @@ function DrawerDialog({ onClose, account, live, onReportBug }: Omit<MobileDrawer
   );
 }
 
-/** Phone menu: a real dialog, mounted only while open. */
+/**
+ * Phone menu: a real dialog, mounted while open and while it slides out. The scroll lock goes with
+ * `open`, and the shell takes `inert` off the page and moves focus back as soon as `open` is false.
+ */
 export function MobileDrawer({ open, onClose, account, live, onReportBug }: MobileDrawerProps) {
+  const { mounted, state } = usePresence(open, DURATION.drawerOut);
   // Locks page scroll while open.
   useEffect(() => {
     if (!open) return;
@@ -96,10 +104,10 @@ export function MobileDrawer({ open, onClose, account, live, onReportBug }: Mobi
     };
   }, [open]);
 
-  if (!open) return null;
+  if (!mounted) return null;
   return (
     <SheetPortal>
-      <DrawerDialog onClose={onClose} account={account} live={live} onReportBug={onReportBug} />
+      <DrawerDialog onClose={onClose} account={account} live={live} onReportBug={onReportBug} state={state} />
     </SheetPortal>
   );
 }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { LinkStub, ready, noProfile } from "./helpers";
 
 vi.mock("next/link", () => ({ default: LinkStub }));
@@ -14,6 +14,16 @@ function open(account = ready, variant: "side" | "phone" = "side") {
   const trigger = screen.getByRole("button", { name: /account menu, imran/i });
   fireEvent.click(trigger);
   return trigger;
+}
+
+/** The menu plays a 100ms exit: at once it is closed and inert, and a moment later it is gone. */
+async function expectClosed() {
+  const menu = screen.queryByRole("menu");
+  if (menu) {
+    expect(menu).toHaveAttribute("data-state", "closed");
+    expect(menu).toHaveAttribute("inert");
+  }
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 }
 
 describe("AccountMenu", () => {
@@ -45,32 +55,45 @@ describe("AccountMenu", () => {
     expect(document.activeElement).toBe(out);
   });
 
-  it("Escape closes and returns focus to the trigger", () => {
+  it("Escape closes and returns focus to the trigger", async () => {
     const trigger = open();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
-    expect(screen.queryByRole("menu")).toBeNull();
+    // Focus and aria-expanded do not wait for the exit.
     expect(document.activeElement).toBe(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expectClosed();
   });
 
-  it("Tab closes the menu", () => {
+  it("stays mounted, closed and inert while it fades out, then unmounts", async () => {
+    open();
+    const menu = screen.getByRole("menu");
+    expect(menu).toHaveAttribute("data-mo", "pop");
+    expect(menu).toHaveAttribute("data-state", "open");
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(screen.getByRole("menu")).toBe(menu);
+    expect(menu).toHaveAttribute("data-state", "closed");
+    expect(menu).toHaveAttribute("inert");
+    await waitFor(() => expect(menu.isConnected).toBe(false));
+  });
+
+  it("Tab closes the menu", async () => {
     const trigger = open();
     fireEvent.keyDown(screen.getByRole("menu"), { key: "Tab" });
-    expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(trigger);
+    await expectClosed();
   });
 
-  it("a press outside closes it", () => {
+  it("a press outside closes it", async () => {
     open();
     fireEvent.mouseDown(document.body);
-    expect(screen.queryByRole("menu")).toBeNull();
+    await expectClosed();
   });
 
-  it("Sign out calls signOut to /login", () => {
+  it("Sign out calls signOut to /login", async () => {
     open();
     fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
     expect(signOut).toHaveBeenCalledWith({ redirectTo: "/login" });
-    expect(screen.queryByRole("menu")).toBeNull();
+    await expectClosed();
   });
 
   it("without a profile, Your profile is disabled and explained", () => {

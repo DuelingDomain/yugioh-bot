@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { FileUp } from "lucide-react";
 import type { DuelMode } from "@yugidraft/shared/duels";
 import { SheetPortal, SvButton, svButtonClass } from "@/components/sheet";
+import { DURATION, usePresence } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import styles from "./editor.module.css";
 
@@ -29,6 +30,8 @@ export function Popover({ label, icon, open, onOpenChange, kind = "secondary", d
   const change = useRef(onOpenChange);
   change.current = onOpenChange;
   const [position, setPosition] = useState({ top: 64, left: 12 });
+  // Mounted through the 100ms exit. Escape, the outside press and the focus return below are keyed to `open`.
+  const { mounted, state } = usePresence(open, DURATION.popOut);
 
   useEffect(() => {
     if (!open) return;
@@ -77,16 +80,19 @@ export function Popover({ label, icon, open, onOpenChange, kind = "secondary", d
 
   return (
     <div className={cn(styles.popoverRoot, className)}>
-      <button ref={trigger} type="button" className={iconOnly ? styles["de-ib"] : svButtonClass(kind === "danger" ? "danger" : "quiet")} disabled={disabled} aria-label={iconOnly ? label : undefined} aria-expanded={open} aria-haspopup={role} aria-controls={open ? id : undefined} onClick={() => onOpenChange(!open)}>
+      <button ref={trigger} type="button" className={iconOnly ? styles["de-ib"] : svButtonClass(kind === "danger" ? "danger" : "quiet")} disabled={disabled} aria-label={iconOnly ? label : undefined} aria-expanded={open} aria-haspopup={role} aria-controls={mounted ? id : undefined} onClick={() => onOpenChange(!open)}>
         {icon}{iconOnly ? null : label}
       </button>
-      {open ? (
+      {mounted ? (
         <SheetPortal>
           <div
             ref={panel}
             id={id}
             className={styles["de-pop"]}
-            style={{ ...position, maxHeight: `calc(100dvh - ${position.top + 12}px)` }}
+            data-mo="pop"
+            data-state={state}
+            inert={!open}
+            style={{ ...position, maxHeight: `calc(100dvh - ${position.top + 12}px)`, "--mo-origin": align === "start" ? "top left" : "top right" } as CSSProperties}
             role={role}
             aria-label={dialogLabel ?? label}
           >

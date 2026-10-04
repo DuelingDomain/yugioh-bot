@@ -130,8 +130,11 @@ describe("AppShell frame", () => {
     expect((container.firstElementChild as HTMLElement & { inert: boolean }).inert).toBe(true);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close menu" }));
     fireEvent.keyDown(dialog, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // The page is live again and focus is back before the slide-out ends.
+    expect(screen.getByRole("dialog")).toHaveAttribute("data-state", "closed");
     expect((container.firstElementChild as HTMLElement & { inert: boolean }).inert).toBe(false);
+    expect(document.activeElement).toBe(menuBtn);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(menuBtn);
   });
 

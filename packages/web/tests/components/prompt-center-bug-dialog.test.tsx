@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelPrompt } from "@yugidraft/shared/duels";
 
@@ -50,14 +50,14 @@ describe("PromptCenter with the Report bug dialog open", () => {
     expect(onSubmit).toHaveBeenCalledWith({ cancel: true });
   });
 
-  it("does not answer the prompt when Escape closes the dialog", () => {
+  it("does not answer the prompt when Escape closes the dialog", async () => {
     const onSubmit = vi.fn();
     render(<Room onSubmit={onSubmit} />);
     fireEvent.click(screen.getByRole("button", { name: "Open report" }));
     const wrong = screen.getByLabelText(/What went wrong\?/);
     expect(screen.getByRole("dialog", { name: "Report a bug" })).toBeTruthy();
     fireEvent.keyDown(wrong, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "Report a bug" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Report a bug" })).toBeNull());
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
