@@ -17,7 +17,7 @@ vi.mock("next/font/google", () => {
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
 describe("SettingsPage", () => {
-  it("renders the season and announcement sections without the card pools manager or switches", async () => {
+  it("renders the season and announcement sections without the card pools manager or announcement switches", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/settings") {
@@ -31,7 +31,9 @@ describe("SettingsPage", () => {
     screen.getByRole("heading", { name: "Season" });
     screen.getByRole("heading", { name: "Announcements" });
     await screen.findByRole("heading", { name: "What the bot posts" });
-    expect(screen.queryByRole("switch")).toBeNull();
+    // The only switch is the per-device 3D mode toggle; the announcements section has none.
+    expect(screen.getAllByRole("switch").map((el) => el.getAttribute("aria-labelledby"))).toHaveLength(1);
+    screen.getByRole("switch", { name: /3D mode/i });
     expect(screen.queryByRole("heading", { name: /card pools/i })).toBeNull();
   });
 });
