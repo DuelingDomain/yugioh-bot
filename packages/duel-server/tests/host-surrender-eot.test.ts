@@ -22,6 +22,7 @@ import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
 const SECRET = "surrender-eot-test";
+const proofCorePath = (mode: DuelMode) => mode === "domain" ? process.env.DOMAIN_MULTI_WASM : process.env.MULTI_WASM;
 const END_PHASE_RECOVER = `local c=Duel.GetFieldCard(0,LOCATION_MZONE,0)
 local e=Effect.CreateEffect(c)
 e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
@@ -36,7 +37,11 @@ class TestWorker extends GameWorker {
 
   override async create(options: GameOptions) {
     if (this.failCreate) throw new Error("Replay worker unavailable");
-    return super.create(options);
+    const path = proofCorePath(options.mode);
+    const bytes = path ? readFileSync(path) : undefined;
+    return super.create({ ...options, ...(bytes ? {
+      multiWasmBinary: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    } : {}) });
   }
 
   override async view(seat: number | null): Promise<DuelEngineView> {
@@ -112,7 +117,7 @@ Duel.RegisterEffect(e,0)`);
   };
   const source = (): DuelSource => {
     const state = service.privateState(session.slug, "g");
-    return { kind: "journal", label: "Immediate surrender", mode, format, masterRule: state.session.masterRule,
+    return { kind: "journal", label: "Immediate surrender", mode, format, masterRule: state.session.masterRule, wasmPath: proofCorePath(mode),
       decks: state.decks, seed: state.seed!, settings: state.session.settings, firstTurnDraw: state.setup!.firstTurnDraw,
       startupScripts: state.setup!.startupScripts!.map((content, index) => ({ name: `startup-${index}.lua`, content })),
       commands: state.commands.map(({ seat, command }) => ({ seat, ...command })) };
@@ -458,7 +463,7 @@ end`]);
       expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[1]).toEqual(live);
     }, 60_000);
 
-    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s preserves a living opponent pick and refuses its removed seat", async (format) => {
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s filters an open opponent pick and refuses its removed seat", async (format) => {
       const t = await table(mode, format, true, [`local c=Duel.GetFieldCard(0,LOCATION_HAND,0)
 for _,e in ipairs({c:GetCardEffect(EVENT_FREE_CHAIN)}) do
   if (e:GetType()&EFFECT_TYPE_ACTIVATE)~=0 then
@@ -478,13 +483,20 @@ end`]);
       expect(before.prompt?.context?.type).toBe("opponent");
       await t.post("surrender", 1);
       const after = await t.view();
-      expect(after.prompt).toEqual(before.prompt);
       expect(after.seats[1]!.eliminated).toBe(true);
-      await t.post("respond", 0, { command: { promptId: after.prompt!.id, revision: after.revision, answer: { choice: "opt:0" } } }, 400);
-      expect((await t.view()).prompt).toEqual(after.prompt);
-      await t.answer(0, { choice: "opt:1" });
+      if (format === "ffa4") {
+        expect(after.prompt?.id).toBe(before.prompt?.id);
+        expect(after.prompt?.options.map((option) => [option.id, option.controller])).toEqual([["opt:1", 2], ["opt:2", 3]]);
+        await t.post("respond", 0, { command: { promptId: after.prompt!.id, revision: after.revision, answer: { choice: "opt:0" } } }, 400);
+        expect((await t.view()).prompt).toEqual(after.prompt);
+        await t.answer(0, { choice: "opt:1" });
+      } else {
+        expect(after.prompt?.context?.type).not.toBe("opponent");
+      }
       await reachMain(t);
       expect((await t.view()).seats[0]!.hand).toHaveLength(2);
+      const live = await t.view();
+      expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[0]).toEqual(live);
     }, 60_000);
 
     it.each([

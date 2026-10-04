@@ -136,7 +136,12 @@ ${_name === "idle" ? "" : "Duel.RegisterEffect(e,0)"}` }],
           expect(game.view(null).seats[0].eliminated).toBe(false);
           expect(game.view(null).seats[1].eliminated).toBe(true);
           if (_name === "retained token counters") expect(game.view(null).seats[0].monsters.map((c) => c?.code)).toContain(73915052);
-          game.answer(0, original.id, chooseSurrenderedAnswer(original));
+          if (_name === "retained token counters") {
+            game.answer(0, original.id, chooseSurrenderedAnswer(original));
+          } else {
+            expect(game.view(0).prompt?.id).not.toBe(original.id);
+            expect(() => game.answer(0, original.id, chooseSurrenderedAnswer(original))).toThrow("Stale prompt");
+          }
           expect(game.view(null).seats[2].lp).toBe(_name === "retained token counters" ? 7001 : 7000);
           expect(game.view(null).seats[3].lp).toBe(_name === "retained token counters" ? 6000 : 8000);
           if (_name === "counter fallback") expect(game.view(null).seats[2].graveyard.map((c) => c.code)).toEqual([46986414,46986414]);
@@ -264,7 +269,10 @@ end); Duel.RegisterEffect(e,0)` }],
         }
         game.eliminate(1, 0);
         expect(game.view(null).seats[1].eliminated).toBe(true);
-        if (scenario !== "departed payer cost") game.answer(0, original.id, chooseSurrenderedAnswer(original));
+        if (scenario !== "departed payer cost") {
+          expect(game.view(0).prompt?.id).not.toBe(original.id);
+          expect(() => game.answer(0, original.id, chooseSurrenderedAnswer(original))).toThrow("Stale prompt");
+        }
         if (scenario === "partial" || scenario === "one source") {
           const refreshed = game.view(0).prompt!;
           expect(refreshed.kind).toBe("counters");

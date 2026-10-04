@@ -139,16 +139,23 @@ describeWithCores("host eliminates a seat while a prompt is open (real engine)",
     expect(rebuilt).toEqual(after);
   }, 60_000);
 
-  it("ends the duel at once when two other seats surrender", async () => {
-    const t = await table("ffa3", 3);
+  it.each(["ffa3", "ffa4"] as const)("%s: ends the duel at once when all other seats surrender", async (format) => {
+    const count = format === "ffa3" ? 3 : 4;
+    const t = await table(format, count);
     expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
-    const holder = await holderOf(t, 3);
-    const others = [0, 1, 2].filter((seat) => seat !== holder);
-    expect((await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[others[0]!] })).status).toBe(200);
-    expect(t.duels.get(t.slug, "g1").status).toBe("active");
-    expect((await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[others[1]!] })).status).toBe(200);
+    const holder = await holderOf(t, count);
+    const others = Array.from({ length: count }, (_, seat) => seat).filter((seat) => seat !== holder);
+    for (const [index, seat] of others.entries()) {
+      expect((await post(t.host, { op: "surrender", slug: t.slug, guildId: "g1", playerId: t.players[seat] })).status).toBe(200);
+      if (index < others.length - 1) expect(t.duels.get(t.slug, "g1").status).toBe("active");
+    }
     const session = t.duels.get(t.slug, "g1");
     expect(session.status).toBe("completed");
     expect(session.winnerSeat).toBe(holder);
+    for (let seat = 0; seat < count; seat++) {
+      const view = await t.view(t.host, seat);
+      expect(view.result?.winnerSeat).toBe(holder);
+      expect(view.prompt).toBeNull();
+    }
   }, 60_000);
 });
