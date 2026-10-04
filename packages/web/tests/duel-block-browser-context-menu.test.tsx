@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { DUEL_NO_CALLOUT_ATTRIBUTE, useBlockBrowserContextMenu } from "@/lib/hooks/use-block-browser-context-menu";
@@ -54,7 +55,7 @@ describe("useBlockBrowserContextMenu", () => {
   });
 
   it("is called by DuelRoomView, the root of every live duel surface", () => {
-    const source = readFileSync(new URL("../src/components/duel/room.tsx", import.meta.url), "utf8");
+    const source = readFileSync(join(__dirname, "../src/components/duel/room.tsx"), "utf8");
     expect(source).toMatch(/import \{ useBlockBrowserContextMenu \} from "@\/lib\/hooks\/use-block-browser-context-menu"/);
     const body = source.slice(source.indexOf("export function DuelRoomView"));
     expect(body.slice(0, 1200)).toContain("useBlockBrowserContextMenu();");
