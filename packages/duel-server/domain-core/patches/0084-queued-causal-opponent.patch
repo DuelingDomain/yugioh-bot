@@ -1,4 +1,4 @@
-From f4b68bddd3329a8fda695724833f168ad8f84aaa Mon Sep 17 00:00:00 2001
+From 8e5529436c96f77517953e46afa5978280e9a8e6 Mon Sep 17 00:00:00 2001
 From: yugidraft <yugidraft@localhost>
 Date: Sat, 3 Oct 2026 22:51:23 -0400
 Subject: [PATCH] Keep queued causal opponents bound after departure
@@ -11,8 +11,8 @@ Claude-Session: https://claude.ai/code/session_01E47pSf2tMBT4FKf5hSsXZm
 ---
  field.cpp     | 12 ++++++++++++
  field.h       |  6 ++++++
- processor.cpp | 23 +++++++++++++++++++++--
- 3 files changed, 39 insertions(+), 2 deletions(-)
+ processor.cpp | 28 ++++++++++++++++++++++++++--
+ 3 files changed, 44 insertions(+), 2 deletions(-)
 
 diff --git a/field.cpp b/field.cpp
 index 8ca1e1e..4822a0a 100644
@@ -62,7 +62,7 @@ index be9d20c..28d90ab 100644
  	uint8_t living_opponents(uint8_t P, uint8_t (&out)[MAX_DUELISTS]) const {
  		uint8_t count = 0;
 diff --git a/processor.cpp b/processor.cpp
-index f0998f5..6ea9124 100644
+index f0998f5..635cc6d 100644
 --- a/processor.cpp
 +++ b/processor.cpp
 @@ -1476,6 +1476,9 @@ int32_t field::process_instant_event() {
@@ -75,7 +75,19 @@ index f0998f5..6ea9124 100644
  				newchain.flag = 0;
  				newchain.chain_id = infos.field_id++;
  				newchain.evt = ev;
-@@ -3985,6 +3988,16 @@ bool field::process(Processors::AddChain& arg) {
+@@ -3972,6 +3975,11 @@ bool field::process(Processors::AddChain& arg) {
+ 		auto& clit = core.new_chains.front();
+ 		effect* peffect = clit.triggering_effect;
+ 		arg.is_activated_effect = false;
++		// Queue-time capture used the controller. A control change or BOTH_SIDE
++		// activation can make that seat the actual activator or its Tag teammate.
++		if(n_duelists > 2 && clit.bound_opp == clit.causal_opp && is_duelist(clit.causal_opp)
++			&& same_team(clit.triggering_player, clit.causal_opp))
++			clit.bound_opp = clit.causal_opp = DUELIST_NONE;
+ 		// More than 2 duelists (F5): bind the one opponent of the chain link. The event opponent, or the only
+ 		// opponent for whom the checks pass, binds silently. With several, P picks one (step 12).
+ 		if(n_duelists > 2 && clit.bound_opp == DUELIST_NONE) {
+@@ -3985,6 +3993,16 @@ bool field::process(Processors::AddChain& arg) {
  				return FALSE;
  			}
  		}
@@ -92,7 +104,7 @@ index f0998f5..6ea9124 100644
  		// if it's an activate effect, go to subroutine checking for effects allowing the card
  		// to be activated even when it shouldn't normally (the turn it was set, from the hand, etc)
  		if((peffect->type & EFFECT_TYPE_ACTIVATE) != 0)
-@@ -4164,7 +4177,7 @@ bool field::process(Processors::AddChain& arg) {
+@@ -4164,7 +4182,7 @@ bool field::process(Processors::AddChain& arg) {
  	case 6: {
  		auto& clit = core.current_chain.back();
  		effect* peffect = clit.triggering_effect;
@@ -101,7 +113,7 @@ index f0998f5..6ea9124 100644
  			core.sub_solving_event.push_back(clit.evt);
  			emplace_process<Processors::ExecuteCost>(peffect, clit.triggering_player);
  		}
-@@ -4173,7 +4186,7 @@ bool field::process(Processors::AddChain& arg) {
+@@ -4173,7 +4191,7 @@ bool field::process(Processors::AddChain& arg) {
  	case 7: {
  		auto& clit = core.current_chain.back();
  		effect* peffect = clit.triggering_effect;
@@ -110,7 +122,7 @@ index f0998f5..6ea9124 100644
  			core.sub_solving_event.push_back(clit.evt);
  			emplace_process<Processors::ExecuteTarget>(peffect, clit.triggering_player);
  		}
-@@ -4563,6 +4576,12 @@ bool field::process(Processors::SolveChain& arg) {
+@@ -4563,6 +4581,12 @@ bool field::process(Processors::SolveChain& arg) {
  			}
  			adjust_instant();
  		}
