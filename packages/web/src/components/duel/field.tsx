@@ -454,9 +454,12 @@ function PileSlot({
         className={styles.zoneHit}
         aria-label={`${label} (${count})`}
         aria-pressed={selected}
+        data-duel-menu={deckMenu ? "" : undefined}
         onClick={(event) => activate(event.currentTarget)}
         onContextMenu={deckMenu ? (event) => {
+          // The room's right-click decline must not see this click: it opens the menu, nothing else.
           event.preventDefault();
+          event.stopPropagation();
           setMenuAnchor(event.currentTarget);
         } : undefined}
         onPointerDown={deckMenu ? (event) => {
