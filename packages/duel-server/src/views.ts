@@ -342,6 +342,7 @@ export interface StoredDuelEvent {
   addedToHand?: true;
   moveId?: number;
   target?: DuelZoneRef;
+  targetSeat?: number;
   battle?: DuelEvent["battle"];
   targets?: DuelZoneRef[];
   amount?: number;
@@ -717,6 +718,7 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   if (event.chainIndex != null) projected.chainIndex = event.chainIndex;
   if (event.zone) projected.zone = { ...event.zone };
   if (event.target) projected.target = { ...event.target };
+  if (event.targetSeat != null) projected.targetSeat = event.targetSeat;
   if (event.battle) projected.battle = {
     attacker: { ...event.battle.attacker },
     ...(event.battle.target ? { target: { ...event.battle.target } } : {}),
@@ -739,6 +741,15 @@ export function projectStoredEvent(event: StoredDuelEvent, viewer: number | null
   if (reveal && event.card) projected.card = event.card;
   if (reveal && event.description) projected.description = event.description;
   return projected;
+}
+
+/** MSG_ATTACK_DUELIST follows a direct MSG_ATTACK; its defender is public, including to bystanders. */
+export function noteDirectAttackTarget(event: StoredDuelEvent, controller: number, format: DuelFormat): void {
+  const targetSeat = seatOf(format, controller);
+  if (event.kind !== "attack" || event.target || event.seat == null || targetSeat == null) return;
+  event.targetSeat = targetSeat;
+  event.text = `${playerLabel(format, event.seat)} attacks ${playerLabel(format, controller)} directly`;
+  event.publicText = event.text;
 }
 
 function chainLinkEvent(

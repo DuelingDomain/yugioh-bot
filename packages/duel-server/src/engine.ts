@@ -37,6 +37,7 @@ import {
   nextBattleStep,
   noteChainTargetLog,
   noteDestroyLog,
+  noteDirectAttackTarget,
   noteReveal,
   observeChainTargetEvents,
   observeDuelEvent,
@@ -838,7 +839,14 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         return;
       }
       diagnose("msg201", raw.duelist, "attacked directly");
-      appendLog(`Player ${raw.duelist + 1} is attacked directly`);
+      // The raw tap preserves buffer order: this follows the direct MSG_ATTACK,
+      // whose stock wrapper target is null and cannot identify the defender.
+      const attack = events.at(-1);
+      if (attack?.kind === "attack" && !attack.target) {
+        noteDirectAttackTarget(attack, raw.duelist, format);
+        const line = log.at(-1);
+        if (line?.text === "A monster declares a direct attack") line.text = attack.text;
+      }
     } else if (raw.type === MSG_FIELD_DISABLED_N) {
       for (const zone of raw.zones) {
         if (zone.duelist >= seatCount) continue;
