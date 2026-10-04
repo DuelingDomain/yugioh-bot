@@ -130,4 +130,34 @@ describe("DashboardPage", () => {
     within(rows[1]).getByText("Open to join");
     expect(screen.getByText(/not in a draft right now/i)).toBeInTheDocument();
   });
+
+  it("names the round an in-progress tournament is in, and says only 'In progress' when it has no pairings yet", async () => {
+    const ps = db.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (?, 'g1', ?, ?)");
+    [1, 2, 3, 4].forEach((id) => ps.run(id, `u${id}`, `Player ${id}`));
+    const t = db.prepare(
+      "insert into tournaments (guild_id, name, format, status, created_by_user_id, web_slug, created_at) values ('g1', ?, 'round_robin', 'active', 'u1', ?, ?)",
+    );
+    t.run("Paired Cup", "paired-cup", "2026-10-02 10:00:00");
+    t.run("Unpaired Cup", "unpaired-cup", "2026-10-01 10:00:00");
+    const tp = db.prepare("insert into tournament_participants (tournament_id, player_id) values (?, ?)");
+    for (const tid of [1, 2]) for (const pid of [1, 2, 3, 4]) tp.run(tid, pid);
+    // four players play three rounds; round 1 is decided, so round 2 is the one in play
+    const tm = db.prepare(
+      "insert into tournament_matches (tournament_id, player_one_id, player_two_id, round_number, status) values (1, ?, ?, ?, ?)",
+    );
+    tm.run(1, 2, 1, "completed");
+    tm.run(3, 4, 1, "completed");
+    tm.run(1, 3, 2, "open");
+    tm.run(2, 4, 2, "open");
+    tm.run(1, 4, 3, "open");
+    tm.run(2, 3, 3, "open");
+
+    render(await DashboardPage());
+
+    const section = screen.getByRole("region", { name: "Your tournaments" });
+    const rows = Array.from(section.querySelectorAll<HTMLElement>("li.sv-row"));
+    expect(rows.map((r) => within(r).getAllByRole("link")[0].textContent)).toEqual(["Paired Cup", "Unpaired Cup"]);
+    within(rows[0]).getByText("Round 2 of 3");
+    within(rows[1]).getByText("In progress");
+  });
 });
