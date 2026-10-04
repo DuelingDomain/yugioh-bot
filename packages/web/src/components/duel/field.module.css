@@ -639,15 +639,15 @@
 /* The two halves cross-fade: the old side fades out while the new side fades in. */
 .turnGlow::before {
   background:
-    radial-gradient(ellipse 64% 82% at 50% 100%, rgb(var(--tg-rgb) / 0.3), rgb(var(--tg-rgb) / 0.11) 46%, transparent 76%),
-    linear-gradient(0deg, rgb(var(--tg-rgb) / 0.16), transparent 34%);
+    radial-gradient(ellipse 70% 92% at 50% 100%, rgb(var(--tg-rgb) / 0.5), rgb(var(--tg-rgb) / 0.2) 48%, transparent 80%),
+    linear-gradient(0deg, rgb(var(--tg-rgb) / 0.3), transparent 38%);
   transition: opacity 0.36s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .turnGlow[data-side="top"]::before {
   background:
-    radial-gradient(ellipse 64% 82% at 50% 0%, rgb(var(--tg-rgb) / 0.3), rgb(var(--tg-rgb) / 0.11) 46%, transparent 76%),
-    linear-gradient(180deg, rgb(var(--tg-rgb) / 0.16), transparent 34%);
+    radial-gradient(ellipse 70% 92% at 50% 0%, rgb(var(--tg-rgb) / 0.5), rgb(var(--tg-rgb) / 0.2) 48%, transparent 80%),
+    linear-gradient(180deg, rgb(var(--tg-rgb) / 0.3), transparent 38%);
 }
 
 .turnGlow[data-turn="true"]::before {
