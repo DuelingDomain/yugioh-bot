@@ -3,7 +3,8 @@
 
 .rail {
   --rail-side: 244px;
-  --hand-room: calc(var(--stage-w) - 2 * var(--rail-side) - 24px);
+  /* The hand is centred in the middle column and may reach 40px into each plate column (the plate is about 200px of 244). */
+  --hand-room: calc(var(--stage-w) - 2 * var(--rail-side) + 56px);
   --hw-top: var(--hand-room);
   --hw-bot: var(--hand-room);
   /* Sizes the V1 Tally and HandStrip read (set on .playmat in the classic board). */
@@ -150,6 +151,9 @@
   stroke-width: 2.2;
 }
 
+/* The concept hand cards show the card alone: the ATK / DEF plate stays off the hand (the numbers print on the card). */
+.rail [data-hand-card] button > div > span:has(> b) { display: none; }
+
 /* ----- plate (Tally): name + Turn tag on the first line, LP below ----- */
 
 .railPlate { position: relative; }
@@ -220,7 +224,7 @@
 
 /* Priority label: small gold text at the end of line 1. */
 .railPlate [data-lp-seat] > div:first-child > span:has([data-priority-full]) {
-  margin-left: auto;
+  margin-left: 2px;
   color: var(--gold-hi);
   font-family: var(--font);
   font-size: 12px;
