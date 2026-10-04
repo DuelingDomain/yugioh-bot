@@ -28,7 +28,7 @@ function proof(format: Format, domain: boolean, kind: Case): Scenario {
     deck: Array(20).fill(ELF), ...(seat === "p0" ? { spells: [{ card: LOTUS, pos: "set" }] } : {}),
     ...(dead && seat === declared ? { lp: 800 } : {}), ...(domain ? { deckMaster: "Blue-Eyes White Dragon" } : {}),
   };
-  const draws = Array<number>(n).fill(0); draws[0] = Number(domain);
+  const draws = Array<number>(n).fill(0); draws[0] = Number(domain && format !== "1v1");
   let used = false, eliminated = false, returned = false, burned = false;
   const board = (): BoardExpect => Object.fromEntries(seats.map((seat, i) => [seat,
     eliminated && seat === declared ? {
@@ -112,7 +112,7 @@ async function run(scenario: Scenario): Promise<void> {
     });
     expect(changed, "The loaned Axe Raider has a living owner").toBe(true);
   }
-  const game = await createEngineGame({ ...compiled.options, firstTurnDraw: scenario.setup.mode === "domain", dataDirectory: engineDataDirectory,
+  const game = await createEngineGame({ ...compiled.options, dataDirectory: engineDataDirectory,
     multiWasmBinary: scenario.setup.mode === "domain" ? domainNseatWasmBinary() : nseatWasmBinary(), seed: ["1", "2", "3", "4"] });
   try {
     const session = new Session(scenario, game); session.reachMainPhase(); session.startRecording();
