@@ -1,0 +1,128 @@
+From bbef05b1d103827960daae7de6d7507cdac668af Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sat, 3 Oct 2026 22:51:23 -0400
+Subject: [PATCH] Keep queued causal opponents bound after departure
+
+Save the event opponent on the chain before a trigger or response prompt opens. AddChain must not replace a departed battle, damage or reason opponent with a living declaration. A saved dead seat keeps the empty other side.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Claude-Session: https://claude.ai/code/session_01E47pSf2tMBT4FKf5hSsXZm
+---
+ field.cpp     | 12 ++++++++++++
+ field.h       |  6 ++++++
+ processor.cpp | 23 +++++++++++++++++++++--
+ 3 files changed, 39 insertions(+), 2 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index 8ca1e1e..4822a0a 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -19,6 +19,18 @@ bool chain::chain_operation_sort(const chain& c1, const chain& c2) {
+ 	return c1.triggering_effect->id < c2.triggering_effect->id;
+ }
+ void chain::set_triggering_state(card* pcard) {
++	// The event fixes a causal opponent before this link enters a prompt. Keep
++	// that seat on the queued link: battle pointers and living seats can change
++	// before AddChain, which otherwise probes again without the trigger condition.
++	// No event opponent leaves free declarations to the normal activation probe.
++	auto& f = *pcard->pduel->game_field;
++	if(f.n_duelists > 2 && !triggering_effect->global_effect && bound_opp == DUELIST_NONE
++		&& (triggering_effect->type & EFFECT_TYPE_ACTIONS)
++		&& !(triggering_effect->type & EFFECT_TYPE_CONTINUOUS)) {
++		const uint8_t P = triggering_effect->is_flag(EFFECT_FLAG_EVENT_PLAYER) && f.is_duelist(evt.event_player)
++			? evt.event_player : pcard->current.controler;
++		bound_opp = causal_opp = f.event_opponent(P, evt);
++	}
+ 	triggering_controler = pcard->current.controler;
+ 	triggering_location = pcard->current.location;
+ 	if(pcard->current.location & (LOCATION_MZONE | LOCATION_SZONE)) {
+diff --git a/field.h b/field.h
+index be9d20c..28d90ab 100644
+--- a/field.h
++++ b/field.h
+@@ -63,6 +63,9 @@ struct chain {
+ 	uint8_t disable_player;
+ 	// Phase 3: the opponent that Lua's "1" stands for in this link (n_duelists > 2), or DUELIST_NONE.
+ 	uint8_t bound_opp{ DUELIST_NONE };
++	// The causal seat and event saved before the prompt, separate from a free declaration.
++	uint8_t causal_opp{ DUELIST_NONE };
++	bool causal_activation_failed{ false };
+ 	// n_duelists > 2: the opponent whose zones the last Duel.SelectDisableField or Duel.SelectFieldZone of this link
+ 	// offered (DUELIST_NONE: none yet). The target and the operation of a link are two scopes; this keeps the seat
+ 	// between them, whatever other links prompt in between.
+@@ -669,6 +672,9 @@ public:
+ 			return e.reason_player;
+ 		return DUELIST_NONE;
+ 	}
++	bool causal_opponent_gone(const chain& ch) const {
++		return n_duelists > 2 && is_duelist(ch.causal_opp) && !is_alive(ch.causal_opp);
++	}
+ 	// n > 2: the living duelists that are not on the team of P, in ascending order. Gives the count.
+ 	uint8_t living_opponents(uint8_t P, uint8_t (&out)[MAX_DUELISTS]) const {
+ 		uint8_t count = 0;
+diff --git a/processor.cpp b/processor.cpp
+index f0998f5..86ba25b 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -1476,6 +1476,9 @@ int32_t field::process_instant_event() {
+ 			peffect->set_activate_location();
+ 			if(peffect->is_activateable(phandler->current.controler, ev)) {
+ 				chain& newchain = core.quick_f_chain[peffect];
++				// This is a new event, not a state refresh of the queued link.
++				newchain.bound_opp = newchain.causal_opp = DUELIST_NONE;
++				newchain.causal_activation_failed = false;
+ 				newchain.flag = 0;
+ 				newchain.chain_id = infos.field_id++;
+ 				newchain.evt = ev;
+@@ -3985,6 +3988,16 @@ bool field::process(Processors::AddChain& arg) {
+ 				return FALSE;
+ 			}
+ 		}
++		// A causal opponent may leave while the yes/no prompt is open. Recheck
++		// cost and target availability against that saved seat, never the condition
++		// or other opponents. A failed check cannot enter a stock callback with
++		// no legal options. Own-only effects whose checks still pass keep working.
++		clit.causal_activation_failed = false;
++		if(causal_opponent_gone(clit)) {
++			interpreter::scope_guard scope(pduel->lua);
++			scope.push(clit.triggering_player, &clit.bound_opp, false, false, peffect, true);
++			clit.causal_activation_failed = !peffect->is_activate_check(clit.triggering_player, clit.evt, TRUE, FALSE, FALSE);
++		}
+ 		// if it's an activate effect, go to subroutine checking for effects allowing the card
+ 		// to be activated even when it shouldn't normally (the turn it was set, from the hand, etc)
+ 		if((peffect->type & EFFECT_TYPE_ACTIVATE) != 0)
+@@ -4164,7 +4177,7 @@ bool field::process(Processors::AddChain& arg) {
+ 	case 6: {
+ 		auto& clit = core.current_chain.back();
+ 		effect* peffect = clit.triggering_effect;
+-		if(peffect->cost) {
++		if(peffect->cost && !clit.causal_activation_failed) {
+ 			core.sub_solving_event.push_back(clit.evt);
+ 			emplace_process<Processors::ExecuteCost>(peffect, clit.triggering_player);
+ 		}
+@@ -4173,7 +4186,7 @@ bool field::process(Processors::AddChain& arg) {
+ 	case 7: {
+ 		auto& clit = core.current_chain.back();
+ 		effect* peffect = clit.triggering_effect;
+-		if(peffect->target) {
++		if(peffect->target && !clit.causal_activation_failed) {
+ 			core.sub_solving_event.push_back(clit.evt);
+ 			emplace_process<Processors::ExecuteTarget>(peffect, clit.triggering_player);
+ 		}
+@@ -4525,6 +4538,12 @@ bool field::process(Processors::SolveChain& arg) {
+ 	case 2: {
+ 		for(uint8_t p = 0; p < n_duelists; ++p)
+ 			core.spsummon_state_count_tmp[p] = core.spsummon_state_count[p];
++		// The saved causal seat left before activation and its checks failed.
++		// Complete the link with no effect, without a negation event or message.
++		if(cait->causal_activation_failed) {
++			arg.step = 3;
++			return FALSE;
++		}
+ 		// The link of an eliminated duelist resolves with no effect (no EVENT_CHAIN_DISABLED). A duelist with a pending loss
+ 		// (Debug.EliminateDuelist) is out already. A surrender (0x200) waits for the whole chain and its links act normally.
+ 		if(n_duelists > 2 && is_duelist(cait->triggering_player) && (player[cait->triggering_player].eliminated || (player[cait->triggering_player].pending_loss && player[cait->triggering_player].pending_loss != 0x200))) {
+-- 
+2.43.0
+
