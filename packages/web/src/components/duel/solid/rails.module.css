@@ -100,6 +100,19 @@
 
 .rail[data-sv-rail="opp"] [data-hand-seat] { padding-top: 4px; }
 
+/* On the desktop board the middle column (the hand room) is narrower than the five backs, and the strip shrank to
+   fit while the backs overflowed it, so they sat on top of the label. The strip keeps the width of its backs, and an
+   empty spacer the size of the label on the left keeps the backs centred on the table. */
+@media (min-width: 901px) {
+  .rail[data-sv-rail="opp"] .railHand > :first-child { flex: none; }
+  .rail[data-sv-rail="opp"] .railHand::before {
+    content: "";
+    flex: none;
+    width: 44px;
+    margin-right: 6px;
+  }
+}
+
 /* Card shadows: the frame is the first div inside the card button. */
 .rail [data-hand-card] button > div {
   border-radius: var(--r);
