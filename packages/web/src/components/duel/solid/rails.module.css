@@ -381,6 +381,16 @@
   .railPlate [data-lp-seat] > div:first-child > span:has([data-priority-full]) > :last-child { display: inline; }
 
   .rail { --lp-fs: 26px; }
+
+  /* Your plate shares its row with the wide Deck Master chip (name, tags and the Summon button), so it gets two lines:
+     name and tags above, LP and the number below. On one line the number ran under the chip and the name shrank to 0. */
+  .rail[data-sv-rail="you"] .railPlate [data-lp-seat] {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+  }
+  .rail[data-sv-rail="you"] .railPlate [data-lp-seat] > div:first-child { max-width: 100%; }
+  .rail[data-sv-rail="you"] .railPlate [data-lp-seat] > div:first-child > span:first-child { flex: 0 1 auto; }
   .railPlate [data-lp-seat] > div:last-child > strong > span:first-child { font-size: 12px; }
 
   .railPlate [data-lp-seat] > div:last-child,
@@ -416,4 +426,6 @@
   .railPlate [data-lp-seat] { gap: 6px; }
   .railPlate [data-lp-seat] > div:first-child { gap: 4px; }
   .railPlate [data-lp-seat] > div:first-child > span:first-child > span:first-child { max-width: 72px; }
+  /* The "To act" label would push the tags off the narrow plate; the purple Turn tag already says it. */
+  .rail[data-sv-rail="you"] .railPlate [data-lp-seat] > div:first-child > span:has([data-priority-full]) { display: none; }
 }
