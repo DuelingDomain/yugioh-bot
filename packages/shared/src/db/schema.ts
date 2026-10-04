@@ -70,6 +70,9 @@ export function migrate(db: Database.Database) {
       cached_at text not null
     );
 
+    create index if not exists card_catalog_normalized_name_type_idx
+      on card_catalog (lower(trim(name)), type);
+
     create table if not exists cubes (
       id integer primary key autoincrement,
       guild_id text not null,
