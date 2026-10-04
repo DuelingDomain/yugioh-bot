@@ -252,16 +252,18 @@ describe("per-player copy cap in booster drafts", () => {
       expireNow(db, draftId);
       expect(service.expireCurrentPickStep(draftId).autoPickedPlayerIds.sort()).toEqual([a, b].sort());
     } else if (path === "manual") {
-      service.pickCard(draftId, a, pack[0].id);
+      service.pickCard(draftId, a, service.pickOptions(draftId, a)[0].id);
     } else {
       const options = service.pickOptions(draftId, a);
       expect(options.map((card) => card.catalogCardId)).toEqual([remainder[1].id]);
       service.pickCard(draftId, a, options[0].id, path === "bot" ? "auto" : "manual");
     }
     expect(service.pool(draftId, a).at(-1)?.catalogCardId).toBe(remainder[1].id);
+    const swapped = pack.find((card) => (db.prepare("select catalog_card_id as id from draft_cards where id = ?").get(card.id) as { id: number }).id === remainder[1].id)!;
+    expect(swapped).toBeDefined();
     const after = db.prepare("select catalog_card_id as id from draft_undealt where draft_id = ? order by position").all(draftId);
-    expect(after).toEqual([remainder[0], ...remainder.slice(2)].map(({ id }) => ({ id })).concat([{ id: pack[0].catalogCardId }]));
-    expect(db.prepare("select catalog_card_id as id from draft_cards where id = ?").get(pack[0].id)).toEqual({ id: remainder[1].id });
+    expect(after).toEqual([remainder[0], ...remainder.slice(2)].map(({ id }) => ({ id })).concat([{ id: swapped.catalogCardId }]));
+    expect(db.prepare("select catalog_card_id as id from draft_cards where id = ?").get(swapped.id)).toEqual({ id: remainder[1].id });
     expect(service.findById(draftId).config.copyLimit).toBe(true);
   });
 
@@ -295,12 +297,12 @@ describe("per-player copy cap in booster drafts", () => {
     const first = db.prepare("select catalog_card_id as id from draft_undealt where draft_id = ? order by position limit 1").get(draftId) as { id: number };
     drafts.pickCard(draftId, a, aPack[0].id);
     drafts.pickCard(draftId, b, bPack[0].id);
-    expect(db.prepare("select catalog_card_id as id from draft_cards where id = ?").get(bPack[1].id)).toEqual(first);
+    expect(db.prepare("select catalog_card_id as id from draft_cards where draft_pack_id = (select draft_pack_id from draft_cards where id = ?) and picked_by_player_id is null").all(bPack[1].id)).toContainEqual(first);
     expect(drafts.hasPassedStep(draftId, a)).toBe(false);
   });
 
   it("rolls back the swap if the pick fails", () => {
-    const { db, drafts, draftId, a } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, distinctCube(24));
+    const { db, drafts, draftId, a } = boosterDraft({ packSize: 1, packsPerPlayer: 4, cardsPerPlayer: 4 }, distinctCube(24));
     const pack = drafts.currentPackOptions(draftId, a);
     for (const card of pack) grantCopies(db, draftId, a, card.catalogCardId, 3);
     const before = db.prepare("select * from draft_undealt order by position").all();
@@ -311,7 +313,7 @@ describe("per-player copy cap in booster drafts", () => {
   });
 
   it.each(["none legal", "old draft"])("takes a fourth copy as a fallback (%s)", (path) => {
-    const { db, drafts, draftId, a } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, distinctCube(24));
+    const { db, drafts, draftId, a } = boosterDraft({ packSize: 1, packsPerPlayer: 4, cardsPerPlayer: 4 }, distinctCube(24));
     const pack = drafts.currentPackOptions(draftId, a);
     for (const card of pack) grantCopies(db, draftId, a, card.catalogCardId, 3);
     if (path === "old draft") {

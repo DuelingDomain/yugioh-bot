@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../types/index.js";
 import { generateWebSlug } from "../util/web-slug.js";
@@ -378,10 +378,11 @@ export function createDraftService(
       .all(draftId) as Array<{ position: number; catalog_card_id: number }>;
     const replacement = remainder.find((card) => !isCapped(held, card.catalog_card_id));
     if (!replacement) return; // Old drafts and exhausted piles use the forced-pick rule.
+    const outgoing = cards[randomInt(cards.length)];
     const tail = remainder[remainder.length - 1].position + 1;
     db.prepare("delete from draft_undealt where draft_id = ? and position = ?").run(draftId, replacement.position);
-    db.prepare("insert into draft_undealt (draft_id, position, catalog_card_id) values (?, ?, ?)").run(draftId, tail, cards[0].catalog_card_id);
-    db.prepare("update draft_cards set catalog_card_id = ? where id = ?").run(replacement.catalog_card_id, cards[0].id);
+    db.prepare("insert into draft_undealt (draft_id, position, catalog_card_id) values (?, ?, ?)").run(draftId, tail, outgoing.catalog_card_id);
+    db.prepare("update draft_cards set catalog_card_id = ? where id = ?").run(replacement.catalog_card_id, outgoing.id);
   }).immediate;
 
   const pool = (draftId: number, playerId: number): DraftPoolCard[] => {
