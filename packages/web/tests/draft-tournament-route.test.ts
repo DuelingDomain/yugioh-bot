@@ -5,15 +5,22 @@ import type { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.fn();
+const { checkDiscordWebAccess } = vi.hoisted(() => ({ checkDiscordWebAccess: vi.fn() }));
 const tempDirs: string[] = [];
 
 vi.mock("@/lib/auth", () => ({ auth }));
+vi.mock("@/lib/discord-web-access", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/lib/discord-web-access")>(),
+  checkDiscordWebAccess,
+}));
 
 describe("POST /api/drafts/[slug]/tournament", () => {
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
     auth.mockResolvedValue({ user: { id: "creator-user", name: "Yugi" } });
+    checkDiscordWebAccess.mockReset();
+    checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 403 });
   });
 
   afterEach(() => {
@@ -65,6 +72,7 @@ describe("POST /api/drafts/[slug]/tournament", () => {
     const data = await response.json();
     expect(data.format).toBe("round_robin");
     expect(data.name).toBe("My Draft");
+    expect(checkDiscordWebAccess).not.toHaveBeenCalled();
   });
 
   it("returns 409 when tournament already linked", async () => {
@@ -76,12 +84,14 @@ describe("POST /api/drafts/[slug]/tournament", () => {
       body: JSON.stringify({ format: "round_robin" }),
     }) as NextRequest;
 
-    await POST(req(), { params: Promise.resolve({ slug: "test-slug" }) });
+    const created = await POST(req(), { params: Promise.resolve({ slug: "test-slug" }) });
+    expect(created.status).toBe(201);
     const response2 = await POST(req(), { params: Promise.resolve({ slug: "test-slug" }) });
     expect(response2.status).toBe(409);
+    expect(await response2.json()).toEqual(await created.json());
   });
 
-  it("returns 403 when non-creator calls the route", async () => {
+  it("returns 403 when a non-creator is not an admin", async () => {
     await setupCompletedDraft();
     auth.mockResolvedValue({ user: { id: "other-user", name: "Kaiba" } });
     const { POST } = await import("../app/api/drafts/[slug]/tournament/route");
@@ -93,6 +103,46 @@ describe("POST /api/drafts/[slug]/tournament", () => {
 
     const response = await POST(request, { params: Promise.resolve({ slug: "test-slug" }) });
     expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: "You must be a member of the Discord server and have permission for this action",
+    });
+    expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith("other-user", "admin");
+  });
+
+  it("allows the creator when Discord verification is unavailable", async () => {
+    await setupCompletedDraft();
+    checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 503 });
+    expect((await postWithBody({ format: "round_robin" })).status).toBe(201);
+    expect(checkDiscordWebAccess).not.toHaveBeenCalled();
+  });
+
+  it("returns 201 for an admin who did not create or join the draft", async () => {
+    await setupCompletedDraft();
+    auth.mockResolvedValue({ user: { id: "admin-user" } });
+    checkDiscordWebAccess.mockResolvedValue({ ok: true });
+
+    const created = await postWithBody({ format: "round_robin" });
+    expect(created.status).toBe(201);
+    const tournament = await created.json();
+    expect(tournament).toMatchObject({ name: "My Draft", format: "round_robin" });
+    expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith("admin-user", "admin");
+
+    const duplicate = await postWithBody({ format: "single_elim" });
+    expect(duplicate.status).toBe(409);
+    expect(await duplicate.json()).toEqual(tournament);
+  });
+
+  it("returns 503 when a non-creator's admin verification is unavailable", async () => {
+    await setupCompletedDraft();
+    auth.mockResolvedValue({ user: { id: "other-user" } });
+    checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 503 });
+
+    const response = await postWithBody({ format: "round_robin" });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "Cannot verify Discord server membership or permissions. Please try again later.",
+    });
+    expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith("other-user", "admin");
   });
 
   it("returns 400 for invalid format", async () => {
