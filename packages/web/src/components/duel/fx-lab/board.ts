@@ -75,6 +75,12 @@ export type LabScript = {
   series?: LabSeries;
   /** The rock-paper-scissors opening: the screen opens over the board, in a lobby room. */
   opening?: LabOpening;
+  /**
+   * The first step is not played as it arrives: the board opens on that step's finished state with its
+   * events already in the list, as a real room does on its first load of a new duel (finished hands,
+   * the deal still to be shown). Hand cards then carry the engine's hand identities.
+   */
+  preload?: boolean;
 };
 
 /** What the opening part of a lab scenario shows. The buttons call the real API, which fails in the lab. */
@@ -198,6 +204,26 @@ export function newBoard(me: SeatOptions = {}, opp: SeatOptions = {}, phase = "m
 }
 
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+/**
+ * Gives every hand card the opaque identity the server sends (`hand-n` for the viewer's own cards,
+ * `sleeve-n` for the others) and sets the same identity on the move events that bring a card there.
+ * Returns the board and events as copies.
+ */
+export function withHandIds(board: LabBoard, events: readonly DuelEvent[], viewer: number | null): { board: LabBoard; events: DuelEvent[] } {
+  const next = clone(board);
+  let sleeves = 0;
+  const own: number[] = next.seats.map(() => 0);
+  const ids = next.seats.map((seat) => seat.hand.map(() => (seat.seat === viewer ? `hand-${++own[seat.seat]}` : `sleeve-${++sleeves}`)));
+  next.seats.forEach((seat, index) => seat.hand.forEach((card, i) => { card.handId = ids[index][i]; }));
+  const tagged = events.map((event) => {
+    const zone = event.zone;
+    if (event.kind !== "move" || !zone || zone.location !== LOCATION_HAND) return event;
+    const handId = ids[zone.controller]?.[zone.sequence];
+    return handId ? { ...event, handId } : event;
+  });
+  return { board: next, events: tagged };
+}
 
 /** Applies edits to a copy of the board. */
 export function applyEdits(board: LabBoard, edits: readonly Edit[]): LabBoard {
