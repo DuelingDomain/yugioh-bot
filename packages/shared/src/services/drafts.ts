@@ -1255,7 +1255,7 @@ export function createDraftService(
   });
 
   // Legal choices first; a fully capped booster pack permits one forced pick.
-  const currentPackOptionsInternal = db.transaction((draftId: number, playerId: number, pickableOnly = false): DraftCard[] => {
+  const currentPackOptionsInternal = (draftId: number, playerId: number, pickableOnly = false, swapping = false): DraftCard[] => {
     const draft = findById(draftId);
     if (draft.status === "completed") {
       return [];
@@ -1277,7 +1277,6 @@ export function createDraftService(
       return [];
     }
 
-    prepareBoosterPack(draftId, playerId);
     const seatIndex = playerSeatIndex(draftId, playerId);
     const pack = currentPackAtSeat(draftId, draft.currentPackRound, seatIndex);
 
@@ -1285,7 +1284,7 @@ export function createDraftService(
       return [];
     }
 
-    const cards = db
+    const readCards = () => db
       .prepare(
         `
           select * from draft_cards
@@ -1295,15 +1294,25 @@ export function createDraftService(
       )
       .all(pack.id)
       .map(mapDraftCard);
-
-    if (!pickableOnly || draft.config.copyLimit === false) {
-      return cards;
-    }
+    let cards = readCards();
+    if (draft.config.copyLimit === false) return cards;
 
     const held = heldCopies(draftId, playerId);
-    const legal = cards.filter((card) => !isCapped(held, card.catalogCardId));
+    let legal = cards.filter((card) => !isCapped(held, card.catalogCardId));
+    if (draft.config.mode !== "theme" && cards.length > 0 && legal.length === 0) {
+      // Re-read status, progress, eligibility and the pack under the lock before any swap.
+      if (!swapping) return swapPackOptions(draftId, playerId, pickableOnly);
+      prepareBoosterPack(draftId, playerId);
+      cards = readCards();
+      legal = cards.filter((card) => !isCapped(held, card.catalogCardId));
+    }
+    if (!pickableOnly) return cards;
     return legal.length > 0 || draft.config.mode === "theme" ? legal : cards;
-  }).immediate;
+  };
+
+  const swapPackOptions = db.transaction((draftId: number, playerId: number, pickableOnly: boolean) =>
+    currentPackOptionsInternal(draftId, playerId, pickableOnly, true),
+  ).immediate;
 
   return {
     create(
