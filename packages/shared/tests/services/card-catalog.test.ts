@@ -327,6 +327,13 @@ describe("card name search", () => {
     expect(calls).toEqual(["?fname=harpies+feather", "?fname=harpies", "?fname=feather"]);
   });
 
+  it("does not probe words shorter than three characters for magican of b", async () => {
+    const { catalog, calls } = cardDatabase(pool);
+
+    await expect(catalog.syncCardsByFuzzyName("magican of b")).resolves.toEqual([]);
+    expect(calls).toEqual(["?fname=magican+of+b", "?fname=magican"]);
+  });
+
   it("does not repeat a fallback probe for repeated query words", async () => {
     const { catalog, calls } = cardDatabase(harpies);
 

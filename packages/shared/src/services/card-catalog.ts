@@ -317,7 +317,7 @@ export function createCardCatalogService(
     /**
      * Cards whose name matches typed text, best match first (see rankCardsByName). The card database only
      * matches the exact text and answers HTTP 400 for no match, so "blue eyes" would miss "Blue-Eyes":
-     * when the text finds nothing, try up to two distinct words, longest unchanged words first,
+     * when the text finds nothing, try up to two distinct words of at least three characters, longest unchanged words first,
      * and keep names that have every folded word. Never repeat the folded full text as a probe.
      * A full passcode finds that card. Extra Deck monsters are left out unless `includeExtra` is set.
      */
@@ -339,7 +339,7 @@ export function createCardCatalogService(
       if (cards.length === 0) {
         const unchangedWords = new Set(text.toLowerCase().split(/\s+/).filter((word) => foldCardText(word) === word));
         const probes = [...new Set(words)]
-          .filter((word) => word !== phrase)
+          .filter((word) => word.length >= 3 && word !== phrase)
           .sort((a, b) => Number(unchangedWords.has(b)) - Number(unchangedWords.has(a)) || b.length - a.length)
           .slice(0, 2);
         for (const probe of probes) {
