@@ -330,6 +330,39 @@ describe("live room table mount", () => {
     });
   });
 
+  it("does not offer a Leaving seat for a direct attack while a living seat remains, and keys follow", async () => {
+    room(FFA3_FIXTURES.states["direct-attack"].room);
+    const prompt = state.room!.engine!.prompt!;
+    prompt.options = [
+      { id: "direct-1", label: "Attack Ryo directly", controller: 1 },
+      { id: "direct-2", label: "Attack Mika directly", controller: 2 },
+    ];
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 1 ? { ...seat, pendingElimination: true } : seat);
+    const { container } = mount();
+    expect(container.querySelector("[data-opponent-bar='direct'] [data-rival-seat='1']")).toBeNull();
+    expect(container.querySelector("[data-opponent-bar='direct'] [data-rival-seat='2']")).not.toBeNull();
+    // Key 1 is the first pickable rival (seat 2): it locks the aim, the confirm sends.
+    await act(async () => { fireEvent.keyDown(window, { key: "1" }); });
+    expect(state.send).not.toHaveBeenCalled();
+    expect(container.querySelector("[data-rival-seat='2'][data-locked='true']")).not.toBeNull();
+    await act(async () => { fireEvent.click(screen.getByTestId("aim-confirm")); });
+    expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
+      promptId: "direct-attack", revision: state.room!.engine!.revision, answer: { choice: "direct-2" },
+    });
+  });
+
+  it("keeps every Leaving seat for a direct attack when none is living", () => {
+    room(FFA3_FIXTURES.states["direct-attack"].room);
+    state.room!.engine!.prompt!.options = [
+      { id: "direct-1", label: "Attack Ryo directly", controller: 1 },
+      { id: "direct-2", label: "Attack Mika directly", controller: 2 },
+    ];
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 1 || seat.seat === 2 ? { ...seat, pendingElimination: true } : seat);
+    const { container } = mount();
+    expect(container.querySelector("[data-opponent-bar='direct'] [data-rival-seat='1']")).not.toBeNull();
+    expect(container.querySelector("[data-opponent-bar='direct'] [data-rival-seat='2']")).not.toBeNull();
+  });
+
   it.each(["spectator", "eliminated self"])("does not offer or send actions for an %s", async (role) => {
     room(FFA3_FIXTURES.states["choose-opponent"].room);
     if (role === "spectator") state.room!.mySeat = null;

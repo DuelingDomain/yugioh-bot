@@ -5,6 +5,7 @@ import type { DuelAnswer, DuelPromptOption } from "@yugidraft/shared/duels";
 import { targetName } from "../card-interactions";
 import { isAttackDuelistPrompt, isAttackTargetPrompt, optionsForKeys, optionZoneKeys, type PromptAim } from "../prompts";
 import type { AimArrowProps, AimPointerSpot } from "./aim-arrow";
+import { isOutOrLeaving } from "../multi-seat";
 import { targetChoices } from "./targets";
 import type { BattleAim, DuelActivateHandler, SeatPick, SeatTone, TableController, TableLayout } from "./types";
 
@@ -126,7 +127,11 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
     if (!canAct || !prompt || prompt.kind !== "choice" || base.seatPick) return null;
     const choices = targetChoices(prompt, engine, viewerSeat, nameOf).filter((choice) => choice.direct && choice.zones.length === 0);
     if (choices.length === 0) return null;
-    return new Map<number, string>(choices.map((choice) => [choice.seat, choice.optionIds[0]]));
+    // Same rule as the prompt rows: a Leaving seat is not a direct-attack target while a living seat is offered.
+    // (targetChoices keeps Leaving seats because card targets stay legal until the seat is out.)
+    const living = choices.filter((choice) => !isOutOrLeaving(engine.seats.find((view) => view.seat === choice.seat)));
+    const offered = living.length > 0 ? living : choices;
+    return new Map<number, string>(offered.map((choice) => [choice.seat, choice.optionIds[0]]));
   }, [base.seatPick, canAct, engine, nameOf, prompt, viewerSeat]);
 
   // A pointer-driven attack: the attacker is known and a target or a seat is to be chosen.
