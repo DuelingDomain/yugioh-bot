@@ -10,6 +10,7 @@ import { useDraftStore } from "@/lib/stores/draft-store";
 import { useTalkStore } from "@/lib/stores/talk-store";
 import { TALK_COOLDOWN_MS, type TalkLineId } from "@yugidraft/shared/ws/talk";
 import { Binder, type BinderHandle } from "./binder";
+import { CardPreview } from "./card-preview";
 import { CardReader } from "./card-reader";
 import { Holo, type HoloTarget } from "./holo";
 import { FullscreenLayer } from "./layer";
@@ -48,6 +49,7 @@ import { measureTable } from "./table-geometry";
 import { Table } from "./table";
 import { Tray } from "./tray";
 import { useMedia } from "./use-media";
+import { usePreviewCard } from "./use-preview";
 import { usePick, type PickAttempt } from "./use-pick";
 import { useRoomState } from "./use-room-state";
 
@@ -60,6 +62,7 @@ export interface DraftRoomProps {
 
 const PHONE = "(max-width: 900px)";
 const DRAWER = "(max-width: 1359px) and (min-width: 901px)";
+const FINE_POINTER = "(hover: hover) and (pointer: fine)";
 // seconds left on the store clock at which a selected card is picked; early enough for the POST to beat the server sweep
 const AUTO_PICK_AT = 2;
 
@@ -87,6 +90,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   const [motion, setMotion] = useMotionSetting();
   const phone = useMedia(PHONE);
   const drawer = useMedia(DRAWER);
+  const finePointer = useMedia(FINE_POINTER);
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const layerRef = useRef<HTMLDivElement>(null);
@@ -100,6 +104,8 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
   /* ---------- state ---------- */
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [hoverId, setHoverId] = useState<number | null>(null);
+  /** The table card with a keyboard focus ring: it gets the large preview like a hovered one. */
+  const [keyFocusId, setKeyFocusId] = useState<number | null>(null);
   const [peek, setPeek] = useState<{ card: RoomCard; tag: string } | null>(null);
   const [lastPick, setLastPick] = useState<RoomCard | null>(null);
   const [pickNote, setPickNote] = useState<string | null>(null);
@@ -484,6 +490,7 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     setTimeout(() => (clicking.current = false), 0);
     setKbd(false);
   }, []);
+  const onCardKeyFocus = useCallback((card: RoomCard | null) => setKeyFocusId(card ? card.id : null), []);
   const onCardHover = useCallback(
     (card: RoomCard | null) => setHoverId(turn === "picking" && card ? card.id : null),
     [turn],
@@ -491,7 +498,11 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
 
   /* ---------- the hologram ---------- */
   const [holoTarget, setHoloTarget] = useState<HoloTarget | null>(null);
-  const holoId = hoverId ?? selectedId;
+  // With a mouse and a wide room the large preview takes over from the hologram while a card is hovered or focused.
+  const previewing = finePointer && !phone;
+  const previewTargetId = previewing && turn === "picking" && !holdDeal ? (hoverId ?? keyFocusId) : null;
+  const preview = usePreviewCard(previewTargetId == null ? null : (rs.cards.find((c) => c.id === previewTargetId) ?? null));
+  const holoId = previewing ? (previewTargetId != null ? null : selectedId) : (hoverId ?? selectedId);
   useLayoutEffect(() => {
     if (phone || turn !== "picking" || holoId == null) {
       setHoloTarget(null);
@@ -836,7 +847,13 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               if (card) setSelectedId(null);
             }}
           />
-          <section className="stage" aria-label="Draft table" ref={setStage} tabIndex={-1}>
+          <section
+            className="stage"
+            aria-label="Draft table"
+            ref={setStage}
+            tabIndex={-1}
+            style={{ "--lift": `${geometry.lift}px` } as React.CSSProperties}
+          >
             <Table
               geometry={geometry}
               deal={deal}
@@ -859,9 +876,13 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               onCardFocus={onCardFocus}
               onCardPointerDown={onCardPointerDown}
               onCardHover={onCardHover}
+              onCardKeyFocus={onCardKeyFocus}
             />
             <Seats friends={friends} positions={positions} theme={theme} heard={heard} stageWidth={size.w} />
             <Holo target={holoTarget} stage={stage} />
+            {preview && previewing ? (
+              <CardPreview card={preview.card} instant={preview.instant} stage={stage} layout={geometry} />
+            ) : null}
             <div className="notes">
               <div className="status" role="status" data-on={status ? "" : undefined}>
                 {status}
