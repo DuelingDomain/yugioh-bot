@@ -130,6 +130,9 @@
   --wk: 6.822;
   --hk: 5.16;
   --lk: 0.58;
+  /* Drawn height of your hand cards as a multiple of --z, and its ceiling (about the 3D mode hand). */
+  --lh-k: 0.95;
+  --lh-max: 150px;
   --ohk: 0.6;
   /* Breathing room above the opponent's hand and below yours (marks and glows sit outside the cards). */
   --hpad: 4px;
@@ -176,11 +179,15 @@
   --ohg: calc(var(--ohcw) * 0.06);
   --top-res: calc(var(--oh) * var(--top-lift-k) + var(--res-top-px));
   --top-h: max(var(--tally-h), calc(var(--oh) * (1 - var(--top-hide)) + var(--top-res) + var(--hpad)));
-  --lh: min(calc(var(--z) * var(--lk) + var(--spare) * 0.517), calc(var(--z) * 1.15), 260px);
+  --lh-rest: min(calc(var(--z) * var(--lk) + var(--spare) * 0.517), calc(var(--z) * 1.15), 260px);
+  /* Your cards are drawn larger than the room the strip keeps for them (--lh-rest): the extra height rises
+     from the strip's bottom edge over the front Spell/Trap row (the strip stacks above the board) instead of
+     shrinking the board. The size probe and the hover lift follow --lh, so FX land at the drawn size. */
+  --lh: max(var(--lh-rest), min(calc(var(--z) * var(--lh-k)), var(--lh-max)));
   --lhcw: calc(var(--lh) * 0.686);
   --lhg: calc(var(--z) * 0.07);
-  --bot-res: calc(var(--lh) * var(--lift-k) + var(--z) * var(--mark-k) + var(--res-bot-px));
-  --bot-h: max(var(--tally-h), calc(var(--lh) + var(--bot-res) + var(--hpad)));
+  --bot-res: calc(var(--lh-rest) * var(--lift-k) + var(--z) * var(--mark-k) + var(--res-bot-px));
+  --bot-h: max(var(--tally-h), calc(var(--lh-rest) + var(--bot-res) + var(--hpad)));
   --hw-top: calc(var(--z) * var(--wk) - var(--tally-w) - var(--sg));
   --hw-bot: var(--hw-top);
 
@@ -1718,9 +1725,10 @@
       calc(var(--avail-h) - var(--fixed-h) - var(--z) * (var(--hk) + var(--lkr) + var(--ohkr)))
     );
     --oh: min(calc(var(--z) * var(--ohk) + var(--spare) * 0.3), calc(var(--z) * 1.5));
-    --lh: min(calc(var(--z) * var(--lk) + var(--spare) * 0.56), calc(var(--z) * 1.9), 120px);
+    --lh-rest: min(calc(var(--z) * var(--lk) + var(--spare) * 0.56), calc(var(--z) * 1.9), 120px);
+    --lh: max(var(--lh-rest), min(calc(var(--z) * var(--lh-k)), var(--lh-max)));
     --top-h: calc(var(--tally-h) + var(--gs) + var(--oh) + var(--top-res) + var(--hpad));
-    --bot-h: calc(var(--tally-h) + var(--gs) + var(--lh) + var(--bot-res) + var(--hpad));
+    --bot-h: calc(var(--tally-h) + var(--gs) + var(--lh-rest) + var(--bot-res) + var(--hpad));
     --hw-top: calc(var(--z) * var(--wk));
     --hw-bot: calc(var(--z) * var(--wk));
     --fs-name: 13px;
@@ -1746,7 +1754,7 @@
   }
 
   .stripBottom {
-    grid-template-rows: var(--tally-h) calc(var(--lh) + var(--bot-res) + var(--hpad));
+    grid-template-rows: var(--tally-h) calc(var(--lh-rest) + var(--bot-res) + var(--hpad));
   }
 
   .stripTop .tally,
