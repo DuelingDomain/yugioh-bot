@@ -140,7 +140,7 @@ The build uses the same inputs as the engine session:
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
 - All numbered patches in `domain-core/patches` (currently 0001–0084; 84 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash is `f7dbac1e8ad491f1e26f6ffa8192d7ddad1e23052dbf7ae2540c2be776bec2c1`.
+  `PATCH_LIMIT`. The current series hash is `1c66c92b62827c5635fc0132ac665dd22b479efa79bae3933339d90f08481810`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `cf5100707bce7701cb0be0ac4a8ff47308a13b278174f03c157f2f2e46dd849a`.
@@ -149,8 +149,8 @@ The 84-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Their
 
 | CI core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `e5a786d47d82d0f7cc75cd75efa884e58063252cb6e96e0eb1958c9f0c7e4ff3` |
-| Domain multiplayer | `2835da40a7810601231f2917a9fd297ab091848cf51997f1215bf0abdae782d8` |
+| Standard multiplayer | `cf4d7b4723756901199f45b152a495b0e4fe24afc42ef5000d2f50b9f0a0743f` |
+| Domain multiplayer | `a9bed74b80a3614237dd20b14b094d8b82aebfa5438dd2c2d7a9eac65af1f301` |
 | Domain 1v1 (unchanged) | `16f60edf2c1e246886d1962fad32238fde0dd969c36bc959251df488c83aefc7` |
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
