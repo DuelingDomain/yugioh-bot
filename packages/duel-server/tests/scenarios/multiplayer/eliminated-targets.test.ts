@@ -280,7 +280,7 @@ end`);
         } finally { game.close(); }
       });
 
-      it(`${format} ${mode}: removing every listed monster cancels the target choice and permits a living direct attack`, async () => {
+      it(`${format} ${mode}: removing every listed monster keeps only living direct targets`, async () => {
         const scenario: Scenario = { id: "empty-attack-targets", title: "", source: "ADR-0002", tags: [], steps: [],
           setup: { format, mode, attackFirstTurn: true, p0: { monsters: ["Mystical Elf"], ...master("Axe Raider") },
             p1: { monsters: ["Kuriboh", "Kuriboh"], ...master("Celtic Guardian") }, p2: master("Battle Ox"),
@@ -291,16 +291,15 @@ end`);
           session.reachMainPhase();
           session.run(changePhase("battle", "p0"), 1);
           session.run(choose("attack:0", "p0"), 2);
-          session.run(choose("no", "p0"), 3);
-          expect(game.view(0).prompt?.kind).toBe("cards");
+          const original = game.view(0).prompt!;
+          expect(original.kind).toBe("choice");
+          expect(original.options.filter(option => option.location === 4)).toHaveLength(2);
           game.eliminate(1, 0);
-          expect(game.view(0).prompt?.options.some((option) => option.id.startsWith("attack:"))).toBe(true);
-          session.run(attack("Mystical Elf", "direct", "p0"), 4);
-          if (format === "ffa4") {
-            const pick = game.view(0).prompt!;
-            expect(pick.options.map((option) => option.controller)).toEqual([2, 3]);
-            game.answer(0, pick.id, choosePracticeBotAnswer(pick, { table: botTableOf(game.view(0)) }));
-          }
+          const pick = game.view(0).prompt!;
+          expect(pick.id).toBe(original.id);
+          expect(pick.options.map(option => option.id)).toEqual(format === "ffa4" ? ["direct:2", "direct:3"] : ["direct:2"]);
+          expect(pick.options.some(option => option.location === 4 || option.controller === 1)).toBe(false);
+          game.answer(0, pick.id, { choice: "direct:2" });
           expect(game.view(null).seats[2]!.lp).toBe(7200);
           expect(captured.lib!.duelQueryCount(captured.handle!, 1, OcgLocation.MZONE)).toBe(0);
         } finally { game.close(); }

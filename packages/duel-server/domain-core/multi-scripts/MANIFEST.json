@@ -6591,6 +6591,15 @@
       ]
     },
     {
+      "code": 99050989,
+      "file": "c99050989.lua",
+      "name": "Drillago",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "9ac816b42597f4b7f9049c9f326a9892abecdf8a8ca765ae8e9005216b0b062e",
+      "note": "FFA direct-attack condition checks each prospective defender, then the attacked seat; stock behavior at two seats and in Tag."
+    },
+    {
       "code": 99505609,
       "file": "c99505609.lua",
       "name": "Bingo Card",

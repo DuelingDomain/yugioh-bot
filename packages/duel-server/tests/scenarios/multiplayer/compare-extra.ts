@@ -208,7 +208,7 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
     tags: ["multiplayer", "chooser", "trigger", "ffa3", "card:57314798"],
     // A Xyz monster in the Graveyard of the setup was never properly summoned, so it cannot return. Numeron Dragon starts on the field and Elf destroys it in battle.
     // Standard skips the turn-1 draw. p0 plays its turn-4 Dian Keto, so its hand and field are empty before the direct attack.
-    // p2 controls a monster, so a direct attack of p1 can only go to p0 (no pick prompt).
+    // The combined pick offers p0 directly and the monster on p2.
     setup: { format: "ffa3", p0: { monsters: [NUMERON], deck: [DIAN] }, p1: { monsters: [ELF, RAT] }, p2: { monsters: [SANGAN] } },
     steps: [
       endTurn("p0"),
@@ -219,7 +219,7 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
       changePhase("battle", "p1"),
       attack(ELF, { card: NUMERON, owner: "p0" }, "p1"),
       attack(RAT, "direct", "p1"),
-      yes("p1"),
+      pickOpponent("p0", "p1"),
       yes("p0"),
       everySeat("ffa3", { p0: { hand: [], lp: 8200, monsters: [NUMERON], grave: [DIAN] }, p1: { monsters: [ELF, RAT] }, p2: { monsters: [SANGAN] } }),
     ],

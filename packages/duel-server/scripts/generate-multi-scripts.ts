@@ -61,7 +61,7 @@ export const R1_TRIAGE_ADDED = [31036355]; // Creature Swap: the C7 rotation in 
 /** Compare AND chooser cards that the triage does not list as `field-count-compare`. */
 export const COMPARE_EXTRA = [15693423, 90669991];
 export const MIRROR_GATE = 43452193;
-export const EXPECTED_COUNTS = { compare: 54, chooser: 44, whole: 7, entries: 209, r1: 93, attack: 59 } as const;
+export const EXPECTED_COUNTS = { compare: 54, chooser: 44, whole: 7, entries: 210, r1: 93, attack: 59 } as const;
 /**
  * R1 cards whose stock script already acts on every living duelist after core patch 0053, so they need no suffix and no entry.
  * Pinned (a card is added here only after the script was read). 39513225 only sends a Confirm to the opponent (no effect on each duelist).

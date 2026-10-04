@@ -101,7 +101,7 @@ function leaves(format: Ffa, holder: Seat, direct: boolean): Scenario {
     ...(seat === actor ? { hand: draws, grave: [MST] } : seat === holder ? { lp: direct ? 6300 : 7100, grave: direct ? [SWORDS] : [SWORDS, ELF] } : {}) };
   return proof(`${format}-${holder}-leaves-${direct ? "direct" : "monster"}`, `${format}: ${holder} loses Swords and ${actor} can attack it ${direct ? "directly" : "at its monster"}`,
     fixture, [...before(format, actor), activate(MST, actor),
-      attack(OX, direct ? "direct" : { card: ELF, owner: holder }, actor), ...(direct ? [{ op: "yes", by: actor } as Step] : []), board(format, turn, state)]);
+      attack(OX, direct ? "direct" : { card: ELF, owner: holder }, actor), ...(direct ? [pickOpponent(holder, actor)] : []), board(format, turn, state)]);
 }
 
 function eliminated(format: Ffa, holder: Seat): Scenario {

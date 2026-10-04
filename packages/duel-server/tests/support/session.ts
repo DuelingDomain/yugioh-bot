@@ -4,6 +4,7 @@ import { seatCountFor, teamOfSeat, type DuelFormat } from "@yugidraft/shared/due
 import { candidates as matchCandidates, matchesSel as matchSel, pickOne as matchPick, type PromptSel } from "../../src/prompt-match.js";
 import { compileBoard, seatOf, type DuelistId, DUELIST_IDS } from "./board.js";
 import { cardLabel, resolveCard, type CardRef } from "./card-catalog.js";
+import { loadCardDatabase } from "../../src/cards.js";
 import type {
   ActionKind, BoardExpect, CardSel, DuelistExpect, EventMatch, ListExpect, OptionRef, OptionsExpect, PromptExpect, Scenario, Step, Zone, ZoneExpect,
 } from "./dsl.js";
@@ -750,6 +751,18 @@ export class Session {
     this.send(stepNo, step, open, { choice: pick.id });
     if (step.target === "direct") return;
     let next = this.openPrompt();
+    if (next?.prompt.kind === "choice" && /attack target/i.test(next.prompt.title)) {
+      // The combined pick conceals face-down identities. Scenarios name their fixture cards;
+      // use the controller's private board only to match that name to the offered public zone.
+      const targets = next.prompt.options.filter(option => option.location === 4).map(option => {
+        if (option.card || option.controller == null || option.sequence == null) return option;
+        const code = this.game.view(option.controller).seats[option.controller]?.monsters[option.sequence]?.code;
+        return code ? { ...option, card: loadCardDatabase(engineDataDirectory).get(code) ?? undefined } : option;
+      }).filter(option => this.matchesSel(option, step.target as CardSel));
+      const target = this.pickOne(stepNo, step, targets, step.target as CardSel, "attack target");
+      this.send(stepNo, step, next, { choice: target.id });
+      return;
+    }
     if (direct) {
       const question = next && next.prompt.kind === "choice" && /attack directly/i.test(next.prompt.title) ? next : null;
       if (!question) this.fail(stepNo, step, `Expected an attack on ${describeSel(step.target)}, but the attack is direct.`);

@@ -158,7 +158,7 @@ const dragion = (format: "ffa3" | "tag", card: number, name: string, answers: St
 };
 
 const dragions = (): Scenario[] => [
-  dragion("ffa3", 82570174, BIDENT, [auto("p0"), yes("p1"), yes("p1")]),
+  dragion("ffa3", 82570174, BIDENT, [auto("p0"), yes("p1"), pickOpponent("p2", "p1")]),
   dragion("tag", 82570174, BIDENT, [pickOpponent("p0", "p3"), auto("p3"), yes("p0"), yes("p0")]),
   dragion("ffa3", 18969888, TRANSCENDENT, [auto("p0"), no("p0")], 2),
   dragion("tag", 18969888, TRANSCENDENT, [pickOpponent("p0", "p3"), auto("p3"), no("p3")], 2),
@@ -429,7 +429,7 @@ const unified = (format: "ffa3" | "tag"): Scenario => {
     endTurn("p0"), pass("p1"), pass("p0"), pass("p1"), pass("p1"), pass("p0"), pass("p1"), pass("p0"), pass("p1"), pass("p0"), endTurn("p1"),
     pass("p0"), pass("p1"), pass("p0"), pass("p0"), pass("p1"), pass("p0"), pass("p1"), pass("p0"), pass("p1"), endTurn("p2"), pass("p0"), pass("p1"),
     pass("p0"), pass("p1"), pass("p0"), pass("p1"), pass("p0"), pass("p1"), pass("p0"), pass("p1"), changePhase("battle", "p0"), pass("p1"),
-    expectOffered("activate", UNIFIED, "p0"), pass("p0"), pass("p1"), attack({ card: ELF, nth: 0 }, "direct", "p0"), yes("p0"),
+    expectOffered("activate", UNIFIED, "p0"), pass("p0"), pass("p1"), attack({ card: ELF, nth: 0 }, "direct", "p0"), pickOpponent("p2", "p0"),
     expectOffered("activate", UNIFIED, "p1"), pass("p1"), pass("p1"), pass("p1"), pass("p1"), expectNotOffered("activate", UNIFIED, "p0"),
   ];
   const tagSteps: Step[] = [
@@ -844,7 +844,7 @@ export const R2_NOCHANGE_SCENARIOS: Scenario[] = [
   probe("ffa3", "monochroid-offered-to-p2-after-5-attacks-of-p0-on-p1", 99748883,
     "FFA3: p0 declares 5 direct attacks (all on p1): the flag of the attacker seat counts all 5 and the Meteor Rush - Monochroid of p2 is offered only after the 5th; p2 Special Summons it",
     { p0: { monsters: [ELF, ELF, ELF, ELF, ELF], deck: [ELF] }, p1: { deck: [ELF] }, p2: { hand: [MONO], deck: [ELF, ELF] } },
-    [...turns(["p0", "p1", "p2"]), changePhase("battle", "p0"), ...attacks(5, "p0", "p1"), expectOffered("activate", MONO, "p2"), activate(MONO, "p2"), auto("p2"), yes("p0"), yes("p0")],
+    [...turns(["p0", "p1", "p2"]), changePhase("battle", "p0"), ...attacks(5, "p0", "p1"), expectOffered("activate", MONO, "p2"), activate(MONO, "p2"), auto("p2"), yes("p0"), pickOpponent("p1", "p0")],
     { p0: { monsters: [ELF, ELF, ELF, ELF, ELF] }, p1: { lp: 4000 }, p2: { monsters: [MONO] } }),
   probe("tag", "monochroid-flag-of-team-0-serves-p3-of-team-1", 99748883,
     "Tag: p0 declares 5 direct attacks on team 1 (the attack flag is kept for team 0): the Meteor Rush - Monochroid of p3 (team 1) is offered after the 5th and Special Summoned",
