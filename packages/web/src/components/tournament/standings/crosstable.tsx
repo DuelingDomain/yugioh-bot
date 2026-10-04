@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { Mono, YouPill, ringColour } from "@/components/sheet";
+import { prefersReducedMotion } from "@/lib/motion";
 import { requestMatch } from "../floor/select-match";
 import type { CrosstableRow } from "./standings-model";
 import styles from "./standings.module.css";
@@ -16,7 +17,7 @@ export function goToMatch(matchId: number) {
   requestMatch(matchId);
   const node = document.getElementById("duel-field") ?? document.getElementById("matches");
   if (!node) return;
-  node.scrollIntoView({ behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  node.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
   if (!node.hasAttribute("tabindex")) node.setAttribute("tabindex", "-1");
   node.focus({ preventScroll: true });
 }
