@@ -486,6 +486,13 @@ function componentOf(card: EngineCard, identities: { find(name: string): string 
   return identities.find(name);
 }
 
+function domainEffectText(dm: EngineCard): string {
+  if ((dm.type & TYPE_NORMAL) === 0) return dm.desc;
+  if ((dm.type & TYPE_PENDULUM) === 0) return "";
+  // Normal Pendulums have an effect box above their separate flavor/monster box.
+  return /\[\s*Pendulum Effect\s*\]([\s\S]*?)(?:\[\s*(?:Monster Effect|Flavor Text)\s*\]|$)/i.exec(dm.desc)?.[1] ?? "";
+}
+
 function buildDomain(dm: EngineCard, catalog: Catalog): Domain {
   const attributes = new Set<number>([dm.attribute, ATTRIBUTE_DIVINE]);
   const races = new Set<number>([dm.race, RACE_DIVINE]);
@@ -504,8 +511,8 @@ function buildDomain(dm: EngineCard, catalog: Catalog): Domain {
     for (const code of match.setcodes) setcodes.add(code);
   };
 
-  if ((dm.type & TYPE_NORMAL) === 0) {
-    let text = dm.desc;
+  let text = domainEffectText(dm);
+  if (text) {
     ({ cleaned: text } = cleanDesc(text, NOT_TREATED_AS));
     if (catalog.quoteCardNames.length > 0) {
       const quoteCards = catalog.quoteCardNames.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");

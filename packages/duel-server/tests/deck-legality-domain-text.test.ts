@@ -43,6 +43,39 @@ afterAll(() => {
   for (const directory of fixtures) rmSync(directory, { recursive: true, force: true });
 });
 
+describe("Normal Pendulum Deck Master effect boxes", () => {
+  it.each(["[ Flavor Text ]", "[ Monster Effect ]", "[Flavor Text]", "[Monster Effect]"])(
+    "counts Pendulum mentions and ignores the %s box", (flavorHeader) => {
+      const desc = `[ Pendulum Effect ]\nSpecial Summon 1 Sea Serpent/WATER monster.\n` +
+        `----------------------------------------\n${flavorHeader}\nA FIRE Dragon that lives in darkness.`;
+      const type = 0x1000011;
+      expect(membership(desc, 0x2, 0x40, type)).toEqual([]);
+      expect(membership(desc, 0x10, 0x40000, type)).toEqual([]);
+      expect(membership(desc, 0x4, 0x40, type)[0]?.message)
+        .toContain("outside the Deck Master's Domain");
+      expect(membership(desc, 0x10, 0x2000, type)[0]?.message)
+        .toContain("outside the Deck Master's Domain");
+      expect(membership(desc, 0x20, 0x40, type)[0]?.message)
+        .toContain("outside the Deck Master's Domain");
+    },
+  );
+
+  it("ignores flavor text when the Normal Pendulum monster has no Pendulum Effect box", () => {
+    expect(membership("A WATER Sea Serpent.", 0x2, 0x40000, 0x1000011)[0]?.message)
+      .toContain("outside the Deck Master's Domain");
+  });
+
+  it("still ignores ordinary Normal Monster flavor text", () => {
+    expect(membership('A DARK Dragon that commands "Warriors".', 0x20, 0x2000, 0x11)[0]?.message)
+      .toContain("outside the Deck Master's Domain");
+  });
+
+  it("counts a compact Pendulum Effect header without a following flavor box", () => {
+    expect(membership("[Pendulum Effect]\nSpecial Summon 1 WATER monster.", 0x2, 0x40, 0x1000011))
+      .toEqual([]);
+  });
+});
+
 describe("Domain Attribute and Type mentions", () => {
   it.each([
     ["darkness", 0x20, 0x40],
