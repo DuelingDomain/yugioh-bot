@@ -23,8 +23,8 @@ afterEach(() => {
 
 it.each([
   { distinct: 8, packSize: 4, packsPerPlayer: 10, cardsPerPlayer: 40, impossible: true },
-  { distinct: 8, packSize: 4, packsPerPlayer: 10, cardsPerPlayer: 20, impossible: false },
-  ...[16, 17, 18, 19].map((distinct) => ({ distinct, packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 60, impossible: false })),
+  { distinct: 8, packSize: 4, packsPerPlayer: 10, cardsPerPlayer: 20, impossible: true },
+  ...[16, 17, 18, 19].map((distinct) => ({ distinct, packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 60, impossible: true })),
 ])("surfaces booster reachability for $distinct distinct cards and a $cardsPerPlayer-card deck in create, edit, preflight and start", async ({ distinct, packSize, packsPerPlayer, cardsPerPlayer, impossible }) => {
   const { getDb } = await import("../src/lib/db");
   const db = getDb();
@@ -39,7 +39,7 @@ it.each([
   expect(created.status).toBe(201);
   const draft = await created.json();
   const context = { params: Promise.resolve({ slug: draft.webSlug }) };
-  const expectedErrors = impossible ? [expect.stringMatching(/3 copies/)] : [];
+  const expectedErrors = impossible ? expect.arrayContaining([expect.stringMatching(/The cube has/)]) : [];
   expect(draft.errors).toEqual(expectedErrors);
 
   const { PUT } = await import("../app/api/drafts/[slug]/route");
@@ -57,7 +57,7 @@ it.each([
   const drafts = createDraftService(db);
   drafts.join(draft.id, players.findOrCreate("g", "other", "Other").id);
   if (impossible) {
-    expect(() => drafts.start(draft.id)).toThrow(/3 copies/);
+    expect(() => drafts.start(draft.id)).toThrow(/The cube has/);
     expect(drafts.findById(draft.id).status).toBe("pending");
   } else {
     expect(drafts.start(draft.id).status).toBe("active");

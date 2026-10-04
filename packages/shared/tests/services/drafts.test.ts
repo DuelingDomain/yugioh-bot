@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
+import { seededShuffle } from "../../src/services/deal.js";
 import { createDraftService } from "../../src/services/drafts.js";
 
 function insertPlayer(db: Database.Database, guildId: string, discordUserId: string, displayName: string) {
@@ -589,7 +590,7 @@ describe("shared draft service", () => {
     expect(app.drafts.currentPackOptions(draft.id, kaiba.id)).toHaveLength(8);
   });
 
-  it("blocks start when the cube has too few distinct cards for one wave", () => {
+  it("blocks start when the cube has too few copies for the deal", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
@@ -598,10 +599,10 @@ describe("shared draft service", () => {
     // 2 players × packSize 8 => need 16 distinct; provide 15.
     seedCatalogCards(app.db, 15);
 
-    expect(() => app.drafts.start(draft.id)).toThrow(/at least 16 distinct/);
+    expect(() => app.drafts.start(draft.id)).toThrow(/15.*80/);
   });
 
-  it("blocks start when there are too few distinct card types", () => {
+  it("starts with two card names when there are enough copies", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
@@ -625,10 +626,10 @@ describe("shared draft service", () => {
         .run(id, `Custom ${id}`);
     }
 
-    expect(() => app.drafts.start(draft.id)).toThrow(/distinct/i);
+    expect(app.drafts.start(draft.id).status).toBe("active");
   });
 
-  it("allows start when a card has more copies than waves (capped, advisory only)", () => {
+  it("deals all copies when the cube fits exactly", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
@@ -657,7 +658,7 @@ describe("shared draft service", () => {
         .prepare("select count(*) as n from draft_deal where draft_id = ? and catalog_card_id = 101")
         .get(draft.id) as { n: number }
     ).n;
-    expect(copies).toBeLessThanOrEqual(5);
+    expect(copies).toBe(11);
   });
 
   it("materializes draft_deal at start and deals wave 1 from it", () => {
@@ -713,8 +714,8 @@ describe("shared draft service", () => {
     expect(wave2.n).toBeGreaterThan(0);
   });
 
-  it("materializes a repeated custom card id as copies spread across distinct waves", () => {
-    const app = setup();
+  it("materializes each repeated custom card id as an authored copy", () => {
+    const app = setup({ seedSource: () => 7 });
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");
     const kaiba = insertPlayer(app.db, "guild-1", "user-2", "Kaiba");
     // 2 players × packSize 2 => 4 distinct needed; waves = packsPerPlayer = 2.
@@ -723,7 +724,7 @@ describe("shared draft service", () => {
       "guild-1",
       "channel-1",
       "multiplicity",
-      { customCardIds: [101, 101, 102, 103, 104, 105], packSize: 2, packsPerPlayer: 2, cardsPerPlayer: 4 },
+      { customCardIds: [101, 101, 102, 103, 104, 105, 106, 107], packSize: 2, packsPerPlayer: 2, cardsPerPlayer: 4 },
       "user-1",
       yugi.id,
     );
@@ -732,7 +733,7 @@ describe("shared draft service", () => {
       `insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at)
        values (?, ?, 'Spellcaster / Normal Monster', 'normal', '', '', '[]', '2026-01-01T00:00:00Z')`,
     );
-    for (const id of [101, 102, 103, 104, 105]) ins.run(id, `Custom ${id}`);
+    for (const id of [101, 102, 103, 104, 105, 106, 107]) ins.run(id, `Custom ${id}`);
 
     app.drafts.start(draft.id);
 
@@ -750,7 +751,9 @@ describe("shared draft service", () => {
     expect(card101Positions).toHaveLength(2);
     const cardsPerWave = 2 * 2; // players × packSize
     const wavesWithCard101 = new Set(card101Positions.map((r) => Math.floor(r.position / cardsPerWave)));
-    expect(wavesWithCard101.size).toBe(2); // one copy per distinct wave
+    expect(card101Positions.map((r) => r.position)).toEqual(
+      seededShuffle([101, 101, 102, 103, 104, 105, 106, 107], 7).flatMap((id, i) => id === 101 ? [i] : []),
+    );
   });
 
   it("a started draft deals no card twice within a wave (reads draft_deal)", () => {
@@ -764,7 +767,7 @@ describe("shared draft service", () => {
       "guild-1",
       "channel-1",
       "regression draft",
-      { setNames: ["Metal Raiders"], packSize: 4, packsPerPlayer: 3 },
+      { setNames: ["Metal Raiders"], packSize: 4, packsPerPlayer: 3, cardsPerPlayer: 12 },
       "user-1",
       yugi.id,
     );

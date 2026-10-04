@@ -154,6 +154,7 @@ describe("GET /api/drafts/[slug]", () => {
     const Database = (await import("better-sqlite3")).default;
     const db = new Database(dbPath);
 
+    db.prepare("update drafts set config_json = json_set(config_json, '$.cardsPerPlayer', 15) where web_slug = 'legendary-draft'").run();
     const { POST: startDraft, GET } = await import("../app/api/drafts/[slug]/route");
 
     const startResponse = await startDraft(new Request("http://localhost/api/drafts/legendary-draft", { method: "POST" }), {
@@ -262,7 +263,7 @@ describe("GET /api/drafts/[slug]", () => {
     verifyDb.close();
   }, testTimeoutMs);
 
-  it("create returns analyzeCube warnings when a card exceeds the wave count", async () => {
+  it("create does not warn that authored copies exceed the pack count", async () => {
     const tempDir = mkdtempSync(join(tmpdir(), "yugioh-draft-route-"));
     const dbPath = join(tempDir, "draft-route.sqlite");
     const guildId = "196382772699332609";
@@ -320,14 +321,14 @@ describe("GET /api/drafts/[slug]", () => {
         body: JSON.stringify({
           name: "warns draft",
           channelId: "channel-1",
-          config: { customCardIds, packSize: 4, packsPerPlayer: 3 },
+          config: { customCardIds, packSize: 4, packsPerPlayer: 3, cardsPerPlayer: 12 },
         }),
       }) as any,
     );
 
     const body = await res.json();
     expect(res.status).toBe(201);
-    expect(body.warnings.join(" ")).toMatch(/card 1/i);
+    expect(body.warnings).toEqual([]);
   }, testTimeoutMs);
 
   it("syncs custom card ids before starting a custom pool draft from the web route", async () => {

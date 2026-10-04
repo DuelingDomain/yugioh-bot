@@ -92,7 +92,7 @@ describe("draft pick concurrency", () => {
       "guild-1",
       "channel-1",
       "concurrency test",
-      { packSize: 8, packsPerPlayer: 2 },
+      { packSize: 8, packsPerPlayer: 2, cardsPerPlayer: 16 },
       "user-1",
       yugi.id,
     );
@@ -153,7 +153,7 @@ describe("draft pick concurrency", () => {
       "guild-1",
       "channel-1",
       "no-op test",
-      { packSize: 8, packsPerPlayer: 2 },
+      { packSize: 8, packsPerPlayer: 2, cardsPerPlayer: 16 },
       "user-1",
       yugi.id,
     );
