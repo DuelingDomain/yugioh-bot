@@ -126,7 +126,7 @@ These cards stay legal in the deck check. Their rules are listed in `MULTIPLAYER
 
 Domain uses exactly 60 Main Deck cards and at most 15 Extra Deck cards. Main and Extra are singleton by card identity, including alternate art and treated-as names. The Deck Master is separate from these counts and cannot also be in the decks. There is no Side Deck and no banlist by default; the host may choose a banlist, and the multiplayer safety list still applies.
 
-The Domain includes the Deck Master's archetypes, Attributes and Monster Types, and those mentioned in its effect text. A specifically named card is allowed, and its archetypes are included. Flavor text does not add Domain membership. Divine Attribute and Divine-Beast are in every Domain. Spell and Trap Cards have no Domain restriction.
+The Domain includes the Deck Master's archetypes, Attributes and Monster Types, and those mentioned in its effect text. Attribute and Type mentions match complete words, including plural Types, compound Types and token definitions; substrings such as "darkness" or "rocket" do not count. Quoted Attribute or Type labels count, while words inside quoted card or archetype names do not add Attributes or Types. A specifically named card is allowed, and its archetypes are included. Flavor text does not add Domain membership. Divine Attribute and Divine-Beast are in every Domain. Spell and Trap Cards have no Domain restriction.
 
 ## Retired rule ID
 
