@@ -702,6 +702,14 @@
   min-height: 0;
 }
 
+/* The phase hub fills the band, on top of its empty cells. The hub lets the pointer through except on its own chips. */
+.emzHub {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
 .rows {
   display: grid;
   grid-column: 2;

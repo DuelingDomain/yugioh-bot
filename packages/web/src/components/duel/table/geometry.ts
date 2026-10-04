@@ -332,6 +332,56 @@ export function ringPose(layout: TableLayout, camera: CameraView): { x: number; 
   return { x: 550, y: 322, scale: 1 };
 }
 
+/** Size of the phase hub card in stage px (the PhaseHub "card" variant draws exactly this). */
+export const HUB_CARD = { width: 108, height: 103 } as const;
+
+export interface HubPose {
+  /** Centre of the card in stage px. */
+  x: number;
+  y: number;
+  /** A hairline from the ring to the card, when the clear space is not next to the ring. Null when they touch. */
+  joint: { x1: number; y1: number; x2: number; y2: number } | null;
+}
+
+/**
+ * Where the phase hub card stands in a camera mode: the clear pocket nearest the turn ring. Each place was found by
+ * scanning the stage for the nearest rectangle that overlaps no seat field, no holo LP panel and not the ring itself
+ * (the geometry test repeats the scan, so a change to the poses fails loudly). A 3-way table at home has no room beside
+ * the ring, so the card stands in the open V between the two rivals and a hairline ties it to the ring.
+ * The card is a flat overlay on the canvas: it never tilts with the world, so in the fly view it keeps the home place.
+ */
+export function hubPose(layout: TableLayout, camera: CameraView): HubPose {
+  const ring = ringPose(layout, camera);
+  let at: { x: number; y: number };
+  if (layout.format === "ffa4") {
+    if (camera.mode === "overview") at = { x: 486, y: 508 };
+    else if (camera.mode === "focus") at = { x: 930, y: 60 };
+    else at = { x: 676, y: 343 };
+  } else if (camera.mode === "overview") {
+    at = { x: 434, y: 60 };
+  } else if (camera.mode === "focus") {
+    at = { x: ring.x, y: 308 };
+  } else {
+    at = { x: 550, y: 84 };
+  }
+  const dx = at.x - ring.x;
+  const dy = at.y - ring.y;
+  const dist = Math.hypot(dx, dy);
+  const fly = camera.mode === "fly";
+  if (fly || dist < 150) return { ...at, joint: null };
+  const ux = dx / dist;
+  const uy = dy / dist;
+  const exit = Math.min(
+    ux === 0 ? Infinity : HUB_CARD.width / 2 / Math.abs(ux),
+    uy === 0 ? Infinity : HUB_CARD.height / 2 / Math.abs(uy),
+  );
+  const reach = 62 * ring.scale;
+  return {
+    ...at,
+    joint: { x1: ring.x + ux * reach, y1: ring.y + uy * reach, x2: at.x - ux * exit, y2: at.y - uy * exit },
+  };
+}
+
 /** Screen angle of every seat on the turn ring (degrees, 0 = right, 90 = down), by seat number. */
 export function ringAngles(layout: TableLayout, camera: CameraView): Map<number, number> {
   const plan = slotPlan(layout, camera);

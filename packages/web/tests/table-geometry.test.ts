@@ -6,6 +6,8 @@ import {
   flyWorld,
   flyYawFor,
   holoAnchor,
+  HUB_CARD,
+  hubPose,
   ringAngles,
   ringPose,
   seatNormal,
@@ -366,5 +368,93 @@ describe("compactFor", () => {
     expect(compactFor({ scale: 0.52, slot: "oHome" }, 0.1, 1200)).toBe(false);
     expect(compactFor(unit(0.92), 1, 1600, "on")).toBe(true);
     expect(compactFor(unit(0.5), 0.3, 1200, "off")).toBe(false);
+  });
+});
+
+// ---- the phase hub card ----
+type Pt = { x: number; y: number };
+function box(cx: number, cy: number, w: number, h: number, deg = 0): Pt[] {
+  const r = (deg * Math.PI) / 180;
+  const c = Math.cos(r);
+  const s = Math.sin(r);
+  return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => ({ x: cx + x * c - y * s, y: cy + x * s + y * c }));
+}
+function overlaps(a: Pt[], b: Pt[]): boolean {
+  for (const poly of [a, b]) {
+    for (let i = 0; i < poly.length; i += 1) {
+      const p = poly[i];
+      const q = poly[(i + 1) % poly.length];
+      const nx = q.y - p.y;
+      const ny = p.x - q.x;
+      const range = (pts: Pt[]) => {
+        const v = pts.map((t) => t.x * nx + t.y * ny);
+        return [Math.min(...v), Math.max(...v)];
+      };
+      const [a0, a1] = range(a);
+      const [b0, b1] = range(b);
+      if (a1 < b0 || b1 < a0) return false;
+    }
+  }
+  return true;
+}
+
+describe("hubPose", () => {
+  const cases: Array<[string, DuelFormat, number, Partial<CameraState>]> = [
+    ["ffa3 home", "ffa3", 3, {}],
+    ["ffa3 look", "ffa3", 3, { mode: "look", lookSeat: 1 }],
+    ["ffa3 overview", "ffa3", 3, { mode: "overview" }],
+    ["ffa3 focus on the left rival", "ffa3", 3, { mode: "focus", focusSeat: 1 }],
+    ["ffa3 focus on the right rival", "ffa3", 3, { mode: "focus", focusSeat: 2 }],
+    ["ffa4 home", "ffa4", 4, {}],
+    ["ffa4 look", "ffa4", 4, { mode: "look", lookSeat: 1 }],
+    ["ffa4 overview", "ffa4", 4, { mode: "overview" }],
+    ["ffa4 focus", "ffa4", 4, { mode: "focus", focusSeat: 2 }],
+  ];
+
+  it.each(cases)("%s: the card overlaps no seat field, no LP panel and not the ring", (_label, format, count, over) => {
+    const layout = tableLayout(format as "ffa3", engine(format, count), 0);
+    const view = camera(over);
+    const poses = seatPoses(layout, view);
+    const at = hubPose(layout, view);
+    const card = box(at.x, at.y, HUB_CARD.width, HUB_CARD.height);
+    // Whole 653 x 380 seat boxes: a conservative bound of each field, hand and all.
+    for (const pose of poses.values()) {
+      if (pose.hidden) continue;
+      expect(overlaps(card, box(pose.x, pose.y, 653 * pose.scale, 380 * pose.scale, pose.rotateDeg))).toBe(false);
+    }
+    for (const slot of layout.slots) {
+      const anchor = holoAnchor(layout, slot.seat, view);
+      const w = anchor.me ? 212 : 196;
+      const h = anchor.me ? 74 : 62;
+      expect(overlaps(card, box(anchor.x + w / 2, anchor.y + h / 2, w, h))).toBe(false);
+    }
+    const ring = ringPose(layout, view);
+    const dx = Math.max(Math.abs(at.x - ring.x) - HUB_CARD.width / 2, 0);
+    const dy = Math.max(Math.abs(at.y - ring.y) - HUB_CARD.height / 2, 0);
+    expect(Math.hypot(dx, dy)).toBeGreaterThan(62 * ring.scale);
+    // The card stays inside the 1100 x 860 stage.
+    expect(at.x - HUB_CARD.width / 2).toBeGreaterThanOrEqual(0);
+    expect(at.x + HUB_CARD.width / 2).toBeLessThanOrEqual(1100);
+    expect(at.y - HUB_CARD.height / 2).toBeGreaterThanOrEqual(0);
+    expect(at.y + HUB_CARD.height / 2).toBeLessThanOrEqual(860);
+  });
+
+  it("stands next to the ring at a 4-way table and ties a far 3-way card to it with a hairline", () => {
+    const four = tableLayout("ffa4", engine("ffa4", 4), 0);
+    expect(hubPose(four, camera()).joint).toBeNull();
+    const three = tableLayout("ffa3", engine("ffa3", 3), 0);
+    const far = hubPose(three, camera());
+    expect(far.joint).not.toBeNull();
+    const ring = ringPose(three, camera());
+    // The hairline starts on the ring's edge and ends on the card's edge, not in either.
+    expect(Math.hypot(far.joint!.x1 - ring.x, far.joint!.y1 - ring.y)).toBeCloseTo(62 * ring.scale, 5);
+    expect(far.joint!.y2).toBeCloseTo(far.y + HUB_CARD.height / 2, 5);
+  });
+
+  it("keeps the home place in the fly-in view, with no hairline", () => {
+    const three = tableLayout("ffa3", engine("ffa3", 3), 0);
+    const fly = hubPose(three, camera({ mode: "fly" }));
+    expect(fly.joint).toBeNull();
+    expect({ x: fly.x, y: fly.y }).toEqual({ x: hubPose(three, camera()).x, y: hubPose(three, camera()).y });
   });
 });

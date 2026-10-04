@@ -98,3 +98,39 @@ describe("fx lab Master Rule field scenarios", () => {
     }
   });
 });
+
+describe("DuelField phase hub slot", () => {
+  function withHub(rule: DuelMasterRule, hub: React.ReactNode) {
+    const script = findScenario(`state-field-mr${LAB_BOARD[rule]}`)!.build();
+    const engine = {
+      revision: 1, turn: 1, turnSeat: 0, phase: "main1", battleStep: null,
+      seats: script.initial.seats, prompt: null, chain: [], events: [], log: [], result: null,
+    };
+    return render(
+      <DuelField engine={engine} mySeat={0} masterRule={rule} reducedMotion
+        legalKeys={new Set()} selectedKeys={new Set()} hub={hub}
+        onActivate={() => {}} onInspect={() => {}} bottomName="You" topName="Opp" />,
+    );
+  }
+
+  it.each([1, 3, 5] as const)("draws the hub in the gap between the two fields under Master Rule %i", (rule) => {
+    const { container } = withHub(rule, <nav aria-label="Duel phases" data-testid="hub-probe" />);
+    const hub = container.querySelector('[data-testid="hub-probe"]')!;
+    const halves = [...container.querySelectorAll("[data-field-seat]")];
+    expect(halves).toHaveLength(2);
+    // After the top field and before the bottom one in document order: the band between them.
+    expect(halves[0].compareDocumentPosition(hub) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(hub.compareDocumentPosition(halves[1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(halves.some((half) => half.contains(hub))).toBe(false);
+  });
+
+  it("leaves both Extra Monster Zones in place beside the hub", () => {
+    const { container } = withHub(5, <nav aria-label="Duel phases" />);
+    expect(container.querySelectorAll('[data-kind="emz"]')).toHaveLength(2);
+  });
+
+  it("draws nothing extra without a hub", () => {
+    const { container } = field(5);
+    expect(container.querySelector('nav[aria-label="Duel phases"]')).toBeNull();
+  });
+});

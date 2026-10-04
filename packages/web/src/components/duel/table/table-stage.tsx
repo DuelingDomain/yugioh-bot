@@ -4,7 +4,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Mo
 import { engineFormat } from "../multi-seat";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
-import { flyWorld, holoAnchor, normalizeAngle, ringAngles, ringPose, seatPoses, slotPlan, stageFit, STAGE } from "./geometry";
+import { flyWorld, holoAnchor, HUB_CARD, hubPose, normalizeAngle, ringAngles, ringPose, seatPoses, slotPlan, stageFit, STAGE } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
@@ -45,7 +45,7 @@ export interface TableStageViewProps extends TableStageProps {
  * overlay are slots over the whole box, so they measure the real screen position of `[data-zones]` and
  * `[data-lp-seat]` nodes. `camera` is the camera to draw (the shell passes the effective one).
  */
-export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, out = [], ring = true }: TableStageViewProps) {
+export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub, wantMode, locked = false, out = [], ring = true }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -140,6 +140,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
   const ringAt = ringPose(layout, camera);
+  const hubAt = hub && threeWay ? hubPose(layout, camera) : null;
 
   return (
     <div
@@ -245,6 +246,22 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
             />
           );
         })}
+        {hubAt ? (
+          <>
+            {hubAt.joint ? (
+              <svg className={styles.hubJoint} viewBox="0 0 1100 860" aria-hidden="true" data-hub-joint="true">
+                <line x1={hubAt.joint.x1} y1={hubAt.joint.y1} x2={hubAt.joint.x2} y2={hubAt.joint.y2} />
+              </svg>
+            ) : null}
+            <div
+              className={styles.hub}
+              data-hub-slot="true"
+              style={{ transform: `translate(${hubAt.x - HUB_CARD.width / 2}px, ${hubAt.y - HUB_CARD.height / 2}px)` }}
+            >
+              {hub}
+            </div>
+          </>
+        ) : null}
         {controller.aim?.from ? <AttackLine aim={controller.aim} tone={attackerTone} /> : null}
       </div>
       {fx ? <div className={styles.slot} data-slot="fx">{fx}</div> : null}

@@ -38,6 +38,7 @@ import { SeatStrip } from "../seat-strip";
 import { SeriesBanner } from "../series-banner";
 import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNarrow } from "../side-panel";
 import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "../station-track";
+import { PhaseHub } from "../phase-hub";
 import { SummonFx } from "../summon-fx";
 import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import type { ChainModeControl } from "../use-chain-mode";
@@ -161,6 +162,8 @@ function TableShellBody({
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
   const format = engineFormat(engine);
+  // A table of 3 or 4 draws its phases on the board, beside the turn ring. Tag keeps them in the bar.
+  const hubOn = format === "ffa3" || format === "ffa4";
   const layout = useMemo(
     () => tableLayout(format as TableFormat, engine, viewerSeat),
     // The layout depends on who sits where, never on a card: the seat list is enough.
@@ -437,6 +440,22 @@ function TableShellBody({
                 out={camera.out}
                 dispatchCamera={camera.dispatch}
                 renderSeatField={(props) => <SeatField {...props} />}
+                hub={hubOn ? (
+                  <PhaseHub
+                    variant="card"
+                    phase={engine.phase}
+                    battleStep={battleStep}
+                    turn={engine.turn}
+                    turnSeat={engine.turnSeat}
+                    mySeat={viewerSeat}
+                    playerName={nameOf}
+                    tone={engine.turnSeat != null ? toneOf(engine.turnSeat) : null}
+                    actionOptions={promptMine ? actionOptions : []}
+                    canAct={canAct}
+                    onChoose={(id) => controller.onAnswer({ choice: id })}
+                    reducedMotion={controller.reducedMotion}
+                  />
+                ) : null}
                 fx={
                   <FxBoundary>
                     {fxActive ? <DuelFeedback events={engine.events} duelKey={session.slug} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={controller.reducedMotion} /> : null}
@@ -549,6 +568,7 @@ function TableShellBody({
           reducedMotion={controller.reducedMotion}
           attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
           chainMode={chainMode}
+          phases={hubOn ? "hub" : "bar"}
         />
       </div>
       {narrow ? <TablePhonePanes domain={domain} pane={ui.pane} open={sheetOpen} unread={logUnread}

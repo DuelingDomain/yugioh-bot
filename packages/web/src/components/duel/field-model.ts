@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type RefObject } from "react";
+import { useMemo, type ReactNode, type RefObject } from "react";
 import type { DuelEngineView, DuelMasterRule } from "@yugidraft/shared/duels";
 import { isBattlePhase } from "./constants";
 import { resolveEquipLinks } from "./equip-links";
@@ -32,6 +32,11 @@ export type DuelFieldProps = {
   showExtraZones?: boolean;
   /** Room action/reveal gate. Local priority follows this directly; previews can omit it. */
   priorityLive?: boolean;
+  /**
+   * The phase hub for a 1v1: drawn in the gap between the two fields (the free cells of the Extra Monster Zone band),
+   * over nothing. Only the hub's chips take the pointer. Leave it out and the band is as before.
+   */
+  hub?: ReactNode;
 };
 
 /**
