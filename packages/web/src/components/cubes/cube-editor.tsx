@@ -574,17 +574,24 @@ export function CubeEditor({ cubeId }: { cubeId: number }) {
         </aside>
       </div>
 
-      {railHidden && selected && (
-        <CubeBottomSheet label={selectedCard?.name ?? `Passcode ${selected.entry.catalogCardId}`} onClose={() => setSelectedId(null)}>
-          {inspector}
-        </CubeBottomSheet>
-      )}
-      {railHidden && addSheetOpen && (
-        <CubeBottomSheet label="Add cards" onClose={() => setAddSheetOpen(false)}>
-          <AddCardsBody {...railProps} />
-        </CubeBottomSheet>
-      )}
-      {undo && <UndoToast key={undo.removalId} message={undo.message} busy={busy} onUndo={() => void undoRemove()} onDismiss={dismissUndo} />}
+      <CubeBottomSheet
+        open={railHidden && selected !== null}
+        label={selected ? (selectedCard?.name ?? `Passcode ${selected.entry.catalogCardId}`) : ""}
+        onClose={() => setSelectedId(null)}
+      >
+        {inspector}
+      </CubeBottomSheet>
+      <CubeBottomSheet open={railHidden && addSheetOpen} label="Add cards" onClose={() => setAddSheetOpen(false)}>
+        <AddCardsBody {...railProps} />
+      </CubeBottomSheet>
+      <UndoToast
+        open={undo !== null}
+        message={undo?.message ?? ""}
+        resetKey={undo?.removalId}
+        busy={busy}
+        onUndo={() => void undoRemove()}
+        onDismiss={dismissUndo}
+      />
     </PageFrame>
   );
 }

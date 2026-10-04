@@ -75,16 +75,21 @@ describe("BugReportDialog", () => {
     expect(document.activeElement).toBe(cancel);
 
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
-    await waitFor(() => expect(document.activeElement).toBe(opener));
+    // Closing lets go of the page at once: focus is back and the scroll lock is off while the dialog fades.
+    expect(dialog).toHaveAttribute("inert");
+    expect(dialog.querySelector("[data-mo=modal]")).toHaveAttribute("data-state", "closed");
+    expect(document.activeElement).toBe(opener);
     expect(document.body.style.overflow).not.toBe("hidden");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(opener);
     expect(fetchMock).not.toHaveBeenCalled();
   });
-  it("reopens empty", () => {
+  it("reopens empty", async () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: "Open report" }));
     fireEvent.change(screen.getByLabelText(/What went wrong\?/), { target: { value: "some text" } });
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Open report" }));
     expect((screen.getByLabelText(/What went wrong\?/) as HTMLTextAreaElement).value).toBe("");
     expect((screen.getByLabelText(/What did you expect\?/) as HTMLTextAreaElement).value).toBe("");
@@ -317,10 +322,12 @@ describe("BugReportDialog inside a Sheet", () => {
     expect(sheet.contains(dialog)).toBe(false);
   });
 
-  it("closes only the dialog on Escape, and the sheet on the next Escape", () => {
+  it("closes only the dialog on Escape, and the sheet on the next Escape", async () => {
     const onSheetClose = openInSheet();
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
-    expect(screen.queryByRole("dialog", { name: "Report a bug" })).toBeNull();
+    // While the dialog fades out its Escape handler is already gone, and the sheet has not heard the key.
+    expect(onSheetClose).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Report a bug" })).toBeNull());
     expect(onSheetClose).not.toHaveBeenCalled();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onSheetClose).toHaveBeenCalledTimes(1);
@@ -363,8 +370,8 @@ describe("BugReportDialog cancel and double send", () => {
     await send();
     expect(screen.getByTestId("bug-report-checking")).toBeInTheDocument();
     await act(async () => { fireEvent.keyDown(document, { key: "Escape" }); });
-    expect(screen.queryByRole("dialog")).toBeNull();
     expect(signal?.aborted).toBe(true);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     // Even a check that still answers cannot start the report.
     await act(async () => { release?.(); await Promise.resolve(); });
     expect(reportBodies()).toHaveLength(0);

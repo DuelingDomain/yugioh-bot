@@ -29,7 +29,7 @@
  * Keyframes are not scoped, but renamed with an `ms-` prefix so they cannot clash
  * (board name -> app name): lamp -> ms-lamp, livepulse -> ms-livepulse,
  * gemglow -> ms-gemglow, medalpop -> ms-medalpop, scspin -> ms-scspin,
- * sk -> ms-sk, si-spin -> ms-si-spin.
+ * si-spin -> ms-si-spin.
  *
  * Left out: review-page chrome (.rv*, .board*, .notes, .needs, .cap, .decisions,
  * .screen, .app, .app-top, .app-side, .who-me, .phones, .phone, .vp, .dim-shell,
@@ -232,6 +232,19 @@
 .ms .seg button[aria-pressed="true"] { color: var(--ink); font-weight: 600; background: var(--pen-soft); }
 .ms .seg button:disabled { opacity: 0.5; cursor: not-allowed; }
 .ms .seg button:focus-visible { outline-offset: -2px; }
+/* Sliding indicator (site motion, part 3): groups from Segmented and DeckSegmented set --seg-n (options) and
+   --seg-i (selected index). The pressed fill is one box that glides between columns; transform only. */
+.ms .seg[data-slide] { position: relative; }
+.ms .seg[data-slide]::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 0; pointer-events: none;
+  width: calc(100% / var(--seg-n, 1)); background: var(--pen-soft);
+  transform: translateX(calc(var(--seg-i, 0) * 100%));
+  transition: transform var(--d-tab) var(--ease-in-out);
+}
+.ms .seg[data-slide="none"]::before { display: none; }
+.ms .seg[data-slide] button { position: relative; }
+.ms .seg[data-slide] button[aria-pressed="true"] { background: none; }
+@media (prefers-reduced-motion: reduce) { .ms .seg[data-slide]::before { transition: none; } }
 .ms .input { width: 100%; min-width: 0; height: 42px; padding: 0 12px; border: 1px solid var(--rule-lo); border-radius: 7px; background: var(--panel-2); color: var(--ink); font: inherit; font-size: 15px; }
 .ms .input:focus-visible { outline: none; border-color: var(--pen); box-shadow: 0 0 0 3px rgb(155 126 255 / 0.22); }
 .ms .label { display: block; margin-bottom: 6px; color: var(--ink-3); font-size: 12.5px; }
@@ -1150,18 +1163,14 @@
 .ms .ns-who .sb { display: flex; align-items: baseline; gap: 7px; color: var(--ink-3); font-size: 12.5px; white-space: nowrap; }
 .ms .ns-who .sb .tier { font-size: 12.5px; }
 .ms .ns-who .sb .elo { font-size: 14px; }
+/* Skeleton block: still, no shimmer (site motion, part 3). It is only a place held for what is coming. */
 .ms .sk {
   display: block;
   height: 10px;
   border-radius: 5px;
-  background: linear-gradient(90deg, rgb(239 231 213 / 0.05), rgb(239 231 213 / 0.11), rgb(239 231 213 / 0.05));
-  background-size: 200% 100%;
-  animation: ms-sk 1.4s linear infinite;
+  background: rgb(239 231 213 / 0.08);
 }
 .ms .ns-av.sk { height: 34px; border-radius: 50%; }
-@keyframes ms-sk {
-  to { background-position: -200% 0; }
-}
 
 /* collapsed rail */
 .ms .ns[data-c] .ns-side { padding-inline: 10px; }
@@ -2594,6 +2603,8 @@
 .ms .ib:active:not(:disabled),
 .ms .ns-ib:active:not(:disabled),
 .ms .sv-bar-back:active { scale: var(--motion-press); }
+/* In a sliding group the label colour follows the indicator over the same time. */
+.ms .seg[data-slide] button { transition: color var(--d-tab) var(--ease-in-out), background-color var(--d-hover) ease, border-color var(--d-hover) ease, scale var(--d-press) var(--ease-out); }
 /* rows and cards press a little less */
 .ms .sv-row { transition: border-bottom-color var(--d-hover) ease; }
 .ms .sv-row-in { transition: scale var(--d-press) var(--ease-out); }

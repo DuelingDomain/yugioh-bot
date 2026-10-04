@@ -29,6 +29,10 @@ export type FloorRowProps = {
   phoneAreas?: string;
   /** Row accessible label for link rows. */
   "aria-label"?: string;
+  /** Stable id (never an index) for a list that animates its reorders with `useFlipList`. */
+  flipId?: string | number;
+  /** The row's visible values as a string; when it changes the row gets the violet wash. */
+  flipSig?: string;
   children: ReactNode;
   className?: string;
 };
@@ -37,7 +41,7 @@ export type FloorRowProps = {
  * A list row: no box, a `--rule-lo` line under it that brightens on hover when it is a link.
  * `li.sv-row` > `.sv-row-in` (the grid or flex line holding your cells).
  */
-export function FloorRow({ you = false, href, cols, phoneCols, phoneAreas, children, className, "aria-label": ariaLabel }: FloorRowProps) {
+export function FloorRow({ you = false, href, cols, phoneCols, phoneAreas, children, className, flipId, flipSig, "aria-label": ariaLabel }: FloorRowProps) {
   const style: Record<string, string> = {};
   if (cols) style["--cols"] = cols;
   if (phoneCols) style["--cols-ph"] = phoneCols;
@@ -49,7 +53,7 @@ export function FloorRow({ you = false, href, cols, phoneCols, phoneAreas, child
     "data-phgrid": phoneCols ? "true" : undefined,
   };
   return (
-    <li className={sv("sv-row", className)} data-you={you ? "true" : undefined} data-link={href ? "true" : undefined}>
+    <li className={sv("sv-row", className)} data-you={you ? "true" : undefined} data-link={href ? "true" : undefined} data-flip-id={flipId} data-flip-sig={flipSig}>
       {href ? <Link href={href} aria-label={ariaLabel} {...inner}>{children}</Link> : <div {...inner}>{children}</div>}
     </li>
   );

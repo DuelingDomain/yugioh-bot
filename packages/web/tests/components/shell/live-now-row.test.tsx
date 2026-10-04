@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { LinkStub } from "./helpers";
 
 vi.mock("next/link", () => ({ default: LinkStub }));
@@ -34,6 +34,20 @@ describe("LiveNowRow", () => {
     expect(link).toHaveAttribute("href", "/duels");
     expect(link).toHaveTextContent("3 duels");
     expect(container.querySelector(".sv-ldot")).not.toHaveAttribute("data-you");
+  });
+
+  it("grows open when something goes live and collapses, still showing its text, when it ends", async () => {
+    const { container, rerender } = render(<LiveNowRow live={null} size="side" />);
+    expect(container.firstChild).toBeNull();
+    rerender(<LiveNowRow live={COUNT} size="side" />);
+    const grow = container.querySelector("[data-mo=grow]") as HTMLElement;
+    expect(grow).toHaveAttribute("data-state", "open");
+    rerender(<LiveNowRow live={{ yourDuel: null, liveCount: 0 }} size="side" />);
+    expect(container.querySelector("[data-mo=grow]")).toBe(grow);
+    expect(grow).toHaveAttribute("data-state", "closed");
+    expect(grow).toHaveAttribute("inert");
+    expect(screen.getByRole("link", { name: "Live now, 3 duels", hidden: true })).toBeInTheDocument();
+    await waitFor(() => expect(container.firstChild).toBeNull());
   });
 
   it("has a light line above and below", () => {

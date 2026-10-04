@@ -298,6 +298,9 @@ describe("CubeEditor", () => {
       act(() => { vi.advanceTimersByTime(9999); });
       expect(screen.getByRole("button", { name: "Undo" })).toBeEnabled();
       act(() => { vi.advanceTimersByTime(1); });
+      // The toast leaves over 160ms: it is already closed and inert, then gone.
+      expect(screen.getByText("Removed Main A (×3) from Main").closest("[data-state]")).toHaveAttribute("data-state", "closed");
+      act(() => { vi.advanceTimersByTime(200); });
       expect(screen.queryByRole("button", { name: "Undo" })).not.toBeInTheDocument();
     });
 

@@ -89,7 +89,7 @@ async function reportFromMenu(expected: { format: string; seat: number | null; s
   expect(JSON.stringify(body)).not.toMatch(/hand|Dark Magician|You added/i);
 
   fireEvent.keyDown(document, { key: "Escape" });
-  expect(screen.queryByRole("dialog", { name: "Report a bug" })).toBeNull();
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Report a bug" })).toBeNull());
   return body;
 }
 

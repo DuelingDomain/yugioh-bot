@@ -58,11 +58,11 @@ describe("standings grid", () => {
   it("describes live, reported, won and lost cells for the row player", () => {
     grid();
     const live = screen.getByRole("cell", { name: "Kestrel vs voidpriest: live, game 2, Kestrel leads 1–0" });
-    expect(within(live).getByText("1–0")).toHaveAttribute("data-r", "live");
+    expect(within(live).getByText("1–0").closest("[data-r]")).toHaveAttribute("data-r", "live");
     expect(within(live).getByText("game 2")).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "voidpriest vs Kestrel: live, game 2, voidpriest trails 0–1" })).toBeInTheDocument();
     const reported = screen.getByRole("cell", { name: "Marik_Mains vs duelist.josh: reported win, awaiting confirmation" });
-    expect(within(reported).getByText("W")).toHaveAttribute("data-r", "wait");
+    expect(within(reported).getByText("W").closest("[data-r]")).toHaveAttribute("data-r", "wait");
     expect(screen.getByRole("cell", { name: "Imran vs Kestrel: lost, 1–2" })).toHaveTextContent("lost");
     expect(screen.getByRole("cell", { name: "BlueEyesBen vs Marik_Mains: won" })).toHaveTextContent("W");
   });

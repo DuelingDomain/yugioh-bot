@@ -358,7 +358,9 @@ describe("TournamentDetailPage one sheet", () => {
     fetchMock.mockImplementation((url, init) => String(url) === SLUG && !init?.method ? loading.promise : original(url, init));
     render(<TournamentDetailPage />);
     const status = screen.getByRole("status", { name: "Loading tournament" });
-    expect(status).toHaveTextContent("Loading tournament");
+    // Still blocks, not text: the status carries the name and the blocks are only a place held.
+    expect(status.textContent).toBe("");
+    expect(status.querySelectorAll(".sk").length).toBeGreaterThan(0);
     expect(status.closest(".ms")).not.toBeNull();
     await act(async () => loading.resolve(Response.json(sheetTournament)));
     expect(await screen.findByRole("heading", { name: sheetTournament.name })).toBeInTheDocument();

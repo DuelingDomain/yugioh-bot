@@ -98,7 +98,7 @@ describe("the grid view", () => {
     show();
     fireEvent.click(screen.getByRole("button", { name: "Show grid" }));
     const live = screen.getByRole("cell", { name: "Kestrel vs voidpriest: live, game 2, Kestrel leads 1–0" });
-    expect(within(live).getByText("1–0")).toHaveAttribute("data-r", "live");
+    expect(within(live).getByText("1–0").closest("[data-r]")).toHaveAttribute("data-r", "live");
     expect(screen.getByRole("cell", { name: "Imran vs Kestrel: lost, 1–2" })).toHaveTextContent("lost");
     expect(screen.getByRole("cell", { name: "BlueEyesBen vs Marik_Mains: won" })).toHaveTextContent("W");
     expect(within(screen.getByLabelText("How to read a cell")).getByText("Row player lost.")).toBeInTheDocument();

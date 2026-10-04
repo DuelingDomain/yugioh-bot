@@ -6,7 +6,8 @@
 .text { margin: 0; max-width: 46ch; color: var(--ink-2); font-size: 16px; line-height: 1.5; }
 .text code { color: var(--ink); font-family: var(--f-num); }
 .acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 8px; }
-.loading { margin: 0; padding: 40px 0; color: var(--ink-3); font-size: 17px; }
+/* Still blocks (the .sk look) held where the tournament will be. */
+.loading { display: grid; justify-items: center; gap: 14px; margin: 0; padding: 40px 0; }
 @container (max-width: 760px) {
   .wrap { padding: 20px 16px 40px; }
   .body { padding: 36px 8px; }
