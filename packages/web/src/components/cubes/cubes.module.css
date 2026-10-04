@@ -153,13 +153,10 @@
   border-radius: 4px;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .scrim { animation: cubesFade 160ms ease-out; }
-  :global(.ms) .sheetFixed { animation: cubesRise 200ms cubic-bezier(0.16, 1, 0.3, 1); }
-  :global(.ms) .toast { animation: cubesRise 200ms cubic-bezier(0.16, 1, 0.3, 1); }
-}
-@keyframes cubesFade { from { opacity: 0; } to { opacity: 1; } }
-@keyframes cubesRise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+/* Enter and exit come from the shared data-mo rules in globals.css. The sheet slides up from the bottom
+   edge, the toast rises 12px and fades; reduced motion makes both a fade. */
+:global(.ms) .sheetFixed { --mo-y: 100%; --mo-in: var(--d-modal-in); --mo-out: var(--d-modal-out); }
+:global(.ms) .toast { --mo-y: 12px; --mo-o: 0; --mo-in: var(--d-toast-in); --mo-out: var(--d-toast-out); --mo-ease: var(--ease-out); }
 
 /* The rail holds "add cards" on wide screens; below it, this button opens the same panel as a sheet.
    It matches the match-sheet's container breakpoint for the rail. */

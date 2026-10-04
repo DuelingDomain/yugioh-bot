@@ -1,4 +1,4 @@
-import type { DuelAnswer, DuelEvent } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelErrorCode, DuelEvent } from "@yugidraft/shared/duels";
 import type { BoardSpec, DuelistId, Stance } from "./board.js";
 import type { CardRef } from "./card-catalog.js";
 
@@ -149,7 +149,7 @@ export type Step =
   | { op: "pickOpponent"; seat: DuelistId; by?: DuelistId }
   | { op: "expectPickOptions"; options: OptionsExpect; by?: DuelistId }
   | { op: "expectLabel"; option: OptionRef; text: string; by?: DuelistId }
-  | { op: "expectRetry"; answer: DuelAnswer; as?: DuelistId; error?: string; by?: DuelistId };
+  | { op: "expectRetry"; answer: DuelAnswer; as?: DuelistId; error?: string; code?: DuelErrorCode; by?: DuelistId };
 
 // Actions -------------------------------------------------------------------------------------
 export const activate = (sel: CardSel, by?: DuelistId): Step => ({ op: "activate", sel, by });
@@ -285,11 +285,12 @@ export const expectLabel = (option: OptionRef, text: string, by?: DuelistId): St
  * Send an answer that the engine must refuse (the core reports MSG_RETRY, or the host rejects the option). The step passes when the
  * answer throws an engine error, the same prompt is still open and every seat view is byte for byte the same as before.
  * `as` is the seat that sends the answer (default: the seat that holds the prompt), so a wrong seat can answer. `error` is a
- * substring of the error message ("Wrong seat", "Invalid answer", "Stale prompt"). `by` checks which duelist holds the prompt.
+ * substring of the error message ("Wrong seat", "Invalid answer", "Stale prompt"). `code` checks the error code.
+ * `by` checks which duelist holds the prompt.
  * Fails when the engine takes the answer.
  */
-export const expectRetry = (answer: DuelAnswer, opts: { as?: DuelistId; error?: string; by?: DuelistId } = {}): Step => ({
-  op: "expectRetry", answer, as: opts.as, error: opts.error, by: opts.by,
+export const expectRetry = (answer: DuelAnswer, opts: { as?: DuelistId; error?: string; code?: DuelErrorCode; by?: DuelistId } = {}): Step => ({
+  op: "expectRetry", answer, as: opts.as, error: opts.error, code: opts.code, by: opts.by,
 });
 
 // Scenario ------------------------------------------------------------------------------------------

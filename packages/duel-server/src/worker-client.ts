@@ -1,6 +1,8 @@
 import { Worker } from "node:worker_threads";
 import type { PromptTraceEntry } from "./prompt-trace.js";
 import type { EngineCoreInfo, EngineDiagnostic, EngineStartupScript } from "./engine.js";
+import type { DuelWorkerResponse } from "./worker-protocol.js";
+import { EngineAnswerError } from "./prompts.js";
 import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelDeck, DuelEngineChoice, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 
 const PROMPT_LOG_LIMIT = 5_000;
@@ -77,10 +79,10 @@ export class GameWorker implements DuelGameWorker {
     this.worker = development
       ? new Worker(`import('tsx/esm/api').then(({ tsImport }) => tsImport(${JSON.stringify(module.href)}, ${JSON.stringify(import.meta.url)}))`, { eval: true })
       : new Worker(module);
-    this.worker.on("message", (message: { id: number; ok: boolean; value?: unknown; error?: string; info?: EngineCoreInfo; promptTrace?: PromptTraceEntry }) => {
+    this.worker.on("message", (message: DuelWorkerResponse) => {
       if (this.stopped) return;
-      if (message.info) this.info = message.info;
-      if (message.promptTrace) {
+      if (message.ok && message.info) this.info = message.info;
+      if (message.ok && message.promptTrace) {
         const latest = this.prompts[(this.promptStart + this.prompts.length - 1) % PROMPT_LOG_LIMIT];
         if (latest?.promptId !== message.promptTrace.promptId) {
           if (this.prompts.length < PROMPT_LOG_LIMIT) this.prompts.push(message.promptTrace);
@@ -94,7 +96,9 @@ export class GameWorker implements DuelGameWorker {
       if (!request) return;
       this.pending.delete(message.id);
       if (message.ok) request.resolve(message.value);
-      else request.reject(new Error(message.error ?? "Engine rejected the request"));
+      else request.reject(message.code
+        ? new EngineAnswerError(message.error, message.code)
+        : new Error(message.error ?? "Engine rejected the request"));
     });
     this.worker.on("error", (error) => this.fail(error instanceof Error ? error : new Error(String(error))));
     this.worker.on("exit", (code) => this.fail(new Error(`Engine worker exited (${code})`)));

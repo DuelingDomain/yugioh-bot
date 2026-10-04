@@ -5,6 +5,7 @@ import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { Bug, LogOut, User } from "lucide-react";
 import { Mono, TierName } from "@/components/sheet";
+import { DURATION, usePresence } from "@/lib/motion";
 import type { ShellAccount } from "./use-shell-account";
 import { isOwnProfile } from "./shell-model";
 import styles from "./shell.module.css";
@@ -29,6 +30,8 @@ function Ring({ account, size }: { account: ShellAccount; size: "sm" | "md" }) {
 
 export function AccountMenu({ account, pathname, variant, rail = false, onNavigate, onReportBug }: AccountMenuProps) {
   const [open, setOpen] = useState(false);
+  // The menu stays mounted for its 100ms exit; a closing menu is inert, and focus has already moved.
+  const { mounted, state } = usePresence(open, DURATION.popOut);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const displayName = account.name || "Account";
@@ -162,10 +165,13 @@ export function AccountMenu({ account, pathname, variant, rail = false, onNaviga
   return (
     <>
       {trigger}
-      {open ? (
+      {mounted ? (
         <div
           ref={menuRef}
           className={styles.menu}
+          data-mo="pop"
+          data-state={state}
+          inert={!open}
           data-variant={variant}
           data-rail={rail ? "true" : undefined}
           role="menu"

@@ -1,7 +1,9 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useRef, type CSSProperties } from "react";
 import Link from "next/link";
+import { Roll } from "@/components/motion/roll";
+import { useFlipList } from "@/lib/motion";
 import { LiveDot, Mono, ringColour } from "@/components/sheet";
 import { isSeriesOpen } from "../duel-rules";
 import type { Match, TournamentDetail } from "../types";
@@ -28,7 +30,7 @@ function TableScore({ match, flip = false }: { match: Match; flip?: boolean }) {
   const wins = scoreOf(match);
   if (!wins) return <span className={styles.tscore} data-table-score={match.id}><span className={styles.dash}>– –</span></span>;
   const [a, b] = flip ? [wins[1], wins[0]] : wins;
-  return <span className={styles.tscore} data-table-score={match.id} aria-label={`Games ${a} to ${b}`}>{a}<span className={styles.dash}> – </span>{b}</span>;
+  return <span className={styles.tscore} data-table-score={match.id} aria-label={`Games ${a} to ${b}`}><Roll value={a} /><span className={styles.dash}> – </span><Roll value={b} /></span>;
 }
 
 /** The status line of a table: a live dot while a game is on, then the words. */
@@ -69,6 +71,9 @@ function AlsoLive({ tournament, round }: { tournament: TournamentDetail; round: 
 
 /** The tables of a round as small strips, above your own field. Your table comes first. */
 export function TableStrip({ tournament, round, viewerId }: { tournament: TournamentDetail; round: number; viewerId: number | null }) {
+  const grid = useRef<HTMLUListElement>(null);
+  // New tables arrive with a short rise and a table that moves up the order glides there.
+  useFlipList(grid, { enter: true });
   const isMine = (match: Match) => viewerId !== null && (match.playerOneId === viewerId || match.playerTwoId === viewerId);
   const matches = tableMatches(tournament, round).sort((a, b) => Number(isMine(b)) - Number(isMine(a)) || a.id - b.id);
   const byes = byeNames(tournament, round);
@@ -80,7 +85,7 @@ export function TableStrip({ tournament, round, viewerId }: { tournament: Tourna
   return (
     <section className={styles.tables} aria-label="Tables" id="matches" data-testid="table-strip">
       <h2 className={styles.tablesHead}>{heading}</h2>
-      <ul className={styles.tgrid}>
+      <ul ref={grid} className={styles.tgrid} data-flip-scope={`round-${round}`}>
         {matches.map((match) => {
           const state = tableState(match);
           const mine = isMine(match);
@@ -90,7 +95,7 @@ export function TableStrip({ tournament, round, viewerId }: { tournament: Tourna
           const right = flip ? { id: match.playerOneId, name: match.playerOneName } : { id: match.playerTwoId ?? 0, name: match.playerTwoName ?? "Opponent" };
           const href = watchHref(match);
           return (
-            <li key={match.id}>
+            <li key={match.id} data-flip-id={match.id}>
               <div
                 className={styles.tc}
                 data-mine={mine ? "true" : undefined}
@@ -132,6 +137,8 @@ export function TableStrip({ tournament, round, viewerId }: { tournament: Tourna
 
 /** For anyone who is not playing: every table of the round as a medium field with each player's rounds beside their name. */
 export function SpectatorGrid({ tournament, round, viewerId }: { tournament: TournamentDetail; round: number; viewerId: number | null }) {
+  const grid = useRef<HTMLUListElement>(null);
+  useFlipList(grid, { enter: true });
   const matches = tableMatches(tournament, round);
   const byes = byeNames(tournament, round);
   const total = totalRounds(tournament);
@@ -141,7 +148,7 @@ export function SpectatorGrid({ tournament, round, viewerId }: { tournament: Tou
   return (
     <section className={styles.gridHero} aria-label="Tables" id="matches" data-testid="spectator-grid">
       <h2 className={styles.gh}>{heading}</h2>
-      <ul className={styles.tgridMd}>
+      <ul ref={grid} className={styles.tgridMd} data-flip-scope={`round-${round}`}>
         {matches.map((match) => {
           const state = tableState(match);
           const href = watchHref(match);
@@ -156,7 +163,7 @@ export function SpectatorGrid({ tournament, round, viewerId }: { tournament: Tou
             </div>
           );
           return (
-            <li key={match.id} className={styles.tbl} data-st={state}>
+            <li key={match.id} className={styles.tbl} data-st={state} data-flip-id={match.id}>
               <p className={styles.tnum}>Table {tableNumber(tournament, match)}</p>
               <div className={styles.tfield}>
                 {half(one, "top")}

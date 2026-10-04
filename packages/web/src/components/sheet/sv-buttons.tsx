@@ -1,4 +1,4 @@
-import type { AnchorHTMLAttributes, ButtonHTMLAttributes, MouseEvent, ReactNode } from "react";
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, CSSProperties, MouseEvent, ReactNode } from "react";
 import Link from "next/link";
 import { focusDuelWindowOnClick } from "@/components/duel/duel-window";
 import { sv } from "./sv-util";
@@ -75,6 +75,18 @@ export function DuelAction({ kind, href, onClick, disabled, big, wide, className
 export type SegmentedOption<T extends string> = { value: T; label: ReactNode };
 
 /**
+ * What a `.seg` group needs for its sliding indicator: the option count, the selected index, and a
+ * marker so the CSS knows the pressed button's own background is replaced by the indicator. With no
+ * selected option the indicator hides. Spread the result onto the group: `{...segmentSlide(n, i)}`.
+ */
+export function segmentSlide(count: number, selected: number, style?: CSSProperties) {
+  return {
+    "data-slide": selected >= 0 ? "" : "none",
+    style: { ...style, "--seg-n": Math.max(1, count), "--seg-i": Math.max(0, selected) } as CSSProperties,
+  };
+}
+
+/**
  * The sheet's segmented control (the existing `.seg` markup: a group of `aria-pressed` buttons),
  * wrapped so pages stop hand-writing it.
  */
@@ -87,7 +99,7 @@ export function Segmented<T extends string>({ label, value, options, onChange, d
   className?: string;
 }) {
   return (
-    <div className={sv("seg", className)} role="group" aria-label={label}>
+    <div className={sv("seg", className)} role="group" aria-label={label} {...segmentSlide(options.length, options.findIndex((option) => option.value === value))}>
       {options.map((option) => (
         <button key={option.value} type="button" aria-pressed={option.value === value} disabled={disabled} onClick={() => onChange?.(option.value)}>
           {option.label}

@@ -107,9 +107,7 @@ export function TournamentSheet({ tournament, tournamentSlug, isHost, ratings, o
             </div>
           </>
         )}
-        {hostOpen && showHost && (
-          <HostDrawer tournament={tournament} tournamentSlug={tournamentSlug} ratings={ratings} onChanged={onChanged} onClose={() => setHostOpen(false)} />
-        )}
+        <HostDrawer open={hostOpen && showHost} tournament={tournament} tournamentSlug={tournamentSlug} ratings={ratings} onChanged={onChanged} onClose={() => setHostOpen(false)} />
         <LocatorFly moment={moment} motion={motion} root={root} />
       </SheetRoot>
     </div>

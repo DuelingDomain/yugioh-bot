@@ -274,6 +274,15 @@ describe("N-seat DSL steps (no core)", () => {
     run(s, pickOpponent("p1", "p0"), expectNoPrompt());
   });
 
+  it("expectRetry checks an error code when specified", () => {
+    const fake = fakeGame({ format: "ffa3", prompts: [attackPrompt(0, [1, 2])] });
+    fake.game.answer = () => { throw new EngineAnswerError("That player has left. Pick again.", "seat_left"); };
+    const s = session("ffa3", fake);
+    run(s, expectRetry({ choice: "opt:0" }, { error: "That player has left. Pick again.", code: "seat_left", by: "p0" }));
+    fake.game.answer = () => { throw new EngineAnswerError("That player has left. Pick again."); };
+    expect(() => run(s, expectRetry({ choice: "opt:0" }, { code: "seat_left" }))).toThrow(/error code is "undefined", expected "seat_left"/);
+  });
+
   it("expectRetry fails when the engine takes the answer", () => {
     const fake = fakeGame({ format: "ffa3", prompts: [attackPrompt(0, [1, 2])] });
     expect(() => run(session("ffa3", fake), expectRetry({ choice: "opt:0" }))).toThrow(/took the answer \{"choice":"opt:0"\} from p0\. It must refuse it/);

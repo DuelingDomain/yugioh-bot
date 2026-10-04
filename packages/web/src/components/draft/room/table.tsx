@@ -5,7 +5,7 @@
  * Cards deal in, pass out and gather to the stack with transform and opacity only (WAAPI), as the mock does.
  */
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { animate, flight, motionCalm, motionOff, prefersReducedMotion, wait } from "./motion";
+import { EASE_IN_OUT, EASE_OUT, animate, flight, motionCalm, motionOff, prefersReducedMotion, stagger, wait } from "./motion";
 import { CardImg } from "./card-img";
 import { EdgeClock } from "./edge-clock";
 import { anchorDelta, anchorFor, packSlots, themeStackPoint, type Geometry, type Slot } from "./table-geometry";
@@ -124,7 +124,7 @@ export const Table = memo(function Table(props: TableProps) {
               { opacity: 1, offset: 0.7 },
               { transform: `translate3d(${dl.x}px, ${dl.y}px, 20px) scale(0.6)`, opacity: 0 },
             ],
-            { duration: 520, delay: i * 18, easing: "cubic-bezier(0.55,0,0.3,1)", fill: "forwards" },
+            { duration: 300, delay: stagger(i), easing: EASE_IN_OUT, fill: "forwards" },
           ),
         );
         return;
@@ -142,8 +142,8 @@ export const Table = memo(function Table(props: TableProps) {
               to: dest,
               src: el.querySelector("img")?.src,
               glow: "228 182 79",
-              arc: 30,
-              duration: 560 + i * 12,
+              arc: 20,
+              duration: 300,
               swell: 0,
               className: "pack-ghost",
             }),
@@ -161,11 +161,11 @@ export const Table = memo(function Table(props: TableProps) {
           mv,
           [
             { transform: "none", opacity: 1 },
-            { transform: stackAt, opacity: 1, offset: 0.42 },
-            { transform: stackAt, opacity: 1, offset: 0.55 },
+            { transform: stackAt, opacity: 1, offset: 0.4 },
+            { transform: stackAt, opacity: 1, offset: 0.5 },
             { transform: `translate3d(${dl.x}px, ${dl.y}px, 20px) scale(0.5)`, opacity: 0 },
           ],
-          { duration: 900, delay: i * 10, easing: "cubic-bezier(0.55,0,0.3,1)", fill: "forwards" },
+          { duration: 560, delay: stagger(i), easing: EASE_IN_OUT, fill: "forwards" },
         ),
       );
     });
@@ -204,7 +204,7 @@ export const Table = memo(function Table(props: TableProps) {
               { opacity: 1, offset: 0.35 },
               { transform: "none", opacity: 1 },
             ],
-            { duration: 520, delay: i * 20, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "backwards" },
+            { duration: 300, delay: stagger(i), easing: EASE_OUT, fill: "backwards" },
           );
           return;
         }
@@ -216,7 +216,7 @@ export const Table = memo(function Table(props: TableProps) {
             { opacity: 1, offset: 0.25 },
             { transform: "none", opacity: 1 },
           ],
-          { duration: 600, delay: i * 22, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "backwards" },
+          { duration: 300, delay: stagger(i), easing: EASE_OUT, fill: "backwards" },
         );
         return;
       }
@@ -225,16 +225,21 @@ export const Table = memo(function Table(props: TableProps) {
         deal.reason === "stack"
           ? anchorDelta({ x: stack.x + stack.w / 2, y: stack.y + stack.h / 2 }, s)
           : { x: g.tw / 2 - (s.x + s.w / 2), y: g.th * 0.45 - (s.y + s.h / 2) };
-      const delay = 120 + i * (n > 6 ? 45 : 110);
+      // quick: each card 20ms after the last (none after the eighth), the flip shorter than before
+      const delay = 60 + stagger(i);
       animate(
         mv,
-        [{ transform: `translate3d(${src.x}px, ${src.y}px, 60px) rotateZ(${(i % 2 ? -1 : 1) * 6}deg)` }, { transform: "none" }],
-        { duration: 480, delay, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "backwards" },
+        [
+          { transform: `translate3d(${src.x}px, ${src.y}px, 60px) rotateZ(${(i % 2 ? -1 : 1) * 6}deg)`, opacity: 0 },
+          { opacity: 1, offset: 0.3 },
+          { transform: "none", opacity: 1 },
+        ],
+        { duration: 300, delay, easing: EASE_OUT, fill: "backwards" },
       );
       animate(
         flip,
-        [{ transform: "rotateY(180deg)" }, { transform: "rotateY(180deg)", offset: 0.45 }, { transform: "rotateY(0deg)" }],
-        { duration: 760, delay, easing: "cubic-bezier(0.45,0,0.2,1)", fill: "backwards" },
+        [{ transform: "rotateY(180deg)" }, { transform: "rotateY(180deg)", offset: 0.3 }, { transform: "rotateY(0deg)" }],
+        { duration: 420, delay, easing: EASE_IN_OUT, fill: "backwards" },
       );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps

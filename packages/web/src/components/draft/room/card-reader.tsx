@@ -2,16 +2,25 @@
 
 import { memo } from "react";
 import { CardImg } from "./card-img";
-import { cardText, joinNames, statParts, tint, typeParts, type RoomCard } from "./room-model";
+import { cardText, joinNames, statParts, tint, typeLine, type RoomCard } from "./room-model";
+
+/** What the dock's small label says about the card it shows. */
+export const TAG_POINTING = "Pointing at";
+export const TAG_CHOSEN = "Chosen";
+export const TAG_PICKED = "Your pick";
 
 export interface ReaderProps {
+  /** The card on show: the one under the pointer, else the chosen one, else your last pick. */
   card: RoomCard | null;
   tag: string;
   pickNote?: string | null;
-  /** The pick button: hidden while reading a pick from the binder, or when the draft is done. */
+  /** The pick button is hidden once the draft is done. */
   buttonHidden: boolean;
+  /** A card is chosen and can be picked. The button always follows the chosen card, never the one under the pointer. */
   pickable: boolean;
-  /** Set when the card under the reader cannot be picked: the reason, e.g. "You have 3". */
+  /** The chosen card, whose name the button carries. */
+  chosen: RoomCard | null;
+  /** Set when the chosen card cannot be picked: the reason, e.g. "You have 3". */
   blockedNote?: string | null;
   /** It is your turn but nothing is chosen. */
   myTurn: boolean;
@@ -23,44 +32,43 @@ export interface ReaderProps {
   onClose: () => void;
 }
 
-function Head({ card }: { card: RoomCard }) {
-  const stats = statParts(card);
+/**
+ * Name, type line and the stats row. The stats row is always there, empty for a Spell or Trap,
+ * so the dock below it keeps its place when the pointer moves from a monster to a spell.
+ */
+function Head({ card }: { card: RoomCard | null }) {
+  const stats = card ? statParts(card) : null;
   return (
-    <>
-      <h2 className="insp-name">{card.name}</h2>
-      <p className="insp-type">
-        {typeParts(card).map((p, i) => (
-          <span key={i}>{p}</span>
+    <div className="insp-main" aria-hidden={card ? undefined : true}>
+      {card ? <h2 className="insp-name">{card.name}</h2> : <p className="insp-name" />}
+      <p className="insp-type">{card ? typeLine(card) : ""}</p>
+      <div className="insp-stats" data-empty={stats ? undefined : ""}>
+        {stats?.map(([k, v]) => (
+          <span key={k}>
+            {k}
+            <b>{v}</b>
+          </span>
         ))}
-      </p>
-      {stats ? (
-        <div className="insp-stats">
-          {stats.map(([k, v]) => (
-            <span key={k}>
-              {k}
-              <b>{v}</b>
-            </span>
-          ))}
-        </div>
-      ) : null}
-    </>
+      </div>
+    </div>
   );
 }
 
 export const CardReader = memo(function CardReader(p: ReaderProps) {
   const { card } = p;
   const t = card ? tint(card) : null;
+  const label =
+    p.pickable && p.chosen ? `Pick ${p.chosen.name}` : p.blockedNote ? p.blockedNote : p.myTurn ? "Choose a card" : "Picked";
   return (
     <aside className="insp" aria-live="polite" aria-label="Card reader">
       <button className="sheet-x" type="button" onClick={p.onClose}>
         Close
       </button>
-      <div className="insp-head">
-        <b>Card</b>
+      <div className="insp-head" data-tag={p.tag === TAG_CHOSEN ? "chosen" : undefined}>
         <span>{p.tag}</span>
       </div>
       <div className="insp-art" data-empty={card ? "false" : "true"}>
-        {card ? <CardImg key={card.id} card={card} large /> : <img alt="" />}
+        {card ? <CardImg key={card.id} card={card} large eager /> : <img alt="" />}
       </div>
       <div className="insp-mini">
         <div
@@ -77,40 +85,35 @@ export const CardReader = memo(function CardReader(p: ReaderProps) {
         </div>
         <div>{card ? <Head card={card} /> : null}</div>
       </div>
-      <div>
-        {card ? (
-          p.phone ? null : (
-            <Head card={card} />
-          )
-        ) : (
-          <p className="insp-note">
-            Point at a card to read it. Click it to stand it up, then click it again or press Enter to pick.
-          </p>
-        )}
-        {p.pickNote ? (
-          <p className="insp-note" style={{ marginTop: 10 }}>{p.pickNote}</p>
-        ) : null}
+      <div className="insp-info">
+        {p.phone ? null : <Head card={card} />}
+        {p.pickNote ? <p className="insp-note">{p.pickNote}</p> : null}
         {p.showWaiting && p.waitingOn.length ? (
-          <p className="insp-note" style={{ marginTop: 10 }}>
+          <p className="insp-note">
             Waiting on <em>{joinNames(p.waitingOn)}</em>.
           </p>
         ) : null}
       </div>
-      <p className="insp-text">{card ? cardText(card) : ""}</p>
-      <button className="pick-btn" type="button" hidden={p.buttonHidden} disabled={!p.pickable} onClick={p.onPick}>
-        <span>{p.pickable && card ? `Pick ${card.name}` : p.blockedNote ? p.blockedNote : p.myTurn ? "Choose a card" : "Picked"}</span>
-        <kbd>Enter</kbd>
-      </button>
-      <div className="keys">
-        <span>
-          <kbd>1</kbd> to <kbd>9</kbd> choose
-        </span>
-        <span>
-          <kbd>Enter</kbd> pick
-        </span>
-        <span>
-          <kbd>/</kbd> search
-        </span>
+      <p className="insp-text" data-hint={card ? undefined : ""}>
+        {card
+          ? cardText(card)
+          : p.myTurn
+            ? "Point at a card to read it. Click it to choose it, then press Enter or use the Pick button."
+            : "Waiting for the table."}
+      </p>
+      <div className="insp-act">
+        <button className="pick-btn" type="button" hidden={p.buttonHidden} disabled={!p.pickable} onClick={p.onPick}>
+          <span>{label}</span>
+          <kbd>Enter</kbd>
+        </button>
+        <div className="keys">
+          <span>
+            <kbd>1</kbd> to <kbd>9</kbd> or arrows choose
+          </span>
+          <span>
+            <kbd>/</kbd> search
+          </span>
+        </div>
       </div>
     </aside>
   );

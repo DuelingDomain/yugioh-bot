@@ -1,7 +1,31 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DeckValidationSkippedError, duelReplayKey, getDuelReplay, getDuelRoom, leaveDuel, listDuels, takeDuelSeat, validateDuelDeck } from "../src/components/duel/api";
+import { DeckValidationSkippedError, duelReplayKey, getDuelReplay, getDuelRoom, leaveDuel, listDuels, sendDuelAction, takeDuelSeat, validateDuelDeck } from "../src/components/duel/api";
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe("duel answer errors", () => {
+  const command = { promptId: "p1", revision: 0, answer: { choice: "opt:0" } };
+
+  it("keeps the seat-left code and text from an HTTP 400 response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      error: "That player has left. Pick again.", code: "seat_left",
+    }, { status: 400 })));
+
+    await expect(sendDuelAction("table", command)).rejects.toMatchObject({
+      name: "DuelRequestError", status: 400, message: "That player has left. Pick again.", code: "seat_left",
+    });
+  });
+
+  it.each([undefined, null, 400, { value: "seat_left" }])("ignores a missing or non-string error code: %j", async (code) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "Invalid answer", code }, { status: 400 })));
+    const request = sendDuelAction("table", command);
+
+    await expect(request).rejects.toMatchObject({
+      name: "DuelRequestError", status: 400, message: "Invalid answer",
+    });
+    await expect(request).rejects.not.toHaveProperty("code", expect.anything());
+  });
+});
 
 describe("duel room authentication responses", () => {
   it("reports a skipped lobby check as a typed room-refresh signal", async () => {

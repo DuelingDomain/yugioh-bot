@@ -1,5 +1,5 @@
 import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
-import { defaultChainMode, partnerSeatOf, seatCountFor, seatsOfTeam, startingLpFor, teamOfSeat } from "@yugidraft/shared/duels";
+import { DUEL_SEAT_LEFT_ERROR_CODE, defaultChainMode, partnerSeatOf, seatCountFor, seatsOfTeam, startingLpFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -21,7 +21,7 @@ import createCore, {
   type OcgOpCode,
 } from "ocgcore-wasm";
 import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
-import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, filterPromptOptions, isWaitingMessage, mapPrompt, nextLivingOpponentSeat, placeSeatHint, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
+import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, filterPromptOptions, isOpponentPick, isWaitingMessage, mapPrompt, nextLivingOpponentSeat, opponentPickSeat, placeSeatHint, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
 import {
   DOMAIN_RECALL_DESC,
   LOCATION_DECKMASTER,
@@ -1072,6 +1072,14 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         pending = previous;
         synchroSummon = previousSummon;
         sawRetry = false;
+        if (previous.message.type === OcgMessageType.SELECT_OPTION && isOpponentPick(previous.message.options)
+          && typeof answer.choice === "string" && /^opt:(0|[1-9]\d*)$/.test(answer.choice)) {
+          const desc = previous.message.options[Number(answer.choice.slice(4))];
+          const pickedSeat = desc === undefined ? null : opponentPickSeat(desc);
+          if (pickedSeat !== null && (eliminated.has(pickedSeat) || leaving.has(pickedSeat))) {
+            throw new EngineAnswerError("That player has left. Pick again.", DUEL_SEAT_LEFT_ERROR_CODE);
+          }
+        }
         throw new EngineAnswerError("Invalid answer");
       }
       answerForLeavingSeats();
@@ -1150,7 +1158,9 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           eliminatedSeats: [...eliminated],
           removedCards: fresh.flatMap((message) => message.type === OcgMessageType.REMOVE_CARDS ? message.cards : []),
         });
-        if (pending.prompt.options.length !== previous.prompt.options.length) {
+        // answerForLeavingSeats consumes the core's close signal before advancing. An automatic
+        // answer here would leave that signal armed for the next response of the same living seat.
+        if (pending.prompt.options.length !== previous.prompt.options.length && !mustCloseResponseWindow()) {
           // SelectCounter checks changed sources before reading its response. A zero response lets
           // the core refresh the offer or cancel an unpaid cost without selecting a removed card.
           const response = pending.message.type === OcgMessageType.SELECT_COUNTER

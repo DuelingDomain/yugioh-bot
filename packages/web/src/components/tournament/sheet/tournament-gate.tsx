@@ -20,7 +20,13 @@ export function TournamentGate({ kind, slug, busy = false, onRetry }: {
       <div className={styles.wrap}>
         <FieldOutline lit={kind !== "error"} centreLine>
           <div className={styles.body}>
-            {kind === "loading" && <p role="status" aria-label="Loading tournament" className={styles.loading}>Loading tournament</p>}
+            {kind === "loading" && (
+              <div role="status" aria-label="Loading tournament" aria-busy="true" className={styles.loading}>
+                <span className="sk" style={{ width: "min(220px, 60%)", height: 22 }} aria-hidden="true" />
+                <span className="sk" style={{ width: "min(340px, 90%)" }} aria-hidden="true" />
+                <span className="sk" style={{ width: "min(280px, 75%)" }} aria-hidden="true" />
+              </div>
+            )}
             {kind === "missing" && (
               <>
                 <p className={styles.code}>404</p>

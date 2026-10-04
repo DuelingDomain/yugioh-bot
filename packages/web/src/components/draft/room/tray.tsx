@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { HeardLine } from "@/lib/stores/talk-store";
 import { TalkBubble } from "./talk-bubble";
 import { KINDS, KIND_LABEL, mixGradient, type Kind, type KindCounts, type RoomCard } from "./room-model";
@@ -25,12 +25,22 @@ export interface TrayProps {
 
 /** The duel disk: a dial that fills toward your deck, and four counters that double as filters. */
 export const Tray = memo(function Tray(p: TrayProps) {
+  // the total rolls when it changes (never on the first show): the new digit comes up from below
+  const shown = useRef(p.done);
+  const [roll, setRoll] = useState(0);
+  useEffect(() => {
+    if (shown.current === p.done) return;
+    shown.current = p.done;
+    setRoll((n) => n + 1);
+  }, [p.done]);
   return (
     <div className="disk">
       {p.said ? <TalkBubble key={p.said.seq} className="bubble" heard={p.said} /> : null}
       <button className="dial" type="button" aria-controls="binder" aria-label={`Your picks: ${p.done} of ${p.of}. Open your picks.`} onClick={p.onDial}>
         <span className="face" style={{ "--mix": mixGradient(p.phaseCounts, p.of) } as React.CSSProperties}>
-          <b>{p.done}</b>
+          <b key={roll} className={roll ? "roll" : undefined}>
+            {p.done}
+          </b>
         </span>
         <span className="lbl">
           <em>
@@ -58,7 +68,7 @@ export const Tray = memo(function Tray(p: TrayProps) {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               {card ? <img src={card.imageUrlSmall || card.imageUrl} alt="" /> : null}
             </span>
-            <b key={`b${land}`} className={land ? "bump" : undefined}>
+            <b key={`b${land}`} className={land ? "roll" : undefined}>
               {p.poolCounts[k]}
             </b>
             <small>

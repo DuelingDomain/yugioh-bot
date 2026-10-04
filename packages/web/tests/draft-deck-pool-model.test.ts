@@ -5,6 +5,7 @@ import {
   draftDeckNotes,
   draftMainMinimum,
   draftMainTone,
+  draftRuleShort,
   draftRuleText,
   poolCounts,
   remainingCopies,
@@ -62,6 +63,12 @@ describe("draft deck pool model", () => {
   it("states the size rule", () => {
     expect(draftRuleText(50)).toBe("Main deck: 40 to 60 cards. Extra deck: up to 15.");
     expect(draftRuleText(30)).toContain("all 30 main deck cards");
+  });
+
+  it("states the size rule short enough for one line", () => {
+    expect(draftRuleShort(50)).toBe("Main: 40 to 60. Extra: up to 15.");
+    expect(draftRuleShort(30)).toBe("Main: all 30 cards. Extra: up to 15.");
+    expect(draftRuleShort(50).length).toBeLessThanOrEqual(36);
   });
 
   it("lists the size notes of a deck", () => {

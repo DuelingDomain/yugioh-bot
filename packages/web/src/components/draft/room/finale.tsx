@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DraftTournament } from "../use-draft-tournament";
 import { FullscreenLayer } from "./layer";
-import { animate } from "./motion";
+import { EASE_OUT, animate, motionLevel, popExitMs, stagger } from "./motion";
 import { KINDS, KIND_LABEL, countKinds, kindOf, type RoomCard } from "./room-model";
 
 export interface FinaleProps {
@@ -66,22 +66,34 @@ export function DraftFinale(p: FinaleProps) {
     : p.canCreateTournament
       ? "Create the tournament when you are ready. Saved draft decks are registered for it."
       : "The host or a server admin will start the tournament.";
+  // Close plays the exit (the overlay fades, the page behind shows) and then tells the page.
+  const [closing, setClosing] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const onCloseRef = useRef(p.onClose);
+  onCloseRef.current = p.onClose;
+  const close = useCallback(() => {
+    if (closeTimer.current !== undefined) return;
+    setClosing(true);
+    closeTimer.current = setTimeout(() => onCloseRef.current(), popExitMs());
+  }, []);
+  useEffect(() => () => clearTimeout(closeTimer.current), []);
   const word = useRef<HTMLHeadingElement>(null);
   const fanRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    animate(word.current, [{ opacity: 0, transform: "scale(1.75)" }, { opacity: 1, transform: "scale(1)" }], {
-      duration: 420,
-      easing: "cubic-bezier(0.2,0.9,0.3,1)",
+    // the word eases up into place; it no longer lands from a larger size
+    animate(word.current, [{ opacity: 0, transform: "translateY(8px)" }, { opacity: 1, transform: "none" }], {
+      duration: 300,
+      easing: EASE_OUT,
       fill: "backwards",
     });
     const imgs = Array.from(fanRef.current?.children ?? []);
     imgs.forEach((img, i) => {
       const a = (i - (imgs.length - 1) / 2) * 9;
       animate(img, [{ transform: "rotate(0deg) translateY(30px)", opacity: 0 }, { transform: `rotate(${a}deg)`, opacity: 1 }], {
-        duration: 520,
-        delay: 300 + i * 60,
-        easing: "cubic-bezier(0.16,1,0.3,1)",
+        duration: 300,
+        delay: 120 + stagger(i),
+        easing: EASE_OUT,
         fill: "backwards",
       });
     });
@@ -91,15 +103,15 @@ export function DraftFinale(p: FinaleProps) {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.stopPropagation();
-      p.onClose();
+      close();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [p.onClose]);
+  }, [close]);
 
   return (
-    <FullscreenLayer label="Draft complete">
-      <div className="finale">
+    <FullscreenLayer label="Draft complete" attrs={{ "data-motion": motionLevel() }}>
+      <div className="finale" data-state={closing ? "closed" : "open"} inert={closing || undefined}>
         <div className="frame">
           <i className="pip" />
           <i className="pip" />
@@ -245,7 +257,7 @@ export function DraftFinale(p: FinaleProps) {
             <Link className="btn-2" href="/drafts">
               Back to drafts
             </Link>
-            <button className="btn-2" type="button" onClick={p.onClose}>
+            <button className="btn-2" type="button" onClick={close}>
               Close
             </button>
           </div>

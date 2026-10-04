@@ -143,7 +143,8 @@ describe("tall table stages", () => {
     localStorage.setItem("yugidraft-room-motion", "full");
     useDraftStore.setState({ currentPack: cards });
     renderRoom({ packSize: 60 });
-    await waitFor(() => expect(card(60)).toBeTruthy());
+    // with the device asking for less motion the pack ribbon holds still for 1.3 s instead of animating
+    await waitFor(() => expect(card(60)).toBeTruthy(), { timeout: 3000 });
     expect(screen.getByRole("region", { name: "Draft table" })).toHaveAttribute("data-tall");
     card(60).scrollIntoView = scrollIntoView;
     act(() => card(60).focus({ preventScroll: true }));
