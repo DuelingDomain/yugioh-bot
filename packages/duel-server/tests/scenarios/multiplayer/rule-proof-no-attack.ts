@@ -13,21 +13,38 @@ function firstRound(format: "ffa3" | "ffa4", earlyLoss: boolean): Scenario {
     ...(earlyLoss && seat === "p0" ? { hand: ["Hinotama"] } : {}) };
   const steps: Step[] = [expectPrompt({ by: "p0", context: "action", notOffers: ["to_bp"] })];
   if (earlyLoss) steps.push(activate("Hinotama", "p0"), pickOpponent("p1", "p0"), expectEliminated("p1"));
+  const attacker = living[living.length - 1]!;
+  const target = living[0]!;
   for (const [index, seat] of living.entries()) {
-    steps.push(expectTurn(seat, index + 1), expectPrompt({ by: seat, context: "action", notOffers: ["to_bp"] }), endTurn(seat));
+    steps.push(expectTurn(seat, index + 1));
+    if (seat === attacker) {
+      steps.push(expectPrompt({ by: seat, context: "action", offers: ["to_bp"] }));
+    } else {
+      steps.push(expectPrompt({ by: seat, context: "action", notOffers: ["to_bp"] }), endTurn(seat));
+    }
   }
-  const target = living[living.length - 1];
-  steps.push(expectTurn("p0", living.length + 1), expectPrompt({ by: "p0", offers: ["to_bp"] }), changePhase("battle", "p0"),
-    attack(ELF, { card: ELF, owner: target }, "p0"), expectEliminated(...(earlyLoss ? ["p1" as const] : [])),
+  steps.push(changePhase("battle", attacker),
+    attack(ELF, { card: ELF, owner: target }, attacker), expectEliminated(...(earlyLoss ? ["p1" as const] : [])),
     everySeat(format, Object.fromEntries(seats.map((seat) => [seat, {
       lp: earlyLoss && seat === "p1" ? 0 : 8000,
-      monsters: seat === "p0" || seat === target || earlyLoss && seat === "p1" ? [] : [ELF],
-      hand: earlyLoss && seat === "p1" ? [] : [ELF],
-      grave: seat === "p0" ? [...(earlyLoss ? ["Hinotama"] : []), ELF] : seat === target ? [ELF] : [],
+      monsters: seat === attacker || seat === target || earlyLoss && seat === "p1" ? [] : [ELF],
+      hand: seat === "p0" || earlyLoss && seat === "p1" ? [] : [ELF],
+      grave: seat === "p0" ? [...(earlyLoss ? ["Hinotama"] : []), ELF] : seat === attacker ? [ELF] : [],
     }]))));
   return defineScenario({ id: `rule-proof-${format}-first-round-${earlyLoss ? "early-loss" : "all-live"}`,
-    title: `${format}: the first attack waits for all living seats to finish a turn${earlyLoss ? ", and skips an early loss" : ""}`,
+    title: `${format}: the last living seat has the first attack on its first turn${earlyLoss ? ", and skips an early loss" : ""}`,
     source: `${SOURCE} [R-FFA-NO-ATTACK]`, rules: ["R-FFA-NO-ATTACK"], tags: ["multiplayer", format, "battle"], setup, steps });
 }
 const standard = (["ffa3", "ffa4"] as const).flatMap((format) => [firstRound(format, false), firstRound(format, true)]);
-export const NO_ATTACK_PROOF_SCENARIOS = [...standard, ...standard.map(domainVariant)];
+const domain = standard.map((scenario) => {
+  const result = structuredClone(domainVariant(scenario));
+  for (const step of result.steps) {
+    if (step.op !== "expectBoard") continue;
+    for (const seat of SEATS[result.setup.format as "ffa3" | "ffa4"]) {
+      if (step.board[seat]?.lp === 0) continue;
+      step.board[seat] = { ...step.board[seat], deckMaster: { inZone: true, returns: 0, nextCost: 0 } };
+    }
+  }
+  return result;
+});
+export const NO_ATTACK_PROOF_SCENARIOS = [...standard, ...domain];

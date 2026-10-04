@@ -29,8 +29,10 @@ const NEEDS_ENGINE = [
   "tests/legacy-engine-identity.test.ts",
   // cards.cdb and card scripts through a real duel (every test in these files loads the card database or starts an engine game)
   "tests/chain-targets.test.ts",
+  "tests/replay-chain-mode-surrender.test.ts",
   "tests/material-count.test.ts",
   "tests/target-response.test.ts",
+  "tests/c6-geometry-audit.test.ts",
   // a wasm core (engine, host, summons, presets, scenarios, fuzz, differential)
   "tests/battle-card-effects.test.ts",
   "tests/deck-reveal.test.ts",
@@ -81,6 +83,9 @@ const NEEDS_ENGINE = [
   "tests/scenarios/multiplayer/red-eyes-exceed.test.ts",
   "tests/scenarios/multiplayer/swiftwind-panther-warrior.test.ts",
   "tests/scenarios/multiplayer/nseat.test.ts",
+  "tests/scenarios/multiplayer/action-seat.test.ts",
+  "tests/scenarios/multiplayer/owner-seat.test.ts",
+  "tests/domain-nseat-stress-fuzz-stall.test.ts",
   // main's engine tests, run against the legacy 1v1 engine (src/legacy): a Standard or Domain core each
   "tests/legacy-main/**",
 ];

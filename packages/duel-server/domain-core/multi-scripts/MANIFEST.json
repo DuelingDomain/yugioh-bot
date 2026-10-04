@@ -18,7 +18,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "2af3694ece08773d3716f1b31eb4bc485dfcf96fc98b700d2363b3c2e2d8763e",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "Apply Level -1 to the existing hand monsters of every living duelist, including the Tag partner. Register the stock effect for later hand additions once."
     },
     {
       "code": 1804528,
@@ -255,7 +255,25 @@
         "desop"
       ],
       "stockSha256": "b8df5407add8ab402b6b87d9eda2313afb1bb99fd05540d0dcbf25765224e660",
-      "note": "Script fix (R1 each opponent, R-COMMON-EACH-PLAYER, lead decision 2026-10-01): the flip effect registers an End Phase effect (Duel.RegisterEffect) that destroys the Defense Position monsters of the opponents and the stock operation lets ONE opponent (Duel.Damage(1-tp,ct*500)) take the damage for all of them. The operation groups the monsters by real controller seat (aux.MPForEachController): each opponent takes 500 for each of its OWN monsters destroyed. In Tag the opposing members share one LP pool, so the sum is the stock value. The flip effect is stock. Not part of R1 or R2 (a script fix, as Book of Eclipse)."
+      "note": "Script fix (R-FFA-OPP-ONE, owner decision 2026-10-02): Prediction Princess Astromorrigan declares one opponent when its Flip effect activates in FFA. The delayed effect stores that seat, destroys only its Defense Position monsters and damages it by 500 for each destroyed monster. It does nothing if that seat is eliminated. Tag keeps destruction per opposing controller and the shared LP total. Requires C3."
+    },
+    {
+      "code": 5043010,
+      "file": "c5043010.lua",
+      "name": "Firewall Dragon",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "5022d7c3ae215fc61bd4a07b4d2b7481fba6483bddaba7ede33aa7d792f11f21",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
+      "code": 5043020,
+      "file": "c5043020.lua",
+      "name": "Firewall Dragon (pre-errata)",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "f59c0f37b6aa14a5bb00996cae770418916a1fb5196434d367b19a935f5ff2d5",
+      "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
     },
     {
       "code": 5611760,
@@ -284,6 +302,30 @@
       "compareIn": [
         "spcon"
       ]
+    },
+    {
+      "code": 5821478,
+      "file": "c5821478.lua",
+      "name": "Topologic Bomber Dragon",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "6590fb1ff291c51b855ab609843584d652ea1273568c3d0758ac18a7e561213a",
+      "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
+    },
+    {
+      "code": 6325660,
+      "file": "c6325660.lua",
+      "name": "Dominus Spark",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPPick": [
+          "target"
+        ]
+      },
+      "stockSha256": "45be4fffb82ef8f2af4923627b81adf1196e42459114b99fe1def5f60e7bf643",
+      "note": "In Tag, select one opponent at activation for the opponent-hand effect. Keep the joined team field."
     },
     {
       "code": 6783559,
@@ -555,6 +597,15 @@
       "stockSha256": "8b50857dfc4745fa75e0f02aa8076a1a56bfc88e4af17627ce41c103ee1b1707"
     },
     {
+      "code": 10045474,
+      "file": "c10045474.lua",
+      "kind": "fix",
+      "name": "Infinite Impermanence",
+      "classes": [],
+      "stockSha256": "3e7a6a44bfcc399b3f7d910930fa9144dbe0baf1ba4893a84c0afad94b5e5fc0",
+      "note": "FFA4: a side seat shares no column; own and living across seats keep the stock sequence mirror."
+    },
+    {
       "code": 10110717,
       "file": "c10110717.lua",
       "name": "Mecha Bunny",
@@ -609,6 +660,24 @@
       "note": "the global check loops over the players 0 and 1; it loops over every living duelist (aux.MPForEachDuelist) and writes the flag for the real seat."
     },
     {
+      "code": 10552026,
+      "file": "c10552026.lua",
+      "name": "Gouki Heel Ogre",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "7c3c2f77ed819c91b2376bd5c5d067a08c36e7a0fb0ffadf44cbccf05003ac82",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
+      "code": 10852583,
+      "file": "c10852583.lua",
+      "kind": "fix",
+      "name": "Yajiro Invader",
+      "classes": [],
+      "stockSha256": "13954cde53a8dfccd563987cfd82f97aa0c6153e09d4d2181495f36d4676e061",
+      "note": "FFA4: a side seat shares no column; own and living across seats keep the stock sequence mirror."
+    },
+    {
       "code": 11110587,
       "file": "c11110587.lua",
       "name": "That Grass Looks Greener",
@@ -625,6 +694,18 @@
         "condition",
         "target"
       ]
+    },
+    {
+      "code": 11163040,
+      "file": "c11163040.lua",
+      "name": "The Kaiju Files",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "4b2fb2b2086b360296dbd6bd82998c5726769aeed7f17da5938a3c5974ddffca",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
     },
     {
       "code": 12210097,
@@ -666,6 +747,21 @@
       "chooserClass": "CH-OP",
       "stockSha256": "b1abc6a76df3c89f84734cec0ff539508de53121f07244e14caf797224f4e27f",
       "note": "Card text says \"your opponent\" (one): CH-OP (decision Q5), not CH-EACH as in the first pass of the design."
+    },
+    {
+      "code": 12292422,
+      "file": "c12292422.lua",
+      "name": "Specimen Inspection",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPPick": [
+          "target"
+        ]
+      },
+      "stockSha256": "f19b5ba2c43d0ea03b31aca05fbb44ea43f7fe5299d4b76e8d52df1752c211bc",
+      "note": "Select one Tag opponent at activation before the hand and Deck choices."
     },
     {
       "code": 12381100,
@@ -788,6 +884,20 @@
       "stockSha256": "904caca4dc9e8e7704b02452553bb3fbdc9ab3680c511b0815f8504d513dfe38"
     },
     {
+      "code": 14220547,
+      "file": "c14220547.lua",
+      "name": "Branded in Central Dogmatika",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+TRIGGER_O",
+      "redefined": [
+        "gytg",
+        "gyop"
+      ],
+      "stockSha256": "365168fb52cca9602a085a7e080d159b6cdf3a8cb62eef17b01cf811c55319f3",
+      "note": "R-FFA-OPP-ONE and R-COMMON-OPP-PICK: declare one opponent at activation before the opponent-only Extra Deck read. Keep the own Extra Deck branch and two-seat stock behavior. FFA3, FFA4 and Tag have Standard and Domain live proofs."
+    },
+    {
       "code": 14318794,
       "file": "c14318794.lua",
       "name": "Life Absorbing Machine",
@@ -814,6 +924,18 @@
       "classes": [],
       "stockSha256": "f51bab6244f67e17c50f1c54d5679072e9019ce02938ae6024a1291a938ad4b1",
       "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
+      "code": 14772491,
+      "file": "c14772491.lua",
+      "name": "Common Soul",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "4dae4b6862b1c1a8439a73ee3a115669532bd01b77e271cccc7e0efd77bd766f",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
     },
     {
       "code": 14989021,
@@ -883,6 +1005,15 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "9a7744980d307f9cb9a0a2b81aa35cd1b475fa6396647dd1302bff68eae4ffc9"
+    },
+    {
+      "code": 15967552,
+      "name": "Small Scuffle",
+      "file": "c15967552.lua",
+      "kind": "fix",
+      "stockSha256": "e693b72ecce676e89c22959734008f501e80b3a8822e6764e5c1207f4070cfe5",
+      "classes": [],
+      "note": "The overlay restricts FFA4 column geometry to the exact own and across seats."
     },
     {
       "code": 16832845,
@@ -1151,7 +1282,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "d4558d29867411b26d965c8afffc6cb2afb223b913a5e31f5f97e4198a92fded",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "Declare the opponent before selecting its card. The target controller chooses the effect without another opponent pick; after the send to the Graveyard, the owner draws two cards."
     },
     {
       "code": 19491080,
@@ -1392,6 +1523,15 @@
       "stockSha256": "4dd87d52ce8c79ebbe5e324f3633daad25c4759e972e84fb698be7997d6c9558"
     },
     {
+      "code": 21637210,
+      "file": "c21637210.lua",
+      "name": "Firewall Dragon Singularity",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "636bf035d64b2d6cf12360ef8f07266e9d64a8d09b4a343e677477bd456f4e65",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
       "code": 21672573,
       "file": "c21672573.lua",
       "name": "Emperor Sem",
@@ -1419,6 +1559,21 @@
       ],
       "replace": true,
       "stockSha256": "eac8f85e4ff240ce74911b852e0c01b4a6c3c7c9eec26f0e164b8441a6e8d1b9"
+    },
+    {
+      "code": 22404570,
+      "file": "c22404570.lua",
+      "name": "Power Patron Shade of the Final Hour",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPPick": [
+          "sptg"
+        ]
+      },
+      "stockSha256": "04503dd0b78d49efdbaffc4dd7a5d841fe8b0d5e2851479c0361c7da10dcf9d6",
+      "note": "In Tag, select one opponent at activation for the opponent-hand effect. Keep the joined team field."
     },
     {
       "code": 22593417,
@@ -1566,6 +1721,18 @@
       ]
     },
     {
+      "code": 24649931,
+      "name": "Materialization",
+      "classes": [
+        "R2"
+      ],
+      "kind": "hand",
+      "file": "c24649931.lua",
+      "stockSha256": "a0aa9bb3f19c167d90022fc7aeab290b16030b209499c80b8abcf249adb39bd6",
+      "note": "Use the real owner and action seats.",
+      "r2Class": "EACH-CONTROLLER"
+    },
+    {
       "code": 24731453,
       "file": "c24731453.lua",
       "name": "Snow Plow Hustle Rustle",
@@ -1590,7 +1757,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "c51f8ea1515f45e548d608e7211d58d28b891e922fdbaa14a453cfb3c677246b",
-      "note": "Use a picked FFA count and combined opposing Tag hands and fields.",
+      "note": "Count the hands and fields of every living duelist once, including the Tag partner. The removal effect keeps its declared opponent.",
       "redefines": [
         "target",
         "activate"
@@ -1776,7 +1943,7 @@
       ],
       "r2Class": "TABLE",
       "stockSha256": "b99e4aa0a39f232eae1020b8e43b5e3f981ca4fc627e92819405d720e8e53ef1",
-      "note": "the state is global with ONE slot (s[0] the monsters of the opponents of the turn player, s[1] their count): in FFA the group joined the monsters of every opponent, so the event came only when ALL of them were destroyed, for every holder, with no seat. The check keeps one group and one count per key (seat in FFA, team in Tag), and raises the event with a bit mask of the keys whose monsters (2 or more) were all destroyed by battle; the condition asks for the own key in that mask."
+      "note": "the state is global with ONE slot (s[0] the monsters of the opponents of the turn player, s[1] their count): in FFA the group joined the monsters of every opponent, so the event came only when ALL of them were destroyed, for every holder, with no seat. The check keeps one group and one count per key (seat in FFA, team in Tag), and raises the event with a bit mask of the keys whose monsters (2 or more) were all destroyed by battle; the condition asks for the own key in that mask. The response lock binds the battle turn player with no declaration."
     },
     {
       "code": 27770341,
@@ -1812,7 +1979,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "46059a0ed50acf73a65bba6db3ccf61c304db2fda001c15e16fe02dbf83e4081",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "Pin Baller cannot be negated when any living opposing LP pool is greater than its own. The selected equip opponent does not limit this condition."
     },
     {
       "code": 29307554,
@@ -1899,6 +2066,15 @@
       "stockSha256": "cd3faa35089e9dcad8bd3d992e4c7b9d43b9766a2170c6e9e1241c7328811dae"
     },
     {
+      "code": 30010480,
+      "file": "c30010480.lua",
+      "name": "Gouki Thunder Ogre",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "63aa2b87c225f80e1f4423b6868a306249545db3a58638f9970a329746d8cfbd",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
       "code": 30109445,
       "file": "c30109445.lua",
       "name": "Clown Crew Dristy",
@@ -1921,7 +2097,7 @@
         "damcon",
         "damop"
       ],
-      "note": "Only the holder own duelist turn triggers the effect. Each living duelist takes damage."
+      "note": "The current controller's own turn triggers the effect. Each living duelist takes damage."
     },
     {
       "code": 30339825,
@@ -1956,6 +2132,30 @@
         "R1"
       ],
       "stockSha256": "5dd2460270bb911df0e8becec1dee0b0f9dd9e04535139ab769aaf8f04cd61ce"
+    },
+    {
+      "code": 30822527,
+      "file": "c30822527.lua",
+      "name": "Decode Talker Extended",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "70ecdfac038007e68f96378fdc2073d63c2fd5acfd9826949c1366812f6ec1f6",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
+      "code": 31036355,
+      "file": "c31036355.lua",
+      "name": "Creature Swap",
+      "kind": "hand",
+      "classes": [
+        "R1"
+      ],
+      "stockSha256": "ae2b7890d0a4e9e9369fe648b889b27e851e7d815fb5b828e5695cd23fdd2267",
+      "note": "Every living FFA duelist chooses one monster in turn order; the monsters rotate to the next living seat. Tag keeps the stock swap.",
+      "redefined": [
+        "target",
+        "activate"
+      ]
     },
     {
       "code": 31044787,
@@ -2103,7 +2303,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "f320c55fe74719a12dc3cb9b5d81b0a37778b0a83ca6d630180b1fca14f72a97",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "EARTH, WATER and FIRE global effects run for every real duelist seat. Maintenance runs only in the current controller's End Phase; Tag shares the LP cost. One informational hint names the global caller and core 0067 sends it to every living opponent."
     },
     {
       "code": 34004470,
@@ -2256,7 +2456,22 @@
         "flipop"
       ],
       "stockSha256": "d8429c88bb7922c1f0fe1887aabe4073fb78b057d260459a719a4d6621fb2118",
-      "note": "Script fix (R1 each opponent, R-COMMON-EACH-PLAYER, lead decision 2026-10-01): the End Phase effect (registered with Duel.RegisterEffect) flips the face-down monsters of the opponents and the stock operation lets ONE opponent (Duel.Draw(1-tp,ct)) draw for all of them. The operation groups the face-down monsters by real controller seat (aux.MPForEachController): each opponent changes its OWN monsters to face-up Defense Position and draws 1 card for each of its own; in Tag each opposing member does the same. The activation and the condition are stock. Not part of R1 or R2 (a script fix, as Raging Cloudian)."
+      "note": "Script fix (R-FFA-OPP-ONE, owner decision 2026-10-02): Book of Eclipse declares one opponent at activation in FFA. The first flip affects every field. The delayed effect stores the declared seat, flips only its face-down monsters and lets that opponent draw for them. It does nothing if that seat is eliminated. Tag flips and draws per opposing controller. Requires C3."
+    },
+    {
+      "code": 35569555,
+      "file": "c35569555.lua",
+      "name": "Dogmatikamatrix",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "04f4e6aeddcdf61979761b5e194056608618d90902540065de15a15d3ff081c7",
+      "note": "The ordinary activation checks opponent monsters without a declaration. The Extra Deck ignition declares one opponent at activation and uses that seat.",
+      "effectType": "ACTIVATE+IGNITION",
+      "redefined": [
+        "activate",
+        "gytg",
+        "gyop"
+      ]
     },
     {
       "code": 35842855,
@@ -2517,7 +2732,7 @@
       ],
       "chooserClass": "CH-EACH",
       "stockSha256": "a647c24660bf8aa6baef63356cdde6717ff53135eac3a481b8228dd9326f3b0e",
-      "note": "Each living duelist selects from its own Graveyard or banishment and summons to its own field. Tag includes the partner. A target group with three or four cards does not use PLAYER_ALL."
+      "note": "Every living duelist chooses its own banished monster and summons to its own field. Choices run clockwise from the real turn duelist, also when a later duelist activates the Trap during another duelist's turn."
     },
     {
       "code": 40155014,
@@ -2590,7 +2805,7 @@
       ],
       "r2Class": "FLAG-L0",
       "stockSha256": "4b1ec90bf891df6c655b60b39392757538ce569344ae5c453e51d0dfaeac3188",
-      "note": "The global battle flag reaches every seat in FFA and every team in Tag. The Set and End Phase conditions read the flag of their own holder, so a Tag holder on team 1 does not pick an opponent."
+      "note": "A global battle flag reaches every living duelist, with one key per Tag team. Each face-up copy sends five cards from the real turn duelist's own Deck, including when its controller is off-turn or is that duelist's Tag partner."
     },
     {
       "code": 42517468,
@@ -2622,10 +2837,13 @@
       "classes": [],
       "effectType": "ACTIVATE",
       "redefined": [
+        "target",
+        "activate",
+        "retcon",
         "retop"
       ],
       "stockSha256": "721fd4a0bdaa7626b8ee164f0f69bac6ab36be006b1d82bddc447e208534680c",
-      "note": "Script fix (late-cards, R3 + R-COMMON-OPP-PICK): the card banished from the hand of the picked opponent goes back to the hand of its owner. The stock operation sent it to 1-tp, which reads as the turn player of the NEXT opponent turn, so in FFA3 the Axe Raider of p2 came back to p1. Not part of R1."
+      "note": "Script fix (R-FFA-DECLARED-DURATION + R-COMMON-OPP-PICK): in FFA, save the declared opponent's real seat at activation and return the banished card during only that seat's next End Phase. If the declared seat leaves, use R3: the next living opponent End Phase. Keep the stock timing in 1v1 and Tag. The card returns to its owner's hand. Requires the W18 declared-opponent phase-reset core fix."
     },
     {
       "code": 43383478,
@@ -2654,7 +2872,7 @@
       ],
       "chooserClass": "CH-EACH",
       "stockSha256": "1ba4dcc6433a7a015e5e879dfc97204469d5cd095c0a6fc165dacc7560cc141c",
-      "note": "Each living duelist selects from its own Graveyard or banishment and summons to its own field. Tag includes the partner. A target group with three or four cards does not use PLAYER_ALL."
+      "note": "Every living duelist selects a target from its own Graveyard and summons it to its own field, in order from the real turn duelist. Activation requires an eligible own-seat target for the activator and one living opposing duelist. The empty SpecialSummonStep branch is removed."
     },
     {
       "code": 43452193,
@@ -2668,6 +2886,21 @@
       ],
       "stockSha256": "feab1c999e5f3077b2e6fdf0d68f97138562604c6c4ccd16112ab03a8115b70d",
       "note": "Script fix (Q7, Q10): at:IsControler(tp) in the condition. Not part of R1."
+    },
+    {
+      "code": 43632709,
+      "file": "c43632709.lua",
+      "name": "Cerynemesia, Mystical Beast of the Forest",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "SINGLE+TRIGGER_O",
+      "wrap": {
+        "MPPick": [
+          "sptg"
+        ]
+      },
+      "stockSha256": "47219af7b4263d1ee90a7d7882c99783cf0f627d2f3bfdedc9d5013f79af4de1",
+      "note": "In Tag, select one opponent at activation for the opponent-hand effect. Keep the joined team field."
     },
     {
       "code": 44046281,
@@ -2739,6 +2972,18 @@
         "R1"
       ],
       "stockSha256": "9ca56d4fca7239fd8881054a4a240a992d6e3014026cb58525da1e48fc593103"
+    },
+    {
+      "code": 45112597,
+      "file": "c45112597.lua",
+      "name": "Worldsea Dragon Zealantis",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "b8dc0f1a453430b0133fb44ff989e0e446d4bc20bdc2c53c63bca2db198c9368",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
     },
     {
       "code": 45148985,
@@ -2901,7 +3146,7 @@
         "damcon",
         "damop"
       ],
-      "note": "Only the holder own duelist turn triggers the effect. Each living duelist takes damage."
+      "note": "The current controller's own turn triggers the effect. Each living duelist takes damage."
     },
     {
       "code": 47475363,
@@ -2920,6 +3165,24 @@
       "compareIn": [
         "condition"
       ]
+    },
+    {
+      "code": 47759571,
+      "file": "c47759571.lua",
+      "name": "Pitknight Earlie",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "8763bbfa3d8713cd29898f2a8e30c61bf6b9cab1c41822a7f5c23b0f01e44988",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
+      "code": 47810543,
+      "name": "Magical Musket - Crooked Crown",
+      "file": "c47810543.lua",
+      "kind": "fix",
+      "stockSha256": "88b6624990f30e33f52bb86c946541701c42626b2397f229b2a4c9d17cb461b9",
+      "classes": [],
+      "note": "The overlay restricts FFA4 column geometry to the exact own and across seats."
     },
     {
       "code": 48150362,
@@ -3263,6 +3526,21 @@
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
     },
     {
+      "code": 53753697,
+      "file": "c53753697.lua",
+      "name": "Zoa the Fiendish Beast",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "IGNITION",
+      "wrap": {
+        "MPPick": [
+          "sptg"
+        ]
+      },
+      "stockSha256": "6c7ae3b8ab92f07cc67caa7c0b74d9415084caf9e667840cf848eb3775942f21",
+      "note": "In Tag, select one opponent at activation for the opponent-hand effect. Keep the joined team field."
+    },
+    {
       "code": 53792930,
       "file": "c53792930.lua",
       "name": "K9-X Forced Release",
@@ -3427,6 +3705,15 @@
       "stockSha256": "29487b2a30b53a90d7e5a2ce9bbe7eccd25c77fd98ea0a3c75ee1cec196fa7b6"
     },
     {
+      "code": 56818742,
+      "file": "c56818742.lua",
+      "name": "Transcendosaurus Exaraptor",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "b49a91ca824e70d32e61d1d9410689bb668e3fafe1fc4b7d84d295df1671d896",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
       "code": 56830749,
       "file": "c56830749.lua",
       "name": "Share the Pain",
@@ -3499,6 +3786,15 @@
       "note": "Numeron Dragon: desop loops over every living duelist with aux.MPForEachDuelist (Tag partners included): each chooses from its own scope (in Tag the Graveyard of the team, the card of the partner is not offered again), then each Sets its card in a second pass. spcon in FFA counts only a direct attack that can only go to you (no other seat without a monster): the core has no read of the attacked duelist."
     },
     {
+      "code": 57809669,
+      "file": "c57809669.lua",
+      "kind": "fix",
+      "name": "Hecahands Tartaros",
+      "classes": [],
+      "stockSha256": "455272f159de7d185db71cfb4e5b1c2d126fd25a158b39f331e23229db9cd754",
+      "note": "Use real owner and handler seats for Fusion materials."
+    },
+    {
       "code": 57847269,
       "file": "c57847269.lua",
       "name": "Clown Crew Matinee Operatics",
@@ -3536,6 +3832,15 @@
       "chooserClass": "CH-EACH",
       "stockSha256": "56d09211c1bf32d4ca6b981bb31ddabae4858936747f84d261dfe6881ac30137",
       "note": "The target stores the operation info for the activator when the group is not 2 cards (the core demands 2 for PLAYER_ALL); the operation Special Summons each target for the duelist whose Graveyard holds it (windows)."
+    },
+    {
+      "code": 58707981,
+      "file": "c58707981.lua",
+      "name": "Disablaster the Negation Fortress",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "abe3cc8ccc988ebbd2b4e4b4f1cb7bffb296db37aa79c3b8a66bc3f7d3181966",
+      "note": "FFA4: side-seat activations are outside the physical column."
     },
     {
       "code": 58720904,
@@ -3583,6 +3888,21 @@
         "R1"
       ],
       "stockSha256": "bba517904b492d90fccdc1d5e2d9e32f5164bc4d8769d37286b3ec6e6863930b"
+    },
+    {
+      "code": 59581480,
+      "file": "c59581480.lua",
+      "name": "Elfnote Tinia",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "QUICK_O",
+      "wrap": {
+        "MPPick": [
+          "swtg"
+        ]
+      },
+      "stockSha256": "854202fc558e2a1630bb820e01a8b6d96392733c444e01a7de69183faabb997e",
+      "note": "In Tag, select one opponent at activation for the opponent-hand effect. The turn condition does not bind the turn player."
     },
     {
       "code": 59712426,
@@ -3929,6 +4249,21 @@
       ]
     },
     {
+      "code": 64659851,
+      "file": "c64659851.lua",
+      "name": "Law of the Cosmos",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPPick": [
+          "target"
+        ]
+      },
+      "stockSha256": "36b46bd938c007a242a5c1157795cabe633190eb4c4fbb56ab1cb26da2b2fb5f",
+      "note": "Select one Tag opponent at activation for the optional Trap Set."
+    },
+    {
       "code": 65541655,
       "file": "c65541655.lua",
       "name": "Red Nova Dragon - Burning Soul",
@@ -4008,7 +4343,7 @@
       "name": "The Law of the Normal",
       "kind": "fix",
       "classes": [],
-      "note": "Every living duelist is included. Collect each duelist's own zones before one simultaneous action. Tag partner included; no opponent pick.",
+      "note": "Activation needs another card in the activator hand and a card in at least one opponent hand. Every living duelist discards at resolution, including the Tag partner; an empty hand does nothing. All living fields take the destruction.",
       "file": "c66926224.lua",
       "stockSha256": "412abbd641756201e19f0f0bdd06d0b6c8772a5dc803a5f2e1658fbc548ee8b0"
     },
@@ -4127,6 +4462,18 @@
       "stockSha256": "055f3d9ec000dd4ba2e8861206c7cb680e7274ca4e02e8f683bd1afdbc98c6b8"
     },
     {
+      "code": 68223137,
+      "file": "c68223137.lua",
+      "name": "One-Kuri-Way",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "70c46fa9bb8cf78206226d427c16510ce69f3f600ede4f42aa11ec3861fab447",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
+    },
+    {
       "code": 68831625,
       "file": "c68831625.lua",
       "name": "DoomZ Command \"D.O.O.M.D.U.R.G.\"",
@@ -4143,7 +4490,8 @@
       "classes": [
         "R1"
       ],
-      "stockSha256": "3693e2446758134c6e861dff80d9490027144da1606540e815640ae227af499d"
+      "stockSha256": "3693e2446758134c6e861dff80d9490027144da1606540e815640ae227af499d",
+      "note": "Its own or each-player eligibility reads do not declare an opponent."
     },
     {
       "code": 69120785,
@@ -4152,7 +4500,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "d6785008d991cb712a5e8c815a1dfaf08d2b2bd508c8cd611c19a7a0e3481480",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "Collect eligible cards from every living Extra Deck once. Banish the combined group and keep the stock delayed-return effect."
     },
     {
       "code": 69181753,
@@ -4259,6 +4607,15 @@
       ]
     },
     {
+      "code": 70709488,
+      "file": "c70709488.lua",
+      "name": "Shinobi Insect Hagakuremino",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "1e1b3381682262ec598467b852e9e8459159ea8f93bd2604e58920985089dad3",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
       "code": 70914287,
       "file": "c70914287.lua",
       "name": "Kuribabylon",
@@ -4330,7 +4687,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "a8b24f7dd4f31f1d0811f0a7b00e7271fcc77042bd7da021251aaafc00142e8a",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "The Deck banish includes every living duelist. Standby summon choices run clockwise from the real turn duelist. The existing actor-first helper keeps its contract for other callers."
     },
     {
       "code": 71386411,
@@ -4420,6 +4777,15 @@
       ]
     },
     {
+      "code": 72302403,
+      "file": "c72302403.lua",
+      "name": "Swords of Revealing Light",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "bc01d3f0fb565f720141be2bf6f0b9d025d230c882df261f0fced7ef83c4dd2c",
+      "note": "FFA only: protect the controller and its monsters. Flip every opponent. Keep the stock R3 timer; Tag and 1v1 stock."
+    },
+    {
       "code": 72402069,
       "file": "c72402069.lua",
       "name": "D/D/D Super Doom King Bright Armageddon",
@@ -4474,7 +4840,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "087e5964a6158051bb44fa0685192c9d9ed6a029005bd0a2536d5b9177be340e",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "In Tag, discard every living duelist hand together, then each duelist draws its own discarded count. Keep this card forbidden in FFA."
     },
     {
       "code": 73082255,
@@ -4493,7 +4859,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "a50729536e1e88c68807d9bf912fa282f38280dc7276e2ef9ea9cbf926c2c1ab",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "R-COMMON-EACH-PLAYER: every living duelist must have five or more monsters in the GY. This condition does not declare an opponent. Tag checks each member."
     },
     {
       "code": 73507661,
@@ -4516,6 +4882,21 @@
       "stockSha256": "12358eff25253775fd3cf467e8692e77df0b5cbf2b0e6f811db4aff59a28fe72"
     },
     {
+      "code": 74271714,
+      "file": "c74271714.lua",
+      "name": "Fish and Bids",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPPick": [
+          "rmtgtg"
+        ]
+      },
+      "stockSha256": "7a82c1d97ab6bf236b46d17e6416ba1bf314fd042a2549c58705171d3312bd9f",
+      "note": "In Tag, select one opponent at activation for the opponent-hand effect. Keep the joined team field."
+    },
+    {
       "code": 74426895,
       "file": "c74426895.lua",
       "name": "Awakening of the Possessed - Gagigobyte",
@@ -4532,7 +4913,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "33446081eef2e3150316717b8ec860ec4f2cb899370a748f84a87aca371afb1c",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "In Tag, each living duelist sends two cards from its own hand, then draws two cards. Keep this card forbidden in FFA."
     },
     {
       "code": 74586817,
@@ -4680,6 +5061,18 @@
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
     },
     {
+      "code": 76524506,
+      "file": "c76524506.lua",
+      "name": "Garden Rose Flora",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "938f3039797fceb2e7ef988c9f225f43b06328bf1ad381f8c2ecd6961b9a87c6",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
+    },
+    {
       "code": 76636978,
       "file": "c76636978.lua",
       "name": "Stardust Dragon - Victim Sanctuary",
@@ -4720,6 +5113,15 @@
         "R1"
       ],
       "stockSha256": "e216d9c5472d495c75aa60d9ffa834099683c559744d72e88594df621d5272aa"
+    },
+    {
+      "code": 77307161,
+      "file": "c77307161.lua",
+      "name": "Trickstar Bloom",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "cd57c6f92a185543ba7a4e47854b1a64293497167fbbacefff97386f2a140a03",
+      "note": "FFA4: Link and column filters use only the real across seat."
     },
     {
       "code": 77462146,
@@ -4883,7 +5285,7 @@
       "kind": "fix",
       "classes": [],
       "stockSha256": "44d4bb2b91587576700f78bf5afb4f85f682242aaaefb1069da3eaa5b6ca7210",
-      "note": "The overlay uses the real duelist seat for this card effect."
+      "note": "Battle damage is stored per seat in FFA and per team in Tag. Hama checks its current controller's Battle Phase. In FFA one undamaged living opponent meets the condition, and only such opponents are legal activation picks. Tag retains its shared opposing LP path."
     },
     {
       "code": 81167171,
@@ -4941,6 +5343,15 @@
       ],
       "stockSha256": "9a8c4da3ced9fb531714ecad1a9fc256fd58cd4c3fcaffcf7dde44865341806a",
       "note": "Script fix (R1 target controller, R-COMMON-SEAT-STATE, lead decision 2026-10-01): \"your opponent gains 1000 LP\" reads the Lua value 1-tp, which at 3 or more seats is ONE opponent that the user chooses in a window (Choose an opponent), not the controller of the destroyed monster, so the user could give the 1000 LP to any opponent. The target and the operation now bind the value 1 to the controller of the target (aux.MPForEachController): the controller of the destroyed monster gains the LP, in Tag the team of that controller. Not part of R1 or R2 (a script fix)."
+    },
+    {
+      "code": 81965543,
+      "name": "Distrust Paranoia",
+      "file": "c81965543.lua",
+      "kind": "fix",
+      "stockSha256": "f132ecce34c9e9b0070e85167e01672f49bdc45419323846dabaa7e08fb654cd",
+      "classes": [],
+      "note": "The overlay restricts FFA4 column geometry to the exact own and across seats."
     },
     {
       "code": 82052602,
@@ -5024,7 +5435,7 @@
       ],
       "r2Class": "TABLE",
       "stockSha256": "3caddd4db24d26bae219c6cb75f336b9cfee75233b91a9f5e2150882fc1874fc",
-      "note": "count of direct attacks per ATTACKED duelist key (s.mpcount) and first attacker per key (s.mpfirst); the stock s[1-controller] and s[2] break at more than two seats."
+      "note": "count of direct attacks per ATTACKED duelist key (s.mpcount) and first attacker per key (s.mpfirst); the stock s[1-controller] and s[2] break at more than two seats. The response lock binds the battle turn player with no declaration."
     },
     {
       "code": 82734805,
@@ -5190,7 +5601,7 @@
       ],
       "chooserClass": "CH-EACH",
       "stockSha256": "a529e9038c05c03bdea6e448683c62b41564ff84a6e920492ea1754450542a89",
-      "note": "Each living duelist selects from its own Graveyard or banishment and summons to its own field. Tag includes the partner. A target group with three or four cards does not use PLAYER_ALL."
+      "note": "Every living duelist selects from its own Graveyard and summons to its own field, in order from the real attacking turn duelist. Activation uses the same real-seat target filter and needs an eligible activator target and one living opposing duelist."
     },
     {
       "code": 84257883,
@@ -5341,6 +5752,15 @@
       "note": "The cost maximum (one detached material per kind of card of the opponent) is read in the window of the bound opponent, so the target never has more picks than options."
     },
     {
+      "code": 88086137,
+      "file": "c88086137.lua",
+      "name": "Broken Line",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "58ae8a5d50f16b72fc3f13eed069be570727423e7b3f377d382d03fdd925c653",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
       "code": 88406570,
       "file": "c88406570.lua",
       "name": "Gouki Destroy Ogre",
@@ -5471,6 +5891,21 @@
       "stockSha256": "e3ecbd82350ce4d91687610f428f50c978d1fcd06a03e8f3e64f1160a2c948b8"
     },
     {
+      "code": 89839552,
+      "file": "c89839552.lua",
+      "name": "Puppet Pawn",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "IGNITION",
+      "wrap": {
+        "MPPick": [
+          "thtg2"
+        ]
+      },
+      "stockSha256": "518d20c508be30eab0fb70ff97ee098102f080acbb6942c201b263305d5952d2",
+      "note": "Select one Tag opponent at activation for the optional Deck search."
+    },
+    {
       "code": 89883517,
       "file": "c89883517.lua",
       "name": "Mistaken Accusation",
@@ -5527,6 +5962,18 @@
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
     },
     {
+      "code": 90500169,
+      "file": "c90500169.lua",
+      "name": "Level Down!?",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "00e3d2514b3078afde4fcca1994d2609756a158c1fc7ad4ce08bb6857438397c",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
+    },
+    {
       "code": 90669991,
       "file": "c90669991.lua",
       "name": "Pineapple Blast",
@@ -5571,6 +6018,21 @@
       "seatExtra": "c90846359.extra.lua"
     },
     {
+      "code": 91286284,
+      "file": "c91286284.lua",
+      "name": "Gold Pride - That Came Out of Nowhere!",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "ACTIVATE",
+      "wrap": {
+        "MPPick": [
+          "sptg"
+        ]
+      },
+      "stockSha256": "0aed4a4e239213db3baf7b4077e6d989687dc898377c3c4b0f58678a344a20e3",
+      "note": "In Tag, select one opponent at activation for the optional summon from the hand or GY. Keep the joined team field."
+    },
+    {
       "code": 91668078,
       "file": "c91668078.lua",
       "name": "In Papa's Footsteps",
@@ -5609,6 +6071,18 @@
       },
       "chooserClass": "CH-TRIG",
       "stockSha256": "2f0d2680f42f1509f377e7f74b62cfd9c28c8ca10eb6c717a50c0b3afd6e756d"
+    },
+    {
+      "code": 91742238,
+      "file": "c91742238.lua",
+      "name": "Return of the Zombies",
+      "kind": "hand",
+      "classes": [
+        "R2"
+      ],
+      "stockSha256": "e1d0ba83a7b5c3e4e72cf826c0e4ae0021656274cbff3e207b5771df6fb96e47",
+      "note": "Use the exact action seat and the real controller or owner destination.",
+      "r2Class": "EACH-CONTROLLER"
     },
     {
       "code": 91870448,
@@ -5686,6 +6160,15 @@
         "R1"
       ],
       "stockSha256": "dc0cfca2f59c7bd6b6adca735f4e58e7a8b7e6f1367569c1bde4ce0eb415c563"
+    },
+    {
+      "code": 93020401,
+      "file": "c93020401.lua",
+      "name": "Mekk-Knight Orange Sunset",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "553192518b6b67652a38036da22d3cb31f2fc5d3622ce6fc32643a5d96a3e756",
+      "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
     },
     {
       "code": 93053159,
@@ -5795,6 +6278,15 @@
       "note": "the check raises the event with a bit mask of the controller keys; the condition asks for any key except the own one (stock compared the value with 0, which is only the first seat at more than two seats)."
     },
     {
+      "code": 94365540,
+      "file": "c94365540.lua",
+      "name": "Tindangle Base Gardna",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "2e34643a09bf68c03e49a03875a559154a17fefdbfeceb13bd1a32ce8f3ac245",
+      "note": "FFA4: Link and column filters use only the real across seat."
+    },
+    {
       "code": 94561645,
       "file": "c94561645.lua",
       "name": "Counter Gate",
@@ -5823,6 +6315,15 @@
       "r2Class": "EVENT-BITS",
       "stockSha256": "d63b0ffbda54bf4a889acc64d0e8f66c796eed5999494833f9042b4fb7908d96",
       "note": "the global check raises the event for the players 0 and 1 with the highest Level per controller; it raises it for every real seat with that seat as the event player."
+    },
+    {
+      "code": 94626871,
+      "file": "c94626871.lua",
+      "name": "Trickstar Black Catbat",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "2f2dd6a18374105c76a6e4ecbddb0f5b5b577a02df4e8ce50b0384f3f29c86dd",
+      "note": "FFA4: Link and column filters use only the real across seat."
     },
     {
       "code": 94641726,
@@ -5908,6 +6409,30 @@
       "note": "the end and win checks read the Final Countdown effects of one player and count them in t[0] and t[1] by the owner player (nil error for the owner seats 2 and 3); they read the effects of every living duelist once, count by the key of the owner (seat in FFA, team in Tag) and the best count wins (a tie is a draw)."
     },
     {
+      "code": 95372220,
+      "file": "c95372220.lua",
+      "name": "Flash Charge Dragon",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "8e5dd7281a1bf6c34f1f7a36858d60fe1eed8686eeeeb10907faa05cd0c77615",
+      "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
+    },
+    {
+      "code": 95376428,
+      "file": "c95376428.lua",
+      "name": "Extra Net",
+      "kind": "fix",
+      "classes": [],
+      "effectType": "FIELD+TRIGGER_F",
+      "wrap": {
+        "MPPick": [
+          "target"
+        ]
+      },
+      "stockSha256": "37d67f76062e7125c745db31521635dc170ac5e442a12e4ed7873ffbf92a9424",
+      "note": "Select one Tag opponent at activation for the optional draw after an own-team summon. An opposing-team summon needs no pick."
+    },
+    {
       "code": 95403418,
       "file": "c95403418.lua",
       "name": "Starduston",
@@ -5923,6 +6448,15 @@
         "descon"
       ],
       "stockSha256": "5bb7ac49251e64a76dc3c9b2fa2e25c52c892731c4ae070ad013741992739036"
+    },
+    {
+      "code": 95493471,
+      "file": "c95493471.lua",
+      "name": "Neo Super Quantal Mech King Blaster Magna",
+      "kind": "fix",
+      "classes": [],
+      "stockSha256": "5a469f84521f6ece1890d5b7da7d71892d7bc87e43de9d1a71c127de6f80bf53",
+      "note": "FFA4: Link and column filters use only the real across seat."
     },
     {
       "code": 96148285,

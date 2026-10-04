@@ -1,7 +1,7 @@
 // Monster cards whose effect Special Summons the card itself or tokens to the field of an opponent (the table and the rule are in
 // opponent-field-effects.ts). Each card needs its own trigger (a flip, a destruction, a battle, a discard), so each row has its own steps.
 
-import { activate, attack, changePosition, choose, endTurn, no, normalSummon, select, yes } from "../../support/dsl.js";
+import { activate, attack, changePosition, choose, endTurn, expectPickSeats, expectPrompt, no, normalSummon, pickOpponent, select, yes } from "../../support/dsl.js";
 import { ELF } from "./nseat-scenarios.js";
 import { effectScenarios, type EffectSpec } from "./opponent-field-effects.js";
 
@@ -41,6 +41,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 74440055, name: "Cactus Fighter", slug: "cactus-fighter", does: "Special Summons a Cactus Token when it destroys a monster by battle",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     p0: { monsters: ["Cactus Fighter"] },
@@ -53,7 +54,10 @@ const SPECS: EffectSpec[] = [
     code: 37129797, name: "Vampire Sucker", slug: "vampire-sucker", does: "Special Summons a monster of an opponent Graveyard in Defense Position",
     p0: { monsters: ["Vampire Sucker"] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
-    steps: [activate("Vampire Sucker", "p0")],
+    // Only the target opponent has a legal GY monster in FFA.
+    noPick: (roles) => roles.format !== "tag",
+    // An opponent prompt must fail the action-context check.
+    steps: (roles) => [activate("Vampire Sucker", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", context: "action" })] : [])],
     p0End: { monsters: ["Vampire Sucker"] },
     tgtEnd: { monsters: [ELF, MAGICIAN] },
   },
@@ -150,13 +154,18 @@ const SPECS: EffectSpec[] = [
     code: 54191698, name: "Number 29: Mannequin Cat", slug: "number-29-mannequin-cat", does: "Special Summons a monster of an opponent Graveyard",
     p0: { monsters: [{ card: "Number 29: Mannequin Cat", materials: [ELF, ELF] }] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
-    steps: [activate("Number 29: Mannequin Cat", "p0")],
-    then: [select(ELF), no("p0")],
+    // Only the target opponent has a legal GY monster in FFA. The detach choice still opens.
+    noPick: (roles) => roles.format !== "tag",
+    // The cost is a card choice; after it, only the optional trigger prompt opens.
+    // An opponent prompt must fail the card-kind or yes/no-option check.
+    steps: (roles) => [activate("Number 29: Mannequin Cat", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", kind: "cards" })] : [])],
+    then: (roles) => [select(ELF), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", offers: ["yes", "no"] })] : []), no("p0")],
     p0End: { monsters: ["Number 29: Mannequin Cat"], grave: ["Mystical Elf"] },
     tgtEnd: { monsters: [ELF, MAGICIAN] },
   },
   {
     code: 44689688, name: "Jurrac Spinos", slug: "jurrac-spinos", does: "Special Summons a Jurrac Token when it destroys a monster by battle",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     p0: { monsters: ["Jurrac Spinos"] },
@@ -214,8 +223,11 @@ const SPECS: EffectSpec[] = [
     code: 9400127, name: "Flogos, the Ogdoadic Boundless", slug: "flogos", does: "Special Summons a monster from the Graveyard of an opponent",
     p0: { hand: ["Monster Reborn"], grave: ["Flogos, the Ogdoadic Boundless"] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
-    steps: [activate("Monster Reborn", "p0"), select("Flogos, the Ogdoadic Boundless"), yes("p0")],
-    then: (roles) => [select({ card: ELF, owner: roles.tgt })],
+    // Monster Reborn reads either GY. Only the target opponent has a legal GY monster for Flogos in FFA.
+    noPick: (roles) => roles.format !== "tag",
+    // An opponent prompt must fail the card-kind or action-context check.
+    steps: (roles) => [activate("Monster Reborn", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", kind: "cards" })] : []), select("Flogos, the Ogdoadic Boundless"), yes("p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", context: "action" })] : [])],
+    then: (roles) => roles.format === "tag" ? [select({ card: ELF, owner: roles.tgt })] : [],
     p0End: { hand: [], grave: ["Monster Reborn"], monsters: ["Flogos, the Ogdoadic Boundless"] },
     tgtEnd: { monsters: [MAGICIAN], grave: [ELF] },
   },
@@ -265,6 +277,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 82994509, name: "Horseytail", slug: "horseytail", does: "Special Summons a Horseytail Token to the opponent that destroyed it by battle",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     tgt: { monsters: ["Battle Ox"] },
@@ -280,7 +293,9 @@ const SPECS: EffectSpec[] = [
     code: 81003500, name: "Elemental HERO Necroid Shaman", slug: "elemental-hero-necroid-shaman", does: "Special Summons a monster from the Graveyard of an opponent",
     p0: { hand: ["Polymerization"], monsters: ["Elemental HERO Wildheart", "Elemental HERO Necroshade"], extra: ["Elemental HERO Necroid Shaman"] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
-    steps: (roles) => [activate("Polymerization", "p0"), select("Elemental HERO Wildheart", "Elemental HERO Necroshade"), select({ card: ELF, owner: roles.tgt })],
+    // R-FFA-OPP-ONE: the field target is automatic in FFA. Its destruction adds a second GY choice.
+    noPick: (roles) => roles.format !== "tag",
+    steps: (roles) => [activate("Polymerization", "p0"), select("Elemental HERO Wildheart", "Elemental HERO Necroshade"), ...(roles.format !== "tag" ? [expectPickSeats(roles.opponents, "p0"), pickOpponent(roles.tgt, "p0")] : [select({ card: ELF, owner: roles.tgt })])],
     then: [select(MAGICIAN)],
     p0End: { monsters: ["Elemental HERO Necroid Shaman"], grave: ["Polymerization", "Elemental HERO Wildheart", "Elemental HERO Necroshade"] },
     tgtEnd: { grave: [ELF], monsters: [MAGICIAN] },
@@ -294,6 +309,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 57844634, name: "Nimble Musasabi", slug: "nimble-musasabi", does: "Special Summons another Nimble Musasabi from the Deck to the opponent that destroyed it by battle",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     tgt: { monsters: ["Battle Ox"] },
@@ -309,6 +325,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 65676461, name: "Number 32: Shark Drake", slug: "number-32-shark-drake", does: "Special Summons the monster it destroyed by battle",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     p0: { monsters: [{ card: "Number 32: Shark Drake", materials: [ELF, ELF] }] },
@@ -319,21 +336,27 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 59900655, name: "Gold Pride - Nytro Head", slug: "gold-pride-nytro-head", does: "Special Summons a Nytro Token in the Standby Phase of an opponent",
+    binding: "event-opponent",
     p0: { monsters: ["Gold Pride - Nytro Head"] },
+    // ADR 0002 R-FFA-OPP-RESPONSE: the opponent whose Standby Phase caused the trigger receives the token.
+    noPick: (roles) => roles.format !== "tag",
     steps: [endTurn("p0"), yes("p0")],
     p0End: { monsters: ["Gold Pride - Nytro Head"] },
-    gain: { tokens: { count: 1 } },
+    tgtEnd: (roles) => roles.format === "tag" ? { monsters: [ELF], tokens: { count: 1 } } : { monsters: [ELF] },
+    seatEnd: (roles) => roles.format === "tag" ? {} : { p1: { monsters: [ELF], tokens: { count: 1 } } },
   },
   {
     code: 63013339, name: "Sky Striker Ace - Camellia", slug: "sky-striker-ace-camellia", does: "Special Summons itself when it is sent to the Graveyard",
     p0: { hand: ["Tribute to The Doomed", "Giant Rat"], monsters: ["Sky Striker Ace - Camellia"] },
     steps: [activate("Tribute to The Doomed", "p0"), select("Sky Striker Ace - Camellia"), yes("p0")],
-    then: (roles) => [select({ card: ELF, owner: roles.tgt })],
+    then: (roles) => roles.format === "tag" ? [select({ card: ELF, owner: roles.tgt })] : [],
     p0End: { grave: ["Giant Rat", "Tribute to The Doomed"] },
     tgtEnd: { monsters: ["Sky Striker Ace - Camellia"], grave: [ELF] },
   },
   {
     code: 65477143, name: "Abyss Actor - Liberty Dramatist", slug: "abyss-actor-liberty-dramatist", does: "Special Summons itself from the Pendulum Zone when a monster attacks",
+    // Owner 2026-10-03: the attack target is the bound opponent.
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     p0: { pendulum: ["Abyss Actor - Liberty Dramatist", null], monsters: ["Battle Ox"], hand: ["Giant Rat"] },
@@ -344,6 +367,7 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 40343749, name: "House Duston", slug: "house-duston", does: "Special Summons a Duston to its controller and a Duston to the opponent that destroyed it by battle",
+    binding: "event-opponent",
     attackFirstTurn: true,
     noPick: true,
     tgt: { monsters: ["Battle Ox"] },
@@ -367,13 +391,16 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 47126872, name: "Space-Time Police", slug: "space-time-police", does: "Sets the monster it banished (of p1) on the field of the opponent that destroyed it, when it leaves the field",
+    binding: "event-opponent",
+    extraFfaRules: ["R-FFA-OPP-ONE"],
     attackFirstTurn: true,
     noPick: true,
     p0: { hand: ["Monster Reborn"], grave: ["Space-Time Police"] },
     tgt: { monsters: [MAGICIAN, ELF] },
     steps: (roles) => [
       activate("Monster Reborn", "p0"),
-      select({ card: ELF, owner: roles.others[0] }),
+      // Monster Reborn reads either GY. The declaration is for Space-Time Police's banish trigger.
+      ...(roles.format !== "tag" ? [expectPickSeats(roles.opponents, "p0"), pickOpponent(roles.others[0], "p0")] : [select({ card: ELF, owner: roles.others[0] })]),
       ...(["p0", "p1", "p2", "p3"] as const).slice(0, (["p0", "p1", "p2", "p3"] as const).indexOf(roles.tgt)).map((seat) => endTurn(seat)),
       attack(MAGICIAN, { card: "Space-Time Police", owner: "p0" }, roles.tgt),
     ],

@@ -47,7 +47,6 @@ export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   { code: 98139712, name: "Skull Invitation", category: "symmetry", reason: "Damage goes by card owner to 'you' and 'the opponent' only.", formats: FFA },
   { code: 83555666, name: "Ring of Destruction", category: "symmetry", reason: "It damages the activator and one opponent. The opponent LP check reads one player.", formats: FFA },
   // --- turn-count
-  { code: 72302403, name: "Swords of Revealing Light", category: "turn-count", reason: "It lasts for 3 'opponent turns'. In FFA, one round has more than one opponent turn.", formats: FFA },
   { code: 22804644, name: "Doom Virus Dragon", category: "turn-count", reason: "Its effect lasts 3 'opponent turns'.", formats: FFA },
   { code: 21208154, name: "The Wicked Avatar", category: "turn-count", reason: "Its effect lasts 2 'opponent turns'.", formats: FFA },
   { code: 22888900, name: "Grisaille Prison", category: "turn-count", reason: "Its effect lasts 2 'opponent turns'.", formats: FFA },
@@ -85,7 +84,6 @@ export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   // --- chooser
   { code: 57728570, name: "Crush Card Virus", category: "chooser", reason: "It reads the opponent hand, field and Deck, and asks one opponent to choose.", formats: FFA },
   // --- control-swap
-  { code: 31036355, name: "Creature Swap", category: "control-swap", reason: "The script swaps control between the activator and one named opponent.", formats: FFA },
   { code: 15305240, name: "Creature Seizure", category: "control-swap", reason: "The script swaps control between the activator and one named opponent.", formats: FFA },
   { code: 30426226, name: "Switcheroroo", category: "control-swap", reason: "It needs equal monster counts on two sides and swaps all of them.", formats: FFA },
   { code: 13532663, name: "Dummy Golem", category: "control-swap", reason: "The script swaps control between the activator and a monster chosen by one named opponent.", formats: FFA },

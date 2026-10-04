@@ -4,9 +4,10 @@
 // (NSEAT_LIVE=1). Every scenario ends with the state of every seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
 import {
-  activate, attack, changePhase, changePosition, defineScenario, endTurn, expectBoard, expectNotOffered, expectOffered,
+  activate, attack, changePhase, changePosition, endTurn, expectBoard, expectNotOffered, expectOffered,
   expectPickOptions, expectPickSeats, expectPrompt, pass, pickOpponent, position, select, auto, choose, specialSummon, yes, type BoardExpect, type DuelistExpect, type Scenario, type Step,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
@@ -206,7 +207,7 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "chooser", "trigger", "ffa3", "card:57314798"],
     // A Xyz monster in the Graveyard of the setup was never properly summoned, so it cannot return. Numeron Dragon starts on the field and Elf destroys it in battle.
-    // p0 does not draw on turn 1 and draws a Dian Keto on turn 4, which p0 plays, so the hand and the field are empty when the Rat attacks directly.
+    // Standard skips the turn-1 draw. p0 plays its turn-4 Dian Keto, so its hand and field are empty before the direct attack.
     // p2 controls a monster, so a direct attack of p1 can only go to p0 (no pick prompt).
     setup: { format: "ffa3", p0: { monsters: [NUMERON], deck: [DIAN] }, p1: { monsters: [ELF, RAT] }, p2: { monsters: [SANGAN] } },
     steps: [
@@ -220,7 +221,7 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
       attack(RAT, "direct", "p1"),
       yes("p1"),
       yes("p0"),
-      everySeat("ffa3", { p0: { lp: 8200, monsters: [NUMERON], grave: [DIAN] }, p1: { monsters: [ELF, RAT] }, p2: { monsters: [SANGAN] } }),
+      everySeat("ffa3", { p0: { hand: [], lp: 8200, monsters: [NUMERON], grave: [DIAN] }, p1: { monsters: [ELF, RAT] }, p2: { monsters: [SANGAN] } }),
     ],
   }),
   defineScenario({
@@ -242,7 +243,7 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
       attack(RAT, "direct", "p1"),
       pickOpponent("p2", "p1"),
       expectPrompt({ by: "p1", offers: ["to_m2", "to_ep"] }),
-      everySeat("ffa3", { p0: { lp: 8200, grave: [NUMERON, DIAN] }, p1: { monsters: [ELF, RAT] }, p2: { lp: 6600 } }),
+      everySeat("ffa3", { p0: { hand: [], lp: 8200, grave: [NUMERON, DIAN] }, p1: { monsters: [ELF, RAT] }, p2: { lp: 6600 } }),
     ],
   }),
   defineScenario({
@@ -264,7 +265,7 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
       attack(RAT, "direct", "p1"),
       pickOpponent("p0", "p1"),
       yes("p0"),
-      everySeat("ffa3", { p0: { lp: 8200, monsters: [NUMERON], grave: [DIAN] }, p1: { monsters: [ELF, RAT] }, p2: {} }),
+      everySeat("ffa3", { p0: { hand: [], lp: 8200, monsters: [NUMERON], grave: [DIAN] }, p1: { monsters: [ELF, RAT] }, p2: {} }),
     ],
   }),
   defineScenario({
@@ -301,11 +302,11 @@ export const COMPARE_EXTRA_SCENARIOS: Scenario[] = [
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "compare", "ffa3", "card:89883517"],
     // p0 has 1 card (the set trap). p1 has 1 (equal), p2 has 2 (more).
-    setup: { format: "ffa3", p0: { spells: [{ card: ACCUSATION, pos: "set" }] }, p1: { monsters: [SANGAN] }, p2: { monsters: [WITCH, BUG] } },
+    setup: { format: "ffa3", p0: { spells: [{ card: ACCUSATION, pos: "set" }] }, p1: { monsters: [SANGAN] }, p2: { hand: [ELF], monsters: [WITCH, BUG] } },
     steps: [
       activate(ACCUSATION, "p0"),
       select(WITCH),
-      everySeat("ffa3", { p0: { grave: [ACCUSATION] }, p1: { monsters: [SANGAN] }, p2: { monsters: [WITCH, BUG] } }),
+      everySeat("ffa3", { p0: { grave: [ACCUSATION] }, p1: { monsters: [SANGAN] }, p2: { hand: [ELF], monsters: [WITCH, BUG] } }),
     ],
   }),
   defineScenario({

@@ -6,6 +6,7 @@ import {
   buildRows, collect, loadPending, loadScenarioLists, loadScenarios, outcomeAsserts, parseAdrRules, parseRuleDeclarations,
   partialListPath, pendingListPath, renderTable, runnerSources, scenarioRefs, staleEntries, stalePartial, uniqueScenarios, unknownRules, unrunLists, type RuleRef,
 } from "../scripts/rule-coverage.js";
+import { GRASS_DECK_COUNTS_SCENARIOS } from "./scenarios/multiplayer/grass-deck-counts.js";
 import { OPPONENT_COUNT_GATES_SCENARIOS } from "./scenarios/multiplayer/opponent-count-gates.js";
 
 describe("opponent count coverage", () => {
@@ -67,6 +68,12 @@ describe("rule coverage parser", () => {
 });
 
 describe("outcome marker", () => {
+  it("does not count Grass start checks as rule outcomes", () => {
+    const controls = GRASS_DECK_COUNTS_SCENARIOS.filter(scenario => scenario.id.includes("no-eligible-opponent"));
+    expect(controls).toHaveLength(3);
+    expect(scenarioRefs(controls)).toEqual([]);
+  });
+
   it("needs an expect step after an action step", () => {
     expect(outcomeAsserts([{ op: "endTurn" }, { op: "expectLp" }])).toBe(true);
     expect(outcomeAsserts([{ op: "attack" }, { op: "pickOpponent" }, { op: "expectResult" }])).toBe(true);
@@ -152,6 +159,20 @@ describe("rule rows", () => {
   });
 });
 
+describe("original scenario runners", () => {
+  it("registers the card lists with the scenario runner", async () => {
+    const names = new Set([
+      "ALL_PLAYER_EXTRA_SCENARIOS", "ALL_PLAYER_ZONE_GAPS_SCENARIOS", "BANQUET_RETURN_OWNER_SCENARIOS",
+      "GLOBAL_FLAG_MEMORY_SCENARIOS", "GRASS_DECK_COUNTS_SCENARIOS", "GRASS_TAG_DECLARED_DECK_SCENARIOS",
+      "GUMBLAR_HAND_BINDING_SCENARIOS", "PAIR_BEAR_BINDING_SCENARIOS", "PAIRED_HIDDEN_ZONES_SCENARIOS",
+      "PAIRED_ZONE_TRIGGERS_SCENARIOS", "PLAYER_ALL_LP_PAIR_SCENARIOS", "UNDERWORLD_CIRCLE_STANDBY_SCENARIOS",
+    ]);
+    const lists = (await loadScenarioLists()).filter(list => names.has(list.name));
+    expect(lists).toHaveLength(names.size);
+    expect(unrunLists(lists, runnerSources())).toEqual([]);
+  });
+});
+
 describe("scenario lists", () => {
   const scenario = (id: string) => ({ id, rules: ["R-COMMON-A"], steps: [{ op: "phase" }, { op: "expectLp" }] });
   const list = (name: string, ...ids: string[]) => ({ file: `/x/${name}.ts`, name, scenarios: ids.map(scenario) });
@@ -171,6 +192,13 @@ describe("scenario lists", () => {
 });
 
 describe("allow-list file", () => {
+  it("has no pending entry for a rule with an outcome scenario", async () => {
+    const rules = parseAdrRules(readFileSync(new URL("../../../docs/adr/0002-multiplayer-duel-rules.md", import.meta.url), "utf8"));
+    const refs = scenarioRefs((await loadScenarioLists()).flatMap(list => list.scenarios));
+    const pending = loadPending(pendingListPath);
+    expect(staleEntries(buildRows(rules, refs, pending), pending)).toEqual([]);
+  });
+
   const withFile = (text: string, check: (path: string) => void) => {
     const directory = mkdtempSync(join(tmpdir(), "rule-coverage-"));
     try {
@@ -238,4 +266,11 @@ describe("the real repository", () => {
     expect(refs.some((r) => r.ref.kind === "sketch")).toBe(true);
     expect(refs.filter((r) => r.ref.kind === "outcome").every((r) => !r.ref.test.startsWith("src/presets/") && !r.ref.test.startsWith("mp-"))).toBe(true);
   });
+});
+
+it("counts the real host immediate surrender proof", async () => {
+  const { refs } = await collect();
+  const proof = refs.find((entry) => entry.rule === "R-COMMON-SURRENDER-EOT" && entry.ref.kind === "host-outcome");
+  expect(proof?.ref.test).toBe("tests/host-surrender-eot.test.ts");
+  expect(buildRows([{ id: "R-COMMON-SURRENDER-EOT", title: "Immediate surrender" }], refs)[0]?.status).toBe("covered");
 });

@@ -183,15 +183,15 @@ describe("BugReportDialog pre-check", () => {
 
   it("shows a known problem with its explanation, sends nothing yet, and sends a new report on 'My bug is different'", async () => {
     precheckAnswer = async () => json({
-      knownLimits: [{ id: "ffa-surrender-end-of-turn", title: "Surrender waits until the end of the turn", explanation: "A new immediate rule is coming." }],
+      knownLimits: [{ id: "eliminated-card-wrong-graveyard", title: "A card of an eliminated player can go to the wrong Graveyard", explanation: "This is a known problem." }],
       duplicates: [],
     });
     open();
     write();
     await send();
     expect(await screen.findByText("This is already known")).toBeInTheDocument();
-    expect(screen.getByText("Surrender waits until the end of the turn")).toBeInTheDocument();
-    expect(screen.getByText("A new immediate rule is coming.")).toBeInTheDocument();
+    expect(screen.getByText("A card of an eliminated player can go to the wrong Graveyard")).toBeInTheDocument();
+    expect(screen.getByText("This is a known problem.")).toBeInTheDocument();
     expect(reportBodies()).toHaveLength(0);
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "My bug is different" })); });
     await screen.findByTestId("bug-report-done");

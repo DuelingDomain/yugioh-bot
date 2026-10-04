@@ -20,7 +20,9 @@ function grass(format: "1v1" | "ffa3" | "ffa4" | "tag", noOpponent = false, mult
   return defineScenario({
     id: `grass-deck-counts-${format}-${noOpponent ? "no-eligible-opponent" : multiple ? "multiple-eligible-late-picked" : "late-eligible-opponent"}`,
     title: `${format}: Grass ${noOpponent ? "has no smaller opposing Deck" : "mills five against the later smaller Deck"}`,
-    source: "docs/adr/0002-multiplayer-duel-rules.md [Q2]", rules: noOpponent ? [] : ["R-COMMON-OPP-PICK"],
+    source: "docs/adr/0002-multiplayer-duel-rules.md [Q2]",
+    // A check of the start state is not a rule outcome.
+    rules: noOpponent ? [] : ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "compare", "card:11110587", format], setup, steps,
   });
 }

@@ -78,3 +78,26 @@ function s.adop(e,tp,eg,ep,ev,re,r,rp)
 		c:RegisterEffect(e3)
 	end
 end
+
+-- R-FFA-OPP-RESPONSE: bind the opponent who caused the battle event.
+-- MPBindSeat limits the target probe to the turn player until this target call ends.
+-- The GetTurnPlayer read saves that opponent on the chain link for the operation.
+-- Keep this read: MPTurnSeat does not save a chain-link opponent.
+local mp_lock_initial=s.initial_effect
+function s.initial_effect(c)
+ local register=Card.RegisterEffect
+ Card.RegisterEffect=function(card,eff,...)
+  if card==c and eff:GetCode()==EVENT_SPSUMMON_SUCCESS then
+   local target=eff:GetTarget()
+   eff:SetTarget(function(e,tp,eg,ep,ev,re,r,rp,chk,...)
+    if Duel.MPMode()==1 then Duel.MPBindSeat(Duel.MPSeat(Duel.GetTurnPlayer())) end
+    if target then return target(e,tp,eg,ep,ev,re,r,rp,chk,...) end
+    if chk==0 then return true end
+   end)
+  end
+  return register(card,eff,...)
+ end
+ local ok,err=pcall(mp_lock_initial,c)
+ Card.RegisterEffect=register
+ if not ok then error(err,0) end
+end

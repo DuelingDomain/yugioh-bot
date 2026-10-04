@@ -1,0 +1,234 @@
+From 8fa87a319fe67316d12076d3d6eb8318597a062b Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] Rotate monster control atomically through living FFA seats
+
+---
+ field.h          |   1 +
+ libduel.cpp      |  19 +++++++
+ operations.cpp   | 135 +++++++++++++++++++++++++++++++++++++++++++++++
+ processor_unit.h |  13 ++++-
+ 4 files changed, 167 insertions(+), 1 deletion(-)
+
+diff --git a/field.h b/field.h
+index 12db739..dc7b117 100644
+--- a/field.h
++++ b/field.h
+@@ -1014,6 +1014,7 @@ public:
+ 	bool process(Processors::XyzOverlay& arg);
+ 	bool process(Processors::GetControl& arg);
+ 	bool process(Processors::SwapControl& arg);
++	bool process(Processors::RotateControl& arg);
+ 	bool process(Processors::ControlAdjust& arg);
+ 	bool process(Processors::SelfDestroyUnique& arg);
+ 	bool process(Processors::SelfDestroy& arg);
+diff --git a/libduel.cpp b/libduel.cpp
+index e4a5285..cd5e08b 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -1488,6 +1488,25 @@ LUA_STATIC_FUNCTION(SwapControl) {
+ 		return 1;
+ 	});
+ }
++// Duel.MPRotateControl(g): one monster per living FFA seat, each goes to the next seat in turn order.
++// The group carries real controllers. No folded opponent or implicit opponent window is used.
++LUA_STATIC_FUNCTION(MPRotateControl) {
++	check_action_permission(L);
++	check_param_count(L, 1);
++	auto& field = *pduel->game_field;
++	if(field.n_duelists <= 2 || field.n_teams != field.n_duelists) {
++		lua_pushboolean(L, FALSE);
++		return 1;
++	}
++	auto* pgroup = lua_get<group*, true>(L, 1);
++	auto targets = pduel->new_group(pgroup->container);
++	targets->is_readonly = true;
++	field.emplace_process<Processors::RotateControl>(field.core.reason_effect, field.core.reason_player, targets);
++	return yieldk({
++		lua_pushboolean(L, pduel->game_field->returns.at<int32_t>(0));
++		return 1;
++	});
++}
+ LUA_STATIC_FUNCTION(CheckLPCost) {
+ 	check_param_count(L, 2);
+ 	// individual query: best case (true if any named duelist can pay) over the living opponents
+diff --git a/operations.cpp b/operations.cpp
+index 5edc965..e01720f 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -1420,6 +1420,141 @@ bool field::process(Processors::SwapControl& arg) {
+ 	}
+ 	return TRUE;
+ }
++// A rotation is one atomic control change. All choices precede the move; a full field can use its outgoing zone.
++bool field::process(Processors::RotateControl& arg) {
++	auto valid = [&]() {
++		if(n_duelists <= 2 || n_teams != n_duelists)
++			return false;
++		uint8_t living = 0;
++		for(uint8_t p = 0; p < n_duelists; ++p)
++			if(is_alive(p)) ++living;
++		if(living < 2 || arg.targets->container.size() != living)
++			return false;
++		bool seen[MAX_DUELISTS]{};
++		for(auto* pcard : arg.targets->container) {
++			const auto p = pcard->current.controler;
++			if(!is_alive(p) || seen[p]
++				|| pcard->current.location != LOCATION_MZONE || pcard->overlay_target
++				|| !pcard->is_capable_change_control()
++				|| (arg.reason_effect && !pcard->is_affect_by_effect(arg.reason_effect)))
++				return false;
++			seen[p] = true;
++		}
++		return true;
++	};
++	switch(arg.step) {
++	case 0: {
++		arg.step = 9;
++		if(!valid()) return FALSE;
++		for(uint8_t j = 0; j < n_duelists; ++j) {
++			const auto p = static_cast<uint8_t>((infos.turn_player + j) % n_duelists);
++			if(!is_alive(p)) continue;
++			arg.seats.push_back(p);
++			for(auto* pcard : arg.targets->container)
++				if(pcard->current.controler == p) {
++					arg.cards.push_back(pcard);
++					arg.old_sequences.push_back(pcard->current.sequence);
++				}
++		}
++		for(size_t i = 0; i < arg.cards.size(); ++i) {
++			const auto p = arg.seats[i];
++			auto* outgoing = arg.cards[i];
++			auto* incoming = arg.cards[(i + arg.cards.size() - 1) % arg.cards.size()];
++			const auto seq = outgoing->current.sequence;
++			// Ask the stock zone/count checks with the outgoing slot available. Restore before any prompt.
++			player[p].list_mzone[seq] = nullptr;
++			player[p].used_location &= ~(1u << seq);
++			uint32_t flag;
++			const auto count = get_useable_count(incoming, p, LOCATION_MZONE, arg.reason_player, LOCATION_REASON::CONTROL, 0x1f, &flag);
++			player[p].list_mzone[seq] = outgoing;
++			player[p].used_location |= 1u << seq;
++			if(count <= 0 || !(~flag & 0x1f)) return FALSE;
++			if(!is_flag(DUEL_TRAP_MONSTERS_NOT_USE_ZONE) && (incoming->get_type() & TYPE_TRAPMONSTER)
++				&& get_useable_count(incoming, p, LOCATION_SZONE, p, LOCATION_REASON::CONTROL) <= 0)
++				return FALSE;
++			arg.zone_masks.push_back(flag | ~0x1fu);
++		}
++		arg.step = 0;
++		return FALSE;
++	}
++	case 1: {
++		const auto i = arg.cursor;
++		auto message = pduel->new_message(MSG_HINT);
++		message->write<uint8_t>(HINT_SELECTMSG);
++		message->write<uint8_t>(arg.seats[i]);
++		message->write<uint64_t>(arg.cards[(i + arg.cards.size() - 1) % arg.cards.size()]->data.code);
++		emplace_process<Processors::SelectPlace>(arg.seats[i], arg.zone_masks[i], 1);
++		return FALSE;
++	}
++	case 2: {
++		arg.new_sequences.push_back(returns.at<int8_t>(2));
++		if(++arg.cursor < arg.cards.size()) arg.step = 0;
++		return FALSE;
++	}
++	case 3: {
++		if(!valid()) { arg.step = 9; return FALSE; }
++		for(size_t i = 0; i < arg.cards.size(); ++i)
++			if(arg.cards[i]->current.controler != arg.seats[i] || arg.cards[i]->current.sequence != arg.old_sequences[i]) {
++				arg.step = 9; return FALSE;
++			}
++		// Queue the old targets of a moving disable aura before its controller changes.
++		for(auto* pcard : arg.cards)
++			pcard->filter_disable_related_cards();
++		std::vector<loc_info> old_locations;
++		for(auto* pcard : arg.cards) {
++			old_locations.push_back(pcard->get_info_location());
++			if(pcard->unique_code && (pcard->unique_location & LOCATION_MZONE)) remove_unique_card(pcard);
++			player[pcard->current.controler].list_mzone[pcard->current.sequence] = nullptr;
++			player[pcard->current.controler].used_location &= ~(1u << pcard->current.sequence);
++		}
++		for(size_t i = 0; i < arg.cards.size(); ++i) {
++			auto* pcard = arg.cards[i];
++			const auto next = (i + 1) % arg.cards.size();
++			pcard->previous = pcard->current;
++			pcard->current.controler = arg.seats[next];
++			pcard->current.sequence = arg.new_sequences[next];
++			pcard->fieldid = infos.field_id++;
++			player[pcard->current.controler].list_mzone[pcard->current.sequence] = pcard;
++			player[pcard->current.controler].used_location |= 1u << pcard->current.sequence;
++			pcard->reset(RESET_CONTROL, RESET_EVENT);
++			set_control(pcard, pcard->current.controler, 0, 0);
++			pcard->set_status(STATUS_ATTACK_CANCELED, TRUE);
++			auto message = pduel->new_message(MSG_MOVE);
++			message->write<uint32_t>(pcard->data.code);
++			message->write(old_locations[i]);
++			message->write(pcard->get_info_location());
++			message->write<uint32_t>(0);
++		}
++		// As in SwapControl, retain field effect registration and Special Summon counters.
++		for(auto* pcard : arg.cards) {
++			add_to_disable_check_list(pcard);
++			pcard->filter_disable_related_cards();
++		}
++		// Refresh old and new aura targets before checking control-change responses.
++		adjust_instant();
++		// As in GetControl, restore unique registration after the instant adjustment.
++		for(auto* pcard : arg.cards) {
++			if(pcard->unique_code && (pcard->unique_location & LOCATION_MZONE)) add_unique_card(pcard);
++			raise_single_event(pcard, nullptr, EVENT_CONTROL_CHANGED, arg.reason_effect, REASON_EFFECT, arg.reason_player, pcard->current.controler, 0);
++			raise_single_event(pcard, nullptr, EVENT_MOVE, arg.reason_effect, REASON_EFFECT, arg.reason_player, pcard->current.controler, 0);
++		}
++		raise_event(arg.targets->container, EVENT_CONTROL_CHANGED, arg.reason_effect, REASON_EFFECT, arg.reason_player, 0, 0);
++		raise_event(arg.targets->container, EVENT_MOVE, arg.reason_effect, REASON_EFFECT, arg.reason_player, 0, 0);
++		process_single_event();
++		process_instant_event();
++		return FALSE;
++	}
++	case 4:
++		core.operated_set = arg.targets->container;
++		returns.set<int32_t>(0, 1);
++		return TRUE;
++	case 10:
++		core.operated_set.clear();
++		returns.set<int32_t>(0, 0);
++		return TRUE;
++	}
++	return TRUE;
++}
+ bool field::process(Processors::ControlAdjust& arg) {
+ 	switch(arg.step) {
+ 	case 0: {
+diff --git a/processor_unit.h b/processor_unit.h
+index 446901b..6e21e1d 100644
+--- a/processor_unit.h
++++ b/processor_unit.h
+@@ -592,6 +592,17 @@ struct SwapControl : public Process<false> {
+ 		Process(step_), reset_count(reset_count_), reason_player(reason_player_), self_selected_sequence(0),
+ 		reset_phase(reset_phase_), reason_effect(reason_effect_), targets1(targets1_), targets2(targets2_) {}
+ };
++struct RotateControl : public Process<false> {
++	effect* reason_effect;
++	uint8_t reason_player;
++	size_t cursor{0};
++	owned_lua<group> targets;
++	std::vector<uint8_t> seats, old_sequences, new_sequences;
++	std::vector<uint32_t> zone_masks;
++	std::vector<card*> cards;
++	RotateControl(uint16_t step_, effect* reason_effect_, uint8_t reason_player_, owned_lua<group> targets_) :
++		Process(step_), reason_effect(reason_effect_), reason_player(reason_player_), targets(targets_) {}
++};
+ struct ControlAdjust : public Process<false> {
+ 	uint8_t adjusting_player;
+ 	uint8_t side_a; // the two sides of the swap: 0 and 1 with two duelists, else the two controllers
+@@ -775,7 +786,7 @@ using processors = std::variant<Adjust, Turn, RefreshLoc, Startup,
+ 	SendTo, DestroyReplace, ReleaseReplace, SendToReplace, MoveToField,
+ 	ChangePos, OperationReplace, ActivateEffect, SummonRule, SpSummonRule,
+ 	SpSummon, FlipSummon, MonsterSet, SpellSet, SpSummonStep, SpellSetGroup,
+-	SpSummonRuleGroup, Draw, Damage, Recover, Equip, GetControl, SwapControl,
++	SpSummonRuleGroup, Draw, Damage, Recover, Equip, GetControl, SwapControl, RotateControl,
+ 	ControlAdjust, SelfDestroyUnique, SelfDestroy, SelfToGrave, TrapMonsterAdjust,
+ 	PayLPCost, RemoveCounter, AttackDisable, AnnounceRace, AnnounceAttribute,
+ 	AnnounceCard, AnnounceNumber, TossCoin, TossDice, RockPaperScissors,
+-- 
+2.43.0
+

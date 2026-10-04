@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { afterEach, expect, it } from "vitest";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
-import type { DuelAnswer, DuelCardInfo, DuelEngineView, DuelFormat } from "@yugidraft/shared/duels";
+import { defaultDuelSettings, type DuelAnswer, type DuelCardInfo, type DuelEngineView, type DuelFormat } from "@yugidraft/shared/duels";
 import { createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { createEngineGame, type EngineGame } from "../src/engine.js";
@@ -32,7 +32,7 @@ class RealEngineWorker implements DuelGameWorker {
     this.game!.answer(seat, promptId, answer);
     this.answers += 1;
   }
-  async eliminate(seat: number, reason: number) { this.game!.eliminate(seat, reason); }
+  async eliminate(seat: number, reason: number, atTurnEnd = false) { this.game!.eliminate(seat, reason, atTurnEnd); }
   async search(query: string): Promise<DuelCardInfo[]> { return this.game!.searchCards(query); }
   async close() {
     this.stopped = true;
@@ -63,7 +63,7 @@ function makeHost(db: Database.Database, worker: DuelGameWorker, extra: { botSte
 }
 
 /** A table of humans in seats 0..humans-1; the other seats get a practice bot. */
-async function table(format: DuelFormat, humans: number, botSeats: number[] = [], extra: { botStepDelayMs?: number } = {}) {
+async function table(format: DuelFormat, humans: number, botSeats: number[] = [], extra: { botStepDelayMs?: number; startingLP?: number } = {}) {
   const db = new Database(":memory:");
   migrate(db);
   const players: number[] = [];
@@ -71,7 +71,7 @@ async function table(format: DuelFormat, humans: number, botSeats: number[] = []
     players.push(Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values (?, ?, ?)").run("g1", `u${index}`, `P${index}`).lastInsertRowid));
   }
   const duels = createDuelService(db);
-  const session = duels.create({ guildId: "g1", organizerPlayerId: players[0]!, name: "Duel", mode: "normal", format });
+  const session = duels.create({ guildId: "g1", organizerPlayerId: players[0]!, name: "Duel", mode: "normal", format, settings: { ...defaultDuelSettings("normal"), startingLP: extra.startingLP ?? 8000 } });
   const worker = new RealEngineWorker();
   const host = makeHost(db, worker, extra);
   const organizer = { slug: session.slug, guildId: "g1", playerId: players[0]! };
@@ -91,7 +91,7 @@ async function table(format: DuelFormat, humans: number, botSeats: number[] = []
 const state = (view: DuelEngineView) => view.seats.map((seat) => (seat.eliminated ? "out" : seat.pendingElimination ? "pending" : "in"));
 
 describeWithCores("FFA4 host with the real engine", [needs.multi(multiWasmPath), needs.installedMulti(DATA)], () => {
-  it("the last two seats give up one after the other: the first only flags, the second ends the duel with the holder of the prompt as winner", async () => {
+  it("the other seats surrender and the holder wins at once", async () => {
     const t = await table("ffa4", 4);
     expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
     expect(await t.holder(4)).toBe(0);
@@ -100,10 +100,10 @@ describeWithCores("FFA4 host with the real engine", [needs.multi(multiWasmPath),
     expect((await t.surrender(2)).status).toBe(200);
     expect(t.duels.get(t.slug, "g1").status).toBe("active");
     const middle = await t.view(0);
-    expect(state(middle)).toEqual(["in", "in", "pending", "pending"]);
+    expect(state(middle)).toEqual(["in", "in", "out", "out"]);
     expect(middle.result ?? null).toBeNull();
     expect(middle.prompt?.seat).toBe(0);
-    // p1 gives up: p0 is the only living seat and wins, also if p0 never answers.
+    // p1 gives up too. The last living seat wins without another answer.
     expect((await t.surrender(1)).status).toBe(200);
     const session = t.duels.get(t.slug, "g1");
     expect(session.status).toBe("completed");
@@ -142,7 +142,7 @@ describeWithCores("FFA4 host with the real engine", [needs.multi(multiWasmPath),
   }, 60_000);
 
   it("three bots play on after the human gave up, and the duel ends with one winner", async () => {
-    const t = await table("ffa4", 1, [1, 2, 3], { botStepDelayMs: 0 });
+    const t = await table("ffa4", 1, [1, 2, 3], { botStepDelayMs: 0, startingLP: 16000 });
     expect((await post(t.host, { op: "start", ...t.organizer })).status).toBe(200);
     const gaveUp = await t.surrender(0);
     expect(gaveUp.data, JSON.stringify(gaveUp.data)).toMatchObject({});
@@ -155,8 +155,8 @@ describeWithCores("FFA4 host with the real engine", [needs.multi(multiWasmPath),
       status = t.duels.get(t.slug, "g1").status;
     }
     expect(status).toBe("completed");
-    // The fixed seed needs more answers than the old per-call cap.
-    expect(t.worker.answers).toBeGreaterThan(128);
+    // Higher starting LP keeps the real duel open past the old per-call cap.
+    expect(t.worker.answers, `Answers: ${t.worker.answers}`).toBeGreaterThan(128);
     const view = await t.view(0);
     // Exactly one seat is left, it is the winner, the seat of the human is out (it gave up) and no prompt is open.
     const living = state(view).flatMap((entry, seat) => (entry === "in" ? [seat] : []));

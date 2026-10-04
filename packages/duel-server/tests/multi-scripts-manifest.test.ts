@@ -11,11 +11,12 @@ import { makeSource, scanCorpus } from "../scripts/scan-multiplayer-scripts.js";
 import { currentEngineDataDirectory } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 
-// The overlay of the compare and chooser cards (F7 design, part P3a): MANIFEST.json, the 112 cNNN.lua files (the Snatch Steal, Kaiser Colosseum, The Eye of Truth, Brain Jacker, Royal Tribute, Messenger of Peace, Dice Jar, Appointer of the Red Lotus, Raging Cloudian, Book of Eclipse, Astromorrigan and Rebirth of the Seventh Emperors fixes are the 100th to 111th, and the Soul Taker fix is the 112th; Snake-Eyes Diabellstar has no overlay file since core patch 0059) and the generator.
+// The overlay checks cover MANIFEST.json, the cNNN.lua files and the generator (F7 design, part P3a).
 // The checks that need the stock scripts or the triage file (both are not in git) are skipped when the file is missing,
 // and fail with DUEL_REQUIRE_CORES=1 (stock scripts) or stay a skip (triage, a local file).
 
 const KINDS = ["whole", "expr", "trig", "hand", "chooser", "fix", "seat"];
+const CREATURE_SWAP = 31036355;
 const manifest = readManifest();
 const cards = manifest.cards;
 const text = (card: ManifestCard) => readFileSync(join(OVERLAY_DIRECTORY, card.file), "utf8");
@@ -24,7 +25,7 @@ const clone = (): Manifest => JSON.parse(JSON.stringify(manifest)) as Manifest;
 const stockDirectory = process.env.DUEL_SCRIPTS_DIR ?? join(currentEngineDataDirectory(), "card-scripts/official");
 const stock = needs.file("official script corpus", stockDirectory, "Set DUEL_SCRIPTS_DIR, or set DUEL_DATA_DIR to an engine data directory with card-scripts/official.");
 const triageNeed = needs.localFile("multiplayer triage", TRIAGE_FILE, "Run scripts/scan-multiplayer-scripts.ts to write .status/multiplayer-triage.json.");
-const stockText = (code: number) => readFileSync(join(stockDirectory, `c${code}.lua`), "utf8");
+const stockText = (code: number) => readFileSync(existsSync(join(stockDirectory, `c${code}.lua`)) ? join(stockDirectory, `c${code}.lua`) : join(stockDirectory, "../pre-errata", `c${code}.lua`), "utf8");
 
 function isActivationCheck(body: string, name: string): boolean {
   const source = makeSource(body);
@@ -36,7 +37,7 @@ function isActivationCheck(body: string, name: string): boolean {
 }
 
 describe("MANIFEST.json of the overlay", () => {
-  it("lists 112 cards with a valid kind, a file named after the code and a name", () => {
+  it("lists cards with a valid kind, a file named after the code and a name", () => {
     expect(manifest.version).toBe(1);
     expect(cards.filter((card) => !card.classes.includes("R1") && !card.classes.includes("R2") && !card.classes.includes("ATTACK"))).toHaveLength(EXPECTED_COUNTS.entries);
     for (const card of cards) {
@@ -96,7 +97,20 @@ describe("MANIFEST.json of the overlay", () => {
       { code: MIRROR_GATE, name: "Mirror Gate", group: "g", rule: "SCRIPT-FIX" },
       { code: 3, name: "c", group: "g", rule: "CHOOSER" },
     ];
-    expect(r1Codes(triage)).toEqual([1, 2]);
+    expect(r1Codes(triage)).toEqual([1, 2, CREATURE_SWAP]);
+  });
+
+  it("keeps Creature Swap in R1 when the scan does not list it", () => {
+    expect(r1Codes([])).toEqual([CREATURE_SWAP]);
+    expect(r1Codes([{ code: CREATURE_SWAP, name: "Creature Swap", group: "control-swap", rule: "SWAP" }])).toEqual([CREATURE_SWAP]);
+  });
+
+  it("lists Creature Swap once when the scan assigns an R1 rule", () => {
+    const triage: Triage[] = [
+      { code: CREATURE_SWAP, name: "Creature Swap", group: "control-swap", rule: "EACH-DUELIST" },
+      { code: CREATURE_SWAP, name: "Creature Swap", group: "control-swap", rule: "SCRIPT-FIX" },
+    ];
+    expect(r1Codes(triage)).toEqual([CREATURE_SWAP]);
   });
 });
 
@@ -113,14 +127,14 @@ describe("the R1 entries (each duelist, hand suffixes with aux.MPForEachDuelist)
     }
   });
 
-  it("stay within the 92 R1 cards, and no card is an entry and also in R1_NO_CHANGE", () => {
+  it("stay within the 93 R1 cards, and no card is an entry and also in R1_NO_CHANGE", () => {
     expect(r1Cards.length + R1_NO_CHANGE.length).toBeLessThanOrEqual(EXPECTED_COUNTS.r1);
     expect(r1Cards.filter((card) => R1_NO_CHANGE.includes(card.code))).toEqual([]);
   });
 
-  it("are complete: 91 suffixes and 1 card without change make the 92 R1 cards", () => {
+  it("are complete: 92 suffixes and 1 card without change make the 93 R1 cards", () => {
     expect(R1_COMPLETE).toBe(true);
-    expect(r1Cards).toHaveLength(91);
+    expect(r1Cards).toHaveLength(92);
     expect(R1_NO_CHANGE).toEqual([39513225]);
     expect(r1Cards.length + R1_NO_CHANGE.length).toBe(EXPECTED_COUNTS.r1);
   });
@@ -205,14 +219,14 @@ describe("the R2 entries (state per seat: Q6, the key is the seat in FFA and the
       expect(card.classes, card.file).toEqual(["R2"]);
       expect(card.r2Class, card.file).toBeTruthy();
       expect(card.note, card.file).toBeTruthy();
-      expect(text(card).split("\n")[0], card.file).toBe("if not aux.MPKey then return end");
+      expect(["if not aux.MPKey then return end", "if not aux.MPForEachController then return end", "if not Duel.MPOwnerSeat then return end"], card.file).toContain(text(card).split("\n")[0]);
     }
   });
 
-  it("count 103 suffixes (38 generated seat tables, 65 hand files) and 44 cards that work without change", () => {
-    expect(r2Cards).toHaveLength(103);
+  it("count 111 suffixes (38 generated seat tables, 73 hand files) and 44 cards that work without change", () => {
+    expect(r2Cards).toHaveLength(111);
     expect(seatCards).toHaveLength(38);
-    expect(handCards).toHaveLength(65);
+    expect(handCards).toHaveLength(73);
     expect(R2_NO_CHANGE).toHaveLength(44);
     expect(new Set(R2_NO_CHANGE).size).toBe(R2_NO_CHANGE.length);
   });
@@ -312,7 +326,7 @@ describe("the overlay files", () => {
     for (const card of cards) {
       const first = text(card).split("\n")[0];
       if (card.replace) expect(first, card.file).toBe("--@replace");
-      else expect(first.startsWith("--@replace") || first === "if not aux.MPAny then return end" || first === "if not aux.MPForEachDuelist then return end" || first === "if not aux.MPKey then return end" || card.kind === "fix", `${card.file}: ${first}`).toBe(true);
+      else expect(first.startsWith("--@replace") || first === "if not aux.MPAny then return end" || first === "if not aux.MPForEachDuelist then return end" || first === "if not aux.MPKey then return end" || first === "if not aux.MPForEachController then return end" || first === "if not Duel.MPOwnerSeat then return end" || card.kind === "fix", `${card.file}: ${first}`).toBe(true);
     }
   });
 
@@ -321,7 +335,13 @@ describe("the overlay files", () => {
   });
 
   it("uses only helpers that mp-utility.lua defines and core functions of the F7 window", () => {
-    const coreApi = new Set(["MPMode", "MPBound", "MPOppCount", "MPNeedPick", "MPBindOpponent", "MPWindow", "MPWindowEnd", "MPAssertBound", "MPTurnOwns", "MPAttackedSeat", "MPSeatOf", "MPBindSeat", "MPNthDuelist", "MPSeat"]);
+    const coreApi = new Set(["MPMode", "MPBound", "MPOppCount", "MPNeedPick", "MPBindOpponent", "MPWindow", "MPWindowEnd", "MPAssertBound", "MPTurnOwns", "MPAttackedSeat", "MPSeatOf", "MPBindSeat", "MPNthDuelist", "MPSeat", "MPChainSeat", "MPSharedZones", "MPAcrossSeat", "MPSeatBinding"]);
+    coreApi.add("MPActionSeat");
+    coreApi.add("MPOwnerSeat");
+    coreApi.add("MPTurnSeat");
+    coreApi.add("MPTurnControls");
+    coreApi.add("MPIsAlive");
+    coreApi.add("MPRotateControl");
     for (const card of cards) {
       for (const [, helper] of text(card).matchAll(/\baux\.(MP\w+)/g)) {
         expect(helperText, `${card.file}: aux.${helper}`).toContain(`function aux.${helper}(`);
@@ -377,7 +397,7 @@ describe("the overlay files", () => {
 describeWithCores("the overlay against the stock scripts", stock, () => {
   it("each stockSha256 equals the hash of the stock script (a changed stock script needs a new look at the card)", () => {
     for (const card of cards) {
-      const hash = createHash("sha256").update(readFileSync(join(stockDirectory, `c${card.code}.lua`))).digest("hex");
+      const hash = createHash("sha256").update(stockText(card.code)).digest("hex");
       expect(card.stockSha256, `${card.code} ${card.name}`).toBe(hash);
     }
   });
@@ -415,7 +435,7 @@ describeWithCores("the overlay against the stock scripts", stock, () => {
 });
 
 describeWithCores("the overlay against the triage file", triageNeed, () => {
-  it("the lists equal the triage (COMPARE 54, CHOOSER 44, R1 92)", () => {
+  it("the lists equal the triage (COMPARE 54, CHOOSER 44, R1 93)", () => {
     const triage = readTriage();
     expect(triage).not.toBeNull();
     expect(checkLists(manifest, triage)).toEqual([]);

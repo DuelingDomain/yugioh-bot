@@ -2,7 +2,7 @@
 // Cowboy detaches real material. The real EVENT_DETACH_MATERIAL trigger of Gabonga then selects a target.
 // Blindly Loyal Goblin and Mataza the Zapper have EFFECT_CANNOT_CHANGE_CONTROL in their official scripts.
 import {
-  activate, endTurn, expectBoard, expectPickOptions, expectPrompt, select, yes,
+  activate, endTurn, expectBoard, expectPickOptions, expectPickSeats, expectPrompt, pickOpponent, select, yes,
   type BoardExpect, type DuelistExpect, type DuelistId, type Scenario, type Step,
 } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
@@ -46,11 +46,14 @@ function attach(format: Format, team: 0 | 1, own: boolean): Scenario {
   return defineScenario({
     id: `tag-xyz-attach-review-${format}-team-${team}-${own ? "own" : "partner"}-cannot-change-control`,
     title: `${format} team ${team}: Gabonga attaches the ${own ? "own" : "partner's"} Blindly Loyal Goblin after Cowboy detaches; opposing immutable monsters are excluded`,
-    source: `${SOURCE} [R-TAG-SHARED-CARDS] [R-TAG-PARTNER-COST]`, rules: ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER-COST"],
+    source: `${SOURCE} [R-TAG-SHARED-CARDS] [R-TAG-PARTNER-COST]`, rules: tag ? ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER-COST"] : ["R-TAG-SHARED-CARDS", "R-TAG-PARTNER-COST", "R-FFA-OPP-ONE"],
     tags: ["multiplayer", format, "xyz", "card:34001672", "card:35215622"], setup,
     steps: [
       ...(team === 1 ? [endTurn("p0")] : []),
-      activate(COWBOY, actor), expectPrompt({ kind: "choice", title: GABONGA, by: actor }), yes(actor),
+      activate(COWBOY, actor),
+      // R-FFA-OPP-ONE: Cowboy declares an opponent before its detach cost.
+      ...(tag ? [] : [expectPickSeats(format === "ffa3" ? ["p1", "p2"] : ["p1", "p2", "p3"], actor), pickOpponent(other, actor)]),
+      expectPrompt({ kind: "choice", title: GABONGA, by: actor }), yes(actor),
       expectPickOptions({ count: tag && own ? 3 : 2, include: [{ card: COWBOY, seat: actor }, { card: GOBLIN, seat: materialSeat }, ...(tag && own ? [{ card: OX, seat: partner }] : [])], exclude: [{ card: MATAZA }, ...(!tag ? [{ card: GOBLIN, seat: partner }] : [])] }, actor),
       select({ card: GOBLIN, owner: materialSeat }), everySeat(format, states),
     ],
@@ -62,10 +65,13 @@ export const TAG_XYZ_ATTACH_REVIEW_SCENARIOS: Scenario[] = [
   attach("ffa3", 0, true), attach("ffa4", 0, true),
   defineScenario({
     id: "tag-xyz-attach-review-ffa4-opponent-can-change-control", title: "FFA4: Gabonga can attach an opposing monster whose control can change",
-    source: `${SOURCE} [R-TAG-PARTNER-COST]`, rules: ["R-TAG-PARTNER-COST"], tags: ["multiplayer", "ffa4", "xyz", "card:34001672"],
+    source: `${SOURCE} [R-TAG-PARTNER-COST]`, rules: ["R-TAG-PARTNER-COST", "R-FFA-OPP-ONE"], tags: ["multiplayer", "ffa4", "xyz", "card:34001672"],
     setup: { format: "ffa4", p0: { monsters: [GABONGA, { card: COWBOY, materials: [ELF] }] }, p1: { monsters: [MATAZA] }, p2: { monsters: [GOBLIN] }, p3: { monsters: [OX] } },
     steps: [
-      activate(COWBOY, "p0"), expectPrompt({ kind: "choice", title: GABONGA, by: "p0" }), yes("p0"),
+      activate(COWBOY, "p0"),
+      // R-FFA-OPP-ONE: Cowboy declares an opponent before its detach cost.
+      expectPickSeats(["p1", "p2", "p3"], "p0"), pickOpponent("p1", "p0"),
+      expectPrompt({ kind: "choice", title: GABONGA, by: "p0" }), yes("p0"),
       expectPickOptions({ count: 2, include: [{ card: COWBOY, seat: "p0" }, { card: OX, seat: "p3" }], exclude: [{ card: MATAZA }, { card: GOBLIN }] }, "p0"),
       select({ card: OX, owner: "p3" }),
       everySeat("ffa4", { p0: { monsters: [GABONGA, COWBOY], grave: [ELF], zones: { m0: { card: GABONGA, materials: 1 }, m1: { card: COWBOY, materials: 0 } } }, p1: { monsters: [MATAZA] }, p2: { monsters: [GOBLIN] } }),

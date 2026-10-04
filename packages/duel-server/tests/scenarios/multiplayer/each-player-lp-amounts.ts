@@ -28,6 +28,7 @@ function amount(format: Format, actor: 0 | 1, [code, card]: typeof CARDS[number]
     setup[seat(actor)]!.spells = [{ card, pos: "set" }]; setup[seat(actor)]!.hand = ["Monster Reborn"];
     setup[seat(actor)]!.grave = ["Beaver Warrior", "Celtic Guardian"];
     if (actor === 1) { steps.push(endTurn("p0")); (board.p1!.hand as string[]).push("Mystical Elf"); }
+    // Monster Reborn reads either GY. Choose the card without an opponent declaration.
     steps.push(activate("Monster Reborn", seat(actor)), select("Beaver Warrior"), activate(card, seat(actor)));
     board[seat(actor)]!.monsters = ["Frightfur Bear"]; board[seat(enemy)]!.monsters = ["Flame Swordsman"];
     board[seat(actor)]!.grave = ["Beaver Warrior", "Celtic Guardian", "Monster Reborn", card];

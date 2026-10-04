@@ -35,6 +35,9 @@ function withP3(steps: Step[], options: FfaFourOptions): Step[] {
   for (const step of steps) {
     if (step.op === "expectBoard") {
       out.push(step.board.p3 ? step : { ...step, board: { ...step.board, p3: boardOfP3(drew, options) } });
+    } else if (step.op === "expectTurn" && step.turn !== undefined) {
+      // An FFA4 round has the extra turn of p3 after p2.
+      out.push({ ...step, turn: step.turn + Math.floor((step.turn - 1) / 3) });
     } else if (step.op === "expectPickSeats") {
       const by = step.by ?? "p0";
       const all = FFA3_SEATS.filter((seat) => seat !== by);

@@ -152,6 +152,7 @@ export class NChecker {
   private window: ChainWindow | null = null;
   private prevChainLength = 0;
   private lastEventId = 0;
+  private readonly startedTurns = new Set<number>();
   private readonly lastLogId: number[];
   private readonly publicCodes = new Set<number>();
   private readonly revealLenient: boolean[];
@@ -252,13 +253,15 @@ export class NChecker {
       }
     }
 
-    // 4b. First attack: FFA none before turn n + 1, Tag none before turn 4 (PLAN.md).
-    const firstAttackTurn = this.format === "tag" ? 4 : n > 2 ? n + 1 : 2;
+    // C2: each living FFA seat must have started its first turn.
+    if (vs.turn > 0) this.startedTurns.add(vs.turnSeat);
+    const firstAttackTurn = this.format === "tag" ? 4 : n;
+    const beforeFirstAttack = this.format === "tag" ? vs.turn < 4 : living.some(seat => !this.startedTurns.has(seat));
     let resolutionStarted = false;
     for (const event of vs.events) {
       if (event.id <= this.lastEventId) continue;
       if (event.kind === "chain-resolving" || event.kind === "chain-end") resolutionStarted = true;
-      if (n > 2 && event.kind === "attack" && vs.turn < firstAttackTurn) {
+      if (n > 2 && event.kind === "attack" && beforeFirstAttack) {
         add(CHECKS.firstAttack, `Attack in turn ${vs.turn}, the first attack is allowed in turn ${firstAttackTurn}: ${event.text}`, event);
       }
     }

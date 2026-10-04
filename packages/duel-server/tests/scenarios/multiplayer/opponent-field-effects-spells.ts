@@ -1,7 +1,7 @@
 // Spell and Trap cards whose effect Special Summons a card or tokens to the field of an opponent (the table and the rule are in
-// opponent-field-effects.ts). Every card of this file is activated by p0, who then picks one opponent.
+// opponent-field-effects.ts). p0 activates each card. A declaration, one legal opponent or the event binds the opponent.
 
-import { activate, attack, choose, expectNoPrompt, no, normalSummon, pickOpponent, select, yes } from "../../support/dsl.js";
+import { activate, attack, choose, expectNoPrompt, expectPickSeats, expectPrompt, no, normalSummon, pickOpponent, select, yes } from "../../support/dsl.js";
 import { ELF } from "./nseat-scenarios.js";
 import { effectScenarios, type EffectSpec } from "./opponent-field-effects.js";
 
@@ -9,6 +9,7 @@ const set = (card: string) => ({ card, pos: "set" as const });
 const SKULL = "Summoned Skull";
 const MAGICIAN = "Dark Magician";
 
+// In FFA noPick rows, inspect the next action, card choice or yes/no prompt. An opponent prompt must fail that check.
 const SPECS: EffectSpec[] = [
   {
     code: 29843091, name: "Ojama Trio", slug: "ojama-trio", does: "Special Summons 3 Ojama Tokens",
@@ -42,22 +43,23 @@ const SPECS: EffectSpec[] = [
   },
   {
     code: 11654067, name: "Fire Ejection", slug: "fire-ejection", does: "sends a Volcanic monster from the Deck and Special Summons a Bomb Token",
-    p0: { hand: ["Fire Ejection"], deck: ["Volcanic Rat"] },
+    p0: { hand: ["Fire Ejection"], deck: [ELF, "Volcanic Rat"] },
     steps: [activate("Fire Ejection", "p0")],
     then: [yes("p0"), choose("token", "p0")],
     p0End: { grave: ["Fire Ejection", "Volcanic Rat"] },
     gain: { monsters: ["Bomb Token"] },
   },
   {
-    code: 83778600, name: "Foolish Revival", slug: "foolish-revival", does: "Special Summons the Summoned Skull of the Graveyard of p1",
+    code: 83778600, name: "Foolish Revival", slug: "foolish-revival", does: "Special Summons a monster from an opponent's Graveyard",
     p0: { spells: [set("Foolish Revival")] },
     opp: {},
     seats: { p1: { grave: [SKULL] }, p2: { grave: [MAGICIAN] }, p3: { grave: [MAGICIAN] } },
     steps: [activate("Foolish Revival", "p0")],
-    then: [select({ card: SKULL, owner: "p1" })],
+    // ADR 0002 R-FFA-OPP-ONE: the Graveyard source and destination are the same opponent.
+    then: (roles) => roles.format === "tag" ? [select({ card: SKULL, owner: "p1" })] : [],
     p0End: { grave: ["Foolish Revival"] },
-    gain: { monsters: [SKULL] },
-    seatEnd: { p1: {} },
+    tgtEnd: (roles) => roles.format === "tag" ? { monsters: [SKULL], grave: [MAGICIAN] } : { monsters: [MAGICIAN], grave: [] },
+    seatEnd: (roles) => roles.format === "tag" ? { p1: {} } : {},
   },
   {
     code: 55465441, name: "Give and Take", slug: "give-and-take", does: "Special Summons the Dark Magician of the Graveyard of p0",
@@ -90,22 +92,27 @@ const SPECS: EffectSpec[] = [
     gain: { monsters: ["Gladiator Beast Retiari"] },
   },
   {
-    // The target is every opponent's banished monster (R-COMMON-OPP-FIELD): p0 takes the Blue-Eyes of p1, the monster of p0 goes to the picked opponent only.
+    // R-FFA-OPP-ONE: the opponent monster and summon destination must use the same declared opponent in FFA.
+    // In FFA, take Summoned Skull from the declared opponent and give Dark Magician to that opponent.
+    // Tag uses the opposing-team field rule, R-TAG-SHARED-CARDS.
     code: 73355951, name: "Alpha Summon", slug: "alpha-summon", does: "Special Summons the banished Dark Magician of p0 and takes a banished monster of an opponent to the own field",
     p0: { spells: [set("Alpha Summon")], banished: [MAGICIAN] },
     tgt: { monsters: [ELF], banished: [SKULL] },
     seats: { p1: { monsters: [ELF], banished: ["Blue-Eyes White Dragon"] } },
     steps: [activate("Alpha Summon", "p0")],
-    then: [select(MAGICIAN, { card: "Blue-Eyes White Dragon", owner: "p1" })],
-    p0End: { monsters: ["Blue-Eyes White Dragon"], grave: ["Alpha Summon"] },
-    tgtEnd: { monsters: [ELF, MAGICIAN], banished: [SKULL] },
-    seatEnd: { p1: { monsters: [ELF] } },
+    offered: (roles) => roles.format === "ffa4" ? ["p1", roles.tgt] : roles.opponents,
+    then: (roles) => [select(MAGICIAN, { card: roles.format === "tag" ? "Blue-Eyes White Dragon" : SKULL, owner: roles.format === "tag" ? "p1" : roles.tgt })],
+    p0End: (roles) => ({ monsters: [roles.format === "tag" ? "Blue-Eyes White Dragon" : SKULL], grave: ["Alpha Summon"] }),
+    tgtEnd: (roles) => ({ monsters: [ELF, MAGICIAN], banished: roles.format === "tag" ? [SKULL] : [] }),
+    seatEnd: (roles) => roles.format === "tag" ? { p1: { monsters: [ELF] } } : {},
   },
   {
     code: 6203182, name: "Two Toads with One Sting", slug: "two-toads-with-one-sting", does: "Special Summons the Dark Magician of the Graveyard of the opponent and equips itself to it",
     p0: { hand: ["Two Toads with One Sting"] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
-    steps: [activate("Two Toads with One Sting", "p0")],
+    // ADR 0002 R-FFA-OPP-ONE: only the last opponent has a legal target; the binding is automatic.
+    noPick: (roles) => roles.format !== "tag",
+    steps: (roles) => [activate("Two Toads with One Sting", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", context: "action" })] : [])],
     p0End: { spells: ["Two Toads with One Sting"] },
     tgtEnd: { monsters: [ELF, MAGICIAN] },
   },
@@ -129,7 +136,9 @@ const SPECS: EffectSpec[] = [
     code: 78610936, name: "Xyz Encore", slug: "xyz-encore", does: "returns the Xyz monster to the Extra Deck and Special Summons its material",
     p0: { hand: ["Xyz Encore"] },
     tgt: { monsters: [{ card: "Daigusto Emeral", materials: [ELF] }] },
-    steps: [activate("Xyz Encore", "p0")],
+    // ADR 0002 R-FFA-OPP-ONE: only the last opponent has a legal target; the binding is automatic.
+    noPick: (roles) => roles.format !== "tag",
+    steps: (roles) => [activate("Xyz Encore", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", context: "action" })] : [])],
     p0End: { grave: ["Xyz Encore"] },
     tgtEnd: { monsters: [ELF] },
   },
@@ -144,11 +153,13 @@ const SPECS: EffectSpec[] = [
     code: 62767644, name: "Inferno of the Ashened", slug: "inferno-of-the-ashened", does: "sends a card of an opponent to the Graveyard and Special Summons a Pyro monster of p0",
     p0: { spells: [{ card: "Inferno of the Ashened", pos: "up" }], grave: ["King of the Ashened City"] },
     steps: [activate("Inferno of the Ashened", "p0")],
-    // The card to send can be of any opponent (R-COMMON-OPP-FIELD): p0 sends the Mystical Elf of p1, the Pyro monster goes to the picked opponent only.
-    then: [select({ card: ELF, owner: "p1" })],
+    // R-FFA-OPP-ONE: the field target and Pyro summon must use the same declared opponent in FFA.
+    // The declared opponent loses Elf and receives King in FFA.
+    // Tag uses the opposing-team field rule, R-TAG-SHARED-CARDS.
+    then: (roles) => roles.format === "tag" ? [select({ card: ELF, owner: "p1" })] : [],
     p0End: { spells: ["Inferno of the Ashened"] },
-    gain: { monsters: ["King of the Ashened City"] },
-    seatEnd: { p1: { grave: [ELF] } },
+    tgtEnd: (roles) => ({ monsters: roles.format === "tag" ? [ELF, "King of the Ashened City"] : ["King of the Ashened City"], grave: roles.format === "tag" ? [] : [ELF] }),
+    seatEnd: (roles) => roles.format === "tag" ? { p1: { grave: [ELF] } } : {},
   },
   {
     code: 80044027, name: "Mikanko Fire Dance", slug: "mikanko-fire-dance", does: "Special Summons a Mikanko to the own field and a monster of the Graveyard of an opponent",
@@ -191,18 +202,23 @@ const SPECS: EffectSpec[] = [
     code: 63086455, name: "Terrors of the Overroot", slug: "terrors-of-the-overroot", does: "sends a card of an opponent to the Graveyard and Sets a monster of an opponent Graveyard",
     p0: { spells: [set("Terrors of the Overroot")] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
-    steps: [activate("Terrors of the Overroot", "p0")],
-    // The targets are the Elf of p1 (field) and the Dark Magician in the Graveyard of the picked opponent: targets may be of any opponent (R-COMMON-OPP-FIELD); the card is Set on the field of the picked opponent.
-    then: [select({ card: ELF, owner: "p1" }, MAGICIAN)],
+    steps: (roles) => [activate("Terrors of the Overroot", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", kind: "toggle" })] : [])],
+    // R-FFA-OPP-ONE: both targets and the Set destination must use the same declared opponent in FFA.
+    // In FFA, both targets come from the last opponent, the only seat with a legal pair.
+    // Tag uses the opposing-team field rule, R-TAG-SHARED-CARDS.
+    noPick: (roles) => roles.format !== "tag",
+    then: (roles) => [select({ card: ELF, owner: roles.format === "tag" ? "p1" : roles.tgt }, MAGICIAN)],
     p0End: { grave: ["Terrors of the Overroot"] },
-    tgtEnd: { monsters: [ELF, MAGICIAN] },
-    seatEnd: { p1: { grave: [ELF] } },
+    tgtEnd: (roles) => ({ monsters: roles.format === "tag" ? [ELF, MAGICIAN] : [MAGICIAN], grave: roles.format === "tag" ? [] : [ELF] }),
+    seatEnd: (roles) => roles.format === "tag" ? { p1: { grave: [ELF] } } : {},
   },
   {
     code: 85698115, name: "Terrors of the Afterroot", slug: "terrors-of-the-afterroot", does: "Special Summons a monster of an opponent Graveyard",
     p0: { spells: [set("Terrors of the Afterroot")] },
     tgt: { monsters: [ELF], grave: [MAGICIAN] },
-    steps: [activate("Terrors of the Afterroot", "p0")],
+    // ADR 0002 R-FFA-OPP-ONE: only the last opponent has a legal target; the binding is automatic.
+    noPick: (roles) => roles.format !== "tag",
+    steps: (roles) => [activate("Terrors of the Afterroot", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", offers: ["yes", "no"] })] : [])],
     then: [no("p0")],
     p0End: { grave: ["Terrors of the Afterroot"] },
     tgtEnd: { monsters: [ELF, MAGICIAN] },
@@ -236,20 +252,23 @@ const SPECS: EffectSpec[] = [
   {
     code: 8837932, name: "Cubic Mandala", slug: "cubic-mandala", does: "Special Summons a destroyed monster",
     p0: { hand: ["Raigeki"], monsters: ["Vijam the Cubic Seed"], spells: [set("Cubic Mandala")] },
-    steps: [activate("Raigeki", "p0"), activate("Cubic Mandala", "p0")],
-    // Raigeki sends the Elf of every opponent to the Graveyard (not the Tag partner). The Elf of p1 is the target; it comes to the field of the picked opponent.
-    then: [select({ card: ELF, owner: "p1" })],
+    // ADR 0002 R-FFA-OPP-ONE: declare for Raigeki; Mandala has only that opponent as a legal source.
+    noPick: (roles) => roles.format !== "tag",
+    steps: (roles) => [activate("Raigeki", "p0"), ...(roles.format !== "tag" ? [expectPickSeats(roles.opponents, "p0"), pickOpponent(roles.tgt, "p0")] : []), activate("Cubic Mandala", "p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", context: "action" })] : [])],
+    // In FFA Raigeki destroys only the declared opponent's Elf; Mandala returns that Elf. Tag uses the joined opposing field.
+    then: (roles) => roles.format === "tag" ? [select({ card: ELF, owner: "p1" })] : [],
     p0End: { monsters: ["Vijam the Cubic Seed"], spells: ["Cubic Mandala"], grave: ["Raigeki"] },
-    tgtEnd: { monsters: [ELF], grave: [ELF] },
-    othersEnd: { grave: [ELF] },
-    seatEnd: { p1: {} },
+    tgtEnd: (roles) => ({ monsters: [ELF], grave: roles.format === "tag" ? [ELF] : [] }),
+    othersEnd: (roles) => roles.format === "tag" ? { grave: [ELF] } : { monsters: [ELF] },
+    seatEnd: (roles) => roles.format === "tag" ? { p1: {} } : {},
   },
   {
     code: 96857854, name: "Diamond Duston", slug: "diamond-duston", does: "Special Summons a Duston monster",
     p0: { hand: ["Smashing Ground"], spells: [set("Diamond Duston")], deck: ["House Duston"] },
     tgt: { monsters: [MAGICIAN] },
     // Smashing Ground destroys the Dark Magician (highest DEF) of the picked-later opponent; Diamond Duston answers the destruction.
-    steps: [activate("Smashing Ground", "p0"), activate("Diamond Duston", "p0")],
+    // ADR 0002 R-FFA-OPP-ONE: Smashing Ground declares its opponent before the destruction response.
+    steps: (roles) => [activate("Smashing Ground", "p0"), ...(roles.format !== "tag" ? [expectPickSeats(roles.opponents, "p0"), pickOpponent(roles.tgt, "p0")] : []), activate("Diamond Duston", "p0")],
     then: [yes("p0")],
     p0End: { grave: ["Smashing Ground", "Diamond Duston"] },
     tgtEnd: { monsters: ["House Duston"], grave: [MAGICIAN] },
@@ -257,10 +276,12 @@ const SPECS: EffectSpec[] = [
   {
     code: 93983867, name: "Trick Box", slug: "trick-box", does: "takes control of a monster until the End Phase and Special Summons a Performage from the own Graveyard",
     p0: { hand: ["Offerings to the Doomed"], monsters: ["Performage Hat Tricker"], spells: [set("Trick Box")] },
-    steps: [activate("Offerings to the Doomed", "p0"), select("Performage Hat Tricker"), activate("Trick Box", "p0"), select({ card: ELF, owner: "p1" })],
+    // ADR 0002 R-FFA-OPP-ONE: Trick Box declares before its target; both transfers use that opponent.
+    noPick: (roles) => roles.format !== "tag",
+    steps: (roles) => [activate("Offerings to the Doomed", "p0"), select("Performage Hat Tricker"), activate("Trick Box", "p0"), ...(roles.format !== "tag" ? [expectPickSeats(roles.opponents, "p0"), pickOpponent(roles.tgt, "p0"), expectPrompt({ by: "p0", context: "action" })] : [select({ card: ELF, owner: "p1" })])],
     p0End: { monsters: [ELF], grave: ["Offerings to the Doomed", "Trick Box"] },
-    gain: { monsters: ["Performage Hat Tricker"] },
-    seatEnd: { p1: {} },
+    tgtEnd: (roles) => ({ monsters: roles.format === "tag" ? [ELF, "Performage Hat Tricker"] : ["Performage Hat Tricker"] }),
+    seatEnd: (roles) => roles.format === "tag" ? { p1: {} } : {},
   },
   {
     code: 14283055, name: "Concours de Cuisine", slug: "concours-de-cuisine", does: "Special Summons a Nouvelles and a Patissciel Pendulum monster, one to the own field and one to the field of an opponent",
@@ -277,12 +298,15 @@ const SPECS: EffectSpec[] = [
 // field turns the direct attack into a replay, so no seat takes damage.
 const GRAYDLE_PARASITE: EffectSpec = {
   code: 49966595, name: "Graydle Parasite", slug: "graydle-parasite", does: "Special Summons a monster of an opponent Graveyard",
+  binding: "event-opponent",
   attackFirstTurn: true,
+  // ADR 0002 R-FFA-OPP-RESPONSE: the direct-attack destination binds the response in FFA.
+  noPick: (roles) => roles.format !== "tag",
   p0: { monsters: ["Graydle Cobra"], spells: [{ card: "Graydle Parasite", pos: "up" }] },
   opp: {},
   tgt: { grave: [MAGICIAN] },
   partner: {},
-  steps: (roles) => [attack("Graydle Cobra", "direct", "p0"), pickOpponent(roles.tgt, "p0"), yes("p0")],
+  steps: (roles) => [attack("Graydle Cobra", "direct", "p0"), pickOpponent(roles.tgt, "p0"), yes("p0"), ...(roles.format !== "tag" ? [expectPrompt({ by: "p0", offers: ["yes", "no"] })] : [])],
   p0End: { monsters: ["Graydle Cobra"], spells: ["Graydle Parasite"] },
   tgtEnd: { monsters: [MAGICIAN] },
 };

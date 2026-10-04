@@ -515,10 +515,11 @@ static void check_scenario(const Scenario& sc, const Outcome& out, const std::ve
 	if(fold) {
 		EXPECT(d_mine == 0, "%s: %d kind (d) records for the functions of this check", sc.name, d_mine);
 		EXPECT(count_kind(nfold, 'b') == 0 && count_kind(nfold, 'd') == 0, "%s: kind b/d records: %d/%d", sc.name, count_kind(nfold, 'b'), count_kind(nfold, 'd'));
-		// F5: no unbound fallback (kind a). The pick prompt is the logged kind (c): exactly one per firing (every living
-		// seat has at least 2 living opponents here), asked of the card seat.
+		// Valid bound FFA operations are not kind (c) diagnostics. Tag keeps its stock count.
+		// The card seat still receives exactly one opponent prompt per firing.
 		EXPECT(count_kind(nfold, 'a') == 0, "%s: %d kind (a) records (an unbound fallback), want 0", sc.name, count_kind(nfold, 'a'));
-		EXPECT(count_kind(nfold, 'c') == firings, "%s: %d kind (c) records, want %d (one pick per firing)", sc.name, count_kind(nfold, 'c'), firings);
+		const int want_c = tag ? firings : 0; // tag above is derived from the team map.
+		EXPECT(count_kind(nfold, 'c') == want_c, "%s: %d kind (c) records, want %d", sc.name, count_kind(nfold, 'c'), want_c);
 		EXPECT(out.picks == static_cast<size_t>(firings), "%s: %zu pick prompts, want %d", sc.name, out.picks, firings);
 		EXPECT(out.pick_bad.empty(), "%s: a pick prompt is wrong: %s", sc.name, out.pick_bad.empty() ? "" : out.pick_bad[0].c_str());
 	} else {

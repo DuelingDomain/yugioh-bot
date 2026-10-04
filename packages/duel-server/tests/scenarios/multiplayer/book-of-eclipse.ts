@@ -1,14 +1,8 @@
-// Live scenarios of Book of Eclipse (R1 each opponent, lead decision 2026-10-01). Plain data, also read by scripts/rule-coverage.ts;
-// book-of-eclipse.test.ts runs it on a live core (NSEAT_LIVE=1), on the Standard multi core and again on the Domain multi core. Every
-// scenario uses the real card script plus the overlay, and asserts the state of EVERY seat (LP, field, hand, GY, banished zone).
-//
-// Book of Eclipse turns all monsters on the field face-down. In the End Phase of that turn "your opponent changes all face-down monsters they
-// control to face-up Defense Position, and draws 1 card for each". The stock script reads one group of the face-down monsters of every opponent
-// and lets ONE opponent draw for all of them. The rule here: each opponent changes its OWN face-down monsters and draws 1 card for each of its
-// own (in Tag each opposing member is such an opponent; the partner of the activator and the activator keep their face-down monsters).
-// The next seat also makes its normal draw at the start of its turn, so its hand holds that card too.
+// Book of Eclipse: the first flip affects every seat. In FFA, the End Phase flip and draw affect the opponent declared at activation.
+// Tag still flips and draws per opposing controller. FFA IDs name the declared opponent; LIVE_PROOF uses the same IDs.
+// Reason for changed FFA expectations: owner decision 2026-10-02 replaces the each-opponent delayed result.
 
-import { activate, defineScenario, endTurn, expectBoard, pass, type BoardExpect, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, defineScenario, endTurn, expectBoard, expectEliminated, expectPickSeats, expectPrompt, pass, pickOpponent, surrender, type BoardExpect, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
@@ -46,12 +40,13 @@ function everySeat(format: Format, spec: Partial<Record<Seat, DuelistExpect>>): 
   return expectBoard(board);
 }
 
-function eclipse(format: Format, actor: Seat): Scenario {
+function eclipse(format: Format, actor: Seat, noMonsters = false, eliminated = false): Scenario {
   const tag = format === "tag";
   const seats = seatsOf(format);
   const actorIndex = seats.indexOf(actor);
   const next = seats[(actorIndex + 1) % seats.length];
-  const opponents = seats.filter((seat) => (tag ? teamOf(seat) !== teamOf(actor) : seat !== actor));
+  const declared: Seat = noMonsters ? "p2" : actor === "p0" ? (format === "ffa4" ? "p3" : "p2") : actor === "p1" ? "p0" : "p1";
+  const opponents = seats.filter((seat) => (tag ? teamOf(seat) !== teamOf(actor) : seat === declared));
   const field = MONSTERS[format];
   const setup: Record<string, unknown> = { format };
   for (const seat of seats) {
@@ -61,7 +56,7 @@ function eclipse(format: Format, actor: Seat): Scenario {
       deck: Array.from({ length: 8 }, () => DECK[seat]),
     };
   }
-  // The seats before the actor take their turns first: each one makes its normal draw at the start of its turn.
+  // Standard MR5 skips p0's turn-1 draw. Each later seat draws at the start of its turn.
   const steps: Step[] = seats.slice(0, actorIndex).map((seat) => endTurn(seat));
   const normalDraws = (seat: Seat) => (seats.indexOf(seat) >= 1 && seats.indexOf(seat) <= actorIndex ? 1 : 0);
   const handNow = (seat: Seat, extra = 0) => [HAND[seat], ...Array.from({ length: normalDraws(seat) + extra }, () => DECK[seat])];
@@ -77,43 +72,46 @@ function eclipse(format: Format, actor: Seat): Scenario {
       monsters: field[seat],
       zones: faceDown(seat),
       hand: handNow(seat),
+      deckCount: 20 - normalDraws(seat),
       grave: seat === actor ? [BOOK] : [],
     };
   }
-  steps.push(activate(BOOK, actor), everySeat(format, afterActivation));
+  steps.push(activate(BOOK, actor),
+    ...(tag ? [] : [expectPrompt({ by: actor, context: "opponent" }), expectPickSeats(seats.filter((seat) => seat !== actor), actor), pickOpponent(declared, actor)]),
+    everySeat(format, afterActivation));
 
-  // End Phase of the actor: each opponent flips its own monsters and draws for them; the next seat then draws its normal card.
+  // The End Phase uses the activation binding in FFA; Tag still flips and draws per opposing controller.
   const afterEndPhase: Partial<Record<Seat, DuelistExpect>> = {};
   for (const seat of seats) {
-    const opponent = opponents.includes(seat);
+    const opponent = !eliminated && opponents.includes(seat);
     const normal = seat === next ? 1 : 0;
     afterEndPhase[seat] = {
       monsters: field[seat],
       zones: opponent ? faceUpDefense(seat) : faceDown(seat),
       hand: [...handNow(seat, opponent ? field[seat].length : 0), ...Array.from({ length: normal }, () => DECK[seat])],
+      deckCount: 20 - normalDraws(seat) - (opponent ? field[seat].length : 0) - normal,
       grave: seat === actor ? [BOOK] : [],
     };
   }
-  steps.push(endTurn(actor), everySeat(format, afterEndPhase));
+  if (eliminated) {
+    steps.push(surrender(declared));
+    afterEndPhase[declared] = { monsters: [], hand: [], grave: [], banished: [], zones: {} };
+  }
+  steps.push(endTurn(actor), ...(eliminated ? [expectEliminated(declared)] : []), everySeat(format, afterEndPhase));
 
   const counts = opponents.map((seat) => `${seat} ${field[seat].length}`).join(", ");
   return defineScenario({
-    id: `book-of-eclipse-${format}-${actor}-each-opponent-flips-its-own-monsters-and-draws-for-them`,
-    title: `${labelOf(format)}: ${actor} activates Book of Eclipse (every monster turns face-down), then in its End Phase each opponent flips its OWN face-down monsters and draws that many cards (${counts}); ${tag ? "the partner and " : ""}${actor} keep${tag ? "" : "s"} the face-down monsters and draw${tag ? "" : "s"} nothing`,
-    source: `${SOURCE} [R-COMMON-EACH-PLAYER], lead decision 2026-10-01: Book of Eclipse (each opponent draws for its own face-down monsters)`,
-    rules: ["R-COMMON-EACH-PLAYER", "R-COMMON-OPP-FIELD", ...(tag ? ["R-TAG-PARTNER"] : [])],
-    tags: ["multiplayer", "book-of-eclipse", "r1", "each-opponent", "draw", "delayed", format, `actor:${actor}`, "card:35480699"],
+    id: eliminated ? "book-of-eclipse-ffa4-p0-declared-p3-eliminated-before-end-phase" : noMonsters ? "book-of-eclipse-ffa4-p0-declared-p2-has-no-monsters-no-other-opponent-flips-or-draws" : `book-of-eclipse-${format}-${actor}-${tag ? "each-opponent" : "declared-opponent"}-flips-its-own-monsters-and-draws-for-them`,
+    title: eliminated ? "FFA4: p0 activates Book of Eclipse and declares p3; p3 is eliminated before the End Phase; no seat flips or draws" : `${labelOf(format)}: ${actor} activates Book of Eclipse; all monsters turn face-down, then ${tag ? "each opposing member" : `only declared ${declared}`} flips its monsters and draws for them (${counts})`,
+    source: `${SOURCE} ${tag ? "[R-COMMON-EACH-PLAYER]" : "[R-FFA-OPP-ONE]"}, owner decision 2026-10-02: Book of Eclipse`,
+    rules: tag ? ["R-COMMON-EACH-PLAYER", "R-TAG-PARTNER", "R-COMMON-ALL-BOTH"] : ["R-FFA-OPP-ONE", "R-COMMON-ALL-BOTH"],
+    tags: ["multiplayer", "book-of-eclipse", "declared-opponent", "draw", "delayed", format, `actor:${actor}`, "card:35480699"],
     setup: setup as unknown as Scenario["setup"],
     steps,
   });
 }
 
-/**
- * The activator is NOT the turn player. p0 Sets Book of Eclipse (a Quick-Play Spell). The core gives p0 a chain window in its own End
- * Phase (declined), then another in the Draw Phase of p1 (turn 2, after the normal draw of p1): p0 activates the Set card there. The End Phase effect belongs to p0, not to the turn player: in the End Phase of p1 the opponents of p0 (p1 and p2) each flip
- * their OWN face-down monsters and draw for them, and p0 draws nothing. p1 is an opponent and the turn player: it draws its normal card at
- * the start of its turn, then 2 cards for its own monsters. p2 draws its normal card at the start of its own turn, after the End Phase.
- */
+// Off-turn activation declares p2 in p1's turn. The End Phase retains p2, even though p1 is the turn player.
 function eclipseOffTurn(): Scenario {
   const format: Format = "ffa3";
   const actor: Seat = "p0";
@@ -132,33 +130,37 @@ function eclipseOffTurn(): Scenario {
   const faceUpDefense = (seat: Seat) => Object.fromEntries(field[seat].map((card, index) => [`m${index}`, { card, pos: "def" as const }]));
   const draws = (seat: Seat, count: number) => Array.from({ length: count }, () => DECK[seat]);
 
-  // p0 ends its turn and declines the window of its End Phase; p1 makes its normal draw; Book of Eclipse is activated in the turn of p1.
+  // p0 skips its first draw; p1 draws. p0 declines its End Phase window, then activates Book in p1 turn.
   const afterActivation: Partial<Record<Seat, DuelistExpect>> = {};
   for (const seat of seats) {
     afterActivation[seat] = {
       monsters: field[seat],
       zones: faceDown(seat),
       hand: [HAND[seat], ...draws(seat, seat === "p1" ? 1 : 0)],
+      deckCount: seat === "p1" ? 19 : 20,
       grave: seat === actor ? [BOOK] : [],
     };
   }
-  // End Phase of p1: p1 flips 2 monsters and draws 2, p2 flips 3 and draws 3 (and then its normal card), p0 keeps its face-down monster.
+  // Only p2 flips and draws in the End Phase; p1 keeps both face-down monsters.
   const afterEndPhase: Partial<Record<Seat, DuelistExpect>> = {
-    p0: { monsters: field.p0, zones: faceDown("p0"), hand: [HAND.p0], grave: [BOOK] },
-    p1: { monsters: field.p1, zones: faceUpDefense("p1"), hand: [HAND.p1, ...draws("p1", 1 + 2)] },
-    p2: { monsters: field.p2, zones: faceUpDefense("p2"), hand: [HAND.p2, ...draws("p2", 3 + 1)] },
+    p0: { monsters: field.p0, zones: faceDown("p0"), hand: [HAND.p0], deckCount: 20, grave: [BOOK] },
+    p1: { monsters: field.p1, zones: faceDown("p1"), hand: [HAND.p1, ...draws("p1", 1)], deckCount: 19 },
+    p2: { monsters: field.p2, zones: faceUpDefense("p2"), hand: [HAND.p2, ...draws("p2", 3 + 1)], deckCount: 16 },
   };
   return defineScenario({
-    id: "book-of-eclipse-ffa3-p0-activates-in-the-turn-of-p1-each-opponent-flips-its-own-monsters-and-draws-for-them",
-    title: "FFA3: p0 activates its Set Book of Eclipse in the turn of p1 (every monster turns face-down), then in the End Phase of p1 the opponents of p0 (p1 and p2) each flip their OWN face-down monsters and draw that many cards (p1 2, p2 3); p0 keeps its face-down monster and draws nothing",
-    source: `${SOURCE} [R-COMMON-EACH-PLAYER], lead decision 2026-10-01: Book of Eclipse (each opponent draws for its own face-down monsters; the activator is not the turn player)`,
-    rules: ["R-COMMON-EACH-PLAYER", "R-COMMON-OPP-FIELD"],
-    tags: ["multiplayer", "book-of-eclipse", "r1", "each-opponent", "draw", "delayed", "off-turn", format, `actor:${actor}`, "card:35480699"],
+    id: "book-of-eclipse-ffa3-p0-activates-in-the-turn-of-p1-declared-opponent-flips-its-own-monsters-and-draws-for-them",
+    title: "FFA3: p0 activates Set Book of Eclipse in p1 turn, declares p2, and only p2 flips and draws in p1 End Phase",
+    source: `${SOURCE} [R-FFA-OPP-ONE], owner decision 2026-10-02: Book of Eclipse off-turn binding`,
+    rules: ["R-FFA-OPP-ONE", "R-COMMON-ALL-BOTH"],
+    tags: ["multiplayer", "book-of-eclipse", "declared-opponent", "draw", "delayed", "off-turn", format, `actor:${actor}`, "card:35480699"],
     setup: setup as unknown as Scenario["setup"],
     steps: [
       endTurn("p0"),
       pass("p0"),
       activate(BOOK, "p0"),
+      expectPrompt({ by: "p0", context: "opponent" }),
+      expectPickSeats(["p1", "p2"], "p0"),
+      pickOpponent("p2", "p0"),
       everySeat(format, afterActivation),
       endTurn("p1"),
       everySeat(format, afterEndPhase),
@@ -174,4 +176,8 @@ export const BOOK_OF_ECLIPSE_SCENARIOS: Scenario[] = [
   eclipse("tag", "p0"),
   eclipse("tag", "p1"),
   eclipseOffTurn(),
+  // Reason: an empty declared field must not send the delayed effect to a different opponent.
+  eclipse("ffa4", "p0", true),
+  // An eliminated declared opponent must never transfer the delayed result to another seat.
+  eclipse("ffa4", "p0", false, true),
 ];

@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -55,16 +55,24 @@ export interface TableCard {
   name: string;
 }
 
+// The pre-errata card is outside the current corpus. Keep its C6 geometry audit.
+// Add it to the live table only after its database row and official script are supplied.
+const TABLE_EXCLUSIONS: Record<number, string> = {
+  5043020: "Firewall Dragon (pre-errata): the corpus has no database row or official script. The live table cannot load this card.",
+};
+
 /**
  * Cards of a manifest by class, in the order compare, chooser, R1, R2, fix. A card of several classes (Evenly Matched, Pineapple
  * Blast) is listed once, in the first group. A "fix" entry has no class (a fix of one script that the scan does not flag) and is
  * listed in its own group. Mirror Gate is never listed (Q7).
  */
+
+
 export function tableCardsOf(source: Manifest): TableCard[] {
   const rows: TableCard[] = [];
   const groups: [string, TableGroup][] = [["COMPARE", "compare"], ["CHOOSER", "chooser"], ["R1", "r1"], ["R2", "r2"]];
   for (const card of source.cards) {
-    if (card.code === MIRROR_GATE) continue;
+    if (card.code === MIRROR_GATE || TABLE_EXCLUSIONS[card.code]) continue;
     const group = groups.find(([name]) => (card.classes as string[]).includes(name))?.[1] ?? (card.kind === "fix" ? "fix" : null);
     if (group) rows.push({ code: card.code, group, name: card.name || `c${card.code}` });
   }
@@ -103,6 +111,8 @@ const EXPECTED_TRAPS: Record<number, { kind: string; reason: string }[]> = {};
  * both formats unless NO_CONDITION_RUN_ONLY names the formats (the card runs its condition in the other one).
  */
 const NO_CONDITION_RUN: Record<number, string> = {
+  95376428: "Extra Net: the trigger needs a Special Summon from the Extra Deck; the generic game has no Extra Deck monster (paired-zone-triggers.ts proves the real trigger, prompts and every seat in 1v1, FFA3, FFA4 and Tag)",
+  14220547: "Branded in Central Dogmatika: its Extra Deck trigger needs a Ritual Summon by a Spell; the generic table does not make one (p3-extra-deck.ts proves the real trigger, prompts and every seat in Standard and Domain)",
   1804528: "Dark Coffin: the trigger needs this card to be face-down on the field and destroyed; no generic seat destroys a set Trap",
   12247206: "Inferno Reckless Summon: the condition needs p0 to Special Summon exactly one weak monster while an opponent has a monster; the generic driver does not play it",
   36898537: "Metaphys Horus: the triggers need a Synchro Summon of this card; the generic game has no Synchro materials",
@@ -336,13 +346,13 @@ describeWithCores("the table: classes of the manifest against the scan", stock, 
     for (const scan of scans.values()) if (scan.rules.includes("field-count-compare") && !COMPARE_FALSE_POSITIVES.includes(scan.code)) listed.add(scan.code);
     const triage = readTriage();
     for (const entry of triage ?? []) if (entry.rule.startsWith("CHOOSER")) listed.add(entry.code);
-    for (const card of manifest.cards) listed.add(card.code);
+    for (const card of manifest.cards) if (!TABLE_EXCLUSIONS[card.code]) listed.add(card.code);
     expect(overlayReadersWithoutEntry(listed, manifest, stockText)).toEqual([]);
   });
 
   it("the overlay check fails for a listed card that reads overlay materials or counters and has no entry", () => {
     // Vola-Chemicritter Methydraco reads GetOverlayGroup on a field. Without its entry the check must name it.
-    const readers = manifest.cards.filter((card) => OVERLAY_OR_COUNTER.test(stockText(card.code))).map((card) => card.code);
+    const readers = manifest.cards.filter((card) => !TABLE_EXCLUSIONS[card.code] && OVERLAY_OR_COUNTER.test(stockText(card.code))).map((card) => card.code);
     expect(readers.length).toBeGreaterThan(0);
     for (const code of readers) {
       const without = JSON.parse(JSON.stringify(manifest)) as Manifest;
@@ -361,12 +371,12 @@ describeWithCores("the table: classes of the manifest against the scan", stock, 
     const chooser = manifest.cards.filter((card) => card.classes.includes("CHOOSER") && !COMPARE_EXTRA.includes(card.code)).length;
     expect(TABLE.filter((row) => row.group === "compare")).toHaveLength(compare);
     expect(TABLE.filter((row) => row.group === "chooser")).toHaveLength(chooser);
-    // R1: an entry or a card of R1_NO_CHANGE, 92 in all. Fix entries: every entry of kind "fix" except Mirror Gate.
+    // R1: an entry or a card of R1_NO_CHANGE. Fix entries: each entry of kind "fix" except Mirror Gate.
     expect(TABLE.filter((row) => row.group === "r1")).toHaveLength(manifest.cards.filter((card) => card.classes.includes("R1")).length + R1_NO_CHANGE.length);
     expect(TABLE.filter((row) => row.group === "r1")).toHaveLength(EXPECTED_COUNTS.r1);
     const r2Entries = manifest.cards.filter((card) => card.classes.includes("R2" as CardClass)).length;
     expect(TABLE.filter((row) => row.group === "r2")).toHaveLength(r2Entries + R2_NO_CHANGE.filter((code) => !manifest.cards.some((card) => card.code === code)).length);
-    expect(TABLE.filter((row) => row.group === "fix")).toHaveLength(manifest.cards.filter((card) => card.kind === "fix" && card.classes.length === 0 && card.code !== MIRROR_GATE).length);
+    expect(TABLE.filter((row) => row.group === "fix")).toHaveLength(manifest.cards.filter((card) => card.kind === "fix" && card.classes.length === 0 && card.code !== MIRROR_GATE && !TABLE_EXCLUSIONS[card.code]).length);
     expect(codes).not.toContain(MIRROR_GATE);
     for (const [code, reason] of Object.entries(NO_CONDITION_RUN)) expect(reason, code).toBeTruthy();
   });
@@ -421,9 +431,24 @@ export function boardFor(format: DuelFormat, code: number, layout: Layout): Boar
   const extra = (type & TYPE.extra) !== 0;
   const monster = (type & TYPE.monster) !== 0;
   const p0: DuelistSetup = { hand: extra ? [...filler(2)] : [code, ...filler(2)], grave: [code], banished: [code] };
+  // Aiza needs a Special Summon. A Normal Summon does not raise this event.
+  if (format === "ffa3" && code === 63378869) p0.hand!.unshift("Monster Reborn");
   if (extra) p0.extra = [code];
+  // Keep the field copy for the event check. Extra Deck cards load before the probe.
+  // A Link Summon of that copy can use the field copy and remove its wrapped callbacks.
+  if ([30822527, 5821478, 95493471].includes(code)) p0.extra = [];
+  // These Link conditions need an event after setup. Keep the Link on the field.
+  // Foolish Burial sends a card to the Graveyard. Monster Reborn supplies a Special Summon.
+  if (code === 30822527) p0.hand!.push("Foolish Burial");
+  if (code === 5821478 || code === 95493471) {
+    p0.hand!.push("Monster Reborn");
+    p0.grave!.push("Giant Rat");
+  }
+  // Book of Taiyou flips Mecha Bunny face-up and raises its damage trigger.
+  if (format === "ffa3" && code === 10110717) p0.hand!.unshift("Book of Taiyou");
   const own: Array<CardEntry | null> = [];
   if (monster) own.push(code);
+  if (format === "ffa3" && code === 10110717) own[0] = { card: code, pos: "set" };
   if (!monster && (type & TYPE.field) !== 0) p0.field = code;
   else if (!monster) p0.spells = [{ card: code, pos: "set" }];
   own.push(...filler(layout === "ahead" ? 4 - own.length : 1));
@@ -443,6 +468,13 @@ export function boardFor(format: DuelFormat, code: number, layout: Layout): Boar
       spells: layout === "behind" ? [{ card: "Dark Hole", pos: "set" }] : [],
     };
   });
+  if (format === "ffa3" && code === 86209650) {
+    // Stray Asmodian must be destroyed by battle. Dark Hole does not meet its condition.
+    // p2 can attack on turn 3 (R-FFA-NO-ATTACK). Battle Ox has more ATK than Asmodian.
+    board.p0 = { monsters: [code], hand: [] };
+    board.p1 = { monsters: ["Battle Ox"], hand: [] };
+    board.p2 = { monsters: ["Battle Ox"], hand: [] };
+  }
   return board;
 }
 
@@ -549,6 +581,11 @@ export async function playTable(format: DuelFormat, code: number, layout: Layout
       result.turn = Math.max(result.turn, view.turn);
       if (view.result) break;
       const answers = candidatesFor(prompt, seat, actions < MAX_ACTIONS, result.steps < LIVELY_STEPS, rng, game, view.seats?.filter((entry) => !entry.eliminated).map((entry) => entry.seat));
+      if (format === "ffa3" && code === 86209650 && seat === 2 && prompt.kind === "cards") {
+        // Choose the real battle target. A random target can leave Asmodian on the field.
+        const target = prompt.options.find((option) => option.controller === 0 && option.card?.code === code);
+        if (target) answers.unshift({ selected: [target.id] });
+      }
       let accepted: DuelAnswer | null = null;
       for (const answer of answers) {
         try {
@@ -665,6 +702,15 @@ describe("the table helpers", () => {
       expect(reason, code).toBeTruthy();
     }
     for (const code of Object.keys(NO_CONDITION_RUN_ONLY)) expect(NO_CONDITION_RUN[Number(code)], `${code} has a NO_CONDITION_RUN entry`).toBeTruthy();
+  });
+
+  it("requires a corpus review if an excluded card gains a database row or an official script", () => {
+    for (const [code, reason] of Object.entries(TABLE_EXCLUSIONS)) {
+      expect(reason, code).toBeTruthy();
+      expect(inCardDatabase(Number(code)), `${reason} Review the card before table use.`).toBe(false);
+      expect(existsSync(join(stockDirectory, `c${code}.lua`)), `${reason} Review the card before table use.`).toBe(false);
+      expect(TABLE.some((row) => row.code === Number(code)), code).toBe(false);
+    }
   });
 
   it("matches a known gap by its Lua error or by its trap kind, and by nothing else", () => {

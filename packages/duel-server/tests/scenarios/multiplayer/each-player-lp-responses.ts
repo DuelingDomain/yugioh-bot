@@ -45,6 +45,7 @@ function response(format: Format, actor: 0 | 1, [code, card]: typeof CARDS[numbe
     const turns = actor === 0 ? n : n + 1;
     for (let i = 0; i < turns; i++) steps.push(endTurn(seat(i % n)));
     for (let i = 0; i < n; i++) board[seat(i)]!.hand = { count: 1 + (actor === 1 && i === 1 ? 1 : 0) + (format === "tag" && i >= 2 ? 1 : 0) };
+    // Monster Reborn reads either GY. Choose the card without an opponent declaration.
     steps.push(activate("Monster Reborn", seat(actor)), select(card), yes(seat(actor)), select("Battle Ox"), attack(card, { card: "Battle Ox", owner: seat(enemy) }, seat(actor)), yes(seat(actor)));
     board[seat(actor)]!.monsters = [card]; board[seat(actor)]!.grave = ["Monster Reborn"]; board[seat(enemy)]!.monsters = ["Silver Fang"]; board[seat(enemy)]!.grave = ["Celtic Guardian", "Battle Ox"]; delta = -1700;
   } else if (code === 7852509) {

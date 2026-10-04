@@ -54,7 +54,7 @@ export const FFA4_IDS: string[] = [
   "table-ffa3-pudica-standby-return-goes-to-the-controller-of-the-banished-monster",
   "table-ffa3-brain-jacker-only-the-owner-of-the-stolen-monster-gains-the-lp-in-its-own-standby-phase",
   "table-ffa3-summoning-curse-two-opponents-summon-at-once-both-banish",
-  "r3-ffa3-appointer-of-the-red-lotus-card-returns-at-the-end-of-the-next-opponent-turn",
+  "r3-ffa3-appointer-of-the-red-lotus-card-returns-during-the-declared-opponents-next-end-phase",
 ];
 
 /**
@@ -62,7 +62,7 @@ export const FFA4_IDS: string[] = [
  * is a legal pick that p0 does not choose. Pudica needs a Special Summoned monster, so p3 (with none) is NOT offered in the pick: the exact seat list proves it.
  */
 const OPTIONS: Record<string, FfaFourOptions> = {
-  "r3-ffa3-appointer-of-the-red-lotus-card-returns-at-the-end-of-the-next-opponent-turn": { p3: { hand: ["Giant Rat"] }, keep: { hand: ["Giant Rat"] } },
+  "r3-ffa3-appointer-of-the-red-lotus-card-returns-during-the-declared-opponents-next-end-phase": { p3: { hand: ["Giant Rat"] }, keep: { hand: ["Giant Rat"] } },
   "compare-extra-ffa3-pudica-banish-picked-opponent": { pickP3: false },
   "table-ffa3-pudica-standby-return-goes-to-the-controller-of-the-banished-monster": { pickP3: false },
 };

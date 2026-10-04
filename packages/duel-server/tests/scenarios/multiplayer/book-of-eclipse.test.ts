@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 import { seatCountFor } from "@yugidraft/shared/duels";
 import { readManifest } from "../../../scripts/generate-multi-scripts.js";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
-import { describeWithCores } from "../../support/cores.js";
+import { describeWithCores, needs } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import { BOOK_OF_ECLIPSE_SCENARIOS } from "./book-of-eclipse.js";
+import { domainProof } from "./proof-domain.js";
 
 // Live scenarios of Book of Eclipse: each opponent flips its own face-down monsters and draws for them. Same gate as the other live N-seat
 // files: NSEAT_LIVE=1 and a multi core. Run it on the Standard multi core and again on the Domain multi core (NSEAT_WASM=ocgcore.multi-domain.wasm).
@@ -13,7 +14,19 @@ describeWithCores("live scenarios of Book of Eclipse", liveNseat, () => {
   runScenarios("multiplayer/book-of-eclipse", BOOK_OF_ECLIPSE_SCENARIOS);
 });
 
+describeWithCores("live Domain scenarios of Book of Eclipse", [liveNseat, ...needs.domainMulti()], () => {
+  runScenarios("multiplayer/book-of-eclipse-domain", BOOK_OF_ECLIPSE_SCENARIOS.map((scenario) => domainProof(scenario, "Battle Ox")));
+});
+
 describe("Book of Eclipse scenario list", () => {
+  it("names the declared opponent result in every FFA proof ID", () => {
+    for (const scenario of BOOK_OF_ECLIPSE_SCENARIOS) {
+      if (scenario.setup.format === "tag") continue;
+      expect(scenario.id).not.toContain("each-opponent");
+      expect(scenario.id).toContain("declared-");
+    }
+  });
+
   it("has unique ids, a source, a multi-seat format, the rules it proves and an outcome after an action", () => {
     expect(new Set(BOOK_OF_ECLIPSE_SCENARIOS.map((s) => s.id)).size).toBe(BOOK_OF_ECLIPSE_SCENARIOS.length);
     for (const s of BOOK_OF_ECLIPSE_SCENARIOS) {

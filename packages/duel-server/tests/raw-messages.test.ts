@@ -41,3 +41,16 @@ describe("MSG_FIELD_DISABLED_N (202)", () => {
     expect(parsed.extras.map((entry) => entry.type)).toEqual([MSG_ATTACK_DUELIST, MSG_FIELD_DISABLED_N, MSG_DUELIST_ELIMINATED]);
   });
 });
+
+it("reads surrender response closure 203 in order and drops a truncated payload", () => {
+  const parsed = parseDuelistMessages(Uint8Array.from([
+    ...message(MSG_DUELIST_ELIMINATED, 0, 0),
+    ...message(203, 2),
+    ...message(40, 1),
+    ...message(203),
+  ]));
+  expect(parsed.extras).toEqual([
+    { type: MSG_DUELIST_ELIMINATED, duelist: 0, reason: 0, after: 0 },
+    { type: 203, duelist: 2, after: 0 },
+  ]);
+});

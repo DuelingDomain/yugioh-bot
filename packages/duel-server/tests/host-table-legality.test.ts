@@ -14,7 +14,7 @@ import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 
 const SECRET = "table-legality-secret";
 const DESTINY_BOARD = 94212438; // alt-win: forbidden at ffa3, ffa4 and tag
-const SWORDS = 72302403; // turn-count: forbidden at ffa3 and ffa4 only
+const SWORDS = 72302403; // legal at every table (owner 2026-10-02 night)
 const DARK_MAGICIAN = 46986414; // a legal Deck Master for the Domain tests
 const NO_BANLIST = { banlist: "none" };
 
@@ -94,11 +94,11 @@ describe("host deck check uses the real table format", () => {
     expect(t.duels.get(t.who.slug, "g1").seats[0]!.ready).toBe(false);
   });
 
-  it.each(["ffa3", "ffa4"] as const)("refuses Swords of Revealing Light at %s", async (format) => {
+  it.each(["ffa3", "ffa4"] as const)("accepts Swords of Revealing Light at %s", async (format) => {
     const t = room(format);
     const result = await t.post({ op: "deck", deck: deckWith("normal", SWORDS) });
-    expect(result.status).toBe(400);
-    expect(result.data.error).toMatch(/^Swords of Revealing Light is forbidden in /);
+    expect(result.status).toBe(200);
+    expect(t.duels.get(t.who.slug, "g1").seats[0]!.ready).toBe(true);
   });
 
   it("accepts Swords of Revealing Light at Tag (the list names only the FFA tables)", async () => {

@@ -286,9 +286,9 @@ test.describe("FFA3 elimination, Domain and UI rule gaps", () => {
     await recordElimination(page, slug, info, "living-dust-tornado-control");
   });
 
-  for (const adr of [false, true]) {
+  for (const adr of [true]) {
     test(adr
-      ? "R-FFA-ELIMINATION: a flagged duelist keeps its cards and continuous effects until the open chain ends"
+      ? "R-COMMON-SURRENDER-EOT: a surrender keeps cards until its open Dust Tornado link resolves"
       : "current engine: another chain link eliminates the surrendered seat early, and its Dust Tornado has no effect", async ({ player }, info) => {
       const { page } = await player("p1");
       const slug = await startTablePreset(page, "ffa3-elimination-pending-chain");
@@ -308,32 +308,22 @@ test.describe("FFA3 elimination, Domain and UI rule gaps", () => {
       // Seat 2's new link holds a human response window. Capture the engine's actual state
       // here: the ADR requires a pending loss, with cards and continuous effects still present.
       await recordElimination(page, slug, info, "surrender-state-with-three-links-open");
-      if (!adr) {
-        await expectOut(page, 1);
-        await expect(page.getByRole("list", { name: "Current chain" }).getByRole("listitem")).toHaveCount(3);
-      }
       await declineUntil(page, slug, (view) => view.chain.length === 0 && view.seats[1]!.eliminated === true);
       const after = (await readTable(page, slug)).engine!;
-      expect(cardNames(after, 0, "spells")).toEqual(["Burden of the Mighty", "Jar of Greed"]);
+      expect(cardNames(after, 0, "spells")).toEqual(["Jar of Greed"]);
       expect(after.seats[0]!.hand).toHaveLength(2);
-      expect(cardNames(after, 0, "graveyard")).toEqual(["Pot of Greed"]);
+      expect(cardNames(after, 0, "graveyard")).toEqual(["Burden of the Mighty", "Pot of Greed"]);
       expect(after.seats[0]!.monsters.find(Boolean)).toMatchObject({ name: "Gemini Elf", attack: 1900 });
       await expectOut(page, 1);
-      await expect(spells(page, 0)).toHaveCount(2);
+      await expect(spells(page, 0)).toHaveCount(1);
       await recordElimination(page, slug, info, "flagged-link-no-effect");
       if (adr) {
-        test.fail(true, "R-FFA-ELIMINATION pending engine change: a flagged seat's cards and ongoing effects stay until the chain ends");
         expect({
           pending: flagged.seats[1]!.pendingElimination === true,
           eliminated: flagged.seats[1]!.eliminated === true,
           monsters: cardNames(flagged, 1, "monsters"),
           survivorAttack: flagged.seats[0]!.monsters.find(Boolean)!.attack,
         }).toEqual({ pending: true, eliminated: false, monsters: ["Gemini Elf"], survivorAttack: 1500 });
-      } else {
-        expect(flagged.seats[1]!.pendingElimination).not.toBe(true);
-        expect(flagged.seats[1]!.eliminated).toBe(true);
-        expect(cardNames(flagged, 1, "monsters")).toEqual([]);
-        expect(flagged.seats[0]!.monsters.find(Boolean)).toMatchObject({ name: "Gemini Elf", attack: 1900 });
       }
     });
   }

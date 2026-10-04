@@ -1,0 +1,172 @@
+From 27107d243fbfcf26259ecd1b5a24765281361522 Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] Return foreign cards to living owners on FFA elimination
+
+---
+ card.cpp      |  5 +++
+ field.cpp     | 88 ++++++++++++++++++++++++++++++++++++++++++++++++---
+ processor.cpp |  3 ++
+ 3 files changed, 92 insertions(+), 4 deletions(-)
+
+diff --git a/card.cpp b/card.cpp
+index ab310a4..378a031 100644
+--- a/card.cpp
++++ b/card.cpp
+@@ -2109,6 +2109,11 @@ void card::refresh_disable_status() {
+ }
+ std::pair<uint8_t, effect*> card::refresh_control_status() {
+ 	uint8_t final = owner;
++	const auto& f = *pduel->game_field;
++	// The FFA elimination exception gives a surviving token no lost-owner destination.
++	if(f.n_duelists > 2 && f.n_teams == f.n_duelists && (data.type & TYPE_TOKEN)
++		&& current.location == LOCATION_MZONE && f.is_alive(current.controler) && !f.is_alive(owner))
++		final = current.controler;
+ 	effect* ceffect = nullptr;
+ 	uint32_t last_id = 0;
+ 	if(pduel->game_field->core.remove_brainwashing && is_affected_by_effect(EFFECT_REMOVE_BRAINWASHING))
+diff --git a/field.cpp b/field.cpp
+index 6890976..1a43603 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -174,18 +174,28 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 				core.attack_rollback = true;
+ 		}
+ 	}
+-	// 5. Cards. A card p owns leaves the game. A card p controls and does not own goes to its owner's Graveyard.
++	// 5. In FFA, foreign cards return to their owner's zones. Tag keeps the existing loss rule.
++	const bool return_owned_zones = n_duelists > 2 && n_teams == n_duelists;
+ 	auto gone = [p](card* pcard) { return pcard->owner == p || pcard->current.controler == p; };
+ 	std::vector<card*> removed;            // cards that leave the game, in the fixed order (not Xyz materials)
+ 	std::vector<card*> removed_mats;       // Xyz materials that p owns, each before its Xyz monster in the message
+ 	std::vector<std::pair<card*, card*>> foreign_mats; // (material, Xyz monster) for materials of others under p's Xyz
+ 	std::vector<card*> order;              // what goes into MSG_REMOVE_CARDS: materials first, then the card
+ 	card_set to_grave, equipings;
++	std::vector<card*> to_return;
+ 	auto take = [&](card* pcard) {
+-		if(pcard->owner == p)
++		if(pcard->owner == p) {
++			// Tokens owned by the loser on a living field stay in play.
++			if(return_owned_zones && (pcard->data.type & TYPE_TOKEN)
++				&& pcard->current.controler != p && is_alive(pcard->current.controler))
++				return;
+ 			removed.push_back(pcard);
+-		else if(pcard->current.controler == p && is_alive(pcard->owner))
+-			to_grave.insert(pcard);
++		} else if(pcard->current.controler == p && is_alive(pcard->owner)) {
++			if(return_owned_zones)
++				to_return.push_back(pcard);
++			else
++				to_grave.insert(pcard);
++		}
+ 	};
+ 	for(uint8_t q = 0; q < n_duelists; ++q) {
+ 		for(auto* zone : { &player[q].list_mzone, &player[q].list_szone }) {
+@@ -214,6 +224,14 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 		const std::vector<card*> equips(pcard->equiping_cards.begin(), pcard->equiping_cards.end());
+ 		for(auto& equipc : equips) {
+ 			equipc->unequip();
++			if(return_owned_zones && equipc->current.location == LOCATION_SZONE
++				&& equipc->owner != p && is_alive(equipc->owner)) {
++				const auto returning = std::find(to_return.begin(), to_return.end(), equipc);
++				if(returning != to_return.end()) {
++					to_return.erase(returning);
++					equipings.insert(equipc);
++				}
++			}
+ 			if(equipc->current.location == LOCATION_SZONE && !gone(equipc))
+ 				equipings.insert(equipc);
+ 		}
+@@ -248,6 +266,10 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 	}
+ 	send_remove_cards(pduel, locs);
+ 	for(auto& pcard : order) {
++		// A removed card cannot leave again when SolveChain clears activated cards.
++		// This function only runs at n > 2; keep the stock two-seat chain cleanup.
++		core.leave_confirmed.erase(pcard);
++		pcard->set_status(STATUS_LEAVE_CONFIRMED, FALSE);
+ 		if(pcard->overlay_target)
+ 			pcard->overlay_target->xyz_remove(pcard);
+ 		else {
+@@ -273,6 +295,64 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 				peffect->handler->remove_effect(peffect);
+ 		}
+ 	}
++	if(return_owned_zones)
++		refresh_location_info_instant(); // loser-owned zone locks have left the field
++	// Rule returns are synchronous: reserve a zone as each card returns, and keep equips/materials
++	// attached when their monster stays on the field. No effect, immunity or control lock prevents a rule return.
++	for(auto* pcard : to_return) {
++		const auto location = pcard->current.location;
++		const auto position = pcard->current.position;
++		const auto pzone = pcard->current.pzone;
++		uint8_t sequence = pcard->current.sequence;
++		if(location & LOCATION_ONFIELD) {
++			const auto usable = [&](uint8_t seq) {
++				return is_location_useable(pcard->owner, location, seq);
++			};
++			if(!usable(sequence)) {
++				sequence = 0xff;
++				// Main zones stay main zones. Field and Pendulum Zones keep their zone kind.
++				const uint8_t end = pzone ? 8 : (location == LOCATION_MZONE && pcard->current.sequence >= 5 ? 7 : 5);
++				for(uint8_t seq = 0; seq < end; ++seq) {
++					if(location == LOCATION_SZONE && pcard->current.sequence == 5)
++						break;
++					if(pzone && seq != get_pzone_index(0, pcard->owner) && seq != get_pzone_index(1, pcard->owner))
++						continue;
++					if(usable(seq)) { sequence = seq; break; }
++				}
++			}
++			if(sequence == 0xff) {
++				to_grave.insert(pcard);
++				continue;
++			}
++			if(pcard->unique_code)
++				remove_unique_card(pcard);
++			pcard->cancel_field_effect();
++			pcard->reset(RESET_CONTROL, RESET_EVENT);
++		}
++		auto message = pduel->new_message(MSG_MOVE);
++		message->write<uint32_t>(pcard->data.code);
++		message->write(pcard->get_info_location());
++		pcard->current.reason = REASON_RULE;
++		pcard->current.reason_effect = nullptr;
++		pcard->current.reason_player = DUELIST_NONE;
++		if(location & LOCATION_ONFIELD) {
++			move_card(pcard->owner, pcard, location, sequence, pzone);
++			pcard->apply_field_effect();
++			pcard->set_status(STATUS_ATTACK_CANCELED, TRUE);
++			if(pcard->unique_code)
++				add_unique_card(pcard);
++		} else {
++			// move_card's same-GY/same-banishment path only sorts the current pile.
++			// Remove and add explicitly so the destination is the owner, also in these locations.
++			remove_card(pcard);
++			if(location == LOCATION_EXTRA)
++				pcard->sendto_param.position = position;
++			add_card(pcard->owner, pcard, location, location == LOCATION_DECK ? 2 : 0, pzone);
++		}
++		pcard->current.position = position;
++		message->write(pcard->get_info_location());
++		message->write<uint32_t>(REASON_RULE);
++	}
+ 	// Equip cards of others that lost their target, and cards p controls but does not own.
+ 	if(equipings.size())
+ 		destroy(std::move(equipings), nullptr, REASON_RULE + REASON_LOST_TARGET, DUELIST_NONE);
+diff --git a/processor.cpp b/processor.cpp
+index 7bd6d6c..2fcbd85 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -5428,6 +5428,9 @@ bool field::process(Processors::Adjust& arg) {
+ 							if(!peffect->condition)
+ 								peffect->handler->remove_effect(peffect);
+ 						}
++						// A token that survived FFA elimination stays with a living controller.
++						if(n_duelists > 2 && n_teams == n_duelists && (pcard->data.type & TYPE_TOKEN) && !is_alive(pcard->owner))
++							continue;
+ 						if(p != pcard->owner && pcard->is_capable_change_control()) {
+ 							core.control_adjust_set[p].insert(pcard);
+ 							if(n_duelists > 2) {
+-- 
+2.43.0
+

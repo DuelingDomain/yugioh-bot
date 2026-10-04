@@ -1,5 +1,5 @@
 if not aux.MPKey then return end
--- Keep the real sides of the LP compare. The global value has no folded player scope.
+-- A global protection condition needs one living opponent with more LP.
 local mp_eqtg=s.eqtg
 local function mp_target(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
 	local result=mp_eqtg(e,tp,eg,ep,ev,re,r,rp,chk,chkc)
@@ -9,6 +9,11 @@ end
 s.eqtg=Duel.MPMode()==1 and aux.MPTarget(mp_target) or mp_target
 function s.effectfilter(e,ct)
 	local te=Duel.GetChainInfo(ct,CHAININFO_TRIGGERING_EFFECT)
-	local code,own,opponent=te:GetLabel()
-	return code==id and own~=nil and opponent~=nil and Duel.GetLP(own)<Duel.GetLP(opponent)
+	local code,own=te:GetLabel()
+	if code~=id or own==nil then return false end
+	local lp=Duel.GetLP(own)
+	for seat=0,3 do
+		if Duel.MPIsAlive(seat) and aux.MPKeyOfSeat(seat)~=own and lp<Duel.GetLP(seat) then return true end
+	end
+	return false
 end

@@ -188,7 +188,8 @@ static Result play(const Scenario& sc, uint32_t seed) {
 		if(std::getenv("CHECK_TRACE"))
 			std::fprintf(stderr, "step %d turn %d phase %x prompt %u\n", steps, F(d).infos.turn_id, F(d).infos.phase, static_cast<unsigned>(last.id));
 		const int turn = F(d).infos.turn_id;
-		const uint8_t first_attack = static_cast<uint8_t>(F(d).first_attack_turn);
+		const uint8_t first_attack = F(d).n_duelists > 2 && F(d).n_teams == F(d).n_duelists
+			? F(d).n_duelists : static_cast<uint8_t>(F(d).first_attack_turn);
 		auto respond = [&](int32_t v) { OCG_DuelSetResponse(d, &v, sizeof(v)); };
 		switch(last.id) {
 		case MSG_SELECT_IDLECMD: {
@@ -361,7 +362,7 @@ static uint8_t seat_of_turn(int n, int turn) { return static_cast<uint8_t>((turn
 
 static void check_battle() {
 	const uint64_t opt1 = 0xFFFF0000ull | 1, opt2 = 0xFFFF0000ull | 2, opt3 = 0xFFFF0000ull | 3, opt0 = 0xFFFF0000ull;
-	// FFA3: the first attack is on turn 4, played by seat 0.
+	// Seat 0 first attacks on turn 4. Seat 2 can battle on turn 3.
 	{
 		Scenario s{"ffa3 both opponents have monsters -> seat 2's", 3, {0, 1, 2}, true, {{0, 3}, {1, 4}, {2, 4}}, 1, -1, true};
 		// The list is sorted by card order: seat 1's monster, then seat 2's (both zone 0).
@@ -421,10 +422,10 @@ static void check_battle() {
 		auto r = play(s, 21);
 		verify(s, r, {2, {0, 2}, false, {}, -1, 0, 1500});
 	}
-	// No Battle Phase before first_attack_turn.
+	// R-FFA-NO-ATTACK: the last living seat has the first Battle Phase.
 	struct Early { const char* name; int n; std::vector<int> team; int first; };
 	const Early early[] = {
-		{"ffa3", 3, {0, 1, 2}, 4}, {"ffa4", 4, {0, 1, 2, 3}, 5}, {"tag", 4, {0, 1, 0, 1}, 4},
+		{"ffa3", 3, {0, 1, 2}, 3}, {"ffa4", 4, {0, 1, 2, 3}, 4}, {"tag", 4, {0, 1, 0, 1}, 4},
 	};
 	for(const auto& e : early) {
 		const uint8_t who = seat_of_turn(e.n, e.first);

@@ -5,15 +5,15 @@
 // Every scenario asserts the state of EVERY seat that the rule touches: p1 and p2 hold a monster that must stay. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
 import {
-  activate, choose, defineScenario, endTurn, expectBoard, expectLp, expectPickSeats, normalSummon, pickOpponent, select, yes,
+  activate, choose, endTurn, expectBoard, expectLp, expectPickSeats, normalSummon, pickOpponent, select, yes,
   type Scenario,
 } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 const SKULL = "Summoned Skull";
-const Q8 = `${SOURCE} [R-COMMON-OPP-FIELD], answers to the ten triage questions, 8 (Tribute of an opponent monster)`;
-const NO_WRAPPER = `${SOURCE} [R-COMMON-OPP-FIELD], the other cards use the defaults`;
-const OWNER_LP = `${SOURCE} [R-COMMON-OPP-FIELD], finding s2-duelstyle-swap-1: Snatch Steal gives the LP to the owner of the stolen monster, in the Standby Phase of that owner`;
+const Q8 = `${SOURCE} [R-FFA-OPP-ONE], answers to the ten triage questions, 8 (Tribute of an opponent monster)`;
+const OWNER_LP = `${SOURCE}, finding s2-duelstyle-swap-1: Snatch Steal gives the LP to the owner of the stolen monster, in the Standby Phase of that owner`;
 const SUMMON = `${SOURCE} [R-COMMON-OPP-PICK], a summon to the field of an opponent: the summoning player picks one opponent`;
 
 export const DUEL_STYLE_FFA4_SCENARIOS: Scenario[] = [
@@ -21,7 +21,7 @@ export const DUEL_STYLE_FFA4_SCENARIOS: Scenario[] = [
     id: "tribute-soul-exchange-ffa4-tributes-a-monster-of-the-last-opponent",
     title: "FFA4: Soul Exchange targets a monster of the third opponent p3 and a Tribute Summon uses it, p1 and p2 keep all",
     source: Q8,
-    rules: ["R-COMMON-OPP-FIELD"],
+    rules: ["R-FFA-OPP-ONE"],
     tags: ["multiplayer", "tribute", "ffa4", "card:68005187"],
     setup: {
       format: "ffa4",
@@ -32,7 +32,8 @@ export const DUEL_STYLE_FFA4_SCENARIOS: Scenario[] = [
     },
     steps: [
       activate("Soul Exchange", "p0"),
-      select({ card: ELF, owner: "p3" }),
+      // R-FFA-OPP-ONE: the bound field has one target, which the engine selects.
+      pickOpponent("p3", "p0"),
       normalSummon(SKULL, "p0"),
       select({ card: ELF, owner: "p3" }),
       expectBoard({
@@ -46,8 +47,11 @@ export const DUEL_STYLE_FFA4_SCENARIOS: Scenario[] = [
   defineScenario({
     id: "no-wrapper-snatch-steal-ffa4-takes-a-monster-of-the-last-opponent",
     title: "FFA4: Snatch Steal equips a monster of the third opponent p3 and takes control of it, p1 and p2 keep all",
-    source: NO_WRAPPER,
-    rules: ["R-COMMON-OPP-FIELD"],
+    source: `${SOURCE} [R-COMMON-SEP-FIELDS], Snatch Steal control change without an opponent declaration`,
+    // This row proves the control change only. It has no opponent declaration.
+    // Add R-FFA-OPP-ONE only when a pick step proves the declaration order.
+    // equip-filter-pick (triage brief 02) owns the declaration-order change.
+    rules: ["R-COMMON-SEP-FIELDS"],
     tags: ["multiplayer", "no-wrapper", "equip", "steal", "ffa4", "card:45986603"],
     setup: {
       format: "ffa4",
@@ -71,7 +75,10 @@ export const DUEL_STYLE_FFA4_SCENARIOS: Scenario[] = [
     id: "owner-lp-snatch-steal-ffa4-only-the-owner-gains-the-lp-in-its-own-standby-phase",
     title: "FFA4: the 1000 LP of Snatch Steal go to the owner of the stolen monster (p3) in its own Standby Phase, with no pick, and to nobody else",
     source: OWNER_LP,
-    rules: ["R-COMMON-OPP-FIELD", "R-FFA-ORDER"],
+    // This row proves owner LP only. It has no opponent declaration.
+    // Add R-FFA-OPP-ONE only when a pick step proves the declaration order.
+    // equip-filter-pick (triage brief 02) owns the declaration-order change.
+    rules: ["R-FFA-ORDER"],
     tags: ["multiplayer", "equip", "steal", "lp", "ffa4", "card:45986603"],
     setup: {
       format: "ffa4",
@@ -110,7 +117,7 @@ export const DUEL_STYLE_FFA4_SCENARIOS: Scenario[] = [
     source: SUMMON,
     rules: ["R-COMMON-OPP-PICK"],
     tags: ["multiplayer", "opponent-field-summon", "yes-no", "token", "ffa4", "card:11654067"],
-    setup: { format: "ffa4", p0: { hand: ["Fire Ejection"], deck: ["Volcanic Rat"] } },
+    setup: { format: "ffa4", p0: { hand: ["Fire Ejection"], deck: [ELF, "Volcanic Rat"] } },
     steps: [
       activate("Fire Ejection", "p0"),
       expectPickSeats(["p1", "p2", "p3"], "p0"),

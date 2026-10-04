@@ -56,12 +56,12 @@ test.describe("Tag surrender and spectators", () => {
       const response = alice.page.waitForResponse((reply) => reply.url().endsWith(`/api/duels/${slug}/surrender`) && reply.request().method() === "POST");
       await surrender(alice.page);
       expect((await response).ok()).toBe(true);
-      // No queue and no elimination: the engine holds a result at once, with team 1 as the winner.
+      // The team loss and result land at once, with team 1 as the winner.
       const after = await readTable(alice.page, slug);
       expect(after.engine!.result).toMatchObject({ winnerTeam: 1 });
       expect(after.session.status).toBe("completed");
-      // Nobody is eliminated; the whole team loses together.
-      for (const seat of after.engine!.seats) expect(seat.eliminated).toBe(false);
+      // The surrendered team is eliminated together; both opponents remain in play.
+      expect(after.engine!.seats.map(seat => seat.eliminated)).toEqual([true, false, true, false]);
     });
 
     await test.step("the result screen shows the winning team", async () => {

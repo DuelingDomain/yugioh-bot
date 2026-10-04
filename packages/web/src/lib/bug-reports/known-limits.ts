@@ -20,16 +20,6 @@ export type PublicKnownLimit = Pick<KnownLimit, "id" | "title" | "explanation">;
 
 export const KNOWN_LIMITS: readonly KnownLimit[] = [
   {
-    // Remove this entry when immediate FFA surrender ships (the owner decided on 2026-10-03: no queue, the open chain
-    // resolves, then the player is out). Until then the text below is true. After that it would tell players a wrong thing.
-    id: "ffa-surrender-end-of-turn",
-    title: "Surrender in a 3-way or 4-way duel waits until the end of the turn",
-    explanation:
-      "A player who surrenders in a 3-player or 4-player duel leaves at the end of the turn, not at once. A new rule that removes the player right away is coming.",
-    patterns: [/\b(surrender|surrendered|surrenders|surrendering|concede|conceded|forfeit|forfeited|gave up|give up)\b/i],
-    formats: ["ffa3", "ffa4"],
-  },
-  {
     id: "eliminated-card-wrong-graveyard",
     title: "A card of an eliminated player in an open chain can go to the wrong Graveyard",
     explanation:

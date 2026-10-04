@@ -1,10 +1,10 @@
+import { runScenarios } from "../../support/runner.js";
 import { createEngineGame } from "../../../src/engine.js";
 import { resolveCard } from "../../support/card-catalog.js";
 import { compileBoard } from "../../support/board.js";
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { describeWithCores } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
-import { runScenarios } from "../../support/runner.js";
 import { Session, nseatWasmBinary } from "../../support/session.js";
 import { expectPrompt, type DuelistId } from "../../support/dsl.js";
 import { GRASS_DECK_COUNTS_SCENARIOS, GRASS_TAG_DECLARED_DECK_SCENARIOS } from "./grass-deck-counts.js";

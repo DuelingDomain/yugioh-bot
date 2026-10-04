@@ -1,18 +1,42 @@
 import { readFileSync } from "node:fs";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { playDuel } from "./fuzz-n/driver.js";
 import { currentDomainMultiWasm, describeWithCores, needs } from "./support/cores.js";
 import { liveNseat } from "./support/live-nseat.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
 
-// Tag seed 60: Borreload Liberator Dragon targets the partner's Metaion, which
-// cannot be destroyed. Its chain count resets after each chain. The action is
-// legal and has no result. Repeating it is a driver loop; two passes advance
-// the phase. NChecker reads every seat and spectator after every real answer.
-// The seed fixes this game only without the Domain first-turn draw: a draw
-// changes the Deck order and the seed no longer reaches the loop. Pin the flag.
+// Fix the board input, because a generated deck can change with the card pool.
+// The driver and checker still use the real Domain core and read every view.
+const fixture = await vi.hoisted(async () => {
+  const { compileBoard } = await import("./support/board.js");
+  const { TAG_CHAIN_STALL_BOARD } = await import("./fixtures/tag-chain-stall-board.js");
+  const { options } = compileBoard(TAG_CHAIN_STALL_BOARD);
+  options.startupScripts![0]!.content += `
+Duel.GetFieldGroup(0,LOCATION_GRAVE,0):Filter(Card.IsCode,nil,27096833):GetFirst():CompleteProcedure()
+`;
+  return options;
+});
+vi.mock("./fuzz-n/decks.js", () => ({
+  buildSeatDecks: () => ({ decks: fixture.decks, disjoint: false, notes: ["Fixed optional-chain board"] }),
+}));
+vi.mock("../src/engine.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/engine.js")>();
+  return { ...actual, createEngineGame: (options: Parameters<typeof actual.createEngineGame>[0]) =>
+    actual.createEngineGame({ ...options, ...fixture }) };
+});
+vi.mock("./fuzz/answers.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./fuzz/answers.js")>();
+  return { ...actual, planAnswer: (...args: Parameters<typeof actual.planAnswer>) => {
+    const [prompt] = args;
+    const effect = prompt.context?.type === "chain" && prompt.options.find((option) => option.card?.code === 27096833);
+    return effect
+      ? { candidates: [{ choice: effect.id }], exact: true, note: "Repeat Liberator's optional effect" }
+      : actual.planAnswer(...args);
+  } };
+});
+
 describeWithCores("Domain fuzz can leave an optional chain loop", [liveNseat, ...needs.domainMulti()], () => {
-  it("Tag seed 60 reaches a result after repeated effects with no result", async () => {
+  it("Tag Liberator/Metaion board leaves the optional-chain loop and reaches a result", async () => {
     const bytes = readFileSync(currentDomainMultiWasm());
     const previousNow = Date.now;
     Date.now = () => Date.UTC(2026, 0, 1);

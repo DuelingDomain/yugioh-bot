@@ -34,8 +34,9 @@ function redEyesExceed(format: Format): Scenario {
       ...turnsBefore(format, holder),
       expectNotOffered("specialSummon", EXCEED, holder),
       activate(WIZARD, holder),
-      zone(holder, "s0", holder),
+      // Declare the FFA opponent at activation, before the zone choice.
       ...(format !== "tag" ? [pickOpponent("p0", holder)] : []),
+      zone(holder, "s0", holder),
       choose("Tails", holder),
       expectOffered("specialSummon", EXCEED, holder),
       specialSummon(EXCEED, holder),

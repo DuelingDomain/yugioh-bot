@@ -118,6 +118,7 @@ export type Step =
   | { op: "surrender"; seat: DuelistId; reason?: number }
   | { op: "choose"; match: string; by?: DuelistId }
   | { op: "select"; sels: CardSel[]; by?: DuelistId }
+  | { op: "selectCardAt"; owner: DuelistId; zone: Zone; by?: DuelistId }
   | { op: "auto"; by?: DuelistId }
   | { op: "zone"; owner: DuelistId; zone: Zone; by?: DuelistId }
   | { op: "position"; pos: "atk" | "def" | "set"; by?: DuelistId }
@@ -169,16 +170,15 @@ export const endTurn = (by?: DuelistId): Step => ({ op: "phase", to: "end", by }
 export const pass = (by?: DuelistId): Step => ({ op: "pass", by });
 
 /**
- * The seat gives up (FFA surrender): `game.eliminate` runs `Debug.EliminateDuelist`. The core applies the loss at its next Adjust, so
- * with a prompt open for another seat that prompt stays open (the engine does not answer it) and the loss lands after that seat
- * answers. A prompt of the seat that gives up is answered by the engine. A routine zone or position prompt stays open for this step.
- * Works at any time, no prompt is needed.
+ * FFA surrender uses Debug.SurrenderDuelist. With no chain, the seat leaves immediately. With an open chain, all
+ * links resolve normally before the seat leaves. The engine answers the leaver's prompts. Living choices stay open;
+ * an optional response to the departed turn player closes, while a response involving only living players stays open.
+ * Requires the immediate-surrender core. Use while the duel has an open prompt.
  */
 export const surrender = (seat: DuelistId): Step => ({ op: "surrender", seat });
 /**
- * Eliminate a duelist with a win-reason code (`Debug.EliminateDuelist(seat, reason)`). Same engine call and the same timing as
- * `surrender`, which is `eliminate(seat, 0)`. Use it for a loss that is not a surrender, or between two other steps of a chain
- * (the loss lands at the next Adjust, see `surrender`). Fails when the engine refuses: the seat is already out, or the duel has two seats.
+ * Reason 0 is surrender and uses Debug.SurrenderDuelist with the timing above. A nonzero reason uses
+ * Debug.EliminateDuelist and lands at the next safe Adjust. Fails if the seat is out or the duel has only two seats.
  */
 export const eliminate = (seat: DuelistId, reason = 0): Step => ({ op: "surrender", seat, reason });
 
@@ -187,6 +187,8 @@ export const eliminate = (seat: DuelistId, reason = 0): Step => ({ op: "surrende
 export const choose = (match: string, by?: DuelistId): Step => ({ op: "choose", match, by });
 /** Answer a card-selection prompt (cards, tributes, materials). */
 export const select = (...sels: CardSel[]): Step => ({ op: "select", sels });
+/** Select an existing field card by public coordinates, including an opponent's face-down card. */
+export const selectCardAt = (owner: DuelistId, zone: Zone, by?: DuelistId): Step => ({ op: "selectCardAt", owner, zone, by });
 /** Answer a selection prompt with the first legal options. */
 export const auto = (by?: DuelistId): Step => ({ op: "auto", by });
 export const zone = (owner: DuelistId, z: Zone, by?: DuelistId): Step => ({ op: "zone", owner, zone: z, by });

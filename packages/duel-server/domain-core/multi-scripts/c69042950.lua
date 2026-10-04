@@ -21,3 +21,16 @@ function s.activate(e,tp,eg,ep,ev,re,r,rp)
 	end)
 	Duel.SpecialSummonComplete()
 end
+
+-- An opponent's level is an eligibility check for this each-player action.
+local mp_road_target=s.target
+function s.target(e,tp,eg,ep,ev,re,r,rp,chk)
+ if Duel.MPMode()~=1 or chk~=0 then return mp_road_target(e,tp,eg,ep,ev,re,r,rp,chk) end
+ for i=1,Duel.MPOppCount() do
+  Duel.MPWindow(i)
+  local ok=mp_road_target(e,tp,eg,ep,ev,re,r,rp,chk)
+  Duel.MPWindowEnd()
+  if ok then return true end
+ end
+ return false
+end

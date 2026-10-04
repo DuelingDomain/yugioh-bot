@@ -34,8 +34,8 @@ a result ends the duel; continuing FFA elimination removes real cards.
 | Elimination removes all owned cards, stolen cards, and ongoing effects | Remove the lost seat's master too; no residual zone | Loss applies to both team members and ends the duel | PASS: real FFA zones, stolen masters, dead chain links; final Tag board stays frozen |
 | A pending loser has no new chain effect; simultaneous losses are applied together | Survivors continue; last survivor wins; no survivors draw | One surviving team wins; both teams lost draw | PASS: open response windows, loss sets, deck-out, and final results |
 | LP, damage, and recovery use the correct seat | Separate 8000 LP by default | Two shared 16000 LP pools by default | PASS: battle, direct attack, damage effects, and recovery |
-| Turns skip eliminated seats; only the first duelist skips its first draw | Clockwise; no battle until all living seats had a turn | 0,1,2,3; battle starts on turn 4 | PASS: every first turn and loss before a first turn |
-| Opponent field effects include all opponents; compare effects pick one in FFA | Master on field counts for its controller | Compare joined team fields; partner is not an opponent | PASS: Raigeki, Cyber Dragon, Pineapple Blast, and battle |
+| Turns skip eliminated seats; first draw follows duel mode and Master Rule | Clockwise; the last living duelist in the first round has the first Battle Phase | 0,1,2,3; first Battle Phase is turn 4; first draw follows duel mode and Master Rule | First draw: follow the final evening owner answer. First Battle Phase: requires C2 integration. |
+| Activated effects on "your opponent" declare one opponent in FFA; continuous effects apply to all eligible opponents | A master on the field counts for its controller | Field comparisons use the opposing team; the partner is not an opponent | The one-opponent field proofs require C3 integration. |
 | Domain does not change Standard or 1v1 rules | N-seat changes require n > 2 | Same | PASS: guarded patches, Standard raw regressions, seven two-seat Domain controls, five driver comparisons |
 
 The owner decision of 2026-10-02 replaces the first-draw rule in the table above.
@@ -124,8 +124,8 @@ pass, and every board check includes all four seats.
 
 Three pending-loss chain view cases pass on P61. FFA preserves the response window
 of a living seat. The lost seat's Dust Tornado has no effect, Pot of Greed
-finishes, and the lost master's reported zone is removed. In Tag, the living
-partner keeps its response window until the loss is applied. The team result
+finishes, and the lost master's reported zone is removed. In Tag, p2, the living partner of the turn player p0,
+keeps its response window until the loss is applied. The team result
 then ends the duel, with the unfinished chain and final board preserved.
 Two direct core checks found a hidden P61 defect after the FFA chain cases:
 Dust Tornado returned to the lost owner's Graveyard. Elimination removed the

@@ -1,13 +1,14 @@
 // Live scenarios of the cards whose EFFECT Special Summons a card or tokens to the field of an opponent (OPPONENT_FIELD_EFFECT_SUMMON in
 // src/banlists/multiplayer.ts). One table row per card; the generator makes one scenario per format (FFA3, FFA4, Tag) from the row.
-// Rule (ADR 0002, Q5): the summoning player picks ONE opponent, the card or the tokens go to the field of that opponent only. In Tag the
-// pick is between the opposing members and the partner is never offered.
+// Rules (ADR 0002): an activated effect declares one legal opponent (R-FFA-OPP-ONE); a trigger or response can bind the opponent that caused
+// it (R-FFA-OPP-RESPONSE). In Tag a pick offers opposing members only; the partner is never offered.
 // Layout of a scenario: FFA3 p0 acts, p1 and p2 are the opponents, p2 is picked (not the first seat, so a default of the core fails).
 // FFA4: p1, p2, p3 are the opponents, p3 is picked. Tag: p1 and p3 are the opposing members, p3 is picked, p2 is the partner.
 // Every scenario ends with the state of every seat (everySeat). Plain data, also read by scripts/rule-coverage.ts; opponent-field-effects.test.ts
 // runs them on a live core (NSEAT_LIVE=1).
 
-import { defineScenario, expectPickSeats, pickOpponent, type CardEntry, type DuelistExpect, type DuelistSetup, type Scenario, type Step } from "../../support/dsl.js";
+import { activate, no, select, expectPickSeats, pickOpponent, type CardEntry, type DuelistExpect, type DuelistSetup, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { everySeat } from "./table-cards.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
@@ -66,13 +67,17 @@ export interface EffectSpec {
   /** Setup of single seats instead of `opp`, `tgt` and `partner` (seat names of the format). */
   seats?: Partial<Record<Seat, DuelistSetup>>;
   /** End state of single seats instead of the derived one. */
-  seatEnd?: Partial<Record<Seat, Zones>>;
+  seatEnd?: Partial<Record<Seat, Zones>> | ((roles: Roles) => Partial<Record<Seat, Zones>>);
   /** The steps up to the opponent pick. They receive the roles of the format. */
   steps: Step[] | ((roles: Roles) => Step[]);
   /** The steps after the pick, for example the answer of a yes/no prompt. */
   then?: Step[] | ((roles: Roles) => Step[]);
-  /** The pick is not asked (one legal opponent only) and the scenario has no pick step. */
-  noPick?: boolean;
+  /** The helper adds no pick step: a cause binds the opponent, one opponent is legal, or steps has the pick. */
+  noPick?: boolean | ((roles: Roles) => boolean);
+  /** The trigger or response binds the opponent that caused it (R-FFA-OPP-RESPONSE). */
+  binding?: "event-opponent";
+  /** Additional rules proved by the FFA steps. Tag does not use these rules. */
+  extraFfaRules?: string[];
   /** The seat that picks. Default p0. */
   pickBy?: Seat;
   /** The seats offered. Default: all opponents of p0. */
@@ -128,6 +133,7 @@ export const PARTNER_MONSTER = "Battle Ox";
 
 const FORMAT_LABEL: Record<Format, string> = { ffa3: "FFA3", ffa4: "FFA4", tag: "Tag" };
 
+
 export function effectScenarios(spec: EffectSpec): Scenario[] {
   return (spec.formats ?? (["ffa3", "ffa4", "tag"] as Format[])).map((format) => {
     const roles = ROLES[format];
@@ -138,31 +144,35 @@ export function effectScenarios(spec: EffectSpec): Scenario[] {
     for (const seat of roles.opponents) setup[seat] = seat === roles.tgt ? tgtSetup : oppSetup;
     if (roles.partner) setup[roles.partner] = partnerSetup;
     for (const [seat, value] of Object.entries(spec.seats ?? {})) if (seat in setup || seat === roles.partner) setup[seat] = value;
-    const at = (zones: Zones | ((r: Roles) => Zones) | undefined): Zones | undefined => (typeof zones === "function" ? zones(roles) : zones);
+    const at = <T>(value: T | ((r: Roles) => T) | undefined): T | undefined => (typeof value === "function" ? (value as (r: Roles) => T)(roles) : value);
+    const seatEnd = at(spec.seatEnd) ?? {};
     const seatSpec: Partial<Record<Seat, Zones>> = { p0: at(spec.p0End)! };
     for (const seat of roles.others) seatSpec[seat] = at(spec.othersEnd) ?? zonesOf(oppSetup);
     seatSpec[roles.tgt] = at(spec.tgtEnd) ?? merge(zonesOf(tgtSetup), spec.gain);
     if (roles.partner) seatSpec[roles.partner] = at(spec.partnerEnd) ?? zonesOf(partnerSetup);
     for (const [seat, value] of Object.entries(spec.seats ?? {})) {
       if (seat === roles.tgt) seatSpec[seat] = at(spec.tgtEnd) ?? merge(zonesOf(value), spec.gain);
-      else if (seat !== "p0" && !(seat in (spec.seatEnd ?? {}))) seatSpec[seat as Seat] = zonesOf(value);
+      else if (seat !== "p0" && !(seat in (seatEnd))) seatSpec[seat as Seat] = zonesOf(value);
     }
-    Object.assign(seatSpec, spec.seatEnd ?? {});
+    Object.assign(seatSpec, seatEnd);
     const steps = typeof spec.steps === "function" ? spec.steps(roles) : spec.steps;
     const then = typeof spec.then === "function" ? spec.then(roles) : (spec.then ?? []);
     const by = spec.pickBy ?? "p0";
-    const pick: Step[] = spec.noPick
+    const noPick = typeof spec.noPick === "function" ? spec.noPick(roles) : spec.noPick;
+    const ffaRule = noPick && spec.binding === "event-opponent" ? "R-FFA-OPP-RESPONSE" : "R-FFA-OPP-ONE";
+    const ffaRules = [ffaRule, ...(spec.extraFfaRules ?? [])];
+    const pick: Step[] = noPick
       ? []
       : [expectPickSeats((spec.offered ? spec.offered(roles) : roles.opponents) as Seat[], by), pickOpponent(roles.tgt, by)];
     const where = format === "tag" ? "an opposing member" : "the picked opponent";
     return defineScenario({
       id: `opponent-field-effects-${format}-${spec.slug}-goes-to-${format === "tag" ? "an-opposing-member" : "the-picked-opponent"}`,
       title: `${FORMAT_LABEL[format]}: ${spec.name} ${spec.does} on the field of ${where} (${roles.tgt}) only; the other seats are unchanged`,
-      source: `${SOURCE} [R-COMMON-OPP-PICK]`,
-      rules: format === "tag" ? ["R-COMMON-OPP-PICK", "R-COMMON-OPP-FIELD", "R-TAG-PARTNER"] : ["R-COMMON-OPP-PICK", "R-COMMON-OPP-FIELD"],
+      source: `${SOURCE} [R-COMMON-OPP-PICK] ${format === "tag" ? "[R-TAG-SHARED-CARDS]" : ffaRules.map((rule) => `[${rule}]`).join(" ")}`,
+      rules: format === "tag" ? ["R-COMMON-OPP-PICK", "R-TAG-SHARED-CARDS", "R-TAG-PARTNER"] : ["R-COMMON-OPP-PICK", ...ffaRules],
       tags: ["multiplayer", "opponent-field-summon", format, `card:${spec.code}`],
       setup: setup as never,
       steps: [...steps, ...pick, ...then, everySeat(format, Object.fromEntries(Object.entries(seatSpec).map(([seat, zones]) => [seat, expectOf(zones)])))],
-    });
+    }, spec.slug === "ceruli" ? { card: ELF } : {});
   });
 }

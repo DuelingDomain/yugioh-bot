@@ -4,15 +4,14 @@
 // Plain data, also read by scripts/rule-coverage.ts; table-cards.test.ts runs them on a live core (NSEAT_LIVE=1).
 // Every scenario ends with the state of every seat. Decisions: docs/adr/0002-multiplayer-duel-rules.md and DECISIONS-2026-10-01 (Q3, Q6, Q9, OQ3).
 
-import {
-  activate, defineScenario, endTurn, expectBoard, expectEliminated, expectLp, expectPrompt, expectTurn, surrender, expectPickSeats, pickOpponent, specialSummon, yes, changePosition, select, changePhase, attack,
-  type BoardExpect, type DuelistExpect, type Scenario, type Step,
-} from "../../support/dsl.js";
+import { activate, endTurn, expectBoard, expectEliminated, expectLp, expectPrompt, expectTurn, surrender, expectPickSeats, pickOpponent, specialSummon, yes, changePosition, select, changePhase, attack,
+  type BoardExpect, type DuelistExpect, type Scenario, type Step } from "../../support/dsl.js";
+import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { ELF, SOURCE } from "./nseat-scenarios.js";
 
 type Seat = "p0" | "p1" | "p2" | "p3";
 export const OPP_PICK = `${SOURCE} [R-COMMON-OPP-PICK]`;
-export const OPP_FIELD = `${SOURCE} [R-COMMON-OPP-FIELD]`;
+export const OPP_FIELD = `${SOURCE} [R-FFA-OPP-ONE]`;
 
 /**
  * The state of EVERY seat of a format, exact for the monster zones, the Spell and Trap zones, the Graveyard, the banished zone and
@@ -39,7 +38,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     id: "table-ffa3-pudica-standby-return-goes-to-the-controller-of-the-banished-monster",
     title: "FFA3: after Traptrix Pudica banished the monster of p2, the offer to Special Summon it comes to p2 (not to the turn player p1) in the next Standby Phase, and the monster returns to p2",
     source: OPP_PICK,
-    rules: ["R-COMMON-OPP-PICK", "R-COMMON-OPP-FIELD"],
+    rules: ["R-FFA-OPP-ONE", "R-FFA-OPP-RESPONSE"],
     tags: ["multiplayer", "chooser", "trigger", "ffa3", "card:49027020"],
     // Cyber Dragon Special Summons itself from the hand when its controller has no monster and an opponent has one. p0 keeps one monster.
     setup: {
@@ -69,7 +68,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     id: "table-tag-pudica-standby-return-goes-to-the-duelist-that-controlled-the-banished-monster",
     title: "Tag: after Traptrix Pudica banished the monster of p3, the offer comes to p3 (not to p1, the turn player of the same team) in the Standby Phase of p1, and the monster returns to p3",
     source: OPP_PICK,
-    rules: ["R-COMMON-OPP-PICK", "R-COMMON-OPP-FIELD", "R-TAG-ORDER"],
+    rules: ["R-FFA-OPP-ONE", "R-FFA-OPP-RESPONSE", "R-TAG-ORDER"],
     tags: ["multiplayer", "chooser", "trigger", "tag", "card:49027020"],
     // Team 0 is p0 and p2, team 1 is p1 and p3. Only p3 has a Cyber Dragon; the effect value keeps the seat p3, not the team.
     setup: {
@@ -132,7 +131,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     id: "table-ffa3-eye-of-truth-the-turn-player-gains-the-lp-in-its-own-standby-phase",
     title: "FFA3: The Eye of Truth of p0: p1 has a Spell in its hand and gains 1000 LP in its own Standby Phase with no pick, p2 gains 1000 LP in its own Standby Phase, and nobody else gains LP",
     source: OPP_FIELD,
-    rules: ["R-COMMON-OPP-FIELD", "R-FFA-ORDER"],
+    rules: ["R-FFA-OPP-RESPONSE", "R-FFA-ORDER"],
     tags: ["multiplayer", "lp", "ffa3", "card:34694160"],
     setup: {
       format: "ffa3",
@@ -149,6 +148,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
       expectLp({ seat: "p1" }, 9000),
       expectLp({ seat: "p2" }, 8000),
       endTurn("p1"),
+      expectPrompt({ by: "p2", context: "action" }),
       expectLp({ seat: "p0" }, 8000),
       expectLp({ seat: "p1" }, 9000),
       expectLp({ seat: "p2" }, 9000),
@@ -159,7 +159,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     id: "table-tag-eye-of-truth-only-an-opposing-duelist-with-a-spell-in-its-hand-gains-the-lp-for-its-team",
     title: "Tag: The Eye of Truth of p0: in the Standby Phase of p1 (a Spell in its hand) the team of p1 gains 1000 LP with no pick, in the one of p2 (the partner of p0) nothing, in the one of p3 (no Spell in its hand) nothing",
     source: OPP_FIELD,
-    rules: ["R-COMMON-OPP-FIELD", "R-TAG-PARTNER", "R-TAG-ORDER"],
+    rules: ["R-FFA-OPP-RESPONSE", "R-TAG-PARTNER", "R-TAG-ORDER"],
     tags: ["multiplayer", "lp", "tag", "card:34694160"],
     setup: {
       format: "tag",
@@ -194,7 +194,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     id: "table-ffa3-brain-jacker-only-the-owner-of-the-stolen-monster-gains-the-lp-in-its-own-standby-phase",
     title: "FFA3: the 500 LP of Brain Jacker go to the owner of the stolen monster (p2) in its own Standby Phase, with no pick, and to nobody else",
     source: OPP_FIELD,
-    rules: ["R-COMMON-OPP-FIELD", "R-FFA-ORDER"],
+    rules: ["R-FFA-OPP-RESPONSE", "R-FFA-ACTIVATED-LOCK", "R-FFA-ORDER"],
     tags: ["multiplayer", "equip", "steal", "lp", "ffa3", "card:40267580"],
     setup: {
       format: "ffa3",
@@ -204,7 +204,8 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     },
     steps: [
       changePosition({ card: BRAIN_JACKER }, "p0"),
-      select({ card: "Summoned Skull", owner: "p2" }),
+      // R-FFA-OPP-ONE: the bound field has one target, which the engine selects.
+      pickOpponent("p2", "p0"),
       endTurn("p0"),
       // The Standby Phase of p1 (not the owner): nobody is asked and nobody gains LP.
       expectLp({ seat: "p0" }, 8000),
@@ -227,7 +228,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     id: "table-tag-brain-jacker-only-the-team-of-the-owner-gains-the-lp-in-the-turn-of-the-owner",
     title: "Tag: the 500 LP of Brain Jacker go to the team of the owner (p3) in the turn of p3 only, not in the turn of its partner p1",
     source: OPP_FIELD,
-    rules: ["R-COMMON-OPP-FIELD", "R-TAG-PARTNER", "R-TAG-ORDER"],
+    rules: ["R-FFA-OPP-RESPONSE", "R-FFA-ACTIVATED-LOCK", "R-TAG-PARTNER", "R-TAG-ORDER"],
     tags: ["multiplayer", "equip", "steal", "lp", "tag", "card:40267580"],
     setup: {
       format: "tag",
@@ -259,31 +260,32 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     ],
   }),
   defineScenario({
-    id: "table-ffa3-gingerbread-house-in-the-standby-phase-of-an-opponent-no-pick-all-opponent-monsters",
-    title: "FFA3: Gingerbread House in the Standby Phase of p1 asks for no opponent pick (only the trigger yes/no for p0): the monsters of both opponents gain 600 ATK, the one of p2 reaches 2500 and is destroyed, p0 gains 500 LP",
+    id: "table-ffa3-gingerbread-house-binds-the-turn-player-with-no-pick",
+    title: "FFA3: Gingerbread House binds p1 in the Standby Phase of p1. No pick is made. Only the monster of p1 is destroyed.",
     source: OPP_FIELD,
-    rules: ["R-COMMON-OPP-FIELD", "R-FFA-ORDER"],
+    rules: ["R-FFA-OPP-RESPONSE", "R-FFA-ORDER"],
     tags: ["multiplayer", "lp", "destroy", "ffa3", "card:79922118"],
     setup: {
       format: "ffa3",
       p0: { spells: [{ card: GINGERBREAD, pos: "set" }] },
-      p1: { monsters: ["Battle Ox"] },
-      p2: { monsters: ["Gemini Elf"] },
+      p1: { monsters: ["Gemini Elf"] },
+      p2: { monsters: ["Battle Ox"] },
     },
     steps: [
       activate(GINGERBREAD, "p0"),
       endTurn("p0"),
-      // The stock effect reads "0, MZONE" as the monsters of all opponents (R-COMMON-OPP-FIELD): no pick, only the yes/no of the optional trigger.
+      // Only the turn player meets the phase condition.
+      expectPrompt({ by: "p0", kind: "choice", offers: ["yes", "no"] }),
       yes("p0"),
       expectPrompt({ by: "p1", context: "action" }),
-      everySeat("ffa3", { p0: { lp: 8500, spells: [GINGERBREAD] }, p1: { monsters: ["Battle Ox"] }, p2: { grave: ["Gemini Elf"] } }),
+      everySeat("ffa3", { p0: { lp: 8500, spells: [GINGERBREAD] }, p1: { grave: ["Gemini Elf"] }, p2: { monsters: ["Battle Ox"], zones: { m0: { card: "Battle Ox", attack: 1700 } } } }),
     ],
   }),
   defineScenario({
     id: "table-tag-gingerbread-house-in-the-standby-phase-of-an-opposing-duelist-no-pick",
     title: "Tag: Gingerbread House in the Standby Phase of p1 asks for no pick: the monsters of both opposing duelists gain 600 ATK, the Gemini Elf of p3 is destroyed, the team of p0 gains 500 LP",
     source: OPP_FIELD,
-    rules: ["R-COMMON-OPP-FIELD", "R-TAG-ORDER"],
+    rules: ["R-FFA-OPP-RESPONSE", "R-TAG-ORDER"],
     tags: ["multiplayer", "lp", "destroy", "tag", "card:79922118"],
     setup: {
       format: "tag",
@@ -309,7 +311,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     id: "table-ffa3-kiseitai-the-controller-gains-the-lp-in-the-standby-phase-of-each-opponent-no-pick",
     title: "FFA3: Kiseitai equipped to the Summoned Skull of p1 gives p0 half the ATK as LP in the Standby Phase of p2 and again in the one of p1, with no pick",
     source: OPP_FIELD,
-    rules: ["R-COMMON-OPP-FIELD", "R-FFA-ORDER"],
+    rules: ["R-FFA-OPP-RESPONSE", "R-FFA-ORDER"],
     tags: ["multiplayer", "equip", "lp", "ffa3", "card:4266839"],
     setup: {
       format: "ffa3",
@@ -337,7 +339,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     id: "table-ffa3-summoning-curse-two-opponents-summon-at-once-both-banish",
     title: "FFA3: Summoning Curse of p0, then The Grave of Enkindling Special Summons a monster for p0, p1 and p2 at once: each of the three controllers banishes 1 card from its own hand",
     source: OPP_FIELD,
-    rules: ["R-COMMON-OPP-FIELD", "R-FFA-ORDER"],
+    rules: ["R-FFA-OPP-RESPONSE", "R-FFA-ORDER"],
     tags: ["multiplayer", "trigger", "banish", "ffa3", "card:61650133"],
     setup: {
       format: "ffa3",
@@ -354,7 +356,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
       attack("Battle Ox", { card: "Giant Rat", owner: "p0" }, "p1"),
       activate("The Grave of Enkindling", "p0"),
       selectBy("p1", "Mystical Elf"),
-      // 8000 - 300 (battle) - 500 (maintenance of the Curse). p1 chose its card; p0 and p2 had no choice. Each of the three banished exactly one.
+      // 8000 - 300 (battle) - 500 (maintenance). p1 chooses a card. p0 and p2 each have one legal card, so each banishes it with no choice.
       everySeat("ffa3", {
         p0: { lp: 7200, monsters: ["Giant Rat"], spells: ["Summoning Curse"], grave: ["The Grave of Enkindling"], banished: ["Mystical Elf"] },
         p1: { monsters: ["Battle Ox", "Celtic Guardian"], banished: ["Mystical Elf"] },
@@ -366,7 +368,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     id: "table-tag-summoning-curse-the-partner-of-the-owner-banishes-from-its-own-hand",
     title: "Tag: Summoning Curse of p0, then its partner p2 Special Summons the Giant Rat from its Graveyard with Monster Reborn: p2 (not p0) banishes 1 card from its own hand; the hand of p0 stays whole",
     source: OPP_FIELD,
-    rules: ["R-COMMON-OPP-FIELD", "R-TAG-PARTNER"],
+    rules: ["R-FFA-OPP-RESPONSE", "R-TAG-PARTNER"],
     tags: ["multiplayer", "trigger", "banish", "tag", "card:61650133"],
     setup: {
       format: "tag",
@@ -398,7 +400,7 @@ export const TABLE_CARD_SCENARIOS: Scenario[] = [
     id: "table-tag-summoning-curse-two-opposing-duelists-summon-at-once-both-banish",
     title: "Tag: Summoning Curse of p0, then The Grave of Enkindling Special Summons a monster for p0, p1 and p3 at once: p0, p1 and p3 each banish 1 card from their own hand (p2 summoned nothing)",
     source: OPP_FIELD,
-    rules: ["R-COMMON-OPP-FIELD", "R-TAG-PARTNER"],
+    rules: ["R-FFA-OPP-RESPONSE", "R-TAG-PARTNER"],
     tags: ["multiplayer", "trigger", "banish", "tag", "card:61650133"],
     setup: {
       format: "tag",
