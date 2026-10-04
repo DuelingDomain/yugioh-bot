@@ -588,7 +588,7 @@
   appearance: none;
   color: var(--ink);
   cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s, color 0.15s, transform 0.12s var(--out);
+  transition: transform 0.12s var(--out);
 }
 .btn:active {
   transform: scale(0.97);
