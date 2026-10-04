@@ -65,6 +65,7 @@ import {
   type ChainState,
 } from "./chain-state";
 import { chainBeatAt, chainBeatsEndAt, planChainBeats, resetChainBeats } from "./chain-beats";
+import { findFlipSequences } from "./flip-sequence";
 import { holdPromptReveal } from "./prompt-reveal";
 import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import styles from "./chain-fx.module.css";
@@ -298,6 +299,30 @@ function ChainGlyph() {
   );
 }
 
+/**
+ * The links whose targets are marked on the board. They follow the live engine, so a replacement
+ * occupant is never marked while old beats play and a chain end clears the rings at once. The
+ * exception is a flip effect that answers an attack (flip-sequence.ts): its whole chain arrives in
+ * one batch, the live chain is already empty, and the target would never show. Its link follows the
+ * played beats instead: marked from the target beat, kept as chosen while the link resolves (the
+ * engine publishes the target again after the card has moved), gone when the link resolves.
+ */
+export function targetLinksOf(live: ChainState, played: ChainState, sequenced: ReadonlySet<number>, held: Map<number, ChainLinkState["targets"]>): ChainLinkState[] {
+  const links = live.links.filter((link) => link.status !== "resolved");
+  for (const link of played.links) {
+    if (!sequenced.has(link.index)) continue;
+    if (link.status === "resolved") {
+      held.delete(link.index);
+      continue;
+    }
+    if (link.status === "pending" || !held.has(link.index)) held.set(link.index, link.targets);
+    const targets = held.get(link.index) ?? [];
+    if (targets.length === 0 || links.some((other) => other.index === link.index)) continue;
+    links.push({ ...link, targets });
+  }
+  return links;
+}
+
 export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority, ended = false, table }: ChainFxProps) {
   const named = seatTones != null;
   // On Tag the partner's zones read "partner's"; every other seat that is not yours reads by name or "opponent's".
@@ -308,8 +333,10 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   // Badges play historical resolution beats; targeting follows the live engine so a replacement
   // occupant is never marked while old beats play, and chain-end clears target rings immediately.
   const live = useMemo(() => (ended ? EMPTY_CHAIN : deriveChainState(events, chain)), [events, chain, ended]);
-  const targetLinks = live.links.filter((link) => link.status !== "resolved");
-  const targetsKey = chainStateKey(live);
+  const sequenceLinks = useMemo(() => new Set(findFlipSequences(events).map((sequence) => sequence.activate.chainIndex as number)), [events]);
+  const heldTargets = useRef(new Map<number, ChainLinkState["targets"]>());
+  const targetLinks = targetLinksOf(live, state, sequenceLinks, heldTargets.current);
+  const targetsKey = chainStateKey({ links: targetLinks, resolving: null });
   const targetLinksRef = useRef(targetLinks);
   targetLinksRef.current = targetLinks;
   const overlayRef = useRef<HTMLDivElement>(null);

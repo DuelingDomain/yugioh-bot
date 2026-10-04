@@ -1,5 +1,6 @@
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { chainEffectLead, chainStepDelay, isChainEvent } from "./chain-state";
+import { findFlipSequences, flipSequenceSteps, type FlipSequence } from "./flip-sequence";
 
 /**
  * The beats of a chain on the board: when each chain event plays, and when the effect of a
@@ -16,6 +17,10 @@ import { chainEffectLead, chainStepDelay, isChainEvent } from "./chain-state";
  *    destroy, a summon or a flip while that link resolves). It is a short lead after the badge
  *    starts to pulse, so the effect plays while the badge is still the thing to look at, never
  *    before it. The move planner, SummonFx, PositionFx and DestroyFx start no earlier than this.
+ *
+ * A flip effect that answers an attack (flip-sequence.ts) is laid out here too: the attack and the
+ * flip come first, then the chain, with a target beat before the link resolves, and the result of
+ * the fight after the chain end. `flipAttackAt(id)` is the time the attack beat starts.
  *
  * Times are performance.now() stamps. 0 means "no plan: play now".
  */
@@ -38,6 +43,10 @@ const handled = new Set<number>();
 /** The link a chain event belongs to: the last activation of each chain index, and the beat event that first resolves it. */
 const activations = new Map<number, number>();
 const closers = new Map<number, number>();
+/** Attack event id -> when its beat starts (a flip-effect sequence only). */
+const flipAttacks = new Map<number, number>();
+/** Position events that are the flip of a sequence. */
+const sequenceFlips = new Set<number>();
 const state = { key: "", freeAt: 0, resolvingAt: null as number | null, resolvingId: 0 };
 
 export function resetChainBeats(key = ""): void {
@@ -47,6 +56,8 @@ export function resetChainBeats(key = ""): void {
   handled.clear();
   activations.clear();
   closers.clear();
+  flipAttacks.clear();
+  sequenceFlips.clear();
   state.key = key;
   state.freeAt = 0;
   state.resolvingAt = null;
@@ -56,6 +67,16 @@ export function resetChainBeats(key = ""): void {
 /** When ChainFx plays this chain event; 0 when it was never planned. */
 export function chainBeatAt(eventId: number): number {
   return beats.get(eventId) ?? 0;
+}
+
+/** When the attack beat of a flip-effect sequence starts; 0 when the attack is not one. */
+export function flipAttackAt(attackId: number): number {
+  return flipAttacks.get(attackId) ?? 0;
+}
+
+/** True for the flip of a flip-effect sequence: it plays the short turn of the sequence. */
+export function isSequenceFlip(eventId: number): boolean {
+  return sequenceFlips.has(eventId);
 }
 
 /** The earliest start of the effect carried by this event; 0 when nothing holds it. */
@@ -105,6 +126,29 @@ function trim(map: Map<number, number>): void {
 }
 
 /**
+ * Lays the first beats of each flip-effect sequence: the attack, then the flip, then the chain
+ * (which starts at `state.freeAt`, so every chain beat of the batch moves back by the same amount).
+ * The flip and the activation card effect are read through `chainEffectAt`, like a link's effect.
+ */
+function planFlipSequences(ordered: readonly DuelEvent[], now: number, reduced: boolean): FlipSequence[] {
+  const sequences = findFlipSequences(ordered).filter((sequence) => !flipAttacks.has(sequence.attack.id));
+  const steps = flipSequenceSteps(reduced);
+  for (const sequence of sequences) {
+    const startAt = Math.max(now, state.freeAt);
+    const flipAt = startAt + steps.attackMs;
+    const chainAt = flipAt + steps.flipMs;
+    flipAttacks.set(sequence.attack.id, startAt);
+    sequenceFlips.add(sequence.flip.id);
+    effects.set(sequence.flip.id, flipAt);
+    effects.set(sequence.activate.id, chainAt);
+    state.freeAt = Math.max(state.freeAt, chainAt);
+  }
+  trim(flipAttacks);
+  while (sequenceFlips.size > MAX_KEPT) sequenceFlips.delete(sequenceFlips.values().next().value as number);
+  return sequences;
+}
+
+/**
  * Plans every chain event in `fresh` (and the effects inside a resolving link) that has no plan
  * yet. Safe to call again with the same batch, from any layer: planned events are skipped.
  */
@@ -113,6 +157,15 @@ export function planChainBeats(fresh: readonly DuelEvent[], options: PlanOptions
   if (state.key !== duelKey) resetChainBeats(duelKey);
   const ordered = fresh.filter((event) => typeof event.id === "number" && !handled.has(event.id)).sort((a, b) => a.id - b.id);
   const total = ordered.filter(isChainEvent).length;
+  const sequences = planFlipSequences(ordered, now, reduced);
+  const targetSteps = new Map<number, number>();
+  const aftermath = new Map<number, number>();
+  const linkEffects = new Map<number, number>();
+  for (const sequence of sequences) {
+    if (sequence.resolving) for (const event of sequence.effects) linkEffects.set(event.id, sequence.resolving.id);
+    if (sequence.target) targetSteps.set(sequence.target.id, flipSequenceSteps(reduced).targetMs);
+    for (const event of sequence.aftermath) if (sequence.chainEnd) aftermath.set(event.id, sequence.chainEnd.id);
+  }
   let cursor = Math.max(now, state.freeAt);
   let played = 0;
   for (const event of ordered) {
@@ -129,7 +182,21 @@ export function planChainBeats(fresh: readonly DuelEvent[], options: PlanOptions
       if (event.kind === "chain-resolving") { state.resolvingAt = cursor; state.resolvingId = event.id; }
       else if (event.kind === "chain-resolved" || event.kind === "chain-end" || event.kind === "activate") state.resolvingAt = null;
       played += 1;
-      cursor += chainStepDelay(event.kind, total - played, reduced);
+      cursor += targetSteps.get(event.id) ?? chainStepDelay(event.kind, total - played, reduced);
+      continue;
+    }
+    const resolvingId = linkEffects.get(event.id);
+    if (resolvingId != null) {
+      // The engine sends a destroy after the link has resolved; its effect still belongs to the resolving beat.
+      const at = (beats.get(resolvingId) ?? cursor) + chainEffectLead(reduced);
+      if (at > now + 30) effects.set(event.id, at);
+      continue;
+    }
+    const endId = aftermath.get(event.id);
+    if (endId != null) {
+      // The fight's own result waits for the end of the chain, like the link's effects wait for their badge.
+      const at = (beats.get(endId) ?? cursor) + chainEffectLead(reduced);
+      if (at > now + 30) effects.set(event.id, at);
       continue;
     }
     if (state.resolvingAt != null && EFFECT_KINDS.has(event.kind)) {

@@ -33,7 +33,8 @@ import {
   type PositionChange,
   type PositionEvent,
 } from "./event-queue";
-import { chainEffectAt } from "./chain-beats";
+import { chainEffectAt, isSequenceFlip } from "./chain-beats";
+import { flipSequenceSteps } from "./flip-sequence";
 import { getMovePlan, isMoveEvent } from "./move-plan";
 import styles from "./position-fx.module.css";
 import { Track } from "./summon-fx";
@@ -70,6 +71,8 @@ type Item = {
   delayMs: number;
   reduced: boolean;
   placement: boolean;
+  /** A flip that is a beat of a flip-effect sequence: the face shows this many ms after it starts to turn. */
+  faceMs?: number;
 };
 
 type Geo = { left: number; top: number; w: number; h: number; radius: number; side: "you" | "opp" };
@@ -209,8 +212,9 @@ function FlipFx(props: EffectProps) {
     const from = base + (change.fromDefense ? 90 : 0);
     const to = base + (change.toDefense ? 90 : 0);
     const body = cardBodyOf(zone);
-    const total = FLIP_REVEAL_MS;
-    const faceAt = FLIP_FACE_AT_MS / total;
+    const faceMs = props.item.faceMs;
+    const total = faceMs ? Math.round((FLIP_REVEAL_MS * faceMs) / FLIP_FACE_AT_MS) : FLIP_REVEAL_MS;
+    const faceAt = FLIP_FACE_AT_MS / FLIP_REVEAL_MS;
     // The real card is invisible for exactly as long as the copy is on top of it.
     track.play(body, [{ opacity: 0 }, { opacity: 0 }], { duration: total, delay: d, fill: "backwards" });
     track.play(
@@ -370,6 +374,7 @@ export function PositionFx({ events, duelKey, reducedMotion }: PositionFxProps) 
         delayMs,
         reduced: reducedRef.current,
         placement: isFlipSummonPlacement(event, fresh),
+        ...(isSequenceFlip(event.id) ? { faceMs: flipSequenceSteps(reducedRef.current).flipMs } : {}),
       });
     }
     if (planned.length === 0) return;
