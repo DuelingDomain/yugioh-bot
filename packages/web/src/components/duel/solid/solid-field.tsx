@@ -21,7 +21,9 @@ import {
 import baseStyles from "../field.module.css";
 import { stKeys, withExact, type FieldCallbacks } from "../field-keys";
 import { useDuelFieldModel, type DuelFieldModel, type DuelFieldProps } from "../field-model";
-import { Emblem } from "./emblem";
+import type { BattleAim } from "../battle-fx";
+import { Emblem, Notches } from "./emblem";
+import { PlaneSvg } from "./plane-svg";
 import { DmChip } from "./dm-chip";
 import rails from "./rails.module.css";
 import table from "./table.module.css";
@@ -32,6 +34,11 @@ export type SolidFieldProps = DuelFieldProps & {
   renderClock?: (seat: number) => ReactNode;
   /** Opens the Deck Masters sheet (the mobile chips). */
   onOpenMasters?: () => void;
+  /**
+   * The room's attack aim (preview, aim, locked). When given, the arrow is drawn on the plane (`PlaneSvg`); the room
+   * then passes `aim={null}` to `BattleFx` so only one arrow shows. Leave it out to keep the flat V1 arrow.
+   */
+  battleAim?: BattleAim | null;
 };
 
 /** The derived field state (seats, activity, priority ...), for the rails and chips below SolidField. */
@@ -159,7 +166,7 @@ function Half({ view, seatIndex, opponent, ownerLabel, masterRule, callbacks, ac
  */
 export function SolidField(props: SolidFieldProps) {
   const { engine, mySeat, masterRule, reducedMotion, legalKeys, selectedKeys, onActivate, onHoverCard, bottomName, topName,
-    showExtraZones = true, renderClock, onOpenMasters } = props;
+    showExtraZones = true, renderClock, onOpenMasters, battleAim = null } = props;
   const boardRef = useRef<HTMLElement | null>(null);
   const model = useDuelFieldModel({ ...props, boardRef });
   const { bottomIndex, topIndex, bottom, top, callbacks, topLabel, bottomLabel, battle, activity, priorityLabel,
@@ -227,6 +234,7 @@ export function SolidField(props: SolidFieldProps) {
       <div className={table.fieldwrap}>
         <div className={table.plane} data-sv-plane="" data-light={activity.turnSeat === bottomIndex ? "you" : "opp"}>
           <Emblem />
+          <Notches />
           <Half view={top} seatIndex={topIndex} opponent ownerLabel={topLabel} masterRule={masterRule} callbacks={callbacks} activity={activity} />
           {showEmz ? (
             <>
@@ -241,6 +249,7 @@ export function SolidField(props: SolidFieldProps) {
           <div className={table.clock} data-sv-clock="opp" style={{ gridColumn: 2, gridRow: 3 }}>{renderClock?.(topIndex)}</div>
           <div className={table.clock} data-sv-clock="you" style={{ gridColumn: 6, gridRow: 3 }}>{renderClock?.(bottomIndex)}</div>
           <Half view={bottom} seatIndex={bottomIndex} opponent={false} ownerLabel={bottomLabel} masterRule={masterRule} callbacks={callbacks} activity={activity} />
+          <PlaneSvg aim={battleAim} />
         </div>
       </div>
       {rail("you")}

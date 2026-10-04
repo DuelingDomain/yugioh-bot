@@ -25,3 +25,18 @@ export function Emblem() {
     </svg>
   );
 }
+
+/** The two gold chevrons on the left and right edge of the table frame (concept `NOTCH`). Hidden on phones. */
+export function Notches() {
+  const chevron = (
+    <svg viewBox="0 0 10 18" aria-hidden="true">
+      <path d="M9 1L1 9l8 8" fill="none" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+  return (
+    <>
+      <span className={`${table.notch} ${table.notchL}`} data-sv-notch="l">{chevron}</span>
+      <span className={`${table.notch} ${table.notchR}`} data-sv-notch="r">{chevron}</span>
+    </>
+  );
+}
