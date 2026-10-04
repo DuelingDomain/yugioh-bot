@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ArrowRight, ArrowUpFromLine, Flag, Layers, RotateCw, Shuffle, Sparkles, Swords, Zap, type LucideIcon } from "lucide-react";
 import type { DuelCard, DuelCardInfo, DuelPromptOption } from "@yugidraft/shared/duels";
 import { cardDetailsText, cardStatsText } from "./constants";
 import { duelFontClasses } from "./fonts";
 import { safeAnimate } from "./safe-animate";
-import styles from "./room.module.css";
-import fx from "./battle-fx.module.css";
+import baseStyles from "./room.module.css";
+import baseFx from "./battle-fx.module.css";
+import { useSkinStyles } from "./skin";
 
 /** The card action menu the room or the table shell has open: where it sits, what it offers, and which prompt it answers. */
 export type CardMenuState = {
@@ -82,6 +83,23 @@ export function optionParts(option: DuelPromptOption, title: string): { main: st
 
 /** Selector for surfaces a passive tooltip must never cover: open prompt panels and pile viewers. */
 const AVOID_SURFACES = "[data-prompt-panel],[data-pile-viewer]";
+
+/**
+ * 3D mode only: the menu, hover info and confirm portal to the body, outside the room that holds the Solid Vision
+ * font variables. Copy them from the anchor (which sits inside the room) so the portal uses the same type.
+ */
+function usePortalFont(anchor: HTMLElement, skinned: boolean): CSSProperties | undefined {
+  return useMemo(() => {
+    if (!skinned || !anchor.isConnected) return undefined;
+    const computed = getComputedStyle(anchor);
+    const out: Record<string, string> = {};
+    for (const name of ["--sv-font", "--sv-font-num"]) {
+      const value = computed.getPropertyValue(name).trim();
+      if (value) out[name] = value;
+    }
+    return out as CSSProperties;
+  }, [anchor, skinned]);
+}
 
 type Rect = { left: number; top: number; width: number; height: number };
 
@@ -200,7 +218,10 @@ export function CardActionMenu({
   /** Hover or keyboard focus on an option (null when it leaves). Drives the attack arrow preview. */
   onOptionHover?: (option: DuelPromptOption | null) => void;
 }) {
-  const { ref, style, visibility, side } = useAnchoredPosition(anchor, true);
+  const styles = useSkinStyles(baseStyles, "menu");
+  const font = usePortalFont(anchor, styles !== baseStyles);
+  const { ref, style: placed, visibility, side } = useAnchoredPosition(anchor, true);
+  const style = font ? { ...font, ...placed } : placed;
 
   useLayoutEffect(() => {
     // The first layout pass measures a hidden menu; hidden items cannot focus.
@@ -289,7 +310,10 @@ export function CardActionMenu({
  * side of the card, and hides when there is none.
  */
 export function CardHoverInfo({ card, anchor }: { card: DuelCard | DuelCardInfo; anchor: HTMLElement }) {
-  const { ref, style } = useAnchoredPosition(anchor, false, "above", true);
+  const styles = useSkinStyles(baseStyles, "menu");
+  const font = usePortalFont(anchor, styles !== baseStyles);
+  const { ref, style: placed } = useAnchoredPosition(anchor, false, "above", true);
+  const style = font ? { ...font, ...placed } : placed;
   const stats = cardStatsText(card);
   const details = cardDetailsText(card);
   if (card.code == null) return null;
@@ -321,7 +345,10 @@ export function shakeRefusedCard(anchor: HTMLElement, reducedMotion: boolean): v
  * It sits above the card like the hover tooltip and clears itself, so nothing is left to dismiss.
  */
 export function PickRefusalHint({ anchor, text, onDone }: { anchor: HTMLElement; text: string; onDone: () => void }) {
-  const { ref, style } = useAnchoredPosition(anchor, false, "above");
+  const styles = useSkinStyles(baseStyles, "menu");
+  const font = usePortalFont(anchor, styles !== baseStyles);
+  const { ref, style: placed } = useAnchoredPosition(anchor, false, "above");
+  const style = font ? { ...font, ...placed } : placed;
   useEffect(() => {
     const timer = window.setTimeout(onDone, 2200);
     return () => window.clearTimeout(timer);
@@ -345,6 +372,7 @@ export function AttackConfirm({
   targetName,
   busy,
   prefer,
+  preview,
   onConfirm,
   onBack,
 }: {
@@ -352,10 +380,16 @@ export function AttackConfirm({
   targetName: string;
   busy: boolean;
   prefer: "above" | "below";
+  /** 3D mode only: the battle preview ("2500 vs 1700" and the outcome lines). Classic ignores it. */
+  preview?: { attacker: string; target: string; lines: ReactNode[] };
   onConfirm: () => void;
   onBack: () => void;
 }) {
-  const { ref, style, visibility, side } = useAnchoredPosition(anchor, false, prefer);
+  const fx = useSkinStyles(baseFx, "menu");
+  const skinned = fx !== baseFx;
+  const font = usePortalFont(anchor, skinned);
+  const { ref, style: placed, visibility, side } = useAnchoredPosition(anchor, false, prefer);
+  const style = font ? { ...font, ...placed } : placed;
   const confirmRef = useRef(onConfirm);
   const backRef = useRef(onBack);
   const busyRef = useRef(busy);
@@ -416,12 +450,24 @@ export function AttackConfirm({
       role="dialog"
       aria-label={`Confirm attack on ${targetName}`}
     >
+      {skinned && preview ? (
+        <>
+          <div data-confirm-vs>
+            <span data-win>{preview.attacker}</span>
+            <small>vs</small>
+            <span>{preview.target}</span>
+          </div>
+          <div data-confirm-lines>{preview.lines.map((line, index) => <span key={index}>{line}</span>)}</div>
+        </>
+      ) : null}
       <div className={fx.confirmRow}>
         <button type="button" className={fx.confirmGo} data-go disabled={busy} aria-keyshortcuts="Enter" onClick={onConfirm}>
           Attack {targetName}
+          {skinned ? <kbd data-keycap aria-hidden="true">Enter</kbd> : null}
         </button>
         <button type="button" className={fx.confirmBack} disabled={busy} aria-keyshortcuts="Escape" onClick={onBack}>
           Back
+          {skinned ? <kbd data-keycap aria-hidden="true">Esc</kbd> : null}
         </button>
       </div>
       <span className={fx.confirmHint}><kbd>Enter</kbd> attack · <kbd>Esc</kbd> back</span>
