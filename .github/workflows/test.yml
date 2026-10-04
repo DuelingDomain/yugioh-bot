@@ -11,7 +11,7 @@ name: Test
 #   rule-coverage  every rule of ADR-0002 has a covering test (--strict).
 #   nduel-nightly  scheduled: the nduel fuzz (n2, n3, n4, tag) with --check-future, and the golden hash check.
 #
-# Pull requests and pushes to main run every job except nduel-nightly. A manual run (workflow_dispatch) runs
+# Pushes to main run every job except nduel-nightly. Pull requests skip the engine jobs they cannot affect (see changes). A manual run (workflow_dispatch) runs
 # every job, nduel-nightly too. The schedule runs cores and nduel-nightly only.
 
 on:
@@ -42,6 +42,50 @@ env:
   BUNDLE_DIR: data/duel-engine-next
 
 jobs:
+  # Which layers a pull request can affect. Pushes to main, manual runs and the schedule always run everything.
+  #   engine      the duel engine, the shared package, the engine bundle inputs, the lockfile or this workflow changed:
+  #               the engine, legacy engine and native jobs run.
+  #   web_engine  engine, or the duel UI or web tests changed: the engine job runs, for the web tests that drive a real
+  #               duel (prompts.tsx, prompt-center.tsx). Its engine-only steps still need engine.
+  # A UI-only pull request (web outside the duel components, bot, ws, docs) runs the unit and rule coverage jobs only.
+  changes:
+    name: Changed layers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      engine: ${{ steps.diff.outputs.engine }}
+      web_engine: ${{ steps.diff.outputs.web_engine }}
+    steps:
+      - name: Checkout
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Diff against the base
+        id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "engine=true" >> "$GITHUB_OUTPUT"
+            echo "web_engine=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(git diff --name-only "$BASE...$HEAD")
+          echo "$files"
+          engine=false
+          web_engine=false
+          if echo "$files" | grep -qE '^(packages/(duel-server|shared|e2e)/|patches/|scripts/|\.github/workflows/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$)'; then
+            engine=true
+            web_engine=true
+          elif echo "$files" | grep -qE '^packages/web/(src/components/duel/|tests/|package\.json$|vitest\.config\.ts$|tsconfig[^/]*\.json$)'; then
+            web_engine=true
+          fi
+          echo "engine=$engine" | tee -a "$GITHUB_OUTPUT"
+          echo "web_engine=$web_engine" | tee -a "$GITHUB_OUTPUT"
+
   cores:
     name: Engine cores (build or restore)
     runs-on: ubuntu-latest
@@ -195,8 +239,8 @@ jobs:
 
   engine:
     name: Engine tests (cores required)
-    if: github.event_name != 'schedule'
-    needs: cores
+    if: github.event_name != 'schedule' && needs.changes.outputs.web_engine == 'true'
+    needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -235,6 +279,7 @@ jobs:
         run: npm run build --workspace=@yugidraft/shared
 
       - name: Engine tests
+        if: needs.changes.outputs.engine == 'true'
         run: npm run test:engine
 
       # Web tests that run a real stock-core duel. The unit job has no engine bundle, so they skip there.
@@ -254,12 +299,13 @@ jobs:
 
       # tests/*.smoke.ts are plain assert scripts (vitest does not match them); one failing script fails the step.
       - name: Engine smoke scripts
+        if: needs.changes.outputs.engine == 'true'
         run: npm run test:smoke --workspace=packages/duel-server
 
   engine-legacy:
     name: Engine tests, legacy 1v1 engine (cores required)
-    if: github.event_name != 'schedule'
-    needs: cores
+    if: github.event_name != 'schedule' && needs.changes.outputs.engine == 'true'
+    needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -303,8 +349,8 @@ jobs:
 
   native:
     name: Native checks (ASan and UBSan)
-    if: github.event_name != 'schedule'
-    needs: cores
+    if: github.event_name != 'schedule' && needs.changes.outputs.engine == 'true'
+    needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
