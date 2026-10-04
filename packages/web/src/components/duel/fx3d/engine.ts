@@ -7,7 +7,7 @@ import { EFFECTS } from "./effects";
 import type { FxEnv, FxInstance } from "./effects/base";
 import { PostPass } from "./post";
 import { FxKit, type ShaderName } from "./kit";
-import type { Fx3dApi, Fx3dEffectId, FxRequest } from "./types";
+import type { Fx3dApi, Fx3dEffectId, Fx3dPalette, FxRequest } from "./types";
 
 /**
  * The WebGL overlay: one transparent canvas over the whole board, an orthographic camera in CSS
@@ -68,6 +68,8 @@ export class Fx3dEngine implements Fx3dApi {
   private disposed = false;
   private warming = true;
   private quality = 1;
+  private tilt = 0;
+  private palette: Fx3dPalette = "v1";
   private slowFrames = 0;
   private smoothed = 16;
   private last = 0;
@@ -113,6 +115,15 @@ export class Fx3dEngine implements Fx3dApi {
     return !this.lost && !this.disposed && !this.warming;
   }
 
+  /** Applies to effects that start after the call; a running effect keeps the tilt it began with. */
+  setTableTilt(deg: number): void {
+    this.tilt = Number.isFinite(deg) ? Math.max(-60, Math.min(60, deg)) : 0;
+  }
+
+  setPalette(palette: Fx3dPalette): void {
+    this.palette = palette === "solid" ? "solid" : "v1";
+  }
+
   prefetchArt(code: number, uploadEarly = false): void {
     if (this.ready) this.art.prefetch(code, uploadEarly);
   }
@@ -123,7 +134,7 @@ export class Fx3dEngine implements Fx3dApi {
     if (!factory) return Promise.resolve();
     // The host may have been resized since the last frame: measure now, so rectangles land exactly.
     this.resize();
-    const env: FxEnv = { kit: this.kit, group: this.group, view: this.view, quality: this.quality, art: this.art, post: this.post.uniforms };
+    const env: FxEnv = { kit: this.kit, group: this.group, view: this.view, quality: this.quality, art: this.art, post: this.post.uniforms, tilt: this.tilt, palette: this.palette };
     let instance: FxInstance;
     try {
       instance = factory(env, request);

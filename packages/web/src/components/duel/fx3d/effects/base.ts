@@ -3,7 +3,7 @@ import type { ArtStore } from "../art";
 import { rectToWorld } from "../coords";
 import type { FxKit, ParticleSet, ShaderName } from "../kit";
 import type { PostUniforms } from "../post";
-import type { FxRequest, FxTint, Rgb } from "../types";
+import type { Fx3dPalette, FxRequest, FxTint, Rgb } from "../types";
 
 /** What an effect gets from the engine. */
 export type FxEnv = {
@@ -16,6 +16,10 @@ export type FxEnv = {
   art: ArtStore;
   /** The uniforms of the full-screen post pass (see post.ts). Written only by instances with `usesPost`. */
   post: PostUniforms;
+  /** Table tilt in degrees (CSS rotateX of the board plane). 0 = flat, the V1 output. */
+  tilt?: number;
+  /** Colour set for the gold and purple projector lights. Default "v1". */
+  palette?: Fx3dPalette;
 };
 
 /** Board shake of one frame: CSS px (x right, y DOWN) and radians (clockwise). The engine applies it to the page board and the canvas. */
@@ -39,6 +43,33 @@ export type FxPart = { update(sec: number): void };
 
 export const DEFAULT_TINT: FxTint = { main: [1, 0.9, 0.6], alt: [0.6, 0.5, 1], accent: [1, 1, 1] };
 
+const hex = (value: number): Rgb => [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255];
+
+/**
+ * The gold and purple lights of each palette. "v1" is the classic look (the values the effects always used);
+ * "solid" is the Solid Vision table: gold #c8a55f / #e8cf94, purple #8f76f2 / #b8a8ff, loss red #f27a6b.
+ * A palette changes colours only: never a duration, an order or a route.
+ */
+export const PALETTES: Record<Fx3dPalette, { gold: Rgb; goldHi: Rgb; purple: Rgb; purpleHi: Rgb; loss: Rgb; tint: FxTint }> = {
+  v1: { gold: [1, 0.8, 0.32], goldHi: [1, 0.9, 0.6], purple: [0.66, 0.42, 1], purpleHi: [0.7, 0.4, 1], loss: [1, 0.15, 0.1], tint: DEFAULT_TINT },
+  solid: {
+    gold: hex(0xc8a55f),
+    goldHi: hex(0xe8cf94),
+    purple: hex(0x8f76f2),
+    purpleHi: hex(0xb8a8ff),
+    loss: hex(0xf27a6b),
+    tint: { main: hex(0xe8cf94), alt: hex(0xb8a8ff), accent: [1, 1, 1] },
+  },
+};
+
+/** Ground-plane shaders: they lie on the table, so a tilted table squashes them. Billboards and cards stay screen-facing. */
+const GROUND_SHADERS: ReadonlySet<ShaderName> = new Set<ShaderName>(["ring", "ripple", "rune", "decal", "vortex", "galaxy"]);
+
+/** Radians of the -tilt rotation about X for a tilt in degrees (0 when flat or not finite). */
+export function groundTiltRad(deg: number | undefined): number {
+  return deg && Number.isFinite(deg) ? (-deg * Math.PI) / 180 : 0;
+}
+
 type QuadMesh = THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
 
 /**
@@ -54,6 +85,9 @@ export class Rig {
   readonly tint: FxTint;
   readonly strength: number;
   readonly shake: number;
+  readonly palette: Fx3dPalette;
+  /** Rotation about X (radians) of ground meshes; 0 on a flat table. */
+  private readonly groundTilt: number;
   private readonly meshes: Array<[ShaderName, QuadMesh]> = [];
   private readonly sets: Array<[ParticleSet, "add" | "solid"]> = [];
   private order = 0;
@@ -67,7 +101,9 @@ export class Rig {
     this.cy = world.cy;
     this.w = Math.max(8, world.w);
     this.h = Math.max(8, world.h);
-    this.tint = request.tint ?? DEFAULT_TINT;
+    this.palette = env.palette ?? "v1";
+    this.groundTilt = groundTiltRad(env.tilt);
+    this.tint = request.tint ?? PALETTES[this.palette].tint;
     this.strength = Math.min(1.6, Math.max(0.6, request.strength ?? 1));
     this.shake = Math.max(0, request.shake ?? 1);
   }
@@ -82,6 +118,8 @@ export class Rig {
     mesh.position.set(this.cx + (o.x ?? 0), this.cy + (o.y ?? 0), 0);
     mesh.scale.set(o.w, o.h ?? o.w, 1);
     mesh.rotation.z = o.rot ?? 0;
+    // Euler XYZ turns in the quad's own plane first (z), then lays it into the table plane (x).
+    mesh.rotation.x = GROUND_SHADERS.has(name) ? this.groundTilt : 0;
     mesh.renderOrder = this.order++;
     this.env.group.add(mesh);
     this.meshes.push([name, mesh]);

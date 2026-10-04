@@ -189,6 +189,9 @@ export type FxRequest = {
   scene?: FxScene;
 };
 
+/** Colour set of the gold and purple lights: "v1" is the classic board, "solid" the 3D mode table. */
+export type Fx3dPalette = "v1" | "solid";
+
 export interface Fx3dApi {
   /** True while the canvas can draw (no context loss, not disposed). */
   readonly ready: boolean;
@@ -198,4 +201,8 @@ export interface Fx3dApi {
   prefetchArt(code: number, uploadEarly?: boolean): void;
   /** Stops every running effect at once. */
   cancelAll(): void;
+  /** Tilt of the board plane in degrees (CSS rotateX). Ground rings and circles lie on it. Default 0 (V1 output). Optional so test doubles of the API stay valid. */
+  setTableTilt?(deg: number): void;
+  /** Gold and purple light colours. Default "v1"; durations, order and routes never change. */
+  setPalette?(palette: Fx3dPalette): void;
 }
