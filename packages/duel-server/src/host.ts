@@ -294,9 +294,9 @@ export function createDuelHost(options: {
   const queueBlockedMs = options.queueBlockedMs ?? (process.env.DUEL_SCENARIOS === "1" ? DEFAULT_QUEUE_BLOCKED_MS : 0);
   /** The last view built for each seat of each duel (key -1: the spectator). Only views that were built for that seat are kept. */
   const lastViews = new Map<string, Map<number, DuelEngineView>>();
-  function rememberView(slug: string, seat: number | null, view: DuelEngineView | null | undefined): void {
+  function rememberView(slug: string, seat: number | null, view: DuelEngineView | null | undefined, source: DuelGameWorker | undefined): void {
     const live = games.get(slug);
-    if (!view || !live?.game.running || service.get(slug, live.guildId).status !== "active") return;
+    if (!view || !source || live?.game !== source || !source.running || service.get(slug, live.guildId).status !== "active") return;
     let perSeat = lastViews.get(slug);
     if (!perSeat) lastViews.set(slug, (perSeat = new Map()));
     perSeat.set(seat ?? -1, view);
@@ -1245,8 +1245,8 @@ export function createDuelHost(options: {
     }
     // Keep the player, replay and spectator views consistent. A Set avoids marking the same view twice.
     markLegacyLosses(new Set([playerView, replayedView, room.engine]));
-    rememberView(slug, playerSeat, playerView);
-    if (spectate && !ownResult) rememberView(slug, room.mySeat, room.engine);
+    rememberView(slug, playerSeat, playerView, game);
+    if (spectate && !ownResult) rememberView(slug, room.mySeat, room.engine, game);
     return room;
   }
 
@@ -1455,7 +1455,7 @@ export function createDuelHost(options: {
   async function readDebugView(slug: string, game: DuelGameWorker, seat: number | null): Promise<{ view: DuelEngineView | null; error?: string }> {
     try {
       const view = await withTimeout(game.view(seat), debugReadTimeoutMs, `view ${seat === null ? "spectator" : `seat ${seat}`}`);
-      rememberView(slug, seat, view);
+      rememberView(slug, seat, view, game);
       return { view };
     } catch (error) {
       return { view: null, error: error instanceof Error ? error.message : String(error) };
@@ -1744,7 +1744,7 @@ export function createDuelHost(options: {
     if (room.session.status === "active" && live?.game.running) {
       try {
         view = await withTimeout(live.game.view(null), debugReadTimeoutMs, "view spectator");
-        rememberView(slug, null, view);
+        rememberView(slug, null, view, live.game);
       } catch {
         view = lastViews.get(slug)?.get(-1) ?? null;
       }

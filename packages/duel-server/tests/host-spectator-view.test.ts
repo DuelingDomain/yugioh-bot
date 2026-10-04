@@ -33,7 +33,8 @@ async function table(format: DuelFormat = "ffa3", eliminated = true) {
     chain: [], events: [], log: [], result: null, eliminationOrder: eliminated ? [[0]] : [],
   });
   const worker: DuelGameWorker = { get running() { return running; }, async create() {}, async view(seat) { reads.push(seat); if (blockedView) { blockedView.started(); await blockedView.wait; } return view(seat); }, async answer() {}, async search() { return []; }, async close() { running = false; } };
-  const host = createDuelHost({ db, secret: SECRET, dataDirectory: DATA, searchCards: () => [], pollIntervalMs: 60_000, createWorker: () => worker }); hosts.push(host);
+  let nextWorker = worker;
+  const host = createDuelHost({ db, secret: SECRET, dataDirectory: DATA, searchCards: () => [], pollIntervalMs: 60_000, createWorker: () => nextWorker }); hosts.push(host);
   const actor = { slug: session.slug, guildId: "g", playerId: players[0] };
   async function post(body: Record<string, unknown>) {
     const raw = JSON.stringify({ ...actor, ...body });
@@ -48,7 +49,14 @@ async function table(format: DuelFormat = "ffa3", eliminated = true) {
     blockedView = { started, wait: new Promise<void>(resolve => { release = resolve; }) };
     return { entered, release };
   }
-  return { db, duels, session, post, reads, view, holdView, pending: () => { pending = true; } };
+  function replaceWorker() {
+    running = false;
+    let replacementRunning = true;
+    nextWorker = { ...worker, get running() { return replacementRunning; },
+      async view(seat) { reads.push(seat); return { ...view(seat), revision: 2 }; },
+      async close() { replacementRunning = false; } };
+  }
+  return { db, duels, session, post, reads, view, holdView, replaceWorker, pending: () => { pending = true; } };
 }
 
 it.each(["ffa3", "ffa4"] as const)("projects an eliminated %s player through the public worker view and preserves seats", async format => {
@@ -174,4 +182,33 @@ it("does not retain a public view that returns after disposal", async () => {
   }
   expect((await pending).status).toBe(200);
   expect(cached!.has(t!.session.slug)).toBe(false);
+});
+
+it("does not cache an old worker's delayed view after recovery installs a replacement", async () => {
+  const writes = vi.spyOn(Map.prototype, "set");
+  let t: Awaited<ReturnType<typeof table>>;
+  let cached: Map<string, Map<number, DuelEngineView>>;
+  try {
+    t = await table();
+    const index = writes.mock.calls.findIndex(([key, value]) => key === t.session.slug && value instanceof Map);
+    expect(index).toBeGreaterThanOrEqual(0);
+    cached = writes.mock.contexts[index] as Map<string, Map<number, DuelEngineView>>;
+  } finally {
+    writes.mockRestore();
+  }
+  const held = t!.holdView();
+  const pending = t!.post({ op: "bug-context" });
+  try {
+    await held.entered;
+    t!.replaceWorker();
+    const recovered = await t!.post({ op: "view" });
+    expect(recovered.status).toBe(200);
+    expect(recovered.data.engine.revision).toBe(2);
+    expect(cached!.get(t!.session.slug)?.get(0)?.revision).toBe(2);
+    expect(cached!.get(t!.session.slug)?.has(-1)).toBe(false);
+  } finally {
+    held.release();
+  }
+  expect((await pending).status).toBe(200);
+  expect(cached!.get(t!.session.slug)?.has(-1)).toBe(false);
 });
