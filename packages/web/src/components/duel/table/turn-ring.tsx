@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { DuelEngineView } from "@yugidraft/shared/duels";
+import { isOut } from "./seat-state";
 import { seatStatus } from "./targets";
 import { hexToRgbTriplet } from "./seat-angle";
 import { SEAT_TONE_HEX, type SeatStatus, type TableLayout } from "./types";
@@ -51,21 +52,35 @@ export function TurnRing({ layout, engine, angles, pose, promptSeat, locked = fa
   const seats = [...layout.slots].sort((a, b) => a.turnOrder - b.turnOrder);
   const tone = (seat: number) => SEAT_TONE_HEX[layout.slots.find((slot) => slot.seat === seat)?.tone ?? "violet"];
   const angle = (seat: number) => angles.get(seat) ?? 90;
-  const arcs = seats.map((slot, index) => {
-    const next = seats[(index + 1) % seats.length];
+  const viewOf = (seat: number) => engine.seats.find((view) => view.seat === seat);
+  // Eliminated seats have no arc. The lit arc leaves the turn seat for the next living seat, so it also passes over a
+  // Leaving seat (that seat is not the next to play).
+  const ring = seats.filter((slot) => viewOf(slot.seat)?.eliminated !== true);
+  const arcs = ring.length < 2 ? [] : ring.map((slot, index) => {
+    const lit = slot.seat === engine.turnSeat;
+    let next = ring[(index + 1) % ring.length];
+    if (lit) {
+      for (let step = 1; step < ring.length; step += 1) {
+        const candidate = ring[(index + step) % ring.length];
+        if (!isOut(viewOf(candidate.seat))) {
+          next = candidate;
+          break;
+        }
+      }
+    }
     const a0 = angle(slot.seat);
     let a1 = angle(next.seat);
     while (a1 <= a0) a1 += 360;
     if (a1 - a0 > 240) a1 = a0 + 120;
     const s = at(a0 + 16);
     const e = at(a1 - 16);
-    const lit = slot.seat === engine.turnSeat;
     const hex = tone(slot.seat).main;
     return (
       <path
         key={slot.seat}
         d={`M${s.x} ${s.y} A${R} ${R} 0 0 1 ${e.x} ${e.y}`}
         data-arc={slot.seat}
+        data-arc-to={next.seat}
         data-lit={lit ? "true" : undefined}
         stroke={lit ? hex : "rgb(181 153 99 / 0.45)"}
         strokeWidth={lit ? 2 : 1.2}
@@ -74,7 +89,7 @@ export function TurnRing({ layout, engine, angles, pose, promptSeat, locked = fa
       />
     );
   });
-  const points = seats.map((slot) => at(angle(slot.seat)));
+  const points = (ring.length > 0 ? ring : seats).map((slot) => at(angle(slot.seat)));
   const litHex = tone(engine.turnSeat).main;
   const style: CSSProperties = { transform: `translate(${pose.x - 62}px, ${pose.y - 62}px) scale(${pose.scale})` };
   return (
