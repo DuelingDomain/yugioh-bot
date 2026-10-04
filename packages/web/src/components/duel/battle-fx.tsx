@@ -7,6 +7,9 @@ import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { battleTrigger } from "./battle-trigger";
 import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 import { runAttackFx, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
+import { flipAttackAt } from "./chain-beats";
+import { FlipStrike, type FlipStrikePlan } from "./flip-strike";
+import { flipSequenceSteps } from "./flip-sequence";
 import { armBattleDestroy, attackImpactAt, clearBattleHolds, noteAttackImpact } from "./battle-hold";
 import { battleSeekMs, joinBattleClock, type BattleClock } from "./battle-clock";
 import { planBattle } from "./fx3d/battle-plan";
@@ -656,6 +659,8 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   const [mounted, setMounted] = useState(false);
   const [play, setPlay] = useState<Play | null>(null);
   const [declared, setDeclared] = useState<BattleAim | null>(null);
+  // The attack beat of a flip-effect sequence: no battle plays for it (battle-trigger.ts), so it has its own.
+  const [strike, setStrike] = useState<(FlipStrikePlan & { aim: BattleAim | null }) | null>(null);
   const initialRef = useRef<number | null>(null);
   const processedRef = useRef(0);
   const capturesRef = useRef(new Map<number, AttackCapture | null>());
@@ -761,6 +766,19 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     pendingRef.current = incoming ? (decide(incoming) === "wait" ? incoming : null) : decide(earlier) === "wait" ? earlier : null;
     const marker = pendingRef.current ? declaredAim(pendingRef.current.attack) : null;
     setDeclared((current) => (aimSignature(current) === aimSignature(marker) ? current : marker));
+    if (latest) {
+      const startAt = flipAttackAt(latest.id);
+      const capture = capturesRef.current.get(latest.id) ?? null;
+      if (startAt > 0 && capture) {
+        const reduced = reducedRef.current;
+        const ms = flipSequenceSteps(reduced).attackMs;
+        const seq = ++seqRef.current;
+        setStrike({
+          seq, from: capture.from, to: capture.to, cut: capture.attacker, ms, reduced,
+          delayMs: Math.max(0, startAt - duelFxClock.now()), aim: declaredAim(latest),
+        });
+      }
+    }
     forget();
     if (!ready) return;
     const resolved = ready.attack;
@@ -796,8 +814,18 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     return () => duelFxClock.clearTimeout(timer);
   }, [play]);
 
+  // The aim marker and the lunge of the strike end with its beat.
+  const strikeSeq = strike?.seq;
+  const strikeEnd = strike ? strike.delayMs + strike.ms : 0;
+  useEffect(() => {
+    if (strikeSeq == null) return;
+    const timer = duelFxClock.setTimeout(() => setStrike((current) => (current?.seq === strikeSeq ? null : current)), strikeEnd + 80);
+    return () => duelFxClock.clearTimeout(timer);
+  }, [strikeSeq, strikeEnd]);
+
   if (!mounted) return null;
-  const shownAim = aim ?? declared;
+  const strikeAim = strike?.aim ?? null;
+  const shownAim = aim ?? declared ?? strikeAim;
   // Rendered where it is mounted, inside the board box, not in a portal at the page root. A fixed layer
   // there sits above the whole board stacking context, so it would cover the prompt panels, which live
   // inside it. In the board context the layer takes --duel-z-fx-front, below --duel-z-prompt. The board
@@ -805,6 +833,7 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   return (
     <div className={`${styles.layer} ${duelFontClasses}`} aria-hidden>
       {shownAim ? <AimLayer aim={shownAim} reduced={reducedMotion} /> : null}
+      {strike ? <FlipStrike key={strike.seq} plan={strike} /> : null}
       {play ? <AttackPlay key={play.seq} play={play}
         showStats={active && result == null && !events.some(event => event.id > play.attackId && (event.kind === "attack" || event.kind === "phase"))} /> : null}
     </div>
