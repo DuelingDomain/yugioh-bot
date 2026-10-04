@@ -14,6 +14,7 @@ import {
   chooseMaster,
   clearSection,
   copyProblems,
+  deckYdkText,
   placeCard,
   removeCard,
   sectionBreakdown,
@@ -56,6 +57,18 @@ const catalog: CardCatalog = new Map([
 function selection(main: number[], extra: number[] = [], side: number[] = [], deckMaster?: number): DeckMasterSelection {
   return { deck: { main, extra, side, ...(deckMaster != null ? { deckMaster } : {}) }, masterOrigin: null };
 }
+
+describe("draft YDK export", () => {
+  it("exports canonical passcodes for alternate artworks in every section", () => {
+    const cards = new Map([
+      [81480460, card(81480460, "Barrel Dragon", TYPE_MONSTER)],
+      [81480461, card(81480461, "Barrel Dragon", TYPE_MONSTER, 0, 81480460)],
+    ]);
+    const text = deckYdkText(selection([81480461], [81480461], [81480461]).deck, cards);
+    expect(text).not.toContain("81480461");
+    expect(text.match(/81480460/g)).toHaveLength(3);
+  });
+});
 
 describe("placeCard", () => {
   it("adds a list card at the end, or at a position", () => {

@@ -18,7 +18,7 @@ describe("deck registration marks", () => {
     auth.mockResolvedValue({ user: { id: "drafter", name: "Yugi" } });
     callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({
       ok: true,
-      data: { codes: Object.fromEntries(input.codes.map((id) => [String(id), passcodeOf(id)])) },
+      data: { codes: Object.fromEntries(input.codes.map((id) => [String(id), id >= 100000 ? id : passcodeOf(id)])) },
     }));
   });
   afterEach(() => {

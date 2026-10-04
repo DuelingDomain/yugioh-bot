@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canAddFromPool,
+  deckUsage,
   draftDeckNotes,
   draftMainMinimum,
   draftMainTone,
@@ -17,6 +18,17 @@ const pool = poolCounts([
 const deck = (main: number[], extra: number[] = [], side: number[] = []) => ({ main, extra, side });
 
 describe("draft deck pool model", () => {
+  it("shares the drafted copies across alternate art and alias codes", () => {
+    const catalog = new Map([
+      [81480460, { name: "Barrel Dragon", type: 33, alias: 0 }],
+      [81480461, { name: "Barrel Dragon", type: 33, alias: 81480460 }],
+    ]);
+    const cards = poolCounts([{ code: 81480460, count: 1 }, { code: 81480461, count: 1 }], catalog);
+    const used = deckUsage(deck([81480461], [], [81480460]), catalog);
+    expect(cards).toEqual(new Map([[81480460, 2]]));
+    expect(remainingCopies(cards, used, 81480460)).toBe(0);
+    expect(canAddFromPool(cards, used, 81480460)).toBe(false);
+  });
   it("adds the copies of a card that appears twice in the pool list", () => {
     expect(pool.get(100)).toBe(3);
     expect(pool.get(200)).toBe(1);

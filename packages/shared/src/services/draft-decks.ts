@@ -29,8 +29,9 @@ export function isTestBotDiscordId(discordUserId: string): boolean {
  * Splits a drafted pool into a deck. Extra Deck monsters go in extra, everything else in main.
  * A section over its limit puts the overflow in side (up to 15), so the deck stays one the duel
  * start accepts; cards that fit nowhere stay in the draft pool, where the deck editor finds them.
- * `catalogIds` are in pick order. Card codes are the catalog ids; the web layer maps them to
- * engine passcodes when it checks the deck.
+ * `catalogIds` are in pick order. Keep the pool's catalog ids at rest: this synchronous service
+ * has no engine catalog. The web layer maps BOTH the deck and its pool to canonical engine
+ * passcodes on load and validation, including old saves with artwork ids.
  */
 export function buildDraftDeck(cards: Array<{ catalogId: number; extra: boolean }>): DuelDeck {
   const main: number[] = [];

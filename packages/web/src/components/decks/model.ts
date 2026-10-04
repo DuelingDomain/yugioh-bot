@@ -1,4 +1,4 @@
-import { cardLimit, cardTypeRank, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
+import { canonicalCardCode, cardLimit, cardTypeRank, mapDeckCodes, type DeckCardInfo, type DuelCardInfo, type DuelDeck, type DuelMode } from "@yugidraft/shared/duels";
 import {
   TYPE_FUSION,
   TYPE_LINK,
@@ -139,8 +139,12 @@ export function cardLabel(code: number, catalog: ReadonlyMap<number, DuelCardInf
   return catalog.get(code)?.name ?? `Passcode ${code}`;
 }
 
-export function downloadYdkFile(name: string, deck: DuelDeck): void {
-  const blob = new Blob([serializeYdk(deck)], { type: "text/plain;charset=utf-8" });
+export function deckYdkText(deck: DuelDeck, catalog: CardCatalog): string {
+  return serializeYdk(mapDeckCodes(deck, (code) => canonicalCardCode(code, catalog)));
+}
+
+export function downloadYdkFile(name: string, deck: DuelDeck, catalog: CardCatalog): void {
+  const blob = new Blob([deckYdkText(deck, catalog)], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   const safe = name.trim().replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || "deck";

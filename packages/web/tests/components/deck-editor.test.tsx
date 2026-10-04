@@ -94,6 +94,45 @@ function mainCards() {
 }
 
 describe("SavedDeckEditor", () => {
+  it.each([81480461, 81480462])("loads the original metadata for saved artwork %i without a card search", async (code) => {
+    const base = card(81480460, "Barrel Dragon", 0x21, 7);
+    const art = { ...base, code: 81480461, alias: base.code };
+    const secondArt = { ...base, code: 81480462, alias: art.code };
+    stored = savedDeck([code]);
+    const fetch = vi.mocked(globalThis.fetch);
+    const original = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (url, init) => {
+      if (url === "/api/duels/cards") {
+        const { codes } = JSON.parse(String(init?.body)) as { codes: number[] };
+        return Response.json({ cards: [base, art, secondArt].filter((entry) => codes.includes(entry.code)), missing: [] });
+      }
+      return original(url, init);
+    });
+    render(<SavedDeckEditor deckId="7" />);
+    await screen.findByRole("button", { name: /Barrel Dragon, Main Deck card/ });
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/duels/cards", expect.objectContaining({ body: JSON.stringify({ codes: [base.code] }) })));
+  });
+  it("counts a saved Barrel Dragon artwork against the canonical draft pool on load", async () => {
+    const base = card(81480460, "Barrel Dragon", 0x21, 7);
+    const art = { ...base, code: 81480461, alias: base.code };
+    stored = { ...savedDeck([art.code]), draftId: 3 };
+    const fetch = vi.mocked(globalThis.fetch);
+    const original = fetch.getMockImplementation()!;
+    fetch.mockImplementation(async (url, init) => {
+      if (url === "/api/duels/cards") {
+        const { codes } = JSON.parse(String(init?.body)) as { codes: number[] };
+        return Response.json({ cards: [base, art].filter((entry) => codes.includes(entry.code)), missing: [] });
+      }
+      return original(url, init);
+    });
+    render(<SavedDeckEditor deckId="7" pool={{ slug: "retro", draftId: 3, draftName: "Retro draft", cards: [{ code: base.code, count: 1 }], mainPoolCount: 1, unresolved: [], savedDeckId: 7, registration: null }} />);
+    const full = await screen.findByRole("button", { name: "Barrel Dragon, 0 copies left in your pool" });
+    expect(screen.getByText("1 card in your pool")).toBeInTheDocument();
+    expect(screen.getByText(/not in the deck/)).toHaveTextContent("0 not in the deck");
+    fireEvent.doubleClick(full);
+    expect(mainCards()).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent("no copies left in your pool");
+  });
   it("adds cards from the card list, stops at three copies and undoes", async () => {
     render(<SavedDeckEditor />);
     const tile = await screen.findByRole("button", { name: "Blue-Eyes White Dragon" });

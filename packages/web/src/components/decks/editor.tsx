@@ -5,6 +5,7 @@ import { flushSync } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  canonicalCardCode,
   cardLimit,
   emptyCardQuery,
   type CardArchetype,
@@ -336,7 +337,13 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   }, [routeId]);
 
   useEffect(() => {
-    const needed = uniqueCodes(allCodes(deck)).filter((code) => !catalog.has(code) && !unknown.has(code) && !blocked.has(code));
+    const metadataCodes = new Set(allCodes(deck));
+    // Follow loaded alias chains; a missing original is fetched on the next render.
+    for (const code of metadataCodes) {
+      const alias = catalog.get(code)?.alias ?? 0;
+      if (alias > 0) metadataCodes.add(alias);
+    }
+    const needed = [...metadataCodes].filter((code) => !catalog.has(code) && !unknown.has(code) && !blocked.has(code));
     if (needed.length === 0) return;
     let cancelled = false;
     setMetaError(null);
@@ -361,7 +368,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       },
     );
     return () => { cancelled = true; };
-  }, [deck, metaRetry]);
+  }, [deck, catalog, metaRetry]);
 
   // A test hand shows one draw of the current Main Deck; a changed deck needs a new draw.
   const mainKey = deck.main.join(",");
@@ -425,17 +432,19 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
   const banlistName = banlistOff ? null : banlistLabel(query.banlist);
   const counts = useMemo(() => copyCounts(deck, catalog), [deck, catalog]);
   const problems = useMemo(() => (pool ? [] : copyProblems(deck, catalog, limits)), [pool, deck, catalog, limits]);
-  const poolMap = useMemo(() => (pool ? poolCounts(pool.cards) : null), [pool]);
-  const usage = useMemo(() => deckUsage(deck), [deck]);
+  const poolMap = useMemo(() => (pool ? poolCounts(pool.cards, catalog) : null), [pool, catalog]);
+  const usage = useMemo(() => deckUsage(deck, catalog), [deck, catalog]);
   const over = useMemo(() => new Set(problems.map((problem) => problem.key)), [problems]);
   const archetypes = facets?.archetypes ?? [];
 
-  // A draft pool counts copies by passcode: the pool lists each artwork on its own.
+  const poolCode = (code: number) => canonicalCardCode(code, catalog);
+
+  // Same-card artworks share the drafted copy count, including old saved decks.
   const deckCount = useCallback(
     (card: DeckCardInfo) => (poolMap
-      ? usage.get(card.code) ?? 0
+      ? usage.get(canonicalCardCode(card.code, catalog)) ?? 0
       : counts.get(`name:${card.name}`) ?? counts.get(`code:${card.code}`) ?? 0),
-    [counts, poolMap, usage],
+    [counts, poolMap, usage, catalog],
   );
 
   function inspect(code: number, stack: SelectedStack | null = null, openSheet = true) {
@@ -460,6 +469,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
 
   /** A draft deck can only hold as many copies of a card as the player drafted. */
   function poolRoomFor(code: number): boolean {
+    code = poolCode(code);
     if (!poolMap || canAddFromPool(poolMap, usage, code)) return true;
     setNotice(poolMap.has(code)
       ? `${cardName(code)}: no copies left in your pool.`
@@ -772,7 +782,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
       mode={mode}
       copies={deckCount(inspected)}
       limit={copyLimit(inspected.code, catalog, limits)}
-      poolCopies={poolMap ? poolMap.get(inspected.code) ?? 0 : undefined}
+      poolCopies={poolMap ? poolMap.get(poolCode(inspected.code)) ?? 0 : undefined}
       banlistName={banlistName}
       archetypes={archetypes}
       hideSummary={isPhone && cardSheetOpen}
@@ -820,7 +830,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                   <b>Draft deck from {pool.draftName}</b>
                   <span>{draftRuleText(pool.mainPoolCount)}</span>
                 </p>
-                {isPhone ? <SvButton variant="quiet" onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
+                {isPhone ? <SvButton variant="quiet" onClick={() => downloadYdkFile(name, deck, catalog)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
               </>
             ) : (
               <>
@@ -851,7 +861,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                 onPaste={onPaste}
               />
             ) : null}
-            {!isPhone ? <SvButton variant="quiet" className={styles["de-export"]} onClick={() => downloadYdkFile(name, deck)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
+            {!isPhone ? <SvButton variant="quiet" className={styles["de-export"]} onClick={() => downloadYdkFile(name, deck, catalog)}><Download className="ic sm" aria-hidden />Export YDK</SvButton> : null}
             {!pool ? (
               <Popover
                 label="More deck actions"
@@ -877,7 +887,7 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
                   </>
                 ) : (
                   <>
-                    {isPhone ? <><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); setParseError(null); setImportOpen(true); }}>Import</SvButton><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); downloadYdkFile(name, deck); }}>Export YDK</SvButton></> : null}
+                    {isPhone ? <><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); setParseError(null); setImportOpen(true); }}>Import</SvButton><SvButton variant="quiet" role="menuitem" onClick={() => { setMoreOpen(false); downloadYdkFile(name, deck, catalog); }}>Export YDK</SvButton></> : null}
                     <SvButton variant="danger" role="menuitem" disabled={savedId == null || busy} onClick={() => { setMoreOpen(false); setDeleteOpen(true); setDeleteError(null); }}>
                       <Trash2 className="ic sm" aria-hidden />Delete
                     </SvButton>
@@ -941,9 +951,9 @@ export function SavedDeckEditor({ deckId, pool }: { deckId?: string; pool?: Draf
             <DeckSectionGrid {...sectionProps} title="Extra" section="extra" codes={deck.extra} maximum={DRAFT_EXTRA_MAX} target="up to 15" emptyHint="Fusion, Synchro, Xyz and Link monsters go here." actions={clearButton("extra", "Extra")} />
             <DeckSectionGrid {...sectionProps} title="Side" section="side" codes={deck.side} unused={mode === "domain"} maximum={mode === "domain" ? 0 : 15} target={mode === "domain" ? "Not used in Domain" : "up to 15"} emptyHint="Drag cards here, or use Side on a selected card." actions={clearButton("side", "Side")} />
           </main>
-          <CardBrowser id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, card.code), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code), 0) } : undefined} query={query} onQueryChange={setQuery} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
+          <CardBrowser id="deck-editor-cards" pool={poolMap ? { cards: poolCards, remaining: (card) => remainingCopies(poolMap, usage, poolCode(card.code)), totalCopies: [...poolMap.values()].reduce((sum, count) => sum + count, 0), notInDeck: [...poolMap.keys()].reduce((sum, code) => sum + remainingCopies(poolMap, usage, code), 0) } : undefined} query={query} onQueryChange={setQuery} archetypes={archetypes} limits={limits} view={view} onViewChange={setView} deckCount={deckCount} inspectCode={selected == null ? inspectCode : null} onInspect={(card, openSheet) => { rememberCatalog([card]); inspect(card.code, null, openSheet); }} onHover={(card) => { if (card) rememberCatalog([card]); pointAt(card ? { code: card.code, from: "list" } : null); }} onAdd={(card) => addFromList(card)} onCatalog={rememberCatalog} onRemoveDrop={(drag) => removeCopy(drag)} searchRef={searchRef} />
         </div>
-        {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview card={shown} compact copySummary={inspected && !previewing ? <CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? poolMap.get(inspected.code) ?? 0 : undefined} /> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}
+        {isPhone && cardSheetOpen && inspectCode != null ? <CardBottomSheet label={cardName(inspectCode)} onClose={() => { setCardSheetOpen(false); setHover(null); }}>{shown ? <CardPreview card={shown} compact copySummary={inspected && !previewing ? <CardCopyCount copies={deckCount(inspected)} limit={copyLimit(inspected.code, catalog, limits)} poolCopies={poolMap ? poolMap.get(poolCode(inspected.code)) ?? 0 : undefined} /> : undefined} /> : missingReader}{cardControls}</CardBottomSheet> : null}
       </div>
     </SheetRoot>
   );

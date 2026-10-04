@@ -68,6 +68,32 @@ describe("mapDraftTournamentDecks", () => {
     expect(s.deckOf(s.bob)).toEqual(MAPPED);
   });
 
+  it("maps Barrel Dragon catalog artworks and engine aliases before duel start", async () => {
+    const s = seed({ draft: true });
+    const dir = mkdtempSync(join(tmpdir(), "ddcodes-engine-"));
+    tempDirs.push(dir);
+    const cdb = new Database(join(dir, "cards.cdb"));
+    cdb.exec(`
+      create table datas (id integer primary key, ot integer, alias integer, type integer);
+      create table texts (id integer primary key, name text);
+      insert into datas values (81480460, 3, 0, 33), (81480462, 3, 81480460, 33);
+      insert into texts values (81480460, 'Barrel Dragon'), (81480462, 'Barrel Dragon');
+    `);
+    cdb.close();
+    s.db.prepare("insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (81480461, 'Barrel Dragon', 'Effect Monster', 'effect', '', '', '[]', current_timestamp)").run();
+    const deck = { main: [81480461, 81480462], extra: [], side: [81480461] };
+    s.db.prepare("update tournament_participants set deck_json = ? where tournament_id = ? and player_id = ?")
+      .run(JSON.stringify(deck), s.tournamentId, s.alice);
+    const { normalizeImportedDeck } = await import("../../duel-server/src/deck-import.js");
+    callDuelHost.mockImplementation(async (input: { deck: typeof deck }) => ({
+      ok: true, data: { deck: await normalizeImportedDeck(input.deck, dir, s.db), report: { issues: [] } },
+    }));
+    const { mapDraftTournamentDecks } = await import("../src/lib/draft-deck-codes");
+    expect(await mapDraftTournamentDecks(s.db, { tournamentId: s.tournamentId, guildId: "g1", playerIds: [s.alice] })).toEqual({ ok: true });
+    expect(s.deckOf(s.alice)).toEqual({ main: [81480460, 81480460], extra: [], side: [81480460] });
+    s.db.close();
+  });
+
   it("does not overwrite a registration made while the host call ran, and maps that one instead", async () => {
     const s = seed({ draft: true });
     let calls = 0;
