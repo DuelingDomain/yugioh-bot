@@ -190,3 +190,5 @@ The same fix is useful for the production standard core. It is not applied there
 - Control: a second reference from the same patches 1 and 2 with `EXTRA_EM_FLAGS=-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE` (a different binary layout) gives zero differences against the reference on the 6 seeds and on 50 seeds. Before patch 2, the same control built from patch 1 only gave differences on 2 of 3 seeds.
 - Sanity gate: the `PATCH_LIMIT=1` build without `LUA_FIXED_SEED` is byte for byte the same as `ocgcore.standard.sync.wasm`.
 - The native ASan and UBSan build of all patches compiles without warnings, and the smoke test passes.
+
+`0086-ffa-returns-no-response.patch` makes FFA elimination fallback returns synchronous, without leave-field, destination or move events. Continuous redirects, Pendulum destinations, attachments and Tokens keep their movement rules. Tag and 1v1 stay unchanged.
