@@ -17,6 +17,48 @@ export interface Geometry {
   tall: boolean;
   /** Expanded desktop theme packs keep their pool below the card zone. */
   themeBelow: boolean;
+  /** Pixels the table and the picks tray rise together so the group sits centred in the stage. */
+  lift: number;
+}
+
+/** Perspective of `.scene` on desktop, and where it looks from (a fraction of the stage height). */
+export const SCENE_PERSPECTIVE = 1500;
+export const SCENE_ORIGIN_Y = 0.12;
+/** Space between the stage floor and the bottom of the table box (the tray sits under it). */
+export const TABLE_FLOOR = 26;
+/** Height of a far seat's label stack (badge, name, state) above its anchor. */
+export const SEAT_LABELS = 90;
+/** The tray's own gap above the stage floor, before any lift. */
+export const TRAY_GAP = 14;
+/** The status pill lives at the top of the stage; the group never rises into it. */
+export const TOP_CLEAR = 56;
+/** Desktop tables may grow past the old 980px cap on stages taller than this, up to +30%. */
+export const GROW_FROM = 900;
+export const GROW_SPAN = 800;
+export const GROW_MAX = 0.3;
+
+/**
+ * Where the top of the group (the far seat labels) lands, in stage pixels from the stage top, before any lift.
+ * The table turns about its bottom edge and the scene projects it with the CSS perspective.
+ */
+export function groupTop(opts: { height: number; th: number; tilt: number; diskH: number }): number {
+  const { height, th, tilt, diskH } = opts;
+  const a = (tilt * Math.PI) / 180;
+  const bottom = height - (diskH + TABLE_FLOOR);
+  const oy = height * SCENE_ORIGIN_Y;
+  // The far anchor sits 14px beyond the far edge, rotated about the bottom edge then projected.
+  const reach = th + 14;
+  const rise = reach * Math.cos(a);
+  const away = reach * Math.sin(a);
+  const y = oy + (bottom - rise - oy) * (SCENE_PERSPECTIVE / (SCENE_PERSPECTIVE + away));
+  return y - SEAT_LABELS;
+}
+
+/** The lift that evens the empty space above the seat labels and below the tray. Never negative. */
+export function tableLift(opts: { height: number; th: number; tilt: number; diskH: number }): number {
+  const top = groupTop(opts);
+  const even = (top - TRAY_GAP) / 2;
+  return Math.max(0, Math.round(Math.min(even, top - TOP_CLEAR)));
 }
 
 export interface Slot {
@@ -49,7 +91,9 @@ export function measureTable(opts: {
   const top = phone ? 34 : 72;
   const extra = phone ? 54 : 74;
   const floor = phone ? 60 : 64;
-  const widthCap = phone ? Math.min(width - 24, 560) : Math.min(980, width - 220);
+  // A tall desktop stage lets the table grow into the spare height; narrow stages keep their width.
+  const grow = phone || narrow ? 0 : Math.min(GROW_MAX, Math.max(0, (height - GROW_FROM) / GROW_SPAN));
+  const widthCap = phone ? Math.min(width - 24, 560) : Math.min(980 * (1 + grow), width - 220);
   let tw = widthCap;
   let cw = (tw - pad * 2 - gap * (cols - 1)) / cols;
   const fit = (height - (phone ? diskH + 40 : 150)) / (phone ? 0.93 : 0.8);
@@ -77,7 +121,9 @@ export function measureTable(opts: {
   const th = top + rows * ch + (rows - 1) * gap + extra + poolRow;
   // A flat table has no depth to compress the visible card widths through perspective.
   const tilt = tall ? 0 : phone ? 26 : 40;
-  return { phone, cols, pad, gap, rows, tw, th, cw, ch, top, tilt, tall, themeBelow };
+  // The flat scrolling table fills its stage and the phone layout is pinned to its strip: neither lifts.
+  const lift = phone || tall ? 0 : tableLift({ height, th, tilt, diskH });
+  return { phone, cols, pad, gap, rows, tw, th, cw, ch, top, tilt, tall, themeBelow, lift };
 }
 
 export function themeStackPoint(g: Geometry): Slot {
