@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
-import { createCardCatalogService, isExtraDeckFrame } from "../../src/services/card-catalog.js";
+import { createCardCatalogService, isExtraDeckFrame, rankCardsByName } from "../../src/services/card-catalog.js";
 
 type YgoprodeckCard = {
   id: number;
@@ -224,6 +224,116 @@ describe("shared card catalog service", () => {
     expect(app.fetchCalls).toEqual(["https://db.ygoprodeck.com/api/v7/cardinfo.php?fname=blue-eyes"]);
     expect(result.map((c) => c.name)).toEqual(["Blue-Eyes White Dragon"]);
     expect(app.catalog.findByIds([89631139, 23995346, 46986414]).map((c) => c.name)).toEqual(["Blue-Eyes White Dragon"]);
+  });
+});
+
+describe("card name search", () => {
+  const monster = (id: number, name: string, frameType = "normal"): YgoprodeckCard => ({
+    id,
+    name,
+    type: frameType === "normal" ? "Normal Monster" : "Fusion Monster",
+    frameType,
+    card_images: [{ image_url: `https://img/full/${id}`, image_url_small: `https://img/small/${id}` }],
+  });
+
+  /** The card database: it matches the text as written inside a name and answers HTTP 400 when nothing matches. */
+  function cardDatabase(cards: YgoprodeckCard[]) {
+    const db = new Database(":memory:");
+    migrate(db);
+    const calls: string[] = [];
+    const catalog = createCardCatalogService(db, {
+      fetch: async (input) => {
+        const url = new URL(String(input));
+        calls.push(url.search);
+        const fname = url.searchParams.get("fname")?.toLowerCase();
+        const id = url.searchParams.get("id");
+        const data = cards.filter((card) => (fname ? card.name.toLowerCase().includes(fname) : String(card.id) === id));
+        return { ok: data.length > 0, async json() { return { data }; } } as Response;
+      },
+    });
+    return { catalog, calls };
+  }
+
+  const pool = [
+    monster(1, "Dark Magician Girl"),
+    monster(2, "Skilled Dark Magician"),
+    monster(3, "Dark Magician"),
+    monster(4, "Dark Magician of Chaos"),
+    monster(89631139, "Blue-Eyes White Dragon"),
+    monster(23995346, "Blue-Eyes Ultimate Dragon", "fusion"),
+    monster(5, "Sage with Eyes of Blue"),
+  ];
+
+  it("puts the exact name first, then names that start with the text, then names that contain it", async () => {
+    const { catalog } = cardDatabase(pool);
+
+    const names = (await catalog.syncCardsByFuzzyName("dark magician")).map((card) => card.name);
+
+    expect(names).toEqual(["Dark Magician", "Dark Magician Girl", "Dark Magician of Chaos", "Skilled Dark Magician"]);
+  });
+
+  it("finds a card from a lowercase partial with no hyphen", async () => {
+    const { catalog, calls } = cardDatabase(pool);
+
+    const names = (await catalog.syncCardsByFuzzyName("blue eyes")).map((card) => card.name);
+
+    // The closest match is first; a name with both words in another order still shows below it.
+    expect(names).toEqual(["Blue-Eyes White Dragon", "Sage with Eyes of Blue"]);
+    expect(calls).toEqual(["?fname=blue+eyes", "?fname=blue"]);
+  });
+
+  it("finds a card when the words are typed in pieces, in any case and in any order", async () => {
+    const { catalog } = cardDatabase(pool);
+
+    expect((await catalog.syncCardsByFuzzyName("  BLUE EYES white ")).map((card) => card.name)).toEqual(["Blue-Eyes White Dragon"]);
+    expect((await catalog.syncCardsByFuzzyName("eyes blue")).map((card) => card.name)).toEqual([
+      "Blue-Eyes White Dragon",
+      "Sage with Eyes of Blue",
+    ]);
+  });
+
+  it("returns no cards, not an error, when the card database finds nothing", async () => {
+    const { catalog } = cardDatabase(pool);
+
+    await expect(catalog.syncCardsByFuzzyName("no such card")).resolves.toEqual([]);
+    await expect(catalog.syncCardsByFuzzyName("   ")).resolves.toEqual([]);
+  });
+
+  it("keeps Extra Deck monsters out unless the caller asks for them", async () => {
+    const { catalog } = cardDatabase(pool);
+
+    expect((await catalog.syncCardsByFuzzyName("blue-eyes")).map((card) => card.name)).toEqual(["Blue-Eyes White Dragon"]);
+    expect((await catalog.syncCardsByFuzzyName("blue-eyes", { includeExtra: true })).map((card) => card.name)).toEqual([
+      "Blue-Eyes White Dragon",
+      "Blue-Eyes Ultimate Dragon",
+    ]);
+  });
+
+  it("finds one card from its full passcode", async () => {
+    const { catalog } = cardDatabase(pool);
+
+    expect((await catalog.syncCardsByFuzzyName("89631139")).map((card) => card.name)).toEqual(["Blue-Eyes White Dragon"]);
+  });
+
+  it("still fails when the card database cannot be reached", async () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    const catalog = createCardCatalogService(db, {
+      fetch: async () => {
+        throw new Error("fetch failed");
+      },
+    });
+
+    await expect(catalog.syncCardsByFuzzyName("blue eyes")).rejects.toThrow(/Could not reach the card database/);
+  });
+
+  it("ranks by folded text: case, accents and punctuation do not matter", () => {
+    const ranked = rankCardsByName(
+      [{ name: "Sky Striker Ace - Raye" }, { name: "Raye" }, { name: "Ace of Raye Striker" }, { name: "Striker Raye Plus" }],
+      "RAYE",
+    );
+
+    expect(ranked.map((card) => card.name)).toEqual(["Raye", "Striker Raye Plus", "Ace of Raye Striker", "Sky Striker Ace - Raye"]);
   });
 });
 
