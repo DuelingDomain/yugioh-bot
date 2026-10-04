@@ -161,13 +161,21 @@ jobs:
 
   cores:
     name: Engine cores (build or restore)
-    if: always() && needs.core-cache.result == 'success' && (needs.core-build.result == 'success' || needs.core-build.result == 'skipped')
+    if: always() && needs.core-cache.result == 'success'
     needs: [core-cache, core-build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
       key: ${{ needs.core-cache.outputs.key }}
     steps:
+      - name: Check core build results
+        env:
+          CORE_BUILD: ${{ needs.core-build.result }}
+        run: |
+          case "$CORE_BUILD" in
+            success|skipped) ;;
+            *) echo "Core build result: $CORE_BUILD" >&2; exit 1 ;;
+          esac
       - name: Checkout
         uses: actions/checkout@v4
       - name: Restore engine bundle
