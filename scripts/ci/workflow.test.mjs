@@ -46,3 +46,34 @@ test("bundle cache hits verify the fixed binary pins too", () => {
   assert.equal(verify.if, undefined);
   assert.match(verify.run, /sha256sum --check/);
 });
+
+test("required engine checks include all balanced groups and legacy runs only two shards", () => {
+  const engine = workflow.jobs["engine-shards"];
+  const matrix = engine.strategy.matrix;
+  assert.deepEqual(matrix.suite, ["pinned"]);
+  assert.deepEqual(matrix.shard, [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(matrix.count, [6]);
+  assert.deepEqual(matrix.include, [
+    { suite: "surrender", shard: 1, count: 2 }, { suite: "surrender", shard: 2, count: 2 },
+    { suite: "differential", shard: 1, count: 2 }, { suite: "differential", shard: 2, count: 2 },
+  ]);
+  for (const step of engine.steps.filter((step) => /Web.*engine|Engine smoke/.test(step.name))) {
+    assert.match(step.if, /matrix\.suite == 'pinned'/);
+    assert.match(step.if, /matrix\.shard == 1/);
+  }
+  assert.deepEqual(workflow.jobs["engine-legacy-shards"].strategy.matrix.shard, [1, 2]);
+  for (const [id, name, shards] of [
+    ["engine", "Engine tests (cores required)", "engine-shards"],
+    ["engine-legacy", "Engine tests, legacy 1v1 engine (cores required)", "engine-legacy-shards"],
+  ]) {
+    const job = workflow.jobs[id];
+    assert.equal(job.name, name);
+    assert.ok(job.needs.includes(shards));
+    const guard = job.steps[0];
+    for (const result of ["success", "failure", "cancelled", "skipped"]) {
+      const env = { ...process.env, CHANGES: "success", REQUIRED: "true", RESULT: result };
+      const checked = spawnSync("bash", ["-e", "-o", "pipefail", "-c", guard.run], { env });
+      assert.equal(checked.status, result === "success" ? 0 : 1);
+    }
+  }
+});

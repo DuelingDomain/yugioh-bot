@@ -660,7 +660,7 @@ describeWithCores("the table: every listed card on the debug core", [liveNseat, 
   }, 60_000);
 
   for (const format of FORMATS) {
-    // CI runs this file separately on every engine shard. Scan/helper checks still use the whole TABLE.
+    // CI runs this file on every regular engine shard. Scan/helper checks still use the whole TABLE.
     for (const row of rowsForShard(TABLE, process.env.TABLE_SHARD)) {
       it(`${row.group} ${row.code} ${row.name} at ${format}: loads, runs its condition, no trap U or c`, async () => {
         if (NOT_IN_CARD_DATABASE[row.code]) {

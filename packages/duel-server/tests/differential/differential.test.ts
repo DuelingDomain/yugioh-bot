@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { engineDataDirectory } from "../fuzz/config.js";
 import { setupScenario } from "../fuzz/driver.js";
 import { coresReady, describeWithCores, itWithCores, needs } from "../support/cores.js";
+import { rowsForShard } from "../support/shard.js";
 
 // Every core created during this file goes through the recorder (a passthrough unless a recording is active).
 vi.mock("ocgcore-wasm", async (importOriginal) => {
@@ -38,7 +39,8 @@ import {
  *    Without it the test is skipped (with DUEL_REQUIRE_CORES=1 it fails: tests/support/cores.ts).
  *
  * Knobs: DIFF_RUNS (default 20), DIFF_SEED (base seed, default 20260930), DIFF_MAX_STEPS (default 400),
- * DIFF_MULTI_WASM, DIFF_REFERENCE_WASM (wasm paths), DIFF_ONLY_SEEDS (comma list, replaces the seed set), DIFF_TIMEOUT_MS, DUEL_DATA_DIR.
+ * DIFF_MULTI_WASM, DIFF_REFERENCE_WASM (wasm paths), DIFF_ONLY_SEEDS (comma list, replaces the seed set),
+ * DIFF_SHARD (i/n, partitions seeds), DIFF_TIMEOUT_MS, DUEL_DATA_DIR.
  * A difference writes `<GATE_TAG|local>-long-<seed>.json` to DIFF_FAILURE_DIR (default tests/differential/failures) and prints a `next:` repro line.
  */
 const dataDirectory = engineDataDirectory();
@@ -91,7 +93,7 @@ describeWithCores("differential: stock core vs replay", dataNeeds(dataDirectory)
     const multi = multiReady ? readWasm(MULTI_WASM_PATH) : null;
     const started = performance.now();
     const only = (process.env.DIFF_ONLY_SEEDS ?? "").split(",").filter(Boolean).map(Number);
-    for (const seed of only.length ? only : seedsFor(baseSeed, runs)) {
+    for (const seed of rowsForShard(only.length ? only : seedsFor(baseSeed, runs), process.env.DIFF_SHARD)) {
       const one = await compareSeed(seed, dataDirectory, maxSteps, { stock, multi });
       results.stock.push(one.stock);
       if (one.multi) results.multi.push(one.multi);

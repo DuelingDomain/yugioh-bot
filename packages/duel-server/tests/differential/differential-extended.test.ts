@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { engineDataDirectory } from "../fuzz/config.js";
 import { coresReady, describeWithCores, failIfRequired, needs, type CoreNeed } from "../support/cores.js";
+import { rowsForShard } from "../support/shard.js";
 
 // Every core created during this file goes through the recorder (a passthrough unless a recording is active).
 vi.mock("ocgcore-wasm", async (importOriginal) => {
@@ -29,7 +30,8 @@ import { wasmIdentity, writeDifferentialSummary } from "./summary.js";
  *
  * Knobs: DIFF_RUNS (default 20, long and domain), DIFF_SEED (default 20260930), DIFF_MAX_STEPS
  * (default 2000 for long, 400 for the others), DIFF_ONLY_SEEDS (comma list), DIFF_REFERENCE_WASM,
- * DIFF_MULTI_WASM, DIFF_TIMEOUT_MS, DUEL_DATA_DIR, DIFF_EXT_SCENARIOS (comma list of scenario id
+ * DIFF_MULTI_WASM, DIFF_SHARD (i/n, partitions seeds in long/domain mode), DIFF_TIMEOUT_MS, DUEL_DATA_DIR,
+ * DIFF_EXT_SCENARIOS (comma list of scenario id
  * parts, scenarios mode). Every mode writes .status/differential-summary.json and one line to
  * .status/differential-history.tsv, and one file per differing seed to tests/differential/failures/.
  * See tests/differential/README.md.
@@ -132,7 +134,7 @@ describeWithCores(`differential extended: ${mode}`, [...dataNeeds(dataDirectory)
         await one(seed, (wasm) => recordBoard(seed, scenario.id, compiled, scenario.seed ?? ["1", "2", "3", "4"], dataDirectory, maxSteps, wasm), pair);
       }
     } else {
-      for (const seed of onlySeeds.length ? onlySeeds : seedsFor(baseSeed, runs)) {
+      for (const seed of rowsForShard(onlySeeds.length ? onlySeeds : seedsFor(baseSeed, runs), process.env.DIFF_SHARD)) {
         await one(seed, (wasm) => recordSeeded(seed, mode === "domain" ? "domain" : "normal", dataDirectory, maxSteps, wasm), mainPair);
       }
     }

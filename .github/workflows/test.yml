@@ -365,7 +365,7 @@ jobs:
         run: test "$PACKAGES" = success && test "$WEB" = success
 
   engine-shards:
-    name: Engine tests shard (${{ matrix.shard }}/6)
+    name: Engine tests shard (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.count }})
     if: ${{ !cancelled() && needs.cores.result == 'success' && github.event_name != 'schedule' && needs.changes.outputs.web_engine == 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
@@ -373,7 +373,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        suite: [pinned]
         shard: [1, 2, 3, 4, 5, 6]
+        count: [6]
+        # Keep the slow host/differential files off the regular+Table shards.
+        # Both surrender modes and all differential seeds still run across these groups.
+        include:
+          - { suite: surrender, shard: 1, count: 2 }
+          - { suite: surrender, shard: 2, count: 2 }
+          - { suite: differential, shard: 1, count: 2 }
+          - { suite: differential, shard: 2, count: 2 }
     env:
       DUEL_REQUIRE_CORES: "1"
       DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
@@ -424,7 +433,7 @@ jobs:
         if: needs.changes.outputs.engine == 'true'
         env:
           CI_TEST_FILES: ${{ steps.selection.outputs.files }}
-        run: node scripts/ci/run-engine-tests.mjs pinned ${{ matrix.shard }}/6
+        run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs ${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.count }}
 
       # Web tests that run a real stock-core duel. The unit job has no engine bundle, so they skip there.
       # DUEL_REQUIRE_CORES=1 (from the job env) makes a missing bundle a failure here.
@@ -433,28 +442,29 @@ jobs:
       # Only direct imports of the cores helper are found. A web test that gets the helper through another module is not run here.
       # The full web suite (about 400 files) already runs in the unit job, so only the matching files run again.
       - name: Web tests with the engine
-        if: matrix.shard == 1 && needs.changes.outputs.tests_only != 'true'
+        if: matrix.suite == 'pinned' && matrix.shard == 1 && needs.changes.outputs.tests_only != 'true'
         run: |
           set -o pipefail
           # Lines that start with // or * are comments: a comment that names the helper does not count.
           files=$({ grep -rE "duel-server/tests/support/cores(\.js)?[\"']" packages/web/tests --include='*.test.ts' --include='*.test.tsx' || true; } | { grep -vE '^[^:]*:[[:space:]]*(//|\*)' || true; } | cut -d: -f1 | sed 's#^packages/web/##' | sort -u)
           if [ -z "$files" ]; then echo "No web test imports the cores helper. Fix this step."; exit 1; fi
           echo "$files"
-          npm exec --workspace=packages/web -- vitest run $files
+          mapfile -t test_files <<< "$files"
+          prlimit --core=1:1 -- npm exec --workspace=packages/web -- vitest run "${test_files[@]}"
 
       - name: Web engine tests that depend on changed duel helpers
-        if: matrix.shard == 1 && needs.changes.outputs.tests_only == 'true'
+        if: matrix.suite == 'pinned' && matrix.shard == 1 && needs.changes.outputs.tests_only == 'true'
         env:
           CI_TEST_FILES: ${{ steps.selection.outputs.web_files }}
-        run: node scripts/ci/run-engine-tests.mjs web 1/1
+        run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs web 1/1
 
       # tests/*.smoke.ts are plain assert scripts (vitest does not match them); one failing script fails the step.
       - name: Engine smoke scripts
-        if: needs.changes.outputs.engine == 'true' && matrix.shard == 1
-        run: npm run test:smoke --workspace=packages/duel-server
+        if: needs.changes.outputs.engine == 'true' && matrix.suite == 'pinned' && matrix.shard == 1
+        run: prlimit --core=1:1 -- npm run test:smoke --workspace=packages/duel-server
 
   engine-legacy-shards:
-    name: Legacy 1v1 tests shard (${{ matrix.shard }}/6)
+    name: Legacy 1v1 tests shard (${{ matrix.shard }}/2)
     if: ${{ !cancelled() && needs.cores.result == 'success' && github.event_name != 'schedule' && needs.changes.outputs.engine == 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
@@ -462,7 +472,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2]
     env:
       DUEL_REQUIRE_CORES: "1"
       DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
@@ -513,7 +523,7 @@ jobs:
       - name: Engine tests, legacy 1v1 engine
         env:
           CI_TEST_FILES: ${{ steps.selection.outputs.files }}
-        run: node scripts/ci/run-engine-tests.mjs legacy ${{ matrix.shard }}/6
+        run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs legacy ${{ matrix.shard }}/2
 
   engine:
     name: Engine tests (cores required)
