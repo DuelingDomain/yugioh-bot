@@ -1,0 +1,453 @@
+/* Solid Vision table: the SolidField root, the field wrapper, the tilted plane and its 7x5 grid.
+   Structure and tilt rules: spec 2.2 and 2.5. Look: concept styles.css 274-380 and the owner pick.
+
+   Skin classes (zone, zoneHit, frame, plate ...) carry the names of field.module.css on purpose: useSkinStyles adds
+   them to the V1 elements of the field slot. Every one is scoped under .plane (and written with data-* attributes
+   so it out-ranks the V1 selector), so hands and Deck Master docks, which share the slot, are not touched.
+   Do not use --ink-2, --ink-3, --ember or --loss in here: .felt (field.module.css) redefines them for V1. */
+
+/* .felt (field.module.css) gives the V1 tokens (--sheet, --ink ...). Container-type is normal, so the V1
+   @container (max-width: 640px) phone rules never match. */
+.root[data-duel-field] {
+  --f-ui: var(--font);
+  --f-num: var(--font-num);
+  container-type: normal;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  place-items: stretch;
+  width: 100%;
+  height: 100%;
+  background: none;
+  /* The solid palette under names .felt does not redefine. */
+  --sv-ink-1: #080b14;
+  --sv-ink-2: #0d1221;
+  --sv-ember: #e0916a;
+  --sv-loss: #f27a6b;
+}
+
+.fieldwrap {
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  /* Perspective goes on the parent of the plane only (spec 2.2 rule 1). */
+  perspective: var(--persp);
+  perspective-origin: 50% 50%;
+}
+
+@property --light-y {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 78%;
+}
+
+/* The ONLY tilted node. No preserve-3d, will-change, overflow, opacity or filter here. */
+.plane {
+  --light-y: 78%;
+  /* The V1 primitive variables, mapped from the cell size (spec 2.5). */
+  --z: var(--ch);
+  --gy: var(--g);
+  --r: 3px;
+  --pk: 0.86;
+  --fs-name: 13px;
+  --fs-small: 11px;
+  --n3: clamp(9px, calc(var(--ch) * 0.13), 19px);
+  --n4: clamp(9.5px, calc(var(--ch) * 0.104), 15px);
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--pile) repeat(5, var(--s)) var(--pile);
+  grid-template-rows: repeat(5, var(--s));
+  gap: var(--g);
+  padding: var(--pp) calc(var(--pp) * 1.2);
+  border-radius: 12px;
+  transform: rotateX(var(--tilt));
+  transform-origin: 50% 80%;
+  transition: transform 0.55s var(--ease-out), --light-y 0.9s var(--ease-out);
+  background:
+    radial-gradient(70% 38% at 50% var(--light-y), rgb(143 118 242 / 0.13), transparent 70%),
+    radial-gradient(40% 30% at 18% 12%, rgb(52 66 104 / 0.3), transparent 70%),
+    radial-gradient(50% 40% at 86% 86%, rgb(40 52 88 / 0.28), transparent 70%),
+    linear-gradient(118deg, transparent 38%, rgb(255 255 255 / 0.022) 48%, transparent 58%),
+    linear-gradient(180deg, #0c1222 0%, #080c18 100%);
+  box-shadow:
+    0 0 0 1px rgb(200 165 95 / 0.55),
+    0 0 0 4px rgb(8 11 20 / 0.95),
+    0 0 0 5px rgb(200 165 95 / 0.18),
+    0 40px 60px -24px rgb(0 0 0 / 0.95);
+}
+:global([data-reduced="true"]) .plane { transition: none; }
+.plane[data-light="opp"] { --light-y: 22%; }
+
+/* Your-half / their-half light split. */
+.plane::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  border-radius: 12px;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(180deg, rgb(4 6 11 / 0.5) 0%, rgb(4 6 11 / 0.5) 50%, transparent 50%);
+  transition: opacity 0.6s;
+}
+.plane[data-light="opp"]::after {
+  background: linear-gradient(0deg, rgb(4 6 11 / 0.42) 0%, rgb(4 6 11 / 0.42) 50%, transparent 50%);
+  opacity: 1;
+}
+:global([data-reduced="true"]) .plane::after { transition: none; }
+
+.emblem {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--s) * 2.6);
+  height: calc(var(--s) * 2.6);
+  translate: -50% -50%;
+  pointer-events: none;
+  color: var(--gold);
+  opacity: 0.16;
+}
+
+/* The two halves only carry data-* hooks; their cells sit on the plane grid. */
+.halfWrap { display: contents; }
+
+.cell {
+  /* No z-index: a cell must not be a stacking context, or a glow would be cut by the next cell's card. */
+  position: relative;
+  display: grid;
+  place-items: stretch;
+  min-width: 0;
+  min-height: 0;
+}
+.cell[data-cell="band-pile"] { align-self: center; height: calc(var(--s) * 0.9); }
+
+/* Centre-band gaps: the opponent's clock (left, turned to face them, ember) and yours (right, purple). */
+.clock {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  font-family: var(--font-num);
+  font-size: calc(var(--s) * 0.3);
+  line-height: 1;
+}
+.clock[data-sv-clock="opp"] { color: var(--sv-ember); transform: rotate(180deg); }
+.clock[data-sv-clock="you"] { color: var(--pur-hi); }
+/* The V1 clock node (name + m:ss) stacks in the gap: name small above, time large below, in the seat colour. */
+.clock[data-sv-clock] > div,
+.clock[data-sv-clock] > div > span[data-active] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: inherit;
+}
+.clock[data-sv-clock] > div > span[data-active] > small {
+  max-width: calc(var(--s) * 0.9);
+  color: #979080;
+  font-family: var(--font);
+  font-size: clamp(10px, calc(var(--s) * 0.15), 13px);
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+}
+.clock[data-sv-clock] > div > span[data-active] > span:not([aria-hidden]) {
+  color: inherit;
+  font-family: var(--font-num);
+  font-size: clamp(17px, calc(var(--s) * 0.32), 30px);
+  font-weight: 500;
+  line-height: 1;
+}
+.clock[data-sv-clock] > div > span[data-active="false"] { color: #979080; }
+.clock[data-sv-clock="opp"] > div > span[data-active="true"] { color: #e0916a; }
+.clock[data-sv-clock="you"] > div > span[data-active="true"] { color: #b8a8ff; }
+
+.planeSvg {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  color: var(--gold-hi);
+}
+
+/* ---------- notches: gold chevrons on the left and right edge of the frame ---------- */
+.notch {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 18px;
+  translate: 0 -50%;
+  color: var(--gold);
+  pointer-events: none;
+}
+.notch svg { display: block; width: 100%; height: 100%; }
+.notchL { left: -6px; }
+.notchR { right: -6px; transform: scaleX(-1); }
+
+/* ---------- plane: attack path ---------- */
+.aimPath { fill: none; stroke: var(--gold-hi); stroke-width: 2; stroke-dasharray: 6 6; stroke-linecap: round; }
+.aimPathDim { stroke: var(--gold); opacity: 0.5; }
+.aimRing { fill: none; stroke: var(--gold-hi); stroke-width: 2; }
+.aimRingFrom { stroke: var(--pur-hi); }
+
+/* ---------- zones: skin of the V1 field classes (slot "field"), scoped to the plane ---------- */
+
+/* The cell: obsidian slab with a gold hairline. Radius 6 (4 on mobile). */
+.plane .zone[data-zones] {
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgb(24 33 58 / 0.66), rgb(14 20 36 / 0.7));
+  box-shadow: inset 0 0 0 1px rgb(200 165 95 / 0.16), inset 0 10px 20px rgb(0 0 0 / 0.32);
+}
+.plane .zone[data-zones]:is([data-kind="deck"], [data-kind="gy"], [data-kind="banish"], [data-kind="extra"], [data-kind="field"]) {
+  background: linear-gradient(180deg, rgb(20 28 50 / 0.6), rgb(12 17 31 / 0.66));
+}
+
+/* The hit button fills the cell; its content (frame) sits in the middle, the pile label hangs on the bottom edge. */
+.plane .zone[data-zones][data-kind] .zoneHit {
+  display: grid;
+  place-items: center;
+  place-content: center;
+  border-radius: 6px;
+  gap: 0;
+}
+
+/* Slot guides. Portrait: the frame (a hairline in the cell). Landscape: the monster zones' ::before. */
+.plane .zone[data-zones][data-kind] .frame {
+  border-color: transparent;
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgb(200 165 95 / 0.24);
+}
+.plane .zone[data-zones][data-kind] .zoneHit:hover .frame { border-color: transparent; box-shadow: inset 0 0 0 1px rgb(200 165 95 / 0.42); }
+.plane .zone[data-zones][data-kind="mz"] .zoneHit::before,
+.plane .zone[data-zones][data-kind="emz"] .zoneHit::before {
+  border: 1px solid rgb(200 165 95 / 0.14);
+  border-radius: 3px;
+}
+.plane .zone[data-zones][data-kind="emz"] .zoneHit::before { border-color: rgb(200 165 95 / 0.14); }
+
+/* Piles and the Field zone: portrait guide of 0.8 pile x 1.458 (a card). */
+.plane .zone[data-zones]:is([data-kind="deck"], [data-kind="gy"], [data-kind="banish"], [data-kind="extra"], [data-kind="field"]) .frame {
+  width: calc(var(--pile) * 0.8);
+  height: calc(var(--pile) * 0.8 * 1.458);
+}
+
+/* A card on a zone: the concept field card (black hairline, soft drop shadow). */
+.plane .zone[data-zones][data-kind][data-occupied="true"] .frame {
+  box-shadow: 0 8px 12px -6px rgb(0 0 0 / 0.9), 0 0 0 1px rgb(0 0 0 / 0.6);
+}
+.plane .zone[data-zones]:is([data-kind="deck"], [data-kind="gy"], [data-kind="banish"], [data-kind="field"])[data-occupied="true"] .frame {
+  box-shadow: 0 6px 10px -5px rgb(0 0 0 / 0.9);
+}
+/* The Extra Deck is a stack (the Main Deck has its own V1 stack layers); the Graveyard and Banished piles lie flat. */
+.plane .zone[data-zones][data-kind="extra"][data-occupied="true"] .frame {
+  box-shadow: 0 6px 10px -5px rgb(0 0 0 / 0.9), 2px 2px 0 -1px #1a1410, 3px 3px 0 -1px rgb(0 0 0 / 0.6);
+}
+.plane .zone[data-zones] .fanCard { border-radius: 3px; box-shadow: 0 6px 10px -5px rgb(0 0 0 / 0.9); }
+
+/* A usable or picked card does not lift in the plane: the glow is the signal. */
+.plane .zone[data-zones][data-occupied="true"]:is([data-legal="true"], [data-selected="true"]) .frame { transform: none; }
+
+/* Pile label: "Deck 32" on a small plate over the bottom edge of the cell. */
+.plane .zone[data-zones] .pileLabel {
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  z-index: 3;
+  translate: -50% 0;
+  gap: 3px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgb(6 8 14 / 0.9);
+  box-shadow: inset 0 0 0 1px rgb(200 165 95 / 0.2);
+  color: var(--tx-2);
+  font-family: var(--font);
+  font-size: 11px;
+  line-height: 16px;
+}
+.plane .zone[data-zones] .plCount { color: var(--tx); font-family: var(--font); font-weight: 500; }
+/* The hover chip ("Open GY") hangs above the label. */
+.plane .zone[data-zones] .openChip,
+.plane .zone[data-zones][data-side="opp"] .openChip {
+  bottom: 24px;
+  height: 20px;
+  border-color: rgb(200 165 95 / 0.42);
+  background: #0d1221;
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 11px;
+}
+
+/* P mark (Pendulum zone) in the corner of the cell. The frame is the card box, so the offsets reach out to the cell. */
+.plane .zone[data-zones] .pendulumMark,
+.plane .zone[data-zones][data-side="opp"] .pendulumMark {
+  top: calc(4px - (var(--s) - var(--ch)) / 2);
+  right: auto;
+  bottom: auto;
+  left: calc(5px - (var(--s) - var(--cw)) / 2);
+  padding: 2px 3px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--gold-b);
+  color: var(--gold);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* "Extra Monster" label on an empty EMZ, on two lines. */
+.plane .zone[data-zones] .zoneName {
+  position: absolute;
+  inset: auto;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  z-index: 0;
+  width: min-content;
+  color: var(--tx-3);
+  font-family: var(--font);
+  font-size: 11px;
+  line-height: 1.15;
+  text-align: center;
+}
+
+/* ATK / DEF plate over the bottom edge of the card (the top edge on their side, as in V1: their art is turned). */
+.plane .zone[data-zones] .plate,
+.plane .zone[data-zones][data-side="opp"][data-occupied="true"] .plate {
+  right: -5px;
+  left: -5px;
+  align-items: center;
+  gap: 3px;
+  height: 17px;
+  padding: 0;
+  border-radius: 4px;
+  background: rgb(6 8 14 / 0.92);
+  box-shadow: inset 0 0 0 1px rgb(200 165 95 / 0.3);
+  color: var(--tx);
+  font-family: var(--font-num);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+}
+.plane .zone[data-zones] .plate { top: auto; bottom: -7px; }
+.plane .zone[data-zones][data-side="opp"][data-occupied="true"] .plate { top: -7px; bottom: auto; }
+.plane .zone[data-zones] .plateSep { color: var(--tx-3); font-style: normal; }
+.plane .zone[data-zones] .plateDef { color: var(--tx-2); }
+
+/* A zone the core switched off. */
+.plane .zone[data-zones] .zoneOff { border-radius: 6px; border-color: var(--sv-loss); }
+
+/* ---------- usable, picked, place-ready: a glow and a small top tab, never an outline, never dimmed ---------- */
+
+/* Usable card: purple glow on the card edge. Steady (the breathing pulse of V1 is off in this look). */
+.plane .zone[data-zones] .glow {
+  border-radius: 3px;
+  box-shadow: 0 0 0 1.5px var(--pur), 0 0 14px rgb(143 118 242 / 0.45);
+  animation: none;
+  opacity: 1;
+}
+/* Picked card. */
+.plane .zone[data-zones] .glow[data-state="picked"] {
+  box-shadow: 0 0 0 2px var(--pur-hi), 0 0 0 5px rgb(143 118 242 / 0.25), 0 0 18px rgb(143 118 242 / 0.4);
+}
+
+/* The tab: a small gold chevron on the top edge (concept .ltab). V1's nib/check svg is replaced by the chevron. */
+.plane .zone[data-zones] .mark {
+  top: -11px;
+  right: auto;
+  left: 50%;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  height: 12px;
+  padding: 0 6px 1px;
+  translate: -50% 0;
+  border: 1px solid var(--gold);
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  background: var(--sv-ink-1);
+  box-shadow: none;
+  color: var(--gold-hi);
+}
+.plane .zone[data-zones] .mark svg { display: none; }
+.plane .zone[data-zones] .mark::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  background: currentcolor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 15l6-6 6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 15l6-6 6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* Picked: the V1 check on a purple tab. */
+.plane .zone[data-zones][data-selected="true"] .mark {
+  border-color: var(--pur-hi);
+  background: var(--pur-btn);
+  color: #fff;
+}
+.plane .zone[data-zones][data-selected="true"] .mark::before { display: none; }
+.plane .zone[data-zones][data-selected="true"] .mark svg { display: block; width: 10px; height: 10px; }
+
+/* Place-ready empty zone: a solid gold ring on the cell and an inner glow. The card glow span is not drawn. */
+.plane .zone[data-zones][data-legal="true"][data-occupied="false"] {
+  box-shadow: inset 0 0 0 1px var(--gold), inset 0 0 26px rgb(200 165 95 / 0.12);
+}
+.plane .zone[data-zones][data-legal="true"][data-occupied="false"] .glow { display: none; }
+.plane .zone[data-zones][data-legal="true"][data-occupied="false"] .frame { background: transparent; }
+.plane .zone[data-zones][data-legal="true"][data-occupied="false"]:hover,
+.plane .zone[data-zones][data-selected="true"][data-occupied="false"] {
+  box-shadow: inset 0 0 0 2px var(--pur-hi), inset 0 0 30px rgb(143 118 242 / 0.25);
+}
+
+/* ---------- phones (the app's 900px breakpoint) ---------- */
+@media (max-width: 900px) {
+  .emblem { opacity: 0.12; }
+  .notch { display: none; }
+  .plane .zone[data-zones] { border-radius: 4px; }
+  .plane .zone[data-zones][data-kind] .zoneHit { border-radius: 4px; }
+  .plane .zone[data-zones] .pendulumMark,
+  .plane .zone[data-zones][data-side="opp"] .pendulumMark { top: calc(2px - (var(--s) - var(--ch)) / 2); left: calc(2px - (var(--s) - var(--cw)) / 2); padding: 1px 2px; font-size: 9px; }
+  .plane .zone[data-zones] .zoneName { font-size: 9px; }
+  .plane .zone[data-zones] .pileLabel { bottom: 1px; padding: 0 3px; font-size: 9px; line-height: 13px; }
+  .plane .zone[data-zones] .plFull { display: none; }
+  .plane .zone[data-zones] .plShort { display: inline; }
+  .plane .zone[data-zones] .plate,
+  .plane .zone[data-zones][data-side="opp"][data-occupied="true"] .plate { right: -4px; left: -4px; height: 14px; font-size: 11px; }
+  .plane .zone[data-zones] .plate { bottom: -6px; }
+  .plane .zone[data-zones][data-side="opp"][data-occupied="true"] .plate { top: -6px; }
+  .plane .zone[data-zones] .plateSep,
+  .plane .zone[data-zones] .plateDef { display: none; }
+  .plane .zone[data-zones] .mark { top: -10px; }
+}
+
+/* ---------- phones: clocks in the Extra Monster gap cells ---------- */
+@media (max-width: 900px) {
+  /* The cell is one zone wide: the name does not fit beside the time, and the plates already name both players. */
+  .cell[data-cell="band-pile"] { height: max(48px, calc(var(--s) * 0.9)); }
+  .clock[data-sv-clock] small { display: none; }
+  .clock[data-sv-clock] [role="timer"],
+  .clock[data-sv-clock] [role="timer"] > span { color: inherit; }
+  .clock[data-sv-clock] [role="timer"] { display: grid; place-items: center; }
+  .clock[data-sv-clock] [role="timer"] > span[data-active="false"] { opacity: 0.7; }
+  .clock[data-sv-clock] [role="timer"] > span > span:first-of-type {
+    font-size: clamp(15px, calc(var(--s) * 0.34), 20px);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+}
+
+/* ---------- phones turned sideways: rails left, table right ---------- */
+@media (max-width: 900px) and (max-height: 540px) and (orientation: landscape) {
+  .root[data-duel-field] {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "opp plane" "gap plane" "you plane";
+    column-gap: 10px;
+  }
+  .fieldwrap { grid-area: plane; }
+}

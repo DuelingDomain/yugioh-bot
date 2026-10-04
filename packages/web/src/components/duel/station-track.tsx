@@ -6,8 +6,9 @@ import type { DuelPromptOption } from "@yugidraft/shared/duels";
 import { phaseLabel } from "./constants";
 import { ChainModeSwitch } from "./chain-mode-switch";
 import { duelFontClasses } from "./fonts";
+import { useSkinStyles } from "./skin";
 import type { ChainModeControl } from "./use-chain-mode";
-import styles from "./station-track.module.css";
+import baseStyles from "./station-track.module.css";
 
 
 /**
@@ -173,7 +174,7 @@ const PRIMARY_LABEL: Record<PhaseMove, string> = {
 
 type CaptionParts = { at?: string; body?: string; next?: string; note?: string };
 
-function BattleSteps({ step, mine }: { step: BattleStep | null; mine: boolean }) {
+function BattleSteps({ step, mine, styles }: { step: BattleStep | null; mine: boolean; styles: typeof baseStyles }) {
   const currentIndex = step ? BATTLE_STEPS.findIndex((entry) => entry.id === step) : -1;
   const info = battleStepInfo(step);
   return (
@@ -224,6 +225,7 @@ export function StationTrack({
   attackLock,
   chainMode,
 }: StationTrackProps) {
+  const styles = useSkinStyles(baseStyles, "station");
   const current = STATION_INDEX[phaseLabel(phase)] ?? -1;
   const spectator = mySeat == null;
   const myTurn = !spectator && turnSeat === mySeat;
@@ -335,7 +337,7 @@ export function StationTrack({
         {inBattle ? (
           <div className={styles.caption} aria-live="polite" aria-atomic="true" title={captionText}>
             {parts.note ? <span className={styles.capNote}>{parts.note}<span aria-hidden="true"> · </span></span> : null}
-            <BattleSteps step={step} mine={myTurn} />
+            <BattleSteps step={step} mine={myTurn} styles={styles} />
           </div>
         ) : (
           <p className={styles.caption} aria-live="polite" aria-atomic="true" title={captionText}>

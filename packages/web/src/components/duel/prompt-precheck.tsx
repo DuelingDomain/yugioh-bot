@@ -3,7 +3,8 @@
 import { useEffect, useRef } from "react";
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "./constants";
-import styles from "./prompt-precheck.module.css";
+import baseStyles from "./prompt-precheck.module.css";
+import { useSkinStyles } from "./skin";
 
 /** One thumbnail on the bar. `card` is what the left inspector shows on hover or focus. */
 export interface PrecheckCard {
@@ -35,6 +36,7 @@ export interface PrecheckBarProps {
  * owns every shortcut of the response prompts.
  */
 export function PrecheckBar({ name, ask, context, cards, tone, busy, reducedMotion, onYes, onNo, onInspectCard }: PrecheckBarProps) {
+  const styles = useSkinStyles(baseStyles, "precheck");
   const yesRef = useRef<HTMLButtonElement>(null);
   // Focus Yes so Enter answers it, as the response panel focuses its primary button.
   useEffect(() => {

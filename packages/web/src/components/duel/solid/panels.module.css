@@ -1,0 +1,496 @@
+/* Solid Vision: the left column (tabs, Card inspector, Log, settings pane).
+   Concept: docs/design/duel-3d-mode/concept/solid-vision/styles.css 155-205 and 600-615.
+   The skin adds these classes AFTER the V1 ones (slots side, inspector and history share this module, so a class
+   name that two V1 modules both use is scoped by its parent below). Every rule starts with the look attribute of
+   the room root, so it outranks the V1 rule it restyles whatever order the stylesheets load in.
+   The aside box itself (gold hairline, gradient, radius 12) is painted by solid-room.module.css. */
+
+/* ---------------------------------------------------------------- tabs: Card | Log N | gear */
+[data-look="solid"] .tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr 34px;
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--hair);
+}
+[data-look="solid"] .tabs button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--tx-2);
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 400;
+  transition: background-color 0.18s var(--ease-out), color 0.18s var(--ease-out);
+}
+[data-look="solid"] .tabs button:not([aria-selected="true"]):not([aria-pressed="true"]):hover {
+  background: var(--ink-3);
+  color: var(--tx);
+}
+[data-look="solid"] .tabs button[aria-selected="true"],
+[data-look="solid"] .tabs button[aria-pressed="true"] {
+  background: var(--pur-btn);
+  color: #fff;
+  font-weight: 400;
+}
+[data-look="solid"] .tabs button:focus-visible {
+  outline: 2px solid var(--pur-hi);
+  outline-offset: -2px;
+  border-radius: 7px;
+}
+/* Settings is the gear: the label stays in the DOM for assistive tech and the glyph is drawn by a mask. */
+[data-look="solid"] .tabs button[id$="-settings"] {
+  font-size: 0;
+}
+[data-look="solid"] .tabs button[id$="-settings"]::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  background: currentColor;
+  -webkit-mask: var(--sv-gear) center / contain no-repeat;
+  mask: var(--sv-gear) center / contain no-repeat;
+  --sv-gear: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27black%27 stroke-width=%271.6%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Ccircle cx=%2712%27 cy=%2712%27 r=%273%27/%3E%3Cpath d=%27M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z%27/%3E%3C/svg%3E");
+}
+/* The unread count after "Log": a plain number, not a pill (concept .count). */
+[data-look="solid"] .badge[data-testid="log-unread"] {
+  min-width: 0;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  opacity: 0.8;
+}
+
+/* ---------------------------------------------------------------- side panel */
+[data-look="solid"] .panel {
+  font-family: var(--font);
+}
+[data-look="solid"] .empty {
+  gap: 10px;
+  min-height: 12rem;
+  padding: 24px;
+  color: var(--tx-3);
+  font-family: var(--font);
+  font-size: 14px;
+}
+[data-look="solid"] .empty svg {
+  color: var(--gold-lo);
+}
+
+/* ---------------------------------------------------------------- inspector (Card tab) */
+[data-look="solid"] .root {
+  gap: 0;
+  padding: 12px 14px 16px;
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 14px;
+}
+[data-look="solid"] .art {
+  width: 100%;
+  max-width: 236px;
+  margin: 0 auto 12px;
+  border-radius: 7px;
+  background: var(--ink-0);
+  box-shadow: 0 12px 26px -10px rgb(0 0 0 / 0.9), 0 0 0 1px rgb(0 0 0 / 0.5);
+}
+[data-look="solid"] .artBack {
+  opacity: 0.95;
+}
+[data-look="solid"] .root > .body {
+  gap: 0;
+}
+[data-look="solid"] .body .name {
+  margin: 0 0 6px;
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+[data-look="solid"] .body .facts {
+  gap: 4px;
+  margin-bottom: 0;
+}
+[data-look="solid"] .body .details,
+[data-look="solid"] .body .kind {
+  color: var(--tx-2);
+  font-size: 14px;
+  line-height: 1.35;
+}
+[data-look="solid"] .body .kind {
+  color: var(--tx-3);
+}
+/* ATK / DEF line: a strip between two hairlines, numbers in the condensed numeric face (concept .insp-stats). */
+[data-look="solid"] .body .combat {
+  margin: 4px 0 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--hair);
+  border-bottom: 1px solid var(--hair);
+  color: var(--tx-2);
+  font-family: var(--font-num);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+}
+[data-look="solid"] .body > .text {
+  margin: 0 0 12px;
+  padding: 0;
+  border-top: 0;
+  color: var(--tx-2);
+  font-size: 14px;
+  line-height: 1.45;
+}
+/* Counters, materials and equip links: the concept's purple note box. */
+[data-look="solid"] .metaList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 14px 16px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: rgb(143 118 242 / 0.1);
+  box-shadow: inset 0 0 0 1px var(--pur-a);
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.4;
+}
+[data-look="solid"] .metaList li {
+  padding: 0;
+  border-top: 0;
+}
+[data-look="solid"] .owner {
+  padding: 0 14px 8px;
+  color: var(--tx-2);
+  font-family: var(--font);
+  font-size: 13px;
+}
+[data-look="solid"] .owner b {
+  color: var(--tx);
+}
+/* A pile or a card list opened in the inspector. */
+[data-look="solid"] .root > .pileTitle {
+  margin: 0 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--hair);
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+[data-look="solid"] .pileGrid {
+  gap: 6px;
+}
+[data-look="solid"] .pileCard {
+  border-radius: 4px;
+  background: var(--ink-0);
+  box-shadow: 0 3px 8px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(0 0 0 / 0.4);
+  transition: box-shadow 0.16s var(--ease-out);
+}
+[data-look="solid"] .pileCard:hover {
+  box-shadow: 0 3px 8px rgb(0 0 0 / 0.55), 0 0 0 1.5px var(--pur);
+}
+[data-look="solid"] .pileCard:focus-visible {
+  outline: 2px solid var(--pur-hi);
+}
+
+/* ---------------------------------------------------------------- Log tab: the history rail */
+/* The rail keeps its own tokens (--h-*); here they take the solid palette, so every row, tag and number follows. */
+[data-look="solid"] .rail {
+  --h-panel: transparent;
+  --h-panel-2: var(--ink-2);
+  --h-ink: var(--tx);
+  --h-ink-2: var(--tx-2);
+  --h-ink-3: var(--tx-3);
+  --h-ink-4: #6d6856;
+  --h-rule-rgb: 200 165 95;
+  --h-rule: rgb(36 46 70 / 0.9);
+  --h-rule-hi: var(--gold-a);
+  --h-rule-lo: rgb(36 46 70 / 0.6);
+  --h-pen: var(--pur);
+  --h-pen-ink: var(--pur-hi);
+  --h-pen-soft: rgb(143 118 242 / 0.13);
+  --h-chain: var(--gold);
+  --h-chain-ink: var(--gold-hi);
+  --h-chain-soft: rgb(200 165 95 / 0.08);
+  --h-loss: var(--loss);
+  --h-loss-ink: #ff9d90;
+  --h-ember: var(--ember);
+  --h-f-ui: var(--font);
+  --h-f-num: var(--font-num);
+  --h-t-xs: 12px;
+  --h-t-sm: 13px;
+  --h-t-body: 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+[data-look="solid"] .cap {
+  padding: 8px 14px 6px;
+  border-bottom: 1px solid var(--hair);
+  color: var(--tx-3);
+  font-weight: 400;
+}
+[data-look="solid"] .turn {
+  padding: 6px 14px;
+  background: var(--ink-2);
+  border-bottom: 1px solid var(--hair);
+  color: var(--tx);
+  font-weight: 500;
+}
+[data-look="solid"] .row {
+  padding: 7px 12px 7px 18px;
+  border-bottom: 1px solid rgb(36 46 70 / 0.6);
+  transition: background-color 0.3s var(--ease-out);
+}
+/* New line: a faint gold tint (concept .log li.new). The newest row keeps a thin loss-red edge from V1. */
+[data-look="solid"] .row[data-latest] {
+  background: rgb(200 165 95 / 0.06);
+  box-shadow: none;
+}
+[data-look="solid"] .row[data-latest]::after {
+  width: 3px;
+  background: var(--gold);
+}
+@keyframes svRowIn {
+  from { opacity: 0; transform: translateY(-8px); background: rgb(200 165 95 / 0.16); }
+  to { opacity: 1; transform: none; }
+}
+[data-look="solid"] .row[data-enter] {
+  animation-name: svRowIn;
+}
+/* Owner glyph: you are a purple square, the opponent is an ember diamond outline (no dashes). */
+[data-look="solid"] .row .mark,
+[data-look="solid"] .row[data-side="opp"] .mark,
+[data-look="solid"] .row[data-side="you"] .mark {
+  top: 50%;
+  bottom: auto;
+  left: 6px;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 2px;
+  box-shadow: none;
+  background: var(--hair);
+}
+[data-look="solid"] .row[data-side="you"] .mark {
+  background: var(--pur);
+}
+[data-look="solid"] .row[data-side="opp"] .mark {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--ember);
+  transform: rotate(45deg);
+}
+[data-look="solid"] .row[data-icon="chain"] .mark {
+  box-shadow: 0 0 0 1px rgb(200 165 95 / 0.55);
+}
+[data-look="solid"] .thumb,
+[data-look="solid"] .portrait {
+  border-color: rgb(200 165 95 / 0.4);
+  border-radius: 3px;
+}
+[data-look="solid"] .portrait[data-side="opp"] {
+  border-style: solid;
+  border-color: rgb(224 145 106 / 0.55);
+}
+[data-look="solid"] .row[data-cat="set"] .badge {
+  border-style: solid;
+}
+[data-look="solid"] .who {
+  border-radius: 4px;
+  border-color: var(--hair);
+}
+[data-look="solid"] .who[data-side="you"] {
+  border-color: var(--pur-a);
+}
+[data-look="solid"] .lpNum b {
+  font-weight: 500;
+}
+[data-look="solid"] .pill {
+  border-radius: 999px;
+  background: var(--pur-btn);
+  color: #fff;
+}
+
+/* ---------------------------------------------------------------- Log tab: text log (match sheet) */
+[data-look="solid"] .sheet {
+  font-family: var(--font);
+}
+[data-look="solid"] .sheetHead {
+  border-bottom: 1px solid var(--hair);
+}
+[data-look="solid"] .sheetHead h2 {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+[data-look="solid"] .log {
+  gap: 2px;
+  font-size: 13px;
+}
+[data-look="solid"] .log li {
+  padding: 6px 4px;
+  border-bottom: 1px solid rgb(36 46 70 / 0.6);
+  color: var(--tx-2);
+}
+[data-look="solid"] .log li:hover {
+  background: rgb(200 165 95 / 0.04);
+}
+[data-look="solid"] .log li[data-kind="turn"] {
+  color: var(--tx);
+  font-weight: 500;
+}
+[data-look="solid"] .log li[data-kind="loss"] {
+  color: var(--loss);
+}
+[data-look="solid"] .log li[data-kind="chain"] {
+  background: rgb(200 165 95 / 0.06);
+  color: var(--gold-hi);
+}
+[data-look="solid"] .log li[data-kind="result"] {
+  border-top: 1px solid var(--gold-a);
+  color: var(--tx);
+}
+
+/* ---------------------------------------------------------------- settings pane (V1 controls, restyled) */
+/* The pane is plain V1 markup in .options; every rule here is keyed to the panel's direct children or to roles. */
+[data-look="solid"] .panel > div > h2 {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--hair);
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+[data-look="solid"] .panel > div > p:not([class]) {
+  color: var(--tx-3);
+  font-size: 13px;
+  line-height: 1.4;
+}
+[data-look="solid"] .panel > div > label {
+  color: var(--tx-2);
+  font-size: 14px;
+}
+[data-look="solid"] .panel select {
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink-1);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  color: var(--tx);
+  font-family: var(--font);
+  font-size: 14px;
+}
+[data-look="solid"] .panel input[type="range"],
+[data-look="solid"] .panel input[type="checkbox"] {
+  accent-color: var(--pur);
+}
+/* Segmented controls (concept .seg): Screen shake, Table view. */
+[data-look="solid"] .panel [role="group"][aria-label] {
+  display: flex;
+  gap: 2px;
+  width: 100%;
+  padding: 2px;
+  overflow: visible;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink-1);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+[data-look="solid"] .panel [role="group"][aria-label] button {
+  flex: 1 1 0;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--tx-2);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 400;
+  transition: background-color 0.16s var(--ease-out), color 0.16s var(--ease-out);
+}
+[data-look="solid"] .panel [role="group"][aria-label] button:not([aria-pressed="true"]):hover {
+  background: var(--ink-3);
+  color: var(--tx);
+}
+[data-look="solid"] .panel [role="group"][aria-label] button[aria-pressed="true"] {
+  background: var(--pur-btn);
+  color: #fff;
+  font-weight: 400;
+}
+[data-look="solid"] .panel [role="group"][aria-label] button:focus-visible {
+  outline: 2px solid var(--pur-hi);
+  outline-offset: 1px;
+}
+/* Buttons: the V1 secondary buttons sit on ink with a hairline, the danger button (Surrender) is a loss-red ring. */
+[data-look="solid"] .panel > div > button,
+[data-look="solid"] .panel > div > a[class] {
+  height: 32px;
+  border-radius: 8px;
+  font-family: var(--font);
+  font-size: 14px;
+}
+[data-look="solid"] .panel button[class*="bg-accent-cta"] {
+  border: 0;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgb(242 122 107 / 0.45);
+  color: var(--loss);
+}
+[data-look="solid"] .panel button[class*="bg-accent-cta"]:hover:not(:disabled) {
+  background: rgb(242 122 107 / 0.12);
+  color: var(--loss);
+}
+
+@media (max-width: 900px), (pointer: coarse) {
+  [data-look="solid"] .panel [role="group"][aria-label] button {
+    min-height: 34px;
+  }
+  [data-look="solid"] .tabs button {
+    height: 36px;
+  }
+  [data-look="solid"] .tabs {
+    grid-template-columns: 1fr 1fr 40px;
+  }
+}
+
+/* The Card tab in the mobile sheet: a small card beside its text (concept 760-761). */
+@media (max-width: 900px) {
+  [data-look="solid"] .root:has(> .art) {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    gap: 14px;
+    align-items: start;
+  }
+  [data-look="solid"] .root > .art {
+    max-width: 120px;
+    margin: 0;
+  }
+  [data-look="solid"] .root > .art + p {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-look="solid"] .row[data-enter] {
+    animation: none;
+  }
+}

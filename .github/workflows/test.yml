@@ -11,8 +11,9 @@ name: Test
 #   rule-coverage  every rule of ADR-0002 has a covering test (--strict).
 #   nduel-nightly  scheduled: the nduel fuzz (n2, n3, n4, tag) with --check-future, and the golden hash check.
 #
-# Pushes to main run every job except nduel-nightly. Pull requests skip the engine jobs they cannot affect (see changes). A manual run (workflow_dispatch) runs
-# every job, nduel-nightly too. The schedule runs cores and nduel-nightly only.
+# Pull requests and pushes to main skip the engine jobs they cannot affect (see changes).
+# A missing or unreadable commit range runs all engine jobs. A manual run (workflow_dispatch)
+# runs every job, nduel-nightly too. The schedule runs cores and nduel-nightly only.
 
 on:
   pull_request:
@@ -30,6 +31,7 @@ on:
 
 concurrency:
   # The event name is in the group: a long nightly run must not hold back (or cancel) the push runs on main.
+  # Push diffs start at the last successful run, so replacing a pending run cannot hide changes.
   group: test-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -42,45 +44,89 @@ env:
   BUNDLE_DIR: data/duel-engine-next
 
 jobs:
-  # Which layers a pull request can affect. Pushes to main, manual runs and the schedule always run everything.
-  #   engine      the duel engine, the shared package, the engine bundle inputs, the lockfile or this workflow changed:
+  # Which layers a pull request or push can affect. Manual runs and the schedule set both flags to true.
+  #   engine      the duel engine, its shared dependencies, the engine bundle inputs, the lockfile or this workflow changed:
   #               the engine, legacy engine and native jobs run.
   #   web_engine  engine, or the duel UI or web tests changed: the engine job runs, for the web tests that drive a real
   #               duel (prompts.tsx, prompt-center.tsx). Its engine-only steps still need engine.
-  # A UI-only pull request (web outside the duel components, bot, ws, docs) runs the unit and rule coverage jobs only.
+  # Changes outside these paths run the unit and rule coverage jobs; cores still builds or restores the bundle.
   changes:
     name: Changed layers
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       engine: ${{ steps.diff.outputs.engine }}
       web_engine: ${{ steps.diff.outputs.web_engine }}
     steps:
       - name: Checkout
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Diff against the base
+      - name: Diff changed files
         id: diff
         env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "engine=true" >> "$GITHUB_OUTPUT"
-            echo "web_engine=true" >> "$GITHUB_OUTPUT"
+          run_all() {
+            printf 'engine=true\nweb_engine=true\n' | tee -a "$GITHUB_OUTPUT"
+          }
+          case "$EVENT_NAME" in
+            pull_request) range="$BASE...$HEAD" ;;
+            push)
+              if ! BASE=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/test.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""'); then
+                echo "Cannot read the last successful Test push run. Run all engine jobs."
+                run_all
+                exit 0
+              fi
+              range="$BASE..$HEAD"
+              ;;
+            *) run_all; exit 0 ;;
+          esac
+          if [ -z "$BASE" ] || [ -z "$HEAD" ] || [[ "$BASE" =~ ^0+$ ]]; then
+            echo "No valid commit range. Run all engine jobs."
+            run_all
             exit 0
           fi
-          files=$(git diff --name-only "$BASE...$HEAD")
+          # Include changes since the last successful push run, even if intervening runs failed or were cancelled.
+          # Rewinds and divergent force pushes run everything.
+          if [ "$EVENT_NAME" = "push" ] && ! git merge-base --is-ancestor "$BASE" "$HEAD"; then
+            echo "The push base is missing or is not an ancestor. Run all engine jobs."
+            run_all
+            exit 0
+          fi
+          # Include both paths of a rename so moving an engine file cannot hide its deletion.
+          if ! files=$(git diff --name-only --no-renames "$range"); then
+            echo "Cannot read the diff. Run all engine jobs."
+            run_all
+            exit 0
+          fi
           echo "$files"
           engine=false
           web_engine=false
-          if echo "$files" | grep -qE '^(packages/(duel-server|shared|e2e)/|patches/|scripts/|\.github/workflows/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$)'; then
+          # Exclude only reviewed shared paths whose behavior the host, engine tests and e2e helpers do not exercise.
+          # Engine code loads the whole @yugidraft/shared/services barrel at runtime, so the excluded services
+          # still load in engine tests. The unit job catches load-time faults in those services.
+          # Keep db, duels, scoring, tournaments, types, util, ws, notify, service entry points and their
+          # dependencies (including card-catalog, matches, saved-decks and seasons). Shared tests run in unit.
+          # Unknown shared paths and scripts stay in the engine rule. Update this list when imports change.
+          shared_non_engine='^packages/shared/(tests/|scripts/README\.md$|src/maintenance/repair-ratings\.ts$|src/services/(bug-reports|card-images|cubes|deal|draft-access|draft-decks|draft-tournament|drafts|guild-settings|live-now|players|tournament-registrations)\.ts$)'
+          # Root seed and catalog scripts serve drafts, not the engine. Keep staging/engine scripts and
+          # package.json: CI uses its engine/native/prepare commands, workspace config and postinstall hook.
+          scripts_non_engine='^scripts/(seed\.ts$|generate-draft-catalog-snapshot\.ts$|data/draft-catalog-legendary\.json$)'
+          engine_files=$(printf '%s\n' "$files" | { grep -vE "$shared_non_engine|$scripts_non_engine" || true; })
+          # Use here-strings: grep -q can close a pipe early, making pipefail hide a match in a large diff.
+          if grep -qE '^(packages/(duel-server|shared|e2e)/|patches/|scripts/|\.github/workflows/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$)' <<< "$engine_files"; then
             engine=true
             web_engine=true
-          elif echo "$files" | grep -qE '^packages/web/(src/components/duel/|tests/|package\.json$|vitest\.config\.ts$|tsconfig[^/]*\.json$)'; then
+          elif grep -qE '^packages/web/(src/components/(duel|ui)/|src/lib/utils\.ts$|e2e/|tests/|package\.json$|vitest\.config\.ts$|tsconfig[^/]*\.json$)' <<< "$files"; then
             web_engine=true
           fi
           echo "engine=$engine" | tee -a "$GITHUB_OUTPUT"
@@ -137,8 +183,8 @@ jobs:
           # The Domain core of the legacy 1v1 engine (main's build), next to the merged one. 1v1 duels start on it by default.
           npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
 
-      # All multi cores use LUA_FIXED_SEED=1 so that the one binary serves the engine tests and the
-      # differential tests. The deploy build must use the same flags to ship the tested binary.
+      # All CI multi cores use LUA_FIXED_SEED=1 so one binary serves the engine and differential tests.
+      # deploy.yml builds separate multi cores with production Lua randomness, without LUA_FIXED_SEED.
       - name: Build multi cores
         if: steps.bundle.outputs.cache-hit != 'true'
         run: |

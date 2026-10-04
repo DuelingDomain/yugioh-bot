@@ -47,12 +47,17 @@ describe("duel room layout stays one size", () => {
   });
 
   it("renders every alert inside its render path's notices box, inside the layout", () => {
-    const legacyLayouts = classElements(room, "styles.layout");
-    expect(legacyLayouts).toHaveLength(1);
-    const legacyNotices = classElements(legacyLayouts[0], "styles.notices");
+    // The notices are one node (`noticesNode`), built once and rendered by the flat layout and by the 3D mode room.
+    const noticesDeclaration = descendants(room, ts.isVariableDeclaration).filter((declaration) => declaration.name.getText() === "noticesNode");
+    expect(noticesDeclaration).toHaveLength(1);
+    const legacyNotices = classElements(noticesDeclaration[0], "styles.notices");
     expect(legacyNotices).toHaveLength(1);
     const legacyAlerts = classElements(legacyNotices[0], "styles.error");
     expect(legacyAlerts).toHaveLength(3);
+    const legacyLayouts = classElements(room, "styles.layout");
+    expect(legacyLayouts).toHaveLength(1);
+    const renderedLegacy = descendants(legacyLayouts[0], ts.isJsxExpression).filter((expression) => expression.expression?.getText() === "noticesNode");
+    expect(renderedLegacy).toHaveLength(1);
 
     // Both live shells (TableShell and the Tag Rooftop) get the same `shellProps` object, so its notices are the table path's.
     const shellProps = descendants(room, ts.isVariableDeclaration).filter((declaration) => declaration.name.getText() === "shellProps");

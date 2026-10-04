@@ -16,7 +16,8 @@ import {
   zoneKey,
 } from "./constants";
 import { duelFontClasses } from "./fonts";
-import styles from "./pile-viewer.module.css";
+import { useSkinStyles } from "./skin";
+import baseStyles from "./pile-viewer.module.css";
 import { UsableGlow } from "./usable-glow";
 import { usableGlowToneForPile } from "./usable-glow-model";
 
@@ -105,6 +106,7 @@ export function PileViewer({
   legalKeys,
   selectedKeys,
 }: PileViewerProps) {
+  const styles = useSkinStyles(baseStyles, "pile");
   const headingId = useId();
   const panelRef = useRef<HTMLElement>(null);
   const gridRef = useRef<HTMLUListElement>(null);

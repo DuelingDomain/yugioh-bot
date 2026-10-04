@@ -1,8 +1,8 @@
 import { easeInOutCubic, easeOutCubic, lerp, mulberry32, ramp } from "../ease";
 import { FIELD_PLACEMENT_SCALE, fieldPlacementMs } from "../../placement-timing";
 import { SUMMON3D_AUTHORED, type Summon3dKey, type Summon3dTimeline } from "../timeline";
-import type { FxTint, Rgb } from "../types";
-import { compose, DEFAULT_TINT, Rig, setColor, type FxFactory, type FxPart } from "./base";
+import type { Fx3dPalette, FxTint, Rgb } from "../types";
+import { compose, PALETTES, Rig, setColor, type FxFactory, type FxPart } from "./base";
 import { embodiment } from "./embodiment";
 import { burst, flash, particles, pillar, ringPulse, shockwave } from "./parts";
 
@@ -21,6 +21,16 @@ export const SUMMON_TINTS: Record<Exclude<Summon3dKey, "heavy">, FxTint> = {
   ritual: { main: [0.3, 0.56, 1], alt: [0.62, 0.82, 1], accent: [0.92, 0.98, 1] },
   pendulum: { main: [1, 0.6, 0.2], alt: [0.3, 0.9, 0.9], accent: [1, 0.92, 0.62] },
 };
+
+/** The summon colours of a palette: Fusion (purple) and Xyz (gold) take the table's purple and gold; the rest keep their frame colours. */
+function summonTint(key: Exclude<Summon3dKey, "heavy">, palette: Fx3dPalette): FxTint {
+  const base = SUMMON_TINTS[key];
+  if (palette === "v1") return base;
+  const p = PALETTES.solid;
+  if (key === "fusion") return { main: p.purple, alt: base.alt, accent: p.purpleHi };
+  if (key === "xyz") return { main: p.gold, alt: base.alt, accent: p.goldHi };
+  return base;
+}
 
 const STONE: readonly Rgb[] = [
   [0.34, 0.3, 0.28],
@@ -430,7 +440,7 @@ const LANDING: Record<Summon3dKey, { debris: number; second: boolean; column: bo
 export function summonFactory(key: Summon3dKey): FxFactory {
   return (env, request) => {
     const tl = SUMMON3D_AUTHORED[key];
-    const tint = key === "heavy" ? (request.tint ?? DEFAULT_TINT) : SUMMON_TINTS[key];
+    const tint = key === "heavy" ? (request.tint ?? PALETTES[env.palette ?? "v1"].tint) : summonTint(key, env.palette ?? "v1");
     const rig = new Rig(env, { ...request, tint });
     const land = LANDING[key];
     // Order matters: build-up first, the portrait over it, the landing over both.
