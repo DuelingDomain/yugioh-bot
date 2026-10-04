@@ -32,7 +32,7 @@ import { fieldPlacementMs, isFieldPlacementLocation } from "./placement-timing";
 import { MOVE_PACE, TRIBUTE_FLIGHT_MS, TRIBUTE_TIMING } from "./duel-timing";
 import { isAddToHand, showcaseGateMs, showcaseOrigin, showcasePhases, type ShowcaseOrigin, type ShowcasePhases } from "./add-to-hand";
 import { chainEffectAt } from "./chain-beats";
-import { findZoneElement, findMoveDestination, handArrivalTarget, moveDestinationRect } from "./event-queue";
+import { findMoveZoneElement, findMoveDestination, handArrivalTarget, moveDestinationRect } from "./event-queue";
 import { artCodeOf } from "./destroy-hide";
 import { resetEffectSequence, sequenceEffects } from "./effect-sequence";
 
@@ -291,7 +291,7 @@ export function resolveSource(zone: DuelZoneRef, eventId?: number): ZoneSnapshot
     const snap = getZoneSnapshot(zone);
     if (snap) return snap;
   }
-  const live = findZoneElement(zone);
+  const live = findMoveZoneElement(zone);
   if (!live) return null;
   const r = moveDestinationRect(live);
   if (r.width < 4 || r.height < 4) return null;

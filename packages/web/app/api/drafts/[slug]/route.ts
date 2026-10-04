@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { cubeReferenceAccess } from "@/lib/cube-access";
+import { sanitizePoolSource } from "@/lib/cube-pool";
 import { env } from "@/lib/env";
 import { analyzeCube, prepareBoosterPool, themeDraftNumberError, createCardCatalogService, createDraftService } from "@yugidraft/shared/services";
 import { buildDraftResponse } from "./helpers";
@@ -148,7 +149,12 @@ export async function PUT(
 
     const drafts = createDraftService(db);
     const existing = drafts.findById(draft.id);
-    const mergedConfig = { ...existing.config, ...(config as object) };
+    const sanitized = config ? sanitizePoolSource(db, guildId, config as object) : {};
+    const mergedConfig = { ...existing.config, ...sanitized } as typeof existing.config;
+    // A submitted poolSource that does not validate clears the stored one rather than keeping the old value.
+    if (config && typeof config === "object" && "poolSource" in config && !("poolSource" in sanitized)) {
+      delete mergedConfig.poolSource;
+    }
     if (mergedConfig.mode === "theme") {
       const numberError = themeDraftNumberError(mergedConfig);
       if (numberError) return NextResponse.json({ error: numberError }, { status: 400 });

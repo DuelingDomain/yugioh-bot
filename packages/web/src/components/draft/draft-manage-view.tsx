@@ -2,24 +2,25 @@
 
 import * as React from "react";
 import { Pencil, UserPlus } from "lucide-react";
-import { Mono, SectionHead, StageLine, StatusLine, SvButton, svButtonClass, type StageStep } from "@/components/sheet";
+import { Mono, SectionHead, StageLine, StatusLine, SvButton, SvCheck, svButtonClass, type StageStep } from "@/components/sheet";
 import { CubeDraftBuilder } from "@/components/cubes/cube-draft-builder";
 import { CubeLobbyPanel } from "@/components/cubes/cube-lobby-panel";
 import {
-  DraftConfigFields,
+  PackFields,
   type DraftConfigFieldsValue,
   configFromFields,
   validateFields,
   fieldsFromConfig,
 } from "./draft-config-fields";
+import { PoolEditor } from "./pool/pool-editor";
+import { PoolRailText, PoolRailValue, SeatNote } from "./pool/pool-rail";
+import { usePoolEditor } from "./pool/use-pool-editor";
 import { CardPoolPanel } from "@/components/cards/card-pool-panel";
-import { parseCustomCardIds } from "@/lib/custom-card-pool";
 import type { CardSummary } from "@/lib/card-types";
 import { InvitePanel } from "./lobby/invite-panel";
 import { LobbySeats } from "./lobby/lobby-seats";
 import {
   plural,
-  poolSources,
   setupRows,
   startBlocker,
   startSummary,
@@ -46,6 +47,8 @@ interface DraftManageViewProps {
       pickSeconds?: number;
       setNames?: string[];
       customCardIds?: number[];
+      /** The cube the pool started from. Absent for a pool built for this draft. */
+      poolSource?: { cubeId: number; cubeName: string };
       alternatePassDirection?: boolean;
       randomizeSeats?: boolean;
       copyLimit?: boolean;
@@ -158,54 +161,17 @@ export function DraftManageView({
     if (data.config !== undefined) loadPool();
   }, [onUpdate, loadPool]);
 
-  // Config edit mode
+  // Config edit mode. The pool is the shared pool editor's; the pack fields are plain text fields.
   const [isEditingConfig, setIsEditingConfig] = React.useState(false);
-  const [editFields, setEditFields] = React.useState<DraftConfigFieldsValue>(() =>
-    fieldsFromConfig(draft.config, draft.config.customCardIds),
-  );
+  const [editFields, setEditFields] = React.useState<DraftConfigFieldsValue>(() => fieldsFromConfig(draft.config));
   const [editError, setEditError] = React.useState<string | null>(null);
   const [configSaving, setConfigSaving] = React.useState(false);
-
-  // Live pool resolved from the in-progress edit fields. The left card pool
-  // pane mirrors this while editing (the inline "Pool preview" is hidden), so
-  // there's a single synced view of the cards.
-  const [editPoolCards, setEditPoolCards] = React.useState<CardSummary[]>([]);
-  const [editPoolUnknownIds, setEditPoolUnknownIds] = React.useState<number[]>([]);
-  const [editPoolLoading, setEditPoolLoading] = React.useState(false);
-  const handleEditPool = React.useCallback(
-    (cards: CardSummary[], unknownIds: number[], loading: boolean) => {
-      setEditPoolCards(cards);
-      setEditPoolUnknownIds(unknownIds);
-      setEditPoolLoading(loading);
-    },
-    [],
-  );
-  const editCardActionLabel = React.useCallback(
-    (card: CardSummary) => `Remove ${card.name} from pool`,
-    [],
-  );
-  // Remove one copy of a card from the pool by editing the underlying fields.
-  // When sets are active they're first materialized into explicit passcodes so
-  // the removal sticks (mirrors the cube editor).
-  const removeOneFromEditPool = React.useCallback(
-    (card: CardSummary) => {
-      setEditFields((prev) => {
-        if (prev.setNames.length > 0) {
-          const expandedIds = editPoolCards.flatMap((c) => Array(c.qty ?? 1).fill(c.id));
-          const idx = expandedIds.indexOf(card.id);
-          if (idx === -1) return prev;
-          expandedIds.splice(idx, 1);
-          return { ...prev, setNames: [], customCardText: expandedIds.join("\n") };
-        }
-        const { cardIds } = parseCustomCardIds(prev.customCardText);
-        const idx = cardIds.indexOf(card.id);
-        if (idx === -1) return prev;
-        cardIds.splice(idx, 1);
-        return { ...prev, customCardText: cardIds.join("\n") };
-      });
-    },
-    [editPoolCards],
-  );
+  const poolEditor = usePoolEditor({
+    variant: "lobby",
+    slug: slug ?? "",
+    poolSource: draft.config.poolSource ?? null,
+    enabled: isEditingConfig && !isTheme && Boolean(slug),
+  });
 
   const handleSaveName = async () => {
     const trimmed = nameValue.trim();
@@ -273,25 +239,31 @@ export function DraftManageView({
   };
 
   const handleStartEditConfig = () => {
-    setEditFields(fieldsFromConfig(draft.config, draft.config.customCardIds));
+    setEditFields(fieldsFromConfig(draft.config));
     setEditError(null);
     setIsEditingConfig(true);
   };
 
   const handleCancelEditConfig = () => {
     setIsEditingConfig(false);
-    setEditFields(fieldsFromConfig(draft.config, draft.config.customCardIds));
+    setEditFields(fieldsFromConfig(draft.config));
     setEditError(null);
   };
 
   const handleSaveConfig = async () => {
     setEditError(null);
+    if (poolEditor.loading) return;
+    if (!poolEditor.ready || poolEditor.loadError) { setEditError("The pool hasn't loaded yet."); return; }
+    if (poolEditor.pool.size === 0) { setEditError("Add cards to the pool first"); return; }
     const err = validateFields(editFields);
     if (err) { setEditError(err); return; }
 
     setConfigSaving(true);
     try {
-      await onUpdateWithPoolRefresh({ config: configFromFields(editFields) });
+      // Sets are always written out as cards (setNames []), and a pool with no cube behind it clears poolSource (null).
+      await onUpdateWithPoolRefresh({
+        config: { ...configFromFields(editFields), ...poolEditor.config(), includeNames: [], excludeNames: [] },
+      });
       setIsEditingConfig(false);
     } catch (err) {
       setEditError(err instanceof Error ? err.message : "Failed to save configuration");
@@ -312,8 +284,28 @@ export function DraftManageView({
   const created = formatCreated(draft.createdAt);
   const blocker = startBlocker({ playerCount, isTheme, themeCount: allowedCubes.length, uniqueThemes });
   const summary = startSummary(draft.config, playerCount);
-  const rows = setupRows(draft.config);
+  const savedPoolName = draft.config.poolSource?.cubeName ?? null;
+  const poolDetail = savedPoolName ? `From ${savedPoolName}` : "Built for this draft";
+  const editConfig = configFromFields(editFields);
+  const editPerPlayer = editConfig.packsPerPlayer * editConfig.packSize;
+  const livePool = isEditingConfig && poolEditor.ready && !poolEditor.loadError;
   const sets = !isTheme ? draft.config.setNames ?? [] : [];
+  const savedTotal = poolCards ? poolCards.reduce((sum, card) => sum + (card.qty ?? 1), 0) : 0;
+  const rows: Array<{ label: string; value: React.ReactNode }> = setupRows(draft.config);
+  if (!isTheme) {
+    rows.unshift({
+      label: "Pool",
+      value: isEditingConfig && poolEditor.loading ? (
+        <PoolRailValue ctl={poolEditor} />
+      ) : livePool ? (
+        <PoolRailValue ctl={poolEditor} />
+      ) : poolCards ? (
+        <PoolRailText baseName={savedPoolName} edited={false} total={savedTotal} empty={poolCards.length === 0} />
+      ) : (
+        savedPoolName ?? "Built for this draft"
+      ),
+    });
+  }
   const reasonId = "lobby-start-reason";
   const playersAux = [
     `${playerCount} joined`,
@@ -334,9 +326,6 @@ export function DraftManageView({
         { label: "Build deck", state: "next" },
       ];
 
-  const poolDetail = isEditingConfig
-    ? poolSources(editFields.setNames.length, parseCustomCardIds(editFields.customCardText).cardIds.length)
-    : poolSources(draft.config.setNames?.length ?? 0, draft.config.customCardIds?.length ?? 0);
 
   const kind = isTheme ? "Theme draft" : "Cube draft";
   const isGuest = !isCreator && !isParticipant;
@@ -491,20 +480,16 @@ export function DraftManageView({
 
           {isEditingConfig && !isTheme && (
             <section className={styles.edit} aria-labelledby="lobby-edit-t">
-              <SectionHead title={<span id="lobby-edit-t">Edit setup</span>} note="The pool below updates as you go" />
+              <SectionHead title={<span id="lobby-edit-t">Edit setup</span>} note="Changes apply when you save" />
               {editError && (
                 <div role="alert">
                   <StatusLine tone="block">{editError}</StatusLine>
                 </div>
               )}
-              <DraftConfigFields
-                value={editFields}
-                onChange={setEditFields}
-                poolBuilderShowPreview={false}
-                onPool={handleEditPool}
-              />
+              <PoolEditor ctl={poolEditor} />
+              <PackFields value={editFields} onChange={setEditFields} />
               <div className={styles.editActs}>
-                <SvButton variant="ghost" disabled={configSaving} aria-busy={configSaving || undefined} onClick={handleSaveConfig}>
+                <SvButton variant="ghost" disabled={configSaving || poolEditor.loading} aria-busy={configSaving || poolEditor.loading || undefined} onClick={handleSaveConfig}>
                   Save setup
                 </SvButton>
                 <SvButton variant="quiet" onClick={handleCancelEditConfig} disabled={configSaving}>
@@ -514,38 +499,20 @@ export function DraftManageView({
             </section>
           )}
 
-          {!isTheme &&
-            (isEditingConfig ? (
-              <div className={styles.poolWrap}>
-                <CardPoolPanel
-                  variant="sheet"
-                  title="Card pool"
-                  cards={editPoolCards}
-                  unknownIds={editPoolUnknownIds}
-                  loading={editPoolLoading}
-                  emptyMessage="Add sets or card IDs to build the pool."
-                  countMode="copies"
-                  detail={poolDetail}
-                  onCardClick={removeOneFromEditPool}
-                  cardActionLabel={editCardActionLabel}
-                />
-              </div>
-            ) : (
-              slug && (
-                <div className={styles.poolWrap}>
-                  <CardPoolPanel
-                    variant="sheet"
-                    title="Card pool"
-                    cards={poolCards ?? []}
-                    loading={poolCards === null && !poolError}
-                    error={poolError ? "Couldn't load the pool." : null}
-                    emptyMessage="This draft's pool hasn't been resolved yet."
-                    countMode="copies"
-                    detail={poolDetail}
-                  />
-                </div>
-              )
-            ))}
+          {!isTheme && !isEditingConfig && slug && (
+            <div className={styles.poolWrap}>
+              <CardPoolPanel
+                variant="sheet"
+                title="Card pool"
+                cards={poolCards ?? []}
+                loading={poolCards === null && !poolError}
+                error={poolError ? "Couldn't load the pool." : null}
+                emptyMessage="This draft's pool hasn't been resolved yet."
+                countMode="copies"
+                detail={poolDetail}
+              />
+            </div>
+          )}
 
           {isTheme && slug && (
             isCreator ? (
@@ -575,6 +542,12 @@ export function DraftManageView({
         <DraftRail aria-label="Draft details" actions={hasActions ? actions : undefined}>
           <RailSection title="Setup" id="lobby-setup-t">
             <Rules rows={rows.map((row) => ({ label: row.label, value: row.value }))} />
+            {!isTheme && (
+              <SeatNote
+                total={livePool ? poolEditor.total : savedTotal}
+                perPlayer={livePool ? editPerPlayer : (draft.config.packsPerPlayer ?? 3) * (draft.config.packSize ?? 15)}
+              />
+            )}
             {sets.length > 0 && (
               <div className={styles.sets}>
                 <p>Sets</p>
@@ -584,7 +557,15 @@ export function DraftManageView({
             {isCreator && !isTheme && !isEditingConfig && (
               <SvButton variant="quiet" className={styles.editBtn} onClick={handleStartEditConfig}>Edit setup</SvButton>
             )}
-            {isCreator && isTheme && <label><input type="checkbox" checked={draft.config.copyLimit ?? true} onChange={(e) => void onUpdateWithPoolRefresh({ config: { copyLimit: e.target.checked } })} /> Limit 3 copies per card</label>}
+            {isCreator && isTheme && (
+              <SvCheck
+                compact
+                className={styles.copyLimit}
+                label="Limit 3 copies per card"
+                checked={draft.config.copyLimit ?? true}
+                onChange={(e) => void onUpdateWithPoolRefresh({ config: { copyLimit: e.target.checked } })}
+              />
+            )}
           </RailSection>
 
           {isCreator && (

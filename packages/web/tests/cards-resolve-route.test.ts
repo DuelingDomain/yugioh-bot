@@ -101,15 +101,80 @@ describe("POST /api/cards/resolve", () => {
     // Monster Reborn is not in the selected set → baseline 0, custom 1 → qty 1.
     const mr = json.cards.find((c: { id: number }) => c.id === 83764718);
     expect(mr.qty).toBe(1);
-    // The route only fetches custom passcodes missing from the local catalog
-    // (46986414 + 83764718 are seeded → cached); sets are already synced
-    // elsewhere, so setNames is empty here.
-    expect(syncDraftPool).toHaveBeenCalledWith({
+    // The requested set is synced first; only custom passcodes missing from the catalog are fetched.
+    expect(syncDraftPool).toHaveBeenNthCalledWith(1, {
+      setNames: ["Metal Raiders"],
+      customCardIds: [],
+      includeNames: [],
+      excludeNames: [],
+    });
+    expect(syncDraftPool).toHaveBeenNthCalledWith(2, {
       setNames: [],
       customCardIds: [99999999],
       includeNames: [],
       excludeNames: [],
     });
+  });
+
+  it("syncs a requested set before resolving it, so an unsynced set returns its cards", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "yugioh-cards-resolve-sets-"));
+    tempDirs.push(tempDir);
+    process.env.DATABASE_PATH = join(tempDir, "test.sqlite");
+    process.env.DISCORD_GUILD_ID = "guild-1";
+    const Database = (await import("better-sqlite3")).default;
+    const { migrate } = await import("@yugidraft/shared/db");
+    const db = new Database(process.env.DATABASE_PATH);
+    migrate(db);
+    db.close();
+    syncDraftPool.mockImplementation(async () => {
+      const d = new Database(process.env.DATABASE_PATH!);
+      d.prepare(
+        `insert into card_catalog (ygoprodeck_id, name, type, frame_type, effect_text, atk, def, attribute, level, image_url, image_url_small, card_sets_json, cached_at)
+         values (301, 'Fresh', 'Normal Monster', 'normal', '', 0, 0, 'DARK', 1, 'u', 's', ?, ?)`,
+      ).run(JSON.stringify([{ set_name: "New Set" }]), new Date().toISOString());
+      d.close();
+      return [];
+    });
+    const { POST } = await import("../app/api/cards/resolve/route");
+    const res = await POST(new Request("http://t/api/cards/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ setNames: ["New Set"] }),
+    }));
+    const json = await res.json();
+    expect(json.cards.map((c: { id: number }) => c.id)).toEqual([301]);
+    expect(syncDraftPool).toHaveBeenCalledWith({ setNames: ["New Set"], customCardIds: [], includeNames: [], excludeNames: [] });
+  });
+
+  it("returns 200 with unknownIds when the card database rejects a passcode that doesn't exist", async () => {
+    await setupDb();
+    syncDraftPool.mockImplementation(async (input: { customCardIds: number[] }) => {
+      if (input.customCardIds.includes(99999999)) throw new Error("YGOPRODeck request failed for id=99999999");
+      return [];
+    });
+    const { POST } = await import("../app/api/cards/resolve/route");
+    const res = await POST(new Request("http://t/api/cards/resolve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customCardIds: [46986414, 99999999] }),
+    }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.cards.map((c: { id: number }) => c.id)).toEqual([46986414]);
+    expect(json.unknownIds).toEqual([99999999]);
+  });
+
+  it("still fails when the card database cannot be reached", async () => {
+    await setupDb();
+    syncDraftPool.mockRejectedValue(new Error("Could not reach the card database (offline). Check connectivity and try again."));
+    const { POST } = await import("../app/api/cards/resolve/route");
+    await expect(
+      POST(new Request("http://t/api/cards/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customCardIds: [99999999] }),
+      })),
+    ).rejects.toThrow(/Could not reach/);
   });
 
   it("returns one card entry per distinct id even when ids repeat", async () => {

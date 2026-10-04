@@ -6,6 +6,7 @@ import { BANNER_TIMING, CHAIN_TIMING, PHASE_TIMING } from "./duel-timing";
 import {
   isDefenseAt,
   isFacedown,
+  LOCATION_DECK,
   LOCATION_EXTRA,
   LOCATION_HAND,
   TYPE_FUSION,
@@ -199,6 +200,25 @@ export function findZoneElement(zone: DuelZoneRef | undefined | null): HTMLEleme
   );
 }
 
+/**
+ * The zone element a card moves to or from. Same as findZoneElement, except that the Deck and the Extra
+ * Deck, which are one pile each, resolve to the pile when the exact key is missing. The engine numbers the
+ * cards of a Deck (a card put on the top, or shuffled in, arrives at the new Deck size minus 1; a card milled
+ * from the top leaves from there), but the Deck pile is keyed only at sequence 0. An Extra Deck pile is keyed
+ * by the cards it lists: an opponent's lists only its face-up cards, so any key of the pile will do (the
+ * same scan as findPileElement in chain-fx.tsx). Board effects of other events (a destroy, a summon) keep
+ * the exact lookup: they must not find a pile for a Deck sequence.
+ */
+export function findMoveZoneElement(zone: DuelZoneRef | undefined | null): HTMLElement | null {
+  const exact = findZoneElement(zone);
+  if (exact || !zone || typeof document === "undefined" || (zone.location !== LOCATION_DECK && zone.location !== LOCATION_EXTRA)) return exact;
+  const prefix = `${zone.controller}:${zone.location}:`;
+  for (const el of document.querySelectorAll<HTMLElement>("[data-zones]")) {
+    if ((el.dataset.zones ?? "").split(/\s+/).some((key) => key.startsWith(prefix))) return el;
+  }
+  return null;
+}
+
 /** Resolve the card's current engine slot; an arrival that left must not target its replacement. */
 export function findMoveDestination(event: DuelEvent): HTMLElement | null {
   if (event.handId && typeof document !== "undefined") {
@@ -207,7 +227,7 @@ export function findMoveDestination(event: DuelEvent): HTMLElement | null {
       .find((el) => el.dataset.handId === event.handId);
     return card?.querySelector<HTMLElement>("[data-zones]") ?? null;
   }
-  return findZoneElement(event.zone);
+  return findMoveZoneElement(event.zone);
 }
 
 /**
