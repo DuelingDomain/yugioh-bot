@@ -9,7 +9,8 @@ import { parseJournalText } from "./journal-file.js";
 import { resolve } from "node:path";
 import { isDuelFormat, legacyDuelSettings, normalizeDuelSettings, type DuelAnswer, type DuelDeck, type DuelEngineView, type DuelFormat, type DuelMasterRule, type DuelMode, type DuelSettings } from "@yugidraft/shared/duels";
 import { createDomainCore } from "../../src/domain-core.js";
-import { createEngineGame, eliminationCodeOf, registerDomainCoreFactory } from "../../src/engine.js";
+import { createEngineGame, registerDomainCoreFactory } from "../../src/engine.js";
+import { applyJournaledCommand, isPromptlessCommand } from "../../src/journal-command.js";
 import { engineSeed } from "../../tests/fuzz/rng.js";
 import { savedFirstTurnDraw } from "../../src/first-turn-draw.js";
 import { savedFuzzFirstTurnDraw } from "./fuzz-draw-rule.js";
@@ -162,14 +163,12 @@ export async function replaySource(
     for (; done < step; done++) {
       const command = source.commands[done]!;
       const view = game.view(command.seat);
-      const elimination = eliminationCodeOf(command.promptId);
-      if (view.revision !== command.revision || (elimination === null && view.prompt?.id !== command.promptId)) {
+      if (view.revision !== command.revision || (!isPromptlessCommand(command.promptId) && view.prompt?.id !== command.promptId)) {
         throw new Error(
           `answer ${done}: the journal has revision ${command.revision} prompt ${command.promptId}; the engine has revision ${view.revision} prompt ${view.prompt?.id ?? "none"}. The engine data differs from the recorded run.`,
         );
       }
-      if (elimination === null) game.answer(command.seat, command.promptId, command.answer);
-      else game.eliminate(command.seat, elimination);
+      applyJournaledCommand(game, command.seat, command);
       if (visit?.(read(game, done + 1))) return read(game, done + 1);
     }
     return read(game, done);

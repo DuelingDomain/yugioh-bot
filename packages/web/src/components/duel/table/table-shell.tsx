@@ -40,6 +40,7 @@ import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNar
 import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "../station-track";
 import { SummonFx } from "../summon-fx";
 import { useDuelPreferences, type DuelPreferences } from "../preferences";
+import type { ChainModeControl } from "../use-chain-mode";
 import roomStyles from "../room.module.css";
 import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
@@ -103,6 +104,8 @@ export interface TableShellProps {
    * clock, so the shell's Settings tab must change that same state. A preview leaves it out and gets its own.
    */
   preferences?: DuelPreferences;
+  /** The viewer's chain response switch, owned by the room (it sends the change and holds the R key). Null or absent: no switch. */
+  chainMode?: ChainModeControl | null;
 }
 
 /**
@@ -138,6 +141,7 @@ function TableShellBody({
   inputSuspended = false,
   boardRef: roomBoardRef,
   preferences,
+  chainMode = null,
 }: TableShellProps & { preferences: DuelPreferences }) {
   // Field clicks use the same reveal gate as the centered prompt; hidden decisions must not answer early.
   const given = useMemo(() => {
@@ -540,6 +544,7 @@ function TableShellBody({
           caption={trackCaption}
           reducedMotion={controller.reducedMotion}
           attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
+          chainMode={chainMode}
         />
       </div>
       {narrow ? <TablePhonePanes domain={domain} pane={ui.pane} open={sheetOpen} unread={logUnread}

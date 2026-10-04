@@ -17,6 +17,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useDuelWebsocket } from "@/lib/hooks/use-duel-websocket";
 import { createEchoWindow } from "@/lib/duel-echo-window";
 import { applyAnswerResult } from "./answer-result";
+import { useChainModeControl } from "./use-chain-mode";
 import { useDuelLeaveGuard } from "@/lib/hooks/use-duel-leave-guard";
 import { useBlockBrowserContextMenu } from "@/lib/hooks/use-block-browser-context-menu";
 import {
@@ -35,6 +36,7 @@ import {
   sendDuelAction,
   setDuelDeck,
   startDuel,
+  setChainResponseMode,
   surrenderDuel,
 } from "./api";
 import { RoomLobby } from "./room-lobby";
@@ -165,6 +167,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   });
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
+  // Counts every request that changes the room (an action or a chain response switch change). A reply is put on the board
+  // only if no later request was sent after it: a slow reply must not bring back an older room over a newer one.
+  const mutationSeq = useRef(0);
   // Set when an answer is sent; the next prompt then decides whether an open pile viewer stays.
   const pileAnswered = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -403,6 +408,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       // React's busy state alone cannot reject two clicks within one render.
       if (inFlight.current) return;
       inFlight.current = true;
+      const seq = ++mutationSeq.current;
       echo.begin();
       setBusy(true);
       setMenu(null);
@@ -410,7 +416,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setActionError(null);
       try {
         const result = await work();
-        await applyAnswerResult(mutate, result);
+        if (seq === mutationSeq.current) await applyAnswerResult(mutate, result);
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Action failed");
         await mutate();
@@ -602,6 +608,27 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     onAnswer: onSubmitAnswer, onActivate: onFieldActivate, onInspect: showInspector,
   });
 
+  // The chain response switch. The server reports a mode only in the seated player's own view of a live duel; a spectator,
+  // a replay or a scenario table gets none, and then there is nothing to draw.
+  const chainMode = useChainModeControl({
+    slug,
+    serverMode: data?.engine?.chainMode,
+    enabled: data?.mySeat != null && !spectate && !viewerOut && !ownWindowGate && data.session.status === "active" && !data.engine?.result,
+    suspended: confirmSurrender || deckMenuOpen,
+    send: async (mode) => {
+      const seq = ++mutationSeq.current;
+      try {
+        const result = await setChainResponseMode(slug, mode);
+        if (seq === mutationSeq.current) await applyAnswerResult(mutate, result);
+      } catch (err) {
+        // An answer that was sent meanwhile may have had its reply dropped for this request: read the room again.
+        void mutate().catch(() => {});
+        throw err;
+      }
+    },
+    onError: setActionError,
+  });
+
   useBugReportRoom(data ?? null);
   if (isLoading && !data) return <div className="p-6 text-sm text-text-secondary">Loading table…</div>;
   if (error && !data) {
@@ -756,6 +783,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     const shellProps: TableShellProps = {
       controller: liveController, fillViewport: true, boardRef, pickContinuation: pick, preferences,
       inputSuspended: surrenderOpen || deckMenuOpen,
+      chainMode,
       fxActive: !error && !realtime.recovering, busy: busy || Boolean(error) || catchingUp,
       initialOutOrder: eliminationOrder(liveController.engine),
       connection: { ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy },
@@ -1114,6 +1142,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           clock={data.clock ? <DuelClockDisplay key={data.clock.serverNow} clock={data.clock} session={data.session} /> : null}
           caption={trackCaption}
           reducedMotion={preferences.reducedMotion}
+          chainMode={chainMode}
         />
       </div>
       <div className={styles.mobileBar}>{tabs(true)}</div>

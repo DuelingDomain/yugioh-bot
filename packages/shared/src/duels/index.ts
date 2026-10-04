@@ -473,6 +473,11 @@ export interface DuelEngineView {
   events: DuelEvent[];
   log: Array<{ id: number; text: string }>;
   /**
+   * The viewing seat's own chain response mode. Present only in the view built for a seated player; never in an
+   * opponent's, a teammate's or a spectator's view, and not at all where the host does not allow the switch.
+   */
+  chainMode?: DuelChainMode;
+  /**
    * `winnerSeat` is the winning seat in 1v1 and FFA. In Tag it is the lowest seat of the winning team, and
    * `winnerTeam` names the team. Null means a draw.
    */
@@ -574,6 +579,40 @@ export interface DuelCommand {
   revision: number;
   answer: DuelAnswer;
 }
+
+/**
+ * How a seat wants to be asked at response windows (chain links), changeable at any time during the duel.
+ * - `auto`: ask only when a listed card fits the window (today's behaviour at a 1v1 table).
+ * - `always`: ask at every window that lists a card, even when none fits (a bluff; the default at a table of three or four).
+ * - `off`: pass every optional response window at once. Forced prompts and mandatory effects still ask.
+ * The mode is private to its seat and is applied by the duel host, never by a client.
+ */
+export type DuelChainMode = "auto" | "always" | "off";
+export const DUEL_CHAIN_MODES: readonly DuelChainMode[] = ["auto", "always", "off"];
+
+export function isDuelChainMode(value: unknown): value is DuelChainMode {
+  return value === "auto" || value === "always" || value === "off";
+}
+
+/** The mode every seat starts a duel in: the duel setting `stopAtEveryWindow` (undefined counts as on, like saved duels). */
+export function defaultChainMode(settings?: { stopAtEveryWindow?: boolean }): DuelChainMode {
+  return settings?.stopAtEveryWindow === false ? "auto" : "always";
+}
+
+/**
+ * A mode change is journaled like an answer with `promptId` `chain-mode:<mode>` (and an empty answer), so that a
+ * journal replay applies it at the same point and the automatic passes after it come out the same. Returns the mode,
+ * or null for any other command. Every journal replayer uses this.
+ */
+export const CHAIN_MODE_PROMPT_PREFIX = "chain-mode:";
+export function chainModeOf(promptId: string): DuelChainMode | null {
+  if (!promptId.startsWith(CHAIN_MODE_PROMPT_PREFIX)) return null;
+  const mode = promptId.slice(CHAIN_MODE_PROMPT_PREFIX.length);
+  return isDuelChainMode(mode) ? mode : null;
+}
+
+/** Journal entries for mode changes one duel may hold. Past it a change is refused: an unjournaled change could not be replayed. */
+export const CHAIN_MODE_JOURNAL_LIMIT = 400;
 
 export type {
   CardArchetype,

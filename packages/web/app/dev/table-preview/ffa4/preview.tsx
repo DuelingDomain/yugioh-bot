@@ -22,6 +22,7 @@ export function Ffa4Preview({ stateId, cam, lock, review = false }: { stateId: s
           initialCamera={{ mode: preview.cam.mode, focusSeat: preview.cam.focusSeat, lookSeat: preview.cam.lookSeat, ...state.ui?.camera }}
           initialLock={preview.lock}
           initialOutOrder={state.ui?.initialOutOrder}
+          chainMode={preview.chainMode}
         />
       )}
     />

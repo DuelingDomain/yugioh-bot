@@ -893,3 +893,96 @@ button.plate[data-next="true"]:hover {
     display: none;
   }
 }
+
+/* ---------- chain response switch (Auto / Always / Off) ---------- */
+
+/* On desktop the buttons stay direct flex items of the actions row, as before the switch existed. */
+.moves {
+  display: contents;
+}
+.chainSlot {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+.sep {
+  flex: none;
+  width: 1px;
+  height: 30px;
+  background: var(--rule-lo);
+}
+
+/* The switch adds about 190px to the right cluster. Below 1280px the "Responses" word hides (the segments stay), so the
+   column needs less. Tables of 3 and 4 seats also carry the seat strip, so their column is wider still. */
+.root[data-chain="true"] {
+  grid-template-columns: minmax(200px, 1fr) minmax(0, 30rem) minmax(440px, 1.2fr);
+}
+.root[data-chain="true"][data-seats="true"] {
+  grid-template-columns: minmax(130px, 1fr) minmax(0, 28rem) minmax(560px, 1.6fr);
+}
+.root[data-chain="true"][data-seat-count] {
+  grid-template-columns: minmax(110px, 0.5fr) minmax(0, 26rem) minmax(660px, 1.8fr);
+}
+@media (min-width: 1280px) {
+  .root[data-chain="true"] {
+    grid-template-columns: minmax(220px, 1fr) minmax(0, 36rem) minmax(520px, 1.2fr);
+  }
+  .root[data-chain="true"][data-seats="true"] {
+    grid-template-columns: minmax(150px, 1fr) minmax(0, 30rem) minmax(640px, 1.6fr);
+  }
+  .root[data-chain="true"][data-seat-count] {
+    grid-template-columns: minmax(110px, 0.5fr) minmax(0, 28rem) minmax(760px, 1.8fr);
+  }
+}
+/* 901 to 1099px: the stations tighten and End Turn shortens, so the right cluster keeps its room without crowding the rail. */
+@media (min-width: 901px) and (max-width: 1099px) {
+  .root[data-chain="true"] {
+    --plate-w: 44px;
+    --gap: 6px;
+  }
+  .root[data-chain="true"] .onlyWide {
+    display: none;
+  }
+  .root[data-chain="true"] .onlyNarrow {
+    display: inline;
+  }
+}
+.root[data-chain="true"] .actions {
+  gap: 10px;
+}
+.root[data-chain="true"][data-seats="true"] .actions {
+  gap: 8px;
+}
+
+/* Phone: the switch is the third row, full width, with a hairline above it. */
+@media (max-width: 900px) {
+  .root[data-chain="true"],
+  .root[data-chain="true"][data-seats="true"],
+  .root[data-chain="true"][data-seat-count] {
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+    grid-template-rows: 26px 44px auto;
+    grid-template-areas:
+      "seat cap cap"
+      "sta sta act"
+      "chain chain chain";
+  }
+  .root[data-chain="true"] .actions {
+    display: contents;
+  }
+  .root[data-chain="true"] .moves {
+    grid-area: act;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 5px;
+  }
+  .root[data-chain="true"] .chainSlot {
+    grid-area: chain;
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px solid var(--rule-lo);
+  }
+  .root[data-chain="true"] .sep {
+    display: none;
+  }
+}
