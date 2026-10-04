@@ -292,9 +292,9 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
       if (config.extraDeckEnabled) {
         const extraSize = pools.extra.reduce((sum, c) => sum + c.maxCopies, 0);
         const extraNeeded = requiredPoolSize(config.extraDeckSize, config.themePackSize, config.burnUnpicked);
-        if (extraSize < extraNeeded) {
+        if (extraSize < extraNeeded || playerReachableSize(pools.extra) < extraNeeded) {
           warnings.push(
-            `Extra pool has ${extraSize} cards but needs ${extraNeeded} for a full ${config.extraDeckSize}-card Extra Deck; players may end with fewer Extra cards.`,
+            `Extra pool has ${Math.min(extraSize, playerReachableSize(pools.extra))} cards but needs ${extraNeeded} for a full ${config.extraDeckSize}-card Extra Deck; players may end with fewer Extra cards.`,
           );
         }
       }

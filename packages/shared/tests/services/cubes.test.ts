@@ -365,6 +365,20 @@ describe("cube service core", () => {
     expect(a.warnings.length).toBeGreaterThan(0);
   });
 
+  it("warns when five Extra cards with five copies cannot fill the Extra choices", () => {
+    const { db, cubes } = setup();
+    const cube = cubes.createBlank("g", "Extra copies", "u");
+    cubes.addCard(cube.id, 1, "main", 3);
+    for (let id = 10; id < 15; id++) {
+      seedCard(db, id, `Extra ${id}`, "XYZ Monster", "xyz");
+      cubes.addCard(cube.id, id, "extra", 5);
+    }
+    const analysis = cubes.analyzeCubePools(cube.id, { themePackSize: 3, cardsPerPlayer: 1, extraDeckSize: 15, burnUnpicked: false, extraDeckEnabled: true });
+    expect(analysis.ok).toBe(true);
+    expect(analysis.warnings).toEqual([expect.stringMatching(/15.*17/)]);
+    db.close();
+  });
+
   it("requires more cards under burnUnpicked (multiplied requirement)", () => {
     const { db, cubes } = setup();
     const t = cubes.createBlank("g", "Big", "u");
