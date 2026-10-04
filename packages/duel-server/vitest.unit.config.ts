@@ -23,6 +23,7 @@ const NEEDS_ENGINE = [
   "tests/scenarios/multiplayer/catalog.test.ts",
   // the engine bundle manifest (the host reads it when it is made; the identity test hashes the legacy files)
   "tests/host-bug-context.test.ts",
+  "tests/host-chain-mode.test.ts",
   "tests/host-engine-switch.test.ts",
   "tests/host-multiplayer-flag.test.ts",
   "tests/legacy-engine-identity.test.ts",
