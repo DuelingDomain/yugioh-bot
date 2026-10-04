@@ -6,6 +6,7 @@ import { BANNER_TIMING, CHAIN_TIMING, PHASE_TIMING } from "./duel-timing";
 import {
   isDefenseAt,
   isFacedown,
+  LOCATION_DECK,
   LOCATION_EXTRA,
   LOCATION_HAND,
   TYPE_FUSION,
@@ -194,9 +195,16 @@ export function isZoneFxKind(kind: DuelEventKind): boolean {
 /** Zone element for a board position, or null when the board has no such anchor. */
 export function findZoneElement(zone: DuelZoneRef | undefined | null): HTMLElement | null {
   if (!zone || typeof document === "undefined") return null;
-  return document.querySelector<HTMLElement>(
+  const exact = document.querySelector<HTMLElement>(
     `[data-zones~="${zoneKey(zone.controller, zone.location, zone.sequence)}"]`,
   );
+  if (exact || zone.sequence === 0) return exact;
+  // The Deck pile is one anchor, keyed at sequence 0, but the engine numbers its cards: a card put on
+  // the top of the Deck, or shuffled into it, arrives at the Deck's size minus one; a card milled from
+  // the top leaves from there. The Extra Deck is also one pile, and an opponent's face-down cards are
+  // not listed. Both resolve to the pile's own anchor.
+  if (zone.location !== LOCATION_DECK && zone.location !== LOCATION_EXTRA) return null;
+  return document.querySelector<HTMLElement>(`[data-zones~="${zoneKey(zone.controller, zone.location, 0)}"]`);
 }
 
 /** Resolve the card's current engine slot; an arrival that left must not target its replacement. */

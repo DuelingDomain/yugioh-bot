@@ -1061,7 +1061,36 @@ const MOVES: LabScenario[] = [
   moveScenario("move-send", "Send from the Deck to the Graveyard", "Foolish Burial: a card goes from the Deck to the Graveyard.", () =>
     script(
       board(),
-      [{ at: 0, events: [ev.move(ME, C.sangan, DECK(ME), GY(ME, 0), "send")], edits: [edit.drawFromDeck(ME), edit.grave(ME, C.sangan)] }],
+      // The engine reports the top card of a 28 card Deck at sequence 27.
+      [{ at: 0, events: [ev.move(ME, C.sangan, DECK(ME, 27), GY(ME, 0), "send")], edits: [edit.drawFromDeck(ME), edit.grave(ME, C.sangan)] }],
+      2800,
+    ),
+  ),
+  moveScenario("move-deck-top", "Place on top of the Deck", "Phoenix Wing Wind Blast: a monster of the opponent goes back on top of their Deck (engine sequence = Deck size).", () =>
+    script(
+      board((e) => e.push(edit.monster(OPP, 2, C.blueEyes))),
+      [{ at: 0, events: [ev.move(OPP, C.blueEyes, MZ(OPP, 2), DECK(OPP, 29), "return")], edits: [edit.monster(OPP, 2, null), edit.deckCount(OPP, 30)] }],
+      2800,
+    ),
+  ),
+  moveScenario("move-deck-top-own", "Place your card on top of the Deck", "Your own monster goes back on top of your Deck.", () =>
+    script(
+      board((e) => e.push(edit.monster(ME, 2, C.celtic))),
+      [{ at: 0, events: [ev.move(ME, C.celtic, MZ(ME, 2), DECK(ME, 28), "return")], edits: [edit.monster(ME, 2, null), edit.deckCount(ME, 29)] }],
+      2800,
+    ),
+  ),
+  moveScenario("move-deck-bottom", "Place on the bottom of the Deck", "Lightning Chidori: a Set card of the opponent goes to the bottom of their Deck (sequence 0, identity hidden).", () =>
+    script(
+      board((e) => e.push(edit.hiddenSpell(OPP, 1))),
+      [{ at: 0, events: [ev.move(OPP, null, SZ(OPP, 1), DECK(OPP, 0), "return")], edits: [edit.spell(OPP, 1, null), edit.deckCount(OPP, 30)] }],
+      2800,
+    ),
+  ),
+  moveScenario("move-deck-shuffle", "Shuffle into the Deck", "Jelly Cannon: a monster is shuffled into the Deck.", () =>
+    script(
+      board((e) => e.push(edit.monster(OPP, 1, C.summonedSkull))),
+      [{ at: 0, events: [ev.move(OPP, C.summonedSkull, MZ(OPP, 1), DECK(OPP, 29), "return")], edits: [edit.monster(OPP, 1, null), edit.deckCount(OPP, 30)] }],
       2800,
     ),
   ),
