@@ -139,6 +139,10 @@ describe("POST /api/drafts/[slug]/pick", () => {
     vi.stubEnv("DATABASE_PATH", dbPath);
     vi.stubEnv("DISCORD_GUILD_ID", "196382772699332609");
 
+    const Database = (await import("better-sqlite3")).default;
+    const fixtureDb = new Database(dbPath);
+    fixtureDb.prepare("update drafts set config_json = json_set(config_json, '$.cardsPerPlayer', 15) where web_slug = 'legendary-draft'").run();
+    fixtureDb.close();
     // Start the draft
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
     const startResponse = await startDraft(
@@ -207,6 +211,10 @@ describe("POST /api/drafts/[slug]/pick", () => {
     vi.stubEnv("DATABASE_PATH", dbPath);
     vi.stubEnv("DISCORD_GUILD_ID", "196382772699332609");
 
+    const Database = (await import("better-sqlite3")).default;
+    const fixtureDb = new Database(dbPath);
+    fixtureDb.prepare("update drafts set config_json = json_set(config_json, '$.cardsPerPlayer', 15) where web_slug = 'legendary-draft'").run();
+    fixtureDb.close();
     // Start the draft first
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
     await startDraft(
@@ -271,6 +279,10 @@ describe("POST /api/drafts/[slug]/pick", () => {
     vi.stubEnv("DATABASE_PATH", dbPath);
     vi.stubEnv("DISCORD_GUILD_ID", "196382772699332609");
 
+    const Database = (await import("better-sqlite3")).default;
+    const fixtureDb = new Database(dbPath);
+    fixtureDb.prepare("update drafts set config_json = json_set(config_json, '$.cardsPerPlayer', 15) where web_slug = 'legendary-draft'").run();
+    fixtureDb.close();
     // Start the draft first
     const { POST: startDraft } = await import("../app/api/drafts/[slug]/route");
     await startDraft(

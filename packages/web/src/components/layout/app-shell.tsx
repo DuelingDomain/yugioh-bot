@@ -9,6 +9,7 @@ import { BugReportDialog } from "../bug-report/bug-report-dialog";
 import { BugReportFab } from "../bug-report/bug-report-fab";
 import { collectBugContext } from "../bug-report/context";
 import { useShellAccount } from "./use-shell-account";
+import { usePageEnter } from "./use-page-enter";
 import { useLiveNow } from "./use-live-now";
 import { ShellContext } from "./shell-context";
 import { PHONE_MAX_WIDTH, ROOM_COLLAPSE_QUERY, autoCollapseRoute } from "./shell-model";
@@ -43,9 +44,11 @@ function ShellFrame({ children }: { children: ReactNode }) {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const wasOpen = useRef(false);
   const returnFocus = useRef(false);
   const pathname = usePathname();
+  usePageEnter(contentRef, pathname);
   const account = useShellAccount();
   const live = useLiveNow(pathname);
   const autoCollapsed = roomWidth && autoCollapseRoute(pathname);
@@ -129,9 +132,9 @@ function ShellFrame({ children }: { children: ReactNode }) {
         <PhoneTopBar ref={menuButtonRef} account={account} menuOpen={drawerOpen} live={live} onMenuClick={openMenu} onReportBug={openReport} />
         <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} account={account} live={live} onReportBug={openReport} />
         <main className={styles.main}>
-          <div className={`${styles.content} mx-auto p-4 pb-16 sm:p-6 sm:pb-16 lg:p-8 lg:pb-16`}>{children}</div>
+          <div ref={contentRef} className={`${styles.content} mx-auto p-4 pb-16 sm:p-6 sm:pb-16 lg:p-8 lg:pb-16`}>{children}</div>
         </main>
-        <BugReportFab className={`fixed bottom-3 z-40 ${styles.bugFab}`} />
+        <BugReportFab />
       </div>
       <MobileDrawer open={drawerOpen} onClose={closeDrawer} account={account} live={live} onReportBug={openReport} />
       <BugReportDialog open={reportOpen} onClose={closeReport} collect={collectPage} />

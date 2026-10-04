@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type Database from "better-sqlite3";
-import { checkDeckAgainstPool, type DuelDeck, type SavedDeck } from "@yugidraft/shared/duels";
+import { checkDeckAgainstPool, mapDeckCodes, type DuelDeck, type SavedDeck } from "@yugidraft/shared/duels";
 import { createTournamentDuelService, TournamentDuelError } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
 import { broadcaster } from "@/lib/notify";
@@ -35,8 +35,9 @@ function asDeck(value: unknown): DuelDeck | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value as { main?: unknown; extra?: unknown; side?: unknown; deckMaster?: unknown };
   const isCodes = (list: unknown): list is number[] =>
-    Array.isArray(list) && list.every((code) => typeof code === "number" && Number.isInteger(code));
+    Array.isArray(list) && list.every((code) => typeof code === "number" && Number.isSafeInteger(code) && code > 0 && code <= 0xffffffff);
   if (!isCodes(raw.main) || !isCodes(raw.extra) || !isCodes(raw.side)) return null;
+  if (raw.deckMaster !== undefined && (typeof raw.deckMaster !== "number" || !Number.isSafeInteger(raw.deckMaster) || raw.deckMaster <= 0 || raw.deckMaster > 0xffffffff)) return null;
   const deck: DuelDeck = { main: raw.main, extra: raw.extra, side: raw.side };
   if (typeof raw.deckMaster === "number") deck.deckMaster = raw.deckMaster;
   return deck;
@@ -52,38 +53,37 @@ async function checkAgainstPool(
   guildId: string,
   draft: DraftDeckContext,
   rawDeck: unknown,
-): Promise<NextResponse | null> {
-  const loaded = await loadDraftDeckPool(db, guildId, draft);
-  if (!loaded.ok) return loaded.response;
-  const deck = asDeck(rawDeck);
-  if (!deck) return null;
+): Promise<{ ok: true; deck: unknown } | { ok: false; response: NextResponse }> {
+  const parsed = asDeck(rawDeck);
+  if (!parsed) return { ok: true, deck: rawDeck };
+  const codes = [...parsed.main, ...parsed.extra, ...parsed.side, ...(parsed.deckMaster === undefined ? [] : [parsed.deckMaster])];
+  const loaded = await loadDraftDeckPool(db, guildId, draft, codes);
+  if (!loaded.ok) return loaded;
   const { pool } = loaded;
+  const deck = mapDeckCodes(parsed, (code) => pool.codeMap.get(code) ?? code);
+  const failure = (body: unknown) => ({ ok: false as const, response: NextResponse.json(body, { status: 400 }) });
 
   const minimum = draftMainMinimum(pool.mainPoolCount);
   if (deck.main.length < minimum) {
-    return NextResponse.json(
-      { error: `A draft deck needs at least ${minimum} Main Deck cards (you have ${deck.main.length})` },
-      { status: 400 },
-    );
+    return failure({ error: `A draft deck needs at least ${minimum} Main Deck cards (you have ${deck.main.length})` });
   }
   if (deck.main.length > DRAFT_MAIN_MAX) {
-    return NextResponse.json({ error: `A Main Deck holds at most ${DRAFT_MAIN_MAX} cards` }, { status: 400 });
+    return failure({ error: `A Main Deck holds at most ${DRAFT_MAIN_MAX} cards` });
   }
   if (deck.extra.length > DRAFT_EXTRA_MAX) {
-    return NextResponse.json({ error: `An Extra Deck holds at most ${DRAFT_EXTRA_MAX} cards` }, { status: 400 });
+    return failure({ error: `An Extra Deck holds at most ${DRAFT_EXTRA_MAX} cards` });
   }
   const issues = checkDeckAgainstPool(deck, pool.byCode);
   if (issues.length > 0) {
     const first = issues[0];
-    return NextResponse.json(
+    return failure(
       {
         error: `Your deck uses more copies than your draft pool has (card ${first.code}: ${first.used} used, ${first.available} in your pool)`,
         issues,
       },
-      { status: 400 },
     );
   }
-  return null;
+  return { ok: true, deck };
 }
 
 /** Loads the draft for a draft deck write and checks the deck against the pool. */
@@ -92,13 +92,13 @@ export async function checkDraftDeckWrite(
   ownerUserId: string,
   draftId: number,
   deck: unknown,
-): Promise<{ ok: true; draft: DraftDeckContext } | { ok: false; response: NextResponse }> {
+): Promise<{ ok: true; draft: DraftDeckContext; deck: unknown } | { ok: false; response: NextResponse }> {
   const db = getDb();
   const found = findDraftDeckContext(db, guildId, ownerUserId, { id: draftId });
   if (!found.ok) return found;
-  const failure = await checkAgainstPool(db, guildId, found.draft, deck);
-  if (failure) return { ok: false, response: failure };
-  return { ok: true, draft: found.draft };
+  const checked = await checkAgainstPool(db, guildId, found.draft, deck);
+  if (!checked.ok) return checked;
+  return { ok: true, draft: found.draft, deck: checked.deck };
 }
 
 /**

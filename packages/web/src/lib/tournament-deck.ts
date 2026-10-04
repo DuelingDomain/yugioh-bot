@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { NextResponse } from "next/server";
 import { createDraftService } from "@yugidraft/shared/services";
 import { isExtraDeckMonster } from "@/lib/card-types";
-import { callDuelHost } from "@/lib/duel-host";
+import { normalizeDraftCardCodes } from "@/lib/draft-deck-codes";
 
 /** A draft deck needs at least this many main deck cards (fewer only when the pool has fewer). */
 export const DRAFT_MIN_MAIN = 40;
@@ -12,14 +12,14 @@ export type DraftPool =
       ok: true;
       /** Engine passcode -> copies drafted. */
       counts: Map<number, number>;
+      /** Catalog and submitted deck ids -> canonical engine passcodes. */
+      codeMap: Map<number, number | null>;
       /** Drafted copies that belong in the main deck. */
       mainPoolCount: number;
       /** YGOPRODeck ids the duel engine does not know; they are not in `counts`. */
       unresolved: number[];
     }
   | { ok: false; response: NextResponse };
-
-const NORMALIZE_CHUNK = 1000;
 
 /**
  * The player's draft pool as engine passcodes, through the host `normalize-codes` op
@@ -33,6 +33,8 @@ export async function loadDraftPool(input: {
   guildId: string;
   playerId: number;
   draftId: number;
+  /** Include the saved/submitted deck so both sides of the comparison use the same mapping. */
+  deckCodes?: number[];
 }): Promise<DraftPool> {
   let picks: Array<{ catalogCardId: number }>;
   try {
@@ -44,21 +46,9 @@ export async function loadDraftPool(input: {
   }
 
   const ids = [...new Set(picks.map((pick) => pick.catalogCardId))];
-  const resolved: Record<string, number | null> = {};
-  for (let i = 0; i < ids.length; i += NORMALIZE_CHUNK) {
-    const result = await callDuelHost({
-      op: "normalize-codes",
-      guildId: input.guildId,
-      playerId: input.playerId,
-      codes: ids.slice(i, i + NORMALIZE_CHUNK),
-    });
-    if (!result.ok) return { ok: false, response: result.response };
-    const codes = (result.data as { codes?: Record<string, number | null> } | null)?.codes;
-    if (!codes || typeof codes !== "object") {
-      return { ok: false, response: NextResponse.json({ error: "Invalid engine response" }, { status: 502 }) };
-    }
-    Object.assign(resolved, codes);
-  }
+  const mapped = await normalizeDraftCardCodes({ ...input, codes: [...ids, ...(input.deckCodes ?? [])] });
+  if (!mapped.ok) return mapped;
+  const resolved = mapped.codes;
 
   const cards = ids.length
     ? (input.db
@@ -75,15 +65,15 @@ export async function loadDraftPool(input: {
   const unresolved = new Set<number>();
   let mainPoolCount = 0;
   for (const pick of picks) {
-    const code = resolved[String(pick.catalogCardId)];
+    const code = resolved.get(pick.catalogCardId);
     if (typeof code !== "number") {
       unresolved.add(pick.catalogCardId);
       continue;
     }
     counts.set(code, (counts.get(code) ?? 0) + 1);
-    if (!extraIds.has(pick.catalogCardId)) mainPoolCount += 1;
+    if (!extraIds.has(pick.catalogCardId) && counts.get(code)! <= 3) mainPoolCount += 1;
   }
-  return { ok: true, counts, mainPoolCount, unresolved: [...unresolved].sort((a, b) => a - b) };
+  return { ok: true, counts, codeMap: resolved, mainPoolCount, unresolved: [...unresolved].sort((a, b) => a - b) };
 }
 
 /** Null when the main deck size is fine for a draft deck, else the error text. */

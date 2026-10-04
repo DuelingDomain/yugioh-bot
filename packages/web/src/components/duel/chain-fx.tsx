@@ -65,6 +65,7 @@ import {
   type ChainState,
 } from "./chain-state";
 import { chainBeatAt, chainBeatsEndAt, planChainBeats, resetChainBeats } from "./chain-beats";
+import { findFlipSequences } from "./flip-sequence";
 import { holdPromptReveal } from "./prompt-reveal";
 import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import styles from "./chain-fx.module.css";
@@ -298,6 +299,46 @@ function ChainGlyph() {
   );
 }
 
+/**
+ * The links whose targets are marked on the board. They follow the live engine, so a replacement
+ * occupant is never marked while old beats play and a chain end clears the rings at once. The
+ * exception is a flip effect that answers an attack (flip-sequence.ts): its whole chain arrives in
+ * one batch, the live chain is already empty, and the target would never show. Its link follows the
+ * played beats instead: marked from the target beat, kept as chosen while the link resolves (the
+ * engine publishes the target again after the card has moved), gone when the link resolves.
+ */
+export function targetLinksOf(live: ChainState, played: ChainState, sequenced: ReadonlyMap<number, number>, held: Map<number, ChainLinkState["targets"]>): ChainLinkState[] {
+  const links = live.links.filter((link) => link.status !== "resolved");
+  // A held target belongs to the activation that made it, so a later chain that reuses the link number gets none.
+  const owners = new Set(sequenced.values());
+  for (const id of [...held.keys()]) if (!owners.has(id)) held.delete(id);
+  for (const link of played.links) {
+    const owner = sequenced.get(link.index);
+    if (owner == null) continue;
+    if (link.status === "resolved") {
+      held.delete(owner);
+      continue;
+    }
+    if (link.status === "pending" || !held.has(owner)) held.set(owner, link.targets);
+    const targets = held.get(owner) ?? [];
+    if (targets.length === 0 || links.some((other) => other.index === link.index)) continue;
+    links.push({ ...link, targets });
+  }
+  return links;
+}
+
+/** Link number -> id of the activation that owns it now, for the links that start a flip-effect sequence. */
+export function sequenceOwners(events: readonly DuelEvent[]): Map<number, number> {
+  const sequences = new Set(findFlipSequences(events).map((sequence) => sequence.activate.id));
+  const latest = new Map<number, number>();
+  for (const event of events) {
+    if (event.kind === "activate" && typeof event.chainIndex === "number" && event.id >= (latest.get(event.chainIndex) ?? -Infinity)) latest.set(event.chainIndex, event.id);
+  }
+  const owners = new Map<number, number>();
+  for (const [index, id] of latest) if (sequences.has(id)) owners.set(index, id);
+  return owners;
+}
+
 export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority, ended = false, table }: ChainFxProps) {
   const named = seatTones != null;
   // On Tag the partner's zones read "partner's"; every other seat that is not yours reads by name or "opponent's".
@@ -308,8 +349,11 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   // Badges play historical resolution beats; targeting follows the live engine so a replacement
   // occupant is never marked while old beats play, and chain-end clears target rings immediately.
   const live = useMemo(() => (ended ? EMPTY_CHAIN : deriveChainState(events, chain)), [events, chain, ended]);
-  const targetLinks = live.links.filter((link) => link.status !== "resolved");
-  const targetsKey = chainStateKey(live);
+  const sequenceLinks = useMemo(() => sequenceOwners(events), [events]);
+  const heldTargets = useRef({ key: duelKey, map: new Map<number, ChainLinkState["targets"]>() });
+  if (heldTargets.current.key !== duelKey) heldTargets.current = { key: duelKey, map: new Map() };
+  const targetLinks = targetLinksOf(live, state, sequenceLinks, heldTargets.current.map);
+  const targetsKey = chainStateKey({ links: targetLinks, resolving: null });
   const targetLinksRef = useRef(targetLinks);
   targetLinksRef.current = targetLinks;
   const overlayRef = useRef<HTMLDivElement>(null);

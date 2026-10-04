@@ -337,6 +337,11 @@
 .board[data-deal-wait="true"] [data-hand-seat] {
   visibility: hidden;
 }
+/* Their Decks already show the count after the deal; the layers count it down card by card from the
+   count before the last card leaves. Show no number until then, or it would jump 35 -> 39 -> 35. */
+.board[data-deal-wait="true"] [data-zones*=":1:0"] [data-pile-count] {
+  visibility: hidden;
+}
 .board::after {
   content: "";
   position: absolute;
@@ -602,6 +607,8 @@
 .cardMenu button:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: -2px; }
 .cardMenu button[data-primary="true"] { background: var(--duel-pen-fill); color: #fff; }
 .cardMenu button[data-primary="true"]:hover { background: #6440e0; }
+.cardMenu button[data-danger="true"] { color: #f0877d; }
+.cardMenu button[data-danger="true"]:hover, .cardMenu button[data-danger="true"]:focus-visible { background: rgb(228 90 77 / 0.18); color: #fff; }
 .cardMenu button:disabled { opacity: 0.45; }
 .menuLabel { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; overflow-wrap: anywhere; }
 .menuLabel small { font-size: var(--duel-t-xs); font-weight: 400; opacity: 0.78; }

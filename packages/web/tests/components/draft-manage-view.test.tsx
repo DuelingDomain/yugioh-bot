@@ -545,6 +545,8 @@ describe("DraftManageView — editing the setup", () => {
     fireEvent.change(await screen.findByLabelText("Search cards by name"), { target: { value: "cipher" } });
     fireEvent.click(await screen.findByRole("button", { name: "Add one copy of Cipher Soldier" }));
     fireEvent.change(screen.getByLabelText(/pick duration/i), { target: { value: "30" } });
+    expect(screen.getByLabelText("Limit 3 copies per card")).toBeChecked();
+    await userEvent.click(screen.getByLabelText("Limit 3 copies per card"));
     await userEvent.click(screen.getByRole("button", { name: "Save setup" }));
 
     await waitFor(() => expect(onUpdate).toHaveBeenCalledTimes(1));
@@ -557,6 +559,7 @@ describe("DraftManageView — editing the setup", () => {
       excludeNames: [],
       pickSeconds: 30,
       cardsPerPlayer: 45,
+      copyLimit: false,
     });
     await waitFor(() => expect(screen.queryByRole("button", { name: "Save setup" })).toBeNull());
   });

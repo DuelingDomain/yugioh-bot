@@ -16,13 +16,15 @@ import { PromptCenter } from "../prompt-center";
 import { activatePromptFromField, promptSelectedKeys, type PromptDraft } from "../prompts";
 import { PickRefusalHint, shakeRefusedCard } from "../card-interactions";
 import { DuelResultScreen } from "../duel-result";
+import { DeckSurrenderContext, type DeckSurrenderValue } from "../deck-surrender";
+import { SurrenderModal } from "../surrender-modal";
 import { FxBoundary, MoveSourceBoundary } from "../fx-boundary";
 import { duelFontClasses } from "../fonts";
 import { isBattlePhase } from "../constants";
 import { getSharedFx3d } from "../fx3d/shared";
 import styles from "../room.module.css";
 import fx from "./fx-lab.module.css";
-import { applyEdits, numberSteps, scriptDurationMs, type LabBoard, type LabScenario, type LabScript } from "./board";
+import { applyEdits, numberSteps, scriptDurationMs, withHandIds, type LabBoard, type LabScenario, type LabScript } from "./board";
 import { LAB_CATEGORIES, LAB_SCENARIOS, findScenario, scenariosIn } from "./scenarios";
 import { installTimeShim, type TimeShim } from "./time-shim";
 import { labSeriesRoom, OpeningLabScreen, SeriesLabHeader, SeriesLabScreen } from "./series-view";
@@ -48,6 +50,8 @@ type Live = {
   chain: DuelChainLink[];
   events: DuelEvent[];
   revision: number;
+  /** The layers opened on a finished first step (a room's first load): they replay its events from the start. */
+  preloaded?: boolean;
 };
 
 const noop = () => undefined;
@@ -136,6 +140,7 @@ export function FxLab() {
   const [status, setStatus] = useState<Status>("idle");
   const [note, setNote] = useState("");
   const [result, setResult] = useState<{ winnerSeat: number | null; reason: string } | null>(null);
+  const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [live, setLive] = useState<Live>(() => ({
     runKey: 0,
     board: findScenario(LAB_SCENARIOS[0].id)!.build().initial,
@@ -209,6 +214,7 @@ export function FxLab() {
       clearTimers();
       shim.setFactor(1);
       setResult(null);
+      setConfirmSurrender(false);
       setStatus("preparing");
       setNote("");
 
@@ -228,7 +234,27 @@ export function FxLab() {
         shim.setFactor(rate);
         shim.resetTimeline();
         setStatus("playing");
-        for (const { step, events } of numbered) {
+        let steps = numbered;
+        if (built.preload && numbered.length > 0) {
+          // A room's first load: the finished board and its events are there when the layers mount.
+          const [first, ...rest] = numbered;
+          const dealt = withHandIds(applyEdits(built.initial, first.step.edits ?? []), first.events, built.mySeat === undefined ? 0 : built.mySeat);
+          boardRef.current = dealt.board;
+          steps = rest;
+          setLive((prev) => ({ runKey: prev.runKey + 1, board: dealt.board, chain: first.step.chain ?? prev.chain, events: dealt.events, revision: prev.revision + 1, preloaded: true }));
+        }
+        if (built.deckMenu) {
+          // The deck menu scenes press the real controls: the deck, then (for the confirm) Surrender.
+          later(500, () => {
+            if (started()) stageRef.current?.querySelector<HTMLElement>('[data-field-seat][data-side="bottom"] [data-kind="deck"] button')?.click();
+          });
+          if (built.deckMenu === "confirm") {
+            later(1400, () => {
+              if (started()) document.querySelector<HTMLElement>('[role="menuitem"][aria-label="Surrender"]')?.click();
+            });
+          }
+        }
+        for (const { step, events } of steps) {
           later(step.at / rate, () => {
             if (!started()) return;
             const nextBoard = applyEdits(boardRef.current, step.edits ?? []);
@@ -239,6 +265,7 @@ export function FxLab() {
               chain: step.chain ?? prev.chain,
               events: [...prev.events, ...events],
               revision: prev.revision + 1,
+              preloaded: prev.preloaded,
             }));
             if (step.result) setResult(step.result);
           });
@@ -309,6 +336,13 @@ export function FxLab() {
   // Between games and opening RPS are not live engine decisions.
   if (script.opening || script.series?.screen) engine.turn = 0;
   const duelKey = `lab-${live.runKey}`;
+  // Your own deck opens the Surrender menu here too. The lab's confirm sends nothing.
+  const deckSurrender: DeckSurrenderValue = {
+    seat: script.mySeat === undefined ? 0 : script.mySeat,
+    available: result == null && script.mySeat !== null,
+    busy: false,
+    onSurrender: () => setConfirmSurrender(true),
+  };
   const viewerSeat = script.mySeat === undefined ? 0 : script.mySeat;
   const stageHeight = "clamp(560px, calc(100dvh - 250px), 900px)";
   const battle = isBattlePhase(live.board.phase);
@@ -390,6 +424,7 @@ export function FxLab() {
               <div className={fx.boardWrap}>
                 <div className={styles.board} ref={stageRef}>
                   <MoveSourceBoundary key={live.runKey} events={engine.events} duelKey={duelKey} root={stageRef}>
+                    <DeckSurrenderContext.Provider value={deckSurrender}>
                     <DuelField
                       engine={engine}
                       mySeat={viewerSeat}
@@ -402,10 +437,11 @@ export function FxLab() {
                       bottomName={viewerSeat == null ? "Seat 0" : "You"}
                       topName={viewerSeat == null ? "Seat 1" : "Practice Bot"}
                     />
+                    </DeckSurrenderContext.Provider>
                     <FxBoundary>
-                      <DuelFeedback events={engine.events} duelKey={duelKey} soundEnabled={sound} soundVolume={0.6} reducedMotion={reduced} />
+                      <DuelFeedback events={engine.events} duelKey={duelKey} soundEnabled={sound} soundVolume={0.6} reducedMotion={reduced} replayFrom={live.preloaded ? 0 : null} />
                       <SummonFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} shake="medium" />
-                      <MoveFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} />
+                      <MoveFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} replayFrom={live.preloaded ? 0 : null} />
                       <PositionFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} />
                       <ChainFx events={engine.events} chain={engine.chain} duelKey={duelKey} reducedMotion={reduced} mySeat={0} playerName={(seat) => (seat === 0 ? "You" : "Practice Bot")} />
                       <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={duelKey} reducedMotion={reduced} mySeat={0} />
@@ -452,6 +488,8 @@ export function FxLab() {
           </div>
         </main>
       </div>
+      <SurrenderModal open={confirmSurrender} busy={false} onClose={() => setConfirmSurrender(false)}
+        onConfirm={() => { setConfirmSurrender(false); setNote("Confirmed. The duel would call the surrender action now; the lab sends nothing."); }} />
       {pickHint && pickHint.anchor.isConnected ? (
         <PickRefusalHint anchor={pickHint.anchor} text={pickHint.text} onDone={clearPickHint} />
       ) : null}

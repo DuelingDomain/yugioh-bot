@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
-import type { DuelDeck, DuelDeckValidation } from "@yugidraft/shared/duels";
+import { NextResponse } from "next/server";
+import { mapDeckCodes, type DuelDeck, type DuelDeckValidation } from "@yugidraft/shared/duels";
 import { createTournamentDuelService } from "@yugidraft/shared/services";
 import { callDuelHost } from "@/lib/duel-host";
 
@@ -10,6 +11,39 @@ export type DraftDeckMapResult =
 
 /** One attempt per registration change: a newer registration made during the host call is mapped again. */
 const MAX_ATTEMPTS = 3;
+
+/** The same host mapping used for draft picks, saved decks and duel checks. */
+export async function normalizeDraftCardCodes(input: { guildId: string; playerId: number; codes: number[] }): Promise<
+  { ok: true; codes: Map<number, number | null> } | { ok: false; response: NextResponse }
+> {
+  const ids = [...new Set(input.codes)];
+  const mapped = new Map<number, number | null>();
+  for (let at = 0; at < ids.length; at += 1000) {
+    const chunk = ids.slice(at, at + 1000);
+    const result = await callDuelHost({ op: "normalize-codes", guildId: input.guildId, playerId: input.playerId, codes: chunk });
+    if (!result.ok) return result;
+    const codes = (result.data as { codes?: Record<string, unknown> } | null)?.codes;
+    if (!codes || typeof codes !== "object" || chunk.some((id) => {
+      const value = codes[id];
+      return value !== null && (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0 || value > 0xffffffff);
+    })) {
+      return { ok: false, response: NextResponse.json({ error: "Invalid engine response" }, { status: 502 }) };
+    }
+    for (const id of chunk) mapped.set(id, codes[id] as number | null);
+  }
+  return { ok: true, codes: mapped };
+}
+
+/** Unresolved ids stay in the deck, so loading never loses cards and pool validation rejects them. */
+export async function normalizeDraftDeck(input: { guildId: string; playerId: number; deck: DuelDeck }): Promise<
+  { ok: true; deck: DuelDeck } | { ok: false; response: NextResponse }
+> {
+  const { deck } = input;
+  const codes = [...deck.main, ...deck.extra, ...deck.side, ...(deck.deckMaster === undefined ? [] : [deck.deckMaster])];
+  const mapped = await normalizeDraftCardCodes({ ...input, codes });
+  if (!mapped.ok) return mapped;
+  return { ok: true, deck: mapDeckCodes(deck, (code) => mapped.codes.get(code) ?? code) };
+}
 
 /**
  * An auto-registered draft deck holds catalog ids. The duel host maps them to engine passcodes

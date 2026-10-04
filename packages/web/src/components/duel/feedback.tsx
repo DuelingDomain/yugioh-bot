@@ -18,7 +18,7 @@ import {
 } from "./event-queue";
 import { DEFAULT_SOUND_VOLUME } from "./preferences";
 import { battleDestroyAt } from "./battle-hold";
-import { chainBeatAt, chainEffectAt } from "./chain-beats";
+import { activationEndAt, chainBeatAt, chainEffectAt } from "./chain-beats";
 import { createDuelFeedbackAudio, type DuelFeedbackAudio } from "./feedback-audio";
 import { pairedMovePlan } from "./move-plan";
 import { getPhaseBeat, planPhaseBeats } from "./phase-beats";
@@ -213,7 +213,22 @@ export function DuelFeedback({
     }
     currentRef.current = next;
     const remaining = 1 + queueRef.current.length;
-    const ms = pacedCueDuration(next.kind, reducedRef.current, remaining);
+    let ms = pacedCueDuration(next.kind, reducedRef.current, remaining);
+    if (next.kind === "activate") {
+      // The banner ends where its link starts to resolve, so nothing resolves under it. One that
+      // arrives after that moment is dropped: the badge and the chain list already announced it.
+      const endAt = activationEndAt(next.id);
+      if (endAt > 0) {
+        const left = endAt - duelFxClock.now();
+        if (left < BANNER_TIMING.minCueMs) {
+          if (soundRef.current) audioRef.current?.play(next.kind);
+          currentRef.current = null;
+          startNextRef.current();
+          return;
+        }
+        ms = Math.min(ms, Math.round(left));
+      }
+    }
     setCurrent({ event: next, durationMs: ms });
     if (soundRef.current) audioRef.current?.play(next.kind);
     timerRef.current = duelFxClock.setTimeout(() => {

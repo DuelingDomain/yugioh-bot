@@ -19,6 +19,7 @@ export type DraftConfigFieldsValue = {
   cardsPerPlayerText: string;
   packSizeText: string;
   pickSecondsText: string;
+  copyLimit?: boolean;
 };
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -47,6 +48,7 @@ export function configFromFields(fields: DraftConfigFieldsValue): {
   pickSeconds: number;
   alternatePassDirection: boolean;
   randomizeSeats: boolean;
+  copyLimit: boolean;
 } {
   const cardsPerPlayer = parseCardsPerPlayer(fields.cardsPerPlayerText);
   const packSize = parsePackSize(fields.packSizeText, cardsPerPlayer);
@@ -58,11 +60,13 @@ export function configFromFields(fields: DraftConfigFieldsValue): {
     pickSeconds,
     alternatePassDirection: true,
     randomizeSeats: true,
+    copyLimit: fields.copyLimit ?? true,
   };
 }
 
 export function fieldsFromConfig(config: DraftConfig): DraftConfigFieldsValue {
   return {
+    copyLimit: config.copyLimit ?? true,
     cardsPerPlayerText: String(config.cardsPerPlayer ?? CARDS_PER_PLAYER_DEFAULT),
     packSizeText: String(config.packSize ?? PACK_SIZE_DEFAULT),
     pickSecondsText: String(config.pickSeconds ?? PICK_SECONDS_DEFAULT),
@@ -165,6 +169,7 @@ export function PackFields({ value, onChange }: PackFieldsProps) {
         min={PICK_SECONDS_MIN}
         max={PICK_SECONDS_MAX}
       />
+      <label className="wide"><input type="checkbox" checked={value.copyLimit ?? true} onChange={(e) => onChange({ ...value, copyLimit: e.target.checked })} /> Limit 3 copies per card</label>
       <p className="hint wide">{packsSentence(cardsPerPlayer, packsPerPlayer, packSize)}</p>
     </div>
   );

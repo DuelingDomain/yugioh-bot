@@ -4,12 +4,12 @@ import { migrate } from "../../src/db/index.js";
 import { MAX_COPIES_PER_PLAYER } from "../../src/services/constants.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
 import { createCubeService } from "../../src/services/cubes.js";
+import { buildDraftDeck, createDraftDeckService } from "../../src/services/draft-decks.js";
 import { createDraftService } from "../../src/services/drafts.js";
 import type { DraftConfig } from "../../src/types/index.js";
 
 // The cube may hold any number of copies of a card. One player may still hold at most
-// MAX_COPIES_PER_PLAYER of a passcode from one draft: a capped card is never served,
-// and a player with nothing left to take passes the pick while the draft keeps moving.
+// MAX_COPIES_PER_PLAYER in a deck. Fully capped booster packs swap or permit a forced pick.
 
 function insertPlayer(db: Database.Database, name: string): number {
   const result = db
@@ -79,27 +79,72 @@ function boosterDraft(config: Partial<DraftConfig>, cubeCardIds: number[], cardC
 const distinctCube = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
 
 describe("per-player copy cap in booster drafts", () => {
-  it.each([16, 17, 18, 19])("starts with %i distinct cards when the deck limit exceeds the deal size", (distinct) => {
-    const { db, drafts, draftId } = boosterDraft({ packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 60 }, distinctCube(distinct));
-    expect(drafts.findById(draftId).status).toBe("active");
-    expect(drafts.players(draftId)).toHaveLength(2);
-    expect(db.prepare("select count(*) as n from draft_deal where draft_id = ?").get(draftId)).toEqual({ n: 80 });
-    db.close();
+  it("counts two artwork ids as one card for manual and automatic picks", () => {
+    const { db, drafts, draftId, a } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, [1, 2, ...distinctCube(20)]);
+    try {
+      db.prepare("update card_catalog set name = '  CARD 1  ' where ygoprodeck_id = 2").run();
+      grantCopies(db, draftId, a, 1, 2);
+      grantCopies(db, draftId, a, 2, 1);
+      const pack = drafts.currentPackOptions(draftId, a);
+      db.prepare("update draft_cards set catalog_card_id = 2 where id = ?").run(pack[0].id);
+      expect(drafts.heldCopies(draftId, a)[2]).toBe(3);
+      expect(drafts.pickOptions(draftId, a).map((card) => card.catalogCardId)).not.toContain(2);
+      expect(() => drafts.pickCard(draftId, a, pack[0].id)).toThrow(/already have 3 copies/);
+      expireNow(db, draftId);
+      drafts.expireCurrentPickStep(draftId);
+      expect(heldByPlayer(db, draftId, a).get(2)).toBe(1);
+    } finally { db.close(); }
   });
 
-  it("refuses to start a booster deck exceeding the three-copy reachability", () => {
-    const db = new Database(":memory:");
-    migrate(db);
-    seedCards(db, 8);
-    const drafts = createDraftService(db);
-    const players = [insertPlayer(db, "A"), insertPlayer(db, "B")];
-    const draft = drafts.create("g", "c", "too narrow", {
-      cubeCardIds: distinctCube(8), packSize: 4, packsPerPlayer: 10, cardsPerPlayer: 40,
-    }, "host", players[0]);
-    drafts.join(draft.id, players[1]);
-    expect(() => drafts.start(draft.id)).toThrow(/3 copies/);
-    expect(drafts.findById(draft.id).status).toBe("pending");
-    expect(db.prepare("select count(*) as n from draft_deal where draft_id = ?").get(draft.id)).toEqual({ n: 0 });
+  it("skips capped artwork ids in the undealt pile", () => {
+    const { db, drafts, draftId, a } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, [1, 2, ...distinctCube(20)]);
+    try {
+      db.prepare("update card_catalog set name = 'Card 1' where ygoprodeck_id = 2").run();
+      const pack = drafts.currentPackOptions(draftId, a);
+      db.prepare("update draft_cards set catalog_card_id = 2 where draft_pack_id = (select draft_pack_id from draft_cards where id = ?)").run(pack[0].id);
+      db.prepare("delete from draft_undealt where draft_id = ?").run(draftId);
+      db.prepare("insert into draft_undealt (draft_id, position, catalog_card_id) values (?, 100, 2), (?, 101, 3)").run(draftId, draftId);
+      grantCopies(db, draftId, a, 1, 3);
+      expect(drafts.pickOptions(draftId, a).map((card) => card.catalogCardId)).toEqual([3]);
+    } finally { db.close(); }
+  });
+
+  it("keeps a card with the same name and a different type separate", () => {
+    const { db, drafts, draftId, a } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, [1, 2, ...distinctCube(20)]);
+    try {
+      db.prepare("update card_catalog set name = 'Card 1', type = 'Effect Monster' where ygoprodeck_id = 2").run();
+      grantCopies(db, draftId, a, 1, 3);
+      const pack = drafts.currentPackOptions(draftId, a);
+      db.prepare("update draft_cards set catalog_card_id = 2 where id = ?").run(pack[0].id);
+      expect(drafts.pickOptions(draftId, a).map((card) => card.catalogCardId)).toContain(2);
+      drafts.pickCard(draftId, a, pack[0].id);
+      expect(drafts.heldCopies(draftId, a)[2]).toBe(1);
+    } finally { db.close(); }
+  });
+
+  it("saves and exports only three combined artwork copies and counts a legal main pool", () => {
+    const { db, drafts, draftId, a } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, [1, 2, ...distinctCube(20)]);
+    try {
+      db.prepare("update card_catalog set name = '  CARD 1  ' where ygoprodeck_id = 2").run();
+      grantCopies(db, draftId, a, 1, 2);
+      grantCopies(db, draftId, a, 2, 2);
+      db.prepare("update drafts set status = 'completed', ended_at = current_timestamp where id = ?").run(draftId);
+      const decks = createDraftDeckService(db);
+      expect(decks.mainPoolCount(draftId, a)).toBe(3);
+      decks.saveForDraft(draftId);
+      const saved = db.prepare("select deck_json from saved_decks where draft_id = ? and owner_user_id = 'u-A'").get(draftId) as { deck_json: string };
+      expect(JSON.parse(saved.deck_json)).toEqual({ main: [1, 1, 2], extra: [], side: [] });
+      expect(drafts.exportYdk(draftId, a)).toBe("#main\n1\n1\n2\n#extra\n\n!side\n");
+    } finally { db.close(); }
+  });
+
+  it.each([16, 17, 18, 19])("rejects %i singletons and a deck larger than the deal", (distinct) => {
+    expect(() => boosterDraft({ packSize: 8, packsPerPlayer: 5, cardsPerPlayer: 60 }, distinctCube(distinct))).toThrow(/needs 80.*needs 60/);
+  });
+
+  it("starts a narrow cube with enough copies", () => {
+    const { db, drafts, draftId } = boosterDraft({ packSize: 4, packsPerPlayer: 10, cardsPerPlayer: 40 }, distinctCube(8).flatMap((id) => Array(10).fill(id)));
+    expect(drafts.findById(draftId).status).toBe("active");
     db.close();
   });
 
@@ -179,84 +224,144 @@ describe("per-player copy cap in booster drafts", () => {
     expect(picked.id).toBe(allowed.id);
   });
 
-  it("passes the pick when every card in the pack is capped, and the next step still runs", () => {
+  it("offers a forced pick when every remaining card is capped", () => {
     const { db, drafts, draftId, a, b } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, distinctCube(16));
     const aPack = drafts.currentPackOptions(draftId, a);
     const bPack = drafts.currentPackOptions(draftId, b);
-    // Step 2 hands A the rest of B's pack. A holds the maximum of every card in it.
-    for (const card of bPack) grantCopies(db, draftId, a, card.catalogCardId, MAX_COPIES_PER_PLAYER);
-
+    for (const card of bPack) grantCopies(db, draftId, a, card.catalogCardId, 3);
     drafts.pickCard(draftId, a, aPack[0].id);
     drafts.pickCard(draftId, b, bPack[0].id);
-
-    const afterStep = drafts.findById(draftId);
-    expect(afterStep.currentPickStep).toBe(2);
-    // A passed step 2 on their own: no card, no stall, no human click.
-    expect(drafts.pickOptions(draftId, a)).toEqual([]);
-    expect(drafts.hasPassedStep(draftId, a)).toBe(true);
-    expect(db.prepare("select count(*) as n from draft_passes where draft_id = ? and player_id = ? and pick_step = 2").get(draftId, a)).toEqual({ n: 1 });
-    expect(db.prepare("select pick_count from draft_players where draft_id = ? and player_id = ?").get(draftId, a)).toEqual({ pick_count: 1 });
-    expect(() => drafts.pickCard(draftId, a, bPack[1].id)).toThrow("Player has no card to pick this step");
-
-    // B is the only player left to act. B's pick closes the step.
-    const bNext = drafts.pickOptions(draftId, b);
-    expect(bNext).toHaveLength(3);
-    drafts.pickCard(draftId, b, bNext[0].id);
-    expect(drafts.findById(draftId).currentPickStep).toBe(3);
+    expect(drafts.findById(draftId).currentPickStep).toBe(2);
+    expect(drafts.hasPassedStep(draftId, a)).toBe(false);
+    expect(drafts.pickOptions(draftId, a)).toHaveLength(3);
+    expect(drafts.pickOptions(draftId, a).every((card) => card.forced === true)).toBe(true);
+    drafts.pickCard(draftId, a, bPack[1].id);
+    expect(drafts.heldCopies(draftId, a)[bPack[1].catalogCardId]).toBe(4);
+    expect(db.prepare("select pick_count from draft_players where draft_id = ? and player_id = ?").get(draftId, a)).toEqual({ pick_count: 2 });
   });
 
-  it("a timeout closes a step where one player passed and the other is idle", () => {
-    const { db, drafts, draftId, a, b } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, distinctCube(16));
-    const aPack = drafts.currentPackOptions(draftId, a);
-    const bPack = drafts.currentPackOptions(draftId, b);
-    for (const card of bPack) grantCopies(db, draftId, a, card.catalogCardId, MAX_COPIES_PER_PLAYER);
-    drafts.pickCard(draftId, a, aPack[0].id);
-    drafts.pickCard(draftId, b, bPack[0].id);
-
-    expireNow(db, draftId);
-    const result = drafts.expireCurrentPickStep(draftId);
-
-    expect(result.autoPickedPlayerIds).toEqual([b]);
-    expect(drafts.findById(draftId).currentPickStep).toBe(3);
-  });
-
-  it("ends the draft when no remaining card can be taken, and a passing player finishes with fewer cards", () => {
-    const { db, drafts, draftId, a, b } = boosterDraft({ packSize: 4, packsPerPlayer: 1, cardsPerPlayer: 8 }, distinctCube(8));
-    // A holds the maximum of all 8 cards, so A can never pick. B picks everything.
-    for (let id = 1; id <= 8; id += 1) grantCopies(db, draftId, a, id, MAX_COPIES_PER_PLAYER);
-    expireNow(db, draftId);
-    drafts.expireCurrentPickStep(draftId);
-
-    for (let guard = 0; guard < 30 && drafts.findById(draftId).status === "active"; guard += 1) {
-      const options = drafts.pickOptions(draftId, b);
-      expect(options.length).toBeGreaterThan(0);
-      drafts.pickCard(draftId, b, options[0].id);
+  it.each(["manual", "expiry", "bot", "restart"])("swaps the first legal undealt copy for a capped pack (%s)", (path) => {
+    const { db, drafts, draftId, a, b } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, distinctCube(24));
+    const pack = drafts.currentPackOptions(draftId, a);
+    for (const card of pack) grantCopies(db, draftId, a, card.catalogCardId, 3);
+    const remainder = db.prepare("select position, catalog_card_id as id from draft_undealt where draft_id = ? order by position").all(draftId) as Array<{ position: number; id: number }>;
+    expect(remainder).toHaveLength(8);
+    grantCopies(db, draftId, a, remainder[0].id, 3);
+    const service = path === "restart" ? createDraftService(db, { seedSource: () => { throw new Error("No new seed"); } }) : drafts;
+    if (path === "expiry") {
+      expireNow(db, draftId);
+      expect(service.expireCurrentPickStep(draftId).autoPickedPlayerIds.sort()).toEqual([a, b].sort());
+    } else if (path === "manual") {
+      service.pickCard(draftId, a, service.pickOptions(draftId, a)[0].id);
+    } else {
+      const options = service.pickOptions(draftId, a);
+      expect(options.map((card) => card.catalogCardId)).toEqual([remainder[1].id]);
+      service.pickCard(draftId, a, options[0].id, path === "bot" ? "auto" : "manual");
     }
+    expect(service.pool(draftId, a).at(-1)?.catalogCardId).toBe(remainder[1].id);
+    const swapped = pack.find((card) => (db.prepare("select catalog_card_id as id from draft_cards where id = ?").get(card.id) as { id: number }).id === remainder[1].id)!;
+    expect(swapped).toBeDefined();
+    const after = db.prepare("select catalog_card_id as id from draft_undealt where draft_id = ? order by position").all(draftId);
+    expect(after).toEqual([remainder[0], ...remainder.slice(2)].map(({ id }) => ({ id })).concat([{ id: swapped.catalogCardId }]));
+    expect(db.prepare("select catalog_card_id as id from draft_cards where id = ?").get(swapped.id)).toEqual({ id: remainder[1].id });
+    expect(service.findById(draftId).config.copyLimit).toBe(true);
+  });
 
+  it("migrates twice without changing stored deals or remainders", () => {
+    const { db, draftId } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, distinctCube(24));
+    const deal = db.prepare("select * from draft_deal").all();
+    const rest = db.prepare("select * from draft_undealt").all();
+    migrate(db);
+    migrate(db);
+    expect(db.prepare("select * from draft_deal").all()).toEqual(deal);
+    expect(db.prepare("select * from draft_undealt").all()).toEqual(rest);
+  });
+
+  it("drafts two names with ten copies each through duplicate packs and expiry", () => {
+    const { db, drafts, draftId, a, b } = boosterDraft({ packSize: 10, packsPerPlayer: 1, cardsPerPlayer: 10 }, [...Array(10).fill(1), ...Array(10).fill(2)], 2);
+    expect(drafts.currentPackOptions(draftId, a)).toHaveLength(10);
+    for (let guard = 0; guard < 15 && drafts.findById(draftId).status === "active"; guard++) {
+      expireNow(db, draftId);
+      drafts.expireCurrentPickStep(draftId);
+    }
     expect(drafts.findById(draftId).status).toBe("completed");
-    expect(db.prepare("select pick_count from draft_players where draft_id = ? and player_id = ?").get(draftId, b)).toEqual({ pick_count: 8 });
-    expect(db.prepare("select pick_count from draft_players where draft_id = ? and player_id = ?").get(draftId, a)).toEqual({ pick_count: 0 });
+    for (const playerId of [a, b]) expect(drafts.pool(draftId, playerId)).toHaveLength(10);
+    expect(db.prepare("select count(*) as n from draft_passes").get()).toEqual({ n: 0 });
   });
 
-  it("opens the next wave when everything left in a wave is capped for every player", () => {
-    const { db, drafts, draftId, a, b } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, distinctCube(16));
-    const waveOneCards = (
-      db.prepare("select distinct catalog_card_id as id from draft_cards where draft_id = ? and wave_number = 1").all(draftId) as Array<{ id: number }>
-    ).map((row) => row.id);
-    for (const id of waveOneCards) {
-      grantCopies(db, draftId, a, id, MAX_COPIES_PER_PLAYER);
-      grantCopies(db, draftId, b, id, MAX_COPIES_PER_PLAYER);
+  it("swaps when the next pack reaches a capped player during settlement", () => {
+    const { db, drafts, draftId, a, b } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, distinctCube(24));
+    const aPack = drafts.currentPackOptions(draftId, a);
+    const bPack = drafts.currentPackOptions(draftId, b);
+    for (const card of bPack) grantCopies(db, draftId, a, card.catalogCardId, 3);
+    const first = db.prepare("select catalog_card_id as id from draft_undealt where draft_id = ? order by position limit 1").get(draftId) as { id: number };
+    drafts.pickCard(draftId, a, aPack[0].id);
+    drafts.pickCard(draftId, b, bPack[0].id);
+    expect(db.prepare("select catalog_card_id as id from draft_cards where draft_pack_id = (select draft_pack_id from draft_cards where id = ?) and picked_by_player_id is null").all(bPack[1].id)).toContainEqual(first);
+    expect(drafts.hasPassedStep(draftId, a)).toBe(false);
+  });
+
+  it("rolls back the swap if the pick fails", () => {
+    const { db, drafts, draftId, a } = boosterDraft({ packSize: 1, packsPerPlayer: 4, cardsPerPlayer: 4 }, distinctCube(24));
+    const pack = drafts.currentPackOptions(draftId, a);
+    for (const card of pack) grantCopies(db, draftId, a, card.catalogCardId, 3);
+    const before = db.prepare("select * from draft_undealt order by position").all();
+    db.exec("create trigger fail_pick before insert on draft_picks begin select raise(abort, 'test failure'); end");
+    expect(() => drafts.pickCard(draftId, a, pack[0].id)).toThrow("test failure");
+    expect(db.prepare("select * from draft_undealt order by position").all()).toEqual(before);
+    expect(db.prepare("select catalog_card_id as id from draft_cards where id = ?").get(pack[0].id)).toEqual({ id: pack[0].catalogCardId });
+  });
+
+  it.each(["none legal", "old draft"])("takes a fourth copy as a fallback (%s)", (path) => {
+    const { db, drafts, draftId, a } = boosterDraft({ packSize: 1, packsPerPlayer: 4, cardsPerPlayer: 4 }, distinctCube(24));
+    const pack = drafts.currentPackOptions(draftId, a);
+    for (const card of pack) grantCopies(db, draftId, a, card.catalogCardId, 3);
+    if (path === "old draft") {
+      db.prepare("delete from draft_undealt where draft_id = ?").run(draftId);
+      db.prepare("update drafts set config_json = json_remove(config_json, '$.copyLimit') where id = ?").run(draftId);
+    } else {
+      const rest = db.prepare("select catalog_card_id as id from draft_undealt where draft_id = ?").all(draftId) as Array<{ id: number }>;
+      for (const card of rest) grantCopies(db, draftId, a, card.id, 3);
     }
+    drafts.pickCard(draftId, a, pack[0].id);
+    expect(drafts.heldCopies(draftId, a)[pack[0].catalogCardId]).toBe(4);
+    const deck = buildDraftDeck(drafts.pool(draftId, a).map((card) => ({ catalogId: card.catalogCardId, extra: false })));
+    expect(deck.main.filter((id) => id === pack[0].catalogCardId)).toHaveLength(3);
+    expect(deck.extra).toEqual([]);
+    expect(deck.side).toEqual([]);
+    expect(createDraftDeckService(db).mainPoolCount(draftId, a)).toBe(deck.main.length);
+    expect(db.prepare("select pick_count from draft_players where draft_id = ? and player_id = ?").get(draftId, a)).toEqual({ pick_count: 1 });
+  });
 
-    expireNow(db, draftId);
-    drafts.expireCurrentPickStep(draftId);
+  it("OFF permits a fourth copy while leaving the remainder unchanged", () => {
+    const { db, drafts, draftId, a } = boosterDraft({ copyLimit: false, packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, distinctCube(24));
+    const pack = drafts.currentPackOptions(draftId, a);
+    grantCopies(db, draftId, a, pack[0].catalogCardId, 3);
+    const before = db.prepare("select * from draft_undealt").all();
+    drafts.pickCard(draftId, a, pack[0].id);
+    expect(drafts.heldCopies(draftId, a)[pack[0].catalogCardId]).toBe(4);
+    expect(db.prepare("select * from draft_undealt").all()).toEqual(before);
+  });
 
-    const after = drafts.findById(draftId);
-    expect(after.status).toBe("active");
-    expect(after.currentPackRound).toBe(2);
-    expect(after.currentPickStep).toBe(1);
-    expect(drafts.pickOptions(draftId, a)).toHaveLength(4);
-    expect(drafts.pickOptions(draftId, b)).toHaveLength(4);
+  it("finishes with the configured pick total when all cards are capped", () => {
+    const { db, drafts, draftId, a, b } = boosterDraft({ packSize: 4, packsPerPlayer: 1, cardsPerPlayer: 4 }, distinctCube(8));
+    for (let id = 1; id <= 8; id++) grantCopies(db, draftId, a, id, 3);
+    for (let guard = 0; guard < 20 && drafts.findById(draftId).status === "active"; guard++) {
+      expireNow(db, draftId);
+      drafts.expireCurrentPickStep(draftId);
+    }
+    expect(drafts.findById(draftId).status).toBe("completed");
+    for (const player of [a, b]) expect(db.prepare("select pick_count from draft_players where draft_id = ? and player_id = ?").get(draftId, player)).toEqual({ pick_count: 4 });
+  });
+
+  it("keeps a capped wave open until all its cards have been taken", () => {
+    const { db, drafts, draftId, a, b } = boosterDraft({ packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, distinctCube(16));
+    for (let id = 1; id <= 16; id++) for (const player of [a, b]) grantCopies(db, draftId, player, id, 3);
+    for (let step = 0; step < 4; step++) {
+      expireNow(db, draftId);
+      drafts.expireCurrentPickStep(draftId);
+      expect(drafts.findById(draftId).currentPackRound).toBe(step === 3 ? 2 : 1);
+    }
   });
 
   it("plays a whole draft from a cube with many copies and never gives a player a fourth copy", () => {
@@ -337,12 +442,12 @@ describe("per-player copy cap in booster drafts", () => {
     expect(drafts.findById(draft.id).status).toBe("completed");
     expect(sawEarlyFinisher).toBe(true);
     expect(sawCap).toBe(true);
-    if (expectPass) expect(sawPass).toBe(true);
+    expect(sawPass).toBe(false);
     const remaining = db.prepare("select distinct catalog_card_id as id from draft_cards where draft_id = ? and picked_by_player_id is null")
       .all(draft.id) as Array<{ id: number }>;
     for (const id of players) {
       const picked = drafts.pool(draft.id, id).length;
-      expect(picked).toBeLessThanOrEqual(cardsPerPlayer);
+      expect(picked).toBe(cardsPerPlayer);
       expect(db.prepare("select pick_count as n from draft_players where draft_id = ? and player_id = ?").get(draft.id, id)).toEqual({ n: picked });
       if (picked < cardsPerPlayer) {
         expect(remaining.length).toBeGreaterThan(0);
@@ -386,6 +491,27 @@ describe("per-player copy cap in theme drafts", () => {
     for (const playerId of players.slice(1)) drafts.join(draft.id, playerId);
     return { db, drafts, cubesService, cubeIds, players, draftId: draft.id, start: () => drafts.start(draft.id) };
   }
+
+  it.each([true, false])("uses combined artwork capacity for theme preflight (copyLimit %s)", (copyLimit) => {
+    const cube: Array<[number, number]> = [[1, 3], [2, 3]];
+    const { db, drafts, draftId, start, cubesService, cubeIds } = themeDraft([cube, cube], {
+      copyLimit, cardsPerPlayer: 4, themePackSize: 2,
+    });
+    try {
+      db.prepare("update card_catalog set name = '  CARD 1  ' where ygoprodeck_id = 2").run();
+      const analysis = cubesService.analyzeCubePools(cubeIds[0], {
+        copyLimit, cardsPerPlayer: 4, themePackSize: 2, burnUnpicked: false, extraDeckEnabled: false, extraDeckSize: 0,
+      });
+      expect(analysis.ok).toBe(!copyLimit);
+      expect((copyLimit ? analysis.errors : analysis.warnings).join(" ")).toMatch(/gives 3 cards/);
+      if (copyLimit) {
+        expect(start).toThrow(/only 3 main-pool cards/);
+        expect(drafts.findById(draftId).status).toBe("pending");
+      } else {
+        expect(start().status).toBe("active");
+      }
+    } finally { db.close(); }
+  });
 
   it("never deals a card the player already holds three of, and rejects picking it", () => {
     // Card 1 is in the cube 10 times; cards 2 and 3 once each. Packs hold 2 choices.
@@ -433,10 +559,25 @@ describe("per-player copy cap in theme drafts", () => {
     expect(drafts.pickOptions(draftId, p1).length).toBeGreaterThan(0);
   });
 
+  it("OFF offers and permits fourth copies in a theme draft", () => {
+    const cube: Array<[number, number]> = [[1, 20], [2, 20]];
+    const { db, drafts, players, draftId, start } = themeDraft([cube, cube], { copyLimit: false, cardsPerPlayer: 10, themePackSize: 2 });
+    start();
+    for (let step = 0; step < 10; step++) {
+      for (const id of players) {
+        const card = drafts.pickOptions(draftId, id).find((card) => card.catalogCardId === 1)!;
+        drafts.pickCard(draftId, id, card.id);
+      }
+    }
+    expect(drafts.findById(draftId).status).toBe("completed");
+    for (const id of players) expect(drafts.heldCopies(draftId, id)[1]).toBe(10);
+    db.close();
+  });
+
   it("refuses to start when a cube cannot fill a deck within the three-copy limit", () => {
     // 2 cards x 99 copies is 198 cards, but one player can take only 6 of them.
     const heavy: Array<[number, number]> = [[1, 99], [2, 99]];
-    const { start } = themeDraft([heavy, heavy], { cardsPerPlayer: 10, themePackSize: 1 });
+    const { start } = themeDraft([heavy, heavy], { cardsPerPlayer: 10, themePackSize: 2 });
     expect(() => start()).toThrow(/at most 3 copies of a card/);
   });
 
@@ -490,7 +631,7 @@ describe("cube copies above the per-player cap", () => {
     const a = insertPlayer(db, "A");
     const b = insertPlayer(db, "B");
     const ids = [...Array(8).fill(1), ...distinctCube(20).slice(1, 20)];
-    const draft = drafts.create("g", "c", "heavy", { cubeCardIds: ids, packSize: 4, packsPerPlayer: 2 }, "host", a);
+    const draft = drafts.create("g", "c", "heavy", { cubeCardIds: ids, packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 }, "host", a);
     drafts.join(draft.id, b);
     expect(drafts.start(draft.id).status).toBe("active");
   });
@@ -515,15 +656,14 @@ describe("a draft that started under the old pack rotation", () => {
     expireNow(db, draftId);
     drafts.expireCurrentPickStep(draftId);
 
-    // The draft goes on (it is not ended), nothing was picked for anyone, and the stacked packs are on
-    // two different seats again, so pack 2 is where a player can take from it.
     expect(drafts.findById(draftId).status).toBe("active");
-    expect(unpicked(db, draftId)).toBe(before);
-    const holders = db.prepare("select id, current_holder_seat_index as seat from draft_packs where draft_id = ? order by id").all(draftId) as Array<{ id: number; seat: number }>;
-    expect(new Set(holders.map((pack) => pack.seat)).size).toBe(2);
-    const pack2Seat = holders.find((pack) => pack.id === packs[1].id)!.seat;
-    const pack2Holder = pack2Seat === 0 ? a : b;
-    expect(drafts.pickOptions(draftId, pack2Holder).length).toBeGreaterThan(0);
+    expect(unpicked(db, draftId)).toBe(before - 1);
+    for (let guard = 0; guard < 20 && drafts.findById(draftId).status === "active"; guard++) {
+      expireNow(db, draftId);
+      drafts.expireCurrentPickStep(draftId);
+    }
+    expect(drafts.findById(draftId).status).toBe("completed");
+    for (const player of [a, b]) expect(db.prepare("select pick_count as n from draft_players where draft_id = ? and player_id = ?").get(draftId, player)).toEqual({ n: 4 });
     db.close();
   });
 
@@ -532,7 +672,7 @@ describe("a draft that started under the old pack rotation", () => {
     // A holds all their picks but is not marked finished, so A can never take a card. B holds three copies
     // of every card. A card still looks pickable for A, and no pack order can give it to anyone.
     db.prepare("update draft_players set pick_count = 4 where draft_id = ? and player_id = ?").run(draftId, a);
-    for (let id = 1; id <= 8; id += 1) grantCopies(db, draftId, b, id, MAX_COPIES_PER_PLAYER);
+    db.prepare("update draft_players set pick_count = 4 where draft_id = ? and player_id = ?").run(draftId, b);
     const before = unpicked(db, draftId);
 
     expireNow(db, draftId);

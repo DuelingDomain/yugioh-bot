@@ -50,7 +50,7 @@ import {
   type SummonStyle,
 } from "./event-queue";
 import { battleBreakIs3d, battleDestroyAt, battleTakeover, HELD_CRACK_MS } from "./battle-hold";
-import { chainEffectAt } from "./chain-beats";
+import { chainEffectAt, flipStrikeHideMs } from "./chain-beats";
 import { hiddenHoldMs } from "./big-summon";
 import { getSharedFx3d, setSharedFx3d } from "./fx3d/shared";
 import { parseRgbTriplet } from "./fx3d/coords";
@@ -195,6 +195,8 @@ type FxItem = {
   life: number;
   /** destroy: ms the card cracks in place before it breaks; set when a battle holds the destroy. */
   breakMs?: number;
+  /** How long the stand-in stays out of sight (virtual ms): the attacker of a flip sequence lunges as a copy. */
+  hideMs?: number;
   /** A resolved source stays visible until cleanup; undefined awaits an open chain, zero finishes normally. */
   activationHoldMs?: number;
   activationAt?: number;
@@ -647,11 +649,14 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
       const flips = flat && !item.plan && !item.reduced;
       const initialTransform = flips ? "perspective(520px) rotateY(84deg)" : "none";
       const finalTransform = flips ? "perspective(520px) rotateY(0deg)" : "none";
+      // The face turns over fast, then stays up (CARD_FX.activationFaceMs) and fades in the last part of it.
+      const flipAt = item.reduced ? 0.4 * activationMs / total : CARD_FX.activationFlipMs / total;
+      const fadeAt = (activationMs - (item.reduced ? 0.25 * activationMs : CARD_FX.activationFadeMs)) / total;
       const frames: Keyframe[] = item.activationHoldMs ? [
         { opacity: 0, transform: initialTransform },
-        { opacity: 1, transform: finalTransform, offset: activationMs * 0.4 / total },
+        { opacity: 1, transform: finalTransform, offset: flipAt },
         { opacity: 1, offset: 0.9999 }, { opacity: 0 },
-      ] : [{ opacity: 0, transform: initialTransform }, { opacity: 1, transform: finalTransform, offset: 0.4 }, { opacity: 1, offset: 0.75 }, { opacity: 0 }];
+      ] : [{ opacity: 0, transform: initialTransform }, { opacity: 1, transform: finalTransform, offset: flipAt }, { opacity: 1, offset: fadeAt }, { opacity: 0 }];
       track.play(ghost.current, frames, {
         duration: total,
         delay: d,
@@ -727,6 +732,8 @@ function DestroyFx({ item, overlay, done }: EffectProps) {
     const burst = handoff ? (claimed ? 400 : 60) : 840;
     const total = breakAt + burst;
     track.after(d + breakAt, () => emitCue("shatter", 1));
+    // The attacker of a flip sequence lunges as a copy (flip-strike.tsx): its stand-in stays hidden meanwhile.
+    if (item.hideMs) track.play(anchor.current, [{ opacity: 0 }, { opacity: 0 }], { duration: item.hideMs, fill: "backwards", easing: "linear" });
 
     const gy = findZoneElement({
       controller: item.event.zone?.controller ?? 0,
@@ -1996,6 +2003,28 @@ function Summon3dFx({ item, overlay, done }: EffectProps) {
   return <div ref={anchor} className={styles.anchor} data-fx="summon3d" />;
 }
 
+/** A Tribute Summon's effect waits for the Tributes' energy: when its wait is longer than this, its pieces stay unseen until then. */
+const LATE_FX_MIN_MS = 300;
+
+/**
+ * An effect whose turn is a long way off keeps its pieces (rings, dust, glow) hidden until then: their first poses
+ * would show from the first frame otherwise, while the Tributes are still burning. The effect itself runs as usual,
+ * so it still holds the summoned card back until its moment.
+ */
+function LateFx({ item, overlay, done }: EffectProps) {
+  const [shown, setShown] = useState(false);
+  const wait = item.delayMs;
+  useEffect(() => {
+    const timer = duelFxClock.setTimeout(() => setShown(true), wait);
+    return () => duelFxClock.clearTimeout(timer);
+  }, [wait]);
+  return (
+    <div style={shown ? undefined : { visibility: "hidden" }}>
+      <FxView item={item} overlay={overlay} done={done} />
+    </div>
+  );
+}
+
 function FxView({ item, overlay, done }: EffectProps) {
   if (item.reduced && item.kind === "activate") return <ActivateFx item={item} overlay={overlay} done={done} />;
   if (item.reduced) {
@@ -2139,6 +2168,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
           delayMs = timing.delayMs;
         }
       }
+      const hideMs = kind === "destroy" ? flipStrikeHideMs(event.zone, now) : 0;
       step += 1;
       seqRef.current += 1;
       const strength = kind === "heavy" || kind === "typed" ? slamStrengthOf(event, plan?.event.from?.location) : 0;
@@ -2155,6 +2185,7 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
         strength,
         life: 0,
         breakMs,
+        hideMs,
         claim3d,
         three,
         activationAt: kind === "activate" ? now + delayMs : undefined,
@@ -2191,7 +2222,11 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
     <div ref={overlayRef} className={styles.layer} aria-hidden="true">
       {overlay
         ? items.map((item) => (
-            <FxView key={item.key} item={item} overlay={overlay} done={() => finish(item.key)} />
+            item.event.summonKind === "tribute" && !item.reduced && item.delayMs > LATE_FX_MIN_MS ? (
+              <LateFx key={item.key} item={item} overlay={overlay} done={() => finish(item.key)} />
+            ) : (
+              <FxView key={item.key} item={item} overlay={overlay} done={() => finish(item.key)} />
+            )
           ))
         : null}
     </div>

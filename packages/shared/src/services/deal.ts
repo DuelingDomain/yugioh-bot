@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import type { DraftConfig } from "../types/index.js";
 import { MAX_COPIES_PER_PLAYER } from "./constants.js";
 
 /** Numeric seeds preserve existing test fixtures; production uses secret string seeds. */
@@ -40,6 +41,25 @@ export interface CubeAnalysis {
   warnings: string[];
 }
 
+/** Sets and named pools have no authored quantities; expand evenly before the single shuffle. */
+export function prepareBoosterPool(cardIds: number[], config: DraftConfig, slots: number): number[] {
+  const fromNames = Boolean(config.setNames?.length || config.includeNames?.length);
+  const authored = Boolean(config.preservePoolCopies || (!fromNames && (config.customCardIds?.length || config.cubeCardIds?.length || config.poolCardIds?.length)));
+  if (authored || cardIds.length === 0) return cardIds;
+
+  // catalogCardIdsForDraft returns baseIds first, then eligible custom copies.
+  // Use that boundary so overlapping passcodes keep their additive quantities.
+  const eligibleIds = new Set(cardIds);
+  const customCopies = (config.customCardIds ?? []).filter((id) => eligibleIds.has(id));
+  const baseEnd = cardIds.length - customCopies.length;
+  // Legacy snapshots may store singleton ids without the appended custom copies.
+  if (customCopies.some((id, index) => cardIds[baseEnd + index] !== id)) return cardIds;
+  const baseIds = cardIds.slice(0, baseEnd);
+  if (baseIds.length === 0) return cardIds;
+  const copies = Math.max(1, Math.ceil((slots - customCopies.length) / baseIds.length));
+  return [...baseIds.flatMap((id) => Array<number>(copies).fill(id)), ...customCopies];
+}
+
 export function analyzeCube(
   cubeCardIds: number[],
   players: number,
@@ -49,127 +69,39 @@ export function analyzeCube(
 ): CubeAnalysis {
   const errors: string[] = [];
   const warnings: string[] = [];
-  const cardsPerWave = players * packSize;
-
+  const slots = players * waves * packSize;
+  if (cubeCardIds.length < slots) {
+    errors.push(`The cube has ${cubeCardIds.length} cards. ${players} players × ${waves} packs × ${packSize} cards needs ${slots}. Add cards, or use fewer packs or smaller packs.`);
+  }
+  if (cardsPerPlayer > waves * packSize) {
+    errors.push(`Each player opens ${waves} packs of ${packSize} = ${waves * packSize} cards, but needs ${cardsPerPlayer}.`);
+  }
   const counts = new Map<number, number>();
   for (const id of cubeCardIds) counts.set(id, (counts.get(id) ?? 0) + 1);
-  const distinct = counts.size;
-
-  if (distinct < cardsPerWave) {
-    const maxPackSize = Math.floor(distinct / players);
-    errors.push(
-      `Cube needs at least ${cardsPerWave} distinct cards for ${players} players × ${packSize} per pack, but has ${distinct}. ` +
-        `Add ${cardsPerWave - distinct} more distinct cards, or reduce pack size to ${maxPackSize}.`,
-    );
+  const reachable = [...counts.values()].reduce((sum, count) => sum + Math.min(count, MAX_COPIES_PER_PLAYER), 0);
+  if (reachable < cardsPerPlayer) {
+    warnings.push(`A player cannot make a legal ${cardsPerPlayer}-card deck from this cube.`);
   }
-
-  // A card occurs at most once per wave, and a player may take only three
-  // copies across the draft. Even routing every name to one player has this limit.
-  const neededSize = Math.min(cardsPerPlayer, waves * packSize);
-  const reachable = distinct * Math.min(waves, MAX_COPIES_PER_PLAYER);
-  if (reachable < neededSize) {
-    errors.push(
-      `This pool can give one player at most ${reachable} cards across ${waves} waves ` +
-      `(at most ${MAX_COPIES_PER_PLAYER} copies of each card), but the deck needs ${neededSize}. Add more different cards or reduce the deck size.`,
-    );
-  }
-
-  for (const [cardId, count] of counts) {
-    if (count > waves) {
-      warnings.push(
-        `Card ${cardId} has ${count} copies but a draft has only ${waves} waves; it will be capped at ${waves} (one copy per wave).`,
-      );
-    }
-  }
-
   return { ok: errors.length === 0, errors, warnings };
 }
 
-export function buildDeal(
+/** Shuffle every authored copy once; packs are stored in wave then seat order. */
+export function buildDealWithRemainder(
   cubeCardIds: number[],
   opts: { players: number; waves: number; packSize: number; seed: ShuffleSeed },
-): number[][] {
+): { packs: number[][]; remainder: number[] } {
   const { players, waves, packSize, seed } = opts;
-  const totalPacks = players * waves;
-  const cardsPerWave = players * packSize; // C
-  const slots = totalPacks * packSize; // S
-
-  // 1. authored counts
-  const counts = new Map<number, number>();
-  for (const id of cubeCardIds) counts.set(id, (counts.get(id) ?? 0) + 1);
-
-  // deterministic order
-  const distinctIds = seededShuffle([...counts.keys()], seed);
-
-  // 2. budgets: start at min(count, waves), then trim/pad to exactly `slots`
-  const budget = new Map<number, number>();
-  let total = 0;
-  for (const id of distinctIds) {
-    const b = Math.min(counts.get(id) ?? 0, waves);
-    budget.set(id, b);
-    total += b;
+  const slots = players * waves * packSize;
+  if (cubeCardIds.length < slots) {
+    throw new Error(`The cube has ${cubeCardIds.length} cards, but needs ${slots}.`);
   }
-  // trim: drop copies from the least-weighted cards first (singletons fall to zero)
-  while (total > slots) {
-    let pick: number | undefined;
-    let pickB = Infinity;
-    for (const id of distinctIds) {
-      const b = budget.get(id) ?? 0;
-      if (b > 0 && b < pickB) {
-        pickB = b;
-        pick = id;
-      }
-    }
-    if (pick === undefined) break;
-    budget.set(pick, pickB - 1);
-    total -= 1;
-  }
-  // pad: round-robin +1 to cards with headroom (spreads invented copies)
-  while (total < slots) {
-    let addedThisPass = false;
-    for (const id of distinctIds) {
-      if (total >= slots) break;
-      const b = budget.get(id) ?? 0;
-      if (b < waves) {
-        budget.set(id, b + 1);
-        total += 1;
-        addedThisPass = true;
-      }
-    }
-    if (!addedThisPass) break; // unreachable when analyzeCube passed
-  }
+  const deck = seededShuffle(cubeCardIds, seed);
+  return {
+    packs: Array.from({ length: players * waves }, (_, i) => deck.slice(i * packSize, (i + 1) * packSize)),
+    remainder: deck.slice(slots),
+  };
+}
 
-  // 3. assign each card's copies to distinct waves; balance wave fill (cap C each)
-  const waveCards: number[][] = Array.from({ length: waves }, () => []);
-  const waveRemaining = new Array<number>(waves).fill(cardsPerWave);
-  // most-constrained-first: highest budget placed first
-  const assignOrder = [...distinctIds].sort(
-    (a, b) => (budget.get(b) ?? 0) - (budget.get(a) ?? 0),
-  );
-  for (const id of assignOrder) {
-    const b = budget.get(id) ?? 0;
-    if (b === 0) continue;
-    // pick the b waves with the most remaining capacity
-    const targets = Array.from({ length: waves }, (_, w) => w)
-      .filter((w) => waveRemaining[w] > 0)
-      .sort((x, y) => waveRemaining[y] - waveRemaining[x])
-      .slice(0, b);
-    for (const w of targets) {
-      waveCards[w].push(id);
-      waveRemaining[w] -= 1;
-    }
-  }
-
-  // 4. within each wave, round-robin its C distinct cards into P packs of packSize
-  const packs: number[][] = Array.from({ length: totalPacks }, () => []);
-  for (let w = 0; w < waves; w += 1) {
-    const waveSeed = typeof seed === "number" ? seed + w + 1 : `${seed}:wave:${w + 1}`;
-    const shuffled = seededShuffle(waveCards[w], waveSeed);
-    shuffled.forEach((id, i) => {
-      const seat = i % players;
-      packs[w * players + seat].push(id);
-    });
-  }
-
-  return packs;
+export function buildDeal(cubeCardIds: number[], opts: Parameters<typeof buildDealWithRemainder>[1]): number[][] {
+  return buildDealWithRemainder(cubeCardIds, opts).packs;
 }

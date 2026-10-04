@@ -1,4 +1,4 @@
-import { deckCardCounts, type DuelDeck } from "@yugidraft/shared/duels";
+import { canonicalCardCode, deckCardCounts, type CardIdentityCatalog, type DuelDeck } from "@yugidraft/shared/duels";
 import type { DeckRegistrationMark } from "@yugidraft/shared/services";
 
 /** A finished draft and the caller's pool, as the deck editor uses it (from GET /api/drafts/[slug]/deck-pool). */
@@ -21,20 +21,23 @@ export const DRAFT_MAIN_MIN = 40;
 export const DRAFT_MAIN_MAX = 60;
 export const DRAFT_EXTRA_MAX = 15;
 
-export function poolCounts(cards: ReadonlyArray<{ code: number; count: number }>): Map<number, number> {
+export function poolCounts(cards: ReadonlyArray<{ code: number; count: number }>, catalog: CardIdentityCatalog = new Map()): Map<number, number> {
   const counts = new Map<number, number>();
-  for (const { code, count } of cards) counts.set(code, (counts.get(code) ?? 0) + count);
+  for (const { code: raw, count } of cards) {
+    const code = canonicalCardCode(raw, catalog);
+    counts.set(code, (counts.get(code) ?? 0) + count);
+  }
   return counts;
 }
 
 /** Copies of each passcode in the deck (Main, Extra and Side). */
-export function deckUsage(deck: DuelDeck): Map<number, number> {
-  return deckCardCounts(deck);
+export function deckUsage(deck: DuelDeck, catalog: CardIdentityCatalog = new Map()): Map<number, number> {
+  return deckCardCounts(deck, (code) => canonicalCardCode(code, catalog));
 }
 
 /** Copies of a card the player can still add: pool copies minus copies in the deck. Never below 0. */
 export function remainingCopies(pool: ReadonlyMap<number, number>, used: ReadonlyMap<number, number>, code: number): number {
-  return Math.max(0, (pool.get(code) ?? 0) - (used.get(code) ?? 0));
+  return Math.max(0, Math.min(3, pool.get(code) ?? 0) - (used.get(code) ?? 0));
 }
 
 /** True when the pool still has a copy to add. A card that is not in the pool never can be added. */

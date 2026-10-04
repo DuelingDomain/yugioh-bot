@@ -162,14 +162,20 @@ export const WIPE_TAIL_MS = 350;
 
 /** Per-piece life cap (ms). The engine limit (HARD_LIMIT_MS) is above every value here. */
 export const sceneCapMs = (piece: FxScenePiece): number => (isWipePiece(piece) ? SCENE_WIPE_CAP_MS : SCENE_LIFE_CAP_MS);
+
+/*
+ * Where each set piece breaks its victims. The build-up before the break (the pit opening, the glyph,
+ * the sigil, the strike travelling) is what shows a viewer which card was hit and by what, so these
+ * are not cut shorter than about half a second.
+ */
 export const SAKURETSU_SLAM_MS = 520;
 export const SAKURETSU_BOOM_MS = 560;
-export const BOTTOMLESS_OPEN_MS = 450;
-export const TRAP_HOLE_OPEN_MS = 250;
-export const TRAP_GLYPH_MS = 380;
+export const BOTTOMLESS_OPEN_MS = 600;
+export const TRAP_HOLE_OPEN_MS = 600;
+export const TRAP_GLYPH_MS = 520;
 export const TRAP_CHAIN_MS = 300;
-export const SPELL_SIGIL_MS = 350;
-export const MONSTER_TRAVEL_MS = 360;
+export const SPELL_SIGIL_MS = 500;
+export const MONSTER_TRAVEL_MS = 480;
 
 /** Sound cues a piece plays, with the time (ms from the start of the piece) each one sounds. */
 export type SceneCueName =
@@ -264,9 +270,9 @@ export function planScene(input: SceneInput): { scene: FxScene; cues: SceneCue[]
     case "mass-destroy":
       return planWipe(input);
     case "bottomless":
-      return withBreaks(input, index.map((i) => BOTTOMLESS_OPEN_MS + 30 + i * 90), { cues: [{ cue: "fall-rumble", atMs: 260, strength: 1 }] });
+      return withBreaks(input, index.map((i) => BOTTOMLESS_OPEN_MS + 30 + i * 90), { cues: [{ cue: "fall-rumble", atMs: 360, strength: 1 }] });
     case "trap-hole":
-      return withBreaks(input, index.map((i) => TRAP_HOLE_OPEN_MS + 50 + i * 70), { cues: [{ cue: "fall-rumble", atMs: 120, strength: 0.9 }] });
+      return withBreaks(input, index.map((i) => TRAP_HOLE_OPEN_MS + 50 + i * 70), { cues: [{ cue: "fall-rumble", atMs: 240, strength: 0.9 }] });
     case "trap":
       return withBreaks(input, index.map((i) => TRAP_GLYPH_MS + 340 + i * 80), {
         cues: [

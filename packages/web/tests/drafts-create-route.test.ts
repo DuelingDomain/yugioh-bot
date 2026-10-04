@@ -115,7 +115,7 @@ describe("POST /api/drafts", () => {
         method: "POST",
         body: JSON.stringify({
           name: "From Saved Pool",
-          config: { setNames: [], customCardIds: loaded, packSize: 4, packsPerPlayer: 2 },
+          config: { setNames: [], customCardIds: loaded, packSize: 4, packsPerPlayer: 2, cardsPerPlayer: 8 },
         }),
       }) as NextRequest,
     );

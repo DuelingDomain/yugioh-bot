@@ -216,6 +216,13 @@ export const SERIES_SCENARIOS: LabScenario[] = [
     build: () => seriesScript({ wins: [2, 1], game: 3, screen: "won" }),
   },
   {
+    id: "match-lost",
+    category: "Match",
+    name: "Match lost",
+    description: "The end of a Best of 3 after game 3, 1–2. The result screen shows the broken YOU LOSE title over the final series result.",
+    build: () => seriesScript({ wins: [1, 2], game: 3, screen: "won" }),
+  },
+  {
     id: "match-spectator-siding",
     category: "Match",
     name: "Spectator: side decking",

@@ -46,6 +46,7 @@ export interface CubeDraftSettings {
   cardsPerPlayer?: number;
   packSize?: number;
   packsPerPlayer?: number;
+  poolFromConfig?: boolean;
 }
 
 export function cubeDraftSettingsOf(configJson: string | null | undefined): CubeDraftSettings {
@@ -55,6 +56,7 @@ export function cubeDraftSettingsOf(configJson: string | null | undefined): Cube
     const value = config[key];
     if (typeof value === "number" && Number.isInteger(value) && value > 0) settings[key] = value;
   }
+  if ([config.setNames, config.customCardIds].some((value) => Array.isArray(value) && value.length > 0)) settings.poolFromConfig = true;
   return settings;
 }
 

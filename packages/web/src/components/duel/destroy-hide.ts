@@ -11,6 +11,8 @@ import { zoneKey } from "./constants";
  *    pieces of MoveFx are what the player sees.
  *  - The Graveyard count is held one lower per card in flight, so the card is counted when it lands
  *    (the top card of the pile is hidden by MoveFx the same way).
+ *  - The Deck count of a deal runs the other way: it is held one HIGHER per card still to leave, so the
+ *    Deck counts down card by card as each flight sets off (`beginPileLift`).
  *  - Release is one call (the flight landed). Every hold also has a failsafe timer, so a stuck effect
  *    can never leave a zone empty or a count short.
  *
@@ -25,6 +27,7 @@ type PileHold = { id: string; zone: string };
 
 const cardHides = new Map<string, CardHide>();
 const pileHolds = new Map<string, PileHold>();
+const pileLifts = new Map<string, PileHold>();
 const timers = new Map<string, number>();
 /** Nodes hidden or rewritten by the last reconcile, so they can be put back. */
 const hiddenNodes = new Set<HTMLElement>();
@@ -87,10 +90,31 @@ export function endPileHold(id: string): void {
   reconcileDestroyHides();
 }
 
+/**
+ * A card waits in the pile on `zone` for its flight to set off (a dealt card in the Deck): the count shows
+ * it until then. Release it when the flight starts; the failsafe does the same at `failsafeMs`.
+ */
+export function beginPileLift(id: string, zone: Zone, failsafeMs: number = DESTROY_HIDE_CAP_MS): () => void {
+  const key = `lift:${id}`;
+  const release = () => endPileLift(id);
+  if (pileLifts.has(id)) return release;
+  pileLifts.set(id, { id, zone: zoneKeyOf(zone) });
+  failsafe(key, failsafeMs, release);
+  reconcileDestroyHides();
+  return release;
+}
+
+export function endPileLift(id: string): void {
+  clearTimer(`lift:${id}`);
+  if (!pileLifts.delete(id)) return;
+  reconcileDestroyHides();
+}
+
 export function clearDestroyHides(): void {
   for (const key of Array.from(timers.keys())) clearTimer(key);
   cardHides.clear();
   pileHolds.clear();
+  pileLifts.clear();
   reconcileDestroyHides();
 }
 
@@ -166,21 +190,27 @@ export function reconcileDestroyHides(root: ParentNode | null = typeof document 
   for (const el of Array.from(hiddenNodes)) if (!wantHidden.has(el)) show(el);
   for (const el of wantHidden) hide(el);
 
+  // Net change of each count label: cards on their way in are not counted yet (-1), cards waiting to leave still are (+1).
   const wantCount = new Map<HTMLElement, number>();
-  for (const hold of pileHolds.values()) {
-    const zone = zoneNode(root, hold.zone);
-    const label = zone?.querySelector<HTMLElement>("[data-pile-count]");
-    if (label) wantCount.set(label, (wantCount.get(label) ?? 0) + 1);
-  }
+  const note = (holds: Iterable<PileHold>, step: number) => {
+    for (const hold of holds) {
+      const zone = zoneNode(root, hold.zone);
+      const label = zone?.querySelector<HTMLElement>("[data-pile-count]");
+      if (label) wantCount.set(label, (wantCount.get(label) ?? 0) + step);
+    }
+  };
+  note(pileHolds.values(), -1);
+  note(pileLifts.values(), 1);
   for (const label of Array.from(countNodes)) {
     if (wantCount.has(label)) continue;
     countNodes.delete(label);
     const real = label.dataset.pileCount ?? "";
     if (label.textContent !== real) label.textContent = real;
   }
-  for (const [label, held] of wantCount) {
+  for (const [label, net] of wantCount) {
     countNodes.add(label);
-    const text = String(shownPileCount(Number(label.dataset.pileCount), held));
+    const real = Number(label.dataset.pileCount);
+    const text = String(Math.max(0, (Number.isFinite(real) ? real : 0) + net));
     if (label.textContent !== text) label.textContent = text;
   }
 }
@@ -192,7 +222,7 @@ export function reconcileDestroyHides(root: ParentNode | null = typeof document 
 export function startDestroyHideGuard(host: Element | null): () => void {
   if (!host || typeof MutationObserver === "undefined") return () => undefined;
   const observer = new MutationObserver(() => {
-    if (cardHides.size === 0 && pileHolds.size === 0 && hiddenNodes.size === 0 && countNodes.size === 0) return;
+    if (cardHides.size === 0 && pileHolds.size === 0 && pileLifts.size === 0 && hiddenNodes.size === 0 && countNodes.size === 0) return;
     reconcileDestroyHides(host);
   });
   observer.observe(host, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-pile-count", "data-occupied"] });

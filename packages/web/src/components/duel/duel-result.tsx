@@ -2,13 +2,16 @@
 
 import { duelFxClock } from "./fx-clock";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
@@ -26,8 +29,8 @@ import {
 } from "./series-model";
 
 
-/** The longest animation ends near 1.55 s; the timer settles just after it. */
-const INTRO_MS = 1650;
+/** The longest animation ends near 1.0 s (the chips falling out of the break); the timer settles just after it. */
+const INTRO_MS = 1050;
 
 export type DuelResultScreenProps = {
   room: DuelRoom;
@@ -189,72 +192,220 @@ export function describeDuelResult(room: DuelRoom): DuelResultModel {
 }
 
 // ---------------------------------------------------------------------------
-// Geometry (computed once; rounded so every render prints the same numbers)
+// The title: one word, whole on a win or a draw, broken along one jagged line on a loss
 // ---------------------------------------------------------------------------
 
-const RAY_COUNT = 36;
-const n2 = (value: number) => value.toFixed(2);
-const polar = (radius: number, angle: number) => `${n2(radius * Math.cos(angle))} ${n2(radius * Math.sin(angle))}`;
+/** Which look the title has: the loss breaks, the win is gold, everything else is ivory. */
+export type TitleKind = "lose" | "win" | "calm";
 
-/** Alternating wedges fanning from the centre: the sunburst. */
-const RAY_WEDGES = Array.from({ length: RAY_COUNT }, (_, index) => {
-  const start = (index * 2 * Math.PI) / RAY_COUNT;
-  return `M0 0L${polar(100, start)}L${polar(100, start + Math.PI / RAY_COUNT)}Z`;
-}).join("");
-
-/** Twelve long hairline rays that cut through the wedges. */
-const RAY_HAIRLINES = Array.from({ length: 12 }, (_, index) => {
-  const angle = (index * 2 * Math.PI) / 12 + Math.PI / 12;
-  return `M${polar(22, angle)}L${polar(100, angle)}`;
-}).join("");
-
-/** Star polygon {points/step}: one closed path that skips `step` vertices each time. */
-function starPath(points: number, step: number, radius: number): string {
-  const vertices = Array.from({ length: points }, (_, index) => {
-    const angle = (((index * step) % points) * 2 * Math.PI) / points - Math.PI / 2;
-    return polar(radius, angle);
-  });
-  return `M${vertices.join("L")}Z`;
+export function titleKindOf(outcome: DuelResultOutcome): TitleKind {
+  return outcome === "lose" ? "lose" : outcome === "win" ? "win" : "calm";
 }
 
-const STAR_OUTER = starPath(12, 5, 47);
-const STAR_INNER = starPath(8, 3, 27);
+/** Line height of the title, in em. The break sits in the middle of the last row, so it is a function of the row count. */
+const TITLE_LINE = 0.9;
+/** Wobble of the break, in em of the title size, left to right. The same on every loss. */
+const FRACTURE_JITTER = [0.5, -0.9, 0.7, -1, 0.6, -0.8, 1, -0.6, 0.8, -0.7, 0.5, -0.4];
+/** The chips that fall out of the break: x along the line in %, drift, fall (px), spin (deg), size (px). */
+const CHIPS = [
+  [12, -26, 150, 200, 9], [31, 18, 210, -160, 6], [50, -12, 120, 120, 11], [69, 30, 240, -230, 7], [87, 16, 170, 180, 8],
+] as const;
 
-const TICKS = Array.from({ length: 72 }, (_, index) => {
-  const angle = (index * 2 * Math.PI) / 72;
-  const long = index % 6 === 0;
-  return `M${polar(long ? 63 : 64.5, angle)}L${polar(67, angle)}`;
-}).join("");
+export interface FractureGeometry {
+  /** clip-path of the upper half, the lower half, and the strip around the line that the glow shows through. */
+  top: string;
+  bottom: string;
+  strip: string;
+  /** Steel gradient stops (%) for the halves: warm toward the break on both sides. */
+  steel: [string, string, string, string];
+  /** Glow gradient stops (%) for the light in the gap. */
+  glow: [string, string, string, string, string];
+  /** Where each chip starts, as a % of the title's height. */
+  chipY: string[];
+}
 
-/** Four small diamonds at the compass points of the main ring. */
-const GEMS = [0, 1, 2, 3].map((index) => {
-  const angle = (index * Math.PI) / 2;
-  return `M${polar(47, angle)}m-1.7 0l1.7-2.4 1.7 2.4-1.7 2.4z`;
+const pct = (value: number) => `${value.toFixed(2)}%`;
+
+/**
+ * The break across a title of `rows` rows (1 on a wide screen, 2 when the words stack on a phone).
+ * The box is rows x 0.9em tall, so every number is a function of `rows`: no measuring needed.
+ * Percentages are of the title's box.
+ */
+export function fractureGeometry(rows: number): FractureGeometry {
+  const height = rows * TITLE_LINE;
+  const em = 100 / height; // 1em as a % of the box height
+  const center = ((rows - 0.5) / rows) * 100; // middle of the last row
+  const slope = 0.06 * em; // the line climbs a little to the right
+  const yAt = (x: number) => center + slope * (0.5 - (x + 2) / 104) * 2;
+  const line: Array<[number, number]> = FRACTURE_JITTER.map((jit, index) => {
+    const x = -2 + (index * 104) / (FRACTURE_JITTER.length - 1);
+    return [x, yAt(x) + jit * 0.05 * em];
+  });
+  const e0: [number, number] = [-40, yAt(-40)];
+  const e1: [number, number] = [140, yAt(140)];
+  const point = (q: [number, number]) => `${pct(q[0])} ${pct(q[1])}`;
+  const polygon = (points: Array<[number, number]>) => `polygon(${points.map(point).join(", ")})`;
+  const reversed = [...line].reverse();
+  const shift = (q: [number, number], d: number): [number, number] => [q[0], q[1] + d * em];
+  return {
+    top: polygon([[-40, -40], [140, -40], e1, ...reversed, e0]),
+    bottom: polygon([e0, ...line, e1, [140, 140], [-40, 140]]),
+    strip: polygon([
+      shift(e0, -0.06), ...line.map((q) => shift(q, -0.06)), shift(e1, -0.06),
+      shift(e1, 0.06), ...reversed.map((q) => shift(q, 0.06)), shift(e0, 0.06),
+    ]),
+    steel: [-0.09, -0.025, 0.025, 0.09].map((d) => pct(center + d * em)) as FractureGeometry["steel"],
+    glow: [-0.065, -0.025, 0, 0.025, 0.065].map((d) => pct(center + d * em)) as FractureGeometry["glow"],
+    chipY: CHIPS.map(([x]) => pct(yAt(x))),
+  };
+}
+
+/** Inline custom properties for a loss title: both row counts, the stylesheet picks one with its phone breakpoint. */
+const FRACTURE_VARS: CSSProperties = (() => {
+  const vars: Record<string, string> = {};
+  for (const rows of [1, 2]) {
+    const g = fractureGeometry(rows);
+    vars[`--top-${rows}`] = g.top;
+    vars[`--bottom-${rows}`] = g.bottom;
+    vars[`--strip-${rows}`] = g.strip;
+    g.steel.forEach((value, index) => { vars[`--h${index}-${rows}`] = value; });
+    g.glow.forEach((value, index) => { vars[`--l${index}-${rows}`] = value; });
+  }
+  return vars as CSSProperties;
+})();
+
+const CHIP_VARS: CSSProperties[] = CHIPS.map(([x, dx, dy, spin, size], index) => {
+  const vars: Record<string, string> = {
+    left: `${x}%`, "--dx": `${dx}px`, "--dy": `${dy}px`, "--r": `${spin}deg`, "--sz": `${size}px`,
+  };
+  [1, 2].forEach((rows) => { vars[`--y-${rows}`] = fractureGeometry(rows).chipY[index]; });
+  return vars as CSSProperties;
 });
 
-function SunburstRays() {
+/** Smallest and largest title sizes (px), and the share of the screen height one row may use. */
+const TITLE_MIN = 28;
+const TITLE_MAX = { fixed: 210, calm: 170 } as const;
+const TITLE_ROW_SHARE = 0.27;
+const TITLE_STACK_SHARE = 0.3;
+
+/**
+ * Font size (px) that makes the title exactly as wide as its column, but no taller than a share of the
+ * screen. `widthAt100` is the title's width at 100px. Returns 0 when nothing can be measured (no layout),
+ * and the stylesheet's own size stays.
+ */
+export function titleFontSize(input: {
+  available: number;
+  widthAt100: number;
+  viewportHeight: number;
+  /** Rows the words occupy: 1 on one line, the word count when they stack. */
+  rows: number;
+  max: number;
+}): number {
+  const { available, widthAt100, viewportHeight, rows, max } = input;
+  if (!(available > 0) || !(widthAt100 > 0)) return 0;
+  const fit = (available / widthAt100) * 100 * 0.995;
+  const cap = viewportHeight * (rows > 1 ? TITLE_STACK_SHARE / rows : TITLE_ROW_SHARE);
+  return Math.max(TITLE_MIN, Math.min(fit, cap, max));
+}
+
+const PHONE_MAX = 600;
+
+function useTitleFit(headlineWords: string[], max: number, stackable: boolean) {
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const wordRef = useRef<HTMLSpanElement>(null);
+  const key = headlineWords.join(" ");
+  useLayoutEffect(() => {
+    const title = titleRef.current;
+    const word = wordRef.current;
+    if (!title || !word) return undefined;
+    const words = key.split(" ");
+    const fit = () => {
+      const available = title.clientWidth;
+      const viewportHeight = window.innerHeight;
+      const measure = (stack: boolean) => {
+        word.dataset.stack = stack ? "1" : "0";
+        title.style.setProperty("--fs", "100px");
+        // The natural width of the text, not the width the column would squeeze it to.
+        word.style.width = "max-content";
+        word.style.maxWidth = "none";
+        const width = word.offsetWidth;
+        word.style.width = "";
+        word.style.maxWidth = "";
+        return width;
+      };
+      let stack = window.innerWidth <= PHONE_MAX && words.length > 1;
+      let size = titleFontSize({ available, widthAt100: measure(stack), viewportHeight, rows: stack ? words.length : 1, max });
+      // A long name would shrink the word to a whisper: let the words stack instead.
+      if (size > 0 && !stack && stackable && words.length > 1 && size < 56) {
+        stack = true;
+        size = titleFontSize({ available, widthAt100: measure(true), viewportHeight, rows: words.length, max });
+      }
+      if (size > 0) title.style.setProperty("--fs", `${size.toFixed(2)}px`);
+      else title.style.removeProperty("--fs");
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    observer?.observe(title);
+    // The fonts swap in after the first paint: measure again with the real letters.
+    const fonts = typeof document !== "undefined" ? document.fonts : undefined;
+    let live = true;
+    void fonts?.ready.then(() => { if (live) fit(); });
+    fonts?.addEventListener?.("loadingdone", fit);
+    return () => {
+      live = false;
+      window.removeEventListener("resize", fit);
+      observer?.disconnect();
+      fonts?.removeEventListener?.("loadingdone", fit);
+    };
+  }, [key, max, stackable]);
+  return { titleRef, wordRef };
+}
+
+function InkWords({ words }: { words: string[] }) {
   return (
-    <svg className={styles.raysSvg} viewBox="-100 -100 200 200" aria-hidden="true" focusable="false">
-      <path className={styles.wedges} d={RAY_WEDGES} />
-      <path className={styles.hairRays} d={RAY_HAIRLINES} />
-    </svg>
+    <>
+      {words.map((word, index) => (
+        <Fragment key={index}>
+          {index > 0 ? <span className={styles.brk}> </span> : null}
+          {word}
+        </Fragment>
+      ))}
+    </>
   );
 }
 
-function Rosette() {
+/**
+ * The result title. Screen readers read the text once; every painted copy is hidden from them.
+ * Loss: two clipped copies of the word along one jagged line, parted, and an unmoved copy under them
+ * that lights up through the gap. Win and calm: one whole copy.
+ */
+function ResultTitle({ id, text, outcome }: { id: string; text: string; outcome: DuelResultOutcome }) {
+  const kind = titleKindOf(outcome);
+  const words = useMemo(() => text.split(/\s+/).filter(Boolean), [text]);
+  const { titleRef, wordRef } = useTitleFit(words, kind === "calm" ? TITLE_MAX.calm : TITLE_MAX.fixed, kind === "calm");
+  const ink = (extra?: string) => (
+    <span className={extra ? `${styles.ink} ${extra}` : styles.ink}><InkWords words={words} /></span>
+  );
   return (
-    <svg className={styles.rosette} viewBox="-100 -100 200 200" aria-hidden="true" focusable="false">
-      <circle className={styles.ringSoft} r="70" />
-      <circle className={styles.ringRule} r="47" />
-      <circle className={styles.ringDots} r="44" />
-      <circle className={styles.ringSoft} r="27" />
-      <path className={styles.ticks} d={TICKS} />
-      <path className={styles.starOuter} d={STAR_OUTER} />
-      <path className={styles.starInner} d={STAR_INNER} />
-      {GEMS.map((gem) => (
-        <path key={gem} className={styles.gem} d={gem} />
-      ))}
-    </svg>
+    <h1 ref={titleRef} id={id} className={styles.title}>
+      <span className={styles.srOnly}>{text}</span>
+      <span ref={wordRef} className={styles.word} data-kind={kind} aria-hidden="true" style={kind === "lose" ? FRACTURE_VARS : undefined}>
+        {kind === "lose" ? (
+          <>
+            <span className={styles.lit}>{ink()}</span>
+            <span className={`${styles.lit} ${styles.hot}`}>{ink()}</span>
+            <span className={styles.piece} data-p="t">{ink()}</span>
+            <span className={styles.piece} data-p="b">{ink()}</span>
+            <span className={styles.dust}>
+              {CHIP_VARS.map((chip, index) => <i key={index} style={chip} />)}
+            </span>
+          </>
+        ) : (
+          <span className={styles.piece} data-p="whole">{ink()}</span>
+        )}
+      </span>
+    </h1>
   );
 }
 
@@ -263,11 +414,6 @@ function Rosette() {
 // ---------------------------------------------------------------------------
 
 const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-function wordmarkTier(text: string): "xl" | "lg" | "md" | "sm" {
-  const length = text.length;
-  return length <= 8 ? "xl" : length <= 12 ? "lg" : length <= 18 ? "md" : "sm";
-}
 
 /** Series score, the series result at the end, and the between-games controls. */
 function SeriesResult({ room, slug, onChanged, onNavigate }: {
@@ -286,30 +432,30 @@ function SeriesResult({ room, slug, onChanged, onNavigate }: {
   const watching = spectatorSeriesStatus(room, slug);
   const live = watching?.kind === "next-live" ? watching : null;
   return (
-    <section className={`${styles.card} ${styles.seriesBlock}`} aria-label="Series" data-state={outcome ? "decided" : between ? "between" : live ? "next-live" : "score"}>
+    <section className={styles.seriesBlock} aria-label="Series" data-state={outcome ? "decided" : between ? "between" : live ? "next-live" : "score"}>
       <SeriesBadges series={series} hideScore />
       {outcome ? (
         <div className={seriesStyles.result} data-final="true">
-          <p className={seriesStyles.resultHead}>{outcome.headline}</p>
-          <p className={seriesStyles.resultLine}>{outcome.detail}</p>
-          {record ? <p className={seriesStyles.resultRecord}>{record}</p> : null}
+          <p className={`${seriesStyles.resultHead} ${styles.sHead}`}>{outcome.headline}</p>
+          <p className={`${seriesStyles.resultLine} ${styles.sLine}`}>{outcome.detail}</p>
+          {record ? <p className={`${seriesStyles.resultRecord} ${styles.sRecord}`}>{record}</p> : null}
         </div>
       ) : live ? (
         <div className={seriesStyles.result} data-testid="next-game-live">
-          <p className={seriesStyles.resultHead}>{live.headline}</p>
-          <p className={seriesStyles.resultLine}>Series score <b>{seriesScoreForViewer(series, index)}</b></p>
+          <p className={`${seriesStyles.resultHead} ${styles.sHead}`}>{live.headline}</p>
+          <p className={`${seriesStyles.resultLine} ${styles.sLine}`}>Series score <b>{seriesScoreForViewer(series, index)}</b></p>
           <button type="button" className={styles.btn} data-kind="primary" onClick={() => (onNavigate ?? noop)(live.nextSlug)}>
             Watch game {series.gameNumber}
           </button>
         </div>
       ) : info ? (
         <div className={seriesStyles.result} data-testid="between-games-info">
-          <p className={seriesStyles.resultHead}>{info.result}</p>
-          <p className={seriesStyles.resultLine}>Up next: <b>{info.next}</b></p>
-          <p className={seriesStyles.resultRecord}>{info.first}</p>
+          <p className={`${seriesStyles.resultHead} ${styles.sHead}`}>{info.result}</p>
+          <p className={`${seriesStyles.resultLine} ${styles.sLine}`}>Up next: <b>{info.next}</b></p>
+          <p className={`${seriesStyles.resultRecord} ${styles.sRecord}`}>{info.first}</p>
         </div>
       ) : (
-        <p className={seriesStyles.resultLine}>
+        <p className={`${seriesStyles.resultLine} ${styles.sLine}`}>
           Series score <b>{seriesScoreForViewer(series, index)}</b>
           {series.tournamentId != null ? null : series.ranked ? " · Ranked" : null}
         </p>
@@ -409,9 +555,12 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
 
   if (!host) return null;
 
-  const burst = outcome === "win" || outcome === "spectator" || outcome === "draw" || outcome === "lose";
   const canReplay = room.session.status === "completed" || room.session.status === "interrupted";
-  const tier = wordmarkTier(model.headline);
+  // A player who is between games has the solid "Ready for next game" in the series block: leaving steps back.
+  const readyHere = room.series != null && seriesPlayerIndex(room, room.series) != null && isBetweenGames(room, slug);
+  const leaveKindNow = readyHere ? "secondary" : leaveKind;
+  const actionCount = canReplay ? 3 : 2;
+  const tray = placings || model.scores.length !== 2 ? "rows" : "duo";
 
   return createPortal(
     <div
@@ -425,9 +574,9 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
       data-testid="duel-result"
       data-duel-fx-speed-root
       data-outcome={outcome}
+      data-title={titleKindOf(outcome)}
       data-phase={settled ? "settled" : "play"}
       data-reduced={reducedMotion ? "true" : "false"}
-      data-spin={outcome === "win" || outcome === "spectator" ? "true" : "false"}
       data-series={room.series ? "true" : undefined}
       onKeyDown={onKeyDown}
       onClick={() => {
@@ -435,53 +584,23 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
       }}
     >
       <div className={styles.backdrop} aria-hidden="true" />
-      <div className={styles.frame} aria-hidden="true">
-        <span className={styles.corner} data-corner="tl" />
-        <span className={styles.corner} data-corner="tr" />
-        <span className={styles.corner} data-corner="bl" />
-        <span className={styles.corner} data-corner="br" />
-      </div>
+      <div className={styles.flash} aria-hidden="true" />
 
       <div className={styles.scroll}>
-        <div className={styles.stage}>
+        <div className={styles.col}>
           <div className={styles.hero}>
-            {burst ? (
-              <div className={styles.burst} aria-hidden="true">
-                <div className={styles.raysSpin}>
-                  <SunburstRays />
-                </div>
-                <Rosette />
-              </div>
-            ) : null}
-
-            <div className={`${styles.card} ${styles.titleCard}`}>
-              <h1 id={titleId} className={styles.wordmark} data-tier={tier}>
-                <span className={styles.srOnly}>{model.headline}</span>
-                <span className={styles.face} aria-hidden="true">
-                  {outcome === "lose"
-                    ? (["a", "b", "c"] as const).map((shard) => (
-                        <span key={shard} className={styles.layer} data-shard={shard}>{model.headline}</span>
-                      ))
-                    : <span className={styles.layer}>{model.headline}</span>}
-                  {outcome === "lose" ? (
-                    <svg className={styles.crack} viewBox="0 0 100 100" preserveAspectRatio="none" focusable="false">
-                      <polyline points="41,-2 47,26 38,49 46,74 40,102" vectorEffect="non-scaling-stroke" />
-                      <polyline points="69,-2 63,30 72,58 64,82 70,102" vectorEffect="non-scaling-stroke" />
-                    </svg>
-                  ) : null}
-                </span>
-              </h1>
-              {model.reason ? <p id={reasonId} className={styles.reason}>{model.reason}</p> : null}
-            </div>
+            <div className={styles.light} aria-hidden="true" />
+            <ResultTitle id={titleId} text={model.headline} outcome={outcome} />
+            {model.reason ? <p id={reasonId} className={styles.reason}>{model.reason}</p> : null}
           </div>
 
           {model.scores.length > 0 ? (
-            <ul className={styles.scoreboard} aria-label={placings ? "Final standings" : "Final Life Points"} data-placings={placings ? "true" : undefined}>
+            <ul className={styles.scoreboard} aria-label={placings ? "Final standings" : "Final Life Points"} data-layout={tray} data-placings={placings ? "true" : undefined}>
               {model.scores.map((score) => (
-                <li key={score.seat} className={`${styles.card} ${styles.score}`} data-winner={score.isWinner ? "true" : "false"} data-out={score.lp <= 0 ? "true" : "false"} data-seat={score.seat}>
-                   {placeOf.has(score.seat) ? (
-                     <span className={styles.place} data-place={placeOf.get(score.seat)?.place}>{placeOf.get(score.seat)?.label}</span>
-                   ) : null}
+                <li key={score.seat} className={styles.score} data-winner={score.isWinner ? "true" : "false"} data-out={score.lp <= 0 ? "true" : "false"} data-seat={score.seat}>
+                  {placeOf.has(score.seat) ? (
+                    <span className={styles.place} data-place={placeOf.get(score.seat)?.place}>{placeOf.get(score.seat)?.label}</span>
+                  ) : null}
                   {score.deckMaster ? (
                     <img
                       className={styles.dmArt}
@@ -498,8 +617,8 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
                       {score.isWinner ? <span className={styles.tag} data-tag="winner">Winner</span> : null}
                     </span>
                     <span className={styles.scoreLp}>
-                      <span>{formatLp(score.lp)}</span>
-                      <span className={styles.lpUnit} aria-hidden="true">LP</span>
+                      <b>{formatLp(score.lp)}</b>
+                      <i className={styles.lpUnit} aria-hidden="true">LP</i>
                       <span className={styles.srOnly}> Life Points</span>
                     </span>
                     {score.deckMaster ? <span className={styles.dmName}>{score.deckMaster.name}</span> : null}
@@ -513,11 +632,11 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
             <SeriesResult room={room} slug={slug} onChanged={onSeriesChanged} onNavigate={onNavigate} />
           ) : null}
 
-          <div className={styles.actions}>
+          <div className={styles.actions} data-lead={leaveKindNow === "primary" ? "true" : "false"} style={{ "--n": actionCount - 1 } as CSSProperties}>
             {onExit ? (
-              <button type="button" className={styles.btn} data-kind={leaveKind} onClick={onExit}>Exit duel</button>
+              <button type="button" className={styles.btn} data-kind={leaveKindNow} onClick={onExit}>Exit duel</button>
             ) : (
-              <Link href="/duels" className={styles.btn} data-kind={leaveKind}>Back to tables</Link>
+              <Link href="/duels" className={styles.btn} data-kind={leaveKindNow}>Back to tables</Link>
             )}
             {canReplay ? (
               <Link href={`/duels/${slug}/replay`} className={styles.btn} data-kind="secondary">Watch replay</Link>
@@ -526,7 +645,6 @@ export function DuelResultScreen({ room, slug, reducedMotion, onClose, onExit, o
           </div>
         </div>
       </div>
-      <div className={styles.flash} aria-hidden="true" />
     </div>,
     host,
   );

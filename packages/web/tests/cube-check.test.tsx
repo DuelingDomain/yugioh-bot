@@ -21,36 +21,34 @@ const pools = (main: number, extra = 0, copies = 3): CubePoolsDto => ({
 });
 
 describe("boosterReadiness", () => {
-  it("uses 40 cards and packs of 15 when the cube has no saved settings", () => {
-    const r = boosterReadiness(30);
+  it("uses copies and legal reach for ten names with ten copies", () => {
+    const r = boosterReadiness(100, 30);
     expect(r).toMatchObject({ cardsPerPlayer: 40, packSize: 15, waves: 3, maxPlayers: 2, state: "ready" });
-    expect(r.reach).toMatchObject({ have: 90, need: 40, short: 0 });
-    expect(r.names2).toMatchObject({ have: 30, need: 30, short: 0 });
+    expect(r.reach).toMatchObject({ have: 30, need: 40, short: 10 });
+    expect(r.copies2).toMatchObject({ have: 100, need: 90, short: 0 });
   });
-
-  it("limits what one player can reach to 3 copies of a name, and by the waves", () => {
-    // 10 names, 5 waves: 10 × min(5, 3) = 30 reachable against 45 needed.
-    const r = boosterReadiness(10, { cardsPerPlayer: 45, packSize: 9 });
-    expect(r.waves).toBe(5);
-    expect(r.reach).toMatchObject({ have: 30, need: 45, short: 15 });
-    expect(r.state).toBe("blocked");
-    // One wave only: a name gives one card.
-    expect(boosterReadiness(10, { cardsPerPlayer: 10, packSize: 10 }).reach.have).toBe(10);
+  it("blocks thirty singletons", () => {
+    expect(boosterReadiness(30, 30)).toMatchObject({ maxPlayers: 0, state: "blocked" });
   });
-
-  it("counts seats as names ÷ pack size and blocks under two players", () => {
-    expect(boosterReadiness(45).maxPlayers).toBe(3);
-    const r = boosterReadiness(29);
-    expect(r.names2.short).toBe(1);
-    expect(r.state).toBe("blocked");
+  it("counts seats by copies divided by all packs", () => {
+    expect(boosterReadiness(135, 135).maxPlayers).toBe(3);
+    expect(boosterReadiness(89, 89).copies2.short).toBe(1);
   });
-
-  it("takes packs per player from the saved config before the derived count", () => {
-    expect(boosterReadiness(100, { cardsPerPlayer: 40, packSize: 15, packsPerPlayer: 4 }).waves).toBe(4);
+  it("uses saved pack settings", () => {
+    expect(boosterReadiness(120, 120, { packsPerPlayer: 4 }).waves).toBe(4);
+  });
+  it("blocks a deck that needs more picks than the packs hold", () => {
+    expect(boosterReadiness(100, 100, { cardsPerPlayer: 60, packsPerPlayer: 3, packSize: 15 }).state).toBe("blocked");
   });
 });
 
 describe("CubeCheck", () => {
+  it.each(["booster", "any"] as const)("%s: shows a pack slot error for an invalid saved setup", (type) => {
+    render(<CubeCheck type={type} pools={pools(100, 0, 1)} settings={{ cardsPerPlayer: 60, packsPerPlayer: 3, packSize: 15 }} />);
+    expect(screen.getByText(/Packs hold 45 cards per player; 60 are needed/)).toBeInTheDocument();
+    expect(screen.queryByText(/Ready for a cube draft|ready for up to/)).not.toBeInTheDocument();
+  });
+
   it("theme: the existing theme draft check with its 'can't start' line", () => {
     render(<CubeCheck type="theme" pools={pools(2, 0, 1)} />);
     expect(screen.getByRole("heading", { name: "Theme draft check" })).toBeInTheDocument();
@@ -67,8 +65,8 @@ describe("CubeCheck", () => {
     render(<CubeCheck type="booster" pools={pools(10)} />);
     expect(screen.getByRole("heading", { name: "Cube draft check" })).toBeInTheDocument();
     expect(screen.getByText("40 cards each, 3 packs of 15")).toBeInTheDocument();
-    expect(screen.getByText("20 more different cards needed.")).toBeInTheDocument();
-    expect(screen.getByText(/Two players need 30 different cards at 15 a pack/)).toBeInTheDocument();
+    expect(screen.getByText("60 more copies needed.")).toBeInTheDocument();
+    expect(screen.getByText(/Two players need 90 copies./)).toBeInTheDocument();
     expect(screen.queryByText(/theme/i)).not.toBeInTheDocument();
   });
 
@@ -81,29 +79,31 @@ describe("CubeCheck", () => {
   it("booster: only the Main pool counts, Extra cards do not make a cube draft ready", () => {
     render(<CubeCheck type="booster" pools={pools(25, 10)} />);
     expect(screen.queryByText("Ready for a cube draft.")).not.toBeInTheDocument();
-    expect(screen.getByText("5 more different cards needed.")).toBeInTheDocument();
-    expect(screen.getByRole("meter", { name: "25 of 30 different cards for 2 players" })).toBeInTheDocument();
+    expect(screen.getByText("15 more copies needed.")).toBeInTheDocument();
+    expect(screen.getByRole("meter", { name: "75 of 90 copies for 2 players" })).toBeInTheDocument();
   });
 
   it("any: Extra cards do not count towards the cube draft line either", () => {
     render(<CubeCheck type="any" pools={pools(25, 10)} />);
-    expect(screen.getByText(/needs 5 more different cards/)).toBeInTheDocument();
+    expect(screen.getByText(/needs 15 more copies/)).toBeInTheDocument();
   });
 
-  it("booster: the reach line when too few different cards for the deck", () => {
-    render(<CubeCheck type="booster" pools={pools(30)} settings={{ cardsPerPlayer: 100, packSize: 15, packsPerPlayer: 2 }} />);
-    // 30 names × min(2, 3) = 60 reachable; the deck needs min(100, 2 × 15) = 30, so it is fine.
-    expect(screen.getByText("Ready for a cube draft.")).toBeInTheDocument();
-    render(<CubeCheck type="booster" pools={pools(30)} settings={{ cardsPerPlayer: 100, packSize: 15, packsPerPlayer: 7 }} />);
-    // 7 waves: reach 30 × 3 = 90 of min(100, 105) = 100.
-    expect(screen.getByText("One player can reach 90 of 100 cards.")).toBeInTheDocument();
+  it("booster: reach is a warning with enough copies", () => {
+    render(<CubeCheck type="booster" pools={pools(10, 0, 10)} />);
+    expect(screen.getByText("One player can reach 30 of 40 cards.")).toBeInTheDocument();
+    expect(screen.getByText(/A draft can start/)).toBeInTheDocument();
+  });
+  it("config pools are checked at draft start", () => {
+    render(<CubeCheck type="booster" pools={pools(0)} settings={{ poolFromConfig: true }} />);
+    expect(screen.getByText(/checked at draft start/i)).toBeInTheDocument();
+    expect(screen.queryByText(/copies needed/)).not.toBeInTheDocument();
   });
 
   it("any: both checks as short lines and no theme warning", () => {
     render(<CubeCheck type="any" pools={pools(2, 0, 1)} />);
     expect(screen.getByRole("heading", { name: "Cube check" })).toBeInTheDocument();
     expect(screen.getByText(/needs 40 more main copies/)).toBeInTheDocument();
-    expect(screen.getByText(/needs 28 more different cards/)).toBeInTheDocument();
+    expect(screen.getByText(/needs 88 more copies/)).toBeInTheDocument();
     expect(screen.queryByText(/can.t start/)).not.toBeInTheDocument();
     expect(screen.queryByText(/short\./)).not.toBeInTheDocument();
   });

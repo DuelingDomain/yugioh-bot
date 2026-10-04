@@ -130,7 +130,8 @@ describe("mutations are limited to the configured guild", () => {
     const { createDraftService, createPlayerService } = await import("@yugidraft/shared/services");
     const db = getDb();
     db.transaction(() => {
-      for (let id = 1; id <= 40; id++) {
+      // Forty picks with three choices and burn disabled need 42 authored copies.
+      for (let id = 1; id <= 42; id++) {
         db.prepare("insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (?,?,'Normal Monster','normal','i','i','[]','t')").run(id, `Card ${id}`);
         db.prepare("insert into cube_cards (cube_id, catalog_card_id, pool, max_copies) values (?,?,'main',1)").run(cubeId, id);
       }

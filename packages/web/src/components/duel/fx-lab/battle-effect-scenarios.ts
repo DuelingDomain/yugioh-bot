@@ -1,5 +1,6 @@
 import type { DuelCardInfo } from "@yugidraft/shared/duels";
-import { MZ, SZ, edit, ev, link, newBoard, type EventSpec, type LabScenario, type LabScript } from "./board";
+import { GY, MZ, SZ, edit, ev, link, newBoard, type EventSpec, type LabScenario, type LabScript } from "./board";
+import { POS_FACEDOWN_DEFENSE, POS_FACEUP_ATTACK, POS_FACEUP_DEFENSE } from "../constants";
 import { CARDS } from "./cards";
 
 const geminiElf: DuelCardInfo = {
@@ -44,7 +45,73 @@ function catBattle(boosted: boolean): LabScript {
   return { initial, steps: [{ at: 0, events: [ev.attack(0, MZ(0, 2), MZ(1, 2))] }, { at: 900, events, edits }], tailMs: 4200 };
 }
 
+/**
+ * The recorded engine batch of an attack on a face-down Man-Eater Bug (FLIP: target 1 monster on the field;
+ * destroy it). One snapshot carries all of it: the attack, the flip, the activation, the target, the
+ * attacker's destruction, the chain end and the Bug's own death by battle. The board of that snapshot is the
+ * final one (both monsters already in the Graveyards), as in a duel.
+ * `ownerAttacks`: the viewer (seat 0) attacks the opponent's Bug; otherwise the opponent attacks the viewer's Bug.
+ * `bystander`: the Bug's effect marks another monster of the attacker's side, so the attacker survives and the
+ * fight resolves after the chain.
+ */
+function flipEffectBattle(ownerAttacks: boolean, bystander = false): LabScript {
+  const bug = CARDS.manEater;
+  const dragon = CARDS.cyberDragon;
+  const attackerSeat = ownerAttacks ? 0 : 1;
+  const flipSeat = 1 - attackerSeat;
+  const initial = newBoard({}, {}, "battle_start", attackerSeat);
+  edit.monster(attackerSeat, 2, dragon)(initial);
+  const victim = bystander ? CARDS.celtic : dragon;
+  const victimZone = MZ(attackerSeat, bystander ? 3 : 2);
+  if (bystander) edit.monster(attackerSeat, 3, victim)(initial);
+  // The viewer knows its own Set card; the opponent's is hidden until it flips.
+  if (ownerAttacks) edit.hiddenMonster(flipSeat, 2)(initial);
+  else edit.monster(flipSeat, 2, bug, POS_FACEDOWN_DEFENSE)(initial);
+  const effect = { cause: "effect" as const, sourceCode: bug.code, sourceKind: "monster" as const, sourceSeat: flipSeat };
+  const battle = { cause: "battle" as const, sourceCode: dragon.code, sourceKind: "monster" as const, sourceSeat: attackerSeat };
+  const events: EventSpec[] = [
+    ev.attack(attackerSeat, MZ(attackerSeat, 2), MZ(flipSeat, 2)),
+    ev.position(flipSeat, bug, MZ(flipSeat, 2), POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, true),
+    { kind: "battle", seat: attackerSeat, text: "Damage calculation", zone: MZ(attackerSeat, 2), target: MZ(flipSeat, 2),
+      battle: { attacker: { attack: dragon.attack, defense: dragon.defense, position: POS_FACEUP_ATTACK },
+        target: { attack: bug.attack, defense: bug.defense, position: POS_FACEUP_DEFENSE } } },
+    ev.activate(flipSeat, bug, MZ(flipSeat, 2), 1),
+    { kind: "target", seat: flipSeat, chainIndex: 1, text: "Chain Link 1 targets 1 card", targets: [victimZone] },
+    ev.chain("chain-resolving", flipSeat, bug, 1),
+    { ...ev.toGrave(attackerSeat, victim, victimZone, 0, effect), fromPosition: POS_FACEUP_ATTACK },
+    { kind: "target", seat: flipSeat, chainIndex: 1, text: "Chain Link 1 targets 1 card", targets: [GY(attackerSeat, 0)] },
+    ev.chain("chain-resolved", flipSeat, bug, 1),
+    { ...ev.destroy(attackerSeat, victim, victimZone, effect), fromPosition: POS_FACEUP_ATTACK },
+    ev.chainEnd(),
+    { ...ev.toGrave(flipSeat, bug, MZ(flipSeat, 2), 0, battle), fromPosition: POS_FACEUP_DEFENSE },
+    { ...ev.destroy(flipSeat, bug, MZ(flipSeat, 2), battle), fromPosition: POS_FACEUP_DEFENSE },
+    { kind: "battle-end", text: "Damage Step ended" },
+  ];
+  return {
+    initial, tailMs: 6200,
+    steps: [{ at: 0, events, edits: [
+      ...(bystander ? [edit.monster(attackerSeat, 3, null), edit.grave(attackerSeat, victim)] : [edit.monster(attackerSeat, 2, null), edit.grave(attackerSeat, dragon)]),
+      edit.monster(flipSeat, 2, null), edit.grave(flipSeat, bug),
+    ] }],
+  };
+}
+
 export const BATTLE_EFFECT_SCENARIOS: LabScenario[] = [
+  {
+    id: "battle-flip-effect-attack", category: "Attacks", name: "Man-Eater Bug: attacked, flips, destroys the attacker",
+    description: "Cyber Dragon attacks a Set Man-Eater Bug. In order: the attack, the flip, the Bug glows with the chain, the Dragon is marked as the target, the Dragon is destroyed, then the Bug dies in the battle.",
+    build: () => flipEffectBattle(true),
+  },
+  {
+    id: "battle-flip-effect-attack-opponent", category: "Attacks", name: "Man-Eater Bug: your Bug is attacked",
+    description: "The opponent's Cyber Dragon attacks your Set Man-Eater Bug. The same beats from the other side of the table.",
+    build: () => flipEffectBattle(false),
+  },
+  {
+    id: "battle-flip-effect-bystander", category: "Attacks", name: "Man-Eater Bug: flips, destroys another monster",
+    description: "Cyber Dragon attacks a Set Man-Eater Bug. The Bug's effect marks Celtic Guardian, not the attacker. In order: the attack, the flip, the chain glow, the mark, Celtic Guardian is destroyed, then the Bug dies in the battle.",
+    build: () => flipEffectBattle(true, true),
+  },
   {
     id: "battle-enemy-controller-defender", category: "Attacks", name: "Enemy Controller: destroy the turned defender",
     description: "Enemy Controller turns Celtic Guardian sideways. Gemini Elf then attacks; the defender stays sideways through calculation, the break and its departure.",

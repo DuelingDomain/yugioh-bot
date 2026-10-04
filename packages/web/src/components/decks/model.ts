@@ -139,8 +139,12 @@ export function cardLabel(code: number, catalog: ReadonlyMap<number, DuelCardInf
   return catalog.get(code)?.name ?? `Passcode ${code}`;
 }
 
+export function deckYdkText(deck: DuelDeck): string {
+  return serializeYdk(deck);
+}
+
 export function downloadYdkFile(name: string, deck: DuelDeck): void {
-  const blob = new Blob([serializeYdk(deck)], { type: "text/plain;charset=utf-8" });
+  const blob = new Blob([deckYdkText(deck)], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   const safe = name.trim().replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim() || "deck";

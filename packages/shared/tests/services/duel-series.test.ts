@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
 import type { DuelDeck, DuelEngineView, DuelSession } from "../../src/duels/index.js";
+import { canonicalCardCode } from "../../src/duels/pool.js";
 import { createDuelSeriesService, createSeriesStore, SERIES_SIDE_WINDOW_MS } from "../../src/services/duel-series.js";
 import { createDuelService, DuelServiceError } from "../../src/services/duels.js";
 import { createTournamentDuelService, TournamentDuelError } from "../../src/services/tournament-duels.js";
@@ -973,6 +974,28 @@ describe("side decking", () => {
     playGame(app, duel.slug, app.p1);
     return series;
   }
+
+  it.each(["setSideDeck", "saveSideDeck"] as const)("%s compares stored artwork ids by canonical card counts", (method) => {
+    const app = setup();
+    const started = app.series.createChallenge({ guildId: "g1", challengerPlayerId: app.p1, opponentPlayerId: app.p2, bestOf: 3, ranked: false, mode: "normal" });
+    const oldDeck = { ...validDeck(), side: [46986421, 46986414] };
+    app.duels.setDeck(started.duel.slug, "g1", app.p1, oldDeck);
+    app.duels.setDeck(started.duel.slug, "g1", app.p2, validDeck(1000));
+    playGame(app, started.duel.slug, app.p1);
+    const catalog = new Map([
+      [46986414, { name: "Dark Magician", type: 17, alias: 0 }],
+      [46986421, { name: "Dark Magician", type: 17, alias: 46986414 }],
+    ]);
+    const resolve = (code: number) => canonicalCardCode(code, catalog);
+    const sided = { ...oldDeck, main: [46986414, ...oldDeck.main.slice(1)], side: [oldDeck.main[0]!, 46986414] };
+    app.series[method](started.series.id, "g1", app.p1, sided, resolve);
+    expect(app.series.sideState(started.series.id, "g1", app.p1)).toMatchObject({ currentDeck: sided, baseDeck: oldDeck });
+    expect(() => app.series[method](started.series.id, "g1", app.p1, { ...sided, side: [46986414, 46986421] }, resolve))
+      .toThrow("A sided deck must use the same cards as your current deck");
+    expect(app.series.sideState(started.series.id, "g1", app.p1).currentDeck).toEqual(sided);
+    const next = app.series.createNextGame(started.series.id, "g1");
+    expect(app.duels.privateState(next.slug, "g1").decks[seatOf(next, app.p1)]).toEqual(sided);
+  });
 
   it.each(["grow", "shrink"])("rejects a %s in Main count with the same Side count and card multiset", (direction) => {
     const app = setup();

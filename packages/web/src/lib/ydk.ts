@@ -20,8 +20,12 @@ function isExtraDeckCard(frameType: string): boolean {
 export function generateYdk(cards: YdkCard[]): string {
   const main: number[] = [];
   const extra: number[] = [];
+  const copies = new Map<number, number>();
 
   for (const card of cards) {
+    const held = copies.get(card.id) ?? 0;
+    if (held >= 3) continue;
+    copies.set(card.id, held + 1);
     if (isExtraDeckCard(card.frameType)) {
       extra.push(card.id);
     } else {

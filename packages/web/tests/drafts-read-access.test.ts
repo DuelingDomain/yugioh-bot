@@ -2,13 +2,17 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../shared/src/db/schema";
 
-const { auth, database, environment } = vi.hoisted(() => ({
-  auth: vi.fn(), database: { current: null as Database.Database | null },
+const { auth, database, environment, checkDiscordWebAccess } = vi.hoisted(() => ({
+  auth: vi.fn(), checkDiscordWebAccess: vi.fn(), database: { current: null as Database.Database | null },
   environment: { discordGuildId: "guild-1", wsInternalSecret: "room-secret" },
 }));
 vi.mock("@/lib/auth", () => ({ auth }));
 vi.mock("@/lib/db", () => ({ getDb: () => database.current! }));
 vi.mock("@/lib/env", () => ({ env: environment }));
+vi.mock("@/lib/discord-web-access", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/lib/discord-web-access")>(),
+  checkDiscordWebAccess,
+}));
 // Exercise source modules in this worktree without requiring a shared package build.
 vi.mock("@yugidraft/shared/services", () => import("../../shared/src/services/index"));
 vi.mock("@yugidraft/shared/ws", () => import("../../shared/src/ws/index"));
@@ -39,6 +43,8 @@ describe("draft read access", () => {
     database.current = new Database(":memory:");
     migrate(database.current);
     auth.mockResolvedValue({ user: { id: "player" } });
+    checkDiscordWebAccess.mockReset();
+    checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 403 });
     environment.wsInternalSecret = "room-secret";
     database.current.prepare("insert into players (id, guild_id, discord_user_id, display_name) values (1, 'guild-1', 'player', 'Yugi')").run();
     // A player in a different guild must not count as this draft's participant.
@@ -68,7 +74,13 @@ describe("draft read access", () => {
               return;
             }
             if (route === "export") {
-              // Preserve the existing participant and complete-deck requirements.
+              if (user === "player" && status === "completed") {
+                expect(response.status).toBe(200);
+                expect(response.headers.get("content-type")).toBe("text/plain");
+                expect(await response.text()).toBe("#main\n#extra\n\n!side\n");
+                return;
+              }
+              // Other exports require both a participant and the configured pick total.
               expect(response.status).toBe(user === "player" ? 400 : 403);
               expect(await response.json()).toEqual({ error: user === "player" ? "Deck is not complete yet" : "Not a participant" });
             } else if (route === "deck-pool") {
@@ -124,5 +136,92 @@ describe("draft read access", () => {
     const response = await read("connection");
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: "The live feed is unavailable. Try again later." });
+  });
+
+  it("names the tournament made from the draft so the finale can link to it", async () => {
+    const db = database.current!;
+    db.prepare("update drafts set status = 'completed' where id = 1").run();
+    expect(await (await read("draft")).json()).toMatchObject({ tournamentId: null, tournamentName: null, tournamentSlug: null });
+
+    db.prepare("insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug) values (7, 'guild-1', 'Draft Cup', 'round_robin', 'pending', 'creator', 'draft-cup')").run();
+    db.prepare("update drafts set tournament_id = 7 where id = 1").run();
+    expect(await (await read("draft")).json()).toMatchObject({ tournamentId: 7, tournamentName: "Draft Cup", tournamentSlug: "draft-cup" });
+  });
+
+  it("does not expose the name or slug of a linked tournament from another guild", async () => {
+    const db = database.current!;
+    db.prepare("insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug) values (7, 'guild-2', 'Other Guild Cup', 'round_robin', 'pending', 'outsider', 'other-guild-cup')").run();
+    db.prepare("update drafts set status = 'completed', tournament_id = 7 where id = 1").run();
+    checkDiscordWebAccess.mockResolvedValue({ ok: true });
+
+    const response = await read("draft");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      tournamentId: 7, tournamentName: null, tournamentSlug: null, canCreateTournament: false,
+    });
+    expect(checkDiscordWebAccess).not.toHaveBeenCalled();
+  });
+
+  describe("canCreateTournament", () => {
+    beforeEach(() => {
+      database.current!.prepare("update drafts set status = 'completed' where id = 1").run();
+    });
+
+    it("is true for the creator without checking admin access", async () => {
+      auth.mockResolvedValue({ user: { id: "creator" } });
+      checkDiscordWebAccess.mockResolvedValue({ ok: false, status: 503 });
+      const response = await read("draft");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ canCreateTournament: true });
+      expect(checkDiscordWebAccess).not.toHaveBeenCalled();
+    });
+
+    it("is true for a non-creator admin", async () => {
+      checkDiscordWebAccess.mockResolvedValue({ ok: true });
+      const response = await read("draft");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ canCreateTournament: true });
+      expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith("player", "admin");
+    });
+
+    it.each([403, 503])("is false without failing the draft fetch when admin verification returns %s", async (status) => {
+      checkDiscordWebAccess.mockResolvedValue({ ok: false, status });
+      const response = await read("draft");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ canCreateTournament: false });
+      expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith("player", "admin");
+    });
+
+    it("is false without failing the draft fetch when admin verification throws", async () => {
+      checkDiscordWebAccess.mockRejectedValue(new Error("Discord unavailable"));
+      const response = await read("draft");
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ canCreateTournament: false });
+      expect(checkDiscordWebAccess).toHaveBeenCalledExactlyOnceWith("player", "admin");
+    });
+
+    for (const user of ["creator", "player"]) {
+      it.each(["pending", "active", "cancelled"])(`is false for ${user} on a %s draft without checking admin access`, async (status) => {
+        database.current!.prepare("update drafts set status = ? where id = 1").run(status);
+        auth.mockResolvedValue({ user: { id: user } });
+        checkDiscordWebAccess.mockResolvedValue({ ok: true });
+        const response = await read("draft");
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ canCreateTournament: false });
+        expect(checkDiscordWebAccess).not.toHaveBeenCalled();
+      });
+
+      it(`is false for ${user} when a tournament exists without checking admin access`, async () => {
+        const db = database.current!;
+        db.prepare("insert into tournaments (id, guild_id, name, format, status, created_by_user_id, web_slug) values (7, 'guild-1', 'Draft Cup', 'round_robin', 'pending', 'creator', 'draft-cup')").run();
+        db.prepare("update drafts set tournament_id = 7 where id = 1").run();
+        auth.mockResolvedValue({ user: { id: user } });
+        checkDiscordWebAccess.mockResolvedValue({ ok: true });
+        const response = await read("draft");
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ canCreateTournament: false });
+        expect(checkDiscordWebAccess).not.toHaveBeenCalled();
+      });
+    }
   });
 });

@@ -149,6 +149,7 @@ describe("draft service", () => {
         pickSeconds: 45,
         alternatePassDirection: true,
         randomizeSeats: false,
+        copyLimit: true,
       },
       currentPackRound: 0,
       currentPickStep: 0,
@@ -521,7 +522,7 @@ describe("draft service", () => {
       "guild-1",
       "channel-1",
       "cube night",
-      { packsPerPlayer: 2 },
+      { packsPerPlayer: 2, cardsPerPlayer: 16 },
       "user-1",
       yugi.id,
     );

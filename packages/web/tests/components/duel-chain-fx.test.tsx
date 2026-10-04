@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelCardInfo, DuelChainLink, DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 
 import { ChainFx } from "@/components/duel/chain-fx";
+import { CHAIN_TIMING } from "@/components/duel/duel-timing";
 
 const SZONE = 0x08;
 const HAND = 0x02;
@@ -141,7 +142,7 @@ describe("ChainFx", () => {
     rerender(view(resolution));
     // The response beat holds first, then link 2 resolves while link 1 still waits.
     expect(slot(container, 2)?.dataset.status).toBe("pending");
-    act(() => { vi.advanceTimersByTime(1000); });
+    act(() => { vi.advanceTimersByTime(CHAIN_TIMING.activateMs); });
     expect(slot(container, 2)?.dataset.status).toBe("resolving");
     expect(slot(container, 1)?.dataset.status).toBe("pending");
     expect(container.querySelector('[data-chain-row="2"]')?.getAttribute("data-status")).toBe("resolving");
@@ -532,7 +533,7 @@ describe("ChainFx", () => {
       expect(live(container).textContent).toBe("Chain Link 2: Card 22, Opponent");
       const resolution = [...second, ev("chain-resolving", 2), ev("chain-resolved", 2), ev("chain-resolving", 1), ev("chain-resolved", 1), ev("chain-end")];
       rerender(view(resolution));
-      act(() => { vi.advanceTimersByTime(1000); });
+      act(() => { vi.advanceTimersByTime(CHAIN_TIMING.activateMs); });
       expect(live(container).textContent).toBe("Chain Link 2 resolving: Card 22, Opponent");
       act(() => { vi.advanceTimersByTime(5000); });
       expect(live(container).textContent).toBe("Chain ended");

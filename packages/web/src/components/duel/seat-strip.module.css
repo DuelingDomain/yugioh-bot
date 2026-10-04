@@ -98,8 +98,9 @@ button.hit:focus-visible {
   color: #e45a4d;
 }
 
+/* The turn: a soft glow, the border stays as it is. */
 .item[data-turn="true"] {
-  border-color: #e4b64f;
+  box-shadow: 0 0 16px -4px rgb(228 182 79 / 0.55);
 }
 
 .item[data-answering="true"] {

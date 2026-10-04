@@ -99,9 +99,11 @@
   cursor: pointer;
 }
 
-.toggle:hover {
-  background: rgb(255 255 255 / 0.05);
-  color: var(--ink);
+@media (hover: hover) and (pointer: fine) {
+  .toggle:hover {
+    background: rgb(255 255 255 / 0.05);
+    color: var(--ink);
+  }
 }
 
 .railToggle {
@@ -173,9 +175,11 @@
   justify-content: center;
 }
 
-.navItem:hover {
-  background: rgb(255 255 255 / 0.04);
-  color: var(--ink);
+@media (hover: hover) and (pointer: fine) {
+  .navItem:hover {
+    background: rgb(255 255 255 / 0.04);
+    color: var(--ink);
+  }
 }
 
 .navItem:focus-visible,
@@ -225,14 +229,41 @@
   color: var(--pen-ink);
 }
 
-.navItem:hover .navIcon {
-  color: var(--ink-2);
+@media (hover: hover) and (pointer: fine) {
+  .navItem:hover .navIcon {
+    color: var(--ink-2);
+  }
 }
 
 .navLabel {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Press and hover (site motion, part 1). Hover rules above sit inside (hover: hover) and
+   (pointer: fine). Press is the individual `scale` property; --motion-press is 1 under reduced motion. */
+.navItem,
+.toggle,
+.menuButton,
+.liveRow,
+.liveTile,
+.seatBtn,
+.menuItem {
+  transition: background-color var(--d-hover) ease, border-color var(--d-hover) ease, color var(--d-hover) ease, scale var(--d-press) var(--ease-out);
+}
+
+.navItem:active,
+.toggle:active,
+.menuButton:active,
+.liveRow:active,
+.liveTile:active,
+.seatBtn:active {
+  scale: var(--motion-press);
+}
+
+.menuItem:active:not([aria-disabled="true"]) {
+  scale: var(--motion-press);
 }
 
 /* Rail tooltips: fixed, so the scrolling sidebar can't clip them. The tip wrapper is a flex
@@ -281,9 +312,11 @@
   min-height: 56px;
 }
 
-.liveRow:hover,
-.liveTile:hover {
-  background: rgb(255 255 255 / 0.04);
+@media (hover: hover) and (pointer: fine) {
+  .liveRow:hover,
+  .liveTile:hover {
+    background: rgb(255 255 255 / 0.04);
+  }
 }
 
 .liveTile {
@@ -359,8 +392,10 @@
   justify-content: center;
 }
 
-.seatBtn:hover {
-  background: rgb(255 255 255 / 0.04);
+@media (hover: hover) and (pointer: fine) {
+  .seatBtn:hover {
+    background: rgb(255 255 255 / 0.04);
+  }
 }
 
 .seatBtn[data-on] {
@@ -504,9 +539,11 @@
   cursor: pointer;
 }
 
-.menuItem:hover {
-  background: rgb(255 255 255 / 0.06);
-  color: var(--ink);
+@media (hover: hover) and (pointer: fine) {
+  .menuItem:hover {
+    background: rgb(255 255 255 / 0.06);
+    color: var(--ink);
+  }
 }
 
 .menuItem[aria-disabled="true"] {
@@ -514,8 +551,10 @@
   cursor: default;
 }
 
-.menuItem[aria-disabled="true"]:hover {
-  background: none;
+@media (hover: hover) and (pointer: fine) {
+  .menuItem[aria-disabled="true"]:hover {
+    background: none;
+  }
 }
 
 .menuIcon {
@@ -548,18 +587,6 @@
   margin-left: 68px;
 }
 
-/* ---- Report bug button: past the sidebar, so it covers neither the account menu nor the rail ---- */
-.bugFab {
-  left: calc(236px + 12px);
-}
-
-.frame[data-sidebar-collapsed="true"] .bugFab {
-  left: calc(68px + 12px);
-  /* The rail's account menu opens to the right, over this corner. It lives in the sidebar's z-30 layer, so the button
-     sits just under that layer and the menu stays on top of it. */
-  z-index: 29;
-}
-
 /* A page that draws its own bar (see OwnsPageBar) runs edge to edge, so the bar's line sits
    level with the sidebar's brand line. The page pads its own content below the bar. */
 .frame:has([data-shell-bar="own"]) .content {
@@ -588,9 +615,11 @@
   cursor: pointer;
 }
 
-.menuButton:hover {
-  border-color: var(--rule-hi);
-  color: var(--ink);
+@media (hover: hover) and (pointer: fine) {
+  .menuButton:hover {
+    border-color: var(--rule-hi);
+    color: var(--ink);
+  }
 }
 
 .menuButton[data-bare="true"] {
@@ -650,12 +679,6 @@
   .main,
   .frame[data-sidebar-collapsed="true"] .main {
     margin-left: 0;
-  }
-
-  .bugFab,
-  .frame[data-sidebar-collapsed="true"] .bugFab {
-    left: 12px;
-    z-index: 40;
   }
 
   .topWrap {

@@ -277,7 +277,8 @@ export const commandDefinitions = [
             .setDescription("Cards to exclude (comma-separated)")
             .setRequired(false)
             .setMaxLength(500),
-        ),
+        )
+        .addBooleanOption((option) => option.setName("copy_limit").setDescription("Limit 3 copies per card (default on)").setRequired(false)),
     )
     .addSubcommand((subcommand) =>
       subcommand

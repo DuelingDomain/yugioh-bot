@@ -9,6 +9,10 @@ export interface DraftConfig {
   pickSeconds?: number;
   alternatePassDirection?: boolean;
   randomizeSeats?: boolean;
+  /** Limit picks to three copies, with booster swaps or forced picks when needed. Default true. */
+  copyLimit?: boolean;
+  /** Internal: saved cubes keep authored quantities, including their catalog selections. */
+  preservePoolCopies?: boolean;
   cubeCardIds?: number[];
   /** @deprecated legacy key, still read for drafts created before the rename */
   poolCardIds?: number[];
@@ -69,6 +73,8 @@ export interface DraftCard {
   waveNumber: number;
   catalogCardId: number;
   pickedByPlayerId: number | null;
+  /** This booster pack has no legal copy and no legal undealt replacement. */
+  forced?: boolean;
 }
 
 export interface DraftPack {

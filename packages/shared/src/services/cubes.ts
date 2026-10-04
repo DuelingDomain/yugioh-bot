@@ -10,15 +10,27 @@ export interface AnalyzeCubePoolsConfig {
   extraDeckSize: number;
   burnUnpicked: boolean;
   extraDeckEnabled: boolean;
+  copyLimit?: boolean;
 }
 
 function requiredPoolSize(rounds: number, themePackSize: number, burnUnpicked: boolean): number {
   return burnUnpicked ? rounds * themePackSize : rounds + (themePackSize - 1);
 }
 
-/** Cards one player can take from a pool: the per-player cap limits each card, whatever the cube holds. */
-function playerReachableSize(cards: Array<{ maxCopies: number }>): number {
-  return cards.reduce((sum, c) => sum + Math.min(c.maxCopies, MAX_COPIES_PER_PLAYER), 0);
+/** Count authored copies and copies reachable under the combined artwork cap. */
+export function cubePoolSizes(db: Database.Database, cubeId: number, pool: CubePool): { size: number; reachable: number } {
+  return db.prepare(`
+    select coalesce(sum(copies), 0) as size,
+           coalesce(sum(min(copies, ${MAX_COPIES_PER_PLAYER})), 0) as reachable
+    from (
+      select sum(tc.max_copies) as copies
+      from cube_cards tc
+      left join card_catalog cc on cc.ygoprodeck_id = tc.catalog_card_id
+      where tc.cube_id = ? and tc.pool = ?
+      group by lower(trim(cc.name)), cc.type,
+               case when cc.ygoprodeck_id is null then tc.catalog_card_id end
+    )
+  `).get(cubeId, pool) as { size: number; reachable: number };
 }
 
 /** Copies of one card in a cube: any whole number from 1 to MAX_CUBE_COPIES. */
@@ -361,11 +373,10 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     },
 
     analyzeCubePools(cubeId: number, config: AnalyzeCubePoolsConfig): CubeAnalysis {
-      const pools = getCubePools(cubeId);
       const errors: string[] = [];
       const warnings: string[] = [];
 
-      const mainSize = pools.main.reduce((sum, c) => sum + c.maxCopies, 0);
+      const { size: mainSize, reachable: mainReachable } = cubePoolSizes(db, cubeId, "main");
       const mainNeeded = requiredPoolSize(config.cardsPerPlayer, config.themePackSize, config.burnUnpicked);
       if (mainSize < mainNeeded) {
         errors.push(
@@ -373,23 +384,22 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         );
       } else {
         // A player never gets more than 3 copies of one card, so a few card names with many copies cannot fill a deck.
-        const mainReachable = playerReachableSize(pools.main);
         // Burned choices also spend reachable copies; excess copies above the
         // player cap cannot stand in for the choices needed in later rounds.
         const mainReachableNeeded = mainNeeded;
         if (mainReachable < mainReachableNeeded) {
-          errors.push(
+          (config.copyLimit === false ? warnings : errors).push(
             `A player can take at most ${MAX_COPIES_PER_PLAYER} copies of a card, so this main pool gives ${mainReachable} cards but a ${config.cardsPerPlayer}-card main deck needs ${mainReachableNeeded}${config.burnUnpicked ? " including burned choices (burn on)" : ""}. Add more different cards.`,
           );
         }
       }
 
       if (config.extraDeckEnabled) {
-        const extraSize = pools.extra.reduce((sum, c) => sum + c.maxCopies, 0);
+        const { size: extraSize, reachable: extraReachable } = cubePoolSizes(db, cubeId, "extra");
         const extraNeeded = requiredPoolSize(config.extraDeckSize, config.themePackSize, config.burnUnpicked);
-        if (extraSize < extraNeeded) {
+        if (extraSize < extraNeeded || extraReachable < extraNeeded) {
           warnings.push(
-            `Extra pool has ${extraSize} cards but needs ${extraNeeded} for a full ${config.extraDeckSize}-card Extra Deck; players may end with fewer Extra cards.`,
+            `Extra pool has ${Math.min(extraSize, extraReachable)} cards but needs ${extraNeeded} for a full ${config.extraDeckSize}-card Extra Deck; players may end with fewer Extra cards.`,
           );
         }
       }
@@ -425,22 +435,24 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
 
     /**
      * Flatten a cube into a shared-draft config: the cube's own config (pack/mode
-     * settings + setNames) merged over `base`, with `customCardIds` unioned from
-     * base, the cube's config, and every explicit cube_cards entry (main + extra).
+     * settings + setNames) merged over `base`. Preserve every custom copy in base
+     * and the cube config, then add Main pool copies not already listed there.
      * Lets a saved cube drive a shared (non-theme) draft through the unchanged
      * resolveCubeCardIds -> buildDeal path.
      */
     applyCubeToConfig(cubeId: number, base: DraftConfig = {}): DraftConfig {
       const cube = findCube(cubeId);
       const pools = getCubePools(cubeId);
-      const flat = [...pools.main, ...pools.extra].map((c) => c.catalogCardId);
-      const customCardIds = Array.from(
-        new Set([...(base.customCardIds ?? []), ...(cube.config.customCardIds ?? []), ...flat]),
-      );
+      const listedIds = [...(base.customCardIds ?? []), ...(cube.config.customCardIds ?? [])];
+      const listed = new Set(listedIds);
+      const flat = pools.main.filter((card) => !listed.has(card.catalogCardId))
+        .flatMap((card) => Array<number>(card.maxCopies).fill(card.catalogCardId));
+      const customCardIds = [...listedIds, ...flat];
       return {
         ...base,
         ...cube.config,
         customCardIds,
+        preservePoolCopies: true,
         setNames: cube.config.setNames ?? base.setNames,
       };
     },

@@ -24,8 +24,10 @@ import {
 import { CARDS } from "./cards";
 import { SERIES_SCENARIOS } from "./series-scenarios";
 import { PRIORITY_SCENARIOS } from "./priority-scenarios";
+import { TURN_GLOW_SCENARIOS } from "./turn-glow-scenarios";
 import { OPENING_DEAL_SCENARIOS } from "./opening-deal-scenarios";
 import { BATTLE_EFFECT_SCENARIOS } from "./battle-effect-scenarios";
+import { PACE_SCENARIOS } from "./pace-scenarios";
 
 /**
  * The scenario catalog of the FX lab. Every scenario is a pure builder: it returns a start board and
@@ -763,6 +765,112 @@ function summonScenario(
     },
   };
 }
+
+/**
+ * A Tribute Summon prompt: the candidates are the monsters on your field, picked by clicking them. `need` is how many
+ * Tributes the summon asks for; `values` lets one monster count double.
+ */
+function tributePickScenario(
+  id: string,
+  name: string,
+  description: string,
+  need: number,
+  zones: number[],
+  selected: string[],
+  values: number[] = zones.map(() => 1),
+): LabScenario {
+  const monsters = [C.celtic, C.feralImp, C.harpie, C.sangan, C.kuriboh];
+  return {
+    id,
+    category: "Board states",
+    name,
+    description,
+    build: () =>
+      script(
+        board(
+          (e) => {
+            zones.forEach((zone, index) => e.push(edit.monster(ME, zone, monsters[index % monsters.length])));
+            e.push(edit.monster(OPP, 2, C.harpie));
+          },
+          { ...myHand, hand: [C.summonedSkull, ...(myHand.hand ?? [])] },
+        ),
+        [],
+        2400,
+        {
+          legalKeys: zones.map((zone) => `0:${LOCATION_MZONE}:${zone}`),
+          prompt: {
+            selected,
+            interactive: true,
+            prompt: {
+              id: "lab-tribute",
+              seat: ME,
+              kind: "tribute",
+              title: "Select tribute(s)",
+              min: need,
+              max: need,
+              cancelable: true,
+              options: zones.map((zone, index) => ({
+                id: `card:${index}`,
+                label: monsters[index % monsters.length].name,
+                card: monsters[index % monsters.length],
+                controller: ME,
+                location: LOCATION_MZONE,
+                sequence: zone,
+                values: [values[index] ?? 1],
+              })),
+            },
+          },
+        },
+      ),
+  };
+}
+
+/**
+ * A Tribute Summon as the duel plays it: the Tributes leave their zones for the Graveyard, the monster moves in, then the
+ * summon. `tributes` are the zones that Tribute; the summoned monster goes to zone 2.
+ */
+function tributeAnimationScenario(id: string, name: string, description: string, info: DuelCardInfo, tributes: number[], seat: number): LabScenario {
+  const cards = [C.feralImp, C.sangan, C.kuriboh, C.harpie];
+  return {
+    id,
+    category: "Summons",
+    name,
+    description,
+    build: () => {
+      const mine = seat === ME ? { ...myHand, hand: [info, ...(myHand.hand ?? [])] } : myHand;
+      const theirs = seat === OPP ? { ...oppHand, hand: [info, ...(oppHand.hand ?? [])] } : oppHand;
+      const start = board(
+        (e) => {
+          tributes.forEach((zone, index) => e.push(edit.monster(seat, zone, cards[index % cards.length])));
+          e.push(edit.monster(seat === ME ? OPP : ME, 2, C.celtic));
+        },
+        mine,
+        theirs,
+        "main1",
+        seat,
+      );
+      const events: EventSpec[] = [];
+      const edits: Edit[] = [];
+      tributes.forEach((zone, index) => {
+        events.push(ev.toGrave(seat, cards[index % cards.length], MZ(seat, zone), index, {}));
+        edits.push(edit.monster(seat, zone, null), edit.grave(seat, cards[index % cards.length]));
+      });
+      events.push(...summonPair(seat, info, HAND(seat, 0), MZ(seat, 2), "tribute"));
+      edits.push(edit.monster(seat, 2, info, POS_FACEUP_ATTACK), edit.removeHand(seat, 0));
+      return script(start, [{ at: 0, events, edits }], 4200);
+    },
+  };
+}
+
+const TRIBUTE_SCENARIOS: LabScenario[] = [
+  tributePickScenario("tribute-pick-one", "Tribute pick: 1 of 3", "Tribute 1 monster. The three monsters glow and the dock sits by the hand. One click picks and sends.", 1, [1, 3, 4], []),
+  tributePickScenario("tribute-pick-two", "Tribute pick: 2 of 3, try it", "Click two monsters. After the second the Summon button appears in the dock. A picked monster can be clicked to undo.", 2, [1, 3, 4], []),
+  tributePickScenario("tribute-pick-two-half", "Tribute pick: 1 of 2 picked", "Tribute 2 monsters, one picked: the counter reads 1/2 and there is no Summon button yet.", 2, [1, 3, 4], ["card:1"]),
+  tributePickScenario("tribute-pick-double", "Tribute pick: one counts twice", "A monster that counts as two Tributes meets Tribute 2 on its own, so the dock offers Summon.", 2, [1, 3, 4], ["card:0"], [2, 1, 1]),
+  tributeAnimationScenario("tribute-fx-one", "Tribute animation: 1 Tribute", "The Tribute lifts, burns away in slices and sends energy into the summon zone; the summon plays out of the flash.", C.summonedSkull, [3], ME),
+  tributeAnimationScenario("tribute-fx-two", "Tribute animation: 2 Tributes", "Two Tributes burn a beat apart; the energy of both gathers in the summon zone.", C.blueEyes, [1, 3], ME),
+  tributeAnimationScenario("tribute-fx-opp", "Tribute animation: opponent", "What you see when the opponent tributes: the same animation, with no prompt or glow.", C.summonedSkull, [3], OPP),
+];
 
 const SUMMONS: LabScenario[] = [
   summonScenario("summon-normal", "Normal Summon", "A small monster from the hand. The plain arrival and the banner with the card portrait.", C.celtic, "normal"),
@@ -1557,7 +1665,7 @@ const STATES: LabScenario[] = [
 
 export const LAB_CATEGORIES: readonly LabCategory[] = ["Attacks", "Destroy", "Summons", "Card moves", "Chain", "LP", "Banners", "Board states", "Match"];
 
-export const LAB_SCENARIOS: readonly LabScenario[] = [...BATTLE_EFFECT_SCENARIOS, ...ATTACKS, ...DESTROY, ...SUMMONS, ...MOVES, ...OPENING_DEAL_SCENARIOS, ...CHAIN, ...LP, ...BANNERS, ...STATES, ...PRIORITY_SCENARIOS, ...SERIES_SCENARIOS];
+export const LAB_SCENARIOS: readonly LabScenario[] = [...BATTLE_EFFECT_SCENARIOS, ...ATTACKS, ...DESTROY, ...SUMMONS, ...TRIBUTE_SCENARIOS, ...MOVES, ...OPENING_DEAL_SCENARIOS, ...CHAIN, ...PACE_SCENARIOS, ...LP, ...BANNERS, ...STATES, ...PRIORITY_SCENARIOS, ...TURN_GLOW_SCENARIOS, ...SERIES_SCENARIOS];
 
 export function scenariosIn(category: LabCategory): LabScenario[] {
   return LAB_SCENARIOS.filter((scenario) => scenario.category === category);

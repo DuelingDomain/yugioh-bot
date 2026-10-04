@@ -71,6 +71,9 @@ export function migrate(db: Database.Database) {
       cached_at text not null
     );
 
+    create index if not exists card_catalog_normalized_name_type_idx
+      on card_catalog (lower(trim(name)), type);
+
     create table if not exists cubes (
       id integer primary key autoincrement,
       guild_id text not null,
@@ -159,6 +162,14 @@ export function migrate(db: Database.Database) {
 
     create table if not exists draft_deal (
       draft_id integer not null references drafts(id),
+      position integer not null,
+      catalog_card_id integer not null references card_catalog(ygoprodeck_id),
+      primary key (draft_id, position)
+    );
+
+    -- Undealt booster copies, in their original deal order. Old drafts have no rows.
+    create table if not exists draft_undealt (
+      draft_id integer not null references drafts(id) on delete cascade,
       position integer not null,
       catalog_card_id integer not null references card_catalog(ygoprodeck_id),
       primary key (draft_id, position)

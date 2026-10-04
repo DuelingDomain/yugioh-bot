@@ -575,7 +575,7 @@ describe("BetweenGamesScreen: Ready", () => {
       await act(async () => { await Promise.resolve(); });
       expect(readyButton().disabled).toBe(!balanced);
       await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-      expect(screen.getByTestId("between-timer").textContent).toBe("Starts in 0:00");
+      expect(screen.getByTestId("between-timer").textContent).toBe("Starting game 2…");
       expect(api.saveSeriesSideDeck).toHaveBeenCalledTimes(balanced ? 1 : 0);
       if (balanced) expect(api.saveSeriesSideDeck).toHaveBeenCalledWith("game-1", { ...deck, main: [1, 3, 10], side: [11, 2] });
       expect(api.readySeries).not.toHaveBeenCalled();
@@ -594,6 +594,37 @@ describe("BetweenGamesScreen: Ready", () => {
     fireEvent.click(readyButton());
     await waitFor(() => expect(api.readySeries).toHaveBeenCalled());
     expect(api.saveSeriesSideDeck).not.toHaveBeenCalled();
+  });
+});
+
+describe("BetweenGamesScreen: the window has ended", () => {
+  const over = () => new Date(Date.now() - 2_000).toISOString();
+
+  it("says the next game is starting, not 0:00, and re-reads the room at once", async () => {
+    const props = screenFor({ series: { nextGameAt: over() } });
+    expect(screen.getByTestId("between-timer").textContent).toBe("Starting game 2…");
+    await waitFor(() => expect(props.onChanged).toHaveBeenCalledTimes(1));
+  });
+
+  it("re-reads the room once when the countdown reaches zero while the screen is open", async () => {
+    vi.useFakeTimers();
+    try {
+      const props = screenFor({ series: { nextGameAt: new Date(Date.now() + 1_000).toISOString() } });
+      expect(screen.getByTestId("between-timer").textContent).toMatch(/Starts in 0:01/);
+      expect(props.onChanged).not.toHaveBeenCalled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+      expect(screen.getByTestId("between-timer").textContent).toBe("Starting game 2…");
+      expect(props.onChanged).toHaveBeenCalledTimes(1);
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps counting for an interrupted game that has no deadline", async () => {
+    const props = screenFor({ series: { nextGameAt: null } });
+    expect(screen.getByTestId("between-timer").textContent).toBe("Waiting for both players");
+    expect(props.onChanged).not.toHaveBeenCalled();
   });
 });
 

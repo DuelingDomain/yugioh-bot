@@ -121,9 +121,9 @@
   border-color: rgb(95 196 192 / 0.6);
 }
 
+/* The turn: a soft glow around the board, the border stays as it is. */
 .board[data-active="true"] {
-  border-color: var(--chain);
-  box-shadow: inset 0 0 0 1px rgb(228 182 79 / 0.35);
+  box-shadow: 0 0 22px -6px rgb(228 182 79 / 0.5);
 }
 
 .board[data-answering="true"] {

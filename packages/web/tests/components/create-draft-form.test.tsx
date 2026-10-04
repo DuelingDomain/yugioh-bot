@@ -101,7 +101,21 @@ describe("CreateDraftForm pool: starting from a cube", () => {
       cardsPerPlayer: 40,
       packSize: 15,
       packsPerPlayer: 3,
+      copyLimit: true,
     });
+  });
+
+  it("sends copyLimit false when Limit 3 copies per card is cleared", async () => {
+    const stub = stubFetch();
+    render(<CreateDraftForm />);
+    await pickGoat();
+    fireEvent.change(screen.getByLabelText(/draft name/i), { target: { value: "Friday" } });
+    expect(screen.getByLabelText("Limit 3 copies per card")).toBeChecked();
+    fireEvent.click(screen.getByLabelText("Limit 3 copies per card"));
+    fireEvent.click(screen.getByRole("button", { name: /create draft/i }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/draft/made"));
+    expect(postedDraft(stub).config).toMatchObject({ copyLimit: false });
   });
 
   it("opens a cube made before cubes held cards by resolving its sets", async () => {

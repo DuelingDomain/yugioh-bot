@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canAddFromPool,
+  deckUsage,
   draftDeckNotes,
   draftMainMinimum,
   draftMainTone,
@@ -17,6 +18,17 @@ const pool = poolCounts([
 const deck = (main: number[], extra: number[] = [], side: number[] = []) => ({ main, extra, side });
 
 describe("draft deck pool model", () => {
+  it("shares the drafted copies across alternate art and alias codes", () => {
+    const catalog = new Map([
+      [81480460, { name: "Barrel Dragon", type: 33, alias: 0 }],
+      [81480461, { name: "Barrel Dragon", type: 33, alias: 81480460 }],
+    ]);
+    const cards = poolCounts([{ code: 81480460, count: 1 }, { code: 81480461, count: 1 }], catalog);
+    const used = deckUsage(deck([81480461], [], [81480460]), catalog);
+    expect(cards).toEqual(new Map([[81480460, 2]]));
+    expect(remainingCopies(cards, used, 81480460)).toBe(0);
+    expect(canAddFromPool(cards, used, 81480460)).toBe(false);
+  });
   it("adds the copies of a card that appears twice in the pool list", () => {
     expect(pool.get(100)).toBe(3);
     expect(pool.get(200)).toBe(1);
@@ -33,9 +45,9 @@ describe("draft deck pool model", () => {
     expect(remainingCopies(pool, new Map(), 999)).toBe(0);
   });
 
-  it("blocks an add when no copy is left, past the usual limit of 3 too", () => {
+  it("blocks a fourth copy even when the pool has five", () => {
     const big = poolCounts([{ code: 7, count: 5 }]);
-    expect(canAddFromPool(big, new Map([[7, 4]]), 7)).toBe(true);
+    expect(canAddFromPool(big, new Map([[7, 3]]), 7)).toBe(false);
     expect(canAddFromPool(big, new Map([[7, 5]]), 7)).toBe(false);
     expect(canAddFromPool(pool, new Map(), 999)).toBe(false);
   });

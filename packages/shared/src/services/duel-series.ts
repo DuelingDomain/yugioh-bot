@@ -84,12 +84,13 @@ export interface DuelSeriesService {
   /**
    * Stores the player's sided deck for the next game. The duel host has
    * already checked card types. The service checks: status between_games, the
-   * same cards as the current deck (as a multiset over main+extra+side), the
+   * same cards as the current deck (as a multiset over main+extra+side, using
+   * the host's optional canonical card resolver for stored artwork ids), the
    * Main, Extra and Side counts unchanged, main >= min(40, base main count)
    * and <= 60, extra <= 15. A deck that differs from the current one clears the player's
    * Ready, so the next game never starts on a deck they did not confirm.
    */
-  setSideDeck(seriesId: number, guildId: string, playerId: number, deck: DuelDeck): DuelSeriesSummary;
+  setSideDeck(seriesId: number, guildId: string, playerId: number, deck: DuelDeck, resolve?: (code: number) => number): DuelSeriesSummary;
   /**
    * setSideDeck that also reports whether this save cleared the player's Ready, read inside the same
    * transaction (a snapshot taken before the call can miss a Ready that landed in between).
@@ -99,6 +100,7 @@ export interface DuelSeriesService {
     guildId: string,
     playerId: number,
     deck: DuelDeck,
+    resolve?: (code: number) => number,
   ): { series: DuelSeriesSummary; readyCleared: boolean };
   /**
    * The loser of the last game chooses to go first or second in the next game. Only that player, only
@@ -1026,7 +1028,7 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
   );
 
   const setSideDeckTx = db.transaction(
-    (seriesId: number, guildId: string, playerId: number, deck: DuelDeck): { series: DuelSeriesSummary; readyCleared: boolean } => {
+    (seriesId: number, guildId: string, playerId: number, deck: DuelDeck, resolve?: (code: number) => number): { series: DuelSeriesSummary; readyCleared: boolean } => {
       const row = store.requireSeries(seriesId, guildId);
       const index = store.requirePlayerIndex(row, playerId);
       if (row.status !== "between_games") {
@@ -1035,7 +1037,7 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
       const state = store.sideState(row, playerId);
       if (!state) throw new DuelServiceError("This series has no decks yet", 409);
       const next = validateDuelDeckShape(deck, false);
-      if (!sameCounts(deckCardCounts(next), deckCardCounts(state.currentDeck))) {
+      if (!sameCounts(deckCardCounts(next, resolve), deckCardCounts(state.currentDeck, resolve))) {
         throw new DuelServiceError("A sided deck must use the same cards as your current deck", 400);
       }
       if (next.side.length !== state.currentDeck.side.length) {
@@ -1185,11 +1187,11 @@ export function createDuelSeriesService(db: Database.Database): DuelSeriesServic
       if (!state) throw new DuelServiceError("This series has no decks yet", 409);
       return state;
     },
-    setSideDeck(seriesId, guildId, playerId, deck) {
-      return setSideDeckTx(seriesId, guildId, playerId, deck).series;
+    setSideDeck(seriesId, guildId, playerId, deck, resolve) {
+      return setSideDeckTx(seriesId, guildId, playerId, deck, resolve).series;
     },
-    saveSideDeck(seriesId, guildId, playerId, deck) {
-      return setSideDeckTx(seriesId, guildId, playerId, deck);
+    saveSideDeck(seriesId, guildId, playerId, deck, resolve) {
+      return setSideDeckTx(seriesId, guildId, playerId, deck, resolve);
     },
     setFirstChoice(seriesId, guildId, playerId, choice) {
       return setFirstChoiceTx(seriesId, guildId, playerId, choice);

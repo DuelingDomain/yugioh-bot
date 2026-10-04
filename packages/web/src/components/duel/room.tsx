@@ -8,6 +8,7 @@ import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "luc
 import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { SurrenderModal } from "./surrender-modal";
+import { DeckSurrenderContext, type DeckSurrenderValue } from "./deck-surrender";
 import { BugReportHeaderButton } from "../bug-report/bug-report-header-button";
 import { BugReportMenuButton } from "../bug-report/bug-report-menu-button";
 import { useBugReportRoom } from "../bug-report/room-store";
@@ -82,7 +83,7 @@ import { DuelClockDisplay, DuelSettingsSummary, DuelSoundControls, RoomInvite } 
 import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
 import { MasterReturnFx } from "./master-return-fx";
 import { MoveFx } from "./move-fx";
-import { useStartBeats } from "./use-start-beats";
+import { fxLayersUp, useStartBeats } from "./use-start-beats";
 import { PositionFx } from "./position-fx";
 import { ChainFx } from "./chain-fx";
 import { SummonFx } from "./summon-fx";
@@ -171,6 +172,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const narrow = useIsNarrow();
   const [mobileInspect, setMobileInspect] = useState(false);
   const [confirmSurrender, setConfirmSurrender] = useState(false);
+  // The Surrender menu on your own deck is open: prompt keys and the right-click decline wait for it.
+  const [deckMenuOpen, setDeckMenuOpen] = useState(false);
   const [hideResult, setHideResult] = useState(false);
   // The next game of a series waits in its lobby for a moment; "Open the table" shows that lobby anyway.
   const [showTable, setShowTable] = useState(false);
@@ -247,8 +250,12 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     clock: data?.clock,
     duelKey: slug,
     reducedMotion: preferences.reducedMotion,
-    ready: Boolean(data?.engine) && data?.session.status !== "lobby" && !ownWindowGate && !error && !realtime.recovering,
+    ready: Boolean(data?.engine) && data?.session.status !== "lobby" && !ownWindowGate && !error,
+    recovering: realtime.recovering,
   });
+  // The card layers go while the connection recovers (their events are history when they return), except while
+  // the opening deal plays: a focus or a socket retry in those seconds must not drop the cards still in flight.
+  const fxUp = fxLayersUp(!error, realtime.recovering, startBeats.dealing);
   const catchingUp = syncing || startBeats.active;
   // The engine drops its prompt when the duel ends; guard here too, so no answer path can open between the end and the result screen.
   const prompt = data?.engine?.result ? null : (data?.engine?.prompt ?? null);
@@ -605,6 +612,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     );
   }
   if (!data) return null;
+  // The series already points at the next game and this room is about to follow: not the result of the game that is over.
+  if (nextTarget && data.series) {
+    return <NextGameStarting room={data} game={data.series.gameNumber} onShowTable={() => goToGame(nextTarget)} />;
+  }
   // The next game of a Best of 3 is made in a lobby that starts by itself: no table settings between games.
   if (isStartingNextGame(data) && !showTable && !ownWindowGate) {
     return <NextGameStarting room={data} onShowTable={() => setShowTable(true)} />;
@@ -688,6 +699,19 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setConfirmSurrender(false);
       void run(() => surrenderDuel(slug));
     }} />;
+  // Your own deck opens a Surrender menu. It uses the same confirm and the same surrender call as the header button.
+  const deckSurrender: DeckSurrenderValue = {
+    seat: data.mySeat, available: canSurrender, busy: busy || catchingUp || Boolean(error),
+    onSurrender: () => setConfirmSurrender(true), onMenuOpenChange: setDeckMenuOpen,
+    scope: `${prompt?.id ?? ""}|${data.engine?.turnSeat ?? ""}`,
+  };
+  // The series has moved on to its next game and this room is about to follow it (the effect on nextTarget).
+  // The old game's result is history by now: do not flash "You win" for the second the next room takes to
+  // open. Show the starting screen of the next game, then its field and its opening deal.
+  if (nextTarget != null && data.series) {
+    const upcoming = { ...data, session: { ...data.session, gameNumber: data.series.gameNumber } };
+    return <NextGameStarting room={upcoming} onShowTable={() => goToGame(nextTarget)} />;
+  }
   if (showBetweenGames) {
     return <BetweenGamesScreen room={data} slug={slug} onChanged={refreshRoom} onNavigate={goToGame} />;
   }
@@ -728,7 +752,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     // One seam set for both live shells, so the room stays one code path.
     const shellProps: TableShellProps = {
       controller: liveController, fillViewport: true, boardRef, pickContinuation: pick, preferences,
-      inputSuspended: surrenderOpen,
+      inputSuspended: surrenderOpen || deckMenuOpen,
       fxActive: !error && !realtime.recovering, busy: busy || Boolean(error) || catchingUp,
       initialOutOrder: eliminationOrder(liveController.engine),
       connection: { ...realtime, stale: roomStale, error: Boolean(error), actionBusy: busy },
@@ -754,8 +778,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {surrenderModal}
       </>,
     };
-    if (liveTagTable) return <TagShell key={slug} {...shellProps} teamNames={defaultTeamNames()} />;
-    return <TableShell key={slug} {...shellProps} />;
+    return <DeckSurrenderContext.Provider value={deckSurrender}>
+      {liveTagTable ? <TagShell key={slug} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={slug} {...shellProps} />}
+    </DeckSurrenderContext.Provider>;
   }
   const connectionLabel = labelForConnection(terminal, { ...realtime, stale: roomStale, error });
   const domain = data.session.mode === "domain";
@@ -928,6 +953,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   );
 
   return (
+    <DeckSurrenderContext.Provider value={deckSurrender}>
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
       data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
@@ -1008,7 +1034,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           data-prompt-surface={dockMode === "idle" ? undefined : ""}
         >
           <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
-            draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu)}
+            draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu) || deckMenuOpen}
             active={data.session.status === "active" && !viewerOut} aim={promptAim} headless={centered} suspended={centered && !revealed}
             waitingName={multi && prompt ? playerName(prompt.seat) : null} />
         </div>
@@ -1034,24 +1060,24 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
                   topName={playerName(top?.seat ?? 1 - localSeat)} />
                 )}
                 <FxBoundary>
-                {!error && !realtime.recovering ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
+                {fxUp ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
                   soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
-                {!error && !realtime.recovering ? <SummonFx events={engine.events} duelKey={slug}
+                {fxUp ? <SummonFx events={engine.events} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
-                {!error && !realtime.recovering ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
-                {!error && !realtime.recovering ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
-                {!error && !realtime.recovering ? <ChainFx events={engine.events} chain={engine.chain} duelKey={slug}
+                {fxUp ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
+                {fxUp ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
+                {fxUp ? <ChainFx events={engine.events} chain={engine.chain} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} ended={duelOver} /> : null}
-                {!error && !realtime.recovering ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
+                {fxUp ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
                   reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
                 <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}
-                  active={!error && !realtime.recovering} aim={battleAim} result={engine.result} battleStep={battleStep} />
+                  active={fxUp} aim={battleAim} result={engine.result} battleStep={battleStep} />
                 <DestroyFx key={`destroy-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
-                  active={!error && !realtime.recovering} mySeat={localSeat} />
+                  active={fxUp} mySeat={localSeat} />
                 </FxBoundary>
                 <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}
                   busy={busy || Boolean(error) || catchingUp || (prompt == null && pick.waiting != null)} draft={draft} onSubmit={onSubmitAnswer}
-                  menuOpen={Boolean(activeMenu)} chain={engine.chain} aim={promptAim}
+                  menuOpen={Boolean(activeMenu) || deckMenuOpen} chain={engine.chain} aim={promptAim}
                   aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
                   reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
                   revealed={revealed} onInspectCard={inspectInfo} nameOf={playerName} />
@@ -1115,5 +1141,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           onSeriesChanged={() => void refreshRoom()} onNavigate={goToGame} />
       ) : null}
     </div>
+    </DeckSurrenderContext.Provider>
   );
 }

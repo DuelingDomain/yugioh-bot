@@ -808,6 +808,33 @@
 .bar[data-stack="true"] .barBtns { flex: 1 1 100%; margin-left: 0; }
 .bar[data-stack="true"] .btn { flex: 1 1 0; }
 
+/* ---------- Tribute dock ---------- */
+/* Tributes are picked on the field, so the instruction docks by your hand (tribute-dock-place.ts) instead of sitting
+   in the middle of the board. prompt-center.tsx sets left and bottom (and --bar-fit for the side dock).
+   side    right of the hand, level with it           above   row above the hand, against the right edge
+   center  row above the hand, centred (Rooftop)       full    a phone: the whole width above the hand
+   Only its buttons take clicks; the field behind stays pickable. */
+.bar[data-place="dock"] {
+  left: auto;
+  top: auto;
+  translate: none;
+  min-width: 0;
+  max-width: min(var(--bar-fit, 380px), calc(100% - 16px));
+  padding: 10px 12px;
+  gap: 8px 12px;
+}
+.bar[data-place="dock"][data-dock="above"] { right: 12px; }
+.bar[data-place="dock"][data-dock="center"] { left: 50%; translate: -50% 0; }
+.bar[data-place="dock"][data-dock="full"] { left: 8px; right: 8px; width: auto; max-width: none; }
+.bar[data-place="dock"] .barThumb { width: 24px; }
+.bar[data-place="dock"] .barMain { flex: 1 1 auto; min-width: max-content; white-space: nowrap; }
+.bar[data-place="dock"][data-dock="full"] .barBtns { margin-left: auto; }
+.bar[data-place="dock"] .btn { min-width: 56px; }
+.bar[data-place="dock"] .barText { flex-direction: row; align-items: center; gap: 10px; }
+@media (max-width: 559px) {
+  .bar[data-place="dock"] .btn { min-height: 40px; }
+}
+
 /* ---------- collapsed pill ---------- */
 .pill {
   position: absolute;

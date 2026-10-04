@@ -57,6 +57,10 @@ describe("startSummary", () => {
     expect(startSummary({ packsPerPlayer: 1, packSize: 40, randomizeSeats: false }, 2).after).toBe(" to each of the 2 players. Nobody can join after this.");
   });
 
+  it("leaves out the shuffle sentence for an older draft with no seat setting", () => {
+    expect(startSummary({ packsPerPlayer: 1, packSize: 40 }, 2).after).toBe(" to each of the 2 players. Nobody can join after this.");
+  });
+
   it("derives the pack count when the config has none", () => {
     expect(packsOf({ cardsPerPlayer: 45, packSize: 15 })).toBe(3);
   });
@@ -97,9 +101,17 @@ describe("setupRows", () => {
       { label: "Packs", value: "3 packs of 15" },
       { label: "Pick duration", value: "45 s" },
       { label: "Passing", value: "Left, then right" },
+      { label: "Copy limit", value: "3 per card" },
       { label: "Seats", value: "Shuffled at the start" },
     ]);
     expect(setupRows({ packSize: 15, packsPerPlayer: 3 }).some((r) => r.label === "Passing")).toBe(false);
+  });
+
+  it("says the seats are in join order unless the config shuffles them", () => {
+    const seats = (config: Parameters<typeof setupRows>[0]) => setupRows(config).find((row) => row.label === "Seats")?.value;
+    expect(seats({ packSize: 15, packsPerPlayer: 3 })).toBe("In join order");
+    expect(seats({ packSize: 15, packsPerPlayer: 3, randomizeSeats: false })).toBe("In join order");
+    expect(seats({ packSize: 15, packsPerPlayer: 3, randomizeSeats: true })).toBe("Shuffled at the start");
   });
 
   it("lists the theme setup", () => {
@@ -109,6 +121,7 @@ describe("setupRows", () => {
       { label: "Extra deck", value: "15 picks" },
       { label: "Each pick", value: "3 choices" },
       { label: "Pick duration", value: "45 s" },
+      { label: "Copy limit", value: "3 per card" },
       { label: "Passed cards", value: "Can come back" },
     ]);
   });

@@ -22,13 +22,14 @@ import {
   LOCATION_EXTRA,
   LOCATION_GRAVE,
   LOCATION_HAND,
+  LOCATION_MZONE,
   LOCATION_REMOVED,
   zoneKey,
 } from "./constants";
 import { battleBreakIs3d, battleDestroyAt, battleTakeover, BREAK_SETTLE_MS, HELD_CRACK_MS } from "./battle-hold";
 import { playsBigSummon } from "./big-summon";
 import { fieldPlacementMs, isFieldPlacementLocation } from "./placement-timing";
-import { MOVE_PACE } from "./duel-timing";
+import { MOVE_PACE, TRIBUTE_FLIGHT_MS, TRIBUTE_TIMING } from "./duel-timing";
 import { isAddToHand, showcaseGateMs, showcaseOrigin, showcasePhases, type ShowcaseOrigin, type ShowcasePhases } from "./add-to-hand";
 import { chainEffectAt } from "./chain-beats";
 import { findZoneElement, findMoveDestination, handArrivalTarget, moveDestinationRect } from "./event-queue";
@@ -48,6 +49,9 @@ export const MOVE_TIMING = {
   minGapMs: MOVE_PACE.minGapMs,
   handMinGapMs: MOVE_PACE.handMinGapMs,
   handQueueCapMs: MOVE_PACE.handQueueCapMs,
+  dealGapMs: MOVE_PACE.dealGapMs,
+  dealMs: MOVE_PACE.dealMs,
+  dealMinCards: MOVE_PACE.dealMinCards,
   /** The whole queue should finish within this many ms of the newest batch arriving. */
   queueCapMs: MOVE_PACE.queueCapMs,
   /** Never speed a burst up by more than this factor (1 / minSpeed). */
@@ -57,7 +61,12 @@ export const MOVE_TIMING = {
   destroyBreakBattleMs: MOVE_PACE.destroyBreakBattleMs,
 } as const;
 
-export type MoveStyle = "place" | "toss" | "draw" | "add" | "fade";
+export type MoveStyle = "place" | "toss" | "draw" | "add" | "fade" | "tribute";
+
+/** A Tribute Summon's part in a move: a Tribute that burns into energy, or the monster the energy flows into. */
+export type TributeRole =
+  | { role: "tribute"; index: number; count: number; to: DuelZoneRef }
+  | { role: "summoned"; count: number };
 
 /** The "Added to hand" showcase of a move: where it starts and how long each leg lasts. */
 export type ShowcasePlan = {
@@ -108,6 +117,8 @@ export type MovePlan = {
   handoff?: number;
   /** The preceding arrival, whose current landing geometry becomes this flight's source. */
   handoffFrom?: DuelEvent;
+  /** A Tribute (style "tribute") and the zone of the summon its energy flows into. */
+  tribute?: { index: number; count: number; to: DuelZoneRef };
 };
 
 export type MoveGeometry = { distance: number };
@@ -159,8 +170,49 @@ export function isMoveEvent(event: DuelEvent): boolean {
   return event.kind === "move" && event.zone != null && event.from != null;
 }
 
+/**
+ * The moves of Tribute Summons in a batch. A tribute summon reads: the Tributes leave the Monster Zone for the
+ * Graveyard, the summoned monster moves onto the field, then the summon event (summonKind "tribute"). Walk back from
+ * each such summon over its own move and the Tribute moves that came just before it.
+ */
+export function tributeRoles(fresh: readonly DuelEvent[]): Map<number, TributeRole> {
+  const roles = new Map<number, TributeRole>();
+  fresh.forEach((summon, k) => {
+    if (summon.kind !== "summon" || summon.summonKind !== "tribute" || !summon.zone) return;
+    const released: DuelEvent[] = [];
+    let summonedMove: DuelEvent | null = null;
+    for (let j = k - 1; j >= 0; j -= 1) {
+      const event = fresh[j];
+      if (!isMoveEvent(event)) break;
+      if (!summonedMove && sameZone(event.zone, summon.zone) && event.from!.location !== LOCATION_MZONE) {
+        summonedMove = event;
+        continue;
+      }
+      if (event.from!.location === LOCATION_MZONE && event.zone!.location === LOCATION_GRAVE && event.from!.controller === summon.zone.controller) {
+        released.unshift(event);
+        continue;
+      }
+      break;
+    }
+    if (released.length === 0) return;
+    released.forEach((event, index) => roles.set(event.id, { role: "tribute", index, count: released.length, to: summon.zone! }));
+    if (summonedMove) roles.set(summonedMove.id, { role: "summoned", count: released.length });
+  });
+  return roles;
+}
+
 function isPileLocation(location: number): boolean {
   return location === LOCATION_GRAVE || location === LOCATION_REMOVED || location === LOCATION_DECK || location === LOCATION_EXTRA;
+}
+
+/**
+ * A deal: a batch of plain draws from the Deck into hands, like the two opening hands. Its cards leave
+ * the Deck one after the other at a short fixed pace (dealGapMs), so a hand fills card by card in about
+ * a second. One draw, or a draw effect of a few cards, keeps the ordinary pace.
+ */
+export function isDealBatch(events: readonly DuelEvent[]): boolean {
+  return events.length >= MOVE_TIMING.dealMinCards && events.every((event) => event.reason === "draw"
+    && event.from?.location === LOCATION_DECK && event.zone?.location === LOCATION_HAND);
 }
 
 export function moveStyleOf(event: DuelEvent, reduced: boolean): MoveStyle {
@@ -188,6 +240,8 @@ export function baseDuration(style: MoveStyle, distance: number, reduced = false
       return showcasePhases(1, reduced).totalMs;
     case "toss":
       return clamp(MOVE_TIMING.tossMin + d * 0.1, MOVE_TIMING.tossMin, MOVE_TIMING.tossMax);
+    case "tribute":
+      return TRIBUTE_FLIGHT_MS;
     default:
       return fieldPlacementMs(clamp(MOVE_TIMING.placeMin + d * 0.14, MOVE_TIMING.placeMin, MOVE_TIMING.placeMax), reduced || !fieldPlacement);
   }
@@ -213,6 +267,10 @@ type Candidate = {
   /** The showcase starts here (style "add"). */
   origin: ShowcaseOrigin | null;
   predecessor?: Candidate;
+  /** A Tribute of a Tribute Summon: it plays at a fixed time with its siblings, not in the serial queue. */
+  tribute?: { index: number; count: number; to: DuelZoneRef };
+  /** The monster summoned with Tributes: it waits for their energy (the number of Tributes). */
+  tributeWait?: number;
 };
 
 /** Departing cards use frozen geometry; a stationary Deck uses its currently displayed anchor. */
@@ -273,6 +331,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
 
   const candidates: Candidate[] = [];
   const claimed = new Set<number>();
+  const roles = tributeRoles(fresh);
   for (let i = 0; i < fresh.length; i += 1) {
     const event = fresh[i];
     if (!isMoveEvent(event) || plans.has(event.id)) continue;
@@ -345,6 +404,23 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       pieces = null;
       style = "fade";
     }
+    // A Tribute of a Tribute Summon burns into energy; the summoned monster waits for it. Under reduced motion
+    // the Tribute fades (style "fade") and the summon waits a short beat.
+    const role = roles.get(event.id);
+    let tribute: Candidate["tribute"];
+    let tributeWait: number | undefined;
+    if (role && !takeover && !destroy) {
+      if (role.role === "tribute") {
+        if (!reduced && style === "toss") {
+          style = "tribute";
+          tribute = { index: role.index, count: role.count, to: role.to };
+        } else if (reduced) {
+          tribute = { index: 0, count: role.count, to: role.to };
+        }
+      } else {
+        tributeWait = role.count;
+      }
+    }
     // The effect of a resolving chain link plays while its badge is lit, never before it. A card that
     // cracks first leaves for the pile only after the crack, so the lead counts from that moment.
     const chainAt = [event.id, ...paired].reduce((max, id) => Math.max(max, chainEffectAt(id)), 0);
@@ -353,7 +429,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     if (lead > 0) silent = false;
     const source = resolveSource(from, event.id);
     const origin = style === "add" ? showcaseOrigin(event, now, source != null) : null;
-    candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance, reduced, isFieldPlacementLocation(to.location)), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin });
+    candidates.push({ event, style, base: silent ? 0 : baseDuration(style, geo.distance, reduced, isFieldPlacementLocation(to.location)), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin, tribute, tributeWait });
   }
   if (candidates.length === 0) {
     sequenceEffects(fresh, [...plans.values()], now, reduced);
@@ -420,10 +496,25 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
 
   const t0 = Math.max(now, state.nextStartAt);
   const t0Free = now;
+  // The Tributes of a Tribute Summon lift together (a short stagger) and the summoned monster starts as their last
+  // energy lands, so it cannot start before then: its start is a floor, like a battle hold.
+  for (const item of candidates) {
+    if (item.tributeWait == null) continue;
+    const energyEnd = reduced
+      ? t0 + TRIBUTE_TIMING.reducedMs
+      : t0 + (item.tributeWait - 1) * TRIBUTE_TIMING.staggerMs + TRIBUTE_FLIGHT_MS - TRIBUTE_TIMING.summonLeadMs;
+    item.notBefore = Math.max(item.notBefore, energyEnd);
+  }
+  const deal = isDealBatch(candidates.map((item) => item.event)) && candidates.every((item) => !item.takeover && !item.silent);
   const place = (speed: number) => {
     let cursor = t0;
     const out: Array<{ start: number; dur: number; phases: ShowcasePhases | null }> = [];
     candidates.forEach((item, index) => {
+      if (item.tribute) {
+        // Fixed time beside its siblings: it neither waits for the cards before it nor delays the ones after it.
+        out.push({ start: Math.max(t0 + item.tribute.index * (reduced ? 0 : TRIBUTE_TIMING.staggerMs), item.notBefore), dur: item.base, phases: null });
+        return;
+      }
       if (item.takeover) {
         // Fixed time, outside the serial queue: it neither waits for the cards before it nor delays the ones after it.
         out.push({ start: Math.max(item.notBefore, t0Free), dur: item.base, phases: null });
@@ -431,7 +522,8 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       }
       // A showcase has fixed legs (the hold stays long enough to read); the rest of the queue gives way.
       const phases = item.style === "add" ? showcasePhases(speed, reduced) : null;
-      const dur = phases ? phases.totalMs : item.base * speed;
+      // A dealt card flies a little quicker than a lone draw; reduced motion keeps its short fade.
+      const dur = phases ? phases.totalMs : deal && !reduced ? MOVE_TIMING.dealMs * speed : item.base * speed;
       const predecessorIndex = item.predecessor ? candidates.indexOf(item.predecessor) : -1;
       const predecessor = out[predecessorIndex];
       // A continuation starts exactly where its own card lands, even while other cards in the
@@ -440,7 +532,8 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       out.push({ start, dur, phases });
       // The next card of the effect starts as the showcase card sets off for the hand.
       const minGap = item.event.zone?.location === LOCATION_HAND ? MOVE_TIMING.handMinGapMs : MOVE_TIMING.minGapMs;
-      const gate = phases ? showcaseGateMs(phases, candidates[index + 1]?.style === "add") : Math.max(dur * MOVE_TIMING.overlap, minGap);
+      const gate = phases ? showcaseGateMs(phases, candidates[index + 1]?.style === "add")
+        : deal ? MOVE_TIMING.dealGapMs : Math.max(dur * MOVE_TIMING.overlap, minGap);
       cursor = Math.max(cursor, start + gate);
     });
     return { out, cursor };
@@ -448,10 +541,10 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
   let speed = 1;
   let layout = place(speed);
   // Time spent waiting for a battle is not a backlog to squeeze: measure from the latest hold.
-  const queued = candidates.filter((item) => !item.takeover);
+  const queued = candidates.filter((item) => !item.takeover && !item.tribute);
   const queueCap = queued.every((item) => item.event.zone?.location === LOCATION_HAND) ? MOVE_TIMING.handQueueCapMs : MOVE_TIMING.queueCapMs;
   const floor = queued.reduce((max, item) => Math.max(max, item.notBefore), now);
-  const finishQueued = (l: ReturnType<typeof place>) => l.out.reduce((max, o, i) => (candidates[i].takeover ? max : Math.max(max, o.start + o.dur)), 0);
+  const finishQueued = (l: ReturnType<typeof place>) => l.out.reduce((max, o, i) => (candidates[i].takeover || candidates[i].tribute ? max : Math.max(max, o.start + o.dur)), 0);
   const span = finishQueued(layout) - floor;
   if (span > queueCap) {
     const fixed = queued.reduce((sum, item) => sum + item.lead, 0);
@@ -484,6 +577,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       showcase: phases && item.origin ? { origin: item.origin, phases } : null,
       handoff: candidates.find((candidate) => candidate.predecessor === item)?.event.id,
       handoffFrom: item.predecessor?.event,
+      ...(item.tribute && item.style === "tribute" ? { tribute: item.tribute } : null),
     };
     plans.set(plan.id, plan);
     for (const id of item.paired) pairs.set(id, plan.id);

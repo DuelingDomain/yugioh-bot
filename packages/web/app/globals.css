@@ -47,6 +47,59 @@
   --duel-z-result: 200;         /* the result screen */
 }
 
+/* Motion tokens, "quick and quiet". Mirrored in src/lib/motion.ts (JS cannot read var() in a WAAPI
+   easing); tests/lib/motion.test.ts checks the two agree.
+   Curves: ease-out for things entering and fades, ease-in-out for things already on screen that
+   move, ease-drawer for the phone drawer only. Never ease-in.
+   Durations: exits are shorter than enters. --d-rm is the only duration used under reduced motion.
+   Distances and scales go through the --motion-* multipliers, which reduced motion sets to "none". */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --d-press: 160ms;
+  --d-hover: 140ms;
+  --d-page-out: 120ms;
+  --d-page-in: 200ms;
+  --d-tab: 200ms;
+  --d-pane-out: 110ms;
+  --d-pane-in: 180ms;
+  --d-arrive: 160ms;      /* plus 20ms per row, rows past 8 arrive with row 8 */
+  --d-roll: 220ms;
+  --d-flip: 300ms;
+  --d-wash: 1200ms;
+  --d-modal-in: 200ms;
+  --d-modal-out: 150ms;
+  --d-pop-in: 150ms;
+  --d-pop-out: 100ms;
+  --d-drawer-in: 300ms;
+  --d-drawer-out: 220ms;
+  --d-toast-in: 220ms;
+  --d-toast-out: 160ms;
+  --d-skel: 160ms;
+  --d-ready-in: 320ms;
+  --d-ready-out: 180ms;
+  --d-ready-line: 700ms;
+  --d-rm: 140ms;
+
+  --motion-travel: 1;     /* multiplies every translate distance: calc(6px * var(--motion-travel)) */
+  --motion-press: 0.97;   /* :active scale for buttons */
+  --motion-press-row: 0.992; /* :active scale for rows */
+  --motion-modal-scale: 0.96;
+  --motion-pop-scale: 0.97;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-travel: 0;
+    --motion-press: 1;
+    --motion-press-row: 1;
+    --motion-modal-scale: 1;
+    --motion-pop-scale: 1;
+  }
+}
+
 html {
   background-color: var(--color-bg-deep);
   color: var(--color-text-primary);
@@ -201,7 +254,7 @@ body {
   animation: rank-twinkle 2.2s ease-in-out 1.1s infinite;
 }
 @keyframes rank-twinkle {
-  0%, 100% { opacity: 0; transform: scale(0.3); }
+  0%, 100% { opacity: 0; transform: scale(0.6); }
   50% { opacity: 1; transform: scale(1); }
 }
 
