@@ -7,7 +7,8 @@ import { EFFECTS } from "./effects";
 import type { FxEnv, FxInstance } from "./effects/base";
 import { PostPass } from "./post";
 import { FxKit, type ShaderName } from "./kit";
-import type { Fx3dApi, Fx3dEffectId, FxRequest } from "./types";
+import type { Fx3dApi, Fx3dPlayId, FxRequest } from "./types";
+import { deckMasterFactory, warmDeckMaster } from "./effects/deckmaster-summon";
 
 /**
  * The WebGL overlay: one transparent canvas over the whole board, an orthographic camera in CSS
@@ -117,9 +118,9 @@ export class Fx3dEngine implements Fx3dApi {
     if (this.ready) this.art.prefetch(code, uploadEarly);
   }
 
-  play(id: Fx3dEffectId, request: FxRequest, signal?: AbortSignal): Promise<void> {
+  play(id: Fx3dPlayId, request: FxRequest, signal?: AbortSignal): Promise<void> {
     if (!this.ready || signal?.aborted) return Promise.resolve();
-    const factory = EFFECTS[id];
+    const factory = id === "summon:deckmaster" ? (request.deckmaster ? deckMasterFactory : undefined) : EFFECTS[id];
     if (!factory) return Promise.resolve();
     // The host may have been resized since the last frame: measure now, so rectangles land exactly.
     this.resize();
@@ -173,6 +174,7 @@ export class Fx3dEngine implements Fx3dApi {
     const meshes = names.map((name) => ({ name, mesh: this.kit.mesh(name) }));
     const particles = (["add", "solid"] as const).map((kind) => ({ kind, ...this.kit.particles(1, kind) }));
     for (const { mesh } of meshes) scene.add(mesh);
+    const releaseDeckMaster = warmDeckMaster(scene);
     for (const { set } of particles) {
       set.points.geometry.setDrawRange(0, 1);
       scene.add(set.points);
@@ -191,6 +193,7 @@ export class Fx3dEngine implements Fx3dApi {
       if (!this.disposed) {
         for (const { name, mesh } of meshes) this.kit.releaseMesh(name, mesh);
         for (const { kind, set } of particles) this.kit.releaseParticles(set, kind);
+        releaseDeckMaster();
       } else scene.clear();
       this.warming = false;
       if (this.ready) this.options.onStatus?.(true);

@@ -1,4 +1,5 @@
 import type { BattleClock } from "../battle-clock";
+import type { FxDeckMaster } from "./effects/deckmaster-summon-timeline";
 
 /**
  * Shared types of the Three.js effect layer. This file never imports `three`, so the rest of the
@@ -28,6 +29,10 @@ export type Fx3dEffectId =
   | "pillar"
   | "battle"
   | "scene";
+
+/** 3D mode only: the Deck Master summon hologram (see effects/deckmaster-summon.ts). Not in the V1 effect table. */
+export type Fx3dDeckMasterId = "summon:deckmaster";
+export type Fx3dPlayId = Fx3dEffectId | Fx3dDeckMasterId;
 
 /** The seven attack styles (same ids as attack-styles.ts; repeated here so this file stays standalone). */
 export type FxAttackStyle = "slash" | "claw" | "beam" | "arcane" | "lightning" | "flame" | "impact";
@@ -187,13 +192,15 @@ export type FxRequest = {
   battle?: FxBattle;
   /** id "scene": the trap or effect set piece. */
   scene?: FxScene;
+  /** id "summon:deckmaster": the dock picture, the page card, the table tilt and the settle callback. */
+  deckmaster?: FxDeckMaster;
 };
 
 export interface Fx3dApi {
   /** True while the canvas can draw (no context loss, not disposed). */
   readonly ready: boolean;
   /** Runs an effect. Resolves when it has finished or was cancelled (abort the signal); never rejects. */
-  play(id: Fx3dEffectId, request: FxRequest, signal?: AbortSignal): Promise<void>;
+  play(id: Fx3dPlayId, request: FxRequest, signal?: AbortSignal): Promise<void>;
   /** Loads art; uploadEarly is reserved for the attacker and target of a pending battle. */
   prefetchArt(code: number, uploadEarly?: boolean): void;
   /** Stops every running effect at once. */
