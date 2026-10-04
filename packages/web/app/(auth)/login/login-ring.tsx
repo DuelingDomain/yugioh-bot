@@ -38,8 +38,8 @@ export function LoginRing() {
             className={`${styles.fc} ${card.className}`}
             src={`https://images.ygoprodeck.com/images/cards/${card.id}.jpg`}
             alt=""
-            width={88}
-            height={128}
+            width={106}
+            height={155}
             priority
           />
         ))}

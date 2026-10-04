@@ -19,14 +19,14 @@
 
 /* Ring and fan. The fan box is square, so the ring centre is the box centre. */
 .fan {
-  --size: 248px;
-  --cw: 88px;
+  --size: 304px;
+  --cw: 106px;
   --ch: calc(var(--cw) * 1185 / 813);
   --gy: -0.3px;
   position: relative;
   width: var(--size);
   height: var(--size);
-  margin: 0 auto 26px;
+  margin: 0 auto 30px;
 }
 
 .rings,
@@ -72,23 +72,26 @@
   border-radius: 5px;
   box-shadow: 0 14px 34px -8px rgb(0 0 0 / 0.7);
   transform-origin: 50% 130%;
-  transform: translate(-50%, var(--dy)) rotate(var(--r));
+  transform: translate(calc(-50% + var(--dx)), var(--dy)) rotate(var(--r));
 }
 
 .dm {
-  --r: -15deg;
+  --r: -19deg;
+  --dx: -26px;
   --dy: 0px;
   z-index: 1;
 }
 
 .ud {
-  --r: 15deg;
+  --r: 19deg;
+  --dx: 26px;
   --dy: 0px;
   z-index: 1;
 }
 
 .be {
   --r: 0deg;
+  --dx: 0px;
   --dy: -12px;
   z-index: 2;
 }
@@ -274,8 +277,8 @@
 
 @media (max-width: 480px) {
   .fan {
-    --size: 232px;
-    --cw: 82px;
+    --size: 284px;
+    --cw: 98px;
     --gy: 0.1px;
   }
 
