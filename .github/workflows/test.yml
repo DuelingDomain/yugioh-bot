@@ -5,15 +5,14 @@ name: Test
 #   cores        build or restore the engine bundle (standard, domain and multi cores). Shared by the next jobs.
 #   unit         typecheck and the tests that need no core (shared, bot, web, duel-server unit, e2e unit).
 #   engine       real-engine tests with DUEL_REQUIRE_CORES=1: a missing core is a failure, never a silent skip.
-#   engine-legacy  the same suite with DUEL_1V1_ENGINE=legacy (the production default for 1v1), plus main's own engine tests
+#   engine-legacy  1v1 host/worker gates with DUEL_1V1_ENGINE=legacy (the production default), plus main's engine tests
 #                run against the legacy engine (tests/legacy-main). The engine job runs the merged engine ("pinned").
 #   native       ASan/UBSan build of the multi core and the committed native checks (npm run test:native).
 #   rule-coverage  every rule of ADR-0002 has a covering test (--strict).
 #   nduel-nightly  scheduled: the nduel fuzz (n2, n3, n4, tag) with --check-future, and the golden hash check.
 #
-# Pull requests and pushes to main skip the engine jobs they cannot affect (see changes).
-# A missing or unreadable commit range runs all engine jobs. A manual run (workflow_dispatch)
-# runs every job, nduel-nightly too. The schedule runs cores and nduel-nightly only.
+# Pushes to main run every job except nduel-nightly. Pull requests skip engine jobs they cannot affect.
+# A manual run runs every job, including nduel-nightly. The schedule runs cores and nduel-nightly only.
 
 on:
   pull_request:
@@ -31,7 +30,6 @@ on:
 
 concurrency:
   # The event name is in the group: a long nightly run must not hold back (or cancel) the push runs on main.
-  # Push diffs start at the last successful run, so replacing a pending run cannot hide changes.
   group: test-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -44,7 +42,7 @@ env:
   BUNDLE_DIR: data/duel-engine-next
 
 jobs:
-  # Which layers a pull request or push can affect. Manual runs and the schedule set both flags to true.
+  # Which layers a pull request can affect. Main pushes, manual runs and the schedule run full suites.
   #   engine      the duel engine, its shared dependencies, the engine bundle inputs, the lockfile or this workflow changed:
   #               the engine, legacy engine and native jobs run.
   #   web_engine  engine, or the duel UI or web tests changed: the engine job runs, for the web tests that drive a real
@@ -54,15 +52,14 @@ jobs:
     name: Changed layers
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
     outputs:
       engine: ${{ steps.diff.outputs.engine }}
       web_engine: ${{ steps.diff.outputs.web_engine }}
+      tests_only: ${{ steps.diff.outputs.tests_only }}
+      base: ${{ steps.diff.outputs.base }}
+      head: ${{ steps.diff.outputs.head }}
     steps:
       - name: Checkout
-        if: github.event_name == 'pull_request' || github.event_name == 'push'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -70,148 +67,157 @@ jobs:
       - name: Diff changed files
         id: diff
         env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
+          EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          run_all() {
-            printf 'engine=true\nweb_engine=true\n' | tee -a "$GITHUB_OUTPUT"
-          }
-          case "$EVENT_NAME" in
-            pull_request) range="$BASE...$HEAD" ;;
-            push)
-              if ! BASE=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/test.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""'); then
-                echo "Cannot read the last successful Test push run. Run all engine jobs."
-                run_all
-                exit 0
-              fi
-              range="$BASE..$HEAD"
-              ;;
-            *) run_all; exit 0 ;;
-          esac
-          if [ -z "$BASE" ] || [ -z "$HEAD" ] || [[ "$BASE" =~ ^0+$ ]]; then
-            echo "No valid commit range. Run all engine jobs."
-            run_all
-            exit 0
-          fi
-          # Include changes since the last successful push run, even if intervening runs failed or were cancelled.
-          # Rewinds and divergent force pushes run everything.
-          if [ "$EVENT_NAME" = "push" ] && ! git merge-base --is-ancestor "$BASE" "$HEAD"; then
-            echo "The push base is missing or is not an ancestor. Run all engine jobs."
-            run_all
-            exit 0
-          fi
-          # Include both paths of a rename so moving an engine file cannot hide its deletion.
-          if ! files=$(git diff --name-only --no-renames "$range"); then
-            echo "Cannot read the diff. Run all engine jobs."
-            run_all
-            exit 0
-          fi
-          echo "$files"
-          engine=false
-          web_engine=false
-          # Exclude only reviewed shared paths whose behavior the host, engine tests and e2e helpers do not exercise.
-          # Engine code loads the whole @yugidraft/shared/services barrel at runtime, so the excluded services
-          # still load in engine tests. The unit job catches load-time faults in those services.
-          # Keep db, duels, scoring, tournaments, types, util, ws, notify, service entry points and their
-          # dependencies (including card-catalog, matches, saved-decks and seasons). Shared tests run in unit.
-          # Unknown shared paths and scripts stay in the engine rule. Update this list when imports change.
-          shared_non_engine='^packages/shared/(tests/|scripts/README\.md$|src/maintenance/repair-ratings\.ts$|src/services/(bug-reports|card-images|cubes|deal|draft-access|draft-decks|draft-tournament|drafts|guild-settings|live-now|players|tournament-registrations)\.ts$)'
-          # Root seed and catalog scripts serve drafts, not the engine. Keep staging/engine scripts and
-          # package.json: CI uses its engine/native/prepare commands, workspace config and postinstall hook.
-          scripts_non_engine='^scripts/(seed\.ts$|generate-draft-catalog-snapshot\.ts$|data/draft-catalog-legendary\.json$)'
-          engine_files=$(printf '%s\n' "$files" | { grep -vE "$shared_non_engine|$scripts_non_engine" || true; })
-          # Use here-strings: grep -q can close a pipe early, making pipefail hide a match in a large diff.
-          if grep -qE '^(packages/(duel-server|shared|e2e)/|patches/|scripts/|\.github/workflows/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$)' <<< "$engine_files"; then
-            engine=true
-            web_engine=true
-          elif grep -qE '^packages/web/(src/components/(duel|ui)/|src/lib/utils\.ts$|e2e/|tests/|package\.json$|vitest\.config\.ts$|tsconfig[^/]*\.json$)' <<< "$files"; then
-            web_engine=true
-          fi
-          echo "engine=$engine" | tee -a "$GITHUB_OUTPUT"
-          echo "web_engine=$web_engine" | tee -a "$GITHUB_OUTPUT"
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/ci/changed-layers.mjs
 
-  cores:
-    name: Engine cores (build or restore)
+  core-cache:
+    name: Engine core cache
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 5
     outputs:
       key: ${{ steps.key.outputs.key }}
+      hit: ${{ steps.bundle.outputs.cache-hit }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      # Same inputs as the deploy bundle key in deploy.yml, plus the multi core series and its build scripts.
-      # The prefix differs from deploy.yml on purpose: this bundle also holds the multi cores and a different path.
-      # The v4 is a literal: raise it when the build steps or flags in this file change (the hash cannot see them).
-      # The emsdk image comes from pins.json (a pins.json change also changes the key).
+      # v5 keeps the parallel build inputs and invalidates bundles from before PR #124.
+      # Raise the literal version when workflow build flags or bundle metadata change.
+      # The emsdk image comes from pins.json; the independent builders read the same pin.
       - name: Compute bundle cache key
         id: key
-        run: echo "key=duel-engine-ci-v4-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
-
+        run: echo "key=duel-engine-ci-v5-${{ hashFiles('scripts/ci/build-core.sh', 'scripts/ci/parallel-emxx.py', 'scripts/ci/bin/em++', 'scripts/ci/core-cache-key.mjs', 'scripts/ci/assemble-core-bundle.mjs', 'packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/expected-sha256.txt', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
       - name: Read the emsdk image from pins.json
         run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
-
-      - name: Restore engine bundle
+      - name: Look up engine bundle
         id: bundle
         uses: actions/cache/restore@v4
         with:
+          lookup-only: true
           path: |
             data/duel-engine-next
             packages/duel-server/domain-core/dist
           key: ${{ steps.key.outputs.key }}
 
+  core-build:
+    name: Build core (${{ matrix.target }})
+    if: needs.core-cache.outputs.hit != 'true'
+    needs: core-cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [standard, domain, legacy-domain, multi, multi-domain, multi-ref, multi-ref-domain, multi-trap, multi-domain-trap]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Compute core cache key
+        id: key
+        run: node scripts/ci/core-cache-key.mjs ${{ matrix.target }}
+      - name: Restore compiled core
+        id: core
+        uses: actions/cache/restore@v4
+        with:
+          path: ci-core/${{ matrix.target }}
+          key: ${{ steps.key.outputs.key }}
       - name: Setup Node.js
-        if: steps.bundle.outputs.cache-hit != 'true'
+        if: steps.core.outputs.cache-hit != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
-
-      - name: Build standard and domain cores
-        if: steps.bundle.outputs.cache-hit != 'true'
-        env:
-          DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
+      - name: Restore compiler libraries
+        if: steps.core.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: .cache/emscripten
+          key: emcache-v1-${{ matrix.target }}-${{ hashFiles('packages/duel-server/domain-core/pins.json', 'packages/duel-server/legacy-1v1/domain-core/pins.json') }}-${{ steps.key.outputs.key }}
+          # Emscripten validates its system-library flags. A previous patch series can reuse those libraries.
+          restore-keys: |
+            emcache-v1-${{ matrix.target }}-${{ hashFiles('packages/duel-server/domain-core/pins.json', 'packages/duel-server/legacy-1v1/domain-core/pins.json') }}-
+      - name: Install
+        if: steps.core.outputs.cache-hit != 'true'
         run: |
           npm ci --ignore-scripts
           npx patch-package --error-on-fail
-          npm run duel:prepare
-          docker pull "$EMSDK_IMAGE"
-          npx tsx packages/duel-server/scripts/build-domain-core.ts
-          npx tsx packages/duel-server/scripts/build-domain-core.ts standard
-          # The Domain core of the legacy 1v1 engine (main's build), next to the merged one. 1v1 duels start on it by default.
-          npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
+      - name: Build core with all runner CPUs
+        if: steps.core.outputs.cache-hit != 'true'
+        run: prlimit --core=1:1 -- bash scripts/ci/build-core.sh ${{ matrix.target }}
+      - name: Verify compiled core hashes
+        run: prlimit --core=1:1 -- bash scripts/ci/build-core.sh ${{ matrix.target }} --verify-only
+      - name: Save compiled core
+        if: steps.core.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ci-core/${{ matrix.target }}
+          key: ${{ steps.key.outputs.key }}
+      - name: Upload core
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-${{ matrix.target }}
+          path: ci-core/
+          if-no-files-found: error
+          retention-days: 1
 
-      # All CI multi cores use LUA_FIXED_SEED=1 so one binary serves the engine and differential tests.
-      # deploy.yml builds separate multi cores with production Lua randomness, without LUA_FIXED_SEED.
-      - name: Build multi cores
-        if: steps.bundle.outputs.cache-hit != 'true'
+  cores:
+    name: Engine cores (build or restore)
+    if: always() && needs.core-cache.result == 'success'
+    needs: [core-cache, core-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      key: ${{ needs.core-cache.outputs.key }}
+    steps:
+      - name: Check core build results
+        env:
+          CORE_BUILD: ${{ needs.core-build.result }}
         run: |
-          set -eu
-          build_multi() {
-            out="$1"; shift
-            args=()
-            for kv in "$@"; do args+=(-e "$kv"); done
-            docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
-              -e EM_CACHE=/src/packages/duel-server/domain-core/.emcache \
-              -e LUA_FIXED_SEED=1 -e OUT_NAME="$out" "${args[@]}" \
-              -v "$PWD":/src -w /src "$EMSDK_IMAGE" \
-              bash packages/duel-server/scripts/build-multi-core.sh
-          }
-          tree=/src/packages/duel-server/domain-core/.build
-          # Engine cores: the full series, without and with the Domain layer for 3 and 4 duelists.
-          build_multi ocgcore.multi.sync.wasm "MULTI_TREE=$tree/multi-core-tree"
-          build_multi ocgcore.multi-domain.sync.wasm "MULTI_TREE=$tree/multi-core-tree" APPLY_DOMAIN=1 DOMAIN_MULTI=1
-          # Differential references: patches 1 and 2 only (same rules, different binary layout).
-          build_multi ocgcore.multi-ref.sync.wasm "MULTI_TREE=$tree/multi-ref-tree" PATCH_LIMIT=2
-          build_multi ocgcore.multi-ref-domain.sync.wasm "MULTI_TREE=$tree/multi-ref-tree" PATCH_LIMIT=2 APPLY_DOMAIN=1
-          # Debug cores for the Table test and the Domain Tag trap tests: the full series with -DYGO_N_TRAP.
-          build_multi ocgcore.multi-trap.sync.wasm "MULTI_TREE=$tree/multi-core-tree" EXTRA_CXXFLAGS=-DYGO_N_TRAP
-          build_multi ocgcore.multi-domain-trap.sync.wasm "MULTI_TREE=$tree/multi-core-tree" APPLY_DOMAIN=1 DOMAIN_MULTI=1 EXTRA_CXXFLAGS=-DYGO_N_TRAP
+          case "$CORE_BUILD" in
+            success|skipped) ;;
+            *) echo "Core build result: $CORE_BUILD" >&2; exit 1 ;;
+          esac
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Restore engine bundle
+        if: needs.core-cache.outputs.hit == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/duel-engine-next
+            packages/duel-server/domain-core/dist
+          key: ${{ needs.core-cache.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Setup Node.js
+        if: needs.core-cache.outputs.hit != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Prepare card data and scripts
+        if: needs.core-cache.outputs.hit != 'true'
+        env:
+          DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
+        run: |
+          npm ci
+          npm run duel:prepare
+      - name: Download all cores
+        if: needs.core-cache.outputs.hit != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: core-*
+          path: ci-core
+          merge-multiple: true
+      # Build jobs have separate manifests. Only this step writes the final manifest, in serial build order.
+      - name: Assemble engine bundle
+        if: needs.core-cache.outputs.hit != 'true'
+        env:
+          DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
+        run: node scripts/ci/assemble-core-bundle.mjs
 
       - name: Install multi cores into the bundle
-        if: steps.bundle.outputs.cache-hit != 'true'
+        if: needs.core-cache.outputs.hit != 'true'
         run: |
           set -eu
           dist=packages/duel-server/domain-core/dist
@@ -223,15 +229,6 @@ jobs:
               "$(sha256sum "$dist/$stem.sync.wasm" | cut -d' ' -f1)" \
               "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BUNDLE_DIR/$stem.SOURCE"
           done
-
-      - name: Save engine bundle
-        if: steps.bundle.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            data/duel-engine-next
-            packages/duel-server/domain-core/dist
-          key: ${{ steps.key.outputs.key }}
 
       - name: Verify engine bundle
         run: |
@@ -246,14 +243,35 @@ jobs:
           # The legacy 1v1 files must be main's files (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
           sh packages/duel-server/scripts/check-legacy-pin.sh "$PWD/$BUNDLE_DIR"
 
-  unit:
-    name: Unit tests (no core)
+      - name: Verify pinned core hashes
+        run: |
+          set -eu
+          dist=packages/duel-server/domain-core/dist
+          (cd "$dist" && sha256sum --check ../expected-sha256.txt)
+          for target in domain multi multi-domain; do
+            cmp "$dist/ocgcore.$target.sync.wasm" "$BUNDLE_DIR/ocgcore.$target.wasm"
+          done
+
+      - name: Save engine bundle
+        if: needs.core-cache.outputs.hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/duel-engine-next
+            packages/duel-server/domain-core/dist
+          key: ${{ needs.core-cache.outputs.key }}
+
+  unit-packages:
+    name: Unit packages and typecheck
+    needs: changes
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ needs.changes.outputs.tests_only == 'true' && '0' || '1' }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -276,22 +294,95 @@ jobs:
       - name: Test bot
         run: npm test --workspace=packages/bot
 
-      - name: Test web
-        run: npm test --workspace=packages/web
+      - name: Test CI helpers
+        run: |
+          node --test scripts/ci/*.test.mjs
+          python3 -B scripts/ci/parallel_emxx_test.py
+
+      - name: Select changed test files
+        id: selection
+        if: needs.changes.outputs.tests_only == 'true'
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+          HEAD: ${{ needs.changes.outputs.head }}
+        run: node scripts/ci/select-engine-tests.mjs
 
       # Needs the test:unit script of duel-server: the tests that load no wasm core.
       - name: Test duel-server (no core)
-        run: npm run test:unit --workspace=@yugidraft/duel-server
+        env:
+          CI_TEST_FILES: ${{ steps.selection.outputs.files }}
+        run: |
+          node --input-type=module <<'JS'
+          import { spawnSync } from 'node:child_process';
+          const selected = process.env.CI_TEST_FILES ? JSON.parse(process.env.CI_TEST_FILES) : undefined;
+          const narrow = selected?.length > 0;
+          const files = narrow ? selected : ['tests'];
+          if (selected?.length === 0) console.warn('Empty CI test selection; falling back to the full suite.');
+          const result = spawnSync('npm', ['exec', '--workspace=packages/duel-server', '--', 'vitest', 'run', ...files,
+            '--config=vitest.unit.config.ts', '--testTimeout=15000', ...(narrow ? ['--passWithNoTests'] : [])], { stdio: 'inherit' });
+          if (result.error) throw result.error;
+          process.exit(result.status ?? 1);
+          JS
 
       - name: Test e2e helpers
         run: npm run test:unit --workspace=@yugidraft/e2e
 
-  engine:
-    name: Engine tests (cores required)
-    if: github.event_name != 'schedule' && needs.changes.outputs.web_engine == 'true'
+  unit-web:
+    name: Web unit tests (${{ matrix.shard }}/4)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Build shared
+        run: npm run build --workspace=@yugidraft/shared
+      - name: Test web
+        run: npm test --workspace=packages/web -- --shard=${{ matrix.shard }}/4
+
+  # Keep the branch-protection check names. A failed or cancelled shard fails the aggregate.
+  unit:
+    name: Unit tests (no core)
+    if: always() && github.event_name != 'schedule'
+    needs: [unit-packages, unit-web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all unit jobs
+        env:
+          PACKAGES: ${{ needs.unit-packages.result }}
+          WEB: ${{ needs.unit-web.result }}
+        run: test "$PACKAGES" = success && test "$WEB" = success
+
+  engine-shards:
+    name: Engine tests shard (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.count }})
+    if: ${{ !cancelled() && needs.cores.result == 'success' && github.event_name != 'schedule' && needs.changes.outputs.web_engine == 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [pinned]
+        shard: [1, 2, 3, 4, 5, 6]
+        count: [6]
+        # Keep the slow host/differential files off the regular+Table shards.
+        # Both surrender modes and all differential seeds still run across these groups.
+        include:
+          - { suite: surrender, shard: 1, count: 2 }
+          - { suite: surrender, shard: 2, count: 2 }
+          - { suite: differential, shard: 1, count: 2 }
+          - { suite: differential, shard: 2, count: 2 }
     env:
       DUEL_REQUIRE_CORES: "1"
       DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
@@ -306,6 +397,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ needs.changes.outputs.tests_only == 'true' && '0' || '1' }}
 
       - name: Restore engine bundle
         uses: actions/cache/restore@v4
@@ -328,9 +421,19 @@ jobs:
       - name: Build shared
         run: npm run build --workspace=@yugidraft/shared
 
+      - name: Select changed test files
+        id: selection
+        if: needs.changes.outputs.tests_only == 'true'
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+          HEAD: ${{ needs.changes.outputs.head }}
+        run: node scripts/ci/select-engine-tests.mjs
+
       - name: Engine tests
         if: needs.changes.outputs.engine == 'true'
-        run: npm run test:engine
+        env:
+          CI_TEST_FILES: ${{ steps.selection.outputs.files }}
+        run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs ${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.count }}
 
       # Web tests that run a real stock-core duel. The unit job has no engine bundle, so they skip there.
       # DUEL_REQUIRE_CORES=1 (from the job env) makes a missing bundle a failure here.
@@ -339,25 +442,37 @@ jobs:
       # Only direct imports of the cores helper are found. A web test that gets the helper through another module is not run here.
       # The full web suite (about 400 files) already runs in the unit job, so only the matching files run again.
       - name: Web tests with the engine
+        if: matrix.suite == 'pinned' && matrix.shard == 1 && needs.changes.outputs.tests_only != 'true'
         run: |
           set -o pipefail
           # Lines that start with // or * are comments: a comment that names the helper does not count.
           files=$({ grep -rE "duel-server/tests/support/cores(\.js)?[\"']" packages/web/tests --include='*.test.ts' --include='*.test.tsx' || true; } | { grep -vE '^[^:]*:[[:space:]]*(//|\*)' || true; } | cut -d: -f1 | sed 's#^packages/web/##' | sort -u)
           if [ -z "$files" ]; then echo "No web test imports the cores helper. Fix this step."; exit 1; fi
           echo "$files"
-          npm exec --workspace=packages/web -- vitest run $files
+          mapfile -t test_files <<< "$files"
+          prlimit --core=1:1 -- npm exec --workspace=packages/web -- vitest run "${test_files[@]}"
+
+      - name: Web engine tests that depend on changed duel helpers
+        if: matrix.suite == 'pinned' && matrix.shard == 1 && needs.changes.outputs.tests_only == 'true'
+        env:
+          CI_TEST_FILES: ${{ steps.selection.outputs.web_files }}
+        run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs web 1/1
 
       # tests/*.smoke.ts are plain assert scripts (vitest does not match them); one failing script fails the step.
       - name: Engine smoke scripts
-        if: needs.changes.outputs.engine == 'true'
-        run: npm run test:smoke --workspace=packages/duel-server
+        if: needs.changes.outputs.engine == 'true' && matrix.suite == 'pinned' && matrix.shard == 1
+        run: prlimit --core=1:1 -- npm run test:smoke --workspace=packages/duel-server
 
-  engine-legacy:
-    name: Engine tests, legacy 1v1 engine (cores required)
-    if: github.event_name != 'schedule' && needs.changes.outputs.engine == 'true'
+  engine-legacy-shards:
+    name: Legacy 1v1 tests shard (${{ matrix.shard }}/2)
+    if: ${{ !cancelled() && needs.cores.result == 'success' && github.event_name != 'schedule' && needs.changes.outputs.engine == 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     env:
       DUEL_REQUIRE_CORES: "1"
       DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
@@ -366,13 +481,15 @@ jobs:
       NSEAT_LIVE: "1"
       TABLE_TRAP_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-trap.sync.wasm
       TABLE_TRAP_DOMAIN_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain-trap.sync.wasm
-      # Production starts 1v1 duels on the legacy engine. This job runs the whole suite that way. The setup file
+      # Production starts 1v1 duels on the legacy engine. Run only its tests and host/worker gates. The setup file
       # (tests/support/setup.ts) keeps a value that is already set. tests/legacy-main is main's engine tests, unchanged
       # except for the import paths, and they always use the legacy engine.
       DUEL_1V1_ENGINE: legacy
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ needs.changes.outputs.tests_only == 'true' && '0' || '1' }}
 
       - name: Restore engine bundle
         uses: actions/cache/restore@v4
@@ -395,12 +512,48 @@ jobs:
       - name: Build shared
         run: npm run build --workspace=@yugidraft/shared
 
+      - name: Select changed test files
+        id: selection
+        if: needs.changes.outputs.tests_only == 'true'
+        env:
+          BASE: ${{ needs.changes.outputs.base }}
+          HEAD: ${{ needs.changes.outputs.head }}
+        run: node scripts/ci/select-engine-tests.mjs
+
       - name: Engine tests, legacy 1v1 engine
-        run: npm run test:engine
+        env:
+          CI_TEST_FILES: ${{ steps.selection.outputs.files }}
+        run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs legacy ${{ matrix.shard }}/2
+
+  engine:
+    name: Engine tests (cores required)
+    if: always() && github.event_name != 'schedule'
+    needs: [changes, engine-shards]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all engine shards
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          REQUIRED: ${{ needs.changes.outputs.web_engine }}
+          RESULT: ${{ needs.engine-shards.result }}
+        run: test "$CHANGES" = success && { test "$REQUIRED" != true || test "$RESULT" = success; }
+
+  engine-legacy:
+    name: Engine tests, legacy 1v1 engine (cores required)
+    if: always() && github.event_name != 'schedule'
+    needs: [changes, engine-legacy-shards]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all legacy shards
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          REQUIRED: ${{ needs.changes.outputs.engine }}
+          RESULT: ${{ needs.engine-legacy-shards.result }}
+        run: test "$CHANGES" = success && { test "$REQUIRED" != true || test "$RESULT" = success; }
 
   native:
     name: Native checks (ASan and UBSan)
-    if: github.event_name != 'schedule' && needs.changes.outputs.engine == 'true'
+    if: ${{ !cancelled() && needs.cores.result == 'success' && github.event_name != 'schedule' && needs.changes.outputs.engine == 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -471,7 +624,7 @@ jobs:
 
   nduel-nightly:
     name: nduel fuzz (${{ matrix.case }})
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: ${{ !cancelled() && needs.cores.result == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     needs: cores
     runs-on: ubuntu-latest
     timeout-minutes: 240

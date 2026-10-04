@@ -18,6 +18,7 @@ import { planAnswer } from "./fuzz/answers.js";
 import { Rng } from "./fuzz/rng.js";
 import { CURRENT_MULTI_TAG, describeWithCores, needs } from "./support/cores.js";
 import { liveNseat } from "./support/live-nseat.js";
+import { rowsForShard } from "./support/shard.js";
 
 // F7 design section 5, row "Table": every card of the overlay lists on the real engine, at three seats and in Tag, on the DEBUG build
 // of the core (-DYGO_N_TRAP). Each card must load without a Lua error, have its condition run, cause no trap `U` (a number read with no
@@ -659,7 +660,8 @@ describeWithCores("the table: every listed card on the debug core", [liveNseat, 
   }, 60_000);
 
   for (const format of FORMATS) {
-    for (const row of TABLE) {
+    // CI runs this file on every regular engine shard. Scan/helper checks still use the whole TABLE.
+    for (const row of rowsForShard(TABLE, process.env.TABLE_SHARD)) {
       it(`${row.group} ${row.code} ${row.name} at ${format}: loads, runs its condition, no trap U or c`, async () => {
         if (NOT_IN_CARD_DATABASE[row.code]) {
           expect(inCardDatabase(row.code), `${NOT_IN_CARD_DATABASE[row.code]} (remove the entry when the card is in the database)`).toBe(false);
