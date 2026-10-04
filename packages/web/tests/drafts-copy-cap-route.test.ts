@@ -24,6 +24,7 @@ describe("per-player copy cap in the draft routes", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     delete process.env.DATABASE_PATH;
     delete process.env.DISCORD_GUILD_ID;
@@ -185,6 +186,43 @@ describe("per-player copy cap in the draft routes", () => {
       .prepare("select draft_card_id as id from draft_picks where draft_id = ? and player_id = ? and pick_step = 1")
       .get(draft.id, bot) as { id: number };
     expect(botPick.id).toBe(allowed.id);
+    db.close();
+  });
+
+  it.each(["expiry race", "bot failure", "bot options failure"])("keeps a saved human pick and broadcasts after %s", async (scenario) => {
+    const { db, drafts, draft, slug, host, others } = await setup({ bots: 1 });
+    const cardId = drafts.currentPackOptions(draft.id, host)[0].id;
+    const shared = await import("@yugidraft/shared/services");
+    const create = shared.createDraftService;
+    let raced = false;
+    vi.spyOn(shared, "createDraftService").mockImplementation((connection) => {
+      const service = create(connection);
+      return { ...service, pickOptions(...args: Parameters<typeof service.pickOptions>) {
+        if (scenario === "bot options failure" && args[1] === others[0] && !raced) {
+          raced = true;
+          throw new Error("Bot options test failure");
+        }
+        return service.pickOptions(...args);
+      }, pickCard(...args: Parameters<typeof service.pickCard>) {
+        if (args[3] === "auto" && !raced) {
+          raced = true;
+          if (scenario === "bot failure") throw new Error("Bot test failure");
+          connection.prepare("update drafts set pick_deadline_at = '2000-01-01' where id = ?").run(draft.id);
+          service.expireCurrentPickStep(draft.id);
+        }
+        return service.pickCard(...args);
+      } };
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await pick(slug, cardId);
+    expect(res.status).toBe(200);
+    expect(raced).toBe(true);
+    expect(db.prepare("select draft_card_id as id from draft_picks where draft_id = ? and player_id = ? and pick_step = 1").get(draft.id, host)).toEqual({ id: cardId });
+    expect(broadcaster.draft).toHaveBeenCalledWith(expect.objectContaining({ kind: "pick", slug }));
+    if (scenario === "expiry race") {
+      expect(broadcaster.draft).toHaveBeenCalledWith(expect.objectContaining({ kind: "resync", slug, pickStep: 2 }));
+      expect(db.prepare("select count(*) as n from draft_picks where draft_id = ? and player_id = ? and pick_step = 1").get(draft.id, others[0])).toEqual({ n: 1 });
+    }
     db.close();
   });
 
