@@ -5,6 +5,8 @@ import { env } from "@/lib/env";
 import { createCardCatalogService, createCubeService } from "@yugidraft/shared/services";
 import type { DraftConfig } from "@yugidraft/shared/types";
 import { cubeDraftTypeOf, parseCubeDraftType, setCubeDraftType } from "@/lib/cube-type";
+import { checkDiscordWebAccess } from "@/lib/discord-web-access";
+import { ensureCatalogCards, parsePoolEntries } from "@/lib/cube-pool";
 
 export const runtime = "nodejs";
 
@@ -15,6 +17,8 @@ type CubeRow = {
   archetype: string | null;
   banlist: string | null;
   config_json: string;
+  created_by_user_id: string;
+  created_by_name: string | null;
 };
 
 /** The created cube as the client reads it: the stored row plus its draft type. */
@@ -34,7 +38,10 @@ export async function GET() {
 
   const db = getDb();
   const rows = db
-    .prepare("select id, guild_id, name, archetype, banlist, config_json from cubes where guild_id = ? order by name asc")
+    .prepare(`select c.id, c.guild_id, c.name, c.archetype, c.banlist, c.config_json, c.created_by_user_id,
+              (select p.display_name from players p
+                where p.guild_id = c.guild_id and p.discord_user_id = c.created_by_user_id) as created_by_name
+         from cubes c where c.guild_id = ? order by c.name asc`)
     .all(env.discordGuildId) as CubeRow[];
 
   // One query for every card of every cube in the guild, instead of two per cube.
@@ -63,6 +70,16 @@ export async function GET() {
   // loaders in the cube-draft create form / settings (setNames + customCardIds). A cube
   // built in the editor keeps its cards in cube_cards, not in config, so mainCards
   // carries those passcodes and their copies for the loaders.
+  // The admin check runs once per request, and only when some cube is not the viewer's own.
+  let isAdmin = false;
+  if (rows.some((r) => r.created_by_user_id !== session.user!.id)) {
+    try {
+      isAdmin = (await checkDiscordWebAccess(session.user.id, "admin")).ok;
+    } catch {
+      isAdmin = false;
+    }
+  }
+
   const cubes = rows.map((row) => {
     const config = JSON.parse(row.config_json || "{}") as { setNames?: string[]; customCardIds?: number[] };
     const mainCards = mainByCube.get(row.id) ?? [];
@@ -72,6 +89,9 @@ export async function GET() {
       archetype: row.archetype,
       banlist: row.banlist,
       draftType: cubeDraftTypeOf(row.config_json),
+      createdByUserId: row.created_by_user_id,
+      createdByName: row.created_by_name ?? null,
+      canEdit: isAdmin || row.created_by_user_id === session.user!.id,
       mainCount: mainCards.length,
       extraCount: extraCountByCube.get(row.id) ?? 0,
       setNames: Array.isArray(config.setNames) ? config.setNames : [],
@@ -93,7 +113,9 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json().catch(() => ({}))) as {
-    kind?: "blank" | "archetype";
+    kind?: "blank" | "archetype" | "pool";
+    cards?: unknown;
+    copyExtraFromCubeId?: unknown;
     name?: string;
     archetype?: string;
     banlist?: string;
@@ -129,6 +151,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
 
+    if (body.kind === "pool") {
+      const parsed = parsePoolEntries(body.cards);
+      if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
+      const taken = db
+        .prepare("select id from cubes where guild_id = ? and lower(name) = lower(?)")
+        .get(guildId, name);
+      if (taken) {
+        return NextResponse.json({ error: `A cube named "${name}" already exists` }, { status: 409 });
+      }
+      const unknownIds = await ensureCatalogCards(catalog, parsed.entries.map((e) => e.id));
+      const unknown = new Set(unknownIds);
+      const copyFrom =
+        typeof body.copyExtraFromCubeId === "number" && Number.isSafeInteger(body.copyExtraFromCubeId)
+          ? body.copyExtraFromCubeId
+          : undefined;
+      const cube = cubes.createWithCards(
+        guildId,
+        name,
+        session.user.id,
+        parsed.entries.filter((e) => !unknown.has(e.id)),
+        { copyExtraFromCubeId: copyFrom },
+      );
+      if (draftType) setCubeDraftType(db, cube.id, draftType);
+      return NextResponse.json({ cube: withDraftType(db, cube.id, cube), unknownIds }, { status: 201 });
+    }
+
     // Saving a pool (setNames / customCardIds) from the cube-draft create form or
     // settings: store it as a config-backed cube. Reject duplicates by name.
     if (body.config && body.kind !== "blank") {
@@ -154,6 +202,7 @@ export async function POST(request: Request) {
     if (draftType) setCubeDraftType(db, cube.id, draftType);
     return NextResponse.json({ cube: withDraftType(db, cube.id, cube) }, { status: 201 });
   } catch (error) {
+    // CubeNameTakenError: another save took the name after the early check above.
     const message = error instanceof Error ? error.message : "Failed to create cube";
     return NextResponse.json({ error: message }, { status: 409 });
   }

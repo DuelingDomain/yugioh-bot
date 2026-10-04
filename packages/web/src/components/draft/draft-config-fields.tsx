@@ -2,10 +2,8 @@
 
 import * as React from "react";
 import type { DraftConfig } from "@yugidraft/shared/types";
-import { parseCustomCardIds } from "@/lib/custom-card-pool";
-import { PoolBuilder } from "@/components/cards/pool-builder";
-import type { CardSummary } from "@/lib/card-types";
 import { packsSentence } from "./create/format";
+import { SvCheck } from "@/components/sheet";
 import styles from "./create/create.module.css";
 
 export const CARDS_PER_PLAYER_MIN = 40;
@@ -17,9 +15,8 @@ export const PICK_SECONDS_MIN = 5;
 export const PICK_SECONDS_MAX = 300;
 export const PICK_SECONDS_DEFAULT = 45;
 
+/** The pack fields as typed. The pool lives in the pool editor, not here. */
 export type DraftConfigFieldsValue = {
-  setNames: string[];
-  customCardText: string;
   cardsPerPlayerText: string;
   packSizeText: string;
   pickSecondsText: string;
@@ -44,16 +41,20 @@ function derivePacksPerPlayer(cardsPerPlayer: number, packSize: number): number 
   return Math.max(1, Math.ceil(cardsPerPlayer / packSize));
 }
 
-export function configFromFields(fields: DraftConfigFieldsValue): DraftConfig {
+/** The pack part of a draft config: sizes and timing, clamped. */
+export function configFromFields(fields: DraftConfigFieldsValue): {
+  cardsPerPlayer: number;
+  packSize: number;
+  packsPerPlayer: number;
+  pickSeconds: number;
+  alternatePassDirection: boolean;
+  randomizeSeats: boolean;
+  copyLimit: boolean;
+} {
   const cardsPerPlayer = parseCardsPerPlayer(fields.cardsPerPlayerText);
   const packSize = parsePackSize(fields.packSizeText, cardsPerPlayer);
   const pickSeconds = parsePickSeconds(fields.pickSecondsText);
-  const { cardIds: customCardIds } = parseCustomCardIds(fields.customCardText);
   return {
-    setNames: fields.setNames,
-    customCardIds,
-    includeNames: [],
-    excludeNames: [],
     cardsPerPlayer,
     packSize,
     packsPerPlayer: derivePacksPerPlayer(cardsPerPlayer, packSize),
@@ -64,12 +65,9 @@ export function configFromFields(fields: DraftConfigFieldsValue): DraftConfig {
   };
 }
 
-export function fieldsFromConfig(config: DraftConfig, customCardIds?: number[]): DraftConfigFieldsValue {
-  const ids = customCardIds ?? config.customCardIds ?? [];
+export function fieldsFromConfig(config: DraftConfig): DraftConfigFieldsValue {
   return {
-    setNames: config.setNames ?? [],
     copyLimit: config.copyLimit ?? true,
-    customCardText: ids.join("\n"),
     cardsPerPlayerText: String(config.cardsPerPlayer ?? CARDS_PER_PLAYER_DEFAULT),
     packSizeText: String(config.packSize ?? PACK_SIZE_DEFAULT),
     pickSecondsText: String(config.pickSeconds ?? PICK_SECONDS_DEFAULT),
@@ -77,13 +75,6 @@ export function fieldsFromConfig(config: DraftConfig, customCardIds?: number[]):
 }
 
 export function validateFields(fields: DraftConfigFieldsValue): string | null {
-  const { cardIds, errors } = parseCustomCardIds(fields.customCardText);
-  if (fields.setNames.length === 0 && cardIds.length === 0) {
-    return "Select at least one set or paste custom card IDs";
-  }
-  if (errors.length > 0) {
-    return `Remove invalid card IDs: ${errors.slice(0, 3).join(", ")}`;
-  }
   const cards = parseInt(fields.cardsPerPlayerText);
   if (!cards || cards < CARDS_PER_PLAYER_MIN || cards > CARDS_PER_PLAYER_MAX) {
     return `Cards per player must be between ${CARDS_PER_PLAYER_MIN} and ${CARDS_PER_PLAYER_MAX}`;
@@ -179,32 +170,14 @@ export function PackFields({ value, onChange }: PackFieldsProps) {
         min={PICK_SECONDS_MIN}
         max={PICK_SECONDS_MAX}
       />
-      <label className="wide"><input type="checkbox" checked={value.copyLimit ?? true} onChange={(e) => onChange({ ...value, copyLimit: e.target.checked })} /> Limit 3 copies per card</label>
+      <SvCheck
+        className="wide"
+        label="Limit 3 copies per card"
+        hint="Players can't take a 4th copy of any card."
+        checked={value.copyLimit ?? true}
+        onChange={(e) => onChange({ ...value, copyLimit: e.target.checked })}
+      />
       <p className="hint wide">{packsSentence(cardsPerPlayer, packsPerPlayer, packSize)}</p>
-    </div>
-  );
-}
-
-interface DraftConfigFieldsProps {
-  value: DraftConfigFieldsValue;
-  onChange: (value: DraftConfigFieldsValue) => void;
-  poolBuilderShowPreview?: boolean;
-  onPool?: (cards: CardSummary[], unknownIds: number[], loading: boolean) => void;
-}
-
-/** Pool plus pack fields in one stack. The new draft form lays them out as separate sections instead. */
-export function DraftConfigFields({ value, onChange, poolBuilderShowPreview, onPool }: DraftConfigFieldsProps) {
-  return (
-    <div className={styles.stack}>
-      <div className="fields">
-        <PoolBuilder
-          value={{ setNames: value.setNames, customCardText: value.customCardText }}
-          onChange={(pb) => onChange({ ...value, setNames: pb.setNames, customCardText: pb.customCardText })}
-          showPreview={poolBuilderShowPreview}
-          onPool={onPool}
-        />
-      </div>
-      <PackFields value={value} onChange={onChange} />
     </div>
   );
 }

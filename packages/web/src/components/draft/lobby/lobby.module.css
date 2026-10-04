@@ -55,6 +55,7 @@
 .sets ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
 :global(.ms) .sets :global(.chip) { white-space: normal; height: auto; min-height: 28px; padding-block: 4px; line-height: 1.3; }
 .editBtn { margin-top: 14px; }
+.copyLimit { margin-top: 14px; }
 .start { margin: 0; color: var(--ink-3); font-size: 14px; line-height: 1.5; }
 .start b { color: var(--ink-2); font-weight: 600; }
 .reason { color: var(--ink-2); }

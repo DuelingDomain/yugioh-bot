@@ -116,14 +116,6 @@ export function setupRows(config: LobbyConfig): SetupRow[] {
   return rows;
 }
 
-/** "2 sets and 36 passcodes", "1 set", "36 passcodes", or "" when the pool has neither. */
-export function poolSources(setCount: number, passcodeCount: number): string {
-  const parts = [] as string[];
-  if (setCount > 0) parts.push(plural(setCount, "set"));
-  if (passcodeCount > 0) parts.push(plural(passcodeCount, "passcode"));
-  return parts.join(" and ");
-}
-
 export function initialOf(name: string): string {
   const ch = Array.from(name.trim())[0];
   return ch ? ch.toUpperCase() : "?";

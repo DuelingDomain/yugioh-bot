@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { generateWebSlug } from "../util/web-slug.js";
+import { isExtraDeckFrame } from "../services/card-catalog.js";
 
 function hasColumn(db: Database.Database, table: string, column: string) {
   return (db.pragma(`table_info(${table})`) as Array<{ name: string }>).some((info) => info.name === column);
@@ -709,4 +710,60 @@ export function migrate(db: Database.Database) {
     create index if not exists bug_reports_player_idx on bug_reports (guild_id, player_id, created_at);
   `);
   db.exec("create index if not exists bug_reports_duel_idx on bug_reports (guild_id, duel_slug, created_at)");
+
+  migrateConfigPoolsToCubeCards(db);
+}
+
+/**
+ * Cubes saved from the create form kept their cards only in config_json.customCardIds, so the library and
+ * editor (which read cube_cards) showed them empty. Move those ids into cube_cards. Only cubes with no
+ * cube_cards rows are touched. cube_cards.catalog_card_id references card_catalog, so ids missing from the
+ * catalog stay in customCardIds; everything else is removed from config. A cube with more than 99 copies of one card is left alone, since a split would leave
+ * the overflow as the only dealt copies (the deal skips cube_cards rows whose id is listed in config). Idempotent.
+ */
+function migrateConfigPoolsToCubeCards(db: Database.Database) {
+  const candidates = db.prepare(
+    `select id, config_json from cubes
+      where config_json like '%customCardIds%'
+        and not exists (select 1 from cube_cards cc where cc.cube_id = cubes.id)`,
+  );
+  const findCard = db.prepare("select ygoprodeck_id, type, frame_type from card_catalog where ygoprodeck_id = ?");
+  const insert = db.prepare(
+    "insert or ignore into cube_cards (cube_id, catalog_card_id, pool, max_copies, source) values (?, ?, ?, ?, null)",
+  );
+  const update = db.prepare("update cubes set config_json = ? where id = ?");
+  // The bot, web and duel-server each migrate at startup. The candidates are read inside an immediate
+  // transaction (a write lock), so a second process waits and then finds the cubes already filled.
+  db.transaction(() => {
+    const cubes = candidates.all() as Array<{ id: number; config_json: string }>;
+    for (const cube of cubes) {
+      let config: Record<string, unknown>;
+      try {
+        const parsed = JSON.parse(cube.config_json || "{}");
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+        config = parsed as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      const ids = Array.isArray(config.customCardIds)
+        ? config.customCardIds.filter((n): n is number => Number.isInteger(n))
+        : [];
+      if (ids.length === 0) continue;
+      const counts = new Map<number, number>();
+      for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1);
+      if ([...counts.values()].some((count) => count > 99)) continue;
+      const unmigrated: number[] = [];
+      for (const [id, count] of counts) {
+        const card = findCard.get(id) as { type: string; frame_type: string } | undefined;
+        if (!card) {
+          for (let n = 0; n < count; n += 1) unmigrated.push(id);
+          continue;
+        }
+        insert.run(cube.id, id, isExtraDeckFrame({ frameType: card.frame_type, type: card.type }) ? "extra" : "main", count);
+      }
+      if (unmigrated.length > 0) config.customCardIds = unmigrated;
+      else delete config.customCardIds;
+      update.run(JSON.stringify(config), cube.id);
+    }
+  }).immediate();
 }
