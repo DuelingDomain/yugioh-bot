@@ -244,6 +244,37 @@ describe("deck editor add card by name", () => {
     expect(cardsIn("Main")[0].getAttribute("aria-label")).toContain("89631139");
   });
 
+  it("Enter, results arrive, Enter adds once", async () => {
+    let resolve: (value: CardQueryResult) => void = () => {};
+    queryDeckCards.mockImplementation(() => new Promise<CardQueryResult>((done) => { resolve = done; }));
+    renderEditor();
+    type("blue-eyes white");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    await flush(0);
+    await act(async () => {
+      resolve(answer([BLUE_EYES]));
+      await Promise.resolve();
+      fireEvent.keyDown(field(), { key: "Enter" });
+    });
+    fireEvent.keyDown(field(), { key: "Enter" });
+    await flush(PAUSE);
+    expect(cardsIn("Main")).toHaveLength(1);
+    expect(queryDeckCards).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("does not search again after an early Enter found no allowed card", async () => {
+    queryDeckCards.mockResolvedValue(answer([OCG_ONLY]));
+    renderEditor(normalSettings({ cardPool: "tcg" }));
+    type("blue");
+    fireEvent.keyDown(field(), { key: "Enter" });
+    await flush(0);
+    expect(screen.getByRole("alert").textContent).toContain("None of these cards can be added");
+    await flush(PAUSE * 2);
+    expect(queryDeckCards).toHaveBeenCalledTimes(1);
+    expect(optionsNow()).toHaveLength(1);
+  });
+
   it("cancels an early Enter when the text changes before the results come", async () => {
     const pending: Array<(value: CardQueryResult) => void> = [];
     queryDeckCards.mockImplementation(() => new Promise<CardQueryResult>((resolve) => { pending.push(resolve); }));

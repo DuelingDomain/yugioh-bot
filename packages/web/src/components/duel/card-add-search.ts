@@ -57,10 +57,14 @@ export function useCardNameSearch(
   const trimmed = query.trim();
   const [search, setSearch] = useState<CardNameSearch | null>(null);
   const reqId = useRef(0);
+  const latest = useRef(search);
+  useEffect(() => { latest.current = search; }, [search]);
 
   useEffect(() => {
     const myReq = ++reqId.current;
     if (!trimmed) return undefined;
+    // Going from "wait for the answer" back to normal must not search again for text already answered.
+    if (latest.current?.query === trimmed) return undefined;
     const controller = new AbortController();
     const timeout = setTimeout(() => {
       const request = { ...emptyCardQuery(), text: trimmed, scope: "name" as const, sort: "match" as const, limit: ADD_RESULT_LIMIT };

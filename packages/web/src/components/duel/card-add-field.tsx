@@ -85,13 +85,16 @@ export function CardAddField({ settings, sideAllowed, onAdd, onError }: {
 
   /** Enter and Add: acts at once when the results are here, else asks for them now and acts on arrival. */
   function requestSubmit() {
+    // The results are in but the waiting add has not run yet: it does the one add.
+    if (waitingFor !== null && waitingFor === trimmed) return;
     if (trimmed && pending) setWaitingFor(trimmed);
     else submit();
   }
 
   function submit() {
     if (!trimmed) {
-      onError("Enter a card name or passcode.");
+      // A second Enter right after an add has nothing left to do.
+      if (!added) onError("Enter a card name or passcode.");
       return;
     }
     if (activeCard && blocks[active] === null) {
