@@ -1181,11 +1181,11 @@ export function createDuelHost(options: {
 
   async function project(slug: string, guildId: string, playerId: number, game?: DuelGameWorker, spectate = false): Promise<DuelRoom> {
     const room = stampRoomClock(service.room(slug, guildId, playerId), now());
-    const setup = service.privateState(slug, guildId);
+    const setup = room.session.format === "1v1" ? null : service.privateState(slug, guildId);
     // Retired commands identify old setup flags; they are not accepted for new surrender.
-    const retiredTurnEndSeats = new Set(setup.commands.filter((input) => eliminationAtTurnEnd(input.command.promptId)).map((input) => input.seat));
+    const retiredTurnEndSeats = new Set((setup?.commands ?? []).filter((input) => eliminationAtTurnEnd(input.command.promptId)).map((input) => input.seat));
     const markLegacyLosses = (view: DuelEngineView | null) => {
-      for (const gone of setup.setup?.surrenderedSeats ?? []) {
+      for (const gone of setup?.setup?.surrenderedSeats ?? []) {
         if (retiredTurnEndSeats.has(gone)) continue;
         const seat = view?.seats.find((seat) => seat.seat === gone);
         if (seat) seat.eliminated = true;
@@ -1202,8 +1202,8 @@ export function createDuelHost(options: {
     // With no final board, replay the journal to check that the loss did land.
     let noBoardLoss = false;
     const lossForViewer = room.mySeat !== null && [
-      ...(setup.setup?.surrenderedSeats ?? []),
-      ...setup.commands.filter((input) => eliminationReasonOf(input.command) !== null).map((input) => input.seat),
+      ...(setup?.setup?.surrenderedSeats ?? []),
+      ...(setup?.commands ?? []).filter((input) => eliminationReasonOf(input.command) !== null).map((input) => input.seat),
     ].some((seat) => seat === room.mySeat || (room.session.format === "tag"
       && teamOfSeat("tag", seat) === teamOfSeat("tag", room.mySeat!)));
     if (lossForViewer && room.engine === null && room.session.status === "interrupted" && room.session.format !== "1v1") {
