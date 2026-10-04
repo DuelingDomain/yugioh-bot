@@ -8,6 +8,7 @@ import {
   type DuelAnswer,
   type DuelFormat,
   type DuelPrompt,
+  type DuelPromptOption,
   type DuelSeatView,
 } from "@yugidraft/shared/duels";
 import { LOCATION_MZONE } from "./constants";
@@ -65,7 +66,10 @@ export interface SeatPick {
   onPick: (seat: number) => void;
 }
 
-/** Seat to option id of an opponent pick. Seats that are out of the duel and options with no seat are left out. */
+/**
+ * Seat to option id of an opponent pick. Options with no seat are left out. A Leaving or eliminated seat
+ * cannot be picked while a living seat is offered; when none is living, all offered seats stay (same as the server).
+ */
 export function opponentPickOptions(
   prompt: DuelPrompt | null | undefined,
   engine?: Pick<DuelEngineView, "seats"> | null,
@@ -74,10 +78,11 @@ export function opponentPickOptions(
   if (!isOpponentPick(prompt)) return picks;
   for (const option of prompt.options) {
     if (option.controller == null || picks.has(option.controller)) continue;
-    const view = engine?.seats.find((seat) => seat.seat === option.controller);
-    if (isEliminated(view)) continue;
     picks.set(option.controller, option.id);
   }
+  const living = [...picks.keys()].filter((seat) => !isOutOrLeaving(engine?.seats.find((view) => view.seat === seat)));
+  if (living.length === 0) return picks;
+  for (const seat of picks.keys()) if (!living.includes(seat)) picks.delete(seat);
   return picks;
 }
 
@@ -118,6 +123,53 @@ export function isEliminated(view: DuelSeatView | undefined): boolean {
   return view?.eliminated === true;
 }
 
+/** True for a seat that is out of the duel or leaves when the chain ends. */
+export function isOutOrLeaving(view: Pick<DuelSeatView, "eliminated" | "pendingElimination"> | undefined): boolean {
+  return view?.eliminated === true || view?.pendingElimination === true;
+}
+
+/** Seats that are out or leaving: their rows in an opponent or direct-attack pick are not answerable. */
+export function outOrLeavingSeats(seats: ReadonlyArray<Pick<DuelSeatView, "seat" | "eliminated" | "pendingElimination">>): Set<number> {
+  return new Set(seats.filter((view) => isOutOrLeaving(view)).map((view) => view.seat));
+}
+
+/** Seats that are only leaving (the chain still resolves) and not yet out. */
+export function leavingOnlySeats(seats: ReadonlyArray<Pick<DuelSeatView, "seat" | "eliminated" | "pendingElimination">>): Set<number> {
+  return new Set(seats.filter((view) => view.pendingElimination === true && view.eliminated !== true).map((view) => view.seat));
+}
+
+/** A seat-only direct attack row ("Attack Player 2 directly"): it names a duelist, not a card. */
+export function isDirectAttackRow(option: DuelPromptOption): boolean {
+  return option.controller != null && option.location == null && /^Attack .+ directly$/i.test(option.label);
+}
+
+const NO_ROWS: ReadonlySet<string> = new Set();
+
+/**
+ * Rows of a seat pick (opponent pick or direct attack) that name a seat which is out or leaving. They are disabled
+ * only while at least one other seat row is still living; with none living every row stays (same rule as the server,
+ * prompts.ts). Option ids and order never change.
+ */
+export function outSeatOptionIds(prompt: DuelPrompt | null | undefined, outSeats: ReadonlySet<number> | undefined): ReadonlySet<string> {
+  if (!prompt || !outSeats || outSeats.size === 0) return NO_ROWS;
+  const seatRow = prompt.context?.type === "opponent"
+    ? (option: DuelPromptOption) => option.controller != null
+    : isDirectAttackRow;
+  const rows = prompt.options.filter(seatRow);
+  if (rows.length === 0 || !rows.some((option) => !outSeats.has(option.controller as number))) return NO_ROWS;
+  return new Set(rows.filter((option) => outSeats.has(option.controller as number)).map((option) => option.id));
+}
+
+/** The next index from `from` in `step` direction (wrapping) whose option is not disabled; `from` when none is free. */
+export function nextEnabledIndex(prompt: Pick<DuelPrompt, "options">, disabled: ReadonlySet<string>, from: number, step: 1 | -1): number {
+  const count = prompt.options.length;
+  for (let offset = 1; offset <= count; offset += 1) {
+    const index = (((from + step * offset) % count) + count) % count;
+    if (!disabled.has(prompt.options[index].id)) return index;
+  }
+  return from;
+}
+
 /** Each reciprocal living FFA4 across pair once, in seat order. Older views keep separate EMZ rows. */
 export function sharedExtraPairs(engine: Pick<DuelEngineView, "format" | "seats">): Array<[DuelSeatView, DuelSeatView]> {
   if (engineFormat(engine) !== "ffa4") return [];
@@ -134,14 +186,14 @@ export function sharedExtraPairs(engine: Pick<DuelEngineView, "format" | "seats"
   return pairs.sort(([a], [b]) => a.seat - b.seat);
 }
 
-/** The seat that plays after `seat`, skipping eliminated seats. Null when no other seat is alive. */
+/** The seat that plays after `seat`, skipping eliminated and leaving seats. Null when no other seat is alive. */
 export function nextSeatAfter(seats: readonly DuelSeatView[], seat: number): number | null {
   const ordered = [...seats].sort((a, b) => a.seat - b.seat);
   const start = ordered.findIndex((entry) => entry.seat === seat);
   if (start < 0) return null;
   for (let step = 1; step < ordered.length; step += 1) {
     const candidate = ordered[(start + step) % ordered.length];
-    if (!isEliminated(candidate)) return candidate.seat;
+    if (!isOutOrLeaving(candidate)) return candidate.seat;
   }
   return null;
 }

@@ -130,6 +130,11 @@ describe("holoStatus", () => {
     expect(holoStatus(engine, 0, null)).toBe("turn");
     expect(holoStatus(engine, 3, null)).toBe("active");
   });
+  it("reads a Leaving seat as leaving even when it holds the turn or the prompt", () => {
+    const leavingTurn = { turnSeat: 2, seats: engine.seats };
+    expect(holoStatus(leavingTurn, 2, null)).toBe("leaving");
+    expect(holoStatus(leavingTurn, 2, 2)).toBe("leaving");
+  });
 });
 
 describe("RivalField", () => {

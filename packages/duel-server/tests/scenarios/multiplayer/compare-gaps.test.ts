@@ -38,10 +38,13 @@ vi.mock("ocgcore-wasm", async (importOriginal) => {
   } };
 });
 
-const W8_ID = "compare-gaps-ffa3-surrender-while-the-opponent-pick-is-open";
+const W8_IDS = [
+  "compare-gaps-ffa3-surrender-while-the-opponent-pick-is-open",
+  "compare-gaps-ffa4-surrender-while-the-opponent-pick-is-open",
+];
 
 async function runCompareGap(scenario: Scenario): Promise<void> {
-  proof.checkSkyNegation = scenario.id === W8_ID || scenario.id === `${W8_ID}-domain`;
+  proof.checkSkyNegation = W8_IDS.some((id) => scenario.id === id || scenario.id === `${id}-domain`);
   try {
     await runScenario(scenario);
     if (proof.checkSkyNegation) {
@@ -66,7 +69,7 @@ describeWithCores("live compare scenarios of the scan-gap cards, Kaiser Colosseu
 });
 
 describeWithCores("live Domain W8 opponent pick after surrender", [liveNseat, ...needs.domainMulti()], () => {
-  runScenarios("multiplayer/compare-gaps-domain", COMPARE_GAP_SCENARIOS.filter((scenario) => scenario.id === W8_ID).map(domainVariant), runCompareGap);
+  runScenarios("multiplayer/compare-gaps-domain", COMPARE_GAP_SCENARIOS.filter((scenario) => W8_IDS.includes(scenario.id)).map(domainVariant), runCompareGap);
 });
 
 describe("compare gap scenario list", () => {

@@ -32,7 +32,7 @@ import {
   POS_FACEUP_ATTACK,
   POS_FACEUP_DEFENSE,
 } from "./constants";
-import { opponentPickLabel } from "./multi-seat";
+import { isDirectAttackRow, nextEnabledIndex, opponentPickLabel, outSeatOptionIds } from "./multi-seat";
 import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import { CardBack } from "./card-face";
 import { CardStrip, type StripCard } from "./card-strip";
@@ -727,6 +727,16 @@ function PositionTiles({
   );
 }
 
+// Re-exported for callers and tests that import the seat-pick rule from here.
+export { nextEnabledIndex, outSeatOptionIds };
+
+const NO_ROWS: ReadonlySet<string> = new Set();
+
+/** The row's spoken name; a row that is out or leaving says so (its visible text is not part of an aria-label). */
+function rowLabel(label: string | undefined, state: "out" | "leaving" | null): string | undefined {
+  return state && label ? `${label}, ${state}` : label;
+}
+
 function ResponseBody({
   prompt,
   draft,
@@ -739,6 +749,8 @@ function ResponseBody({
   nameOf,
   seatTones,
   priority,
+  outRows = NO_ROWS,
+  leavingSeats,
 }: {
   prompt: DuelPrompt;
   draft: PromptDraft;
@@ -751,6 +763,10 @@ function ResponseBody({
   nameOf?: (seat: number) => string;
   seatTones?: PromptSeatTones;
   priority?: readonly PrioritySlot[];
+  /** Ids of seat rows that are out or leaving (see outSeatOptionIds): shown, not answerable. */
+  outRows?: ReadonlySet<string>;
+  /** Seats that only leave (their chain still resolves): their disabled rows say "Leaving", not "Out". */
+  leavingSeats?: ReadonlySet<number>;
 }) {
   const styles = useSkinStyles(baseStyles, "prompt");
   const tray = useSkinStyles(base, "tray");
@@ -863,7 +879,9 @@ function ResponseBody({
         {prompt.options.map((option, index) => {
           const { effectText: optionEffect } = optionTexts(option);
           // Seat-only choices use the same names as the LP panels, including duplicate-name seat numbers.
-          const directAttack = seatTones != null && option.controller != null && option.location == null && /^Attack .+ directly$/i.test(option.label);
+          const directAttack = seatTones != null && isDirectAttackRow(option);
+          const out = outRows.has(option.id);
+          const exit = !out ? null : option.controller != null && leavingSeats?.has(option.controller) ? "leaving" : "out";
           const seatName = (context?.type === "opponent" || directAttack) && option.controller != null ? nameOf?.(option.controller) : undefined;
           const label = directAttack && seatName ? `Attack ${seatName} directly`
             : seatName ?? humanizeLabel(fillPlaceholders(option.label, option.card?.name ?? source?.name));
@@ -872,6 +890,7 @@ function ResponseBody({
               key={option.id}
               className={styles.row}
               data-seat={context?.type === "opponent" || directAttack ? option.controller : undefined}
+              data-out={out ? "true" : undefined}
               data-plain={option.card ? undefined : "true"}
               data-active={draft.highlight === index}
               data-selected={prompt.kind === "toggle" ? Boolean(option.selected) : undefined}
@@ -881,8 +900,8 @@ function ResponseBody({
                 className={styles.rowMain}
                 data-primary={index === draft.highlight ? true : undefined}
                 data-index={index}
-                disabled={busy}
-                aria-label={context?.type === "opponent" ? opponentPickLabel(label) : directAttack && seatName ? label : undefined}
+                disabled={busy || out}
+                aria-label={rowLabel(context?.type === "opponent" ? opponentPickLabel(label) : directAttack && seatName ? label : undefined, exit)}
                 onClick={() => choose(option.id)}
                 onMouseEnter={() => {
                   draft.setHighlight(index);
@@ -896,7 +915,7 @@ function ResponseBody({
                 {option.card ? <CardArt option={option} className={styles.rowArt} /> : null}
                 <span className={styles.rowText}>
                   <b>{label}</b>
-                  {optionEffect && optionEffect !== label ? <small>{optionEffect}</small> : null}
+                  {exit ? <small>{exit === "leaving" ? "Leaving" : "Out"}</small> : optionEffect && optionEffect !== label ? <small>{optionEffect}</small> : null}
                 </span>
               </button>
             </div>
@@ -1295,6 +1314,13 @@ export interface PromptCenterProps {
   seatTones?: PromptSeatTones;
   /** Tables of 3 or 4 seats: who may answer the open chain, in order. A chain response then lists it under the chain. */
   priority?: readonly PrioritySlot[];
+  /**
+   * Tables of 3 or 4 seats: seats that are out or leaving. In an opponent or direct-attack pick their rows are
+   * disabled while another seat row is still living (ids and order unchanged; keys skip them).
+   */
+  outSeats?: ReadonlySet<number>;
+  /** The subset of `outSeats` that only leaves (not yet out). Their rows read "Leaving"; the others read "Out". */
+  leavingSeats?: ReadonlySet<number>;
 }
 
 /**
@@ -1371,6 +1397,10 @@ export function PromptCenter(props: PromptCenterProps) {
   const promptId = prompt?.id;
   useEffect(() => setCollapsed(false), [promptId]);
 
+  // Seat rows of an out or leaving duelist stay listed but cannot be picked, by click or by key.
+  const outRows = outSeatOptionIds(kind === "response" ? prompt : null, props.outSeats);
+  const outKey = [...outRows].join("|");
+
   // Which way to answer a card pick: on the board, or in a centred grid.
   useLayoutEffect(() => {
     const scope = boardOf(layerRef.current);
@@ -1442,7 +1472,10 @@ export function PromptCenter(props: PromptCenterProps) {
     if (!kind || !revealed || (kind === "select" && onBoard !== false) || collapsed) return;
     const panel = panelRef.current;
     // Card grids focus the panel itself: Enter then confirms through the tray's shortcut.
-    const target = kind === "response" ? panel?.querySelector<HTMLElement>("[data-primary]:not(:disabled)") : panel;
+    // The highlighted row can be a disabled seat row (out or leaving); focus then goes to the first enabled row.
+    const target = kind === "response"
+      ? (panel?.querySelector<HTMLElement>("[data-primary]:not(:disabled)") ?? panel?.querySelector<HTMLElement>("[data-index]:not(:disabled)"))
+      : panel;
     target?.focus({ preventScroll: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [promptId, collapsed, kind, onBoard, revealed, checking]);
@@ -1454,6 +1487,21 @@ export function PromptCenter(props: PromptCenterProps) {
     if (!panel || !panel.contains(document.activeElement)) return;
     panel.querySelector<HTMLElement>(`[data-index="${highlight}"]`)?.focus({ preventScroll: true });
   }, [highlight]);
+
+  // The highlight never rests on a disabled row (the first one, or one left by a changed prompt). The draft owner
+  // resets the highlight to 0 in its own effect, which runs after this one; the microtask lands after that reset.
+  useEffect(() => {
+    if (!prompt || outRows.size === 0) return;
+    let live = true;
+    queueMicrotask(() => {
+      if (!live) return;
+      draft.setHighlight((index) => (outRows.has(prompt.options[index]?.id ?? "") ? nextEnabledIndex(prompt, outRows, index, 1) : index));
+    });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlight, promptId, outKey]);
 
   useEffect(() => {
     if (!kind) return;
@@ -1761,7 +1809,7 @@ export function PromptCenter(props: PromptCenterProps) {
           {hide}
         </header>
         <ResponseBody prompt={prompt} draft={draft} busy={busy} slug={slug} chain={chain} mySeat={mySeat} onSubmit={onSubmit}
-          onInspectCard={onInspectCard} nameOf={props.nameOf} seatTones={props.seatTones} priority={props.priority} />
+          onInspectCard={onInspectCard} nameOf={props.nameOf} seatTones={props.seatTones} priority={props.priority} outRows={outRows} leavingSeats={props.leavingSeats} />
         {hasActions || optional ? (
           <footer className={styles.foot}>
             {optional ? <span className={styles.hint}>Right-click to pass</span> : null}

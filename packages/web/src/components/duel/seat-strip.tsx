@@ -1,7 +1,7 @@
 "use client";
 
 import type { DuelEngineView } from "@yugidraft/shared/duels";
-import { engineFormat, isEliminated, nextSeatAfter, opponentPickLabel, seatRelation, seatTeam, type SeatPick } from "./multi-seat";
+import { engineFormat, isEliminated, isOutOrLeaving, nextSeatAfter, opponentPickLabel, seatRelation, seatTeam, type SeatPick } from "./multi-seat";
 import styles from "./seat-strip.module.css";
 
 /**
@@ -29,16 +29,18 @@ export function SeatStrip({
   const format = engineFormat(engine);
   const ordered = [...engine.seats].sort((a, b) => a.seat - b.seat);
   const next = nextSeatAfter(engine.seats, engine.turnSeat);
+  // A Leaving seat is pickable only when no living seat is offered (the rule of opponentPickOptions).
+  const livingOffered = pick != null && ordered.some((view) => pick.options.has(view.seat) && !isOutOrLeaving(view));
   return (
     <ol className={styles.strip} aria-label="Turn order" data-format={format} data-testid="seat-strip">
       {ordered.map((view) => {
         const out = isEliminated(view);
         const relation = seatRelation(format, mySeat, view.seat);
         const leaving = !out && view.pendingElimination === true;
-        const turn = view.seat === engine.turnSeat && !out;
-        const isNext = view.seat === next && view.seat !== engine.turnSeat;
-        const answering = view.seat === promptSeat && !out;
-        const pickable = pick?.options.has(view.seat) === true && !out;
+        const turn = view.seat === engine.turnSeat && !out && !leaving;
+        const isNext = view.seat === next && view.seat !== engine.turnSeat && !leaving;
+        const answering = view.seat === promptSeat && !out && !leaving;
+        const pickable = pick?.options.has(view.seat) === true && !out && !(leaving && livingOffered);
         const focusable = !pickable && onFocusSeat != null && relation === "opponent" && !out;
         const status = out ? "Eliminated" : turn ? "To play" : isNext ? "Next" : null;
         const content = (

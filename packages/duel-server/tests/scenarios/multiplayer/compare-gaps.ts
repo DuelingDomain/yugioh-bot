@@ -504,10 +504,10 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       }),
     ],
   }),
-  // W8: immediate surrender removes a seat while the living duelist's opponent choice stays open.
+  // W8 in FFA3: surrender removes one option, so the sole surviving opponent is picked automatically.
   defineScenario({
     id: "compare-gaps-ffa3-surrender-while-the-opponent-pick-is-open",
-    title: "FFA3: p1 gives up while p0 picks an opponent for Ultimate Sky: p1 is removed immediately, its option is refused, p0 picks p2, and Sky negates p2's Man-Eater Bug for 800 LP (W8)",
+    title: "FFA3: p1 gives up while p0 picks an opponent for Ultimate Sky: p1 is removed immediately, p2 is picked automatically, and Sky negates p2's Man-Eater Bug for 800 LP (W8)",
     source: OPP_PICK,
     rules: ["R-COMMON-OPP-PICK", "R-FFA-OPP-ONE", "R-FFA-ELIMINATION", "R-COMMON-SURRENDER-EOT"],
     tags: ["multiplayer", "compare", "elimination", "ffa3", "card:38817295"],
@@ -522,13 +522,9 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       expectPickSeats(["p1", "p2"], "p0"),
       expectPickOptions([{ id: "opt:0", seat: "p1" }, { id: "opt:1", seat: "p2" }], "p0"),
       surrender("p1"),
-      // R-COMMON-SURRENDER-EOT: p1 is out before p0 answers, and the saved opponent option is refused.
+      // R-COMMON-SURRENDER-EOT: p1 is out before p0 answers.
       expectEliminated("p1"),
-      // ADR:34: the living duelist's opponent pick keeps its option IDs.
-      expectPickOptions([{ id: "opt:0", seat: "p1" }, { id: "opt:1", seat: "p2" }], "p0"),
-      expectRetry({ choice: "opt:0" }, { error: "That player has left. Pick again.", code: "seat_left", by: "p0" }),
-      pickOpponent("p2", "p0"),
-      zone("p0", "s0", "p0"),
+      // The filtered opt:1 and the only Spell zone are answered automatically.
       // R-FFA-OPP-ONE: p2's two effect monsters keep the target choice open.
       expectPickOptions([{ card: BUG, seat: "p2" }, { card: WITCH, seat: "p2" }], "p0"),
       select(BUG),
@@ -538,6 +534,43 @@ export const COMPARE_GAP_SCENARIOS: Scenario[] = [
       everySeat("ffa3", {
         p0: { lp: 7200, hand: [], monsters: [ELF], grave: ["Ultimate Sky"] },
         p2: { monsters: [BUG, OX, WITCH] },
+      }),
+    ],
+  }),
+  // W8 in FFA4: two opponents survive, so the filtered pick stays open and keeps their core option IDs.
+  defineScenario({
+    id: "compare-gaps-ffa4-surrender-while-the-opponent-pick-is-open",
+    title: "FFA4: p1 gives up while p0 picks an opponent for Ultimate Sky: p1's removed option returns seat_left, p0 picks p2, and Sky negates p2's Man-Eater Bug for 800 LP (W8)",
+    source: OPP_PICK,
+    rules: ["R-COMMON-OPP-PICK", "R-FFA-OPP-ONE", "R-FFA-ELIMINATION", "R-COMMON-SURRENDER-EOT"],
+    tags: ["multiplayer", "compare", "elimination", "ffa4", "card:38817295"],
+    setup: {
+      format: "ffa4",
+      p0: { hand: ["Ultimate Sky"], monsters: [ELF] },
+      p1: { monsters: [SANGAN, WITCH] },
+      p2: { monsters: [BUG, OX, WITCH] },
+      // Two Normal Monsters keep p3 eligible for the opponent pick without adding effect targets.
+      p3: { monsters: [AXE, GUARDIAN] },
+    },
+    steps: [
+      activate("Ultimate Sky", "p0"),
+      expectPickSeats(["p1", "p2", "p3"], "p0"),
+      expectPickOptions([{ id: "opt:0", seat: "p1" }, { id: "opt:1", seat: "p2" }, { id: "opt:2", seat: "p3" }], "p0"),
+      surrender("p1"),
+      expectEliminated("p1"),
+      expectPickOptions([{ id: "opt:1", seat: "p2" }, { id: "opt:2", seat: "p3" }], "p0"),
+      expectRetry({ choice: "opt:0" }, { error: "That player has left. Pick again.", code: "seat_left", by: "p0" }),
+      pickOpponent("p2", "p0"),
+      zone("p0", "s0", "p0"),
+      expectPickOptions([{ card: BUG, seat: "p2" }, { card: WITCH, seat: "p2" }], "p0"),
+      select(BUG),
+      expectEvents({ kind: "target", by: "p0", text: "targets 1 card" }),
+      expectPrompt({ by: "p0", title: "Choose an action", context: "action" }),
+      expectEliminated("p1"),
+      everySeat("ffa4", {
+        p0: { lp: 7200, hand: [], monsters: [ELF], grave: ["Ultimate Sky"] },
+        p2: { monsters: [BUG, OX, WITCH] },
+        p3: { monsters: [AXE, GUARDIAN] },
       }),
     ],
   }),

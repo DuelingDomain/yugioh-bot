@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { OcgLocation, OcgMessageType, OcgResponseType } from "ocgcore-wasm";
 import { DUEL_SEAT_LEFT_ERROR_CODE, type DuelAnswer, type DuelEngineView, type DuelPrompt } from "@yugidraft/shared/duels";
 import type { CardDatabase } from "../src/cards.js";
-import { HINT_PLACE_SEAT, autoResponse, directAttackSeat, isOpponentPick, mapPrompt, nextLivingOpponentSeat, opponentPickSeat, placeSeatHint, resolveAnswer } from "../src/prompts.js";
+import { HINT_PLACE_SEAT, autoResponse, directAttackSeat, filterPromptOptions, isOpponentPick, mapPrompt, nextLivingOpponentSeat, opponentPickSeat, placeSeatHint, resolveAnswer } from "../src/prompts.js";
 import { botTableOf, choosePracticeBotAnswer, chooseSeatOption, chooseSurrenderedAnswer, isSeatPick } from "../src/practice-bot.js";
 import { chooseScripted, defaultAnswer, pickOpponent } from "../src/scripted-bot.js";
 import { planAnswer } from "./fuzz/answers.js";
@@ -133,24 +133,42 @@ describe("opponent pick prompt", () => {
     { format: "ffa3", offered: [1, 2], living: [0] },
     { format: "ffa4", offered: [1, 2, 3], living: [0] },
     { format: "tag", offered: [1, 3], living: [0, 2] },
-  ])("accepts every fallback option and the bot answer when all offered seats have left in $format", ({ offered, living }) => {
-    const pending = mapPrompt(pickMessage(0, offered), cards, "p1", undefined, { livingSeats: living });
+  ])("accepts every fallback option and the bot answer when all offered seats are leaving in $format", ({ offered, living }) => {
+    const pending = mapPrompt(pickMessage(0, offered), cards, "p1", undefined, { livingSeats: living, eliminatedSeats: [] });
     expect(pending.prompt.options.map((option) => option.controller)).toEqual(offered);
     for (const [index, option] of pending.prompt.options.entries()) {
       expect(resolveAnswer(pending, 0, "p1", { choice: option.id }, cards)).toEqual({
         type: OcgResponseType.SELECT_OPTION, index,
       });
     }
-    const answer = choosePracticeBotAnswer(pending.prompt, { table: { living } });
+    const answer = choosePracticeBotAnswer(pending.prompt, { table: { living, eliminated: [] } });
     expect(resolveAnswer(pending, 0, "p1", answer, cards)).toEqual({
       type: OcgResponseType.SELECT_OPTION, index: 0,
     });
   });
 
+  it("never restores eliminated seats when no living option remains", () => {
+    const { prompt } = mapPrompt(pickMessage(0, [1, 2]), cards, "p1", undefined, { livingSeats: [0], eliminatedSeats: [1, 2] });
+    expect(prompt.options).toEqual([]);
+  });
+
+  it.each([0xfffe0000n, 0xffff0000n])("keeps leaving seats when all eligible seats in pick %s are leaving", (prefix) => {
+    const message = { type: OcgMessageType.SELECT_OPTION, player: 0, options: [1, 2, 3].map((seat) => prefix + BigInt(seat)) } as never;
+    const mapped = mapPrompt(message, cards, "p1", undefined, { livingSeats: [0], eliminatedSeats: [1] });
+    expect(mapped.prompt.options.map((option) => option.controller)).toEqual([2, 3]);
+    expect(resolveAnswer(mapped, 0, "p1", { choice: "opt:2" }, cards)).toEqual({ type: OcgResponseType.SELECT_OPTION, index: 2 });
+  });
+
+  it("keeps a suspended pick answerable when its last eligible seat starts leaving", () => {
+    const mapped = mapPrompt(pickMessage(0, [1, 2]), cards, "p1", undefined, { livingSeats: [0, 2] });
+    const refreshed = filterPromptOptions(mapped, { livingSeats: [0], eliminatedSeats: [] });
+    expect(refreshed.prompt.options.map((option) => option.controller)).toEqual([2]);
+  });
+
   it("is answered by the core index even for one remaining seat", () => {
     const mapped = mapPrompt(pickMessage(0, [1, 2]), cards, "p1", undefined, { livingSeats: [0, 2] });
     expect(mapped.prompt.options).toHaveLength(1);
-    expect(autoResponse(mapped)).toBeNull();
+    expect(autoResponse(mapped)).toEqual({ type: OcgResponseType.SELECT_OPTION, index: 1 });
   });
 
   it("is answered automatically when the core offers one seat", () => {
@@ -249,17 +267,28 @@ describe("bots", () => {
     expect(choosePracticeBotAnswer(pick(), { table: dead })).toEqual({ choice: "opt:2" });
   });
 
-  it("never answers an eliminated seat, but still answers when only dead seats are listed", () => {
+  it("never answers an eliminated seat when only dead seats are listed", () => {
     const prompt = pick();
     const table = { living: [0], lp: { 1: 10, 2: 20, 3: 30 } };
-    expect(chooseSeatOption(prompt, table)?.controller).toBe(1);
+    expect(chooseSeatOption(prompt, table)).toBeUndefined();
+    expect(() => choosePracticeBotAnswer(prompt, { table })).toThrow("no legal choice");
     expect(chooseSurrenderedAnswer(prompt, { table: { living: [0, 3] } })).toEqual({ choice: "opt:2" });
   });
 
   it("an eliminated or leaving seat is not living in the table of a view", () => {
     const view = { seats: [{ seat: 0, lp: 1, pendingElimination: true }, { seat: 1, lp: 2 }, { seat: 2, lp: 0, eliminated: true }] } as unknown as DuelEngineView;
-    expect(botTableOf(view)).toEqual({ living: [1], lp: { 0: 1, 1: 2, 2: 0 } });
+    expect(botTableOf(view)).toEqual({ living: [1], eliminated: [2], lp: { 0: 1, 1: 2, 2: 0 } });
     expect(botTableOf({} as DuelEngineView)).toEqual({});
+  });
+
+  it("the bot uses the core's leaving-seat fallback without restoring eliminated seats", () => {
+    const view = viewOf([8000, 0, 2000, 1000], [1]);
+    view.seats[2]!.pendingElimination = true;
+    view.seats[3]!.pendingElimination = true;
+    expect(choosePracticeBotAnswer(pick(), { table: botTableOf(view) })).toEqual({ choice: "opt:2" });
+    view.seats[2]!.eliminated = true;
+    view.seats[3]!.eliminated = true;
+    expect(() => choosePracticeBotAnswer(pick(), { table: botTableOf(view) })).toThrow("no legal choice");
   });
 
   it("takes the direct-attack pick as a seat pick too", () => {
@@ -275,6 +304,14 @@ describe("bots", () => {
     const chosen = prompt.options.filter((option) => answer.selected?.includes(option.id));
     expect(chosen).toHaveLength(1);
     expect(chosen[0]!.controller).toBe(3);
+  });
+
+  it.each(["cards", "toggle"] as const)("the bot excludes eliminated monster targets in %s prompts", (kind) => {
+    const prompt: DuelPrompt = { id: "p1", seat: 0, kind, title: "Select an attack target", min: 1, max: 1,
+      options: [{ id: "card:0", label: "Dead monster", controller: 1, location: OcgLocation.MZONE },
+        { id: "card:1", label: "Living monster", controller: 2, location: OcgLocation.MZONE }] };
+    expect(choosePracticeBotAnswer(prompt, { table: { living: [0, 2] } })).toEqual(
+      kind === "toggle" ? { choice: "card:1" } : { selected: ["card:1"] });
   });
 
   it("does not answer a zone of an eliminated seat when a living seat has zones", () => {

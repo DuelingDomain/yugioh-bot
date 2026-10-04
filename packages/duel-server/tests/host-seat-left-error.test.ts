@@ -26,7 +26,7 @@ afterEach(async () => {
   while (cleanups.length) await cleanups.pop()!();
 });
 
-function fixture(format: DuelFormat, state: "eliminated" | "pendingElimination" | "allEliminated") {
+function fixture(format: DuelFormat, state: "eliminated" | "pendingElimination" | "allEliminated" | "allLeaving") {
   const dataDirectory = mkdtempSync(join(tmpdir(), "host-seat-left-"));
   writeFileSync(join(dataDirectory, "manifest.json"), JSON.stringify({ bundleVersion: "fixture" }));
   const db = new Database(":memory:");
@@ -46,16 +46,17 @@ function fixture(format: DuelFormat, state: "eliminated" | "pendingElimination" 
     null, { firstTurnDraw: false });
   const opponents = opponentSeatsOf(format, 0);
   const left = opponents[0]!;
-  const leftSeats = state === "allEliminated" ? opponents : [left];
+  const leftSeats = state === "allEliminated" || state === "allLeaving" ? opponents : [left];
   const livingSeats = Array.from({ length: count }, (_, seat) => seat).filter((seat) => !leftSeats.includes(seat));
+  const eliminatedSeats = state === "eliminated" || state === "allEliminated" ? leftSeats : [];
   const pending = mapPrompt({ type: OcgMessageType.SELECT_OPTION, player: 0,
     options: opponents.map((seat) => BigInt(0xfffe0000 + seat)) } as never, cards, "p1", undefined,
-    state === "pendingElimination" ? undefined : { livingSeats });
+    { livingSeats, eliminatedSeats });
   const view = { revision: 0, mode: "normal", format, viewerSeat: 0, turn: 1, turnSeat: 0, phase: "main1",
     prompt: pending.prompt, result: null, events: [], log: [],
     seats: Array.from({ length: count }, (_, seat) => ({ seat, lp: 8000,
-      eliminated: state !== "pendingElimination" && leftSeats.includes(seat),
-      pendingElimination: state === "pendingElimination" && seat === left,
+      eliminated: eliminatedSeats.includes(seat),
+      pendingElimination: !eliminatedSeats.includes(seat) && leftSeats.includes(seat),
       deckCount: 40, extraCount: 0, handCount: 0, hand: [], monsters: [], spells: [], graveyard: [], banished: [], extra: [] })),
   } as unknown as DuelEngineView;
   const worker: DuelGameWorker = {
@@ -78,9 +79,10 @@ function fixture(format: DuelFormat, state: "eliminated" | "pendingElimination" 
 }
 
 describe("host opponent picks for a seat that has left", () => {
-  it.each(["ffa3", "ffa4", "tag"] as const)(
-    "returns the seat-left code for a removed option in %s", async (format) => {
-      const t = fixture(format, "eliminated");
+  it.each((["ffa3", "ffa4", "tag"] as const).flatMap((format) =>
+    (["eliminated", "pendingElimination", "allEliminated"] as const).map((state) => ({ format, state }))))(
+    "returns the seat-left code for a removed option in $format with $state", async ({ format, state }) => {
+      const t = fixture(format, state);
       const response = await t.post("opt:0");
       expect(response.status, await response.clone().text()).toBe(400);
       expect(await response.json()).toEqual({ code: "seat_left", error: "That player has left. Pick again." });
@@ -89,10 +91,9 @@ describe("host opponent picks for a seat that has left", () => {
     },
   );
 
-  it.each((["ffa3", "ffa4", "tag"] as const).flatMap((format) =>
-    (["pendingElimination", "allEliminated"] as const).map((state) => ({ format, state }))))(
-    "accepts and saves an offered option for $format with $state", async ({ format, state }) => {
-      const t = fixture(format, state);
+  it.each(["ffa3", "ffa4", "tag"] as const)(
+    "accepts and saves an offered option when all opponents are leaving in %s", async (format) => {
+      const t = fixture(format, "allLeaving");
       const response = await t.post("opt:0");
       expect(response.status, await response.clone().text()).toBe(200);
       expect(t.service.privateState(t.slug, "g1").commands).toHaveLength(1);

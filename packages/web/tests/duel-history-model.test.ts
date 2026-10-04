@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DuelCard, DuelCardInfo, DuelEvent } from "@yugidraft/shared/duels";
+import { buildHistoryView } from "../src/components/duel/history-entries";
 import {
   emptyHistory,
   ingestHistory,
@@ -239,5 +240,76 @@ describe("history model", () => {
     const view = visibleHistory(state.items, 12);
     expect(view).toHaveLength(12);
     expect(view[0].key).toBe(20);
+  });
+
+  describe("turn seats with four seats", () => {
+    // Seat 1 is eliminated on turn 3 (it lost at the end of its turn 2), so turn 5 skips it: turns go
+    // seat 0, 1, 2, 3, then 0, 2, ... Counting back from "now" with modular arithmetic would be wrong.
+    const turnLog = [
+      { id: 1, text: "Turn 1 — Player 1" },
+      { id: 2, text: "Turn 2 — Player 2" },
+      { id: 3, text: "Turn 3 — Player 3" },
+      { id: 4, text: "Player 2 is eliminated" },
+      { id: 5, text: "Turn 4 — Player 4" },
+      { id: 6, text: "Turn 5 — Player 1" },
+      { id: 7, text: "Turn 6 — Player 3" },
+    ];
+    const window: DuelEvent[] = [3, 4, 5, 6].flatMap((turn, i) => [
+      { id: i * 2 + 1, kind: "phase" as const, text: "Main Phase 1" },
+      { id: i * 2 + 2, kind: "summon" as const, seat: 0, card: info(turn, `T${turn}`), text: "" },
+    ]);
+    const four = (overrides: Partial<HistoryContext> = {}) =>
+      ctx({ turn: 6, turnSeat: 2, seatCount: 4, anySeatOut: true, ...overrides });
+    const seps = (state: ReturnType<typeof ingestHistory>) =>
+      state.items.filter((item) => item.type === "sep" && item.turn != null);
+    const labels = (state: ReturnType<typeof ingestHistory>) =>
+      buildHistoryView(state.items, { mySeat: 0, who: (seat) => `P${(seat ?? 0) + 1}`, seatCount: 4 }).groups.map((group) => group.label);
+
+    it("takes each turn seat from the server's Turn N line, skipping the eliminated seat", () => {
+      const state = ingestHistory(emptyHistory(), window, four({ log: turnLog }));
+      expect(seps(state).map((sep) => (sep.type === "sep" ? [sep.turn, sep.turnSeat] : null))).toEqual([
+        [3, 2],
+        [4, 3],
+        [5, 0],
+        [6, 2],
+      ]);
+      expect(tiles(state).map((tile) => tile.turnSeat)).toEqual([2, 3, 0, 2]);
+      expect(labels(state)).toEqual(["Turn 6 · P3", "Turn 5 · P1", "Turn 4 · P4", "Turn 3 · P3"]);
+    });
+
+    it("leaves the seat off an older turn it cannot read once a seat is out", () => {
+      // The log no longer holds turns 3 to 5. The current turn still has the engine's turn seat.
+      const state = ingestHistory(emptyHistory(), window, four({ log: [{ id: 7, text: "Turn 6 — Player 3" }] }));
+      expect(tiles(state).map((tile) => tile.turnSeat)).toEqual([null, null, null, 2]);
+      expect(labels(state)).toEqual(["Turn 6 · P3", "Turn 5", "Turn 4", "Turn 3"]);
+      const noLog = ingestHistory(emptyHistory(), window, four());
+      expect(labels(noLog)).toEqual(["Turn 6 · P3", "Turn 5", "Turn 4", "Turn 3"]);
+    });
+
+    it("does not count parity into a turn the window started inside once a seat is out", () => {
+      const mid: DuelEvent[] = [
+        { id: 1, kind: "summon", seat: 1, card: info(1, "A"), text: "" },
+        { id: 2, kind: "phase", text: "Main Phase 1" },
+        { id: 3, kind: "summon", seat: 0, card: info(2, "B"), text: "" },
+      ];
+      const state = ingestHistory(emptyHistory(), mid, four({ turn: 5, turnSeat: 0, log: [{ id: 6, text: "Turn 5 — Player 1" }] }));
+      expect(labels(state)).toEqual(["Turn 5 · P1", "Turn 4"]);
+    });
+
+    it("counts turns back by modular arithmetic when no seat is out", () => {
+      const state = ingestHistory(emptyHistory(), window, four({ anySeatOut: false }));
+      expect(tiles(state).map((tile) => tile.turnSeat)).toEqual([3, 0, 1, 2]);
+      expect(labels(state)).toEqual(["Turn 6 · P3", "Turn 5 · P2", "Turn 4 · P1", "Turn 3 · P4"]);
+    });
+
+    it("ignores log lines it cannot read or that name a seat outside the table", () => {
+      const log = [
+        { id: 1, text: "Turn 5 — Player 9" },
+        { id: 2, text: "Turn five — Player 1" },
+        { id: 3, text: "Player 1 wins (surrender)" },
+      ];
+      const state = ingestHistory(emptyHistory(), window, four({ log }));
+      expect(tiles(state).map((tile) => tile.turnSeat)).toEqual([null, null, null, 2]);
+    });
   });
 });

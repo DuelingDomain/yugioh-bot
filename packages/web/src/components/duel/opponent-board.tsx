@@ -375,7 +375,7 @@ export function SeatBoard({
 
   return (
     <section className={styles.board} aria-label={`${name} board`} data-seat={seat} data-relation={relation}
-      data-active={active && !eliminated ? "true" : "false"} data-answering={answering && !eliminated ? "true" : "false"}
+      data-active={active && !eliminated && !leaving ? "true" : "false"} data-answering={answering && !eliminated && !leaving ? "true" : "false"}
       data-eliminated={eliminated ? "true" : "false"} data-leaving={leaving ? "true" : "false"} data-expanded={expanded ? "true" : "false"}
       data-pickable={pickable ? "true" : undefined} data-team={view.team} data-testid={`seat-board-${seat}`}>
       <header className={styles.head}>
@@ -389,8 +389,8 @@ export function SeatBoard({
             <button type="button" className={styles.nameBtn} onClick={() => onFocusSeat?.(seat)} title="Show this board large">{name}</button>
           ) : <b className={styles.name}>{name}</b>}
           {relationText ? <span className={styles.relation} data-relation={relation}>{relationText}</span> : null}
-          {active && !eliminated ? <span className={styles.tag} data-kind="turn">To play</span> : null}
-          {answering && !eliminated ? <span className={styles.tag} data-kind="answer">Choosing</span> : null}
+          {active && !eliminated && !leaving ? <span className={styles.tag} data-kind="turn">To play</span> : null}
+          {answering && !eliminated && !leaving ? <span className={styles.tag} data-kind="answer">Choosing</span> : null}
           {leaving ? <span className={styles.tag} data-kind="leaving" data-testid={`seat-leaving-${seat}`}>Leaving</span> : null}
           {eliminated ? <span className={styles.tag} data-kind="out" data-testid={`seat-eliminated-${seat}`}>Eliminated</span> : null}
           {pickable ? (

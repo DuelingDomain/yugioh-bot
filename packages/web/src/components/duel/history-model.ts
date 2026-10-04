@@ -92,6 +92,8 @@ export interface HistoryTile {
   text: string;
   description?: string;
   turn: number;
+  /** Seat whose turn it was. null: not known and not safe to guess (a seat is out). Absent: not worked out. */
+  turnSeat?: number | null;
   /** Phase label when this happened; empty when unknown. */
   phase: string;
   chain?: { index: number; size: number; status: ChainStatus };
@@ -123,6 +125,7 @@ export interface HistorySeparator {
   label: string;
   /** Set when this separator starts a turn. */
   turn?: number;
+  /** Seat whose turn it is. null: not known and not safe to guess (a seat is out). */
   turnSeat?: number | null;
 }
 
@@ -150,6 +153,13 @@ export interface HistoryContext {
   turnSeat: number;
   phase: string;
   seatCount: number;
+  /**
+   * The engine log (`DuelEngineView.log`). Its "Turn N — Player X" lines name the seat of each turn. Without
+   * them the seat is only worked out from the turn seat now, and only while no seat is out.
+   */
+  log?: readonly { id: number; text: string }[];
+  /** True when a seat is eliminated or leaving. Turns skip such a seat, so counting turns would guess wrong. */
+  anySeatOut?: boolean;
   /** LP per seat right now. Omit when unknown: no recovery tiles are made then. */
   lp?: readonly number[];
   /** Cards on the field right now (monsters and spells). Used to look up attackers and targets. */
@@ -304,6 +314,18 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
   }
   const seatCount = Math.max(2, ctx.seatCount);
 
+  // Seat of a turn. The server's "Turn N — Player X" line (engine.ts, NEW_TURN) is the truth. The current turn
+  // has the engine's own turn seat. Older turns are counted back by modular arithmetic only while no seat is
+  // out; a skipped seat breaks the count, so then the seat stays off the label.
+  const loggedSeats = loggedTurnSeats(ctx.log, seatCount);
+  const seatForTurn = (turn: number): number | null => {
+    const logged = loggedSeats.get(turn);
+    if (logged != null) return logged;
+    if (turn === ctx.turn) return ctx.turnSeat;
+    if (ctx.anySeatOut) return null;
+    return (((ctx.turnSeat - (ctx.turn - turn)) % seatCount) + seatCount) % seatCount;
+  };
+
   // LP before and after each hit, worked back from the LP now. Skipped for a seat that also gained LP in
   // this batch, because then the sums cannot be trusted.
   const damage = new Map<number, number>();
@@ -396,6 +418,7 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
     text: event.text,
     description: event.description,
     turn: Math.max(1, ctx.turn - mp1After[index]),
+    turnSeat: seatForTurn(Math.max(1, ctx.turn - mp1After[index])),
     phase: phase ?? "",
     hits: [],
     destroyed: [],
@@ -490,7 +513,7 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
         if (label) {
           const turn = Math.max(1, ctx.turn - mp1After[index]);
           sep.turn = turn;
-          sep.turnSeat = (((ctx.turnSeat - (ctx.turn - turn)) % seatCount) + seatCount) % seatCount;
+          sep.turnSeat = seatForTurn(turn);
         }
         items.push(sep);
         break;
@@ -629,11 +652,26 @@ function healTile(key: number, gain: HistoryGain, ctx: HistoryContext, phase: st
     card: null,
     text: "",
     turn: Math.max(1, ctx.turn),
+    turnSeat: ctx.turnSeat,
     phase,
     hits: [],
     destroyed: [],
     gain,
   };
+}
+
+const TURN_LINE = /^Turn (\d+) [—–-] Player (\d+)$/;
+
+/** Turn number to seat, read from the server's "Turn N — Player X" log lines (engine.ts, NEW_TURN). */
+function loggedTurnSeats(log: HistoryContext["log"], seatCount: number): Map<number, number> {
+  const seats = new Map<number, number>();
+  for (const entry of log ?? []) {
+    const match = TURN_LINE.exec(entry.text.trim());
+    if (!match) continue;
+    const seat = Number(match[2]) - 1;
+    if (seat >= 0 && seat < seatCount) seats.set(Number(match[1]), seat);
+  }
+  return seats;
 }
 
 function isMainPhaseOne(text: string): boolean {

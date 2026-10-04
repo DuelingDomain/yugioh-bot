@@ -64,6 +64,15 @@ describe("targetChoices", () => {
     expect(autoFollowSeat(choices, eng, 0)).toEqual({ seat: 2, reason: "Pick a target" });
   });
 
+  it("keeps the cards of a Leaving seat as targets while a chain is open, and never those of an eliminated seat", () => {
+    const link = { index: 1, seat: 0 };
+    const eng = { ...engine([seatView(0), seatView(1, { eliminated: true }), seatView(2, { pendingElimination: true })]), chain: [link] };
+    const prompt: DuelPrompt = { id: "t", seat: 0, kind: "cards", title: "Select 1 monster to destroy", min: 1, max: 1, options: [monsterOption("a", 1, 0), monsterOption("c", 2, 1)] };
+    const choices = targetChoices(prompt, eng, 0, nameOf);
+    expect(choices.map((choice) => choice.seat)).toEqual([2]);
+    expect(choices[0].zones).toEqual(["2:4:1"]);
+  });
+
   it("does not offer any targets to a Leaving viewer, even with a stale prompt", () => {
     const eng = engine([seatView(0, { pendingElimination: true }), seatView(1), seatView(2)]);
     expect(targetChoices(attack([monsterOption("a", 1, 0)]), eng, 0, nameOf)).toEqual([]);
@@ -106,6 +115,16 @@ describe("seatStatus", () => {
     expect(seatStatus(live, 2, null)).toBe("active");
     expect(seatStatus(live, 2, 2)).toBe("choosing");
     expect(seatStatus(live, 0, 2)).toBe("turn");
+  });
+  it("skips Leaving seats too when it finds the next seat", () => {
+    const eng2 = engine([seatView(0), seatView(1, { pendingElimination: true }), seatView(2)], 0);
+    expect(seatStatus(eng2, 1, null)).toBe("leaving");
+    expect(seatStatus(eng2, 2, null)).toBe("next");
+  });
+  it("reads a Leaving turn seat as leaving, not turn", () => {
+    const eng2 = engine([seatView(0, { pendingElimination: true }), seatView(1), seatView(2)], 0);
+    expect(seatStatus(eng2, 0, null)).toBe("leaving");
+    expect(seatStatus(eng2, 1, null)).toBe("next");
   });
   it("skips eliminated seats when it finds the next seat", () => {
     const eng2 = engine([seatView(0), seatView(1, { eliminated: true }), seatView(2)], 0);

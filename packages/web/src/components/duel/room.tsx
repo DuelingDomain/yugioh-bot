@@ -49,8 +49,9 @@ import { TagShell } from "./tag/tag-shell";
 import { defaultTeamNames } from "./tag/live-tag";
 import { useLiveTableController } from "./table/use-live-table-controller";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
+import { duelActionErrorText } from "@/lib/duel/action-errors";
 import { MultiSeatStage } from "./multi-seat-stage";
-import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, seatPickFor, seatNamer } from "./multi-seat";
+import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, isOpponentPick, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds, seatPickFor, seatNamer } from "./multi-seat";
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, PickRefusalHint, shakeRefusedCard, confirmSide, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
@@ -66,6 +67,7 @@ import { CardInspector, type InspectTarget } from "./inspector";
 import {
   activatePromptFromField,
   isAttackTargetPrompt,
+  isAttackDuelistPrompt,
   isDirectAttackPrompt,
   optionsForCard,
   optionZoneKeys,
@@ -429,8 +431,24 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     setStarting(false);
   }, [slug]);
 
+  // The room says this viewer no longer plays (role "spectator" or no seat): drop everything private to the seat.
+  // The role stays "player" after a result (a draw, a Tag surrender), so a finished duel never clears the screen here.
+  const watchingOnly = data != null && (data.role === "spectator" || data.mySeat == null);
+  useEffect(() => {
+    if (!watchingOnly) return;
+    setInspect(null);
+    setPile(null);
+    setMobileInspect(false);
+    setMenu(null);
+    setHover(null);
+    setPinnedFocus(null);
+    setAimLock(null);
+    setPickHint(null);
+    setActionError(null);
+  }, [watchingOnly]);
+
   const run = useCallback(
-    async (work: () => Promise<DuelRoom | { session: unknown } | void>) => {
+    async (work: () => Promise<DuelRoom | { session: unknown } | void>, kind?: "seat-pick") => {
       // React's busy state alone cannot reject two clicks within one render.
       if (inFlight.current) return;
       inFlight.current = true;
@@ -444,7 +462,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         const result = await work();
         if (seq === mutationSeq.current) await applyAnswerResult(mutate, result);
       } catch (err) {
-        setActionError(err instanceof Error ? err.message : "Action failed");
+        setActionError(duelActionErrorText(err, { seatPick: kind === "seat-pick" }));
         await mutate();
       } finally {
         inFlight.current = false;
@@ -507,7 +525,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setPendingAttack(attack && attack.controller != null && attack.location != null && attack.sequence != null
         ? { key: zoneKey(attack.controller, attack.location, attack.sequence), direct: /directly/i.test(attack.label) }
         : null);
-      void run(() => sendDuelAction(slug, command));
+      // Only an opponent or direct-attack pick gets the general "pick again" notice on a 400 (a seat may have left).
+      void run(() => sendDuelAction(slug, command), isOpponentPick(prompt) || isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
     },
     [data, prompt, error, catchingUp, run, slug, pick.noteAnswer, viewerOut],
   );
@@ -835,8 +854,10 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {surrenderModal}
       </>,
     };
+    // The shells keep their own pile viewer, inspector and menus. A new key on the change to spectator drops them with the room's.
+    const shellKey = watchingOnly ? `${slug}:watching` : slug;
     return <DeckSurrenderContext.Provider value={deckSurrender}>
-      {liveTagTable ? <TagShell key={slug} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={slug} {...shellProps} />}
+      {liveTagTable ? <TagShell key={shellKey} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={shellKey} {...shellProps} />}
     </DeckSurrenderContext.Provider>;
   }
   const connectionLabel = labelForConnection(terminal, { ...realtime, stale: roomStale, error });
@@ -1120,7 +1141,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
         draft={draft} onSubmit={onSubmitAnswer} menuOpen={Boolean(activeMenu) || deckMenuOpen}
         active={data.session.status === "active" && !viewerOut} aim={promptAim} headless={centered} suspended={centered && !revealed}
-        waitingName={multi && prompt ? playerName(prompt.seat) : null} />
+        waitingName={multi && prompt ? playerName(prompt.seat) : null}
+        disabledIds={engine ? outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats)) : undefined} />
     </div>
   );
   // What DuelField (classic) and SolidField (3D mode) take: one object, so both looks drive the same logic.
@@ -1159,6 +1181,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         menuOpen={Boolean(activeMenu) || deckMenuOpen} chain={engine.chain} aim={promptAim}
         aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
         reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
+        outSeats={outOrLeavingSeats(engine.seats)} leavingSeats={leavingOnlySeats(engine.seats)}
         revealed={revealed} onInspectCard={inspectInfo} nameOf={playerName} />
       {pile ? (
         <PileViewer title={pile.title} owner={pile.owner} open={pile.open}
