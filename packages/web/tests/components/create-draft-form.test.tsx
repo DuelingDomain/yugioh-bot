@@ -24,9 +24,14 @@ async function pickGoat() {
   await screen.findByRole("region", { name: "Chosen cube" });
 }
 
+async function customize() {
+  fireEvent.click(screen.getByRole("button", { name: "Customize for this draft" }));
+  await screen.findByRole("list", { name: "Pool cards" });
+}
+
 async function openEditor() {
   await pickGoat();
-  fireEvent.click(screen.getByRole("button", { name: "Customize for this draft" }));
+  await customize();
 }
 
 async function addCardByName(query: string, name: string) {
@@ -430,11 +435,47 @@ describe("CreateDraftForm pool: saving", () => {
     render(<CreateDraftForm />);
     fireEvent.click(await screen.findByRole("button", { name: /Despia cube/ }));
     await screen.findByRole("region", { name: "Chosen cube" });
-    fireEvent.click(screen.getByRole("button", { name: "Customize for this draft" }));
+    await customize();
     await addCardByName("alpha", "Alpha Beast");
     expect(screen.queryByRole("button", { name: /Save changes to/ })).toBeNull();
     expect(screen.getByRole("button", { name: "Save as new cube" })).toBeInTheDocument();
     expect(screen.getByText("Only Despia cube's owner or an admin can change it.")).toBeInTheDocument();
+  });
+});
+
+describe("CreateDraftForm pool: opening the editor", () => {
+  it("keeps the editor open when Customize is clicked in the same tick the cube pick commits", async () => {
+    stubFetch();
+    render(<CreateDraftForm />);
+    fireEvent.click(await screen.findByRole("button", { name: /Goat cube/ }));
+
+    // A mutation observer runs as a microtask right after the commit, before React flushes that commit's
+    // passive effects. That is the order a slow runner produces: the click lands first, the effects run late.
+    await new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        const button = screen.queryByRole("button", { name: "Customize for this draft" });
+        if (!button) return;
+        observer.disconnect();
+        fireEvent.click(button);
+        resolve();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+
+    // Let the late effects run, then check the editor is still there.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByRole("list", { name: "Pool cards" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Customize for this draft" })).toBeNull();
+  });
+
+  it("closes the editor again when another cube is picked", async () => {
+    stubFetch();
+    render(<CreateDraftForm />);
+    await openEditor();
+    fireEvent.click(screen.getByRole("button", { name: "Change cube" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Despia cube/ }));
+    await screen.findByRole("button", { name: "Customize for this draft" });
+    expect(screen.queryByRole("list", { name: "Pool cards" })).toBeNull();
   });
 });
 
@@ -578,7 +619,7 @@ describe("pool list with a big pool", () => {
     render(<CreateDraftForm />);
     fireEvent.click(await screen.findByRole("button", { name: /Goat cube/ }));
     await screen.findByRole("region", { name: "Chosen cube" });
-    fireEvent.click(screen.getByRole("button", { name: "Customize for this draft" }));
+    await customize();
 
     const list = screen.getByRole("list", { name: "Pool cards" });
     expect(within(list).getAllByRole("listitem").length).toBeLessThan(40);

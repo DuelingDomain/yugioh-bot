@@ -18,11 +18,11 @@ import styles from "./pool.module.css";
  */
 export function PoolEditor({ ctl }: { ctl: PoolEditorState }) {
   const lobby = ctl.variant === "lobby";
-  const [customizing, setCustomizing] = React.useState(false);
   const cubeId = ctl.meta?.cubeId ?? null;
-  React.useEffect(() => {
-    setCustomizing(false);
-  }, [cubeId]);
+  // The cube the user opened the editor for. Deriving `customizing` from it closes the editor when the cube
+  // changes without a reset effect, which could run after a click and undo it (`undefined` = never opened).
+  const [customizingFor, setCustomizingFor] = React.useState<number | null | undefined>(undefined);
+  const customizing = customizingFor === cubeId;
 
   if (!ctl.ready) return <p className={styles.loading}>{lobby ? "Loading the pool." : "Loading cubes."}</p>;
   if (ctl.loadError) {
@@ -58,12 +58,12 @@ export function PoolEditor({ ctl }: { ctl: PoolEditorState }) {
       {!showPicker && <StatusBar ctl={ctl} />}
       {!showPicker && !editorOpen && (
         <div className={styles.custom}>
-          <button type="button" className={svButtonClass("ghost")} onClick={() => setCustomizing(true)}>
+          <button type="button" className={svButtonClass("ghost")} onClick={() => setCustomizingFor(cubeId)}>
             {ctl.edited ? "Keep customizing" : "Customize for this draft"}
           </button>
         </div>
       )}
-      {!showPicker && editorOpen && <Editor ctl={ctl} scratch={scratch} onHide={!lobby && !scratch ? () => setCustomizing(false) : null} />}
+      {!showPicker && editorOpen && <Editor ctl={ctl} scratch={scratch} onHide={!lobby && !scratch ? () => setCustomizingFor(undefined) : null} />}
     </div>
   );
 }
