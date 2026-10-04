@@ -48,6 +48,8 @@ const closers = new Map<number, number>();
 const flipAttacks = new Map<number, number>();
 /** Attacker zone key -> when its strike ends (absolute FX ms). */
 const strikeEnds = new Map<string, number>();
+/** Battle damage of a flip sequence -> when its LP roll may start (absolute FX ms). */
+const fightDamage = new Map<number, number>();
 /** Position events that are the flip of a sequence. */
 const sequenceFlips = new Set<number>();
 /** Attacks that may become a flip sequence; the next batch of the same fight continues them. */
@@ -63,6 +65,7 @@ export function resetChainBeats(key = ""): void {
   closers.clear();
   flipAttacks.clear();
   strikeEnds.clear();
+  fightDamage.clear();
   sequenceFlips.clear();
   flipTracks.length = 0;
   state.key = key;
@@ -81,7 +84,6 @@ export function flipAttackAt(attackId: number): number {
   return flipAttacks.get(attackId) ?? 0;
 }
 
-/** True for the flip of a flip-effect sequence: it plays the short turn of the sequence. */
 /**
  * While the attacker of a flip sequence lunges (a copy of its picture, flip-strike.tsx), the stand-in of
  * that attacker must stay out of sight on its zone. Returns how long from `now` it has to wait, 0 for none.
@@ -92,8 +94,14 @@ export function flipStrikeHideMs(zone: { controller: number; location: number; s
   return end > now ? end - now : 0;
 }
 
+/** True for the flip of a flip-effect sequence: it plays the short turn of the sequence. */
 export function isSequenceFlip(eventId: number): boolean {
   return sequenceFlips.has(eventId);
+}
+
+/** When the LP roll of this battle damage may start; 0 when it is not the damage of a flip sequence. */
+export function flipFightDamageAt(eventId: number): number {
+  return fightDamage.get(eventId) ?? 0;
 }
 
 /** The earliest start of the effect carried by this event; 0 when nothing holds it. */
@@ -151,11 +159,17 @@ function trim(map: Map<number, number>): void {
 function planFlipOpening(step: Extract<FlipStep, { role: "open" }>, now: number, reduced: boolean): void {
   const steps = flipSequenceSteps(reduced);
   const startAt = Math.max(now, state.freeAt);
-  const flipAt = startAt + steps.attackMs;
+  // The normal battle has played already (an earlier call held the calculation): no lunge, no wait.
+  const attackMs = step.attackPlayed ? 0 : steps.attackMs;
+  const flipAt = startAt + attackMs;
   const chainAt = step.flipFresh ? flipAt + steps.flipMs : flipAt;
-  flipAttacks.set(step.track.attack.id, startAt);
-  const attackZone = step.track.attack.zone;
-  if (attackZone) strikeEnds.set(zoneKey(attackZone.controller, attackZone.location, attackZone.sequence), startAt + steps.attackMs);
+  if (!step.attackPlayed) {
+    flipAttacks.set(step.track.attack.id, startAt);
+    const attackZone = step.track.attack.zone;
+    if (attackZone) strikeEnds.set(zoneKey(attackZone.controller, attackZone.location, attackZone.sequence), startAt + attackMs);
+    // Battle damage rolls at the hit of the strike.
+    for (const damage of step.damage) fightDamage.set(damage.id, startAt + attackMs * 0.5);
+  }
   if (step.flipFresh && step.track.flip) {
     sequenceFlips.add(step.track.flip.id);
     effects.set(step.track.flip.id, flipAt);
@@ -216,7 +230,10 @@ export function planChainBeats(fresh: readonly DuelEvent[], options: PlanOptions
     if (resultOf?.chainEnd && beats.has(resultOf.chainEnd.id)) {
       // The fight's own result (a battle destroy, battle damage) waits for the end of the chain.
       const at = (beats.get(resultOf.chainEnd.id) as number) + chainEffectLead(reduced);
-      if (at > now + 30) effects.set(event.id, at);
+      if (at > now + 30) {
+        effects.set(event.id, at);
+        if (event.kind === "damage") fightDamage.set(event.id, at);
+      }
       continue;
     }
     if (state.resolvingAt != null && EFFECT_KINDS.has(event.kind)) {
@@ -229,5 +246,6 @@ export function planChainBeats(fresh: readonly DuelEvent[], options: PlanOptions
   trim(effects);
   trim(closers);
   trim(activations);
+  trim(fightDamage);
   while (handled.size > MAX_KEPT * 2) handled.delete(handled.values().next().value as number);
 }

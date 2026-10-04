@@ -43,6 +43,10 @@ export const FLIP_SEQUENCE_TIMING = {
 export type FlipTrack = {
   attack: DuelEvent;
   flip: DuelEvent | null;
+  /** The damage calculation event, when the engine sent it before the activation. */
+  battle: DuelEvent | null;
+  /** Battle damage the engine sent after the flip and before the activation (its real order). */
+  damage: DuelEvent[];
   activate: DuelEvent | null;
   target: DuelEvent | null;
   resolving: DuelEvent | null;
@@ -51,7 +55,13 @@ export type FlipTrack = {
 
 /** What a new event is for in a flip sequence. `open` is the activation that makes the sequence. */
 export type FlipStep =
-  | { role: "open"; track: FlipTrack; event: DuelEvent; flipFresh: boolean }
+  | {
+      role: "open"; track: FlipTrack; event: DuelEvent; flipFresh: boolean;
+      /** The damage calculation came in an earlier call: the normal battle has played, so the sequence has no attack beat. */
+      attackPlayed: boolean;
+      /** Early battle damage that is new in this call. */
+      damage: DuelEvent[];
+    }
   | { role: "target" | "resolving" | "effect" | "chain-end" | "aftermath"; track: FlipTrack; event: DuelEvent };
 
 const sameZone = (a: DuelZoneRef | undefined, b: DuelZoneRef | undefined): boolean =>
@@ -82,7 +92,7 @@ export function advanceFlipTracks(tracks: FlipTrack[], events: readonly DuelEven
     if (event.kind === "phase" || event.kind === "attack" || event.kind === "battle-end") {
       tracks.length = 0;
       if (event.kind === "attack" && event.zone && event.target) {
-        tracks.push({ attack: event, flip: null, activate: null, target: null, resolving: null, chainEnd: null });
+        tracks.push({ attack: event, flip: null, battle: null, damage: [], activate: null, target: null, resolving: null, chainEnd: null });
       }
       continue;
     }
@@ -91,9 +101,16 @@ export function advanceFlipTracks(tracks: FlipTrack[], events: readonly DuelEven
     const { attack } = track;
     if (!track.activate) {
       if (event.kind === "position" && event.flip === true && !track.flip && sameZone(event.zone, attack.target)) track.flip = event;
+      else if (event.kind === "battle" && track.flip && !track.battle) track.battle = event;
+      // The engine calculates the damage before the activation; the damage waits for the strike (chain-beats.ts).
+      else if (event.kind === "damage" && track.flip && isFightResult(event)) track.damage.push(event);
       else if (event.kind === "activate" && track.flip && typeof event.chainIndex === "number" && sameZone(event.zone, attack.target)) {
         track.activate = event;
-        steps.push({ role: "open", track, event, flipFresh: freshIds.has(track.flip.id) });
+        steps.push({
+          role: "open", track, event, flipFresh: freshIds.has(track.flip.id),
+          attackPlayed: track.battle != null && !freshIds.has(track.battle.id),
+          damage: track.damage.filter((damage) => freshIds.has(damage.id)),
+        });
       }
       continue;
     }
@@ -134,6 +151,8 @@ export type FlipSequence = {
   effects: DuelEvent[];
   /** The fight's own result after the chain end: a battle destroy or move, battle damage. */
   aftermath: DuelEvent[];
+  /** Battle damage the engine sent before the activation. */
+  damage: DuelEvent[];
 };
 
 /** Every flip sequence in `events` (a whole log or a window). Stateless: runs the tracker over it. */
@@ -145,7 +164,7 @@ export function findFlipSequences(events: readonly DuelEvent[]): FlipSequence[] 
     if (step.role === "open") {
       found.set(track, {
         attack: track.attack, flip: track.flip as DuelEvent, activate: event,
-        target: null, resolving: null, chainEnd: null, effects: [], aftermath: [],
+        target: null, resolving: null, chainEnd: null, effects: [], aftermath: [], damage: track.damage,
       });
       continue;
     }

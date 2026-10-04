@@ -12,6 +12,7 @@ import { BattleFx } from "@/components/duel/battle-fx";
 import { clearBattleHolds } from "@/components/duel/battle-hold";
 import { planChainBeats, resetChainBeats } from "@/components/duel/chain-beats";
 import { duelFxClock } from "@/components/duel/fx-clock";
+import { flipSequenceSteps } from "@/components/duel/flip-sequence";
 import { clearLpHolds, takeLpHold } from "@/components/duel/life-points";
 
 const A = { controller: 0, location: 4, sequence: 0 };
@@ -22,13 +23,14 @@ const phase: DuelEvent = { id: 1, kind: "phase", text: "battle" };
 const attack: DuelEvent = { id: 2, kind: "attack", seat: 0, text: "attack", zone: A, target: D };
 const flip: DuelEvent = { id: 3, kind: "position", seat: 1, text: "flipped", zone: D, flip: true, fromPosition: 8, toPosition: 4 };
 const calc: DuelEvent = { id: 4, kind: "battle", seat: 0, text: "calc", zone: A, target: D };
-const activate: DuelEvent = { id: 5, kind: "activate", seat: 1, text: "activating", zone: D, chainIndex: 1 };
-const target: DuelEvent = { id: 6, kind: "target", seat: 1, text: "targets", chainIndex: 1, targets: [{ controller: 0, location: 4, sequence: 1 }] };
-const resolving: DuelEvent = { id: 7, kind: "chain-resolving", seat: 1, text: "resolving", chainIndex: 1 };
-const resolved: DuelEvent = { id: 8, kind: "chain-resolved", seat: 1, text: "resolved", chainIndex: 1 };
-const chainEnd: DuelEvent = { id: 9, kind: "chain-end", text: "end" };
+// The engine calculates the damage before the activation (processor.cpp: attack, flip, battle, damage, activate).
+const hurt: DuelEvent = { id: 5, kind: "damage", seat: 0, amount: 300, cause: "battle", text: "damage" };
+const activate: DuelEvent = { id: 6, kind: "activate", seat: 1, text: "activating", zone: D, chainIndex: 1 };
+const target: DuelEvent = { id: 7, kind: "target", seat: 1, text: "targets", chainIndex: 1, targets: [{ controller: 0, location: 4, sequence: 1 }] };
+const resolving: DuelEvent = { id: 8, kind: "chain-resolving", seat: 1, text: "resolving", chainIndex: 1 };
+const resolved: DuelEvent = { id: 9, kind: "chain-resolved", seat: 1, text: "resolved", chainIndex: 1 };
+const chainEnd: DuelEvent = { id: 10, kind: "chain-end", text: "end" };
 // A 300 ATK attacker meets a flipped 600 DEF card: the attacker is hurt and survives.
-const hurt: DuelEvent = { id: 10, kind: "damage", seat: 0, amount: 300, cause: "battle", text: "damage" };
 const battleEnd: DuelEvent = { id: 11, kind: "battle-end", text: "end" };
 
 const seats = [
@@ -70,7 +72,7 @@ describe("BattleFx with a flip-effect sequence", () => {
 
   it("shows the strike and builds no attack play when the whole fight is one batch", () => {
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
-    const all = [phase, attack, flip, calc, activate, target, resolving, resolved, chainEnd, hurt, battleEnd];
+    const all = [phase, attack, flip, calc, hurt, activate, target, resolving, resolved, chainEnd, battleEnd];
     plan(all);
     rerender(<BattleFx events={all} reducedMotion={false} seats={seats} />);
     expect(strike()).not.toBeNull();
@@ -83,23 +85,45 @@ describe("BattleFx with a flip-effect sequence", () => {
     plan(declared);
     rerender(<BattleFx events={declared} reducedMotion={false} seats={seats} />);
     expect(strike()).toBeNull();
-    const opened = [...declared, flip, calc, activate];
+    const opened = [...declared, flip, calc, hurt, activate];
     plan(opened);
     rerender(<BattleFx events={opened} reducedMotion={false} seats={seats} />);
     expect(strike()).not.toBeNull();
-    const rest = [...opened, target, resolving, resolved, chainEnd, hurt, battleEnd];
+    const rest = [...opened, target, resolving, resolved, chainEnd, battleEnd];
     plan(rest);
     rerender(<BattleFx events={rest} reducedMotion={false} seats={seats} />);
     expect(playLayer()).toBeNull();
   });
 
-  it("holds the LP roll of the battle damage until the chain has ended", () => {
+  it("holds the LP roll of the battle damage until the strike hits", () => {
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
-    const all = [phase, attack, flip, calc, activate, target, resolving, resolved, chainEnd, hurt, battleEnd];
+    const all = [phase, attack, flip, calc, hurt, activate, target, resolving, resolved, chainEnd, battleEnd];
     plan(all);
     rerender(<BattleFx events={all} reducedMotion={false} seats={seats} />);
-    // The beats run for seconds (attack, flip, activation, target, resolution) before the chain ends.
-    expect(takeLpHold(0)).toBeGreaterThan(2000);
+    // The damage comes before the activation in the engine's order; it rolls at the hit of the strike.
+    const hold = takeLpHold(0);
+    expect(hold).toBeGreaterThan(100);
+    expect(hold).toBeLessThanOrEqual(flipSequenceSteps(false).attackMs);
+  });
+
+  it("plays the normal battle when the calculation came in an earlier call than the activation", () => {
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
+    const early = [phase, attack, flip, calc];
+    plan(early);
+    rerender(<BattleFx events={early} reducedMotion={false} seats={seats} />);
+    const opened = [...early, hurt, activate];
+    plan(opened);
+    rerender(<BattleFx events={opened} reducedMotion={false} seats={seats} />);
+    expect(strike()).toBeNull();
+  });
+
+  it("holds no LP roll for effect damage, which belongs to no flip sequence", () => {
+    const { rerender } = render(<BattleFx events={[phase]} reducedMotion={false} seats={seats} />);
+    const effectDamage: DuelEvent = { id: 3, kind: "damage", seat: 0, amount: 500, cause: "effect", text: "effect damage" };
+    const events = [phase, effectDamage];
+    plan(events);
+    rerender(<BattleFx events={events} reducedMotion={false} seats={seats} />);
+    expect(takeLpHold(0)).toBe(0);
   });
 
   it("still plays a normal attack in full and rolls its damage with the strike", () => {
@@ -113,7 +137,7 @@ describe("BattleFx with a flip-effect sequence", () => {
 
   it("keeps only the short marker under reduced motion", () => {
     const { rerender } = render(<BattleFx events={[phase]} reducedMotion seats={seats} />);
-    const all = [phase, attack, flip, calc, activate, target, resolving, resolved, chainEnd, hurt, battleEnd];
+    const all = [phase, attack, flip, calc, hurt, activate, target, resolving, resolved, chainEnd, battleEnd];
     plan(all, true);
     rerender(<BattleFx events={all} reducedMotion seats={seats} />);
     expect(strike()?.getAttribute("data-reduced")).toBe("true");

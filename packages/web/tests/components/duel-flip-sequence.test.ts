@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import { findFlipSequences, flipSequenceOf, flipSequenceSteps, FLIP_SEQUENCE_TIMING } from "../../src/components/duel/flip-sequence";
-import { chainBeatAt, chainEffectAt, flipAttackAt, isSequenceFlip, planChainBeats, resetChainBeats } from "../../src/components/duel/chain-beats";
+import { chainBeatAt, chainEffectAt, flipAttackAt, flipFightDamageAt, flipStrikeHideMs, isSequenceFlip, planChainBeats, resetChainBeats } from "../../src/components/duel/chain-beats";
 import { chainEffectLead, deriveChainState } from "../../src/components/duel/chain-state";
 import { sequenceOwners, targetLinksOf } from "../../src/components/duel/chain-fx";
 
@@ -146,9 +146,9 @@ describe("flip sequence timing", () => {
 
   it("does not delay a flip that played in an earlier batch", () => {
     const all = recorded();
-    plan(all.filter((e) => e.id <= 7));
+    plan(all.filter((e) => e.id <= 6));
     expect(isSequenceFlip(6)).toBe(false);
-    plan(all.filter((e) => e.id === 8), false, NOW + 100);
+    plan(all.filter((e) => e.id === 7 || e.id === 8), false, NOW + 100);
     expect(isSequenceFlip(6)).toBe(false);
     expect(flipAttackAt(5)).toBe(NOW + 100);
     expect(chainEffectAt(8)).toBe(NOW + 100 + flipSequenceSteps(false).attackMs);
@@ -248,4 +248,52 @@ describe("held target mark", () => {
     expect(held.size).toBe(0);
   });
 
+});
+
+describe("battle damage in the engine's order (before the activation)", () => {
+  const hit = { id: 7.5, kind: "damage", seat: 0, amount: 300, cause: "battle", text: "damage" } as DuelEvent;
+  const engineOrder = (): DuelEvent[] => {
+    const events = recorded();
+    events.splice(events.findIndex((e) => e.id === 8), 0, hit);
+    return events;
+  };
+
+  it("keeps the damage that comes between the calculation and the activation", () => {
+    const [sequence] = findFlipSequences(engineOrder());
+    expect(sequence.damage.map((e) => e.id)).toEqual([7.5]);
+    expect(sequence.aftermath.map((e) => e.id)).toEqual([16, 17]);
+  });
+
+  it("rolls the damage at the hit of the strike, and not the damage of a normal attack", () => {
+    plan(engineOrder());
+    expect(flipFightDamageAt(7.5)).toBe(NOW + FLIP_SEQUENCE_TIMING.attackMs * 0.5);
+    resetChainBeats("flip");
+    plan([
+      { id: 1, kind: "attack", seat: 0, zone: zone(0), target: zone(1), text: "attack" },
+      { id: 2, kind: "battle", seat: 0, zone: zone(0), target: zone(1), text: "calc" },
+      { id: 3, kind: "damage", seat: 0, amount: 100, cause: "battle", text: "damage" },
+    ] as DuelEvent[]);
+    expect(flipFightDamageAt(3)).toBe(0);
+  });
+
+  it("marks late battle damage after the chain end as well, and never effect damage", () => {
+    const events = recorded();
+    events.splice(events.length - 1, 0,
+      { id: 17.5, kind: "damage", seat: 0, amount: 300, cause: "battle", text: "damage" } as DuelEvent,
+      { id: 17.6, kind: "damage", seat: 1, amount: 300, cause: "effect", text: "effect damage" } as DuelEvent);
+    plan(events);
+    expect(flipFightDamageAt(17.5)).toBeGreaterThanOrEqual(chainBeatAt(15));
+    expect(flipFightDamageAt(17.6)).toBe(0);
+  });
+
+  it("sets no attack beat and no wait when the calculation played in an earlier call", () => {
+    const events = engineOrder();
+    plan(events.filter((e) => e.id <= 7.5));
+    plan(events.filter((e) => e.id > 7.5));
+    expect(flipAttackAt(5)).toBe(0);
+    expect(flipStrikeHideMs(zone(0), NOW)).toBe(0);
+    expect(flipFightDamageAt(7.5)).toBe(0);
+    // No dead wait: the activation starts at once (the flip played with the first call).
+    expect(at(events, 8)).toBe(NOW);
+  });
 });

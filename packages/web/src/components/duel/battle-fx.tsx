@@ -7,7 +7,7 @@ import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { battleTrigger } from "./battle-trigger";
 import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 import { runAttackFx, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
-import { chainEffectAt, flipAttackAt } from "./chain-beats";
+import { flipAttackAt, flipFightDamageAt } from "./chain-beats";
 import { FlipStrike, type FlipStrikePlan } from "./flip-strike";
 import { flipSequenceSteps } from "./flip-sequence";
 import { armBattleDestroy, attackImpactAt, clearBattleHolds, noteAttackImpact } from "./battle-hold";
@@ -696,11 +696,11 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     if (latest && !capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest, prevIndexRef.current, nowIndex));
     const stamp = duelFxClock.now();
     const incoming: PendingAttack | null = latest ? { attack: latest, capture: capturesRef.current.get(latest.id) ?? null, at: stamp } : null;
-    // The battle damage of a flip-effect sequence waits for the end of its chain (chain-beats.ts).
+    // The battle damage of a flip-effect sequence waits for the strike or the end of its chain (chain-beats.ts).
     if (!reducedMotion) {
       for (const event of events) {
         if (event.id <= initialRef.current || event.kind !== "damage" || event.seat == null) continue;
-        const at = chainEffectAt(event.id);
+        const at = flipFightDamageAt(event.id);
         if (at > stamp) armLpHold(event.seat, at - stamp, `damage-${event.id}`, { startedAt: stamp });
       }
     }
