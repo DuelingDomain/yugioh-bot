@@ -545,6 +545,14 @@
 [data-look="solid"] .text b,
 [data-look="solid"] .bar[data-tone="chain"] .text b { font-weight: 500; color: var(--tx); }
 [data-look="solid"] .bar[data-tone="chain"] .text b { color: var(--gold-hi); }
+/* Concept chain response: gold ring on the bar, gold Yes with dark ink. */
+[data-look="solid"] .bar[data-tone="chain"] { border: 1px solid var(--gold-a); }
+[data-look="solid"] .bar[data-tone="chain"] .btn[data-kind="primary"]:not(:disabled) {
+  background: var(--gold);
+  color: var(--ink-0);
+  box-shadow: inset 0 0 0 1px var(--gold-hi), 0 6px 14px -8px rgb(200 165 95 / 0.8);
+}
+[data-look="solid"] .bar[data-tone="chain"] .btn[data-kind="primary"]:hover:not(:disabled) { background: var(--gold-hi); }
 [data-look="solid"] .text .name { color: var(--tx-2); font-size: 14px; }
 [data-look="solid"] .text .context { color: var(--tx-3); }
 
