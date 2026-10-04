@@ -27,6 +27,7 @@ function WallCard({ id }: { id: number }) {
   return (
     <div className={styles.card} data-card={id}>
       <div className={styles.face}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={cardImageSrc(id)} alt="" width={268} height={391} loading="lazy" decoding="async" draggable={false} />
       </div>
     </div>
