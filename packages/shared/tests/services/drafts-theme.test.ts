@@ -100,6 +100,36 @@ function runToCompletion(
   }
 }
 
+it("weights distinct theme choices by remaining copies over 1000 fixed-seed drafts", () => {
+  let seed = 1;
+  const { db, drafts, themesService, draftId, playerIds, themeIds } = makeThemeDraft({
+    seedSource: () => seed++, themes: [{ main: 21, extra: 0 }], assign: [0, 0],
+    config: { uniqueThemes: false, cardsPerPlayer: 1, themePackSize: 3, extraDeckEnabled: false },
+  });
+  const ids = themesService.getCubePools(themeIds[0]).main.map((card) => card.catalogCardId);
+  themesService.addCard(themeIds[0], ids[0], "main", 10);
+  const config = drafts.findById(draftId).config;
+  const hits = new Map<number, number>();
+  for (let run = 0; run < 1000; run++) {
+    const current = run === 0 ? draftId : drafts.create("g", "c", `Weighted ${run}`, config, "host", playerIds[0]).id;
+    if (run > 0) drafts.join(current, playerIds[1]);
+    drafts.start(current);
+    const choices = drafts.currentPackOptions(current, playerIds[0]).map((card) => card.catalogCardId);
+    expect(new Set(choices).size).toBe(3);
+    for (const id of choices) hits.set(id, (hits.get(id) ?? 0) + 1);
+  }
+  const heavyRate = (hits.get(ids[0]) ?? 0) / 1000;
+  expect(heavyRate).toBeGreaterThan(0.65);
+  expect(heavyRate).toBeLessThan(0.8);
+  for (const id of ids.slice(1)) {
+    const rate = (hits.get(id) ?? 0) / 1000;
+    expect(rate).toBeGreaterThan(0.05);
+    expect(rate).toBeLessThan(0.2);
+    expect(heavyRate).toBeGreaterThan(3 * rate);
+  }
+  db.close();
+});
+
 describe("theme draft — config normalization", () => {
   it("normalizes theme-mode defaults", () => {
     const { drafts, draftId } = makeThemeDraft({ config: {}, themes: [{ main: 1, extra: 1 }, { main: 1, extra: 1 }] });
@@ -121,6 +151,24 @@ describe("theme draft — config normalization", () => {
     expect(draft.config.themePackSize).toBeUndefined();
     expect(draft.config.mode).toBeUndefined();
   });
+});
+
+it.each([{ themePackSize: 0 }, { themePackSize: 2.5 }, { cardsPerPlayer: 0 }, { extraDeckSize: -1 }])("rejects invalid theme numbers at start: %j", (invalid) => {
+  const { db, drafts, draftId } = makeThemeDraft({ themes: [{ main: 50, extra: 20 }, { main: 50, extra: 20 }], config: invalid });
+  expect(() => drafts.start(draftId)).toThrow(/must be/);
+  expect(drafts.findById(draftId).status).toBe("pending");
+  expect(db.prepare("select count(*) as n from draft_packs where draft_id = ?").get(draftId)).toEqual({ n: 0 });
+  db.close();
+});
+
+it("does not insert empty packs for an old draft with zero choices", () => {
+  const { db, drafts, draftId, playerIds } = makeThemeDraft({ themes: [{ main: 4, extra: 0 }, { main: 4, extra: 0 }], assign: [0, 1], config: { themePackSize: 3, cardsPerPlayer: 2, extraDeckEnabled: false } });
+  drafts.start(draftId);
+  db.prepare("update drafts set config_json = json_set(config_json, '$.themePackSize', 0) where id = ?").run(draftId);
+  for (const id of playerIds) drafts.pickCard(draftId, id, drafts.currentPackOptions(draftId, id)[0].id);
+  expect(drafts.findById(draftId).status).toBe("completed");
+  expect(db.prepare("select count(*) as n from draft_packs where draft_id = ?").get(draftId)).toEqual({ n: 2 });
+  db.close();
 });
 
 describe("theme draft — start & assignment", () => {
@@ -358,8 +406,8 @@ describe("theme draft — start & assignment", () => {
 describe("theme draft — full draft completion", () => {
   it.each([1, 2])("keeps %i players with exhausted main pools eligible for Extra rounds", (exhausted) => {
     const { db, drafts, draftId, playerIds, themeIds } = makeThemeDraft({
-      config: { cardsPerPlayer: 3, themePackSize: 1, extraDeckEnabled: true, extraDeckSize: 2 },
-      themes: [{ main: 3, extra: 2 }, { main: 3, extra: 2 }], assign: [0, 1],
+      config: { cardsPerPlayer: 3, themePackSize: 2, extraDeckEnabled: true, extraDeckSize: 2 },
+      themes: [{ main: 4, extra: 2 }, { main: 4, extra: 2 }], assign: [0, 1],
     });
     drafts.start(draftId);
     // An active draft can outlive changes to its library pools.

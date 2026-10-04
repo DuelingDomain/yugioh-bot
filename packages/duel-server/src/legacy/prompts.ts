@@ -1,4 +1,4 @@
-import type { DuelAnswer, DuelCardInfo, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo, DuelChainMode, DuelPrompt, DuelPromptOption, DuelPromptSource, DuelZoneRef } from "@yugidraft/shared/duels";
 import {
   OcgLocation,
   OcgMessageType,
@@ -19,6 +19,7 @@ import {
   type OcgResponse,
   type SelectFieldPlace,
 } from "ocgcore-wasm";
+import { chainWindowPasses, effectYesNoPasses, effectiveChainMode } from "../chain-mode.js"; // LEGACY-1V1: chain response mode
 import type { CardDatabase } from "../cards.js";
 import { cardInfoLabel } from "../cards.js";
 import { attributeName, fillPlaceholders, locationLabel, positionLabel, raceName, type TemplateValue } from "../text.js";
@@ -708,16 +709,17 @@ export interface AutoResponseOptions {
    */
   stopAtEveryWindow?: boolean;
   /**
+   * LEGACY-1V1: the chain mode of the seat the window belongs to (chain-mode.ts). Undefined means the mode that `stopAtEveryWindow`
+   * names, so callers that never heard of per-seat modes keep their behaviour.
+   */
+  chainMode?: DuelChainMode;
+  /**
    * The phase the window opens in (the engine's phase name, "draw", "standby", "main1"...). The Draw and
    * Standby Phase are never skipped past a real option: a window that lists a card is offered there even
    * when none fits its timing, so a player holding a Quick-Play Spell or a Trap gets to act. An empty
    * window still passes by itself.
    */
   phase?: string;
-}
-
-function isDrawOrStandbyPhase(phase: string | undefined): boolean {
-  return phase === "draw" || phase === "standby";
 }
 
 export function autoResponse(pending: PendingPrompt, options: AutoResponseOptions = {}): OcgResponse | null {
@@ -731,12 +733,9 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
       // attack declaration or a chain). The EDOPro client passes a non-forced window at 0; a Battle Step or
       // Damage Step with only off-timing cards is the case that stalled a direct attack. A card that can
       // really act there (an ATK boost in the Damage Step) declares the timing, so its window stays.
-      if (
-        options.stopAtEveryWindow === false &&
-        !message.forced &&
-        message.spe_count === 0 &&
-        !isDrawOrStandbyPhase(options.phase)
-      ) {
+      // LEGACY-1V1: the seat's chain mode decides the rest (chain-mode.ts): Auto passes a window where nothing fits, Always never
+      // passes one that lists a card, Off passes every optional window, optional triggers too (OFF_SKIPS_OPTIONAL_TRIGGERS).
+      if (chainWindowPasses(message, effectiveChainMode(options), options.phase)) {
         return { type: OcgResponseType.SELECT_CHAIN, index: null };
       }
       return null;
@@ -788,10 +787,13 @@ export function autoResponse(pending: PendingPrompt, options: AutoResponseOption
     case OcgMessageType.SORT_CHAIN:
       if (message.cards.length <= 1) return sortCardResponse(null);
       return null;
+    case OcgMessageType.SELECT_EFFECTYN:
+      // LEGACY-1V1: the yes/no of ONE optional trigger of this duelist: Off answers no (chain-mode.ts). Any other effect prompt asks.
+      if (effectYesNoPasses(message, effectiveChainMode(options))) return { type: OcgResponseType.SELECT_EFFECTYN, yes: false };
+      return null;
     case OcgMessageType.SELECT_IDLECMD:
     case OcgMessageType.SELECT_BATTLECMD:
     case OcgMessageType.SELECT_YESNO:
-    case OcgMessageType.SELECT_EFFECTYN:
     case OcgMessageType.ANNOUNCE_RACE:
     case OcgMessageType.ANNOUNCE_ATTRIB:
     case OcgMessageType.ANNOUNCE_CARD:

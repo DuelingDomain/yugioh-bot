@@ -1,6 +1,6 @@
 /* Player profile on the Solid Vision floor. Phone rules use container queries on the sheet root (.ms). */
 
-.busy { transition: opacity 160ms linear; }
+.busy { transition: opacity 160ms var(--ease-out); }
 .busy[aria-busy="true"] { opacity: 0.55; }
 
 /* who */

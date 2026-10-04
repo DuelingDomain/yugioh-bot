@@ -5,9 +5,9 @@ export default async function DuelRoomPage({
   params, searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ invite?: string | string[]; window?: string | string[]; stage?: string | string[]; spectate?: string | string[]; join?: string | string[] }>;
+  searchParams: Promise<{ invite?: string | string[]; window?: string | string[]; stage?: string | string[]; spectate?: string | string[]; join?: string | string[]; view?: string | string[] }>;
 }) {
-  const [{ slug }, { invite, window: windowFlag, stage, spectate, join }, actor] = await Promise.all([params, searchParams, requireDuelActor()]);
+  const [{ slug }, { invite, window: windowFlag, stage, spectate, join, view }, actor] = await Promise.all([params, searchParams, requireDuelActor()]);
   return (
     <>
       {join === "failed" ? (
@@ -17,7 +17,8 @@ export default async function DuelRoomPage({
       ) : null}
       <DuelRoomView slug={slug} inviteCode={typeof invite === "string" ? invite : undefined}
         windowed={windowFlag === "1"} legacyStage={stage === "legacy"} spectate={spectate === "1"}
-        actorPlayerId={actor.ok ? actor.playerId : null} />
+        actorPlayerId={actor.ok ? actor.playerId : null}
+        viewOverride={view === "3d" || view === "classic" ? view : undefined} />
     </>
   );
 }

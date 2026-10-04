@@ -7,7 +7,8 @@ import { duelFontClasses } from "./fonts";
 import { LP_TIMING } from "./duel-timing";
 import { battleSeekMs, type BattleClock } from "./battle-clock";
 import { noteLpMotion } from "./lp-motion";
-import styles from "./life-points.module.css";
+import baseStyles from "./life-points.module.css";
+import { useSkinStyles } from "./skin";
 
 // Squared, heavy, near-tabular sans that reads like the anime duel-disk counter.
 // Free (OFL). Digits are 0.578em wide at every weight, so cells never jitter.
@@ -495,6 +496,7 @@ function keysOf(glyphs: Glyph[]): string {
 /* ---------- component ---------- */
 
 function DigitColumn({ placeKey, initialDigit }: { placeKey: string; initialDigit: number }) {
+  const styles = useSkinStyles(baseStyles, "lp");
   const from = useRef(initialDigit);
   return (
     <span className={styles.digit}>
@@ -516,6 +518,7 @@ function DigitColumn({ placeKey, initialDigit }: { placeKey: string; initialDigi
 type Tally = { seq: number; from: number; to: number };
 
 export function LifePoints({ value, reducedMotion, size = "lg", showChange = true, holdMs }: LifePointsProps) {
+  const styles = useSkinStyles(baseStyles, "lp");
   const [shown, setShown] = useState(() => formatGlyphs(value));
   const [engine] = useState(createEngine);
   const shownRef = useRef(shown);

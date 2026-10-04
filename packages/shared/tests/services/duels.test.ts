@@ -895,6 +895,19 @@ describe("duel lobby listing, history and leave", () => {
     expect(stamp()).not.toBe("2000-01-01 00:00:00");
   });
 
+  it("journals a command without stamping activity when asked not to", () => {
+    const app = setup();
+    const d = readyDuel(app);
+    start(app, d.slug);
+    const stamp = () =>
+      app.db.prepare<[string], { t: string | null }>("select last_activity_at as t from duels where web_slug = ?").get(d.slug)?.t;
+    app.db.prepare("update duels set last_activity_at = '2000-01-01 00:00:00' where web_slug = ?").run(d.slug);
+    const before = app.duels.privateState(d.slug, "g1").commands.length;
+    app.duels.recordCommand(d.slug, "g1", 0, command("quiet"), null, { touchActivity: false });
+    expect(app.duels.privateState(d.slug, "g1").commands).toHaveLength(before + 1);
+    expect(stamp()).toBe("2000-01-01 00:00:00");
+  });
+
   it("shows recently active foreign lobbies and hides idle ones", () => {
     const app = setup();
     const lobby = app.duels.create({ guildId: "g1", organizerPlayerId: app.p1, name: "Lobby", mode: "normal" });

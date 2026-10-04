@@ -29,7 +29,7 @@ createRoot(document.getElementById("root")!).render(<>
       legalKeys={promptLegalKeys(engine.prompt)} selectedKeys={promptSelectedKeys(engine.prompt, [])}
       onActivate={noop} onInspect={noop} bottomName="Responder" topName="MST activator" />
     <ChainFx events={engine.events} chain={engine.chain} duelKey={provided ? "supplied-target" : "real-target"}
-      reducedMotion mySeat={1} playerName={(seat) => seat === 1 ? "Responder" : "MST activator"} />
+      reducedMotion mySeat={1} seats={engine.seats} playerName={(seat) => seat === 1 ? "Responder" : "MST activator"} />
     <PromptCenter prompt={engine.prompt} mySeat={1} active slug="target-response" busy={false}
       draft={draft} onSubmit={noop} menuOpen={false} chain={engine.chain} aimLocked={false}
       reducedMotion revision={engine.revision} />

@@ -44,10 +44,7 @@ export function isExtraDeckMonster(card: Pick<CardSummary, "type" | "frameType">
   const type = card.type.toLowerCase();
   return (
     EXTRA_DECK_FRAMES.some((f) => frameType === f || frameType.startsWith(`${f}_`)) ||
-    type.includes("fusion monster") ||
-    type.includes("synchro monster") ||
-    type.includes("xyz monster") ||
-    type.includes("link monster")
+    (type.includes("monster") && /\b(fusion|synchro|xyz|link)\b/.test(type))
   );
 }
 

@@ -402,8 +402,9 @@
 .wire[data-status="resolved"] { animation: chainFadeOut 0.6s ease-in both; }
 @keyframes chainWireIn { from { opacity: 0; } }
 
-/* ---------- the chain stack: every link, in a column or a row of chips ---------- */
+/* ---------- the "Now resolving" panel and its strip (chain-panel.tsx / chain-panel.module.css) ---------- */
 
+/* The wide and narrow panel stand in the free gutter left of the field, centred on the board's height. */
 .dock {
   position: absolute;
   inset: 0 auto 0 calc(6 * var(--duel-unit, 1px));
@@ -412,136 +413,19 @@
   pointer-events: none;
 }
 
-.panel {
-  display: flex;
-  flex-direction: column;
-  /* The width follows the free gutter left of the field (--chain-gutter, measured in chain-fx.tsx). */
-  width: clamp(150px, calc(var(--chain-gutter, 200px) - 16px), 264px);
-  max-height: 72%;
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  list-style: none;
-  border: 1px solid rgb(228 182 79 / 0.5);
-  border-radius: 6px;
-  background: rgb(10 9 18 / 0.86);
-  color: var(--duel-ink, #efe7d5);
-  font-family: var(--duel-f-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
-  box-shadow: 0 6px 22px rgb(0 0 0 / 0.5);
-  animation: chainIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+/*
+ * The strip (a phone, a table, a column a prompt would cover) sits in the top left corner. chain-fx.tsx moves it
+ * (--chain-dock-*) when a life-point plate or a prompt panel sits there, so it is never covered and never covers one.
+ */
+.front[data-size="strip"] .dock {
+  inset: var(--chain-dock-top, 4px) auto auto var(--chain-dock-left, 4px);
+  width: max-content;
+  /* The corner may be moved right (--chain-dock-left): the strip ends 4 px before the board edge wherever it starts. */
+  max-width: calc(100% - var(--chain-dock-left, 4px) - 4px);
+  align-items: flex-start;
 }
-
-.head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 4px 8px 3px;
-  border-bottom: 1px solid rgb(228 182 79 / 0.3);
-  color: var(--duel-chain-ink, #f4d690);
-  font-size: var(--duel-t-xs, 11px);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.head small { color: var(--duel-ink-3, #958f81); font-size: inherit; letter-spacing: 0.04em; }
-
-.row {
-  position: relative;
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px 4px 6px;
-  border-bottom: 1px solid rgb(228 182 79 / 0.14);
-  animation: chainIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-.row:last-child { border-bottom: 0; }
-
-.rowNum {
-  flex: none;
-  display: grid;
-  place-items: center;
-  box-sizing: border-box;
-  width: 22px;
-  height: 22px;
-  border: 1.5px solid var(--duel-chain, #e4b64f);
-  border-radius: 50%;
-  color: var(--duel-chain-ink, #f4d690);
-  font-family: var(--duel-f-num, "Arial Narrow"), "Arial Narrow", sans-serif;
-  font-size: 14px;
-  font-variant-numeric: tabular-nums lining-nums;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.thumb {
-  flex: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 3px;
-  background-color: #06080e;
-  background-position: 50% 36%;
-  background-repeat: no-repeat;
-  background-size: 131% auto;
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.45);
-}
-
-.text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
-.name {
-  overflow: hidden;
-  font-size: var(--duel-t-sm, 12px);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.who { color: var(--duel-pen-ink, #c6b6ff); font-size: var(--duel-t-xs, 11px); }
-/* "→ effect" and "→ targets" under the card name: the chain as a small flow, source, effect, targets. */
-.flowEffect,
-.flowTargets {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--duel-ink-2, #c3bba8);
-  font-size: var(--duel-t-xs, 11px);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-.flowEffect { font-style: italic; }
-.flowTargets { color: var(--duel-ink-3, #8f8878); }
-.flowEffect i,
-.flowTargets i { color: var(--duel-chain, #e4b64f); font-style: normal; }
-/* The link that resolves now keeps its flow bright; a resolved link folds to its name and state. */
-.row[data-status="resolving"] .flowTargets { color: var(--duel-ink-2, #c3bba8); }
-.row[data-status="resolved"] .flowEffect,
-.row[data-status="resolved"] .flowTargets { display: none; }
-.row[data-focus="true"] { background: rgb(228 182 79 / 0.1); }
-.row[data-mine="true"] .who { color: var(--duel-ink-2, #c3bba8); }
-/* A table of 3 or 4: the owner's seat tone marks the row (a small edge and the name), never the chain gold. */
-.row[data-toned="true"] { box-shadow: inset 2px 0 0 var(--seat-main); }
-.row[data-toned="true"] .who { color: var(--seat-ink); }
-
-/* The link that is resolving. */
-.row[data-status="resolving"], .row[data-status="resolving"][data-focus="true"] { background: rgb(228 182 79 / 0.16); }
-.row[data-status="resolving"]::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: var(--duel-chain, #e4b64f);
-}
-.row[data-status="resolving"] .rowNum {
-  border-color: var(--duel-pen-ink, #c6b6ff);
-  background: var(--duel-chain, #e4b64f);
-  color: #1a1206;
-}
-.row[data-status="resolved"] { opacity: 0.5; }
-.row[data-negated="true"] .name { text-decoration: line-through; }
-.row[data-negated="true"] { opacity: 0.6; }
-.row[data-negated="true"] .rowNum { border-color: var(--duel-loss, #e45a4d); color: var(--duel-loss-ink, #ff9489); }
-
-@keyframes chainIn {
-  from { opacity: 0; transform: translateX(-10px); }
-  to { opacity: 1; transform: translateX(0); }
-}
+/* A table's strip is wider: its priority chips sit under it. */
+.front[data-size="strip"][data-table] .dock { --chain-strip-w: 232px; }
 
 /* ---------- reduced motion: no burst and no movement; state shows through colour and opacity ----------
    The hold is kept: a link stays marked for its whole beat (chainStepDelay, a little shorter), and a
@@ -555,9 +439,7 @@
 .layer[data-reduced="true"] .glow,
 .layer[data-reduced="true"] .tag,
 .layer[data-reduced="true"] .wash,
-.layer[data-reduced="true"] .slot,
-.layer[data-reduced="true"] .panel,
-.layer[data-reduced="true"] .row { animation: none; }
+.layer[data-reduced="true"] .slot { animation: none; }
 .layer[data-reduced="true"] .badge::after { display: none; }
 .layer[data-reduced="true"] .slot { transition: opacity 0.15s linear 0.3s; }
 .layer[data-reduced="true"] .slot[data-status="resolved"] { opacity: 0; }
@@ -568,7 +450,7 @@
 .layer[data-reduced="true"] .wires { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .badge, .badge::before, .badge::after, .chip, .ring, .glow, .tag, .wash, .slot, .panel, .row, .wire { animation: none !important; }
+  .badge, .badge::before, .badge::after, .chip, .ring, .glow, .tag, .wash, .slot, .wire { animation: none !important; }
   .badge::after { display: none; }
   .badge { transition: none; }
   .wires { display: none; }
@@ -577,79 +459,3 @@
   .slot[data-status="resolving"] .wash { opacity: 0.3; }
   .slot[data-status="resolved"] .badge { transform: none; }
 }
-
-/* The priority chips sit under the panel head; the list item itself carries no marker or padding. */
-.prioRow { display: block; flex: none; padding: 0; list-style: none; border-bottom: 1px solid rgb(228 182 79 / 0.16); }
-
-/*
- * A table of 3 or 4 (not Tag): the "Activate its effect?" bar sits in the lower-left lane, beside your own field.
- * The chain stack moves up, off that lane, so the two never cross. (Picks and card lists keep the middle.) Tag
- * keeps the 1v1 lane: its prompt opens in the middle, and a prompt that meets the stack turns it into chips.
- */
-.front[data-table="ffa3"] .panel,
-.front[data-table="ffa4"] .panel {
-  align-self: flex-start;
-  /* Percentage margins resolve against the narrow dock's width, not the board height. */
-  position: relative;
-  top: 23%;
-  margin-top: 0;
-  max-height: 46%;
-}
-.front[data-table] .panel[data-priority="true"] {
-  width: max-content;
-  max-width: min(420px, calc(100% - 24px));
-}
-/* The far seat's LP sits partway down a four-way table. Its chain lane ends above that panel. */
-.front[data-table="ffa4"] .panel {
-  top: 8px;
-  max-height: calc(30% - 24px);
-  overflow-y: auto;
-}
-.front[data-table] .panel [data-testid="priority-chips"] { flex-wrap: wrap; }
-
-/*
- * No free gutter (a phone, a narrow window, a board that fills its box, a table): the stack is a row of numbered chips
- * in the top left corner, so it never covers a pile column, a Field Zone or a target ring. Each chip keeps its state
- * (resolving, negated, resolved); the names and effect text stay in the callout and the screen reader list.
- */
-/* The corner is moved by chain-fx.tsx (--chain-dock-*) when a life-point plate or a prompt panel sits there. */
-.front[data-size="compact"] .dock {
-  inset: var(--chain-dock-top, 4px) auto auto var(--chain-dock-left, 4px);
-  width: max-content;
-  /* The corner may be moved right (--chain-dock-left): the row ends 4 px before the board edge wherever it starts. */
-  max-width: calc(100% - var(--chain-dock-left, 4px) - 4px);
-  align-items: flex-start;
-}
-.front[data-size="compact"] .panel,
-.front[data-size="compact"][data-table] .panel,
-.front[data-size="compact"][data-table="ffa4"] .panel {
-  flex-direction: row;
-  /* A long chain wraps to a second line; it never clips a chip (Chain Link 1 is the last in the row). */
-  flex-wrap: wrap;
-  align-items: center;
-  align-self: auto;
-  position: static;
-  width: auto;
-  max-width: 100%;
-  max-height: none;
-  gap: 3px;
-  padding: 3px 5px;
-  overflow: visible;
-  border-radius: 14px;
-}
-.front[data-size="compact"] .head { flex: none; gap: 6px; padding: 0 3px 0 2px; border: 0; }
-.front[data-size="compact"] .row {
-  flex: none;
-  gap: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  box-shadow: none;
-}
-.front[data-size="compact"] .row[data-focus="true"],
-.front[data-size="compact"] .row[data-status="resolving"] { background: none; }
-.front[data-size="compact"] .row[data-status="resolving"]::before { display: none; }
-.front[data-size="compact"] .row[data-focus="true"] .rowNum { box-shadow: 0 0 0 2px rgb(228 182 79 / 0.45); }
-.front[data-size="compact"] .thumb,
-.front[data-size="compact"] .text { display: none; }
-.front[data-size="compact"] .prioRow { border: 0; }

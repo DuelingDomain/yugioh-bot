@@ -71,7 +71,7 @@ export async function loadDraftPool(input: {
       continue;
     }
     counts.set(code, (counts.get(code) ?? 0) + 1);
-    if (!extraIds.has(pick.catalogCardId)) mainPoolCount += 1;
+    if (!extraIds.has(pick.catalogCardId) && counts.get(code)! <= 3) mainPoolCount += 1;
   }
   return { ok: true, counts, codeMap: resolved, mainPoolCount, unresolved: [...unresolved].sort((a, b) => a - b) };
 }

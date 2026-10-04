@@ -23,11 +23,13 @@ const NEEDS_ENGINE = [
   "tests/scenarios/multiplayer/catalog.test.ts",
   // the engine bundle manifest (the host reads it when it is made; the identity test hashes the legacy files)
   "tests/host-bug-context.test.ts",
+  "tests/host-chain-mode.test.ts",
   "tests/host-engine-switch.test.ts",
   "tests/host-multiplayer-flag.test.ts",
   "tests/legacy-engine-identity.test.ts",
   // cards.cdb and card scripts through a real duel (every test in these files loads the card database or starts an engine game)
   "tests/chain-targets.test.ts",
+  "tests/replay-chain-mode-surrender.test.ts",
   "tests/material-count.test.ts",
   "tests/target-response.test.ts",
   // a wasm core (engine, host, summons, presets, scenarios, fuzz, differential)

@@ -38,6 +38,7 @@ export type CommandInteractionLike = {
     getRole(name: string, required?: boolean): DiscordRoleLike | null;
     getUser(name: string, required?: boolean): DiscordUserLike | null;
     getInteger(name: string, required?: boolean): number | null;
+    getBoolean?(name: string, required?: boolean): boolean | null;
   };
   reply(message: string | CommandReplyLike): Promise<void> | void;
 };
@@ -673,6 +674,7 @@ async function handleDraft(
       ]);
 
       const config = {
+        copyLimit: interaction.options.getBoolean?.("copy_limit") ?? true,
         setNames,
         includeNames: includesValue
           .split(",")
@@ -685,7 +687,7 @@ async function handleDraft(
       };
 
       const creator = deps.players.upsert(guildId, interaction.user.id, displayName(interaction.user));
-      const draft = deps.drafts.create(guildId, channelId, draftName, config, interaction.user.id, creator.id);
+      const draft = deps.drafts.create(guildId, channelId, draftName, { ...config, randomizeSeats: true }, interaction.user.id, creator.id);
       await interaction.reply(draftSignupPostReply(draft));
       return;
     }

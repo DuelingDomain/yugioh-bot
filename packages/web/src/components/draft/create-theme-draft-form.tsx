@@ -19,6 +19,7 @@ export function CreateThemeDraftForm() {
   const [cardsPerPlayer, setCardsPerPlayer] = React.useState(40);
   const [extraDeckEnabled, setExtraDeckEnabled] = React.useState(true);
   const [extraDeckSize, setExtraDeckSize] = React.useState(15);
+  const [copyLimit, setCopyLimit] = React.useState(true);
   const [burnUnpicked, setBurnUnpicked] = React.useState(false);
   const [uniqueThemes, setUniqueThemes] = React.useState(true);
   const [themeSelection, setThemeSelection] = React.useState<"player_pick" | "random">("player_pick");
@@ -52,6 +53,7 @@ export function CreateThemeDraftForm() {
       extraDeckEnabled,
       extraDeckSize,
       burnUnpicked,
+      copyLimit,
       uniqueThemes,
       themeSelection,
       pickSeconds,
@@ -211,6 +213,7 @@ export function CreateThemeDraftForm() {
                   Cards you pass on are gone for the rest of the draft. Off, they can come back in a later pick.
                 </span>
               </label>
+              <label><input type="checkbox" checked={copyLimit} onChange={(e) => setCopyLimit(e.target.checked)} /> Limit 3 copies per card</label>
             </div>
           </section>
         </div>

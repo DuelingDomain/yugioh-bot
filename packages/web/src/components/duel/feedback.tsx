@@ -18,12 +18,13 @@ import {
 } from "./event-queue";
 import { DEFAULT_SOUND_VOLUME } from "./preferences";
 import { battleDestroyAt } from "./battle-hold";
-import { chainBeatAt, chainEffectAt } from "./chain-beats";
+import { activationEndAt, chainBeatAt, chainEffectAt } from "./chain-beats";
 import { createDuelFeedbackAudio, type DuelFeedbackAudio } from "./feedback-audio";
 import { pairedMovePlan } from "./move-plan";
 import { getPhaseBeat, planPhaseBeats } from "./phase-beats";
 import { duelFxClock } from "./fx-clock";
-import styles from "./feedback.module.css";
+import { useSkinStyles } from "./skin";
+import baseStyles from "./feedback.module.css";
 
 export type DuelFeedbackProps = {
   events: readonly DuelEvent[];
@@ -106,6 +107,7 @@ function FeedbackCue({
   reducedMotion: boolean;
   durationMs: number;
 }) {
+  const styles = useSkinStyles(baseStyles, "feedback");
   const timing = cueTiming(durationMs, reducedMotion);
   if (event.kind === "phase") {
     const title = event.text.trim() || KIND_LABEL.phase;
@@ -184,6 +186,7 @@ export function DuelFeedback({
   replayFrom = null,
   skipThrough = null,
 }: DuelFeedbackProps) {
+  const styles = useSkinStyles(baseStyles, "feedback");
   const [current, setCurrent] = useState<{ event: DuelEvent; durationMs: number } | null>(null);
   const [confirmations, setConfirmations] = useState<ConfirmationAnnouncement[]>([]);
   const currentRef = useRef<DuelEvent | null>(null);
@@ -213,7 +216,22 @@ export function DuelFeedback({
     }
     currentRef.current = next;
     const remaining = 1 + queueRef.current.length;
-    const ms = pacedCueDuration(next.kind, reducedRef.current, remaining);
+    let ms = pacedCueDuration(next.kind, reducedRef.current, remaining);
+    if (next.kind === "activate") {
+      // The banner ends where its link starts to resolve, so nothing resolves under it. One that
+      // arrives after that moment is dropped: the badge and the chain list already announced it.
+      const endAt = activationEndAt(next.id);
+      if (endAt > 0) {
+        const left = endAt - duelFxClock.now();
+        if (left < BANNER_TIMING.minCueMs) {
+          if (soundRef.current) audioRef.current?.play(next.kind);
+          currentRef.current = null;
+          startNextRef.current();
+          return;
+        }
+        ms = Math.min(ms, Math.round(left));
+      }
+    }
     setCurrent({ event: next, durationMs: ms });
     if (soundRef.current) audioRef.current?.play(next.kind);
     timerRef.current = duelFxClock.setTimeout(() => {
@@ -339,7 +357,7 @@ export function DuelFeedback({
       }
       // The battle layer draws damage on the life points; MoveFx draws card movement and
       // PositionFx the turn or flip of a monster: none of them get a toast.
-      if (event.kind === "target" || event.kind === "battle" || event.kind === "battle-end" || event.kind === "damage" || event.kind === "move" || event.kind === "equip" || isPositionEvent(event)) continue;
+      if (event.kind === "target" || event.kind === "battle" || event.kind === "battle-end" || event.kind === "damage" || event.kind === "recover" || event.kind === "move" || event.kind === "equip" || isPositionEvent(event)) continue;
       // When the board plays it: the chain beat of a chain event (ChainFx), or the moment a link's
       // own effect may start (chain-beats.ts). 0 when nothing holds it, as in the replay.
       const chainAt = Math.max(chainBeatAt(event.id), chainEffectAt(event.id));

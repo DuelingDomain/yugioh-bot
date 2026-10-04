@@ -86,6 +86,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
     inputSuspended = false,
     boardRef: roomBoardRef,
     preview = false,
+    chainMode = null,
   } = props;
   const { teamNames, mode } = resolveTagExtras(props, supplied);
 
@@ -379,6 +380,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
           clock={null}
           caption={trackCaption}
           reducedMotion={controller.reducedMotion}
+          chainMode={chainMode}
         />
       </TagTrack>
       {narrow ? side : null}

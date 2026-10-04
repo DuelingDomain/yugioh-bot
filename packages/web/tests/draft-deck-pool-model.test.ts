@@ -45,9 +45,9 @@ describe("draft deck pool model", () => {
     expect(remainingCopies(pool, new Map(), 999)).toBe(0);
   });
 
-  it("blocks an add when no copy is left, past the usual limit of 3 too", () => {
+  it("blocks a fourth copy even when the pool has five", () => {
     const big = poolCounts([{ code: 7, count: 5 }]);
-    expect(canAddFromPool(big, new Map([[7, 4]]), 7)).toBe(true);
+    expect(canAddFromPool(big, new Map([[7, 3]]), 7)).toBe(false);
     expect(canAddFromPool(big, new Map([[7, 5]]), 7)).toBe(false);
     expect(canAddFromPool(pool, new Map(), 999)).toBe(false);
   });

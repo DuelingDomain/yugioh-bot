@@ -7,7 +7,8 @@ import { EFFECTS } from "./effects";
 import type { FxEnv, FxInstance } from "./effects/base";
 import { PostPass } from "./post";
 import { FxKit, type ShaderName } from "./kit";
-import type { Fx3dApi, Fx3dEffectId, FxRequest } from "./types";
+import type { Fx3dApi, Fx3dPalette, Fx3dPlayId, FxRequest } from "./types";
+import { deckMasterFactory, warmDeckMaster } from "./effects/deckmaster-summon";
 
 /**
  * The WebGL overlay: one transparent canvas over the whole board, an orthographic camera in CSS
@@ -68,6 +69,8 @@ export class Fx3dEngine implements Fx3dApi {
   private disposed = false;
   private warming = true;
   private quality = 1;
+  private tilt = 0;
+  private palette: Fx3dPalette = "v1";
   private slowFrames = 0;
   private smoothed = 16;
   private last = 0;
@@ -113,17 +116,26 @@ export class Fx3dEngine implements Fx3dApi {
     return !this.lost && !this.disposed && !this.warming;
   }
 
+  /** Applies to effects that start after the call; a running effect keeps the tilt it began with. */
+  setTableTilt(deg: number): void {
+    this.tilt = Number.isFinite(deg) ? Math.max(-60, Math.min(60, deg)) : 0;
+  }
+
+  setPalette(palette: Fx3dPalette): void {
+    this.palette = palette === "solid" ? "solid" : "v1";
+  }
+
   prefetchArt(code: number, uploadEarly = false): void {
     if (this.ready) this.art.prefetch(code, uploadEarly);
   }
 
-  play(id: Fx3dEffectId, request: FxRequest, signal?: AbortSignal): Promise<void> {
+  play(id: Fx3dPlayId, request: FxRequest, signal?: AbortSignal): Promise<void> {
     if (!this.ready || signal?.aborted) return Promise.resolve();
-    const factory = EFFECTS[id];
+    const factory = id === "summon:deckmaster" ? (request.deckmaster ? deckMasterFactory : undefined) : EFFECTS[id];
     if (!factory) return Promise.resolve();
     // The host may have been resized since the last frame: measure now, so rectangles land exactly.
     this.resize();
-    const env: FxEnv = { kit: this.kit, group: this.group, view: this.view, quality: this.quality, art: this.art, post: this.post.uniforms };
+    const env: FxEnv = { kit: this.kit, group: this.group, view: this.view, quality: this.quality, art: this.art, post: this.post.uniforms, tilt: this.tilt, palette: this.palette };
     let instance: FxInstance;
     try {
       instance = factory(env, request);
@@ -173,6 +185,7 @@ export class Fx3dEngine implements Fx3dApi {
     const meshes = names.map((name) => ({ name, mesh: this.kit.mesh(name) }));
     const particles = (["add", "solid"] as const).map((kind) => ({ kind, ...this.kit.particles(1, kind) }));
     for (const { mesh } of meshes) scene.add(mesh);
+    const releaseDeckMaster = warmDeckMaster(scene);
     for (const { set } of particles) {
       set.points.geometry.setDrawRange(0, 1);
       scene.add(set.points);
@@ -191,6 +204,7 @@ export class Fx3dEngine implements Fx3dApi {
       if (!this.disposed) {
         for (const { name, mesh } of meshes) this.kit.releaseMesh(name, mesh);
         for (const { kind, set } of particles) this.kit.releaseParticles(set, kind);
+        releaseDeckMaster();
       } else scene.clear();
       this.warming = false;
       if (this.ready) this.options.onStatus?.(true);

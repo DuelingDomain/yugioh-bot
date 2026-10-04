@@ -11,7 +11,8 @@ import {
   isHiddenCard,
 } from "./constants";
 import { equipSentence, roleOfCard, type EquipLinks } from "./equip-links";
-import styles from "./inspector.module.css";
+import baseStyles from "./inspector.module.css";
+import { useSkinStyles } from "./skin";
 
 export type InspectTarget =
   | { type: "card"; card: DuelCard }
@@ -19,6 +20,7 @@ export type InspectTarget =
   | { type: "pile"; title: string; cards: DuelCard[] };
 
 function InfoBody({ card }: { card: DuelCard | DuelCardInfo }) {
+  const styles = useSkinStyles(baseStyles, "inspector");
   const code = card.code;
   if (isHiddenCard(card) || code == null) {
     return (
@@ -74,6 +76,7 @@ export function CardInspector({
   /** 3 and 4 seat tables: who owns the card shown. Absent: no owner line (1v1). */
   ownerOf?: (card: DuelCard) => InspectorOwner | null;
 }) {
+  const styles = useSkinStyles(baseStyles, "inspector");
   if (!target) {
     return <div className={styles.empty}>Select a card to inspect.</div>;
   }

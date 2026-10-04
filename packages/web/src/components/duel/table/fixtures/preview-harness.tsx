@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { isDuelChainMode, type DuelChainMode } from "@yugidraft/shared/duels";
+import type { ChainModeControl } from "../../use-chain-mode";
 import { useDuelAnimationSpeed } from "../../animation-speed-control";
 import { duelFontClasses } from "../../fonts";
 import type { CameraLockReason, CameraMode, TableController } from "../types";
@@ -42,6 +44,8 @@ export interface PreviewContext {
   lock: CameraLockReason | null;
   viewport: { width: number; height: number };
   reduced: boolean;
+  /** `?chain=auto|always|off`: draw the chain response switch on the station track (local state, no server). */
+  chainMode: ChainModeControl | null;
 }
 
 export type PreviewStageRenderer = (controller: TableController, state: TableFixtureState, preview: PreviewContext) => ReactNode;
@@ -101,7 +105,12 @@ export function PreviewHarness({ set, stateId, cam, lock, basePath, renderStage,
 
   const activeId = isTableStateId(stateId) ? stateId : "main";
   const state = set.states[activeId];
-  const preview: PreviewContext = { cam: parsePreviewCam(cam), lock: parsePreviewLock(lock), viewport, reduced };
+  const chainFromUrl = query.get("chain");
+  const [chain, setChain] = useState<DuelChainMode | null>(isDuelChainMode(chainFromUrl) ? chainFromUrl : null);
+  const preview: PreviewContext = {
+    cam: parsePreviewCam(cam), lock: parsePreviewLock(lock), viewport, reduced,
+    chainMode: chain ? { mode: chain, onChange: setChain } : null,
+  };
   const base = basePath ?? `/dev/table-preview/${set.format}`;
   const fixture = query.get("fixture");
   const suffix = [fixture ? `fixture=${encodeURIComponent(fixture)}` : null, cam ? `cam=${encodeURIComponent(cam)}` : null, lock ? `lock=${encodeURIComponent(lock)}` : null, reduced ? "reduced=1" : null]

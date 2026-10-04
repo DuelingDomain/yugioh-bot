@@ -1,0 +1,775 @@
+/* Solid Vision: prompts (PromptCenter panels and select bar, the yes/no precheck bar, the prompt tray).
+   Source of the look: concept styles.css 155-162 (.panel), 420-429 (.btn), 469-545 (chain tiles and the response),
+   610-615 (.seg), and 745-790 (mobile sheets).
+
+   One module feeds three skin slots (prompt, tray, precheck). A class name below is added to every V1 element that
+   has the same key in prompt-center.module.css, prompts.module.css or prompt-precheck.module.css, so keys that mean
+   different things in two of them (.stepper, .positions) are scoped by an ancestor class.
+
+   Every selector starts with [data-look="solid"] (the Solid root). It adds one attribute of specificity, so these rules
+   win over the V1 rules without !important and without depending on stylesheet order.
+
+   The classes .kbd .chainHead .chainTile .clink .cart .cmeta .cname .cowner .ceff are used by prompt-center.tsx
+   only when the skin is on (3D mode). Nothing here changes logic, keys, gates or data-* hooks. No dashed outlines,
+   no dimming, no countdown ring (spec 4 W6, owner rules). */
+
+/* ------------------------------------------------------------------ tokens (the --pc-* family of the layer) */
+[data-look="solid"] .layer {
+  --pc-accent: var(--pur-btn);
+  --pc-accent-ink: var(--pur-hi);
+  --pc-surface: linear-gradient(180deg, #0b0f1c, #080b15);
+  --pc-border: 1px solid rgb(143 118 242 / 0.5);
+  --pc-border-chain: 1px solid var(--gold-a);
+  --pc-shadow: 0 18px 40px -18px rgb(0 0 0 / 0.9), 0 0 0 1px rgb(0 0 0 / 0.35);
+  /* The breathing of the select bar: a soft purple glow, never a dashed or gold bar. */
+  --pc-shadow-glow: 0 0 0 1px var(--pur-a), 0 0 26px -2px var(--pur-a), 0 18px 40px -18px rgb(0 0 0 / 0.9);
+  --pc-radius: 12px;
+  --pc-pad-y: 12px;
+  --pc-pad-x: 14px;
+  --pc-title: 16px;
+  --pc-sub: 14px;
+  --pc-btn-h: 34px;
+  --pc-btn-radius: 8px;
+  font-size: 14px;
+}
+
+/* ------------------------------------------------------------------ panel (concept .panel) */
+[data-look="solid"] .panel {
+  gap: 10px;
+  padding: 12px 14px;
+  backdrop-filter: none;
+}
+/* The soft dim of V1 is not in the concept: the panel separates by its shadow and its ring. */
+[data-look="solid"] .panel::before { display: none; }
+
+[data-look="solid"] .head { gap: 10px; }
+[data-look="solid"] .titles h2,
+[data-look="solid"] .panel[data-tone="chain"] .titles h2 {
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--tx);
+}
+[data-look="solid"] .panel[data-tone="chain"] .titles h2 { color: var(--gold-hi); }
+[data-look="solid"] .titles p {
+  margin-top: 2px;
+  font-size: 14px;
+  color: var(--tx-2);
+}
+[data-look="solid"] .panel[data-strip="true"] .titles p { font-size: 14px; }
+
+/* Optional / Mandatory: the concept .opt tag. */
+[data-look="solid"] .badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--gold-hi);
+  box-shadow: inset 0 0 0 1px var(--gold-a);
+}
+[data-look="solid"] .badge[data-optional="false"] {
+  color: var(--gold-hi);
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1px var(--gold-hi);
+}
+[data-look="solid"] .badge[data-tone="gold"] { color: var(--gold-hi); }
+[data-look="solid"] .badge[data-tone="forced"] { color: var(--gold-hi); box-shadow: inset 0 0 0 1px var(--gold-hi); }
+
+[data-look="solid"] .hide {
+  border: 0;
+  border-radius: 7px;
+  color: var(--tx-3);
+}
+[data-look="solid"] .hide:hover { background: var(--ink-3); color: var(--tx); }
+
+[data-look="solid"] .hint { color: var(--tx-3); font-size: 12px; }
+
+/* ------------------------------------------------------------------ buttons (concept .btn) */
+[data-look="solid"] .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink-3);
+  color: var(--tx);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  font-size: 15px;
+  font-weight: 500;
+  transition: background-color 0.12s, box-shadow 0.12s;
+}
+[data-look="solid"] .btn:hover:not(:disabled) { background: var(--ink-4); }
+[data-look="solid"] .btn:focus-visible { outline: 2px solid var(--pur-hi); outline-offset: 2px; }
+/* Off: the same button, quieter text. Solid ring, never dashed, never dimmed. */
+[data-look="solid"] .btn:disabled {
+  border-style: solid;
+  background: var(--ink-2);
+  color: var(--tx-3);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  opacity: 1;
+}
+[data-look="solid"] .btn[data-active="true"]:not(:disabled) { box-shadow: inset 0 0 0 1px var(--pur); }
+[data-look="solid"] .btn[data-kind="quiet"],
+[data-look="solid"] .bar .btn[data-kind="quiet"]:not(:disabled) {
+  border-color: transparent;
+  color: var(--tx);
+}
+[data-look="solid"] .btn[data-kind="primary"],
+[data-look="solid"] .panel[data-tone="chain"] .btn[data-kind="primary"],
+[data-look="solid"] .bar[data-tone="chain"] .btn[data-kind="primary"],
+[data-look="solid"] .bar .btn[data-kind="primary"]:not(:disabled) {
+  background: var(--pur-btn);
+  color: #fff;
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1px rgb(184 168 255 / 0.35), 0 6px 14px -8px rgb(90 67 198 / 0.9);
+}
+[data-look="solid"] .btn[data-kind="primary"]:hover:not(:disabled),
+[data-look="solid"] .panel[data-tone="chain"] .btn[data-kind="primary"]:hover:not(:disabled),
+[data-look="solid"] .bar[data-tone="chain"] .btn[data-kind="primary"]:hover:not(:disabled) {
+  background: var(--pur-btn-hi);
+}
+[data-look="solid"] .btn[data-kind="primary"]:disabled,
+[data-look="solid"] .panel[data-tone="chain"] .btn[data-kind="primary"]:disabled,
+[data-look="solid"] .bar[data-tone="chain"] .btn[data-kind="primary"]:disabled,
+[data-look="solid"] .bar .btn:disabled {
+  background: var(--ink-2);
+  color: var(--tx-3);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+/* The bar buttons keep V1 size (--pc-btn-h) so the bar stays small. */
+[data-look="solid"] .bar .btn,
+[data-look="solid"] .btns .btn {
+  min-height: var(--pc-btn-h);
+  font-size: 14px;
+}
+
+/* The key cap on Pass [Esc] (concept .btn .kbd). */
+.kbd {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: inherit;
+  opacity: 0.75;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+[data-look="solid"] .pair { gap: 8px; }
+
+/* Foot: Activate-side actions share the width; Pass sits under the response tiles; the hint goes last. */
+[data-look="solid"] .foot { order: 2; gap: 8px; }
+[data-look="solid"] .panel[data-tone="chain"] .foot > .btn { flex: 1 1 0; }
+[data-look="solid"] .panel[data-tone="chain"] .spacer { display: none; }
+[data-look="solid"] .panel[data-tone="chain"] .hint {
+  order: 3;
+  flex: 1 0 100%;
+  text-align: center;
+}
+
+/* ------------------------------------------------------------------ rows (a response is a pending tile) */
+[data-look="solid"] .rows { gap: 8px; padding: 1px; }
+
+[data-look="solid"] .row,
+[data-look="solid"] .panel[data-tone="chain"] .row {
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgb(18 24 44 / 0.96), rgb(10 14 26 / 0.96));
+  box-shadow: inset 0 0 0 1px var(--gold-b), 0 14px 26px -12px rgb(0 0 0 / 0.95);
+  transition: box-shadow 0.15s, background-color 0.15s;
+}
+/* Pending: your response. A solid purple ring and an inner glow. The dashed inner border of the concept is not used. */
+[data-look="solid"] .panel[data-tone="chain"] .row {
+  background: linear-gradient(180deg, #151a33, #0d1122);
+  box-shadow: inset 0 0 0 1px rgb(143 118 242 / 0.6), inset 0 0 18px -6px var(--pur-a), 0 14px 26px -12px rgb(0 0 0 / 0.95);
+}
+[data-look="solid"] .row:hover,
+[data-look="solid"] .row[data-active="true"],
+[data-look="solid"] .row[data-selected="true"],
+[data-look="solid"] .panel[data-tone="chain"] .row:hover,
+[data-look="solid"] .panel[data-tone="chain"] .row[data-active="true"] {
+  background: linear-gradient(180deg, #181e3b, #0f1326);
+  box-shadow: inset 0 0 0 1.5px var(--pur-hi), inset 0 0 22px -6px var(--pur-a), 0 0 22px -6px var(--pur-a), 0 14px 26px -12px rgb(0 0 0 / 0.95);
+}
+[data-look="solid"] .row:has(.rowMain:disabled) { opacity: 1; }
+[data-look="solid"] .row:has(.rowMain:disabled) .rowText { color: var(--tx-3); }
+
+/* Link number, 52px art crop, text. Plain rows (no card) have no art column. */
+[data-look="solid"] .rowMain {
+  display: grid;
+  grid-template-columns: 30px 52px minmax(0, 1fr);
+  column-gap: 9px;
+  row-gap: 8px;
+  align-items: center;
+  min-height: 0;
+  padding: 7px 10px 7px 8px;
+  border-radius: 10px;
+}
+[data-look="solid"] .row[data-plain="true"] .rowMain { grid-template-columns: 30px minmax(0, 1fr); min-height: 0; }
+[data-look="solid"] .rowMain:focus-visible { outline: 2px solid var(--pur-hi); outline-offset: 1px; }
+
+[data-look="solid"] .rowNum {
+  display: block;
+  width: auto;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  font-family: var(--font-num);
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1;
+  text-align: center;
+  color: var(--gold-hi);
+}
+[data-look="solid"] .panel[data-tone="chain"] .rowNum,
+[data-look="solid"] .panel[data-tone="action"] .rowNum { color: var(--pur-hi); }
+[data-look="solid"] .panel[data-tone="action"] .rowNum { font-size: 24px; }
+
+/* The art crop: a 172% background on a square, with the projection scanlines on the art only. */
+[data-look="solid"] .rowArt {
+  position: relative;
+  display: block;
+  width: 52px;
+  height: 52px;
+  aspect-ratio: auto;
+  border-radius: 6px;
+  background-color: var(--ink-3);
+  background-size: 172% auto;
+  background-position: 50% 31%;
+  background-repeat: no-repeat;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.7);
+}
+[data-look="solid"] .rowArt::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  background: repeating-linear-gradient(180deg, rgb(10 8 30 / 0.22) 0 1px, transparent 1px 3px);
+  mix-blend-mode: multiply;
+  pointer-events: none;
+}
+[data-look="solid"] .noArt { background-image: none; }
+
+[data-look="solid"] .rowText { gap: 2px; }
+[data-look="solid"] .rowText b {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.15;
+}
+[data-look="solid"] .rowText small {
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--tx-2);
+}
+[data-look="solid"] .panel[data-tone="chain"] .rowText small { font-size: 14px; color: var(--tx); }
+[data-look="solid"] .rowText .rowDetail { color: var(--tx-3); }
+
+/* Owner marker: a filled square for you, a hollow diamond for the opponent (concept .cowner). */
+[data-look="solid"] .rowOwner {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.3;
+  color: var(--ember);
+}
+[data-look="solid"] .rowOwner::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  transform: rotate(45deg);
+}
+[data-look="solid"] .rowOwner[data-owner="you"] { color: var(--pur-hi); }
+[data-look="solid"] .rowOwner[data-owner="you"]::before { background: currentColor; box-shadow: none; transform: none; }
+[data-look="solid"] .rowOwner[data-owner="opp"] { color: var(--ember); }
+[data-look="solid"] .row[data-toned="true"] .rowOwner { border: 0; color: var(--seat-ink); }
+
+/* Primary Activate: the whole tile answers, this is its button (concept .btn.primary). No countdown ring. */
+[data-look="solid"] .rowGo,
+[data-look="solid"] .panel[data-tone="chain"] .rowGo {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--pur-btn);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1px rgb(184 168 255 / 0.35), 0 6px 14px -8px rgb(90 67 198 / 0.9);
+}
+[data-look="solid"] .rowMain:hover:not(:disabled) .rowGo,
+[data-look="solid"] .rowMain:focus-visible .rowGo { background: var(--pur-btn-hi); }
+
+[data-look="solid"] .rowMore { padding: 0 2px; margin: 0 10px 8px; color: var(--tx-3); }
+[data-look="solid"] .rowMore:hover:not(:disabled) { color: var(--tx); }
+[data-look="solid"] .row .cardText { margin: 0 8px 8px; }
+
+/* ------------------------------------------------------------------ effect line, card text, step chip, recall */
+[data-look="solid"] .effect,
+[data-look="solid"] .panel[data-tone="chain"] .effect {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink-1);
+  box-shadow: inset 0 0 0 1px var(--pur-a);
+  font-size: 14px;
+  color: var(--tx);
+}
+[data-look="solid"] .panel[data-tone="chain"] .effect { box-shadow: inset 0 0 0 1px var(--gold-a); }
+
+[data-look="solid"] .cardText {
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink-1);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+[data-look="solid"] .cardTextLabel { color: var(--tx-3); }
+[data-look="solid"] .cardTextBody { color: var(--tx-2); }
+[data-look="solid"] .cardTextMore,
+[data-look="solid"] .panel[data-tone="chain"] .cardTextMore { color: var(--pur-hi); }
+
+[data-look="solid"] .stepChip {
+  border-color: rgb(224 145 106 / 0.5);
+  color: var(--ember);
+}
+[data-look="solid"] .stepChip i { background: var(--ember); box-shadow: 0 0 6px var(--ember); }
+
+[data-look="solid"] .recall {
+  border: 0;
+  border-radius: 10px;
+  background: var(--ink-1);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+[data-look="solid"] .recallName { font-weight: 500; color: var(--tx); }
+[data-look="solid"] .recallFacts { color: var(--tx-2); }
+[data-look="solid"] .recallFacts b { color: var(--tx); }
+
+/* ------------------------------------------------------------------ chain so far (concept chain stack) */
+/* Pending tiles first, then the links already in the chain: the concept order. */
+[data-look="solid"] .chainStrip {
+  order: 3;
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  color: var(--tx);
+  font-size: 13px;
+}
+[data-look="solid"] .chainStrip ol { display: grid; flex-wrap: nowrap; gap: 8px; }
+.chainHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 2px;
+  font-size: 15px;
+  font-weight: 500;
+}
+.chainHead small { font-size: 12px; font-weight: 400; color: var(--tx-3); }
+
+[data-look="solid"] .chainStrip li.chainTile {
+  position: relative;
+  display: grid;
+  grid-template-columns: 30px 52px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  padding: 7px 10px 7px 8px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgb(18 24 44 / 0.96), rgb(10 14 26 / 0.96));
+  box-shadow: inset 0 0 0 1px var(--gold-a), 0 14px 26px -12px rgb(0 0 0 / 0.95);
+}
+[data-look="solid"] .chainStrip li.chainTile[data-owner="you"] {
+  box-shadow: inset 0 0 0 1px rgb(143 118 242 / 0.55), 0 14px 26px -12px rgb(0 0 0 / 0.95);
+}
+/* Resolving: a gold-hi ring. Negated: the name struck through in loss red, the art alone gone gray. */
+[data-look="solid"] .chainStrip li.chainTile[data-state="resolving"] {
+  box-shadow: inset 0 0 0 2px var(--gold-hi), 0 14px 26px -12px rgb(0 0 0 / 0.95);
+}
+[data-look="solid"] .chainStrip li.chainTile[data-state="negated"] .cname {
+  text-decoration: line-through;
+  text-decoration-color: var(--loss);
+  text-decoration-thickness: 1.5px;
+}
+[data-look="solid"] .chainStrip li.chainTile[data-state="negated"] .cart { filter: grayscale(0.8) brightness(0.7); }
+
+[data-look="solid"] .chainStrip .clink {
+  display: block;
+  min-width: 0;
+  height: auto;
+  border: 0;
+  border-radius: 0;
+  font-family: var(--font-num);
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1;
+  text-align: center;
+  color: var(--gold-hi);
+}
+[data-look="solid"] .chainStrip li[data-owner="you"] .clink { color: var(--pur-hi); }
+
+.cart {
+  position: relative;
+  display: block;
+  width: 52px;
+  height: 52px;
+  border-radius: 6px;
+  background-color: var(--ink-3);
+  background-size: 172% auto;
+  background-position: 50% 31%;
+  background-repeat: no-repeat;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.7);
+}
+.cart::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  background: repeating-linear-gradient(180deg, rgb(10 8 30 / 0.22) 0 1px, transparent 1px 3px);
+  mix-blend-mode: multiply;
+}
+.cmeta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cname { font-size: 15px; font-weight: 500; line-height: 1.15; overflow-wrap: anywhere; }
+.cowner { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ember); }
+.cowner i { width: 7px; height: 7px; border-radius: 1px; box-shadow: inset 0 0 0 1.5px currentColor; transform: rotate(45deg); }
+.chainTile[data-owner="you"] .cowner { color: var(--pur-hi); }
+.chainTile[data-owner="you"] .cowner i { background: currentColor; box-shadow: none; transform: none; }
+.ceff {
+  grid-column: 2 / -1;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--tx-2);
+}
+
+/* The slim line over a card strip keeps its shape, in the solid colours. */
+[data-look="solid"] .chainStrip[data-compact="true"] {
+  display: flex;
+  order: 0;
+  padding: 3px 2px;
+  border-block: 1px solid var(--hair);
+  color: var(--gold-hi);
+}
+[data-look="solid"] .chainStrip[data-compact="true"] ol { display: flex; }
+[data-look="solid"] .chainStrip[data-compact="true"] b { border-color: var(--gold); font-family: var(--font-num); }
+[data-look="solid"] .chainNote { color: var(--tx-3); }
+
+/* ------------------------------------------------------------------ position tiles, card grid */
+[data-look="solid"] .posTile {
+  border: 0;
+  border-radius: 10px;
+  background: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--gold-b);
+  transition: box-shadow 0.15s, background-color 0.15s;
+}
+[data-look="solid"] .posTile:hover:not(:disabled),
+[data-look="solid"] .posTile[data-active="true"]:not(:disabled),
+[data-look="solid"] .posTile[data-kind="primary"] {
+  background: var(--ink-3);
+  box-shadow: inset 0 0 0 1px var(--pur), 0 0 18px -6px var(--pur-a);
+}
+[data-look="solid"] .posTile:focus-visible { outline: 2px solid var(--pur-hi); }
+[data-look="solid"] .posTile:disabled { border-style: solid; opacity: 1; color: var(--tx-3); }
+[data-look="solid"] .posCard { border-radius: 4px; }
+
+[data-look="solid"] .tileArt { border-radius: 5px; }
+[data-look="solid"] .tile[data-selected="true"] .tileArt { box-shadow: 0 0 0 2px var(--pur), 0 0 18px var(--pur-a); }
+[data-look="solid"] .tileMark {
+  background: var(--pur-btn);
+  box-shadow: 0 0 0 1.5px var(--pur-hi);
+}
+[data-look="solid"] .tileHit:focus-visible { outline: 2px solid var(--pur-hi); }
+[data-look="solid"] .tileValue { color: var(--tx-2); }
+[data-look="solid"] .grid .stepper button,
+[data-look="solid"] .tile .stepper button {
+  border: 0;
+  border-radius: 6px;
+  background: var(--ink-3);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+[data-look="solid"] .grid .stepper button:hover:not(:disabled),
+[data-look="solid"] .tile .stepper button:hover:not(:disabled) { background: var(--ink-4); }
+
+/* ------------------------------------------------------------------ select bar and collapsed pill */
+[data-look="solid"] .barText b { font-weight: 500; color: var(--tx); }
+[data-look="solid"] .barSub { color: var(--tx-2); }
+[data-look="solid"] .barCount {
+  border: 0;
+  background: var(--ink-3);
+  color: var(--tx);
+  font-weight: 500;
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+[data-look="solid"] .barCount[data-done="true"] {
+  background: var(--pur-btn);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgb(184 168 255 / 0.35);
+}
+[data-look="solid"] .barThumb { border-radius: 4px; }
+
+[data-look="solid"] .pill {
+  border: 0;
+  background: rgb(8 11 20 / 0.95);
+  box-shadow: inset 0 0 0 1px var(--pur-a), 0 14px 26px -12px rgb(0 0 0 / 0.95);
+}
+[data-look="solid"] .pill[data-tone="chain"] { color: var(--gold-hi); box-shadow: inset 0 0 0 1px var(--gold-a), 0 14px 26px -12px rgb(0 0 0 / 0.95); }
+[data-look="solid"] .pill i { background: var(--pur); }
+[data-look="solid"] .pill[data-tone="chain"] i { background: var(--gold); }
+[data-look="solid"] .pill:hover { background: var(--ink-2); }
+
+/* ------------------------------------------------------------------ precheck bar */
+[data-look="solid"] .thumb { border-radius: 4px; }
+[data-look="solid"] .text b,
+[data-look="solid"] .bar[data-tone="chain"] .text b { font-weight: 500; color: var(--tx); }
+[data-look="solid"] .bar[data-tone="chain"] .text b { color: var(--gold-hi); }
+/* Concept chain response: gold ring on the bar, gold Yes with dark ink. */
+[data-look="solid"] .bar[data-tone="chain"] { border: 1px solid var(--gold-a); }
+[data-look="solid"] .bar[data-tone="chain"] .btn[data-kind="primary"]:not(:disabled) {
+  background: var(--gold);
+  color: var(--ink-0);
+  box-shadow: inset 0 0 0 1px var(--gold-hi), 0 6px 14px -8px rgb(200 165 95 / 0.8);
+}
+[data-look="solid"] .bar[data-tone="chain"] .btn[data-kind="primary"]:hover:not(:disabled) { background: var(--gold-hi); }
+[data-look="solid"] .text .name { color: var(--tx-2); font-size: 14px; }
+[data-look="solid"] .text .context { color: var(--tx-3); }
+
+/* ------------------------------------------------------------------ prompt tray (flow dock) */
+[data-look="solid"] .tray { gap: 8px; font-size: 14px; }
+[data-look="solid"] .waiting { color: var(--tx-3); }
+[data-look="solid"] .title { font-size: 16px; font-weight: 500; letter-spacing: 0.01em; color: var(--tx); }
+[data-look="solid"] .description { color: var(--tx-2); font-size: 14px; }
+[data-look="solid"] .status { color: var(--tx-2); font-size: 13px; }
+
+[data-look="solid"] .option,
+[data-look="solid"] .chain .option {
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgb(18 24 44 / 0.96), rgb(10 14 26 / 0.96));
+  box-shadow: inset 0 0 0 1px var(--gold-b);
+  font-size: 14px;
+  transition: box-shadow 0.15s, background-color 0.15s;
+}
+[data-look="solid"] .chain .option { box-shadow: inset 0 0 0 1px rgb(143 118 242 / 0.6), inset 0 0 14px -6px var(--pur-a); }
+[data-look="solid"] .option:hover:not(:disabled),
+[data-look="solid"] .option[data-selected="true"],
+[data-look="solid"] .chain .option:hover:not(:disabled),
+[data-look="solid"] .chain .option[data-selected="true"] {
+  background: linear-gradient(180deg, #181e3b, #0f1326);
+  box-shadow: inset 0 0 0 1.5px var(--pur-hi), 0 0 18px -6px var(--pur-a);
+}
+[data-look="solid"] .option[data-active="true"],
+[data-look="solid"] .chain .option[data-active="true"] {
+  background: linear-gradient(180deg, #181e3b, #0f1326);
+  box-shadow: inset 0 0 0 1.5px var(--pur-hi), 0 0 18px -6px var(--pur-a);
+  color: var(--tx);
+  font-weight: 500;
+}
+[data-look="solid"] .chain .option[data-active="true"]:hover:not(:disabled) { background: linear-gradient(180deg, #181e3b, #0f1326); }
+[data-look="solid"] .option:focus-visible,
+[data-look="solid"] .chain .option:focus-visible { outline: 2px solid var(--pur-hi); }
+[data-look="solid"] .option:disabled { opacity: 1; color: var(--tx-3); }
+
+[data-look="solid"] .index,
+[data-look="solid"] .chain .index,
+[data-look="solid"] .chain .option[data-active="true"] .index {
+  width: auto;
+  height: auto;
+  min-width: 22px;
+  border: 0;
+  border-radius: 0;
+  font-family: var(--font-num);
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--pur-hi);
+}
+[data-look="solid"] .art { width: 28px; height: 40px; border-radius: 4px; }
+[data-look="solid"] .detail,
+[data-look="solid"] .chain .option[data-active="true"] .detail { color: var(--tx-2); }
+
+[data-look="solid"] .actions { background: var(--ink-2); gap: 8px; }
+[data-look="solid"] .actions > button {
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink-3);
+  color: var(--tx);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  font-size: 15px;
+  font-weight: 500;
+}
+[data-look="solid"] .actions > button:hover:not(:disabled) { background: var(--ink-4); }
+[data-look="solid"] .actions > button:focus-visible { outline: 2px solid var(--pur-hi); }
+[data-look="solid"] .actions > button:disabled { border-style: solid; background: var(--ink-2); color: var(--tx-3); opacity: 1; }
+[data-look="solid"] .actions > button[class*="bg-accent-primary"] {
+  background: var(--pur-btn);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgb(184 168 255 / 0.35), 0 6px 14px -8px rgb(90 67 198 / 0.9);
+}
+[data-look="solid"] .actions > button[class*="bg-accent-primary"]:hover:not(:disabled) { background: var(--pur-btn-hi); }
+
+[data-look="solid"] .choice {
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink-3);
+  color: var(--tx);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  font-size: 15px;
+  font-weight: 500;
+}
+[data-look="solid"] .choice:hover:not(:disabled) { background: var(--ink-4); color: var(--tx); }
+[data-look="solid"] .choice:focus-visible { outline: 2px solid var(--pur-hi); }
+[data-look="solid"] .choice[data-active="true"] { box-shadow: inset 0 0 0 1px var(--pur); }
+[data-look="solid"] .choice:disabled { opacity: 1; color: var(--tx-3); }
+[data-look="solid"] .choice[data-kind="yes"] {
+  background: var(--pur-btn);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgb(184 168 255 / 0.35), 0 6px 14px -8px rgb(90 67 198 / 0.9);
+}
+[data-look="solid"] .choice[data-kind="yes"]:hover:not(:disabled) { background: var(--pur-btn-hi); color: #fff; }
+[data-look="solid"] .choice[data-kind="no"],
+[data-look="solid"] .choice[data-kind="pass"] { background: var(--ink-3); color: var(--tx); }
+
+[data-look="solid"] .chain .title { color: var(--gold-hi); }
+[data-look="solid"] .chain .badge,
+[data-look="solid"] .chain[data-forced="true"] .badge { border: 0; color: var(--gold-hi); box-shadow: inset 0 0 0 1px var(--gold-a); }
+[data-look="solid"] .chain[data-forced="true"] .badge { box-shadow: inset 0 0 0 1px var(--gold-hi); }
+
+[data-look="solid"] .tray .stepper {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink-3);
+  color: var(--tx);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+[data-look="solid"] .tray .stepper:hover:not(:disabled) { background: var(--ink-4); }
+[data-look="solid"] .count { font-family: var(--font-num); color: var(--tx); }
+[data-look="solid"] .cost { color: var(--tx); }
+
+/* ------------------------------------------------------------------ number field and announce search */
+[data-look="solid"] .numberField { color: var(--tx-2); }
+[data-look="solid"] .numberField input,
+[data-look="solid"] .search input {
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink-1);
+  color: var(--tx);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+[data-look="solid"] .search input { height: 38px; font-size: 14px; }
+[data-look="solid"] .numberField input:focus-visible,
+[data-look="solid"] .search input:focus-visible {
+  outline: 2px solid var(--pur-hi);
+  outline-offset: 1px;
+  box-shadow: inset 0 0 0 1px var(--pur);
+}
+[data-look="solid"] .search label { color: var(--tx-2); font-size: 13px; }
+[data-look="solid"] .results {
+  border-radius: 8px;
+  background: var(--ink-1);
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+[data-look="solid"] .result { border-bottom-color: var(--hair); font-size: 14px; }
+[data-look="solid"] .result:hover:not(:disabled),
+[data-look="solid"] .result[data-selected="true"] { background: var(--ink-3); }
+[data-look="solid"] .result:focus-visible { outline: 2px solid var(--pur-hi); }
+[data-look="solid"] .result:disabled { opacity: 1; color: var(--tx-3); }
+[data-look="solid"] .note { color: var(--tx-2); font-size: 13px; }
+[data-look="solid"] .error { color: var(--loss); font-size: 13px; }
+
+/* ------------------------------------------------------------------ reduced motion */
+[data-look="solid"][data-reduced="true"] .row,
+[data-look="solid"][data-reduced="true"] .posTile,
+[data-look="solid"][data-reduced="true"] .option,
+[data-look="solid"][data-reduced="true"] .btn { transition: none; }
+
+/* ------------------------------------------------------------------ phones: bottom sheets above the phase bar */
+@media (max-width: 900px) {
+  [data-look="solid"] .panel,
+  [data-look="solid"] .panel[data-wide="true"],
+  [data-look="solid"] .panel[data-strip="true"] {
+    gap: 6px;
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+    border-radius: 14px 14px 0 0;
+    background: var(--ink-1);
+    box-shadow: 0 -12px 30px -10px rgb(0 0 0 / 0.9);
+  }
+  /* Same sheet for a chain response and the card grid; the grid keeps its own scroll. */
+  [data-look="solid"] .rowMain,
+  [data-look="solid"] .chainStrip li.chainTile { grid-template-columns: 26px 44px minmax(0, 1fr); padding: 6px 8px; }
+  [data-look="solid"] .row[data-plain="true"] .rowMain { grid-template-columns: 26px minmax(0, 1fr); }
+  [data-look="solid"] .rowNum,
+  [data-look="solid"] .chainStrip .clink { font-size: 26px; }
+  [data-look="solid"] .panel[data-tone="action"] .rowNum { font-size: 22px; }
+  [data-look="solid"] .rowArt,
+  .cart { width: 44px; height: 44px; }
+  [data-look="solid"] .rowText small,
+  .ceff { font-size: 12px; }
+  [data-look="solid"] .panel[data-tone="chain"] .rowText small { font-size: 13px; }
+  /* V1 hides the Activate label on phones; the concept shows Activate and Pass side by side as sheet buttons. */
+  [data-look="solid"] .rowGo { display: flex; }
+  [data-look="solid"] .btn { min-height: 38px; }
+  [data-look="solid"] .bar .btn,
+  [data-look="solid"] .btns .btn { min-height: 38px; }
+}
+
+@media (pointer: coarse) {
+  [data-look="solid"] .bar .btn,
+  [data-look="solid"] .btns .btn { min-height: 40px; }
+}
+
+/* Yes/No chain precheck: V1 centres it on the board, over the zones. On phones it docks at the bottom of the board. The select bar (data-place) is left alone: it must not hide the zones. */
+@media (max-width: 900px) {
+  [data-look="solid"] .bar:not([data-place]) {
+    top: auto;
+    bottom: 6px;
+    left: 50%;
+    translate: -50% 0;
+    width: calc(100% - 16px);
+    max-width: none;
+    /* Tall enough to cover the plate and the hand, so no half plate shows above it. */
+    min-height: calc(var(--hand-h, 100px) + 84px);
+    flex-wrap: wrap;
+    align-content: center;
+  }
+}
+
+/* Sideways: the precheck stays in the rail column, so the table stays in view. */
+@media (max-width: 900px) and (max-height: 540px) and (orientation: landscape) {
+  [data-look="solid"] .bar:not([data-place]) {
+    left: 0;
+    translate: none;
+    width: calc(100% - var(--plane-w, 340px) - 10px);
+    min-height: 0;
+    bottom: 4px;
+  }
+}

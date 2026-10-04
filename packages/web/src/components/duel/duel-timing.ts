@@ -137,9 +137,24 @@ export const ADD_TO_HAND = {
 
 /* ---------- flips, positions, hand, summon ---------- */
 
+/**
+ * An activation, from the card turning over to the moment its link may resolve. The face turns for
+ * ACTIVATION_FLIP_MS and then stays up for ACTIVATION_FACE_MS (the last part of it is the fade), so a
+ * set trap that springs can be read before anything resolves. The chain's activate beat, the activate
+ * banner and the activation ghost all share this one length, so the banner is gone when the link
+ * starts to resolve and nothing resolves under it.
+ */
+const ACTIVATION_FLIP_MS = 320;
+const ACTIVATION_FACE_MS = 850;
+const ACTIVATION_BEAT_MS = ACTIVATION_FLIP_MS + ACTIVATION_FACE_MS;
+
 export const CARD_FX = {
   /** Full activation ghost/flip and ring, and its reduced glow. */
-  activationMs: 800,
+  activationMs: ACTIVATION_BEAT_MS,
+  /** The activation ghost turns over this fast, then holds its face (activationMs less this) with a short fade at the end. */
+  activationFlipMs: ACTIVATION_FLIP_MS,
+  activationFaceMs: ACTIVATION_FACE_MS,
+  activationFadeMs: 150,
   reducedEffectMs: 320,
   destroyFlashMs: 420,
   /** A card turns to the other position. */
@@ -166,10 +181,11 @@ export const CARD_FX = {
 /* ---------- banners, chains, gates ---------- */
 
 export const BANNER_TIMING = {
-  activateMs: 2000,
+  /** The activate banner lasts one activate beat, so it is gone when its link starts to resolve. */
+  activateMs: ACTIVATION_BEAT_MS,
   eventMs: 1600,
   defaultMs: 1300,
-  reducedActivateMs: 1500,
+  reducedActivateMs: 960,
   reducedDefaultMs: 1200,
   /** A backlog of banners is squeezed, never dropped: every banner keeps this long at least. */
   minCueMs: 500,
@@ -201,7 +217,7 @@ export const PHASE_TIMING = {
 } as const;
 
 export const CHAIN_TIMING = {
-  activateMs: 950,
+  activateMs: ACTIVATION_BEAT_MS,
   resolvingMs: 1150,
   resolvedMs: 720,
   negatedMs: 950,
@@ -210,9 +226,25 @@ export const CHAIN_TIMING = {
   /** A backlog of more than this many beats is played faster, down to the floor. */
   backlogBeats: 10,
   floorMs: 320,
+  /**
+   * The floor of the beats a viewer has to read: what was activated, and what happened to it. A backlog
+   * squeezes the other beats (a link clearing, the chain ending) to floorMs but never these.
+   */
+  readableFloorMs: { activate: 700, "chain-resolving": 520, "chain-negated": 700 },
   /** A link's own effect starts this long after its badge starts to pulse. */
-  effectLeadMs: 440,
+  effectLeadMs: 500,
   effectLeadReducedMs: 200,
+} as const;
+
+/**
+ * The "Now resolving" panel (chain-fx.tsx). Real time is scaled by the viewer's pace through duelFxClock, like the
+ * chain beats. Not part of CHAIN_TIMING: the beats of a chain are paced separately from how long its recap stays.
+ */
+export const CHAIN_PANEL_TIMING = {
+  /** After the chain has ended, the panel keeps the last link and its result for this long. */
+  recapMs: 3200,
+  /** Reduced motion: the same recap, shorter, with no movement. */
+  recapReducedMs: 800,
 } as const;
 
 /** Plain numbers (not literals): the gates take a custom timing in tests and tools. */
@@ -229,6 +261,47 @@ export const GATE_TIMING: Record<"resultPauseMs" | "resultCapMs" | "resultReduce
   promptReducedMs: 200,
   /** After a pick, the board holds this long before the next prompt. */
   pickHoldMs: 1600,
+};
+
+/* ---------- tribute summon ---------- */
+
+/**
+ * A Tribute Summon: the tributes lift off the field, their slices dissolve and burn into energy, and the energy
+ * flows into the zone of the monster being summoned, where it gathers and flashes; the summon then plays.
+ * Kept as its own block so nothing above has to change. `staggerMs` and `summonLeadMs` are offsets between
+ * effects, not effects, so they are not in TRIBUTE_VISIBLE_MS.
+ */
+export const TRIBUTE_TIMING = {
+  /** Each tribute rises from its zone. */
+  liftMs: 400,
+  /** The slices peel apart and burn away (runs while the energy leaves). */
+  dissolveMs: 560,
+  /** The energy starts to leave this long after the dissolve begins. */
+  orbDelayMs: 220,
+  /** Energy travels from the tribute to the summon zone. */
+  orbMs: 620,
+  /** The flash where the energy gathers. */
+  gatherMs: 420,
+  /** The Graveyard pulse as it takes the card. */
+  pulseMs: 420,
+  /** Several tributes start this far apart. */
+  staggerMs: 110,
+  /** The summon starts this long before the last energy lands. */
+  summonLeadMs: 40,
+  /** Reduced motion: the tribute fades out in place. */
+  reducedMs: 240,
+} as const;
+
+/** From the lift to the last energy arriving, for one tribute. */
+export const TRIBUTE_FLIGHT_MS = TRIBUTE_TIMING.liftMs + TRIBUTE_TIMING.orbDelayMs + TRIBUTE_TIMING.orbMs;
+
+/** The visible lengths of the tribute effect (see VISIBLE_EFFECT_MS). */
+export const TRIBUTE_VISIBLE_MS: Readonly<Record<string, number>> = {
+  "tribute lift": TRIBUTE_TIMING.liftMs,
+  "tribute dissolve": TRIBUTE_TIMING.dissolveMs,
+  "tribute energy": TRIBUTE_TIMING.orbMs,
+  "tribute gather flash": TRIBUTE_TIMING.gatherMs,
+  "tribute graveyard pulse": TRIBUTE_TIMING.pulseMs,
 };
 
 /**
@@ -259,11 +332,16 @@ export const VISIBLE_EFFECT_MS: Readonly<Record<string, number>> = {
   "event banner": BANNER_TIMING.eventMs,
   "phase ribbon": PHASE_TIMING.beatMs,
   "default banner": BANNER_TIMING.defaultMs,
+  "activation face hold": CARD_FX.activationFaceMs,
   "chain activate": CHAIN_TIMING.activateMs,
+  "chain activate floor": CHAIN_TIMING.readableFloorMs.activate,
+  "chain resolving floor": CHAIN_TIMING.readableFloorMs["chain-resolving"],
+  "chain negated floor": CHAIN_TIMING.readableFloorMs["chain-negated"],
   "chain resolving": CHAIN_TIMING.resolvingMs,
   "chain resolved": CHAIN_TIMING.resolvedMs,
   "chain negated": CHAIN_TIMING.negatedMs,
   "chain end": CHAIN_TIMING.endMs,
   "chain fallback": CHAIN_TIMING.fallbackMs,
   "attack counter gap + beat": ATTACK_TIMING.counterGapMs + ATTACK_TIMING.destroyBeatMs,
+  ...TRIBUTE_VISIBLE_MS,
 };

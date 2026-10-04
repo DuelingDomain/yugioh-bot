@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BATTLE_EFFECT_SCENARIOS } from "../../src/components/duel/fx-lab/battle-effect-scenarios";
-import { applyEdits } from "../../src/components/duel/fx-lab/board";
+import { applyEdits, numberSteps } from "../../src/components/duel/fx-lab/board";
+import { findFlipSequences } from "../../src/components/duel/flip-sequence";
 import { findScenario } from "../../src/components/duel/fx-lab/scenarios";
 
 describe("battle effect lab scenes", () => {
@@ -33,5 +34,30 @@ describe("battle effect lab scenes", () => {
     expect(events.find(e => e.kind === "position")).toMatchObject({ zone: { controller: 1, location: 4, sequence: 2 }, fromPosition: 1, toPosition: 4 });
     const final = scene.steps.reduce((board, step) => applyEdits(board, step.edits ?? []), scene.initial);
     expect(final.seats[1].monsters[2]?.position).toBe(4);
+  });
+  it.each(["battle-flip-effect-attack", "battle-flip-effect-attack-opponent"])("replays the flip-effect fight of %s in one batch and ends with both monsters in the graves", id => {
+    const scene = BATTLE_EFFECT_SCENARIOS.find(s => s.id === id)!.build();
+    const events = numberSteps(scene.steps, 0).flatMap(n => n.events);
+    expect(findFlipSequences(events)).toHaveLength(1);
+    expect(scene.steps.filter(s => (s.events ?? []).length > 0)).toHaveLength(1);
+    const final = scene.steps.reduce((board, step) => applyEdits(board, step.edits ?? []), scene.initial);
+    for (const seat of final.seats) {
+      expect(seat.monsters.every(m => m == null)).toBe(true);
+      expect(seat.graveyard.length).toBe(1);
+    }
+  });
+  it("lets the attacker survive when the Bug's effect marks another monster, and the fight ends after the chain", () => {
+    const scene = BATTLE_EFFECT_SCENARIOS.find(s => s.id === "battle-flip-effect-bystander")!.build();
+    const events = numberSteps(scene.steps, 0).flatMap(n => n.events);
+    const [sequence] = findFlipSequences(events);
+    expect(sequence).toBeDefined();
+    expect(sequence.effects.length).toBeGreaterThan(0);
+    expect(sequence.aftermath.length).toBeGreaterThan(0);
+    expect(sequence.target?.targets).toEqual([{ controller: 0, location: 4, sequence: 3 }]);
+    const final = scene.steps.reduce((board, step) => applyEdits(board, step.edits ?? []), scene.initial);
+    expect(final.seats[0].monsters[2]?.name).toBe("Cyber Dragon");
+    expect(final.seats[0].monsters[3]).toBeNull();
+    expect(final.seats[0].graveyard.length).toBe(1);
+    expect(final.seats[1].monsters[2]).toBeNull();
   });
 });

@@ -42,8 +42,11 @@ import { PrecheckBar } from "./prompt-precheck";
 import { placeSelectBar, samePlace, type BarPlace, type BarRect } from "./select-bar-place";
 import { selectBarCopy, sumSelectionValues, synchroSelectionValues, type BarCopy } from "./select-bar-copy";
 import { backOutAnswer, backOutLabel } from "./pick-backout";
+import { tributeState } from "./tribute-pick";
+import { placeTributeDock, sameDock, type DockPlace } from "./tribute-dock-place";
 import base from "./prompts.module.css";
-import styles from "./prompt-center.module.css";
+import baseStyles from "./prompt-center.module.css";
+import { useSkinExtra, useSkinStyles } from "./skin";
 
 /**
  * Prompts answered in the middle of the board.
@@ -402,12 +405,18 @@ function effectText(option: DuelPromptOption): { name: string; effect: string; c
 }
 
 function CardArt({ option, className }: { option: DuelPromptOption; className: string }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   if (!option.card) return <span className={`${className} ${styles.noArt}`} aria-hidden />;
+  // 3D mode: a square art crop on a background, so the projection scanlines can sit on the art alone.
+  if (styles !== baseStyles) {
+    return <span className={className} style={{ backgroundImage: `url(${cardArtUrl(option.card.code, "small")})` }} aria-hidden />;
+  }
   return <img src={cardArtUrl(option.card.code, "small")} alt="" className={className} draggable={false} />;
 }
 
 /** Printed card text: clamped to a few lines with a toggle when long, scrollable when open. */
 function CardTextBlock({ text, label = "Card text", open: forceOpen }: { text: string; label?: string; open?: boolean }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   const [open, setOpen] = useState(Boolean(forceOpen));
   const long = text.length > 200 || text.split(/\r?\n/).length > 3;
   const shown = open || !long;
@@ -443,6 +452,7 @@ export function pickCopy(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean
     openEnded: prompt.max == null,
     count,
     ...(prompt.kind === "sum" ? sumSelectionValues(prompt, draft.selected) : {}),
+    ...(prompt.kind === "tribute" ? { total: tributeState(prompt, draft.selected).total } : {}),
     ...(toggling ? synchroSelectionValues(prompt) : {}),
     target: prompt.target,
     sumMode: prompt.sumMode,
@@ -478,6 +488,8 @@ function Actions({
   /** Single picks answer at once on the board; in a grid they select first, then confirm. */
   forceConfirm?: boolean;
 }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
+  const solid = useSkinExtra("prompt");
   const showConfirm = confirm && (forceConfirm || needsExplicitConfirm(prompt));
   const ok = canConfirm(prompt, draft);
   return (
@@ -502,6 +514,7 @@ function Actions({
       {prompt.cancelable ? (
         <button type="button" className={styles.btn} data-kind="quiet" disabled={busy} onClick={() => onSubmit({ cancel: true })}>
           {declineLabel(prompt)}
+          {styles !== baseStyles && prompt.context?.type === "chain" ? <kbd className={solid?.kbd}>Esc</kbd> : null}
         </button>
       ) : null}
     </>
@@ -510,9 +523,55 @@ function Actions({
 
 /* ---------------------------------------------------------- response panel */
 
-function ChainStrip({ chain, compact = false }: { chain: readonly DuelChainLink[]; compact?: boolean }) {
+function ChainStrip({
+  chain,
+  compact = false,
+  mySeat = null,
+  nameOf,
+}: {
+  chain: readonly DuelChainLink[];
+  compact?: boolean;
+  mySeat?: number | null;
+  nameOf?: (seat: number) => string;
+}) {
+  const styles = useSkinStyles(baseStyles, "prompt");
+  const solid = useSkinExtra("prompt");
   if (chain.length === 0) return null;
   const shown = chain.slice(-4);
+  // 3D mode: the links are tiles, the newest on top (it resolves first), like the concept chain stack.
+  if (styles !== baseStyles && !compact) {
+    return (
+      <div className={styles.chainStrip} aria-label="Chain so far">
+        <div className={solid?.chainHead}>
+          <span>Chain</span>
+          <small>top link resolves first</small>
+        </div>
+        <ol>
+          {[...shown].reverse().map((link) => {
+            const owner = link.seat === mySeat ? "you" : "opp";
+            return (
+              <li key={link.index} className={solid?.chainTile} data-owner={owner}>
+                <b className={solid?.clink}>{link.index}</b>
+                {link.code != null ? (
+                  <span className={solid?.cart} style={{ backgroundImage: `url(${cardArtUrl(link.code, "small")})` }} aria-hidden />
+                ) : (
+                  <span className={solid?.cart} aria-hidden />
+                )}
+                <span className={solid?.cmeta}>
+                  <span className={solid?.cname}>{link.name ?? "Effect"}</span>
+                  <span className={solid?.cowner}>
+                    <i aria-hidden />
+                    {ownerWord(link.seat, mySeat, "you", nameOf)}
+                  </span>
+                </span>
+                {link.description ? <span className={solid?.ceff}>{link.description}</span> : null}
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+    );
+  }
   return (
     <div className={styles.chainStrip} data-compact={compact ? "true" : undefined} aria-label="Chain so far">
       <Link2 size={13} strokeWidth={1.75} aria-hidden />
@@ -548,6 +607,7 @@ function ChainRows({
   seatTones?: PromptSeatTones;
   nameOf?: (seat: number) => string;
 }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   return (
     <div className={styles.rows} data-toned={seatTones ? "true" : undefined} style={toneVars(seatTones, prompt.seat)}>
@@ -627,6 +687,7 @@ function PositionTiles({
   busy: boolean;
   choose: (id: string) => void;
 }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   return (
     <div className={styles.positions}>
       {prompt.options.map((option, index) => {
@@ -690,6 +751,8 @@ function ResponseBody({
   seatTones?: PromptSeatTones;
   priority?: readonly PrioritySlot[];
 }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
+  const tray = useSkinStyles(base, "tray");
   const context = prompt.context;
   const choose = (id: string) => onSubmit({ choice: id });
   const source = promptSource(prompt);
@@ -711,7 +774,7 @@ function ResponseBody({
   if (prompt.kind === "number") {
     const ok = canConfirm(prompt, draft);
     return (
-      <label className={base.numberField}>
+      <label className={tray.numberField}>
         <span>Value</span>
         <input
           type="number"
@@ -737,7 +800,7 @@ function ResponseBody({
     const cards = isChainStripPrompt(prompt);
     return (
       <>
-        <ChainStrip chain={chain} compact={cards} />
+        <ChainStrip chain={chain} compact={cards} mySeat={mySeat} nameOf={seatTones ? nameOf : undefined} />
         {priority && nameOf ? <PriorityChips order={priority} mySeat={mySeat} nameOf={nameOf} seatTones={seatTones} compact={cards} /> : null}
         {cards ? (
           <StripChoice prompt={prompt} draft={draft} busy={busy} choose={choose} onInspectCard={onInspectCard} />
@@ -854,6 +917,7 @@ function YesNo({
   busy: boolean;
   choose: (id: string) => void;
 }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   const yes = prompt.options.find((option) => option.id === "yes");
   const no = prompt.options.find((option) => option.id === "no");
   if (!yes || !no) return null;
@@ -1039,6 +1103,7 @@ function GridPicker({
   onCollapse: () => void;
   onInspectCard?: InspectCardHandler;
 }) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   const counters = prompt.kind === "counters";
   const { min, max } = selectionBounds(prompt);
   const single = !counters && min === 1 && max === 1 && prompt.kind !== "order";
@@ -1237,6 +1302,7 @@ export interface PromptCenterProps {
  * Panels carry `data-prompt-panel`: hover tooltips read it to stay clear of an open prompt.
  */
 export function PromptCenter(props: PromptCenterProps) {
+  const styles = useSkinStyles(baseStyles, "prompt");
   const { prompt, mySeat, active, draft, busy, onSubmit, chain, aim, reducedMotion, revision, slug, battleStep, onInspectCard } = props;
   const revealed = props.revealed ?? true;
   const answering = prompt != null && mySeat != null && prompt.seat === mySeat && active;
@@ -1252,6 +1318,7 @@ export function PromptCenter(props: PromptCenterProps) {
   // Prompt id whose full effect list is open. A prompt with a pre-check starts on the compact bar.
   const [listFor, setListFor] = useState<string | null>(null);
   const [barPlace, setBarPlace] = useState<BarPlace>({ mode: "mid", top: null, left: null, fit: null, stack: false });
+  const [dockPlace, setDockPlace] = useState<DockPlace>({ mode: "center", left: null, top: null, bottom: 12, width: null });
 
   const promptRef = useRef(prompt);
   const kindRef = useRef(kind);
@@ -1262,6 +1329,8 @@ export function PromptCenter(props: PromptCenterProps) {
   const collapsedRef = useRef(collapsed);
   const revealedRef = useRef(revealed);
   const barRef = useRef(false);
+  const mySeatRef = useRef(mySeat);
+  mySeatRef.current = mySeat;
   revealedRef.current = revealed;
   promptRef.current = prompt;
   kindRef.current = kind;
@@ -1322,6 +1391,31 @@ export function PromptCenter(props: PromptCenterProps) {
       const { left, right, top, bottom } = element.getBoundingClientRect();
       return { left, right, top, bottom };
     };
+    if (promptRef.current?.kind === "tribute") {
+      // Tributes are picked on the field: the dock sits by your own hand, not over the board (tribute-dock-place.ts).
+      const hands = Array.from(board.querySelectorAll<HTMLElement>("[data-hand-seat]"));
+      const own = hands.find((hand) => hand.dataset.handSeat === String(mySeatRef.current))
+        ?? [...hands].sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0];
+      // The hand element spans the whole row; the dock needs the room beside the cards themselves.
+      let handRect: BarRect | null = own ? rectOf(own) : null;
+      const cardRects = own
+        ? Array.from(own.querySelectorAll<HTMLElement>("[data-hand-card]")).map(rectOf).filter((r) => r.right - r.left > 1 && r.bottom - r.top > 1)
+        : [];
+      if (handRect && cardRects.length > 0) {
+        handRect = {
+          left: Math.min(...cardRects.map((r) => r.left)),
+          right: Math.max(...cardRects.map((r) => r.right)),
+          top: Math.min(handRect.top, ...cardRects.map((r) => r.top)),
+          bottom: Math.max(...cardRects.map((r) => r.bottom)),
+        };
+      }
+      // The seat plates carry the LP and the turn clock: the dock keeps off them. `[data-holo]` is the table shell's
+      // plate, `[data-team-plate]` the Rooftop's, `[data-lp-seat]` the 1v1 room's tally (and the chips inside the others).
+      const plates = Array.from(board.querySelectorAll<HTMLElement>("[data-holo], [data-team-plate], [data-lp-seat]")).map(rectOf);
+      const place = placeTributeDock({ board: rectOf(board), hand: handRect, centered: board.closest('[data-table-stage="tag"]') != null, plates });
+      setDockPlace((current) => (sameDock(current, place) ? current : place));
+      return;
+    }
     const next = placeSelectBar({
       board: rectOf(board),
       emz: Array.from(board.querySelectorAll<HTMLElement>('[data-kind="emz"][data-zones]')).map((zone) => ({
@@ -1472,19 +1566,31 @@ export function PromptCenter(props: PromptCenterProps) {
     const copy = pickCopy(prompt, draft, aiming);
     // After the first material the engine drops Cancel; Undo unselects the last pick instead.
     const canUndo = toggling && backOutLabel(prompt) === "Undo";
-    const hasButtons = (explicit && !aiming) || Boolean(prompt.finishable) || canUndo || Boolean(prompt.cancelable);
-    const barStyle = {
-      top: barPlace.top ?? (barPlace.mode === "mid" ? "50%" : 8),
-      left: barPlace.left ?? "50%",
-      ...(barPlace.fit != null ? { "--bar-fit": `${barPlace.fit}px` } : null),
-    } as CSSProperties;
+    // A Tribute pick sends itself once it cannot change; Summon is for a pick that is worth enough but still open.
+    const summon = prompt.kind === "tribute" && ok && !aiming;
+    const hasButtons = (explicit && !aiming) || summon || Boolean(prompt.finishable) || canUndo || Boolean(prompt.cancelable);
+    // Tributes: the instruction docks by the hand and the field itself is the picker (tribute-dock-place.ts).
+    const dock = prompt.kind === "tribute";
+    const barStyle = (dock
+      ? {
+          ...(dockPlace.left != null ? { left: dockPlace.left } : null),
+          ...(dockPlace.top != null ? { top: dockPlace.top } : null),
+          ...(dockPlace.bottom != null ? { bottom: dockPlace.bottom } : null),
+          ...(dockPlace.width != null ? { "--bar-fit": `${dockPlace.width}px` } : null),
+        }
+      : {
+          top: barPlace.top ?? (barPlace.mode === "mid" ? "50%" : 8),
+          left: barPlace.left ?? "50%",
+          ...(barPlace.fit != null ? { "--bar-fit": `${barPlace.fit}px` } : null),
+        }) as CSSProperties;
     body = (
       <div
         className={styles.bar}
         data-prompt-surface=""
         data-reduced={dataReduced}
-        data-place={barPlace.mode}
-        data-stack={barPlace.stack ? "true" : "false"}
+        data-place={dock ? "dock" : barPlace.mode}
+        data-dock={dock ? dockPlace.mode : undefined}
+        data-stack={!dock && barPlace.stack ? "true" : "false"}
         data-ready={ok ? "true" : "false"}
         style={barStyle}
         data-actions={hasButtons ? "true" : "false"}
@@ -1505,7 +1611,12 @@ export function PromptCenter(props: PromptCenterProps) {
           </div>
         </div>
         <div className={styles.barBtns}>
-          {explicit && !aiming ? (
+          {summon ? (
+            <button type="button" className={styles.btn} data-kind="primary" disabled={busy} onClick={() => onSubmit(toAnswer(prompt, draft))}>
+              Summon
+            </button>
+          ) : null}
+          {explicit && !aiming && prompt.kind !== "tribute" ? (
             <button
               type="button"
               className={styles.btn}

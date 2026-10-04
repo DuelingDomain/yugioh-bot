@@ -29,7 +29,7 @@
 .flame { width: 14px; height: 14px; color: var(--warn-ink); flex: none; }
 
 /* ranking */
-.ledger { position: relative; transition: opacity 0.15s linear; }
+.ledger { position: relative; transition: opacity 150ms var(--ease-out); }
 .ledger[aria-busy="true"] { opacity: 0.55; }
 .head {
   display: grid; grid-template-columns: var(--cols); align-items: end; gap: 0 14px; padding: 0 12px 8px;

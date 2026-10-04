@@ -10,6 +10,7 @@
 import type { DuelCardInfo, DuelChainLink, DuelEvent, DuelZoneRef } from "@yugidraft/shared/duels";
 import { LOCATION_DECK, LOCATION_EXTRA, LOCATION_GRAVE, LOCATION_HAND, LOCATION_MZONE, LOCATION_REMOVED, LOCATION_SZONE, zoneKey } from "./constants";
 import { CHAIN_TIMING } from "./duel-timing";
+import { chainEffectText } from "./chain-effect-text";
 
 export type ChainLinkStatus = "pending" | "resolving" | "resolved";
 
@@ -22,6 +23,10 @@ export interface ChainLinkState {
   name: string | null;
   card: DuelCardInfo | null;
   description?: string;
+  /** The card's printed text, public like its name (the activation event or the snapshot). null when unknown. */
+  text: string | null;
+  /** Card type bits, to tell a Spell or Trap's condition from its effect. null when unknown. */
+  cardType: number | null;
   /** Where the card was when it activated (hand slot, field zone, pile card, ...). null when unknown. */
   zone: DuelZoneRef | null;
   /** Current public target coordinates; identities stay in the viewer's redacted board. */
@@ -52,7 +57,7 @@ export function isChainEvent(event: DuelEvent): boolean {
 }
 
 function placeholder(index: number): ChainLinkState {
-  return { index, seat: 0, code: null, name: null, card: null, zone: null, targets: [], status: "pending", negated: false };
+  return { index, seat: 0, code: null, name: null, card: null, text: null, cardType: null, zone: null, targets: [], status: "pending", negated: false };
 }
 
 /** Links 1..index, adding placeholders for any the window lost. Does not copy existing links. */
@@ -81,6 +86,8 @@ export function applyChainEvent(state: ChainState, event: DuelEvent): ChainState
       name: card?.name ?? null,
       card,
       description: event.description,
+      text: card?.description?.trim() ? card.description : null,
+      cardType: card && card.type > 0 ? card.type : null,
       zone: event.zone ? { ...event.zone } : null,
       targets: event.targets?.map((zone) => ({ ...zone })) ?? [],
       status: "pending",
@@ -118,6 +125,8 @@ function fromSnapshot(link: DuelChainLink): ChainLinkState {
     name: link.name ?? null,
     card: null,
     description: link.description,
+    text: link.text?.trim() ? link.text : null,
+    cardType: link.cardType != null && link.cardType > 0 ? link.cardType : null,
     zone: link.zone ? { ...link.zone } : null,
     targets: link.targets?.map((zone) => ({ ...zone })) ?? [],
     status: "pending",
@@ -160,8 +169,11 @@ export function deriveChainState(events: readonly DuelEvent[], snapshot: readonl
     // Current snapshot targets override stale events, including an explicit empty list. Older
     // snapshots without the field still fall back to events. Preserve playback status and cards.
     const hasTargets = snapshot.findLast((link) => link.index === entry.index)?.targets != null;
+    const base = current && current.code != null ? current : entry;
     links[entry.index - 1] = {
-      ...(current && current.code != null ? current : entry),
+      ...base,
+      // A reload mid-chain has no activation event; the snapshot still carries the card text.
+      text: base.text ?? entry.text, cardType: base.cardType ?? entry.cardType,
       status: known.status, negated: known.negated, zone: known.zone ?? entry.zone,
       targets: hasTargets ? entry.targets : known.targets,
     };
@@ -274,7 +286,9 @@ export function chainSeatLabel(seat: number, mySeat: number | null, playerName: 
  * How long the board holds on each chain event before the next one plays. This is the pace of a
  * chain resolution (there is no centre banner for it): a link pulses while it resolves (1150), a
  * negated one then shows its slash (950), and a resolved one ticks and clears away while the next
- * link is marked "up next" (720). One link is about 1.9 s, so each step can be followed.
+ * link is marked "up next" (720). One link is about 1.9 s, so each step can be followed. A backlog
+ * plays the beats faster, but an activation, a resolving link and a negation never below
+ * CHAIN_TIMING.readableFloorMs.
  */
 const STEP_MS: Record<ChainEventKind, number> = {
   activate: CHAIN_TIMING.activateMs,
@@ -285,6 +299,8 @@ const STEP_MS: Record<ChainEventKind, number> = {
   "chain-end": CHAIN_TIMING.endMs,
 };
 const STEP_FLOOR_MS = CHAIN_TIMING.floorMs;
+/** The beats a viewer reads (what was activated, what became of it) squeeze less than the rest. */
+const READABLE_FLOOR_MS: Readonly<Record<string, number>> = CHAIN_TIMING.readableFloorMs;
 /** A backlog of more than this many beats is played faster, down to the floor. */
 const BACKLOG_BEATS = CHAIN_TIMING.backlogBeats;
 /** A link's own effect (a card move, a destroy) starts this long after its badge starts to pulse. */
@@ -295,9 +311,10 @@ const EFFECT_LEAD_REDUCED_MS = CHAIN_TIMING.effectLeadReducedMs;
 export function chainStepDelay(kind: string, remaining: number, reducedMotion: boolean): number {
   if (kind === "target") return 0;
   const base = STEP_MS[kind as ChainEventKind] ?? CHAIN_TIMING.fallbackMs;
-  const length = reducedMotion ? Math.max(STEP_FLOOR_MS, Math.round(base * 0.8)) : base;
+  const floor = READABLE_FLOOR_MS[kind] ?? STEP_FLOOR_MS;
+  const length = reducedMotion ? Math.max(floor, Math.round(base * 0.8)) : base;
   if (remaining <= BACKLOG_BEATS) return length;
-  return Math.max(STEP_FLOOR_MS, Math.round((length * BACKLOG_BEATS) / remaining));
+  return Math.max(floor, Math.round((length * BACKLOG_BEATS) / remaining));
 }
 
 /** How long after a link starts resolving its effect (a move, a destroy) starts on the board. */
@@ -323,7 +340,7 @@ export function chainStateKey(state: ChainState): string {
     .map((link) => {
       const z = link.zone ? zoneKey(link.zone.controller, link.zone.location, link.zone.sequence) : "-";
       const targets = link.targets.map((zone) => zoneKey(zone.controller, zone.location, zone.sequence)).join(",");
-      return `${link.index}:${link.seat}:${link.code ?? 0}:${link.name ?? ""}:${link.description ?? ""}:${link.status}:${link.negated ? 1 : 0}:${z}:${targets}`;
+      return `${link.index}:${link.seat}:${link.code ?? 0}:${link.name ?? ""}:${link.description ?? ""}:${link.text?.length ?? 0}:${link.cardType ?? 0}:${link.status}:${link.negated ? 1 : 0}:${z}:${targets}`;
     })
     .join("|");
 }
@@ -452,20 +469,25 @@ export function coveredFraction(box: Box, panels: readonly Box[]): number {
   return Math.min(1, covered / area);
 }
 
-/** Below this many px of free space left of the field, the stack is a row of numbered chips. At or above, a full panel. */
-const GUTTER_FULL_MIN = 190;
-const GUTTER_COMPACT_BELOW = 170;
+export type ChainPanelForm = "wide" | "narrow" | "strip";
+
+/** Free width left of the field: at or above WIDE_MIN the art sits beside the name; from NARROW_MIN it sits above. */
+const WIDE_MIN = 230;
+const NARROW_MIN = 150;
+/** A form is left only once the gutter is this far past the line, so a gutter on the line does not flip it every frame. */
+const FORM_HYSTERESIS = 12;
 
 /**
- * Which form the chain stack takes, from the free width left of the board's leftmost zone, pile or LP panel. The
- * two thresholds differ (hysteresis), so a gutter that sits on the line does not flip the stack every frame. A stack
- * that would meet an open prompt surface (`blocked`) is always the chips, which dodge it.
+ * Which form the "Now resolving" panel takes, from the free width left of the board's leftmost zone, pile or LP panel.
+ * A wide gutter gets the wide panel, a middling one the narrow panel, anything less (and every phone) the strip. A table,
+ * and any panel that would meet an open prompt surface (`strip`), is always the strip, which dodges the prompt instead.
  */
-export function chainStackSize(gutter: number, previous: "full" | "compact" | undefined, blocked = false): "full" | "compact" {
-  if (blocked) return "compact";
-  if (previous === "full") return gutter < GUTTER_COMPACT_BELOW ? "compact" : "full";
-  if (previous === "compact") return gutter >= GUTTER_FULL_MIN ? "full" : "compact";
-  return gutter >= GUTTER_FULL_MIN ? "full" : "compact";
+export function chainPanelForm(gutter: number, previous: ChainPanelForm | undefined, strip = false): ChainPanelForm {
+  if (strip) return "strip";
+  const wide = previous === "wide" ? gutter >= WIDE_MIN - FORM_HYSTERESIS : gutter >= WIDE_MIN;
+  if (wide) return "wide";
+  const narrow = previous === "narrow" || previous === "wide" ? gutter >= NARROW_MIN - FORM_HYSTERESIS : gutter >= NARROW_MIN;
+  return narrow ? "narrow" : "strip";
 }
 
 /** What a screen reader says for one link, e.g. "Chain Link 2: Card, Opponent, negated. Effect text". */
@@ -485,7 +507,8 @@ export function chainLinkLabel(
   }
   const targets = chainTargetLabel(link, mySeat, playerName, { named, partner });
   const text = `Chain Link ${link.index}: ${parts.join(", ")}${targets ? `. ${targets}` : ""}`;
-  return detail && link.description ? `${text}. ${link.description}` : text;
+  const effect = detail ? chainEffectText(link) : null;
+  return effect ? `${text}. ${effect.text}` : text;
 }
 
 /** Who stands behind the words "your", "partner's" and "opponent's" when a target place is named. */
@@ -571,6 +594,8 @@ export function chainAnnouncement(
   playerName: (seat: number) => string,
   named = false,
   partner: number | null = null,
+  /** What a link did, as a sentence ("Destroyed Gaia"), once it has a result worth saying. */
+  outcomeOf?: (link: ChainLinkState) => string | null,
 ): string | null {
   if (next.links.length === 0) return prev.links.length > 0 ? "Chain ended" : null;
   const top = next.links[next.links.length - 1];
@@ -581,10 +606,21 @@ export function chainAnnouncement(
   const targeted = next.links.find((link) => JSON.stringify(link.targets) !== JSON.stringify(prev.links[link.index - 1]?.targets));
   if (targeted) return chainTargetLabel(targeted, mySeat, playerName, { named, partner }) ?? `Chain Link ${targeted.index} has no current targets`;
   const negated = next.links.find((link) => link.negated && !prev.links[link.index - 1]?.negated);
-  if (negated) return `Chain Link ${negated.index} was negated`;
+  if (negated) {
+    const why = outcomeOf?.(negated);
+    return why ? `Chain Link ${negated.index}: ${why}` : `Chain Link ${negated.index} was negated`;
+  }
   if (next.resolving != null && next.resolving !== prev.resolving) {
     const link = next.links[next.resolving - 1];
-    return `Chain Link ${link.index} resolving: ${chainCardName(link)}, ${chainSeatLabel(link.seat, mySeat, playerName, named)}`;
+    const effect = chainEffectText(link);
+    const head = `Chain Link ${link.index} resolving: ${chainCardName(link)}, ${chainSeatLabel(link.seat, mySeat, playerName, named)}`;
+    return effect ? `${head}. ${effect.text}` : head;
+  }
+  // A link that finished says what it did, when it did something.
+  const done = next.links.find((link) => link.status === "resolved" && !link.negated && prev.links[link.index - 1]?.status !== "resolved");
+  if (done && outcomeOf) {
+    const said = outcomeOf(done);
+    if (said) return `Chain Link ${done.index} resolved. ${said}`;
   }
   return null;
 }

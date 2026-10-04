@@ -9,7 +9,7 @@ import { ADD_TO_HAND } from "@/components/duel/duel-timing";
 
 const KINDS = new Set<DuelEvent["kind"]>([
   "summon", "set", "activate", "chain-resolving", "chain-resolved", "chain-negated", "chain-end",
-  "attack", "battle", "battle-end", "phase", "damage", "destroy", "move", "position", "equip",
+  "attack", "battle", "battle-end", "phase", "damage", "destroy", "move", "position", "equip", "target",
 ]);
 
 function cardAt(board: LabBoard, ref: DuelZoneRef): DuelCard | null | undefined {
@@ -210,6 +210,10 @@ describe("fx lab scenarios", () => {
             expect(event.text.length).toBeGreaterThan(0);
             if (event.kind.startsWith("chain-") && event.kind !== "chain-end") expect(event.chainIndex ?? 0).toBeGreaterThanOrEqual(1);
             if (event.kind === "activate") expect(event.chainIndex ?? 0).toBeGreaterThanOrEqual(1);
+            if (event.kind === "target") {
+              expect(event.chainIndex ?? 0, `${scenario.id} target needs a chain link`).toBeGreaterThanOrEqual(1);
+              expect(event.targets?.length ?? 0, `${scenario.id} target needs targets`).toBeGreaterThan(0);
+            }
             if (["summon", "set", "attack", "battle", "destroy", "move", "position", "equip", "activate"].includes(event.kind)) {
               expect(event.zone, `${scenario.id} ${event.kind} needs a zone`).toBeDefined();
             }

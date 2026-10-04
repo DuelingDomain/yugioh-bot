@@ -40,19 +40,29 @@ All core checks in the duel-server tests go through one helper: `packages/duel-s
 
 ## CI
 
-`.github/workflows/test.yml` runs the layers on every pull request and every push to main. It has these jobs:
+`.github/workflows/test.yml` selects the layers on every pull request and every push to main. Pull requests use the base-to-head merge-base diff; pushes compare the `head_sha` of the last successful Test push run on main with `github.sha`. The `changes` job reads that run through the Actions API with `actions: read` and `GH_TOKEN`. This includes changes from failed or cancelled runs, including pending runs replaced by newer pushes. If the base equals the head on a re-run, the diff is empty. The checkout has full history. An API failure, a missing or all-zeros base, an unreadable diff, or a base that is not an ancestor of the push head runs all engine jobs. Manual runs set both change flags to true and run all jobs. The schedule runs only `cores` and `nduel-nightly`.
+
+The `changes` job sets `engine=true` for changes to `packages/duel-server`, `packages/e2e`, engine-related shared files, engine/deploy scripts, root `package.json`, `package-lock.json`, `patches/`, `turbo.json`, root TypeScript/Node configuration or the test workflow itself. The root package file stays in the rule because it defines the CI engine/native/prepare commands, workspaces and the install hook.
+
+Shared paths stay in the engine rule unless their independence has been checked against the host, engine tests and e2e helper imports. The retained paths include `src/duels/`, `src/db/` (the host uses the schema), `src/ws/`, the notification transport/broadcaster, scoring, tournament formats, types, slug generation, service entry points, duel/series services and their dependencies. These dependencies include card catalog imports, matches, tournament services, saved decks and seasons. Only the listed draft/cube and other independent services, the standalone ratings repair command, shared unit tests and the scripts README are excluded. Unknown shared files remain in the rule; check this list when engine imports change. Root draft seed and catalog snapshot scripts and `scripts/data/draft-catalog-legendary.json` are excluded; other scripts remain in the rule.
+
+`web_engine=true` when `engine=true`, or when duel or UI components, `src/lib/utils.ts`, `e2e/` helpers, web tests or web package/test/TypeScript configuration change. These paths cover the direct and transitive web imports of the real-duel tests, including `src/components/ui/button.tsx` and `e2e/proof-build.ts`. With only `web_engine=true`, the `engine` job runs only web test files that directly import the core helper. It skips `test:engine` and the engine smoke scripts; `engine-legacy` and `native` also skip. Changes outside both rules skip all three test jobs. `cores` still builds or restores the bundle, and `unit` and `rule-coverage` still run.
+
+It has these jobs:
 
 | Job | What it runs |
 |---|---|
 | `cores` | Builds the standard, domain and multi cores, or restores them from the Actions cache. The key hashes the pins, the core patches, the build scripts and `package-lock.json`. The other core jobs use this bundle (`data/duel-engine-next`). |
 | `unit` | `npm ci`, build shared, `npm run typecheck`, then the tests that need no core: shared, bot, web, duel-server `test:unit`, e2e `test:unit`. |
-| `engine` | `DUEL_REQUIRE_CORES=1 npm run test:engine`. A missing core fails the job. It never skips. |
-| `native` | `npm run test:native` (ASan/UBSan build and the committed native checks). |
+| `changes` | Computes the `engine` and `web_engine` flags from changed paths, with the fallbacks above. |
+| `engine` | When `web_engine=true`: web tests with real duels. When `engine=true`: also `DUEL_REQUIRE_CORES=1 npm run test:engine` and the engine smoke scripts. A missing core fails any selected test. |
+| `engine-legacy` | When `engine=true`: the engine suite with `DUEL_1V1_ENGINE=legacy`, including the legacy main tests. |
+| `native` | When `engine=true`: `npm run test:native` (ASan/UBSan build and the committed native checks). |
 | `rule-coverage` | `rule-coverage.ts --check --strict`: every rule of ADR-0002 needs a covering test. |
 | `nduel-nightly` | Scheduled at 03:17 UTC (and by hand). Runs the nduel fuzz for n2, n3, n4 and tag with `--check-future`, and the golden hash check (`--check`). |
 
-All multi cores are built with `LUA_FIXED_SEED=1`, so one binary serves the engine tests and the differential tests. Open item: `deploy.yml` builds no multi core yet. When the install step adds one, it must use the same flags, so that the tested binary is the deployed binary (ADVISOR-4 section 3.5).
+All CI multi cores are built with `LUA_FIXED_SEED=1`, so one binary serves the engine tests and the differential tests. `deploy.yml` restores the pinned bundle and multi cores from separate caches and builds them only on a cache miss. Its multi cores use production Lua randomness, without `LUA_FIXED_SEED`.
 
-The cache key starts with `duel-engine-ci-v1`. Raise the number when the build steps or flags in `test.yml` change: the file hash does not see them. The emsdk image comes from `pins.json`.
+The cache key starts with `duel-engine-ci-v2`. Raise the number when the build steps or flags in `test.yml` change: the file hash does not see them. The emsdk image comes from `pins.json`.
 
 A failing nightly seed goes into `tests/fuzz/regressions.test.ts` after the fix (see Decisions).

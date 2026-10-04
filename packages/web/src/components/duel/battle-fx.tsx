@@ -7,6 +7,9 @@ import { battleOutcome, type BattleOutcome } from "./battle-outcome";
 import { battleTrigger } from "./battle-trigger";
 import { attackStyleFor, battleKind, battleTiming, DESTROY_TAIL_MS, hasCounterStrike, type AttackCardLike, type AttackStyleId, type BattleKind, type BattleTiming } from "./attack-styles";
 import { runAttackFx, type AttackFxPlan, type FxCut, type FxLpHit, type FxSide } from "./attack-fx";
+import { flipAttackAt, flipFightDamageAt } from "./chain-beats";
+import { FlipStrike, type FlipStrikePlan } from "./flip-strike";
+import { flipSequenceSteps } from "./flip-sequence";
 import { armBattleDestroy, attackImpactAt, clearBattleHolds, noteAttackImpact } from "./battle-hold";
 import { battleSeekMs, joinBattleClock, type BattleClock } from "./battle-clock";
 import { planBattle } from "./fx3d/battle-plan";
@@ -21,7 +24,8 @@ import { armLpHold } from "./life-points";
 import { battleCalculation } from "./battle-calculation";
 import { ATTACK_TIMING, paceAttack } from "./duel-timing";
 import { duelFxClock } from "./fx-clock";
-import styles from "./battle-fx.module.css";
+import baseStyles from "./battle-fx.module.css";
+import { useSkinStyles } from "./skin";
 import fieldStyles from "./field.module.css";
 
 /**
@@ -457,6 +461,8 @@ function buildPlay(seq: number, capture: AttackCapture, reduced: boolean, events
 /* ---------- attack playback ---------- */
 
 function AttackPlay({ play, showStats }: { play: Play; showStats: boolean }) {
+  const styles = baseStyles;
+  const skinned = useSkinStyles(baseStyles, "battle");
   const htmlRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   // Each play mounts with its own key; CSS advances itself after this initial seek.
@@ -485,7 +491,7 @@ function AttackPlay({ play, showStats }: { play: Play; showStats: boolean }) {
       <div ref={htmlRef} className={styles.htmlLayer} />
       <svg ref={svgRef} className={styles.svg} aria-hidden />
       {showStats ? play.stats.map(stat => (
-        <span key={stat.role} className={styles.calculationStat} data-battle-stat={stat.role}
+        <span key={stat.role} className={skinned.calculationStat} data-battle-stat={stat.role}
           data-edge={stat.above ? "top" : "bottom"}
           title="Damage calculation"
           style={{ left: stat.box.left + stat.box.width / 2,
@@ -525,6 +531,8 @@ function aimSignature(aim: BattleAim | null | undefined): string {
 }
 
 function AimLayer({ aim, reduced }: { aim: BattleAim; reduced: boolean }) {
+  // Classic: the module's own classes. 3D mode: the same keys with the gold aim classes added.
+  const styles = useSkinStyles(baseStyles, "battle");
   const [geom, setGeom] = useState<AimGeom | null>(null);
   const aimRef = useRef(aim);
   aimRef.current = aim;
@@ -656,12 +664,16 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
   const [mounted, setMounted] = useState(false);
   const [play, setPlay] = useState<Play | null>(null);
   const [declared, setDeclared] = useState<BattleAim | null>(null);
+  // The attack beat of a flip-effect sequence: no battle plays for it (battle-trigger.ts), so it has its own.
+  const [strike, setStrike] = useState<(FlipStrikePlan & { aim: BattleAim | null }) | null>(null);
   const initialRef = useRef<number | null>(null);
   const processedRef = useRef(0);
   const capturesRef = useRef(new Map<number, AttackCapture | null>());
   // The declared attack that waits for its battle to resolve (see battle-trigger.ts).
   const pendingRef = useRef<PendingAttack | null>(null);
   const seqRef = useRef(0);
+  // Attacks whose strike (a flip-effect sequence) was started.
+  const struckRef = useRef(new Set<number>());
   // Per attack: which layer draws it (chosen once, in the render phase) and when it started.
   const routeRef = useRef(new Map<number, { three: boolean; clock: BattleClock }>());
   const controllersRef = useRef(new Set<AbortController>());
@@ -689,7 +701,16 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     if (latest && !capturesRef.current.has(latest.id)) capturesRef.current.set(latest.id, captureAttack(latest, prevIndexRef.current, nowIndex));
     const stamp = duelFxClock.now();
     const incoming: PendingAttack | null = latest ? { attack: latest, capture: capturesRef.current.get(latest.id) ?? null, at: stamp } : null;
-    const ready = [pendingRef.current, incoming].find((entry) => entry != null && battleTrigger(events, entry.attack, stamp - entry.at).action === "play") ?? null;
+    // The battle damage of a flip-effect sequence waits for the strike or the end of its chain (chain-beats.ts).
+    if (!reducedMotion) {
+      for (const event of events) {
+        if (event.id <= initialRef.current || event.kind !== "damage" || event.seat == null) continue;
+        const at = flipFightDamageAt(event.id);
+        if (at > stamp) armLpHold(event.seat, at - stamp, `damage-${event.id}`, { startedAt: stamp });
+      }
+    }
+    // A flip-effect sequence has its own attack beat (flip-strike.tsx) and no battle play.
+    const ready = [pendingRef.current, incoming].find((entry) => entry != null && flipAttackAt(entry.attack.id) === 0 && battleTrigger(events, entry.attack, stamp - entry.at).action === "play") ?? null;
     if (ready) {
       const cap = ready.capture ? battleCapture(ready.capture, events, ready.attack) : null;
       let route = routeRef.current.get(ready.attack.id);
@@ -755,12 +776,27 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
       incoming = { attack: latest, capture, at: stamp };
     }
     const earlier = pendingRef.current;
-    const decide = (entry: PendingAttack | null) => (entry ? battleTrigger(events, entry.attack, stamp - entry.at).action : null);
+    const decide = (entry: PendingAttack | null) => (entry ? (flipAttackAt(entry.attack.id) > 0 ? "fizzle" : battleTrigger(events, entry.attack, stamp - entry.at).action) : null);
     // The battle that resolves in this snapshot plays; one that is still open stays pending.
     const ready = [earlier, incoming].find((entry) => decide(entry) === "play") ?? null;
     pendingRef.current = incoming ? (decide(incoming) === "wait" ? incoming : null) : decide(earlier) === "wait" ? earlier : null;
     const marker = pendingRef.current ? declaredAim(pendingRef.current.attack) : null;
     setDeclared((current) => (aimSignature(current) === aimSignature(marker) ? current : marker));
+    // The attack beat of a flip-effect sequence: the attack that opened it, in this batch or an earlier one.
+    const struck = incoming ?? earlier;
+    if (struck?.capture && !struckRef.current.has(struck.attack.id)) {
+      const startAt = flipAttackAt(struck.attack.id);
+      if (startAt > 0) {
+        struckRef.current.add(struck.attack.id);
+        if (struckRef.current.size > 20) struckRef.current.delete(struckRef.current.values().next().value as number);
+        const reduced = reducedRef.current;
+        setStrike({
+          seq: ++seqRef.current, from: struck.capture.from, to: struck.capture.to, cut: struck.capture.attacker,
+          ms: flipSequenceSteps(reduced).attackMs, reduced,
+          delayMs: Math.max(0, startAt - duelFxClock.now()), aim: declaredAim(struck.attack),
+        });
+      }
+    }
     forget();
     if (!ready) return;
     const resolved = ready.attack;
@@ -796,15 +832,26 @@ export function BattleFx({ events, reducedMotion, active = true, aim = null, sea
     return () => duelFxClock.clearTimeout(timer);
   }, [play]);
 
+  // The aim marker and the lunge of the strike end with its beat.
+  const strikeSeq = strike?.seq;
+  const strikeEnd = strike ? strike.delayMs + strike.ms : 0;
+  useEffect(() => {
+    if (strikeSeq == null) return;
+    const timer = duelFxClock.setTimeout(() => setStrike((current) => (current?.seq === strikeSeq ? null : current)), strikeEnd + 80);
+    return () => duelFxClock.clearTimeout(timer);
+  }, [strikeSeq, strikeEnd]);
+
   if (!mounted) return null;
-  const shownAim = aim ?? declared;
+  const strikeAim = strike?.aim ?? null;
+  const shownAim = aim ?? declared ?? strikeAim;
   // Rendered where it is mounted, inside the board box, not in a portal at the page root. A fixed layer
   // there sits above the whole board stacking context, so it would cover the prompt panels, which live
   // inside it. In the board context the layer takes --duel-z-fx-front, below --duel-z-prompt. The board
   // has no transformed ancestor, so `position: fixed` still measures against the viewport.
   return (
-    <div className={`${styles.layer} ${duelFontClasses}`} aria-hidden>
+    <div className={`${baseStyles.layer} ${duelFontClasses}`} aria-hidden>
       {shownAim ? <AimLayer aim={shownAim} reduced={reducedMotion} /> : null}
+      {strike ? <FlipStrike key={strike.seq} plan={strike} /> : null}
       {play ? <AttackPlay key={play.seq} play={play}
         showStats={active && result == null && !events.some(event => event.id > play.attackId && (event.kind === "attack" || event.kind === "phase"))} /> : null}
     </div>

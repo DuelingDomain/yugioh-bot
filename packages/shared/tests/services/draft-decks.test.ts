@@ -1,3 +1,4 @@
+import { checkDeckAgainstPool } from "../../src/duels/pool.js";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
@@ -48,6 +49,14 @@ function playDraft(db: Database.Database, playerIds: number[], hostId: string) {
   expect(drafts.findById(draft.id).status).toBe("completed");
   return { drafts, draftId: draft.id };
 }
+
+it("leaves the fourth copy in the pool across all deck sections", () => {
+  expect(buildDraftDeck([{ catalogId: 1, extra: false }, { catalogId: 1, extra: false }, { catalogId: 1, extra: true }, { catalogId: 1, extra: true }])).toEqual({ main: [1, 1], extra: [1], side: [] });
+});
+
+it("rejects a fourth copy when saved against a draft pool", () => {
+  expect(checkDeckAgainstPool({ main: [1, 1], extra: [1], side: [1] }, new Map([[1, 5]]))).toEqual([{ code: 1, used: 4, available: 3 }]);
+});
 
 describe("buildDraftDeck", () => {
   it("puts main picks in main, extra deck monsters in extra, and keeps copies", () => {

@@ -13,6 +13,7 @@ import {
   positionChangeOf,
   type PositionEvent,
 } from "../../src/components/duel/event-queue";
+import { CHAIN_TIMING } from "../../src/components/duel/duel-timing";
 
 function event(
   id: number,
@@ -185,9 +186,19 @@ describe("chain banners", () => {
   it("keeps the Activate and Negated banners, at their own length", () => {
     expect(hasCentreBanner("activate")).toBe(true);
     expect(hasCentreBanner("chain-negated")).toBe(true);
-    expect(cueDuration("activate", false)).toBe(2000);
+    // The activate banner is one activate beat, so it is gone when its link starts to resolve.
+    expect(cueDuration("activate", false)).toBe(CHAIN_TIMING.activateMs);
+    expect(cueDuration("activate", false)).toBe(1170);
     expect(cueDuration("chain-negated", false)).toBe(1300);
-    expect(cueDuration("activate", true)).toBe(1500);
+    expect(cueDuration("activate", true)).toBe(960);
+  });
+
+  it("never squeezes the activate banner below the readable floor, whatever the backlog", () => {
+    for (const count of [2, 6, 20, 60]) {
+      expect(pacedCueDuration("activate", false, count)).toBeGreaterThanOrEqual(CHAIN_TIMING.readableFloorMs.activate);
+    }
+    expect(pacedCueDuration("activate", false, 60)).toBe(CHAIN_TIMING.readableFloorMs.activate);
+    expect(pacedCueDuration("summon", false, 60)).toBe(300);
   });
 });
 

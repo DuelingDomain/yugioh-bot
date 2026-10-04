@@ -96,6 +96,15 @@ describe("DuelFeedback chain end", () => {
     expect(container.querySelector("[data-kind]")).toBeNull();
   });
 
+  it("makes no toast for a recover event: the chain panel says it", () => {
+    const { container, rerender } = render(view([]));
+    rerender(view([{ ...ev("recover", "Gained 800 LP"), amount: 800, seat: 0 }]));
+    act(() => { vi.advanceTimersByTime(50); });
+    expect(container.querySelector('[data-kind="recover"]')).toBeNull();
+    expect(container.querySelector("[data-kind]")).toBeNull();
+    expect(container.textContent).not.toMatch(/800/);
+  });
+
   it("still shows the Activate banner, with the link number", () => {
     const { container, rerender } = render(view([]));
     const activate = ev("activate", "Mirror Force", 2);

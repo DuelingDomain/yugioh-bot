@@ -1191,6 +1191,11 @@ export function observeDuelEvent(
         amount: message.amount, cause: ctx?.battle ? "battle" : "effect",
       };
     }
+    case OcgMessageType.RECOVER: {
+      if (message.amount <= 0) return null;
+      const text = `Player ${message.player + 1} gains ${message.amount} LP`;
+      return { id, kind: "recover", seat: message.player, text, publicText: text, revealCardTo: "all", amount: message.amount };
+    }
     case OcgMessageType.PAY_LPCOST: {
       if (message.amount <= 0) return null;
       const text = `Player ${message.player + 1} pays ${message.amount} LP`;
@@ -1419,6 +1424,8 @@ export function projectView(args: {
       code: link.code,
       name: info?.name,
       description,
+      text: info?.description || undefined,
+      cardType: info?.type,
       zone: args.chain?.[index]?.zone ? zoneOf(args.chain[index].zone) : zoneOf(link),
       targets: args.chain?.[index]?.targets.map(zoneOf) ?? [],
     };

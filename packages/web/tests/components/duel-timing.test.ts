@@ -12,12 +12,16 @@ import {
   ATTACK_PACE,
   ATTACK_TIMING,
   BANNER_TIMING,
+  CARD_FX,
   CHAIN_TIMING,
   GATE_TIMING,
   LP_TIMING,
   MIN_VISIBLE_MS,
   MOVE_PACE,
   PHASE_TIMING,
+  TRIBUTE_FLIGHT_MS,
+  TRIBUTE_TIMING,
+  TRIBUTE_VISIBLE_MS,
   VISIBLE_EFFECT_MS,
 } from "../../src/components/duel/duel-timing";
 import { rollDurationMs } from "../../src/components/duel/life-points";
@@ -33,6 +37,17 @@ describe("duel pace minimums", () => {
     for (const [name, ms] of Object.entries(VISIBLE_EFFECT_MS)) {
       expect(ms, name).toBeGreaterThanOrEqual(MIN_VISIBLE_MS);
     }
+  });
+
+  it("keeps the tribute animation in its own block and in the visible-effect floor", () => {
+    expect(TRIBUTE_TIMING.summonLeadMs).toBe(40);
+    for (const [name, ms] of Object.entries(TRIBUTE_VISIBLE_MS)) {
+      expect(VISIBLE_EFFECT_MS[name], name).toBe(ms);
+      expect(ms, name).toBeGreaterThanOrEqual(MIN_VISIBLE_MS);
+    }
+    // The offsets that only order the animation are not effects a player sees on their own.
+    expect(Object.keys(VISIBLE_EFFECT_MS).some((name) => /stagger|lead/i.test(name))).toBe(false);
+    expect(TRIBUTE_FLIGHT_MS).toBeGreaterThanOrEqual(MIN_VISIBLE_MS);
   });
 
   it("plays every attack at least 1.3 times as long as the first pace", () => {
@@ -96,6 +111,18 @@ describe("duel pace minimums", () => {
   it("keeps banners and chain beats readable, also when squeezed by a backlog", () => {
     expect(BANNER_TIMING.minCueMs).toBeGreaterThanOrEqual(MIN_VISIBLE_MS);
     expect(CHAIN_TIMING.floorMs).toBeGreaterThanOrEqual(300);
+    for (const floor of Object.values(CHAIN_TIMING.readableFloorMs)) expect(floor).toBeGreaterThanOrEqual(500);
+  });
+
+  it("shows the face of an activated card for about 600 to 900 ms before its link may resolve", () => {
+    expect(CARD_FX.activationFaceMs).toBeGreaterThanOrEqual(600);
+    expect(CARD_FX.activationFaceMs).toBeLessThanOrEqual(900);
+    expect(CARD_FX.activationMs).toBe(CARD_FX.activationFlipMs + CARD_FX.activationFaceMs);
+    // One length for the ghost, the chain's activate beat and the banner: the banner ends as the link resolves.
+    expect(CHAIN_TIMING.activateMs).toBe(CARD_FX.activationMs);
+    expect(BANNER_TIMING.activateMs).toBe(CARD_FX.activationMs);
+    // The effect of a resolving link starts after its resolving label has had time to read.
+    expect(CHAIN_TIMING.effectLeadMs).toBeGreaterThanOrEqual(MIN_VISIBLE_MS);
   });
 
   it("lets the result and the prompt wait for a full life roll before their cap", () => {

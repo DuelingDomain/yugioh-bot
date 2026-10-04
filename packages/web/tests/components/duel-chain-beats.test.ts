@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import {
+  activationEndAt,
   chainBeatAt,
   chainBeatsEndAt,
   chainEffectAt,
@@ -8,6 +9,7 @@ import {
   resetChainBeats,
 } from "../../src/components/duel/chain-beats";
 import { chainEffectLead, chainStepDelay } from "../../src/components/duel/chain-state";
+import { CARD_FX, CHAIN_TIMING } from "../../src/components/duel/duel-timing";
 
 let nextId = 1;
 const ev = (kind: DuelEvent["kind"], chainIndex?: number): DuelEvent => ({
@@ -116,6 +118,39 @@ describe("planChainBeats", () => {
     plan(events);
     expect(chainBeatAt(events[2].id)).toBeGreaterThan(chainBeatAt(events[1].id));
     expect(chainBeatAt(events[3].id) - chainBeatAt(events[2].id)).toBe(chainStepDelay("chain-negated", 1, false));
+  });
+
+  it("ends the announcement of a link on the beat where it starts to resolve", () => {
+    const events = [ev("activate", 1), ev("activate", 2), ev("chain-resolving", 2), ev("chain-resolved", 2), ev("chain-resolving", 1)];
+    plan(events);
+    expect(activationEndAt(events[0].id)).toBe(chainBeatAt(events[4].id));
+    expect(activationEndAt(events[1].id)).toBe(chainBeatAt(events[2].id));
+    // An activation that stays open (a response window) has no end yet.
+    const open = [ev("activate", 1)];
+    resetChainBeats("t");
+    plan(open);
+    expect(activationEndAt(open[0].id)).toBe(0);
+  });
+
+  it("gives a link a full activate beat before it resolves, whatever else is queued", () => {
+    const events = [ev("activate", 1), ev("chain-resolving", 1)];
+    plan(events);
+    expect(chainBeatAt(events[1].id) - chainBeatAt(events[0].id)).toBe(CHAIN_TIMING.activateMs);
+    expect(chainBeatAt(events[1].id) - chainBeatAt(events[0].id)).toBeGreaterThanOrEqual(CARD_FX.activationFlipMs + 600);
+  });
+
+  it("keeps every activate and resolving beat at its readable floor in a long backlog", () => {
+    const events = [
+      ...Array.from({ length: 6 }, (_, i) => ev("activate", i + 1)),
+      ...Array.from({ length: 6 }, (_, i) => [ev("chain-resolving", 6 - i), ev("chain-resolved", 6 - i)]).flat(),
+      ev("chain-end"),
+    ];
+    plan(events);
+    for (let i = 0; i < events.length - 1; i += 1) {
+      const gap = chainBeatAt(events[i + 1].id) - chainBeatAt(events[i].id);
+      const floor = (CHAIN_TIMING.readableFloorMs as Record<string, number>)[events[i].kind] ?? CHAIN_TIMING.floorMs;
+      expect(gap, `${events[i].kind} #${i}`).toBeGreaterThanOrEqual(floor);
+    }
   });
 
   it("shortens every beat under reduced motion but keeps their order", () => {

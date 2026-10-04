@@ -14,7 +14,9 @@ import { searchDuelCards } from "./api";
 import { cardArtUrl, LOCATION_MZONE, zoneKey } from "./constants";
 import { backOutAnswer } from "./pick-backout";
 import { selectBarCopy, sumSelectionValues } from "./select-bar-copy";
-import styles from "./prompts.module.css";
+import { tributeClick, tributeState } from "./tribute-pick";
+import baseStyles from "./prompts.module.css";
+import { useSkinStyles } from "./skin";
 
 export interface PromptDraft {
   selected: string[];
@@ -214,9 +216,10 @@ export function canConfirm(prompt: DuelPrompt, draft: PromptDraft): boolean {
       return draft.selected.length >= min && draft.selected.length <= max;
     case "tribute": {
       if (prompt.mandatory?.some((id) => !draft.selected.includes(id))) return false;
-      // Tribute min is contribution value, not card count (one card may count as two).
-      // The engine validates the selected cards' actual contribution.
-      return draft.selected.length >= 1 && draft.selected.length <= max;
+      // Tribute min is contribution value, not card count (one card may count as two): the picked cards
+      // must be worth at least `min`, and there may be at most `max` of them (tribute-pick.ts).
+      const state = tributeState(prompt, draft.selected);
+      return state.count >= 1 && state.count <= max && state.met;
     }
     case "order":
       return draft.selected.length >= min && draft.selected.length <= max;
@@ -301,6 +304,7 @@ function OptionButton({
   disabled?: boolean;
   onHover?: (option: DuelPromptOption | null) => void;
 }) {
+  const styles = useSkinStyles(baseStyles, "tray");
   return (
     <button
       type="button"
@@ -337,6 +341,7 @@ export function AnnounceSearch({
   busy: boolean;
   onPick: (card: DuelCardInfo) => void;
 }) {
+  const styles = useSkinStyles(baseStyles, "tray");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<DuelCardInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -407,6 +412,7 @@ export function AnnounceSearch({
 }
 
 function PromptHeader({ prompt, badge, tone }: { prompt: DuelPrompt; badge?: string; tone?: "gold" | "forced" }) {
+  const styles = useSkinStyles(baseStyles, "tray");
   return (
     <div className={styles.header}>
       <h2 className={styles.title}>{prompt.title}</h2>
@@ -435,6 +441,7 @@ function EngineActions({
   onFinish: () => void;
   onCancel: () => void;
 }) {
+  const styles = useSkinStyles(baseStyles, "tray");
   const showConfirm = Boolean(onConfirm) && needsExplicitConfirm(prompt);
   const chain = prompt.context?.type === "chain";
   if (!showConfirm && !prompt.finishable && !prompt.cancelable) return null;
@@ -470,6 +477,7 @@ function ChoiceButtons({
   onChoice: (id: string) => void;
   highlight: number;
 }) {
+  const styles = useSkinStyles(baseStyles, "tray");
   const yes = prompt.options.find((option) => option.id === "yes");
   const no = prompt.options.find((option) => option.id === "no");
   if (yes && no && prompt.options.length === 2) {
@@ -535,6 +543,7 @@ export function PromptTray({
   /** 3 and 4 seat tables: the name of the seat that must answer. */
   waitingName?: string | null;
 }) {
+  const styles = useSkinStyles(baseStyles, "tray");
   const seated = prompt != null && mySeat != null && prompt.seat === mySeat;
   const answering = seated && active !== false;
   const context: DuelPromptContext | undefined = prompt?.context;
@@ -1024,9 +1033,21 @@ export function activatePromptFromField(
   const matches = optionsForCard(prompt, card, keys);
   if (matches.length !== 1) return false;
   const option = matches[0];
+  if (prompt.kind === "tribute") {
+    // Tributes are picked on the field and send themselves once the pick cannot change (tribute-pick.ts).
+    const click = tributeClick(prompt, draft.selected, option.id);
+    if (click.next === draft.selected) {
+      const refusal = pickRefusal(prompt, draft.selected, option.id);
+      if (refusal) onRefuse?.(refusal);
+      return true;
+    }
+    draft.setSelected(click.next);
+    if (click.send) onSubmit?.({ selected: click.next });
+    return true;
+  }
   const { min, max } = selectionBounds(prompt);
   if (
-    (prompt.kind === "cards" || prompt.kind === "places" || prompt.kind === "tribute" || prompt.kind === "sum") &&
+    (prompt.kind === "cards" || prompt.kind === "places" || prompt.kind === "sum") &&
     min === 1 &&
     max === 1
   ) {
