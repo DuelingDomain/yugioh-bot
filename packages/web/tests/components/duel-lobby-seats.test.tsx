@@ -60,6 +60,36 @@ function props(data: DuelRoom, busy = false) {
 }
 
 describe("choosing a lobby seat", () => {
+  it("shows room presence beside readiness and clears it independently", () => {
+    const data = room(null, true);
+    data.series = makeSeries({ tournamentId: 4 });
+    data.session.seats[0].ready = true;
+    const handlers = props(data);
+    const view = render(<RoomLobby {...handlers} presence={{ onlineSeats: [1], spectatorCount: 0 }} />);
+    const cards = within(screen.getByRole("region", { name: "Seats" })).getAllByRole("listitem");
+    expect(within(cards[0]).getByText("Ready")).toBeInTheDocument();
+    expect(within(cards[0]).getByText("Away")).toBeInTheDocument();
+    expect(within(cards[1]).getByText("Not ready")).toBeInTheDocument();
+    expect(within(cards[1]).getByText("In the room")).toBeInTheDocument();
+    view.rerender(<RoomLobby {...handlers} presence={null} />);
+    expect(screen.queryByText("In the room")).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Seats" })).getAllByText("Presence unavailable")).toHaveLength(2);
+  });
+
+  it("shows presence per seat in a four-seat lobby without marking bots away", () => {
+    const data = room(null, true);
+    data.series = null;
+    data.session.format = "ffa4";
+    data.session.seats.push({ seat: 2, playerId: 33, displayName: "Joey", isBot: false, ready: true },
+      { seat: 3, playerId: null, displayName: "Practice Bot", isBot: true, ready: true });
+    render(<RoomLobby {...props(data)} presence={{ onlineSeats: [2], spectatorCount: 1 }} />);
+    const cards = within(screen.getByRole("region", { name: "Seats" })).getAllByRole("listitem");
+    expect(cards).toHaveLength(4);
+    expect(within(cards[0]).getByText("Away")).toBeInTheDocument();
+    expect(within(cards[1]).getByText("Away")).toBeInTheDocument();
+    expect(within(cards[2]).getByText("In the room")).toBeInTheDocument();
+    expect(within(cards[3]).queryByText("Away")).toBeNull();
+  });
   it.each(["normal", "domain"] as const)("offers a spectator an explicit seat action in a %s lobby without showing a deck editor", (mode) => {
     const data = room();
     data.session.mode = mode;

@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 /**
  * What the sidebar's "Live now" row shows: the signed-in player's own duel that
  * needs them (running, between games, or waiting in a lobby), and how many duels
- * in progress they can see. Two queries, no duel-host calls; the sidebar polls it.
+ * in progress they can see. Small database reads, no duel-host calls; the sidebar polls it.
  */
 export async function GET() {
   const actor = await requireDuelActor();

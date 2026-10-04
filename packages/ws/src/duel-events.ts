@@ -1,7 +1,7 @@
 import { verifyDuelConnectionToken } from "@yugidraft/shared/ws";
 import type { TypedServer, TypedSocket } from "./events.js";
 
-type Occupant = { playerId: number; seat: number | null };
+type Occupant = { playerId: number; seat: number | null; observe: boolean; visible: boolean };
 
 export function registerDuelEventHandlers(io: TypedServer, opts: { secret: string }): void {
   const occupancy = new Map<string, Map<string, Occupant>>();
@@ -13,6 +13,7 @@ export function registerDuelEventHandlers(io: TypedServer, opts: { secret: strin
     const members = occupancy.get(roomKey);
     if (members) {
       for (const member of members.values()) {
+        if (member.observe || !member.visible) continue;
         if (member.seat === null) spectators.add(member.playerId);
         else seats.add(member.seat);
       }
@@ -62,14 +63,19 @@ export function registerDuelEventHandlers(io: TypedServer, opts: { secret: strin
           ack?.({ ok: false, error: "invalid token" });
           return;
         }
-        if (socket.data.duel) detachSocket(socket, "leave");
+        // Renew in place: briefly detaching would emit a false "away" on every renewal.
+        const previous = socket.data.duel;
+        if (previous && (previous.guildId !== claims.guildId || previous.slug !== claims.slug)) detachSocket(socket, "leave");
+        const previousTimer = expiryTimers.get(socket.id);
+        if (previousTimer) clearTimeout(previousTimer);
         const roomKey = `duel:${claims.guildId}:${claims.slug}`;
         let members = occupancy.get(roomKey);
         if (!members) {
           members = new Map();
           occupancy.set(roomKey, members);
         }
-        members.set(socket.id, { playerId: claims.playerId, seat: claims.seat });
+        members.set(socket.id, { playerId: claims.playerId, seat: claims.seat,
+          observe: payload.observe === true, visible: payload.visible !== false });
         socket.data.duel = {
           slug: claims.slug,
           guildId: claims.guildId,
@@ -102,6 +108,16 @@ export function registerDuelEventHandlers(io: TypedServer, opts: { secret: strin
       if (!membership || !payload || typeof payload !== "object") return;
       if (payload.slug !== membership.slug || payload.guildId !== membership.guildId) return;
       detachSocket(socket, "leave");
+    });
+
+    socket.on("duel:visibility", (payload) => {
+      const membership = socket.data.duel;
+      if (!membership || typeof payload?.visible !== "boolean") return;
+      const roomKey = `duel:${membership.guildId}:${membership.slug}`;
+      const member = occupancy.get(roomKey)?.get(socket.id);
+      if (!member || member.observe || member.visible === payload.visible) return;
+      member.visible = payload.visible;
+      emitPresence(roomKey, membership.slug);
     });
 
     socket.on("disconnecting", () => {

@@ -242,7 +242,7 @@ export function useDuelWebsocket(
         guildId = credentials.guildId;
         const token = credentials.token;
         const result = await new Promise<DuelJoinAck>((resolve, reject) => {
-          socket.timeout(5000).emit("duel:join", { token }, (error: Error | null, answer: DuelJoinAck) => {
+          socket.timeout(5000).emit("duel:join", { token, visible: document.visibilityState === "visible" }, (error: Error | null, answer: DuelJoinAck) => {
             if (error) reject(error);
             else resolve(answer);
           });
@@ -250,6 +250,8 @@ export function useDuelWebsocket(
         if (!result?.ok) throw new Error("Room subscription rejected");
         if (!isCurrent() || socket.id !== socketId || !socket.connected) return;
         subscribed = true;
+        // Visibility can change while the join acknowledgement is in flight.
+        socket.emit("duel:visibility", { visible: document.visibilityState === "visible" });
         patch((current) => ({
           ...current,
           slug,
@@ -284,11 +286,15 @@ export function useDuelWebsocket(
 
     const onFocus = () => { void refresh({ recovery: true }).catch(() => {}); };
     const onVisibility = () => {
+      if (socket.connected && subscribed) socket.emit("duel:visibility", { visible: document.visibilityState === "visible" });
       if (document.visibilityState === "visible") recoverBoard(true);
     };
     const onOnline = () => recoverBoard(true);
     const onPageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) recoverBoard(true);
+      if (event.persisted) onVisibility();
+    };
+    const onPageHide = () => {
+      if (socket.connected && subscribed) socket.emit("duel:visibility", { visible: false });
     };
 
     socket.on("connect", () => void join());
@@ -314,6 +320,7 @@ export function useDuelWebsocket(
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("online", onOnline);
     window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("pagehide", onPageHide);
     resyncImpl.current = () => refresh({ recovery: true });
     armPoll();
     socket.connect();
@@ -329,6 +336,7 @@ export function useDuelWebsocket(
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("pagehide", onPageHide);
       if (guildId && socket.connected) socket.emit("duel:leave", { slug, guildId });
       socket.disconnect();
     };

@@ -7,10 +7,16 @@ vi.mock("next/link", () => ({ default: LinkStub }));
 
 import { LiveNowRow } from "../../../src/components/layout/live-now";
 
-const YOURS = { yourDuel: { href: "/duels/abc", opponent: "Kestrel", state: "live" as const }, liveCount: 2 };
+const YOURS = { yourDuel: { href: "/duels/abc", opponent: "Kestrel", state: "live" as const, opponents: [{ seat: 1, name: "Kestrel", isBot: false }] }, liveCount: 2, presence: { onlineSeats: [1], spectatorCount: 0 } };
 const COUNT = { yourDuel: null, liveCount: 3 };
 
 describe("LiveNowRow", () => {
+  it("dims the dot and shows away as soon as the opponent leaves the room", () => {
+    const { rerender } = render(<LiveNowRow live={YOURS} size="side" />);
+    rerender(<LiveNowRow live={{ ...YOURS, presence: { onlineSeats: [], spectatorCount: 0 } }} size="side" />);
+    expect(screen.getByRole("link")).toHaveTextContent("Kestrel · away");
+    expect(screen.getByRole("img", { name: "Opponent away or presence unavailable" })).toHaveAttribute("data-present", "false");
+  });
   it("renders nothing when nothing is live", () => {
     const { container } = render(<LiveNowRow live={{ yourDuel: null, liveCount: 0 }} size="side" />);
     expect(container.firstChild).toBeNull();
@@ -18,14 +24,14 @@ describe("LiveNowRow", () => {
     expect(again.container.firstChild).toBeNull();
   });
 
-  it("your duel: title, opponent, Open duel, a violet dot, linking to the duel", () => {
+  it("your duel: title, opponent, Open duel, a live presence dot, linking to the duel", () => {
     const { container } = render(<LiveNowRow live={YOURS} size="side" />);
-    const link = screen.getByRole("link", { name: "Your duel against Kestrel. Open duel" });
+    const link = screen.getByRole("link", { name: "Your duel against Kestrel · in the room. Open duel" });
     expect(link).toHaveAttribute("href", "/duels/abc");
     expect(link).toHaveTextContent("Your duel");
     expect(link).toHaveTextContent("Kestrel");
     expect(link).toHaveTextContent("Open duel");
-    expect(container.querySelector(".sv-ldot")).toHaveAttribute("data-you", "true");
+    expect(screen.getByRole("img", { name: "Opponent in the room" })).toHaveAttribute("data-present", "true");
   });
 
   it("the count: Live now with the number of duels, linking to /duels, with a plain dot", () => {
@@ -62,9 +68,9 @@ describe("LiveNowRow", () => {
 
   it("rail: the dot alone with a tooltip, and the full name on the link", () => {
     const { container } = render(<LiveNowRow live={YOURS} size="rail" />);
-    const link = screen.getByRole("link", { name: "Your duel against Kestrel. Open duel" });
+    const link = screen.getByRole("link", { name: "Your duel against Kestrel · in the room. Open duel" });
     expect(link).not.toHaveTextContent("Open duel");
-    expect(container.querySelector(".sv-tip")?.textContent).toBe("Your duel against Kestrel");
+    expect(container.querySelector(".sv-tip")?.textContent).toBe("Your duel against Kestrel · in the room");
   });
 
   it("phone: the same row, closes the menu when followed", () => {
@@ -74,8 +80,8 @@ describe("LiveNowRow", () => {
     expect(onNavigate).toHaveBeenCalledOnce();
   });
 
-  it("says the state for a duel between games", () => {
+  it("keeps the opponent muted when presence is unavailable between games", () => {
     render(<LiveNowRow live={{ yourDuel: { href: "/duels/x", opponent: "Kestrel", state: "between" }, liveCount: 1 }} size="side" />);
-    expect(screen.getByRole("link")).toHaveTextContent("Kestrel, between games");
+    expect(screen.getByRole("link")).toHaveTextContent("Kestrel · presence unavailable");
   });
 });

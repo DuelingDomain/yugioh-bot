@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { parseLiveNow, type LiveNow } from "./shell-model";
+import { useDuelPresence } from "@/lib/hooks/use-duel-presence";
 
 export const LIVE_POLL_MS = 30_000;
 /** A tab that comes back to the foreground refetches unless it just did. */
@@ -14,6 +15,8 @@ const FOCUS_REFETCH_AFTER_MS = 5_000;
  */
 export function useLiveNow(pathname: string): LiveNow | null {
   const [live, setLive] = useState<LiveNow | null>(null);
+  const slug = live?.yourDuel?.href.match(/^\/duels\/([^/?#]+)$/)?.[1] ?? null;
+  const presence = useDuelPresence(slug);
   const abortRef = useRef<AbortController | null>(null);
   const lastRef = useRef(0);
 
@@ -59,5 +62,5 @@ export function useLiveNow(pathname: string): LiveNow | null {
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  return live;
+  return live?.yourDuel ? { ...live, presence } : live;
 }
