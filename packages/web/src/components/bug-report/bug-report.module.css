@@ -1,0 +1,133 @@
+/*
+ * The Report bug buttons: a quiet surface chip, not a call to action. A dark panel with a hairline rule, muted text
+ * and a muted bug icon; violet shows only on hover and keyboard focus. Both read the Solid Vision tokens: the
+ * floating button sits inside a `.ms` root (see BugReportFab), the duel header button inside a duel shell (--duel-*).
+ */
+
+/* ---- Floating button (the app shell, the deck editor, the duel page before a live header takes over) ---- */
+.fab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--rule-lo);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--ink-3);
+  font-family: var(--f-ui);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 6px 18px -6px rgb(0 0 0 / 0.7);
+}
+
+/* The chip stays 32px; this grows its tap area to 44px high (and 4px past each end), on every width. */
+.fab::after {
+  content: "";
+  position: absolute;
+  inset: -6px -4px;
+}
+
+.fab svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.fab:hover {
+  border-color: rgb(155 126 255 / 0.55);
+  background: var(--panel-3);
+  color: var(--ink);
+}
+
+.fab:hover svg,
+.fab:focus-visible svg {
+  color: var(--pen-ink);
+}
+
+.fab:focus-visible {
+  outline: 2px solid var(--pen-ink);
+  outline-offset: 2px;
+  color: var(--ink);
+}
+
+.fab:active {
+  background: var(--panel);
+}
+
+/* The lift above a sticky bar moves the chip with a transform, so it never re-lays out the page. */
+@media (prefers-reduced-motion: no-preference) {
+  .fab {
+    transition:
+      color 150ms ease-out,
+      background-color 150ms ease-out,
+      border-color 150ms ease-out,
+      transform 200ms var(--ease, cubic-bezier(0.16, 1, 0.3, 1));
+  }
+}
+
+/* ---- Duel header button (the 1v1 room, the table and the Rooftop) ----
+   The Rooftop resets every button (`background: none; border: 0; font: inherit; color: inherit`), and that rule is
+   more specific than a class, so the surface, colour and type carry important marks. Same 24px height and 12px type
+   as the Live pill beside it. */
+.header {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  box-sizing: border-box;
+  height: 24px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--duel-rule) !important;
+  border-radius: 999px;
+  background: var(--duel-panel-2) !important;
+  color: var(--duel-ink-3) !important;
+  font-family: inherit;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.header svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.header:hover {
+  border-color: var(--duel-pen) !important;
+  background: var(--duel-pen-soft) !important;
+  color: var(--duel-ink) !important;
+}
+
+.header:hover svg,
+.header:focus-visible svg {
+  color: var(--duel-pen-ink);
+}
+
+.header:focus-visible {
+  outline: 2px solid var(--duel-pen-ink);
+  outline-offset: 1px;
+  color: var(--duel-ink) !important;
+}
+
+/* A phone shows the icon alone (the name stays for screen readers). */
+@media (max-width: 600px) {
+  .header {
+    padding: 0 7px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .header {
+    transition:
+      color 150ms ease-out,
+      background-color 150ms ease-out,
+      border-color 150ms ease-out;
+  }
+}

@@ -83,6 +83,11 @@ export const MOVE_PACE = {
   /** Hand entries use 90% of the ordinary stagger and queue cap. */
   handMinGapMs: 252,
   handQueueCapMs: 3960,
+  /** The deal (a batch of this many plain draws or more, like the opening hands): one card leaves the Deck this often... */
+  dealGapMs: 200,
+  /** ...and each flight to the hand takes this long, so five cards are in the hand in about one second. */
+  dealMs: 480,
+  dealMinCards: 4,
   /** A queue of flights is compressed to fit in about this long (the slowest speed is minSpeed). */
   queueCapMs: 4400,
   minSpeed: 0.6,

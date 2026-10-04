@@ -1,4 +1,5 @@
 import { rmSync } from "node:fs";
+import { NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mainIds, passcodeOf, seedDraftDeck, type DraftDeckFixture } from "./helpers/draft-deck-fixture";
 
@@ -26,7 +27,7 @@ describe("draft decks through /api/decks", () => {
     auth.mockResolvedValue({ user: { id: "drafter", name: "Yugi" } });
     callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({
       ok: true,
-      data: { codes: Object.fromEntries(input.codes.map((id) => [String(id), passcodeOf(id)])) },
+      data: { codes: Object.fromEntries(input.codes.map((id) => [String(id), id >= 100000 ? id : passcodeOf(id)])) },
     }));
   });
   afterEach(() => {
@@ -225,6 +226,27 @@ describe("draft decks through /api/decks", () => {
     });
   });
 
+  describe("GET", () => {
+    it.each(["unavailable", "invalid"])("returns the stored draft deck when the engine mapping is %s", async (failure) => {
+      const { draftId } = await seed({ picks: [...mainIds(39), 81480461] });
+      const { getDb } = await import("@/lib/db");
+      const { createSavedDeckService } = await import("@yugidraft/shared/services");
+      const db = getDb();
+      const raw = { main: [...mainIds(39), 81480461], extra: [2001], side: [81480461], deckMaster: 81480461 };
+      const saved = createSavedDeckService(db).create("guild-1", "drafter", { name: "Stored art", mode: "domain", deck: raw, draftId });
+      callDuelHost.mockResolvedValue(failure === "unavailable"
+        ? { ok: false, response: NextResponse.json({ error: "Duel engine unavailable" }, { status: 503 }) }
+        : { ok: true, data: { codes: {} } });
+
+      const { GET } = await import("../app/api/decks/[id]/route");
+      const res = await GET(new Request(`http://localhost/api/decks/${saved.id}`), { params: Promise.resolve({ id: String(saved.id) }) });
+      expect(res.status).toBe(200);
+      expect((await res.json()).deck).toMatchObject({ id: saved.id, name: "Stored art", draftId, deck: raw });
+      expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "normalize-codes", codes: expect.arrayContaining([81480461, 2001]) }));
+      expect(createSavedDeckService(db).get(saved.id, "guild-1", "drafter").deck).toEqual(raw);
+    });
+  });
+
   describe("DELETE", () => {
     async function del(id: number) {
       const { DELETE } = await import("../app/api/decks/[id]/route");
@@ -277,6 +299,60 @@ describe("draft decks through /api/decks", () => {
   });
 
   describe("PUT", () => {
+    it("does not drop an invalid master while normalizing a draft deck", async () => {
+      const { draftId } = await seed();
+      const body = deckBody({ main: main(40) }, { draftId });
+      const res = await post({ ...body, deck: { ...body.deck, deckMaster: "81480461" } });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(/Deck Master must be a valid card code/);
+    });
+
+    it("keeps the stored deck when the engine mapping is incomplete", async () => {
+      const { id } = await savedDeck();
+      callDuelHost.mockResolvedValue({ ok: true, data: { codes: {} } });
+      expect((await put(id, deckBody({ main: main(42) }))).status).toBe(502);
+      const { getDb } = await import("@/lib/db");
+      const row = getDb().prepare("select deck_json from saved_decks where id = ?").get(id) as { deck_json: string };
+      expect(JSON.parse(row.deck_json).main).toEqual(main(40));
+    });
+
+    it("repairs an existing auto-save with the reported Barrel Dragon artwork id on load and save", async () => {
+      const { draftId } = await seed({ picks: [...mainIds(39), 81480461] });
+      const { getDb } = await import("@/lib/db");
+      const db = getDb();
+      db.prepare("update card_catalog set name = 'Barrel Dragon', type = 'Effect Monster', frame_type = 'effect' where ygoprodeck_id = 81480461").run();
+      const { createDraftDeckService, createSavedDeckService } = await import("@yugidraft/shared/services");
+      createDraftDeckService(db).saveForDraft(draftId);
+      const saved = createSavedDeckService(db).findByDraft("guild-1", "drafter", draftId)!;
+      expect(saved.deck.main).toContain(81480461);
+      callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({
+        ok: true,
+        data: { codes: Object.fromEntries(input.codes.map((id) => [id, id === 81480461 ? 81480460 : id >= 100000 ? id : passcodeOf(id)])) },
+      }));
+      const { GET } = await import("../app/api/decks/[id]/route");
+      const loaded = await GET(new Request(`http://localhost/api/decks/${saved.id}`), { params: Promise.resolve({ id: String(saved.id) }) });
+      expect(loaded.status).toBe(200);
+      expect((await loaded.json()).deck.deck.main).toEqual([...main(39), 81480460]);
+      // Reads do not rewrite production data. PUT also repairs clients that loaded before the fix.
+      expect(JSON.parse((db.prepare("select deck_json from saved_decks where id = ?").get(saved.id) as { deck_json: string }).deck_json).main).toContain(81480461);
+      const res = await put(saved.id, deckBody(saved.deck));
+      expect(res.status).toBe(200);
+      expect((await res.json()).deck.deck.main).toEqual([...main(39), 81480460]);
+      expect(createSavedDeckService(db).get(saved.id, "guild-1", "drafter").deck.main).toEqual([...main(39), 81480460]);
+    });
+
+    it("rejects excess copies when main and side use different artworks", async () => {
+      const { draftId } = await seed({ picks: [...mainIds(39), 81480461] });
+      const { getDb } = await import("@/lib/db");
+      getDb().prepare("update card_catalog set type = 'Effect Monster', frame_type = 'effect' where ygoprodeck_id = 81480461").run();
+      callDuelHost.mockImplementation(async (input: { codes: number[] }) => ({
+        ok: true,
+        data: { codes: Object.fromEntries(input.codes.map((id) => [id, id === 81480461 ? 81480460 : id >= 100000 ? id : passcodeOf(id)])) },
+      }));
+      const res = await post(deckBody({ main: [...main(39), 81480460], side: [81480461] }, { draftId }));
+      expect(res.status).toBe(400);
+      expect((await res.json()).issues).toEqual([{ code: 81480460, used: 2, available: 1 }]);
+    });
     async function savedDeck() {
       const { draftId } = await seed();
       const created = await (await post(deckBody({ main: main(40) }, { draftId }))).json();

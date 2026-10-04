@@ -5,10 +5,12 @@ import { useEffect, useRef, useSyncExternalStore, type ComponentPropsWithoutRef 
 /**
  * A page bar that sticks to the bottom of the screen (the draft action block on a phone, the tournament action bar)
  * would sit under the floating Report bug button. Such a bar registers itself here (`BugFabLift`), and the button
- * lifts above it by the amount the bar rises over the button's corner.
+ * lifts above it by the amount the bar rises over the button's corner (a transform, so the lift never re-lays out the
+ * page). The button sits in the bottom-right corner, where a bar's primary action usually is, so it always clears the
+ * whole bar instead of overlapping any part of it.
  */
 const FAB_BOTTOM = 12;
-const FAB_HEIGHT = 36;
+const FAB_HEIGHT = 32;
 const GAP = 8;
 
 const lifts = new Map<HTMLElement, number>();

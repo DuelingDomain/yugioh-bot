@@ -87,10 +87,10 @@ describe("planMoves", () => {
     expect(incoming.handoff).toBeUndefined();
     expect(outgoing.handoffFrom).toBeUndefined();
   });
-  it("makes the whole opening deal about 10% quicker, including a compressed queue", () => {
+  it("deals both opening hands one card every dealGapMs, in about 2.3 s", () => {
     const opening = Array.from({ length: 10 }, (_, i) => move(i + 1, z(Math.floor(i / 5), DECK, 0), z(Math.floor(i / 5), HAND, i % 5), { reason: "draw" }));
     const plans = planMoves(opening, { now: 0, reduced: false, duelKey: "t", geometry });
-    expect(plans[plans.length - 1].landAt).toBeCloseTo(4400 * 0.9, 0);
+    expect(plans[plans.length - 1].landAt).toBeCloseTo(9 * MOVE_TIMING.dealGapMs + MOVE_TIMING.dealMs, 0);
   });
 
   it("shortens the hand-entry stagger under reduced motion and keeps plain fades", () => {
@@ -135,14 +135,14 @@ describe("planMoves", () => {
     expect(plans[0].durationMs).toBeGreaterThanOrEqual(baseDuration("place", 300) * MOVE_TIMING.minSpeed - 1);
   });
 
-  it("keeps a batch under about 4.4 s and each card a distinct beat apart", () => {
+  it("keeps a batch under about 4.4 s and each card a distinct beat apart (a deal uses the shorter dealGapMs)", () => {
     expect(MOVE_TIMING.queueCapMs).toBeLessThanOrEqual(4400);
     const events = Array.from({ length: 5 }, (_, i) => move(i + 1, z(0, DECK, 0), z(0, HAND, 3 + i), { reason: "draw" }));
     const plans = planMoves(events, { now: 0, reduced: false, duelKey: "t", geometry });
     expect(plans.every((p) => p.style === "draw")).toBe(true);
     expect(plans[plans.length - 1].landAt).toBeLessThanOrEqual(4400 + 1);
     for (let i = 1; i < plans.length; i += 1) {
-      expect(plans[i].startAt - plans[i - 1].startAt).toBeGreaterThanOrEqual(MOVE_TIMING.minGapMs - 0.001);
+      expect(plans[i].startAt - plans[i - 1].startAt).toBeGreaterThanOrEqual(MOVE_TIMING.dealGapMs - 0.001);
     }
   });
 

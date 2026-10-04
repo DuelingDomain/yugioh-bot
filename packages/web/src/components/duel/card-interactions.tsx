@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { ArrowRight, ArrowUpFromLine, Layers, RotateCw, Shuffle, Sparkles, Swords, Zap, type LucideIcon } from "lucide-react";
+import { ArrowRight, ArrowUpFromLine, Flag, Layers, RotateCw, Shuffle, Sparkles, Swords, Zap, type LucideIcon } from "lucide-react";
 import type { DuelCard, DuelCardInfo, DuelPromptOption } from "@yugidraft/shared/duels";
 import { cardDetailsText, cardStatsText } from "./constants";
 import { duelFontClasses } from "./fonts";
@@ -48,6 +48,7 @@ function optionIcon(id: string): LucideIcon {
   if (id.startsWith("attack")) return Swords;
   if (id.startsWith("pos")) return RotateCw;
   if (id === "shuffle") return Shuffle;
+  if (id === "surrender") return Flag;
   if (id.startsWith("to_")) return ArrowRight;
   return Zap;
 }
@@ -260,7 +261,8 @@ export function CardActionMenu({
             type="button"
             role="menuitem"
             aria-label={option.label}
-            data-primary={index === 0 ? "true" : undefined}
+            data-primary={index === 0 && option.id !== "surrender" ? "true" : undefined}
+            data-danger={option.id === "surrender" ? "true" : undefined}
             disabled={busy}
             onClick={() => onChoose(option)}
             onMouseEnter={onOptionHover ? () => onOptionHover(option) : undefined}

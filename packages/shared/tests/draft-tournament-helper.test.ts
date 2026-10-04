@@ -130,15 +130,50 @@ describe("createTournamentFromDraft", () => {
     expect(r1.tournamentId).toBe(r2.tournamentId);
   });
 
-  it("rejects non-creator", () => {
+  it.each([undefined, false])("rejects non-creator with actorIsAdmin=%s", (actorIsAdmin) => {
     const db = new Database(":memory:");
     migrate(db);
     const { draft } = completeDraft(db);
     const service = createDraftTournamentService(db);
 
     expect(() =>
-      service.createTournamentFromDraft({ draftId: draft.id, format: "round_robin", createdByUserId: "u2" }),
+      service.createTournamentFromDraft({ draftId: draft.id, format: "round_robin", createdByUserId: "u2", actorIsAdmin }),
     ).toThrow("Only the draft creator");
+    db.close();
+  });
+
+  it("allows an admin who did not create or join the draft", () => {
+    const db = new Database(":memory:");
+    migrate(db);
+    const { draft, aliceId, bobId } = completeDraft(db);
+    const service = createDraftTournamentService(db);
+
+    const result = service.createTournamentFromDraft({
+      draftId: draft.id, format: "round_robin", createdByUserId: "admin-user", actorIsAdmin: true,
+    });
+
+    expect(result.tournamentName).toBe("Test Draft");
+    expect(db.prepare("select created_by_user_id from tournaments where id = ?").get(result.tournamentId))
+      .toEqual({ created_by_user_id: "admin-user" });
+    expect(createTournamentService(db).participants(result.tournamentId)).toEqual([aliceId, bobId]);
+    expect(service.createTournamentFromDraft({
+      draftId: draft.id, format: "single_elim", createdByUserId: "admin-user", actorIsAdmin: true,
+    })).toEqual(result);
+    expect(db.prepare("select count(*) as count from tournaments").get()).toEqual({ count: 1 });
+    db.close();
+  });
+
+  it.each(["pending", "active", "cancelled"])("rejects an admin for a %s draft", (status) => {
+    const db = new Database(":memory:");
+    migrate(db);
+    const { draft } = completeDraft(db);
+    db.prepare("update drafts set status = ? where id = ?").run(status, draft.id);
+
+    expect(() => createDraftTournamentService(db).createTournamentFromDraft({
+      draftId: draft.id, format: "round_robin", createdByUserId: "admin-user", actorIsAdmin: true,
+    })).toThrow("must be completed");
+    expect(db.prepare("select count(*) as count from tournaments").get()).toEqual({ count: 0 });
+    db.close();
   });
 
   it("rejects non-completed draft", () => {

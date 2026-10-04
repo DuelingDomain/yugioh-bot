@@ -65,8 +65,11 @@ describe("PoolPreview", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog.contains(document.activeElement)).toBe(true);
     fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(document.activeElement).toBe(seeAll);
+    // Focus returns after the sheet's exit, which can land a tick after the dialog leaves the DOM.
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(document.activeElement).toBe(seeAll);
+    });
   });
 
   it("names card IDs that aren't in the card list instead of asking for a pool", () => {

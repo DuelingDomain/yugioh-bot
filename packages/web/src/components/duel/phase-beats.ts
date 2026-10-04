@@ -20,7 +20,7 @@
  */
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { MOVE_PACE, PHASE_TIMING } from "./duel-timing";
-import { getMovePlan, planMoves } from "./move-plan";
+import { getMovePlan, isDealBatch, planMoves } from "./move-plan";
 
 export type PhaseKey = "draw" | "standby" | "main1" | "battle" | "main2" | "end";
 
@@ -102,8 +102,11 @@ export function openingPresentationMs(events: readonly DuelEvent[], reduced: boo
   // only without a decision clock; its normal FX still run when subsequent events arrive.
   if (moves.some((event) => event.reason !== "draw")) return Infinity;
   const duration = reduced ? MOVE_PACE.reducedMs : MOVE_PACE.drawMs;
-  const spanAt = (speed: number) => moves.length === 0 ? 0 : duration * speed
-    + (moves.length - 1) * Math.max(duration * speed * MOVE_PACE.overlap, MOVE_PACE.handMinGapMs);
+  // The same rule as planMoves: a batch of plain draws into hands is a deal, paced by dealGapMs.
+  const deal = isDealBatch(moves);
+  const spanAt = (speed: number) => moves.length === 0 ? 0
+    : deal ? (moves.length - 1) * MOVE_PACE.dealGapMs + (reduced ? duration : MOVE_PACE.dealMs) * speed
+    : duration * speed + (moves.length - 1) * Math.max(duration * speed * MOVE_PACE.overlap, MOVE_PACE.handMinGapMs);
   const speed = Math.max(MOVE_PACE.minSpeed, Math.min(1, MOVE_PACE.handQueueCapMs / Math.max(1, spanAt(1))));
   const flights = spanAt(speed);
   const phases = events.filter((event) => event.kind === "phase" && ["draw", "standby", "main1"].includes(phaseKeyOfText(event.text) ?? ""));

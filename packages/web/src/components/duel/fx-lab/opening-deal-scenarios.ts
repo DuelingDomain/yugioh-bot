@@ -4,7 +4,7 @@ import { edit, ev, newBoard, type Edit, type EventSpec, type LabScenario } from 
 const hand = [C.sangan, C.kuriboh, C.potOfGreed, C.monsterReborn, C.blueEyes];
 const phase = (text: string): EventSpec => ({ kind: "phase", text });
 
-function openingDeal(id: string, viewer: number | null, game: number): LabScenario {
+function openingDeal(id: string, viewer: number | null, game: number, preload = false): LabScenario {
   const perspective = viewer == null ? "spectator" : viewer === 0 ? "first player (seat 0)" : "second player (seat 1)";
   return {
     id, category: "Card moves", name: `Opening deal: ${perspective}${game === 2 ? " · Game 2" : ""}`,
@@ -31,6 +31,7 @@ function openingDeal(id: string, viewer: number | null, game: number): LabScenar
             edits: [edit.drawFromDeck(1), edit.addHand(1, laterCard), edit.phase("main1", 1)] },
         ],
         tailMs: 6500,
+        ...(preload ? { preload: true } : {}),
         ...(game === 2 ? { series: { game: 2, wins: [1, 0] as [number, number], screen: "label" as const } } : {}),
       };
     },
@@ -44,4 +45,5 @@ export const OPENING_DEAL_SCENARIOS: LabScenario[] = [
   openingDeal("opening-deal-game2-seat0", 0, 2),
   openingDeal("opening-deal-game2-seat1", 1, 2),
   openingDeal("opening-deal-game2-spectator", null, 2),
+  openingDeal("opening-deal-first-load", 0, 1, true),
 ];

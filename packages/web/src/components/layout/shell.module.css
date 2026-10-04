@@ -548,18 +548,6 @@
   margin-left: 68px;
 }
 
-/* ---- Report bug button: past the sidebar, so it covers neither the account menu nor the rail ---- */
-.bugFab {
-  left: calc(236px + 12px);
-}
-
-.frame[data-sidebar-collapsed="true"] .bugFab {
-  left: calc(68px + 12px);
-  /* The rail's account menu opens to the right, over this corner. It lives in the sidebar's z-30 layer, so the button
-     sits just under that layer and the menu stays on top of it. */
-  z-index: 29;
-}
-
 /* A page that draws its own bar (see OwnsPageBar) runs edge to edge, so the bar's line sits
    level with the sidebar's brand line. The page pads its own content below the bar. */
 .frame:has([data-shell-bar="own"]) .content {
@@ -650,12 +638,6 @@
   .main,
   .frame[data-sidebar-collapsed="true"] .main {
     margin-left: 0;
-  }
-
-  .bugFab,
-  .frame[data-sidebar-collapsed="true"] .bugFab {
-    left: 12px;
-    z-index: 40;
   }
 
   .topWrap {

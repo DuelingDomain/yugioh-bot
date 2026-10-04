@@ -95,7 +95,7 @@
 .turnPill { max-width: 100%; }
 
 /* A phone: the brand fills what the turn and the buttons leave, down to a small stub, and the turn column gives way
-   only after that. The turn pill keeps "Your turn" whole, or ends a long name in an ellipsis, while the red Report bug
+   only after that. The turn pill keeps "Your turn" whole, or ends a long name in an ellipsis, while the Report bug
    button, a Surrender button, the live lamp and the sound switch stay in view. The brand has a zero flex basis so it
    never takes a share of the shrink: an equal share would cut a fraction of a pixel from the label ("Your tu..."). */
 @media (max-width: 600px) {

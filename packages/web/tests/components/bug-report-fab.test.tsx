@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,13 +25,24 @@ function Room({ room }: { room: typeof FFA3_FIXTURES.states.main.room }) {
 }
 
 describe("floating Report bug button", () => {
-  it("is a red button fixed at the bottom-left, using the design tokens", () => {
+  it("is a quiet chip fixed at the bottom-right, using the design tokens", () => {
     render(<BugReportFab />);
     const button = screen.getByRole("button", { name: "Report bug" });
     expect(button.className).toContain("fixed");
-    expect(button.className).toContain("bottom-3 left-3");
-    expect(button.className).toContain("bg-accent-cta");
+    expect(button.className).toContain("bottom-3 right-3");
+    expect(button.className).toMatch(/fab/);
+    expect(button.className).not.toContain("bg-accent-cta");
     expect(button.className).not.toMatch(/#[0-9a-fA-F]{3,6}/);
+  });
+
+  it("styles itself from tokens only: no red, no hard-coded hex, motion only under no-preference", () => {
+    const css = readFileSync(join(__dirname, "../../src/components/bug-report/bug-report.module.css"), "utf8");
+    expect(css).not.toMatch(/accent-cta|red-\d|#f43f5e/i);
+    const fab = css.slice(0, css.indexOf("/* ---- Duel header button"));
+    expect(fab).not.toMatch(/#[0-9a-fA-F]{3,6}\b/);
+    expect(fab).toContain("var(--panel-2)");
+    expect(fab).toMatch(/prefers-reduced-motion: no-preference\) \{\s*\.fab \{\s*transition/);
+    expect(fab).toContain("inset: -6px -4px"); // a 44px-high tap area around the 32px chip
   });
 
   it("sends a page report with the path only outside a duel", async () => {
@@ -49,8 +62,8 @@ describe("floating Report bug button", () => {
     render(<BugReportFab className="fixed bottom-3 z-40 shell-offset" />);
     const button = screen.getByRole("button", { name: "Report bug" });
     expect(button.className).toContain("shell-offset");
-    expect(button.className).not.toContain("left-3");
-    expect(button.className).toContain("bg-accent-cta");
+    expect(button.className).not.toContain("right-3");
+    expect(button.className).toMatch(/fab/);
   });
 
   it("steps aside while a duel header has its own Report bug button, and comes back after", () => {
@@ -75,12 +88,17 @@ describe("floating Report bug button", () => {
     expect(screen.queryByRole("dialog", { name: "Report a bug" })).toBeNull();
   });
 
-  it("keeps the header button red with important classes, because the Rooftop resets every button", () => {
+  it("keeps the header button a quiet chip with important marks, because the Rooftop resets every button", () => {
     render(<BugReportHeaderButton room={FFA3_FIXTURES.states.main.room} />);
     const button = screen.getByRole("button", { name: "Report bug" });
-    expect(button.className).toContain("bg-accent-cta!");
-    expect(button.className).toContain("text-white!");
-    expect(button.className).toContain("text-xs!");
+    expect(button.className).toMatch(/header/);
+    expect(button.className).not.toContain("bg-accent-cta");
+    const css = readFileSync(join(__dirname, "../../src/components/bug-report/bug-report.module.css"), "utf8");
+    const header = css.slice(css.indexOf(".header {"), css.indexOf(".header svg"));
+    for (const property of ["border", "background", "color", "font-size", "font-weight"]) {
+      expect(header).toMatch(new RegExp(`\\n  ${property}: [^;]*!important;`));
+    }
+    expect(header).toContain("height: 24px"); // the same compact size as the Live pill beside it
   });
 
   it("sends the duel on screen, and forgets it when the room goes away", async () => {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
 import { env } from "@/lib/env";
+import { checkDiscordWebAccess, webAccessError } from "@/lib/discord-web-access";
 import { createDraftTournamentService, TournamentDuelError } from "@yugidraft/shared/services";
 import { broadcaster } from "@/lib/notify";
 
@@ -16,6 +17,7 @@ export async function POST(
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const userId = session.user.id;
 
     const { slug } = await params;
     const db = getDb();
@@ -32,6 +34,15 @@ export async function POST(
 
     if (!draft) {
       return NextResponse.json({ error: "Draft not found" }, { status: 404 });
+    }
+
+    let actorIsAdmin = false;
+    if (draft.created_by_user_id !== userId) {
+      const decision = await checkDiscordWebAccess(userId, "admin");
+      if (!decision.ok) {
+        return NextResponse.json({ error: webAccessError(decision.status) }, { status: decision.status });
+      }
+      actorIsAdmin = true;
     }
 
     if (draft.tournament_id !== null) {
@@ -63,7 +74,8 @@ export async function POST(
     const result = service.createTournamentFromDraft({
       draftId: draft.id,
       format,
-      createdByUserId: session.user.id,
+      createdByUserId: userId,
+      actorIsAdmin,
       bestOf,
     });
     void broadcaster.draft({ kind: "seats", slug });

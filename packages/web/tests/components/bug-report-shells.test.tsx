@@ -195,11 +195,12 @@ describe("Report bug in the 1v1 room", () => {
     expectNoDuelHotkeys();
   });
 
-  it("has a red Report bug button in the header, next to the other header buttons, that sends browser context only", async () => {
+  it("has a quiet Report bug chip in the header, next to the other header buttons, that sends browser context only", async () => {
     render(<DuelRoomView slug="game-1" windowed />);
     const header = document.querySelector("header")!;
     const button = within(header).getByRole("button", { name: "Report bug" });
-    expect(button.className).toContain("bg-accent-cta");
+    expect(button.className).toMatch(/header/);
+    expect(button.className).not.toContain("bg-accent-cta");
     expect(button.hasAttribute("data-bug-header-button")).toBe(true);
     const body = await reportFromMenu({ format: "1v1", seat: 0, slug: "game-1" }, button);
     expect(body.context).toMatchObject({ animationSpeed: 1 });

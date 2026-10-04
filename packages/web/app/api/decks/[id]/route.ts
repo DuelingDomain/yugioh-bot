@@ -8,6 +8,8 @@ import {
   withRegistration,
 } from "@/lib/saved-decks";
 import { getDb } from "@/lib/db";
+import { normalizeDraftDeck } from "@/lib/draft-deck-codes";
+import { findDraftDeckContext } from "../../drafts/draft-deck-pool";
 import { checkDraftDeckWrite, readDraftId, registerDraftDeck } from "../draft-deck";
 
 export const runtime = "nodejs";
@@ -26,6 +28,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (!ctx.ok) return ctx.response;
   try {
     const deck = ctx.actor.decks.get(ctx.id, ctx.actor.guildId, ctx.actor.ownerUserId);
+    if (deck.draftId != null) {
+      const found = findDraftDeckContext(getDb(), ctx.actor.guildId, ctx.actor.ownerUserId, { id: deck.draftId });
+      if (!found.ok) return found.response;
+      const mapped = await normalizeDraftDeck({ guildId: ctx.actor.guildId, playerId: found.draft.playerId, deck: deck.deck });
+      // Reads stay available when the host cannot map ids; writes still require a valid mapping.
+      if (mapped.ok) deck.deck = mapped.deck;
+    }
     return NextResponse.json({ deck: withRegistration(deck, loadDeckRegistrations(ctx.actor.guildId, ctx.actor.ownerUserId)) });
   } catch (error) {
     return savedDeckErrorResponse(error);
@@ -55,7 +64,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       const deck = ctx.actor.decks.update(ctx.id, ctx.actor.guildId, ctx.actor.ownerUserId, {
         name: body.name,
         mode: body.mode,
-        deck: body.deck,
+        deck: checked.deck,
         draftId,
       });
       const warning = registerDraftDeck(checked.draft, deck);

@@ -210,13 +210,13 @@ function seatPlayer(app: App, slug: string, seat: number): number {
   return found.playerId;
 }
 
-function tournamentMatch(app: App, bestOf: 1 | 3) {
+function tournamentMatch(app: App, bestOf: 1 | 3, registeredDeck = deckWithSide()) {
   const tournament = app.tournaments.create(GUILD, "Cup", "single_elim", "u3", { bestOf });
   app.tournaments.join(tournament.id, app.p1);
   app.tournaments.join(tournament.id, app.p2);
   app.tournaments.start(tournament.id);
   const slot = app.db.prepare("select * from tournament_matches where tournament_id = ?").get(tournament.id) as Record<string, any>;
-  const deck = JSON.stringify(deckWithSide());
+  const deck = JSON.stringify(registeredDeck);
   app.db.prepare("update tournament_participants set deck_json = ? where tournament_id = ?").run(deck, tournament.id);
   const started = app.series.startTournamentMatch({ guildId: GUILD, tournamentMatchId: slot.id, actorPlayerId: app.p1 });
   return { tournament, slot, started };
@@ -641,6 +641,42 @@ describe("series advance", () => {
     expect(illegal.status).toBe(400);
   });
 
+  it("sides a locked tournament deck stored with an old artwork id", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    const oldDeck = { ...deckWithSide(), side: [46986421, 46986414] };
+    const { tournament, started } = tournamentMatch(app, 3, oldDeck);
+    const { host, workers } = openHost(app);
+    const { duel, series } = started;
+    await post(host, { op: "ready", slug: duel.slug, playerId: app.p1 });
+    await post(host, { op: "ready", slug: duel.slug, playerId: app.p2 });
+    await endGame(host, workers[0]!, duel.slug, app.p1, 0);
+    expect(app.series.sideState(series.id, GUILD, app.p1).currentDeck).toEqual(oldDeck);
+
+    const sided = { ...oldDeck, main: [46986414, ...oldDeck.main.slice(1)], side: [oldDeck.main[0]!, 46986414] };
+    const saved = await post(host, { op: "series-side", slug: duel.slug, playerId: app.p1, deck: sided });
+    expect(saved.status).toBe(200);
+    expect(app.series.sideState(series.id, GUILD, app.p1)).toMatchObject({ currentDeck: sided, baseDeck: oldDeck });
+    const registration = app.db.prepare("select deck_json, deck_locked_at from tournament_participants where tournament_id = ? and player_id = ?")
+      .get(tournament.id, app.p1) as { deck_json: string; deck_locked_at: string | null };
+    expect(JSON.parse(registration.deck_json)).toEqual(oldDeck);
+    expect(registration.deck_locked_at).not.toBeNull();
+
+    const extraCopy = { ...sided, side: [46986414, 46986421] };
+    const rejected = await post(host, { op: "series-side", slug: duel.slug, playerId: app.p1, deck: extraCopy });
+    expect(rejected.status).toBe(400);
+    expect(rejected.data.error).toBe("A sided deck must use the same cards as your current deck");
+    expect(app.series.sideState(series.id, GUILD, app.p1).currentDeck).toEqual(sided);
+    expect(app.db.prepare("select deck_json, deck_locked_at from tournament_participants where tournament_id = ? and player_id = ?")
+      .get(tournament.id, app.p1)).toEqual(registration);
+
+    await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p1 });
+    const next = await post(host, { op: "series-ready", slug: duel.slug, playerId: app.p2 });
+    expect(next.status).toBe(200);
+    const seat = app.duels.room(next.data.nextSlug, GUILD, app.p1).mySeat!;
+    expect(workers[1]!.createdOptions?.decks[seat]).toEqual(sided);
+  });
+
   it("keeps unresolved card codes while siding, like check-deck", async () => {
     vi.useFakeTimers();
     const app = setup();
@@ -756,6 +792,28 @@ describe("series advance", () => {
     await settle();
     expect(app.series.get(first.series.id, GUILD).gameNumber).toBe(2);
     expect(workers).toHaveLength(2);
+  });
+
+  it("times a between-games series that is not due yet when the host boots, instead of waiting for the next sweep", async () => {
+    vi.useFakeTimers();
+    const app = setup();
+    // Game 1 ends with no host running; the host then restarts a few seconds before the 60 s window ends.
+    const first = challenge(app, 3);
+    app.duels.setDeck(first.duel.slug, GUILD, app.p1, deckWithSide());
+    app.duels.setDeck(first.duel.slug, GUILD, app.p2, deckWithSide(true));
+    app.duels.activate(first.duel.slug, GUILD, null, ["s"], "v", null);
+    app.duels.complete(first.duel.slug, GUILD, 0, "done");
+    await vi.advanceTimersByTimeAsync(52_000);
+
+    const { workers } = openHost(app, { pollIntervalMs: 30_000 });
+    await settle();
+    expect(app.series.get(first.series.id, GUILD).gameNumber).toBe(1);
+
+    // The deadline passes 8 s after boot; the next sweep is 30 s after boot, so only a timer starts it on time.
+    await vi.advanceTimersByTimeAsync(9_000);
+    await settle();
+    expect(app.series.get(first.series.id, GUILD).gameNumber).toBe(2);
+    expect(workers).toHaveLength(1);
   });
 
   it("does not advance after the host closes", async () => {
