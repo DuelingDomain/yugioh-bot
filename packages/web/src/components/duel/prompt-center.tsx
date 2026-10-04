@@ -1333,7 +1333,20 @@ export function PromptCenter(props: PromptCenterProps) {
       const hands = Array.from(board.querySelectorAll<HTMLElement>("[data-hand-seat]"));
       const own = hands.find((hand) => hand.dataset.handSeat === String(mySeatRef.current))
         ?? [...hands].sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0];
-      const place = placeTributeDock({ board: rectOf(board), hand: own ? rectOf(own) : null });
+      // The hand element spans the whole row; the dock needs the room beside the cards themselves.
+      let handRect: BarRect | null = own ? rectOf(own) : null;
+      const cardRects = own
+        ? Array.from(own.querySelectorAll<HTMLElement>("[data-hand-card]")).map(rectOf).filter((r) => r.right - r.left > 1 && r.bottom - r.top > 1)
+        : [];
+      if (handRect && cardRects.length > 0) {
+        handRect = {
+          left: Math.min(...cardRects.map((r) => r.left)),
+          right: Math.max(...cardRects.map((r) => r.right)),
+          top: Math.min(handRect.top, ...cardRects.map((r) => r.top)),
+          bottom: Math.max(...cardRects.map((r) => r.bottom)),
+        };
+      }
+      const place = placeTributeDock({ board: rectOf(board), hand: handRect, centered: board.closest('[data-table-stage="tag"]') != null });
       setDockPlace((current) => (sameDock(current, place) ? current : place));
       return;
     }

@@ -203,11 +203,11 @@ describe("clicking a monster on the field", () => {
 describe("placeTributeDock", () => {
   const rect = (left: number, top: number, right: number, bottom: number) => ({ left, top, right, bottom });
 
-  it("sits right of the hand, level with it, against the board edge", () => {
+  it("sits right of the hand, bottom level with it, against the board edge", () => {
     const board = rect(0, 0, 1440, 900);
     const place = placeTributeDock({ board, hand: rect(300, 760, 900, 880) });
     expect(place.mode).toBe("side");
-    expect(place.top).toBe(820);
+    expect(place.bottom).toBe(900 - 880);
     expect(place.width).toBe(380);
     expect(place.left! + place.width!).toBe(1440 - 12);
   });
@@ -222,6 +222,12 @@ describe("placeTributeDock", () => {
     const place = placeTributeDock({ board: rect(0, 0, 900, 700), hand: rect(100, 580, 800, 690) });
     expect(place.mode).toBe("center");
     expect(place.bottom).toBe(128);
+  });
+
+  it("keeps the 2v2 Rooftop on the centred row above the hand even when there is room beside it", () => {
+    const place = placeTributeDock({ board: rect(0, 0, 1440, 900), hand: rect(300, 760, 900, 880), centered: true });
+    expect(place.mode).toBe("center");
+    expect(place.bottom).toBe(900 - 760 + 8);
   });
 
   it("takes the full width on a phone", () => {

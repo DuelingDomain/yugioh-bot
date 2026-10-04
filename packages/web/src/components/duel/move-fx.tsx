@@ -205,7 +205,9 @@ function hideTargetOf(dest: HTMLElement, plan: MovePlan): HTMLElement | null {
   // A drawn card, sleeve or face, shows only when it lands (the deal at the start of a duel is a row of these).
   if (plan.style === "draw" && location === LOCATION_HAND) return dest;
   if (location === LOCATION_GRAVE || location === LOCATION_REMOVED) {
-    return dest.querySelector<HTMLElement>('[data-fi="0"]');
+    // Several Tributes burn at once: each one waits at its own place in the pile, the newest on top.
+    const fi = plan.tribute ? Math.max(0, plan.tribute.count - 1 - plan.tribute.index) : 0;
+    return dest.querySelector<HTMLElement>(`[data-fi="${fi}"]`) ?? dest.querySelector<HTMLElement>('[data-fi="0"]');
   }
   if (location === LOCATION_EXTRA || location === LOCATION_DECK) return null;
   const art = dest.querySelector<HTMLElement>("[data-card-art]");

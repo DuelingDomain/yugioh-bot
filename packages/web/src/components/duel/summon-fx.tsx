@@ -1999,6 +1999,28 @@ function Summon3dFx({ item, overlay, done }: EffectProps) {
   return <div ref={anchor} className={styles.anchor} data-fx="summon3d" />;
 }
 
+/** A Tribute Summon's effect waits for the Tributes' energy: when its wait is longer than this, its pieces stay unseen until then. */
+const LATE_FX_MIN_MS = 300;
+
+/**
+ * An effect whose turn is a long way off keeps its pieces (rings, dust, glow) hidden until then: their first poses
+ * would show from the first frame otherwise, while the Tributes are still burning. The effect itself runs as usual,
+ * so it still holds the summoned card back until its moment.
+ */
+function LateFx({ item, overlay, done }: EffectProps) {
+  const [shown, setShown] = useState(false);
+  const wait = item.delayMs;
+  useEffect(() => {
+    const timer = duelFxClock.setTimeout(() => setShown(true), wait);
+    return () => duelFxClock.clearTimeout(timer);
+  }, [wait]);
+  return (
+    <div style={shown ? undefined : { visibility: "hidden" }}>
+      <FxView item={item} overlay={overlay} done={done} />
+    </div>
+  );
+}
+
 function FxView({ item, overlay, done }: EffectProps) {
   if (item.reduced && item.kind === "activate") return <ActivateFx item={item} overlay={overlay} done={done} />;
   if (item.reduced) {
@@ -2194,7 +2216,11 @@ export function SummonFx({ events, duelKey, reducedMotion, shake }: SummonFxProp
     <div ref={overlayRef} className={styles.layer} aria-hidden="true">
       {overlay
         ? items.map((item) => (
-            <FxView key={item.key} item={item} overlay={overlay} done={() => finish(item.key)} />
+            item.event.summonKind === "tribute" && !item.reduced && item.delayMs > LATE_FX_MIN_MS ? (
+              <LateFx key={item.key} item={item} overlay={overlay} done={() => finish(item.key)} />
+            ) : (
+              <FxView key={item.key} item={item} overlay={overlay} done={() => finish(item.key)} />
+            )
           ))
         : null}
     </div>

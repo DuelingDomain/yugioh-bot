@@ -3,9 +3,9 @@
  *
  * Tributes are picked on the field, so the instruction ("Tribute 1 monster · 0/1", Summon, Cancel) docks by your
  * hand instead of covering the board:
- *   side    there is room right of your hand: the dock sits there, level with the hand, against the board edge
+ *   side    there is room right of your hand: the dock sits there, its bottom level with the hand, against the board edge
  *   above   no room beside the hand: the row above the hand, against the right edge
- *   center  no room beside the hand and the hand is centred and wide (the 2v2 Rooftop): the row above, centred
+ *   center  the 2v2 Rooftop (`centered`), or no room beside a centred, wide hand: the row above, centred
  *   full    a phone: the full width of the board, in the row above the hand
  * Pure geometry: the caller measures the DOM and passes rectangles in one coordinate space.
  */
@@ -17,16 +17,16 @@ export interface DockPlace {
   mode: DockMode;
   /** Left edge in board px (side), else null. */
   left: number | null;
-  /** Vertical centre in board px (side), else null. */
+  /** Unused by the current modes; kept null. */
   top: number | null;
-  /** Distance of the dock's bottom edge from the board's bottom edge, px (above, center, full). */
+  /** Distance of the dock's bottom edge from the board's bottom edge, px. */
   bottom: number | null;
   /** Width in board px (side), else null: the CSS sizes the dock. */
   width: number | null;
 }
 
 /** Narrowest dock that still reads beside a hand. */
-export const DOCK_MIN_WIDTH = 280;
+export const DOCK_MIN_WIDTH = 260;
 export const DOCK_MAX_WIDTH = 380;
 /** Board width below which the dock takes the whole width. */
 export const DOCK_PHONE_WIDTH = 560;
@@ -37,7 +37,7 @@ function valid(rect: BarRect | null | undefined): rect is BarRect {
   return rect != null && rect.right > rect.left && rect.bottom > rect.top;
 }
 
-export function placeTributeDock({ board, hand }: { board: BarRect; hand: BarRect | null }): DockPlace {
+export function placeTributeDock({ board, hand, centered = false }: { board: BarRect; hand: BarRect | null; centered?: boolean }): DockPlace {
   const width = board.right - board.left;
   const height = board.bottom - board.top;
   const own = valid(hand) ? hand : null;
@@ -46,14 +46,18 @@ export function placeTributeDock({ board, hand }: { board: BarRect; hand: BarRec
   if (width < DOCK_PHONE_WIDTH) return { mode: "full", left: null, top: null, bottom, width: null };
   if (!own) return { mode: "center", left: null, top: null, bottom: DOCK_EDGE, width: null };
 
+  // The 2v2 Rooftop keeps the dock over the middle of the row above the hand, where the seat plates leave room.
+  if (centered) return { mode: "center", left: null, top: null, bottom, width: null };
+
   const room = board.right - own.right - 2 * DOCK_EDGE;
   if (room >= DOCK_MIN_WIDTH) {
     const dock = Math.min(room, DOCK_MAX_WIDTH);
     return {
       mode: "side",
       left: Math.round(board.right - DOCK_EDGE - dock - board.left),
-      top: Math.round((own.top + own.bottom) / 2 - board.top),
-      bottom: null,
+      top: null,
+      // Bottom edges level with the hand's, so a dock that wraps to a second row grows upward, off the board's edge.
+      bottom: Math.max(DOCK_AIR, Math.round(board.bottom - own.bottom)),
       width: Math.round(dock),
     };
   }
