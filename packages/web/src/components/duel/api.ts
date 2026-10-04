@@ -196,6 +196,10 @@ export async function markDuelReady(slug: string): Promise<{ session: DuelSessio
   return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/ready`, { method: "POST" }));
 }
 
+export async function markDuelUnready(slug: string): Promise<{ session: DuelSession }> {
+  return parseBody(await fetch(`/api/duels/${encodeURIComponent(slug)}/unready`, { method: "POST" }));
+}
+
 /** Save the side-deck swaps for the next game; `slug` is any game of the series. */
 export async function saveSeriesSideDeck(slug: string, deck: DuelDeck): Promise<{ series: DuelSeriesSummary }> {
   return parseBody(

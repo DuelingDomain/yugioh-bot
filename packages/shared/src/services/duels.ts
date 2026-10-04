@@ -168,6 +168,7 @@ export interface DuelService {
    * the series work; the stub throws.
    */
   markReady(slug: string, guildId: string, playerId: number): DuelSession;
+  markUnready(slug: string, guildId: string, playerId: number): DuelSession;
   /**
    * `organizerPlayerId` null means a system start by the duel host. CONTRACT:
    * null is allowed only for a series game (duels.series_id set).
@@ -570,6 +571,7 @@ export function createDuelService(db: Database.Database): DuelService {
     "update duel_seats set deck_json = ?, ready = 1 where duel_id = ? and player_id = ?",
   );
   const updateReady = db.prepare<[number, number]>("update duel_seats set ready = 1 where duel_id = ? and player_id = ?");
+  const updateUnready = db.prepare<[number, number]>("update duel_seats set ready = 0 where duel_id = ? and player_id = ?");
   const nextCommandSeq = db.prepare<[number], { next_seq: number }>(
     "select coalesce(max(seq), 0) + 1 as next_seq from duel_commands where duel_id = ?",
   );
@@ -991,6 +993,18 @@ export function createDuelService(db: Database.Database): DuelService {
     return mapSession(row);
   });
 
+  const markUnreadyTx = db.transaction((slug: string, guildId: string, playerId: number) => {
+    const row = loadDuelRow(slug, guildId);
+    assertPlayerGuild(playerId, guildId);
+    assertRoomAccess(row, playerId);
+    if (row.status !== "lobby") throw new DuelServiceError("Duel is not in lobby", 400);
+    assertNoOpening(row);
+    const seat = seatRows(row.id).find((entry) => entry.player_id === playerId);
+    if (!seat) throw new DuelServiceError("You are not seated in this duel", 403);
+    updateUnready.run(row.id, playerId);
+    return mapSession(row);
+  });
+
   const activateTx = db.transaction(
     (
       slug: string,
@@ -1321,6 +1335,9 @@ export function createDuelService(db: Database.Database): DuelService {
 
     markReady(slug, guildId, playerId) {
       return markReadyTx(slug, guildId, playerId);
+    },
+    markUnready(slug, guildId, playerId) {
+      return markUnreadyTx(slug, guildId, playerId);
     },
 
     activate(slug, guildId, organizerPlayerId, seed, bundleVersion, clock, setup) {

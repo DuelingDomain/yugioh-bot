@@ -34,6 +34,7 @@ import {
   takeDuelSeat,
   leaveDuel,
   markDuelReady,
+  markDuelUnready,
   sendDuelAction,
   setDuelDeck,
   startDuel,
@@ -705,6 +706,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         onRemoveBot={(seat) => void run(() => removePracticeBot(slug, seat))}
         onReady={(deck) => void run(() => setDuelDeck(slug, deck))}
         onMarkReady={() => void run(() => markDuelReady(slug))}
+        onMarkUnready={() => void run(() => markDuelUnready(slug))}
         onStart={() => {
           // Inside the click, so pop-up blockers allow it. Seated players on other devices get the prompt below.
           if (inFlight.current) return;
