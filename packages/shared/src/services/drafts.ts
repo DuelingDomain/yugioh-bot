@@ -3,7 +3,8 @@ import type Database from "better-sqlite3";
 import type { Draft, DraftCard, DraftConfig, DraftPick, DraftPlayer } from "../types/index.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { MAX_COPIES_PER_PLAYER } from "./constants.js";
-import { createDraftDeckService } from "./draft-decks.js";
+import { buildDraftDeck, createDraftDeckService } from "./draft-decks.js";
+import { isExtraDeckFrame } from "./card-catalog.js";
 import { analyzeCube, buildDealWithRemainder, seededShuffle, type ShuffleSeed } from "./deal.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
@@ -407,22 +408,19 @@ export function createDraftService(
   };
 
   const exportYdk = (draftId: number, playerId: number): string => {
-    findById(draftId);
+    const draft = findById(draftId);
     assertJoinedPlayer(draftId, playerId);
-
-    const progress = playerProgress(draftId, playerId);
-
-    if (progress.pick_count < 40) {
+    if (draft.status !== "completed" && playerProgress(draftId, playerId).pick_count < (draft.config.cardsPerPlayer ?? defaultDraftConfig.cardsPerPlayer)) {
       throw new Error("Deck is not complete yet");
     }
-
-    const mainDeckCardIds = pool(draftId, playerId).slice(0, 40).map((row) => String(row.catalogCardId));
-
-    if (mainDeckCardIds.length < 40) {
-      throw new Error("Deck is not complete yet");
-    }
-
-    return ["#main", ...mainDeckCardIds, "#extra", "", "!side", ""].join("\n");
+    const rows = db.prepare(`select dc.catalog_card_id, cc.type, cc.frame_type
+      from draft_picks pk join draft_cards dc on dc.id = pk.draft_card_id
+      left join card_catalog cc on cc.ygoprodeck_id = dc.catalog_card_id
+      where pk.draft_id = ? and pk.player_id = ? order by pk.id`)
+      .all(draftId, playerId) as Array<{ catalog_card_id: number; type: string | null; frame_type: string | null }>;
+    const deck = buildDraftDeck(rows.map((row) => ({ catalogId: row.catalog_card_id,
+      extra: isExtraDeckFrame({ type: row.type ?? "", frameType: row.frame_type ?? "" }) })));
+    return ["#main", ...deck.main, "#extra", ...deck.extra, "", "!side", ...deck.side, ""].join("\n");
   };
 
   const catalogCardIdsForDraft = (config: DraftConfig): number[] => {

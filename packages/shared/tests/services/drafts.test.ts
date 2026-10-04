@@ -487,6 +487,33 @@ describe("shared draft service", () => {
     expect(pickRow?.pick_method).toBe("manual");
   });
 
+  it.each([30, 60])("exports all picks in a %s-card draft", (cardsPerPlayer) => {
+    const { db, drafts } = setup({ seedSource: () => 7 });
+    const a = insertPlayer(db, "g", "a", "A");
+    const b = insertPlayer(db, "g", "b", "B");
+    seedCatalogCards(db, 2 * cardsPerPlayer);
+    const draft = drafts.create("g", "c", "Export", { packSize: 15, packsPerPlayer: cardsPerPlayer / 15, cardsPerPlayer }, "a", a.id);
+    drafts.join(draft.id, b.id);
+    drafts.start(draft.id);
+    expect(() => drafts.exportYdk(draft.id, a.id)).toThrow("Deck is not complete yet");
+    for (let step = 0; step < cardsPerPlayer; step++) {
+      for (const id of [a.id, b.id]) drafts.pickCard(draft.id, id, drafts.currentPackOptions(draft.id, id)[0].id);
+    }
+    const lines = drafts.exportYdk(draft.id, a.id).split("\n");
+    expect(lines.slice(1, lines.indexOf("#extra"))).toEqual(drafts.pool(draft.id, a.id).map((card) => String(card.catalogCardId)));
+    expect(lines.indexOf("#extra")).toBe(cardsPerPlayer + 1);
+    db.close();
+  });
+
+  it("exports a completed old draft even with fewer picks than its target", () => {
+    const { db, drafts } = setup();
+    const a = insertPlayer(db, "g", "a", "A");
+    const draft = drafts.create("g", "c", "Old export", { cardsPerPlayer: 40 }, "a", a.id);
+    db.prepare("update drafts set status = 'completed' where id = ?").run(draft.id);
+    expect(drafts.exportYdk(draft.id, a.id)).toContain("#main\n#extra");
+    db.close();
+  });
+
   it("exports a completed deck in YGOPro YDK format", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");

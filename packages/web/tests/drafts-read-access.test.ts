@@ -74,7 +74,13 @@ describe("draft read access", () => {
               return;
             }
             if (route === "export") {
-              // Preserve the existing participant and complete-deck requirements.
+              if (user === "player" && status === "completed") {
+                expect(response.status).toBe(200);
+                expect(response.headers.get("content-type")).toBe("text/plain");
+                expect(await response.text()).toBe("#main\n#extra\n\n!side\n");
+                return;
+              }
+              // Other exports require both a participant and the configured pick total.
               expect(response.status).toBe(user === "player" ? 400 : 403);
               expect(await response.json()).toEqual({ error: user === "player" ? "Deck is not complete yet" : "Not a participant" });
             } else if (route === "deck-pool") {
