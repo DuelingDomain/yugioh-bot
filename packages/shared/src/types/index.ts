@@ -69,6 +69,8 @@ export interface DraftCard {
   waveNumber: number;
   catalogCardId: number;
   pickedByPlayerId: number | null;
+  /** This booster pack has no legal copy and no legal undealt replacement. */
+  forced?: boolean;
 }
 
 export interface DraftPack {

@@ -241,9 +241,10 @@ export async function buildDraftResponse(slug: string, userId: string) {
       ? degrade(slug, "held copies", {} as Record<number, number>, () => drafts.heldCopies(draft.id, currentPlayer.id))
       : {};
   const hasLegalCard = currentPackCards.some((card) => (held[card.catalogCardId] ?? 0) < MAX_COPIES_PER_PLAYER);
+  const forced = draftModel.config.copyLimit !== false && draftModel.config.mode !== "theme" && currentPackCards.length > 0 && !hasLegalCard;
   const currentPack = mapDraftCardDetails(slug, db, currentPackCards, engineTypes).map((card) => {
     const copies = held[card.passcode] ?? 0;
-    return { ...card, held: copies, blocked: draftModel.config.copyLimit !== false && copies >= MAX_COPIES_PER_PLAYER && (draftModel.config.mode === "theme" || hasLegalCard) };
+    return { ...card, held: copies, forced, blocked: draftModel.config.copyLimit !== false && copies >= MAX_COPIES_PER_PLAYER && (draftModel.config.mode === "theme" || hasLegalCard) };
   });
   const passed =
     draft.status === "active" && currentPlayer && isParticipant

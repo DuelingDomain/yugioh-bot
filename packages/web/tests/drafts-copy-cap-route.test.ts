@@ -128,6 +128,7 @@ describe("per-player copy cap in the draft routes", () => {
       [pack[2].id, 0, false],
       [pack[3].id, 0, false],
     ]);
+    expect(response?.currentPack.every((card) => card.forced === false)).toBe(true);
     expect(response?.isMyTurn).toBe(true);
     expect(response?.passed).toBe(false);
     db.close();
@@ -151,6 +152,7 @@ describe("per-player copy cap in the draft routes", () => {
     expect(response?.isMyTurn).toBe(true);
     expect(response?.currentPack).toHaveLength(3);
     expect(response?.currentPack.every((card) => !card.blocked)).toBe(true);
+    expect(response?.currentPack.every((card) => card.forced === true)).toBe(true);
     const seats = response?.seats ?? [];
     expect(seats.find((seat) => seat.playerId === host)?.hasPicked).toBe(false);
     expect(seats.find((seat) => seat.playerId === other)?.hasPicked).toBe(false);

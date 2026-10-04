@@ -1306,8 +1306,10 @@ export function createDraftService(
       cards = readCards();
       legal = cards.filter((card) => !isCapped(held, card.catalogCardId));
     }
-    if (!pickableOnly) return cards;
-    return legal.length > 0 || draft.config.mode === "theme" ? legal : cards;
+    if (draft.config.mode !== "theme" && legal.length === 0) {
+      return cards.map((card) => ({ ...card, forced: true }));
+    }
+    return pickableOnly ? legal : cards;
   };
 
   const swapPackOptions = db.transaction((draftId: number, playerId: number, pickableOnly: boolean) =>

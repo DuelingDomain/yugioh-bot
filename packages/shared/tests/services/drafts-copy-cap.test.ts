@@ -234,6 +234,7 @@ describe("per-player copy cap in booster drafts", () => {
     expect(drafts.findById(draftId).currentPickStep).toBe(2);
     expect(drafts.hasPassedStep(draftId, a)).toBe(false);
     expect(drafts.pickOptions(draftId, a)).toHaveLength(3);
+    expect(drafts.pickOptions(draftId, a).every((card) => card.forced === true)).toBe(true);
     drafts.pickCard(draftId, a, bPack[1].id);
     expect(drafts.heldCopies(draftId, a)[bPack[1].catalogCardId]).toBe(4);
     expect(db.prepare("select pick_count from draft_players where draft_id = ? and player_id = ?").get(draftId, a)).toEqual({ pick_count: 2 });
