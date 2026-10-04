@@ -11,7 +11,8 @@ import styles from "./phase-hub.module.css";
 
 export type PhaseHubProps = {
   /**
-   * "band": the 1v1 board. Three cells of the gap between the two fields, two phases each, clear of the Extra Monster Zones.
+   * "band": the 1v1 board. The gap between the two fields: the owner and the turn number in the left free cell, one card
+   *   with all six phases in the centre cell, nothing in the right one. Clear of the Extra Monster Zones.
    * "card": a table of 3 or 4. A small card beside the turn ring.
    */
   variant: "band" | "card";
@@ -35,9 +36,6 @@ export type PhaseHubProps = {
   reducedMotion: boolean;
 };
 
-
-/** The chips of each cell of the band, by station index. */
-const BAND_CELLS: ReadonlyArray<readonly [number, number]> = [[0, 1], [2, 3], [4, 5]];
 
 function Chip({ view, onChoose }: { view: StationView; onChoose: (optionId: string) => void }) {
   const { station, state, option } = view;
@@ -118,21 +116,18 @@ export function PhaseHub({
     >
       <p className={styles.srOnly} role="status" aria-live="polite" aria-atomic="true">{summary}</p>
       {variant === "band" ? (
-        BAND_CELLS.map((pair, cell) => {
-          const lit = pair.includes(current);
-          return (
-            <div key={cell} className={styles.cell} data-cell={cell}>
-              <div className={styles.head}>
-                {cell === 0 ? who : null}
-                {cell === 1 ? <b className={styles.turn}>Turn {turn ?? "—"}</b> : null}
-              </div>
-              <div className={styles.chips}>
-                {pair.map((index) => <Chip key={index} view={stations[index]} onChoose={onChoose} />)}
-              </div>
-              <div className={styles.foot} aria-hidden="true">{lit ? litName : null}</div>
+        <>
+          <div className={styles.cell} data-cell="who">
+            {who}
+            <b className={styles.turn}>Turn {turn ?? "—"}</b>
+          </div>
+          <div className={styles.panel} data-cell="phases">
+            <div className={styles.chips}>
+              {stations.map((view) => <Chip key={view.station.code} view={view} onChoose={onChoose} />)}
             </div>
-          );
-        })
+            <div className={styles.foot} aria-hidden="true">{litName}</div>
+          </div>
+        </>
       ) : (
         <>
           <div className={styles.head}>

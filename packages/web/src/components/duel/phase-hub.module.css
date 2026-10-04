@@ -210,11 +210,15 @@ button.chip:focus-visible {
   }
 }
 
-/* ---------- band: the gap between the two fields of a 1v1 ---------- */
+/* ---------- band: the gap between the two fields of a 1v1 ----------
+   The free cells of the Extra Monster Zone band are about one zone wide (--z). The left one says whose turn it is and
+   which turn; the centre one is a card of all six phases, 3 x 2, like the multiplayer card. Chips are sized from the
+   zone: as tall as 30% of it (26px at the least, 36px at the most), a third of the cell wide. The lit name goes first when
+   the zone is too small to hold it (under about 84px, a 1280 x 720 window). */
 
 .root[data-variant="band"] {
-  --hc: clamp(24px, calc(var(--z, 90px) * 0.3), 32px);
-  --hfs: clamp(9px, calc(var(--z, 90px) * 0.1), 13px);
+  --hc: clamp(26px, calc(var(--z, 90px) * 0.3), 36px);
+  --hfs: clamp(10px, calc(var(--z, 90px) * 0.115), 13.5px);
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   column-gap: var(--g, 8px);
@@ -225,16 +229,61 @@ button.chip:focus-visible {
   pointer-events: none;
 }
 .cell {
+  grid-column: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: calc(var(--hfs) * 0.5);
   min-width: 0;
+  font-size: var(--hfs);
 }
-.cell[data-cell="0"] { grid-column: 1; }
-.cell[data-cell="1"] { grid-column: 3; }
-.cell[data-cell="2"] { grid-column: 5; }
+.cell .who {
+  max-width: 100%;
+  font-size: var(--hfs);
+}
+.cell .turn {
+  font-size: calc(var(--hfs) * 1.15);
+}
+.panel {
+  grid-column: 3;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid rgb(var(--rule-rgb) / 0.34);
+  border-radius: 9px;
+  background: linear-gradient(rgb(10 17 34 / 0.94), rgb(7 11 21 / 0.94));
+}
+.root[data-variant="band"][data-tone="mine"] .panel {
+  border-color: rgb(155 126 255 / 0.55);
+}
+.root[data-variant="band"] .chips {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 3px;
+}
+.root[data-variant="band"] .chip {
+  width: auto;
+  border-radius: 6px;
+}
+.root[data-variant="band"] .tick {
+  top: -4px;
+  right: -4px;
+  width: 10px;
+  height: 10px;
+}
+.root[data-variant="band"] .tick svg {
+  width: 7px;
+  height: 7px;
+}
+/* The lit name: 0 high under a zone of 80px, full height from 84px, so a small window shows chips only. */
+.root[data-variant="band"] .foot {
+  height: clamp(0px, calc((var(--z, 90px) - 80px) * 100), calc(var(--hfs) * 1.25));
+  margin-top: clamp(0px, calc((var(--z, 90px) - 80px) * 100), 3px);
+  font-size: calc(var(--hfs) * 1.1);
+}
 
 /* ---------- card: beside the turn ring of a table of 3 or 4 ----------
    Sizes are stage px (the stage is scaled to the window, about 0.79 at 1440 x 900). The reading size (lg) puts the chips

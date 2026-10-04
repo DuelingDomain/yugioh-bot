@@ -175,6 +175,20 @@ describe("PhaseHub turn owner", () => {
     expect(container.querySelector<HTMLElement>("nav")!.style.getPropertyValue("--seat")).toBe("#5cb8f5");
   });
 
+  it("draws the band as one track: all six chips in one card, the owner and turn in their own cell", () => {
+    const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
+    const phases = container.querySelector<HTMLElement>("[data-cell='phases']")!;
+    const who = container.querySelector<HTMLElement>("[data-cell='who']")!;
+    expect(container.querySelectorAll("[data-cell]")).toHaveLength(2);
+    expect([...phases.querySelectorAll("[data-phase]")].map((chip) => chip.getAttribute("data-phase"))).toEqual(["DP", "SP", "M1", "BP", "M2", "EP"]);
+    expect(phases.textContent).toContain("Battle · Damage");
+    expect(phases.textContent).not.toContain("Turn 4");
+    expect(who.querySelectorAll("[data-phase]")).toHaveLength(0);
+    expect(who.textContent).toContain("You");
+    expect(who.textContent).toContain("Turn 4");
+    expect(who.compareDocumentPosition(phases) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("draws the card variant with all six chips in one block", () => {
     const { container } = render(<PhaseHub {...hubProps({ variant: "card" })} />);
     expect(container.querySelector("nav")!.getAttribute("data-variant")).toBe("card");
