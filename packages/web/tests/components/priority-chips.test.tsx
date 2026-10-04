@@ -23,6 +23,12 @@ describe("priorityOrder", () => {
     expect(priorityOrder(left, 1, [{ seat: 0 }], null).map((slot) => slot.seat)).toEqual([2, 0]);
   });
 
+  it("skips a seat that is leaving, also when it is the turn player", () => {
+    const leaving = [{ seat: 0 }, { seat: 1, pendingElimination: true }, { seat: 2 }];
+    expect(priorityOrder(leaving, 0, [{ seat: 2 }], null).map((slot) => slot.seat)).toEqual([0, 2]);
+    expect(priorityOrder(leaving, 1, [{ seat: 0 }], null).map((slot) => slot.seat)).toEqual([2, 0]);
+  });
+
   it("lights the seat that is choosing", () => {
     const order = priorityOrder(seats, 0, [{ seat: 1 }], 2);
     expect(order.filter((slot) => slot.choosing).map((slot) => slot.seat)).toEqual([2]);

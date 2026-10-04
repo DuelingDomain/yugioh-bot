@@ -454,10 +454,23 @@ describe("live room table mount", () => {
     expect(state.replace).not.toHaveBeenCalled();
   });
 
-  it("answers an engine-offered Leaving opponent from the live LP panel", async () => {
+  it("does not offer a Leaving opponent in the live LP panel while a living opponent remains", async () => {
     room(FFA3_FIXTURES.states["choose-opponent"].room);
     state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 2 ? { ...seat, pendingElimination: true } : seat);
     mount();
+    expect(screen.queryByTestId("holo-pick-2")).toBeNull();
+    expect(screen.getByTestId("holo-pick-1")).toBeVisible();
+    await act(async () => { fireEvent.click(screen.getByTestId("holo-pick-1")); });
+    expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {
+      promptId: "choose-opponent", revision: state.room!.engine!.revision, answer: { choice: "opp-1" },
+    });
+  });
+
+  it("answers a Leaving opponent from the live LP panel when every offered seat is leaving", async () => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 1 || seat.seat === 2 ? { ...seat, pendingElimination: true } : seat);
+    mount();
+    expect(screen.getByTestId("holo-pick-1")).toBeVisible();
     expect(screen.getByTestId("holo-pick-2")).toBeVisible();
     await act(async () => { fireEvent.click(screen.getByTestId("holo-pick-2")); });
     expect(state.send).toHaveBeenCalledExactlyOnceWith("live", {

@@ -5,11 +5,11 @@ import styles from "./priority-chips.module.css";
 
 export type PrioritySlot = { seat: number; choosing: boolean };
 
-type SeatLike = { seat: number; eliminated?: boolean };
+type SeatLike = { seat: number; eliminated?: boolean; pendingElimination?: boolean };
 
 /**
  * Who may answer the open chain, in order. After a link the turn player answers first and the others follow clockwise;
- * when the turn player made the last link, the next seat answers first. Seats that left the duel are skipped.
+ * when the turn player made the last link, the next seat answers first. Seats that left the duel or are leaving are skipped.
  * `choosingSeat` is the seat with the open chain prompt, or null when nobody is being asked.
  */
 export function priorityOrder(
@@ -18,7 +18,7 @@ export function priorityOrder(
   chain: readonly Pick<DuelChainLink, "seat">[],
   choosingSeat: number | null,
 ): PrioritySlot[] {
-  const alive = [...seats].filter((view) => view.eliminated !== true).map((view) => view.seat).sort((a, b) => a - b);
+  const alive = [...seats].filter((view) => view.eliminated !== true && view.pendingElimination !== true).map((view) => view.seat).sort((a, b) => a - b);
   if (alive.length === 0) return [];
   const turnAt = alive.indexOf(turnSeat);
   const last = chain[chain.length - 1];
