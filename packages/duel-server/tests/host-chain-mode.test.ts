@@ -42,9 +42,15 @@ class ScriptedWorker implements DuelGameWorker {
   }
   async answer() { this.revision += 1; }
   async search() { return []; }
+  /** Set to make the next setChainMode change the mode and then throw, like a core that refuses the automatic pass. */
+  failNext: Error | null = null;
+  /** Read by a test to learn how many times the host asked for the time before the switch reached the worker. */
+  onSetChainMode: () => void = () => {};
   async setChainMode(seat: number, mode: DuelChainMode): Promise<boolean> {
+    this.onSetChainMode();
     this.calls.push({ seat, mode });
     this.modes[seat] = mode;
+    if (this.failNext) { const error = this.failNext; this.failNext = null; throw error; }
     if (mode === "off" && this.holder === seat) {
       this.holder = 2;
       this.revision += 1;
@@ -55,7 +61,7 @@ class ScriptedWorker implements DuelGameWorker {
   async close() { this.running = false; }
 }
 
-async function table(worker = new ScriptedWorker()) {
+async function table(worker = new ScriptedWorker(), now?: () => number) {
   const db = new Database(":memory:"); databases.push(db); migrate(db);
   const players = [0, 1, 2].map((seat) =>
     Number(db.prepare("insert into players (guild_id, discord_user_id, display_name) values ('g', ?, ?)").run(`u${seat}`, `P${seat}`).lastInsertRowid));
@@ -69,7 +75,7 @@ async function table(worker = new ScriptedWorker()) {
   const makeHost = (w: DuelGameWorker) => {
     const host = createDuelHost({
       db, secret: SECRET, dataDirectory: DATA, searchCards: () => [], pollIntervalMs: 60_000,
-      createWorker: () => w, onChange: (slug) => { changes.push(slug); },
+      createWorker: () => w, now, onChange: (slug) => { changes.push(slug); },
     });
     hosts.push(host);
     return host;
@@ -136,6 +142,76 @@ describe("chain-mode op", () => {
     const bare = await table(new ScriptedWorker(false));
     expect((await bare.post({ op: "chain-mode", mode: "off" })).status).toBe(409);
     expect(bare.journal()).toHaveLength(0);
+  });
+
+  it("drops the worker when the engine throws after it set the mode, and journals nothing", async () => {
+    const t = await table();
+    t.worker.failNext = new Error("The core refused the automatic pass");
+    const result = await t.post({ op: "chain-mode", mode: "off" }, t.players[1]!);
+    expect(result.status).toBe(409);
+    expect(t.worker.running).toBe(false);
+    expect(t.journal()).toHaveLength(0);
+    // The next request rebuilds the duel from the journal on a fresh worker, where the mode never changed.
+    const fresh = new ScriptedWorker();
+    t.restart(fresh);
+    const view = await t.post({ op: "view" }, t.players[1]!);
+    expect(view.status, JSON.stringify(view.data)).toBe(200);
+    expect(view.data.engine.chainMode).toBe("auto");
+  });
+
+  it("does not pass a window when the seat's time runs out while the switch is decided", async () => {
+    // Learn how many times the host asks for the time before the switch reaches the worker; the last of them is the moment
+    // the switch is decided.
+    const base = Date.now();
+    let asked = 0;
+    const baseline = new ScriptedWorker();
+    baseline.onSetChainMode = () => { baselineAsked = asked; };
+    let baselineAsked = -1;
+    const first = await table(baseline, () => { asked += 1; return base; });
+    expect((await first.post({ op: "chain-mode", mode: "off" }, first.players[1]!)).status).toBe(200);
+    expect(baselineAsked).toBeGreaterThan(0);
+
+    // The same requests again, with the time jumping past every deadline from that moment on.
+    asked = 0;
+    const late = new ScriptedWorker();
+    const second = await table(late, () => { asked += 1; return asked >= baselineAsked ? base + 36_000_000 : base; });
+    const result = await second.post({ op: "chain-mode", mode: "off" }, second.players[1]!);
+    // Settling at that moment put the seat out (the scripted worker cannot drive the bots that follow, hence no 200).
+    expect(result.status).not.toBe(200);
+    expect(second.duels.privateState(second.slug, "g").setup?.surrenderedSeats).toEqual([1]);
+    expect(late.calls).toEqual([]);
+    // No switch was journaled (the entries that are there are the autopilot answers of the seat that is out).
+    expect(second.journal().filter((input) => input.command.promptId.startsWith("chain-mode:"))).toEqual([]);
+  });
+
+  it("leaves last_activity_at alone for a change that passes nothing, and moves it for one that passes a window", async () => {
+    const t = await table();
+    const activity = () => (t.db.prepare("select last_activity_at as at from duels where web_slug = ?").get(t.slug) as { at: string | null }).at;
+    t.db.prepare("update duels set last_activity_at = '2001-01-01 00:00:00' where web_slug = ?").run(t.slug);
+    expect((await t.post({ op: "chain-mode", mode: "always" })).status).toBe(200);
+    expect(t.journal()).toHaveLength(1);
+    expect(activity()).toBe("2001-01-01 00:00:00");
+    expect((await t.post({ op: "chain-mode", mode: "off" }, t.players[1]!)).status).toBe(200);
+    expect(t.journal()).toHaveLength(2);
+    expect(activity()).not.toBe("2001-01-01 00:00:00");
+  });
+
+  it("numbers replay frames by the frames emitted, so skipped mode changes leave no gap", async () => {
+    const t = await table();
+    expect((await t.post({ op: "chain-mode", mode: "always" })).status).toBe(200); // passes nothing: no frame
+    expect((await t.post({ op: "chain-mode", mode: "off" }, t.players[1]!)).status).toBe(200); // passes the window: a frame
+    expect((await t.post({ op: "chain-mode", mode: "off" })).status).toBe(200); // passes nothing
+    const view = (await t.post({ op: "view" }, t.players[2]!)).data.engine as DuelEngineView;
+    const answered = await t.post({ op: "respond", command: { promptId: view.prompt!.id, revision: view.revision, answer: { choice: "pass" } } }, t.players[2]!);
+    expect(answered.status, JSON.stringify(answered.data)).toBe(200);
+    expect((await t.post({ op: "chain-mode", mode: "always" }, t.players[1]!)).status).toBe(200); // passes nothing
+    expect(t.journal()).toHaveLength(5);
+    t.duels.complete(t.slug, "g", 0, "Test end");
+    t.restart(new ScriptedWorker());
+    const replay = await t.post({ op: "replay" });
+    expect(replay.status, JSON.stringify(replay.data)).toBe(200);
+    const steps = (replay.data.frames as Array<{ step: number }>).map((frame) => frame.step);
+    expect(steps).toEqual([0, 1, 2, 3]);
   });
 
   it("does nothing for the mode the seat already has", async () => {

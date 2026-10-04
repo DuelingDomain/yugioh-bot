@@ -40,7 +40,8 @@ export function useChainModeControl({ slug, serverMode, enabled, suspended = fal
 
   const lastOn = useRef<RememberedChainMode>("auto");
   const flying = useRef(false);
-  const wanted = useRef<DuelChainMode | null>(null);
+  // The newest wish with its own remember flag: a choice made while a restore is in flight must still be remembered.
+  const wanted = useRef<{ mode: DuelChainMode; remember: boolean } | null>(null);
   const appliedFor = useRef<string | null>(null);
   const latest = useRef({ send, onError });
   latest.current = { send, onError };
@@ -50,7 +51,7 @@ export function useChainModeControl({ slug, serverMode, enabled, suspended = fal
   }, [shown]);
 
   const request = useCallback(async (mode: DuelChainMode, remember: boolean) => {
-    wanted.current = mode;
+    wanted.current = { mode, remember };
     setPending(mode);
     if (flying.current) return;
     flying.current = true;
@@ -59,8 +60,8 @@ export function useChainModeControl({ slug, serverMode, enabled, suspended = fal
         const next = wanted.current;
         wanted.current = null;
         try {
-          await latest.current.send(next);
-          if (remember) rememberChainMode(next);
+          await latest.current.send(next.mode);
+          if (next.remember) rememberChainMode(next.mode);
         } catch (err) {
           wanted.current = null;
           latest.current.onError(err instanceof Error ? err.message : "The response switch could not be changed");

@@ -1291,7 +1291,9 @@ export function createDuelHost(options: {
           if (error instanceof RequestError) throw error;
           throw transport(error);
         }
-        frames.push({ step: i + 1, actorSeat: input.seat, view: deltaView(lastView, seen) });
+        // Numbered by the frames emitted so far: a skipped mode change must leave no gap (a gap shows how many private
+        // changes there were, and where).
+        frames.push({ step: frames.length, actorSeat: input.seat, view: deltaView(lastView, seen) });
       }
     } finally {
       await safeClose(game);
@@ -2362,6 +2364,13 @@ export function createDuelHost(options: {
     if (entry?.surrendered.has(seat)) throw new RequestError("You surrendered this duel", 409);
     if (entry?.presetId) throw new RequestError("Scenario tables have no response switch", 409);
     if (typeof live.setChainMode !== "function") throw new RequestError("This duel engine has no chain response switch", 409);
+    // Settle the clock again at the moment the switch is decided (like respond does), before the view that decides
+    // anything: a switch must never pass a window of a seat whose time has run out, and a forfeit that settling causes
+    // may put the seat out, so eligibility is read after it.
+    const decidedAt = now();
+    await settleClock(slug, guildId, live, decidedAt);
+    if (service.get(slug, guildId).status !== "active") return project(slug, guildId, actor);
+    if (games.get(slug)?.surrendered.has(seat)) throw new RequestError("You surrendered this duel", 409);
     const before: DuelEngineView = await live.view(seat);
     if (before.result) return project(slug, guildId, actor, live);
     if (before.seats?.some((state) => state.seat === seat && (state.eliminated || state.pendingElimination))) {
@@ -2374,13 +2383,15 @@ export function createDuelHost(options: {
     if (used >= CHAIN_MODE_JOURNAL_LIMIT) {
       throw new RequestError(`This duel has reached its limit of ${CHAIN_MODE_JOURNAL_LIMIT} response switch changes. The switch stays where it is.`, 409);
     }
-    const decidedAt = now();
     let passed: boolean;
     try {
       passed = await live.setChainMode(seat, mode);
     } catch (error) {
-      if (!live.running) await disposeGame(slug);
-      throw new RequestError(error instanceof Error ? error.message : "The response switch could not be set", live.running ? 409 : 503);
+      // The engine sets the mode before it passes the window, so a throw can leave the mode (or the core) changed with
+      // nothing journaled. Drop the worker whatever the cause; the next request rebuilds the duel from the journal.
+      const stillRunning = live.running;
+      await disposeGame(slug);
+      throw new RequestError(error instanceof Error ? error.message : "The response switch could not be set", stillRunning ? 409 : 503);
     }
     const command: DuelCommand = { promptId: `${CHAIN_MODE_PROMPT_PREFIX}${mode}`, revision: before.revision, answer: {} };
     try {
@@ -2388,7 +2399,8 @@ export function createDuelHost(options: {
         await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt);
       } else {
         // The clock is not touched: the stored clock goes back in as it is.
-        service.recordCommand(slug, guildId, seat, command, state.clock);
+        // Nor does it count as activity: /api/duels shows lastActivityAt to everyone and this change is private.
+        service.recordCommand(slug, guildId, seat, command, state.clock, { touchActivity: false });
       }
     } catch (error) {
       // Applied but not journaled: drop the worker so the next request rebuilds the duel from the journal.

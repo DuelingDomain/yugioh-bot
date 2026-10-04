@@ -164,6 +164,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   });
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
+  // Counts every request that changes the room (an action or a chain response switch change). A reply is put on the board
+  // only if no later request was sent after it: a slow reply must not bring back an older room over a newer one.
+  const mutationSeq = useRef(0);
   // Set when an answer is sent; the next prompt then decides whether an open pile viewer stays.
   const pileAnswered = useRef(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -402,6 +405,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       // React's busy state alone cannot reject two clicks within one render.
       if (inFlight.current) return;
       inFlight.current = true;
+      const seq = ++mutationSeq.current;
       echo.begin();
       setBusy(true);
       setMenu(null);
@@ -409,7 +413,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setActionError(null);
       try {
         const result = await work();
-        await applyAnswerResult(mutate, result);
+        if (seq === mutationSeq.current) await applyAnswerResult(mutate, result);
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Action failed");
         await mutate();
@@ -608,7 +612,17 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     serverMode: data?.engine?.chainMode,
     enabled: data?.mySeat != null && !spectate && !viewerOut && !ownWindowGate && data.session.status === "active" && !data.engine?.result,
     suspended: confirmSurrender || deckMenuOpen,
-    send: async (mode) => { await applyAnswerResult(mutate, await setChainResponseMode(slug, mode)); },
+    send: async (mode) => {
+      const seq = ++mutationSeq.current;
+      try {
+        const result = await setChainResponseMode(slug, mode);
+        if (seq === mutationSeq.current) await applyAnswerResult(mutate, result);
+      } catch (err) {
+        // An answer that was sent meanwhile may have had its reply dropped for this request: read the room again.
+        void mutate().catch(() => {});
+        throw err;
+      }
+    },
     onError: setActionError,
   });
 

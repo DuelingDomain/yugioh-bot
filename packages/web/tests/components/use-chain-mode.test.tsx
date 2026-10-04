@@ -149,6 +149,21 @@ describe("useChainModeControl", () => {
     expect(second.send).not.toHaveBeenCalled();
   });
 
+  it("remembers a choice made while the remembered one is still being applied", async () => {
+    window.localStorage.setItem(CHAIN_MODE_STORAGE_KEY, "auto");
+    let release: () => void = () => undefined;
+    // The automatic apply of "auto" is in flight and not remembered again.
+    const send = vi.fn<(mode: DuelChainMode) => Promise<void>>()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }))
+      .mockResolvedValue(undefined);
+    const { result } = setup({ serverMode: "always", send });
+    await waitFor(() => expect(send).toHaveBeenCalledExactlyOnceWith("auto"));
+    act(() => result.current!.onChange("always"));
+    await act(async () => release());
+    await waitFor(() => expect(send).toHaveBeenLastCalledWith("always"));
+    await waitFor(() => expect(loadRememberedChainMode()).toBe("always"));
+  });
+
   it("never overrides an Off the player already set, and waits for a live duel", async () => {
     window.localStorage.setItem(CHAIN_MODE_STORAGE_KEY, "always");
     const off = setup({ serverMode: "off" });

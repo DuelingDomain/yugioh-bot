@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelRoom } from "@yugidraft/shared/duels";
 
-const state = vi.hoisted(() => ({ room: undefined as DuelRoom | undefined, error: undefined as unknown, syncing: false, recovering: false, revealed: true, reportEnabled: vi.fn().mockResolvedValue(false), mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), resync: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined), surrender: vi.fn().mockResolvedValue(undefined), tagProps: vi.fn() }));
+const state = vi.hoisted(() => ({ room: undefined as DuelRoom | undefined, error: undefined as unknown, syncing: false, recovering: false, revealed: true, reportEnabled: vi.fn().mockResolvedValue(false), mutate: vi.fn().mockResolvedValue(undefined), replace: vi.fn(), resync: vi.fn().mockResolvedValue(undefined), send: vi.fn().mockResolvedValue(undefined), surrender: vi.fn().mockResolvedValue(undefined), chain: vi.fn(), tagProps: vi.fn() }));
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
   return { Oxanium: font, Sofia_Sans_Semi_Condensed: font, Sofia_Sans_Extra_Condensed: font, Newsreader: font };
@@ -14,7 +14,7 @@ vi.mock("swr", () => ({ default: () => ({ data: state.room, error: state.error, 
 vi.mock("@/lib/hooks/use-duel-websocket", () => ({ useDuelWebsocket: () => ({ connected: true, syncing: state.syncing, recovering: state.recovering, presence: null, resync: state.resync }) }));
 vi.mock("@/lib/hooks/use-duel-leave-guard", () => ({ useDuelLeaveGuard: vi.fn() }));
 vi.mock("@/components/duel/prompt-reveal", async (original) => ({ ...await original<object>(), usePromptReveal: () => state.revealed, usePromptAnswerable: () => true }));
-vi.mock("@/components/duel/api", async (original) => ({ ...await original<object>(), sendDuelAction: state.send, surrenderDuel: state.surrender,
+vi.mock("@/components/duel/api", async (original) => ({ ...await original<object>(), sendDuelAction: state.send, surrenderDuel: state.surrender, setChainResponseMode: state.chain,
   reportEnabled: state.reportEnabled, getDuelRoom: async () => state.room, listDuelPresets: async () => ({ presets: [] }) }));
 // The Rooftop is built by another branch; the room only has to mount it with the shared seams and the team names.
 vi.mock("@/components/duel/tag/tag-shell", () => ({
@@ -243,6 +243,28 @@ describe("live room table mount", () => {
     await act(async () => { fireEvent.click(item); });
     expect(state.send).toHaveBeenCalledTimes(1);
     expect(state.send).toHaveBeenCalledWith("live", { promptId: state.room!.engine!.prompt!.id, revision: state.room!.engine!.revision, answer: { choice: expect.any(String) } });
+  });
+
+  it("puts the reply of the newest request on the board, not a slower older one", async () => {
+    room(FFA3_FIXTURES.states.main.room);
+    state.room!.engine!.chainMode = "auto";
+    state.room!.engine!.prompt = { id: "materials", seat: 0, kind: "toggle", title: "Select Synchro Material",
+      options: [{ id: "select:0", label: "Material", controller: 0, location: 4, sequence: 0 }] };
+    const withMode = (chainMode: "auto" | "off") => ({ ...state.room!, engine: { ...state.room!.engine!, revision: state.room!.engine!.revision + 1, chainMode } });
+    const slowAnswer = withMode("auto");
+    let release: (value: unknown) => void = () => undefined;
+    state.send.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    state.chain.mockResolvedValueOnce(withMode("off"));
+    const { container } = mount();
+    const card = container.querySelector("[data-zones='0:4:0']")!;
+    await act(async () => { fireEvent.click(card.querySelector("button") ?? card); });
+    expect(state.send).toHaveBeenCalledTimes(1);
+    // The switch is changed while the answer is still on its way, and its reply comes first.
+    await act(async () => { fireEvent.keyDown(window, { key: "r" }); });
+    await waitFor(() => expect(state.chain).toHaveBeenCalledExactlyOnceWith("live", "off"));
+    await act(async () => { release(slowAnswer); });
+    const boards = state.mutate.mock.calls.filter((call) => call[0] && "engine" in call[0]).map((call) => call[0].engine.chainMode);
+    expect(boards).toEqual(["off"]);
   });
 
   it("submits a live material toggle exactly once", async () => {
