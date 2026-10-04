@@ -337,6 +337,11 @@
 .board[data-deal-wait="true"] [data-hand-seat] {
   visibility: hidden;
 }
+/* Their Decks already show the count after the deal; the layers count it down card by card from the
+   count before the last card leaves. Show no number until then, or it would jump 35 -> 39 -> 35. */
+.board[data-deal-wait="true"] [data-zones*=":1:0"] [data-pile-count] {
+  visibility: hidden;
+}
 .board::after {
   content: "";
   position: absolute;

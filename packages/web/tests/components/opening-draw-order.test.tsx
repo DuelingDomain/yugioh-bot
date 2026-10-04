@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import React from "react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelClock, DuelEngineView, DuelEvent } from "@yugidraft/shared/duels";
@@ -224,7 +226,7 @@ describe("the opening deal through the room hand-over", () => {
 /** Shows what useStartBeats says, without any layer. */
 function Probe({ events = opening, clock, duelKey, ready = true, recovering = false }: { events?: DuelEvent[]; clock?: DuelClock | null; duelKey: string; ready?: boolean; recovering?: boolean }) {
   const beats = useStartBeats({ engine: { revision: 0, turn: 1, phase: "main1", events } as DuelEngineView, clock, duelKey, reducedMotion: false, ready, recovering });
-  return <div data-testid="probe" data-dealing={String(beats.dealing)} />;
+  return <div data-testid="probe" data-dealing={String(beats.dealing)} data-waiting={String(beats.waiting)} />;
 }
 const probe = (view: ReturnType<typeof render>) => view.getByTestId("probe").dataset;
 
@@ -271,6 +273,35 @@ describe("how long the layers stay up through a recovering blip", () => {
     expect(probe(view).dealing).toBe("false");
     view.rerender(<Probe events={[]} clock={graceClock(8000)} duelKey={next} ready={false} recovering />);
     expect(fxLayersUp(true, true, probe(view).dealing === "true")).toBe(false);
+  });
+});
+
+describe("the Deck count while the opening waits for the layers", () => {
+  const css = readFileSync(join(__dirname, "../../src/components/duel/room.module.css"), "utf8");
+
+  it("waits (hands hidden) until the layers are ready, then stops waiting", () => {
+    const view = render(<Probe clock={graceClock(8000)} duelKey={key} ready={false} />);
+    expect(probe(view).waiting).toBe("true");
+    view.rerender(<Probe clock={graceClock(8000)} duelKey={key} />);
+    expect(probe(view).waiting).toBe("false");
+  });
+
+  it("does not wait for a duel that is not at its opening", () => {
+    const view = render(<Probe clock={graceClock(-3000)} duelKey={key} ready={false} />);
+    expect(probe(view).waiting).toBe("false");
+  });
+
+  it("shows no Deck number while the board waits, so the count does not jump before it counts down", () => {
+    // Piles carry data-zones="<seat>:1:0" for the Deck; the number inside it is data-pile-count.
+    const rule = /\.board\[data-deal-wait="true"\] \[data-zones\*=":1:0"\] \[data-pile-count\] \{([^}]*)\}/.exec(css);
+    expect(rule, "the Deck count rule").not.toBeNull();
+    expect(rule![1]).toMatch(/visibility:\s*hidden/);
+    // The same selector matches the Deck number of each seat and nothing else.
+    const view = render(<div>
+      {["0:1:0", "1:1:0", "0:2:0", "0:2:10", "0:4:0", "0:3:1", "1:5:1"].map((zone) => <div key={zone} data-zones={zone}><b data-pile-count={3} data-zone={zone} /></div>)}
+    </div>);
+    const hit = [...view.container.querySelectorAll<HTMLElement>('[data-zones*=":1:0"] [data-pile-count]')].map((node) => node.dataset.zone);
+    expect(hit).toEqual(["0:1:0", "1:1:0"]);
   });
 });
 
