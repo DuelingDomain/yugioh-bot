@@ -138,7 +138,6 @@ export function totalThemeRounds(config: DraftConfig): number {
   return main + extra;
 }
 
-const extraDeckFrameTypes = new Set(["fusion", "synchro", "xyz", "link"]);
 const pickOptionLimit = 8;
 
 function deadlineIso(now: Date, seconds: number) {
@@ -146,14 +145,7 @@ function deadlineIso(now: Date, seconds: number) {
 }
 
 function isExtraDeckCatalogRow(row: CatalogRow) {
-  return (
-    extraDeckFrameTypes.has(row.frame_type) ||
-    row.type.includes("Fusion Monster") ||
-    row.type.includes("Synchro Monster") ||
-    row.type.includes("XYZ Monster") ||
-    row.type.includes("Xyz Monster") ||
-    row.type.includes("Link Monster")
-  );
+  return isExtraDeckFrame({ frameType: row.frame_type, type: row.type });
 }
 
 export function createDraftService(

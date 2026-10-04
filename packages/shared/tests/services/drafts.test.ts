@@ -295,6 +295,15 @@ describe("shared draft service", () => {
     expect(drafts.currentPackOptions(draft.id, joey.id)).toEqual(secondPacks[3].slice(1));
   });
 
+  it.each([["synchro_pendulum", "Synchro Pendulum Effect Monster"], ["xyz_pendulum", "XYZ Pendulum Effect Monster"]])("keeps %s cards out of the booster pool", (frame, type) => {
+    const { db, drafts } = setup();
+    seedCatalogCards(db, 2);
+    db.prepare("update card_catalog set frame_type = ?, type = ? where ygoprodeck_id = 2").run(frame, type);
+    expect(drafts.resolveCubeCardIds({ customCardIds: [1, 2] })).toEqual([1]);
+    expect(drafts.resolveCubeCardIds({ setNames: ["Metal Raiders"] })).toEqual([1]);
+    db.close();
+  });
+
   it("uses custom card ids as an explicit draft pool", () => {
     const app = setup();
     const yugi = insertPlayer(app.db, "guild-1", "user-1", "Yugi");

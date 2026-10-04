@@ -1,13 +1,8 @@
-import type { CardSummary } from "@/lib/card-types";
+import { isExtraDeckMonster, type CardSummary } from "@/lib/card-types";
 
-const EXTRA_FRAMES = new Set(["fusion", "synchro", "xyz", "link"]);
-
-/** Client-side mirror of the shared isExtraDeckFrame — routes a card to main/extra. */
+/** Same Extra Deck split used by the deck builder and the shared catalog. */
 export function isExtraDeckCardClient(card: { frameType: string; type: string }): boolean {
-  return (
-    EXTRA_FRAMES.has(card.frameType.toLowerCase()) ||
-    /(Fusion|Synchro|Xyz|XYZ|Link) Monster/.test(card.type)
-  );
+  return isExtraDeckMonster(card);
 }
 
 export type CubePoolName = "main" | "extra";
