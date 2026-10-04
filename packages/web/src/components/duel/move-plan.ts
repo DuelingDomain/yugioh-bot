@@ -48,6 +48,9 @@ export const MOVE_TIMING = {
   minGapMs: MOVE_PACE.minGapMs,
   handMinGapMs: MOVE_PACE.handMinGapMs,
   handQueueCapMs: MOVE_PACE.handQueueCapMs,
+  dealGapMs: MOVE_PACE.dealGapMs,
+  dealMs: MOVE_PACE.dealMs,
+  dealMinCards: MOVE_PACE.dealMinCards,
   /** The whole queue should finish within this many ms of the newest batch arriving. */
   queueCapMs: MOVE_PACE.queueCapMs,
   /** Never speed a burst up by more than this factor (1 / minSpeed). */
@@ -161,6 +164,16 @@ export function isMoveEvent(event: DuelEvent): boolean {
 
 function isPileLocation(location: number): boolean {
   return location === LOCATION_GRAVE || location === LOCATION_REMOVED || location === LOCATION_DECK || location === LOCATION_EXTRA;
+}
+
+/**
+ * A deal: a batch of plain draws from the Deck into hands, like the two opening hands. Its cards leave
+ * the Deck one after the other at a short fixed pace (dealGapMs), so a hand fills card by card in about
+ * a second. One draw, or a draw effect of a few cards, keeps the ordinary pace.
+ */
+export function isDealBatch(events: readonly DuelEvent[]): boolean {
+  return events.length >= MOVE_TIMING.dealMinCards && events.every((event) => event.reason === "draw"
+    && event.from?.location === LOCATION_DECK && event.zone?.location === LOCATION_HAND);
 }
 
 export function moveStyleOf(event: DuelEvent, reduced: boolean): MoveStyle {
@@ -420,6 +433,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
 
   const t0 = Math.max(now, state.nextStartAt);
   const t0Free = now;
+  const deal = isDealBatch(candidates.map((item) => item.event)) && candidates.every((item) => !item.takeover && !item.silent);
   const place = (speed: number) => {
     let cursor = t0;
     const out: Array<{ start: number; dur: number; phases: ShowcasePhases | null }> = [];
@@ -431,7 +445,8 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       }
       // A showcase has fixed legs (the hold stays long enough to read); the rest of the queue gives way.
       const phases = item.style === "add" ? showcasePhases(speed, reduced) : null;
-      const dur = phases ? phases.totalMs : item.base * speed;
+      // A dealt card flies a little quicker than a lone draw; reduced motion keeps its short fade.
+      const dur = phases ? phases.totalMs : deal && !reduced ? MOVE_TIMING.dealMs * speed : item.base * speed;
       const predecessorIndex = item.predecessor ? candidates.indexOf(item.predecessor) : -1;
       const predecessor = out[predecessorIndex];
       // A continuation starts exactly where its own card lands, even while other cards in the
@@ -440,7 +455,8 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       out.push({ start, dur, phases });
       // The next card of the effect starts as the showcase card sets off for the hand.
       const minGap = item.event.zone?.location === LOCATION_HAND ? MOVE_TIMING.handMinGapMs : MOVE_TIMING.minGapMs;
-      const gate = phases ? showcaseGateMs(phases, candidates[index + 1]?.style === "add") : Math.max(dur * MOVE_TIMING.overlap, minGap);
+      const gate = phases ? showcaseGateMs(phases, candidates[index + 1]?.style === "add")
+        : deal ? MOVE_TIMING.dealGapMs : Math.max(dur * MOVE_TIMING.overlap, minGap);
       cursor = Math.max(cursor, start + gate);
     });
     return { out, cursor };
