@@ -1301,11 +1301,18 @@ export function createDraftService(
     const held = heldCopies(draftId, playerId);
     let legal = cards.filter((card) => !isCapped(held, card.catalogCardId));
     if (draft.config.mode !== "theme" && cards.length > 0 && legal.length === 0) {
-      // Re-read status, progress, eligibility and the pack under the lock before any swap.
-      if (!swapping) return swapPackOptions(draftId, playerId, pickableOnly);
-      prepareBoosterPack(draftId, playerId);
-      cards = readCards();
-      legal = cards.filter((card) => !isCapped(held, card.catalogCardId));
+      if (!swapping) {
+        const remainder = db.prepare("select catalog_card_id from draft_undealt where draft_id = ? order by position")
+          .all(draftId) as Array<{ catalog_card_id: number }>;
+        // Only take the write lock if a swap is possible; recheck everything inside it.
+        if (remainder.some((card) => !isCapped(held, card.catalog_card_id))) {
+          return swapPackOptions(draftId, playerId, pickableOnly);
+        }
+      } else {
+        prepareBoosterPack(draftId, playerId);
+        cards = readCards();
+        legal = cards.filter((card) => !isCapped(held, card.catalogCardId));
+      }
     }
     if (draft.config.mode !== "theme" && legal.length === 0) {
       return cards.map((card) => ({ ...card, forced: true }));
