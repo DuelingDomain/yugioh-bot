@@ -137,7 +137,7 @@ The Domain includes the Deck Master's archetypes, Attributes and Monster Types, 
 - The app flow for a team response window in 2v2: both partners see their own options, the team passes only when both pass, and the first activation becomes the Chain Link.
 - Which cards need a per-card rule because their text does not fit the Domain Format errata. The automatic card test suite (ADR-0003) finds and tracks them.
 - Patch 0084 follow-up L3: save the turn player before the prompt for a trigger in "your opponent's <phase>". If that player leaves, the trigger must keep that seat under R-FFA-OPP-RESPONSE.
-- Patch 0084 follow-up Natural Disaster (`c18158397`): derive its opponent from the destroyed cards in the event group. The owner must decide how to handle an event group with cards from more than one opponent. Both follow-ups remain open. See [the follow-up record](../../packages/duel-server/domain-core/.build/phase2/fix-wave3/bound-surrender-fix2/followups.md).
+- Patch 0084 follow-up Natural Disaster (`c18158397`): derive its opponent from the destroyed cards in the event group. The owner must decide how to handle an event group with cards from more than one opponent. Both follow-ups remain open.
 
 ## Consequences
 
