@@ -10,7 +10,7 @@ vi.mock("next/font/google", () => {
 });
 
 import { MoveFx } from "@/components/duel/move-fx";
-import { findZoneElement } from "@/components/duel/event-queue";
+import { findMoveZoneElement, findZoneElement } from "@/components/duel/event-queue";
 import { captureZoneSnapshots, clearZoneSnapshots, resetMoveSchedule, resolveSource } from "@/components/duel/move-plan";
 import { CARDS } from "@/components/duel/fx-lab/cards";
 
@@ -57,15 +57,26 @@ afterEach(() => {
 
 describe("the Deck anchor", () => {
   it.each([0, 1, 27, 28])("finds the Deck pile for the engine sequence %s", (sequence) => {
-    expect(findZoneElement(z(0, DECK, sequence))).toBe(board.querySelector('[data-zones="0:1:0"]'));
+    expect(findMoveZoneElement(z(0, DECK, sequence))).toBe(board.querySelector('[data-zones="0:1:0"]'));
   });
   it("finds the Extra Deck pile for a sequence it does not list", () => {
-    expect(findZoneElement(z(0, EXTRA, 5))).toBe(board.querySelector('[data-zones="0:64:0 0:64:1"]'));
+    expect(findMoveZoneElement(z(0, EXTRA, 5))).toBe(board.querySelector('[data-zones="0:64:0 0:64:1"]'));
+  });
+  it("finds an Extra Deck pile that lists only a face-up card (an opponent's), whatever the sequence", () => {
+    board.insertAdjacentHTML("beforeend", '<div data-zones="1:64:10" data-side="opp"></div>');
+    const pile = board.querySelector('[data-zones="1:64:10"]');
+    expect(findMoveZoneElement(z(1, EXTRA, 3))).toBe(pile);
+    expect(findMoveZoneElement(z(1, EXTRA, 0))).toBe(pile);
+    expect(findMoveZoneElement(z(1, EXTRA, 10))).toBe(pile);
   });
   it("does not invent an anchor in other places", () => {
-    expect(findZoneElement(z(0, GRAVE, 4))).toBeNull();
-    expect(findZoneElement(z(0, MZONE, 4))).toBeNull();
-    expect(findZoneElement(z(1, DECK, 28))).toBeNull();
+    expect(findMoveZoneElement(z(0, GRAVE, 4))).toBeNull();
+    expect(findMoveZoneElement(z(0, MZONE, 4))).toBeNull();
+    expect(findMoveZoneElement(z(1, DECK, 28))).toBeNull();
+  });
+  it("keeps the exact lookup for the board effects of other events (a destroy has no Deck pile)", () => {
+    expect(findZoneElement(z(0, DECK, 28))).toBeNull();
+    expect(findZoneElement(z(0, DECK, 0))).toBe(board.querySelector('[data-zones="0:1:0"]'));
   });
   it("aims a card that leaves the top of the Deck at the Deck pile", () => {
     expect(resolveSource(z(0, DECK, 27))?.rect.left).toBe(600);
@@ -106,5 +117,68 @@ describe("a card returned to the Deck", () => {
     act(() => vi.advanceTimersByTime(2000));
     expect(flights()).toHaveLength(1);
     expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("flies a face-down card to an opponent Extra Deck that lists only a face-up Pendulum", () => {
+    vi.useFakeTimers();
+    board.insertAdjacentHTML("beforeend", '<div data-zones="1:64:10" data-side="opp"></div>');
+    captureZoneSnapshots(board);
+    const { rerender } = render(<MoveFx events={[]} duelKey="deck-return" reducedMotion={false} />);
+    rerender(<MoveFx events={events(3, { zone: z(1, EXTRA, 3), card: undefined, faceDown: true })} duelKey="deck-return" reducedMotion={false} />);
+    act(() => vi.advanceTimersByTime(2000));
+    expect(flights()).toHaveLength(1);
+  });
+
+  it.each([
+    ["own Fusion Monster", 0, CARDS.darkPaladin],
+    ["own Xyz Monster", 0, CARDS.utopia],
+    ["opponent's Fusion Monster", 1, CARDS.darkPaladin],
+    ["opponent's Xyz Monster", 1, CARDS.utopia],
+  ])("flies %s into the Extra Deck pile and turns it face-down", (_name, seat, info) => {
+    vi.useFakeTimers();
+    // An opponent's pile lists only its face-up cards: it has no sequence 0 key.
+    board.insertAdjacentHTML("beforeend", '<div data-zones="1:64:10" data-side="opp"></div>');
+    captureZoneSnapshots(board);
+    const { rerender } = render(<MoveFx events={[]} duelKey="deck-return" reducedMotion={false} />);
+    rerender(<MoveFx events={events(3, { seat, zone: z(seat, EXTRA, 3), card: info })} duelKey="deck-return" reducedMotion={false} />);
+    act(() => vi.advanceTimersByTime(2000));
+    expect(flights()).toHaveLength(1);
+    const [turn] = turns();
+    expect(turn[0].transform).toBe("rotateY(0deg)");
+    expect(turn[turn.length - 1].transform).toBe("rotateY(180deg)");
+  });
+
+  it("keeps an opponent's face-up Pendulum face-up when it goes to the Extra Deck", () => {
+    vi.useFakeTimers();
+    board.insertAdjacentHTML("beforeend", '<div data-zones="1:64:10" data-side="opp"></div>');
+    captureZoneSnapshots(board);
+    const { rerender } = render(<MoveFx events={[]} duelKey="deck-return" reducedMotion={false} />);
+    rerender(<MoveFx events={events(3, { seat: 1, zone: z(1, EXTRA, 3), card: CARDS.oddEyes })} duelKey="deck-return" reducedMotion={false} />);
+    act(() => vi.advanceTimersByTime(2000));
+    expect(flights()).toHaveLength(1);
+    expect(turns()).toHaveLength(0);
+  });
+
+  it("keeps a face-up Pendulum face-up when it goes to the Extra Deck", () => {
+    vi.useFakeTimers();
+    captureZoneSnapshots(board);
+    const { rerender } = render(<MoveFx events={[]} duelKey="deck-return" reducedMotion={false} />);
+    rerender(<MoveFx events={events(5, { zone: z(0, EXTRA, 5), card: CARDS.oddEyes })} duelKey="deck-return" reducedMotion={false} />);
+    act(() => vi.advanceTimersByTime(2000));
+    expect(flights()).toHaveLength(1);
+    // The card is face-up where it was, so it neither turns nor ends on a sleeve.
+    expect(turns()).toHaveLength(0);
+  });
+
+  it("flies a card milled from the top of the Deck from the Deck pile and turns it face-up", () => {
+    vi.useFakeTimers();
+    captureZoneSnapshots(board);
+    const { rerender } = render(<MoveFx events={[]} duelKey="deck-return" reducedMotion={false} />);
+    rerender(<MoveFx events={events(0, { from: z(0, DECK, 27), zone: z(0, GRAVE, 0), reason: "send" })} duelKey="deck-return" reducedMotion={false} />);
+    act(() => vi.advanceTimersByTime(2000));
+    expect(flights()).toHaveLength(1);
+    const [turn] = turns();
+    expect(turn[0].transform).toBe("rotateY(180deg)");
+    expect(turn[turn.length - 1].transform).toBe("rotateY(0deg)");
   });
 });

@@ -9,6 +9,7 @@ import {
   HAND,
   MZ,
   SZ,
+  cardAt,
   edit,
   ev,
   link,
@@ -1066,7 +1067,7 @@ const MOVES: LabScenario[] = [
       2800,
     ),
   ),
-  moveScenario("move-deck-top", "Place on top of the Deck", "Phoenix Wing Wind Blast: a monster of the opponent goes back on top of their Deck (engine sequence = Deck size).", () =>
+  moveScenario("move-deck-top", "Place on top of the Deck", "Phoenix Wing Wind Blast: a monster of the opponent goes back on top of their Deck (engine sequence = new Deck size - 1).", () =>
     script(
       board((e) => e.push(edit.monster(OPP, 2, C.blueEyes))),
       [{ at: 0, events: [ev.move(OPP, C.blueEyes, MZ(OPP, 2), DECK(OPP, 29), "return")], edits: [edit.monster(OPP, 2, null), edit.deckCount(OPP, 30)] }],
@@ -1166,7 +1167,7 @@ const MOVES: LabScenario[] = [
       2400,
     ),
   ),
-  moveScenario("move-extra", "Return to the Extra Deck", "A card returns from the field to the Extra Deck.", () =>
+  moveScenario("move-extra", "Return to the Extra Deck", "A Synchro Monster returns from the field to the Extra Deck and turns face-down on the way.", () =>
     script(
       board((e) => e.push(edit.monster(ME, 2, C.stardust))),
       [
@@ -1176,6 +1177,29 @@ const MOVES: LabScenario[] = [
           edits: [edit.monster(ME, 2, null), (b) => { b.seats[ME].extra.push({ controller: ME, location: EXTRA(ME, 3).location, sequence: 3, position: POS_FACEDOWN_DEFENSE }); b.seats[ME].extraCount += 1; }],
         },
       ],
+      2800,
+    ),
+  ),
+  moveScenario("move-extra-pendulum", "Pendulum Monster to the Extra Deck", "A face-up Pendulum Monster goes to the Extra Deck and stays face-up (it does not turn into a sleeve).", () =>
+    script(
+      board((e) => e.push(edit.monster(ME, 2, C.oddEyes))),
+      [
+        {
+          at: 0,
+          events: [ev.move(ME, C.oddEyes, MZ(ME, 2), EXTRA(ME, 3), "return")],
+          edits: [edit.monster(ME, 2, null), (b) => { b.seats[ME].extra.push(cardAt(C.oddEyes, EXTRA(ME, 3), POS_FACEUP_ATTACK)); b.seats[ME].extraCount += 1; }],
+        },
+      ],
+      2800,
+    ),
+  ),
+  moveScenario("move-extra-opp-pendulum", "To an opponent Extra Deck with a face-up Pendulum", "The opponent's Extra Deck lists only its face-up Pendulum Monster (sequence 10): an Xyz Monster of the opponent still flies into that pile and turns face-down.", () =>
+    script(
+      board((e) => {
+        e.push(edit.monster(OPP, 2, C.utopia));
+        e.push((b) => { b.seats[OPP].extra = [cardAt(C.oddEyes, EXTRA(OPP, 10), POS_FACEUP_ATTACK)]; b.seats[OPP].extraCount = 4; });
+      }),
+      [{ at: 0, events: [ev.move(OPP, C.utopia, MZ(OPP, 2), EXTRA(OPP, 3), "return")], edits: [edit.monster(OPP, 2, null), (b) => { b.seats[OPP].extraCount += 1; }] }],
       2800,
     ),
   ),
