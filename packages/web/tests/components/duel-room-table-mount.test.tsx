@@ -285,7 +285,7 @@ describe("live room table mount", () => {
     room(fixtures.states.main.room);
     state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, pendingElimination: true } : seat);
     const view = mount();
-    expect(screen.getByTestId("self-leaving")).toHaveTextContent("Leaving — you surrendered; you leave when the current chain finishes");
+    expect(screen.getByTestId("self-leaving")).toHaveTextContent("Leaving — you leave the duel when the current chain finishes");
     expect(screen.queryByRole("button", { name: "Surrender" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Stay and watch" })).toBeNull();
     expect(state.replace).not.toHaveBeenCalled();

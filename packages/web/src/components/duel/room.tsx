@@ -692,7 +692,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     return <BetweenGamesScreen room={data} slug={slug} onChanged={refreshRoom} onNavigate={goToGame} />;
   }
   const leavingNotice = viewerLeaving ? <p className={styles.leavingNotice} role="status" data-testid="self-leaving">
-    Leaving — you surrendered; you leave when the current chain finishes
+    Leaving — you leave the duel when the current chain finishes
   </p> : null;
   const popOutControl = data.mySeat != null && !viewerOut && !inDuelWindow && data.session.status === "active" && !engine?.result ?
     <>
