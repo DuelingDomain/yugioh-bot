@@ -133,12 +133,19 @@ describe("PhaseHub on your turn", () => {
 
   it("names the Battle Phase step on the lit phase", () => {
     const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
-    expect(container.textContent).toContain("Battle · Damage");
+    expect(container.textContent).toContain("Battle, Damage step");
+  });
+
+  it("writes no middle dot anywhere in the hub", () => {
+    const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
+    expect(container.textContent).not.toContain("\u00b7");
+    const css = readFileSync(join(__dirname, "../../src/components/duel/phase-hub.module.css"), "utf8");
+    expect(css).not.toMatch(/\\00b7|\u00b7/i);
   });
 
   it("does not repeat the name when the battle step is called Battle", () => {
     const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "battle" })} />);
-    expect(container.textContent).not.toContain("Battle · Battle");
+    expect(container.textContent).not.toContain("Battle, Battle");
     expect(container.textContent).toContain("Battle step");
   });
 });
@@ -226,7 +233,7 @@ describe("PhaseHub turn owner", () => {
     const { container } = render(<PhaseHub {...hubProps({ phase: "battle", battleStep: "damage" })} />);
     const lit = container.querySelector<HTMLElement>("[aria-current='step']")!;
     expect(lit.getAttribute("data-phase")).toBe("BP");
-    expect(lit.querySelector("[class*='name']")!.textContent).toBe("Battle · Damage");
+    expect(lit.querySelector("[class*='name']")!.textContent).toBe("Battle, Damage step");
     expect(container.querySelectorAll("[class*='name']")).toHaveLength(1);
     expect([...container.querySelectorAll("[data-state='done']")].map((chip) => chip.getAttribute("data-phase"))).toEqual(["DP", "SP", "M1"]);
   });
@@ -236,7 +243,7 @@ describe("PhaseHub turn owner", () => {
     const under = container.querySelectorAll<HTMLElement>("[class*='under']");
     // One label, in the pair of the lit chip (the centre one), decoration only.
     expect(under).toHaveLength(1);
-    expect(under[0].textContent).toBe("Battle · Damage");
+    expect(under[0].textContent).toBe("Battle, Damage step");
     expect(under[0].getAttribute("aria-hidden")).toBe("true");
     const lit = container.querySelector("[aria-current='step']")!;
     expect(under[0].parentElement).toBe(lit.parentElement);

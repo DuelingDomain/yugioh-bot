@@ -457,14 +457,10 @@ button.chip:focus-visible {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin-left: 0.4em;
   color: var(--foot-ink);
   font-weight: 600;
   white-space: nowrap;
-}
-.captionLit::before {
-  content: "\00b7";
-  margin-right: 0.6em;
-  color: var(--ink-3);
 }
 
 :global([data-hub-size="sm"]) .root[data-variant="table"] {
