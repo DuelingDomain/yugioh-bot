@@ -348,3 +348,17 @@
 }
 .peekBtn:active { background: #1b2540; }
 .peekBtn:focus-visible { outline: 2px solid var(--gold-hi); outline-offset: 1px; }
+
+/* ---------- phones: tap targets for the Deck Master chip and the peek bar ---------- */
+@media (max-width: 900px) {
+  .dmChip { height: 52px; }
+  .chipMain { height: 44px; min-width: 44px; }
+  .chipAct { height: 40px; min-width: 44px; padding: 0 12px; }
+  .peekBar { height: 52px; }
+  .peekBtn { height: 42px; min-width: 56px; }
+}
+
+@media (max-width: 900px) and (max-height: 540px) and (orientation: landscape) {
+  .peekBar { height: 44px; }
+  .peekBtn { height: 36px; }
+}

@@ -124,6 +124,7 @@
 
 @media (max-width: 900px) {
   .cardMenu.cardMenu { min-width: 150px; }
+  .cardMenu.cardMenu button { min-height: 44px; }
 }
 
 /* ---------- hover info (.tag) and the refusal toast (.toast) ---------- */
@@ -245,7 +246,7 @@
     left: 8px !important;
     right: 8px !important;
     top: auto !important;
-    bottom: calc(106px + env(safe-area-inset-bottom)) !important;
+    bottom: calc(112px + env(safe-area-inset-bottom)) !important;
     width: auto;
     max-width: none;
     padding: 14px 16px;
@@ -254,6 +255,8 @@
   }
   .confirm.confirm::after { display: none; }
   .confirm.confirm .confirmGo { flex: 1 1 auto; }
+  .confirm.confirm .confirmGo,
+  .confirm.confirm .confirmBack { min-height: 44px; }
 }
 
 /* ---------- pile viewer ---------- */
@@ -319,3 +322,13 @@
 .root.root .card[data-active="true"] .name { color: var(--tx); }
 .root.root .ring { border-color: var(--pur-hi); box-shadow: 0 0 0 4px rgb(143 118 242 / 0.22); }
 .root.root .mark { border-color: var(--pur-hi); background: var(--pur-btn); }
+
+/* Sideways: the confirm docks in the rail column above the foot row, not across the table. */
+@media (max-width: 900px) and (max-height: 540px) and (orientation: landscape) {
+  .confirm.confirm {
+    right: auto !important;
+    bottom: calc(60px + env(safe-area-inset-bottom)) !important;
+    /* The confirm is not inside the room, so --plane-w is not set here: the same width written from the viewport. */
+    width: calc(100vw - 101.55dvh - 8px);
+  }
+}
