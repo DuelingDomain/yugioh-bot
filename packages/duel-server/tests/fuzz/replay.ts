@@ -1,4 +1,5 @@
-import { createEngineGame, eliminationCodeOf } from "../../src/engine.js";
+import { createEngineGame } from "../../src/engine.js";
+import { applyJournaledCommand, isPromptlessCommand } from "../../src/journal-command.js";
 import { readViews, setupScenario, type DuelOutcome } from "./driver.js";
 import { viewsHash } from "./invariants.js";
 
@@ -31,10 +32,8 @@ export async function replayDuel(outcome: DuelOutcome, dataDirectory: string): P
       const command = outcome.journal[i]!;
       const view = game.view(command.seat);
       if (view.revision !== command.revision) return { ok: false, step: i, message: `Revision ${view.revision} differs from journal ${command.revision}` };
-      const elimination = eliminationCodeOf(command.promptId);
-      if (elimination === null && view.prompt?.id !== command.promptId) return { ok: false, step: i, message: `Prompt ${view.prompt?.id ?? "none"} differs from journal ${command.promptId}` };
-      if (elimination === null) game.answer(command.seat, command.promptId, command.answer);
-      else game.eliminate(command.seat, elimination);
+      if (!isPromptlessCommand(command.promptId) && view.prompt?.id !== command.promptId) return { ok: false, step: i, message: `Prompt ${view.prompt?.id ?? "none"} differs from journal ${command.promptId}` };
+      applyJournaledCommand(game, command.seat, command);
       const expected = outcome.stepHashes[i + 1];
       if (expected && viewsHash(readViews(game)) !== expected) return { ok: false, step: i + 1, message: "Views differ from the original run" };
     }

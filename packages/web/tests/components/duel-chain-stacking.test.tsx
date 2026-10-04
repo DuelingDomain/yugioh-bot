@@ -173,13 +173,13 @@ describe("chain front layer stacking", () => {
       expect(tagOf(getByTestId("root")).dataset.side).toBe("far");
     });
 
-    it("hides the tag, and leaves the words to the stack, when both sides are covered", () => {
+    it("hides the tag, and leaves the words to the strip, when both sides are covered", () => {
       const { getByTestId } = render(<Table table="ffa3" panels={["240,240,300,70", "240,100,300,60"]} />);
       act(() => { vi.advanceTimersByTime(60); });
       const root = getByTestId("root");
       expect(tagOf(root).dataset.side).toBe("hidden");
-      // The stack still names the card and what it does.
-      expect(root.querySelector('[data-chain-row="2"]')?.textContent).toContain("activates its effect");
+      // The strip still names the card and its state for assistive tech.
+      expect(root.querySelector("[data-chain-strip]")?.getAttribute("aria-label")).toContain("Card 22");
     });
 
     it("styles a hidden tag as invisible but keeps its place", () => {
@@ -189,12 +189,12 @@ describe("chain front layer stacking", () => {
     });
   });
 
-  describe("chips in a crowded corner", () => {
+  describe("strip in a crowded corner", () => {
     it("sit in the top left corner when nothing is there", () => {
       const { getByTestId } = render(<Table table="ffa3" />);
       act(() => { vi.advanceTimersByTime(60); });
       const front = getByTestId("root").querySelector("[data-chain-front]") as HTMLElement;
-      expect(front.dataset.size).toBe("compact");
+      expect(front.dataset.size).toBe("strip");
       expect(front.style.getPropertyValue("--chain-dock-left")).toBe("4px");
       expect(front.style.getPropertyValue("--chain-dock-top")).toBe("4px");
     });
@@ -233,22 +233,22 @@ describe("chain front layer stacking", () => {
       );
     };
 
-    it("uses the chips form when the field leaves no room on the left", () => {
+    it("uses the strip when the field leaves no room on the left", () => {
       // The card at client x 100 is left of the board edge (120): the gutter is 0.
       const { getByTestId } = render(withTarget(null));
       act(() => { vi.advanceTimersByTime(60); });
       const front = getByTestId("root").querySelector("[data-chain-front]") as HTMLElement;
-      expect(front.dataset.size).toBe("compact");
+      expect(front.dataset.size).toBe("strip");
       expect(front.dataset.gutter).toBe("0");
     });
 
-    it("uses the full stack, sized by the gutter, when the field starts well to the right", () => {
+    it("uses the wide panel, sized by the gutter, when the field starts well to the right", () => {
       // Both cards 300px in from the board edge (client 120 + 300).
       ZONES = { "0:8:0": [420, 400, 60, 80], "1:8:0": [440, 160, 60, 80] };
       const { getByTestId } = render(withTarget(null));
       act(() => { vi.advanceTimersByTime(60); });
       const front = getByTestId("root").querySelector("[data-chain-front]") as HTMLElement;
-      expect(front.dataset.size).toBe("full");
+      expect(front.dataset.size).toBe("wide");
       expect(front.dataset.gutter).toBe("300");
       expect(front.style.getPropertyValue("--chain-gutter")).toBe("300px");
     });
@@ -267,22 +267,22 @@ describe("chain front layer stacking", () => {
       expect(badge().dataset.covered).toBe("false");
     });
 
-    it("turns the full stack into chips when a prompt meets it, and back when the prompt goes", () => {
+    it("turns the panel into the strip when a prompt meets it, and back when the prompt goes", () => {
       ZONES = { "0:8:0": [420, 400, 60, 80], "1:8:0": [440, 160, 60, 80] };
       const { getByTestId, rerender } = render(withTarget(null));
       act(() => { vi.advanceTimersByTime(60); });
       const front = () => getByTestId("root").querySelector("[data-chain-front]") as HTMLElement;
-      expect(front().dataset.size).toBe("full");
-      // The stack column is at client (0, 0, 240, 30) in this mock. A prompt over it makes the chips.
+      expect(front().dataset.size).toBe("wide");
+      // The panel is at client (0, 0, 240, 30) in this mock. A prompt over it makes the strip.
       rerender(withTarget("0,0,60,60"));
       act(() => { vi.advanceTimersByTime(60); });
-      expect(front().dataset.size).toBe("compact");
-      // It stays chips while the prompt stays, and does not flip every frame.
+      expect(front().dataset.size).toBe("strip");
+      // It stays a strip while the prompt stays, and does not flip every frame.
       act(() => { vi.advanceTimersByTime(200); });
-      expect(front().dataset.size).toBe("compact");
+      expect(front().dataset.size).toBe("strip");
       rerender(withTarget(null));
       act(() => { vi.advanceTimersByTime(60); });
-      expect(front().dataset.size).toBe("full");
+      expect(front().dataset.size).toBe("wide");
     });
 
     it("hides the target mark when a panel covers its Target tag, though most of the card is clear", () => {
@@ -293,13 +293,13 @@ describe("chain front layer stacking", () => {
       expect(mark.dataset.covered).toBe("true");
     });
 
-    it("slides the chips off a target card in the top left corner", () => {
-      // The target card (client 100,400) moves to the corner: board (4, 4), 60x80. No gutter, so the stack is chips.
+    it("slides the strip off a target card in the top left corner", () => {
+      // The target card (client 100,400) moves to the corner: board (4, 4), 60x80. No gutter, so it is the strip.
       ZONES = { "0:8:0": [124, 64, 60, 80], "1:8:0": [320, 160, 60, 80] };
       const { getByTestId } = render(withTarget(null));
       act(() => { vi.advanceTimersByTime(60); });
       const front = getByTestId("root").querySelector("[data-chain-front]") as HTMLElement;
-      expect(front.dataset.size).toBe("compact");
+      expect(front.dataset.size).toBe("strip");
       // Past the card's right edge (4 + 60), its 3 px ring and a 6 px gap.
       expect(Number.parseInt(front.style.getPropertyValue("--chain-dock-left"), 10)).toBeGreaterThanOrEqual(73);
     });

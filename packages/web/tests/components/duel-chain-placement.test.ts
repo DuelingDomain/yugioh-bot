@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 // jsdom does not lay anything out, so the placement rules are read from the stylesheet.
 const duel = join(fileURLToPath(new URL("../../", import.meta.url)), "src/components/duel");
 const chainCss = readFileSync(join(duel, "chain-fx.module.css"), "utf8");
+const panelCss = readFileSync(join(duel, "chain-panel.module.css"), "utf8");
 const promptCss = readFileSync(join(duel, "prompt-center.module.css"), "utf8");
 
 function rule(css: string, selector: string): string {
@@ -22,38 +23,32 @@ describe("chain stack placement", () => {
     expect(dock).toMatch(/pointer-events:\s*none/);
   });
 
-  it("turns the stack into a row of numbered chips in the top left corner when there is no free gutter", () => {
-    expect(rule(chainCss, ".front[data-size=\"compact\"] .dock")).toMatch(/inset:\s*var\(--chain-dock-top, 4px\) auto auto var\(--chain-dock-left, 4px\)/);
-    const panel = /\.front\[data-size="compact"\] \.panel,[^{]*\{([^}]*)\}/.exec(chainCss);
-    expect(panel).not.toBeNull();
-    expect(panel![1]).toMatch(/flex-direction:\s*row/);
-    expect(panel![1]).toMatch(/max-height:\s*none/);
-    expect(panel![1]).toMatch(/max-width:\s*100%/);
-    // A long chain wraps; nothing is clipped by overflow, so Chain Link 1 can never drop off the row.
-    expect(panel![1]).toMatch(/flex-wrap:\s*wrap/);
-    expect(panel![1]).toMatch(/overflow:\s*visible/);
-    // The row stops short of the board edge wherever the corner moved to.
-    expect(rule(chainCss, ".front[data-size=\"compact\"] .dock")).toMatch(/max-width:\s*calc\(100% - var\(--chain-dock-left, 4px\) - 4px\)/);
-    // The text and the thumbnail go; the number, its state and the head count stay.
-    expect(chainCss).toMatch(/\.front\[data-size="compact"\] \.thumb,\s*\n\.front\[data-size="compact"\] \.text \{ display: none; \}/);
+  it("puts the strip in the top left corner when there is no free gutter, and stops it short of the board edge", () => {
+    const dock = rule(chainCss, '.front[data-size="strip"] .dock');
+    expect(dock).toMatch(/inset:\s*var\(--chain-dock-top, 4px\) auto auto var\(--chain-dock-left, 4px\)/);
+    // The strip stops short of the board edge wherever the corner moved to.
+    expect(dock).toMatch(/max-width:\s*calc\(100% - var\(--chain-dock-left, 4px\) - 4px\)/);
     // No viewport media query decides it: the measured gutter does.
     expect(chainCss).not.toMatch(/@media \(max-width: 760px\)/);
+    expect(rule(panelCss, ".strip")).toMatch(/min-height:\s*44px/);
+    expect(panelCss).toMatch(/\.strip::after \{ content: ""; position: absolute; inset: -2px; \}/);
   });
 
-  it("sizes the full stack by the measured gutter and never by a fixed px width alone", () => {
-    expect(rule(chainCss, ".panel")).toMatch(/width:\s*clamp\(150px,\s*calc\(var\(--chain-gutter,\s*200px\) - 16px\),\s*264px\)/);
+  it("sizes the panel by the measured gutter and never by a fixed px width alone", () => {
+    expect(rule(panelCss, ".cr")).toMatch(/width:\s*clamp\(214px,\s*calc\(var\(--chain-gutter,\s*230px\) - 16px\),\s*292px\)/);
+    expect(panelCss).toMatch(/\.cr\[data-shape="narrow"\] \{ width: clamp\(142px,\s*calc\(var\(--chain-gutter,\s*164px\) - 8px\),\s*214px\); \}/);
   });
 
   it("hides a target ring that sits under an open prompt panel", () => {
     expect(chainCss).toMatch(/\.target\[data-covered="true"\]\s*\{\s*visibility:\s*hidden/);
   });
 
-  it("keeps the stack off the middle lane the prompt uses", () => {
-    // The prompt panel is centred; the stack is a fixed-width panel on the left edge.
+  it("keeps the panel off the middle lane the prompt uses, and inside the board's height", () => {
+    // The prompt panel is centred; the panel is a bounded column on the left edge.
     expect(promptCss).toMatch(/left:\s*50%/);
-    const panel = rule(chainCss, ".panel");
-    expect(panel).toMatch(/width:\s*clamp\(150px/);
-    expect(panel).toMatch(/max-height:\s*72%/);
+    const panel = rule(panelCss, ".cr");
+    expect(panel).toMatch(/max-height:\s*calc\(100% - 12px\)/);
+    expect(panel).toMatch(/overflow:\s*hidden/);
   });
 
   it("draws the numbered badge at least 28px wide and the callout over its card", () => {
@@ -65,8 +60,8 @@ describe("chain stack placement", () => {
   });
 
   it("animates only transform and opacity in the new glow and callout", () => {
-    for (const name of ["chainGlowIn", "chainTagIn", "chainDrop", "chainClink", "chainIn"]) {
-      const block = new RegExp(`@keyframes ${name} \\{([\\s\\S]*?)\\n\\}`).exec(chainCss);
+    for (const name of ["chainGlowIn", "chainTagIn", "chainDrop", "chainClink", "crIn", "crSheetIn", "crHeroIn", "crFade", "crPulse"]) {
+      const block = new RegExp(`@keyframes ${name} \\{([\\s\\S]*?)\\n\\}`).exec(chainCss + "\n" + panelCss);
       expect(block, name).not.toBeNull();
       const props = [...block![1].matchAll(/([a-z-]+):/g)].map((m) => m[1]);
       expect(props.every((p) => p === "opacity" || p === "transform"), `${name}: ${props.join(",")}`).toBe(true);
@@ -80,11 +75,12 @@ describe("chain stack placement", () => {
   });
 
   it("keeps every entry animation short, between 150 and 250 ms with its delay under 150 ms", () => {
-    const entries: Array<[string, string]> = [
-      [".badge", "chainDrop"], [".ring", "chainStrike"], [".tag", "chainTagIn"], [".chip", "chainClink"], [".row", "chainIn"], [".panel", "chainIn"],
+    const entries: Array<[string, string, string]> = [
+      [chainCss, ".badge", "chainDrop"], [chainCss, ".ring", "chainStrike"], [chainCss, ".tag", "chainTagIn"], [chainCss, ".chip", "chainClink"],
+      [panelCss, ".cr", "crIn"], [panelCss, ".hero", "crHeroIn"], [panelCss, ".strip", "crIn"],
     ];
-    for (const [selector, name] of entries) {
-      const body = rule(chainCss, selector);
+    for (const [css, selector, name] of entries) {
+      const body = rule(css, selector);
       const m = new RegExp(`animation:\\s*${name}\\s+([\\d.]+)s[^;]*?(?:\\s([\\d.]+)s)?\\s*(?:both|backwards);`).exec(body);
       expect(m, `${selector} ${name}`).not.toBeNull();
       const ms = parseFloat(m![1]) * 1000;
@@ -97,6 +93,17 @@ describe("chain stack placement", () => {
     const wire = /animation: chainWireIn ([\d.]+)s ease ([\d.]+)s/.exec(chainCss);
     expect(parseFloat(wire![1]) * 1000).toBeLessThanOrEqual(250);
     expect(parseFloat(wire![2]) * 1000).toBeLessThan(150);
+  });
+
+  it("switches the panel animations off on reduced motion, by the media query and by the app's own setting", () => {
+    expect(panelCss).toMatch(/:global\(\[data-chain-front\]\[data-reduced="true"\]\) \.cr,/);
+    expect(panelCss).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\s*\.cr, \.hero, \.out, \.strip, \.scrim, \.wait i \{ animation: none !important; \}/);
+  });
+
+  it("takes a pointer only on the strip, the sheet and its scrim", () => {
+    const auto = [...panelCss.matchAll(/(^|\n)([^\n{}]+)\{[^}]*pointer-events:\s*auto/g)].map((m) => m[2].trim());
+    expect(auto).toEqual([".strip", ".scrim", ".sheet"]);
+    expect(rule(panelCss, ".cr")).not.toMatch(/pointer-events:\s*auto/);
   });
 
   it("never lets a chain cosmetic take a pointer: the layers and the stack do not catch input", () => {

@@ -16,7 +16,7 @@ export async function handleWorkerRequest(request: DuelWorkerRequest): Promise<D
     try {
       response.info = game.coreInfo();
       // Capture the next issued prompt before the host can answer it. No rule state is changed.
-      if (traceSeats > 0 && ["create", "answer", "eliminate"].includes(request.op)) {
+      if (traceSeats > 0 && ["create", "answer", "eliminate", "chain-mode"].includes(request.op)) {
         for (let seat = 0; seat < traceSeats; seat += 1) {
           const entry = tracePrompt(game.view(seat));
           if (entry) { response.promptTrace = entry; break; }
@@ -58,6 +58,10 @@ async function runWorkerRequest(request: DuelWorkerRequest): Promise<DuelWorkerR
         if (!game) return { id: request.id, ok: false, error: "No game" };
         game.eliminate(request.seat, request.reason);
         return { id: request.id, ok: true };
+      }
+      case "chain-mode": {
+        if (!game) return { id: request.id, ok: false, error: "No game" };
+        return { id: request.id, ok: true, value: game.setChainMode(request.seat, request.mode) };
       }
       case "diagnostics": {
         if (!game) return { id: request.id, ok: false, error: "No game" };

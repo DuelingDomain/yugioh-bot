@@ -9,14 +9,18 @@
  *    arc joins badge N to badge N-1, so the badges read as one chain. A link that activated from the
  *    hand, the GY, the Extra Deck or the banished pile sits on its slot, or on the hand / pile when
  *    the card has left that slot.
- *  - The chain stack (a column in the free gutter left of the field, or a row of numbered chips when
- *    there is no room or a prompt meets the column) lists EVERY link: its source, its effect and the
- *    public places it targets. A badge a prompt covers, or a link whose card is off the board, is
- *    still read there.
- *  - A target is marked by coordinates only (a ring, "Target · N" and a dashed wire), never by a
- *    card name, so a face-down or private card is not named.
+ *  - The "Now resolving" panel (a column in the free gutter left of the field, wide or narrow, or a strip
+ *    when there is no room, on a phone or table, or a prompt meets the column) says which link is being
+ *    resolved, what it does (the engine's description, else the card's printed text), whom it targets and
+ *    what it did, over a list of EVERY link. A badge a prompt covers, or a link whose card is off the
+ *    board, is still read there. After the chain ends the panel holds the last link and its result for a
+ *    short recap (CHAIN_PANEL_TIMING). The strip is a real button that opens the panel as a sheet.
+ *  - A target is marked on the board by coordinates only (a ring, "Target · N" and a dashed wire); the
+ *    panel names a target only when it is a face-up public card (chain-narrate.ts). A card the viewer
+ *    does not know is "A card": no art, no text, no passcode.
  *  - Screen readers get a visually hidden list ("Chain Link 2: card, Opponent") and a polite live
- *    announcement for each new link, resolution, negation and the end of the chain.
+ *    announcement for each new link, resolution (with its effect and result), negation and the end of
+ *    the chain.
  *  - Resolution: links resolve highest first, and it is shown on the badges and the stack rows (there
  *    is no centre banner for it). The resolving link takes a gold ring burst on its badge and a soft gold
  *    wash on its card; then its number gives way to a tick, the badge shrinks away and the arc to
@@ -35,8 +39,9 @@
 import { duelFxClock } from "./fx-clock";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import { partnerSeatOf, type DuelChainLink, type DuelEvent } from "@yugidraft/shared/duels";
-import { cardArtUrl, zoneKey } from "./constants";
+import { partnerSeatOf, type DuelChainLink, type DuelEvent, type DuelSeatView } from "@yugidraft/shared/duels";
+import { X } from "lucide-react";
+import { zoneKey } from "./constants";
 import { collectFreshEvents, findZoneElement, maxEventId } from "./event-queue";
 import {
   applyChainEvent,
@@ -44,12 +49,10 @@ import {
   chainAnchor,
   chainAnnouncement,
   chainCallout,
-  chainFlow,
+  chainEffectLead,
   chainFocusLink,
   chainLinkLabel,
-  chainSeatLabel,
-  chainStackRows,
-  chainStackSize,
+  chainPanelForm,
   chainStateKey,
   chainWirePath,
   coveredFraction,
@@ -62,8 +65,13 @@ import {
   type CalloutPlace,
   type ChainAnchor,
   type ChainLinkState,
+  type ChainPanelForm,
   type ChainState,
 } from "./chain-state";
+import { buildPanelView, buildStripView, chainOutcomes, rememberTargetNames, type TargetMemory, type Who } from "./chain-narrate";
+import { ChainPanel, ChainStrip } from "./chain-panel";
+import { CHAIN_PANEL_TIMING } from "./duel-timing";
+import panelStyles from "./chain-panel.module.css";
 import { chainBeatAt, chainBeatsEndAt, planChainBeats, resetChainBeats } from "./chain-beats";
 import { findFlipSequences } from "./flip-sequence";
 import { holdPromptReveal } from "./prompt-reveal";
@@ -90,14 +98,14 @@ export type ChainFxProps = {
   priority?: readonly PrioritySlot[];
   /** The duel is over (a result, or the session is not active): a chain that was open when it ended is cleared. */
   ended?: boolean;
-  /** The format of a multi-seat table board ("ffa3", "ffa4", "tag"). It picks the lane the chain stack uses. Left out (1v1), nothing changes. */
+  /** The format of a multi-seat table board ("ffa3", "ffa4", "tag"). A table always uses the strip. Left out (1v1), nothing changes. */
   table?: string;
+  /** engine.seats: the viewer's redacted board. The panel names a target from it, only when the target is a face-up public card. */
+  seats?: readonly DuelSeatView[];
 };
 
-function toneVars(tones: ChainFxProps["seatTones"], seat: number): CSSProperties | undefined {
-  const tone = tones?.get(seat);
-  return tone ? ({ "--seat-main": tone.main, "--seat-ink": tone.ink } as CSSProperties) : undefined;
-}
+/** A phone or a narrow window: the panel is the strip, whatever the gutter. */
+const PHONE_QUERY = "(max-width: 900px)";
 
 const clock = (): number => (typeof performance !== "undefined" ? duelFxClock.now() : duelFxClock.dateNow());
 
@@ -283,10 +291,9 @@ function freeGutter(origin: DOMRect): number {
   return gutter;
 }
 const GUTTER_EVERY_MS = 400;
-
-function artStyle(code: number | null): CSSProperties | undefined {
-  return code != null ? { backgroundImage: `url(${cardArtUrl(code)})` } : undefined;
-}
+/** The sheet opens this far under the strip and keeps this far above a prompt; it is never shorter than SHEET_MIN. */
+const SHEET_GAP = 6;
+const SHEET_MIN = 140;
 
 /** Two interlocked links. */
 function ChainGlyph() {
@@ -340,7 +347,7 @@ export function sequenceOwners(events: readonly DuelEvent[]): Map<number, number
   return owners;
 }
 
-export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority, ended = false, table }: ChainFxProps) {
+export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerName, seatTones, priority, ended = false, table, seats }: ChainFxProps) {
   // Classic: the module's own classes (the same object). 3D mode: the same keys with the solid classes added.
   const styles = useSkinStyles(baseStyles, "chain");
   const skinned = styles !== baseStyles;
@@ -350,6 +357,23 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const played = useChainPlayback(events, chain, duelKey, reducedMotion);
   // A duel that ends mid-chain sends no "chain-end": nothing is left to resolve, so nothing stays on the board.
   const state = ended ? EMPTY_CHAIN : played;
+  const who = useMemo<Who>(() => ({ mySeat, playerName, named, naming: { named, partner } }), [mySeat, playerName, named, partner]);
+
+  // Recap: after "chain-end" the panel keeps the last link and its result for a moment, so the player can read what
+  // just happened. The held state is derived while rendering (no frame without a panel between the end and the recap),
+  // and a timer, on the pace clock, ends it. Never when the duel is over, the room changed, or a new chain opened.
+  const lastOpen = useRef<{ key: string; state: ChainState }>({ key: duelKey, state: EMPTY_CHAIN });
+  if (state.links.length > 0) lastOpen.current = { key: duelKey, state };
+  const [expired, setExpired] = useState<ChainState | null>(null);
+  const held = lastOpen.current.key === duelKey && lastOpen.current.state.links.length > 0 ? lastOpen.current.state : null;
+  const recapState = state.links.length === 0 && !ended && held != null && expired !== held ? held : null;
+  useEffect(() => {
+    if (recapState == null) return undefined;
+    const timer = duelFxClock.setTimeout(() => setExpired(recapState), reducedMotion ? CHAIN_PANEL_TIMING.recapReducedMs : CHAIN_PANEL_TIMING.recapMs);
+    return () => duelFxClock.clearTimeout(timer);
+  }, [recapState, reducedMotion]);
+  const panelState = state.links.length > 0 ? state : recapState ?? EMPTY_CHAIN;
+  const recapping = state.links.length === 0 && recapState != null;
   // Badges play historical resolution beats; targeting follows the live engine so a replacement
   // occupant is never marked while old beats play, and chain-end clears target rings immediately.
   const live = useMemo(() => (ended ? EMPTY_CHAIN : deriveChainState(events, chain)), [events, chain, ended]);
@@ -362,7 +386,14 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   targetLinksRef.current = targetLinks;
   const overlayRef = useRef<HTMLDivElement>(null);
   const frontRef = useRef<HTMLDivElement>(null);
-  const panelRef = useRef<HTMLOListElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const stripWrapRef = useRef<HTMLDivElement>(null);
+  const stripButtonRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const sheetId = useId();
+  const [form, setForm] = useState<ChainPanelForm>("strip");
+  const formRef = useRef<ChainPanelForm>("strip");
+  const [sheetWanted, setSheetWanted] = useState(false);
   // The front layer lives in the duel's own root (the element that holds the pace slider's scope), not in the
   // fx slot. A slot or the board is a stacking context, and nothing inside one can rise above its siblings
   // (the prompt slot, the room's prompt dock); the root is above all of them. undefined = not looked up yet,
@@ -374,7 +405,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const slotRefs = useRef(new Map<number, HTMLElement>());
   const ringRefs = useRef(new Map<number, HTMLElement>());
   const tagRefs = useRef(new Map<number, HTMLElement>());
-  const gutterRef = useRef({ at: Number.NEGATIVE_INFINITY, px: 0 });
+  const gutterRef = useRef({ at: Number.NEGATIVE_INFINITY, px: 0, phone: false });
   /** The full stack's last box, in board pixels: the chips test it to know whether the column would meet a prompt. */
   const fullBoxRef = useRef<Box | null>(null);
   const wireRefs = useRef(new Map<number, SVGPathElement>());
@@ -389,7 +420,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   // Keep every badge on its card: layout can move under us (resize, a hovered hand card, a summon).
   // Each frame reads the layout first and writes after, so the browser lays out at most once per frame.
   useLayoutEffect(() => {
-    if (links.length === 0 && targetLinks.length === 0) return undefined;
+    if (links.length === 0 && targetLinks.length === 0 && !recapping) return undefined;
     let raf = 0;
     const measure = () => {
       const overlay = overlayRef.current;
@@ -415,10 +446,12 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       // The pile viewer mounts inside the board box, so it cannot rise above the front layer: hide the layer instead.
       const pileOpen = document.querySelector("[data-pile-viewer]") != null;
       let gutter = gutterRef.current.px;
+      let phone = gutterRef.current.phone;
       const now = clock();
       if (front && now - gutterRef.current.at >= GUTTER_EVERY_MS) {
         gutter = freeGutter(origin);
-        gutterRef.current = { at: now, px: gutter };
+        phone = typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(PHONE_QUERY).matches;
+        gutterRef.current = { at: now, px: gutter, phone };
       }
       const marks: PlacedMark[] = [];
       for (const link of targetLinksRef.current) {
@@ -439,20 +472,22 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           marks.push({ link, mark, wire: targetWireRefs.current.get(key), box, covered });
         }
       }
-      // The full stack is a column in the left gutter. A prompt surface that meets it turns it into the chips, which
-      // dodge it. Measured on the column itself while it is full; while it is chips, on the column's last box.
+      // The panel is a column in the left gutter. A prompt surface that meets it turns it into the strip, which
+      // dodges the prompt. Measured on the column itself while it stands; while it is the strip, on the column's last box.
       const panelEl = panelRef.current;
-      const previous = front?.dataset.size as "full" | "compact" | undefined;
-      if (front && panelEl && previous === "full") {
+      const previous = formRef.current;
+      if (front && panelEl && previous !== "strip") {
         const own = panelEl.getBoundingClientRect();
         if (own.width > 4 && own.height > 4) fullBoxRef.current = { left: own.left - origin.left, top: own.top - origin.top, width: own.width, height: own.height };
       }
       const blocked = fullBoxRef.current != null && coveredFraction(fullBoxRef.current, prompts) > 0;
-      // Life-point plates and the stack's own size, for the chips: they keep clear of both.
-      const size = front ? chainStackSize(gutter, previous, blocked) : "full";
+      // Phones and tables always use the strip; so does a column that would meet a prompt.
+      const next: ChainPanelForm = front ? chainPanelForm(gutter, previous, table != null || phone || blocked) : "wide";
+      // The strip keeps clear of life-point plates, open panels and target cards.
       let chips: { left: number; top: number } | null = null;
-      if (front && size === "compact" && panelEl) {
-        // Open panels, target cards (and their ring) and life-point plates: the chips sit on none of them.
+      let sheet: { top: number; max: number } | null = null;
+      const stripEl = stripWrapRef.current;
+      if (front && next === "strip" && previous === "strip" && stripEl) {
         const obstacles = panels.slice();
         for (const { box } of marks) {
           if (box) obstacles.push({ left: box.left - TARGET_OUTSET, top: box.top - TARGET_OUTSET, width: box.width + TARGET_OUTSET * 2, height: box.height + TARGET_OUTSET * 2 });
@@ -461,8 +496,15 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           const rect = plate.getBoundingClientRect();
           if (rect.width > 4 && rect.height > 4) obstacles.push({ left: rect.left - origin.left, top: rect.top - origin.top, width: rect.width, height: rect.height });
         }
-        const own = panelEl.getBoundingClientRect();
+        const own = stripEl.getBoundingClientRect();
         chips = placeChips({ width: own.width, height: own.height }, { width: origin.width, height: origin.height }, obstacles);
+        // The sheet opens under the strip and never reaches an open prompt below it.
+        const top = chips.top + own.height + SHEET_GAP;
+        let limit = origin.height - SHEET_GAP;
+        for (const box of prompts) {
+          if (box.left < origin.width - SHEET_GAP && box.left + box.width > SHEET_GAP && box.top + box.height > top && box.top > top - 4) limit = Math.min(limit, box.top - SHEET_GAP);
+        }
+        sheet = { top: Math.round(top), max: Math.round(Math.max(SHEET_MIN, limit - top)) };
       }
       const stacked = new Map<HTMLElement, number>();
       const piles = new Map<string, HTMLElement | null>();
@@ -500,7 +542,10 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       if (front) {
         const suspended = pileOpen ? "true" : "false";
         if (front.dataset.suspended !== suspended) front.dataset.suspended = suspended;
-        if (front.dataset.size !== size) front.dataset.size = size;
+        if (formRef.current !== next) {
+          formRef.current = next;
+          setForm(next);
+        }
         const dock = chips ? `${Math.round(chips.left)},${Math.round(chips.top)}` : "";
         if (front.dataset.dock !== dock) {
           front.dataset.dock = dock;
@@ -510,6 +555,17 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           } else {
             front.style.removeProperty("--chain-dock-left");
             front.style.removeProperty("--chain-dock-top");
+          }
+        }
+        const sheetKey = sheet ? `${sheet.top},${sheet.max}` : "";
+        if (front.dataset.sheet !== sheetKey) {
+          front.dataset.sheet = sheetKey;
+          if (sheet) {
+            front.style.setProperty("--chain-sheet-top", `${sheet.top}px`);
+            front.style.setProperty("--chain-sheet-max", `${sheet.max}px`);
+          } else {
+            front.style.removeProperty("--chain-sheet-top");
+            front.style.removeProperty("--chain-sheet-max");
           }
         }
         const px = String(Math.round(gutter));
@@ -608,19 +664,62 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
     }
     tick();
     return () => duelFxClock.cancelAnimationFrame(raf);
-  }, [linksKey, links.length, targetsKey, targetLinks.length, host]);
+  }, [linksKey, links.length, targetsKey, targetLinks.length, host, recapping, table]);
+
+  // What each link did, from the events of the open chain (or the one just ended, during its recap).
+  const outcomes = useMemo(() => chainOutcomes(events, panelState, who), [events, panelState, who]);
+  const outcomesRef = useRef(outcomes);
+  outcomesRef.current = outcomes;
+
+  // The resolving link says "Resolving..." until its effect has had time to play, then its result: paced from the
+  // chain beats (the beat of its "chain-resolving" plus the effect lead), never from a clock of the panel's own.
+  const resolvingIndex = state.resolving;
+  const [readyFor, setReadyFor] = useState<number | null>(null);
+  useEffect(() => {
+    if (resolvingIndex == null) {
+      setReadyFor(null);
+      return undefined;
+    }
+    let beat = 0;
+    for (const event of events) {
+      if (event.kind === "chain-resolving" && event.chainIndex === resolvingIndex) beat = Math.max(beat, event.id);
+    }
+    const at = (beat ? chainBeatAt(beat) : 0) + chainEffectLead(reducedMotion);
+    const wait = at - clock();
+    if (wait <= 8) {
+      setReadyFor(resolvingIndex);
+      return undefined;
+    }
+    const timer = duelFxClock.setTimeout(() => setReadyFor(resolvingIndex), wait);
+    return () => duelFxClock.clearTimeout(timer);
+  }, [resolvingIndex, events, reducedMotion]);
+  const resultsReady = recapping || (resolvingIndex != null && readyFor === resolvingIndex);
 
   // Live announcements for screen readers: what changed on this beat of the chain.
   const prevRef = useRef<ChainState>(EMPTY_CHAIN);
   const [announcement, setAnnouncement] = useState("");
   useEffect(() => {
-    const said = chainAnnouncement(prevRef.current, state, mySeat, playerName, named, partner);
+    const said = chainAnnouncement(prevRef.current, state, mySeat, playerName, named, partner, (link) => {
+      const outcome = outcomesRef.current.get(link.index);
+      return outcome && outcome.tone !== "quiet" ? outcome.lines.join(", ") : null;
+    });
     prevRef.current = state;
     if (said != null) setAnnouncement(said);
   }, [state, mySeat, playerName, named, partner]);
 
-  const rows = chainStackRows(state);
+  // Target names the panel may say: remembered while the target is face-up on the viewer's board, so "Targets Gaia"
+  // survives its destruction. Forgotten with the chain.
+  const targetMemory = useRef<TargetMemory>(new Map());
+  if (panelState.links.length === 0) targetMemory.current.clear();
+  else {
+    rememberTargetNames(targetMemory.current, live.links, seats);
+    rememberTargetNames(targetMemory.current, panelState.links, seats);
+  }
+
   const focus = chainFocusLink(state);
+  const panelFocus = chainFocusLink(panelState);
+  const view = panelFocus ? buildPanelView({ state: panelState, focus: panelFocus, outcomes, resultsReady, targets: targetMemory.current, who }) : null;
+  const stripView = view ? buildStripView(view) : null;
   const topIndex = links.length;
   const nextIndex = nextToResolve(state);
   const attrs = (link: ChainLinkState) => ({
@@ -632,15 +731,37 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
     // Only for the solid look (yours wear purple); the classic slot keeps its attributes.
     ...(skinned ? { "data-mine": mySeat != null && link.seat === mySeat ? "true" : "false" } : {}),
   });
-  const showStack = links.length > 0;
+  const showPanel = view != null;
+
+  // The sheet: the strip's panel. It closes with the panel, and when the form is no longer the strip.
+  const sheetOpen = sheetWanted && form === "strip" && view != null;
+  const closeSheet = useCallback(() => setSheetWanted(false), []);
+  useEffect(() => {
+    if (!sheetOpen) return undefined;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSheetWanted(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [sheetOpen]);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (sheetOpen) closeRef.current?.focus();
+    else if (wasOpen.current) stripButtonRef.current?.focus();
+    wasOpen.current = sheetOpen;
+  }, [sheetOpen]);
+  const hasView = view != null;
+  useEffect(() => {
+    if (!hasView) setSheetWanted(false);
+  }, [hasView]);
 
   // Front layer: the numbered badges, the callout and the chain stack. Above every other board layer (it is
   // portaled into the duel root, see `host`), so a prompt or a banner cannot cover the chain. What it must not
   // cover in turn (prompt surfaces, a pile viewer) the frame loop steps back from.
   const front = (
-    <div ref={frontRef} className={`${styles.layer} ${styles.front}`} aria-hidden="true" data-chain-fx="front" data-chain-front="true"
-      data-portal={host ? "true" : undefined} data-table={table}
-      data-open={links.length > 0 ? "true" : "false"} data-reduced={reducedMotion ? "true" : "false"}>
+    <div ref={frontRef} className={`${styles.layer} ${styles.front}`} data-chain-fx="front" data-chain-front="true"
+      data-portal={host ? "true" : undefined} data-table={table} data-size={form}
+      data-open={links.length > 0 ? "true" : "false"} data-recap={recapping ? "true" : undefined} data-reduced={reducedMotion ? "true" : "false"}>
       {links.map((link) => {
         const callout = chainCallout(link, mySeat, playerName, named);
         return (
@@ -652,6 +773,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
             }}
             className={styles.slot}
             style={{ zIndex: link.index }}
+            aria-hidden="true"
             data-placed="false"
             data-chain-link={link.index}
             {...attrs(link)}
@@ -684,52 +806,38 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         return <div key={key} ref={(el) => {
           if (el) targetRefs.current.set(key, el);
           else targetRefs.current.delete(key);
-        }} className={styles.target} data-placed="false" data-chain-target={link.index} data-target-zone={zone}
+        }} className={styles.target} aria-hidden="true" data-placed="false" data-chain-target={link.index} data-target-zone={zone}
           style={{ "--target-offset": `${(link.index - 1) * TARGET_STEP}px` } as CSSProperties}>
           <span className={styles.targetRing} />
           <span className={styles.targetTag} data-target-tag>Target · {link.index}</span>
         </div>;
       }))}
-      {showStack ? (
-        <div className={styles.dock}>
-          <ol ref={panelRef} className={styles.panel} data-chain-panel="true" data-priority={priority?.length ? "true" : undefined}>
-            <li className={styles.head}>
-              <span>Chain</span>
-              <small>{links.length} {links.length === 1 ? "link" : "links"}</small>
-            </li>
-            {priority && priority.length > 0 ? (
-              <li className={styles.prioRow}>
-                <PriorityChips order={priority} mySeat={mySeat} nameOf={playerName} seatTones={seatTones} compact />
-              </li>
-            ) : null}
-            {rows.map((link) => {
-              const callout = chainCallout(link, mySeat, playerName, named);
-              const flow = chainFlow(link, mySeat, playerName, { named, partner });
-              return (
-                <li
-                  key={link.index}
-                  className={styles.row}
-                  data-status={link.status}
-                  data-negated={link.negated ? "true" : "false"}
-                  data-focus={focus?.index === link.index ? "true" : "false"}
-                  data-mine={mySeat != null && link.seat === mySeat ? "true" : "false"}
-                  data-chain-row={link.index}
-                  data-toned={seatTones?.has(link.seat) ? "true" : undefined}
-                  style={toneVars(seatTones, link.seat)}
-                >
-                  <b className={styles.rowNum}>{link.index}</b>
-                  <span className={styles.thumb} style={artStyle(link.code)} />
-                  <span className={styles.text}>
-                    <span className={styles.name}>{flow.source}</span>
-                    <small className={styles.who}>{callout.owner} · {callout.action}</small>
-                    {flow.effect ? <small className={styles.flowEffect}><i aria-hidden="true">→</i> {flow.effect}</small> : null}
-                    {flow.targets.length > 0 ? <small className={styles.flowTargets}><i aria-hidden="true">→</i> {flow.targets.join(", ")}</small> : null}
-                  </span>
-                </li>
-              );
-            })}
-          </ol>
+      {showPanel && view && stripView ? (
+        <div className={styles.dock} aria-hidden={form === "strip" ? undefined : "true"}>
+          {form === "strip" ? (
+            <div ref={stripWrapRef} className={panelStyles.stripWrap} data-chain-panel="true" data-chain-strip-wrap="true" data-priority={priority?.length ? "true" : undefined}>
+              <ChainStrip view={stripView} open={sheetOpen} controls={sheetId} onToggle={() => setSheetWanted((open) => !open)} buttonRef={stripButtonRef} />
+              {priority && priority.length > 0 ? (
+                <div className={panelStyles.prioRow} aria-hidden="true">
+                  <PriorityChips order={priority} mySeat={mySeat} nameOf={playerName} seatTones={seatTones} compact />
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <ChainPanel view={view} shape={form} seatTones={seatTones} priority={priority} mySeat={mySeat} nameOf={playerName} panelRef={panelRef} />
+          )}
         </div>
+      ) : null}
+      {sheetOpen && view ? (
+        <>
+          <div className={panelStyles.scrim} data-chain-scrim="true" onClick={closeSheet} aria-hidden="true" />
+          <div id={sheetId} className={panelStyles.sheet} role="dialog" aria-label="Chain details" data-chain-sheet="true">
+            <ChainPanel view={view} shape="sheet" seatTones={seatTones} mySeat={mySeat} nameOf={playerName} />
+            <button ref={closeRef} type="button" className={panelStyles.close} aria-label="Close chain details" onClick={closeSheet}>
+              <X size={16} strokeWidth={2.4} aria-hidden="true" />
+            </button>
+          </div>
+        </>
       ) : null}
     </div>
   );

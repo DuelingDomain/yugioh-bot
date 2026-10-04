@@ -518,6 +518,23 @@ describe("host hand scenarios (DUEL_SCENARIOS)", () => {
     expect(scripts?.map((script) => script.content)).toEqual(state.setup?.startupScripts);
   });
 
+  it("gives a scenario table no chain response switch", async () => {
+    process.env.DUEL_SCENARIOS = "1";
+    const t = scenarioHost();
+    const started = await post(t.host, { op: "start-preset", presetId: "dust-tornado-chain", ...t.who });
+    const slug = started.data.slug as string;
+    // Even an engine that reports a mode shows none on a scenario table, so the room draws no switch.
+    const original = t.worker.view.bind(t.worker);
+    t.worker.view = (seat: number | null) => Promise.resolve(original(seat)).then((view) => ({ ...view, chainMode: "auto" as const }));
+    const viewed = await post(t.host, { op: "view", slug, ...t.who });
+    expect(viewed.status).toBe(200);
+    expect(viewed.data.engine).not.toHaveProperty("chainMode");
+    const refused = await post(t.host, { op: "chain-mode", slug, mode: "off", ...t.who });
+    expect(refused.status).toBe(409);
+    expect(String(refused.data.error)).toMatch(/Scenario tables/);
+    expect(createDuelService(t.db).privateState(slug, "g1").commands).toEqual([]);
+  });
+
   it("journals the reason of a scripted bot answer and reports to a folder", async () => {
     process.env.DUEL_SCENARIOS = "1";
     const t = scenarioHost();

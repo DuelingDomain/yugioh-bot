@@ -1,5 +1,5 @@
-import type { DuelAnswer, DuelBattleStep, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
-import { partnerSeatOf, seatCountFor, seatsOfTeam, startingLpFor, teamOfSeat } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelFormat, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
+import { defaultChainMode, partnerSeatOf, seatCountFor, seatsOfTeam, startingLpFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
@@ -204,6 +204,15 @@ export interface EngineGame {
    * Throws when the core has no such function (or the duel has fewer than three seats).
    */
   eliminate(seat: number, reason: number): void;
+  /**
+   * Set the chain response mode of a seat (Auto, Always, Off; see chain-mode.ts). It applies to the next response
+   * window of that seat and to the one that is open now: when the new mode passes the open window, the engine
+   * passes it (the same response autoResponse would have given) and the duel moves on. Returns true when it did,
+   * false when only the mode changed. A false return changes nothing a viewer or the journal can observe except
+   * `view(seat).chainMode`: no revision bump, no new prompt. Deterministic: a replay of the same toggles at the
+   * same points gives the same duel, so every call must be journaled by the caller.
+   */
+  setChainMode(seat: number, mode: DuelChainMode): boolean;
   /** The last entries (oldest first) of the triage ring buffer. For the host report only, never for a view. */
   diagnostics(): EngineDiagnostic[];
   /** Core identity (wasm sha and file) and the counters since the last prompt. For reports and triage only. */
@@ -491,6 +500,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
 
   let revision = 0;
   let promptSeq = 0;
+  // Chain response mode per seat. Every seat starts at the duel setting (stopAtEveryWindow: false = Auto, else Always).
+  const chainModes: DuelChainMode[] = Array.from({ length: seatCount }, () => defaultChainMode(options.settings));
   let turn = 0;
   let turnSeat = 0;
   let phase = "draw";
@@ -885,7 +896,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       );
       lastSelectHint = undefined;
       lastPlaceSeat = undefined;
-      const automated = autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, phase });
+      const automated = autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase });
       if (automated) {
         lib.duelSetResponse(handle, automated);
         continue;
@@ -965,6 +976,8 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       });
       // Disabled zones are public board facts. The field is set only for seats that have one.
       if (multi) projected.eliminationOrder = eliminationOrder.map((group) => [...group]);
+      // Private: a seat sees its own chain mode, nobody else's, and a spectator sees none.
+      if (seat != null) projected.chainMode = chainModes[seat];
       for (const entry of projected.seats) {
         const mask = disabledZones.get(entry.seat);
         if (mask) entry.disabledZones = mask;
@@ -1004,6 +1017,29 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       }
       answerForLeavingSeats();
       revision += 1;
+    },
+    setChainMode(seat, mode) {
+      if (closed) throw new Error("Engine is closed");
+      if (result) throw new EngineAnswerError("Duel is over");
+      if (!Number.isInteger(seat) || seat < 0 || seat >= seatCount) throw new Error("Invalid seat");
+      chainModes[seat] = mode;
+      // Only a response window of this seat can be passed by a new mode. Any other prompt was never auto-passed.
+      const open = pending;
+      if (!open || open.seat !== seat) return false;
+      if (open.message.type !== OcgMessageType.SELECT_CHAIN && open.message.type !== OcgMessageType.SELECT_EFFECTYN) return false;
+      const automated = autoResponse(open, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: mode, phase });
+      if (!automated) return false;
+      sawRetry = false;
+      lib.duelSetResponse(handle, automated);
+      processUntilWait();
+      if (sawRetry) {
+        pending = open;
+        sawRetry = false;
+        throw new Error(`The core refused the automatic pass of the open window of seat ${seat} (prompt ${open.id})`);
+      }
+      answerForLeavingSeats();
+      revision += 1;
+      return true;
     },
     eliminate(seat, reason) {
       if (closed) throw new Error("Engine is closed");

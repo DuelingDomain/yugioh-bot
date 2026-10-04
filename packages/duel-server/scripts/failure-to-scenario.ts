@@ -21,10 +21,11 @@ import { engineDataDirectory } from "../tests/fuzz/config.js";
 import { describeCard } from "../tests/support/card-catalog.js";
 import { captureBoard, renderPresetDraft, renderScenario, type Capture, type CardLookup } from "./lib/board-capture.js";
 import { loadSource, replaySource, type DuelSource } from "./lib/replay-source.js";
-import { createEngineGame, eliminationCodeOf } from "../src/engine.js";
+import { createEngineGame } from "../src/engine.js";
+import { applyJournaledCommand, isPromptlessCommand } from "../src/journal-command.js";
 import { engineSeed } from "../tests/fuzz/rng.js";
 import { savedFuzzFirstTurnDraw } from "./lib/fuzz-draw-rule.js";
-import { isDuelFormat, legacyDuelSettings, normalizeDuelSettings, seatCountFor, type DuelDeck, type DuelEngineView, type DuelFormat } from "@yugidraft/shared/duels";
+import { isDuelFormat, legacyDuelSettings, seatCountFor, type DuelDeck, type DuelEngineView, type DuelFormat } from "@yugidraft/shared/duels";
 
 const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -217,7 +218,10 @@ export async function replaySeats(source: NSource, dataDirectory: string, step: 
     seed: source.seed,
     dataDirectory,
     ...(source.firstTurnDraw !== undefined ? { firstTurnDraw: source.firstTurnDraw } : {}),
-    settings: source.settings ?? (source.kind === "journal" ? legacyDuelSettings() : normalizeDuelSettings(source.mode, undefined)),
+    // A file with no saved settings was played with none: the fuzz and differential drivers pass none (every seat starts in Always),
+    // and replaySource passes none too. normalizeDuelSettings(mode, undefined) would start every seat in Auto, a different duel
+    // with a different view. Only a journal without settings is a pre-creator row (legacyDuelSettings).
+    ...(source.settings ? { settings: source.settings } : source.kind === "journal" ? { settings: legacyDuelSettings() } : {}),
     ...(source.startupScripts ? { startupScripts: source.startupScripts } : {}),
     ...(source.format !== "1v1" ? { format: source.format } : {}),
     ...(wasm ? (source.seatCount > 2 ? { multiWasmBinary: wasm } : { standardWasmBinary: wasm }) : {}),
@@ -226,14 +230,12 @@ export async function replaySeats(source: NSource, dataDirectory: string, step: 
     for (let done = 0; done < step; done++) {
       const command = source.commands[done]!;
       const view = game.view(command.seat);
-      const elimination = eliminationCodeOf(command.promptId);
-      if (view.revision !== command.revision || (elimination === null && view.prompt?.id !== command.promptId)) {
+      if (view.revision !== command.revision || (!isPromptlessCommand(command.promptId) && view.prompt?.id !== command.promptId)) {
         throw new Error(
           `answer ${done}: the journal has revision ${command.revision} prompt ${command.promptId}; the engine has revision ${view.revision} prompt ${view.prompt?.id ?? "none"}. The replay does not match the recorded run. Check the saved options and engine resources.`,
         );
       }
-      if (elimination === null) game.answer(command.seat, command.promptId, command.answer);
-      else game.eliminate(command.seat, elimination);
+      applyJournaledCommand(game, command.seat, command);
     }
     return { step, seats: Array.from({ length: source.seatCount }, (_, seat) => game.view(seat)), spectator: game.view(null) };
   } finally {

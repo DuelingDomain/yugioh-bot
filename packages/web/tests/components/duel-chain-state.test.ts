@@ -12,7 +12,7 @@ import {
   chainLinkLabel,
   chainSeatLabel,
   chainStackRows,
-  chainStackSize,
+  chainPanelForm,
   coveredFraction,
   chainStepDelay,
   chainStateKey,
@@ -543,18 +543,27 @@ describe("placeCallout", () => {
 });
 
 describe("chain stack size and covered marks", () => {
-  it("is full with a wide gutter and compact without one, with a dead band between", () => {
-    expect(chainStackSize(228, undefined)).toBe("full");
-    expect(chainStackSize(60, undefined)).toBe("compact");
-    expect(chainStackSize(180, undefined)).toBe("compact");
-    // Between 170 and 190 the stack keeps the form it has: no flicker on the line.
-    expect(chainStackSize(180, "full")).toBe("full");
-    expect(chainStackSize(180, "compact")).toBe("compact");
-    expect(chainStackSize(169, "full")).toBe("compact");
-    expect(chainStackSize(190, "compact")).toBe("full");
-    // A stack that meets a prompt surface is the chips, whatever the gutter says.
-    expect(chainStackSize(300, "full", true)).toBe("compact");
-    expect(chainStackSize(300, undefined, true)).toBe("compact");
+  it("is wide with a wide gutter, narrow from 150 px and the strip below, with dead bands between", () => {
+    expect(chainPanelForm(320, undefined)).toBe("wide");
+    expect(chainPanelForm(230, undefined)).toBe("wide");
+    expect(chainPanelForm(229, undefined)).toBe("narrow");
+    expect(chainPanelForm(164, undefined)).toBe("narrow");
+    expect(chainPanelForm(150, undefined)).toBe("narrow");
+    expect(chainPanelForm(149, undefined)).toBe("strip");
+    expect(chainPanelForm(60, undefined)).toBe("strip");
+    // On a line the panel keeps the form it has: no flicker (12 px past the line to leave a form).
+    expect(chainPanelForm(225, "wide")).toBe("wide");
+    expect(chainPanelForm(225, "narrow")).toBe("narrow");
+    expect(chainPanelForm(217, "wide")).toBe("narrow");
+    expect(chainPanelForm(145, "narrow")).toBe("narrow");
+    expect(chainPanelForm(145, "strip")).toBe("strip");
+    expect(chainPanelForm(137, "narrow")).toBe("strip");
+    expect(chainPanelForm(145, "wide")).toBe("narrow");
+    expect(chainPanelForm(235, "narrow")).toBe("wide");
+    expect(chainPanelForm(150, "strip")).toBe("narrow");
+    // A panel that meets a prompt surface, a phone or a table is the strip, whatever the gutter says.
+    expect(chainPanelForm(300, "wide", true)).toBe("strip");
+    expect(chainPanelForm(300, undefined, true)).toBe("strip");
   });
 
   it("measures how much of a target an open prompt covers", () => {
@@ -585,5 +594,47 @@ describe("placeChips", () => {
     const place = placeChips(chips, board, wall);
     expect(place.top).toBeLessThanOrEqual(board.height - chips.height - 4);
     expect(place.left).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe("link text and type", () => {
+  const withText = (code: number, description: string, type: number): DuelEvent => ({
+    ...activate(1, 0, code, z(0, SZONE, 0)), card: { ...info(code), description, type },
+  });
+
+  it("keeps the printed text and type of an activation, and the snapshot's text after a reload", () => {
+    const live = fold([withText(4206964, "When ...: Target that monster; destroy that target.", 4)]);
+    expect(live.links[0]).toMatchObject({ text: "When ...: Target that monster; destroy that target.", cardType: 4 });
+    const reloaded = deriveChainState([], [{ index: 1, seat: 1, code: 4206964, name: "Trap Hole", text: "Printed.", cardType: 4 }]);
+    expect(reloaded.links[0]).toMatchObject({ text: "Printed.", cardType: 4, card: null });
+    const unknown = deriveChainState([], [{ index: 1, seat: 1, code: null, name: "" } as never]);
+    expect(unknown.links[0]).toMatchObject({ text: null, cardType: null });
+  });
+
+  it("changes the state key when text arrives, so a snapshot that adds it is not dropped", () => {
+    const bare = deriveChainState([], [{ index: 1, seat: 1, code: 11, name: "Card 11" }]);
+    const texted = deriveChainState([], [{ index: 1, seat: 1, code: 11, name: "Card 11", text: "Draw 1 card." }]);
+    expect(chainStateKey(bare)).not.toBe(chainStateKey(texted));
+  });
+});
+
+describe("chainAnnouncement with effects and results", () => {
+  const names = (seat: number) => (seat === 0 ? "You" : "Opponent");
+  const trap = (): DuelEvent => ({ ...activate(1, 1, 4206964, z(1, SZONE, 0)), card: { ...info(4206964, "Trap Hole"), description: "When X: Target that monster; destroy that target.", type: 4 } });
+
+  it("adds the effect when a link starts to resolve", () => {
+    const one = fold([trap()]);
+    const resolving = fold([ev("chain-resolving", 1)], one);
+    expect(chainAnnouncement(one, resolving, 0, names)).toBe("Chain Link 1 resolving: Trap Hole, Opponent. Target that monster; destroy that target.");
+  });
+
+  it("says what a link did once it resolved, and who negated one", () => {
+    const resolving = fold([trap(), ev("chain-resolving", 1)]);
+    const resolved = fold([ev("chain-resolved", 1)], resolving);
+    expect(chainAnnouncement(resolving, resolved, 0, names, false, null, () => "Destroyed Gaia")).toBe("Chain Link 1 resolved. Destroyed Gaia");
+    expect(chainAnnouncement(resolving, resolved, 0, names, false, null, () => null)).toBeNull();
+    const negated = fold([ev("chain-negated", 1)], resolving);
+    expect(chainAnnouncement(resolving, negated, 0, names, false, null, () => "Negated by Solemn Judgment")).toBe("Chain Link 1: Negated by Solemn Judgment");
+    expect(chainAnnouncement(resolving, negated, 0, names)).toBe("Chain Link 1 was negated");
   });
 });

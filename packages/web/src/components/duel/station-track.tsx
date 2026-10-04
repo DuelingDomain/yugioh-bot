@@ -4,8 +4,10 @@ import type { CSSProperties, ReactNode } from "react";
 import { ArrowRight, Check, Hourglass, Lock } from "lucide-react";
 import type { DuelPromptOption } from "@yugidraft/shared/duels";
 import { phaseLabel } from "./constants";
+import { ChainModeSwitch } from "./chain-mode-switch";
 import { duelFontClasses } from "./fonts";
 import { useSkinStyles } from "./skin";
+import type { ChainModeControl } from "./use-chain-mode";
 import baseStyles from "./station-track.module.css";
 
 
@@ -118,6 +120,8 @@ export type StationTrackProps = {
   seatStrip?: readonly StationSeatChip[];
   /** Tables of 3 or more seats: attacks are still shut. Shows "No attack until turn N". */
   attackLock?: { firstTurn: number; turnsLeft: number } | null;
+  /** The viewer's own chain response switch (Auto / Always / Off). Absent for spectators, replays and scenario tables. */
+  chainMode?: ChainModeControl | null;
 };
 
 type PhaseMove = "to_bp" | "to_m2" | "to_ep";
@@ -219,6 +223,7 @@ export function StationTrack({
   reducedMotion,
   seatStrip,
   attackLock,
+  chainMode,
 }: StationTrackProps) {
   const styles = useSkinStyles(baseStyles, "station");
   const current = STATION_INDEX[phaseLabel(phase)] ?? -1;
@@ -271,6 +276,7 @@ export function StationTrack({
       data-reduced={reducedMotion ? "true" : "false"}
       data-seats={seatStrip && seatStrip.length > 0 ? "true" : undefined}
       data-seat-count={seatStrip && seatStrip.length > 3 ? seatStrip.length : undefined}
+      data-chain={chainMode ? "true" : undefined}
     >
       <div className={styles.seat}>
         <span className={styles.lamp} aria-hidden="true" />
@@ -354,6 +360,13 @@ export function StationTrack({
       </div>
 
       <div className={styles.actions}>
+        {chainMode ? (
+          <>
+            <div className={styles.chainSlot}><ChainModeSwitch {...chainMode} /></div>
+            <i className={styles.sep} aria-hidden="true" />
+          </>
+        ) : null}
+        <div className={styles.moves}>
         {attackLock ? (
           <span className={styles.lock} data-testid="attack-lock" title={`Attacks open on turn ${attackLock.firstTurn}`}>
             <Lock strokeWidth={2} aria-hidden="true" />
@@ -412,6 +425,7 @@ export function StationTrack({
             <Hourglass strokeWidth={2} aria-hidden="true" />
           </button>
         )}
+        </div>
       </div>
     </nav>
   );
