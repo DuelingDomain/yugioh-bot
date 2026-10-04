@@ -70,7 +70,8 @@ export function startSummary(config: LobbyConfig, playerCount: number): { before
       after: ". Nobody can join after this.",
     };
   }
-  const shuffled = config.randomizeSeats === false ? "" : " Seats are shuffled.";
+  // Drafts made before seat shuffling have no randomizeSeats, and the server seats them in join order.
+  const shuffled = config.randomizeSeats === true ? " Seats are shuffled." : "";
   return {
     before: "Deals ",
     strong: `${plural(packsOf(config), "pack")} of ${config.packSize ?? 15}`,
@@ -111,7 +112,7 @@ export function setupRows(config: LobbyConfig): SetupRow[] {
   ];
   if (config.alternatePassDirection) rows.push({ label: "Passing", value: "Left, then right" });
   rows.push({ label: "Copy limit", value: config.copyLimit === false ? "Off" : "3 per card" });
-  rows.push({ label: "Seats", value: config.randomizeSeats === false ? "In join order" : "Shuffled at the start" });
+  rows.push({ label: "Seats", value: config.randomizeSeats === true ? "Shuffled at the start" : "In join order" });
   return rows;
 }
 
