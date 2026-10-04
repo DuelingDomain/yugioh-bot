@@ -559,13 +559,15 @@ export function entryFor(tile: HistoryTile, options: HistoryViewOptions): Histor
  */
 export function buildHistoryView(items: readonly HistoryItem[], options: HistoryViewOptions): HistoryView {
   const seatCount = Math.max(2, options.seatCount ?? 2);
-  type Draft = { turn: number | null; seat: number | null; rows: HistoryRow[] };
+  // seat undefined: the model did not work it out (hand-built items), so parity may fill it in.
+  // seat null: the model could not tell (a seat is out), so the label stays without a player.
+  type Draft = { turn: number | null; seat: number | null | undefined; rows: HistoryRow[] };
   const drafts: Draft[] = [];
   const cursor: { current: Draft | null } = { current: null };
   let latestKey: number | null = null;
   let entryCount = 0;
 
-  const open = (turn: number | null, seat: number | null) => {
+  const open = (turn: number | null, seat: number | null | undefined) => {
     const draft: Draft = { turn, seat, rows: [] };
     cursor.current = draft;
     drafts.push(draft);
@@ -575,25 +577,35 @@ export function buildHistoryView(items: readonly HistoryItem[], options: History
   for (const item of items) {
     if (item.type === "sep") {
       if (item.turn != null) {
-        open(item.turn, item.turnSeat ?? null);
+        open(item.turn, item.turnSeat);
       } else {
         const group = cursor.current ?? open(null, null);
         group.rows.push({ type: "phase", key: item.key, label: item.label, battle: /battle/i.test(item.label) });
       }
       continue;
     }
-    const group = cursor.current && cursor.current.turn === item.turn ? cursor.current : open(item.turn, null);
+    const group = cursor.current && cursor.current.turn === item.turn ? cursor.current : open(item.turn, item.turnSeat);
     group.rows.push(entryFor(item, options));
     entryCount += 1;
     if (latestKey == null || item.key > latestKey) latestKey = item.key;
   }
 
+  // Parity is only used for turns the model left unread, and only while every read turn follows it.
   const known = drafts.find((draft) => draft.turn != null && draft.seat != null);
+  const parityHolds = drafts.every(
+    (draft) =>
+      draft.turn == null ||
+      draft.seat == null ||
+      !known ||
+      known.turn == null ||
+      known.seat == null ||
+      draft.seat === (((known.seat + (draft.turn - known.turn)) % seatCount) + seatCount) % seatCount,
+  );
   const groups: HistoryGroup[] = [];
   for (const draft of drafts) {
     if (draft.rows.length === 0) continue;
-    let seat = draft.seat;
-    if (seat == null && draft.turn != null && known && known.turn != null && known.seat != null) {
+    let seat = draft.seat ?? null;
+    if (draft.seat === undefined && parityHolds && draft.turn != null && known && known.turn != null && known.seat != null) {
       seat = (((known.seat + (draft.turn - known.turn)) % seatCount) + seatCount) % seatCount;
     }
     const label = draft.turn == null ? "Earlier" : seat == null ? `Turn ${draft.turn}` : `Turn ${draft.turn} · ${options.who(seat)}`;

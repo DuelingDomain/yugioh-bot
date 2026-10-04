@@ -64,11 +64,18 @@ describe("opponent pick helpers", () => {
     expect([...opponentPickOptions(pickPrompt([1, 3]))]).toEqual([[1, "opt:0"], [3, "opt:1"]]);
   });
 
-  it("keeps Leaving seats offered by the engine and leaves out eliminated seats and options with no seat", () => {
+  it("leaves out Leaving and eliminated seats and options with no seat while a living seat is offered", () => {
     const engine = makeEngine("ffa4", 4, { 1: { eliminated: true }, 2: { pendingElimination: true } });
     const prompt = pickPrompt([1, 2, 3]);
     prompt.options.push({ id: "opt:9", label: "Nobody" });
-    expect([...opponentPickOptions(prompt, engine)]).toEqual([[2, "opt:1"], [3, "opt:2"]]);
+    expect([...opponentPickOptions(prompt, engine)]).toEqual([[3, "opt:2"]]);
+  });
+
+  it("keeps every offered seat, with the same option ids, when none is living", () => {
+    const engine = makeEngine("ffa4", 4, { 1: { pendingElimination: true }, 2: { pendingElimination: true } });
+    expect([...opponentPickOptions(pickPrompt([1, 2]), engine)]).toEqual([[1, "opt:0"], [2, "opt:1"]]);
+    const mixed = makeEngine("ffa4", 4, { 1: { eliminated: true }, 2: { pendingElimination: true } });
+    expect([...opponentPickOptions(pickPrompt([1, 2]), mixed)]).toEqual([[1, "opt:0"], [2, "opt:1"]]);
   });
 
   it("returns nothing for any other prompt", () => {
@@ -191,6 +198,18 @@ describe("MultiSeatStage with an opponent pick", () => {
 });
 
 describe("SeatStrip alone", () => {
+  it("does not offer a Leaving seat while a living seat is offered, and offers it when none is living", () => {
+    const options = new Map([[1, "opt:0"], [2, "opt:1"]]);
+    const { rerender } = render(<SeatStrip engine={makeEngine("ffa4", 4, { 1: { pendingElimination: true } })} mySeat={0}
+      nameOf={(seat) => NAMES[seat]} promptSeat={0} pick={{ options, onPick: vi.fn() }} />);
+    expect(screen.queryByTestId("seat-strip-pick-1")).toBeNull();
+    expect(screen.getByTestId("seat-strip-pick-2")).toBeTruthy();
+    rerender(<SeatStrip engine={makeEngine("ffa4", 4, { 1: { pendingElimination: true }, 2: { pendingElimination: true } })} mySeat={0}
+      nameOf={(seat) => NAMES[seat]} promptSeat={0} pick={{ options, onPick: vi.fn() }} />);
+    expect(screen.getByTestId("seat-strip-pick-1")).toBeTruthy();
+    expect(screen.getByTestId("seat-strip-pick-2")).toBeTruthy();
+  });
+
   it("shows the pick as a button with an aria label and keeps the focus buttons for other seats", () => {
     const engine = makeEngine("ffa4", 4);
     const onPick = vi.fn();

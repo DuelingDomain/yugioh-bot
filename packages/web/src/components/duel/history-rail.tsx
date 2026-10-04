@@ -104,6 +104,9 @@ export function contextFor(engine: DuelEngineView): HistoryContext {
     seatCount: engine.seats.length,
     lp: engine.seats.map((seat) => seat.lp),
     cards,
+    // Turn seats come from the server's "Turn N — Player X" lines; once a seat is out, older turns are not guessed.
+    log: engine.log,
+    anySeatOut: engine.seats.some((seat) => seat.eliminated || seat.pendingElimination),
   };
 }
 

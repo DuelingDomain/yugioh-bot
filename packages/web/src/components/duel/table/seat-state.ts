@@ -1,6 +1,5 @@
 import type { DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
 import { isEliminated } from "../multi-seat";
-import { nextSeatAfter } from "../multi-seat";
 import type { SeatStatus, SeatTone, TableLayout } from "./types";
 
 /**
@@ -14,6 +13,21 @@ type EngineLike = Pick<DuelEngineView, "turn" | "turnSeat" | "seats" | "result" 
 /** True when the seat has left the duel, or is about to (its loss waits for the open prompt). */
 export function isOut(view: SeatLike | undefined): boolean {
   return view != null && (view.eliminated === true || view.pendingElimination === true);
+}
+
+/**
+ * The living seat that plays after `seat`: eliminated and leaving seats are skipped (a leaving seat never plays
+ * again). Null when no other seat is living. `seat` itself may be out.
+ */
+export function nextLivingSeat(seats: readonly SeatLike[], seat: number): number | null {
+  const ordered = [...seats].sort((a, b) => a.seat - b.seat);
+  const start = ordered.findIndex((entry) => entry.seat === seat);
+  if (start < 0) return null;
+  for (let step = 1; step < ordered.length; step += 1) {
+    const candidate = ordered[(start + step) % ordered.length];
+    if (!isOut(candidate)) return candidate.seat;
+  }
+  return null;
 }
 
 export function seatsOut(engine: Pick<DuelEngineView, "seats">): number[] {
@@ -138,7 +152,7 @@ export function seatStrip(
   promptSeat: number | null,
   nameOf: (seat: number) => string,
 ): SeatStripEntry[] {
-  const next = nextSeatAfter(engine.seats, engine.turnSeat);
+  const next = nextLivingSeat(engine.seats, engine.turnSeat);
   return [...layout.slots]
     .sort((a, b) => a.turnOrder - b.turnOrder)
     .map((slot) => {
