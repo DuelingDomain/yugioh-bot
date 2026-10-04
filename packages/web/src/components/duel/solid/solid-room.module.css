@@ -228,7 +228,6 @@
 
 .phase {
   min-width: 0;
-  border-top: 1px solid var(--gold-b);
 }
 .peek { display: none; }
 
@@ -239,12 +238,11 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: 10px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  border: 1px solid var(--gold-b);
-  border-radius: 12px;
-  background: linear-gradient(180deg, #0b0f1c, #080b15);
+  /* The two docks carry their own panel (docks.module.css); the column adds no second frame. */
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: none;
 }
 .docks > * { flex: 1 1 auto; min-height: 0; }
 

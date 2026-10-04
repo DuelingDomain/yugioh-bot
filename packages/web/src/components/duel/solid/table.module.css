@@ -136,6 +136,33 @@
 }
 .clock[data-sv-clock="opp"] { color: var(--sv-ember); transform: rotate(180deg); }
 .clock[data-sv-clock="you"] { color: var(--pur-hi); }
+/* The V1 clock node (name + m:ss) stacks in the gap: name small above, time large below, in the seat colour. */
+.clock[data-sv-clock] > div,
+.clock[data-sv-clock] > div > span[data-active] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: inherit;
+}
+.clock[data-sv-clock] > div > span[data-active] > small {
+  max-width: calc(var(--s) * 0.9);
+  color: #979080;
+  font-family: var(--font);
+  font-size: clamp(10px, calc(var(--s) * 0.15), 13px);
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+}
+.clock[data-sv-clock] > div > span[data-active] > span:not([aria-hidden]) {
+  color: inherit;
+  font-family: var(--font-num);
+  font-size: clamp(17px, calc(var(--s) * 0.32), 30px);
+  font-weight: 500;
+  line-height: 1;
+}
+.clock[data-sv-clock] > div > span[data-active="false"] { color: #979080; }
+.clock[data-sv-clock="opp"] > div > span[data-active="true"] { color: #e0916a; }
+.clock[data-sv-clock="you"] > div > span[data-active="true"] { color: #b8a8ff; }
 
 .planeSvg {
   position: absolute;
@@ -275,8 +302,11 @@
 
 /* "Extra Monster" label on an empty EMZ, on two lines. */
 .plane .zone[data-zones] .zoneName {
-  position: relative;
+  position: absolute;
   inset: auto;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
   z-index: 0;
   width: min-content;
   color: var(--tx-3);
