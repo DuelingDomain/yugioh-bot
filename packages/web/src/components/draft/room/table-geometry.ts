@@ -68,6 +68,37 @@ export interface Slot {
   h: number;
 }
 
+/** Column counts a cube pack may be dealt across on a desktop table. */
+const COLUMN_CHOICES = [5, 6, 7, 8];
+
+/**
+ * The column count that gives the widest cards, trying the mock's 5 to 8 across.
+ * Ties go to more columns (a shorter table). Returns null when no choice reaches the card floor,
+ * which leaves the table on its old layout.
+ */
+export function bestColumns(o: {
+  packSize: number;
+  baseRows: number;
+  widthCap: number;
+  pad: number;
+  gap: number;
+  top: number;
+  extra: number;
+  fit: number;
+  floor: number;
+}): number | null {
+  let best: { cols: number; cw: number } | null = null;
+  for (const cols of COLUMN_CHOICES) {
+    const rows = Math.max(o.baseRows, Math.ceil(o.packSize / cols));
+    const byWidth = (o.widthCap - o.pad * 2 - o.gap * (cols - 1)) / cols;
+    const byHeight = ((o.fit - o.top - o.extra - (rows - 1) * o.gap) / rows) * (59 / 86);
+    const cw = Math.min(byWidth, byHeight);
+    if (cw < o.floor) continue;
+    if (!best || cw > best.cw + 0.5 || (Math.abs(cw - best.cw) <= 0.5 && cols > best.cols)) best = { cols, cw };
+  }
+  return best ? best.cols : null;
+}
+
 export function measureTable(opts: {
   width: number;
   height: number;
@@ -81,22 +112,27 @@ export function measureTable(opts: {
   const packSize = opts.packSize ?? 0;
   const narrow = !phone && width < 820;
   const baseCols = phone ? 4 : narrow ? 5 : 8;
-  let cols = baseCols;
   const pad = phone ? 14 : 30;
   const gap = phone ? 8 : 10;
   const baseRows = theme ? 2 : phone ? 4 : narrow ? 3 : 2;
-  let rows = Math.max(baseRows, Math.ceil(packSize / cols));
-  const themeBelow = theme && !phone && rows > baseRows;
-  const poolBelow = theme && (phone || themeBelow);
   const top = phone ? 34 : 72;
   const extra = phone ? 54 : 74;
   const floor = phone ? 60 : 64;
   // A tall desktop stage lets the table grow into the spare height; narrow stages keep their width.
   const grow = phone || narrow ? 0 : Math.min(GROW_MAX, Math.max(0, (height - GROW_FROM) / GROW_SPAN));
   const widthCap = phone ? Math.min(width - 24, 560) : Math.min(980 * (1 + grow), width - 220);
+  const fit = (height - (phone ? diskH + 40 : 150)) / (phone ? 0.93 : 0.8);
+  // A cube pack that fits two rows of eight on a roomy desktop stage takes the widest layout that needs no
+  // scrolling. Bigger packs keep the old layout and its flat scrolling fallback.
+  let cols =
+    !phone && !theme && !narrow && packSize > 0 && packSize <= baseRows * baseCols
+      ? (bestColumns({ packSize, baseRows, widthCap, pad, gap, top, extra, fit, floor }) ?? baseCols)
+      : baseCols;
+  let rows = Math.max(baseRows, Math.ceil(packSize / cols));
+  const themeBelow = theme && !phone && rows > baseRows;
+  const poolBelow = theme && (phone || themeBelow);
   let tw = widthCap;
   let cw = (tw - pad * 2 - gap * (cols - 1)) / cols;
-  const fit = (height - (phone ? diskH + 40 : 150)) / (phone ? 0.93 : 0.8);
   // Budget for the pool below phone and expanded desktop theme packs.
   const widthForHeight = (rowCount: number) =>
     ((fit - top - extra - (rowCount - 1) * gap - (poolBelow ? 22 : 0)) / (rowCount + (poolBelow ? 0.8 : 0))) *
