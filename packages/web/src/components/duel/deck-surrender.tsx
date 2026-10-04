@@ -38,7 +38,10 @@ export function deckOffersSurrender(surrender: DeckSurrenderValue | null, ownerS
 export const DECK_USE_ID = "deck_use";
 export const DECK_SURRENDER_ID = "surrender";
 
-/** Menu rows for your deck: its normal action first (when it has one), then Surrender. */
+/**
+ * Menu rows for your deck: its summon action first (when it has one), then Surrender.
+ * A deck that is only selected has no summon: its click clears the selection, so the menu does not offer it.
+ */
 export function deckMenuOptions(hasAction: boolean): DuelPromptOption[] {
   const options: DuelPromptOption[] = [];
   if (hasAction) options.push({ id: DECK_USE_ID, label: "Use Main Deck" });

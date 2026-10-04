@@ -406,6 +406,9 @@ function PileSlot({
 
   const surrender = useDeckSurrender();
   const deckMenu = kind === "deck" && ownerSeat != null && deckOffersSurrender(surrender, ownerSeat);
+  // A deck that can act (summon, or a pick it can join) keeps its one-click action; the menu then opens on
+  // right click and long press. A deck with no action opens the menu on a plain click.
+  const deckActs = legal || selected;
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const closeMenu = useCallback(() => setMenuAnchor(null), []);
   const hold = useRef<number | null>(null);
@@ -432,7 +435,7 @@ function PileSlot({
   useEffect(() => clearHold, []);
 
   function activate(anchor: HTMLElement) {
-    if (deckMenu) {
+    if (deckMenu && !deckActs) {
       setMenuAnchor(anchor);
       return;
     }
@@ -537,7 +540,7 @@ function PileSlot({
         <CardActionMenu
           anchor={menuAnchor}
           title={label}
-          options={deckMenuOptions(legal || selected)}
+          options={deckMenuOptions(legal)}
           busy={surrender?.busy ?? false}
           onClose={closeMenu}
           onChoose={(option) => {

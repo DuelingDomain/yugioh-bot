@@ -120,16 +120,67 @@ describe("deck menu", () => {
     expect(value.onSurrender).not.toHaveBeenCalled();
   });
 
-  it("keeps the deck's own action in the same menu when the deck is usable", () => {
+  it("keeps the deck's one-click action when the deck is usable", () => {
     const first = table();
     const key = deck(first.container, "bottom").closest<HTMLElement>("[data-zones]")!.dataset.zones!;
     cleanup();
     const { container, onActivate } = table({}, view(), [key]);
     fireEvent.click(deck(container, "bottom"));
+    expect(onActivate).toHaveBeenCalledTimes(1);
+    expect(onActivate.mock.calls[0][0]).toEqual([key]);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("offers the deck's action and Surrender together on right click when the deck is usable", () => {
+    const first = table();
+    const key = deck(first.container, "bottom").closest<HTMLElement>("[data-zones]")!.dataset.zones!;
+    cleanup();
+    const { container, onActivate, value } = table({}, view(), [key]);
+    fireEvent.contextMenu(deck(container, "bottom"));
     expect(onActivate).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Use Main Deck", "Surrender"]);
     fireEvent.click(screen.getByRole("menuitem", { name: "Use Main Deck" }));
     expect(onActivate).toHaveBeenCalledTimes(1);
     expect(onActivate.mock.calls[0][0]).toEqual([key]);
+    expect(value.onSurrender).not.toHaveBeenCalled();
+  });
+
+  it("opens the menu on a long press when the deck is usable", () => {
+    vi.useFakeTimers();
+    const first = table();
+    const key = deck(first.container, "bottom").closest<HTMLElement>("[data-zones]")!.dataset.zones!;
+    cleanup();
+    const { container } = table({}, view(), [key]);
+    fireEvent.pointerDown(deck(container, "bottom"), { pointerType: "touch" });
+    act(() => { vi.advanceTimersByTime(500); });
+    expect(screen.getByRole("menuitem", { name: "Use Main Deck" })).toBeTruthy();
+  });
+
+  it("clears a selected deck on click, and the menu does not offer Use Main Deck for it", () => {
+    const first = table();
+    const key = deck(first.container, "bottom").closest<HTMLElement>("[data-zones]")!.dataset.zones!;
+    cleanup();
+    const onActivate = vi.fn();
+    const { container } = render(
+      <DeckSurrenderContext.Provider value={{ seat: 0, available: true, busy: false, onSurrender: vi.fn() }}>
+        <DuelField engine={view()} mySeat={0} masterRule={5} reducedMotion legalKeys={new Set()}
+          selectedKeys={new Set([key])} onActivate={onActivate} onInspect={() => {}} bottomName="Yugi" topName="Kaiba" />
+      </DeckSurrenderContext.Provider>,
+    );
+    fireEvent.click(deck(container, "bottom"));
+    expect(onActivate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.contextMenu(deck(container, "bottom"));
+    expect(screen.getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Surrender"]);
+  });
+
+  it("disables the rows while the room is busy", () => {
+    const { container, value } = table({ busy: true });
+    fireEvent.click(deck(container, "bottom"));
+    const item = screen.getByRole("menuitem", { name: "Surrender" }) as HTMLButtonElement;
+    expect(item.disabled).toBe(true);
+    fireEvent.click(item);
+    expect(value.onSurrender).not.toHaveBeenCalled();
   });
 });
 
