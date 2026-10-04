@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useRef, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardFace, cardFieldStats } from "./card-face";
+import { CardActionMenu } from "./card-interactions";
+import { DECK_SURRENDER_ID, DECK_USE_ID, deckMenuOptions, deckOffersSurrender, useDeckSurrender } from "./deck-surrender";
 import { EquipChip, EquipLinksContext, useEquipRole } from "./equip-chip";
 import { EquipFx } from "./equip-fx";
 import { equipSentence, resolveEquipLinks } from "./equip-links";
@@ -370,6 +372,7 @@ function PileSlot({
   sleeve,
   side,
   column,
+  ownerSeat,
   legalKeys,
   selectedKeys,
   onActivate,
@@ -383,6 +386,8 @@ function PileSlot({
   cards: DuelCard[];
   inspectable: boolean;
   sleeve?: "deck" | "extra";
+  /** The seat that owns a Main Deck. Its owner gets the Surrender menu on the deck (see deck-surrender.tsx). */
+  ownerSeat?: number;
   side: "opp" | "you";
   /** Board column the pile sits in; the fan spreads toward the outer edge. */
   column: "left" | "right";
@@ -399,7 +404,26 @@ function PileSlot({
   const chip = CHIP_TEXT[kind];
   const hoverTop = kind === "gy" || kind === "banish" ? (cards[cards.length - 1] ?? null) : null;
 
+  const surrender = useDeckSurrender();
+  const deckMenu = kind === "deck" && ownerSeat != null && deckOffersSurrender(surrender, ownerSeat);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const closeMenu = useCallback(() => setMenuAnchor(null), []);
+  const hold = useRef<number | null>(null);
+  const clearHold = () => {
+    if (hold.current != null) window.clearTimeout(hold.current);
+    hold.current = null;
+  };
+  // The menu belongs to the deck: it goes when the duel ends or the deck stops being the viewer's.
+  useEffect(() => {
+    if (!deckMenu) setMenuAnchor(null);
+  }, [deckMenu]);
+  useEffect(() => clearHold, []);
+
   function activate(anchor: HTMLElement) {
+    if (deckMenu) {
+      setMenuAnchor(anchor);
+      return;
+    }
     if (inspectable) {
       onInspect({ type: "pile", title: label, cards });
       if (cards.length === 1) {
@@ -431,6 +455,25 @@ function PileSlot({
         aria-label={`${label} (${count})`}
         aria-pressed={selected}
         onClick={(event) => activate(event.currentTarget)}
+        onContextMenu={deckMenu ? (event) => {
+          event.preventDefault();
+          setMenuAnchor(event.currentTarget);
+        } : undefined}
+        onPointerDown={deckMenu ? (event) => {
+          // A long press on touch opens the same menu as a tap.
+          if (event.pointerType !== "touch") return;
+          const target = event.currentTarget;
+          clearHold();
+          hold.current = window.setTimeout(() => {
+            hold.current = null;
+            setMenuAnchor(target);
+          }, 500);
+        } : undefined}
+        onPointerUp={deckMenu ? clearHold : undefined}
+        onPointerCancel={deckMenu ? clearHold : undefined}
+        onPointerLeave={deckMenu ? clearHold : undefined}
+        aria-haspopup={deckMenu ? "menu" : undefined}
+        aria-expanded={deckMenu ? menuAnchor != null : undefined}
         onMouseEnter={(event) => onHoverCard?.(hoverTop, event.currentTarget)}
         onMouseLeave={() => onHoverCard?.(null, null)}
         onFocus={(event) => onHoverCard?.(hoverTop, event.currentTarget)}
@@ -474,6 +517,21 @@ function PileSlot({
           <LayoutGrid size={11} strokeWidth={1.8} aria-hidden />
           {chip}
         </button>
+      ) : null}
+      {deckMenu && menuAnchor ? (
+        <CardActionMenu
+          anchor={menuAnchor}
+          title={label}
+          options={deckMenuOptions(legal || selected)}
+          busy={surrender?.busy ?? false}
+          onClose={closeMenu}
+          onChoose={(option) => {
+            const anchor = menuAnchor;
+            closeMenu();
+            if (option.id === DECK_SURRENDER_ID) surrender?.onSurrender();
+            else if (option.id === DECK_USE_ID) onActivate(keys, null, anchor);
+          }}
+        />
       ) : null}
     </div>
   );
@@ -718,6 +776,7 @@ function PileColumn({
       sleeve="deck"
       side={owner}
       column={side}
+      ownerSeat={seat}
       legalKeys={callbacks.legalKeys}
       selectedKeys={callbacks.selectedKeys}
       onActivate={callbacks.onActivate}

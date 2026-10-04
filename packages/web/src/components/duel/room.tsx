@@ -8,6 +8,7 @@ import { Circle, Diamond, ExternalLink, Eye, Radio, Volume2, VolumeX } from "luc
 import { isCustomDomain, type DuelAnswer, type DuelCard, type DuelCardInfo, type DuelDeck, type DuelPromptOption, type DuelRoom } from "@yugidraft/shared/duels";
 import { Button } from "@/components/ui/button";
 import { SurrenderModal } from "./surrender-modal";
+import { DeckSurrenderContext, type DeckSurrenderValue } from "./deck-surrender";
 import { BugReportHeaderButton } from "../bug-report/bug-report-header-button";
 import { BugReportMenuButton } from "../bug-report/bug-report-menu-button";
 import { useBugReportRoom } from "../bug-report/room-store";
@@ -692,6 +693,11 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setConfirmSurrender(false);
       void run(() => surrenderDuel(slug));
     }} />;
+  // Your own deck opens a Surrender menu. It uses the same confirm and the same surrender call as the header button.
+  const deckSurrender: DeckSurrenderValue = {
+    seat: data.mySeat, available: canSurrender, busy: busy || catchingUp || Boolean(error),
+    onSurrender: () => setConfirmSurrender(true),
+  };
   // The series has moved on to its next game and this room is about to follow it (the effect on nextTarget).
   // The old game's result is history by now: do not flash "You win" for the second the next room takes to
   // open. Show the starting screen of the next game, then its field and its opening deal.
@@ -765,8 +771,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {surrenderModal}
       </>,
     };
-    if (liveTagTable) return <TagShell key={slug} {...shellProps} teamNames={defaultTeamNames()} />;
-    return <TableShell key={slug} {...shellProps} />;
+    return <DeckSurrenderContext.Provider value={deckSurrender}>
+      {liveTagTable ? <TagShell key={slug} {...shellProps} teamNames={defaultTeamNames()} /> : <TableShell key={slug} {...shellProps} />}
+    </DeckSurrenderContext.Provider>;
   }
   const connectionLabel = labelForConnection(terminal, { ...realtime, stale: roomStale, error });
   const domain = data.session.mode === "domain";
@@ -939,6 +946,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   );
 
   return (
+    <DeckSurrenderContext.Provider value={deckSurrender}>
     <div className={`${styles.shell} ${duelFontClasses} -mx-4 -my-4 sm:-mx-6 sm:-my-6 lg:-mx-8 lg:-my-8`}
       data-duel-fx-speed-root data-domain={domain} data-fit="true" data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
@@ -1126,5 +1134,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
           onSeriesChanged={() => void refreshRoom()} onNavigate={goToGame} />
       ) : null}
     </div>
+    </DeckSurrenderContext.Provider>
   );
 }
