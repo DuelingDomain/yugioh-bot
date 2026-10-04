@@ -72,85 +72,138 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: node scripts/ci/changed-layers.mjs
 
-  cores:
-    name: Engine cores (build or restore)
+  core-cache:
+    name: Engine core cache
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 5
     outputs:
       key: ${{ steps.key.outputs.key }}
+      hit: ${{ steps.bundle.outputs.cache-hit }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      # Same inputs as the deploy bundle key in deploy.yml, plus the multi core series and its build scripts.
-      # The prefix differs from deploy.yml on purpose: this bundle also holds the multi cores and a different path.
-      # The v2 is a literal: raise it when the build steps or flags in this file change (the hash cannot see them).
-      # The emsdk image comes from pins.json (a pins.json change also changes the key).
+      # v3 uses independent core builds. The complete bundle still has the same input files as v2.
       - name: Compute bundle cache key
         id: key
-        run: echo "key=duel-engine-ci-v2-${{ hashFiles('packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
-
-      - name: Read the emsdk image from pins.json
-        run: node -p "const e = require('./packages/duel-server/domain-core/pins.json').emscripten; 'EMSDK_IMAGE=' + e.image + '@' + e.digest" >> "$GITHUB_ENV"
-
-      - name: Restore engine bundle
+        run: echo "key=duel-engine-ci-v3-${{ hashFiles('scripts/ci/build-core.sh', 'scripts/ci/parallel-emxx.py', 'scripts/ci/bin/em++', 'scripts/ci/core-cache-key.mjs', 'scripts/ci/assemble-core-bundle.mjs', 'packages/duel-server/scripts/prepare-data.ts', 'packages/duel-server/scripts/build-domain-core.ts', 'packages/duel-server/scripts/build-domain-core.sh', 'packages/duel-server/scripts/build-standard-core.sh', 'packages/duel-server/scripts/build-multi-core.sh', 'packages/duel-server/scripts/prepare-multi-core-tree.sh', 'packages/duel-server/scripts/multi-core-common.sh', 'packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/patches/*.patch', 'packages/duel-server/domain-core/src/**', 'packages/duel-server/domain-core/lua/**', 'packages/duel-server/legacy-1v1/**', 'packages/duel-server/domain-core/multi-scripts/**', 'packages/duel-server/src/multi-scripts.ts', 'patches/ocgcore-wasm+0.1.2.patch', 'package-lock.json') }}" >> "$GITHUB_OUTPUT"
+      - name: Look up engine bundle
         id: bundle
         uses: actions/cache/restore@v4
         with:
+          lookup-only: true
           path: |
             data/duel-engine-next
             packages/duel-server/domain-core/dist
           key: ${{ steps.key.outputs.key }}
 
+  core-build:
+    name: Build core (${{ matrix.target }})
+    if: needs.core-cache.outputs.hit != 'true'
+    needs: core-cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [standard, domain, legacy-domain, multi, multi-domain, multi-ref, multi-ref-domain, multi-trap]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Compute core cache key
+        id: key
+        run: node scripts/ci/core-cache-key.mjs ${{ matrix.target }}
+      - name: Restore compiled core
+        id: core
+        uses: actions/cache/restore@v4
+        with:
+          path: ci-core/${{ matrix.target }}
+          key: ${{ steps.key.outputs.key }}
       - name: Setup Node.js
-        if: steps.bundle.outputs.cache-hit != 'true'
+        if: steps.core.outputs.cache-hit != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
-
-      - name: Build standard and domain cores
-        if: steps.bundle.outputs.cache-hit != 'true'
-        env:
-          DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
+      - name: Restore compiler libraries
+        if: steps.core.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: .cache/emscripten
+          key: emcache-v1-${{ matrix.target }}-${{ hashFiles('packages/duel-server/domain-core/pins.json', 'packages/duel-server/legacy-1v1/domain-core/pins.json') }}-${{ steps.key.outputs.key }}
+          # Emscripten validates its system-library flags. A previous patch series can reuse those libraries.
+          restore-keys: |
+            emcache-v1-${{ matrix.target }}-${{ hashFiles('packages/duel-server/domain-core/pins.json', 'packages/duel-server/legacy-1v1/domain-core/pins.json') }}-
+      - name: Install
+        if: steps.core.outputs.cache-hit != 'true'
         run: |
           npm ci --ignore-scripts
           npx patch-package --error-on-fail
-          npm run duel:prepare
-          docker pull "$EMSDK_IMAGE"
-          npx tsx packages/duel-server/scripts/build-domain-core.ts
-          npx tsx packages/duel-server/scripts/build-domain-core.ts standard
-          # The Domain core of the legacy 1v1 engine (main's build), next to the merged one. 1v1 duels start on it by default.
-          npx tsx packages/duel-server/scripts/build-domain-core.ts legacy-domain
+      - name: Build core with all runner CPUs
+        if: steps.core.outputs.cache-hit != 'true'
+        run: bash scripts/ci/build-core.sh ${{ matrix.target }}
+      - name: Save compiled core
+        if: steps.core.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ci-core/${{ matrix.target }}
+          key: ${{ steps.key.outputs.key }}
+      - name: Upload core
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-${{ matrix.target }}
+          path: ci-core/
+          if-no-files-found: error
+          retention-days: 1
 
-      # All multi cores use LUA_FIXED_SEED=1 so that the one binary serves the engine tests and the
-      # differential tests. The deploy build must use the same flags to ship the tested binary.
-      - name: Build multi cores
-        if: steps.bundle.outputs.cache-hit != 'true'
+  cores:
+    name: Engine cores (build or restore)
+    if: always() && needs.core-cache.result == 'success' && (needs.core-build.result == 'success' || needs.core-build.result == 'skipped')
+    needs: [core-cache, core-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      key: ${{ needs.core-cache.outputs.key }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Restore engine bundle
+        if: needs.core-cache.outputs.hit == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            data/duel-engine-next
+            packages/duel-server/domain-core/dist
+          key: ${{ needs.core-cache.outputs.key }}
+          fail-on-cache-miss: true
+      - name: Setup Node.js
+        if: needs.core-cache.outputs.hit != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Prepare card data and scripts
+        if: needs.core-cache.outputs.hit != 'true'
+        env:
+          DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
         run: |
-          set -eu
-          build_multi() {
-            out="$1"; shift
-            args=()
-            for kv in "$@"; do args+=(-e "$kv"); done
-            docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
-              -e EM_CACHE=/src/packages/duel-server/domain-core/.emcache \
-              -e LUA_FIXED_SEED=1 -e OUT_NAME="$out" "${args[@]}" \
-              -v "$PWD":/src -w /src "$EMSDK_IMAGE" \
-              bash packages/duel-server/scripts/build-multi-core.sh
-          }
-          tree=/src/packages/duel-server/domain-core/.build
-          # Engine cores: the full series, without and with the Domain layer for 3 and 4 duelists.
-          build_multi ocgcore.multi.sync.wasm "MULTI_TREE=$tree/multi-core-tree"
-          build_multi ocgcore.multi-domain.sync.wasm "MULTI_TREE=$tree/multi-core-tree" APPLY_DOMAIN=1 DOMAIN_MULTI=1
-          # Differential references: patches 1 and 2 only (same rules, different binary layout).
-          build_multi ocgcore.multi-ref.sync.wasm "MULTI_TREE=$tree/multi-ref-tree" PATCH_LIMIT=2
-          build_multi ocgcore.multi-ref-domain.sync.wasm "MULTI_TREE=$tree/multi-ref-tree" PATCH_LIMIT=2 APPLY_DOMAIN=1
-          # Debug core of the Table test (tests/multi-scripts-table.test.ts): the full series with -DYGO_N_TRAP.
-          build_multi ocgcore.multi-trap.sync.wasm "MULTI_TREE=$tree/multi-core-tree" EXTRA_CXXFLAGS=-DYGO_N_TRAP
+          npm ci
+          npm run duel:prepare
+      - name: Download all cores
+        if: needs.core-cache.outputs.hit != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: core-*
+          path: ci-core
+          merge-multiple: true
+      # Build jobs have separate manifests. Only this step writes the final manifest, in serial build order.
+      - name: Assemble engine bundle
+        if: needs.core-cache.outputs.hit != 'true'
+        env:
+          DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
+        run: node scripts/ci/assemble-core-bundle.mjs
 
       - name: Install multi cores into the bundle
-        if: steps.bundle.outputs.cache-hit != 'true'
+        if: needs.core-cache.outputs.hit != 'true'
         run: |
           set -eu
           dist=packages/duel-server/domain-core/dist
@@ -160,15 +213,6 @@ jobs:
             "${GITHUB_SHA::12}" "$dist/ocgcore.multi.sync.wasm" \
             "$(sha256sum "$dist/ocgcore.multi.sync.wasm" | cut -d' ' -f1)" \
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$BUNDLE_DIR/ocgcore.multi.SOURCE"
-
-      - name: Save engine bundle
-        if: steps.bundle.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            data/duel-engine-next
-            packages/duel-server/domain-core/dist
-          key: ${{ steps.key.outputs.key }}
 
       - name: Verify engine bundle
         run: |
@@ -182,6 +226,15 @@ jobs:
           DUEL_DATA_DIR="$PWD/$BUNDLE_DIR" sh packages/duel-server/scripts/install-engine-bundle.sh
           # The legacy 1v1 files must be main's files (sha256 pinned in legacy-1v1/expected-sha256.txt), also when the bundle came from the cache.
           sh packages/duel-server/scripts/check-legacy-pin.sh "$PWD/$BUNDLE_DIR"
+
+      - name: Save engine bundle
+        if: needs.core-cache.outputs.hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            data/duel-engine-next
+            packages/duel-server/domain-core/dist
+          key: ${{ needs.core-cache.outputs.key }}
 
   unit-packages:
     name: Unit packages and typecheck
@@ -219,6 +272,7 @@ jobs:
       - name: Test CI helpers
         run: |
           node --test scripts/ci/*.test.mjs
+          python3 -B scripts/ci/parallel_emxx_test.py
 
       - name: Select changed test files
         id: selection
@@ -285,7 +339,7 @@ jobs:
 
   engine-shards:
     name: Engine tests shard (${{ matrix.shard }}/6)
-    if: github.event_name != 'schedule' && needs.changes.outputs.web_engine == 'true'
+    if: ${{ !cancelled() && needs.cores.result == 'success' && github.event_name != 'schedule' && needs.changes.outputs.web_engine == 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -373,7 +427,7 @@ jobs:
 
   engine-legacy-shards:
     name: Legacy 1v1 tests shard (${{ matrix.shard }}/6)
-    if: github.event_name != 'schedule' && needs.changes.outputs.engine == 'true'
+    if: ${{ !cancelled() && needs.cores.result == 'success' && github.event_name != 'schedule' && needs.changes.outputs.engine == 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -460,7 +514,7 @@ jobs:
 
   native:
     name: Native checks (ASan and UBSan)
-    if: github.event_name != 'schedule' && needs.changes.outputs.engine == 'true'
+    if: ${{ !cancelled() && needs.cores.result == 'success' && github.event_name != 'schedule' && needs.changes.outputs.engine == 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -531,7 +585,7 @@ jobs:
 
   nduel-nightly:
     name: nduel fuzz (${{ matrix.case }})
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: ${{ !cancelled() && needs.cores.result == 'success' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     needs: cores
     runs-on: ubuntu-latest
     timeout-minutes: 240
