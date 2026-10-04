@@ -69,6 +69,24 @@ describe("practice bot preset decks", () => {
 });
 
 describe("practice bot prompt choices", () => {
+  it.each([
+    ["cards", { selected: ["card:0", "card:1"] }],
+    ["sum", { selected: ["card:0", "card:1"] }],
+    ["order", { selected: ["card:0", "card:1"] }],
+    ["toggle", { choice: "card:0" }],
+    ["counters", { counts: { "card:0": 1, "card:1": 1 } }],
+  ] as const)("keeps required %s options of a leaving seat", (kind, answer) => {
+    const required = prompt({ kind, title: "Required selection", min: 2, max: 2, target: 2, sumMode: "exact",
+      options: [0, 1].map((index) => ({ id: `card:${index}`, label: "Required card", controller: 2, values: [1], max: 1 })) });
+    expect(choosePracticeBotAnswer(required, { table: { living: [0, 1], eliminated: [] } })).toEqual(answer);
+  });
+
+  it("keeps a partial leaving-seat list when every card is required", () => {
+    const required = prompt({ kind: "cards", title: "Required selection", min: 2, max: 2,
+      options: [{ id: "card:0", label: "Own card", controller: 1 }, { id: "card:1", label: "Leaving card", controller: 2 }] });
+    expect(choosePracticeBotAnswer(required, { table: { living: [0, 1], eliminated: [] } })).toEqual({ selected: ["card:0", "card:1"] });
+  });
+
   it("summons then battles and never shuffles or toggles idle positions", () => {
     const idle = prompt({
       kind: "choice",

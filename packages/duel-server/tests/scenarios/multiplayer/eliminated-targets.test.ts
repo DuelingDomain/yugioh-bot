@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, it, vi } from "vitest";
-import { OcgLocation } from "ocgcore-wasm";
+import { OcgLocation, OcgResponseType } from "ocgcore-wasm";
 import { createEngineGame } from "../../../src/engine.js";
 import { botTableOf, choosePracticeBotAnswer } from "../../../src/practice-bot.js";
 import { compileBoard } from "../../support/board.js";
@@ -42,6 +42,106 @@ async function open(scenario: Scenario, emptyDeckSeats: number[] = [], fixture?:
 }
 
 describeWithCores("eliminated FFA attack and effect targets", [liveNseat, ...needs.domainMulti()], () => {
+  for (const mode of ["normal", "domain"] as const) {
+    const master = (card: string) => mode === "domain" ? { deckMaster: card } : {};
+    it(`${mode}: two surrenders inside one chain leave the opponent pick answerable`, async () => {
+      const scenario: Scenario = { id: "all-opponents-leaving", title: "", source: "ADR-0002", tags: [], steps: [],
+        setup: { format: "ffa3", mode, p0: { hand: ["Pot of Greed"], ...master("Axe Raider") },
+          p1: master("Celtic Guardian"), p2: master("Battle Ox") } };
+      const game = await open(scenario, [], `local c=Duel.GetFieldCard(0,LOCATION_HAND,0)
+for _,e in ipairs({c:GetCardEffect(EVENT_FREE_CHAIN)}) do
+  if (e:GetType()&EFFECT_TYPE_ACTIVATE)~=0 then
+    e:SetTarget(function() return true end)
+    e:SetOperation(function()
+      Duel.SelectYesNo(0,30)
+      local picked=Duel.SelectOption(0,0xfffe0001,0xfffe0002)
+      Duel.MPWindow(picked+1)
+      Duel.Damage(1,100,REASON_EFFECT)
+      Duel.MPWindowEnd()
+    end)
+  end
+end`);
+      try {
+        const session = new Session(scenario, game);
+        session.reachMainPhase();
+        const action = game.view(0).prompt!;
+        const activate = action.options.find((option) => option.id.startsWith("activate:") && option.card?.code === 55144522)!;
+        expect(activate).toBeDefined();
+        game.answer(0, action.id, { choice: activate.id });
+        for (let step = 0; step < 30 && !game.view(0).prompt?.options.some((option) => option.id === "yes"); step++) {
+          const view = game.view(null);
+          const holder = view.seats.find((seat) => game.view(seat.seat).prompt)?.seat;
+          expect(holder).toBeDefined();
+          const prompt = game.view(holder!).prompt!;
+          game.answer(holder!, prompt.id, choosePracticeBotAnswer(prompt, { table: botTableOf(view) }));
+        }
+        const paused = game.view(0).prompt!;
+        expect(paused.options.map((option) => option.id)).toEqual(["yes", "no"]);
+        expect(game.view(null).chain).toHaveLength(1);
+        game.eliminate(1, 0);
+        game.eliminate(2, 0);
+        expect(game.view(null).seats.slice(1).map((seat) => seat.pendingElimination)).toEqual([true, true]);
+        expect(game.view(null).result).toBeNull();
+        game.answer(0, paused.id, { choice: "no" });
+        const pick = game.view(0).prompt!;
+        expect(pick.context?.type).toBe("opponent");
+        expect(pick.options.map((option) => option.controller)).toEqual([1, 2]);
+        game.answer(0, pick.id, choosePracticeBotAnswer(pick, { table: botTableOf(game.view(0)) }));
+        expect(game.view(null).result?.winnerSeat).toBe(0);
+        expect(game.view(0).prompt).toBeNull();
+        expect(game.diagnostics().filter((item) => item.kind === "stderr")).toEqual([]);
+      } finally { game.close(); }
+    });
+
+    it.each([
+      ["cards", "g:Select(0,2,3,nil)"],
+      ["toggle", "g:SelectUnselect(nil,0,false,false,2,3)"],
+      ["sum", "g:SelectWithSumEqual(0,function() return 1 end,2,2,3)"],
+    ] as const)(`${mode}: an open required %s selection stays legal after card removal`, async (kind, call) => {
+      const scenario: Scenario = { id: "required-removed-cards", title: "", source: "ADR-0002", tags: [], steps: [],
+        setup: { format: "ffa3", mode, p0: { monsters: ["Mystical Elf"], ...master("Axe Raider") },
+          p1: master("Celtic Guardian"), p2: master("Battle Ox") } };
+      const game = await open(scenario, [], `for i=1,2 do
+  local c=Debug.AddCard(46986414,1,0,LOCATION_MZONE,i,POS_FACEUP_ATTACK,true)
+  local control=Effect.CreateEffect(c); control:SetType(EFFECT_TYPE_SINGLE); control:SetCode(EFFECT_SET_CONTROL)
+  control:SetValue(0); control:SetProperty(EFFECT_FLAG_CANNOT_DISABLE); c:RegisterEffect(control)
+end
+local e=Effect.GlobalEffect(); e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_PHASE_START|PHASE_MAIN1); e:SetCondition(function() return Duel.GetTurnCount()==1 end)
+e:SetOperation(function()
+  local g=Duel.GetFieldGroup(0,LOCATION_MZONE,0)
+  local answer=${call}
+  Duel.SetLP(2,7000+${kind === "toggle" ? "(answer and 1 or 0)" : "answer:GetCount()"})
+end); Duel.RegisterEffect(e,0)`);
+      try {
+        for (let step = 0; step < 30 && game.view(0).prompt?.kind !== kind; step++) {
+          const view = game.view(null);
+          const holder = view.seats.find((seat) => game.view(seat.seat).prompt)?.seat;
+          expect(holder).toBeDefined();
+          const prompt = game.view(holder!).prompt!;
+          game.answer(holder!, prompt.id, choosePracticeBotAnswer(prompt, { table: botTableOf(view) }));
+        }
+        const original = game.view(0).prompt!;
+        expect(original.kind).toBe(kind);
+        expect(original.options).toHaveLength(3);
+        expect(original.min).toBe(2);
+        expect(original.cancelable ?? false).toBe(false);
+        expect(game.view(null).chain).toHaveLength(0);
+        game.eliminate(1, 0);
+        expect(game.view(null).seats[1]!.eliminated).toBe(true);
+        expect(game.view(null).seats[0]!.monsters.filter(Boolean)).toHaveLength(1);
+        const live = game.view(0).prompt!;
+        expect(live.id).toBe(original.id);
+        expect(live.options.map((option) => [option.id, option.card?.code])).toEqual(
+          original.options.map((option) => [option.id, option.card?.code]));
+        game.answer(0, live.id, choosePracticeBotAnswer(live, { table: botTableOf(game.view(0)) }));
+        expect(game.view(null).seats[2]!.lp).toBe(kind === "toggle" ? 7001 : 7002);
+        expect(game.view(0).prompt?.context?.type).toBe("action");
+        expect(game.diagnostics().filter((item) => item.kind === "stderr")).toEqual([]);
+      } finally { game.close(); }
+    });
+  }
+
   runScenarios("multiplayer/eliminated-targets", ELIMINATED_TARGET_SCENARIOS, async (scenario) => {
     const game = await open(scenario);
     try {
@@ -66,7 +166,7 @@ describeWithCores("eliminated FFA attack and effect targets", [liveNseat, ...nee
   for (const format of ["ffa3", "ffa4"] as const) {
     for (const mode of ["normal", "domain"] as const) {
       const master = (card: string) => mode === "domain" ? { deckMaster: card } : {};
-      it(`${format} ${mode}: removal during a mandatory chain window uses a valid core response`, async () => {
+      it.each([false, true])(`${format} ${mode}: removal during a mandatory chain window uses a valid core response (retry %s)`, async (rejectAutomatic) => {
         const scenario: Scenario = { id: "removed-forced-triggers", title: "", source: "ADR-0002", tags: [], steps: [],
           setup: { format, mode, p0: { hand: ["Axe Raider"], ...master("Gemini Elf") }, p1: master("Celtic Guardian"),
             p2: master("Battle Ox"), ...(format === "ffa4" ? { p3: master("Giant Soldier of Stone") } : {}) } };
@@ -92,9 +192,23 @@ end`);
           expect(forced).not.toBeNull();
           expect(forced.context).toMatchObject({ type: "chain", forced: true });
           expect(forced.options).toHaveLength(2);
+          // Exercise a real MSG_RETRY: corrupt only the automatic answer, not the core or surrender.
+          const sendResponse = captured.lib!.duelSetResponse.bind(captured.lib!);
+          const retry = rejectAutomatic ? vi.spyOn(captured.lib!, "duelSetResponse").mockImplementationOnce((handle) => {
+            sendResponse(handle, { type: OcgResponseType.SELECT_CHAIN, index: 99 });
+          }) : undefined;
+          const revision = game.view(null).revision;
           expect(() => game.eliminate(1, 0)).not.toThrow();
+          retry?.mockRestore();
           expect(game.view(null).seats[1]!.eliminated).toBe(true);
+          expect(game.view(null).revision).toBeGreaterThan(revision);
           expect(game.view(null).seats[0]!.monsters.filter(Boolean).map((card) => card!.code)).toEqual([48305365]);
+          if (rejectAutomatic) {
+            const waiting = game.view(0).prompt!;
+            expect(waiting.id).toBe(forced.id);
+            expect(waiting.options).toHaveLength(2);
+            game.answer(0, waiting.id, { choice: waiting.options[0]!.id });
+          }
           expect(game.view(0).prompt?.context?.type).toBe("action");
           expect(game.view(null).chain).toEqual([]);
           expect(game.diagnostics().filter((item) => item.kind === "stderr")).toEqual([]);

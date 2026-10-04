@@ -40,6 +40,8 @@ export function buildPracticeBotDeck(mode: DuelMode, dataDirectory: string): Due
 export interface BotTable {
   /** Seats still in the duel. Absent: every seat counts as living. */
   living?: readonly number[];
+  /** Seats whose loss has landed. When supplied, other nonliving seats are leaving and may be a fallback. */
+  eliminated?: readonly number[];
   /** LP per seat (a team shares one value in Tag). */
   lp?: Readonly<Record<number, number>>;
 }
@@ -47,20 +49,25 @@ export interface BotTable {
 /** The living seats and LP of a view, for a bot's choice. Seats that are eliminated or leaving are not living. */
 export function botTableOf(view: Pick<DuelEngineView, "seats">): BotTable {
   const living: number[] = [];
+  const eliminated: number[] = [];
   const lp: Record<number, number> = {};
   if (!view.seats || view.seats.length === 0) return {};
   for (const seat of view.seats) {
     lp[seat.seat] = seat.lp;
+    if (seat.eliminated) eliminated.push(seat.seat);
     if (!seat.eliminated && !seat.pendingElimination) living.push(seat.seat);
   }
-  return { living, lp };
+  return { living, eliminated, lp };
 }
 
-/** Options without a seat, or whose seat is still in the duel. */
+/** Exclude eliminated seats; prefer living seats with the core's all-leaving fallback. */
 function livingOptions(options: readonly DuelPromptOption[], table: BotTable | undefined): DuelPromptOption[] {
   const living = table?.living;
-  if (!living) return [...options];
-  return options.filter((option) => option.controller == null || living.includes(option.controller));
+  const eligible = options.filter((option) => option.controller == null ||
+    (table?.eliminated ? !table.eliminated.includes(option.controller) : !living || living.includes(option.controller)));
+  if (!living) return eligible;
+  const preferred = eligible.filter((option) => option.controller == null || living.includes(option.controller));
+  return preferred.length > 0 ? preferred : eligible;
 }
 
 /** A choice where every option is a seat to pick: the opponent pick or the direct attack pick. */
@@ -103,6 +110,7 @@ function chooseChoice(prompt: DuelPrompt, table?: BotTable): DuelAnswer {
   if (isSeatPick(prompt)) {
     const seat = chooseSeatOption(prompt, table);
     if (seat) return { choice: seat.id };
+    throw new PracticeBotError("Practice bot has no legal choice");
   }
   if (pickId(prompt, "yes") && pickId(prompt, "no")) return { choice: "no" };
   if (prompt.cancelable && (prompt.min ?? 1) === 0) return { cancel: true };
@@ -263,7 +271,9 @@ export function choosePracticeBotAnswer(
   prompt: DuelPrompt,
   options?: { permittedCards?: DuelCardInfo[]; table?: BotTable },
 ): DuelAnswer {
-  prompt = { ...prompt, options: livingOptions(prompt.options, options?.table) };
+  if ((prompt.kind === "cards" || prompt.kind === "toggle") && /\battack target\b/i.test(prompt.title)) {
+    prompt = { ...prompt, options: livingOptions(prompt.options, options?.table) };
+  }
   switch (prompt.kind) {
     case "choice":
       return chooseChoice(prompt, options?.table);

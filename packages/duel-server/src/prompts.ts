@@ -47,7 +47,7 @@ export interface MapPromptExtras {
    */
   placeSeat?: number;
   /**
-   * Seats that may be offered in an opponent or direct-attack pick (still in the duel and not leaving).
+   * Seats preferred in an opponent or direct-attack pick. Leaving seats stay when no preferred seat is listed.
    */
   livingSeats?: readonly number[];
   /** Seats whose loss has landed. Their cards and zones are no longer part of the board. */
@@ -324,13 +324,24 @@ function idleOptions(message: Extract<OcgMessage, { type: OcgMessageType.SELECT_
 export function filterPromptOptions(pending: PendingPrompt, extras: Pick<MapPromptExtras, "livingSeats" | "eliminatedSeats" | "removedCards">): PendingPrompt {
   const seatPick = pending.message.type === OcgMessageType.SELECT_OPTION &&
     pending.message.options.every((option) => directAttackSeat(option) != null || opponentPickSeat(option) != null);
-  const options = pending.prompt.options.filter((option) => {
+  let options = pending.prompt.options.filter((option) => {
     if (option.card && extras.removedCards?.some((zone) => zone.controller === option.controller &&
       zone.location === option.location && zone.sequence === option.sequence)) return false;
     if (option.controller == null) return true;
-    return !extras.eliminatedSeats?.includes(option.controller) &&
-      (!seatPick || !extras.livingSeats || extras.livingSeats.includes(option.controller));
+    return !extras.eliminatedSeats?.includes(option.controller);
   });
+  if (seatPick && extras.livingSeats) {
+    // The core keeps losing seats when every eligible opponent is losing (patch 0057).
+    const living = options.filter((option) => option.controller == null || extras.livingSeats!.includes(option.controller));
+    if (living.length > 0) options = living;
+  }
+  if (!pending.prompt.cancelable && !pending.prompt.finishable &&
+    ["cards", "toggle", "sum", "order"].includes(pending.prompt.kind) &&
+    options.length < (pending.prompt.min ?? 0)) {
+    // The core retains suspended selections through surrender. Keep their original indices
+    // when removing cards would make a required selection impossible.
+    return pending;
+  }
   return { ...pending, prompt: { ...pending.prompt, options } };
 }
 

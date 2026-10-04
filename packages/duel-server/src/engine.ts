@@ -1150,9 +1150,12 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
             lib.duelSetResponse(handle, response);
             processUntilWait();
             if (sawRetry) {
-              pending = current;
+              // Surrender already changed the board. A refused automatic answer must leave
+              // the command recorded and the suspended core selection available to the player.
+              pending = current.message.type === OcgMessageType.SELECT_COUNTER ||
+                current.message.type === OcgMessageType.SELECT_CHAIN && current.message.forced ? previous : current;
               sawRetry = false;
-              throw new Error(`The core refused the automatic answer after elimination (prompt ${current.id})`);
+              diagnose("eliminate-retry", current.seat, `prompt ${current.id}`);
             }
           }
         }
