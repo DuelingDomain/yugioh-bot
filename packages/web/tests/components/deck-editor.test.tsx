@@ -61,7 +61,9 @@ beforeEach(() => {
       queries.push(query);
       const error = searchErrors.shift();
       if (error) return Response.json({ error }, { status: 503 });
-      const cards = CARDS.filter((entry) => entry.name.toLowerCase().includes(query.text.toLowerCase()));
+      // The host folds case and punctuation, so "blue eyes" finds "Blue-Eyes White Dragon".
+      const fold = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const cards = CARDS.filter((entry) => fold(entry.name).includes(fold(query.text)));
       return Response.json({ cards, total: cards.length, offset: 0 });
     }
     if (url === "/api/duels/cards") {
@@ -246,6 +248,34 @@ describe("SavedDeckEditor", () => {
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "pot" } });
     await waitFor(() => expect(queries.at(-1)?.text).toBe("pot"));
     await waitFor(() => expect(screen.queryByRole("button", { name: "Blue-Eyes White Dragon" })).toBeNull());
+  });
+
+  it("finds a card from a lowercase partial name, with no passcode, and adds it to the deck", async () => {
+    render(<SavedDeckEditor />);
+    await screen.findByRole("button", { name: "Pot of Greed" });
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "blue eyes" } });
+    await waitFor(() => expect(queries.at(-1)?.text).toBe("blue eyes"));
+    const tile = await screen.findByRole("button", { name: "Blue-Eyes White Dragon" });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Pot of Greed" })).toBeNull());
+
+    fireEvent.doubleClick(tile);
+    expect(mainCards()).toHaveLength(1);
+    expect(mainCards()[0]).toHaveAccessibleName(/Blue-Eyes White Dragon/);
+  });
+
+  it("searches the draft pool by a lowercase partial name and adds the match from the pool", async () => {
+    const pool = { slug: "retro", draftId: 3, draftName: "Retro draft", cards: [{ code: BLUE_EYES.code, count: 2 }, { code: POT.code, count: 1 }], mainPoolCount: 3, unresolved: [], savedDeckId: null, registration: null };
+    render(<SavedDeckEditor pool={pool} />);
+    await screen.findByRole("button", { name: "Pot of Greed, 1 copy left in your pool" });
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "blue eyes" } });
+    const tile = await screen.findByRole("button", { name: "Blue-Eyes White Dragon, 2 copies left in your pool" });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Pot of Greed/ })).toBeNull());
+
+    fireEvent.doubleClick(tile);
+    expect(screen.getByRole("button", { name: "Blue-Eyes White Dragon, 1 copy left in your pool" })).toBeInTheDocument();
+    expect(mainCards()).toHaveLength(1);
   });
 
   it("uses copy for one Forbidden card and makes problem rows select their card", async () => {

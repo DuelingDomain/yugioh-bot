@@ -50,6 +50,7 @@ export async function POST(request: Request) {
     customCardIds?: number[];
     cardName?: string;
     fuzzyName?: string;
+    includeExtra?: boolean;
     archetype?: string;
   };
   const setNames = Array.isArray(body.setNames) ? body.setNames.filter((s): s is string => typeof s === "string") : [];
@@ -80,8 +81,14 @@ export async function POST(request: Request) {
   }
 
   if (fuzzyName) {
-    const cards = await catalog.syncCardsByFuzzyName(fuzzyName);
-    return NextResponse.json({ cards: cards.map(toCardSummary), unknownIds: [] });
+    // Best match first. Extra Deck monsters only when the caller can hold them (a cube has an Extra pool).
+    try {
+      const cards = await catalog.syncCardsByFuzzyName(fuzzyName, { includeExtra: body.includeExtra === true });
+      return NextResponse.json({ cards: cards.map(toCardSummary), unknownIds: [] });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not search the card database. Try again.";
+      return NextResponse.json({ error: message }, { status: 502 });
+    }
   }
 
   // Sets not in card_catalog yet are fetched first, the way POST /api/drafts does.
