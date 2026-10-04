@@ -317,7 +317,8 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   // Face at the start: the sleeve unless the card was showing its face where it was.
   const source = plan.source;
   const startUp = card != null && (source ? source.faceUp || (source.side === "you" && plan.event.from?.location === LOCATION_HAND) : true);
-  const endUp = card != null && plan.event.faceDown !== true;
+  // A card put back in the Deck turns face-down on the way: the pile is a stack of sleeves.
+  const endUp = card != null && plan.event.faceDown !== true && plan.event.zone?.location !== LOCATION_DECK;
   // A destroyed card leaves as the pieces it broke into, never as the intact card.
   const pieces = card != null && source != null ? plan.pieces : null;
   const startAngle = card == null ? 0 : startUp ? 0 : 180;

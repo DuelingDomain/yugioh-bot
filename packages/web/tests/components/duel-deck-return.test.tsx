@@ -76,18 +76,26 @@ function flights(): Array<Keyframe[]> {
   return animate.mock.calls.map(([frames]) => frames).filter((frames) => frames[0]?.transform?.toString().startsWith("translate3d("));
 }
 
+function turns(): Array<Keyframe[]> {
+  return animate.mock.calls.map(([frames]) => frames).filter((frames) => frames[0]?.transform?.toString().startsWith("rotateY("));
+}
+
 describe("a card returned to the Deck", () => {
   const events = (sequence: number, extra: Partial<DuelEvent> = {}): DuelEvent[] => [{
     id: 1, kind: "move", text: "moved", seat: 0, card: CARDS.celtic, from: z(0, MZONE, 2), zone: z(0, DECK, sequence), reason: "return", ...extra,
   }];
 
-  it.each([["top", 28], ["bottom", 0], ["shuffle", 17]])("flies to the Deck (%s)", (_name, sequence) => {
+  it.each([["top", 28], ["bottom", 0], ["shuffle", 17]])("flies to the Deck and turns face-down (%s)", (_name, sequence) => {
     vi.useFakeTimers();
     captureZoneSnapshots(board);
     const { rerender } = render(<MoveFx events={[]} duelKey="deck-return" reducedMotion={false} />);
     rerender(<MoveFx events={events(sequence)} duelKey="deck-return" reducedMotion={false} />);
     act(() => vi.advanceTimersByTime(2000));
     expect(flights()).toHaveLength(1);
+    // The arrow of the flight points from the zone to the Deck pile, a toss with a spin.
+    const [turn] = turns();
+    expect(turn[0].transform).toBe("rotateY(0deg)");
+    expect(turn[turn.length - 1].transform).toBe("rotateY(180deg)");
   });
 
   it("flies a hidden card as a sleeve", () => {

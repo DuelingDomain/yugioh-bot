@@ -1073,7 +1073,7 @@ const MOVES: LabScenario[] = [
       2800,
     ),
   ),
-  moveScenario("move-deck-top-own", "Place your card on top of the Deck", "Your own monster goes back on top of your Deck.", () =>
+  moveScenario("move-deck-top-own", "Place your card on top of the Deck", "Your own monster goes back on top of your Deck and turns face-down on the way.", () =>
     script(
       board((e) => e.push(edit.monster(ME, 2, C.celtic))),
       [{ at: 0, events: [ev.move(ME, C.celtic, MZ(ME, 2), DECK(ME, 28), "return")], edits: [edit.monster(ME, 2, null), edit.deckCount(ME, 29)] }],
