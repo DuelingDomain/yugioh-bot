@@ -252,6 +252,47 @@ export const GATE_TIMING: Record<"resultPauseMs" | "resultCapMs" | "resultReduce
   pickHoldMs: 1600,
 };
 
+/* ---------- tribute summon ---------- */
+
+/**
+ * A Tribute Summon: the tributes lift off the field, their slices dissolve and burn into energy, and the energy
+ * flows into the zone of the monster being summoned, where it gathers and flashes; the summon then plays.
+ * Kept as its own block so nothing above has to change. `staggerMs` and `summonLeadMs` are offsets between
+ * effects, not effects, so they are not in TRIBUTE_VISIBLE_MS.
+ */
+export const TRIBUTE_TIMING = {
+  /** Each tribute rises from its zone. */
+  liftMs: 400,
+  /** The slices peel apart and burn away (runs while the energy leaves). */
+  dissolveMs: 560,
+  /** The energy starts to leave this long after the dissolve begins. */
+  orbDelayMs: 220,
+  /** Energy travels from the tribute to the summon zone. */
+  orbMs: 620,
+  /** The flash where the energy gathers. */
+  gatherMs: 420,
+  /** The Graveyard pulse as it takes the card. */
+  pulseMs: 420,
+  /** Several tributes start this far apart. */
+  staggerMs: 110,
+  /** The summon starts this long before the last energy lands. */
+  summonLeadMs: 40,
+  /** Reduced motion: the tribute fades out in place. */
+  reducedMs: 240,
+} as const;
+
+/** From the lift to the last energy arriving, for one tribute. */
+export const TRIBUTE_FLIGHT_MS = TRIBUTE_TIMING.liftMs + TRIBUTE_TIMING.orbDelayMs + TRIBUTE_TIMING.orbMs;
+
+/** The visible lengths of the tribute effect (see VISIBLE_EFFECT_MS). */
+export const TRIBUTE_VISIBLE_MS: Readonly<Record<string, number>> = {
+  "tribute lift": TRIBUTE_TIMING.liftMs,
+  "tribute dissolve": TRIBUTE_TIMING.dissolveMs,
+  "tribute energy": TRIBUTE_TIMING.orbMs,
+  "tribute gather flash": TRIBUTE_TIMING.gatherMs,
+  "tribute graveyard pulse": TRIBUTE_TIMING.pulseMs,
+};
+
 /**
  * Every visible effect length above, by name. Used by a test (and by anyone who adds an effect):
  * none of these may be under MIN_VISIBLE_MS. Reduced motion values are not listed (they are fades).
@@ -291,4 +332,5 @@ export const VISIBLE_EFFECT_MS: Readonly<Record<string, number>> = {
   "chain end": CHAIN_TIMING.endMs,
   "chain fallback": CHAIN_TIMING.fallbackMs,
   "attack counter gap + beat": ATTACK_TIMING.counterGapMs + ATTACK_TIMING.destroyBeatMs,
+  ...TRIBUTE_VISIBLE_MS,
 };

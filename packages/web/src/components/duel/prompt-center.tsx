@@ -42,6 +42,8 @@ import { PrecheckBar } from "./prompt-precheck";
 import { placeSelectBar, samePlace, type BarPlace, type BarRect } from "./select-bar-place";
 import { selectBarCopy, sumSelectionValues, synchroSelectionValues, type BarCopy } from "./select-bar-copy";
 import { backOutAnswer, backOutLabel } from "./pick-backout";
+import { tributeState } from "./tribute-pick";
+import { placeTributeDock, sameDock, type DockPlace } from "./tribute-dock-place";
 import base from "./prompts.module.css";
 import styles from "./prompt-center.module.css";
 
@@ -443,6 +445,7 @@ export function pickCopy(prompt: DuelPrompt, draft: PromptDraft, aiming: boolean
     openEnded: prompt.max == null,
     count,
     ...(prompt.kind === "sum" ? sumSelectionValues(prompt, draft.selected) : {}),
+    ...(prompt.kind === "tribute" ? { total: tributeState(prompt, draft.selected).total } : {}),
     ...(toggling ? synchroSelectionValues(prompt) : {}),
     target: prompt.target,
     sumMode: prompt.sumMode,
@@ -1252,6 +1255,7 @@ export function PromptCenter(props: PromptCenterProps) {
   // Prompt id whose full effect list is open. A prompt with a pre-check starts on the compact bar.
   const [listFor, setListFor] = useState<string | null>(null);
   const [barPlace, setBarPlace] = useState<BarPlace>({ mode: "mid", top: null, left: null, fit: null, stack: false });
+  const [dockPlace, setDockPlace] = useState<DockPlace>({ mode: "center", left: null, top: null, bottom: 12, width: null });
 
   const promptRef = useRef(prompt);
   const kindRef = useRef(kind);
@@ -1262,6 +1266,8 @@ export function PromptCenter(props: PromptCenterProps) {
   const collapsedRef = useRef(collapsed);
   const revealedRef = useRef(revealed);
   const barRef = useRef(false);
+  const mySeatRef = useRef(mySeat);
+  mySeatRef.current = mySeat;
   revealedRef.current = revealed;
   promptRef.current = prompt;
   kindRef.current = kind;
@@ -1322,6 +1328,31 @@ export function PromptCenter(props: PromptCenterProps) {
       const { left, right, top, bottom } = element.getBoundingClientRect();
       return { left, right, top, bottom };
     };
+    if (promptRef.current?.kind === "tribute") {
+      // Tributes are picked on the field: the dock sits by your own hand, not over the board (tribute-dock-place.ts).
+      const hands = Array.from(board.querySelectorAll<HTMLElement>("[data-hand-seat]"));
+      const own = hands.find((hand) => hand.dataset.handSeat === String(mySeatRef.current))
+        ?? [...hands].sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0];
+      // The hand element spans the whole row; the dock needs the room beside the cards themselves.
+      let handRect: BarRect | null = own ? rectOf(own) : null;
+      const cardRects = own
+        ? Array.from(own.querySelectorAll<HTMLElement>("[data-hand-card]")).map(rectOf).filter((r) => r.right - r.left > 1 && r.bottom - r.top > 1)
+        : [];
+      if (handRect && cardRects.length > 0) {
+        handRect = {
+          left: Math.min(...cardRects.map((r) => r.left)),
+          right: Math.max(...cardRects.map((r) => r.right)),
+          top: Math.min(handRect.top, ...cardRects.map((r) => r.top)),
+          bottom: Math.max(...cardRects.map((r) => r.bottom)),
+        };
+      }
+      // The seat plates carry the LP and the turn clock: the dock keeps off them. `[data-holo]` is the table shell's
+      // plate, `[data-team-plate]` the Rooftop's, `[data-lp-seat]` the 1v1 room's tally (and the chips inside the others).
+      const plates = Array.from(board.querySelectorAll<HTMLElement>("[data-holo], [data-team-plate], [data-lp-seat]")).map(rectOf);
+      const place = placeTributeDock({ board: rectOf(board), hand: handRect, centered: board.closest('[data-table-stage="tag"]') != null, plates });
+      setDockPlace((current) => (sameDock(current, place) ? current : place));
+      return;
+    }
     const next = placeSelectBar({
       board: rectOf(board),
       emz: Array.from(board.querySelectorAll<HTMLElement>('[data-kind="emz"][data-zones]')).map((zone) => ({
@@ -1472,19 +1503,31 @@ export function PromptCenter(props: PromptCenterProps) {
     const copy = pickCopy(prompt, draft, aiming);
     // After the first material the engine drops Cancel; Undo unselects the last pick instead.
     const canUndo = toggling && backOutLabel(prompt) === "Undo";
-    const hasButtons = (explicit && !aiming) || Boolean(prompt.finishable) || canUndo || Boolean(prompt.cancelable);
-    const barStyle = {
-      top: barPlace.top ?? (barPlace.mode === "mid" ? "50%" : 8),
-      left: barPlace.left ?? "50%",
-      ...(barPlace.fit != null ? { "--bar-fit": `${barPlace.fit}px` } : null),
-    } as CSSProperties;
+    // A Tribute pick sends itself once it cannot change; Summon is for a pick that is worth enough but still open.
+    const summon = prompt.kind === "tribute" && ok && !aiming;
+    const hasButtons = (explicit && !aiming) || summon || Boolean(prompt.finishable) || canUndo || Boolean(prompt.cancelable);
+    // Tributes: the instruction docks by the hand and the field itself is the picker (tribute-dock-place.ts).
+    const dock = prompt.kind === "tribute";
+    const barStyle = (dock
+      ? {
+          ...(dockPlace.left != null ? { left: dockPlace.left } : null),
+          ...(dockPlace.top != null ? { top: dockPlace.top } : null),
+          ...(dockPlace.bottom != null ? { bottom: dockPlace.bottom } : null),
+          ...(dockPlace.width != null ? { "--bar-fit": `${dockPlace.width}px` } : null),
+        }
+      : {
+          top: barPlace.top ?? (barPlace.mode === "mid" ? "50%" : 8),
+          left: barPlace.left ?? "50%",
+          ...(barPlace.fit != null ? { "--bar-fit": `${barPlace.fit}px` } : null),
+        }) as CSSProperties;
     body = (
       <div
         className={styles.bar}
         data-prompt-surface=""
         data-reduced={dataReduced}
-        data-place={barPlace.mode}
-        data-stack={barPlace.stack ? "true" : "false"}
+        data-place={dock ? "dock" : barPlace.mode}
+        data-dock={dock ? dockPlace.mode : undefined}
+        data-stack={!dock && barPlace.stack ? "true" : "false"}
         data-ready={ok ? "true" : "false"}
         style={barStyle}
         data-actions={hasButtons ? "true" : "false"}
@@ -1505,7 +1548,12 @@ export function PromptCenter(props: PromptCenterProps) {
           </div>
         </div>
         <div className={styles.barBtns}>
-          {explicit && !aiming ? (
+          {summon ? (
+            <button type="button" className={styles.btn} data-kind="primary" disabled={busy} onClick={() => onSubmit(toAnswer(prompt, draft))}>
+              Summon
+            </button>
+          ) : null}
+          {explicit && !aiming && prompt.kind !== "tribute" ? (
             <button
               type="button"
               className={styles.btn}

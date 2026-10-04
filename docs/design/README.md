@@ -18,3 +18,10 @@ The owner picked this on 2026-10-03. It's not built in the app yet.
 - `brief-*.md`: the design briefs the mock was built from.
 
 The rest of the site is being brought in line with D. The draft room keeps Cube night.
+
+## Tribute Summon on the board (`tribute/`)
+
+Proposal, not built yet. Replaces the centred tribute pick bar with picking on the board plus a compact corner dock, and adds a tribute animation.
+
+- `workshop.html`: the flow, every dock state, where the dock sits in the 1v1, table and Rooftop shells, the animation (live replay, frame strip, timeline), the opponent view, reduced motion and the phone layout.
+- `shots/`: PNGs of each section.

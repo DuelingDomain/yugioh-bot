@@ -66,12 +66,12 @@ describeWithCores("material-count: real summon prompts through the web pick coun
     expect(prompts.map((prompt) => pickCopy(prompt, draft(prompt), false).title)).toEqual(["Choose a material", "Choose a material"]);
   });
 
-  it("a two-Tribute Normal Summon asks for two tributes and counts cards without a false denominator", async () => {
+  it("a two-Tribute Normal Summon asks for two tributes and counts what they are worth against what is needed", async () => {
     const scenario = materialCountScenarios.find((entry) => entry.kind === "tribute")!;
     const { prompts } = await runMaterialCountScenario(scenario);
     expect(prompts[0]).toMatchObject({ kind: "tribute", min: 2, max: 2 });
-    expect(pickCopy(prompts[0], draft(prompts[0]), false)).toMatchObject({ title: "Tribute 2", counter: "0 selected" });
-    expect(pickCopy(prompts[0], draft(prompts[0], prompts[0].options.map((option) => option.id)), false).counter).toBe("2 selected");
+    expect(pickCopy(prompts[0], draft(prompts[0]), false)).toMatchObject({ title: "Tribute 2 monsters", counter: "0/2" });
+    expect(pickCopy(prompts[0], draft(prompts[0], prompts[0].options.map((option) => option.id)), false).counter).toBe("2/2");
   });
 
   it("Ritual level sums do not turn a target Level into a required material count", async () => {
