@@ -30,7 +30,7 @@ async function openEditor() {
 }
 
 async function addCardByName(query: string, name: string) {
-  fireEvent.change(screen.getByLabelText("Search cards by name"), { target: { value: query } });
+  fireEvent.change(await screen.findByLabelText("Search cards by name"), { target: { value: query } });
   fireEvent.click(await screen.findByRole("button", { name: `Add one copy of ${name}` }));
 }
 
