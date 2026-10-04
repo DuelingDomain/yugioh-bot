@@ -18,11 +18,11 @@ import styles from "./pool.module.css";
  */
 export function PoolEditor({ ctl }: { ctl: PoolEditorState }) {
   const lobby = ctl.variant === "lobby";
-  const [customizing, setCustomizing] = React.useState(false);
   const cubeId = ctl.meta?.cubeId ?? null;
-  React.useEffect(() => {
-    setCustomizing(false);
-  }, [cubeId]);
+  // The cube the user opened the editor for (`undefined` = not open). A cube change or a switch to scratch
+  // clears it in the event that causes it. A reset effect would run late and could undo a click.
+  const [customizingFor, setCustomizingFor] = React.useState<number | null | undefined>(undefined);
+  const customizing = customizingFor === cubeId;
 
   if (!ctl.ready) return <p className={styles.loading}>{lobby ? "Loading the pool." : "Loading cubes."}</p>;
   if (ctl.loadError) {
@@ -40,7 +40,16 @@ export function PoolEditor({ ctl }: { ctl: PoolEditorState }) {
 
   return (
     <div className={styles.pool}>
-      {!lobby && <StartPoint mode={ctl.mode} hasCubes={ctl.cubes.length > 0} onChange={ctl.setMode} />}
+      {!lobby && (
+        <StartPoint
+          mode={ctl.mode}
+          hasCubes={ctl.cubes.length > 0}
+          onChange={(mode) => {
+            setCustomizingFor(undefined);
+            ctl.setMode(mode);
+          }}
+        />
+      )}
       {showPicker && (
         <CubePicker
           cubes={ctl.cubes}
@@ -50,7 +59,10 @@ export function PoolEditor({ ctl }: { ctl: PoolEditorState }) {
           picking={ctl.picking}
           error={ctl.pickError}
           keepName={cubeId !== null ? ctl.meta?.name ?? null : null}
-          onPick={(id) => void ctl.pickCube(id)}
+          onPick={(id) => {
+            setCustomizingFor(undefined);
+            void ctl.pickCube(id);
+          }}
           onKeep={ctl.closePicker}
         />
       )}
@@ -58,12 +70,12 @@ export function PoolEditor({ ctl }: { ctl: PoolEditorState }) {
       {!showPicker && <StatusBar ctl={ctl} />}
       {!showPicker && !editorOpen && (
         <div className={styles.custom}>
-          <button type="button" className={svButtonClass("ghost")} onClick={() => setCustomizing(true)}>
+          <button type="button" className={svButtonClass("ghost")} onClick={() => setCustomizingFor(cubeId)}>
             {ctl.edited ? "Keep customizing" : "Customize for this draft"}
           </button>
         </div>
       )}
-      {!showPicker && editorOpen && <Editor ctl={ctl} scratch={scratch} onHide={!lobby && !scratch ? () => setCustomizing(false) : null} />}
+      {!showPicker && editorOpen && <Editor ctl={ctl} scratch={scratch} onHide={!lobby && !scratch ? () => setCustomizingFor(undefined) : null} />}
     </div>
   );
 }
