@@ -9,14 +9,14 @@ export const CHOICE_CLOSED_NOTICE = "That choice is no longer open.";
 export const ANSWER_REJECTED_NOTICE = "That choice is no longer open. Pick again.";
 
 /**
- * Short notice for a failed duel request. `answer` is true for an answer to a prompt: the server sends a plain 400
- * for a choice the engine no longer accepts (for example a seat that left), with no code, so the notice stays general.
- * Any other error keeps its own text.
+ * Short notice for a failed duel request. `seatPick` is true for an answer to an opponent pick or a direct-attack
+ * pick: the server sends a plain 400 for a seat the engine no longer accepts (for example a seat that left), with
+ * no code, so the notice stays general. Any other error, and a 400 on any other request, keeps its own text.
  */
-export function duelActionErrorText(err: unknown, options: { answer?: boolean } = {}): string {
+export function duelActionErrorText(err: unknown, options: { seatPick?: boolean } = {}): string {
   if (!(err instanceof DuelRequestError)) return err instanceof Error ? err.message : "Action failed";
   if (err.status === 409 && err.message === NO_ELIMINATE_CORE) return SURRENDER_UNSUPPORTED_NOTICE;
   if (err.status === 409 && err.message === STALE_CHOICE) return CHOICE_CLOSED_NOTICE;
-  if (err.status === 400 && options.answer) return ANSWER_REJECTED_NOTICE;
+  if (err.status === 400 && options.seatPick) return ANSWER_REJECTED_NOTICE;
   return err.message;
 }

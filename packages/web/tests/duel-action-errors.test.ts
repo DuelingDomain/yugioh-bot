@@ -14,13 +14,18 @@ describe("duelActionErrorText", () => {
   it("maps a stale-choice 409 to a short notice", () => {
     const err = new DuelRequestError("That choice is stale. Refresh the current duel state.", 409);
     expect(duelActionErrorText(err)).toBe(CHOICE_CLOSED_NOTICE);
-    expect(duelActionErrorText(err, { answer: true })).toBe(CHOICE_CLOSED_NOTICE);
+    expect(duelActionErrorText(err, { seatPick: true })).toBe(CHOICE_CLOSED_NOTICE);
   });
 
-  it("gives a general notice for a 400 on an answer, never a guess about the cause", () => {
+  it("gives a general notice for a 400 on a seat pick, never a guess about the cause", () => {
     const err = new DuelRequestError("Invalid answer", 400);
-    expect(duelActionErrorText(err, { answer: true })).toBe(ANSWER_REJECTED_NOTICE);
+    expect(duelActionErrorText(err, { seatPick: true })).toBe(ANSWER_REJECTED_NOTICE);
     expect(ANSWER_REJECTED_NOTICE).not.toMatch(/left/i);
+  });
+
+  it("keeps the server text of a 400 on any other request, answers to other prompts included", () => {
+    expect(duelActionErrorText(new DuelRequestError("Invalid answer", 400))).toBe("Invalid answer");
+    expect(duelActionErrorText(new DuelRequestError("Invalid answer", 400), { seatPick: false })).toBe("Invalid answer");
   });
 
   it("keeps the text of a 400 that is not an answer", () => {
@@ -28,7 +33,7 @@ describe("duelActionErrorText", () => {
   });
 
   it("keeps the text of other errors", () => {
-    expect(duelActionErrorText(new DuelRequestError("You surrendered this duel", 409), { answer: true })).toBe("You surrendered this duel");
+    expect(duelActionErrorText(new DuelRequestError("You surrendered this duel", 409), { seatPick: true })).toBe("You surrendered this duel");
     expect(duelActionErrorText(new DuelRequestError("Worker down", 503))).toBe("Worker down");
     expect(duelActionErrorText(new Error("boom"))).toBe("boom");
     expect(duelActionErrorText("nope")).toBe("Action failed");

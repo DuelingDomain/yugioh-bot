@@ -56,6 +56,27 @@ describe("duel room failed requests", () => {
     expect(state.mutate).toHaveBeenCalled();
   });
 
+  it("gives the same general notice for a 400 on a direct-attack pick", async () => {
+    room(FFA3_FIXTURES.states["direct-attack"].room);
+    state.send.mockRejectedValueOnce(new DuelRequestError("Invalid answer", 400));
+    const { container } = mount();
+    fireEvent.click(container.querySelector("[data-opponent-bar='direct'] [data-rival-seat='1']")!);
+    await act(async () => { fireEvent.click(screen.getByTestId("aim-confirm")); });
+    await waitFor(() => expect(notice()).toHaveTextContent("That choice is no longer open. Pick again."));
+    expect(notice()).not.toHaveTextContent("Invalid answer");
+  });
+
+  it("keeps the server text of a 400 on an answer to any other prompt", async () => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    state.room!.engine!.prompt = { id: "plain", seat: 0, kind: "choice", title: "Pick one",
+      options: [{ id: "a", label: "First" }, { id: "b", label: "Second" }] };
+    state.send.mockRejectedValueOnce(new DuelRequestError("Invalid answer", 400));
+    mount();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /First/ })); });
+    await waitFor(() => expect(notice()).toHaveTextContent("Invalid answer"));
+    expect(notice()).not.toHaveTextContent("Pick again");
+  });
+
   it("shows a short notice for a stale 409 and refreshes the room", async () => {
     room(FFA3_FIXTURES.states["choose-opponent"].room);
     state.send.mockRejectedValueOnce(new DuelRequestError("That choice is stale. Refresh the current duel state.", 409));

@@ -51,7 +51,7 @@ import { useLiveTableController } from "./table/use-live-table-controller";
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { duelActionErrorText } from "@/lib/duel/action-errors";
 import { MultiSeatStage } from "./multi-seat-stage";
-import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds, seatPickFor, seatNamer } from "./multi-seat";
+import { engineFormat, focusOpponentSeat, foeSeats, formatLabel, isMultiSeat, isOpponentPick, leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds, seatPickFor, seatNamer } from "./multi-seat";
 import { resolveEquipLinks } from "./equip-links";
 import styles from "./room.module.css";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, PickRefusalHint, shakeRefusedCard, confirmSide, targetName, zoneAnchor, type CardMenuState } from "./card-interactions";
@@ -67,6 +67,7 @@ import { CardInspector, type InspectTarget } from "./inspector";
 import {
   activatePromptFromField,
   isAttackTargetPrompt,
+  isAttackDuelistPrompt,
   isDirectAttackPrompt,
   optionsForCard,
   optionZoneKeys,
@@ -447,7 +448,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   }, [watchingOnly]);
 
   const run = useCallback(
-    async (work: () => Promise<DuelRoom | { session: unknown } | void>, kind?: "answer") => {
+    async (work: () => Promise<DuelRoom | { session: unknown } | void>, kind?: "seat-pick") => {
       // React's busy state alone cannot reject two clicks within one render.
       if (inFlight.current) return;
       inFlight.current = true;
@@ -461,7 +462,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         const result = await work();
         if (seq === mutationSeq.current) await applyAnswerResult(mutate, result);
       } catch (err) {
-        setActionError(duelActionErrorText(err, { answer: kind === "answer" }));
+        setActionError(duelActionErrorText(err, { seatPick: kind === "seat-pick" }));
         await mutate();
       } finally {
         inFlight.current = false;
@@ -524,7 +525,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       setPendingAttack(attack && attack.controller != null && attack.location != null && attack.sequence != null
         ? { key: zoneKey(attack.controller, attack.location, attack.sequence), direct: /directly/i.test(attack.label) }
         : null);
-      void run(() => sendDuelAction(slug, command), "answer");
+      // Only an opponent or direct-attack pick gets the general "pick again" notice on a 400 (a seat may have left).
+      void run(() => sendDuelAction(slug, command), isOpponentPick(prompt) || isAttackDuelistPrompt(prompt) ? "seat-pick" : undefined);
     },
     [data, prompt, error, catchingUp, run, slug, pick.noteAnswer, viewerOut],
   );
