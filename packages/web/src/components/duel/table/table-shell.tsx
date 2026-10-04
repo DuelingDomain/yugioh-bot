@@ -564,7 +564,6 @@ function TableShellBody({
           busy={controller.busy}
           onClose={ui.closeMenu}
           tone={ui.menu.tone}
-          onOptionHover={ui.onMenuOptionHover}
           onChoose={(option) => {
             if (!ui.menu || ui.menu.promptId !== prompt?.id || ui.menu.revision !== engine.revision) return;
             ui.closeMenu();

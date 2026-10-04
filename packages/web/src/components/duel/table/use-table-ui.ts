@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { DuelAnswer, DuelCard, DuelPromptOption } from "@yugidraft/shared/duels";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { DuelAnswer, DuelCard } from "@yugidraft/shared/duels";
 import { zoneKey } from "../constants";
 import { activatePromptFromField, isAttackDuelistPrompt, isDirectAttackPrompt, isAttackTargetPrompt, optionsForCard } from "../prompts";
 import { livePileCards, shouldClosePileForPrompt, type PileView } from "../pile-focus";
@@ -21,7 +21,6 @@ export interface TableUi {
   controller: TableController;
   menu: CardMenuState | null;
   closeMenu: () => void;
-  onMenuOptionHover: (option: DuelPromptOption | null) => void;
   hover: { card: DuelCard; anchor: HTMLElement } | null;
   pile: PileView | null;
   closePile: () => void;
@@ -45,7 +44,6 @@ export function useTableUi(base: TableController): TableUi {
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [pane, setPane] = useState<SidePane>(DEFAULT_SIDE_PANE);
   const [pendingAttack, setPendingAttack] = useState<{ key: string; direct: boolean } | null>(null);
-  const [preview, setPreview] = useState<{ from: string; direct: boolean } | null>(null);
 
   const promptId = prompt?.id ?? null;
   const revision = engine.revision;
@@ -56,21 +54,31 @@ export function useTableUi(base: TableController): TableUi {
     setMenu(null);
     setHover(null);
   }, [promptId, revision]);
-  useEffect(() => {
-    if (!activeMenu) setPreview(null);
-  }, [activeMenu]);
   // The declared attacker belongs to the attack steps only: the duelist pick (a direct attack) and the target pick.
   useEffect(() => {
     if (!prompt || !(isAttackTargetPrompt(prompt, true) || isAttackDuelistPrompt(prompt) || isDirectAttackPrompt(prompt))) setPendingAttack(null);
   }, [prompt]);
 
-  // A new prompt that wants cards outside the open pile must not stay hidden behind the pile's scrim.
+  // Set when an answer is sent; the next prompt (or the wait for one) then decides whether an open pile viewer stays.
+  const pileAnswered = useRef(false);
+
+  // A new prompt that wants cards outside the open pile must not stay hidden behind the pile's scrim. An answer sent
+  // while the viewer was open (an Extra Deck summon) closes it too, unless the next prompt wants a card in the pile.
   useEffect(() => {
-    if (!prompt) return;
+    const answered = pileAnswered.current;
+    pileAnswered.current = false;
+    if (!prompt) {
+      // Answered and now waiting (no prompt yet): let the player watch the board, not the pile.
+      if (answered) setPile((current) => (current?.open ? { ...current, open: false } : current));
+      return;
+    }
+    // The prompt's seat, not `canAct`: the live controller is busy while the answer is in flight, and the next prompt
+    // usually arrives before that flag clears. Judging it by `canAct` would leave the pile over the materials.
+    const promptMine = viewerSeat != null && prompt.seat === viewerSeat;
     setPile((current) => {
       if (!current?.open) return current;
       const cards = livePileCards(current, engine, viewerSeat);
-      return shouldClosePileForPrompt(cards, promptLegalKeys(prompt), canAct, false) ? { ...current, open: false } : current;
+      return shouldClosePileForPrompt(cards, promptLegalKeys(prompt), promptMine, answered) ? { ...current, open: false } : current;
     });
     // Only a new prompt decides this; later revisions of the same prompt must not close a pile the player opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -115,6 +123,8 @@ export function useTableUi(base: TableController): TableUi {
   const mine = prompt != null && viewerSeat != null && prompt.seat === viewerSeat;
   const submit = useCallback(
     (answer: DuelAnswer) => {
+      // An answer from the pile viewer leaves it open until the next prompt shows whether it is still needed.
+      if (canAct && !busy && prompt && pile?.open) pileAnswered.current = true;
       // Remember the declared attacker so the target step can draw the arrow from it.
       const attack =
         prompt?.context?.type === "action" && answer.choice?.startsWith("attack:")
@@ -131,7 +141,7 @@ export function useTableUi(base: TableController): TableUi {
       }
       onAnswer(answer);
     },
-    [onAnswer, prompt],
+    [busy, canAct, onAnswer, pile?.open, prompt],
   );
 
   const onActivate = useCallback<DuelActivateHandler>(
@@ -177,31 +187,15 @@ export function useTableUi(base: TableController): TableUi {
     [base, busy, canAct, draft, mine, prompt, revision, showInspector, submit],
   );
 
-  const onMenuOptionHover = useCallback((option: DuelPromptOption | null) => {
-    if (!option || !option.id.startsWith("attack:") || option.controller == null || option.location == null || option.sequence == null) {
-      setPreview(null);
-      return;
-    }
-    setPreview({ from: zoneKey(option.controller, option.location, option.sequence), direct: /directly/i.test(option.label) });
-  }, []);
-
   const attackerKey = pendingAttack?.key ?? base.aim?.from ?? null;
 
-  // The arrow the player is steering: a faint preview from the menu, or the declared attacker waiting for a target.
+  // The arrow the player is steering: only the declared attacker waiting for a target. A menu never draws one: the
+  // arrow starts after the player clicks Attack, and the player picks the target.
   const aim = useMemo<BattleAim | null>(() => {
     if (base.aim) return base.aim;
     if (pendingAttack) return { mode: "aim", from: pendingAttack.key, to: {} };
-    if (preview && activeMenu && viewerSeat != null) {
-      const rivals = engine.seats.filter((seat) => seat.seat !== viewerSeat && !seat.eliminated);
-      if (preview.direct) {
-        const open = rivals.find((seat) => seat.monsters.every((card) => card == null)) ?? rivals[0];
-        return open ? { mode: "preview", from: preview.from, to: { lpSeat: open.seat } } : null;
-      }
-      const zones = rivals.flatMap((seat) => seat.monsters).filter((card): card is DuelCard => card != null).map((card) => zoneKey(card.controller, card.location, card.sequence));
-      return { mode: "preview", from: preview.from, to: { zones } };
-    }
     return null;
-  }, [activeMenu, base.aim, engine.seats, pendingAttack, preview, viewerSeat]);
+  }, [base.aim, pendingAttack]);
 
   const controller = useMemo<TableController>(
     () => ({ ...base, aim, onAnswer: submit, onActivate, onInspect, onHoverCard }),
@@ -212,7 +206,6 @@ export function useTableUi(base: TableController): TableUi {
     controller,
     menu: activeMenu,
     closeMenu,
-    onMenuOptionHover,
     hover,
     pile,
     closePile,
