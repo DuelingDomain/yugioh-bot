@@ -22,7 +22,7 @@ const directPrompt: DuelPrompt = {
   options: [1, 2, 3].map((seat) => ({ id: `direct-${seat}`, controller: seat, label: `Attack Player ${seat + 1} directly` })),
 };
 
-function Panel({ prompt, outSeats, onSubmit = vi.fn() }: { prompt: DuelPrompt; outSeats?: ReadonlySet<number>; onSubmit?: (answer: DuelAnswer) => void }) {
+function Panel({ prompt, outSeats, leavingSeats, onSubmit = vi.fn() }: { prompt: DuelPrompt; outSeats?: ReadonlySet<number>; leavingSeats?: ReadonlySet<number>; onSubmit?: (answer: DuelAnswer) => void }) {
   const draft = usePromptDraft(prompt);
   return (
     <>
@@ -30,7 +30,7 @@ function Panel({ prompt, outSeats, onSubmit = vi.fn() }: { prompt: DuelPrompt; o
         disabledIds={outSeatOptionIds(prompt, outSeats)} />
       <PromptCenter prompt={prompt} mySeat={0} active slug="t" busy={false} draft={draft} onSubmit={onSubmit}
         menuOpen={false} chain={[]} aimLocked={false} reducedMotion revision={1} seatTones={new Map()}
-        nameOf={(seat) => `Duelist ${seat + 1}`} outSeats={outSeats} />
+        nameOf={(seat) => `Duelist ${seat + 1}`} outSeats={outSeats} leavingSeats={leavingSeats} />
       <output data-testid="highlight">{draft.highlight}</output>
     </>
   );
@@ -80,6 +80,20 @@ describe("PromptCenter outSeats", () => {
     expect((screen.getByRole("button", { name: /Attack Duelist 2 directly/ }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: /Attack Duelist 3 directly/ }));
     expect(submit).toHaveBeenCalledWith({ choice: "direct-2" });
+  });
+
+  it("says Leaving, not Out, for a seat whose chain still resolves", () => {
+    render(<Panel prompt={opponentPrompt} outSeats={new Set([1, 2])} leavingSeats={new Set([1])} />);
+    expect(screen.getByText("Leaving")).toBeVisible();
+    expect(screen.getByText("Out")).toBeVisible();
+    expect(rows()[0]).toHaveAccessibleName("Choose Duelist 2 as the opponent, leaving");
+    expect(rows()[1]).toHaveAccessibleName("Choose Duelist 3 as the opponent, out");
+  });
+
+  it("says Leaving on a direct-attack row of a leaving seat", () => {
+    render(<Panel prompt={directPrompt} outSeats={new Set([1])} leavingSeats={new Set([1])} />);
+    expect(screen.getByRole("button", { name: "Attack Duelist 2 directly, leaving" })).toBeDisabled();
+    expect(screen.queryByText("Out")).toBeNull();
   });
 
   it("keeps every row when all offered seats are out", () => {

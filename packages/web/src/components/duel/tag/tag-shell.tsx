@@ -9,7 +9,7 @@ import { SeatField } from "../field";
 import { MoveSourceBoundary } from "../fx-boundary";
 import { duelFxClock } from "../fx-clock";
 import { duelFontClasses } from "../fonts";
-import { outOrLeavingSeats, outSeatOptionIds } from "../multi-seat";
+import { leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds } from "../multi-seat";
 import { usePickContinuation } from "../pick-continuation";
 import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import { centerKind, PromptCenter } from "../prompt-center";
@@ -309,6 +309,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
                     revision={engine.revision}
                     battleStep={battleStep}
                     outSeats={outOrLeavingSeats(engine.seats)}
+                    leavingSeats={leavingOnlySeats(engine.seats)}
                     revealed={controller.revealed}
                     onInspectCard={(card) => ui.setInspect({ type: "info", card })}
                     nameOf={nameOf}

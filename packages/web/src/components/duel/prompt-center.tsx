@@ -732,9 +732,9 @@ export { nextEnabledIndex, outSeatOptionIds };
 
 const NO_ROWS: ReadonlySet<string> = new Set();
 
-/** The row's spoken name; a row that is out says so (its visible text is not part of an aria-label). */
-function rowLabel(label: string | undefined, out: boolean): string | undefined {
-  return out && label ? `${label}, out` : label;
+/** The row's spoken name; a row that is out or leaving says so (its visible text is not part of an aria-label). */
+function rowLabel(label: string | undefined, state: "out" | "leaving" | null): string | undefined {
+  return state && label ? `${label}, ${state}` : label;
 }
 
 function ResponseBody({
@@ -750,6 +750,7 @@ function ResponseBody({
   seatTones,
   priority,
   outRows = NO_ROWS,
+  leavingSeats,
 }: {
   prompt: DuelPrompt;
   draft: PromptDraft;
@@ -764,6 +765,8 @@ function ResponseBody({
   priority?: readonly PrioritySlot[];
   /** Ids of seat rows that are out or leaving (see outSeatOptionIds): shown, not answerable. */
   outRows?: ReadonlySet<string>;
+  /** Seats that only leave (their chain still resolves): their disabled rows say "Leaving", not "Out". */
+  leavingSeats?: ReadonlySet<number>;
 }) {
   const styles = useSkinStyles(baseStyles, "prompt");
   const tray = useSkinStyles(base, "tray");
@@ -878,6 +881,7 @@ function ResponseBody({
           // Seat-only choices use the same names as the LP panels, including duplicate-name seat numbers.
           const directAttack = seatTones != null && isDirectAttackRow(option);
           const out = outRows.has(option.id);
+          const exit = !out ? null : option.controller != null && leavingSeats?.has(option.controller) ? "leaving" : "out";
           const seatName = (context?.type === "opponent" || directAttack) && option.controller != null ? nameOf?.(option.controller) : undefined;
           const label = directAttack && seatName ? `Attack ${seatName} directly`
             : seatName ?? humanizeLabel(fillPlaceholders(option.label, option.card?.name ?? source?.name));
@@ -897,7 +901,7 @@ function ResponseBody({
                 data-primary={index === draft.highlight ? true : undefined}
                 data-index={index}
                 disabled={busy || out}
-                aria-label={rowLabel(context?.type === "opponent" ? opponentPickLabel(label) : directAttack && seatName ? label : undefined, out)}
+                aria-label={rowLabel(context?.type === "opponent" ? opponentPickLabel(label) : directAttack && seatName ? label : undefined, exit)}
                 onClick={() => choose(option.id)}
                 onMouseEnter={() => {
                   draft.setHighlight(index);
@@ -911,7 +915,7 @@ function ResponseBody({
                 {option.card ? <CardArt option={option} className={styles.rowArt} /> : null}
                 <span className={styles.rowText}>
                   <b>{label}</b>
-                  {out ? <small>Out</small> : optionEffect && optionEffect !== label ? <small>{optionEffect}</small> : null}
+                  {exit ? <small>{exit === "leaving" ? "Leaving" : "Out"}</small> : optionEffect && optionEffect !== label ? <small>{optionEffect}</small> : null}
                 </span>
               </button>
             </div>
@@ -1315,6 +1319,8 @@ export interface PromptCenterProps {
    * disabled while another seat row is still living (ids and order unchanged; keys skip them).
    */
   outSeats?: ReadonlySet<number>;
+  /** The subset of `outSeats` that only leaves (not yet out). Their rows read "Leaving"; the others read "Out". */
+  leavingSeats?: ReadonlySet<number>;
 }
 
 /**
@@ -1803,7 +1809,7 @@ export function PromptCenter(props: PromptCenterProps) {
           {hide}
         </header>
         <ResponseBody prompt={prompt} draft={draft} busy={busy} slug={slug} chain={chain} mySeat={mySeat} onSubmit={onSubmit}
-          onInspectCard={onInspectCard} nameOf={props.nameOf} seatTones={props.seatTones} priority={props.priority} outRows={outRows} />
+          onInspectCard={onInspectCard} nameOf={props.nameOf} seatTones={props.seatTones} priority={props.priority} outRows={outRows} leavingSeats={props.leavingSeats} />
         {hasActions || optional ? (
           <footer className={styles.foot}>
             {optional ? <span className={styles.hint}>Right-click to pass</span> : null}

@@ -511,6 +511,16 @@ describe("live room table mount", () => {
     });
   });
 
+  it("labels a Leaving opponent row Leaving, not Out, in the live prompt", () => {
+    room(FFA3_FIXTURES.states["choose-opponent"].room);
+    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 1 ? { ...seat, pendingElimination: true } : seat);
+    const { container } = mount();
+    const row = container.querySelector("[data-prompt-panel] [data-seat='1'][data-out='true']");
+    expect(row).not.toBeNull();
+    expect(row!.textContent).toContain("Leaving");
+    expect(row!.textContent).not.toContain("Out");
+  });
+
   it("answers a Leaving opponent from the live LP panel when every offered seat is leaving", async () => {
     room(FFA3_FIXTURES.states["choose-opponent"].room);
     state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 1 || seat.seat === 2 ? { ...seat, pendingElimination: true } : seat);
