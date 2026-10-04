@@ -93,14 +93,51 @@ describe("DraftFinale", () => {
       await waitFor(() => expect(document.activeElement).toBe(create));
     });
 
-    it("shows a create error and disables the form while creating", async () => {
-      const { rerender } = render(<DraftFinale {...host} tournament={{ ...idle, error: "Draft must be completed" }} />);
+    it("shows a create error", async () => {
+      render(<DraftFinale {...host} tournament={{ ...idle, error: "Draft must be completed" }} />);
       fireEvent.click(await screen.findByRole("button", { name: "Create tournament" }));
       expect(screen.getByRole("alert").textContent).toBe("Draft must be completed");
+    });
 
+    it("keeps focus on the submit button while creating and ignores a repeat submit", async () => {
+      const create = vi.fn(async () => {});
+      const setFormat = vi.fn();
+      const { rerender } = render(<DraftFinale {...host} tournament={{ ...idle, create, setFormat }} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Create tournament" }));
+      const submit = screen.getByRole("button", { name: "Create tournament" });
+      submit.focus();
+      fireEvent.click(submit);
+      expect(create).toHaveBeenCalledTimes(1);
+
+      rerender(<DraftFinale {...host} tournament={{ ...idle, create, setFormat, creating: true }} />);
+      const busy = screen.getByRole("button", { name: "Creating…" });
+      expect(busy).toBe(submit);
+      expect((busy as HTMLButtonElement).disabled).toBe(false);
+      expect(busy.getAttribute("aria-disabled")).toBe("true");
+      expect(busy.getAttribute("aria-busy")).toBe("true");
+      expect(document.activeElement).toBe(busy);
+
+      fireEvent.click(busy);
+      fireEvent.submit(screen.getByRole("form", { name: "Create tournament" }));
+      fireEvent.change(screen.getByRole("combobox", { name: "Format" }), { target: { value: "single_elim" } });
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(setFormat).not.toHaveBeenCalled();
+      expect(screen.getByRole("form", { name: "Create tournament" })).toBeTruthy();
+      expect(screen.getByRole("combobox", { name: "Format" }).getAttribute("aria-disabled")).toBe("true");
+      expect(document.activeElement).toBe(busy);
+    });
+
+    it("moves focus to Go to tournament after the host creates the tournament", async () => {
+      const { rerender } = render(<DraftFinale {...host} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Create tournament" }));
+      const submit = screen.getByRole("button", { name: "Create tournament" });
+      submit.focus();
+      fireEvent.click(submit);
       rerender(<DraftFinale {...host} tournament={{ ...idle, creating: true }} />);
-      expect((screen.getByRole("button", { name: "Creating…" }) as HTMLButtonElement).disabled).toBe(true);
-      expect((screen.getByRole("combobox", { name: "Format" }) as HTMLSelectElement).disabled).toBe(true);
+      rerender(<DraftFinale {...host} tournament={{ ...idle, linked: { name: "Cup", webSlug: "cup" } }} />);
+
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("link", { name: "Go to tournament" })));
     });
 
     it("moves focus to Go to tournament once the tournament exists", async () => {

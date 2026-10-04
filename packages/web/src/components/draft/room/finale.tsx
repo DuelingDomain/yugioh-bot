@@ -152,6 +152,8 @@ export function DraftFinale(p: FinaleProps) {
               onBlur={(event) => leaveFocus(want, event)}
               onSubmit={(event) => {
                 event.preventDefault();
+                // The controls stay enabled while creating (aria-disabled) so focus is not lost: ignore a repeat.
+                if (tournament.creating) return;
                 void tournament.create();
               }}
             >
@@ -159,8 +161,10 @@ export function DraftFinale(p: FinaleProps) {
                 <span>Format</span>
                 <select
                   value={tournament.format}
-                  onChange={(e) => tournament.setFormat(e.target.value === "single_elim" ? "single_elim" : "round_robin")}
-                  disabled={tournament.creating}
+                  onChange={(e) => {
+                    if (!tournament.creating) tournament.setFormat(e.target.value === "single_elim" ? "single_elim" : "round_robin");
+                  }}
+                  aria-disabled={tournament.creating || undefined}
                   ref={focusFormat}
                 >
                   <option value="round_robin">Round robin</option>
@@ -171,8 +175,10 @@ export function DraftFinale(p: FinaleProps) {
                 <span>Match length</span>
                 <select
                   value={tournament.bestOf}
-                  onChange={(e) => tournament.setBestOf(e.target.value === "1" ? 1 : 3)}
-                  disabled={tournament.creating}
+                  onChange={(e) => {
+                    if (!tournament.creating) tournament.setBestOf(e.target.value === "1" ? 1 : 3);
+                  }}
+                  aria-disabled={tournament.creating || undefined}
                 >
                   <option value={3}>Best of 3</option>
                   <option value={1}>Best of 1</option>
@@ -184,17 +190,23 @@ export function DraftFinale(p: FinaleProps) {
                 </p>
               )}
               <div className="fin-tour-actions">
-                <button className="pick-btn" type="submit" disabled={tournament.creating} aria-busy={tournament.creating || undefined}>
+                <button
+                  className="pick-btn"
+                  type="submit"
+                  aria-disabled={tournament.creating || undefined}
+                  aria-busy={tournament.creating || undefined}
+                >
                   <span>{tournament.creating ? "Creating…" : "Create tournament"}</span>
                 </button>
                 <button
                   className="btn-2"
                   type="button"
                   onClick={() => {
+                    if (tournament.creating) return;
                     want.current = "primary";
                     setFormOpen(false);
                   }}
-                  disabled={tournament.creating}
+                  aria-disabled={tournament.creating || undefined}
                 >
                   Cancel
                 </button>

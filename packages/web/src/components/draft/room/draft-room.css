@@ -266,9 +266,9 @@
 }
 .dr .pick-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dr .pick-btn kbd { padding: 1px 6px; border: 1px solid rgb(255 255 255 / 0.3); border-radius: 4px; font: 500 12px/1.4 var(--f-ui); opacity: 0.8; }
-.dr .pick-btn:hover:not(:disabled) { filter: brightness(1.12); }
-.dr .pick-btn:disabled { border-color: var(--rule-lo); background: var(--panel-3); box-shadow: none; color: var(--ink-3); cursor: default; }
-.dr .pick-btn:disabled kbd { display: none; }
+.dr .pick-btn:hover:not(:disabled):not([aria-disabled="true"]) { filter: brightness(1.12); }
+.dr .pick-btn:disabled, .dr .pick-btn[aria-disabled="true"] { border-color: var(--rule-lo); background: var(--panel-3); box-shadow: none; color: var(--ink-3); cursor: default; }
+.dr .pick-btn:disabled kbd, .dr .pick-btn[aria-disabled="true"] kbd { display: none; }
 .dr .keys { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--ink-4); font-size: 12.5px; }
 .dr .keys kbd { padding: 0 5px; border: 1px solid var(--rule-lo); border-radius: 4px; color: var(--ink-3); font: 500 11.5px/1.5 var(--f-ui); }
 .dr .sheet-x { display: none; }

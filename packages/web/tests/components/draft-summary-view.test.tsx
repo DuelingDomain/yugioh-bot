@@ -457,6 +457,36 @@ describe("DraftSummaryView", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps the focused Create tournament button enabled while creating and ignores a repeat click", () => {
+    const create = vi.fn(async () => {});
+    const tournament = { linked: null, format: "round_robin", setFormat() {}, bestOf: 3, setBestOf() {}, creating: false, error: null, create };
+    const draft = { ...baseDraft, participantPickCount: 15, canCreateTournament: true };
+    const { rerender } = renderView(draft, { isCreator: true, tournament });
+    const button = screen.getByRole("button", { name: "Create tournament" });
+    button.focus();
+    fireEvent.click(button);
+    expect(create).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <DraftSummaryView
+        draft={draft as any}
+        isParticipant={true}
+        isCreator={true}
+        slug="test-draft"
+        onExportYdk={vi.fn().mockResolvedValue("#main")}
+        onDelete={vi.fn()}
+        tournament={{ ...tournament, creating: true } as any}
+      />,
+    );
+    const busy = screen.getByRole("button", { name: "Create tournament" });
+    expect(busy).toBe(button);
+    expect((busy as HTMLButtonElement).disabled).toBe(false);
+    expect(busy.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(busy);
+    fireEvent.click(busy);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
   it("links to the existing tournament on a 409", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,

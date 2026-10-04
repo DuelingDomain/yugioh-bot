@@ -547,7 +547,7 @@ export function DraftSummaryView({
                   </select>
                 </div>
               </div>
-              <SvButton variant="primary" wide className={styles.tourBtn} disabled={tournament.creating} aria-busy={tournament.creating || undefined} onClick={() => void tournament.create()}>
+              <SvButton variant="primary" wide className={styles.tourBtn} aria-disabled={tournament.creating || undefined} aria-busy={tournament.creating || undefined} onClick={() => { if (!tournament.creating) void tournament.create(); }}>
                 Create tournament
               </SvButton>
             </RailSection>
