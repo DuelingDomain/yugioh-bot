@@ -124,7 +124,7 @@ export function useTableUi(base: TableController): TableUi {
   const submit = useCallback(
     (answer: DuelAnswer) => {
       // An answer from the pile viewer leaves it open until the next prompt shows whether it is still needed.
-      if (canAct && !busy && prompt) pileAnswered.current = true;
+      if (canAct && !busy && prompt && pile?.open) pileAnswered.current = true;
       // Remember the declared attacker so the target step can draw the arrow from it.
       const attack =
         prompt?.context?.type === "action" && answer.choice?.startsWith("attack:")
@@ -141,7 +141,7 @@ export function useTableUi(base: TableController): TableUi {
       }
       onAnswer(answer);
     },
-    [busy, canAct, onAnswer, prompt],
+    [busy, canAct, onAnswer, pile?.open, prompt],
   );
 
   const onActivate = useCallback<DuelActivateHandler>(

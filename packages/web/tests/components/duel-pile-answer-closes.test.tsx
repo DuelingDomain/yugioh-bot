@@ -62,6 +62,7 @@ const materials = (fromPile: boolean): DuelPrompt => ({
 });
 
 const release: { current: () => void } = { current: () => {} };
+const push: { current: (prompt: DuelPrompt | null) => void } = { current: () => {} };
 
 /** A shell on a fixture whose prompt is the Extra Deck summon; answering swaps in the follow-up prompt (as the engine does). */
 function Harness({ base, shell, after }: { base: TableFixtureState; shell: "table" | "tag"; after: DuelPrompt | null }) {
@@ -70,6 +71,11 @@ function Harness({ base, shell, after }: { base: TableFixtureState; shell: "tabl
   // The live controller is busy while an answer is in flight, and the next prompt arrives during that time.
   const [busy, setBusy] = useState(false);
   release.current = () => setBusy(false);
+  push.current = (next) => {
+    setPrompt(next);
+    setRevision((value) => value + 1);
+    setBusy(false);
+  };
   const engine = base.room.engine;
   if (!engine) throw new Error("fixture has no engine");
   const state: TableFixtureState = { ...base, room: { ...base.room, engine: { ...engine, prompt, revision } } };
@@ -141,5 +147,18 @@ describe.each(SHELLS)("$name: an action chosen in the Extra Deck viewer", ({ she
     act(() => release.current());
     expect(viewer()).not.toBeNull();
     expect(viewer()?.querySelector("[data-pile-card][aria-label*='can be chosen']")).not.toBeNull();
+  });
+});
+
+describe.each(SHELLS)("$name: a pile the player opens after an answer from the board", ({ shell, base }) => {
+  it("stays open when the next prompt arrives", () => {
+    // The engine has not swapped the prompt yet when the player opens the pile.
+    const { container } = render(<Harness base={base} shell={shell} after={summon(false)} />);
+    const end = [...container.querySelectorAll("button")].find((button) => /end turn|end phase/i.test(button.textContent ?? "")) as HTMLElement;
+    expect(end).toBeTruthy();
+    act(() => void fireEvent.click(end));
+    openExtraPile(container);
+    act(() => push.current({ ...materials(false), id: "rival-pick", seat: 1 }));
+    expect(viewer()).not.toBeNull();
   });
 });
