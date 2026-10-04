@@ -16,6 +16,8 @@ import { PromptCenter } from "../prompt-center";
 import { activatePromptFromField, promptSelectedKeys, type PromptDraft } from "../prompts";
 import { PickRefusalHint, shakeRefusedCard } from "../card-interactions";
 import { DuelResultScreen } from "../duel-result";
+import { DeckSurrenderContext, type DeckSurrenderValue } from "../deck-surrender";
+import { SurrenderModal } from "../surrender-modal";
 import { FxBoundary, MoveSourceBoundary } from "../fx-boundary";
 import { duelFontClasses } from "../fonts";
 import { isBattlePhase } from "../constants";
@@ -138,6 +140,7 @@ export function FxLab() {
   const [status, setStatus] = useState<Status>("idle");
   const [note, setNote] = useState("");
   const [result, setResult] = useState<{ winnerSeat: number | null; reason: string } | null>(null);
+  const [confirmSurrender, setConfirmSurrender] = useState(false);
   const [live, setLive] = useState<Live>(() => ({
     runKey: 0,
     board: findScenario(LAB_SCENARIOS[0].id)!.build().initial,
@@ -211,6 +214,7 @@ export function FxLab() {
       clearTimers();
       shim.setFactor(1);
       setResult(null);
+      setConfirmSurrender(false);
       setStatus("preparing");
       setNote("");
 
@@ -238,6 +242,17 @@ export function FxLab() {
           boardRef.current = dealt.board;
           steps = rest;
           setLive((prev) => ({ runKey: prev.runKey + 1, board: dealt.board, chain: first.step.chain ?? prev.chain, events: dealt.events, revision: prev.revision + 1, preloaded: true }));
+        }
+        if (built.deckMenu) {
+          // The deck menu scenes press the real controls: the deck, then (for the confirm) Surrender.
+          later(500, () => {
+            if (started()) stageRef.current?.querySelector<HTMLElement>('[data-field-seat][data-side="bottom"] [data-kind="deck"] button')?.click();
+          });
+          if (built.deckMenu === "confirm") {
+            later(1400, () => {
+              if (started()) document.querySelector<HTMLElement>('[role="menuitem"][aria-label="Surrender"]')?.click();
+            });
+          }
         }
         for (const { step, events } of steps) {
           later(step.at / rate, () => {
@@ -321,6 +336,13 @@ export function FxLab() {
   // Between games and opening RPS are not live engine decisions.
   if (script.opening || script.series?.screen) engine.turn = 0;
   const duelKey = `lab-${live.runKey}`;
+  // Your own deck opens the Surrender menu here too. The lab's confirm sends nothing.
+  const deckSurrender: DeckSurrenderValue = {
+    seat: script.mySeat === undefined ? 0 : script.mySeat,
+    available: result == null && script.mySeat !== null,
+    busy: false,
+    onSurrender: () => setConfirmSurrender(true),
+  };
   const viewerSeat = script.mySeat === undefined ? 0 : script.mySeat;
   const stageHeight = "clamp(560px, calc(100dvh - 250px), 900px)";
   const battle = isBattlePhase(live.board.phase);
@@ -402,6 +424,7 @@ export function FxLab() {
               <div className={fx.boardWrap}>
                 <div className={styles.board} ref={stageRef}>
                   <MoveSourceBoundary key={live.runKey} events={engine.events} duelKey={duelKey} root={stageRef}>
+                    <DeckSurrenderContext.Provider value={deckSurrender}>
                     <DuelField
                       engine={engine}
                       mySeat={viewerSeat}
@@ -414,6 +437,7 @@ export function FxLab() {
                       bottomName={viewerSeat == null ? "Seat 0" : "You"}
                       topName={viewerSeat == null ? "Seat 1" : "Practice Bot"}
                     />
+                    </DeckSurrenderContext.Provider>
                     <FxBoundary>
                       <DuelFeedback events={engine.events} duelKey={duelKey} soundEnabled={sound} soundVolume={0.6} reducedMotion={reduced} replayFrom={live.preloaded ? 0 : null} />
                       <SummonFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} shake="medium" />
@@ -464,6 +488,8 @@ export function FxLab() {
           </div>
         </main>
       </div>
+      <SurrenderModal open={confirmSurrender} busy={false} onClose={() => setConfirmSurrender(false)}
+        onConfirm={() => { setConfirmSurrender(false); setNote("Confirmed. The duel would call the surrender action now; the lab sends nothing."); }} />
       {pickHint && pickHint.anchor.isConnected ? (
         <PickRefusalHint anchor={pickHint.anchor} text={pickHint.text} onDone={clearPickHint} />
       ) : null}

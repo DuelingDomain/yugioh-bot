@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useRef, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CardFace, cardFieldStats } from "./card-face";
+import { CardActionMenu } from "./card-interactions";
+import { DECK_SURRENDER_ID, DECK_USE_ID, deckMenuOptions, deckOffersSurrender, useDeckSurrender } from "./deck-surrender";
 import { EquipChip, EquipLinksContext, useEquipRole } from "./equip-chip";
 import { EquipFx } from "./equip-fx";
 import { equipSentence, resolveEquipLinks } from "./equip-links";
@@ -358,6 +360,9 @@ function fanEntries(kind: string, cards: DuelCard[], count: number): FanEntry[] 
   ];
 }
 
+/** A touch that drifts further than this (px) is a scroll or a drag, not a long press. */
+const HOLD_MOVE_LIMIT = 8;
+
 const CHIP_TEXT: Record<string, string> = { gy: "Open GY", banish: "Open Banished", extra: "Open Extra Deck" };
 
 function PileSlot({
@@ -370,6 +375,7 @@ function PileSlot({
   sleeve,
   side,
   column,
+  ownerSeat,
   legalKeys,
   selectedKeys,
   onActivate,
@@ -383,6 +389,8 @@ function PileSlot({
   cards: DuelCard[];
   inspectable: boolean;
   sleeve?: "deck" | "extra";
+  /** The seat that owns a Main Deck. Its owner gets the Surrender menu on the deck (see deck-surrender.tsx). */
+  ownerSeat?: number;
   side: "opp" | "you";
   /** Board column the pile sits in; the fan spreads toward the outer edge. */
   column: "left" | "right";
@@ -399,7 +407,41 @@ function PileSlot({
   const chip = CHIP_TEXT[kind];
   const hoverTop = kind === "gy" || kind === "banish" ? (cards[cards.length - 1] ?? null) : null;
 
+  const surrender = useDeckSurrender();
+  const deckMenu = kind === "deck" && ownerSeat != null && deckOffersSurrender(surrender, ownerSeat);
+  // A deck that can act (summon, or a pick it can join) keeps its one-click action; the menu then opens on
+  // right click and long press. A deck with no action opens the menu on a plain click.
+  const deckActs = legal || selected;
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
+  const closeMenu = useCallback(() => setMenuAnchor(null), []);
+  const hold = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const clearHold = () => {
+    if (hold.current != null) window.clearTimeout(hold.current.timer);
+    hold.current = null;
+  };
+  // The menu belongs to the deck: it goes when the duel ends or the deck stops being the viewer's.
+  useEffect(() => {
+    if (!deckMenu) setMenuAnchor(null);
+  }, [deckMenu]);
+  // It also goes when the prompt or the turn changes, or the deck gains or loses its action: the rows would shift.
+  const menuScope = surrender?.scope;
+  useEffect(() => {
+    setMenuAnchor(null);
+  }, [menuScope, legal, selected]);
+  // The room mutes the prompt keys and the right-click decline while the menu is open.
+  const reportMenu = surrender?.onMenuOpenChange;
+  const menuIsOpen = deckMenu && menuAnchor != null;
+  useEffect(() => {
+    reportMenu?.(menuIsOpen);
+    return () => reportMenu?.(false);
+  }, [reportMenu, menuIsOpen]);
+  useEffect(() => clearHold, []);
+
   function activate(anchor: HTMLElement) {
+    if (deckMenu && !deckActs) {
+      setMenuAnchor(anchor);
+      return;
+    }
     if (inspectable) {
       onInspect({ type: "pile", title: label, cards });
       if (cards.length === 1) {
@@ -429,8 +471,38 @@ function PileSlot({
         type="button"
         className={styles.zoneHit}
         aria-label={`${label} (${count})`}
-        aria-pressed={selected}
+        aria-pressed={deckMenu ? undefined : selected}
+        data-duel-menu={deckMenu ? "" : undefined}
         onClick={(event) => activate(event.currentTarget)}
+        onContextMenu={deckMenu ? (event) => {
+          // The room's right-click decline must not see this click: it opens the menu, nothing else.
+          event.preventDefault();
+          event.stopPropagation();
+          setMenuAnchor(event.currentTarget);
+        } : undefined}
+        onPointerDown={deckMenu ? (event) => {
+          // A long press on touch opens the same menu as a tap.
+          if (event.pointerType !== "touch") return;
+          const target = event.currentTarget;
+          clearHold();
+          hold.current = {
+            x: event.clientX,
+            y: event.clientY,
+            timer: window.setTimeout(() => {
+              hold.current = null;
+              setMenuAnchor(target);
+            }, 500),
+          };
+        } : undefined}
+        onPointerMove={deckMenu ? (event) => {
+          const start = hold.current;
+          if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > HOLD_MOVE_LIMIT) clearHold();
+        } : undefined}
+        onPointerUp={deckMenu ? clearHold : undefined}
+        onPointerCancel={deckMenu ? clearHold : undefined}
+        onPointerLeave={deckMenu ? clearHold : undefined}
+        aria-haspopup={deckMenu ? "menu" : undefined}
+        aria-expanded={deckMenu ? menuAnchor != null : undefined}
         onMouseEnter={(event) => onHoverCard?.(hoverTop, event.currentTarget)}
         onMouseLeave={() => onHoverCard?.(null, null)}
         onFocus={(event) => onHoverCard?.(hoverTop, event.currentTarget)}
@@ -474,6 +546,21 @@ function PileSlot({
           <LayoutGrid size={11} strokeWidth={1.8} aria-hidden />
           {chip}
         </button>
+      ) : null}
+      {deckMenu && menuAnchor ? (
+        <CardActionMenu
+          anchor={menuAnchor}
+          title={label}
+          options={deckMenuOptions(legal)}
+          busy={surrender?.busy ?? false}
+          onClose={closeMenu}
+          onChoose={(option) => {
+            const anchor = menuAnchor;
+            closeMenu();
+            if (option.id === DECK_SURRENDER_ID) surrender?.onSurrender();
+            else if (option.id === DECK_USE_ID) onActivate(keys, null, anchor);
+          }}
+        />
       ) : null}
     </div>
   );
@@ -718,6 +805,7 @@ function PileColumn({
       sleeve="deck"
       side={owner}
       column={side}
+      ownerSeat={seat}
       legalKeys={callbacks.legalKeys}
       selectedKeys={callbacks.selectedKeys}
       onActivate={callbacks.onActivate}
@@ -821,23 +909,16 @@ function PileColumn({
   );
 }
 
-/** Outline follows the zone grid, including the third-row Banished pile on each side. */
-function HalfSignals({ side, masterRule }: { side: "top" | "bottom"; masterRule: DuelMasterRule }) {
-  // Grid units match --wk, --pile-col, --z and --gy in field.module.css; SVG scales with the fit.
-  const width = masterRule === 3 ? 8.344 : 6.822;
-  const pile = masterRule === 3 ? 1.447 : 0.686;
-  const turnPath = side === "top"
-    ? `M0 0 H${width} V2.04 H${pile} V3.08 H0 Z`
-    : `M0 5.16 H${width} V2.08 H${width - pile} V3.12 H0 Z`;
-  const priorityPath = side === "top"
-    ? `M0 0 V3.08 H${pile} V2.04 M${width} 0 V2.04`
-    : `M0 3.12 V5.16 M${width} 5.16 V2.08 H${width - pile} V3.12`;
+/**
+ * The turn light: a soft glow behind one half of the board, strongest at the outer edge of the screen
+ * (like the turn side in Master Duel). Cool blue-violet below, warm amber-red above. No lines. It sits
+ * under the sheet, so it never covers a card, a zone glow, the chain or a prompt. A response window
+ * without the turn lifts a faint violet bloom on that half instead (`data-priority`).
+ */
+function TurnGlow({ side, turn, priority }: { side: "top" | "bottom"; turn: boolean; priority: boolean }) {
   return (
-    <svg className={styles.halfSignals} data-field-signals data-side={side} aria-hidden="true"
-      viewBox={`0 0 ${width} 5.16`} preserveAspectRatio="none">
-      <path className={styles.turnEdge} d={turnPath} vectorEffect="non-scaling-stroke" />
-      <path className={styles.priorityEdge} d={priorityPath} vectorEffect="non-scaling-stroke" />
-    </svg>
+    <div className={styles.turnGlow} data-turn-glow data-side={side}
+      data-turn={turn ? "true" : "false"} data-priority={priority ? "true" : "false"} aria-hidden="true" />
   );
 }
 
@@ -937,6 +1018,8 @@ export function DuelField({
       data-master-rule={masterRule}
     >
       <div className={styles.wash} aria-hidden="true" />
+      <TurnGlow side="top" turn={activity.turnSeat === topIndex} priority={activity.prioritySeat === topIndex} />
+      <TurnGlow side="bottom" turn={activity.turnSeat === bottomIndex} priority={activity.prioritySeat === bottomIndex} />
       <div className={styles.playmat}>
         <span className={styles.marginRule} aria-hidden="true" />
         <div className={`${styles.strip} ${styles.stripTop}`}>
@@ -969,7 +1052,6 @@ export function DuelField({
           <div className={styles.half} data-field-seat={topIndex} data-side="top"
             data-turn={activity.turnSeat === topIndex ? "true" : "false"}
             data-priority={activity.prioritySeat === topIndex ? "true" : "false"}>
-            <HalfSignals side="top" masterRule={masterRule} />
             <PileColumn view={top} opponent side="left" callbacks={callbacks} ownerLabel={topLabel} masterRule={masterRule} />
             <div className={styles.rows}>
               <SpellRow view={top} reversed callbacks={callbacks} masterRule={masterRule} />
@@ -1015,7 +1097,6 @@ export function DuelField({
           <div className={`${styles.half} ${styles.halfLocal}`} data-field-seat={bottomIndex} data-side="bottom"
             data-turn={activity.turnSeat === bottomIndex ? "true" : "false"}
             data-priority={activity.prioritySeat === bottomIndex ? "true" : "false"}>
-            <HalfSignals side="bottom" masterRule={masterRule} />
             <PileColumn view={bottom} opponent={false} side="left" callbacks={callbacks} ownerLabel={bottomLabel} masterRule={masterRule} />
             <div className={styles.rows}>
               <MonsterRow view={bottom} reversed={false} callbacks={callbacks} />

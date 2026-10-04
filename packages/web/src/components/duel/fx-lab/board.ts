@@ -65,6 +65,11 @@ export type LabScript = {
     /** Clicks on the legal cards toggle the pick, as in a duel (nothing is ever sent). */
     interactive?: boolean;
   };
+  /**
+   * Your own deck menu: "menu" opens the Surrender menu on the deck once the scenario plays; "confirm" goes on to
+   * the "Are you sure?" confirm. Nothing is ever sent.
+   */
+  deckMenu?: "menu" | "confirm";
   /** Show the Deck Master rail (a Domain duel). */
   domain?: boolean;
   /** Whose view: that seat is at the bottom; null watches with both hands concealed. */

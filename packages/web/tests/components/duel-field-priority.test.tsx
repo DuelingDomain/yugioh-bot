@@ -101,7 +101,8 @@ describe("field turn and priority", () => {
   it.each([1, 2, 3, 4, 5] as const)("hugs the zones in Master Rule %i", (rule) => {
     const { container } = render(field(view({ prioritySeat: 1 }), 0, rule));
     expect(half(container, 1).querySelector('[data-kind="mz"]')).toBeTruthy();
-    expect(half(container, 1).querySelector("[data-field-signals]")).toBeTruthy();
+    expect(container.querySelector('[data-turn-glow][data-side="bottom"]')).toBeTruthy();
+    expect(container.querySelector("[data-field-signals]")).toBeNull();
     expect(container.querySelectorAll('[data-kind="emz"]')).toHaveLength(rule >= 4 ? 2 : 0);
   });
 

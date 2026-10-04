@@ -22,9 +22,9 @@ function scenario(id: string, name: string, description: string, turnSeat: numbe
 }
 
 export const PRIORITY_SCENARIOS: LabScenario[] = [
-  scenario("your-turn-you", "Your turn, you have priority", "Gold and purple share your field. The card's usable glow remains visible inside the edges.", 0, 0),
-  scenario("your-turn-opponent", "Your turn, opponent has priority (chain response)", "Your field keeps gold while the opponent's private response window moves purple to their field.", 0, 1),
-  scenario("opponent-turn-opponent", "Opponent's turn, opponent has priority", "The opponent's field carries both the steady gold turn edge and the breathing purple priority edge.", 1, 1),
-  scenario("opponent-turn-you", "Opponent's turn, you have priority", "The opponent keeps the gold turn edge while your response window lights your field in purple.", 1, 0),
-  scenario("nobody", "Nobody to act", "The turn stays marked in gold, with no purple priority edge while the engine is not waiting on either player.", 0, null),
+  scenario("your-turn-you", "Your turn, you have priority", "Your side glows blue-violet for the turn. The card's usable glow stays on top of it.", 0, 0),
+  scenario("your-turn-opponent", "Your turn, opponent has priority (chain response)", "Your side keeps the blue-violet turn glow while the opponent's response window lifts a faint violet bloom on their half.", 0, 1),
+  scenario("opponent-turn-opponent", "Opponent's turn, opponent has priority", "The opponent's half carries the amber-red turn glow and a breathing violet bloom for their priority.", 1, 1),
+  scenario("opponent-turn-you", "Opponent's turn, you have priority", "The opponent keeps the amber-red turn glow while your response window lifts a faint violet bloom on your half.", 1, 0),
+  scenario("nobody", "Nobody to act", "The turn glow stays on your side, with no violet bloom while the engine is not waiting on either player.", 0, null),
 ];

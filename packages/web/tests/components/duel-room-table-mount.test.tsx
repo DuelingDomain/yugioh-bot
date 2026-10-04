@@ -136,6 +136,70 @@ describe("live room table mount", () => {
     expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live");
   });
 
+  describe("surrender from your own deck", () => {
+    const deckOf = (container: HTMLElement, seat: number) =>
+      container.querySelector<HTMLElement>(`[data-seat-field="${seat}"] [data-kind="deck"] button`)!;
+
+    it("asks 'Are you sure?' and surrenders only after Surrender is confirmed", async () => {
+      room(FFA3_FIXTURES.states.main.room);
+      const { container } = mount();
+      fireEvent.click(deckOf(container, 0));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Surrender" }));
+      const dialog = screen.getByRole("dialog", { name: "Surrender" });
+      expect(dialog).toHaveTextContent("Are you sure?");
+      expect(state.surrender).not.toHaveBeenCalled();
+      await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Surrender" })); });
+      expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live");
+    });
+
+    it("does not surrender when the confirm is cancelled", async () => {
+      room(FFA3_FIXTURES.states.main.room);
+      const { container } = mount();
+      fireEvent.contextMenu(deckOf(container, 0));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Surrender" }));
+      const dialog = screen.getByRole("dialog", { name: "Surrender" });
+      await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" })); });
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Surrender" })).toBeNull());
+      expect(state.surrender).not.toHaveBeenCalled();
+    });
+
+    it("offers no Surrender on a rival's deck", () => {
+      room(FFA3_FIXTURES.states.main.room);
+      const { container } = mount();
+      fireEvent.click(deckOf(container, 1));
+      fireEvent.contextMenu(deckOf(container, 1));
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(screen.queryByRole("menuitem", { name: "Surrender" })).toBeNull();
+    });
+
+    it("keeps the open prompt unanswered while the deck menu is open and closes on Escape", () => {
+      room(FFA3_FIXTURES.states.main.room);
+      state.room!.engine!.prompt = { id: "p-deck", seat: 0, kind: "choice", title: "Select an option", cancelable: true,
+        options: [{ id: "a", label: "Option A" }, { id: "b", label: "Option B" }] };
+      state.room!.engine!.revision += 1;
+      const { container } = mount();
+      fireEvent.contextMenu(deckOf(container, 0));
+      expect(screen.getByRole("menu")).toBeTruthy();
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      fireEvent.keyDown(screen.getByRole("menuitem", { name: "Surrender" }), { key: "Escape" });
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(state.send).not.toHaveBeenCalled();
+    });
+
+    it("offers no Surrender to a spectator or after the duel ends", () => {
+      room(FFA3_FIXTURES.states.spectator.room);
+      const view = mount();
+      fireEvent.click(deckOf(view.container, 0));
+      expect(screen.queryByRole("menu")).toBeNull();
+      view.unmount();
+      room(FFA3_FIXTURES.states.main.room);
+      state.room!.engine!.result = { winnerSeat: 1, reason: "LP reached 0" };
+      const ended = mount();
+      fireEvent.click(deckOf(ended.container, 0));
+      expect(screen.queryByRole("menu")).toBeNull();
+    });
+  });
+
   it("does not send a tag player to spectate when a seat is eliminated", () => {
     room(TAG_FIXTURES.states.main.room);
     state.room!.engine!.seats = state.room!.engine!.seats.map((seat) => ({ ...seat, eliminated: seat.seat === 0 }));
