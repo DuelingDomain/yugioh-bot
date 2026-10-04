@@ -152,4 +152,31 @@ describe("the reader dock in the draft room", () => {
     expect(reader().getByRole("button", { name: /Choose a card/ })).toBeDisabled();
     expect(document.querySelector(".insp-text")?.textContent).toMatch(/Point at a card to read it/);
   });
+
+  it("floats no hologram over the table on desktop, for hover or for the chosen card", async () => {
+    await renderRoom();
+    expect(document.querySelector(".holo")).toBeNull();
+    fireEvent.pointerEnter(card(1));
+    expect(document.querySelector(".holo")).toBeNull();
+    fireEvent.pointerLeave(card(1));
+    fireEvent.click(card(3));
+    expect(document.querySelector(".holo")).toBeNull();
+    expect(document.querySelector(".stage .portrait")).toBeNull();
+    // the dock carries the card instead
+    expect(reader().getAllByRole("heading", { name: "Card 3" }).length).toBeGreaterThan(0);
+  });
+
+  it("keeps the phone's small hologram in the card sheet, and none over the table", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(max-width: 900px)",
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+    await renderRoom();
+    fireEvent.click(card(3));
+    expect(document.querySelector(".holo")).toBeNull();
+    expect(document.querySelector(".stage .portrait")).toBeNull();
+    expect(document.querySelector(".dock .insp-mini .portrait")).toBeTruthy();
+  });
 });

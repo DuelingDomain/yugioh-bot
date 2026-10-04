@@ -11,7 +11,6 @@ import { useTalkStore } from "@/lib/stores/talk-store";
 import { TALK_COOLDOWN_MS, type TalkLineId } from "@yugidraft/shared/ws/talk";
 import { Binder, type BinderHandle } from "./binder";
 import { CardReader, TAG_CHOSEN, TAG_PICKED, TAG_POINTING } from "./card-reader";
-import { Holo, type HoloTarget } from "./holo";
 import { FullscreenLayer } from "./layer";
 import { MotionMenu } from "./motion-menu";
 import { SayMenu } from "./say-menu";
@@ -498,19 +497,6 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
     [turn],
   );
 
-  /* ---------- the hologram ---------- */
-  const [holoTarget, setHoloTarget] = useState<HoloTarget | null>(null);
-  const holoId = hoverId ?? selectedId;
-  useLayoutEffect(() => {
-    if (phone || turn !== "picking" || holoId == null) {
-      setHoloTarget(null);
-      return;
-    }
-    const card = rs.cards.find((c) => c.id === holoId);
-    const el = rootRef.current?.querySelector<HTMLElement>(`.tcard[data-id="${holoId}"]`);
-    setHoloTarget(card && el ? { card, el, partial: holoId !== selectedId } : null);
-  }, [holoId, selectedId, phone, turn, rs.cards, geometry, deal.seq]);
-
   /* ---------- the filter: one lens for the binder and the table ---------- */
   const filtering = isFiltering(filter);
   const lens = useMemo(
@@ -860,7 +846,6 @@ export function DraftRoom({ slug, name, config, isParticipant }: DraftRoomProps)
               onCardHover={onCardHover}
             />
             <Seats friends={friends} positions={positions} theme={theme} heard={heard} stageWidth={size.w} />
-            <Holo target={holoTarget} stage={stage} />
             <div className="notes">
               <div className="status" role="status" data-on={status ? "" : undefined}>
                 {status}

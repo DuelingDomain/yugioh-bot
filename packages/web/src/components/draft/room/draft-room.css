@@ -734,20 +734,7 @@
 /* yours stands over the dial: 6px above its top edge (the 76px dial is centred in the disk), as in the mock */
 .dr .disk .bubble { left: 32px; bottom: calc(var(--disk-h) / 2 + 38px + 6px); }
 
-/* ---------- the hologram ---------- */
-.dr .holo { position: absolute; top: 0; left: 0; z-index: 4; width: var(--hw, 228px); pointer-events: none; visibility: hidden; }
-.dr .holo[data-on] { visibility: visible; }
-.dr .holo .beam {
-  position: absolute;
-  left: 50%;
-  top: calc(var(--hw, 228px) + 6px);
-  width: var(--hw, 228px);
-  height: var(--beam, 60px);
-  translate: -50% 0;
-  transform-origin: 50% 100%;
-  clip-path: polygon(0 0, 100% 0, 58% 100%, 42% 100%);
-  background: linear-gradient(0deg, rgb(var(--h-main) / 0.55), rgb(var(--h-main) / 0.08));
-}
+/* ---------- the portrait (the phone sheet's small hologram) ---------- */
 .dr .portrait { position: relative; width: var(--hw, 228px); aspect-ratio: 1; transform-style: preserve-3d; }
 .dr .portrait .pf {
   position: absolute;
@@ -764,43 +751,8 @@
 .dr .portrait .sweep { position: absolute; inset: 0 0 auto; height: 38%; background: linear-gradient(180deg, transparent, rgb(var(--h-hi) / 0.26) 50%, transparent); mix-blend-mode: screen; animation: dr-sweep 1.43s linear infinite; }
 .dr .portrait .rim { position: absolute; inset: 0; border-radius: 4px; box-shadow: inset 0 0 0 1px rgb(var(--h-hi) / 0.6), inset 0 0 26px rgb(var(--h-main) / 0.5); }
 .dr .portrait .wipe { position: absolute; inset: 0; background: #05070d; transform-origin: 50% 0; transform: scaleY(0); }
-.dr .holo .plate {
-  position: relative;
-  left: 50%;
-  translate: -50% 0;
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 10px;
-  width: max-content;
-  max-width: 360px;
-  margin-top: 8px;
-  padding: 6px 12px 5px;
-  border-radius: 6px;
-  background: rgb(5 7 13 / 0.8);
-  color: rgb(var(--h-hi));
-  text-shadow: 0 0 12px rgb(var(--h-main) / 0.7);
-  white-space: nowrap;
-}
-.dr .holo .plate b { font: 600 17px/1 var(--f-display); letter-spacing: 0.02em; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-.dr .holo .plate span { font: 500 15px/1 var(--f-num); opacity: 0.85; }
-.dr .holo .motes { position: absolute; inset: 0; }
-.dr .holo .motes i {
-  position: absolute;
-  bottom: 10%;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: rgb(var(--h-hi));
-  box-shadow: 0 0 6px rgb(var(--h-main));
-  opacity: 0;
-  animation: dr-mote var(--d, 3s) ease-out var(--dl, 0s) infinite;
-}
-.dr .holo[data-on] .portrait { animation: dr-wobble 5s ease-in-out infinite; }
 @keyframes dr-scan { to { transform: translateY(3px); } }
 @keyframes dr-sweep { from { transform: translateY(260%); } to { transform: translateY(-100%); } }
-@keyframes dr-wobble { 0%, 100% { transform: rotateY(-5deg) rotateX(2deg); } 50% { transform: rotateY(5deg) rotateX(-2deg); } }
-@keyframes dr-mote { 0% { opacity: 0; transform: translateY(0); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-150px); } }
 
 /* ---------- your duel disk: the dial fills toward your deck, coloured by what you took ---------- */
 .dr .disk {
@@ -1407,7 +1359,6 @@
   .dr .status { padding: 5px 11px; font-size: 13px; white-space: normal; text-align: center; }
   .dr .lens { bottom: calc(var(--disk-h) + 16px); width: calc(100% - 20px); max-width: none; font-size: 13px; }
   .dr .lens span { flex: 1; }
-  .dr .holo { display: none; }
 
   /* reader: a bottom sheet with a small hologram */
   .dr .dock {
@@ -1476,8 +1427,6 @@
    off: nothing moves at all; script animations are skipped too (kit-night.js). */
 .dr[data-motion="calm"] .portrait .scan,
 .dr[data-motion="calm"] .portrait .sweep,
-.dr[data-motion="calm"] .holo .motes,
-.dr[data-motion="calm"] .holo[data-on] .portrait,
 .dr[data-motion="calm"] .flow i,
 .dr[data-motion="calm"] .seat .pk i,
 .dr[data-motion="calm"] .chip-seat .av,
@@ -1489,7 +1438,6 @@
 .dr[data-motion="off"] *,
 .dr[data-motion="off"] *::before,
 .dr[data-motion="off"] *::after { animation: none !important; transition: none !important; }
-.dr:not([data-motion="full"]) .holo .motes,
 .dr:not([data-motion="full"]) .lamp .dust,
 .dr:not([data-motion="full"]) .dr-ring .spark .fz { display: none; }
 
