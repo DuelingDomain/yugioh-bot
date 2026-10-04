@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { mulberry32, seededShuffle, analyzeCube, buildDeal } from "../../src/services/deal.js";
+import { mulberry32, seededShuffle, analyzeCube, buildDeal, prepareBoosterPool } from "../../src/services/deal.js";
 
 describe("cube engine", () => {
+  it.each(["cubeCardIds", "poolCardIds"])("preserves a legacy mixed %s snapshot without a custom-copy suffix", (key) => {
+    const ids = Array.from({ length: 80 }, (_, i) => i + 1);
+    const config = { [key]: ids, setNames: ["S"], customCardIds: [1] };
+    expect(prepareBoosterPool(ids, config, 80)).toEqual(ids);
+    expect(prepareBoosterPool(ids, config, 120)).toEqual(ids);
+  });
+
   it("mulberry32 is deterministic for a seed", () => {
     const a = mulberry32(42);
     const b = mulberry32(42);

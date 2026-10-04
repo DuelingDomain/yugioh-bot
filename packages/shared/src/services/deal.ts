@@ -51,7 +51,10 @@ export function prepareBoosterPool(cardIds: number[], config: DraftConfig, slots
   // Use that boundary so overlapping passcodes keep their additive quantities.
   const eligibleIds = new Set(cardIds);
   const customCopies = (config.customCardIds ?? []).filter((id) => eligibleIds.has(id));
-  const baseIds = cardIds.slice(0, cardIds.length - customCopies.length);
+  const baseEnd = cardIds.length - customCopies.length;
+  // Legacy snapshots may store singleton ids without the appended custom copies.
+  if (customCopies.some((id, index) => cardIds[baseEnd + index] !== id)) return cardIds;
+  const baseIds = cardIds.slice(0, baseEnd);
   if (baseIds.length === 0) return cardIds;
   const copies = Math.max(1, Math.ceil((slots - customCopies.length) / baseIds.length));
   return [...baseIds.flatMap((id) => Array<number>(copies).fill(id)), ...customCopies];
