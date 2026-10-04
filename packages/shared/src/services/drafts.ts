@@ -1432,7 +1432,7 @@ export function createDraftService(
     },
 
     start(draftId: number, now = new Date()): Draft {
-      return startDraft(draftId, now);
+      return startDraft.immediate(draftId, now);
     },
 
     currentPackOptions(draftId: number, playerId: number): DraftCard[] {
@@ -1482,15 +1482,15 @@ export function createDraftService(
       pickMethod: "manual" | "auto" = "manual",
       now = new Date(),
     ): DraftPick {
-      return pickCard(draftId, playerId, draftCardId, pickMethod, now);
+      return pickCard.immediate(draftId, playerId, draftCardId, pickMethod, now);
     },
 
     expireCurrentPickStep(draftId: number, now = new Date()): { autoPickedPlayerIds: number[] } {
-      return expireCurrentPickStep(draftId, now);
+      return expireCurrentPickStep.immediate(draftId, now);
     },
 
     recordManualPick(draftId: number, playerId: number, draftCardId: number, now = new Date()): { alreadyPicked: boolean } {
-      return recordManualPick(draftId, playerId, draftCardId, now);
+      return recordManualPick.immediate(draftId, playerId, draftCardId, now);
     },
 
     pool(draftId: number, playerId: number): DraftPoolCard[] {

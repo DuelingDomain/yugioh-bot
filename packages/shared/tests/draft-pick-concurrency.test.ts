@@ -82,6 +82,31 @@ function setup() {
   return { db, drafts: createDraftService(db) };
 }
 
+it.each(["start", "pick", "manual", "expiry"])("starts %s with an immediate write transaction", (operation) => {
+  const statements: string[] = [];
+  const db = new Database(":memory:", { verbose: (sql) => statements.push(String(sql)) });
+  migrate(db);
+  const drafts = createDraftService(db, { seedSource: () => 7 });
+  const a = insertPlayer(db, "g", "a", "A");
+  const b = insertPlayer(db, "g", "b", "B");
+  seedCatalogCards(db, 8);
+  const draft = drafts.create("g", "c", "Immediate", { packSize: 2, packsPerPlayer: 2, cardsPerPlayer: 4 }, "a", a.id);
+  drafts.join(draft.id, b.id);
+  let cardId = 0;
+  if (operation !== "start") {
+    drafts.start(draft.id);
+    cardId = drafts.currentPackOptions(draft.id, a.id)[0].id;
+  }
+  if (operation === "expiry") db.prepare("update drafts set pick_deadline_at = '2000-01-01' where id = ?").run(draft.id);
+  statements.length = 0;
+  if (operation === "start") drafts.start(draft.id);
+  else if (operation === "pick") drafts.pickCard(draft.id, a.id, cardId);
+  else if (operation === "manual") drafts.recordManualPick(draft.id, a.id, cardId);
+  else drafts.expireCurrentPickStep(draft.id);
+  expect(statements.find((sql) => sql.startsWith("BEGIN"))).toBe("BEGIN IMMEDIATE");
+  db.close();
+});
+
 describe("draft pick concurrency", () => {
   it("expireCurrentPickStep called twice does not double-pick any player", () => {
     const app = setup();
