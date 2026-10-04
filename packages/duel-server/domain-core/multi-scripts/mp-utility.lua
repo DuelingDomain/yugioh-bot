@@ -457,3 +457,30 @@ end
 
 -- Fork-private player effect. Keep the C++ constant equal.
 EFFECT_CANNOT_BE_DIRECT_ATTACKED=0x7F000101
+
+-- Conditional direct attacks: inspect each prospective FFA defender, then the attacked seat.
+-- MPAttackQuerySeat exists only during the host target query; the normal battle uses MPAttackedSeat.
+function aux.MPDirectAttackCondition(fn)
+ return function(e)
+  if Duel.MPMode()~=1 then return fn(e) end
+  local c=e:GetHandler()
+  local seat=aux.MPAttackQuerySeat
+  if seat==nil and Duel.GetAttacker()==c and Duel.GetAttackTarget()==nil and Duel.MPAttackedSeat then seat=Duel.MPAttackedSeat() end
+  if seat~=nil then
+   local saved=Duel.MPSeatBinding()
+   Duel.MPBindSeat(seat)
+   Duel.MPWindow(0)
+   local result=fn(e)
+   Duel.MPWindowEnd()
+   if saved==255 then Duel.MPBindSeat() else Duel.MPBindSeat(saved) end
+   return result
+  end
+  for i=1,Duel.MPOppCount() do
+   Duel.MPWindow(i)
+   local result=fn(e)
+   Duel.MPWindowEnd()
+   if result then return true end
+  end
+  return false
+ end
+end

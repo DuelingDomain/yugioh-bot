@@ -750,6 +750,12 @@ export class Session {
     this.send(stepNo, step, open, { choice: pick.id });
     if (step.target === "direct") return;
     let next = this.openPrompt();
+    if (next?.prompt.kind === "choice" && /attack target/i.test(next.prompt.title)) {
+      const targets = next.prompt.options.filter(option => option.location === 4 && this.matchesSel(option, step.target as CardSel));
+      const target = this.pickOne(stepNo, step, targets, step.target as CardSel, "attack target");
+      this.send(stepNo, step, next, { choice: target.id });
+      return;
+    }
     if (direct) {
       const question = next && next.prompt.kind === "choice" && /attack directly/i.test(next.prompt.title) ? next : null;
       if (!question) this.fail(stepNo, step, `Expected an attack on ${describeSel(step.target)}, but the attack is direct.`);

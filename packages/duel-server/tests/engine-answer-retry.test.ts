@@ -13,17 +13,27 @@ const fake = vi.hoisted(() => ({
   response: vi.fn(),
   refuse: true,
   reportElimination: true,
+  report: (_type: number, _text: string) => undefined,
 }));
 
 // Fake only the core and its resources. Answer validation, retries and views use the real engine.
 vi.mock("ocgcore-wasm", async (importOriginal) => {
   const actual = await importOriginal<typeof import("ocgcore-wasm")>();
   return { ...actual, default: async () => ({
-    createDuel: () => ({}),
+    createDuel: (options: { errorHandler: typeof fake.report }) => {
+      fake.report = options.errorHandler;
+      return {};
+    },
     destroyDuel: () => undefined,
     startDuel: () => undefined,
     duelNewCard: () => undefined,
     loadScript: (_handle: unknown, name: string) => {
+      if (name === "ffa-attack-target-query.lua") {
+        // The production query reports legal defenders through the core's log callback.
+        for (const option of fake.options) if ((option & 0xffff0000n) === 0xffff0000n) {
+          fake.report(0, `YGO_ATTACK_PICK:direct,${Number(option & 0xffn)}`);
+        }
+      }
       if (name === "duel-eliminate.lua" && fake.reportElimination) {
         // Length-prefixed MSG_DUELIST_ELIMINATED: seat 1, surrender reason 0.
         fake.buffers.push(new Uint8Array([3, 0, 0, 0, 200, 1, 0]));
@@ -120,7 +130,7 @@ describe("answer after a core retry", () => {
   it.each([
     { name: "living opponent", options: [0xfffe0001n, 0xfffe0002n, 0xfffe0003n], choice: "opt:1" },
     { name: "ordinary option", options: [30n, 31n], choice: "opt:0" },
-    { name: "direct attack", options: [0xffff0001n, 0xffff0002n, 0xffff0003n], choice: "opt:1" },
+    { name: "direct attack", options: [0xffff0001n, 0xffff0002n, 0xffff0003n], choice: "direct:2" },
     { name: "mixed option types", options: [0xfffe0001n, 31n], choice: "opt:0" },
   ])("keeps Invalid answer for a refused $name", async ({ options, choice }) => {
     fake.options = options;

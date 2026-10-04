@@ -21,7 +21,7 @@ import createCore, {
   type OcgOpCode,
 } from "ocgcore-wasm";
 import { isOptionalCardScript, loadCardDatabase, type CardDatabase } from "./cards.js";
-import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, filterPromptOptions, isOpponentPick, isWaitingMessage, mapPrompt, nextLivingOpponentSeat, opponentPickSeat, placeSeatHint, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
+import { EngineAnswerError, HINT_PLACE_SEAT, autoResponse, directAttackSeat, filterPromptOptions, isOpponentPick, isWaitingMessage, mapPrompt, nextLivingOpponentSeat, opponentPickSeat, placeSeatHint, recallPromptContext, resolveAnswer, type MapPromptExtras, type PendingPrompt } from "./prompts.js";
 import {
   DOMAIN_RECALL_DESC,
   LOCATION_DECKMASTER,
@@ -58,6 +58,7 @@ import { MSG_ATTACK_DUELIST, MSG_DUELIST_ELIMINATED, MSG_FIELD_DISABLED_N, MSG_S
 import { MP_UTILITY_FILE, loadMultiScriptsFor } from "./multi-scripts.js";
 import { fillPlaceholders } from "./text.js";
 import { firstTurnDrawFor } from "./first-turn-draw.js";
+import { ATTACK_TARGET_QUERY_SCRIPT, mergeAttackTargetPick, readAttackTargetQuery, type AttackTargetQuery } from "./attack-target-pick.js";
 import { destroyedAndBanishedLogText, destroyedLogText, moveLogLines, summonLogLines } from "./log-lines.js";
 
 /** A wasm the engine loaded: the bytes, the file name and the sha256 of the bytes (core identity for reports). */
@@ -369,7 +370,11 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     if (!content && !isOptionalCardScript(name, cards.cardData)) errors.push(`Missing script ${name}`);
     return content;
   };
+  let attackTargetQuery: AttackTargetQuery | null = null;
+  let declaringAttack = false;
+  let completingAttackPick = false;
   const errorHandler = (type: number, text: string) => {
+    if (readAttackTargetQuery(text, attackTargetQuery)) return;
     if (noteDestroyLog(eventContext, text) || noteChainTargetLog(eventContext, text)) return;
     if (type === OcgLogType.ERROR || type === OcgLogType.UNDEFINED) errors.push(text);
   };
@@ -742,6 +747,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         appendLog("Chain ended");
         return;
       case OcgMessageType.ATTACK:
+        declaringAttack = false;
         appendLog(message.target ? "A monster declares an attack" : "A monster declares a direct attack");
         return;
       case OcgMessageType.SHUFFLE_DECK:
@@ -910,10 +916,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       const recall = recallState ? recallPromptContext(recallState, cards) : undefined;
       // The main action prompts start a new play; a hint card from an earlier effect no longer applies.
       if (waiting.type === OcgMessageType.SELECT_IDLECMD || waiting.type === OcgMessageType.SELECT_BATTLECMD) {
+        declaringAttack = false;
         lastHintCard = undefined;
         synchroSummon = undefined;
       }
-      const next = mapPrompt(
+      let next = mapPrompt(
         waiting,
         cards,
         `p${revision}-${promptSeq + 1}`,
@@ -929,9 +936,25 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           synchroSummon,
         },
       );
+      const attackYesNo = (waiting.type === OcgMessageType.SELECT_YESNO || waiting.type === OcgMessageType.SELECT_EFFECTYN) && waiting.description === 31n;
+      const directSeatPick = waiting.type === OcgMessageType.SELECT_OPTION && waiting.options.length > 0 && waiting.options.every(option => directAttackSeat(option) != null);
+      if ((format === "ffa3" || format === "ffa4") && !completingAttackPick && (attackYesNo || directSeatPick)) {
+        const query: AttackTargetQuery = { targets: [], directSeats: [] };
+        attackTargetQuery = query;
+        try {
+          if (!lib.loadScript(handle, "ffa-attack-target-query.lua", ATTACK_TARGET_QUERY_SCRIPT)) {
+            throw new Error("Failed to query FFA attack targets");
+          }
+        } finally { attackTargetQuery = null; }
+        next = filterPromptOptions(mergeAttackTargetPick(next, query, cards, declaringAttack), {
+          eliminatedSeats: [...eliminated],
+          livingSeats: Array.from({ length: seatCount }, (_, seat) => seat).filter(seat => !eliminated.has(seat) && !isLeaving(seat)),
+        });
+      }
       lastSelectHint = undefined;
       lastPlaceSeat = undefined;
-      const automated = autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase });
+      const automated = next.attackTargetPick || completingAttackPick && (waiting.type === OcgMessageType.SELECT_CARD || waiting.type === OcgMessageType.SELECT_OPTION)
+        ? null : autoResponse(next, { stopAtEveryWindow: options.settings?.stopAtEveryWindow, chainMode: chainModes[next.seat], phase });
       if (automated) {
         lib.duelSetResponse(handle, automated);
         continue;
@@ -1037,6 +1060,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       if (!pending) throw new EngineAnswerError("No prompt is waiting");
       const response = resolveAnswer(pending, seat, promptId, answer, cards);
       const previous = pending;
+      const targetPick = previous.attackTargetPick
+        ? previous.prompt.options.find(option => option.id === (answer.selected ? answer.selected[0] : answer.choice)) : undefined;
+      const cancelAttackPick = previous.attackTargetPick && answer.cancel;
+      const expandTargetPick = previous.attackTargetPick && previous.message.type !== OcgMessageType.SELECT_OPTION;
+      if (previous.message.type === OcgMessageType.SELECT_BATTLECMD && answer.choice?.startsWith("attack:")) declaringAttack = true;
       const previousSummon = synchroSummon;
       if (pending.message.type === OcgMessageType.SELECT_IDLECMD && answer.choice?.startsWith("spsummon:")) {
         const option = pending.prompt.options.find((entry) => entry.id === answer.choice);
@@ -1054,8 +1082,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
       sawRetry = false;
       // Stays set through the summon's follow-up prompts; observeDuelEvent clears it at SPSUMMONED.
       if (isPendulumSummonAnswer(pending, answer)) eventContext.pendulumSummon = true;
-      lib.duelSetResponse(handle, response);
-      processUntilWait();
+      completingAttackPick = Boolean(expandTargetPick);
+      try {
+        lib.duelSetResponse(handle, response);
+        processUntilWait();
+      } finally { completingAttackPick = false; }
       if (sawRetry) {
         pending = previous;
         synchroSummon = previousSummon;
@@ -1069,6 +1100,23 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           }
         }
         throw new EngineAnswerError("Invalid answer");
+      }
+      // One public target answer expands to the legacy core responses. Only the outer answer advances
+      // revision / the host journal; native prompt ids and automatic steps replay in the same order.
+      if (expandTargetPick && cancelAttackPick && pending?.message.type === OcgMessageType.SELECT_CARD) {
+        lib.duelSetResponse(handle, resolveAnswer(pending, seat, pending.id, { cancel: true }, cards));
+        processUntilWait();
+      } else if (expandTargetPick && targetPick && pending?.message.type === OcgMessageType.SELECT_OPTION && targetPick.id.startsWith("direct:")) {
+        const option = pending.prompt.options.find(option => option.controller === targetPick.controller);
+        if (!option) throw new Error("The core did not offer the chosen direct-attack seat");
+        lib.duelSetResponse(handle, resolveAnswer(pending, pending.seat, pending.id, { choice: option.id }, cards));
+        processUntilWait();
+      } else if (expandTargetPick && targetPick && pending?.message.type === OcgMessageType.SELECT_CARD && !targetPick.id.startsWith("direct:")) {
+        const option = pending.prompt.options.find(option => option.controller === targetPick.controller &&
+          option.location === targetPick.location && option.sequence === targetPick.sequence);
+        if (!option) throw new Error("The core did not offer the chosen attack target");
+        lib.duelSetResponse(handle, resolveAnswer(pending, pending.seat, pending.id, { selected: [option.id] }, cards));
+        processUntilWait();
       }
       answerForLeavingSeats();
       revision += 1;

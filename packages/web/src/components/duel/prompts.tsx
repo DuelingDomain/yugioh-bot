@@ -33,15 +33,22 @@ export interface PromptDraft {
 }
 
 /**
- * The engine's "choose what to attack" step is a single-pick `cards` prompt whose hint is
+ * The engine's "choose what to attack" step is a single-pick `cards` or n-seat combined `choice` prompt whose hint is
  * "Select an attack target" (system string 549). Some builds word it differently, so when an attacker
  * was just chosen (`attackerChosen`) any single pick made only of opposing monsters counts too.
  */
 const ATTACK_TARGET_TITLE = /attack target|target(?:s)? (?:to|for) (?:the )?attack/i;
 
 export function isAttackTargetPrompt(prompt: DuelPrompt | null, attackerChosen = false): boolean {
-  if (!prompt || prompt.kind !== "cards") return false;
+  if (!prompt) return false;
   if ((prompt.min ?? 1) !== 1 || (prompt.max ?? 1) !== 1) return false;
+  if (prompt.kind === "choice") {
+    // N-seat combined choice: direct seats and monster zones share one core option list.
+    return ATTACK_TARGET_TITLE.test(prompt.title) && prompt.options.length > 0 &&
+      prompt.options.every((option) => option.controller != null &&
+        (option.location === LOCATION_MZONE || option.location == null && /^attack\b.*\bdirectly$/i.test(option.label)));
+  }
+  if (prompt.kind !== "cards") return false;
   if (ATTACK_TARGET_TITLE.test(`${prompt.title} ${prompt.description ?? ""}`)) return true;
   return (
     attackerChosen &&

@@ -264,7 +264,7 @@ function fallback(slug: string, title: string, p2: DuelistSetup, to: "p0" | "p2"
       endTurn("p0"),
       changePhase("battle", "p1"),
       attack(RAT, "direct", "p1"),
-      ...(to === "auto" ? [yes("p1")] : [pickOpponent(to, "p1")]),
+      pickOpponent(to === "auto" ? "p0" : to, "p1"),
       ...(offered
         ? [activate(gate, "p0"), everySeat("ffa3", { p0: { grave: [gate], hand: [DARK_HOLE, DARK_HOLE] }, p1: { monsters: [RAT] }, p2: zonesOf(p2) })]
         : [

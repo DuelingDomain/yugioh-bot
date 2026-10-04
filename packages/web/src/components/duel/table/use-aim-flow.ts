@@ -125,13 +125,14 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
   // Direct attack: a choice that names a seat and no zone, with no opponent pick behind it.
   const direct = useMemo(() => {
     if (!canAct || !prompt || prompt.kind !== "choice" || base.seatPick) return null;
-    const choices = targetChoices(prompt, engine, viewerSeat, nameOf).filter((choice) => choice.direct && choice.zones.length === 0);
+    const choices = targetChoices(prompt, engine, viewerSeat, nameOf).filter((choice) => choice.direct);
     if (choices.length === 0) return null;
     // Same rule as the prompt rows: a Leaving seat is not a direct-attack target while a living seat is offered.
     // (targetChoices keeps Leaving seats because card targets stay legal until the seat is out.)
     const living = choices.filter((choice) => !isOutOrLeaving(engine.seats.find((view) => view.seat === choice.seat)));
     const offered = living.length > 0 ? living : choices;
-    return new Map<number, string>(offered.map((choice) => [choice.seat, choice.optionIds[0]]));
+    return new Map<number, string>(offered.map((choice) => [choice.seat,
+      prompt.options.find((option) => option.controller === choice.seat && option.location == null)!.id]));
   }, [base.seatPick, canAct, engine, nameOf, prompt, viewerSeat]);
 
   // A pointer-driven attack: the attacker is known and a target or a seat is to be chosen.
@@ -389,6 +390,7 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
 
   const bar = useMemo<AimBar | null>(() => {
     const toneOf = (seat: number) => layout.slots.find((slot) => slot.seat === seat)?.tone ?? "ice";
+    if (attackTarget && live?.to.zones?.length) return { kind: "confirm", title: "Attack target", entries: [], targetLabel: `Attack ${live.label}?` };
     if (direct) {
       return {
         kind: "direct",
@@ -414,17 +416,18 @@ export function useAimFlow(base: TableController, layout: TableLayout, root: { c
       lockedId: live?.optionId ?? null,
       onAim: (option) => {
         const [key] = optionZoneKeys(option);
-        if (!key) return;
+        const to = key ? { zones: [key] } : option.controller != null && direct?.get(option.controller) === option.id ? { lpSeat: option.controller } : null;
+        if (!to) return;
         if (live?.optionId === option.id) confirm();
-        else lockTo(option.id, { zones: [key] }, option.label);
+        else lockTo(option.id, to, option.label);
       },
       onHover: (option) => {
         if (live) return;
         const [key] = option ? optionZoneKeys(option) : [];
-        setHover(key ? { zones: [key] } : null);
+        setHover(key ? { zones: [key] } : option?.controller != null && direct?.get(option.controller) === option.id ? { lpSeat: option.controller } : null);
       },
     };
-  }, [attackTarget, confirm, live, lockTo, prompt?.cancelable, touchMode]);
+  }, [attackTarget, confirm, direct, live, lockTo, prompt?.cancelable, touchMode]);
 
   const controller = useMemo<TableController>(
     () => ({ ...base, aim, seatPick, onActivate, onAim }),
