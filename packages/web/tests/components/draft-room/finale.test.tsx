@@ -115,6 +115,53 @@ describe("DraftFinale", () => {
     });
   });
 
+  describe("a live update makes the tournament", () => {
+    const made = { ...idle, linked: { name: "Cup", webSlug: "cup" } };
+
+    it("changes the non-host finale to Go to tournament without moving focus", async () => {
+      const { rerender } = render(<DraftFinale {...props} />);
+      const deck = await screen.findByRole("link", { name: "View your deck" });
+      await waitFor(() => expect(document.activeElement).toBe(deck));
+      const status = screen.getByText("The host or a server admin will start the tournament.");
+      expect(status.getAttribute("aria-live")).toBe("polite");
+
+      rerender(<DraftFinale {...props} tournament={made} />);
+
+      const go = screen.getByRole("link", { name: "Go to tournament" });
+      expect(go.getAttribute("href")).toBe("/tournament/cup");
+      expect(document.activeElement).toBe(deck);
+      expect(document.activeElement).not.toBe(go);
+      // The same status element changes text, so the polite live region announces it.
+      expect(status.isConnected).toBe(true);
+      expect(status.textContent).toBe("The tournament is ready. Saved draft decks are registered for it.");
+    });
+
+    it("leaves focus alone for a host who is not on the Create tournament button", async () => {
+      const host = { ...props, canCreateTournament: true };
+      const { rerender } = render(<DraftFinale {...host} />);
+      const create = await screen.findByRole("button", { name: "Create tournament" });
+      const close = screen.getByRole("button", { name: "Close" });
+      close.focus();
+
+      rerender(<DraftFinale {...host} tournament={made} />);
+
+      expect(screen.getByRole("link", { name: "Go to tournament" })).toBeTruthy();
+      expect(create.isConnected).toBe(false);
+      expect(document.activeElement).toBe(close);
+    });
+
+    it("moves focus to Go to tournament when it replaces the button the host was on", async () => {
+      const host = { ...props, canCreateTournament: true };
+      const { rerender } = render(<DraftFinale {...host} />);
+      const create = await screen.findByRole("button", { name: "Create tournament" });
+      await waitFor(() => expect(document.activeElement).toBe(create));
+
+      rerender(<DraftFinale {...host} tournament={made} />);
+
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("link", { name: "Go to tournament" })));
+    });
+  });
+
   describe("a tournament already exists", () => {
     it.each([true, false])("links to it with canCreateTournament=%s and offers no create button", async (canCreateTournament) => {
       render(<DraftFinale {...props} canCreateTournament={canCreateTournament} tournament={{ ...idle, linked: { name: "Cup", webSlug: "cup" } }} />);

@@ -23,6 +23,22 @@ export interface FinaleProps {
   onClose: () => void;
 }
 
+/** Which element the viewer's last action asked to focus; null once focus moved or when nothing is wanted. */
+type FocusWant = "initial" | "format" | "primary" | null;
+
+/** Focuses a freshly mounted element when the pending request names its kind, then clears the request. */
+function takeFocus(want: { current: FocusWant }, el: HTMLElement | null, ...kinds: Array<Exclude<FocusWant, null>>) {
+  if (!el || !want.current || !kinds.includes(want.current)) return;
+  want.current = null;
+  el.focus();
+}
+
+/** Focus moved to another control: a later live update must not pull it back. */
+function leaveFocus(want: { current: FocusWant }, event: React.FocusEvent<HTMLElement>) {
+  const next = event.relatedTarget as Node | null;
+  if (next && !event.currentTarget.contains(next)) want.current = null;
+}
+
 /** "Draft complete": shown over the page when the draft finishes while you are in the room. */
 export function DraftFinale(p: FinaleProps) {
   const counts = useMemo(() => countKinds(p.pool), [p.pool]);
@@ -35,14 +51,13 @@ export function DraftFinale(p: FinaleProps) {
     : `${p.pool.length} cards drafted. Your deck is saved.`;
   const { tournament } = p;
   const [formOpen, setFormOpen] = useState(false);
-  // Focus goes to the first action on each variant. Opening the form, closing it, or making the
-  // tournament swaps that action for another element, which takes focus the same way.
-  const focused = useRef<Element | null>(null);
-  const focusFirst = useCallback((el: HTMLAnchorElement | HTMLButtonElement | HTMLSelectElement | null) => {
-    if (!el || focused.current === el) return;
-    focused.current = el;
-    el.focus();
-  }, []);
+  // Focus moves to a new element only when the viewer asked for it: on first show, after opening or
+  // leaving the form, and after creating the tournament. A live update that swaps an action (another
+  // person made the tournament) never takes focus, so it is announced through the status line instead.
+  const want = useRef<FocusWant>("initial");
+  const focusInitial = useCallback((el: HTMLAnchorElement | null) => takeFocus(want, el, "initial"), []);
+  const focusPrimary = useCallback((el: HTMLAnchorElement | HTMLButtonElement | null) => takeFocus(want, el, "initial", "primary"), []);
+  const focusFormat = useCallback((el: HTMLSelectElement | null) => takeFocus(want, el, "format"), []);
   const linked = tournament.linked;
   const tournamentHref = linked?.webSlug ? `/tournament/${linked.webSlug}` : "/tournaments";
   const showForm = p.canCreateTournament && !linked && formOpen;
@@ -123,11 +138,18 @@ export function DraftFinale(p: FinaleProps) {
             </div>
           </div>
           <p className="fin-note">{`${noTribute} of your ${monsters.length} main deck monsters need no tribute.`}</p>
-          <p className="fin-status">{status}</p>
+          <p className="fin-status" aria-live="polite">
+            {status}
+          </p>
           {showForm && (
             <form
               className="fin-tour"
               aria-label="Create tournament"
+              // The viewer is working in the form: when it gives way to Go to tournament, focus follows.
+              onFocus={() => {
+                want.current = "primary";
+              }}
+              onBlur={(event) => leaveFocus(want, event)}
               onSubmit={(event) => {
                 event.preventDefault();
                 void tournament.create();
@@ -139,7 +161,7 @@ export function DraftFinale(p: FinaleProps) {
                   value={tournament.format}
                   onChange={(e) => tournament.setFormat(e.target.value === "single_elim" ? "single_elim" : "round_robin")}
                   disabled={tournament.creating}
-                  ref={focusFirst}
+                  ref={focusFormat}
                 >
                   <option value="round_robin">Round robin</option>
                   <option value="single_elim">Single elimination</option>
@@ -165,7 +187,15 @@ export function DraftFinale(p: FinaleProps) {
                 <button className="pick-btn" type="submit" disabled={tournament.creating} aria-busy={tournament.creating || undefined}>
                   <span>{tournament.creating ? "Creating…" : "Create tournament"}</span>
                 </button>
-                <button className="btn-2" type="button" onClick={() => setFormOpen(false)} disabled={tournament.creating}>
+                <button
+                  className="btn-2"
+                  type="button"
+                  onClick={() => {
+                    want.current = "primary";
+                    setFormOpen(false);
+                  }}
+                  disabled={tournament.creating}
+                >
                   Cancel
                 </button>
               </div>
@@ -173,15 +203,28 @@ export function DraftFinale(p: FinaleProps) {
           )}
           <div className="fin-actions">
             {linked ? (
-              <Link className="pick-btn" href={tournamentHref} ref={focusFirst}>
+              <Link className="pick-btn" href={tournamentHref} ref={focusPrimary}>
                 <span>Go to tournament</span>
               </Link>
             ) : p.canCreateTournament && !formOpen ? (
-              <button className="pick-btn" type="button" onClick={() => setFormOpen(true)} ref={focusFirst}>
+              <button
+                className="pick-btn"
+                type="button"
+                // The viewer is on this button: if a live update replaces it, focus follows to Go to tournament.
+                onFocus={() => {
+                  want.current = "primary";
+                }}
+                onBlur={(event) => leaveFocus(want, event)}
+                onClick={() => {
+                  want.current = "format";
+                  setFormOpen(true);
+                }}
+                ref={focusPrimary}
+              >
                 <span>Create tournament</span>
               </button>
             ) : null}
-            <Link className="btn-2" href={`/decks/draft/${p.slug}`} ref={p.canCreateTournament || linked ? undefined : focusFirst}>
+            <Link className="btn-2" href={`/decks/draft/${p.slug}`} ref={p.canCreateTournament || linked ? undefined : focusInitial}>
               View your deck
             </Link>
             <button className="btn-2" type="button" onClick={p.onExport} disabled={p.exporting}>
