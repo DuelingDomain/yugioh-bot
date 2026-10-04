@@ -254,7 +254,7 @@ describe("command handlers", () => {
       cardsPerPlayer: 40,
       pickSeconds: 45,
       alternatePassDirection: true,
-      randomizeSeats: false,
+      randomizeSeats: true,
       copyLimit: true,
     });
   });
@@ -318,7 +318,7 @@ describe("command handlers", () => {
       cardsPerPlayer: 40,
       pickSeconds: 45,
       alternatePassDirection: true,
-      randomizeSeats: false,
+      randomizeSeats: true,
       copyLimit: true,
     });
   });

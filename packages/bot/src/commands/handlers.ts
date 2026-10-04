@@ -687,7 +687,7 @@ async function handleDraft(
       };
 
       const creator = deps.players.upsert(guildId, interaction.user.id, displayName(interaction.user));
-      const draft = deps.drafts.create(guildId, channelId, draftName, config, interaction.user.id, creator.id);
+      const draft = deps.drafts.create(guildId, channelId, draftName, { ...config, randomizeSeats: true }, interaction.user.id, creator.id);
       await interaction.reply(draftSignupPostReply(draft));
       return;
     }

@@ -97,7 +97,7 @@ export async function handleModal(
     }
 
     const creator = deps.players.upsert(guildId, interaction.user.id, interaction.user.displayName ?? interaction.user.username);
-    const draft = deps.drafts.create(guildId, channelId, name, config, interaction.user.id, creator.id);
+    const draft = deps.drafts.create(guildId, channelId, name, { ...config, randomizeSeats: true }, interaction.user.id, creator.id);
 
     await interaction.reply(draftSignupPostReply(draft));
     return;
