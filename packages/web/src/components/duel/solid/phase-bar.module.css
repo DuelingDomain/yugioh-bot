@@ -1,1 +1,441 @@
-/* Solid Vision: phase-bar (stub from the foundation). The owning worker fills this file; see docs/specs/2026-10-03-duel-3d-mode.md. */
+/* Solid Vision phase bar (3D mode): the V1 StationTrack skinned through the `station` slot.
+   Concept styles.css 382-399 and the mobile block 730-734. The markup is V1's; the puck is V1's `.pool` span
+   (it already slides on --i), so no element is added. Every rule carries `nav.root.root` so it beats the V1
+   `.root` rules whatever order the two stylesheets load in. The tokens (--pur-btn, --gold-b ...) come from .root of
+   solid-room.module.css, the ancestor of the bar. */
+
+nav.root.root {
+  --th: 36px;
+  --cell: 58px;
+  --focus: var(--gold-hi);
+  --rule-rgb: 200 165 95;
+  --gold: #c8a55f;
+  --gold-ink: var(--gold-hi);
+  --pen: var(--pur);
+  --pen-ink: var(--pur-hi);
+  --pen-fill: var(--pur-btn);
+
+  container-type: inline-size;
+  height: var(--phase-h, 46px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-rows: none;
+  grid-template-areas: none;
+  column-gap: 12px;
+  align-items: center;
+  padding: 4px 0 0;
+  overflow: visible;
+  background: none;
+  border-top: 0;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--tx);
+}
+
+/* ---------- left: owner square + "Name · Turn N" ---------- */
+nav.root.root .seat {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+  gap: 7px;
+  padding: 0;
+  color: var(--tx-2);
+}
+nav.root.root .lamp {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--pur);
+  box-shadow: none;
+  transition: background-color 0.4s, box-shadow 0.4s, transform 0.4s;
+}
+nav.root.root[data-tone="theirs"] .lamp {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--ember);
+  transform: rotate(45deg);
+}
+nav.root.root .seatText {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 5px;
+}
+nav.root.root .seatName {
+  max-width: 14em;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--tx-2);
+}
+nav.root.root .seatTurn {
+  font-size: 13px;
+  color: var(--tx-2);
+}
+nav.root.root .seatTurn::before {
+  content: "· ";
+}
+
+/* ---------- centre: the track ---------- */
+nav.root.root .rail {
+  display: contents;
+}
+nav.root.root .stack {
+  grid-column: 2;
+  grid-row: 1;
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  width: calc(var(--cell) * 6 + 6px);
+  max-width: 100%;
+  height: var(--th);
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--ink-1);
+  box-shadow: inset 0 0 0 1px var(--gold-b), 0 10px 20px -10px rgb(0 0 0 / 0.9);
+}
+nav.root.root .railLine,
+nav.root.root .railDone,
+nav.root.root .tick {
+  display: none;
+}
+/* The puck: V1's light pool, redrawn as the concept's 58x30 slab that slides by the station index. */
+nav.root.root .pool {
+  top: 3px;
+  left: 3px;
+  width: var(--cell);
+  height: 30px;
+  translate: none;
+  border-radius: 7px;
+  background: var(--pur-btn);
+  box-shadow: inset 0 -2px 0 var(--gold);
+  transform: translateX(calc(var(--i, 0) * var(--cell)));
+  transition: transform 0.45s var(--ease-out), background 0.4s, box-shadow 0.4s;
+}
+nav.root.root[data-tone="theirs"] .pool {
+  background: #3a2a24;
+  box-shadow: inset 0 -2px 0 var(--ember);
+}
+:global([data-turn="watch"]) nav.root.root .pool {
+  background: var(--ink-4);
+  box-shadow: inset 0 -2px 0 var(--gold-lo);
+}
+nav.root.root .stack[data-idle="true"] .pool {
+  opacity: 0;
+}
+nav.root.root .plates {
+  display: grid;
+  grid-template-columns: repeat(6, var(--cell));
+  gap: 0;
+  width: 100%;
+}
+nav.root.root .item {
+  width: auto;
+  height: 30px;
+}
+nav.root.root .plate,
+nav.root.root[data-tone="theirs"] .plate[data-state="current"],
+nav.root.root .plate[data-state="current"] {
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--tx-3);
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.2s, color 0.3s, box-shadow 0.2s;
+}
+nav.root.root .plate[data-state="done"] {
+  color: var(--tx-3);
+}
+nav.root.root .plate[data-state="current"],
+nav.root.root[data-tone="theirs"] .plate[data-state="current"] {
+  color: #fff;
+}
+nav.root.root .code {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+/* The phase name stays for screen readers; the concept shows the two-letter code only. */
+nav.root.root .name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+/* Offered phase (a real button): gold ring and a chevron. */
+nav.root.root button.plate {
+  color: var(--tx);
+  box-shadow: inset 0 0 0 1px var(--gold-a);
+}
+nav.root.root button.plate .code::after {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin-left: 4px;
+  border-top: 2px solid var(--gold-hi);
+  border-right: 2px solid var(--gold-hi);
+  transform: rotate(45deg);
+}
+nav.root.root button.plate:hover {
+  background: var(--ink-4);
+  color: var(--tx);
+}
+nav.root.root .plate[data-next="true"] {
+  border: 0;
+  color: var(--tx);
+}
+nav.root.root button.plate[data-next="true"]:hover {
+  border: 0;
+}
+nav.root.root .plate:focus-visible,
+nav.root.root .primary:focus-visible,
+nav.root.root .secondary:focus-visible {
+  outline: 2px solid var(--gold-hi);
+  outline-offset: 2px;
+}
+
+/* ---------- Battle Phase: the steps take the left cell, the seat label gives way ---------- */
+nav.root.root[data-phase="BP"] .seat {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+nav.root.root div.caption {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+  max-width: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+/* A note ("Respond to the chain?") is announced but not drawn: the prompt in the middle of the table says it. */
+nav.root.root div.caption > .capNote {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+nav.root.root .steps {
+  gap: 0;
+  max-width: 100%;
+  min-width: 0;
+}
+nav.root.root .stepList {
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+}
+nav.root.root .stepDot {
+  display: none;
+}
+nav.root.root .step {
+  height: 22px;
+  padding: 0 8px;
+  border-color: var(--gold-b);
+  font-size: 12px;
+  color: var(--tx-3);
+}
+nav.root.root .step[data-state="done"] {
+  border-color: var(--gold-a);
+  color: var(--tx-2);
+}
+nav.root.root .step[data-state="current"] {
+  border-color: rgb(224 145 106 / 0.8);
+  background: rgb(224 145 106 / 0.14);
+  color: #fff;
+  box-shadow: none;
+}
+nav.root.root .steps[data-tone="mine"] .step[data-state="current"] {
+  border-color: var(--pur);
+  background: rgb(143 118 242 / 0.18);
+  box-shadow: none;
+}
+/* A narrow bar shows the current step only; the others stay in the list for screen readers. */
+@container (max-width: 820px) {
+  nav.root.root .step:not([data-state="current"]) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    border: 0;
+  }
+}
+/* The explanation is announced (live region) but not drawn: the chips and the header carry the step. */
+nav.root.root .stepHint {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- right: what is available + the V1 phase buttons ---------- */
+nav.root.root p.caption {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: start;
+  max-width: calc(100% - var(--act-w, 150px));
+  font-size: 13px;
+  color: var(--tx-3);
+  /* Hidden (still announced) until the bar is wide enough for it to sit beside the buttons. */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+nav.root.root:has(.secondary) {
+  --act-w: 250px;
+}
+nav.root.root .capAt,
+nav.root.root .capNext {
+  color: var(--tx-2);
+  font-weight: 400;
+}
+nav.root.root .capNote {
+  color: var(--tx-2);
+}
+@container (min-width: 1060px) {
+  nav.root.root p.caption {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: hidden;
+    clip-path: none;
+  }
+}
+nav.root.root .actions {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  gap: 8px;
+  padding: 0;
+}
+nav.root.root .primary,
+nav.root.root .secondary {
+  height: 30px;
+  border-radius: 7px;
+}
+nav.root.root .primary {
+  gap: 8px;
+  padding: 0 12px 0 14px;
+  border: 0;
+  background: var(--pur-btn);
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: none;
+}
+nav.root.root .primary:hover:not(:disabled) {
+  background: var(--pur-btn-hi);
+  filter: none;
+}
+nav.root.root .primary svg {
+  width: 15px;
+  height: 15px;
+}
+nav.root.root .primary:disabled {
+  background: transparent;
+  color: var(--tx-3);
+  padding: 0 4px;
+}
+nav.root.root .primary:disabled svg {
+  color: var(--tx-3);
+}
+nav.root.root .secondary {
+  padding: 0 11px;
+  border: 0;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--gold-b);
+  color: var(--tx-2);
+  font-size: 13px;
+}
+nav.root.root .secondary:hover {
+  background: var(--ink-3);
+  color: var(--tx);
+}
+nav.root.root .lock {
+  border-color: rgb(224 145 106 / 0.55);
+  color: var(--ember);
+}
+
+/* ---------- motion ---------- */
+nav.root.root[data-reduced="true"] .pool,
+nav.root.root[data-reduced="true"] .lamp,
+nav.root.root[data-reduced="true"] .plate {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  nav.root.root .pool,
+  nav.root.root .lamp,
+  nav.root.root .plate {
+    transition: none;
+  }
+}
+
+/* ---------- phones and narrow windows (spec 2.6): six equal cells, height 40 ---------- */
+@media (max-width: 900px) {
+  nav.root.root {
+    --th: 40px;
+    height: auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+    grid-template-areas: none;
+    padding: 0;
+    column-gap: 0;
+  }
+  nav.root.root .stack {
+    grid-area: auto;
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: stretch;
+    width: 100%;
+    height: 40px;
+  }
+  nav.root.root .pool {
+    width: calc((100% - 6px) / 6);
+    height: 34px;
+    transform: translateX(calc(var(--i, 0) * 100%));
+  }
+  nav.root.root .plates {
+    grid-template-columns: repeat(6, 1fr);
+  }
+  nav.root.root .item {
+    height: 34px;
+  }
+  nav.root.root .plate,
+  nav.root.root .plate[data-state="current"],
+  nav.root.root[data-tone="theirs"] .plate[data-state="current"] {
+    height: 34px;
+    border-radius: 7px;
+  }
+  nav.root.root .code {
+    font-size: 14px;
+  }
+  /* The owner label, the caption and the buttons give way: the offered plates make the same phase moves. */
+  nav.root.root .seat,
+  nav.root.root div.caption,
+  nav.root.root p.caption {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  nav.root.root .actions {
+    display: none;
+  }
+}
