@@ -141,7 +141,7 @@ empty server. See `duel-engine-switch.md` for the values, the engine saved for e
 
 ### Report bug button (GitHub issues)
 
-The red "Report bug" button saves every report in the `bug_reports` table of `data/bot.sqlite`. The `web` service also opens
+The "Report bug" button (a quiet chip at the bottom-right of the page, or in the header of a live duel) saves every report in the `bug_reports` table of `data/bot.sqlite`. The `web` service also opens
 a GitHub issue for it when it has a token. The repo is public, so an issue holds only the report number, the player's
 text, public duel facts and the last public log lines. It never holds a hand, a Discord id or name, or the guild id. The
 full report with the player id stays in the database. Each player may send 5 reports in 10 minutes.
@@ -162,7 +162,7 @@ Set it up once:
 
 Checks and limits:
 
-- Send one test report from the red button. The dialog shows "issue #N" with a link when GitHub accepted it, and
+- Send one test report from the Report bug button. The dialog shows "issue #N" with a link when GitHub accepted it, and
   "Saved — the team will see it" when the token is missing or GitHub refused it.
 - A failed issue never loses a report. Read the reason with
   `sqlite3 data/bot.sqlite "select id, created_at, github_error from bug_reports where github_issue_number is null order by id desc limit 10"`.

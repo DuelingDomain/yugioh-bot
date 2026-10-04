@@ -131,7 +131,7 @@ function ShellFrame({ children }: { children: ReactNode }) {
         <main className={styles.main}>
           <div className={`${styles.content} mx-auto p-4 pb-16 sm:p-6 sm:pb-16 lg:p-8 lg:pb-16`}>{children}</div>
         </main>
-        <BugReportFab className={`fixed bottom-3 z-40 ${styles.bugFab}`} />
+        <BugReportFab />
       </div>
       <MobileDrawer open={drawerOpen} onClose={closeDrawer} account={account} live={live} onReportBug={openReport} />
       <BugReportDialog open={reportOpen} onClose={closeReport} collect={collectPage} />

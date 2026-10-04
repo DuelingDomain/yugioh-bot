@@ -61,7 +61,7 @@ describe("live room table mount", () => {
     expect(container.querySelectorAll("[data-lp-seat]")).toHaveLength(state.room!.engine!.seats.length);
     expect(screen.queryByTestId("multi-seat-stage")).toBeNull();
     expect(screen.getByRole("button", { name: "Surrender" })).toBeTruthy();
-    // The red Report bug button sits in the table header, with the other header buttons.
+    // The Report bug button sits in the table header, with the other header buttons.
     expect(container.querySelector("header [data-bug-header-button]")).not.toBeNull();
   });
 
@@ -87,7 +87,7 @@ describe("live room table mount", () => {
     expect(Object.keys(props).sort()).toEqual(["actions", "boardRef", "busy", "connection", "controller", "fillViewport", "fxActive",
       "headerTools", "initialOutOrder", "inputSuspended", "modals", "notices", "pickContinuation", "preferences", "settingsTools", "teamNames"]);
     expect(screen.getByRole("button", { name: "Surrender" })).toBeTruthy();
-    // The Rooftop shell puts headerTools in its header: the red Report bug button is one of them.
+    // The Rooftop shell puts headerTools in its header: the Report bug button is one of them.
     expect(container.querySelector("[data-tag-shell] [data-bug-header-button]")).not.toBeNull();
   });
 

@@ -16,7 +16,7 @@ Edit the right-hand column to match whatever vocabulary you actually use.
 
 ## Reports from the in-app "Report bug" button
 
-Players send bug reports from the red "Report bug" button in the web app. Each report becomes a GitHub issue with the labels
+Players send bug reports from the "Report bug" button in the web app. Each report becomes a GitHub issue with the labels
 `bug`, `needs-triage` and `from-app`. The app never marks a report as valid. A human decides.
 
 Before a report is sent, the app checks it. The text needs at least 20 characters and 4 words, and "What did you expect?" is

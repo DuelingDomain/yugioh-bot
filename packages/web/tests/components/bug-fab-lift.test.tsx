@@ -46,14 +46,14 @@ describe("the Report bug button over a bottom bar", () => {
     vi.spyOn(window, "innerHeight", "get").mockReturnValue(844);
     const { rerender } = render(<><BugReportFab /><BugFabLift data-bar style={{ position: "sticky" }}>Create draft</BugFabLift></>);
     const button = screen.getByRole("button", { name: "Report bug" });
-    expect(button.style.bottom).toContain("96px");
+    expect(button.style.transform).toBe("translateY(-96px)");
     act(() => rerender(<BugReportFab />));
-    expect(screen.getByRole("button", { name: "Report bug" }).style.bottom).toBe("");
+    expect(screen.getByRole("button", { name: "Report bug" }).style.transform).toBe("");
   });
 
   it("stays at its place when no bar is registered", () => {
     render(<BugReportFab />);
-    expect(screen.getByRole("button", { name: "Report bug" }).style.bottom).toBe("");
+    expect(screen.getByRole("button", { name: "Report bug" }).style.transform).toBe("");
   });
 });
 
@@ -82,7 +82,7 @@ describe("re-measuring the lift", () => {
   }
 
   const renderBar = () => render(<><BugReportFab /><div data-testid="parent"><BugFabLift data-bar style={{ position: "sticky" }}>Create draft</BugFabLift></div></>);
-  const bottom = () => screen.getByRole("button", { name: "Report bug" }).style.bottom;
+  const lifted = () => screen.getByRole("button", { name: "Report bug" }).style.transform;
 
   it("measures against the layout viewport, not the visual viewport the phone keyboard shrinks", () => {
     setup();
@@ -90,7 +90,7 @@ describe("re-measuring the lift", () => {
     Object.defineProperty(window, "visualViewport", { configurable: true, value: visual });
     vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(844);
     renderBar();
-    expect(bottom()).toContain("96px");
+    expect(lifted()).toBe("translateY(-96px)");
   });
 
   it("re-measures when the visual viewport resizes or scrolls, and stops after unmount", () => {
@@ -100,17 +100,17 @@ describe("re-measuring the lift", () => {
     const remove = vi.spyOn(visual, "removeEventListener");
     Object.defineProperty(window, "visualViewport", { configurable: true, value: Object.assign(visual, { height: 300 }) });
     const { unmount } = renderBar();
-    expect(bottom()).toContain("96px");
+    expect(lifted()).toBe("translateY(-96px)");
 
     bar.top = 794; // the bar moved down; only a visual viewport resize tells us
     act(() => { visual.dispatchEvent(new Event("resize")); });
     flush();
-    expect(bottom()).toContain("46px");
+    expect(lifted()).toBe("translateY(-46px)");
 
     bar.top = 600; // the bar rose clear of the button's corner; only a visual viewport scroll tells us
     act(() => { visual.dispatchEvent(new Event("scroll")); });
     flush();
-    expect(bottom()).toBe("");
+    expect(lifted()).toBe("");
 
     unmount();
     expect(add.mock.calls.map(([type]) => type).sort()).toEqual(["resize", "scroll"]);
@@ -120,7 +120,7 @@ describe("re-measuring the lift", () => {
   it("watches the bar, its parent and the page body, and re-measures when the content resizes", () => {
     const { bar, observers, flush } = setup();
     const { unmount } = renderBar();
-    expect(bottom()).toContain("96px");
+    expect(lifted()).toBe("translateY(-96px)");
     expect(observers).toHaveLength(1);
     expect(observers[0].observed).toContain(screen.getByTestId("parent"));
     expect(observers[0].observed).toContain(document.body);
@@ -129,7 +129,7 @@ describe("re-measuring the lift", () => {
     bar.top = 844; // content shrank: the bar is no longer stuck over the button's corner
     act(() => observers[0].callback());
     flush();
-    expect(bottom()).toBe("");
+    expect(lifted()).toBe("");
 
     unmount();
     expect(observers[0].disconnect).toHaveBeenCalled();
