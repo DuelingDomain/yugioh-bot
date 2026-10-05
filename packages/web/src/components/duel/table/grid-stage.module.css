@@ -76,8 +76,10 @@
 
 /* A pick of a field (a zone or a card on the board): the hand is click-through, so a click only ever meets the field.
    A pick of a hand card, or an open main phase, keeps the hand live: it wins where it overlaps. */
-.board[data-pick-kind="field"] :global([data-hand-seat]),
-.board[data-pick-kind="field"] :global([data-hand-seat]) * {
+/* (Doubled class: stronger than the rule of field.module.css that gives the hand cards the pointer back.) */
+.board.board[data-pick-kind="field"] :global([data-hand-seat]),
+.board.board[data-pick-kind="field"] :global([data-hand-seat]) *,
+.board.board[data-pick-kind="field"] :global([data-hand-seat]) *::before {
   pointer-events: none;
 }
 

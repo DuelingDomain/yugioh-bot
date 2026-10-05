@@ -2291,6 +2291,31 @@
   pointer-events: none;
 }
 
+/* 4-way grid: your hand rises over the lower edge of your Spell/Trap row. Only the cards take the pointer, never the
+   empty lane round them, so that edge of a zone is never a dead strip. As in the 1v1 room, a legal or selected card
+   rests a little higher than its box: a strip above the box keeps that visible edge on the card. */
+:global([data-grid-stage]) .sfHand {
+  pointer-events: none;
+}
+
+:global([data-grid-stage]) .sfHand .handCard {
+  pointer-events: auto;
+}
+
+:global([data-grid-stage]) .sfHand .handLocal .handCard .zone[data-legal="true"] .zoneHit::before,
+:global([data-grid-stage]) .sfHand .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  height: calc(var(--lh) * 0.05);
+  content: "";
+}
+
+:global([data-grid-stage]) .sfHand .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+  height: calc(var(--lh) * 0.12);
+}
+
 /* A seat that cannot use cards for the viewer (a partner, a spectator's view): the legal ring only. */
 .seatField[data-usable="false"] .glow,
 .seatField[data-usable="false"] .mark {
