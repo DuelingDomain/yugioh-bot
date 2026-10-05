@@ -119,9 +119,56 @@ for (const format of ["ffa3","ffa4"] as const) {
   ROTATE_CONTROL_SCENARIOS.push(make("xyz-and-equip", "Debug.PreEquip(Duel.GetFieldCard(0,LOCATION_SZONE,0),Duel.GetFieldCard(0,LOCATION_MZONE,0))",[...xyzPicks,expectBoard(xyzBoard)],xyzSetup));
 }
 
-// R-COMMON-SURRENDER-EOT / R-FFA-ELIMINATION (Rulebook v1.4): removal is immediate.
-// The living placement stays answerable, but a rotation cannot transfer the removed card.
-ROTATE_CONTROL_SCENARIOS.push(rotationScenario({ id: "rotate-control-ffa4-loss-during-placement", title: "Immediate surrender cancels a rotation whose selected monster left", source: "Rulebook v1.4 Removing players from the game; R-COMMON-SURRENDER-EOT", rules: ["R-FFA-RESOURCE-ROTATION","R-COMMON-EACH-PLAYER","R-FFA-ELIMINATION"], tags: ["multiplayer","ffa4","card:31036355"], setup: { format:"ffa4",p0:{hand:["Creature Swap"],monsters:[cards[0],"Mystical Elf"]},p1:{monsters:[cards[1],"Mystical Elf"]},p2:{monsters:[cards[2],"Mystical Elf"]},p3:{monsters:[cards[3],"Mystical Elf"]} }, steps: [activate("Creature Swap","p0"),expectPrompt({by:"p0",kind:"cards"}),select(cards[0]),expectPrompt({by:"p1",kind:"cards"}),select(cards[1]),expectPrompt({by:"p2",kind:"cards"}),select(cards[2]),expectPrompt({by:"p3",kind:"cards"}),select(cards[3]),expectPrompt({by:"p0",kind:"places"}),surrender("p1"),expectPrompt({by:"p0",kind:"places"}),zone("p0","m0"),expectBoard({p0:{monsters:[cards[0],"Mystical Elf"],grave:["Creature Swap"]},p1:{monsters:[],spells:[],hand:[],grave:[],banished:[],deckCount:0},p2:{monsters:[cards[2],"Mystical Elf"],grave:[]},p3:{monsters:[cards[3],"Mystical Elf"],grave:[]}}),expectEliminated("p1")] }));
+// Owner decision 2026-10-05: finish the rotation before applying leave rules,
+// including a timeout or a turn player's departure. The host places for the leaver.
+for (const leaver of [1, 0]) for (const reason of [0, 3]) {
+  const leaving = `p${leaver}` as DuelistId;
+  const setup: Scenario["setup"] = { format: "ffa4" };
+  const steps: Step[] = [activate("Creature Swap", "p0")];
+  const board: Parameters<typeof expectBoard>[0] = {};
+  for (let seat = 0; seat < 4; seat++) {
+    const id = `p${seat}` as DuelistId;
+    setup[id] = { monsters: [cards[seat], "Mystical Elf"], ...(seat === 0 ? { hand: ["Creature Swap"] } : {}) };
+    steps.push(expectPrompt({ by: id, kind: "cards" }), select(cards[seat]));
+    board[id] = seat === leaver
+      ? { monsters: [], spells: [], hand: [], grave: [], banished: [], deckCount: 0 }
+      : {
+          monsters: [...((seat + 3) % 4 === leaver ? [] : [cards[(seat + 3) % 4]]), "Mystical Elf", ...(seat === (leaver + 3) % 4 ? [cards[seat]] : [])],
+          grave: seat === 0 ? ["Creature Swap"] : [],
+          lp: seat === (leaver + 1) % 4 ? 7900 : 8000,
+        };
+  }
+  steps.push(expectPrompt({ by: "p0", kind: "places" }), { op: "surrender", seat: leaving, reason });
+  for (let seat = 0; seat < 4; seat++) {
+    if (seat === leaver) continue;
+    const id = `p${seat}` as DuelistId;
+    steps.push(expectPrompt({ by: id, kind: "places" }), zone(id, "m0", id));
+  }
+  steps.push(expectBoard(board), expectEliminated(leaving));
+  ROTATE_CONTROL_SCENARIOS.push({
+    ...rotationScenario({
+      id: `rotate-control-ffa4-${leaver === 0 ? "turn-player-" : ""}${reason === 0 ? "loss" : "timeout"}-during-placement`,
+      title: "The rotation finishes, then the leaver's cards leave and foreign cards return",
+      source: "Owner decision 2026-10-05; ADR-0002 R-FFA-RESOURCE-ROTATION",
+      rules: ["R-FFA-RESOURCE-ROTATION", "R-FFA-ELIMINATION", "R-FFA-RETURN-OWNED-CARDS"],
+      tags: ["multiplayer", "ffa4", "card:31036355"], setup, steps,
+      drawn: { p1: leaver === 0 ? 1 : 0 },
+    }),
+    // This continuous observer runs before removal and proves the complete swap,
+    // including the departing player's incoming and outgoing cards.
+    fixture: `local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_CONTROL_CHANGED)
+e:SetOperation(function(e,tp,eg)
+  assert(eg:GetCount()==4,"rotation must move all four selected monsters")
+  for c in aux.Next(eg) do
+    assert(Duel.MPSeatOf(c)==(c:GetOwner()+1)%4,"rotation must finish before removal")
+  end
+  Duel.SetLP(${(leaver + 1) % 4},7900)
+end)
+Duel.RegisterEffect(e,0)`,
+  });
+}
 
 // A control change must keep the summon count of a continuous restriction.
 for (const format of ["ffa3", "ffa4"] as const) {

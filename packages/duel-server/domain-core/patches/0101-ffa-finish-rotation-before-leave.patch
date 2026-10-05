@@ -1,0 +1,32 @@
+From af9f8efae582fdd1819e5d93799a0d51517f240e Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] Finish FFA control rotations before applying pending losses
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ processor.cpp | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/processor.cpp b/processor.cpp
+index e49d8ce..fbf12ce 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -4927,6 +4927,15 @@ int32_t field::break_effect(bool clear_sent) {
+ // resolves or a script runs. Then: no team is left = draw MSG_WIN(0xFF), one team is left = MSG_WIN(team),
+ // else every loser is eliminated in turn order from the turn player.
+ void field::check_losses_n(bool surrenders_only) {
++	// R-FFA-RESOURCE-ROTATION (owner, 2026-10-05): keep every selected card
++	// and placement valid until the atomic rotation finishes, then apply losses.
++	// Include queued rotations and nested choices/events without a separate flag.
++	if(n_duelists > 2 && n_teams == n_duelists) {
++		for(auto* units : { &core.units, &core.subunits })
++			for(auto& unit : *units)
++				if(Processors::get_opt_variant<Processors::RotateControl>(unit))
++					return;
++	}
+ 	if((core.chain_solving && !surrenders_only)
+ 		|| (!surrenders_only && !pduel->lua->coroutines.empty()))
+ 		return;
+-- 
+2.43.0

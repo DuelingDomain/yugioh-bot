@@ -139,18 +139,18 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0090 and 0100; 91 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `88550bace076f6c1f38ec70b0e8cf5c762bf93279203bbfe73020308034cffac`.
+- All numbered patches in `domain-core/patches` (currently 0001–0090 and 0100–0101; 92 patches). No experimental patches or
+  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `d407589ce6c4f0b2cb658f9b81eaae174765a2c8b3b9720115085959d6b96943`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `06d5cfbfba8719eb5fe0b3b0eb211a6264d96bb295a8669fe0680969c1822bb8`.
 
-The 91-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch 0089 was corrected on 2026-10-05 so delayed EVENT_CHAINING triggers from normally completed links remain legal. Both multiplayer cores were rebuilt from clean trees using the CI compiler wrapper, the shared build lock and `EMCC_CORES=2`. The full series reapplied cleanly and the Domain pre/patch/post steps succeeded. Their verified hashes are:
+The 92-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch 0089 was corrected on 2026-10-05 so delayed EVENT_CHAINING triggers from normally completed links remain legal. Patch 0101 follows the owner decision on 2026-10-05: control rotations complete every placement before pending surrender or timeout removal. Both multiplayer cores were rebuilt from clean trees using the CI compiler wrapper, the shared build lock and `EMCC_CORES=2`. The full series reapplied cleanly and the Domain pre/patch/post steps succeeded. Their verified hashes are:
 
 | CI core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `34e8c87cc2e854ad608c7ed216d010c20b677655a914215640054c480d8ef748` |
-| Domain multiplayer | `4b02e5fe7806b5d078010e23338c677456ae93910aeabce157f774f8598f6133` |
+| Standard multiplayer | `9ebba7205cf09e9fb8a6c515c0dcbcb0d215c6eb98fdd008e9b0c9570c03b088` |
+| Domain multiplayer | `d7b71e24f39a116eb7970fb25fd26d4ea3227f91dc8b333fb8c1590a649fe29e` |
 | Domain 1v1 | `01611db77c00ddef07a3d4cfc88800f5c523e3a388c3732616a79fa19b3c4a63` |
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
