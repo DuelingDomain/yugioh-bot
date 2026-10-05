@@ -94,6 +94,8 @@ export interface DraftPick {
   waveNumber: number;
   pickStep: number;
   pickMethod?: "manual" | "auto";
+  /** A capped booster pick with no legal replacement; adds one draft deck copy. */
+  forced?: boolean;
   pickedAt: string;
 }
 

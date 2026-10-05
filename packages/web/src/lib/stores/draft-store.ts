@@ -14,7 +14,7 @@ export type DraftCardDetail = CardSummary & {
   held?: number;
   /** The viewer holds the per-player maximum of this card, so it cannot be picked. */
   blocked?: boolean;
-  /** Every card in this pack is capped for the viewer and no legal swap exists, so the pick stays in their pool only. */
+  /** A capped pack has no legal swap. In the pool, this records a forced pick with one extra deck copy. */
   forced?: boolean;
 };
 

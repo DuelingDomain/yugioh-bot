@@ -7,6 +7,7 @@ import {
   draftMainTone,
   draftRuleShort,
   draftRuleText,
+  forcedCounts,
   poolCounts,
   remainingCopies,
 } from "../src/components/decks/pool-model";
@@ -51,6 +52,25 @@ describe("draft deck pool model", () => {
     expect(canAddFromPool(big, new Map([[7, 3]]), 7)).toBe(false);
     expect(canAddFromPool(big, new Map([[7, 5]]), 7)).toBe(false);
     expect(canAddFromPool(pool, new Map(), 999)).toBe(false);
+  });
+
+  it("allows 3 plus the forced picks, never above the pool", () => {
+    const big = poolCounts([{ code: 7, count: 5 }, { code: 8, count: 4 }]);
+    const forced = forcedCounts({ "7": 1, "8": 2 });
+    expect(remainingCopies(big, new Map([[7, 3]]), 7, forced)).toBe(1);
+    expect(canAddFromPool(big, new Map([[7, 4]]), 7, forced)).toBe(false);
+    expect(canAddFromPool(big, new Map([[8, 3]]), 8, forced)).toBe(true);
+    expect(canAddFromPool(big, new Map([[8, 4]]), 8, forced)).toBe(false);
+    expect(canAddFromPool(big, new Map([[7, 3]]), 7)).toBe(false);
+  });
+
+  it("shares forced picks across alternate artworks", () => {
+    const catalog = new Map([
+      [81480460, { name: "Barrel Dragon", type: 33, alias: 0 }],
+      [81480461, { name: "Barrel Dragon", type: 33, alias: 81480460 }],
+    ]);
+    expect(forcedCounts({ "81480461": 1, "81480460": 1 }, catalog)).toEqual(new Map([[81480460, 2]]));
+    expect(forcedCounts(undefined)).toEqual(new Map());
   });
 
   it("sets the main minimum to 40, or to the whole main pool when it is smaller", () => {
