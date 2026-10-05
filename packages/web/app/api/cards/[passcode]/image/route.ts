@@ -44,9 +44,12 @@ async function aliasOf(passcode: number): Promise<number | null> {
   const artwork = artworkOf(passcode);
   if (artwork && artwork.card_id !== passcode) return artwork.card_id;
   const actor = await requireDuelActor();
-  if (!actor.ok) return null;
+  if (!actor.ok) {
+    if (actor.response.status === 401 || actor.response.status === 403) return null;
+    throw new CardFetchError(1, actor.response.status);
+  }
   const result = await callDuelHost({ op: "card-details", guildId: actor.guildId, playerId: actor.playerId, codes: [passcode] });
-  if (!result.ok) return null;
+  if (!result.ok) throw new CardFetchError(1, result.response.status);
   const cards = (result.data as { cards?: { code: number; alias: number }[] }).cards ?? [];
   const alias = cards.find((card) => card.code === passcode)?.alias ?? 0;
   return alias > 0 && alias !== passcode ? alias : null;
@@ -67,7 +70,9 @@ async function getCachedImage(
     try { image = await fetchImage(passcode, variant); }
     catch (error) { upstreamError = error; }
     if (!image) {
-      const alias = await aliasOf(passcode).catch(() => null);
+      let alias: number | null;
+      try { alias = await aliasOf(passcode); }
+      catch (error) { throw upstreamError ?? error; }
       if (alias != null) {
         const aliasFilename = variant === "full" ? `${alias}.jpg` : `${alias}-${variant}.jpg`;
         try { image = await validateCardImage(await readFile(join(CACHE_DIR, aliasFilename))); }

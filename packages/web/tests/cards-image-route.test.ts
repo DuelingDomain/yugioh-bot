@@ -84,6 +84,36 @@ describe("GET /api/cards/[passcode]/image", () => {
     expect((await getImage("10000100")).status).toBe(404);
   });
 
+  it.each([429, 503])("returns a temporary card back when the alias lookup fails with HTTP %s", async (status) => {
+    callDuelHost.mockResolvedValueOnce({ ok: false, response: new Response("unavailable", { status }) });
+    const response = await getImage("10000100");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/svg+xml");
+    expect(() => readFileSync(join(cacheDir, "10000100.jpg"))).toThrow();
+    expect(Buffer.from(await (await getImage("10000100")).arrayBuffer())).toEqual(RITUAL_ART);
+  });
+
+  it("returns a temporary card back when actor verification is unavailable", async () => {
+    requireDuelActor.mockResolvedValue({ ok: false, response: new Response("unavailable", { status: 503 }) });
+    const response = await getImage("10000100");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/svg+xml");
+    expect(callDuelHost).not.toHaveBeenCalled();
+  });
+
+  it("keeps a transient alias lookup rejection out of the 404 path", async () => {
+    const { CardFetchError } = await import("@yugidraft/shared/services");
+    callDuelHost.mockRejectedValue(new CardFetchError());
+    const response = await getImage("10000100");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/svg+xml");
+  });
+
+  it.each([400, 403])("reports a permanent alias lookup HTTP %s error", async (status) => {
+    callDuelHost.mockResolvedValue({ ok: false, response: new Response("error", { status }) });
+    expect((await getImage("10000100")).status).toBe(502);
+  });
+
   it.each([302, 400, 401, 403])("does not return a card back for upstream HTTP %s", async (status) => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("error", { status })));
     const response = await getImage("89631139");
