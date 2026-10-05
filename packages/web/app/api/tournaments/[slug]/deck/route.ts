@@ -159,13 +159,14 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       mode: rules.mode,
       masterRule: rules.masterRule,
       settings: rules.settings,
+      draftId: rules.draftId,
     });
     if (!checked.ok) return checked.response;
     const { deck, report } = checked.data as { deck?: DuelDeck; report?: DuelDeckValidation };
     if (!deck || !report || !Array.isArray(report.issues)) {
       return NextResponse.json({ error: "Invalid engine response" }, { status: 502 });
     }
-    // With validateDeck off (draft rules) the report holds only structural problems.
+    // Draft rules check the stored pool and forced-copy allowance as well as structure.
     if (report.issues.length > 0) {
       return NextResponse.json({ error: "This deck is not legal for the tournament.", report }, { status: 400 });
     }
@@ -179,7 +180,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         deckCodes: [...deck.main, ...deck.extra, ...deck.side, ...(deck.deckMaster === undefined ? [] : [deck.deckMaster])],
       });
       if (!pool.ok) return pool.response;
-      const poolIssues = checkDeckAgainstPool(deck, pool.counts, (code) => pool.codeMap.get(code) ?? code);
+      const poolIssues = checkDeckAgainstPool(deck, pool.counts, (code) => pool.codeMap.get(code) ?? code, pool.forcedCopies);
       if (poolIssues.length > 0) {
         return NextResponse.json(
           { error: "This deck uses cards you did not draft.", poolIssues },

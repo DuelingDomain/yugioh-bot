@@ -34,11 +34,26 @@ function Shell({ id }: { id: keyof typeof FFA3_FIXTURES.states }) {
 describe("TableShell on the 3-way fixtures", () => {
   it("keeps decision clocks on the LP panels and clear of the dock name and turn label", () => {
     const { container } = render(<Shell id="main" />);
-    const clock = container.querySelector('nav[aria-label="Duel phases"] [role="timer"]')!;
+    // The phases moved to the hub on the board; the bar keeps the clock beside the turn button.
+    const clock = container.querySelector('nav[aria-label="Turn actions"] [role="timer"]')!;
     expect(clock.textContent?.trim()).toBe("3:12");
     expect(clock.querySelector("small")).toBeNull();
     expect(container.querySelector('[data-holo="1"]')).toHaveTextContent("04:00");
     expect(container.querySelector('nav[aria-label="Duel phases"]')).toHaveTextContent("Turn 5");
+  });
+
+  it("puts the phase hub on the board at its place on the stage, and not the phases in the bar", () => {
+    const { container } = render(<Shell id="main" />);
+    const slot = container.querySelector<HTMLElement>("[data-hub-slot]")!;
+    expect(slot).not.toBeNull();
+    const hub = slot.querySelector('nav[aria-label="Duel phases"]')!;
+    expect(hub.getAttribute("data-variant")).toBe("table");
+    expect(hub.querySelectorAll("[data-state]")).toHaveLength(6);
+    // The bar has no phase plates and no turn owner label any more (its left block keeps the turn order that Wide plaza put there).
+    expect(container.querySelector('nav[aria-label="Turn actions"] [data-state]')).toBeNull();
+    expect(container.querySelector('nav[aria-label="Turn actions"]')).not.toHaveTextContent("Turn 5");
+    // Three duelists: one hub, not one per seat.
+    expect(container.querySelectorAll("[data-hub-slot]")).toHaveLength(1);
   });
 
   it("draws one LP panel per seat and one seat field per seat", () => {

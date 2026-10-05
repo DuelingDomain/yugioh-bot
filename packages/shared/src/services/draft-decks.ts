@@ -25,13 +25,23 @@ export function isTestBotDiscordId(discordUserId: string): boolean {
   return discordUserId.startsWith(TEST_BOT_DISCORD_PREFIX);
 }
 
-type DraftDeckCard = { catalogId: number; extra: boolean; name?: string | null; type?: string | null };
+type DraftDeckCard = { catalogId: number; extra: boolean; name?: string | null; type?: string | null; forced?: boolean };
 
 /** Match artwork identity using the catalog's name and type; unknown ids stay separate. */
 function cardIdentity(card: DraftDeckCard): string {
   return card.name != null && card.type != null
     ? JSON.stringify([card.name.trim().toLowerCase(), card.type])
     : `id:${card.catalogId}`;
+}
+
+function forcedCounts(cards: DraftDeckCard[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const card of cards) {
+    if (!card.forced) continue;
+    const identity = cardIdentity(card);
+    counts.set(identity, (counts.get(identity) ?? 0) + 1);
+  }
+  return counts;
 }
 
 /**
@@ -50,10 +60,11 @@ export function buildDraftDeck(cards: DraftDeckCard[]): DuelDeck {
     if (side.length < DRAFT_DECK_SIDE_MAX) side.push(code);
   };
   const copies = new Map<string, number>();
+  const forced = forcedCounts(cards);
   for (const card of cards) {
     const identity = cardIdentity(card);
     const count = copies.get(identity) ?? 0;
-    if (count >= 3) continue;
+    if (count >= 3 + (forced.get(identity) ?? 0)) continue;
     copies.set(identity, count + 1);
     if (card.extra) {
       if (extra.length < DRAFT_DECK_EXTRA_MAX) extra.push(card.catalogId);
@@ -120,7 +131,7 @@ export interface DraftDeckService {
 }
 
 type DraftRow = { id: number; guild_id: string; name: string; tournament_id: number | null; ended_at: string | null; created_at: string };
-type PickRow = { catalog_card_id: number; name: string | null; type: string | null; frame_type: string | null };
+type PickRow = { catalog_card_id: number; name: string | null; type: string | null; frame_type: string | null; forced: number };
 
 const MAX_NAME_LENGTH = 100;
 
@@ -153,7 +164,7 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
      order by dp.joined_at asc, dp.rowid asc`,
   );
   const selectPicks = db.prepare<[number, number], PickRow>(
-    `select dc.catalog_card_id, cc.name, cc.type, cc.frame_type
+    `select dc.catalog_card_id, cc.name, cc.type, cc.frame_type, dp.forced
      from draft_picks dp
      inner join draft_cards dc on dc.id = dp.draft_card_id
      left join card_catalog cc on cc.ygoprodeck_id = dc.catalog_card_id
@@ -202,6 +213,7 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
       catalogId: row.catalog_card_id,
       name: row.name,
       type: row.type,
+      forced: row.forced === 1,
       // A card missing from the catalog counts as Main, like the web pool loader.
       extra: row.type != null && isExtraDeckFrame({ type: row.type, frameType: row.frame_type ?? "" }),
     }));
@@ -209,9 +221,11 @@ export function createDraftDeckService(db: Database.Database): DraftDeckService 
   const service: DraftDeckService = {
     mainPoolCount(draftId, playerId) {
       const counts = new Map<string, number>();
-      for (const card of picksOf(draftId, playerId)) {
+      const cards = picksOf(draftId, playerId);
+      const forced = forcedCounts(cards);
+      for (const card of cards) {
         const identity = cardIdentity(card);
-        if (!card.extra) counts.set(identity, Math.min(3, (counts.get(identity) ?? 0) + 1));
+        if (!card.extra) counts.set(identity, Math.min(3 + (forced.get(identity) ?? 0), (counts.get(identity) ?? 0) + 1));
       }
       return [...counts.values()].reduce((sum, count) => sum + count, 0);
     },

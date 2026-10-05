@@ -278,6 +278,68 @@ describe("SavedDeckEditor", () => {
     expect(mainCards()).toHaveLength(1);
   });
 
+  describe("draft deck copy limit", () => {
+    const draftPool = (cards: Array<{ code: number; count: number }>, forcedCopies?: Record<string, number>) => ({
+      slug: "retro", draftId: 3, draftName: "Retro draft", cards, forcedCopies, mainPoolCount: 5, unresolved: [], savedDeckId: null, registration: null,
+    });
+
+    it("allows a 4th copy for one forced pick and blocks the 5th", async () => {
+      render(<SavedDeckEditor pool={draftPool([{ code: BLUE_EYES.code, count: 5 }], { [BLUE_EYES.code]: 1 })} />);
+      const tile = await screen.findByRole("button", { name: "Blue-Eyes White Dragon, 4 copies left in your pool" });
+      fireEvent.doubleClick(tile);
+      fireEvent.doubleClick(screen.getByRole("button", { name: "Blue-Eyes White Dragon, 3 copies left in your pool" }));
+      fireEvent.doubleClick(screen.getByRole("button", { name: "Blue-Eyes White Dragon, 2 copies left in your pool" }));
+      fireEvent.doubleClick(screen.getByRole("button", { name: "Blue-Eyes White Dragon, 1 copy left in your pool" }));
+      expect(mainCards()).toHaveLength(4);
+      const full = screen.getByRole("button", { name: "Blue-Eyes White Dragon, 0 copies left in your pool" });
+      fireEvent.doubleClick(full);
+      expect(mainCards()).toHaveLength(4);
+      expect(screen.getByRole("status")).toHaveTextContent("no copies left in your pool");
+      fireEvent.click(mainCards()[0]);
+      const summary = screen.getAllByText((_, el) => el?.tagName === "P" && /4\s*of\s*4\s*pool copies in deck/.test(el.textContent ?? ""));
+      expect(summary.length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/incl\. forced pick/).length).toBeGreaterThan(0);
+    });
+
+    it("counts a forced copy under the canonical code of an alternate artwork", async () => {
+      const base = card(81480460, "Barrel Dragon", 0x21, 7);
+      const art = { ...base, code: 81480461, alias: base.code };
+      const fetch = vi.mocked(globalThis.fetch);
+      const original = fetch.getMockImplementation()!;
+      fetch.mockImplementation(async (url, init) => {
+        if (url === "/api/duels/cards") {
+          const { codes } = JSON.parse(String(init?.body)) as { codes: number[] };
+          return Response.json({ cards: [base, art].filter((entry) => codes.includes(entry.code)), missing: [] });
+        }
+        return original(url, init);
+      });
+      stored = { ...savedDeck([art.code, art.code, art.code, base.code]), draftId: 3 };
+      render(<SavedDeckEditor deckId="7" pool={draftPool([{ code: base.code, count: 4 }], { [art.code]: 1 })} />);
+      await screen.findByRole("button", { name: "Barrel Dragon, 0 copies left in your pool" });
+    });
+
+    it("caps a draft deck with no forced pick at 3 even when the pool has more", async () => {
+      render(<SavedDeckEditor pool={draftPool([{ code: BLUE_EYES.code, count: 5 }])} />);
+      fireEvent.doubleClick(await screen.findByRole("button", { name: "Blue-Eyes White Dragon, 3 copies left in your pool" }));
+      fireEvent.doubleClick(screen.getByRole("button", { name: "Blue-Eyes White Dragon, 2 copies left in your pool" }));
+      fireEvent.doubleClick(screen.getByRole("button", { name: "Blue-Eyes White Dragon, 1 copy left in your pool" }));
+      expect(mainCards()).toHaveLength(3);
+      fireEvent.doubleClick(screen.getByRole("button", { name: "Blue-Eyes White Dragon, 0 copies left in your pool" }));
+      expect(mainCards()).toHaveLength(3);
+    });
+  });
+
+  it("caps a normal deck at 3 copies", async () => {
+    stored = savedDeck([BLUE_EYES.code, BLUE_EYES.code, BLUE_EYES.code]);
+    render(<SavedDeckEditor deckId="7" />);
+    await waitFor(() => expect(mainCards()).toHaveLength(3));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "blue eyes" } });
+    await waitFor(() => expect(queries.at(-1)?.text).toBe("blue eyes"));
+    fireEvent.doubleClick(await screen.findByRole("button", { name: /^Blue-Eyes White Dragon, 3 in deck/ }));
+    expect(mainCards()).toHaveLength(3);
+    expect(screen.getByRole("status")).toHaveTextContent("you already have 3 copies");
+  });
+
   it("uses copy for one Forbidden card and makes problem rows select their card", async () => {
     stored = savedDeck([POT.code, BLUE_EYES.code, BLUE_EYES.code, BLUE_EYES.code]);
     render(<SavedDeckEditor deckId="7" />);

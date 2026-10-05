@@ -73,6 +73,7 @@ function checkDraws(view: DuelEngineView, firstTurnDraw: boolean, actor: number)
 }
 
 const oldCases = [
+  { mode: "domain", format: "1v1", firstTurnDraw: true },
   { mode: "domain", format: "1v1", firstTurnDraw: false },
   { mode: "domain", format: "tag", firstTurnDraw: false },
   { mode: "normal", format: "ffa3", firstTurnDraw: true },
@@ -157,7 +158,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     const t = await table(mode, format);
     const started = await t.post("start");
     expect(started.status, started.data.error).toBe(200);
-    const firstTurnDraw = mode === "domain";
+    const firstTurnDraw = mode === "domain" && format !== "1v1";
     expect(t.duels.privateState(t.session.slug, "g").setup).toMatchObject({ firstTurnDraw });
     for (let viewer = 0; viewer < t.count; viewer++) checkDraws((await t.post("view", viewer)).data.engine!, firstTurnDraw, 0);
     const initial = Array.from({ length: t.count }, async (_, viewer) => (await t.post("view", viewer)).data.engine!);
@@ -170,7 +171,7 @@ describeWithCores("first-turn draw survives real worker recovery and journal rep
     }
   }, 60_000);
 
-  it.each(stableCases)("$mode MR$masterRule $format: an old record can infer the unchanged draw rule", async ({ mode, format, masterRule }) => {
+  it.each(stableCases)("$mode MR$masterRule $format: an old record can infer the historical stock draw rule", async ({ mode, format, masterRule }) => {
     const t = await table(mode, format, masterRule);
     const firstTurnDraw = masterRule <= 2;
     const game = await createEngineGame({ ...t.options, firstTurnDraw });

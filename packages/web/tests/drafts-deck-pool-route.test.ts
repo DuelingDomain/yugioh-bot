@@ -17,6 +17,17 @@ function hostKnowing(unknown: number[] = []) {
 }
 
 describe("GET /api/drafts/[slug]/deck-pool", () => {
+  it("returns forced copy counts for the draft deck UI", async () => {
+    await seed({ picks: [1, 1, 1, 1], forcedPicks: [3] });
+    const response = await call();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      cards: [{ code: passcodeOf(1), count: 4 }],
+      forcedCopies: { [passcodeOf(1)]: 1 },
+      mainPoolCount: 4,
+    });
+  });
+
   beforeEach(() => {
     vi.resetModules();
     auth.mockReset();
@@ -77,6 +88,7 @@ describe("GET /api/drafts/[slug]/deck-pool", () => {
         { code: passcodeOf(2), count: 1 },
         { code: passcodeOf(2001), count: 1 },
       ],
+      forcedCopies: {},
       mainPoolCount: 3,
       savedDeckId: null,
       registration: null,

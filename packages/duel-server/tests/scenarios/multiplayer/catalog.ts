@@ -773,6 +773,7 @@ export const FORBIDDEN_EVIDENCE: Record<number, Evidence[]> = {
   35059553: [ev(35059553, 16, "SetTargetRange(0,1)"), ev(35059553, 30, "GetFieldGroupCount(e:GetHandlerPlayer(),LOCATION_MZONE,0)")],
   98139712: [ev(98139712, 19, "c:GetOwner()==1-tp"), ev(98139712, 27, "Duel.Damage(1-tp,d1")],
   83555666: [ev(83555666, 25, "Duel.GetLP(1-tp)"), ev(83555666, 41, "Duel.Damage(1-tp,val")],
+  62966332: [ev(62966332, 5, "GLOBALFLAG_DECK_REVERSE_CHECK"), ev(62966332, 14, "EFFECT_REVERSE_DECK"), ev(62966332, 17, "SetTargetRange(1,1)")],
   22804644: [ev(22804644, 48, "RESET_OPPO_TURN,3"), ev(22804644, 56, "RESET_OPPO_TURN,3")],
   21208154: [ev(21208154, 62, "RESET_OPPO_TURN,2"), ev(21208154, 71, "RESET_OPPO_TURN,2")],
   22888900: [ev(22888900, 28, "RESET_OPPO_TURN,2"), ev(22888900, 45, "RESET_OPPO_TURN,2")],

@@ -987,6 +987,61 @@ button.plate[data-next="true"]:hover {
   }
 }
 
+/* ---------- phases in the middle of the board (data-phases="hub") ----------
+   The phase hub on the board shows the six stations, the turn and whose turn it is. Above 900px this bar keeps what the
+   hub does not: the caption (or the Battle Phase steps), the clock, and one group at the right with Responses and the turn
+   button. At 900px and under the hub does not fit, so the bar keeps its stations, its seat name and its two rows. */
+@media (min-width: 901px) {
+  .root[data-phases="hub"] {
+    --th: clamp(54px, 5.2dvh, 60px);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 14px;
+    padding: 0 14px 0 16px;
+  }
+  .root[data-phases="hub"] .rail {
+    order: 0;
+    flex: 1 1 0;
+    align-items: flex-end;
+    padding: 0;
+  }
+  .root[data-phases="hub"] .stack {
+    display: none;
+  }
+  .root[data-phases="hub"] .caption {
+    text-align: right;
+  }
+  /* The turn owner and number live in the hub now. The clock stays, next to the group. */
+  .root[data-phases="hub"] .seat {
+    order: 1;
+    flex: none;
+    padding: 0;
+  }
+  .root[data-phases="hub"] .lamp,
+  .root[data-phases="hub"] .seatText {
+    display: none;
+  }
+  .root[data-phases="hub"] .clockSlot {
+    margin-left: 0;
+  }
+  .root[data-phases="hub"] .actions {
+    order: 2;
+    flex: none;
+    gap: 10px;
+    padding: 4px;
+    border: 1px solid var(--rule-lo);
+    border-radius: 12px;
+    background: rgb(14 23 41 / 0.55);
+  }
+  .root[data-phases="hub"][data-chain="true"] .actions {
+    gap: 10px;
+  }
+  .root[data-phases="hub"] .sep {
+    height: 24px;
+  }
+}
+
 /* ---------- wide table (3 and 4 seats): the turn order sits in the left block, beside the turn and the clock ---------- */
 
 .seatSlot {

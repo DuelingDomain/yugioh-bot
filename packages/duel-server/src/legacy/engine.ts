@@ -4,6 +4,7 @@
 // marked "LEGACY-1V1:". See packages/duel-server/legacy-1v1/README.md.
 import type { DuelAnswer, DuelBattleStep, DuelChainMode, DuelCardInfo, DuelDeck, DuelEngineView, DuelMasterRule, DuelMode, DuelSettings } from "@yugidraft/shared/duels";
 import { defaultChainMode } from "@yugidraft/shared/duels"; // LEGACY-1V1: chain response mode (Auto, Always, Off)
+import { firstTurnDrawFor } from "../first-turn-draw.js"; // LEGACY-1V1: owner draw rule and saved replay overrides
 import createCore, {
   OcgDuelMode,
   OcgHintType,
@@ -79,6 +80,7 @@ export interface EngineGameOptions {
   dataDirectory: string;
   masterRule?: DuelMasterRule;
   settings?: DuelSettings;
+  firstTurnDraw?: boolean; // LEGACY-1V1: saved rule wins over the current 1v1 default
 }
 
 export interface EngineGame {
@@ -204,7 +206,10 @@ function loadScriptOrThrow(lib: OcgCoreSync, handle: OcgDuelHandle, cards: CardD
 export async function createEngineGame(options: EngineGameOptions): Promise<EngineGame> {
   if (options.decks.length !== 2) throw new Error("Exactly two decks are required");
   const start = engineStartConfig(options.settings);
-  const flags = duelFlagsFor(options.masterRule);
+  // LEGACY-1V1: Domain skips the turn-1 draw at every Master Rule; preserve saved rules on replay.
+  const firstTurnDraw = options.firstTurnDraw ?? firstTurnDrawFor(options.mode, options.masterRule);
+  const flags = (duelFlagsFor(options.masterRule) & ~OcgDuelMode.FIRST_TURN_DRAW)
+    | (firstTurnDraw ? OcgDuelMode.FIRST_TURN_DRAW : 0n);
   const seed = parseSeed(options.seed);
   const cards = loadCardDatabase(options.dataDirectory);
   const errors: string[] = [];

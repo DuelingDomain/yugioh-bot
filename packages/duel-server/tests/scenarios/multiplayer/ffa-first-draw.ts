@@ -1,7 +1,8 @@
-// Add an explicit first-draw fixture to older Domain and MR1/MR2 card scenarios. A filler goes before
+// Add an explicit first-draw fixture to multiplayer Domain and Standard MR1/MR2 card scenarios. A filler goes before
 // a custom Deck so its effect targets and later draws stay in the Deck. Exact snapshots
 // include the added card and the smaller Deck. Deck and hand replacement tests use the DSL directly.
 import { defineScenario, type CardRef, type Scenario } from "../../support/dsl.js";
+import { firstTurnDrawFor } from "../../../src/first-turn-draw.js";
 
 type FirstDrawFixture = { card?: CardRef; destination?: "hand" | "grave" | "banished" };
 const firstDrawFixtures = new WeakMap<Scenario, FirstDrawFixture>();
@@ -22,7 +23,7 @@ export function defineScenarioWithFfaFirstDraw(
   firstDraw: FirstDrawFixture = {},
 ): Scenario {
   firstDrawFixtures.set(scenario, firstDraw);
-  if ((scenario.setup.mode !== "domain" && (scenario.setup.masterRule ?? 5) > 2)
+  if (!firstTurnDrawFor(scenario.setup.mode ?? "normal", scenario.setup.masterRule, scenario.setup.format)
     || scenario.setup.skipOpeningDraw || scenario.setup.turn === "p1"
     || scenario.tags?.includes("ffa-first-draw-included")) return defineScenario(scenario);
   const updated = structuredClone(scenario);

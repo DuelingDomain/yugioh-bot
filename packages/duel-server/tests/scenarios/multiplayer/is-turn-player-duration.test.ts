@@ -24,7 +24,7 @@ function proof(format: Format, domain: boolean, kind: Case): Scenario {
     ...(domain ? { deckMaster: "Blue-Eyes White Dragon" } : {}),
   };
   const draws = Array<number>(n).fill(0);
-  draws[0] = Number(domain);
+  draws[0] = Number(domain && format !== "1v1");
   let recovered = 0;
   const board = (): BoardExpect => Object.fromEntries(seats.map((seat, i) => [seat,
     kind === "dead" && seat === declared ? {
@@ -66,7 +66,7 @@ async function run(scenario: Scenario): Promise<void> {
   const compiled = compileBoard(scenario.setup);
   const kind = scenario.tags.find(tag => tag.startsWith("fixture:"))!.slice(8);
   const fixture = readFileSync(new URL("./fixtures/is-turn-player-duration.lua", import.meta.url), "utf8");
-  const game = await createEngineGame({ ...compiled.options, firstTurnDraw: scenario.setup.mode === "domain", dataDirectory: engineDataDirectory,
+  const game = await createEngineGame({ ...compiled.options, dataDirectory: engineDataDirectory,
     multiWasmBinary: scenario.setup.mode === "domain" ? domainNseatWasmBinary() : nseatWasmBinary(),
     startupScripts: [{ name: "is-turn-player-duration.lua", content: `TURN_CASE=${JSON.stringify(kind)}\n${fixture}` }, ...(compiled.options.startupScripts ?? [])],
     seed: ["1", "2", "3", "4"],

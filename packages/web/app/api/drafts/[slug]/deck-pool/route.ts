@@ -40,6 +40,7 @@ export async function GET(
       draftId: draft.id,
       draftName: draft.name,
       cards: pool.cards,
+      forcedCopies: Object.fromEntries(pool.forcedCopies),
       mainPoolCount: pool.mainPoolCount,
       savedDeckId: saved?.id ?? null,
       // The tournament this draft's deck is registered for, if any (pending or active tournaments only).

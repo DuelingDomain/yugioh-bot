@@ -34,14 +34,14 @@ a result ends the duel; continuing FFA elimination removes real cards.
 | Elimination removes all owned cards, stolen cards, and ongoing effects | Remove the lost seat's master too; no residual zone | Loss applies to both team members and ends the duel | PASS: real FFA zones, stolen masters, dead chain links; final Tag board stays frozen |
 | A pending loser has no new chain effect; simultaneous losses are applied together | Survivors continue; last survivor wins; no survivors draw | One surviving team wins; both teams lost draw | PASS: open response windows, loss sets, deck-out, and final results |
 | LP, damage, and recovery use the correct seat | Separate 8000 LP by default | Two shared 16000 LP pools by default | PASS: battle, direct attack, damage effects, and recovery |
-| Turns skip eliminated seats; first draw follows duel mode and Master Rule | Clockwise; the last living duelist in the first round has the first Battle Phase | 0,1,2,3; first Battle Phase is turn 4; first draw follows duel mode and Master Rule | First draw: follow the final evening owner answer. First Battle Phase: requires C2 integration. |
+| Turns skip eliminated seats; first draw follows duel mode and Master Rule | Clockwise; the last living duelist in the first round has the first Battle Phase | 0,1,2,3; first Battle Phase is turn 4; first draw follows duel mode and Master Rule | First draw: follow the owner decision of 2026-10-04 below. First Battle Phase: requires C2 integration. |
 | Activated effects on "your opponent" declare one opponent in FFA; continuous effects apply to all eligible opponents | A master on the field counts for its controller | Field comparisons use the opposing team; the partner is not an opponent | The one-opponent field proofs require C3 integration. |
 | Domain does not change Standard or 1v1 rules | N-seat changes require n > 2 | Same | PASS: guarded patches, Standard raw regressions, seven two-seat Domain controls, five driver comparisons |
 
-The owner decision of 2026-10-02 replaces the first-draw rule in the table above.
-Domain in every seat layout (1v1, Tag, FFA3, FFA4): every duelist draws on their first turn, including the turn-1 duelist. Standard MR1/MR2: the turn-1 duelist also draws. Standard MR3/MR4/MR5: only the turn-1 duelist skips the draw. MR3 removed that draw on 21 March 2014. The table records the earlier P61 proof.
+The owner decision of 2026-10-04 supersedes the 2026-10-02 first-draw rule and its accepted legacy-engine deviation.
+In new 1v1 Domain duels, the turn-1 duelist does not draw at any Master Rule on either the pinned or legacy engine; the second duelist draws as usual. In Tag, FFA3 and FFA4 Domain duels, every duelist draws on their first turn, including the turn-1 duelist. Standard is unchanged: MR1/MR2 draw on turn 1; MR3/MR4/MR5 skip only the turn-1 duelist's draw. MR3 removed that draw on 21 March 2014. The table records the earlier P61 proof.
 
-**Known deviation, accepted by the owner on 2026-10-02:** The default legacy 1v1 engine keeps the stock Master Rule draw rule in Standard and Domain. In Domain MR3, MR4 and MR5, the turn-1 duelist does not draw. This is an accepted exception to the Domain draw rule. The pinned engine follows the Domain draw rule. The saved `firstTurnDraw` flag records the actual engine behavior; it is `false` for legacy Domain MR3 through MR5.
+New 1v1 Domain duels save `firstTurnDraw: false` on both engines at every Master Rule. Historical saved flags remain authoritative for recovery and replay.
 
 Deck construction also uses these rules per seat in all three formats: one
 playable monster as Deck Master, exactly 60 Main Deck cards, at most 15 Extra
