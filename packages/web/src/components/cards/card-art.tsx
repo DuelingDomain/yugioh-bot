@@ -2,9 +2,11 @@
 
 import * as React from "react";
 import Image from "next/image";
+import { cardImageUrl } from "@/lib/card-image-url";
 import { cn } from "@/lib/utils";
 
 interface CardArtProps {
+  cardId: number;
   smallSrc: string;
   fullSrc: string;
   alt: string;
@@ -18,6 +20,7 @@ interface CardArtProps {
 }
 
 export function CardArt({
+  cardId,
   smallSrc,
   fullSrc,
   alt,
@@ -32,7 +35,8 @@ export function CardArt({
   return (
     <>
       <Image
-        src={smallSrc}
+        src={cardImageUrl(cardId, smallSrc === fullSrc ? "full" : "small")}
+        unoptimized
         alt={alt}
         fill
         sizes={sizes}
@@ -42,7 +46,8 @@ export function CardArt({
       />
       {loadFull && (
         <Image
-          src={fullSrc}
+          src={cardImageUrl(cardId)}
+          unoptimized
           alt={alt}
           fill
           sizes={sizes}

@@ -1,5 +1,6 @@
 "use client";
 
+import { cardImageUrl } from "@/lib/card-image-url";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DraftTournament } from "../use-draft-tournament";
@@ -127,7 +128,7 @@ export function DraftFinale(p: FinaleProps) {
               const a = (i - (n - 1) / 2) * 9;
               return (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img key={`${c.id}-${i}`} src={c.imageUrlSmall || c.imageUrl} alt="" style={{ transform: `rotate(${a}deg)` }} />
+                <img key={`${c.id}-${i}`} src={cardImageUrl(c.passcode ?? c.id, "small")} alt="" style={{ transform: `rotate(${a}deg)` }} />
               );
             })}
           </div>
