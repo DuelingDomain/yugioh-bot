@@ -66,6 +66,28 @@ describe("cube pool routes", () => {
     return POST(json({ kind: "pool", ...body }));
   }
 
+  it.each(["network", "timeout", "429", "503", "json"])("saves a legacy cube during %s failures and returns 503 for missing data", async (failure) => {
+    await setupDb();
+    const db = await rawDb(); db.exec("delete from card_artworks"); db.close();
+    const discordFetch = globalThis.fetch;
+    const upstream = vi.fn(async () => {
+      if (failure === "network") throw new Error("offline");
+      if (failure === "timeout") throw new DOMException("timeout", "TimeoutError");
+      return new Response("bad JSON", { status: failure === "json" ? 200 : Number(failure), headers: { "Retry-After": "2" } });
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).includes("ygoprodeck") ? upstream() : discordFetch(input, init)));
+    const cached = await createPool({ name: "Cached", cards: [{ id: 1, copies: 3 }, { id: 2, copies: 1 }] });
+    expect(cached.status).toBe(201);
+    expect(upstream).not.toHaveBeenCalled();
+    const missing = await createPool({ name: "Missing", cards: [{ id: 99999999, copies: 1 }] });
+    expect(missing.status).toBe(503);
+    expect((await missing.json()).error).toContain("Try again");
+    const verify = await rawDb();
+    expect(verify.prepare("select count(*) as n from cubes where name = 'Missing'").get()).toEqual({ n: 0 });
+    verify.close();
+  });
+
   it("saves a pool as a real cube, splitting extra frames, summing duplicates and reporting unknown ids", async () => {
     await setupDb();
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [] })));

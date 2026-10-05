@@ -164,17 +164,15 @@ describe("POST /api/cards/resolve", () => {
     expect(json.unknownIds).toEqual([99999999]);
   });
 
-  it("still fails when the card database cannot be reached", async () => {
+  it("returns 503 when the card database cannot be reached", async () => {
     await setupDb();
     syncDraftPool.mockRejectedValue(new Error("Could not reach the card database (offline). Check connectivity and try again."));
     const { POST } = await import("../app/api/cards/resolve/route");
-    await expect(
-      POST(new Request("http://t/api/cards/resolve", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customCardIds: [99999999] }),
-      })),
-    ).rejects.toThrow(/Could not reach/);
+    const response = await POST(new Request("http://t/api/cards/resolve", {
+      method: "POST", body: JSON.stringify({ customCardIds: [99999999] }),
+    }));
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toContain("Try again");
   });
 
   it("returns one card entry per distinct id even when ids repeat", async () => {

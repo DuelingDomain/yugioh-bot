@@ -174,9 +174,14 @@ describe("cube API routes", () => {
       expect(many.status).toBe(400);
       expect((await many.json()).error).toBe("That list has 1001 different cards. Import at most 1000 at a time.");
 
-      const ok = await post({ op: "importYdk", text: `#main\n${distinct(1000).join("\n")}\n` });
-      expect(ok.status).toBe(200);
-      expect((await ok.json()).unknown).toHaveLength(1000);
+      vi.useFakeTimers();
+      try {
+        const job = post({ op: "importYdk", text: `#main\n${distinct(1000).join("\n")}\n` });
+        await vi.runAllTimersAsync();
+        const ok = await job;
+        expect(ok.status).toBe(200);
+        expect((await ok.json()).unknown).toHaveLength(1000);
+      } finally { vi.useRealTimers(); }
     });
 
     it("applies the same cap to the passcode import, counting different cards and not copies", async () => {
