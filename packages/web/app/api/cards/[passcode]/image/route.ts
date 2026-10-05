@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
 import { getDb } from "@/lib/db";
+import { CARD_BACK_SVG, fetchCardResource, trustedCardImageUrl, validateCardImage } from "@yugidraft/shared/services";
 
 export const runtime = "nodejs";
 
@@ -25,12 +26,10 @@ async function fetchImage(passcode: number, variant: ImageVariant): Promise<Buff
   const artwork = artworkOf(passcode);
   const baseUrl = variant === "cropped" ? YGOPRODECK_CROPPED_URL : variant === "small" ? YGOPRODECK_SMALL_URL : YGOPRODECK_IMAGE_URL;
   const storedUrl = variant === "cropped" ? artwork?.image_url_cropped : variant === "small" ? artwork?.image_url_small : artwork?.image_url;
-  const response = await fetch(storedUrl || `${baseUrl}/${passcode}.jpg`);
-  if (response.status === 404) return null;
-  if (!response.ok) {
-    throw new Error(`Failed to fetch card image: ${response.status}`);
-  }
-  return Buffer.from(await response.arrayBuffer());
+  return fetchCardResource(trustedCardImageUrl(storedUrl, `${baseUrl}/${passcode}.jpg`), fetch, async (response) => {
+    if (response.status === 404) return null;
+    return validateCardImage(Buffer.from(await response.arrayBuffer()));
+  }, [404]);
 }
 
 /**
@@ -53,24 +52,31 @@ async function aliasOf(passcode: number): Promise<number | null> {
 async function getCachedImage(
   passcode: number,
   variant: ImageVariant
-): Promise<Buffer> {
-  await mkdir(CACHE_DIR, { recursive: true });
-
+): Promise<{ image: Buffer; temporary: boolean }> {
   const filename = variant === "full" ? `${passcode}.jpg` : `${passcode}-${variant}.jpg`;
   const cachePath = join(CACHE_DIR, filename);
 
   try {
-    return await readFile(cachePath);
+    return { image: await validateCardImage(await readFile(cachePath)), temporary: false };
   } catch {
-    let image = await fetchImage(passcode, variant);
+    let image: Buffer | null = null;
+    let upstreamError: unknown;
+    try { image = await fetchImage(passcode, variant); }
+    catch (error) { upstreamError = error; }
     if (!image) {
-      const alias = await aliasOf(passcode);
-      if (alias != null) image = await fetchImage(alias, variant);
+      const alias = await aliasOf(passcode).catch(() => null);
+      if (alias != null) {
+        const aliasFilename = variant === "full" ? `${alias}.jpg` : `${alias}-${variant}.jpg`;
+        try { image = await validateCardImage(await readFile(join(CACHE_DIR, aliasFilename))); }
+        catch { if (!upstreamError) image = await fetchImage(alias, variant); }
+      }
     }
-    if (!image) throw new ImageMissingError(`No card image for ${passcode}`);
+    if (!image) throw upstreamError ?? new ImageMissingError(`No card image for ${passcode}`);
 
-    await writeFile(cachePath, image);
-    return image;
+    if (upstreamError) return { image, temporary: true };
+
+    try { await mkdir(CACHE_DIR, { recursive: true }); await writeFile(cachePath, image); } catch { /* Serve a usable image if caching fails. */ }
+    return { image, temporary: false };
   }
 }
 
@@ -89,22 +95,17 @@ export async function GET(
       return NextResponse.json({ error: "Invalid image variant" }, { status: 400 });
     }
 
-    const image = await getCachedImage(Number(raw), variant);
+    const { image, temporary } = await getCachedImage(Number(raw), variant);
 
     return new Response(new Uint8Array(image), {
       headers: {
         "Content-Type": "image/jpeg",
-        "Cache-Control": "public, max-age=86400, immutable",
+        "Cache-Control": temporary ? "public, max-age=30" : "public, max-age=86400, immutable",
       },
     });
   } catch (error) {
-    if (error instanceof ImageMissingError) {
-      return NextResponse.json({ error: "Card image not found" }, { status: 404 });
-    }
-    console.error("[api/cards/image] error:", error);
-    return NextResponse.json(
-      { error: "Failed to load card image" },
-      { status: 500 }
-    );
+    return new Response(CARD_BACK_SVG, { headers: {
+      "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=30",
+    } });
   }
 }
