@@ -7,7 +7,7 @@ import { SummonFx } from "@/components/duel/summon-fx";
 import { MoveFx } from "@/components/duel/move-fx";
 import { ChainFx } from "@/components/duel/chain-fx";
 import { DestroyFx } from "@/components/duel/destroy-fx";
-import { resetMoveSchedule } from "@/components/duel/move-plan";
+import { MOVE_TIMING, resetMoveSchedule } from "@/components/duel/move-plan";
 import { resetChainBeats } from "@/components/duel/chain-beats";
 import { resetEffectSequence } from "@/components/duel/effect-sequence";
 import { withDestroyCards } from "@/components/duel/destroy-cards";
@@ -107,7 +107,7 @@ function Board({ events, victims, committed, reduced = false }: { events: DuelEv
 }
 
 /** Stand-ins of one card at its zone, counted the way a viewer sees them (the wipe ghost sits by position). */
-function standIns(code: number, at: DuelZoneRef): { wipe: number; sleeveWipe: number; whole: number; ghost: number } {
+function standIns(code: number, at: DuelZoneRef): { wipe: number; sleeveWipe: number; whole: number; ghost: number; source: number } {
   const [left, top] = RECTS[key(at)];
   const shows = (el: Element) => tl.opacityAt(el, document.body) > 0.3;
   const wipeEls = [...document.body.querySelectorAll<HTMLElement>("div[aria-hidden=true]")].filter((el) =>
@@ -119,13 +119,15 @@ function standIns(code: number, at: DuelZoneRef): { wipe: number; sleeveWipe: nu
     sleeveWipe: wipeEls.filter((el) => (el.firstElementChild as HTMLElement).style.background.includes("card-back")).length,
     whole: [...document.body.querySelectorAll("[class*=destroyWhole]")].filter((el) => holds(el) && shows(el)).length,
     ghost: [...document.body.querySelectorAll("[data-style]")].filter((el) => holds(el) && shows(el)).length,
+    // Reduced motion: the card stands on its source zone (a sleeve for a Set card) and fades out there.
+    source: [...document.body.querySelectorAll("[data-stand-in]")].filter(shows).length,
   };
 }
 /** Stand-ins of the victims that a viewer can still see, and the wipe ghosts still in the page. */
 const stuck = (victims: Victim[]): number => {
   return victims.reduce((sum, v) => {
     const s = standIns(v.card.code, v.at);
-    return sum + s.wipe + s.whole + s.ghost;
+    return sum + s.wipe + s.whole + s.ghost + s.source;
   }, 0) + document.body.querySelectorAll("div[aria-hidden=true][style*=fixed]:has(> img), div[aria-hidden=true][style*=fixed]:has(> div)").length;
 };
 
@@ -200,18 +202,31 @@ describe("reduced motion", () => {
     duelFxClock.setReducedMotion(true);
     const view = render(<Board events={[]} victims={victims} committed={false} reduced />);
     view.rerender(<Board events={events} victims={victims} committed reduced />);
-    const seen: number[] = [];
-    const sample = () => { const s = standIns(C.mirrorForce.code, at); seen.push(s.wipe + s.whole + s.ghost); };
+    const src: number[] = [];
+    const dst: number[] = [];
+    const sample = () => {
+      const s = standIns(C.mirrorForce.code, at);
+      src.push(s.source);
+      dst.push(s.whole + s.ghost);
+    };
     sample();
+    // The stand-in shows the sleeve of a Set card, on the source zone: no gap before the move.
+    const standIn = document.body.querySelector("[data-stand-in]");
+    expect(standIn, "a stand-in on the source zone").not.toBeNull();
+    // The face is in the markup (the card is known) but turned away: the flipper shows the sleeve.
+    expect((standIn?.firstElementChild as HTMLElement | null)?.style.transform).toBe("rotateY(180deg)");
+    expect(standIn?.querySelector("[data-sleeve]")).not.toBeNull();
     await step(6000, sample);
-    // Never twice, and the stand-in is gone at the end.
-    expect(Math.max(...seen)).toBeLessThanOrEqual(1);
-    const firstGap = seen.findIndex((n, i) => i > 0 && n === 0 && seen[i - 1] === 1);
-    const lastOne = seen.lastIndexOf(1);
-    // Known limit (docs/design/fx/destroy-sequence.md): with reduced motion there is no stand-in at the source,
-    // so the zone is blank until the card fades in on the Graveyard. It still shows once, and only once.
-    expect(lastOne, "the card shows on its destination").toBeGreaterThan(-1);
-    expect(firstGap === -1 || firstGap > lastOne, "no gap inside the sequence").toBe(true);
+    const firstDest = dst.findIndex((n) => n > 0);
+    expect(firstDest, "the card fades in on the Graveyard").toBeGreaterThan(0);
+    expect(src[0], "the card shows from the first frame").toBe(1);
+    expect(src.slice(0, firstDest + 1).every((n) => n === 1), "no blank sample before the Graveyard fade").toBe(true);
+    // Both fade over the same time, so they overlap only for that fade.
+    const both = src.filter((n, i) => n > 0 && dst[i] > 0).length;
+    expect(both).toBeLessThanOrEqual(Math.ceil(MOVE_TIMING.reduced / 25) + 2);
+    expect(Math.max(...src)).toBeLessThanOrEqual(1);
+    expect(Math.max(...dst)).toBeLessThanOrEqual(1);
+    expect(src[src.length - 1]).toBe(0);
     expect(stuck(victims)).toBe(0);
   });
 });

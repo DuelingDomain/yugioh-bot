@@ -46,7 +46,8 @@ No new animation look was added. Only timing and the stand-in pose changed.
 
 Tests: `packages/web/tests/components/destroy-sequence.test.tsx` (fake timers, a sample of the overlay every
 25 ms: one card shown from the first frame to the landing, never two) and
-`packages/web/tests/components/destroy-scene.test.tsx` (scene layer: `useFx3d` is mocked and the test checks what
+`packages/web/tests/components/destroy-cards.test.ts` (the reason, zone, claim and gap rules of `withDestroyCards`) and
+`packages/web/tests/components/destroy-scene.test.tsx` (scene layer, reduced motion: `useFx3d` is mocked and the test checks what
 the scene receives).
 
 ## 3D wipes
@@ -60,6 +61,14 @@ break. Two rules keep the zone right until the scene takes the card:
   the move.
 - Each victim gets a wipe ghost (`WipeGhost`) over its zone until `startAt + takeMs`. A face-down victim has no
   image source, so its ghost shows the sleeve art as a CSS background.
+
+## Reduced motion
+
+A "fade" plan under reduced motion (`standsInAtSource` in `move-plan.ts`) now stands in at the source too, destroy
+or not. `MoveFx` puts a stand-in on the source zone (opacity 1 from the first frame, the pose and face the card
+had, the sleeve for a Set card). It waits there until `startAt` and fades out on the zone while the card fades in
+on its pile. The card does not travel, so the reduced-motion rule holds. Before this, the zone was blank for the
+whole wait (1650 ms in the MST case) and the card showed on the Graveyard for 100 ms.
 
 ## Card of a card-less destroy
 
@@ -75,9 +84,6 @@ drop the oldest stand-in and leave a blank zone.
 
 ## Not covered
 
-- Reduced motion: stand-ins at the source are not drawn (the card fades in on the Graveyard), so the zone of a
-  destroyed card is blank until then. The card shows once and nothing stays behind (tested). A fix needs a new
-  reduced-motion stand-in, not done.
 - A Set card that is destroyed in 3D (not a wipe) uses the 2D stand-in with its sleeve until the break. A turn
   from sleeve to face at the break in 3D is a new look and is not built.
 - A bounce that rises from a strip or a pile (not from the zone) keeps its own showcase.
