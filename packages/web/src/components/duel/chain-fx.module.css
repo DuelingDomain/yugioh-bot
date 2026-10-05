@@ -427,6 +427,12 @@
 /* A table's strip is wider: its priority chips sit under it. */
 .front[data-size="strip"][data-table] .dock { --chain-strip-w: 232px; }
 
+/* The measured priority row is part of the room. Long player names must not widen it past the table. */
+.front[data-size="strip"][data-table] .dock {
+  width: min(300px, calc(100% - 12px));
+}
+.front[data-room-ready="false"] .dock { visibility: hidden; }
+
 /* ---------- reduced motion: no burst and no movement; state shows through colour and opacity ----------
    The hold is kept: a link stays marked for its whole beat (chainStepDelay, a little shorter), and a
    resolved link fades after a short pause, so the top-down order stays readable. */

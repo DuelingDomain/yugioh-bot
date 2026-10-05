@@ -6,6 +6,8 @@ import type { DuelCard, DuelCardInfo, DuelChainLink, DuelEvent, DuelSeatView, Du
 
 import { ChainFx } from "@/components/duel/chain-fx";
 import { CHAIN_PANEL_TIMING } from "@/components/duel/duel-timing";
+import { ChainRoomContext } from "@/components/duel/table/chain-room";
+import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 
 const SZONE = 0x08;
 const MZONE = 0x04;
@@ -72,6 +74,54 @@ describe("the strip", () => {
       <ChainFx {...base} events={events} reducedMotion table="ffa4" {...extra} />
     </div>
   );
+
+  it("uses the stage's reserved room instead of selecting a corner independently", () => {
+    const { container } = render(
+      <div data-duel-fx-speed-root>
+        <div data-table-stage="ffa4" data-chain-room="410,212,300,88">
+          <ChainRoomContext.Provider value={() => {}}>
+            <ChainFx {...base} events={pair()} reducedMotion table="ffa4" />
+          </ChainRoomContext.Provider>
+        </div>
+      </div>,
+    );
+    flush(60);
+    const front = container.querySelector<HTMLElement>("[data-chain-front]")!;
+    expect(front.style.getPropertyValue("--chain-dock-left")).toBe("410px");
+    expect(front.style.getPropertyValue("--chain-dock-top")).toBe("212px");
+  });
+
+  it("names a visible source in the strip and sheet when the snapshot carries its zone label", () => {
+    const seats = structuredClone(FFA4_FIXTURES.states["chain-2"].room.engine!.seats);
+    seats[1].spells[1] = { ...info(5318639, "Mystical Space Typhoon"), ...z(1, SZONE, 1), position: 1 };
+    const chain = [{ index: 1, seat: 1, code: 5318639, name: "Spell & Trap zone 2", zone: z(1, SZONE, 1) }];
+    const { container } = render(stripped([], { chain, seats }));
+    flush(60);
+    expect(strip(container)?.getAttribute("aria-label")).toContain("Mystical Space Typhoon");
+    act(() => { fireEvent.click(strip(container)!); });
+    expect(hero(container)?.textContent).toContain("Mystical Space Typhoon");
+    expect(hero(container)?.textContent).not.toContain("Spell & Trap zone");
+  });
+
+  it("uses the projected resolution card when the activation has left the event window", () => {
+    const { container } = render(stripped([
+      { ...ev("chain-resolving", 1), seat: 1, card: info(5318639, "Mystical Space Typhoon") },
+    ]));
+    flush(60);
+    expect(strip(container)?.getAttribute("aria-label")).toContain("Mystical Space Typhoon");
+  });
+
+  it("does not reveal the name, art or text of a source absent from the viewer's redacted board", () => {
+    const seats = structuredClone(FFA4_FIXTURES.states["chain-2"].room.engine!.seats);
+    seats[1].spells[1] = { ...z(1, SZONE, 1), position: 8 };
+    const chain = [{ index: 1, seat: 1, code: 5318639, name: "Spell & Trap zone 2", text: "Secret text", zone: z(1, SZONE, 1) }];
+    const { container } = render(stripped([], { chain, seats }));
+    flush(60);
+    expect(strip(container)?.getAttribute("aria-label")).toContain("A card");
+    act(() => { fireEvent.click(strip(container)!); });
+    expect(hero(container)?.textContent).toContain("A card");
+    expect(container.innerHTML).not.toMatch(/5318639|Secret text|Mystical Space Typhoon/);
+  });
 
   it("is a real button outside the aria-hidden tree, with a label that names the link and its state", () => {
     const { container } = render(stripped(pair()));
