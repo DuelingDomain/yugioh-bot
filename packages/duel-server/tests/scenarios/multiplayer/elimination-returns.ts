@@ -31,7 +31,14 @@ for (const format of ["ffa3", "ffa4"] as const) {
   ELIMINATION_RETURN_PROOFS.push(proof("equip-lost-target", format, `local m=${add(64631466,0,0,"LOCATION_MZONE",2)}
 local e=${add(97017120,1,0,"LOCATION_SZONE",1,"POS_FACEUP")}
 local limit=Effect.CreateEffect(e); limit:SetType(EFFECT_TYPE_SINGLE); limit:SetCode(EFFECT_EQUIP_LIMIT); limit:SetProperty(EFFECT_FLAG_CANNOT_DISABLE); limit:SetValue(function(_,c) return c==m end); e:RegisterEffect(limit)
-Debug.PreEquip(e,m)`, { ...all, p1: { ...empty, grave: ["Giant Rat"] } }, {}, [expectBoard({p0:{monsters:["Relinquished"],spells:["Giant Rat"]},p1:{grave:[]}}),surrender("p0")]));
+Debug.PreEquip(e,m)
+local observe=Effect.GlobalEffect(); observe:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS); observe:SetCode(EVENT_DESTROYED)
+observe:SetOperation(function(_,tp,eg)
+ if eg:IsContains(e) then
+  assert(e:IsReason(REASON_RULE) and e:IsReason(REASON_LOST_TARGET))
+  Duel.Recover(Duel.MPActionSeat(2),321,REASON_EFFECT)
+ end
+end); Duel.RegisterEffect(observe,2)`, { ...all, p1: { ...empty, grave: ["Giant Rat"] }, p2: { ...empty, lp: 8321 } }, {}, [expectBoard({p0:{monsters:["Relinquished"],spells:["Giant Rat"]},p1:{grave:[]}}),surrender("p0")]));
   ELIMINATION_RETURN_PROOFS.push(proof("macro-cosmos-fallback", format, add(97017120,1,0,"LOCATION_MZONE",2), { ...all, p1: { ...empty, monsters: Array(5).fill("Dark Magician"), banished: ["Giant Rat"] }, p2: { ...empty, spells: ["Macro Cosmos"] } }, { p1: { monsters: Array(5).fill("Dark Magician") }, p2: { spells: ["Macro Cosmos"] } }));
   for (const order of ["monster-first", "macro-first"]) {
     const monster = add(97017120,1,0,"LOCATION_MZONE",2);

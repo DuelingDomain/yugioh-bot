@@ -1,18 +1,18 @@
-From 64718add641884a0e668d0b4c31c31e5deeb4343 Mon Sep 17 00:00:00 2001
+From 5689a9098cdbc7a1b24b77efde8550147fa506f3 Mon Sep 17 00:00:00 2001
 From: yugidraft <yugidraft@localhost>
 Date: Sun, 4 Oct 2026 19:48:18 -0400
 Subject: [PATCH] Make FFA rule returns synchronous without response events
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- field.cpp | 79 +++++++++++++++++++++++++++++++++++++++++++++++--------
- 1 file changed, 68 insertions(+), 11 deletions(-)
+ field.cpp | 81 +++++++++++++++++++++++++++++++++++++++++++++++--------
+ 1 file changed, 70 insertions(+), 11 deletions(-)
 
 diff --git a/field.cpp b/field.cpp
-index 20e0476..b6c8a03 100644
+index 20e0476..05bb05f 100644
 --- a/field.cpp
 +++ b/field.cpp
-@@ -372,17 +372,74 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+@@ -372,17 +372,76 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
  		message->write(pcard->get_info_location());
  		message->write<uint32_t>(REASON_RULE);
  	}
@@ -31,7 +31,6 @@ index 20e0476..b6c8a03 100644
 +		// Rulebook returns cannot be responded to. Move the fallback synchronously,
 +		// including attachments, without leave-field, destination or move events.
 +		// Keep continuous redirects (Macro Cosmos, Pendulums) but offer no choices.
-+		to_grave.insert(equipings.begin(), equipings.end());
 +		std::vector<card*> pending(to_grave.begin(), to_grave.end());
 +		card_set moved;
 +		for(size_t i = 0; i < pending.size(); ++i) {
@@ -46,7 +45,7 @@ index 20e0476..b6c8a03 100644
 +			for(auto* equip : equips) {
 +				equip->unequip();
 +				if(equip->current.location == LOCATION_SZONE)
-+					pending.push_back(equip);
++					equipings.insert(equip);
 +			}
 +			pending.insert(pending.end(), pcard->xyz_materials.begin(), pcard->xyz_materials.end());
 +			pcard->clear_card_target();
@@ -83,6 +82,9 @@ index 20e0476..b6c8a03 100644
 +			message->write(pcard->get_info_location());
 +			message->write<uint32_t>(REASON_RULE);
 +		}
++		// Lost-target equips keep rule destruction and its normal events.
++		if(equipings.size())
++			destroy(std::move(equipings), nullptr, REASON_RULE + REASON_LOST_TARGET, DUELIST_NONE);
 +	} else {
 +		// Tag keeps its stock sends and events.
 +		if(equipings.size())

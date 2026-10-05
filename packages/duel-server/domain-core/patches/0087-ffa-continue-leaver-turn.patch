@@ -1,17 +1,18 @@
-From 1b8d90e1381422de1500ea18826c820cdd7fa11c Mon Sep 17 00:00:00 2001
+From a6bdfd6bb2cffccd3270887c95113c1d5fe1bbe9 Mon Sep 17 00:00:00 2001
 From: yugidraft <yugidraft@localhost>
 Date: Sun, 4 Oct 2026 19:53:23 -0400
 Subject: [PATCH] Continue remaining FFA phases after the turn player leaves
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- field.cpp     | 5 +++--
- playerop.cpp  | 6 +++---
- processor.cpp | 7 -------
- 3 files changed, 6 insertions(+), 12 deletions(-)
+ field.cpp     |  5 +++--
+ libdebug.cpp  | 10 ----------
+ playerop.cpp  | 15 +++------------
+ processor.cpp |  7 -------
+ 4 files changed, 6 insertions(+), 31 deletions(-)
 
 diff --git a/field.cpp b/field.cpp
-index b6c8a03..97329f1 100644
+index 05bb05f..2fdf487 100644
 --- a/field.cpp
 +++ b/field.cpp
 @@ -152,8 +152,9 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
@@ -26,8 +27,34 @@ index b6c8a03..97329f1 100644
  		core.force_turn_end = true;
  	// 3. Unresolved FFA links are removed, without resolution events. Keep their
  	// storage until SolveChain can release relations and interpreter references safely.
+diff --git a/libdebug.cpp b/libdebug.cpp
+index 6b282a0..7d6489c 100644
+--- a/libdebug.cpp
++++ b/libdebug.cpp
+@@ -348,21 +348,11 @@ LUA_STATIC_FUNCTION(SurrenderDuelist) {
+ 		lua_error(L, "Debug.SurrenderDuelist: only in a duel of more than 2 duelists.");
+ 	if(!field->is_alive(p))
+ 		lua_error(L, "Debug.SurrenderDuelist: the duelist is not in the duel.");
+-	// An already open living response must be closed explicitly by the host.
+-	const bool close_window = field->n_teams == field->n_duelists && p == field->infos.turn_player
+-		&& field->core.current_chain.empty() && field->core.response_window_optional
+-		&& (field->core.response_window_seats & (1u << p));
+-	if(field->n_teams == field->n_duelists && p == field->infos.turn_player)
+-		field->core.turn_surrendered = true;
+ 	field->player[p].pending_loss = 0x200;
+ 	const auto queued_before = field->core.subunits.size();
+ 	field->check_losses_n(true);
+ 	if(field->core.subunits.size() > queued_before)
+ 		field->capture_surrender_response = true;
+-	if(close_window && !field->is_alive(p)) {
+-		auto message = pduel->new_message(203); // MSG_SURRENDER_WINDOW_CLOSED: u8 response seat
+-		message->write<uint8_t>(field->core.response_window_player);
+-	}
+ 	return 0;
+ }
+ 
 diff --git a/playerop.cpp b/playerop.cpp
-index 65a1677..b3466ab 100644
+index 65a1677..16da084 100644
 --- a/playerop.cpp
 +++ b/playerop.cpp
 @@ -21,7 +21,7 @@ bool field::process(Processors::SelectBattleCmd& arg) {
@@ -50,8 +77,31 @@ index 65a1677..b3466ab 100644
  			return TRUE;
  		}
  		auto message = pduel->new_message(MSG_SELECT_IDLECMD);
+@@ -185,11 +185,6 @@ bool field::process(Processors::SelectEffectYesNo& arg) {
+ 		}
+ 		if(arg.response_window) {
+ 			core.response_window_seats = response_window_participants();
+-			if(n_duelists > 2 && n_teams == n_duelists && core.current_chain.empty()
+-				&& core.turn_surrendered && !is_alive(infos.turn_player) && (core.response_window_seats & (1u << infos.turn_player))) {
+-				returns.set<int32_t>(0, 0);
+-				return TRUE;
+-			}
+ 			core.response_window_optional = true;
+ 			core.response_window_player = playerid;
+ 		}
+@@ -587,10 +582,6 @@ bool field::process(Processors::SelectChain& arg) {
+ 			return TRUE;
+ 		}
+ 		core.response_window_seats = response_window_participants();
+-		// Close only a response to the departed turn player. Other living actions finish first.
+-		if(n_duelists > 2 && n_teams == n_duelists && !forced && core.current_chain.empty()
+-			&& core.turn_surrendered && !is_alive(infos.turn_player) && (core.response_window_seats & (1u << infos.turn_player)))
+-			return TRUE;
+ 		core.response_window_optional = !forced;
+ 		core.response_window_player = playerid;
+ 		auto message = pduel->new_message(MSG_SELECT_CHAIN);
 diff --git a/processor.cpp b/processor.cpp
-index e8a43c2..23487d6 100644
+index 0182bae..0a15358 100644
 --- a/processor.cpp
 +++ b/processor.cpp
 @@ -1096,13 +1096,6 @@ bool field::process(Processors::PointEvent& arg) {

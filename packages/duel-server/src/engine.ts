@@ -547,6 +547,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   let messagesSinceLastPrompt = 0;
   /** Links of the chain that are still on it: the wrapper cannot read the chain when there are more than two seats. */
   let liveChainSize = 0;
+  const startedChainLinks = new Set<number>();
   let pending: PendingPrompt | null = null;
   let closedResponseSeat: number | null = null;
   let result: DuelEngineView["result"] = null;
@@ -656,13 +657,19 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
           lastHintCard = Number(message.hint) || undefined;
         }
         return;
+      case OcgMessageType.CHAIN_SOLVING:
+        startedChainLinks.add(message.chain_size);
+        return;
       case OcgMessageType.CHAIN_SOLVED:
       case OcgMessageType.CHAIN_END:
+        if (message.type === OcgMessageType.CHAIN_SOLVED) startedChainLinks.delete(message.chain_size);
+        else startedChainLinks.clear();
         lastHintCard = undefined;
         synchroSummon = undefined;
         liveChainSize = message.type === OcgMessageType.CHAIN_SOLVED ? Math.max(0, message.chain_size - 1) : 0;
         return;
       case OcgMessageType.CHAINING:
+        startedChainLinks.delete(message.chain_size);
         liveChainSize = message.chain_size;
         appendLog(`${cards.get(message.code)?.name ?? `Card ${message.code}`} is activating`);
         return;
@@ -812,7 +819,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
   const applyRaw = (raw: RawDuelistMessage) => {
     if (raw.type !== MSG_DUELIST_ELIMINATED) eliminationGroup = null;
     if (raw.type === MSG_SURRENDER_WINDOW_CLOSED) {
-      if (raw.duelist < seatCount) closedResponseSeat = raw.duelist;
+      if (format === "tag" && raw.duelist < seatCount) closedResponseSeat = raw.duelist;
       return;
     }
     if (raw.type === MSG_DUELIST_ELIMINATED) {
@@ -1058,7 +1065,7 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         handIdentities: eventContext.handIdentities,
         mode: options.mode,
         domainState: readDomainState(),
-        ...(multi ? { format, eliminated, leaving: new Set([...leaving].filter(isLeaving)), chain: chainMemory.slice(0, liveChainSize).filter((link) => !eliminated.has(link.seat)) } : {}),
+        ...(multi ? { format, eliminated, leaving: new Set([...leaving].filter(isLeaving)), chain: chainMemory.slice(0, liveChainSize).filter((link) => !eliminated.has(link.seat) || startedChainLinks.has(link.index)) } : {}),
       });
       // Disabled zones are public board facts. The field is set only for seats that have one.
       if (multi) projected.eliminationOrder = eliminationOrder.map((group) => [...group]);

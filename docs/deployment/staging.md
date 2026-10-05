@@ -139,18 +139,18 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0084 and 0090; 85 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash is `1d683feae7b0deb90ba5b7b8e0fddc12d9db0ace22e442cdd3fa81f32f66355c`.
+- All numbered patches in `domain-core/patches` (currently 0001–0090; 90 patches). No experimental patches or
+  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `992a8d72805f15185820816f0fee95a20ad8a1afd8119a92a7ab4677d1514df2`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `cf5100707bce7701cb0be0ac4a8ff47308a13b278174f03c157f2f2e46dd849a`.
 
-The 85-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Both multi cores were rebuilt for the 2026-10-04 FFA response-order change using the TypeScript build entry point and the shared build lock, with `EMCC_CORES=2`. The full series reapplied cleanly and the Domain pre/patch/post scripts succeeded. Their verified hashes are:
+The 90-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Both multi cores were rebuilt for the 2026-10-04 leave-rule review, including the response-order patch from main. The builds used the CI compiler wrapper, the shared build lock, and `EMCC_CORES=2`. The full series reapplied cleanly and the Domain pre/patch/post scripts succeeded. Removed links retain readable stored fields, started links stay visible, living FFA response windows stay open, and lost-target equips keep rule destruction events. Their verified hashes are:
 
 | CI core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `c74b4c452b22e6f2a5e804c52b66676df5f6cf236a3c6bb95467dc2da6f7585f` |
-| Domain multiplayer | `f6da4b828e022b84c76be0955241dfad8d3154189a426e8f8714c6808cf0ae30` |
+| Standard multiplayer | `41e983cfcef2e521012b200e7799f7489e25e0d3dd7233c5ca906bcaf6d4e907` |
+| Domain multiplayer | `2d4e3b5e72456420c9208139838e711fa42974438d5e81de1f079d37a02a4549` |
 | Domain 1v1 (unchanged) | `16f60edf2c1e246886d1962fad32238fde0dd969c36bc959251df488c83aefc7` |
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all

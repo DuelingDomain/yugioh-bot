@@ -9,10 +9,18 @@ import { domainNseatWasmBinary, nseatWasmBinary, Session } from "../../support/s
 import { engineDataDirectory } from "../../engine-data-dir.js";
 import { runScenarios } from "../../support/runner.js";
 import { LEAVE_CHAIN_PROOFS } from "./leave-chains.js";
-import { OVERLAY_DIRECTORY, readManifest } from "../../../scripts/generate-multi-scripts.js";
+import { OVERLAY_DIRECTORY, readManifest, scanLeaveChainScripts, type LeaveChainPattern } from "../../../scripts/generate-multi-scripts.js";
 
 for (const mode of ["normal", "domain"] as const) {
   describeWithCores(`leave chain topology (${mode})`, [liveNseat, ...(mode === "domain" ? needs.domainMulti() : [])], () => {
+    it("scans all stored chain reads and preserves overlay replacement counts", () => {
+      const scanned = scanLeaveChainScripts(join(engineDataDirectory, "card-scripts/official"));
+      const codes = (pattern: LeaveChainPattern) => scanned.filter((entry) => entry.patterns.includes(pattern)).map((entry) => entry.code);
+      expect(codes("stored-link-loop")).toEqual([8038143, 24838456, 71801447]);
+      expect(codes("stored-previous-link")).toEqual([983995, 13482075, 24696097, 30221870, 34365442, 44508094, 46848859, 78316184, 81237046, 86060749]);
+      expect(codes("overlay-material-count")).toContain(55067058);
+      expect(codes("overlay-material-count")).toContain(98204536);
+    });
     it.each(["ffa3", "ffa4", "tag"] as const)("parses all removal suffixes with the real %s Lua interpreter", async (format) => {
       const setup = { format, mode, p0: {}, p1: {}, p2: {}, ...(format === "ffa3" ? {} : { p3: {} }) };
       if (mode === "domain") for (const [index, master] of ["Axe Raider", "Celtic Guardian", "Battle Ox", ...(format === "ffa3" ? [] : ["Giant Soldier of Stone"])].entries()) {

@@ -582,8 +582,8 @@ end`]);
       expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[1]).toEqual(live);
     }, 60_000);
 
-    for (const [actor, target, closes] of [[0, 1, true], [1, 0, true], [1, 1, false]] as const) {
-      it.each(["ffa3", "ffa4"] as const)(`R-COMMON-SURRENDER-EOT: %s turn-player loss ${closes ? "closes an involved" : "keeps a living-only"} response window (actor ${actor}, target ${target})`, async (format) => {
+    for (const [actor, target] of [[0, 1], [1, 0], [1, 1]] as const) {
+      it.each(["ffa3", "ffa4"] as const)(`R-COMMON-SURRENDER-EOT: %s turn-player loss keeps the living response window (actor ${actor}, target ${target})`, async (format) => {
         const t = await table(mode, format, true, [`local e=Effect.GlobalEffect()
 e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
 e:SetCode(EVENT_PHASE_START+PHASE_MAIN1)
@@ -603,22 +603,13 @@ Duel.RegisterEffect(e,${actor})`]);
         await t.post("surrender", 0);
         const after = await t.view(responder);
         expect(states(after)).toEqual(["out", ...Array(t.count - 1).fill("in")]);
-        if (closes) {
-          expect(after.prompt).toBeNull();
-          expect((await t.view(1)).prompt).toMatchObject({
-            kind: "choice", seat: 1, cancelable: true, context: { type: "chain", forced: false },
-            options: [{ id: "card:0", card: { code: 60082869 }, controller: 1, location: 8, sequence: 0 }],
-          });
-          await reachMain(t, 1);
-        } else {
-          expect(after).toMatchObject({ turn: 1, turnSeat: 0, phase: "main1", chain: [] });
-          expect(after.prompt).toEqual(before.prompt);
-          await t.recover();
-          expect(await t.view(responder)).toEqual(after);
-          expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[responder]).toEqual(after);
-          await t.answer(responder, chooseSurrenderedAnswer(after.prompt!));
-          await reachMain(t, 1);
-        }
+        expect(after).toMatchObject({ turn: 1, turnSeat: 0, phase: "main1", chain: [] });
+        expect(after.prompt).toEqual(before.prompt);
+        await t.recover();
+        expect(await t.view(responder)).toEqual(after);
+        expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[responder]).toEqual(after);
+        await t.answer(responder, chooseSurrenderedAnswer(after.prompt!));
+        await reachMain(t, 1);
         expect(await t.view(1)).toMatchObject({ turn: 2, turnSeat: 1, result: null });
       }, 60_000);
     }
@@ -660,31 +651,31 @@ Duel.RegisterEffect(e,1)`]);
         await t.post("surrender", 0);
         const after = await t.view(1);
         expect(states(after)).toEqual(["out", ...Array(t.count - 1).fill("in")]);
-        if (owner === 0) expect(after.prompt).toMatchObject({
-          kind: "choice", seat: 1, cancelable: true, context: { type: "chain", forced: false },
-          options: [{ id: "card:0", card: { code: 60082869 }, controller: 1, location: 8, sequence: 0 }],
-        });
-        else {
-          expect(after.prompt).toEqual(before.prompt);
-          await t.recover();
-          expect(await t.view(1)).toEqual(after);
-          expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[1]).toEqual(after);
-          await t.answer(1, chooseSurrenderedAnswer(after.prompt!));
-          // Passing the trigger still leaves the same living action's later quick response open.
-          for (let step = 0; step < t.count; step++) {
-            const next = await t.view(t.count - 1);
-            expect(next).toMatchObject({ turn: 1, turnSeat: 0, chain: [] });
-            if (next.prompt?.context?.type === "chain") break;
-            await passPrompt(t);
-          }
-          expect((await t.view(t.count - 1)).prompt?.context?.type).toBe("chain");
+        if (owner === 0 && triggers === 2) {
+          // Both choices belonged to the leaver. Prune those choices, then keep
+          // the living seat's normal response to the event open.
+          expect(after.prompt).toMatchObject({ seat: 1, context: { type: "chain" } });
+          expect(after.prompt!.options.map((option) => option.card?.code)).toEqual([60082869]);
+        } else expect(after.prompt).toEqual(before.prompt);
+        await t.recover();
+        expect(await t.view(1)).toEqual(after);
+        expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[1]).toEqual(after);
+        await t.answer(1, chooseSurrenderedAnswer(after.prompt!));
+        // Passing the trigger still leaves the same living action's later quick response open.
+        for (let step = 0; step < t.count; step++) {
+          const next = await t.view(t.count - 1);
+          expect(next).toMatchObject({ turn: 1, turnSeat: 0, chain: [] });
+          if (next.prompt?.context?.type === "chain") break;
+          await passPrompt(t);
         }
+        expect((await t.view(t.count - 1)).prompt?.context?.type).toBe("chain");
         await reachMain(t, 1);
         expect(await t.view(1)).toMatchObject({ turn: 2, turnSeat: 1, result: null });
       }, 60_000);
     }
 
     for (const action of ["destroy borrowed", "move borrowed", "reset living trap", "shuffle living sets"] as const) {
+      // The four shuffle fixtures pass on origin/main with its checked-in wrapper patch.
       it.each(["ffa3", "ffa4"] as const)(`R-COMMON-SURRENDER-EOT: %s response participants follow the action (${action})`, async (format) => {
         const closes = action === "destroy borrowed" || action === "move borrowed";
         const script = action === "reset living trap" ? `local c=Debug.AddCard(28649820,1,1,LOCATION_MZONE,1,POS_FACEUP_DEFENSE)
@@ -735,24 +726,46 @@ Duel.RegisterEffect(e,1)`]);
         await t.post("surrender", 0);
         const after = await t.view(responder);
         expect(states(after)).toEqual(["out", ...Array(t.count - 1).fill("in")]);
-        if (closes) {
-          expect(after.prompt).toBeNull();
-          expect((await t.view(1)).prompt).toMatchObject({
-            kind: "choice", seat: 1, cancelable: true, context: { type: "chain", forced: false },
-            options: [{ id: "card:0", card: { code: 60082869 }, controller: 1, location: 8, sequence: 0 }],
-          });
-        }
-        else {
-          expect(after.prompt).toEqual(before.prompt);
-          await t.recover();
-          expect(await t.view(responder)).toEqual(after);
-          expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[responder]).toEqual(after);
-          await t.answer(responder, chooseSurrenderedAnswer(after.prompt!));
-        }
+        expect(after.prompt).toEqual(before.prompt);
+        await t.recover();
+        expect(await t.view(responder)).toEqual(after);
+        expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[responder]).toEqual(after);
+        await t.answer(responder, chooseSurrenderedAnswer(after.prompt!));
         await reachMain(t, 1);
         expect(await t.view(1)).toMatchObject({ turn: 2, turnSeat: 1, result: null });
       }, 60_000);
     }
+
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s keeps a started leaver link visible until it completes", async (format) => {
+      const t = await table(mode, format, true, [`local c=Duel.GetFieldCard(0,LOCATION_HAND,0)
+for _,e in ipairs({c:GetCardEffect(EVENT_FREE_CHAIN)}) do
+ if (e:GetType()&EFFECT_TYPE_ACTIVATE)~=0 then
+  e:SetOperation(function() Duel.SelectYesNo(1,30); Duel.Recover(Duel.MPActionSeat(1),321,REASON_EFFECT) end)
+ end
+end`]);
+      await reachMain(t);
+      const option = (await t.view()).prompt!.options.find((entry) => entry.card?.code === 55144522 && entry.id.startsWith("activate:"))!;
+      await t.answer(0, { choice: option.id });
+      for (let step = 0; step < 25; step++) {
+        const v = await t.view(1);
+        if (v.prompt?.seat === 1 && v.prompt.options.some((entry) => entry.id === "yes")) break;
+        await passPrompt(t);
+      }
+      const before = await t.view(1);
+      expect(before.prompt?.options.map((entry) => entry.id)).toContain("yes");
+      expect(before.chain.map((link) => link.seat)).toEqual([0]);
+      await t.post("surrender", 0);
+      const after = await t.view(1);
+      expect(after.prompt).toEqual(before.prompt);
+      expect(after.chain).toEqual(before.chain);
+      expect(states(after)[0]).toBe("out");
+      await t.recover();
+      expect(await t.view(1)).toEqual(after);
+      await t.answer(1, { choice: "yes" });
+      await reachMain(t, 1);
+      expect((await t.view(1)).chain).toEqual([]);
+      expect((await t.view(1)).seats[1]!.lp).toBe(before.seats[1]!.lp + 321);
+    }, 60_000);
 
     it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s removes the unstarted link before it destroys a living trigger source", async (format) => {
       // First prove that the same destroyed-card trigger opens and resolves without surrender.

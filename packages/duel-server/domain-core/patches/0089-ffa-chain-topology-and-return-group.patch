@@ -1,4 +1,4 @@
-From 16feb0cc77fbd2da77c95672799cc53a63b31082 Mon Sep 17 00:00:00 2001
+From 64beb80838c22d55a54d7b5f975cbdb4ead619ec Mon Sep 17 00:00:00 2001
 From: Yugidraft <yugidraft@users.noreply.github.com>
 Date: Sun, 4 Oct 2026 20:44:23 -0400
 Subject: [PATCH] FFA ignore removed chain links in reads and group rule-return
@@ -6,14 +6,14 @@ Subject: [PATCH] FFA ignore removed chain links in reads and group rule-return
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- effect.cpp     |  10 ++--
- field.cpp      | 133 +++++++++++++++++++++++++++++++++----------------
- field.h        |   8 ++-
- libcard.cpp    |   6 +--
- libduel.cpp    |  58 ++++++++++++++++++---
+ effect.cpp     |  10 +++-
+ field.cpp      | 146 ++++++++++++++++++++++++++++++++++---------------
+ field.h        |  10 +++-
+ libcard.cpp    |   6 +-
+ libduel.cpp    |  60 +++++++++++++++++---
  operations.cpp |  16 +++---
- processor.cpp  |   4 +-
- 7 files changed, 169 insertions(+), 66 deletions(-)
+ processor.cpp  |  14 ++++-
+ 7 files changed, 191 insertions(+), 71 deletions(-)
 
 diff --git a/effect.cpp b/effect.cpp
 index c7a31c3..c118e31 100644
@@ -54,13 +54,26 @@ index c7a31c3..c118e31 100644
  	}
  	for(const auto& ch_lim : pduel->game_field->core.chain_limit) {
 diff --git a/field.cpp b/field.cpp
-index 3ab6265..1df3135 100644
+index 44828dd..f665cbb 100644
 --- a/field.cpp
 +++ b/field.cpp
-@@ -162,6 +162,17 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+@@ -159,9 +159,29 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 	// 3. Unresolved FFA links are removed, without resolution events. Keep their
+ 	// storage until SolveChain can release relations and interpreter references safely.
+ 	if(n_teams == n_duelists) {
++		bool removed_links = false;
  		for(auto& ch : core.current_chain)
- 			if(ch.triggering_player == p && !ch.resolution_started)
+-			if(ch.triggering_player == p && !ch.resolution_started)
++			if(ch.triggering_player == p && !ch.resolution_started) {
  				ch.removed_by_elimination = true;
++				removed_links = true;
++			}
++		// Removal changes spell speed and response limits. Revisit living seats
++		// that could not respond to the former top link, without closing their prompt.
++		if(removed_links && !core.chain_solving) {
++			auto* top = get_current_chain();
++			restart_responders(top ? top->triggering_player : DUELIST_NONE);
++		}
 +		for(auto* limits : { &core.chain_limit, &core.chain_limit_p }) {
 +			for(auto it = limits->begin(); it != limits->end();) {
 +				// A limit installed by a resolved operation keeps its duration.
@@ -75,9 +88,9 @@ index 3ab6265..1df3135 100644
  	}
  	// Chain entries that p would add.
  	for(auto* lst : { &core.new_fchain, &core.new_fchain_s, &core.new_ochain, &core.new_ochain_s, &core.new_fchain_b,
-@@ -379,44 +390,48 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+@@ -378,44 +398,48 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 		// including attachments, without leave-field, destination or move events.
  		// Keep continuous redirects (Macro Cosmos, Pendulums) but offer no choices.
- 		to_grave.insert(equipings.begin(), equipings.end());
  		std::vector<card*> pending(to_grave.begin(), to_grave.end());
 -		card_set moved;
 +		struct fallback { card* pcard; loc_info from; uint32_t old_location; uint32_t destination; };
@@ -99,7 +112,7 @@ index 3ab6265..1df3135 100644
 -				equip->unequip();
 +			for(auto* equip : pcard->equiping_cards)
  				if(equip->current.location == LOCATION_SZONE)
- 					pending.push_back(equip);
+ 					equipings.insert(equip);
 -			}
  			pending.insert(pending.end(), pcard->xyz_materials.begin(), pcard->xyz_materials.end());
  			pcard->clear_card_target();
@@ -140,7 +153,7 @@ index 3ab6265..1df3135 100644
  				pcard->reset(RESET_LEAVE, RESET_EVENT);
  			pcard->reset(pcard->current.location == LOCATION_GRAVE ? RESET_TOGRAVE
  				: pcard->current.location == LOCATION_REMOVED ? RESET_REMOVE : RESET_TODECK, RESET_EVENT);
-@@ -425,10 +440,11 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+@@ -424,7 +448,7 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
  			pcard->enable_field_effect(true);
  			auto message = pduel->new_message(MSG_MOVE);
  			message->write<uint32_t>(pcard->data.code);
@@ -149,11 +162,7 @@ index 3ab6265..1df3135 100644
  			message->write(pcard->get_info_location());
  			message->write<uint32_t>(REASON_RULE);
  		}
-+
- 	} else {
- 		// Tag keeps its stock sends and events.
- 		if(equipings.size())
-@@ -3934,11 +3950,10 @@ int32_t field::is_chain_negatable(uint8_t chaincount) {
+@@ -3936,11 +3960,10 @@ int32_t field::is_chain_negatable(uint8_t chaincount) {
  	effect_set eset;
  	if(chaincount > core.current_chain.size())
  		return FALSE;
@@ -169,7 +178,7 @@ index 3ab6265..1df3135 100644
  	if(peffect->is_flag(EFFECT_FLAG_CANNOT_INACTIVATE))
  		return FALSE;
  	filter_field_effect(EFFECT_CANNOT_INACTIVATE, &eset);
-@@ -3953,11 +3968,10 @@ int32_t field::is_chain_disablable(uint8_t chaincount) {
+@@ -3955,11 +3978,10 @@ int32_t field::is_chain_disablable(uint8_t chaincount) {
  	effect_set eset;
  	if(chaincount > core.current_chain.size())
  		return FALSE;
@@ -185,7 +194,7 @@ index 3ab6265..1df3135 100644
  	if(!peffect->get_handler()->get_status(STATUS_FORBIDDEN)) {
  		if(peffect->is_flag(EFFECT_FLAG_CANNOT_DISABLE))
  			return FALSE;
-@@ -3973,11 +3987,9 @@ int32_t field::is_chain_disablable(uint8_t chaincount) {
+@@ -3975,11 +3997,9 @@ int32_t field::is_chain_disablable(uint8_t chaincount) {
  int32_t field::is_chain_disabled(uint8_t chaincount) {
  	if(chaincount > core.current_chain.size())
  		return FALSE;
@@ -200,7 +209,7 @@ index 3ab6265..1df3135 100644
  	if(pchain->flag & CHAIN_DISABLE_EFFECT)
  		return TRUE;
  	card* pcard = pchain->triggering_effect->get_handler();
-@@ -3994,11 +4006,9 @@ int32_t field::is_chain_disabled(uint8_t chaincount) {
+@@ -3996,11 +4016,9 @@ int32_t field::is_chain_disabled(uint8_t chaincount) {
  int32_t field::check_chain_target(uint8_t chaincount, card* pcard) {
  	if(chaincount > core.current_chain.size())
  		return FALSE;
@@ -215,10 +224,11 @@ index 3ab6265..1df3135 100644
  	effect* peffect = pchain->triggering_effect;
  	uint8_t tp = pchain->triggering_player;
  	if(!peffect->is_flag(EFFECT_FLAG_CARD_TARGET) || !peffect->target)
-@@ -4015,15 +4025,54 @@ int32_t field::check_chain_target(uint8_t chaincount, card* pcard) {
+@@ -4017,15 +4035,55 @@ int32_t field::check_chain_target(uint8_t chaincount, card* pcard) {
  	pduel->lua->add_param<LuaParam::CARD>(pcard);
  	return pduel->lua->check_condition(peffect->target, 10);
  }
+-chain* field::get_chain(uint8_t chaincount) {
 +bool field::is_removed_chain_event(const tevent& event) const {
 +	if(n_duelists <= 2 || n_teams != n_duelists || event.event_code != EVENT_CHAINING)
 +		return false;
@@ -251,7 +261,7 @@ index 3ab6265..1df3135 100644
 +	}
 +	return 0;
 +}
- chain* field::get_chain(uint8_t chaincount) {
++chain* field::get_chain(uint8_t chaincount, bool include_removed) {
  	if(chaincount == 0 && core.continuous_chain.size() && (core.reason_effect != nullptr && core.reason_effect->type & EFFECT_TYPE_CONTINUOUS))
  		return &core.continuous_chain.back();
 -	if(chaincount == 0 || chaincount > core.current_chain.size()) {
@@ -271,12 +281,13 @@ index 3ab6265..1df3135 100644
 +	if(chaincount > core.current_chain.size())
 +		return get_current_chain();
 +	auto* ch = &core.current_chain[chaincount - 1];
-+	return ch->removed_by_elimination ? nullptr : ch;
++	// Reads retain the stored link fields. Mutators keep the default removal guard.
++	return ch->removed_by_elimination && !include_removed ? nullptr : ch;
  }
  int32_t field::get_cteffect(effect* peffect, int32_t playerid, int32_t store) {
  	card* phandler = peffect->get_handler();
 diff --git a/field.h b/field.h
-index c8dc29d..6bab4f4 100644
+index 1f5045a..b6d9f18 100644
 --- a/field.h
 +++ b/field.h
 @@ -68,6 +68,7 @@ struct chain {
@@ -287,7 +298,7 @@ index c8dc29d..6bab4f4 100644
  	// n_duelists > 2: the opponent whose zones the last Duel.SelectDisableField or Duel.SelectFieldZone of this link
  	// offered (DUELIST_NONE: none yet). The target and the operation of a link are two scopes; this keeps the seat
  	// between them, whatever other links prompt in between.
-@@ -252,9 +253,10 @@ struct processor : prompt_selection {
+@@ -253,9 +254,10 @@ struct processor : prompt_selection {
  	using delayed_effect_collection = std::set<std::pair<effect*, tevent>, delayed_effect_sort>;
  	using effect_count_map = std::unordered_map<uint64_t, uint32_t>;
  	struct chain_limit_t {
@@ -299,10 +310,12 @@ index c8dc29d..6bab4f4 100644
  	};
  	using chain_limit_list = std::vector<chain_limit_t>;
  	struct action_value_t {
-@@ -977,6 +979,10 @@ public:
+@@ -977,7 +979,11 @@ public:
+ 	int32_t is_chain_disablable(uint8_t chaincount);
  	int32_t is_chain_disabled(uint8_t chaincount);
  	int32_t check_chain_target(uint8_t chaincount, card* pcard);
- 	chain* get_chain(uint8_t chaincount);
+-	chain* get_chain(uint8_t chaincount);
++	chain* get_chain(uint8_t chaincount, bool include_removed = false);
 +	chain* get_current_chain();
 +	bool is_removed_chain_event(const tevent& event) const;
 +	uint32_t active_chain_size(bool completed = false) const;
@@ -328,7 +341,7 @@ index 994be19..72008cb 100644
  }
  LUA_FUNCTION(IsRelateToCard) {
 diff --git a/libduel.cpp b/libduel.cpp
-index 65fc17b..c7e5337 100644
+index 65fc17b..a9259cf 100644
 --- a/libduel.cpp
 +++ b/libduel.cpp
 @@ -898,13 +898,29 @@ LUA_STATIC_FUNCTION(Activate) {
@@ -372,7 +385,7 @@ index 65fc17b..c7e5337 100644
  			effect* negeff = pduel->new_effect();
  			negeff->owner = pduel->game_field->core.reason_effect->get_handler();
  			negeff->type = EFFECT_TYPE_SINGLE;
-@@ -2321,8 +2337,22 @@ LUA_STATIC_FUNCTION(CheckLocation) {
+@@ -2321,13 +2337,27 @@ LUA_STATIC_FUNCTION(CheckLocation) {
  }
  LUA_STATIC_FUNCTION(GetCurrentChain) {
  	const auto real = lua_get<bool, false>(L, 1);
@@ -397,6 +410,12 @@ index 65fc17b..c7e5337 100644
  	return 1;
  }
  LUA_STATIC_FUNCTION(GetChainInfo) {
+ 	check_param_count(L, 1);
+-	chain* ch = pduel->game_field->get_chain(lua_get<uint8_t>(L, 1));
++	chain* ch = pduel->game_field->get_chain(lua_get<uint8_t>(L, 1), true);
+ 	if(!ch)
+ 		return 0;
+ 	auto top = lua_gettop(L);
 @@ -4509,12 +4539,25 @@ LUA_STATIC_FUNCTION(IsPlayerCanProcedureSummonGroup) {
  }
  LUA_STATIC_FUNCTION(IsChainNegatable) {
@@ -472,10 +491,27 @@ index 31a8aae..2074fdf 100644
  	if(!(pchain.flag & CHAIN_DISABLE_EFFECT) && is_chain_disablable(pchain.chain_count)
  		&& effect_handler->is_affect_by_effect(core.reason_effect)) {
 diff --git a/processor.cpp b/processor.cpp
-index baf005f..8f7a05a 100644
+index 7eae9d4..e49d8ce 100644
 --- a/processor.cpp
 +++ b/processor.cpp
-@@ -4281,6 +4281,7 @@ bool field::process(Processors::AddChain& arg) {
+@@ -1334,7 +1334,15 @@ bool field::process(Processors::QuickEffect& arg) {
+ 			}
+ 		} else {
+ 			infos.priorities[priority] = 1;
+-			const uint8_t next_player = n_duelists > 2 ? next_responder(priority) : DUELIST_NONE;
++			// A removed FFA link can restart the round while this prompt stays open.
++			// Include unpassed seats before its old cursor in the restarted order.
++			uint8_t next_player = n_duelists > 2 ? next_responder(priority) : DUELIST_NONE;
++			if(n_duelists > 2 && n_teams == n_duelists) {
++				next_player = first_responder();
++				// first_responder falls back to the turn player for opening windows.
++				if(!is_alive(next_player) || infos.priorities[next_player])
++					next_player = DUELIST_NONE;
++			}
+ 			if(n_duelists > 2 && next_player != DUELIST_NONE)
+ 				emplace_process<Processors::QuickEffect>(Step{ 1 }, skip_freechain, next_player);
+ 			else if(n_duelists == 2 && (!infos.priorities[0] || !infos.priorities[1]))
+@@ -4281,6 +4289,7 @@ bool field::process(Processors::AddChain& arg) {
  		raise_event(phandler, EVENT_CHAINING, peffect, 0, clit.triggering_player, clit.triggering_player, clit.chain_count);
  		process_instant_event();
  		core.just_sent_cards.clear();
@@ -483,7 +519,7 @@ index baf005f..8f7a05a 100644
  		++core.real_chain_count;
  		if(core.new_chains.size())
  			emplace_process<Processors::AddChain>();
-@@ -4780,8 +4781,9 @@ bool field::process(Processors::SolveChain& arg) {
+@@ -4782,8 +4791,9 @@ bool field::process(Processors::SolveChain& arg) {
  		}
  		core.delayed_enable_set.clear();
  		adjust_all();

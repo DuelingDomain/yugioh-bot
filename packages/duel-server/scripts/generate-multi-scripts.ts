@@ -38,9 +38,10 @@
  *                  from the stock script) and leaves every other entry as it is. A card that is listed already is skipped.
  */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { makeSource } from "./scan-multiplayer-scripts.js";
 
 const PACKAGE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** The hand-written parts of the generated `seat` files (seatExtra). They are not loaded by the duel: their text is copied into the files. */
@@ -146,6 +147,35 @@ export interface Manifest {
 
 export function readManifest(directory = OVERLAY_DIRECTORY): Manifest {
   return JSON.parse(readFileSync(join(directory, "MANIFEST.json"), "utf8")) as Manifest;
+}
+
+export type LeaveChainPattern = "stored-link-loop" | "stored-previous-link" | "overlay-material-count" | "event-value-count";
+
+/** Removed links retain their stored fields for reads. An event value is not always a chain ID. */
+export function leaveChainPatterns(text: string): LeaveChainPattern[] {
+  const source = makeSource(text).cleanText;
+  const patterns: LeaveChainPattern[] = [];
+  for (const loop of source.matchAll(/for\s+(\w+)\s*=\s*1\s*,\s*ev\s+do/g)) {
+    if (new RegExp(`Duel\\.GetChainInfo\\(\\s*${loop[1]}\\s*[,)]`).test(source)) {
+      patterns.push("stored-link-loop");
+      break;
+    }
+  }
+  if (/Duel\.GetChainInfo\(\s*ev\s*-\s*1\s*[,)]/.test(source)) patterns.push("stored-previous-link");
+  // EFFECT_OVERLAY_REMOVE_REPLACE receives the minimum detach count as ev,
+  // including Freezadon and Trilithon. Preserve these comparisons as material counts.
+  const counts = source.match(/[^\n]*>=\s*ev\s*-\s*1\b[^\n]*/g) ?? [];
+  if (counts.some((line) => /:GetOverlayCount\(\)\s*>=/.test(line))) patterns.push("overlay-material-count");
+  if (counts.some((line) => !/:GetOverlayCount\(\)\s*>=/.test(line))) patterns.push("event-value-count");
+  return patterns;
+}
+
+/** Inventory all stock readers and event-value counts, including scripts that need no Lua suffix. */
+export function scanLeaveChainScripts(stockDirectory: string): Array<{ code: number; patterns: LeaveChainPattern[] }> {
+  return readdirSync(stockDirectory).filter((file) => /^c\d+\.lua$/.test(file)).flatMap((file) => {
+    const patterns = leaveChainPatterns(readFileSync(join(stockDirectory, file), "utf8"));
+    return patterns.length ? [{ code: Number(file.slice(1, -4)), patterns }] : [];
+  }).sort((a, b) => a.code - b.code);
 }
 
 /** The text of a `whole` file: the guard, one comment line, one wrap line per function. */
@@ -484,6 +514,7 @@ export interface RunResult {
   written: string[];
   problems: string[];
   r1?: number;
+  leaveChains?: ReturnType<typeof scanLeaveChainScripts>;
 }
 
 /** Writes (or, with `check`, only compares) the `whole` files, then checks the lists and the files of the manifest. Without `check` and with a `stockDirectory`, an entry with an empty name first gets the name of its stock script. */
@@ -510,7 +541,8 @@ export function run(options: { check: boolean; directory?: string; triage?: Tria
       problems.push(`${card.file} is missing (kind ${card.kind} is written by hand)`);
     }
   }
-  return { written, problems, r1: triage ? r1Codes(triage).length : undefined };
+  return { written, problems, r1: triage ? r1Codes(triage).length : undefined,
+    leaveChains: options.stockDirectory ? scanLeaveChainScripts(options.stockDirectory) : undefined };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -540,6 +572,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const result = run({ check, stockDirectory });
   for (const file of result.written) console.log(`wrote ${file}`);
   if (result.r1 !== undefined) console.log(`R1 count (Mirror Gate excluded): ${result.r1}`);
+  if (result.leaveChains) console.log(`leave-chain reader and event-value scan: ${JSON.stringify(result.leaveChains)}`);
   for (const problem of result.problems) console.error(`problem: ${problem}`);
   console.log(result.problems.length === 0 ? (check ? "multi-scripts overlay: ok" : `done, ${result.written.length} files written`) : `${result.problems.length} problem(s)`);
   process.exit(result.problems.length === 0 ? 0 : 1);
