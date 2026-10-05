@@ -117,7 +117,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const resume = useRef<number | null>(null);
   const live = useRef({ seat: focus.seat, control: focusControl });
   live.current = { seat: focus.seat, control: focusControl };
-  useEffect(() => {
+  // A layout effect: the step back to all fields lands in the frame the pick opens, with no frame of the old focus.
+  useLayoutEffect(() => {
     const { seat, control } = live.current;
     if (picking) {
       if (seat != null) {
@@ -132,7 +133,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   }, [picking]);
 
   // The final layout, once. The fields get real sizes from it (never a zoom); a change of focus only FLIPs between two layouts.
-  const homeColumn = homeCell?.column ?? 0;
+  const homeColumn = homeCell?.column ?? null;
   const drawerSeats = ([0, 1] as const).map((column) => pairDrawer(cells, states, column));
   const drawerRow = ([0, 1] as const).map((column) => cells.find((cell) => cell.seat === drawerSeats[column])?.row ?? 1) as [0 | 1, 0 | 1];
   const drawerKey = drawerRow.join("");
