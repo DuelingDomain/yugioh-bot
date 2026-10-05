@@ -24,6 +24,8 @@
  *                  whose stock script works as it is after core patch 0053 is a member of R2_NO_CHANGE. The R2 entries are not part of
  *                  the pinned `entries` count either.
  *
+ *   DECISION = hand-written resolution-time decision-only overrides; separate from the pinned compare/chooser census.
+ *
  *   ATTACK (a direct attack at you) = a MANIFEST entry of class `ATTACK`, kind `hand`: "when an opponent's monster declares a direct attack"
  *                  holds in FFA only when the attack goes to the duelist that holds the card (aux.MPAttackedAtMe wraps the stock
  *                  condition; an inline condition is a `--@replace` file). Not part of the pinned `entries` count either.
@@ -94,7 +96,7 @@ export const R1_COMPLETE = true;
 
 export type Helper = "MPAny" | "MPValue" | "MPOne" | "MPPick" | "MPTarget" | "MPAttackedAtMe";
 /** ATTACK: "when an opponent's monster declares a direct attack" (the attack must go to the duelist that holds the card). */
-export type CardClass = "COMPARE" | "CHOOSER" | "R1" | "R2" | "ATTACK";
+export type CardClass = "COMPARE" | "CHOOSER" | "R1" | "R2" | "ATTACK" | "DECISION";
 /** The kind of seat state that the stock script of an R2 card keeps (a short tag for the note and the report). */
 export type R2Class =
   | "TABLE" // a per-player table or counter (s[tp], s.list[ep]): one slot per seat (FFA) or team (Tag)
@@ -260,7 +262,7 @@ export function checkLists(manifest: Manifest, triage: Triage[] | null): string[
   if (compare.length !== EXPECTED_COUNTS.compare) problems.push(`COMPARE has ${compare.length} cards, expected ${EXPECTED_COUNTS.compare}`);
   if (chooser.length !== EXPECTED_COUNTS.chooser) problems.push(`CHOOSER has ${chooser.length} cards, expected ${EXPECTED_COUNTS.chooser}`);
   if (whole.length !== EXPECTED_COUNTS.whole) problems.push(`${whole.length} whole files, expected ${EXPECTED_COUNTS.whole}`);
-  const overlayEntries = manifest.cards.filter((card) => !card.classes.includes("R1") && !card.classes.includes("R2") && !card.classes.includes("ATTACK"));
+  const overlayEntries = manifest.cards.filter((card) => !card.classes.includes("R1") && !card.classes.includes("R2") && !card.classes.includes("ATTACK") && !card.classes.includes("DECISION"));
   if (overlayEntries.length !== EXPECTED_COUNTS.entries) problems.push(`${overlayEntries.length} entries, expected ${EXPECTED_COUNTS.entries}`);
   const r1Entries = manifest.cards.filter((card) => card.classes.includes("R1"));
   for (const card of r1Entries) {
