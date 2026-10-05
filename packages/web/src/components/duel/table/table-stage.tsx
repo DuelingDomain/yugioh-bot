@@ -82,6 +82,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const outSet = useMemo(() => new Set(out), [outKey]);
   const play = useMemo(() => aliveLayout(layout, outSet), [layout, outSet]);
+  // Only a table that regroups glides; a table that keeps its places has nothing to move.
+  const regroup = play !== layout;
   const threeWay = slotPlan(play, { mode: "home" }) != null;
   const fly = camera.mode === "fly" && threeWay;
   // The city is heavy: it mounts the first time the fly-in shows and stays (the fade out needs it).
@@ -112,6 +114,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     poses,
     faceUpHand: (seat) => layout.slots.find((slot) => slot.seat === seat)?.relation === "self" && !looking,
     enabled: layout.format !== "tag",
+    resetKey: `${room.session.slug}:${room.series?.gameNumber ?? 0}`,
   });
   useFlyWorld({
     active: fly,
@@ -190,7 +193,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
                 fly={fly}
                 hidden={outSet}
                 exits={exits.map((exit) => ({ seat: exit.seat, tone: tones.get(exit.seat) ?? "violet", pose: exit.pose }))}
-                glide={gliding}
+                glide={gliding && regroup}
                 reducedMotion={reducedMotion}
               />
               {ring && threeWay ? (
@@ -244,7 +247,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
                   onInspect: controller.onInspect,
                   onHoverCard: controller.onHoverCard,
                 };
-                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding} />;
+                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding && regroup} />;
               })}
             </div>
           </div>
@@ -261,6 +264,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
         ].map(({ slot, place, exit, from }) => {
           const view = engine.seats.find((entry) => entry.seat === slot.seat);
           if (!view) return null;
+          // In the fly-in view a panel follows its board; a seat that left has none, so its panel waits for the flat view.
+          if (fly && !exit && outSet.has(slot.seat)) return null;
           const anchor = holoAnchor(from, slot.seat, camera);
           const pickable = !exit && picks?.options.has(slot.seat) === true;
           const index = pickOrder.indexOf(slot.seat);
@@ -289,7 +294,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
               onHover={(hover) => controller.onAim?.(hover ? { lpSeat: slot.seat } : null)}
               exiting={exit}
               placeLabel={placeLabels?.get(slot.seat) ?? null}
-              glide={gliding && !exit}
+              glide={gliding && regroup && !exit}
               reducedMotion={reducedMotion}
             />
           );

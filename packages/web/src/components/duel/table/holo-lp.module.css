@@ -438,3 +438,18 @@
     animation: none;
   }
 }
+
+/* The in-app reduced motion setting (the media query above covers the system one). */
+:global([data-reduced="true"]) .holo[data-glide="true"] {
+  transition: none;
+  animation: holoIn 0.38s ease-out 0.22s both;
+}
+
+:global([data-reduced="true"]) .holo[data-exiting="true"] {
+  animation-duration: 0.9s;
+}
+
+:global([data-reduced="true"]) .exitChip {
+  animation: none;
+}
+

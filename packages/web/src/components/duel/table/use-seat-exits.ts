@@ -22,6 +22,8 @@ export interface UseSeatExitsArgs {
   faceUpHand: (seat: number) => boolean;
   /** False where no crumble is wanted (Tag, a table that shows no plaza). Seats that leave are only noted. */
   enabled: boolean;
+  /** Changes with the duel (and the game of a series): the seats that are out then start again as already seen. */
+  resetKey?: string;
 }
 
 /** How long the seats take to regroup after an elimination: the crumble wait (0.65 s) plus the glide (1 s), with some slack. */
@@ -36,7 +38,7 @@ export const GLIDE_MS = 1800;
  * It reads the previous poses and views from refs that are saved after each commit, so a seat that is emptied by the
  * engine in the same update still has its last board here.
  */
-export function useSeatExits({ out, seats, poses, faceUpHand, enabled }: UseSeatExitsArgs): {
+export function useSeatExits({ out, seats, poses, faceUpHand, enabled, resetKey = "" }: UseSeatExitsArgs): {
   exits: SeatExit[];
   gliding: boolean;
   finish: (seat: number) => void;
@@ -46,9 +48,15 @@ export function useSeatExits({ out, seats, poses, faceUpHand, enabled }: UseSeat
     poses: new Map(),
     faceUp: new Map(),
   });
-  const [state, setState] = useState(() => ({ seen: [...out], exits: [] as SeatExit[], glideId: 0 }));
+  const [state, setState] = useState(() => ({ key: resetKey, seen: [...out], exits: [] as SeatExit[], glideId: 0 }));
 
   // Derived while rendering (no effect, no extra paint): seats that are new in `out` start a job.
+  if (state.key !== resetKey) {
+    last.current.views.clear();
+    last.current.poses.clear();
+    last.current.faceUp.clear();
+    setState({ key: resetKey, seen: [...out], exits: [], glideId: 0 });
+  }
   const added = out.filter((seat) => !state.seen.includes(seat));
   if (added.length > 0 || state.seen.length !== out.length) {
     const exits = enabled
@@ -59,21 +67,12 @@ export function useSeatExits({ out, seats, poses, faceUpHand, enabled }: UseSeat
         })
       : [];
     setState({
+      key: state.key,
       seen: [...out],
       exits: [...state.exits.filter((exit) => out.includes(exit.seat)), ...exits],
       glideId: exits.length > 0 ? state.glideId + 1 : state.glideId,
     });
   }
-
-  useLayoutEffect(() => {
-    const keep = last.current;
-    for (const view of seats) {
-      if (out.includes(view.seat) || view.eliminated) continue;
-      keep.views.set(view.seat, view);
-      keep.faceUp.set(view.seat, faceUpHand(view.seat));
-    }
-    for (const [seat, pose] of poses) if (!out.includes(seat)) keep.poses.set(seat, pose);
-  });
 
   const [glidingFor, setGlidingFor] = useState(0);
   useEffect(() => {
@@ -89,5 +88,18 @@ export function useSeatExits({ out, seats, poses, faceUpHand, enabled }: UseSeat
 
   // The glide starts in the same render as the new layout, not one effect later, so the move waits for the crumble.
   const gliding = glidingFor !== 0 || state.exits.length > 0;
+
+  useLayoutEffect(() => {
+    const keep = last.current;
+    for (const view of seats) {
+      if (out.includes(view.seat) || view.eliminated) continue;
+      keep.views.set(view.seat, view);
+      keep.faceUp.set(view.seat, faceUpHand(view.seat));
+    }
+    // While the seats glide, the saved poses stay those from before: a second seat that leaves then crumbles where its
+    // board began, not at the end of a move that is still running.
+    if (!gliding) for (const [seat, pose] of poses) if (!out.includes(seat)) keep.poses.set(seat, pose);
+  });
+
   return { exits: state.exits, gliding, finish };
 }

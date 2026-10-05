@@ -142,7 +142,7 @@ export function HoloLp({
         </span>
         {clock ? <span className={styles.clock}>{clock}</span> : null}
       </div>
-      {stateLabel && !exiting ? <div className={styles.state}>{stateLabel}</div> : null}
+      {stateLabel && !exiting ? <div className={styles.state}>{out && placeLabel ? `Eliminated, ${placeLabel}` : stateLabel}</div> : null}
       {status === "choosing" ? <div className={styles.think}>choosing...</div> : null}
     </>
   );

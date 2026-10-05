@@ -46,6 +46,12 @@
   }
 }
 
+/* The in-app reduced motion setting (the media query above covers the system one). */
+:global([data-reduced="true"]) .seat[data-glide="true"] {
+  transition: none;
+  animation: glideIn 0.38s ease-out 0.22s both;
+}
+
 /* The board that left. The 3D chain seat > .exitBoard > layer must not get opacity, filter or overflow. */
 .seat[data-seat-exit] {
   pointer-events: none;

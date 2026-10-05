@@ -161,3 +161,14 @@
     animation-delay: 0s;
   }
 }
+
+/* The in-app reduced motion setting (the media query above covers the system one). */
+:global([data-reduced="true"]) .plaza[data-glide="true"] .pad:not(.padOut) {
+  transition: none;
+}
+
+:global([data-reduced="true"]) .padOut {
+  animation-duration: 0.42s;
+  animation-delay: 0s;
+}
+

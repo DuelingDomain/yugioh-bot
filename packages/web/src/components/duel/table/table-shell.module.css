@@ -84,6 +84,18 @@
   }
 }
 
+/* Read out by screen readers only. */
+.liveNote {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* You are out: you keep watching. The log stays live. */
 .spectating {
   position: absolute;
@@ -132,3 +144,13 @@
     animation-delay: 0.4s;
   }
 }
+
+/* The in-app reduced motion setting (the media query above covers the system one). */
+:global([data-reduced="true"]) .outNote li[data-fresh="true"] {
+  animation-delay: 0.3s;
+}
+
+:global([data-reduced="true"]) .spectating[data-fresh="true"] {
+  animation-delay: 0.4s;
+}
+
