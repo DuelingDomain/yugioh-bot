@@ -233,3 +233,23 @@
   .board { grid-column: 1; grid-row: 1; }
   .right { display: none; }
 }
+
+/*
+ * The floating HUD (table/hud-layer.tsx): same margins as the grid shell. The header, the side columns, the camera
+ * column and the turn track give way to glass pills; the camera dock is the fourth dock icon. The board takes the rest.
+ */
+.shell[data-hud="true"] {
+  --hud-top: 52px;
+  --hud-bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px);
+  --hud-left: 156px;
+}
+.shell[data-hud="true"] .main {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+.shell[data-hud="true"] .main > .board {
+  grid-column: 1;
+  grid-row: 1;
+  padding: var(--hud-top) 14px var(--hud-bottom) var(--hud-left);
+}
+.hudNotices { top: var(--hud-top); z-index: 29; }
