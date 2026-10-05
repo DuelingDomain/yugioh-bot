@@ -175,7 +175,7 @@ target, clears the named context, and keeps its existing volume.
 The shared installer validates both checksums before writing, updates either multi core even under an
 identical base manifest, and refuses a changed multi core while a Tag/FFA duel is active. Staging's
 wrapper requires both WASMs and all four checksum/provenance sidecars. Production carries the same
-cores but still defaults `MULTIPLAYER_TABLES` to off; shipping them does not open multiplayer tables.
+cores, and production defaults `MULTIPLAYER_TABLES` to on (`docker-compose.yml`). Put `MULTIPLAYER_TABLES=0` in the VM `.env` to close the tables.
 
 ### Local verification without starting services
 
@@ -299,14 +299,8 @@ WHERE web_slug = '<verified-local-duel-slug>'
 - **Standard and Domain support FFA3, FFA4 and Tag once this bundle is deployed.** A missing core still
   closes the corresponding start guard. Domain uses `ocgcore.multi-domain.wasm`; deploying an older
   workflow that ships only the plain core leaves Domain blocked.
-- **Rules that are not proven by a test yet.** `docs/specs/multiplayer-rule-coverage.md` lists 19 rules that have no outcome
-  test yet (8 are covered). In plain words, five groups. Cards that rely on them can behave wrongly:
-  1. Cards that say "opponent", "each player" or "all" (separate fields, Extra Monster Zones, picking an opponent for hand
-     and Deck effects, ongoing effects on opponents, the Forbidden and Limited list per Deck).
-  2. Chains and triggers at 3 and 4 seats (who may respond first, trigger order) and the response order in Tag.
-  3. Negation and lock cards (for example Solemn Judgment, Jinzo).
-  4. Tag partners (sharing cards and costs, the partner is not an opponent, seeing the partner's hand).
-  5. Tag loss and turn-count cards (a team loss from an empty Deck, Final Countdown).
+- **Rule coverage.** `docs/specs/multiplayer-rule-coverage.md` lists all 45 rules of ADR-0002 as covered by an outcome test. A
+  rule id is one unit, so read the scenario before you trust a rule with several clauses. Cards outside the tested scenarios can still behave wrongly: report them.
 - The legacy Standard 1v1 engine uses the older npm core. Staging defaults to the legacy 1v1 engine, as production does (`STAGING_DUEL_1V1_ENGINE=pinned` tests the merged one);
   multiplayer games load the separately built multi cores.
 - Staging has a copy of the production database. Testers sign in with their real Discord accounts, and the guild check applies.

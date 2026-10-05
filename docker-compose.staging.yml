@@ -85,7 +85,7 @@ services:
       # volume, because the container user cannot write in /app.
       - DUEL_SCENARIOS=1
       - DUEL_REPORT_DIR=/app/data/duel-reports
-      # Tag, 3-player and 4-player tables are on in staging. Production has them off. The web needs the same value.
+      # Tag, 3-player and 4-player tables are on in staging. Production has them on by default too. The web needs the same value.
       - MULTIPLAYER_TABLES=${STAGING_MULTIPLAYER_TABLES:-1}
       # Staging tests the 1v1 engine that production uses. Set STAGING_DUEL_1V1_ENGINE=pinned to test the merged engine.
       - DUEL_1V1_ENGINE=${STAGING_DUEL_1V1_ENGINE:-legacy}
