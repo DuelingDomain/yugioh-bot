@@ -150,7 +150,8 @@ describe("gridFocusLayout", () => {
     expect(tl.rect.x).toBe(bl.rect.x);
     expect(tl.rect.x).toBeLessThan(tr.rect.x);
     expect(tl.rect.y).toBeLessThan(bl.rect.y);
-    expect(layout.sizes.equal).toBeGreaterThan(95);
+    // The grid fields are wider (full-size Defense cards), so this box is bound by its width.
+    expect(layout.sizes.equal).toBeGreaterThan(85);
     expect(layout.finale).toBeNull();
   });
 
@@ -214,7 +215,8 @@ describe("gridFocusLayout", () => {
     const mine = lane({ column: 0, row: 1 });
     const rival = lane({ column: 1, row: 1 });
     for (const entry of [mine, rival]) {
-      expect(entry.home.lh).toBeCloseTo(HAND_SHARE * entry.layout.sizes.rest, 1);
+      // Never more than the rest size; a box bound by its width can make your field (and so your hand) smaller while the rival pair is lifted.
+      expect(entry.home.lh).toBeCloseTo(HAND_SHARE * Math.min(entry.home.z, entry.layout.sizes.rest), 1);
       // the hand rises over the field's edge by HAND_RISE and still fits under it
       expect(entry.home.lh * (1 - HAND_RISE)).toBeLessThan(entry.below);
     }

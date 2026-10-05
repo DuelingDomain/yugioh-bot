@@ -2165,6 +2165,37 @@
   inset: calc((var(--z) - var(--cw) * var(--dfit)) / 2 - 1px) -1px;
 }
 
+/* The 4-way grid: a Defense card lies on its side at FULL size, as in the 1v1 room. Each of the five zone columns is one
+   card height wide (not a card width), so the turned card stays inside its own column and never covers the next zone or
+   its outline. The field grows by 5 x (1 - 0.686) = 1.571 card heights (GRID_ZONE_WIDEN in table/grid-layout.ts, which
+   sizes the field boxes from the same width); the grid uses the free room at the left and right of the screen for it.
+   The shared Extra Monster Zones are a column wide too. The portrait guide stays the one guide of a zone. */
+:global([data-grid-stage]) .seatField {
+  --dfit: 1;
+  width: calc(var(--z) * (5.83 + 1.571));
+}
+
+:global([data-grid-stage]) .seatField .sfGrid {
+  width: calc(var(--z) * (5.58 + 1.571));
+}
+
+:global([data-grid-stage]) .seatField[data-master-rule="3"] {
+  width: calc(var(--z) * (7.35 + 1.571));
+}
+
+:global([data-grid-stage]) .seatField[data-master-rule="3"] .sfGrid {
+  width: calc(var(--z) * (7.1 + 1.571));
+}
+
+:global([data-grid-stage]) .seatField .emzPair > .zone {
+  flex-basis: var(--z);
+  width: var(--z);
+}
+
+:global([data-grid-stage]) .seatField .zone[data-defense="true"] .glow {
+  inset: calc((var(--z) - var(--cw)) / 2 - 1px) calc((var(--z) - var(--cw)) / -2 - 1px);
+}
+
 /* Labels, stats, counters and marks turn against the field so they read level (--lab). */
 .seatField .pileLabel,
 .seatField .plate,

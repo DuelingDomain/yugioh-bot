@@ -109,8 +109,14 @@ export function pairDrawer(cells: readonly GridCell[], states: ReadonlyMap<numbe
 /* Geometry. Every measure is a share of the card height `z` of the field it belongs to.                          */
 /* ------------------------------------------------------------------------------------------------------------ */
 
-const FIELD_ZONES_WIDE: Record<number, number> = { 3: 7.35 };
-const FIELD_ZONES_DEFAULT = 5.83;
+/**
+ * How much wider a grid field is than a 3-way seat field (field.module.css, the `[data-grid-stage] .seatField` rule): its
+ * five zone columns are a card height wide each (not a card width), as in the 1v1 room, so a Defense card lies on its
+ * side at full size inside its own column. 5 x (1 - 0.686) = 1.57 card heights; a hair more so a column is never under 1.
+ */
+export const GRID_ZONE_WIDEN = 1.571;
+const FIELD_ZONES_WIDE: Record<number, number> = { 3: 7.35 + GRID_ZONE_WIDEN };
+const FIELD_ZONES_DEFAULT = 5.83 + GRID_ZONE_WIDEN;
 const FIELD_ZONES_HIGH = 3.393;
 /** Pad around the zone grid, one card row, the gap between card rows (field.module.css `.sfGrid`, `.seatField --gy`). */
 const PAD = 0.125;
@@ -149,9 +155,12 @@ export const HAND_RISE = PAD + HAND_OVER;
 export const HAND_SHIFT = PLATE_W / 2;
 export const HAND_WIDTH = FIELD_ZONES_DEFAULT - PLATE_W;
 const COLUMN_GAP = 0.34;
-/** The shared Extra Monster Zones sit over the 2nd and 4th monster columns: the room left of the first, and between them. */
-export const PAIR_LEFT = 0.761;
-export const PAIR_GAP = 0.836;
+/**
+ * The shared Extra Monster Zones sit over the 2nd and 4th monster columns: the room left of the first, and between them.
+ * A column is one card height wide and the columns are 0.075 apart, so the pitch is 1.075; each zone is a column wide.
+ */
+export const PAIR_LEFT = 1.075;
+export const PAIR_GAP = 2 * 1.075 - 1;
 /** Share of a card height of the monster zone column gap, and of the room the Extra Monster region leaves each side. */
 const EMZ_REGION_INSET = 1.0503;
 /** Free space round the whole table. */
@@ -342,11 +351,15 @@ function placeFinale(finale: GridFinaleCells, zones: number, edge: number, width
   };
 }
 
+/** Top of the shared Extra Monster row below the top of its column's top lane, in card heights (unrounded). */
+const bandTop = (drawerRow: 0 | 1) => TOP_LANE + (drawerRow === 1 ? FIELD_ZONES_HIGH - OVERLAP + PAD : FIELD_ZONES_HIGH - PAD - ROW);
+
 function placeColumn(column: 0 | 1, z: number, drawerRow: 0 | 1, centerX: number, top: number, zones: number, base: number, home: boolean): PlacedColumn {
   const topBox = rect(centerX - (zones * z) / 2, top + TOP_LANE * z, zones * z, FIELD_ZONES_HIGH * z);
   const bottomBox = rect(centerX - (zones * z) / 2, topBox.y + topBox.height - OVERLAP * z, zones * z, FIELD_ZONES_HIGH * z);
   const box = drawerRow === 1 ? bottomBox : topBox;
-  const rowTop = drawerRow === 1 ? box.y + PAD * z : box.y + box.height - (PAD + ROW) * z;
+  // The shared row from the unrounded tops: two rounded boxes in a row could put the two rows of the grid 1.5 px apart.
+  const rowTop = top + bandTop(drawerRow) * z;
   const bandX = box.x + EMZ_REGION_INSET * z;
   const bandWidth = box.width - 2 * EMZ_REGION_INSET * z;
   const band: GridBandRect = { column, z: round2(z), rect: rect(bandX, rowTop, bandWidth, ROW * z) };
@@ -409,8 +422,7 @@ export function gridFocusLayout(world: GridWorld, viewport: GridViewport, focus:
 
   // Both shared Extra Monster rows lie on one line; every column stays whole inside the box.
   const probe = ([0, 1] as const).map((column) => {
-    const placed = placeColumn(column, zs[column], drawerOf(column), 0, 0, zones, rest, column === homeColumn);
-    const offset = placed.band.rect.y + placed.band.rect.height / 2;
+    const offset = (bandTop(drawerOf(column)) + ROW / 2) * zs[column];
     return { offset, below: heightOf(column, zs[column]) - offset };
   });
   const big = zs[0] >= zs[1] ? 0 : 1;
