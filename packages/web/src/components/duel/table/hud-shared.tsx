@@ -37,14 +37,17 @@ export function hudMasterProps(source: HudMasterSource, view: DuelSeatView | und
       canAct && prompt?.kind === "choice" && prompt.context?.type === "action" ? optionsForCard(prompt, card, keys) : [],
     title,
     onChooseAction: (option) => source.onAnswer({ choice: option.id }),
-    onActivate: source.onActivate,
+    // A pick prompt (cards, targets, a chain link) takes the token as the card. An action prompt lists Summon and Set as
+    // buttons on the plate, and the token keeps opening the details.
+    onActivate: prompt != null && !(prompt.kind === "choice" && prompt.context?.type === "action") ? source.onActivate : undefined,
     onHoverCard: source.onHoverCard,
   };
 }
 
 /**
- * The HUD pill shows both clocks with a short name each, so a duelist reads the rival's time bank too. `null` when
- * the duel has no clock.
+ * The 1v1 HUD pill shows both clocks with a short name each, so a duelist reads the rival's time bank too. `null` when
+ * the duel has no clock. Only a 2-seat table uses it: the pill is one row high, and the tables of 3 or 4 seats keep the
+ * compact clock of the answering seat.
  */
 export function hudClock(clock: DuelClock | null | undefined, session: DuelSession, reducedMotion: boolean): ReactNode {
   if (!clock) return null;

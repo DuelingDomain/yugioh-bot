@@ -117,7 +117,7 @@ export function GridMasterToken({
           className={styles.masterToken}
           data-testid={id("hud-master-token")}
           aria-label={`${title}: ${master.card.name}`}
-          aria-expanded={open}
+          aria-expanded={pickable ? undefined : open}
           onClick={(event) => (pickable ? onActivate(keys, card, event.currentTarget) : onToggle())}
           onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
           onMouseLeave={() => onHoverCard?.(null, null)}
