@@ -23,7 +23,7 @@ export function defineScenarioWithFfaFirstDraw(
   firstDraw: FirstDrawFixture = {},
 ): Scenario {
   firstDrawFixtures.set(scenario, firstDraw);
-  if (!firstTurnDrawFor(scenario.setup.mode ?? "normal", scenario.setup.masterRule, undefined, scenario.setup.format)
+  if (!firstTurnDrawFor(scenario.setup.mode ?? "normal", scenario.setup.masterRule, scenario.setup.format)
     || scenario.setup.skipOpeningDraw || scenario.setup.turn === "p1"
     || scenario.tags?.includes("ffa-first-draw-included")) return defineScenario(scenario);
   const updated = structuredClone(scenario);

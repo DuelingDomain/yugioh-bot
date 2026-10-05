@@ -61,7 +61,7 @@ export async function recordBoard(
 ): Promise<RecordedDuel> {
   const engine: EngineSpec = {
     mode: compiled.options.mode,
-    firstTurnDraw: firstTurnDrawFor(compiled.options.mode, compiled.options.masterRule, undefined, compiled.options.format),
+    firstTurnDraw: firstTurnDrawFor(compiled.options.mode, compiled.options.masterRule, compiled.options.format),
     ...(compiled.options.masterRule ? { masterRule: compiled.options.masterRule } : {}),
     decks: compiled.options.decks,
     seed: engineSeed,

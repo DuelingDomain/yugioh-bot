@@ -2,24 +2,20 @@ import { expect, it, vi } from "vitest";
 import { firstTurnDrawFor, savedFirstTurnDraw } from "../src/first-turn-draw.js";
 import { savedFuzzFirstTurnDraw } from "../scripts/lib/fuzz-draw-rule.js";
 
-it.each((["legacy", "pinned"] as const).flatMap((engine) =>
-  ([1, 2, 3, 4, 5] as const).map((masterRule) => ({ engine, masterRule })),
-))("$engine 1v1 Domain MR$masterRule skips the turn-1 draw", ({ engine, masterRule }) => {
-  expect(firstTurnDrawFor("domain", masterRule, engine, "1v1")).toBe(false);
+it.each([1, 2, 3, 4, 5] as const)("1v1 Domain MR%s skips the turn-1 draw", (masterRule) => {
+  expect(firstTurnDrawFor("domain", masterRule, "1v1")).toBe(false);
 });
 
-it.each((["legacy", "pinned"] as const).flatMap((engine) =>
-  ([1, 2, 3, 4, 5] as const).map((masterRule) => ({ engine, masterRule })),
-))("$engine 1v1 Standard MR$masterRule keeps the stock rule", ({ engine, masterRule }) => {
-  expect(firstTurnDrawFor("normal", masterRule, engine, "1v1")).toBe(masterRule <= 2);
+it.each([1, 2, 3, 4, 5] as const)("1v1 Standard MR%s keeps the stock rule", (masterRule) => {
+  expect(firstTurnDrawFor("normal", masterRule, "1v1")).toBe(masterRule <= 2);
 });
 
 it.each(["tag", "ffa3", "ffa4"] as const)("%s keeps its Domain and Standard first-draw rules", (format) => {
-  expect(firstTurnDrawFor("domain", 5, "pinned", format)).toBe(true);
-  expect(firstTurnDrawFor("normal", 5, "pinned", format)).toBe(false);
+  expect(firstTurnDrawFor("domain", 5, format)).toBe(true);
+  expect(firstTurnDrawFor("normal", 5, format)).toBe(false);
 });
 
-it("defaults to 1v1 Domain when the format and engine are omitted", () => {
+it("defaults to 1v1 Domain when the format is omitted", () => {
   expect(firstTurnDrawFor("domain")).toBe(false);
 });
 

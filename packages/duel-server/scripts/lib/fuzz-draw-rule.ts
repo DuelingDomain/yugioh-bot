@@ -5,7 +5,7 @@ import { firstTurnDrawFor, savedFirstTurnDraw } from "../../src/first-turn-draw.
 export function savedFuzzFirstTurnDraw(stored: unknown, mode: DuelMode, masterRule: DuelMasterRule = 5, format: DuelFormat = "1v1"): boolean {
   if (stored === undefined) {
     console.warn("Warning: this file has no saved first-turn draw rule; replay uses the current rule.");
-    return firstTurnDrawFor(mode, masterRule, undefined, format);
+    return firstTurnDrawFor(mode, masterRule, format);
   }
   return savedFirstTurnDraw(stored, mode, masterRule, format);
 }

@@ -1,10 +1,9 @@
-import type { DuelEngineChoice, DuelFormat, DuelMasterRule, DuelMode } from "@yugidraft/shared/duels";
+import type { DuelFormat, DuelMasterRule, DuelMode } from "@yugidraft/shared/duels";
 
 /** Resolve the rule once when a duel starts. 1v1 Domain skips turn 1 at every Master Rule. */
 export function firstTurnDrawFor(
   mode: DuelMode,
   masterRule: DuelMasterRule = 5,
-  _engine?: DuelEngineChoice,
   format: DuelFormat = "1v1",
 ): boolean {
   return mode === "domain" ? format !== "1v1" : masterRule <= 2;

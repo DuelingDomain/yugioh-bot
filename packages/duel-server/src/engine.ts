@@ -353,7 +353,7 @@ export async function createEngineGame(options: EngineGameOptions): Promise<Engi
     throw new Error(multi ? `Exactly ${seatCount} decks are required for a ${format} duel` : "Exactly two decks are required");
   }
   const start = engineStartConfig(options.settings);
-  const firstTurnDraw = options.firstTurnDraw ?? firstTurnDrawFor(options.mode, options.masterRule, undefined, format);
+  const firstTurnDraw = options.firstTurnDraw ?? firstTurnDrawFor(options.mode, options.masterRule, format);
   const flags = (duelFlagsFor(options.masterRule) & ~OcgDuelMode.FIRST_TURN_DRAW)
     | (firstTurnDraw ? OcgDuelMode.FIRST_TURN_DRAW : 0n);
   const seed = parseSeed(options.seed);
