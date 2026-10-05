@@ -8,8 +8,8 @@ export type CoinFace = "heads" | "tails";
 
 /** Both faces are fixed art: Blue-Eyes White Dragon is heads, Dark Magician is tails. */
 export const COIN_FACES: Record<CoinFace, { word: string; label: string; code: number; name: string; ring: string; src: string }> = {
-  heads: { word: "HEADS", label: "Heads", code: 89631139, name: "Blue-Eyes White Dragon", ring: "BLUE-EYES WHITE DRAGON", src: "/duel/coin/89631139.jpg" },
-  tails: { word: "TAILS", label: "Tails", code: 46986414, name: "Dark Magician", ring: "DARK MAGICIAN", src: "/duel/coin/46986414.jpg" },
+  heads: { word: "HEADS", label: "Heads", code: 89631139, name: "Blue-Eyes White Dragon", ring: "BLUE-EYES WHITE DRAGON", src: "/duel/coin/89631139.webp" },
+  tails: { word: "TAILS", label: "Tails", code: 46986414, name: "Dark Magician", ring: "DARK MAGICIAN", src: "/duel/coin/46986414.webp" },
 };
 
 export const COIN_TIMING = {

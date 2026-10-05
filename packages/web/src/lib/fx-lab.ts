@@ -23,6 +23,6 @@ export function isFxLabPublicPath(pathname: string): boolean {
     /^\/api\/cards\/\d+\/image$/.test(pathname) ||
     /^\/duel\/[\w-]+\.(webp|svg)$/.test(pathname) ||
     // The coin toss art (the two faces of the coin).
-    /^\/duel\/coin\/\d+\.jpg$/.test(pathname)
+    /^\/duel\/coin\/\d+\.webp$/.test(pathname)
   );
 }

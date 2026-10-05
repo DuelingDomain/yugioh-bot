@@ -76,8 +76,8 @@ describe("fx lab public paths", () => {
     expect(isFxLabPublicPath("/api/cards/89631139/image")).toBe(true);
     expect(isFxLabPublicPath("/duel/card-back-main-hd.webp")).toBe(true);
     expect(isFxLabPublicPath("/duel/x/card-back.webp")).toBe(false);
-    expect(isFxLabPublicPath("/duel/coin/89631139.jpg")).toBe(true);
-    expect(isFxLabPublicPath("/duel/coin/x/89631139.jpg")).toBe(false);
+    expect(isFxLabPublicPath("/duel/coin/89631139.webp")).toBe(true);
+    expect(isFxLabPublicPath("/duel/coin/x/89631139.webp")).toBe(false);
     expect(isFxLabPublicPath("/api/cards/resolve")).toBe(false);
     expect(isFxLabPublicPath("/dev/fx-lab/x")).toBe(false);
   });
