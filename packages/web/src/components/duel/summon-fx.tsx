@@ -2157,7 +2157,7 @@ function trackSetZones(zones: Set<string>, event: DuelEvent, activated: Set<numb
     const from = key(event.from);
     if (from) zones.delete(from);
     if (at) {
-      if (event.faceDown === true && event.reason !== "activate") zones.add(at);
+      if (event.faceDown === true) zones.add(at);
       else zones.delete(at);
     }
   } else if (event.kind === "destroy" && at) zones.delete(at);

@@ -59,9 +59,9 @@ function turns(): Array<Keyframe[]> {
 }
 
 describe("a Spell activated from the hand", () => {
-  // The engine puts the card in its Spell/Trap Zone face-down, then the chain link turns it face-up.
+  // The server sends the activation from the hand face-up (faceDown false, position 0x5) to every viewer.
   const events = (extra: Partial<DuelEvent> = {}): DuelEvent[] => [
-    { id: 1, kind: "move", text: "moved", seat: 0, card: CARDS.mst, from: z(0, HAND, 0), zone: z(0, SZONE, 1), reason: "activate", faceDown: true, ...extra },
+    { id: 1, kind: "move", text: "moved", seat: 0, card: CARDS.mst, from: z(0, HAND, 0), zone: z(0, SZONE, 1), reason: "activate", faceDown: false, ...extra },
     { id: 2, kind: "activate", text: "activate", seat: 0, card: CARDS.mst, zone: z(0, SZONE, 1), chainIndex: 1 },
   ];
 
@@ -71,7 +71,8 @@ describe("a Spell activated from the hand", () => {
     const { rerender } = render(<MoveFx events={[]} duelKey="spell-hand" reducedMotion={false} />);
     rerender(<MoveFx events={events()} duelKey="spell-hand" reducedMotion={false} />);
     act(() => vi.advanceTimersByTime(2000));
-    // A turn from face-up to the sleeve would be a rotateY(180deg) keyframe.
+    // The flight carries the face, and a turn from face-up to the sleeve would be a rotateY(180deg) keyframe.
+    expect(document.querySelector(`img[src*="/cards/${CARDS.mst.code}/"]`)).not.toBeNull();
     for (const frames of turns()) expect(frames.some((frame) => frame.transform === "rotateY(180deg)")).toBe(false);
   });
 
@@ -79,7 +80,7 @@ describe("a Spell activated from the hand", () => {
     vi.useFakeTimers();
     captureZoneSnapshots(board);
     const { rerender } = render(<MoveFx events={[]} duelKey="spell-hand" reducedMotion={false} />);
-    rerender(<MoveFx events={events({ reason: "set" })} duelKey="spell-hand" reducedMotion={false} />);
+    rerender(<MoveFx events={events({ reason: "set", faceDown: true })} duelKey="spell-hand" reducedMotion={false} />);
     act(() => vi.advanceTimersByTime(2000));
     const [turn] = turns();
     expect(turn[turn.length - 1].transform).toBe("rotateY(180deg)");
@@ -113,7 +114,7 @@ function expectNeverBlank(container: HTMLElement) {
 
 describe("a continuous Spell activated from the hand stays on screen", () => {
   const staying: DuelEvent[] = [
-    { id: 1, kind: "move", text: "moved", seat: 0, card: CARDS.mst, from: z(0, HAND, 0), zone: z(0, SZONE, 1), reason: "activate", faceDown: true },
+    { id: 1, kind: "move", text: "moved", seat: 0, card: CARDS.mst, from: z(0, HAND, 0), zone: z(0, SZONE, 1), reason: "activate", faceDown: false },
     { id: 2, kind: "activate", text: "activate", seat: 0, card: CARDS.mst, zone: z(0, SZONE, 1), chainIndex: 1 },
     { id: 3, kind: "chain-resolving", text: "resolve", chainIndex: 1 },
     { id: 4, kind: "chain-resolved", text: "resolved", chainIndex: 1 },

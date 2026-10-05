@@ -324,10 +324,8 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   const toLocation = plan.event.zone?.location;
   const faceUpInPile = toLocation === LOCATION_EXTRA && card != null && (card.type & TYPE_PENDULUM) !== 0;
   const toDeckPile = toLocation === LOCATION_DECK || (toLocation === LOCATION_EXTRA && !faceUpInPile);
-  // A card activated from the hand lands face-up: the engine moves it to its zone face-down and the chain link turns it
-  // over, but the player must see its face the whole time, never its sleeve.
-  const activated = plan.event.reason === "activate";
-  const endUp = card != null && (plan.event.faceDown !== true || activated) && !toDeckPile;
+  // A card activated from the hand arrives face-up: the server sends that move with faceDown false.
+  const endUp = card != null && plan.event.faceDown !== true && !toDeckPile;
   // A destroyed card leaves as the pieces it broke into, never as the intact card.
   const pieces = card != null && source != null ? plan.pieces : null;
   const startAngle = card == null ? 0 : startUp ? 0 : 180;
