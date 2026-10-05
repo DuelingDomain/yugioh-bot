@@ -381,8 +381,7 @@ static void check_chain() {
 		respond_i(d, -1);
 		k = until_prompt(d);
 	}
-	if(chain_prompts_to_p0)
-		std::printf("     note: the base still sent %d chain prompt(s) to eliminated duelist 0 (T3 response cursor must skip it)\n", chain_prompts_to_p0);
+	EXPECT(chain_prompts_to_p0 == 0, "eliminated duelist 0 received %d chain prompts", chain_prompts_to_p0);
 	int i72 = -1, i76 = -1, i73 = -1, i40 = -1, i200 = -1;
 	for(size_t i = mark; i < all_msgs.size(); ++i) {
 		const uint8_t id = all_msgs[i].id;

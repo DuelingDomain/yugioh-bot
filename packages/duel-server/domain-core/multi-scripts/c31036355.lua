@@ -32,6 +32,7 @@ end
 function s.activate(e,tp,eg,ep,ev,re,r,rp)
 	if Duel.MPMode()~=1 then return stock_activate(e,tp,eg,ep,ev,re,r,rp) end
 	if not all_have_monster() then return end
+	if Duel.MPBeginControlRotation then Duel.MPBeginControlRotation() end
 	local chosen=Group.CreateGroup()
 	each_turn(function(p)
 		Duel.Hint(HINT_SELECTMSG,p,HINTMSG_CONTROL)
