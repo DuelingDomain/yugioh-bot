@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { createCardCatalogService } from "@yugidraft/shared/services";
 import { ensureCatalogCards } from "../src/lib/cube-pool";
@@ -19,5 +19,33 @@ it("materializes engine-only artwork IDs before a cube can reference them", asyn
     expect(await ensureCatalogCards(catalog, [89631147])).toEqual([]);
     expect(catalog.hasCatalogRow(89631147)).toBe(true);
     expect(catalog.canonicalId(89631147)).toBe(89631139);
+  } finally { db.close(); }
+});
+
+it("saves a legacy 100-card cube without artwork requests when the API is offline", async () => {
+  const db = new Database(":memory:"); migrate(db);
+  const ids = Array.from({ length: 100 }, (_, i) => 10000000 + i);
+  const insert = db.prepare(`insert into card_catalog
+    (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+    values (?,'Legacy','Effect Monster','effect','full','small','[]','old')`);
+  for (const id of ids) insert.run(id);
+  const fetch = vi.fn(async () => { throw new Error("offline"); });
+  const catalog = createCardCatalogService(db, { identityCatalog: new Map(), fetch });
+  try {
+    await expect(ensureCatalogCards(catalog, ids)).resolves.toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  } finally { db.close(); }
+});
+
+it("fills Extra Deck artworks once across repeated cube checks", async () => {
+  const db = new Database(":memory:"); migrate(db);
+  const card = { id: 44508094, name: "Stardust Dragon", type: "Synchro Monster", frameType: "synchro",
+    card_images: [{ id: 44508094, image_url: "full", image_url_small: "small" }] };
+  const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ data: [card] }) }));
+  const catalog = createCardCatalogService(db, { identityCatalog: new Map(), fetch });
+  try {
+    for (let i = 0; i < 3; i++) expect(await ensureCatalogCards(catalog, [card.id])).toEqual([]);
+    expect(catalog.hasArtworks(card.id)).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(2);
   } finally { db.close(); }
 });

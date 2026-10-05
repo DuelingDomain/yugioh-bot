@@ -74,11 +74,14 @@ describe("card artwork mapping", () => {
     expect(calls).toHaveLength(2);
   });
 
-  it("refreshes legacy custom rows on their next sync", async () => {
+  it("uses legacy custom rows until a normal set sync fills their artworks", async () => {
     const { db, catalog, calls } = setup();
     db.prepare("insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (81480461,'Barrel Dragon','Effect Monster','effect','old','old','[]','old')").run();
     await catalog.syncDraftPool({ setNames: [], customCardIds: [81480461], includeNames: [], excludeNames: [] });
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(0);
+    expect(catalog.findByIds([81480461])).toHaveLength(1);
+    await catalog.syncDraftPool({ setNames: ["Artwork Test Set"], includeNames: [], excludeNames: [] });
+    expect(calls).toHaveLength(1);
     expect(catalog.listArtworks(81480460)).toHaveLength(2);
   });
 
@@ -229,6 +232,83 @@ describe("card artwork mapping", () => {
     await catalog.syncCardByName("Blue-Eyes White Dragon");
     expect((await catalog.syncCardById(89631140))?.imageUrlCropped).toBe("https://example.com/cached-family-crop.jpg");
     expect(catalog.listArtworks(89631139)).toHaveLength(2);
+  });
+});
+
+describe("artwork fetch limits", () => {
+  it("uses 100 legacy cube rows without calls or requests in flight, even when the API returns 429", async () => {
+    const { db } = setup();
+    const ids = Array.from({ length: 100 }, (_, i) => 10000000 + i);
+    const insert = db.prepare(`insert into card_catalog
+      (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+      values (?,'Legacy','Effect Monster','effect','full','small','[]','old')`);
+    for (const id of ids) insert.run(id);
+    let calls = 0, inFlight = 0, maxInFlight = 0;
+    const catalog = createCardCatalogService(db, { identityCatalog: new Map(), fetch: async () => {
+      calls++; inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve(); inFlight--;
+      return { ok: false, status: 429, json: async () => ({}) };
+    } });
+    await expect(catalog.syncDraftPool({ setNames: [], customCardIds: ids, includeNames: [], excludeNames: [] })).resolves.toBeDefined();
+    const cubes = createCubeService(db, catalog);
+    const cube = cubes.createBlank("g", "Legacy 100", "u");
+    await expect(cubes.importPasscodes(cube.id, ids)).resolves.toEqual({ added: 100, unknown: [] });
+    expect(catalog.findByIds(ids)).toHaveLength(100);
+    expect(calls).toBe(0);
+    expect(maxInFlight).toBe(0);
+    expect(db.prepare("select count(*) as n from card_artworks").get()).toEqual({ n: 0 });
+  });
+
+  it("caches Extra Deck artworks while keeping them out of the draft pool", async () => {
+    const { db } = setup();
+    const card = { ...fixtures[0], id: 44508094, name: "Stardust Dragon", type: "Synchro Monster", frameType: "synchro",
+      card_images: [{ ...fixtures[0].card_images[0], id: 44508094 }] };
+    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ data: [card] }) }));
+    const catalog = createCardCatalogService(db, { identityCatalog: new Map(), fetch });
+    for (let i = 0; i < 3; i++) {
+      expect(await catalog.syncDraftPool({ setNames: [], customCardIds: [card.id], includeNames: [], excludeNames: [] })).toEqual([]);
+    }
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(catalog.hasArtworks(card.id)).toBe(true);
+  });
+
+  it("keeps an ID response when its optional artwork name fetch fails", async () => {
+    const { db } = setup();
+    const catalog = createCardCatalogService(db, { identityCatalog: identity, fetch: async (input) => {
+      const byId = new URL(String(input)).searchParams.has("id");
+      return { ok: byId, status: byId ? 200 : 429, json: async () => ({ data: [fixtures[0]] }) };
+    } });
+    await expect(catalog.syncDraftPool({ setNames: [], customCardIds: [81480461], includeNames: [], excludeNames: [] })).resolves.toHaveLength(1);
+    expect(catalog.hasArtworks(81480461)).toBe(true);
+  });
+
+  it("shares a four-request limit and spaces starts across catalog services", async () => {
+    vi.resetModules();
+    const { createCardCatalogService: create } = await import("../../src/services/card-catalog.js");
+    const { db } = setup();
+    vi.useFakeTimers();
+    const starts: number[] = [];
+    let inFlight = 0, maxInFlight = 0;
+    const fetch = async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      const id = Number(url.searchParams.get("id") ?? url.searchParams.get("name"));
+      starts.push(Date.now()); inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+      return { ok: true, json: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        inFlight--;
+        return { data: [{ ...fixtures[0], id, name: String(id), card_images: [{ ...fixtures[0].card_images[0], id }] }] };
+      } };
+    };
+    const catalogs = [create(db, { identityCatalog: new Map(), fetch }), create(db, { identityCatalog: new Map(), fetch })];
+    try {
+      const jobs = Array.from({ length: 10 }, (_, i) => catalogs[i % 2].syncCardById(10000000 + i));
+      await vi.runAllTimersAsync();
+      await Promise.all(jobs);
+      expect(starts).toHaveLength(20);
+      expect(maxInFlight).toBeLessThanOrEqual(4);
+      for (let i = 1; i < starts.length; i++) expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(125);
+      for (const start of starts) expect(starts.filter((time) => time >= start && time < start + 1000).length).toBeLessThanOrEqual(8);
+    } finally { vi.useRealTimers(); }
   });
 });
 

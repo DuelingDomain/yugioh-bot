@@ -67,6 +67,41 @@ const YGOPRODECK_CARDSETS_URL = "https://db.ygoprodeck.com/api/v7/cardsets.php";
 const YGOPRODECK_ARCHETYPES_URL = "https://db.ygoprodeck.com/api/v7/archetypes.php";
 const EXTRA_DECK_FRAME_TYPES = new Set(["fusion", "synchro", "xyz", "link"]);
 
+// Share the API budget across catalog instances in this process. Hold a slot
+// until JSON has been read; space starts to at most eight calls per second.
+const requestQueue: Array<() => void> = [];
+let activeRequests = 0;
+let nextRequestAt = 0;
+let requestTimer: ReturnType<typeof setTimeout> | undefined;
+
+function startCardRequests(): void {
+  if (requestQueue.length === 0 || activeRequests >= 4) return;
+  const delay = nextRequestAt - Date.now();
+  if (delay > 0) {
+    requestTimer ??= setTimeout(() => {
+      requestTimer = undefined;
+      startCardRequests();
+    }, delay);
+    return;
+  }
+  activeRequests++;
+  nextRequestAt = Date.now() + 125;
+  requestQueue.shift()!();
+  startCardRequests();
+}
+
+function scheduleCardRequest<T>(request: () => Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    requestQueue.push(() => {
+      request().then(resolve, reject).finally(() => {
+        activeRequests--;
+        startCardRequests();
+      });
+    });
+    startCardRequests();
+  });
+}
+
 function normalizeName(name: string) {
   return name.trim().toLowerCase();
 }
@@ -159,7 +194,7 @@ export function createCardCatalogService(
     return fetchImpl(input, init);
   };
 
-  const fetchCardsWith = async (params: Record<string, string>, options: { allowNoMatch?: boolean } = {}) => {
+  const fetchCardsWith = (params: Record<string, string>, options: { allowNoMatch?: boolean } = {}) => scheduleCardRequest(async () => {
     const url = new URL(YGOPRODECK_API_URL);
     for (const [key, value] of Object.entries(params)) {
       url.searchParams.set(key, value);
@@ -186,7 +221,7 @@ export function createCardCatalogService(
 
     const payload = (await response.json()) as { data?: YgoprodeckCard[] };
     return payload.data ?? [];
-  };
+  });
 
   const fetchCards = (searchParam: "cardset" | "id" | "name" | "fname", value: string) =>
     fetchCardsWith({ [searchParam]: value });
@@ -196,8 +231,16 @@ export function createCardCatalogService(
   const enrichArtworkFamilies = async (cards: YgoprodeckCard[]): Promise<YgoprodeckCard[]> => {
     const enriched: YgoprodeckCard[] = [];
     for (const card of cards) {
-      const named = (await fetchCardsWith({ name: card.name }, { allowNoMatch: true }))
-        .find((candidate) => normalizeName(candidate.name) === normalizeName(card.name) && candidate.type === card.type);
+      // Extra artwork discovery is optional. Keep the usable ID response if
+      // the API is offline or rate limited; a later bulk sync can fill it.
+      let named: YgoprodeckCard | undefined;
+      try {
+        named = (await fetchCardsWith({ name: card.name }, { allowNoMatch: true }))
+          .find((candidate) => normalizeName(candidate.name) === normalizeName(card.name) && candidate.type === card.type);
+      } catch {
+        enriched.push(card);
+        continue;
+      }
       const images = new Map((named?.card_images ?? []).map((image) => [image.id ?? named!.id, image]));
       for (const image of card.card_images) {
         const artworkId = image.id ?? card.id;
@@ -386,7 +429,9 @@ export function createCardCatalogService(
       // cube can carry hundreds of passcodes already synced via their sets;
       // re-fetching each one individually makes saves take many seconds.
       const distinctCustomIds = [...new Set(input.customCardIds ?? [])];
-      const missingCustomIds = distinctCustomIds.filter((id) => !hasArtworks(id));
+      // Artwork rows on an existing catalog are filled by normal bulk syncs,
+      // never as a condition of starting a draft or saving a cube.
+      const missingCustomIds = distinctCustomIds.filter((id) => !hasCatalogRow(id));
       const fetchedCustomCards = await Promise.all(
         missingCustomIds.map(fetchArtworkFamily),
       );
@@ -398,12 +443,14 @@ export function createCardCatalogService(
       const cardsToCache: YgoprodeckCard[] = [];
 
       for (const card of [...fetchedSets.flat(), ...fetchedCustomCards.flat(), ...fetchedIncludes.flat()]) {
-        if (excludedNames.has(normalizeName(card.name)) || isExtraDeckCard(card)) {
+        if (excludedNames.has(normalizeName(card.name))) {
           continue;
         }
 
-        seenIds.add(mainId(card));
+        // Cache Extra Deck artwork metadata too, but leave it out of the
+        // automatic main pool returned to the draft.
         cardsToCache.push(card);
+        if (!isExtraDeckCard(card)) seenIds.add(mainId(card));
       }
 
       upsertCards(cardsToCache);
@@ -434,6 +481,7 @@ export function createCardCatalogService(
     },
 
     async syncCardById(id: number): Promise<CardCatalogCard | undefined> {
+      if (hasCatalogRow(id) && !hasArtworks(id)) return findByIds([id])[0];
       const [card] = await fetchArtworkFamily(id);
       if (!card) {
         ensureEngineArtwork(id);

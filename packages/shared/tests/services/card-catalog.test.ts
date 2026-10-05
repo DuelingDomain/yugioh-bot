@@ -102,7 +102,7 @@ describe("shared card catalog service", () => {
       },
     );
 
-    await app.catalog.syncDraftPool({
+    const pool = await app.catalog.syncDraftPool({
       setNames: ["Metal Raiders"],
       includeNames: ["Raigeki"],
       excludeNames: ["Time Wizard"],
@@ -112,6 +112,7 @@ describe("shared card catalog service", () => {
       "https://db.ygoprodeck.com/api/v7/cardinfo.php?cardset=Metal+Raiders",
       "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Raigeki",
     ]);
+    expect(pool.map((card) => card.ygoprodeckId)).toEqual([summonedSkull.id, raigeki.id]);
     expect(app.catalog.findByIds([raigeki.id, summonedSkull.id, timeWizard.id, thousandDragon.id])).toEqual([
       expect.objectContaining({
         ygoprodeckId: raigeki.id,
@@ -121,8 +122,10 @@ describe("shared card catalog service", () => {
         ygoprodeckId: summonedSkull.id,
         name: "Summoned Skull",
       }),
+      expect.objectContaining({ ygoprodeckId: thousandDragon.id, name: "Thousand Dragon" }),
     ]);
-    expect(app.db.prepare("select count(*) as count from card_catalog").get()).toEqual({ count: 2 });
+    expect(app.catalog.hasArtworks(thousandDragon.id)).toBe(true);
+    expect(app.db.prepare("select count(*) as count from card_catalog").get()).toEqual({ count: 3 });
   });
 
   it("syncs custom card ids into the local catalog", async () => {
