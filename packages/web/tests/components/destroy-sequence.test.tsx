@@ -6,6 +6,7 @@ import type { DuelCardInfo, DuelEvent, DuelZoneRef } from "@yugidraft/shared/due
 import { SummonFx } from "@/components/duel/summon-fx";
 import { MoveFx } from "@/components/duel/move-fx";
 import { ChainFx } from "@/components/duel/chain-fx";
+import { clearBattleHolds } from "@/components/duel/battle-hold";
 import { BattleFx } from "@/components/duel/battle-fx";
 import { getMovePlan, resetMoveSchedule } from "@/components/duel/move-plan";
 import { resetChainBeats } from "@/components/duel/chain-beats";
@@ -48,6 +49,7 @@ beforeEach(() => {
   resetMoveSchedule("x");
   resetChainBeats("x");
   resetEffectSequence();
+  clearBattleHolds();
   setAnimationSpeed(1);
   duelFxClock.setReducedMotion(false);
   duelFxClock.resetReviewTimeline();
@@ -71,8 +73,10 @@ const PHOENIX = { ...C.solemn, code: 63356631, name: "Phoenix Wing Wind Blast" }
 
 type Victim = { card: DuelCardInfo; at: DuelZoneRef; /** The zone showed the card face (a Set card does not). */ up: boolean; defense?: boolean };
 
-function Board({ events, victims, committed }: { events: DuelEvent[]; victims: Victim[]; committed: boolean }) {
-  const keys = new Set<string>(["0:8:1", "0:16:0", "1:16:0", "1:1:0", "1:32:0", "0:2:0", ...victims.map((v) => key(v.at))]);
+type BoardProps = { events: DuelEvent[]; victims: Victim[]; committed: boolean; reduced?: boolean; /** A card that stays on its zone all the time (the attacker of a fight). */ stays?: Victim[] };
+
+function Board({ events, victims, committed, reduced = false, stays = [] }: BoardProps) {
+  const keys = new Set<string>(["0:8:1", "0:16:0", "1:16:0", "1:1:0", "1:32:0", "0:2:0", ...victims.map((v) => key(v.at)), ...stays.map((v) => key(v.at))]);
   return (
     <div>
       <div data-hand-seat="1" data-side="opp"><div data-hand-card="true" data-hand-id="h1"><div data-zones="1:2:0" data-side="opp"><span data-card-art /></div></div></div>
@@ -83,18 +87,21 @@ function Board({ events, victims, committed }: { events: DuelEvent[]; victims: V
             {victim && !committed ? (
               <span data-card-art>{victim.up ? <img src={`/api/cards/${victim.card.code}/image?size=small`} alt="" /> : null}</span>
             ) : null}
+            {stays.filter((v) => key(v.at) === k).map((v) => (
+              <span key={v.card.code} data-card-art><img src={`/api/cards/${v.card.code}/image?size=small`} alt="" /></span>
+            ))}
           </div>
         );
       })}
-      <SummonFx events={events} duelKey="x" reducedMotion={false} shake="off" />
-      <MoveFx events={events} duelKey="x" reducedMotion={false} />
-      <BattleFx events={events} reducedMotion={false} />
-      <ChainFx events={events} chain={[]} duelKey="x" reducedMotion={false} mySeat={0} playerName={() => "P"} />
+      <SummonFx events={events} duelKey="x" reducedMotion={reduced} shake="off" />
+      <MoveFx events={events} duelKey="x" reducedMotion={reduced} />
+      <BattleFx events={events} reducedMotion={reduced} />
+      <ChainFx events={events} chain={[]} duelKey="x" reducedMotion={reduced} mySeat={0} playerName={() => "P"} />
     </div>
   );
 }
 
-type Reps = { whole: number; ghost: number; shards: number; sleeve: boolean };
+type Reps = { whole: number; ghost: number; shards: number; sleeve: boolean; standIn: number; onZone: number };
 const SAMPLE_MS = 25;
 const RUN_MS = 9000;
 
@@ -113,15 +120,21 @@ function repsOf(root: HTMLElement, code: number): Reps {
     return flipper != null && flipper.style.display !== "none" && flipper.style.transform.includes("rotateY(180deg)");
   }) ||
     whole.some((el) => el.getAttribute("data-face") === "down");
-  return { whole: whole.length, ghost: ghosts.length, shards: shards.length > 0 ? 1 : 0, sleeve };
+  // Reduced motion: the card stands on its source zone (sleeve or face) until it fades out there.
+  const standIn = [...root.querySelectorAll("[data-stand-in]")].filter((el) => holds(el) && shows(el)).length;
+  // The fight's own copy of the card (BattleFx: a data-style layer that is not a MoveFx ghost).
+  const onZone = ghosts.filter((el) => !/ghost/.test(el.className)).length;
+  return { whole: whole.length, ghost: ghosts.length, shards: shards.length > 0 ? 1 : 0, sleeve, standIn, onZone };
 }
-const total = (r: Reps) => r.whole + r.ghost + r.shards;
+const total = (r: Reps) => r.whole + r.ghost + r.shards + r.standIn;
 
 type Run = { samples: Reps[][]; planOf: (id: number) => ReturnType<typeof getMovePlan> };
 
-async function play(events: DuelEvent[], victims: Victim[]): Promise<Run> {
-  const view = render(<Board events={[]} victims={victims} committed={false} />);
-  view.rerender(<Board events={withDestroyCards(events) as DuelEvent[]} victims={victims} committed />);
+async function play(events: DuelEvent[], victims: Victim[], options: { reduced?: boolean; stays?: Victim[] } = {}): Promise<Run> {
+  const { reduced = false, stays = [] } = options;
+  duelFxClock.setReducedMotion(reduced);
+  const view = render(<Board events={[]} victims={victims} committed={false} reduced={reduced} stays={stays} />);
+  view.rerender(<Board events={withDestroyCards(events) as DuelEvent[]} victims={victims} committed reduced={reduced} stays={stays} />);
   const samples: Reps[][] = [];
   for (let t = 0; t <= RUN_MS; t += SAMPLE_MS) {
     if (t) await act(async () => { vi.advanceTimersByTime(SAMPLE_MS); });
@@ -306,5 +319,61 @@ describe("an effect that hits a card keeps it on screen from its zone to its des
     ];
     const run = await play(events, [victim]);
     expectOneCardUntilLanding(run, 0, 4);
+  });
+
+  it("a battle destroy with reduced motion: one copy on the zone at every sample (BattleFx draws it, no stand-in)", async () => {
+    const at = zone(1, MZONE, 1);
+    const victim: Victim = { card: C.giantSoldier, at, up: true };
+    const attacker: Victim = { card: C.darkMagician, at: zone(0, MZONE, 1), up: true };
+    const events = [
+      ev({ id: 1, kind: "phase", text: "battle" }),
+      ev({ id: 2, kind: "attack", seat: 0, zone: zone(0, MZONE, 1), target: at }),
+      ev({ id: 3, kind: "damage", seat: 1, amount: 300, cause: "battle" }),
+      ev({ id: 4, kind: "move", card: C.giantSoldier, from: at, zone: zone(1, GRAVE, 0), reason: "destroy" }),
+      destroyOf(5, C.giantSoldier, at, { cause: "battle" }),
+    ];
+    const run = await play(events, [victim], { reduced: true, stays: [attacker] });
+    const plan = run.planOf(4);
+    expect(plan?.reduced).toBe(true);
+    expect(plan?.battleHeld, "a fight holds the destroy").toBe(true);
+    // The layers that stand on the zone: a stand-in, a break stand-in, and the fight's own copy of the card.
+    const onZone = run.samples.map((s) => s[0].standIn + s[0].whole + s[0].onZone);
+    expect(Math.max(...onZone)).toBeLessThanOrEqual(1);
+    expect(run.samples.every((s) => s[0].standIn === 0), "no source stand-in under a fight").toBe(true);
+    expect(onZone[0], "the card shows from the first frame").toBe(1);
+    // The fight's copy stays until the card fades in on the Graveyard: no blank sample before it.
+    const firstDest = run.samples.findIndex((s) => s[0].ghost - s[0].onZone > 0);
+    expect(firstDest).toBeGreaterThan(0);
+    onZone.slice(0, firstDest).forEach((n, i) => expect(n, `+${i * SAMPLE_MS} ms: the card is missing`).toBe(1));
+  });
+
+  it("a bounce to the hand with reduced motion: the card stays on its zone until the showcase fades in, never twice", async () => {
+    const at = zone(1, MZONE, 1);
+    const victim: Victim = { card: C.celtic, at, up: true };
+    const events = [
+      ...source(1, C.mst, zone(0, SZONE, 1)),
+      ev({ id: 4, kind: "move", card: C.celtic, from: at, zone: zone(1, HAND, 0), reason: "return", addedToHand: true, handId: "h1" }),
+      ev({ id: 5, kind: "chain-resolved", chainIndex: 1 }),
+      sourceSent(6, C.mst, zone(0, SZONE, 1)),
+      ev({ id: 7, kind: "chain-end" }),
+    ];
+    const run = await play(events, [victim], { reduced: true });
+    const plan = run.planOf(4);
+    expect(plan?.reduced).toBe(true);
+    expect(plan?.style).toBe("add");
+    const series = run.samples.map((s) => s[0]);
+    expect(series[0].standIn, "the card shows on its zone from the first frame").toBe(1);
+    const firstShow = series.findIndex((r) => r.ghost > 0);
+    expect(firstShow, "the showcase fades in").toBeGreaterThan(0);
+    // No blank sample until the showcase shows, and the stand-in is gone when it is on.
+    series.slice(0, firstShow).forEach((r, i) => expect(total(r), `+${i * SAMPLE_MS} ms: the card is missing`).toBe(1));
+    // The stand-in fades out while the showcase fades in: a short overlap, never a third layer.
+    series.forEach((r, i) => expect(total(r), `+${i * SAMPLE_MS} ms: shown ${JSON.stringify(r)}`).toBeLessThanOrEqual(2));
+    const overlap = series.filter((r) => r.standIn > 0 && r.ghost > 0).length;
+    expect(overlap).toBeLessThanOrEqual(Math.ceil(plan!.showcase!.phases.riseMs / SAMPLE_MS) + 2);
+    // Between the showcase and the hand the card is always on screen once.
+    const lastShow = series.map((r) => r.ghost).lastIndexOf(1);
+    series.slice(firstShow, lastShow).forEach((r, i) => expect(total(r), `showcase +${i * SAMPLE_MS} ms`).toBeGreaterThanOrEqual(1));
+    expect(series[series.length - 1].standIn).toBe(0);
   });
 });

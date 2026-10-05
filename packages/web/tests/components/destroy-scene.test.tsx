@@ -10,6 +10,7 @@ import { DestroyFx } from "@/components/duel/destroy-fx";
 import { MOVE_TIMING, resetMoveSchedule } from "@/components/duel/move-plan";
 import { resetChainBeats } from "@/components/duel/chain-beats";
 import { resetEffectSequence } from "@/components/duel/effect-sequence";
+import { clearBattleHolds } from "@/components/duel/battle-hold";
 import { withDestroyCards } from "@/components/duel/destroy-cards";
 import { duelFxClock } from "@/components/duel/fx-clock";
 import { setAnimationSpeed } from "@/components/duel/animation-speed";
@@ -50,6 +51,8 @@ beforeEach(() => {
   resetMoveSchedule("x");
   resetChainBeats("x");
   resetEffectSequence();
+  // A 3D wipe arms a battle hold on each zone it clears: it must not reach the next test.
+  clearBattleHolds();
   setAnimationSpeed(1);
   duelFxClock.setReducedMotion(false);
   duelFxClock.resetReviewTimeline();

@@ -45,7 +45,8 @@ No new animation look was added. Only timing and the stand-in pose changed.
 | 3D Solid Vision, 3-way, 4-way, Tag | Not the same code path as 2D (see "3D wipes"). Tag, table and lab mounts use `withDestroyCards`. Tested with a mocked canvas, not checked in a browser |
 
 Tests: `packages/web/tests/components/destroy-sequence.test.tsx` (fake timers, a sample of the overlay every
-25 ms: one card shown from the first frame to the landing, never two) and
+25 ms: one card shown from the first frame to the landing, never two; it also runs a reduced-motion battle destroy
+and a reduced-motion bounce) and
 `packages/web/tests/components/destroy-cards.test.ts` (the reason, zone, claim and gap rules of `withDestroyCards`) and
 `packages/web/tests/components/destroy-scene.test.tsx` (scene layer, reduced motion: `useFx3d` is mocked and the test checks what
 the scene receives).
@@ -64,11 +65,16 @@ break. Two rules keep the zone right until the scene takes the card:
 
 ## Reduced motion
 
-A "fade" plan under reduced motion (`standsInAtSource` in `move-plan.ts`) now stands in at the source too, destroy
-or not. `MoveFx` puts a stand-in on the source zone (opacity 1 from the first frame, the pose and face the card
-had, the sleeve for a Set card). It waits there until `startAt` and fades out on the zone while the card fades in
-on its pile. The card does not travel, so the reduced-motion rule holds. Before this, the zone was blank for the
-whole wait (1650 ms in the MST case) and the card showed on the Graveyard for 100 ms.
+A card that leaves a field zone under reduced motion does not travel. It keeps a stand-in on its source zone
+(`source-stand-in.tsx`: opacity 1 from the first frame, the pose and face it had, the sleeve for a Set card) until
+its own fade-out, which starts with the existing reduced fade:
+
+- A "fade" plan (`standsInAtSource` in `move-plan.ts`, destroy or not): `MoveFx` fades the stand-in out on the zone
+  while the card fades in on its pile. Before this, the zone was blank for the whole wait (1650 ms in the MST case).
+- A bounce to the hand (`add-fx.tsx`): the stand-in fades out over the rise while the showcase fades in at its spot.
+- A destroy that a fight holds (`plan.battleHeld`, `battleDestroyAt > 0`) gets no stand-in: `BattleFx` draws the
+  card on its zone until the break, and a second copy showed twice.
+- A Tribute keeps its own layer and gets no stand-in.
 
 ## Card of a card-less destroy
 
