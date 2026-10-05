@@ -215,6 +215,18 @@
   transition: box-shadow 0.7s cubic-bezier(0.65, 0, 0.35, 1);
 }
 
+/* Floating HUD room (1v1): the board is height-bound, so every pixel of chrome inside the frame is card. The
+   padding is trimmed and the hand rests a little lower, so it overlaps the front Spell/Trap row more
+   (it still rises to full size on hover). Phones keep the compact rules below. */
+@container (min-width: 641px) {
+  :global([data-hud="room"]) .playmat {
+    --py: 2px;
+    --gs: 2px;
+    --hpad: 3px;
+    --lk: 0.45;
+  }
+}
+
 .felt[data-battle="true"] .playmat {
   box-shadow:
     0 0 40px -12px rgb(217 141 82 / 0.3),
