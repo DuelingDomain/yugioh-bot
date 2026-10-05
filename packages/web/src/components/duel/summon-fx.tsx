@@ -672,23 +672,27 @@ function ActivateFx({ item, overlay, done }: EffectProps) {
       const activationMs = item.reduced ? CARD_FX.reducedEffectMs : CARD_FX.activationMs;
       const total = Math.max(activationMs, item.activationHoldMs ?? 0);
       const flips = flat && !item.plan && !item.reduced;
+      // A card that flew in from the hand was showing its face the whole way: its copy is whole from the first frame and
+      // the real card stays in its zone. Fading the copy in over a hidden card left the zone blank for a moment.
+      const arrived = item.plan != null;
+      const startOpacity = arrived ? 1 : 0;
       const initialTransform = flips ? "perspective(520px) rotateY(84deg)" : "none";
       const finalTransform = flips ? "perspective(520px) rotateY(0deg)" : "none";
       // The face turns over fast, then stays up (CARD_FX.activationFaceMs) and fades in the last part of it.
       const flipAt = item.reduced ? 0.4 * activationMs / total : CARD_FX.activationFlipMs / total;
       const fadeAt = (activationMs - (item.reduced ? 0.25 * activationMs : CARD_FX.activationFadeMs)) / total;
       const frames: Keyframe[] = item.activationHoldMs ? [
-        { opacity: 0, transform: initialTransform },
+        { opacity: startOpacity, transform: initialTransform },
         { opacity: 1, transform: finalTransform, offset: flipAt },
         { opacity: 1, offset: 0.9999 }, { opacity: 0 },
-      ] : [{ opacity: 0, transform: initialTransform }, { opacity: 1, transform: finalTransform, offset: flipAt }, { opacity: 1, offset: fadeAt }, { opacity: 0 }];
+      ] : [{ opacity: startOpacity, transform: initialTransform }, { opacity: 1, transform: finalTransform, offset: flipAt }, { opacity: 1, offset: fadeAt }, { opacity: 0 }];
       track.play(ghost.current, frames, {
         duration: total,
         delay: d,
         easing: "cubic-bezier(0.25, 0.8, 0.3, 1)",
       });
       // A copy survives the source node disappearing in a later response snapshot.
-      if (art?.querySelector(`img[src*="/cards/${item.card?.code}/image"]`)) holdHidden(track, zone, Math.max(0, d + total));
+      if (!arrived && art?.querySelector(`img[src*="/cards/${item.card?.code}/image"]`)) holdHidden(track, zone, Math.max(0, d + total));
     }
     if (item.reduced) track.play(edge.current, [{ opacity: 0 }, { opacity: 1, offset: 0.25 }, { opacity: 0 }], { duration: CARD_FX.reducedEffectMs, delay: d });
     else pulseRing(track, edge.current, d + 80, { grow: 1.16, duration: 700, peak: 1 });
