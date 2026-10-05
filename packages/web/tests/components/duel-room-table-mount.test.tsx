@@ -409,12 +409,12 @@ describe("live room table mount", () => {
     const setOwnSeat = (patch: Record<string, unknown>) => {
       state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, ...patch } : seat);
     };
-    function mountThenEliminate(fixtures: typeof FFA3_FIXTURES | typeof FFA4_FIXTURES) {
+    function mountThenEliminate(fixtures: typeof FFA3_FIXTURES | typeof FFA4_FIXTURES, windowed = true) {
       vi.useFakeTimers();
       room(fixtures.states.main.room);
-      const view = mount();
+      const view = mount(windowed);
       setOwnSeat({ eliminated: true });
-      view.rerender(<DuelRoomView slug="live" windowed />);
+      view.rerender(<DuelRoomView slug="live" windowed={windowed} />);
       return view;
     }
 
@@ -466,6 +466,24 @@ describe("live room table mount", () => {
       view.rerender(<DuelRoomView slug="live" windowed />);
       act(() => { vi.advanceTimersByTime(WAIT * 2); });
       expect(state.replace).not.toHaveBeenCalled();
+    });
+
+    it.each([FFA3_FIXTURES, FFA4_FIXTURES])("does not spectate over Leave room clicked during the $format wait", (fixtures) => {
+      // Not windowed: a window exit closes the jsdom window itself.
+      mountThenEliminate(fixtures, false);
+      fireEvent.click(screen.getByRole("button", { name: "Leave room" }));
+      act(() => { vi.advanceTimersByTime(WAIT * 2); });
+      expect(state.replace).toHaveBeenCalledExactlyOnceWith("/duels");
+    });
+
+    it.each([FFA3_FIXTURES, FFA4_FIXTURES])("spectates at once for $format on stage=legacy", (fixtures) => {
+      window.history.replaceState(null, "", "/duels/live?stage=legacy");
+      vi.useFakeTimers();
+      room(fixtures.states.main.room);
+      const view = mount();
+      setOwnSeat({ eliminated: true });
+      view.rerender(<DuelRoomView slug="live" windowed legacyStage />);
+      expect(state.replace).toHaveBeenCalledExactlyOnceWith("/duels/live?stage=legacy&spectate=1&window=1");
     });
 
     it.each([FFA3_FIXTURES, FFA4_FIXTURES])("does not spectate when the $format room unmounts during the wait", (fixtures) => {
