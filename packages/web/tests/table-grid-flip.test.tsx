@@ -10,7 +10,7 @@ vi.mock("next/font/google", () => {
 
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
-import { boxAt, boxOf, boxesDiffer, flipDelta, flipTransform, playFlip, visualBox, type FlipTrack } from "@/components/duel/table/grid-flip";
+import { boxAt, boxOf, boxesDiffer, flipDelta, flipTransform, playFlip, textFadeAt, visualBox, type FlipTrack } from "@/components/duel/table/grid-flip";
 import { TableShell } from "@/components/duel/table/table-shell";
 
 describe("flip boxes", () => {
@@ -68,12 +68,24 @@ function Shell({ reduced }: { reduced: boolean }) {
   return <TableShell controller={controller} />;
 }
 
-type Call = { el: HTMLElement; frames: Keyframe[]; options: KeyframeAnimationOptions };
+type Call = { el: HTMLElement; frames: Keyframe[]; options: KeyframeAnimationOptions; finish: () => void };
+/**
+ * A WAAPI stand-in that plays the keyframes: the first one is on the element while the move runs, `finish()` puts the last
+ * one there and fires the finish listeners (the jsdom default never runs a move, so "no transform at rest" proved nothing).
+ */
 function stubAnimate(): Call[] {
   const calls: Call[] = [];
   (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: HTMLElement, frames: Keyframe[], options: KeyframeAnimationOptions) {
-    calls.push({ el: this, frames, options });
-    return { cancel: vi.fn(), addEventListener: vi.fn(), effect: null };
+    const el = this;
+    const listeners: Array<() => void> = [];
+    const isMove = frames.some((frame) => frame.transform != null);
+    if (isMove) el.style.transform = String(frames[0].transform);
+    const finish = () => {
+      if (isMove) el.style.transform = String(frames[frames.length - 1].transform) === "none" ? "" : String(frames[frames.length - 1].transform);
+      for (const listener of listeners) listener();
+    };
+    calls.push({ el, frames, options, finish });
+    return { cancel: vi.fn(), addEventListener: (_: string, listener: () => void) => listeners.push(listener), effect: null };
   };
   return calls;
 }
@@ -97,7 +109,10 @@ describe("GridStage FLIP", () => {
     expect(String(move[0].transform)).toMatch(/^translate\(.*\) scale\(/);
     // the life panel text fades while the panel moves
     expect(calls.some((call) => call.el.hasAttribute("data-holo-text") && call.frames.some((frame) => frame.offset === 0.7))).toBe(true);
-    // at rest the boxes carry no inline transform
+    // while the move runs the boxes show the old place, and when it ends they carry no transform
+    const boxes = [...fields, ...panels].map((call) => call.el);
+    for (const node of boxes) expect(node.style.transform).toMatch(/^translate\(/);
+    act(() => calls.forEach((call) => call.finish()));
     for (const node of container.querySelectorAll<HTMLElement>("[data-seat-slot], [data-grid-lp]")) expect(node.style.transform).toBe("");
   });
 
@@ -106,6 +121,29 @@ describe("GridStage FLIP", () => {
     render(<Shell reduced />);
     act(() => void fireEvent.keyDown(window, { key: "4" }));
     expect(calls).toHaveLength(0);
+  });
+
+  it("starts the text fade of a move that stops a move from the opacity on screen, not from 1", () => {
+    expect(textFadeAt(0)).toBe(1);
+    expect(textFadeAt(0.15)).toBe(0);
+    expect(textFadeAt(0.4)).toBe(0);
+    expect(textFadeAt(0.85)).toBeCloseTo(0.5, 6);
+    expect(textFadeAt(1)).toBe(1);
+    const el = document.createElement("div");
+    const text = document.createElement("b");
+    text.setAttribute("data-holo-text", "true");
+    el.appendChild(text);
+    const calls = stubAnimate();
+    (HTMLElement.prototype as unknown as { animate: unknown }).animate = function (this: HTMLElement, frames: Keyframe[]) {
+      calls.push({ el: this, frames, options: {}, finish: () => {} });
+      return { cancel: vi.fn(), addEventListener: vi.fn(), effect: { getComputedTiming: () => ({ progress: 0.3 }) } };
+    };
+    const first = playFlip(el, { box: boxOf({ x: 0, y: 0, width: 100, height: 40 }), delta: null, anim: null, text: [] }, boxOf({ x: 80, y: 0, width: 200, height: 80 }), true, { turn: 0, fadeText: true });
+    const fade = (call: Call) => call.frames.map((frame) => frame.opacity);
+    expect(fade(calls.filter((call) => call.el === text)[0])[0]).toBe(1);
+    // the first fade is 30% in: opacity 0. The second move must start at 0, never at 1.
+    playFlip(el, first, boxOf({ x: 0, y: 40, width: 100, height: 40 }), true, { turn: 0, fadeText: true });
+    expect(fade(calls.filter((call) => call.el === text)[1])[0]).toBe(0);
   });
 
   it("keeps playFlip a no-op without the Web Animations API", () => {
