@@ -150,6 +150,17 @@ export function chainBeatsEndAt(): number {
   return state.freeAt;
 }
 
+/**
+ * When a prompt that follows the planned chain beats may show. A chain played to its end holds the prompt to the end
+ * (chainBeatsEndAt). A batch that stops inside a resolving link stops there because the link asks a question (the zone
+ * of a Special Summon, a card to add): that question is the link's effect, so it may show when the effect may start,
+ * one effect lead after the "is resolving" pulse, not after the whole resolving beat (owner: the chain 1 wait was too long).
+ */
+export function chainPromptHoldEndAt(reduced: boolean): number {
+  if (state.resolvingAt == null) return state.freeAt;
+  return Math.min(state.freeAt, state.resolvingAt + chainEffectLead(reduced));
+}
+
 function trim(map: Map<number, number>): void {
   while (map.size > MAX_KEPT) map.delete(map.keys().next().value as number);
 }
