@@ -89,9 +89,10 @@ export function cellState(view: Pick<DuelEngineView["seats"][number], "eliminate
 }
 
 /**
- * The seat that draws the shared Extra Monster row of a column: the `prefer` seat (the focused one) when it is in the
- * column and its cell is not empty, else the bottom field, or the top one while the bottom cell is empty. Null when
- * both cells are empty.
+ * The seat that draws the shared Extra Monster row of a column: the bottom field, or the top one while the bottom cell
+ * is empty. It does NOT follow the focus: the zones stay mounted in the same field, so an effect that plays on one never
+ * loses its node when the focus moves. (`prefer` names a seat that wins when it is in the column and not empty; the
+ * stage does not use it.) Null when both cells are empty.
  */
 export function pairDrawer(cells: readonly GridCell[], states: ReadonlyMap<number, CellState>, column: 0 | 1, prefer: number | null = null): number | null {
   const inColumn = cells.filter((cell) => cell.column === column).sort((a, b) => b.row - a.row);
@@ -185,8 +186,8 @@ export interface GridLayoutOptions {
   /** Column of the viewer's own field: its bottom lane keeps room for the larger hand, and its life box is the wide one. */
   homeColumn?: 0 | 1;
   /**
-   * Row of the field that draws the shared Extra Monster row of each column (1 = bottom). Default: the focused field
-   * for its column (so the band sits under a focused top field), the bottom field everywhere else.
+   * Row of the field that draws the shared Extra Monster row of each column (1 = bottom). Default: the bottom field.
+   * It never follows the focus (see `pairDrawer`); the band is sized from the drawer and only moves with it.
    */
   drawerRow?: readonly [0 | 1, 0 | 1];
 }
@@ -299,7 +300,7 @@ export function gridFocusLayout(world: GridWorld, viewport: GridViewport, focus:
   const homeColumn = options.homeColumn ?? 0;
   const width = Math.max(0, viewport.width - 2 * EDGE);
   const height = Math.max(0, viewport.height - 2 * EDGE);
-  const drawerOf = (column: 0 | 1): 0 | 1 => options.drawerRow?.[column] ?? (focus && focus.column === column ? focus.row : 1);
+  const drawerOf = (column: 0 | 1): 0 | 1 => options.drawerRow?.[column] ?? 1;
 
   // The equal 2x2: both columns as tall as the one with the larger hand lane, so the rows line up.
   const equal = Math.max(0, Math.min(width / (2 * zones + COLUMN_GAP), height / columnHeight(1, 1, 1, HOME_LANE)));

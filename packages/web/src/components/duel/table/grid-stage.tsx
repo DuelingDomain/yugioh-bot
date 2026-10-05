@@ -133,7 +133,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
 
   // The final layout, once. The fields get real sizes from it (never a zoom); a change of focus only FLIPs between two layouts.
   const homeColumn = homeCell?.column ?? 0;
-  const drawerSeats = ([0, 1] as const).map((column) => pairDrawer(cells, states, column, focus.seat));
+  const drawerSeats = ([0, 1] as const).map((column) => pairDrawer(cells, states, column));
   const drawerRow = ([0, 1] as const).map((column) => cells.find((cell) => cell.seat === drawerSeats[column])?.row ?? 1) as [0 | 1, 0 | 1];
   const drawerKey = drawerRow.join("");
   const layoutBox = useMemo(

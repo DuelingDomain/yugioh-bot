@@ -270,12 +270,12 @@ describe("gridFocusLayout", () => {
     expect(mine.sizes.partner / mine.sizes.equal).toBeGreaterThanOrEqual(PARTNER_MIN_SHARE - 0.001);
   });
 
-  it("puts the shared Extra Monster row under a focused top field and on the focused field in general", () => {
-    for (const focus of FOCUSES.filter((entry) => entry != null)) {
+  it("keeps the shared Extra Monster row on the bottom field of each column, whatever the focus", () => {
+    for (const focus of FOCUSES) {
       const layout = gridFocusLayout(gridWorld(5), VIEWPORTS[0], focus);
       const drawers = layout.cells.filter((cell) => cell.drawer);
       expect(drawers).toHaveLength(2);
-      expect(layout.cells[cellIndex(focus!)].drawer).toBe(true);
+      expect(drawers.every((cell) => cell.row === 1)).toBe(true);
       for (const column of [0, 1] as const) {
         const band = layout.bands[column];
         const drawer = layout.cells.find((cell) => cell.column === column && cell.drawer)!;
@@ -285,9 +285,6 @@ describe("gridFocusLayout", () => {
         expect(band.rect.y + band.rect.height).toBeLessThanOrEqual(drawer.rect.y + drawer.rect.height);
       }
     }
-    // a focused top field keeps the row at its bottom edge
-    const top = gridFocusLayout(gridWorld(5), VIEWPORTS[0], { column: 0, row: 0 });
-    expect(top.bands[0].rect.y).toBeGreaterThan(top.cells[0].rect.y + top.cells[0].rect.height / 2);
   });
 
   it("honours an explicit drawer row (the focused cell is empty or a pair has one seat left)", () => {

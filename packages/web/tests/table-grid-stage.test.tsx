@@ -149,14 +149,16 @@ describe("GridStage", () => {
     for (const seat of [0, 1, 2, 3]) expect(cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!.style.transform).toBe("");
   });
 
-  it("makes the focused field draw the shared Extra Monster row, so the band goes under a focused top field", () => {
+  it("keeps the shared Extra Monster row on the same field when the focus moves, so its zone nodes stay mounted", () => {
     const { container } = render(<Shell id="main" />);
     const emz = (seat: number) => cellOf(container, seat).querySelector("[data-seat-field]")!.getAttribute("data-emz");
-    expect([emz(0), emz(1)]).toEqual(["pair", "none"]);
-    act(() => void fireEvent.keyDown(window, { key: "2" }));
-    expect([emz(0), emz(1)]).toEqual(["none", "pair"]);
-    act(() => void fireEvent.keyDown(window, { key: "1" }));
-    expect([emz(0), emz(1)]).toEqual(["pair", "none"]);
+    const zone = container.querySelector('[data-zones*="0:4:5"]');
+    expect(zone).not.toBeNull();
+    for (const key of ["2", "1", "3", "4", "o", "2"]) {
+      act(() => void fireEvent.keyDown(window, { key }));
+      expect([emz(0), emz(1), emz(2), emz(3)]).toEqual(["pair", "none", "none", "pair"]);
+    }
+    expect(container.querySelector('[data-zones*="0:4:5"]')).toBe(zone);
   });
 
   it("marks the small fields and fits the life panels into their boxes", () => {
