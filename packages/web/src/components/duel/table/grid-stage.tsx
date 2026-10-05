@@ -25,7 +25,7 @@ import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { ExitingSeat, RivalField } from "./rival-field";
 import { useSeatExits } from "./use-seat-exits";
-import { LOCATION_HAND } from "../constants";
+import { LOCATION_HAND, LOCATION_MZONE } from "../constants";
 import { SEAT_Z } from "./geometry";
 import type { SeatFieldProps, SeatPose, SeatTone } from "./types";
 import type { TableStageViewProps } from "./table-stage";
@@ -85,6 +85,16 @@ export function pickKindOf(legalKeys: ReadonlySet<string>): PickKind {
     if (hand && field) return "mixed";
   }
   return field ? "field" : hand ? "hand" : null;
+}
+
+/** True when a legal or selected key is an Extra Monster Zone (a monster zone of sequence 5 or 6): the phase hub over
+ *  the shared band then lets the click through to it. */
+export function picksExtraZone(keys: Iterable<string>): boolean {
+  for (const key of keys) {
+    const [, location, sequence] = key.split(":");
+    if (location === String(LOCATION_MZONE) && Number(sequence) >= 5) return true;
+  }
+  return false;
 }
 
 /** The pose of a seat that left, for its crumble: the centre of its box, upright size, turned like its field. */
@@ -249,6 +259,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
   const pickKind = pickKindOf(legalKeys);
+  const extraZonePick = picksExtraZone(legalKeys) || picksExtraZone(selectedKeys);
 
   const focusOn = (seat: number) => {
     if (focus.seat !== seat) focusControl.focusSeat(seat);
@@ -326,6 +337,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       data-ready={placed ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
       data-pick-kind={pickKind ?? undefined}
+      data-emz-pick={extraZonePick ? "true" : undefined}
     >
       <div className={styles.world} onClick={onClick} onFocusCapture={onFocus}>
           {placed

@@ -268,6 +268,13 @@
   pointer-events: none;
 }
 
+/* Its chips are wider than the free cells of the band on a small board and lie over the edges of the Extra Monster
+   Zones. While one of those zones (or a card in it) is a target, the zone wins: no chip takes the click. */
+.board[data-emz-pick="true"] .hub,
+.board[data-emz-pick="true"] .hub * {
+  pointer-events: none;
+}
+
 .hub[data-grid-hub="center"] {
   translate: -50% -50%;
 }

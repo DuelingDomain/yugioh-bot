@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { picksExtraZone } from "../src/components/duel/table/grid-stage";
 
 // Owner rule for the 4-way grid: your hand may lie a little over your field, but one click never meets a hand card and
 // a zone at once, and a field target wins during a zone or card pick. jsdom applies no CSS, so these tests read the
@@ -25,5 +26,18 @@ describe("4-way grid: your hand never blocks your Spell/Trap row", () => {
     expect(grid).toMatch(
       /\.board\.board\[data-pick-kind="field"\] :global\(\[data-hand-seat\]\),\s*\.board\.board\[data-pick-kind="field"\] :global\(\[data-hand-seat\]\) \*,\s*\.board\.board\[data-pick-kind="field"\] :global\(\[data-hand-seat\]\) \*::before \{\s*pointer-events: none;/,
     );
+  });
+});
+
+describe("4-way grid: the phase hub yields to an Extra Monster Zone target", () => {
+  it("finds an Extra Monster Zone key (monster zone, sequence 5 or 6)", () => {
+    expect(picksExtraZone(["0:4:5"])).toBe(true);
+    expect(picksExtraZone(new Set(["2:4:6"]))).toBe(true);
+    expect(picksExtraZone(["0:4:4", "0:8:5", "0:2:6"])).toBe(false);
+    expect(picksExtraZone([])).toBe(false);
+  });
+
+  it("makes the hub click-through while such a zone is a target", () => {
+    expect(grid).toMatch(/\.board\[data-emz-pick="true"\] \.hub,\s*\.board\[data-emz-pick="true"\] \.hub \* \{\s*pointer-events: none;/);
   });
 });
