@@ -9,7 +9,7 @@ import { TableShell } from "@/components/duel/table/table-shell";
 /** The 4-way preview: the real table stage on the hand-made fixtures. */
 export function Ffa4Preview({ stateId, cam, lock, review = false, out = null, pick = null, after = null, hub = null }: { stateId: string | null; cam: string | null; lock: string | null; review?: boolean; out?: string | null; pick?: string | null; after?: string | null; hub?: string | null }) {
   // `?out=2,3` sweeps those seats; `?after=1500` starts with them alive and sweeps them after that many ms (to watch the
-  // crumble and the finale move); `?pick=field|hand` swaps the prompt for a pick among your own cards.
+  // crumble and the finale move); `?pick=field|hand|emz` swaps the prompt for a pick among your own cards.
   const outSeats = useMemo(() => (out ?? "").split(",").filter((part) => /^[0-3]$/.test(part)).map(Number), [out]);
   const delay = after != null && /^\d+$/.test(after) ? Number(after) : null;
   const [late, setLate] = useState(false);
@@ -37,7 +37,7 @@ export function Ffa4Preview({ stateId, cam, lock, review = false, out = null, pi
   }, [script]);
   const scripted = script ? ELIMINATION_RUNS[script.name].seats.slice(0, script.step).at(-1) ?? [] : null;
   const base = useMemo(() => review ? reviewFixtures(0, "ffa4") : FFA4_FIXTURES, [review]);
-  const kind = pick === "field" || pick === "hand" ? pick : null;
+  const kind = pick === "field" || pick === "hand" || pick === "emz" ? pick : null;
   const set = useMemo(() => ffa4Variant(base, { out: scripted ?? (delay != null && !late ? [] : outSeats), pick: pickLive ? kind : null }), [base, outSeats, delay, late, kind, pickLive, scripted?.join(",")]);
   const startRun = (name: keyof typeof ELIMINATION_RUNS) => {
     setMenuOpen(false);
