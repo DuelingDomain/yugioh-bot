@@ -611,7 +611,11 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     ) {
       for (const line of summonLogLines(message, cards, stored.summonKind, format)) appendLog(line.text, line.audience);
     }
-    if (stored) pushEvent(stored);
+    if (stored) {
+      pushEvent(stored);
+      // Write the result at this message's position, with the assigned FX id for client-side holds.
+      if (stored.kind === "toss") appendLog(stored.text).eventId = stored.id;
+    }
     for (const target of observeChainTargetEvents(message, chainMemory, nextEventId, eventContext)) pushEvent(target);
   };
 
@@ -796,9 +800,6 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
         for (const card of [...message.cards].sort((a, b) => b.sequence - a.sequence)) {
           moveReveals(reveals, card, { controller: card.controller, location: 0, sequence: 0 }, 0);
         }
-        return;
-      case OcgMessageType.TOSS_COIN:
-        appendLog(`Coin toss: ${message.results.map((value) => (value ? "Heads" : "Tails")).join(", ")}`);
         return;
       case OcgMessageType.TOSS_DICE:
         appendLog(`Dice roll: ${message.results.join(", ")}`);
