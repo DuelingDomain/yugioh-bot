@@ -1,4 +1,5 @@
-if not aux.MPAny or not Duel.MPMode or Duel.MPMode()~=1 then return end
+if not aux.MPAny then return end
+if not Duel.MPMode or Duel.MPMode()~=1 then return end
 -- Heat Wave lasts until the activator's next Draw Phase. A removed seat's
 -- skipped Draw Phase still expires the lock (Domain rulebook v1.4).
 function s.operation(e,tp,eg,ep,ev,re,r,rp)

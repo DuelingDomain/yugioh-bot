@@ -33,6 +33,15 @@ local e=${add(97017120,1,0,"LOCATION_SZONE",1,"POS_FACEUP")}
 local limit=Effect.CreateEffect(e); limit:SetType(EFFECT_TYPE_SINGLE); limit:SetCode(EFFECT_EQUIP_LIMIT); limit:SetProperty(EFFECT_FLAG_CANNOT_DISABLE); limit:SetValue(function(_,c) return c==m end); e:RegisterEffect(limit)
 Debug.PreEquip(e,m)`, { ...all, p1: { ...empty, grave: ["Giant Rat"] } }, {}, [expectBoard({p0:{monsters:["Relinquished"],spells:["Giant Rat"]},p1:{grave:[]}}),surrender("p0")]));
   ELIMINATION_RETURN_PROOFS.push(proof("macro-cosmos-fallback", format, add(97017120,1,0,"LOCATION_MZONE",2), { ...all, p1: { ...empty, monsters: Array(5).fill("Dark Magician"), banished: ["Giant Rat"] }, p2: { ...empty, spells: ["Macro Cosmos"] } }, { p1: { monsters: Array(5).fill("Dark Magician") }, p2: { spells: ["Macro Cosmos"] } }));
+  for (const order of ["monster-first", "macro-first"]) {
+    const monster = add(97017120,1,0,"LOCATION_MZONE",2);
+    const macro = add(30241314,2,0,"LOCATION_SZONE",1,"POS_FACEUP");
+    ELIMINATION_RETURN_PROOFS.push(proof(`macro-leaves-with-fallback-${order}`, format,
+      (order === "monster-first" ? [monster, macro] : [macro, monster]).join(";\n"),
+      { ...all, p1: { ...empty, monsters: Array(5).fill("Dark Magician"), grave: ["Giant Rat"] },
+        p2: { ...empty, spells: Array(5).fill("Monster Reborn"), grave: ["Macro Cosmos"] } },
+      { p1: { monsters: Array(5).fill("Dark Magician") }, p2: { spells: Array(5).fill({ card: "Monster Reborn", pos: "set" }) } }));
+  }
   ELIMINATION_RETURN_PROOFS.push(proof("dimensional-fissure-fallback", format, add(97017120,1,0,"LOCATION_MZONE",2), { ...all, p1: { ...empty, monsters: Array(5).fill("Dark Magician"), banished: ["Giant Rat"] }, p2: { ...empty, spells: ["Dimensional Fissure"] } }, { p1: { monsters: Array(5).fill("Dark Magician") }, p2: { spells: ["Dimensional Fissure"] } }));
   // expectLog checks these lines in order, so a shuffle after p1's draw fails.
   ELIMINATION_RETURN_PROOFS.push(proof("deck-return-shuffles", format, add(97017120,1,0,"LOCATION_DECK",1,"POS_FACEDOWN"), { ...all, p1: { ...empty, deckCount:20, hand:{count:1} } }, {}, [surrender("p0"), {op:"expectLog",lines:["Player 2 shuffled their deck", "Player 2 drew 1 card(s)"]}]));

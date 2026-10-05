@@ -139,18 +139,18 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0088; 88 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash is `d389ce26cddd169aa96c01934baef766b4d4b6d4bcdfa3d3f9c686e0fc5b3f3e`.
+- All numbered patches in `domain-core/patches` (currently 0001–0089; 89 patches). No experimental patches or
+  `PATCH_LIMIT`. The current series hash is `e60236e9d9b4a8e460e0a762ba73b4d71b9883736b06e94a73821e89cef51c5e`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `cf5100707bce7701cb0be0ac4a8ff47308a13b278174f03c157f2f2e46dd849a`.
 
-The 84-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Their verified hashes are:
+The 89-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Their verified hashes are:
 
 | CI core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `3c2d4dd381a67cead9dbd6ed72c41e77df7daee8fd6fc90065d2304d9dc1203d` |
-| Domain multiplayer | `4488e0eaa4e2473166255b5b65da35a9b82ef4f8ea2b47650d6eb1c3f0b721a8` |
+| Standard multiplayer | `bc5017cc2c8174b449068ac2bc425c75c04e8a31def01623d10f8f1ff7a70bb9` |
+| Domain multiplayer | `142672d80a7c79910fbb1175eaf164de0d03183ad935a051760d34188b4cb650` |
 | Domain 1v1 (unchanged) | `16f60edf2c1e246886d1962fad32238fde0dd969c36bc959251df488c83aefc7` |
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all

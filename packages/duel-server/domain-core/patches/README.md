@@ -148,6 +148,15 @@ Without these two measures, a 200 seed run gave stock-against-stock differences 
 
 Patch `0085-ffa-remove-unresolved-links.patch` applies the 2026-10-04 owner decision: FFA links of a removed player are cleaned up without resolution events; living links and response windows remain. Tag and 1v1 keep their existing rules.
 
+The rest of that owner decision is implemented by:
+
+- `0086-ffa-returns-no-response.patch`: return foreign cards directly, including Graveyard fallback, without activation events.
+- `0087-ffa-continue-leaver-turn.patch`: pass priority through the remaining phases of the removed player's current turn.
+- `0088-ffa-lasting-effects.patch`: preserve resolved player effects and advance their expiry at skipped-seat phase boundaries.
+- `0089-ffa-chain-topology-and-return-group.patch`: ignore removed links in response checks, retain resolved response locks, discard locks from removed unresolved links, and calculate all fallback destinations before moving the departing group.
+
+Removed links retain private storage until safe cleanup. Their original numeric IDs remain stable for living links that saved a target. In FFA, `Duel.GetCurrentChain()` returns the current living link's original ID; `Duel.GetCurrentChain(true)` counts completed living activations. `Duel.MPChainCount()` counts active links, including the current activation's target step. `Duel.MPPreviousChain([true])` returns the previous active link's original ID, or zero. FFA card suffixes use these helpers for counts and adjacency, save selected IDs before yielding, and tolerate a removed source when a living operation resolves. Tag keeps its existing functions; 1v1 does not load the suffixes.
+
 ## How to add a patch
 
 1. Prepare the tree with all patches applied.
