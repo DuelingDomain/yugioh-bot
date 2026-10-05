@@ -413,11 +413,11 @@ function TableShellBody({
       data-reduced={controller.reducedMotion ? "true" : "false"}
     >
       {hud ? (
-        <div className={hudStyles.top} data-testid="hud-top">
+        <header className={hudStyles.top} data-testid="hud-top">
           <div className={hudStyles.topLeft}>{identityNode}</div>
           <div className={hudStyles.topMid}>{seatStripNode}</div>
           <div className={hudStyles.topRight}>{turnNode}{statusNode}</div>
-        </div>
+        </header>
       ) : (
         <header className={roomStyles.header}>
           {identityNode}

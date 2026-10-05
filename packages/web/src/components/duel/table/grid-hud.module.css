@@ -429,6 +429,12 @@
 .masterFlyCard:hover { color: var(--duel-ink); background: rgb(239 231 213 / 0.08); }
 .masterFlyCard:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
 
+/* The second plate (the rival of a 1v1 duel, the partner of a Tag duel) sits in the right margin, under the top pills.
+   Its details open below it, so they never run off the top of the screen. */
+.masterWrap[data-slot="other"] { left: auto; right: 14px; bottom: auto; top: 56px; }
+.masterWrap[data-slot="other"] .masterFly { bottom: auto; top: calc(100% + 10px); }
+.masterWrap[data-slot="other"] .masterFly::after { top: auto; bottom: 100%; }
+
 /* ---------- hover preview: slides out from the left edge ---------- */
 .preview {
   position: absolute;

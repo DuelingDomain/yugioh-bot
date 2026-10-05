@@ -77,6 +77,8 @@ export interface HudLayerProps {
   logUnread: number;
   /** The Deck Master token (Domain only). `null` hides it. */
   master: HudMasterProps | null;
+  /** The second plate: the rival's master in a 1v1 duel, the partner's in a Tag duel. `null` hides it. */
+  otherMaster?: HudMasterProps | null;
   /** Shows the Card flyout for the master (Inspect on the plate). */
   onInspect: (target: InspectTarget) => void;
   /** The hovered card and its owner, or `null` when nothing is hovered. */
@@ -86,7 +88,7 @@ export interface HudLayerProps {
   reducedMotion: boolean;
 }
 
-export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, onInspect, preview, previewHidden, reducedMotion }: HudLayerProps) {
+export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, logUnread, master, otherMaster = null, onInspect, preview, previewHidden, reducedMotion }: HudLayerProps) {
   const chainCount = chainOpen ? chain.length : 0;
   const allPanels: Partial<Record<HudPane, ReactNode>> = {
     ...panels,
@@ -101,6 +103,16 @@ export function HudLayer({ hud, panels, chain, chainOpen, nameOf, seatTones, log
           {...master}
           open={hud.pane === "master"}
           onToggle={() => hud.toggle("master")}
+          onClose={hud.close}
+          onInspect={(target) => { onInspect(target); hud.setPane("card"); }}
+        />
+      ) : null}
+      {otherMaster ? (
+        <GridMasterToken
+          {...otherMaster}
+          slot="other"
+          open={hud.pane === "other"}
+          onToggle={() => hud.toggle("other")}
           onClose={hud.close}
           onInspect={(target) => { onInspect(target); hud.setPane("card"); }}
         />

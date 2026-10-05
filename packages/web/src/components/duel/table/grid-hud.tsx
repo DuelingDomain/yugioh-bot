@@ -13,8 +13,8 @@ import styles from "./grid-hud.module.css";
  * their own; the shell owns which pane is open and feeds each part its real data.
  */
 
-/** The panes the HUD can open. `master` and `card` are not dock icons: the Deck Master token and a card click open them. */
-export type HudPane = "card" | "log" | "settings" | "chain" | "master";
+/** The panes the HUD can open. `master`, `other` and `card` are not dock icons: a Deck Master token and a card click open them. */
+export type HudPane = "card" | "log" | "settings" | "chain" | "master" | "other";
 
 export const DOCK_PANES = ["log", "settings", "chain"] as const;
 
@@ -24,6 +24,7 @@ export const HUD_PANE_LABEL: Record<HudPane, string> = {
   settings: "Settings",
   chain: "Chain",
   master: "Deck Master",
+  other: "Deck Master",
 };
 
 type SeatTones = ReadonlyMap<number, { main: string; ink: string }>;
@@ -105,7 +106,7 @@ export function GridFlyout({ pane, tabs, panels, keepMounted, onSelect, onClose,
   /** A chain is live: the flyout opens clear of the chain tower. */
   chainLive: boolean;
 }) {
-  const open = pane != null && pane !== "master";
+  const open = pane != null && pane !== "master" && pane !== "other";
   const shown = open ? pane : null;
   return (
     <aside className={styles.flyout} hidden={!open} data-open={open ? "true" : "false"} data-pane={shown ?? undefined}
