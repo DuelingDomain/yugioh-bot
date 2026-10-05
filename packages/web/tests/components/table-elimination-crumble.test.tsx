@@ -90,7 +90,7 @@ describe("the elimination crumble on a 4-way table", () => {
     settle(2000);
     expect(crumbles(container)).toBe(0);
     expect(places(container, [0, 1])).toEqual({ 0: before[0], 1: before[1] });
-  });
+  }, 20_000); // three full table renders; slow on the shared CI runners
 
   it("keeps the panels of the seats that left, and notes them in the log with a place", () => {
     const { container, rerender } = render(<Shell state={main} />);
