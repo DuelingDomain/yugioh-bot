@@ -67,7 +67,7 @@ const lpFit = (rect: GridRect) => Math.min(1, rect.height / LP_NATURAL_HEIGHT, r
 const OWN_CLICK = "button, a, input, select, textarea, [role='button'], [data-zones], [data-legal='true']";
 
 /** The 4-way table as two columns of facing fields that share an Extra Monster row (see grid-layout.ts). */
-export function GridStage({ controller, layout, camera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, grid }: TableStageViewProps) {
+export function GridStage({ controller, layout, camera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, grid, placeLabels }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
@@ -328,6 +328,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   deckCount={view.deckCount}
                   clockMs={room.clock?.remainingMs[cell.seat] ?? null}
                   status={holoStatus(engine, cell.seat, promptSeat)}
+                  placeLabel={placeLabels?.get(cell.seat) ?? null}
                   me={slot.relation === "self"}
                   x={0}
                   y={0}
