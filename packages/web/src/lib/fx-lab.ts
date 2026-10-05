@@ -21,6 +21,8 @@ export function isFxLabPublicPath(pathname: string): boolean {
     pathname === "/dev/solid-preview" ||
     pathname.startsWith("/dev/solid-preview/") ||
     /^\/api\/cards\/\d+\/image$/.test(pathname) ||
-    /^\/duel\/[\w-]+\.(webp|svg)$/.test(pathname)
+    /^\/duel\/[\w-]+\.(webp|svg)$/.test(pathname) ||
+    // The coin toss art (the two faces of the coin).
+    /^\/duel\/coin\/\d+\.jpg$/.test(pathname)
   );
 }
