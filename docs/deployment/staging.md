@@ -143,15 +143,15 @@ The build uses the same inputs as the engine session:
   `PATCH_LIMIT`. The current series hash is `1c66c92b62827c5635fc0132ac665dd22b479efa79bae3933339d90f08481810`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
-  `cf5100707bce7701cb0be0ac4a8ff47308a13b278174f03c157f2f2e46dd849a`.
+  `06d5cfbfba8719eb5fe0b3b0eb211a6264d96bb295a8669fe0680969c1822bb8`.
 
 The 84-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Their verified hashes are:
 
 | CI core | SHA-256 |
 | --- | --- |
 | Standard multiplayer | `cf4d7b4723756901199f45b152a495b0e4fe24afc42ef5000d2f50b9f0a0743f` |
-| Domain multiplayer | `968c07082a4067a268c472b555b4cbac120005ce4e8cce7d3e0ed8733e9e0640` |
-| Domain 1v1 | `7f9973f11e00a666ed2ee212bccec6ed29233fe1ddb49edabbc9d394bc6019d3` |
+| Domain multiplayer | `7c46642b0ad3d4327a13107bf486a25579dcb080aa193363ca52593d2053fc27` |
+| Domain 1v1 | `b2e584882f9e20bf22ad433d8ddac37bc06ef3514faf0bc5562fe9de48ab27b2` |
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all
 build/packaging scripts, pins, patches and Domain sources. Each cache stores both WASMs and their

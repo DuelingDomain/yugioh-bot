@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach } from "vitest";
 import type { DuelAnswer, DuelFormat, DuelPrompt } from "@yugidraft/shared/duels";
@@ -18,6 +17,7 @@ export type Variant = typeof variants[number];
 export type Fixture = { id: number; lua: string; type?: number; level?: number };
 const roots: string[] = [];
 const games: EngineGame[] = [];
+const scriptFiles = readdirSync(join(engineDataDirectory, "card-scripts"), { recursive: true }).filter(name => String(name).endsWith(".lua")).map(String);
 afterEach(() => {
   for (const game of games.splice(0)) game.close();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -31,11 +31,6 @@ export async function gameFor(variant: Variant, board: BoardSpec, fixtures: Fixt
   const wasm = variant.format === "1v1" ? variant.legacy ? "ocgcore.domain.legacy.wasm" : "ocgcore.domain.wasm" : "ocgcore.multi-domain.wasm";
   symlinkSync(join(engineDataDirectory, wasm), join(root, variant.format === "1v1" ? "ocgcore.domain.wasm" : wasm));
   mkdirSync(join(root, "card-scripts"));
-  execFileSync("cp", ["-as", join(engineDataDirectory, "card-scripts") + "/.", join(root, "card-scripts")]);
-  if (variant.legacy) {
-    rmSync(join(root, "card-scripts/domain.lua"));
-    symlinkSync(join(engineDataDirectory, "card-scripts/domain.legacy.lua"), join(root, "card-scripts/domain.lua"));
-  }
   const db = new Database(join(root, "cards.cdb"));
   for (const fixture of fixtures) {
     db.prepare("INSERT INTO datas (id,ot,alias,setcode,type,atk,def,level,race,attribute,category) VALUES (?,3,0,0,?,0,0,?,1,1,0)")
@@ -48,7 +43,22 @@ export async function gameFor(variant: Variant, board: BoardSpec, fixtures: Fixt
   for (const seat of ["p0", "p1", "p2", "p3"].slice(0, variant.format === "1v1" ? 2 : variant.format === "ffa3" ? 3 : 4) as Array<"p0" | "p1" | "p2" | "p3">) {
     setup[seat] = { deckMaster: "Axe Raider", ...setup[seat] };
   }
-  const options = compileBoard(setup, root).options;
+  const compiled = compileBoard(setup, root);
+  const codes = new Set(compiled.codes);
+  // Include all helpers and only the card scripts on this exact board. Keep real
+  // directories: the engine's script index deliberately does not follow directory symlinks.
+  for (const file of scriptFiles) {
+    const card = /^c(\d+)\.lua$/.exec(basename(file));
+    if (card && !codes.has(Number(card[1]))) continue;
+    const target = join(root, "card-scripts", file);
+    mkdirSync(dirname(target), { recursive: true });
+    symlinkSync(join(engineDataDirectory, "card-scripts", file), target);
+  }
+  if (variant.legacy) {
+    rmSync(join(root, "card-scripts/domain.lua"));
+    symlinkSync(join(engineDataDirectory, "card-scripts/domain.legacy.lua"), join(root, "card-scripts/domain.lua"));
+  }
+  const options = compiled.options;
   options.startupScripts![0]!.content += "\n" + startup;
   const game = await createEngineGame({ ...options, seed: ["1", "2", "3", "4"], dataDirectory: root,
     multiScriptsDirectory: join(engineDataDirectory, "multi-scripts") });
@@ -78,8 +88,10 @@ export function defaultAnswer(prompt: DuelPrompt, recall = true): DuelAnswer {
     return { choice: option.id };
   }
   if (prompt.context?.type === "deck-master-recall") return { choice: recall ? "yes" : "no" };
-  if (prompt.cancelable) return { cancel: true };
   if (prompt.options.some(option => option.id === "yes")) return { choice: "yes" };
+  const trigger = prompt.options.find(option => option.card);
+  if (trigger) return { choice: trigger.id };
+  if (prompt.cancelable) return { cancel: true };
   assert(prompt.options[0], JSON.stringify(prompt));
   return { choice: prompt.options[0].id };
 }

@@ -29,3 +29,13 @@ Before each core change, run its scenario against the previous binary and confir
 | legacy | `0e17cec814aff694f2573f07940c404440595a93c7437a57e93c58bdc72735dd` |
 
 K22 verification: the baseline scenario failed at 8000 LP versus the required 7500. After rebuilding, 10/10 scenarios passed on pinned, legacy core, FFA3, FFA4 and Tag. The legacy build initially rejected the intentionally changed wasm against its old pin; the new measured pin passes `check-legacy-pin.sh`.
+
+## Verified cores after K20
+
+| Core | SHA-256 |
+| --- | --- |
+| domain | `b2e584882f9e20bf22ad433d8ddac37bc06ef3514faf0bc5562fe9de48ab27b2` |
+| multi-domain | `7c46642b0ad3d4327a13107bf486a25579dcb080aa193363ca52593d2053fc27` |
+| legacy | `323bac7e53b31591c6f1ff27c01504dfa46cbe8d9dbf509abcede0ff55e5d92c` |
+
+K20 verification: all five move-origin scenarios failed before the change. After rebuilding, 30/30 departure scenarios passed across pinned, legacy, FFA3, FFA4 and Tag, including the leave-GY control. The existing recall-kind tests passed 2/2. With the final fixture helper, departure and action-cost scenarios passed together 40/40. Lua sees the native multiplayer no-player sentinel as `PLAYER_NONE`, as required by the perspective fold.
