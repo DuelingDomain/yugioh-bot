@@ -89,8 +89,9 @@
   /* The Deck Master plate (14px + 168px wide) sits at the bottom left: the board starts right of it. */
   --hud-left: 196px;
   --hud-corner-w: 168px;
-  /* The board ends left of the corner stack, so the stack never covers a field. */
-  --hud-right: calc(var(--hud-corner-w) + 14px);
+  /* The board runs to the right edge: the stack lies over its empty bottom right corner only (the grid layout keeps
+     every field clear of it, HUD_CORNER in grid-layout.ts). */
+  --hud-right: 14px;
   --hud-master-bottom: 14px;
 }
 

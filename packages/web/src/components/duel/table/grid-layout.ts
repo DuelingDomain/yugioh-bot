@@ -8,7 +8,7 @@ import type { TableFormat, TableLayout } from "./types";
  * sit above and below the pair, not in the band, so the free cells of the band are free for the phase hub.
  *
  * `gridFocusLayout` is the one place that sizes and places the fields: it returns the final px rect of every field and
- * life plate for a focus. The focus lifts the whole pair (about 1.12x of the rest size, by the column width); the other
+ * life plate for a focus. The focus lifts the whole pair (about 1.16x of the rest size, by the column width); the other
  * pair keeps its size or gives up a little width. With two seats left (`finale`) they are laid out as one full 1v1
  * board in the middle, with both plates on its left, as in the 1v1 room; the other fields are gone. The stage writes those rects as real sizes (never a zoom or a scale at rest, so
  * text stays sharp) and only animates between two layouts with a FLIP.
@@ -154,7 +154,7 @@ export const HAND_RISE = PAD + HAND_OVER;
 /** The hand sits to the right of the plate that shares its lane (a share of the card height), over this width. */
 export const HAND_SHIFT = PLATE_W / 2;
 export const HAND_WIDTH = FIELD_ZONES_DEFAULT - PLATE_W;
-const COLUMN_GAP = 0.34;
+const COLUMN_GAP = 0.22;
 /**
  * The shared Extra Monster Zones sit over the 2nd and 4th monster columns: the room left of the first, and between them.
  * A column is one card height wide and the columns are 0.075 apart, so the pitch is 1.075; each zone is a column wide.
@@ -163,11 +163,18 @@ export const PAIR_LEFT = 1.075;
 export const PAIR_GAP = 2 * 1.075 - 1;
 /** Share of a card height of the monster zone column gap, and of the room the Extra Monster region leaves each side. */
 const EMZ_REGION_INSET = 1.0503;
+/**
+ * The corner of turn controls of the floating HUD (grid-hud.module.css `.corner`, 168px wide; its clocks and two
+ * actions are about 200px tall), with air: no field, life plate or bottom lane lies under it.
+ */
+export const HUD_CORNER = { width: 168 + 12, height: 201 + 13 };
+/** Half the width of a rival's widest fan of hand backs and its count chip, in card heights. */
+const RIVAL_BACKS_HALF = 2.2;
 /** Free space round the whole table. */
 const EDGE = 8;
 
 /** The pair of the viewer lifts to this share of the rest size (by the column width), never under MIN when height-bound. */
-export const PAIR_FOCUS = 1.12;
+export const PAIR_FOCUS = 1.16;
 export const PAIR_FOCUS_MIN = 1.06;
 /** The other pair gives up width down to this share of the rest size so the lifted pair can reach its size. */
 export const OTHER_MIN_SHARE = 0.66;
@@ -224,6 +231,11 @@ export interface GridLayoutOptions {
    * `homeHand`: the bottom seat is yours and draws your hand (its lane is the larger one).
    */
   finale?: GridFinaleCells | null;
+  /**
+   * A box at the bottom right of the viewport that no field, life plate or bottom lane may cover (px): the turn
+   * controls of the floating HUD. The table then gives up only as much width at the right as it must.
+   */
+  corner?: { width: number; height: number } | null;
 }
 
 export interface GridFinaleCells {
@@ -387,15 +399,62 @@ function placeColumn(column: 0 | 1, z: number, drawerRow: 0 | 1, centerX: number
 
 /**
  * The final layout of the grid in a box, pure. `focus` null = all fields: an equal 2x2. A focus lifts its WHOLE pair
- * (both fields of its column) to about 1.12x of the rest size, by the column width; the other pair keeps the rest size,
+ * (both fields of its column) to about 1.16x of the rest size, by the column width; the other pair keeps the rest size,
  * or gives up width (down to 0.66x) so the lifted pair fits. The two shared Extra Monster rows lie on one line. With
  * `finale` the column of the last two seats is one full board and the other column stays where it is.
  */
 export function gridFocusLayout(world: GridWorld, viewport: GridViewport, focus: GridFocusTarget | null, options: GridLayoutOptions = {}): GridFocusLayout {
+  const corner = options.corner;
+  const free = layoutIn(world, viewport, focus, options, 0, 0);
+  if (!corner || corner.width <= 0 || corner.height <= 0 || !coversCorner(free, viewport, corner)) return free;
+  const covers = (trim: number, raise: number) => coversCorner(layoutIn(world, viewport, focus, options, trim, raise), viewport, corner);
+  // The board first moves up (it never leaves the box), and gives up width at the right only if that is not enough.
+  const UP = viewport.height;
+  let trim = 0;
+  if (covers(0, UP)) {
+    let low = 0;
+    let high = Math.min(corner.width, viewport.width);
+    while (high - low > 1) {
+      const mid = (low + high) / 2;
+      if (covers(mid, UP)) low = mid;
+      else high = mid;
+    }
+    trim = Math.ceil(high);
+  }
+  // The smallest move up (to 1 px) that keeps the corner clear at that width.
+  let low = 0;
+  let high = UP;
+  if (!covers(trim, 0)) high = 0;
+  while (high - low > 1) {
+    const mid = (low + high) / 2;
+    if (covers(trim, mid)) low = mid;
+    else high = mid;
+  }
+  return layoutIn(world, viewport, focus, options, trim, Math.ceil(high));
+}
+
+const hits = (a: GridRect, b: GridRect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+/** True when a field, a life plate or the lane under a bottom field lies in the corner box. */
+function coversCorner(layout: GridFocusLayout, viewport: GridViewport, corner: { width: number; height: number }): boolean {
+  const box = rect(viewport.width - corner.width, viewport.height - corner.height, corner.width, corner.height);
+  return layout.cells.some((cell) => {
+    if (cell.z <= 0) return false;
+    if (hits(cell.rect, box) || hits(cell.plate, box)) return true;
+    if (cell.turn !== 0) return false;
+    const below = cell.rect.y + cell.rect.height;
+    // Your hand takes the whole lane; a rival's lane holds its plate at the left and at most 12 backs round the middle
+    // (rival-hand.module.css: 12 backs are 5.34 card widths = 3.66 card heights wide, and a count chip).
+    if (cell.hand.shift > 0) return hits(rect(cell.rect.x, below, cell.rect.width, (HOME_LANE * cell.lh) / HAND_SHARE), box);
+    return hits(rect(cell.rect.x, below, cell.rect.width / 2 + RIVAL_BACKS_HALF * cell.z, RIVAL_BOTTOM_LANE * cell.z), box);
+  });
+}
+
+function layoutIn(world: GridWorld, viewport: GridViewport, focus: GridFocusTarget | null, options: GridLayoutOptions, trim: number, raise: number): GridFocusLayout {
   const { zones } = world;
   const homeColumn = options.homeColumn === undefined ? 0 : options.homeColumn;
   const ownLane = homeColumn == null ? RIVAL_BOTTOM_LANE : HOME_LANE;
-  const width = Math.max(0, viewport.width - 2 * EDGE);
+  const width = Math.max(0, viewport.width - 2 * EDGE - trim);
   const height = Math.max(0, viewport.height - 2 * EDGE);
   const drawerOf = (column: 0 | 1): 0 | 1 => options.drawerRow?.[column] ?? 1;
   const gap = (z: number) => COLUMN_GAP * z;
@@ -429,7 +488,7 @@ export function gridFocusLayout(world: GridWorld, viewport: GridViewport, focus:
   const ideal = EDGE + (height - (probe[big].offset + probe[big].below)) / 2 + probe[big].offset;
   const lineMin = Math.max(EDGE + probe[0].offset, EDGE + probe[1].offset);
   const lineMax = Math.min(EDGE + height - probe[0].below, EDGE + height - probe[1].below);
-  const line = lineMax >= lineMin ? Math.min(lineMax, Math.max(lineMin, ideal)) : lineMax;
+  const line = lineMax >= lineMin ? Math.min(lineMax, Math.max(lineMin, ideal - raise)) : lineMax;
   const columns = ([0, 1] as const).map((column) =>
     placeColumn(column, zs[column], drawerOf(column), centers[column], line - probe[column].offset, zones, rest, column === homeColumn),
   ) as [PlacedColumn, PlacedColumn];
