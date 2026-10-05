@@ -685,13 +685,20 @@
   background: none;
 }
 .shell[data-hud="room"] .boardColumn {
-  padding: var(--hud-top) 14px var(--hud-bottom) var(--hud-left);
+  /* The board is height-bound and centered: about 1.06 screen heights wide. When the screen is too narrow for that
+     (narrow or nearly square screens), its bottom-right corner would go under the corner stack and hide your Deck
+     pile. The right padding grows just enough to keep the board left of the stack (up to the stack's width plus its
+     gaps, where the board starts to get narrower). It never leaves the board less than 660px: below 641px the field
+     changes to its phone layout. On wide screens the term is negative and the minimum applies. */
+  --hud-right-need: calc(520px + 105.6dvh - 100vw);
+  --hud-right-max: min(calc(var(--hud-corner-w) + 28px), calc(100vw - var(--hud-left) - 660px));
+  padding: var(--hud-top) clamp(14px, var(--hud-right-need), var(--hud-right-max)) var(--hud-bottom) var(--hud-left);
   border-left: 0;
 }
 /* Narrow desktops: the board is centered, so its right side would reach the Deck Master plate and the corner stack
    there. A little more room at the right moves the board left (the board is height-bound, so it keeps its size). */
 @media (max-width: 1320px) {
-  .shell[data-hud="room"] .boardColumn { padding-right: 60px; }
+  .shell[data-hud="room"] .boardColumn { padding-right: clamp(60px, var(--hud-right-need), var(--hud-right-max)); }
 }
 /* The shell already paints the ground and the lamp glows over the whole screen; the field's own copy would end at the
    padded box as a visible edge. */

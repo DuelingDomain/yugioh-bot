@@ -392,4 +392,10 @@ describe("the 1v1 HUD corner in the stylesheet", () => {
     expect(css).toMatch(/\[data-hud-corner\] > \.promptDock\[data-mode="float"\],\s*[^{]*\[data-hud-corner\] > \.promptDock\[data-mode="flow"\] \{[^}]*pointer-events: auto;/);
     expect(css).not.toMatch(/\.corner \.promptDock/);
   });
+
+  it("keeps the board left of the corner stack on narrow or nearly square screens, but never under 660px", () => {
+    expect(css).toMatch(/--hud-right-need: calc\(520px \+ 105\.6dvh - 100vw\);/);
+    expect(css).toMatch(/--hud-right-max: min\(calc\(var\(--hud-corner-w\) \+ 28px\), calc\(100vw - var\(--hud-left\) - 660px\)\);/);
+    expect(css).toMatch(/padding: var\(--hud-top\) clamp\(14px, var\(--hud-right-need\), var\(--hud-right-max\)\)/);
+  });
 });
