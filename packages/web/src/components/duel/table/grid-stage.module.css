@@ -207,3 +207,16 @@
   left: 0;
   translate: 0 100%;
 }
+
+/* The polite "Focus: name" line for screen readers. */
+.live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
