@@ -154,3 +154,48 @@
   animation-delay: 0.4s;
 }
 
+/* ---------- the wide table: a 72px rail, a drawer column that exists only while open, then the whole table ---------- */
+
+/* .shell.shell [data-wide="true"][class] beats the room's three-column .layout (room.module.css) without touching 1v1 or Tag. The
+   [class] makes it one step stronger than the room's .shell[data-domain] .layout, so it wins whichever stylesheet the build loads
+   last (the order moves with the import graph). */
+.shell.shell [data-wide="true"][class] {
+  --rail-w: 72px;
+  --drawer-w: min(380px, 34vw);
+  --drawer-col: 0px;
+  grid-template-columns: var(--rail-w) var(--drawer-col) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "rail drawer board";
+  background: none;
+}
+.shell.shell [data-wide="true"][data-drawer="open"] { --drawer-col: var(--drawer-w); }
+
+/* The table uses the whole area: no gutter, no hairline beside the old columns. */
+.shell.shell [data-wide="true"] > section[aria-label="Duel field"] {
+  padding: 0;
+  border-left: 0;
+}
+
+/* The prompt for you: a card in the corner of the table area, so it follows the drawer's reflow and never sits under it. */
+.shell.shell [data-wide="true"] > [data-mode="float"],
+.shell.shell [data-wide="true"] > [data-mode="flow"] {
+  grid-area: board;
+  align-self: end;
+  justify-self: start;
+  width: min(380px, calc(100% - 20px));
+  margin: 0 0 10px 10px;
+}
+
+/* The table glides to its new fit in the drawer's own time (transform only); a window drag or reduced motion skips it. */
+.shell.shell [data-wide="true"][data-glide="drawer-in"] {
+  --glide: var(--d-drawer-in, 300ms);
+  --glide-ease: var(--ease-drawer, cubic-bezier(0.32, 0.72, 0, 1));
+}
+.shell.shell [data-wide="true"][data-glide="drawer-out"] {
+  --glide: var(--d-drawer-out, 220ms);
+  --glide-ease: var(--ease-drawer, cubic-bezier(0.32, 0.72, 0, 1));
+}
+.shell.shell [data-wide="true"][data-glide="resize"],
+.shell.shell [data-wide="true"][data-glide="none"] {
+  --glide: 0s;
+}

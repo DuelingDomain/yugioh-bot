@@ -28,6 +28,12 @@ export interface TableUi {
   setInspect: (target: InspectTarget | null) => void;
   pane: SidePane;
   setPane: (pane: SidePane) => void;
+  /**
+   * The wide table's drawer (rail on the left, panels beside the board). Inspecting a card on purpose (a click that is
+   * no move, the menu's Inspect, a history tile, a pile card) opens it; a hover never does. Tables without a drawer ignore it.
+   */
+  drawerOpen: boolean;
+  setDrawerOpen: (open: boolean) => void;
   /** A menu or the pile viewer is open: the table keys wait. */
   suspended: boolean;
   /** Zone key of the declared attacker, while its target is chosen. */
@@ -43,6 +49,7 @@ export function useTableUi(base: TableController): TableUi {
   const [pile, setPile] = useState<PileView | null>(null);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const [pane, setPane] = useState<SidePane>(DEFAULT_SIDE_PANE);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [pendingAttack, setPendingAttack] = useState<{ key: string; direct: boolean } | null>(null);
 
   const promptId = prompt?.id ?? null;
@@ -88,7 +95,7 @@ export function useTableUi(base: TableController): TableUi {
   const closePile = useCallback(() => setPile((current) => (current ? { ...current, open: false } : null)), []);
 
   const showInspector = useCallback(
-    (target: InspectTarget, reveal = false) => {
+    (target: InspectTarget, reveal = false, openDrawer = reveal) => {
       if (target.type === "pile") {
         // Piles open in the centred viewer over the board. The owner is the controller of the pile's cards.
         const first = target.cards[0];
@@ -99,12 +106,14 @@ export function useTableUi(base: TableController): TableUi {
         return;
       }
       setInspect(target);
-      if (reveal || pane !== "log") setPane("card");
+      // A deliberate inspect (it opens the drawer) shows the Card pane, even when the drawer was last on the Log or Settings.
+      if (reveal || openDrawer || pane !== "log") setPane("card");
+      if (openDrawer) setDrawerOpen(true);
     },
     [pane, viewerSeat],
   );
 
-  const onInspect = useCallback<TableController["onInspect"]>((target) => showInspector(target), [showInspector]);
+  const onInspect = useCallback<TableController["onInspect"]>((target) => showInspector(target, false, true), [showInspector]);
   const inspectCard = useCallback((target: InspectTarget) => showInspector(target, true), [showInspector]);
 
   const onHoverCard = useCallback<NonNullable<TableController["onHoverCard"]>>(
@@ -147,7 +156,8 @@ export function useTableUi(base: TableController): TableUi {
   const onActivate = useCallback<DuelActivateHandler>(
     (keys, card, anchor) => {
       setHover(null);
-      if (card) showInspector({ type: "card", card });
+      // A click on a card that offers a move is the start of that move: the drawer stays as it is. Any other click inspects.
+      if (card) showInspector({ type: "card", card }, false, !(canAct && mine && keys.some((key) => base.legalKeys.has(key))));
       base.onActivate(keys, card, anchor);
       if (busy || !canAct || !prompt) return;
       if (mine && (prompt.kind === "choice" || prompt.kind === "toggle")) {
@@ -213,6 +223,8 @@ export function useTableUi(base: TableController): TableUi {
     setInspect,
     pane,
     setPane,
+    drawerOpen,
+    setDrawerOpen,
     suspended: activeMenu != null || pile?.open === true,
     attackerKey,
     inspectCard,

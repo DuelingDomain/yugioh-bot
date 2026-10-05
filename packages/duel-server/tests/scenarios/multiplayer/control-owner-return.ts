@@ -14,7 +14,7 @@ for (const domain of [false, true]) for (const format of ["ffa3", "ffa4", "tag",
     const sealSetup: Scenario["setup"] = { format, ...(domain ? { mode: "domain" } : {}) };
     const sealBoard: BoardExpect = {};
     for (const [i, seat] of seats.entries()) {
-      const drawn = i === 0 ? Number(domain) : Number(i <= ti);
+      const drawn = i === 0 ? Number(domain && format !== "1v1") : Number(i <= ti);
       sealSetup[seat] = { monsters: seat === owner ? [OX, ELF] : [],
         hand: seat === thief ? ["Change of Heart", "Owner's Seal"] : [], deck: Array(20).fill(ELF),
         ...(domain ? { deckMaster: "Blue-Eyes White Dragon" } : {}) };
@@ -47,7 +47,7 @@ for (const domain of [false, true]) for (const format of ["ffa3", "ffa4", "tag",
     const victim: DuelistId = format === "tag" ? (oi % 2 === 0 ? "p1" : "p0") : format === "1v1" ? "p0" : "p1";
     const setup: Scenario["setup"] = { format, ...(domain ? { mode: "domain" } : {}) };
     const board = (returned: boolean): BoardExpect => Object.fromEntries(seats.map((seat, i) => {
-      const drawn = (i === 0 ? Number(domain) : Number(i <= oi)) + Number(returned && i === (oi + 1) % seats.length);
+      const drawn = (i === 0 ? Number(domain && format !== "1v1") : Number(i <= oi)) + Number(returned && i === (oi + 1) % seats.length);
       return [seat, { monsters: [...(seat === (returned ? owner : victim) ? [MAGE] : []), ...(seat === (returned ? victim : owner) ? [OX] : []), ...(seat !== owner && seat !== victim && format.startsWith("ffa") ? [ELF] : [])],
         lp: format === "tag" ? 16000 : 8000, spells: [], grave: seat === owner ? ["Offerings to the Doomed", "Trick Box"] : [],
         hand: Array(drawn).fill(ELF), deckCount: 20 - drawn, banished: [], extra: [],

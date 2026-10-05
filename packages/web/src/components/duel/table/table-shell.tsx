@@ -2,7 +2,7 @@
 
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { connectionLabel as labelForConnection } from "../connection-label";
-import { useCallback, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { Circle, Diamond, Eye, Radio, Volume2, VolumeX } from "lucide-react";
 import type { DuelCard } from "@yugidraft/shared/duels";
@@ -36,17 +36,21 @@ import { firstInspectCard } from "../tag/tag-logic";
 import { DuelClockDisplay } from "../room-settings";
 import { SeatStrip } from "../seat-strip";
 import { SeriesBanner } from "../series-banner";
-import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNarrow } from "../side-panel";
+import { CardTabEmpty, useIsNarrow } from "../side-panel";
 import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "../station-track";
+import { PhaseHub } from "../phase-hub";
 import { SummonFx } from "../summon-fx";
 import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import type { ChainModeControl } from "../use-chain-mode";
 import roomStyles from "../room.module.css";
 import { CameraControls } from "./camera-controls";
+import { isFaceOff } from "./camera-model";
 import { tableLayout } from "./geometry";
 import { HistoryStrip } from "./history-strip";
+import { MasterChip } from "./master-chip";
 import { OpponentBar } from "./opponent-bar";
 import { attackLockAt, placeLabel, placings, toneBySeat, trackOutOrder } from "./seat-state";
+import { TableDrawer, TableRail } from "./table-rail";
 import { TableSettings, type TableConnection } from "./table-settings";
 import { TablePhonePanes } from "./table-phone-panes";
 import { TableStage } from "./table-stage";
@@ -54,6 +58,7 @@ import { tableZoneAnchor } from "./zone-find";
 import { AimArrow } from "./aim-arrow";
 import { useAimFlow } from "./use-aim-flow";
 import { useCamera } from "./use-camera";
+import { useTableDrawer } from "./use-table-drawer";
 import { useTableUi } from "./use-table-ui";
 import { SEAT_TONE_HEX, type CameraLockReason, type CameraState, type TableController, type TableFormat } from "./types";
 import styles from "./table-shell.module.css";
@@ -161,6 +166,8 @@ function TableShellBody({
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
   const format = engineFormat(engine);
+  // A table of 3 or 4 draws its phases on the board, beside the turn ring. Tag keeps them in the bar.
+  const hubOn = format === "ffa3" || format === "ffa4";
   const layout = useMemo(
     () => tableLayout(format as TableFormat, engine, viewerSeat),
     // The layout depends on who sits where, never on a card: the seat list is enough.
@@ -181,6 +188,8 @@ function TableShellBody({
   // Phone and small tablet: the left column is a sheet opened from a bar under the station track.
   const session = room.session;
   const domain = session.mode === "domain";
+  // The wide table keeps the History, Card, Log, Master and Settings panes behind a 72px rail; the phone layout keeps its sheet.
+  const drawer = useTableDrawer(ui, { domain, reducedMotion: controller.reducedMotion, enabled: !narrow });
   const spectator = viewerSeat == null;
   const viewerOut = engine.seats.some((seat) => seat.seat === viewerSeat && (seat.eliminated || seat.pendingElimination));
   const terminal = session.status !== "active";
@@ -222,6 +231,25 @@ function TableShellBody({
   const actionOptions = prompt?.context?.type === "action" ? prompt.options : [];
   const dockMode = !promptMine || prompt == null || centered ? "idle" : actionPrompt ? (prompt.cancelable || prompt.finishable ? "float" : "idle") : "flow";
   const trackCaption = terminal ? "Duel finished" : prompt == null ? null : promptMine ? (actionPrompt ? null : prompt.title) : `${nameOf(prompt.seat)} is choosing…`;
+  // Esc closes the drawer from anywhere on the table: a card inspect opens it and leaves focus on the card, outside it. A prompt
+  // that owns the Escape (its hide, pass or back), a menu, the pile viewer, a live aim and a modal get it first; inside the rail
+  // or the drawer their own keys close it and hand focus back to the button.
+  const escRef = useRef({ open: false, owned: false, close: () => {} });
+  const escOwned = suspended || flow.aiming || flow.seatKeys || centered || camera.state.mode === "fly" || (promptMine && (prompt?.cancelable === true || prompt?.finishable === true));
+  escRef.current = { open: drawer.open, owned: escOwned, close: () => drawer.close(false) };
+  useEffect(() => {
+    if (narrow) return;
+    const onKey = (event: KeyboardEvent) => {
+      const state = escRef.current;
+      if (event.key !== "Escape" || !state.open || state.owned || event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.("[data-table-chrome], input, textarea, select, [contenteditable='true'], [aria-modal='true']") || document.querySelector("[aria-modal='true']")) return;
+      event.preventDefault();
+      state.close();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [narrow]);
   const canAct = base.canAct && !base.busy;
   // Who may answer the open chain, in order (the panel of the chain and the response prompt list it).
   const chainOpen = engine.chain.length > 0 && !terminal;
@@ -266,7 +294,7 @@ function TableShellBody({
     out: camera.out,
   };
   const playersText = session.seats.map((seat) => seat.displayName).join(" v ");
-  const logVisible = ui.pane === "log" && (!narrow || sheetOpen);
+  const logVisible = ui.pane === "log" && (narrow ? sheetOpen : drawer.open);
   const inspectCard = (target: InspectTarget) => { ui.inspectCard(target); if (narrow) setSheetOpen(true); };
   // Before anything is hovered the Card tab shows the viewer's first face-up monster (else a hand card), as the tag table does.
   const startCard = ui.inspect ? null : firstInspectCard(engine, viewerSeat);
@@ -302,6 +330,17 @@ function TableShellBody({
       </details>
     </div>
   );
+
+  const seatStrip = (
+    <SeatStrip engine={engine} mySeat={viewerSeat} nameOf={nameOf} promptSeat={controller.promptSeat}
+      focusSeat={camera.state.focusSeat} onFocusSeat={isFaceOff(layout, camera.out) ? undefined : (seat) => camera.dispatch({ type: "focus", seat })}
+      pick={canAct && controller.revealed ? controller.seatPick : null} compact={!narrow} />
+  );
+  // Your Deck Master hangs under your LP plate on the wide table; a click opens the drawer on its Master tab.
+  const myView = viewerSeat != null ? engine.seats.find((seat) => seat.seat === viewerSeat) : undefined;
+  const masterChip = domain && !narrow && myView?.deckMaster ? (
+    <MasterChip view={myView} label="Your Master" onOpen={() => { ui.setPane("masters"); ui.setDrawerOpen(true); }} />
+  ) : null;
 
   const pileSeat = ui.pile?.seat;
   const out = useMemo(() => standings.filter((entry) => engine.seats.find((view) => view.seat === entry.seat)?.eliminated === true), [standings, engine.seats]);
@@ -393,27 +432,53 @@ function TableShellBody({
           onNavigate={(next) => actions?.onNavigate?.(next)}
         />
       ) : null}
-      <div className={roomStyles.layout}>
+      <div
+        className={roomStyles.layout}
+        data-wide={narrow ? undefined : "true"}
+        data-drawer={narrow ? undefined : drawer.open ? "open" : "closed"}
+        data-glide={narrow ? undefined : drawer.settled ? drawer.glide ?? undefined : "none"}
+      >
         <div className={roomStyles.notices} data-prompt-surface="">
           <div className="pointer-events-auto">{notices}</div>
         </div>
         {narrow ? null : (
-          <aside className={roomStyles.inspector}>
-            <HistoryStrip
-              engine={engine}
-              mySeat={viewerSeat}
-              playerName={nameOf}
-              seatTones={seatTones}
-              onInspectCard={(card) => inspectCard("location" in card ? { type: "card", card } : { type: "info", card })}
-              onOpenLog={() => ui.setPane("log")}
+          <>
+            <TableRail
+              panes={drawer.panes}
+              pane={drawer.pane}
+              open={drawer.open}
+              unread={logUnread}
+              viewOpen={drawer.viewOpen}
+              onPane={drawer.togglePane}
+              onView={drawer.toggleView}
+              register={drawer.register}
+              onKeyDown={drawer.onKeyDown}
+              history={
+                <HistoryStrip
+                  variant="rail"
+                  engine={engine}
+                  mySeat={viewerSeat}
+                  playerName={nameOf}
+                  seatTones={seatTones}
+                  onInspectCard={(card) => inspectCard("location" in card ? { type: "card", card } : { type: "info", card })}
+                />
+              }
             />
-            <SideTabs panes={DESKTOP_PANES} selected={desktopPane(ui.pane)} unread={logUnread} onSelect={ui.setPane} />
-            <div className={roomStyles.sideContent}>
-              <SidePanel pane="card" selected={desktopPane(ui.pane)}>{cardPanel}</SidePanel>
-              <SidePanel pane="log" selected={desktopPane(ui.pane)} keepMounted>{logPanel}</SidePanel>
-              <SidePanel pane="settings" selected={desktopPane(ui.pane)}><TableSettings controller={controller} preferences={preferences} connection={connection} tools={settingsTools} /></SidePanel>
-            </div>
-          </aside>
+            <TableDrawer
+              panes={drawer.panes}
+              pane={drawer.pane}
+              open={drawer.open}
+              unread={logUnread}
+              settled={drawer.settled}
+              card={cardPanel}
+              log={logPanel}
+              masters={masterRail}
+              settings={<TableSettings controller={controller} preferences={preferences} connection={connection} tools={settingsTools} />}
+              onSelect={ui.setPane}
+              onClose={() => drawer.close(true)}
+              onKeyDown={drawer.onKeyDown}
+            />
+          </>
         )}
         <div
           className={roomStyles.promptDock}
@@ -450,7 +515,24 @@ function TableShellBody({
                 out={camera.out}
                 placeLabels={placeLabels}
                 dispatchCamera={camera.dispatch}
+                masterChip={masterChip}
                 renderSeatField={(props) => <SeatField {...props} />}
+                hub={hubOn ? (
+                  <PhaseHub
+                    variant="table"
+                    phase={engine.phase}
+                    battleStep={battleStep}
+                    turn={engine.turn}
+                    turnSeat={engine.turnSeat}
+                    mySeat={viewerSeat}
+                    playerName={nameOf}
+                    tone={engine.turnSeat != null ? toneOf(engine.turnSeat) : null}
+                    actionOptions={promptMine ? actionOptions : []}
+                    canAct={canAct}
+                    onChoose={(id) => controller.onAnswer({ choice: id })}
+                    reducedMotion={controller.reducedMotion}
+                  />
+                ) : null}
                 fx={
                   <FxBoundary>
                     {fxActive ? <DuelFeedback events={engine.events} duelKey={session.slug} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={controller.reducedMotion} /> : null}
@@ -518,7 +600,7 @@ function TableShellBody({
                         <Eye size={14} strokeWidth={1.75} aria-hidden /> Spectating
                       </span>
                     ) : null}
-                    <CameraControls {...cameraProps} variant={masterRail ? "stage" : "float"} />
+                    <CameraControls {...cameraProps} variant={narrow && masterRail ? "stage" : "float"} view={narrow ? undefined : { open: drawer.viewOpen }} />
                     {ui.pile ? (
                       <PileViewer
                         title={ui.pile.title}
@@ -541,18 +623,12 @@ function TableShellBody({
             </MoveSourceBoundary>
           </div>
         </section>
-        {masterRail && !narrow ? (
-          <aside className={roomStyles.masters} aria-label="Deck Masters">
-            {masterRail}
-            <CameraControls {...cameraProps} variant="panel" />
-          </aside>
-        ) : null}
       </div>
       <div className={roomStyles.track}>
-        <SeatStrip engine={engine} mySeat={viewerSeat} nameOf={nameOf} promptSeat={controller.promptSeat}
-          focusSeat={camera.state.focusSeat} onFocusSeat={(seat) => camera.dispatch({ type: "focus", seat })}
-          pick={canAct && controller.revealed ? controller.seatPick : null} />
+        {narrow ? seatStrip : null}
         <StationTrack
+          seatSlot={narrow ? undefined : seatStrip}
+          seatSlotCount={engine.seats.length}
           phase={engine.phase}
           battleStep={battleStep}
           turn={engine.turn}
@@ -568,6 +644,7 @@ function TableShellBody({
           reducedMotion={controller.reducedMotion}
           attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
           chainMode={chainMode}
+          phases={hubOn ? "hub" : "bar"}
         />
       </div>
       {narrow ? <TablePhonePanes domain={domain} pane={ui.pane} open={sheetOpen} unread={logUnread}

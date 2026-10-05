@@ -115,6 +115,8 @@ export async function callDuelHost(input: {
   mode?: DuelMode;
   masterRule?: DuelMasterRule;
   settings?: unknown;
+  /** check-deck only: the server loads this player's durable draft pool. */
+  draftId?: number | null;
   /** Rock-paper-scissors move for `opening-pick`. */
   move?: DuelRpsMove;
   /** First or second for `opening-choose` and `series-first`. */

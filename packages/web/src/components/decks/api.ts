@@ -140,6 +140,7 @@ export async function getDraftDeckPool(slug: string): Promise<Omit<DraftDeckPool
     draftId: body.draftId,
     draftName: typeof body.draftName === "string" ? body.draftName : "Draft",
     cards: body.cards,
+    forcedCopies: body.forcedCopies && typeof body.forcedCopies === "object" ? body.forcedCopies : {},
     mainPoolCount: body.mainPoolCount,
     unresolved: Array.isArray(body.unresolved) ? body.unresolved : [],
     savedDeckId: typeof body.savedDeckId === "number" ? body.savedDeckId : null,

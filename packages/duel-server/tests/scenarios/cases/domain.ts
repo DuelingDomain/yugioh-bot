@@ -64,16 +64,16 @@ export const scenarios: Scenario[] = [
     tags: ["domain", "special-summon", "select-matching-card"],
     setup: {
       mode: "domain",
-      p0: { deckMaster: "Axe Raider", hand: ["Eater of Millions", "Mystical Elf", "Celtic Guardian", "Dark Hole", "Raigeki", "Pot of Greed"] },
+      p0: { deckMaster: "Axe Raider", hand: ["Eater of Millions", "Mystical Elf", "Celtic Guardian", "Dark Hole", "Raigeki", "Pot of Greed", "Silver Fang"] },
       p1: { deckMaster: "Celtic Guardian" },
     },
     steps: [
       specialSummon("Eater of Millions"),
-      // The Domain first-turn draw adds a filler. Select five cards for the cost.
+      // The explicit filler keeps the five-card cost a choice without a turn-1 draw.
       select("Mystical Elf", "Celtic Guardian", "Dark Hole", "Raigeki", "Pot of Greed"),
       expectBoard({
         p0: {
-          hand: ["Mystical Elf"],
+          hand: ["Silver Fang"],
           monsters: ["Eater of Millions"],
           banished: ["Mystical Elf", "Celtic Guardian", "Dark Hole", "Raigeki", "Pot of Greed"],
           deckMaster: { inZone: true, returns: 0 },

@@ -1,17 +1,26 @@
 /* The plaza floor. Stage px; the stage scales it. Everything here is decoration. */
 .plaza {
   position: absolute;
-  inset: 0;
+  inset: 0 calc(-1 * var(--spread, 0px));
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
+}
+
+/* The 1100 by 860 px stage space, kept at the middle of a wider plaza: the floor and the pads are placed in it. */
+.space {
+  position: absolute;
+  left: var(--spread, 0px);
+  top: 0;
+  width: 1100px;
+  height: 860px;
 }
 
 .skyline {
   position: absolute;
   left: 0;
   top: 0;
-  width: 100%;
+  width: 1100px;
   height: 170px;
   opacity: 0.55;
   -webkit-mask: linear-gradient(180deg, #000 30%, transparent);
@@ -76,8 +85,8 @@
 
 .edge {
   position: absolute;
-  left: 0;
-  top: 0;
+  inset: 0 0 auto 0;
+  height: 860px;
   box-shadow: inset 0 0 120px rgb(2 3 8 / 0.5);
 }
 

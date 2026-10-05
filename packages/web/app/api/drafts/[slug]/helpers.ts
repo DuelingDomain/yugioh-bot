@@ -43,7 +43,7 @@ function degrade<T>(slug: string, part: string, fallback: T, run: () => T): T {
 function mapDraftCardDetails(
   slug: string,
   db: ReturnType<typeof getDb>,
-  cards: Array<{ draftCardId: number; catalogCardId: number }>,
+  cards: Array<{ draftCardId: number; catalogCardId: number; forced?: boolean }>,
   engineTypes: ReadonlyMap<number, EngineCardTypes> = new Map(),
 ) {
   if (cards.length === 0) {
@@ -63,6 +63,7 @@ function mapDraftCardDetails(
 
     return {
       id: card.draftCardId,
+      ...(card.forced !== undefined ? { forced: card.forced } : {}),
       passcode: card.catalogCardId,
       name: catalogCard?.name ?? `Card ${card.catalogCardId}`,
       type: catalogCard?.type ?? "Unknown",
@@ -222,6 +223,7 @@ export async function buildDraftResponse(slug: string, userId: string) {
           drafts.pool(draft.id, currentPlayer.id).map((card) => ({
             draftCardId: card.draftCardId,
             catalogCardId: card.catalogCardId,
+            forced: card.forced,
           })),
         )
       : [];

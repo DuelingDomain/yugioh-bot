@@ -10,6 +10,22 @@ const catalog = new Map([
 const resolve = (code: number) => canonicalCardCode(code, catalog);
 
 describe("draft card identity", () => {
+  it("allows one additional copy per forced pick across artworks and sections", () => {
+    const pool = new Map([[base, 3], [art, 2]]);
+    const forced = new Map([[art, 1]]);
+    const deck = { main: [base, base, art], extra: [], side: [art] };
+    expect(checkDeckAgainstPool(deck, pool, resolve, forced)).toEqual([]);
+    expect(checkDeckAgainstPool({ ...deck, side: [art, base] }, pool, resolve, forced))
+      .toEqual([{ code: base, used: 5, available: 4 }]);
+    expect(checkDeckAgainstPool({ ...deck, side: [art, base] }, pool, resolve, new Map([[art, 1], [base, 1]])))
+      .toEqual([]);
+    // An allowance never creates a copy the player did not draft.
+    expect(checkDeckAgainstPool(deck, new Map([[base, 3]]), resolve, forced))
+      .toEqual([{ code: base, used: 4, available: 3 }]);
+    expect(checkDeckAgainstPool(deck, pool, resolve))
+      .toEqual([{ code: base, used: 4, available: 3 }]);
+  });
+
   it("counts artworks together across the deck and the pool", () => {
     const pool = new Map([[base, 1], [art, 1]]);
     expect(checkDeckAgainstPool({ main: [art], extra: [], side: [base] }, pool, resolve)).toEqual([]);

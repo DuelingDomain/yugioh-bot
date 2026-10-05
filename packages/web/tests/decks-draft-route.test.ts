@@ -65,6 +65,25 @@ describe("draft decks through /api/decks", () => {
   }
 
   describe("POST", () => {
+    it("saves and auto-registers a forced fourth copy but rejects a fifth", async () => {
+      const { draftId } = await seed({ picks: [...mainIds(40), 1, 1, 1, 1], forcedPicks: [42], tournamentUsers: ["drafter"] });
+      const res = await post(deckBody({ main: main(40), side: [passcodeOf(1), passcodeOf(1), passcodeOf(1)] }, { draftId }));
+      expect(res.status).toBe(201);
+      const saved = (await res.json()).deck;
+      expect(JSON.parse((await registration())!.deck_json!)).toEqual(saved.deck);
+      const over = await put(saved.id, deckBody({ main: main(40), side: Array(4).fill(passcodeOf(1)) }));
+      expect(over.status).toBe(400);
+      expect((await over.json()).issues).toEqual([{ code: passcodeOf(1), used: 5, available: 4 }]);
+    });
+
+    it("counts the forced fourth copy in a small main pool's minimum", async () => {
+      const { draftId } = await seed({ picks: [1, 1, 1, 1], forcedPicks: [3] });
+      const short = await post(deckBody({ main: Array(3).fill(passcodeOf(1)) }, { draftId }));
+      expect(short.status).toBe(400);
+      expect((await short.json()).error).toMatch(/at least 4/);
+      expect((await post(deckBody({ main: Array(4).fill(passcodeOf(1)) }, { draftId }))).status).toBe(201);
+    });
+
     it("saves a legal deck for the draft", async () => {
       const { draftId } = await seed();
       const res = await post(deckBody({ main: main(40) }, { draftId }));
