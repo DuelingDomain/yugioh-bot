@@ -182,7 +182,7 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false, compac
     if (changed) setPops(nextPops);
   }, [clock, memoryKey]);
   return (
-    <div className={styles.clock} role="timer" aria-label="Decision clocks" aria-live="off">
+    <div className={styles.clock} role="timer" aria-label="Decision clocks" aria-live="off" data-pill={pill ? "true" : undefined}>
       {clock.remainingMs.map((remaining, seat) => {
         if (seats && !seats.includes(seat)) return null;
         if (compact && clock.activeSeat !== seat) return null;

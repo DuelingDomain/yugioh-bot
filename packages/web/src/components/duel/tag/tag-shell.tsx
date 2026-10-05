@@ -20,7 +20,8 @@ import { SeriesBanner } from "../series-banner";
 import { useIsNarrow } from "../side-panel";
 import { resolveBattleStep, StationTrack } from "../station-track";
 import { RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "../table/hud-layer";
-import { hudClock, stationTrackProps } from "../table/hud-shared";
+import { DuelClockDisplay } from "../room-settings";
+import { stationTrackProps } from "../table/hud-shared";
 import { OpponentBar } from "../table/opponent-bar";
 import { attackLockAt, toneBySeat } from "../table/seat-state";
 import { tableLayout } from "../table/geometry";
@@ -399,7 +400,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
         <div className={hudStyles.bottom} data-testid="hud-bottom" data-tag-track>
           <StationTrack
             {...trackProps}
-            clock={hudClock(room.clock, session, controller.reducedMotion)}
+            clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} reducedMotion={controller.reducedMotion} compact /> : null}
             attackLock={attackLockAt("tag", engine.seats.length || 4, engine.turn, prompt)}
             attackLockTestId="tag-attack-lock"
           />

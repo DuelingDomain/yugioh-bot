@@ -74,6 +74,22 @@
   pointer-events: auto;
 }
 
+/* The seat pill is narrow: its two clocks stack, one short name and time per line, so they never run into the seat name. */
+.bottom nav [data-pill] {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.bottom nav [data-pill] > span {
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.1;
+}
+.bottom nav [data-pill] > span small {
+  max-width: 8ch;
+  font-size: 11px;
+}
+
 /* ---------- icon dock ---------- */
 .dock {
   position: absolute;
