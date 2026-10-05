@@ -54,12 +54,31 @@ const QUADRANTS: Record<GridQuadrant, { column: 0 | 1; row: 0 | 1 }> = {
   br: { column: 1, row: 1 },
 };
 
+/** The seat fields that `usesGridLayout` reads. */
+export type GridSeatLike = Pick<DuelEngineView["seats"][number], "seat" | "eliminated" | "sharedExtraWith">;
+
 /**
- * The one place that decides whether a table draws the grid. Today: every 4-seat free-for-all, for the whole duel.
- * An out seat keeps its cell (the field crumbles, then the cell stays empty), so the seat count never changes it.
+ * True when the engine shares the Extra Monster Zones as the grid draws them: every seat in the duel shares with its
+ * facing seat (`gridPartnerOf`) while that seat is in the duel, and with no other seat. A seat view without
+ * `sharedExtraWith` (a fixture, an older view) does not count against it. A core that shares across (0+2, 1+3) or not at
+ * all fails, because the grid would draw two seats' cards in one shared cell.
  */
-export function usesGridLayout(format: TableFormat | "1v1", seats: readonly unknown[]): boolean {
-  return format === "ffa4" && seats.length === 4;
+export function gridExtraZonesFit(seats: readonly GridSeatLike[]): boolean {
+  const live = new Set(seats.filter((view) => view.eliminated !== true).map((view) => view.seat));
+  return seats.every((view) => {
+    if (view.eliminated === true || view.sharedExtraWith === undefined) return true;
+    const facing = gridPartnerOf(view.seat);
+    return view.sharedExtraWith === (live.has(facing) ? facing : null);
+  });
+}
+
+/**
+ * The one place that decides whether a table draws the grid: a 4-seat free-for-all whose engine shares the Extra
+ * Monster Zones between facing seats (`gridExtraZonesFit`). An out seat keeps its cell (the field crumbles, then the
+ * cell stays empty), so the seat count never changes it. The shell keeps a refusal for the rest of the duel.
+ */
+export function usesGridLayout(format: TableFormat | "1v1", seats: readonly GridSeatLike[]): boolean {
+  return format === "ffa4" && seats.length === 4 && gridExtraZonesFit(seats);
 }
 
 /** The cell of every seat of the layout. Spectators have seat 0 (the anchor) at bottom-left. */

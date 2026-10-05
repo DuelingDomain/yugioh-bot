@@ -130,6 +130,13 @@ export interface TableShellProps {
 /** No legal zones: a hidden panel prompt lights nothing on the field. */
 const NO_KEYS = new Set<string>();
 
+/** True from the first render where `on` is true, for the life of the component. */
+function useLatch(on: boolean): boolean {
+  const [latched, setLatched] = useState(on);
+  if (on && !latched) setLatched(true);
+  return latched || on;
+}
+
 /**
  * The whole table of a 3 or 4 seat duel: header, history and card tabs, the stage, the Deck Master column, the station
  * track, menus, the result screen and the FX. It uses the exported duel components of the 1v1 room and keeps the room's
@@ -183,8 +190,15 @@ function TableShellBody({
   }, [given, pick.noteAnswer, pickContinuation]);
   const tracked = useMemo(() => ({ ...given, onAnswer }), [given, onAnswer]);
   const narrow = useIsNarrow();
+  // A 4-way free-for-all draws the 2 by 2 grid (grid-layout.ts decides); every other table keeps the plaza stage.
+  // A core that shares the Extra Monster Zones another way than the grid draws them keeps the plaza stage for the whole
+  // duel, also once its last two seats share nothing (see useLatch).
+  const trackedFormat = engineFormat(tracked.engine) as TableFormat;
+  const gridFits = usesGridLayout(trackedFormat, tracked.engine.seats);
+  const gridRefused = useLatch(trackedFormat === "ffa4" && !gridFits);
+  const grid = gridFits && !gridRefused;
   // The 4-way grid on a wide screen swaps the bars and side columns for the floating HUD (grid-hud.tsx).
-  const hud = !narrow && usesGridLayout(engineFormat(tracked.engine) as TableFormat, tracked.engine.seats);
+  const hud = !narrow && grid;
   // The Card pane is a flyout in the HUD: a hover must not fill it, only a click or Inspect does.
   const hudState = useHudPane();
   const ui = useTableUi(tracked, { initialPane: hud ? "log" : undefined, hud, onOpenCard: hudState.openCard });
@@ -206,8 +220,6 @@ function TableShellBody({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [format, engine.seats.length, viewerSeat],
   );
-  // A 4-way free-for-all draws the 2 by 2 grid (grid-layout.ts decides); every other table keeps the plaza stage.
-  const grid = usesGridLayout(format as TableFormat, engine.seats);
   const Stage = grid ? GridStage : TableStage;
   const rootRef = useRef<HTMLDivElement>(null);
   const ownBoardRef = useRef<HTMLDivElement>(null);
