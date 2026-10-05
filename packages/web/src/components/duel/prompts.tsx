@@ -552,6 +552,7 @@ export function PromptTray({
   draft,
   onSubmit,
   menuOpen,
+  escapeHeld,
   active,
   aim,
   headless,
@@ -566,6 +567,8 @@ export function PromptTray({
   draft: PromptDraft;
   onSubmit: (answer: DuelAnswer) => void;
   menuOpen?: boolean;
+  /** A floating flyout is open: Esc closes it and does not answer. Every other key still answers. */
+  escapeHeld?: boolean;
   active?: boolean;
   /**
    * The prompt is drawn by PromptCenter over the board. The tray then only keeps its keyboard
@@ -595,6 +598,7 @@ export function PromptTray({
   const onSubmitRef = useRef(onSubmit);
   const answeringRef = useRef(answering);
   const menuOpenRef = useRef(Boolean(menuOpen));
+  const escapeHeldRef = useRef(Boolean(escapeHeld));
   const confirmableRef = useRef(confirmable);
   const aimRef = useRef(aim);
   const suspendedRef = useRef(Boolean(suspended));
@@ -608,6 +612,7 @@ export function PromptTray({
   onSubmitRef.current = onSubmit;
   answeringRef.current = answering;
   menuOpenRef.current = Boolean(menuOpen);
+  escapeHeldRef.current = Boolean(escapeHeld);
   confirmableRef.current = confirmable;
 
   function submitAnswer(answer: DuelAnswer) {
@@ -622,6 +627,7 @@ export function PromptTray({
 
     function onKey(event: KeyboardEvent) {
       if (shouldIgnoreKeyboard(event, menuOpenRef.current)) return;
+      if (event.key === "Escape" && escapeHeldRef.current) return;
       if (suspendedRef.current) return;
       const current = promptRef.current;
       const currentDraft = draftRef.current;

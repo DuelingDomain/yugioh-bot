@@ -39,9 +39,9 @@ const DOCK_ICON = { log: ScrollText, settings: SlidersHorizontal, chain: Link2, 
 
 /**
  * Closes the open flyout with Esc or a press outside the parts marked `data-hud-keep`. A card menu or the pile viewer
- * (`suspended`) keeps Esc for itself. This listener does not run before every other key handler: the prompt panel's
- * capture listener on the window is older and runs first, so a shell passes it "a flyout is open" as `menuOpen`
- * (it then ignores Esc) instead of relying on `stopPropagation` here.
+ * (`suspended`) keeps Esc for itself, and so does an open modal dialog (Surrender). This listener does not run before
+ * every other key handler: the prompt panel's capture listener on the window is older and runs first, so a shell passes
+ * it "a flyout is open" as `escapeHeld` (it then ignores Esc only) instead of relying on `stopPropagation` here.
  */
 export function useHudDismiss(active: boolean, suspended: boolean, onClose: () => void): void {
   const close = useRef(onClose);
@@ -50,6 +50,8 @@ export function useHudDismiss(active: boolean, suspended: boolean, onClose: () =
     if (!active) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || suspended) return;
+      // A modal dialog (Surrender) owns its Esc: the flyout stays shut behind it and the modal gets the key.
+      if (document.querySelector('[aria-modal="true"]')) return;
       event.preventDefault();
       event.stopPropagation();
       close.current();

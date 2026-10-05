@@ -132,6 +132,9 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   const suspended = tagInputSuspended({ inputSuspended, menu: ui.menu, pile: ui.pile, narrow, sheetOpen });
   useHudEscape(hudState, hud, suspended);
   const hudOpen = hud && hudState.pane != null;
+  // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
+  const closeHud = hudState.close;
+  useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
   const [hideResult, setHideResult] = useState(false);
@@ -244,7 +247,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
       busy={controller.busy}
       draft={controller.draft}
       onSubmit={controller.onAnswer}
-      menuOpen={suspended || hudOpen}
+      menuOpen={suspended} escapeHeld={hudOpen}
       active={!terminal && !viewerOut}
       aim={flow.promptAim ?? undefined}
       headless={centered}
@@ -334,7 +337,7 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
                     busy={controller.busy || (prompt == null && pick.waiting != null)}
                     draft={controller.draft}
                     onSubmit={controller.onAnswer}
-                    menuOpen={suspended || hudOpen}
+                    menuOpen={suspended} escapeHeld={hudOpen}
                     chain={engine.chain}
                     aim={flow.promptAim ?? undefined}
                     aimLocked={flow.locked}

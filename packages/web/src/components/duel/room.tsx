@@ -348,8 +348,9 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const hud = !narrow && data?.engine != null && !isMultiSeat(data.engine) && !liveTable && view.mode !== "3d";
   const hudState = useHudPane();
   useHudEscape(hudState, hud, Boolean(activeMenu) || Boolean(pile?.open) || deckMenuOpen);
-  // An open flyout keeps Esc, as a card menu does: the same Esc must not also decline the prompt.
-  const promptMenuOpen = Boolean(activeMenu) || deckMenuOpen || (hud && hudState.pane != null);
+    const promptMenuOpen = Boolean(activeMenu) || deckMenuOpen;
+  // An open flyout holds only Esc (it closes the flyout); the other prompt keys keep answering.
+  const hudFlyoutOpen = hud && hudState.pane != null;
   const rowPreview = useRowPreview(prompt?.id ?? null);
 
   // Human attack flow: pick the attacker in the menu (preview arrow), aim at a target, confirm.
@@ -790,6 +791,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
     else router.replace("/duels");
   };
+  // The Surrender confirm is a modal: the HUD flyout that held the button closes, so the modal owns Esc.
+  const askSurrender = () => { hudState.close(); setConfirmSurrender(true); };
   const surrenderOpen = confirmSurrender && canSurrender;
   const surrenderModal = <SurrenderModal open={surrenderOpen} busy={busy} multiplayer={multi && (format === "ffa3" || format === "ffa4")} tag={multi && format === "tag"}
     onClose={() => setConfirmSurrender(false)} onConfirm={() => {
@@ -800,7 +803,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // Your own deck opens a Surrender menu. It uses the same confirm and the same surrender call as the header button.
   const deckSurrender: DeckSurrenderValue = {
     seat: data.mySeat, available: canSurrender, busy: busy || catchingUp || Boolean(error),
-    onSurrender: () => setConfirmSurrender(true), onMenuOpenChange: setDeckMenuOpen,
+    onSurrender: askSurrender, onMenuOpenChange: setDeckMenuOpen,
     scope: `${prompt?.id ?? ""}|${data.engine?.turnSeat ?? ""}`,
   };
   // The series has moved on to its next game and this room is about to follow it (the effect on nextTarget).
@@ -862,7 +865,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {popOutControl}
         {leaveControl}
         {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error)}
-          onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
+          onClick={askSurrender}>Surrender</Button> : null}
       </>,
       settingsTools: canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null,
@@ -1049,7 +1052,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       ) : null}
       <BugReportMenuButton room={data} />
       {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy}
-        onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
+        onClick={askSurrender}>Surrender</Button> : null}
       {canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null}
       {data.session.status === "completed" || data.session.status === "interrupted" ? (
@@ -1169,7 +1172,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       data-prompt-surface={dockMode === "idle" ? undefined : ""}
     >
       <PromptTray prompt={prompt} mySeat={data.mySeat} slug={slug} busy={busy || Boolean(error) || catchingUp}
-        draft={draft} onSubmit={onSubmitAnswer} menuOpen={promptMenuOpen}
+        draft={draft} onSubmit={onSubmitAnswer} menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen}
         active={data.session.status === "active" && !viewerOut} aim={promptAim} headless={centered} suspended={centered && !revealed}
         waitingName={multi && prompt ? playerName(prompt.seat) : null}
         disabledIds={engine ? outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats)) : undefined} />
@@ -1209,7 +1212,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       <RowPreviewBoundary row={rowPreview} enabled={hud}>
         <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}
         busy={busy || Boolean(error) || catchingUp || (prompt == null && pick.waiting != null)} draft={draft} onSubmit={onSubmitAnswer}
-        menuOpen={promptMenuOpen} chain={engine.chain} aim={promptAim}
+        menuOpen={promptMenuOpen} escapeHeld={hudFlyoutOpen} chain={engine.chain} aim={promptAim}
         aimLocked={aimLock != null && aimLock.promptId === prompt?.id}
         reducedMotion={preferences.reducedMotion} revision={engine.revision} battleStep={battleStep}
         outSeats={outOrLeavingSeats(engine.seats)} leavingSeats={leavingOnlySeats(engine.seats)}

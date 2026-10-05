@@ -47,8 +47,9 @@ export function useHudPane({ camera = false }: {
 }
 
 /**
- * Esc and a press outside close the open flyout. A card menu or the pile viewer (`suspended`) keeps Esc. Pass
- * `hud.pane != null` to the prompt panel's `menuOpen` as well, or the same Esc also declines the prompt.
+ * Esc and a press outside close the open flyout. A card menu or the pile viewer (`suspended`) keeps Esc, and so does a
+ * modal dialog. Pass `hud.pane != null` to the prompt panel's `escapeHeld` as well, or the same Esc also declines the
+ * prompt. The other prompt keys keep answering while a flyout is open.
  */
 export function useHudEscape(hud: HudPaneState, enabled: boolean, suspended: boolean): void {
   useHudDismiss(enabled && hud.pane != null, suspended, hud.close);

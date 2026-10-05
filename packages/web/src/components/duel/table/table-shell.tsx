@@ -47,7 +47,7 @@ import { tableLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
 import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "./hud-layer";
-import { hudClock, hudMasterProps, stationTrackProps } from "./hud-shared";
+import { hudMasterProps, stationTrackProps } from "./hud-shared";
 import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
 import { OpponentBar } from "./opponent-bar";
@@ -171,6 +171,9 @@ function TableShellBody({
   const ui = useTableUi(tracked, { initialPane: hud ? "log" : undefined, hud, onOpenCard: hudState.openCard });
   useHudEscape(hudState, hud, ui.suspended);
   const hudOpen = hud && hudState.pane != null;
+  // A modal (Surrender) opened from the Settings flyout: the flyout closes so the modal owns Esc.
+  const closeHud = hudState.close;
+  useEffect(() => { if (inputSuspended) closeHud(); }, [inputSuspended, closeHud]);
   const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
@@ -195,7 +198,7 @@ function TableShellBody({
   // The 4-way grid starts with your own field in focus. The turn strip and the keys (1 to 4, O, Esc) move the focus.
   const gridSeats = useMemo(() => gridCells(layout), [layout]);
   const gridShown = useMemo(() => engine.seats.filter((view) => !view.eliminated).map((view) => view.seat), [engine.seats]);
-  const gates = gridKeyGates({ prompt: controller.prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudState.pane != null });
+  const gates = gridKeyGates({ prompt: controller.prompt, viewerSeat, aiming: flow.aiming, seatKeys: flow.seatKeys, flyoutOpen: hudOpen });
   const gridFocus = useGridFocus({
     enabled: grid,
     home: gridSeats.find((cell) => cell.home)?.seat ?? 0,
@@ -486,7 +489,7 @@ function TableShellBody({
             busy={controller.busy}
             draft={controller.draft}
             onSubmit={controller.onAnswer}
-            menuOpen={suspended || hudOpen}
+            menuOpen={suspended} escapeHeld={hudOpen}
             active={!terminal && !viewerOut}
             aim={flow.promptAim ?? undefined}
             headless={centered}
@@ -530,7 +533,7 @@ function TableShellBody({
                     busy={controller.busy || (prompt == null && pick.waiting != null)}
                     draft={controller.draft}
                     onSubmit={controller.onAnswer}
-                    menuOpen={suspended || hudOpen}
+                    menuOpen={suspended} escapeHeld={hudOpen}
                     chain={engine.chain}
                     aim={flow.promptAim ?? undefined}
                     aimLocked={flow.locked}
@@ -606,7 +609,7 @@ function TableShellBody({
         <div className={hudStyles.bottom} data-testid="hud-bottom">
           <StationTrack
             {...trackProps}
-            clock={hudClock(room.clock, session, controller.reducedMotion)}
+            clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} reducedMotion={controller.reducedMotion} compact /> : null}
             attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
           />
         </div>
