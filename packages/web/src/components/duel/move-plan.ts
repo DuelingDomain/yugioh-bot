@@ -478,6 +478,24 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
   const chained = new Set<Candidate>();
   const byId = new Map(candidates.map((item) => [item.event.id, item]));
   const pending = new Map<number, Array<Candidate | undefined>>();
+  // A card that arrives in a field zone and leaves it in the same batch (a Normal Spell from the hand: zone, chain,
+  // Graveyard) was never on the board before the batch, so the zone snapshot shows no face. It rested there face-up
+  // (the server sends faceDown false, or the activation turns it), so its departure starts from its face, not a sleeve.
+  const arrivedUp = new Map<string, boolean>();
+  for (const event of fresh) {
+    if (!isMoveEvent(event) || sameZone(event.from, event.zone)) continue;
+    const from = event.from!;
+    const to = event.zone!;
+    if (from.location === LOCATION_MZONE || from.location === LOCATION_SZONE) {
+      const key = `${from.controller}:${from.location}:${from.sequence}`;
+      const item = byId.get(event.id);
+      if (item?.source && arrivedUp.get(key) === true && (event.card?.code ?? 0) > 0) item.source = { ...item.source, faceUp: true };
+      arrivedUp.delete(key);
+    }
+    if (to.location === LOCATION_MZONE || to.location === LOCATION_SZONE) {
+      arrivedUp.set(`${to.controller}:${to.location}:${to.sequence}`, (event.card?.code ?? 0) > 0 && (event.faceDown !== true || event.reason === "activate"));
+    }
+  }
   // Follow engine slots through the complete batch, including moves without visible anchors.
   // Draws, searches and Exchange can all be followed by departures after other cards moved;
   // removing a hand card compacts the remaining sequences before the next move is observed.
