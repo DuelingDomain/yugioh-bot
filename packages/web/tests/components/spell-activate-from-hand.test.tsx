@@ -210,7 +210,7 @@ describe("a Set card activated on the field stays on screen", () => {
     // The copy is whole until its last frame that still has opacity 1, then fades out.
     const fadeFrom = frames.filter((frame) => frame.opacity === 1 && frame.offset != null).reduce((max, frame) => Math.max(max, Number(frame.offset)), 0);
     const fadeStartMs = Number(copyTiming.delay) + fadeFrom * Number(copyTiming.duration);
-    expect(Number((hide[1] as KeyframeAnimationOptions).duration)).toBeLessThanOrEqual(fadeStartMs + 1);
+    expect(Number((hide![1] as KeyframeAnimationOptions).duration)).toBeLessThanOrEqual(fadeStartMs + 1);
   });
 
   it("knows a card was Set while the tab was hidden", () => {
