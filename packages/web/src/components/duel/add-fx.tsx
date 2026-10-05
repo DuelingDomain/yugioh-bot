@@ -25,6 +25,7 @@ import { CARD_FX } from "./duel-timing";
 import { Track } from "./summon-fx";
 import { retargetFlight } from "./live-flight";
 import { standsInAtSource, type MovePlan } from "./move-plan";
+import { placeSourceStandIn, SourceStandIn } from "./source-stand-in";
 import { duelFxClock } from "./fx-clock";
 import fx from "./move-fx.module.css";
 import styles from "./add-fx.module.css";
@@ -45,6 +46,7 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
   const flipper = useRef<HTMLDivElement>(null);
   const aura = useRef<HTMLSpanElement>(null);
   const labelEl = useRef<HTMLDivElement>(null);
+  const standInRef = useRef<HTMLDivElement>(null);
   const ring = useRef<HTMLDivElement>(null);
   const landedRef = useRef(landed);
   landedRef.current = landed;
@@ -123,6 +125,12 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
     // The ghost waits on the zone (its first keyframe) until the showcase starts.
     const delay = standsIn ? Math.max(0, plan.startAt - duelFxClock.now()) : 0;
     const stageOpts = { ...opts(stageMs), delay };
+    // Reduced motion: the showcase fades in at its spot. The card stays on its zone until then, and fades out there
+    // as the showcase fades in (the card does not travel).
+    const standIn = standInRef.current;
+    if (standIn && placeSourceStandIn(standIn, plan, o, w, h)) {
+      track.play(standIn, [{ opacity: 1 }, { opacity: 0 }], { duration: phases.riseMs, easing: "ease-out", delay, fill: "both" });
+    }
     track.play(el, first.stage, stageOpts);
     track.play(aura.current, first.aura, stageOpts);
     track.play(label, first.label, stageOpts);
@@ -271,6 +279,7 @@ export function ShowcaseGhost({ plan, confirmedCard, overlay, landed, done }: Pr
 
   return (
     <>
+      {plan.reduced && standsIn ? <SourceStandIn ref={standInRef} code={known} faceUp={plan.source?.faceUp === true} sleeve={sleeve} /> : null}
       <div ref={ring} className={styles.ring} data-testid="added-ring" />
       <div
         ref={labelEl}
