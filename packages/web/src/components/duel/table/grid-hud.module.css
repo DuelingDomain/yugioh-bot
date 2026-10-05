@@ -438,6 +438,10 @@
   box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.14), 0 6px 16px -6px rgb(0 0 0 / 0.8);
 }
 .master[data-away="true"] .masterArt { filter: saturate(0.55); }
+/* A second plate (the rival's in a 1v1 room, the partner's in Tag; `data-slot="other"`) sits high in the right margin:
+   it keeps the small token row, card left of the name. */
+.masterWrap[data-slot="other"] .masterToken { flex-direction: row; align-items: center; }
+.masterWrap[data-slot="other"] .masterArt { align-self: auto; height: 58px; }
 .masterId { display: grid; flex: 1 1 0; gap: 2px; min-width: 0; }
 .masterId small { overflow: hidden; color: var(--duel-ink-3); font-size: 9.5px; letter-spacing: 0.08em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 /* The name is at most two lines, then an ellipsis. */

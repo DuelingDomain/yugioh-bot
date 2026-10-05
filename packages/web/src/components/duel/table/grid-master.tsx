@@ -41,6 +41,8 @@ function useMasterArtFit(wrapRef: RefObject<HTMLDivElement | null>, artRef: RefO
     const art = artRef.current;
     const layer = wrap?.parentElement;
     if (!shown || !wrap || !art || !layer || typeof ResizeObserver === "undefined") return;
+    // A second plate (data-slot="other", high in the right margin) keeps its small card.
+    if (wrap.dataset.slot === "other") return;
     let frame = 0;
     const fit = () => {
       frame = 0;
