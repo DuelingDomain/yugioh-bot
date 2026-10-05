@@ -183,8 +183,11 @@ export interface GridViewport {
 export type GridFocusTarget = Pick<GridCell, "column" | "row">;
 
 export interface GridLayoutOptions {
-  /** Column of the viewer's own field: its bottom lane keeps room for the larger hand, and its life box is the wide one. */
-  homeColumn?: 0 | 1;
+  /**
+   * Column of the viewer's own field: its bottom lane keeps room for the larger hand, and its life box is the wide one.
+   * `null` is a spectator: no own field, so no larger lane (the hands are all rival backs). Default 0.
+   */
+  homeColumn?: 0 | 1 | null;
   /**
    * Row of the field that draws the shared Extra Monster row of each column (1 = bottom). Default: the bottom field.
    * It never follows the focus (see `pairDrawer`); the band is sized from the drawer and only moves with it.
@@ -297,15 +300,16 @@ function placeColumn(
  */
 export function gridFocusLayout(world: GridWorld, viewport: GridViewport, focus: GridFocusTarget | null, options: GridLayoutOptions = {}): GridFocusLayout {
   const { zones } = world;
-  const homeColumn = options.homeColumn ?? 0;
+  const homeColumn = options.homeColumn === undefined ? 0 : options.homeColumn;
+  const ownLane = homeColumn == null ? RIVAL_BOTTOM_LANE : HOME_LANE;
   const width = Math.max(0, viewport.width - 2 * EDGE);
   const height = Math.max(0, viewport.height - 2 * EDGE);
   const drawerOf = (column: 0 | 1): 0 | 1 => options.drawerRow?.[column] ?? 1;
 
   // The equal 2x2: both columns as tall as the one with the larger hand lane, so the rows line up.
-  const equal = Math.max(0, Math.min(width / (2 * zones + COLUMN_GAP), height / columnHeight(1, 1, 1, HOME_LANE)));
+  const equal = Math.max(0, Math.min(width / (2 * zones + COLUMN_GAP), height / columnHeight(1, 1, 1, ownLane)));
   const gap = COLUMN_GAP * equal;
-  const homeLane = HOME_LANE * equal;
+  const homeLane = ownLane * equal;
   const laneOf = (column: 0 | 1, zb: number) => (column === homeColumn ? HOME_LANE * Math.min(zb, equal) : RIVAL_BOTTOM_LANE * zb);
   const place = (column: 0 | 1, zt: number, zb: number, centerX: number, top: number) =>
     placeColumn(column, zt, zb, drawerOf(column), centerX, top, column === homeColumn, zones, equal);

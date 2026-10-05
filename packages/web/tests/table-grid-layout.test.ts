@@ -219,6 +219,17 @@ describe("gridFocusLayout", () => {
     }
   });
 
+  it("gives a spectator (no home column) no larger hand lane: the fields get the room instead", () => {
+    const view = { width: 1900, height: 700 };
+    const own = gridFocusLayout(gridWorld(5), view, null, { homeColumn: 0 });
+    const watching = gridFocusLayout(gridWorld(5), view, null, { homeColumn: null });
+    expect(watching.sizes.equal).toBeGreaterThan(own.sizes.equal);
+    expect(watching.cells[1].rect.y + watching.cells[1].rect.height).toBeLessThanOrEqual(view.height);
+    // neither column has the wide own life box
+    expect(watching.bands[0].bottomLp.width).toBeCloseTo(watching.bands[1].bottomLp.width, 0);
+    expect(own.bands[0].bottomLp.width).toBeGreaterThan(own.bands[1].bottomLp.width);
+  });
+
   it("keeps the home hand lane fixed from the equal size: a focused home field does not grow it", () => {
     const view = { width: 1440, height: 900 };
     const lane = (focus: (typeof FOCUSES)[number]) => {

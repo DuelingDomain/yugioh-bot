@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from "react";
 import type { DuelPrompt } from "@yugidraft/shared/duels";
 import { backOutAnswer } from "../pick-backout";
 
@@ -94,7 +94,8 @@ export function useGridFocus({ enabled, home, shown, suspended, digitsFree, esca
 
   // A field whose cell goes empty cannot stay in focus: back to your own field, or to all fields when that is gone too.
   const gone = focus.seat != null && !shown.includes(focus.seat) && !holding?.includes(focus.seat);
-  useEffect(() => {
+  // A layout effect: the focus moves in the same frame the seat goes, so no frame shows a field that is not there.
+  useLayoutEffect(() => {
     if (!gone) return;
     dispatch(shown.includes(home) ? { type: "focus", seat: home } : { type: "all" });
   }, [gone, home, shown]);
