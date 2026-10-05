@@ -216,6 +216,18 @@ describe("the hover preview of the Tag Rooftop", () => {
     expect(screen.getByTestId("hover-preview").getAttribute("data-open")).toBe("false");
   });
 
+  it("never opens the Card flyout on its own: not by a hover, not by a focus", () => {
+    media(false);
+    const { container } = render(<Shell />);
+    const card = container.querySelector("[data-hand-seat='0'] [data-zones]") as HTMLElement;
+    fireEvent.mouseEnter(card);
+    fireEvent.focus(card);
+    expect(isOpen()).toBe(false);
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    fireEvent.mouseEnter(card);
+    expect(flyout().getAttribute("data-pane")).toBe("log");
+  });
+
   it("stays out of the way while a flyout is open", () => {
     media(false);
     const { container } = render(<Shell />);
