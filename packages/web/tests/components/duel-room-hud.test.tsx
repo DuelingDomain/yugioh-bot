@@ -42,11 +42,9 @@ vi.mock("@/components/duel/field", async (importOriginal) => {
           <button type="button" data-testid="field-card"
             onMouseEnter={(event) => props.onHoverCard?.(card, event.currentTarget)}
             onMouseLeave={() => props.onHoverCard?.(null, null)}>card</button>
-          {/* The monster is the legal pick of a select prompt; the empty zone is not. */}
+          {/* The monster is the legal pick of a select prompt. */}
           <button type="button" data-testid="field-pick"
             onClick={(event) => card && props.onActivate([`${card.controller}:${card.location}:${card.sequence}`], card, event.currentTarget)}>pick</button>
-          <button type="button" data-testid="field-miss"
-            onClick={(event) => card && props.onActivate(["1:8:0"], card, event.currentTarget)}>miss</button>
         </div>
       );
     },
@@ -309,10 +307,32 @@ describe("the HUD with a prompt", () => {
     expect(isOpen()).toBe(false);
   });
 
-  it("a board pick of a select prompt does not open the Card flyout", () => {
+  it("a board pick of a select prompt sends the pick and does not open the Card flyout", () => {
     mount({ prompt: pickPrompt });
     fireEvent.click(screen.getByTestId("field-pick"));
+    expect(sent()).toHaveLength(1);
+    expect(sent()[0]).toMatchObject({ promptId: "p2", answer: { selected: ["target"] } });
     expect(isOpen()).toBe(false);
+  });
+
+  it("with the Log open, N still answers and Esc only closes the flyout", () => {
+    mount({ prompt: chainPrompt });
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(isOpen()).toBe(false);
+    expect(sent()).toEqual([]);
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    fireEvent.keyDown(window, { key: "n" });
+    expect(isOpen()).toBe(true);
+    expect(sent()).toHaveLength(1);
+  });
+
+  it("Surrender in the Settings flyout closes the flyout and opens the confirm", () => {
+    mount();
+    fireEvent.click(screen.getByTestId("hud-dock-settings"));
+    fireEvent.click(within(flyout()).getByRole("button", { name: "Surrender" }));
+    expect(isOpen()).toBe(false);
+    expect(document.querySelector('[aria-modal="true"]')).not.toBeNull();
   });
 });
 
@@ -326,8 +346,31 @@ describe("the 1v1 clocks and the Deck Master plate", () => {
     expect(timer.getAllByText(/\S/, { selector: "small" })).toHaveLength(2);
   });
 
-  it("shows Inspect on the plate of a spectator", () => {
+  it("shows Inspect on both plates of a spectator, with the short title", () => {
     mount({ spectator: true, domain: true }, { spectate: true });
-    expect(screen.getAllByTestId("hud-master-inspect").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("hud-master-inspect")).toBeTruthy();
+    expect(screen.getByTestId("hud-other-inspect")).toBeTruthy();
+    expect(screen.getByTestId("hud-master")).toHaveTextContent("Deck Master");
+    expect(screen.getByTestId("hud-other")).toHaveTextContent("Deck Master");
+  });
+
+  it("titles your own plate Your Master and the rival's plate Deck Master", () => {
+    mount({ domain: true });
+    expect(screen.getByTestId("hud-master")).toHaveTextContent("Your Master");
+    expect(screen.getByTestId("hud-other")).toHaveTextContent("Deck Master");
+  });
+
+  it("picks a Deck Master that a prompt asks for from its plate, through the room pick path", () => {
+    const master: DuelPrompt = {
+      id: "p4", seat: 0, kind: "cards", title: "Select 1 monster", min: 1, max: 1, cancelable: true,
+      options: [{ id: "dm", label: "Dark Magician", card: info(9, "Dark Magician"), controller: 0, location: 0x4000, sequence: 0 }],
+    };
+    mount({ domain: true, prompt: master });
+    const token = screen.getByTestId("hud-master-token");
+    expect(token.hasAttribute("aria-expanded")).toBe(false);
+    fireEvent.click(token);
+    expect(sent()).toHaveLength(1);
+    expect(sent()[0]).toMatchObject({ promptId: "p4", answer: { selected: ["dm"] } });
+    expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
   });
 });

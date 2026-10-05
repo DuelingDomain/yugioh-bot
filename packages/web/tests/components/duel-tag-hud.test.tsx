@@ -2,7 +2,7 @@
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import type { DuelCardInfo } from "@yugidraft/shared/duels";
+import type { DuelAnswer, DuelCardInfo } from "@yugidraft/shared/duels";
 
 vi.mock("next/font/google", () => {
   const font = () => ({ variable: "font-var", className: "font-class" });
@@ -234,5 +234,50 @@ describe("the hover preview of the Tag Rooftop", () => {
     fireEvent.click(screen.getByTestId("hud-dock-log"));
     fireEvent.mouseEnter(container.querySelector("[data-hand-seat='0'] [data-zones]") as HTMLElement);
     expect(screen.queryByTestId("hover-preview")).toBeNull();
+  });
+});
+
+describe("the Tag HUD with a prompt", () => {
+  /** The prompt can be declined (Pass), and every answer goes to `onAnswer`. */
+  const answering = (onAnswer: (answer: DuelAnswer) => void) => (controller: TableController): TableController => {
+    const prompt = controller.prompt ? { ...controller.prompt, cancelable: true } : null;
+    return { ...controller, onAnswer, prompt, engine: { ...controller.engine, prompt } };
+  };
+
+  it("Esc closes an open flyout and does not answer the prompt", () => {
+    media(false);
+    const onAnswer = vi.fn();
+    render(<Shell id="chain-2" tweak={answering(onAnswer)} />);
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    expect(isOpen()).toBe(true);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(isOpen()).toBe(false);
+    expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it("an open flyout does not hold the other prompt keys: N still says no", () => {
+    media(false);
+    const onAnswer = vi.fn();
+    render(<Shell id="chain-2" tweak={answering(onAnswer)} />);
+    fireEvent.click(screen.getByTestId("hud-dock-log"));
+    fireEvent.keyDown(window, { key: "n" });
+    expect(isOpen()).toBe(true);
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the Tag clock in the bottom pill", () => {
+  it("shows the answering seat only, and nothing when no clock runs", () => {
+    media(false);
+    const withClock = (activeSeat: number | null) => (controller: TableController): TableController => ({
+      ...controller,
+      room: { ...controller.room, clock: { turn: 1, remainingMs: [180_000, 170_000, 160_000, 150_000], activeSeat, startedAt: null, serverNow: 0 } },
+    });
+    const { unmount } = render(<Shell tweak={withClock(1)} />);
+    const timer = within(screen.getByTestId("hud-bottom")).getByRole("timer");
+    expect(timer.querySelectorAll("[data-active]")).toHaveLength(1);
+    unmount();
+    render(<Shell tweak={withClock(null)} />);
+    expect(within(screen.getByTestId("hud-bottom")).queryByRole("timer")).toBeNull();
   });
 });

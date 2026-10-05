@@ -11,6 +11,8 @@ vi.mock("next/font/google", () => {
 
 import { GridMasterToken } from "@/components/duel/table/grid-master";
 import { LOCATION_DMZONE } from "@/components/duel/constants";
+import { hudMasterProps } from "@/components/duel/table/hud-shared";
+import type { DuelPrompt } from "@yugidraft/shared/duels";
 
 afterEach(cleanup);
 
@@ -52,5 +54,30 @@ describe("the Deck Master plate token", () => {
   it("shows Inspect and the short title on the plate of a spectator", () => {
     plate({ legal: false, local: false });
     expect(screen.getByTestId("hud-master-inspect")).toBeTruthy();
+    expect(screen.getByTestId("hud-master")).toHaveTextContent("Deck Master");
+  });
+
+  it("has no aria-expanded while a click picks, and has it when a click opens the details", () => {
+    plate({ legal: true, onActivate: vi.fn() });
+    expect(screen.getByTestId("hud-master-token").hasAttribute("aria-expanded")).toBe(false);
+    cleanup();
+    plate({ legal: false, onActivate: vi.fn() });
+    expect(screen.getByTestId("hud-master-token").getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
+describe("hudMasterProps", () => {
+  const source = { legalKeys: new Set([zone]), selectedKeys: new Set<string>(), canAct: true, onAnswer: vi.fn(), onActivate: vi.fn(), onHoverCard: vi.fn() };
+  const prompt = (p: Partial<DuelPrompt>) => ({ id: "p", seat: 0, title: "t", cancelable: false, ...p }) as DuelPrompt;
+
+  it("lets a select prompt pick from the plate", () => {
+    const props = hudMasterProps({ ...source, prompt: prompt({ kind: "cards", min: 1, max: 1, options: [] } as Partial<DuelPrompt>) }, view, true, "Your Master");
+    expect(props.onActivate).toBe(source.onActivate);
+  });
+
+  it("does not let an action prompt pick from the plate: its actions stay on the plate", () => {
+    const action = prompt({ kind: "choice", context: { type: "action", phase: "main" }, options: [] } as Partial<DuelPrompt>);
+    expect(hudMasterProps({ ...source, prompt: action }, view, true, "Your Master").onActivate).toBeUndefined();
+    expect(hudMasterProps({ ...source, prompt: null }, view, true, "Your Master").onActivate).toBeUndefined();
   });
 });
