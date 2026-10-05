@@ -44,7 +44,7 @@ async function open(scenario: Scenario, emptyDeckSeats: number[] = [], fixture?:
 describeWithCores("eliminated FFA attack and effect targets", [liveNseat, ...needs.domainMulti()], () => {
   for (const mode of ["normal", "domain"] as const) {
     const master = (card: string) => mode === "domain" ? { deckMaster: card } : {};
-    it(`${mode}: two surrenders inside one chain leave the opponent pick answerable`, async () => {
+    it(`${mode}: two surrenders inside one chain give the last living seat an immediate win`, async () => {
       const scenario: Scenario = { id: "all-opponents-leaving", title: "", source: "ADR-0002", tags: [], steps: [],
         setup: { format: "ffa3", mode, p0: { hand: ["Pot of Greed"], ...master("Axe Raider") },
           p1: master("Celtic Guardian"), p2: master("Battle Ox") } };
@@ -78,15 +78,15 @@ end`);
         const paused = game.view(0).prompt!;
         expect(paused.options.map((option) => option.id)).toEqual(["yes", "no"]);
         expect(game.view(null).chain).toHaveLength(1);
+        // R-COMMON-SURRENDER-EOT; Rulebook v1.4: surrender is immediate.
+        // A living choice stays open until only one living duelist remains.
         game.eliminate(1, 0);
-        game.eliminate(2, 0);
-        expect(game.view(null).seats.slice(1).map((seat) => seat.pendingElimination)).toEqual([true, true]);
+        expect(game.view(null).seats[1]!.eliminated).toBe(true);
+        expect(game.view(null).seats[1]!.pendingElimination).toBe(false);
+        expect(game.view(0).prompt).toEqual(paused);
         expect(game.view(null).result).toBeNull();
-        game.answer(0, paused.id, { choice: "no" });
-        const pick = game.view(0).prompt!;
-        expect(pick.context?.type).toBe("opponent");
-        expect(pick.options.map((option) => option.controller)).toEqual([1, 2]);
-        game.answer(0, pick.id, choosePracticeBotAnswer(pick, { table: botTableOf(game.view(0)) }));
+        game.eliminate(2, 0);
+        expect(game.view(null).seats.slice(1).map((seat) => seat.pendingElimination)).toEqual([false, false]);
         expect(game.view(null).result?.winnerSeat).toBe(0);
         expect(game.view(0).prompt).toBeNull();
         expect(game.diagnostics().filter((item) => item.kind === "stderr")).toEqual([]);

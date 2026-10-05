@@ -78,7 +78,8 @@ const caseById = new Map(cases.map(entry => [entry.scenario.id, entry]));
 
 function startup(entry: BoundReviewCase): string {
  const both = entry.path === 'both-side';
- const acted = !entry.departed || entry.path === 'cost-prompt';
+ const acted = !entry.departed;
+ const paidCost = acted || entry.path === 'cost-prompt';
  const code = both ? 95200844 : entry.path === 'continuous' ? entry.scenario.id.includes('-spell-') ? 95200842 : 95200841 : 95200843;
  const eventPlayer = both && entry.scenario.setup.format === 'tag' ? 3 : 1;
  return `
@@ -112,7 +113,7 @@ done:SetOperation(function(e)
  assert(BoundReview.links==1,'failed activation must still create exactly one link')
  assert(not activation:CheckCountLimit(${both ? 1 : 0}),'failed activation must consume its count limit')
  assert(BoundReview.disabled==0,'failed causal activation must not raise EVENT_CHAIN_DISABLED')
- assert(BoundReview.costs==${acted ? 1 : 0},'unexpected cost callback count')
+ assert(BoundReview.costs==${paidCost ? 1 : 0},'unexpected cost callback count')
  assert(BoundReview.targets==${acted ? 1 : 0},'unexpected target callback count')
  assert(BoundReview.operations==${acted ? 1 : 0},'unexpected operation callback count')
  assert(BoundReview.permissions==${entry.path === 'permission' ? 1 : 0},'unexpected permission count')

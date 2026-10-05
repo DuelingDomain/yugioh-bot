@@ -10,6 +10,8 @@ import { isCustomDomain } from "@yugidraft/shared/duels";
 import { BattleFx } from "../battle-fx";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
+import { projectChainNames } from "../chain-state";
+import { CoinTossFx } from "../coin-toss-fx";
 import { isBattlePhase, phaseTitle, zoneKey } from "../constants";
 import { DestroyFx } from "../destroy-fx";
 import { DuelResultScreen } from "../duel-result";
@@ -44,6 +46,7 @@ import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import type { ChainModeControl } from "../use-chain-mode";
 import roomStyles from "../room.module.css";
 import { CameraControls } from "./camera-controls";
+import { isFaceOff } from "./camera-model";
 import { tableLayout } from "./geometry";
 import { HistoryStrip } from "./history-strip";
 import { MasterChip } from "./master-chip";
@@ -61,6 +64,7 @@ import { useTableDrawer } from "./use-table-drawer";
 import { useTableUi } from "./use-table-ui";
 import { SEAT_TONE_HEX, type CameraLockReason, type CameraState, type TableController, type TableFormat } from "./types";
 import styles from "./table-shell.module.css";
+import { withDestroyCards } from "../destroy-cards";
 
 export interface TableShellActions {
   onExit?: () => void;
@@ -164,6 +168,7 @@ function TableShellBody({
   const ui = useTableUi(tracked);
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
+  const namedChain = useMemo(() => projectChainNames(engine.chain, engine.seats), [engine.chain, engine.seats]);
   const format = engineFormat(engine);
   // A table of 3 or 4 draws its phases on the board, beside the turn ring. Tag keeps them in the bar.
   const hubOn = format === "ffa3" || format === "ffa4";
@@ -332,7 +337,7 @@ function TableShellBody({
 
   const seatStrip = (
     <SeatStrip engine={engine} mySeat={viewerSeat} nameOf={nameOf} promptSeat={controller.promptSeat}
-      focusSeat={camera.state.focusSeat} onFocusSeat={(seat) => camera.dispatch({ type: "focus", seat })}
+      focusSeat={camera.state.focusSeat} onFocusSeat={isFaceOff(layout, camera.out) ? undefined : (seat) => camera.dispatch({ type: "focus", seat })}
       pick={canAct && controller.revealed ? controller.seatPick : null} compact={!narrow} />
   );
   // Your Deck Master hangs under your LP plate on the wide table; a click opens the drawer on its Master tab.
@@ -342,7 +347,16 @@ function TableShellBody({
   ) : null;
 
   const pileSeat = ui.pile?.seat;
-  const out = standings.filter((entry) => engine.seats.find((view) => view.seat === entry.seat)?.eliminated === true);
+  const out = useMemo(() => standings.filter((entry) => engine.seats.find((view) => view.seat === entry.seat)?.eliminated === true), [standings, engine.seats]);
+  const placeLabels = useMemo(() => new Map(out.map((entry) => [entry.seat, placeLabel(entry.place)])), [out]);
+  // Seats that were already out when the table opened (a reload, a late join) show their notes at once; a seat that
+  // leaves while you watch gets notes that wait for its board to crumble. A new duel (or the next game of a series)
+  // starts the count again.
+  const gameKey = `${session.slug}:${room.series?.gameNumber ?? 0}`;
+  const [opened, setOpened] = useState(() => ({ key: gameKey, seats: new Set(out.map((entry) => entry.seat)) }));
+  if (opened.key !== gameKey) setOpened({ key: gameKey, seats: new Set(out.map((entry) => entry.seat)) });
+  const outAtOpen = opened.seats;
+  const viewerEliminated = engine.seats.some((view) => view.seat === viewerSeat && view.eliminated === true);
 
   return (
     <div
@@ -358,6 +372,10 @@ function TableShellBody({
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
     >
+      {/* One live region that stays mounted: a region that appears with its text is not always read out. */}
+      <p className={styles.liveNote} role="status" aria-live="polite" data-testid="table-live">
+        {viewerEliminated ? "You are eliminated. You keep watching." : ""}
+      </p>
       <header className={roomStyles.header}>
         <div className={roomStyles.identity}>
           <Link href="/duels">Duelists Kingdom</Link>
@@ -499,6 +517,7 @@ function TableShellBody({
                 wantMode={camera.state.mode}
                 locked={camera.locked}
                 out={camera.out}
+                placeLabels={placeLabels}
                 dispatchCamera={camera.dispatch}
                 masterChip={masterChip}
                 renderSeatField={(props) => <SeatField {...props} />}
@@ -520,14 +539,15 @@ function TableShellBody({
                 ) : null}
                 fx={
                   <FxBoundary>
+                    {fxActive ? <CoinTossFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <DuelFeedback events={engine.events} duelKey={session.slug} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={controller.reducedMotion} /> : null}
-                    {fxActive ? <SummonFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
-                    {fxActive ? <MoveFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
+                    {fxActive ? <SummonFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
+                    {fxActive ? <MoveFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
-                    {fxActive ? <ChainFx events={engine.events} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} /> : null}
+                    {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={namedChain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} /> : null}
                     {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
-                    <BattleFx events={engine.events} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} />
-                    <DestroyFx events={engine.events} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />
+                    <BattleFx events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} />
+                    <DestroyFx events={withDestroyCards(engine.events)} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />
                   </FxBoundary>
                 }
                 promptCenter={
@@ -540,7 +560,7 @@ function TableShellBody({
                     draft={controller.draft}
                     onSubmit={controller.onAnswer}
                     menuOpen={suspended}
-                    chain={engine.chain}
+                    chain={namedChain}
                     aim={flow.promptAim ?? undefined}
                     aimLocked={flow.locked}
                     reducedMotion={controller.reducedMotion}
@@ -571,14 +591,19 @@ function TableShellBody({
                     {out.length > 0 ? (
                       <ul className={styles.outNote} aria-label="Duelists who left">
                         {out.map((entry) => (
-                          <li key={entry.seat} data-testid="seat-out" data-you={entry.seat === viewerSeat} style={{ "--seat-main": toneOf(entry.seat).main, "--seat-ink": toneOf(entry.seat).ink } as CSSProperties}>
+                          <li key={entry.seat} data-testid="seat-out" data-you={entry.seat === viewerSeat} data-fresh={outAtOpen.has(entry.seat) ? undefined : "true"} style={{ "--seat-main": toneOf(entry.seat).main, "--seat-ink": toneOf(entry.seat).ink } as CSSProperties}>
                             <i aria-hidden="true" />
                             {entry.seat === viewerSeat ? "You are out" : `${nameOf(entry.seat)} is out`}
                             <b>{placeLabel(entry.place)}</b>
-                            {entry.seat === viewerSeat ? <em data-testid="self-eliminated" role="status">You are eliminated.</em> : null}
+                            {entry.seat === viewerSeat ? <em data-testid="self-eliminated" aria-hidden="true">You are eliminated.</em> : null}
                           </li>
                         ))}
                       </ul>
+                    ) : null}
+                    {viewerEliminated ? (
+                      <span className={styles.spectating} data-testid="spectating-chip" data-fresh={viewerSeat != null && outAtOpen.has(viewerSeat) ? undefined : "true"} aria-hidden="true">
+                        <Eye size={14} strokeWidth={1.75} aria-hidden /> Spectating
+                      </span>
                     ) : null}
                     <CameraControls {...cameraProps} variant={narrow && masterRail ? "stage" : "float"} view={narrow ? undefined : { open: drawer.viewOpen }} />
                     {ui.pile ? (

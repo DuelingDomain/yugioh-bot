@@ -3,16 +3,18 @@
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import { flushSync } from "react-dom";
 import { engineFormat } from "../multi-seat";
+import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
-import { flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, CAMERA_HINT, promptRooms, ringPose, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
+import { aliveLayout, chainBandRooms, chainStripInset, flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, CAMERA_HINT, portraitTable, promptRooms, ringPose, type HoloAnchor, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
-import { RivalField } from "./rival-field";
+import { ExitingSeat, RivalField } from "./rival-field";
 import { TurnRing } from "./turn-ring";
 import { useFlyGestures } from "./use-fly-gestures";
 import { useFlyWorld } from "./use-fly-world";
+import { useSeatExits } from "./use-seat-exits";
 import type { CameraMode, SeatFieldProps, SeatPose, SeatTone, TableStageProps } from "./types";
 import styles from "./table-stage.module.css";
 
@@ -37,6 +39,8 @@ export interface TableStageViewProps extends TableStageProps {
   out?: readonly number[];
   /** Draw the turn ring (default true on a 3-way table). */
   ring?: boolean;
+  /** Place of every seat that left, as text ("3rd"), for the chip on its panel while it fades. */
+  placeLabels?: ReadonlyMap<number, string>;
 }
 
 /**
@@ -46,12 +50,13 @@ export interface TableStageViewProps extends TableStageProps {
  * overlay are slots over the whole box, so they measure the real screen position of `[data-zones]` and
  * `[data-lp-seat]` nodes. `camera` is the camera to draw (the shell passes the effective one).
  */
-export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub, masterChip, wantMode, locked = false, out = [], ring = true }: TableStageViewProps) {
+export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub, masterChip, wantMode, locked = false, out = [], ring = true, placeLabels }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const tetherRef = useRef<SVGSVGElement>(null);
+  const [measuredChainSize, setChainSize] = useState<ChainStripSize | null>(null);
   const [box, setBox] = useState({ width: 0, height: 0, screenWidth: 0 });
 
   useLayoutEffect(() => {
@@ -75,18 +80,55 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     };
   }, []);
 
+  // The seats still in the duel. A 3-way table regroups when one leaves (face to face); a 4-way table keeps its places.
+  const outKey = out.join(",");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const outSet = useMemo(() => new Set(out), [outKey]);
+  const play = useMemo(() => aliveLayout(layout, outSet), [layout, outSet]);
+
   // The seat poses measure fields. Their hand rows extend below the 860px field canvas.
-  const canvasHeight = STAGE.height + 96;
-  const fitBox = useMemo(() => ({ ...box, height: box.height * STAGE.height / canvasHeight }), [box, canvasHeight]);
-  const k = stageFit(fitBox);
-  const threeWay = slotPlan(layout, { mode: "home" }) != null;
+  const portrait = useMemo(() => portraitTable(play, camera, box.screenWidth), [play, camera, box.screenWidth]);
+  const reserveChain = (layout.format === "ffa3" || layout.format === "ffa4") && (box.screenWidth > 640 || portrait != null);
+  const chainSize = reserveChain ? measuredChainSize : null;
+  const promptRef = useRef<HTMLDivElement>(null);
+  const [phonePromptHeight, setPhonePromptHeight] = useState(0);
+  useLayoutEffect(() => {
+    if (!portrait) { setPhonePromptHeight(0); return; }
+    const node = promptRef.current;
+    if (!node) return;
+    const measure = () => {
+      const panel = node.querySelector<HTMLElement>("[data-prompt-panel]");
+      setPhonePromptHeight(panel ? Math.ceil(panel.getBoundingClientRect().height) + 8 : 0);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    const observePanels = () => {
+      observer.disconnect();
+      for (const panel of node.querySelectorAll("[data-prompt-panel]")) observer.observe(panel);
+      measure();
+    };
+    const mutations = new MutationObserver(observePanels);
+    mutations.observe(node, { childList: true, subtree: true });
+    observePanels();
+    return () => { observer.disconnect(); mutations.disconnect(); };
+  }, [portrait, promptCenter]);
+  const canvasHeight = portrait?.height ?? STAGE.height + 96;
+  const chainInset = useMemo(() => portrait && chainSize ? chainSize.height + 12 : chainStripInset({ layout: play, camera, box, chainSize, meFooter: masterChip != null }), [play, camera, box, chainSize, masterChip != null, portrait]);
+  // The seat switcher and camera status belong to the phone chrome, outside the fitted table.
+  const stageTop = chainInset + (portrait ? 44 : 0);
+  const stageHeight = Math.max(0, box.height - stageTop - (portrait ? 40 + phonePromptHeight : 0));
+  const fitBox = useMemo(() => ({ ...box, height: stageHeight * STAGE.height / canvasHeight }), [box, stageHeight, canvasHeight]);
+  const k = portrait ? Math.min(box.width / portrait.width, stageHeight / portrait.height) : stageFit(fitBox);
+  // Only a table that regroups glides; a table that keeps its places has nothing to move.
+  const regroup = play !== layout;
+  const threeWay = slotPlan(play, { mode: "home" }) != null;
   const fly = camera.mode === "fly" && threeWay;
   // The city is heavy: it mounts the first time the fly-in shows and stays (the fade out needs it).
   const [cityOn, setCityOn] = useState(fly);
   if (fly && !cityOn) setCityOn(true);
-  const rawPoses = useMemo(() => seatPoses(layout, camera, fitBox), [layout, camera, fitBox]);
+  const rawPoses = useMemo(() => portrait?.poses ?? seatPoses(play, camera, fitBox), [play, camera, fitBox, portrait]);
   // How much plaza a wide box shows beyond each side of the 1100 px stage; zero for a box that is not wider.
-  const spread = useMemo(() => stageSpread(fitBox), [fitBox]);
+  const spread = useMemo(() => portrait ? 0 : stageSpread(fitBox), [fitBox, portrait]);
 
   // A seat turns by the short way between two places: the angle it draws is the previous one plus the smallest turn.
   const turned = useRef(new Map<number, number>());
@@ -104,21 +146,40 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   // Docked holo panels of a wide table (home and look); other cameras keep the panels of the 1100 px stage.
   const hasChip = masterChip != null;
   const hint = useMemo(() => ({ width: CAMERA_HINT.width / (k || 1), height: CAMERA_HINT.height / (k || 1) }), [k]);
-  const wideAnchors = useMemo(() => wideHoloAnchors(layout, camera, poses, spread, hasChip, k > 0 ? { hint } : undefined), [layout, camera, poses, spread, hasChip, k, hint]);
+  const wideAnchors = useMemo(() => portrait?.anchors ?? wideHoloAnchors(play, camera, poses, spread, hasChip, k > 0 ? { hint } : undefined), [play, camera, poses, spread, hasChip, k, hint, portrait]);
   // Free rooms for the prompts (a seat choice, "Activate?", the card-pick bar): off every board and plate, so a prompt that is
   // about a rival's field never covers it. In screen px of the board box; the prompt CSS and the select bar read them.
   const rooms = useMemo(() => {
     if (!(k > 0) || fly) return null;
-    const anchors = new Map(layout.slots.map((slot) => [slot.seat, wideAnchors?.get(slot.seat) ?? holoAnchor(layout, slot.seat, camera)] as const));
-    const found = promptRooms({ layout, camera, poses, anchors, spread, meFooter: hasChip, box, k });
+    if (portrait) return { panel: null, bar: null, chain: chainSize ? { x: 6, y: 48, ...chainSize } : null };
+    if (chainInset && chainSize) return chainBandRooms(chainSize, box);
+    const anchors = new Map(play.slots.map((slot) => [slot.seat, wideAnchors?.get(slot.seat) ?? holoAnchor(play, slot.seat, camera)] as const));
+    const found = promptRooms({ layout: play, camera, poses, anchors, spread, meFooter: hasChip, box, k, chainSize });
     const dx = (box.width - STAGE.width * k) / 2;
-    const dy = (box.height - canvasHeight * k) / 2;
+    const dy = stageTop + (stageHeight - canvasHeight * k) / 2;
     const toBox = (room: PromptRoom | null) => room && { x: Math.round(dx + room.x * k), y: Math.round(dy + room.y * k), width: Math.round(room.width * k), height: Math.round(room.height * k) };
-    return { panel: toBox(found.panel), bar: toBox(found.bar) };
-  }, [layout, camera, poses, spread, hasChip, k, fly, box, canvasHeight, wideAnchors]);
+    return { panel: toBox(found.panel), bar: toBox(found.bar), chain: toBox(found.chain) };
+  }, [play, camera, poses, spread, hasChip, k, fly, box, canvasHeight, wideAnchors, chainSize, chainInset, stageHeight, stageTop, portrait]);
 
-  const world = useMemo(() => flyWorld(layout, camera.fly), [layout, camera.fly]);
+  const world = useMemo(() => flyWorld(play, camera.fly), [play, camera.fly]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);
+  const looking = camera.mode === "look";
+  // A seat that leaves crumbles at the pose it had; the seats that stay glide to their new places.
+  const { exits, gliding, finish } = useSeatExits({
+    out,
+    seats: engine.seats,
+    poses,
+    faceUpHand: (seat) => layout.slots.find((slot) => slot.seat === seat)?.relation === "self" && !looking,
+    enabled: layout.format !== "tag",
+    regroups: regroup,
+    resetKey: `${room.session.slug}:${room.series?.gameNumber ?? 0}`,
+  });
+  // The docked anchors the panels had before the seats regrouped: the panel of a seat that leaves fades there.
+  const heldAnchors = useRef(new Map<number, HoloAnchor>());
+  const shownAnchors = new Map<number, HoloAnchor>();
+  useLayoutEffect(() => {
+    if (!(gliding && regroup)) heldAnchors.current = shownAnchors;
+  });
   useFlyWorld({
     active: fly,
     target: world,
@@ -136,9 +197,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const format = engineFormat(engine);
   const masterRule = room.session.masterRule;
   const picks = controller.seatPick;
-  const pickOrder = picks ? layout.slots.map((slot) => slot.seat).filter((seat) => picks.options.has(seat)) : [];
+  const pickOrder = picks ? play.slots.map((slot) => slot.seat).filter((seat) => picks.options.has(seat)) : [];
   const promptSeat = controller.prompt?.seat ?? null;
-  const looking = camera.mode === "look";
   const flyYaw = fly ? world.yawDeg : 0;
 
   const onSeatClick = (event: MouseEvent<HTMLDivElement>) => {
@@ -157,25 +217,26 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const canvas: CSSProperties & Record<string, string | number> = {
     width: STAGE.width,
     height: canvasHeight,
-    transform: `translate(${(box.width - STAGE.width * k) / 2}px, ${(box.height - canvasHeight * k) / 2}px) scale(${k})`,
+    transform: `translate(${(box.width - STAGE.width * k) / 2}px, ${stageTop + (stageHeight - canvasHeight * k) / 2}px) scale(${k})`,
     "--ss": tiltSupersample(k),
     "--spread": `${spread}px`,
   };
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
-  const ringAt = ringPose(layout, camera);
+  const ringAt = ringPose(play, camera);
   // The phase hub strip: the classic place, or at a wide table (home and look) the clear place nearest the ring or your field.
   // The place only depends on the camera's mode and target, so a fly-in drag (which changes only `camera.fly`) does not rescan.
   const hubAt = useMemo(
-    () => (hub && threeWay ? hubPose(layout, camera, { box: fitBox, meFooter: hasChip }) : null),
+    () => (hub && threeWay && !portrait ? hubPose(play, camera, { box: fitBox, meFooter: hasChip }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hub != null, threeWay, layout, camera.mode, camera.focusSeat, camera.lookSeat, fitBox, hasChip],
+    [hub != null, threeWay, play, camera.mode, camera.focusSeat, camera.lookSeat, fitBox, hasChip, portrait],
   );
 
   return (
     <div
       ref={rootRef}
       className={styles.board}
+      data-portrait={portrait ? "true" : undefined}
       data-prompt-scope
       data-table-stage={layout.format}
       data-format={format}
@@ -188,6 +249,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
       data-stage-spread={spread}
       data-ready={k > 0 ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
+      data-chain-room={rooms?.chain ? `${rooms.chain.x},${rooms.chain.y},${rooms.chain.width},${rooms.chain.height}` : undefined}
       data-panel-room={rooms?.panel ? "true" : undefined}
       data-room-snug={rooms?.panel && (rooms.panel.width < 262 || rooms.panel.height < 300) ? "true" : undefined}
       data-bar-room={rooms?.bar ? `${rooms.bar.x},${rooms.bar.y},${rooms.bar.width},${rooms.bar.height}` : undefined}
@@ -204,21 +266,43 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
           <div ref={worldRef} className={styles.world} data-world>
             {threeWay && cityOn ? <FlyCity title={layout.format === "ffa4" ? "4-WAY DUEL" : undefined} /> : null}
             <div className={styles.wstage} onClick={onSeatClick}>
-              <Plaza layout={layout} poses={poses} fly={fly} />
-              {ring && threeWay ? (
+              <Plaza
+                layout={play}
+                poses={poses}
+                fly={fly}
+                hidden={outSet}
+                exits={exits.map((exit) => ({ seat: exit.seat, tone: tones.get(exit.seat) ?? "violet", pose: exit.pose }))}
+                glide={gliding && regroup}
+                reducedMotion={reducedMotion}
+              />
+              {ring && !portrait && threeWay ? (
                 <TurnRing
-                  layout={layout}
+                  layout={play}
+                  numbering={layout}
                   engine={engine}
-                  angles={ringAngles(layout, camera)}
+                  angles={ringAngles(play, camera)}
                   pose={ringAt}
                   promptSeat={promptSeat}
                   locked={locked}
                 />
               ) : null}
-              {layout.slots.map((slot) => {
+              {exits.map((exit) => (
+                <ExitingSeat
+                  key={`exit${exit.seat}`}
+                  pose={exit.pose}
+                  tone={tones.get(exit.seat) ?? "violet"}
+                  view={exit.view}
+                  masterRule={masterRule}
+                  faceUpHand={exit.faceUpHand}
+                  angleOffsetDeg={flyYaw}
+                  reducedMotion={reducedMotion}
+                  onDone={() => finish(exit.seat)}
+                />
+              ))}
+              {play.slots.map((slot) => {
                 const pose = poses.get(slot.seat);
-                if (!pose) return null;
-                const place = layout.slots.indexOf(slot);
+                if (!pose || outSet.has(slot.seat)) return null;
+                const place = play.slots.indexOf(slot);
                 const self = slot.relation === "self";
                 const you = pose.slot ? pose.slot === "home" : place === 0;
                 const field: Omit<SeatFieldProps, "angleDeg" | "scale"> = {
@@ -242,17 +326,29 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
                   onInspect: controller.onInspect,
                   onHoverCard: controller.onHoverCard,
                 };
-                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} />;
+                return <RivalField key={slot.seat} pose={pose} field={field} render={renderSeatField} angleOffsetDeg={flyYaw} glide={gliding && regroup} />;
               })}
             </div>
           </div>
         </div>
         <svg ref={tetherRef} className={styles.tethers} viewBox="0 0 1100 860" aria-hidden="true" />
-        {layout.slots.map((slot, place) => {
+        {[
+          // A seat that left keeps its panel where its place stays (a 4-way table); where the seats regroup (a 3-way
+          // table, face to face) the panel of the seat that left fades away and is gone.
+          ...play.slots.map((slot) => ({ slot, place: play.slots.indexOf(slot), exit: false, from: play })),
+          ...exits.flatMap((exit) => {
+            const slot = layout.slots.find((entry) => entry.seat === exit.seat);
+            return slot && !play.slots.includes(slot) ? [{ slot, place: layout.slots.indexOf(slot), exit: true, from: layout }] : [];
+          }),
+        ].map(({ slot, place, exit, from }) => {
           const view = engine.seats.find((entry) => entry.seat === slot.seat);
           if (!view) return null;
-          const anchor = (!fly && wideAnchors?.get(slot.seat)) || holoAnchor(layout, slot.seat, camera);
-          const pickable = picks?.options.has(slot.seat) === true;
+          // In the fly-in view a panel follows its board; a seat that left has none, so its panel waits for the flat view.
+          if (fly && !exit && outSet.has(slot.seat)) return null;
+          // The panel of a seat that is leaving fades where it was docked: it keeps the anchor it had before the seats regrouped.
+          const anchor = exit ? heldAnchors.current.get(slot.seat) ?? holoAnchor(from, slot.seat, camera) : (!fly && wideAnchors?.get(slot.seat)) || holoAnchor(from, slot.seat, camera);
+          if (!exit) shownAnchors.set(slot.seat, anchor);
+          const pickable = !exit && picks?.options.has(slot.seat) === true;
           const index = pickOrder.indexOf(slot.seat);
           return (
             <HoloLp
@@ -277,7 +373,10 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
               hotkey={pickable && index >= 0 ? index + 1 : null}
               onPick={() => picks?.onPick(slot.seat)}
               onHover={(hover) => controller.onAim?.(hover ? { lpSeat: slot.seat } : null)}
-              footer={anchor.me ? masterChip : null}
+              exiting={exit}
+              placeLabel={placeLabels?.get(slot.seat) ?? null}
+              glide={gliding && regroup && !exit}
+              footer={!exit && anchor.me ? masterChip : null}
               footerTight={anchor.footerTight}
               reducedMotion={reducedMotion}
             />
@@ -295,8 +394,8 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
         ) : null}
         {controller.aim?.from ? <AttackLine aim={controller.aim} tone={attackerTone} /> : null}
       </div>
-      {fx ? <div className={styles.slot} data-slot="fx">{fx}</div> : null}
-      {promptCenter ? <div className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined}>{promptCenter}</div> : null}
+      {fx ? <ChainRoomContext.Provider value={reserveChain ? setChainSize : null}><div className={styles.slot} data-slot="fx">{fx}</div></ChainRoomContext.Provider> : null}
+      {promptCenter ? <div ref={promptRef} className={styles.slot} data-slot="prompt" data-seat-pick={picks ? "true" : undefined}>{promptCenter}</div> : null}
       {overlay ? <div className={styles.slot} data-slot="overlay">{overlay}</div> : null}
     </div>
   );

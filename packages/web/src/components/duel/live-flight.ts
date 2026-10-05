@@ -7,12 +7,14 @@ type Offset = { dx: number; dy: number };
 type Pose = Offset & { rotation: number };
 
 /** Add a continuous correction to the authored arc, reaching the live engine slot at its deadline. */
-export function retargetFlight({ event, el, overlay, cx, cy, duration, fallback, endRot = 0 }: {
+export function retargetFlight({ event, el, overlay, cx, cy, duration, fallback, endRot = 0, delay = 0 }: {
   event: DuelEvent; el: HTMLElement; overlay: HTMLElement; cx: number; cy: number; duration: number;
+  /** The flight starts this long from now: the card stays where it is until then. */
+  delay?: number;
   fallback?: () => Rect | undefined;
   endRot?: number;
 }): { finish: () => Offset; stop: () => void } {
-  const start = duelFxClock.now();
+  const start = duelFxClock.now() + delay;
   const deadline = start + duration;
   let changedAt = start;
   let from: Pose = { dx: 0, dy: 0, rotation: 0 };
@@ -37,7 +39,7 @@ export function retargetFlight({ event, el, overlay, cx, cy, duration, fallback,
     if (Math.hypot(target.dx - goal.dx, target.dy - goal.dy) > 0.01 || Math.abs(target.rotation - goal.rotation) > 0.001) {
       from = current;
       goal = target;
-      changedAt = now;
+      changedAt = Math.max(now, start);
     }
     const correction = at(now);
     el.style.translate = `${correction.dx}px ${correction.dy}px`;

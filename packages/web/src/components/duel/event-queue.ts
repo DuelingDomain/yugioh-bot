@@ -351,7 +351,7 @@ export function isDrawnOnBoard(event: DuelEvent, reducedMotion: boolean): boolea
 
 /** True when the board effect for this event sounds its own cues (the toast layer stays silent). */
 export function fxSoundsItself(event: DuelEvent): boolean {
-  return event.kind === "destroy" || isHeavySummon(event) || summonStyleOf(event) != null || isPositionEvent(event);
+  return event.kind === "toss" || event.kind === "destroy" || isHeavySummon(event) || summonStyleOf(event) != null || isPositionEvent(event);
 }
 
 /** SummonFx and PositionFx tell the audio layer when their moments land. */
@@ -417,16 +417,17 @@ export function collectFreshEvents(
  * badges. They keep their sound cue and their log and screen reader entries, but get no banner.
  * Target updates only refresh board markers and have no sound or history tile.
  * Confirmations are presented by MoveFx and have no feedback sound.
+ * Tosses belong to their own FX layer and have no feedback banner or cue.
  * "activate" and "chain-negated" keep theirs.
  */
 export function hasCentreBanner(kind: DuelEventKind): boolean {
   // An equip is drawn on the board as a line between the two cards (EquipFx), so it has no banner.
-  return kind !== "target" && kind !== "confirm" && kind !== "chain-resolving" && kind !== "chain-resolved" && kind !== "chain-end" && kind !== "equip";
+  return kind !== "toss" && kind !== "target" && kind !== "confirm" && kind !== "chain-resolving" && kind !== "chain-resolved" && kind !== "chain-end" && kind !== "equip";
 }
 
 /** How long a banner or toast stays: at least about 1.3 s for anything with words to read (a phase ribbon is shorter). */
 export function cueDuration(kind: DuelEventKind, reducedMotion: boolean): number {
-  if (kind === "target" || kind === "confirm") return 0;
+  if (kind === "toss" || kind === "target" || kind === "confirm") return 0;
   // A phase ribbon is one short beat: the phases of a turn start (Draw, Standby, Main 1) follow each other.
   if (kind === "phase") return reducedMotion ? PHASE_TIMING.reducedBeatMs : PHASE_TIMING.beatMs;
   if (reducedMotion) {

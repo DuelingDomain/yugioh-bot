@@ -34,6 +34,16 @@ export function seatsOut(engine: Pick<DuelEngineView, "seats">): number[] {
   return engine.seats.filter((view) => isOut(view)).map((view) => view.seat);
 }
 
+/** The seats that lost and left the duel. A seat that is only leaving (its loss waits for a prompt) is not in it. */
+export function eliminatedSeats(engine: Pick<DuelEngineView, "seats">): number[] {
+  return engine.seats.filter((view) => isEliminated(view)).map((view) => view.seat);
+}
+
+/** The seats still in the duel (a leaving seat counts: its board is still there). */
+export function aliveSeats(engine: Pick<DuelEngineView, "seats">): number[] {
+  return engine.seats.filter((view) => !isEliminated(view)).map((view) => view.seat);
+}
+
 /**
  * The seats that have left the duel, as groups in the order they left. Seats that go out in the same update are one
  * group and share a place. `before` is what was known; seats that are new since then form one group on the end. The engine

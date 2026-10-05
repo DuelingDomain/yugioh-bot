@@ -1,7 +1,10 @@
-import type { CSSProperties } from "react";
+import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import { CompactChips } from "./compact-chips";
 import { slotZIndex } from "./geometry";
-import type { SeatFieldProps, SeatFieldRenderer, SeatPose } from "./types";
+import { boardWidth, crumbleCards } from "./crumble-model";
+import { SeatCrumble } from "./seat-crumble";
+import type { DuelSeatView } from "@yugidraft/shared/duels";
+import type { SeatFieldProps, SeatFieldRenderer, SeatPose, SeatTone } from "./types";
 import styles from "./rival-field.module.css";
 
 export interface RivalFieldProps {
@@ -12,6 +15,8 @@ export interface RivalFieldProps {
   render: SeatFieldRenderer;
   /** Extra turn of the whole world (the fly-in view), added to the angle the field reads for upright text. */
   angleOffsetDeg?: number;
+  /** Seats are regrouping after an elimination: the move waits for the crumble, then glides slowly. */
+  glide?: boolean;
 }
 
 /** CSS transform of a seat box: its centre goes to the pose, then it tilts, turns and scales about its own centre. */
@@ -35,7 +40,7 @@ export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "ti
  * is too small to read) hides the board and draws chips over it; the board stays mounted so the effects can still
  * find its zones.
  */
-export function RivalField({ pose, field, render, angleOffsetDeg = 0 }: RivalFieldProps) {
+export function RivalField({ pose, field, render, angleOffsetDeg = 0, glide = false }: RivalFieldProps) {
   const style: CSSProperties & Record<string, string | number> = {
     "--sf-z": `${pose.z}px`,
     transform: seatTransform(pose),
@@ -49,6 +54,7 @@ export function RivalField({ pose, field, render, angleOffsetDeg = 0 }: RivalFie
       data-pose-scale={pose.scale}
       data-docked={pose.docked ? "true" : undefined}
       data-compact={pose.compact ? "true" : undefined}
+      data-glide={glide ? "true" : undefined}
       hidden={pose.hidden || undefined}
     >
       {render({ ...field, angleDeg: pose.rotateDeg + angleOffsetDeg, scale: pose.scale })}
@@ -68,6 +74,71 @@ export function RivalField({ pose, field, render, angleOffsetDeg = 0 }: RivalFie
           onHoverCard={field.onHoverCard}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** Card unit the crumble is drawn in (the board is 5.83 of them wide at this size). */
+const CRUMBLE_UNIT = 112;
+/** Height of a seat field in card units (see `.seatField` in field.module.css). */
+const FIELD_H = 3.393;
+
+/** How long the crumble of a seat that left plays: the animation, and the timer for a browser with none. */
+export const EXIT_CRUMBLE_MS = 1600;
+export const EXIT_CRUMBLE_REDUCED_MS = 520;
+
+export interface ExitingSeatProps {
+  /** The pose the seat had before it left. */
+  pose: SeatPose;
+  tone: SeatTone;
+  /** The last board of the seat, from before the engine emptied it. */
+  view: DuelSeatView;
+  masterRule?: number;
+  /** The viewer's own hand shows faces; a rival's shows backs. */
+  faceUpHand: boolean;
+  /** Extra turn of the world (the fly-in view), so gravity stays down on the screen. */
+  angleOffsetDeg?: number;
+  reducedMotion: boolean;
+  /** Called once when the layer can go. */
+  onDone: () => void;
+}
+
+/**
+ * The board of a seat that just left the duel, breaking apart at the pose it had. It replaces the live field, which the
+ * engine has emptied: the cards are drawn from the last view. It is a plain box the size of a field, turned and scaled
+ * like one, so it lines up with the pad under it. Under reduced motion it only fades down.
+ */
+export function ExitingSeat({ pose, tone, view, masterRule, faceUpHand, angleOffsetDeg = 0, reducedMotion, onDone }: ExitingSeatProps) {
+  const width = boardWidth(masterRule);
+  const cards = useMemo(() => crumbleCards(view, { faceUpHand, width }), [view, faceUpHand, width]);
+  const done = useRef(onDone);
+  done.current = onDone;
+  // The animation reports itself; this timer is for a browser with no animations and for reduced motion.
+  useEffect(() => {
+    const timer = setTimeout(() => done.current(), reducedMotion ? EXIT_CRUMBLE_REDUCED_MS : EXIT_CRUMBLE_MS);
+    return () => clearTimeout(timer);
+  }, [reducedMotion]);
+  const unit = pose.z / CRUMBLE_UNIT;
+  const style: CSSProperties & Record<string, string | number> = {
+    width: width * unit,
+    height: CRUMBLE_UNIT * FIELD_H * unit,
+    transform: seatTransform(pose),
+    zIndex: slotZIndex(pose.slot, pose.scale) + 1,
+  };
+  return (
+    <div className={styles.seat} style={style} data-seat-exit={pose.seat} data-exit-motion={reducedMotion ? "reduced" : "full"} aria-hidden="true">
+      <div className={styles.exitBoard} style={{ width, transform: `scale(${unit})` }}>
+        <SeatCrumble
+          cards={cards}
+          tone={tone}
+          rotateDeg={pose.rotateDeg + angleOffsetDeg}
+          scale={pose.scale}
+          width={width}
+          seed={1234 + pose.seat * 13}
+          reducedMotion={reducedMotion}
+          onDone={() => done.current()}
+        />
+      </div>
     </div>
   );
 }

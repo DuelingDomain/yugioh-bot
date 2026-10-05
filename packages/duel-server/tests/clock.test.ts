@@ -13,6 +13,24 @@ import {
 import { duelClockRegainMs, duelClockRulesText } from "@yugidraft/shared/duels";
 
 describe("decision clock", () => {
+  it("keeps future grace when the current owner leaves", () => {
+    const previous = { turn: 1, remainingMs: [100, 100], activeSeat: 0, startedAt: 124_520 };
+    const stopped = stopSeatClock(previous, 0, 100_100);
+    expect(stopped.activeSeat).toBeNull();
+    expect(isClockDue(stopped, 124_519)).toBe(false);
+    const next = syncDecisionClock(stopped, { turn: 1, promptSeat: 1, stoppedSeats: [0] }, 30, 100_100, 100_100, "loss", 0)!;
+    expect(next.startedAt).toBe(124_520);
+    expect(liveRemainingMs(next, 124_519)).toEqual([100, 100]);
+  });
+  it("keeps future grace while no funded seat holds a prompt", () => {
+    const previous = { turn: 1, remainingMs: [0, 100], activeSeat: 0, startedAt: null };
+    for (const promptSeat of [0, null]) {
+      const grace = syncDecisionClock(previous, { turn: 1, promptSeat }, 30, 100_000, 100_050, "continue", 0, 124_520)!;
+      const next = syncDecisionClock(grace, { turn: 1, promptSeat: 1 }, 30, 100_100, 100_100, "continue", 0)!;
+      expect(next.startedAt).toBe(124_520);
+      expect(liveRemainingMs(next, 124_519)).toEqual([0, 100]);
+    }
+  });
   it("keeps the opening deal out of the decision bank and enforces the deadline after grace", () => {
     const clock = startDecisionClock({ turn: 1, promptSeat: 0, opening: true }, 30, 1_000)!;
     expect(clock.startedAt).toBe(9_000);
@@ -284,6 +302,21 @@ describe("decision clock", () => {
       activeSeat: 0,
       startedAt: null,
     });
+  });
+
+  it.each([0, null])("keeps an unfunded prompt stopped after command processing (seat=%s)", (promptSeat) => {
+    const frozen = { turn: 1, remainingMs: [0, 100], activeSeat: 0, startedAt: null };
+    const next = syncDecisionClock(frozen, { turn: 1, promptSeat }, 30, 100_000, 100_050, "continue", 0)!;
+    expect(next.startedAt).toBeNull();
+    expect(next.remainingMs).toEqual([0, 100]);
+    expect(isClockDue(next, 100_050)).toBe(false);
+  });
+
+  it("drops unfunded grace that expires while the command runs", () => {
+    const previous = { turn: 1, remainingMs: [0, 100], activeSeat: 0, startedAt: 100_025 };
+    const next = syncDecisionClock(previous, { turn: 1, promptSeat: 0 }, 30, 100_000, 100_050, "continue", 0)!;
+    expect(next.startedAt).toBeNull();
+    expect(isClockDue(next, 100_050)).toBe(false);
   });
 
   it("publishes frozen remaining plus serverNow rather than live-subtracted remaining", () => {

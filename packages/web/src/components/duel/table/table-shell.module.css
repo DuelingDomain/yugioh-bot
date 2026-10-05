@@ -68,6 +68,92 @@
 }
 .shell.shell .whoTone svg { color: var(--seat-main); }
 
+/* A seat that left while you watch: its note waits for the board to crumble, then rises in. */
+.outNote li[data-fresh="true"] {
+  animation: outIn 0.34s ease-out 0.9s both;
+}
+
+@keyframes outIn {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+/* Read out by screen readers only. */
+.liveNote {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* You are out: you keep watching. The log stays live. */
+.spectating {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px 5px 10px;
+  border: 1px solid rgb(155 126 255 / 0.55);
+  border-radius: 999px;
+  background: rgb(10 17 34 / 0.9);
+  box-shadow: 0 0 20px -6px rgb(155 126 255 / 0.55);
+  color: #c6b6ff;
+  font-family: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  pointer-events: none;
+  text-transform: uppercase;
+}
+
+.spectating[data-fresh="true"] {
+  animation: specIn 0.38s ease-out 1.1s both;
+}
+
+@keyframes specIn {
+  from {
+    opacity: 0;
+    translate: 0 -8px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .outNote li[data-fresh="true"] {
+    animation-delay: 0.3s;
+  }
+
+  .spectating[data-fresh="true"] {
+    animation-delay: 0.4s;
+  }
+}
+
+/* The in-app reduced motion setting (the media query above covers the system one). */
+:global([data-reduced="true"]) .outNote li[data-fresh="true"] {
+  animation-delay: 0.3s;
+}
+
+:global([data-reduced="true"]) .spectating[data-fresh="true"] {
+  animation-delay: 0.4s;
+}
+
 /* ---------- the wide table: a 72px rail, a drawer column that exists only while open, then the whole table ---------- */
 
 /* .shell.shell [data-wide="true"][class] beats the room's three-column .layout (room.module.css) without touching 1v1 or Tag. The

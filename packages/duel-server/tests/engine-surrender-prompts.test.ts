@@ -159,9 +159,9 @@ ${_name === "idle" ? "" : "Duel.RegisterEffect(e,0)"}` }],
           : selected?.card?.code;
         game.eliminate(0, 0);
         if (_name === "nested card selection") {
-          expect(holder(game)).toBe(1);
-          expect(game.view(1).prompt?.kind).toBe("cards");
-          pass(game);
+          // Returning the living owner's Giant Rat to the GY raises no event.
+          // The original automatic answer completes without a nested card choice.
+          expect(game.view(1).prompt?.kind).not.toBe("cards");
           expect(selectedCode).toBeDefined();
           expect(game.view(null).seats[2].lp).toBe(7000 + selectedCode! % 1000);
         }

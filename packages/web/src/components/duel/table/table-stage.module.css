@@ -326,3 +326,17 @@
   left: 0;
   translate: 0 100%;
 }
+
+/* On a phone the response uses its own row above the camera status. The fit subtracts its measured height. */
+.board[data-portrait] .slot[data-slot="prompt"] :global([data-prompt-panel]),
+.board[data-portrait] .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])),
+.board[data-portrait] .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) {
+  inset: auto 6px 40px;
+  translate: none;
+  margin: 0;
+  width: calc(100% - 12px);
+  min-width: 0;
+  max-width: none;
+  max-height: min(180px, 35%);
+  overflow-y: auto;
+}
