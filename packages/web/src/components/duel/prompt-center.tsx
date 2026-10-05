@@ -364,7 +364,13 @@ export function optionsOnBoard(prompt: DuelPrompt, hasZone: (key: string) => boo
  * its canvas, so it marks the stage with `data-prompt-scope` and the zones are found there.
  */
 function boardOf(layer: HTMLElement | null): HTMLElement | null {
-  return layer?.closest<HTMLElement>("[data-prompt-scope]") ?? layer?.parentElement ?? null;
+  const scope = layer?.closest<HTMLElement>("[data-prompt-scope]");
+  if (scope) return scope;
+  // A wrapper with `display: contents` (the HUD's row preview boundary) draws no box and holds no zones: the board is
+  // the first parent above it. Measuring the wrapper would find no zone and send every pick to the card grid.
+  let parent = layer?.parentElement ?? null;
+  while (parent && parent.style.display === "contents" && parent.parentElement) parent = parent.parentElement;
+  return parent;
 }
 
 function allOptionsOnBoard(prompt: DuelPrompt, scope: ParentNode): boolean {
