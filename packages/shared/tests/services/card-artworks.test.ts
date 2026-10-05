@@ -236,6 +236,19 @@ describe("card artwork mapping", () => {
 });
 
 describe("artwork fetch limits", () => {
+  it("materializes a proven engine alternate from a legacy original without a fetch", async () => {
+    const { db } = setup();
+    db.exec("insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values (89631139,'Blue-Eyes White Dragon','Normal Monster','normal','full','small','[]','old')");
+    const fetch = vi.fn(async () => { throw new Error("offline"); });
+    const catalog = createCardCatalogService(db, { identityCatalog: identity, fetch });
+    await expect(catalog.syncDraftPool({ setNames: [], customCardIds: [89631140], includeNames: [], excludeNames: [] })).resolves.toBeDefined();
+    expect(catalog.hasCatalogRow(89631140)).toBe(true);
+    const cubes = createCubeService(db, catalog);
+    const cube = cubes.createBlank("g", "Cached engine art", "u");
+    await expect(cubes.importPasscodes(cube.id, [89631140])).resolves.toEqual({ added: 1, unknown: [] });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+  });
   it("uses 100 legacy cube rows without calls or requests in flight, even when the API returns 429", async () => {
     const { db } = setup();
     const ids = Array.from({ length: 100 }, (_, i) => 10000000 + i);

@@ -157,7 +157,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         // different: stop, and nothing has been written yet.
         if (error instanceof Error && error.message.startsWith("Could not reach the card database")) throw error;
       }
-      if (card) cards.set(id, card);
+      if (card && catalog.hasCatalogRow(id)) cards.set(id, card);
       else if (!cards.has(id)) unknown.push(id);
     }
 

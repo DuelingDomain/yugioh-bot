@@ -1,7 +1,13 @@
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
-import { createCardCatalogService, isExtraDeckFrame, rankCardsByName } from "../../src/services/card-catalog.js";
+import { createCardCatalogService as initialCreate, isExtraDeckFrame, rankCardsByName } from "../../src/services/card-catalog.js";
+
+let createCardCatalogService = initialCreate;
+beforeEach(async () => {
+  vi.resetModules();
+  createCardCatalogService = (await import("../../src/services/card-catalog.js")).createCardCatalogService;
+});
 
 type YgoprodeckCard = {
   id: number;
@@ -382,7 +388,7 @@ describe("card name search", () => {
 
     try {
       await expect(catalog.syncCardsByFuzzyName("blue eyes")).rejects.toThrow(
-        "Could not reach the card database (request failed). Check connectivity and try again.",
+        "Could not reach the card database. Try again shortly.",
       );
       expect(calls).toBe(1);
     } finally {
