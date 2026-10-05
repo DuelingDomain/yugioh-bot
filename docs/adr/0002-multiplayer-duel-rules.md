@@ -138,6 +138,8 @@ Returning a Deck Master to the DMZ is a rule move, with no effect or reason play
 
 A Deck Master in the DMZ cannot be targeted or affected by other cards, including effects flagged to ignore immunity. Only summon procedures owned by and registered on the Deck Master are exempt from the effect gate. Effects granted by other cards remain blocked after recall, including single effects that normally bypass immunity checks. Normal/Tribute Summons, proper mechanic summons, and permitted Main Deck Pendulum leaves remain available; a rule move with no effect reason also remains valid.
 
+Domain 1v1 accepts Master Rules 1–5; multiplayer accepts MR5. A non-Link Extra Deck Deck Master summoned from the DMZ can use any available Main Monster Zone and, in MR4/5, either Extra Monster Zone. This exception does not depend on the MR5 Fusion/Synchro/Xyz placement flag. A Link Deck Master uses an Extra Monster Zone or a Main Monster Zone a Link Monster points to; MR1–3 have no Extra Monster Zones, so it needs a linked Main Monster Zone. Material checks recompute arrows after removing the selected materials. Ordinary Extra Deck monsters retain their Master Rule placement restrictions.
+
 ## Retired rule ID
 
 - `[R-COMMON-OPP-FIELD]` **Retired on 2026-10-02.** This ID records earlier scenarios for the old rule that an opponent-field effect hits all opponents. It is not an active FFA rule, and those scenarios do not prove R-FFA-OPP-ONE. The new rules above replace it. Tag retains the official opposing-team field rule.
@@ -153,5 +155,3 @@ A Deck Master in the DMZ cannot be targeted or affected by other cards, includin
 
 - The EDOPro core supports only two sides. Separate fields for 3 or 4 duelists need core changes; the engine design is a separate decision (see `docs/roadmap.md`, step 1).
 - The app model moves from "two seats" to "N duelists in teams": LP per team, one winner or a winning team, N clocks, per-seat privacy with a partner rule, and a multi-field layout.
-
-Domain 1v1 accepts Master Rules 1–5; multiplayer accepts MR5. A non-Link Extra Deck Deck Master summoned from the DMZ can use any available Main Monster Zone and, in MR4/5, either Extra Monster Zone. This exception does not depend on the MR5 Fusion/Synchro/Xyz placement flag. A Link Deck Master uses an Extra Monster Zone or a Main Monster Zone a Link Monster points to; MR1–3 have no Extra Monster Zones, so it needs a linked Main Monster Zone. Material checks recompute arrows after removing the selected materials. Ordinary Extra Deck monsters retain their Master Rule placement restrictions.

@@ -6,6 +6,7 @@ import type { DuelAnswer, DuelDeck, DuelEngineView, DuelPrompt } from "@yugidraf
 import { createEngineGame, type EngineGame } from "../src/engine.js";
 import { validateDeck } from "../src/deck-legality.js";
 import { engineDataDirectory } from "./engine-data-dir.js";
+import { act, gameFor, variants } from "./domain/helpers.js";
 
 const dataDirectory = engineDataDirectory;
 const seed = ["1", "2", "3", "4"];
@@ -210,5 +211,21 @@ describe("domain pendulum from DMZ", () => {
     } finally {
       game.close();
     }
+  });
+});
+
+for (const variant of variants) describe(`domain pendulum from DMZ (${variant.name})`, () => {
+  it("Pendulum Summons a Main Deck non-Pendulum Deck Master from the DMZ", async () => {
+    const axe = 48305365;
+    const gongato = 9106362;
+    const cheermole = 17857780;
+    const game = await gameFor(variant, { p0: { deckMaster: axe, hand: [gongato, cheermole] } });
+    act(game, gongato);
+    act(game, cheermole);
+    act(game, gongato, "spsummon:");
+    const seat = game.view(0).seats[0];
+    expect(seat.monsters.some(card => card?.code === axe)).toBe(true);
+    expect(seat.deckMaster?.inZone).toBe(false);
+    expect(seat.lp).toBe(variant.format === "tag" ? 16000 : 8000);
   });
 });

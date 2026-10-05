@@ -3,6 +3,7 @@ import { act, gameFor, variants } from "./helpers.js";
 
 const MOVE = 888112010;
 const OBSERVER = 888112011;
+const SELF_TRIGGER = 888112012;
 const AXE = 48305365;
 const LINK = 98978921;
 const destinations = [
@@ -52,6 +53,40 @@ end` },
     const before = game.view(0).seats[0].lp;
     act(game, MOVE);
     expect(game.view(0).seats[0].deckMaster).toMatchObject({ inZone: true, returns: 1 });
+    expect(game.view(0).seats[0].lp).toBe(before + 123);
+  });
+
+  it("does not run the Deck Master's own move trigger after recall", async () => {
+    const game = await gameFor(variant, { p0: { deckMaster: SELF_TRIGGER, spells: [MOVE] } }, [
+      { id: SELF_TRIGGER, type: 0x21, lua: `
+local s,id=GetID()
+function s.initial_effect(c)
+ local e=Effect.CreateEffect(c)
+ e:SetType(EFFECT_TYPE_SINGLE+EFFECT_TYPE_TRIGGER_F)
+ e:SetProperty(EFFECT_FLAG_DELAY)
+ e:SetCode(EVENT_MOVE)
+ e:SetCondition(function(e) return e:GetHandler():IsLocation(LOCATION_GRAVE+LOCATION_DECKMASTER) end)
+ e:SetOperation(function(e,tp) Duel.Recover(tp,123,REASON_EFFECT) end)
+ c:RegisterEffect(e)
+end` },
+      { id: MOVE, type: 0x20002, lua: `
+local s,id=GetID()
+function s.initial_effect(c)
+ local e=Effect.CreateEffect(c)
+ e:SetType(EFFECT_TYPE_IGNITION)
+ e:SetRange(LOCATION_SZONE)
+ e:SetOperation(function(e,tp)
+  local dm=Duel.GetMatchingGroup(Card.IsCode,tp,LOCATION_MZONE,0,nil,${SELF_TRIGGER})
+  Duel.SendtoGrave(dm,REASON_EFFECT)
+ end)
+ c:RegisterEffect(e)
+end` },
+    ]);
+    act(game, SELF_TRIGGER, "summon:");
+    const before = game.view(0).seats[0].lp;
+    act(game, MOVE);
+    expect(game.view(0).seats[0].deckMaster).toMatchObject({ inZone: true, returns: 1 });
+    // The move to the GY triggers once; the rule move back to the DMZ must not trigger again.
     expect(game.view(0).seats[0].lp).toBe(before + 123);
   });
 });

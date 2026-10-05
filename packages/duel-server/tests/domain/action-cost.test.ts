@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { act, gameFor, variants } from "./helpers.js";
+import { act, gameFor, variants, waiting } from "./helpers.js";
 
 const RECALL = 888112001;
 const PENDULUM = 15146890; // Dragonpulse Magician, a Main Deck Pendulum monster.
@@ -30,6 +30,20 @@ for (const variant of variants) describe(`Domain action cost (${variant.name})`,
       expect(game.view(0).seats[0].lp).toBe(baseLp - 500 * returns * (returns + 1) / 2);
       expect(game.view(0).seats[0].deckMaster?.inZone).toBe(false);
     }
+  });
+
+  it("refuses a returned Pendulum DM activation at 499 LP even with Spell Economics active", async () => {
+    const game = await gameFor(variant, { p0: { lp: 499, deckMaster: PENDULUM, spells: [ECONOMICS, RECALL] } }, [recall]);
+    act(game, PENDULUM);
+    expect(game.view(0).seats[0].deckMaster?.inZone).toBe(false);
+    expect(game.view(0).seats[0].lp).toBe(499);
+    act(game, RECALL);
+    const seat = game.view(0).seats[0];
+    expect(seat.deckMaster).toMatchObject({ inZone: true, returns: 1, nextCost: 500 });
+    expect(seat.lp).toBe(499);
+    expect(seat.spells.some(card => card?.code === ECONOMICS)).toBe(true);
+    expect(seat.spells.some(card => card?.code === PENDULUM)).toBe(false);
+    expect(waiting(game).options.some(option => option.card?.code === PENDULUM && option.id.startsWith("activate:"))).toBe(false);
   });
 
   it("Chain Energy still charges 500 LP for a monster summoned from the hand alongside Spell Economics", async () => {
