@@ -1185,14 +1185,16 @@ export function createDuelService(db: Database.Database): DuelService {
       throw new DuelServiceError("Only the organizer can cancel this duel", 403);
     }
     if (row.status === "cancelled") return mapSession(row);
-    if (row.status !== "lobby") throw new DuelServiceError("Only a lobby can be cancelled", 409);
+    if (row.status !== "lobby" && (row.status !== "active" || row.ranked === 1)) {
+      throw new DuelServiceError("Only a lobby or an active unranked duel can be cancelled", 409);
+    }
 
     db.prepare<[number]>(
       `
         update duels
         set status = 'cancelled', ended_at = datetime('now'), archived_at = coalesce(archived_at, datetime('now')), winner_player_id = null, winner_seat = null,
             result_reason = 'Cancelled', clock_json = null
-        where id = ? and status = 'lobby'
+        where id = ? and status in ('lobby', 'active')
       `,
     ).run(row.id);
     const updated = selectDuelById.get(row.id);

@@ -24,6 +24,7 @@ import {
   collectFreshEvents,
   DUEL_FX_CUE_EVENT,
   findZoneElement,
+  flipCoveredByActivation,
   flipCoveredBySummon,
   isPositionEvent,
   maxEventId,
@@ -357,7 +358,7 @@ export function PositionFx({ events, duelKey, reducedMotion }: PositionFxProps) 
       if (!isPositionEvent(event) || !findZoneElement(event.zone)) continue;
       const change = positionChangeOf(event);
       if (!change.turn && !change.reveal && !change.conceal) continue;
-      if (flipCoveredBySummon(fresh, event)) continue;
+      if (flipCoveredBySummon(fresh, event) || flipCoveredByActivation(fresh, event)) continue;
       let delayMs = Math.min(step, MAX_STAGGER_STEPS) * STAGGER_MS;
       const landAt = landingAt(fresh, event);
       if (landAt != null) delayMs = Math.max(delayMs, landAt - now);

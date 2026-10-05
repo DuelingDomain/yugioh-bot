@@ -24,6 +24,8 @@ export interface HoloLpProps {
   /** Top-left of the panel in stage px. */
   x: number;
   y: number;
+  /** Width in stage px (default 196, or 212 for the viewer's own panel). The grid fits a panel into its middle band. */
+  width?: number;
   beam: "down" | "up" | "none";
   /** This panel can be chosen now (an opponent pick or a direct attack): dashed ring and a key hint. */
   legal?: boolean;
@@ -32,6 +34,11 @@ export interface HoloLpProps {
   onHover?: (hover: boolean) => void;
   /** The fly-in pump places this panel with `style.transform`: the anchor translate is zero. */
   floating?: boolean;
+  /**
+   * Fit the panel into a box its parent sizes (the grid table's band): the panel fills the box width and has no anchor.
+   * The number is the size of the contents, 1 = natural, smaller for a short or narrow box.
+   */
+  fit?: number;
   /** LP this seat lost last (its newest LP event): the old LP is struck out and a "-1,200" chip shows beside the numerals. */
   lastDamage?: number | null;
   /** A rival's Deck Master: a small art thumb at the top right of the panel. A click inspects it. */
@@ -48,6 +55,9 @@ export interface HoloLpProps {
   footerTight?: boolean;
   reducedMotion: boolean;
 }
+
+/** A fitted panel scaled below this drops its counts row and its clock. */
+export const COMPACT_FIT = 0.6;
 
 const STATE_LABEL: Partial<Record<SeatStatus, string>> = {
   leaving: "Leaving",
@@ -95,12 +105,14 @@ export function HoloLp({
   me,
   x,
   y,
+  width,
   beam,
   legal = false,
   hotkey = null,
   onPick,
   onHover,
   floating = false,
+  fit,
   master = null,
   onInspectMaster,
   lastDamage = null,
@@ -119,16 +131,18 @@ export function HoloLp({
   const style: CSSProperties & Record<string, string | number> = {
     "--t": hexToRgbTriplet(hex.main),
     "--tink": hex.ink,
-    translate: floating ? "0px 0px" : `${x}px ${y}px`,
+    translate: floating || fit != null ? "0px 0px" : `${x}px ${y}px`,
+    ...(width != null && fit == null ? { "--lpw": `${width}px` } : null),
+    ...(fit != null ? { "--lpk": fit.toFixed(3) } : null),
   };
   const body = (
     <>
-      <div className={styles.top}>
+      <div className={styles.top} data-holo-text="true">
         <i aria-hidden="true" />
         <b>{me ? `${name} (you)` : name}</b>
         {turn ? <span className={styles.turnChip}>Turn</span> : null}
       </div>
-      <div className={styles.main} data-lp-seat={seat}>
+      <div className={styles.main} data-lp-seat={seat} data-holo-text="true">
         <LifePoints value={lp} reducedMotion={reducedMotion} size={me ? "lg" : "sm"} showChange={false} />
         {lastDamage != null && lastDamage > 0 && lp != null ? (
           <span className={styles.hit} data-damage-chip title="Last damage">
@@ -137,7 +151,7 @@ export function HoloLp({
           </span>
         ) : null}
       </div>
-      <div className={styles.meta}>
+      <div className={styles.meta} data-holo-text="true">
         <span title="Cards in hand">
           <HandIcon />
           {handCount}
@@ -169,6 +183,8 @@ export function HoloLp({
       data-legal={legal ? "true" : undefined}
       data-beam={beam}
       data-floating={floating ? "true" : undefined}
+      data-fit={fit != null ? "true" : undefined}
+      data-compact={fit != null && fit < COMPACT_FIT ? "true" : undefined}
       data-status={status}
       onMouseEnter={legal ? () => onHover?.(true) : undefined}
       onMouseLeave={legal ? () => onHover?.(false) : undefined}

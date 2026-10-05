@@ -15,6 +15,7 @@ export function SeatStrip({
   promptSeat,
   focusSeat,
   onFocusSeat,
+  focusAny = false,
   pick,
   compact = false,
 }: {
@@ -24,6 +25,8 @@ export function SeatStrip({
   promptSeat: number | null;
   focusSeat?: number | null;
   onFocusSeat?: (seat: number) => void;
+  /** Any seat can be focused, yours too (the 4-way grid zooms to any field). Default: rivals only. */
+  focusAny?: boolean;
   /** An opponent pick is open: the seats it offers answer it when tapped. */
   pick?: SeatPick | null;
   /** In the phase bar of the wide table: one slim row of tags that never wraps. */
@@ -44,7 +47,7 @@ export function SeatStrip({
         const isNext = view.seat === next && view.seat !== engine.turnSeat && !leaving;
         const answering = view.seat === promptSeat && !out && !leaving;
         const pickable = pick?.options.has(view.seat) === true && !out && !(leaving && livingOffered);
-        const focusable = !pickable && onFocusSeat != null && relation === "opponent" && !out;
+        const focusable = !pickable && onFocusSeat != null && (focusAny || relation === "opponent") && !out;
         const status = out ? "Eliminated" : turn ? "To play" : isNext ? "Next" : null;
         const content = (
           <>
@@ -64,9 +67,10 @@ export function SeatStrip({
             aria-current={turn ? "step" : undefined}>
             {pickable ? (
               <button type="button" className={styles.hit} data-testid={`seat-strip-pick-${view.seat}`}
-                onClick={() => pick?.onPick(view.seat)} aria-label={opponentPickLabel(nameOf(view.seat))}>{content}</button>
+                aria-keyshortcuts={focusAny ? String(view.seat + 1) : undefined} onClick={() => pick?.onPick(view.seat)} aria-label={opponentPickLabel(nameOf(view.seat))}>{content}</button>
             ) : focusable ? (
               <button type="button" className={styles.hit} onClick={() => onFocusSeat?.(view.seat)}
+                aria-pressed={focusAny ? focusSeat === view.seat : undefined} aria-keyshortcuts={focusAny ? String(view.seat + 1) : undefined}
                 aria-label={`Show ${nameOf(view.seat)} on the main field`}>{content}</button>
             ) : <div className={styles.hit}>{content}</div>}
           </li>

@@ -1296,7 +1296,7 @@ export function createDuelHost(options: {
     // Per-seat snapshots of a finished duel still hold that seat's final hand. Returning the room is safe only because
     // service.room picks the actor's OWN snapshot, so a loser who spectated during the duel still sees "lose" and their
     // own row. Never return another seat's or a stored snapshot from this branch.
-    const ownResult = room.mySeat !== null && (room.session.status === "completed" || room.session.status === "interrupted");
+    const ownResult = room.mySeat !== null && (room.session.status === "completed" || room.session.status === "interrupted" || room.session.status === "cancelled");
     const playerSeat = room.mySeat;
     if (spectate && !ownResult) {
       if ((room.session.format !== "ffa3" && room.session.format !== "ffa4") ||
@@ -2309,6 +2309,7 @@ export function createDuelHost(options: {
     if (op === "cancel") {
       service.cancel(slug, guildId, actor);
       clearOpeningTimer(slug);
+      await disposeGame(slug);
       await emitChange(slug, guildId);
       return project(slug, guildId, actor);
     }

@@ -91,6 +91,54 @@ async function table(format: DuelFormat, humans = 1, drawPerTurn = 1) {
 
 describeWithCores("Domain tables through the real host and worker", [needs.cards(DATA),
   needs.domainMulti(DATA, join(DATA, "ocgcore.multi-domain.wasm"))], () => {
+  it("lets the creator cancel an active Domain FFA4 duel and closes its engine", async () => {
+    const t = await table("ffa4", 2);
+    await t.start();
+    expect((await t.post("cancel", {}, 1)).status).toBe(403);
+    expect(t.workers[0]!.running).toBe(true);
+    const cancelled = await t.post("cancel");
+    expect(cancelled.status, cancelled.data.error).toBe(200);
+    expect(cancelled.data.session).toMatchObject({ status: "cancelled", winnerSeat: null, winnerPlayerId: null });
+    expect(cancelled.data.clock).toBeNull();
+    expect(t.workers[0]!.running).toBe(false);
+    expect((await t.post("cancel")).status).toBe(200);
+    expect((await t.room()).session.status).toBe("cancelled");
+    expect(t.workers).toHaveLength(1);
+  });
+
+  it("keeps an eliminated creator's spectator URL readable after cancellation", async () => {
+    const t = await table("ffa4", 2);
+    await t.start();
+    const surrendered = await t.post("surrender");
+    expect(surrendered.status, surrendered.data.error).toBe(200);
+    expect(surrendered.data.engine!.seats[0]!.eliminated).toBe(true);
+    expect((await t.post("view", { spectate: true })).data.role).toBe("spectator");
+    expect((await t.post("cancel")).status).toBe(200);
+    const result = await t.post("view", { spectate: true });
+    expect(result.status, result.data.error).toBe(200);
+    expect(result.data).toMatchObject({ role: "player", mySeat: 0, session: { status: "cancelled", winnerSeat: null } });
+    expect(result.data.engine).toBeNull();
+  });
+
+  it("accepts the owner's FFA4 surrender on turn 5 against three practice bots", async () => {
+    const t = await table("ffa4");
+    await t.start();
+    for (let step = 0; step < 60; step++) {
+      const view = (await t.room()).engine!;
+      if (view.turn === 5 && view.turnSeat === 0 && view.phase === "main1") break;
+      expect(view.result).toBeNull();
+      await t.answer(view, 0, view.prompt!.options.some((option) => option.id === "to_ep") ? "to_ep" : undefined);
+    }
+    expect((await t.room()).engine).toMatchObject({ turn: 5, turnSeat: 0, phase: "main1" });
+    const response = await t.post("surrender");
+    expect(response.status, response.data.error).toBe(200);
+    // With no human left the host drives all three bots to completion.
+    expect(t.duels.get(t.session.slug, "g").status).toBe("completed");
+    expect(t.duels.get(t.session.slug, "g").winnerSeat).not.toBe(0);
+    expect(response.data.engine!.seats[0]!.eliminated).toBe(true);
+    expect(response.data.engine!.prompt).toBeNull();
+  }, 60_000);
+
   it.each(FORMATS)("%s: validates Domain decks, fills all bot seats, and plays to a result", async (format) => {
     const t = await table(format, 1, 5);
     const decks = t.duels.privateState(t.session.slug, "g").decks;

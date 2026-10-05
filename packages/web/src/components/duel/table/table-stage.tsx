@@ -1,8 +1,10 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { engineFormat } from "../multi-seat";
+import type { GridFinaleBoard } from "./grid-finale";
+import type { UseGridFocus } from "./grid-focus";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
@@ -39,8 +41,16 @@ export interface TableStageViewProps extends TableStageProps {
   out?: readonly number[];
   /** Draw the turn ring (default true on a 3-way table). */
   ring?: boolean;
+  /** The focus of the 4-way grid, owned by the shell so the turn strip can drive it. The plaza stage ignores it. */
+  grid?: UseGridFocus;
   /** Place of every seat that left, as text ("3rd"), for the chip on its panel while it fades. */
   placeLabels?: ReadonlyMap<number, string>;
+  /** 4-way grid: the last two seats, laid out as one full board in the middle (the 1v1 composition), or null. */
+  gridFinale?: GridFinaleBoard | null;
+  /** 4-way grid: draws the phase hub for a place ("band" = the shared EMZ band, "center" = middle of the table). */
+  gridHub?: (place: "band" | "center") => ReactNode;
+  /** 4-way grid: where the hub sits. */
+  hubPlace?: "band" | "center";
 }
 
 /**
@@ -264,7 +274,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
         ) : null}
         <div className={styles.persp}>
           <div ref={worldRef} className={styles.world} data-world>
-            {threeWay && cityOn ? <FlyCity title={layout.format === "ffa4" ? "4-WAY DUEL" : undefined} /> : null}
+            {threeWay && cityOn ? <FlyCity /> : null}
             <div className={styles.wstage} onClick={onSeatClick}>
               <Plaza
                 layout={play}

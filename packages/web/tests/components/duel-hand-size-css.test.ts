@@ -26,4 +26,20 @@ describe("your hand is drawn larger than the strip reserves", () => {
     expect(css).toMatch(/\.handSizeProbe\[data-side="you"\] \{\s*width: var\(--lhcw\);/);
     expect(css).toMatch(/\.handLocal \{\s*--cardw: var\(--lhcw\);/);
   });
+
+  it("keeps the HUD room hand inside its strip so it barely reaches the Spell/Trap row", () => {
+    // --lk 0.89 + the 0.95 drawn size leave a small part of a zone height of overlap; no lift reserve (cards that lift
+    // rise over the row), and the strip has no bottom reserve because the room has no station track.
+    expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--lk: 0\.89;/);
+    expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--lift-k: 0;[^}]*--mark-k: 0;/);
+    expect(css).not.toMatch(/@media \(hover: none\) \{\s*:global\(\[data-hud="room"\]\)/);
+  });
+
+  it("lets only the resting box of a HUD room hand card take the pointer, never the grown hover picture", () => {
+    // The hover grows the card over the Spell/Trap row; that picture must not steal a click meant for a zone.
+    expect(css).toMatch(/:global\(\[data-hud="room"\]\) \.handLocal \.handCard \.frame \{\s*pointer-events: none;/);
+    // A legal or selected card rests a little higher than its box: a strip above the box keeps that edge on the card.
+    expect(css).toMatch(/\.zone\[data-legal="true"\] \.zoneHit::before,[^{]*\.zone\[data-selected="true"\] \.zoneHit::before \{[^}]*bottom: 100%;[^}]*height: calc\(var\(--lh\) \* 0\.05\);/);
+    expect(css).toMatch(/\.zone\[data-selected="true"\] \.zoneHit::before \{\s*height: calc\(var\(--lh\) \* 0\.12\);/);
+  });
 });

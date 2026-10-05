@@ -1,6 +1,6 @@
 # Core patch series (multi core)
 
-This directory holds the patch series for the N-duelist ygopro-core. The series is for 3-player, 4-player and 2v2 Tag duels. No server uses the multi core yet.
+This directory holds the patch series for the N-duelist ygopro-core. The series is for 3-player, 4-player and 2v2 Tag duels. The duel host loads the multi core (`ocgcore.multi.wasm`, or `ocgcore.multi-domain.wasm` for Domain) for every table with more than two seats (`src/engine.ts`, `readMultiWasm`). Those tables are open when `MULTIPLAYER_TABLES` is on, which is the Compose default.
 
 ## What the series is
 

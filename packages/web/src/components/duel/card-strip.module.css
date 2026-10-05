@@ -230,3 +230,14 @@
 @media (pointer: coarse) {
   .hint { display: none; }
 }
+
+/* A dense host (the 4-way grid, `data-prompt-dense` on its prompt slot): smaller cards and less room round them, so
+   the card pick keeps to a small part of your pair. */
+:global([data-prompt-dense]) .wrap {
+  --cs-w: calc(92 * var(--cs-u));
+  --cs-gap: calc(10 * var(--cs-u));
+  --cs-pad-x: calc(16 * var(--cs-u));
+  --cs-pad-top: calc(14 * var(--cs-u));
+  --cs-pad-bottom: calc(8 * var(--cs-u));
+}
+:global([data-prompt-dense]) .caption { min-height: 0; }

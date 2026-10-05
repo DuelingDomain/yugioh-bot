@@ -153,7 +153,7 @@ describe("Report bug in the Rooftop shell", () => {
       return <TagShell fxActive={false} controller={controller} connection={connection} />;
     }
     render(<Shell />);
-    fireEvent.click(screen.getAllByRole("tab", { name: "Settings" })[0]!);
+    fireEvent.click(screen.getByTestId("hud-dock-settings"));
     fireEvent.click(screen.getByRole("button", { name: "Report bug" }));
     expectNoDuelHotkeys();
   });
@@ -165,7 +165,7 @@ describe("Report bug in the Rooftop shell", () => {
       return <TagShell fxActive={false} controller={controller} connection={connection} />;
     }
     render(<Shell />);
-    fireEvent.click(screen.getAllByRole("tab", { name: "Settings" })[0]!);
+    fireEvent.click(screen.getByTestId("hud-dock-settings"));
     await reportFromMenu({ format: "tag", seat: TAG_FIXTURES.states.main.room.mySeat, slug: TAG_FIXTURES.states.main.room.session.slug });
   });
 });
@@ -181,7 +181,7 @@ describe("Report bug in the 1v1 room", () => {
 
   it("opens from the Settings menu, sends browser context only and closes on Escape", async () => {
     render(<DuelRoomView slug="game-1" windowed />);
-    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    fireEvent.click(screen.getByTestId("hud-dock-settings"));
     const menuEntry = screen.getAllByRole("button", { name: "Report bug" }).find((button) => !button.hasAttribute("data-bug-header-button"))!;
     const body = await reportFromMenu({ format: "1v1", seat: 0, slug: "game-1" }, menuEntry);
     expect(body.context).toMatchObject({ animationSpeed: 1 });
@@ -190,7 +190,7 @@ describe("Report bug in the 1v1 room", () => {
 
   it("ignores duel hotkeys typed inside the dialog", () => {
     render(<DuelRoomView slug="game-1" windowed />);
-    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    fireEvent.click(screen.getByTestId("hud-dock-settings"));
     fireEvent.click(screen.getAllByRole("button", { name: "Report bug" }).find((button) => !button.hasAttribute("data-bug-header-button"))!);
     expectNoDuelHotkeys();
   });
