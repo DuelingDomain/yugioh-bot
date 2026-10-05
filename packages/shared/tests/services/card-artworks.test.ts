@@ -161,7 +161,7 @@ describe("card artwork mapping", () => {
     const catalog = createCardCatalogService(db, { identityCatalog: mutableIdentity,
       fetch: async () => ({ ok: true, json: async () => ({ data: [response] }) }) });
     await catalog.syncCardByName(response.name);
-    expect(catalog.canonicalId(46986414)).toBe(36996508);
+    expect(catalog.canonicalId(46986414)).toBe(response.id);
     mutableIdentity.set(46986414, { name: response.name, type: 17, alias: 0 });
     response = { ...response, id: 46986414, card_images: [response.card_images[1]] };
     await catalog.syncCardByName(response.name);
@@ -170,12 +170,31 @@ describe("card artwork mapping", () => {
     expect(catalog.listArtworks(46986421).find((art) => art.artworkId === 46986421)?.imageUrlCropped).toContain("46986421.jpg");
   });
 
-  it("uses the lowest passcode when engine identity is missing", async () => {
+  it.each([fixtures[0], fixtures[2]])("prefers the API main artwork for $name when engine identity is missing", async (card) => {
     const { db } = setup();
     const catalog = createCardCatalogService(db, { identityCatalog: new Map(),
-      fetch: async () => ({ ok: true, json: async () => ({ data: [fixtures[0]] }) }) });
-    expect((await catalog.syncCardByName("Barrel Dragon"))?.ygoprodeckId).toBe(81480460);
-    expect(catalog.listArtworks(81480461)[0]).toMatchObject({ artworkId: 81480460, isMain: true });
+      fetch: async () => ({ ok: true, json: async () => ({ data: [card] }) }) });
+    expect((await catalog.syncCardByName(card.name))?.ygoprodeckId).toBe(card.id);
+    expect(catalog.listArtworks(card.id)[0]).toMatchObject({ artworkId: card.id, isMain: true });
+  });
+
+  it("uses the lowest passcode only when there is no engine, cached main or API main artwork", async () => {
+    const { db } = setup();
+    const card = { ...fixtures[2], id: 99999999 };
+    const catalog = createCardCatalogService(db, { identityCatalog: new Map(),
+      fetch: async () => ({ ok: true, json: async () => ({ data: [card] }) }) });
+    expect((await catalog.syncCardByName(card.name))?.ygoprodeckId).toBe(36996508);
+  });
+
+  it("keeps an existing main when a narrower response calls an alternate the API main", async () => {
+    const { db, catalog } = setup();
+    await catalog.syncCardByName("Dark Magician");
+    const art = fixtures[2].card_images.find((image) => image.id === 36996508)!;
+    const card = { ...fixtures[2], id: art.id, card_images: [art] };
+    const withoutEngine = createCardCatalogService(db, { identityCatalog: new Map(),
+      fetch: async () => ({ ok: true, json: async () => ({ data: [card] }) }) });
+    expect((await withoutEngine.syncCardByName(card.name))?.ygoprodeckId).toBe(46986414);
+    expect(withoutEngine.listArtworks(art.id)[0]).toMatchObject({ artworkId: 46986414, isMain: true });
   });
 
   it("uses main card data even if a legacy alternate row has stale stats", async () => {

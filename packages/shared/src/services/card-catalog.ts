@@ -148,7 +148,9 @@ export function createCardCatalogService(
       const art = artworkById.get(id) as ArtworkRow | undefined;
       if (art) previous.add(art.card_id);
     }
-    return previous.size === 1 ? [...previous][0] : Math.min(card.id, ...card.card_images.map((art) => art.id ?? card.id));
+    if (previous.size === 1) return [...previous][0];
+    if (card.card_images.some((art) => (art.id ?? card.id) === card.id)) return card.id;
+    return Math.min(card.id, ...card.card_images.map((art) => art.id ?? card.id));
   };
 
   const fetchCardsWith = (params: Record<string, string>, ) => {

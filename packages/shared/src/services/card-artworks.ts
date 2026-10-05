@@ -20,7 +20,7 @@ export function loadArtworkIdentityCatalog(): CardIdentityCatalog {
   const path = resolve(process.cwd(), process.env.DUEL_DATA_DIR ?? "data/duel-engine", "cards.cdb");
   if (!existsSync(path)) {
     if (!warnedMissingIdentity) {
-      console.warn(`[card-artworks] Engine identity is missing at ${path}; artwork sync will preserve known mains or use the lowest passcode.`);
+      console.warn(`[card-artworks] Engine identity is missing at ${path}; artwork sync will preserve known mains, prefer the API passcode, or fall back to the lowest passcode.`);
       warnedMissingIdentity = true;
     }
     return new Map();
