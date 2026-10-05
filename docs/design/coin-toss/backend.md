@@ -34,7 +34,38 @@ while the toss plays, then release it after the final result lands. Release
 historical lines at once when their event was skipped or is outside the retained
 event window. Lines from older saved views have no `eventId`; show them normally.
 The backend sends text and results at once. The UI must apply the hold to each
-visible log, summary and screen reader announcement. No timer is imposed by the server.
+visible log, summary and screen reader announcement.
+
+## Live clock grace
+
+`packages/shared/src/duels/coin-timing.ts` exports `COIN_TIMING`, `COIN_TOSS_MS`
+(3180 ms), `COIN_SUMMARY_MS` (1520 ms), `COIN_CHAIN_BEAT_MAX_MS` (1170 ms),
+`MIN_DUEL_FX_SPEED` (0.5x), and
+`coinTossDurationMs(count, speed)`. The summary hold is
+`COIN_TIMING.summaryHoldMs` (1000 ms). These match the web planner and the live
+FX speed range of 0.5x to 2x. The duration function uses full coin steps as an
+upper bound, including when the client compacts a long toss.
+
+For each accepted live command, the host compares event IDs before and after
+the command. It sums every new coin event's duration at the slowest speed,
+adds the chain prefix, chain lead, gaps between events and the fallback unlock
+margin, and delays the next clock start. Each chain beat before the last new
+toss gets the maximum ordinary chain beat duration, including prior activations
+that can still be queued. A three-coin event gets at least 24520 ms. If a new live
+toss arrives during grace, its presentation queues behind the remaining grace.
+The total future pause is capped at 60000 ms.
+The live worker also tracks queued chain beats from prior commands: an engine
+`chain-end` can arrive while the client is still showing that chain. Ordinary
+chains do not grant clock grace, but their remaining presentation delays a new
+coin. This transient queue is reset on recovery, which skips historical FX.
+
+This uses the same future `startedAt` mechanism as the opening grace, so bank
+charging, continue timeouts and loss timeouts all wait. It applies to Standard
+and Domain 1v1, FFA3, FFA4 and Tag, including paced and unpaced practice bots,
+eliminations and automatic chain passes. An early answer without another toss
+keeps the existing grace end, including when the current holder has no bank or
+no seat holds a prompt. Replay and recovery apply saved commands without
+granting new grace; resync reads keep the saved clock.
 
 All seats and spectators receive the same event and log link in 1v1, FFA3,
 FFA4 and Tag. Neither depends on the viewer's hidden cards.
@@ -74,6 +105,12 @@ Use the approved `.fx-demo/coin-flip/INTEGRATION.md` notes for animation timing,
 chain scheduling, prompt holds and reduced motion.
 
 ## Targeted tests
+
+- `tests/host-coin-clock.test.ts`: real Barrel Dragon clock grace in Standard
+  and Domain 1v1, FFA3, FFA4 and Tag; low banks, both timeout policies, queued
+  batches, the cap, practice bots, automatic passes, timeout sweeps and recovery.
+- Shared `tests/duels/coin-timing.test.ts`: durations, summary hold, speed range
+  and invalid arguments.
 
 - `tests/toss-events.test.ts`: both views, ordered results, source lookup and
   clearing, public projection for every format, copied result arrays, log links,

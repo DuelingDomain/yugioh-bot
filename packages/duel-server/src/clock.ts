@@ -130,14 +130,17 @@ export function syncDecisionClock(
     isSeatIndex(view.promptSeat) && view.promptSeat < remaining.length && !stopped.includes(view.promptSeat)
       ? view.promptSeat
       : null;
-  // Reduced motion or a bot may answer during the opening grace. Keep its original end,
+  // Reduced motion or a bot may answer during opening or coin toss grace. Keep its original end,
   // without granting another grace window on a prompt change or a reconnect.
   const startAt = Math.max(resumeAt, previous.startedAt ?? resumeAt);
+  // A future start also stores outstanding grace when the current prompt has no
+  // funded owner. An early handoff must not discard that presentation pause.
+  const inGrace = startAt > decidedAt;
   return {
     turn: view.turn,
     remainingMs: remaining,
     activeSeat: nextSeat,
-    startedAt: nextSeat !== null && (remaining[nextSeat] ?? 0) > 0 ? startAt : null,
+    startedAt: inGrace || (nextSeat !== null && (remaining[nextSeat] ?? 0) > 0) ? startAt : null,
   };
 }
 
@@ -158,7 +161,7 @@ export function stopSeatClock(clock: DecisionClockState, seat: SeatIndex, now: n
     turn: clock.turn,
     remainingMs: liveRemainingMs(clock, now),
     activeSeat: null,
-    startedAt: null,
+    startedAt: clock.startedAt !== null && clock.startedAt > now ? clock.startedAt : null,
   };
 }
 

@@ -48,6 +48,7 @@ export {
 } from "./settings.js";
 export { DEFAULT_DUEL_1V1_ENGINE, DUEL_1V1_ENGINE_ENV, duel1v1Engine, isDuelEngineChoice } from "./engine-switch.js";
 export type { DuelEngineChoice } from "./engine-switch.js";
+export { COIN_TIMING, COIN_TOSS_MS, COIN_SUMMARY_MS, COIN_CHAIN_BEAT_MAX_MS, MIN_DUEL_FX_SPEED, coinTossDurationMs } from "./coin-timing.js";
 export {
   MULTIPLAYER_TABLES_ENV,
   MULTIPLAYER_TABLES_OFF_MESSAGE,

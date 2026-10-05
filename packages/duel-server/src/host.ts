@@ -23,6 +23,7 @@ import type {
 } from "@yugidraft/shared/duels";
 import {
   CardQueryError, duel1v1Engine, isFirstChoice, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
+  COIN_TIMING, COIN_CHAIN_BEAT_MAX_MS, MIN_DUEL_FX_SPEED, coinTossDurationMs,
   CHAIN_MODE_JOURNAL_LIMIT, CHAIN_MODE_PROMPT_PREFIX, chainModeOf, isDuelChainMode, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_RPS_MOVES,
 } from "@yugidraft/shared/duels";
 import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, eliminationAtTurnEnd } from "./engine.js";
@@ -69,6 +70,8 @@ const SERIES_SWEEP_LIMIT = 16;
 /** Wait after the 1st, 2nd and later failed starts of one series game; the last value is the cap. */
 const START_BACKOFF_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
 const MAX_TIMER_MS = 2 ** 31 - 1;
+/** Bound one live coin presentation pause, including any already queued grace. */
+const MAX_COIN_TOSS_GRACE_MS = 60_000;
 const TIME_LIMIT_REASON = "Time limit";
 /** MSG_WIN reason codes from the core (strings.conf victory reasons): 0 Surrendered, 3 Time limit up. */
 const WIN_REASON_SURRENDER = 0;
@@ -130,6 +133,8 @@ type LiveGame = {
   game: DuelGameWorker;
   lastRequestAt: number;
   guildId: string;
+  /** Conservative end of live queued chain/coin FX. Recovery skips old FX and starts a fresh queue. */
+  fxReadyAt?: number;
   /**
    * Seats whose prompts the host answers with passes after a surrender.
    * Queue commands restore these seats after recovery. Old cores also use the saved setup field.
@@ -198,6 +203,36 @@ function newestEventId(view: DuelEngineView): number {
   let newest = 0;
   for (const event of view.events) newest = Math.max(newest, event.id);
   return newest;
+}
+
+function chainBeatDurationMs(view: DuelEngineView, afterEventId: number, throughEventId = Infinity): number {
+  const beats = view.events.filter((event) => event.id > afterEventId && event.id < throughEventId
+    && (event.kind === "chain-end" || (event.chainIndex != null && event.chainIndex >= 1
+      && ["activate", "target", "chain-resolving", "chain-resolved", "chain-negated"].includes(event.kind)))).length;
+  return beats * COIN_CHAIN_BEAT_MAX_MS / MIN_DUEL_FX_SPEED;
+}
+
+/** Only events emitted by this live command count; snapshots and journal replay do not grant grace. */
+function freshCoinTossGraceMs(view: DuelEngineView, afterEventId: number): number {
+  let duration = 0;
+  let events = 0;
+  let lastTossId = 0;
+  for (const event of view.events) {
+    if (event.id <= afterEventId || event.kind !== "toss" || event.toss?.type !== "coin" || event.toss.results.length === 0) continue;
+    duration += coinTossDurationMs(event.toss.results.length, MIN_DUEL_FX_SPEED);
+    events++;
+    lastTossId = Math.max(lastTossId, event.id);
+  }
+  if (events === 0) return 0;
+  // Coins wait for their resolving badge. Include the whole current chain prefix,
+  // even activations from earlier batches that a fast player or bot may still be watching.
+  let chainStartId = 0;
+  for (const event of view.events) {
+    if (event.kind === "chain-end" && event.id <= afterEventId) chainStartId = Math.max(chainStartId, event.id);
+  }
+  return Math.min(MAX_COIN_TOSS_GRACE_MS, duration + chainBeatDurationMs(view, chainStartId, lastTossId)
+    + (COIN_TIMING.chainLeadMs + (events - 1) * COIN_TIMING.gapMs) / MIN_DUEL_FX_SPEED
+    + COIN_TIMING.safetyMarginMs);
 }
 
 function freezeView(
@@ -631,16 +666,24 @@ export function createDuelHost(options: {
     command: DuelCommand,
     game: DuelGameWorker,
     decidedAt: number,
+    afterEventId: number,
     note?: string,
   ): Promise<void> {
     const state = service.privateState(slug, guildId);
     const view = await readClockView(game, seatCountFor(state.session.format), games.get(slug)?.surrendered);
+    const after = await game.view(null);
+    const grace = freshCoinTossGraceMs(after, afterEventId);
+    const finishedAt = now();
+    const entry = games.get(slug);
+    // A fast answer or a bot can queue another toss before the previous presentation ends.
+    const resumeAt = grace === 0 ? finishedAt : Math.min(finishedAt + MAX_COIN_TOSS_GRACE_MS,
+      Math.max(finishedAt, entry?.fxReadyAt ?? finishedAt, state.clock?.startedAt ?? finishedAt) + grace);
     const clock = syncDecisionClock(
       state.clock,
       view,
       state.session.settings.turnSeconds,
       decidedAt,
-      now(),
+      resumeAt,
       state.session.settings.timeout,
       isSeatIndex(seat) ? seat : undefined,
     );
@@ -648,6 +691,14 @@ export function createDuelHost(options: {
     options.db.transaction(() => {
       service.recordCommand(slug, guildId, seat, note ? ({ ...command, note } as DuelCommand) : command, clock);
     })();
+    if (entry) {
+      // An engine chain-end can precede its visible end. Track that backlog even
+      // for commands with no coin; it delays the next coin, without pausing their clock.
+      const lastCoinId = after.events.reduce((id, event) => event.id > afterEventId && event.kind === "toss"
+        && event.toss?.type === "coin" && event.toss.results.length > 0 ? Math.max(id, event.id) : id, afterEventId);
+      entry.fxReadyAt = Math.min(finishedAt + MAX_COIN_TOSS_GRACE_MS,
+        (grace === 0 ? Math.max(finishedAt, entry.fxReadyAt ?? finishedAt) : resumeAt) + chainBeatDurationMs(after, lastCoinId));
+    }
   }
 
   /** Stop a long duel once no human can play. This is an interruption, not a game draw. */
@@ -703,7 +754,7 @@ export function createDuelHost(options: {
         throw new RequestError(error instanceof Error ? error.message : "Practice bot made an illegal choice", 500);
       }
       try {
-        await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, note);
+        await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, newestEventId(view), note);
       } catch (error) {
         await disposeGame(slug);
         throw error;
@@ -957,7 +1008,7 @@ export function createDuelHost(options: {
       return { kind: "stop" };
     }
     try {
-      await persistAcceptedCommand(slug, guildId, plan.seat, command, game, decidedAt, plan.note);
+      await persistAcceptedCommand(slug, guildId, plan.seat, command, game, decidedAt, newestEventId(before), plan.note);
     } catch (error) {
       // The answer was applied but not journaled. Dropping the worker makes the next request rebuild the
       // duel from the journal, which never contains an unrecorded command.
@@ -1090,7 +1141,7 @@ export function createDuelHost(options: {
     }
     const command: DuelCommand = { promptId: `${ELIMINATE_PROMPT_PREFIX}${code}`, revision: before.revision, answer: {} };
     try {
-      await persistAcceptedCommand(slug, guildId, seat, command, game, now());
+      await persistAcceptedCommand(slug, guildId, seat, command, game, now(), newestEventId(before));
     } catch (error) {
       // Applied but not journaled: drop the worker so the next request rebuilds the duel from the journal.
       await disposeGame(slug);
@@ -2403,7 +2454,7 @@ export function createDuelHost(options: {
         error instanceof EngineAnswerError ? error.code : undefined);
     }
     try {
-      await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt);
+      await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt, newestEventId(before));
       await emitChange(slug, guildId);
       await driveBot(slug, guildId, live);
       return await project(slug, guildId, actor, live);
@@ -2464,7 +2515,7 @@ export function createDuelHost(options: {
     const command: DuelCommand = { promptId: `${CHAIN_MODE_PROMPT_PREFIX}${mode}`, revision: before.revision, answer: {} };
     try {
       if (passed) {
-        await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt);
+        await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt, newestEventId(before));
       } else {
         // The clock is not touched: the stored clock goes back in as it is.
         // Nor does it count as activity: /api/duels shows lastActivityAt to everyone and this change is private.
