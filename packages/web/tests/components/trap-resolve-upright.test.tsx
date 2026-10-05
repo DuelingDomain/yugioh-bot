@@ -128,11 +128,11 @@ for (const format of ["1v1", "ffa4", "tag"] as const) {
         const ghost = result.container.querySelector<HTMLElement>(`.${summonStyles.flipGhost}`)!;
         expect(ghost?.querySelector("img")?.getAttribute("src")).toContain(`/cards/${card.code}/image`);
         expect(parseFloat(ghost.parentElement!.style.width)).toBeLessThan(parseFloat(ghost.parentElement!.style.height));
-        const flip = result.container.querySelector('[data-flip="reveal"]');
+        // The activation copy is the one turn of the flip: PositionFx draws no second copy over the same zone.
+        expect(result.container.querySelector('[data-flip="reveal"]')).toBeNull();
         if (!reduced) {
-          expect(flip).not.toBeNull();
-          const frames = animations.find(a => a.element === flip)!.frames;
-          for (const frame of frames) expect(Number(String(frame.transform).match(/rotate\(([-\d.]+)deg\)/)![1]) % 180).toBe(0);
+          const frames = animations.find(a => a.element === ghost)!.frames;
+          for (const frame of frames) for (const [, deg] of String(frame.transform ?? "").matchAll(/\brotate\(([-\d.]+)deg\)/g)) expect(Number(deg) % 180).toBe(0);
         }
         expect(result.container.querySelector('[data-feedback-cue][data-kind="activate"] img')).not.toBeNull();
         const strip = result.container.querySelector('[data-chain-strip]');

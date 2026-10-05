@@ -9,6 +9,7 @@ import {
   LOCATION_DECK,
   LOCATION_EXTRA,
   LOCATION_HAND,
+  LOCATION_SZONE,
   TYPE_FUSION,
   TYPE_LINK,
   TYPE_MONSTER,
@@ -185,6 +186,16 @@ export function summonCoveredByFlip(fresh: readonly DuelEvent[], summon: DuelEve
 
 export function flipCoveredBySummon(fresh: readonly DuelEvent[], position: PositionEvent): boolean {
   return fresh.some((other) => isHeavySummon(other) && sameZone(other.zone, position.zone));
+}
+
+/**
+ * A Set Spell/Trap that is activated arrives as a "position" flip plus an "activate" for the same zone. The
+ * activation copy (SummonFx) turns the sleeve to the face in place, so the flip stays quiet: two copies turning
+ * in one zone would show the lower face at the edge-on moment.
+ */
+export function flipCoveredByActivation(fresh: readonly DuelEvent[], position: PositionEvent): boolean {
+  if (position.zone.location !== LOCATION_SZONE || !positionChangeOf(position).reveal) return false;
+  return fresh.some((other) => other.kind === "activate" && other.id > position.id && sameZone(other.zone, position.zone));
 }
 
 /** Event kinds whose picture is drawn on the board by SummonFx or PositionFx when the zone is known. */
