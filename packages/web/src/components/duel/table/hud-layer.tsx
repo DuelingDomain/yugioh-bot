@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import type { DuelCard, DuelChainLink, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
+import { useCallback, useEffect, useState, type FocusEvent, type MouseEvent, type ReactNode } from "react";
+import type { DuelCard, DuelCardInfo, DuelChainLink, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import type { DuelHoverHandler } from "../field-keys";
 import { ChainList, ChainTower, DOCK_PANES, DOCK_PANES_CAMERA, GridDock, GridFlyout, useHudDismiss, type HudPane } from "./grid-hud";
 import { GridMasterToken } from "./grid-master";
 import { GridHoverPreview } from "./grid-preview";
-import type { InspectTarget } from "./types";
+import type { DuelActivateHandler, InspectTarget } from "./types";
 
 /**
  * The floating HUD that the 4-way grid, the 1v1 room and the Tag Rooftop share (concept B): which flyout is open, and
@@ -22,35 +22,56 @@ export interface HudPaneState {
   setPane: (pane: HudPane | null) => void;
   toggle: (pane: HudPane) => void;
   close: () => void;
+  /** Opens the Card flyout: a click or Inspect on a card. */
+  openCard: () => void;
   /** The Card tab only shows while it is the open pane: it is not a dock icon. */
   tabs: readonly HudPane[];
 }
 
 /**
- * The open flyout of a HUD. Esc and a press outside close it (`useHudDismiss`). A new inspect target (a click or
- * Inspect on a card) opens the Card pane, unless that click opened an action menu: the menu keeps the board clear.
+ * The open flyout of a HUD. Nothing opens it by itself: a dock icon, a Deck Master token or `openCard()` (a click or
+ * Inspect on a card) does. A hover or a prompt row never opens the Card flyout, so it cannot cover the response prompt.
+ * Call it before `useTableUi`, then pass `openCard` on and give `useHudEscape` the table's `suspended` flag.
  */
-export function useHudPane({ enabled, suspended, inspect, menuOpen, camera = false }: {
-  enabled: boolean;
-  /** A card menu or the pile viewer is open: it keeps Esc. */
-  suspended: boolean;
-  inspect: InspectTarget | null;
-  menuOpen: boolean;
+export function useHudPane({ camera = false }: {
   /** The table has a camera panel (the Tag Rooftop): the dock gets a fourth icon. */
   camera?: boolean;
-}): HudPaneState {
+} = {}): HudPaneState {
   const [pane, setPane] = useState<HudPane | null>(null);
   const toggle = useCallback((next: HudPane) => setPane((current) => (current === next ? null : next)), []);
   const close = useCallback(() => setPane(null), []);
-  useHudDismiss(enabled && pane != null, suspended, close);
-  useEffect(() => {
-    if (enabled && inspect && !menuOpen) setPane("card");
-    // Only a new inspect target opens it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, inspect]);
+  const openCard = useCallback(() => setPane("card"), []);
   const dock: readonly HudPane[] = camera ? DOCK_PANES_CAMERA : DOCK_PANES;
   const tabs: readonly HudPane[] = pane === "card" ? ["card", ...dock] : dock;
-  return { pane, setPane, toggle, close, tabs };
+  return { pane, setPane, toggle, close, openCard, tabs };
+}
+
+/**
+ * Esc and a press outside close the open flyout. A card menu or the pile viewer (`suspended`) keeps Esc. Pass
+ * `hud.pane != null` to the prompt panel's `menuOpen` as well, or the same Esc also declines the prompt.
+ */
+export function useHudEscape(hud: HudPaneState, enabled: boolean, suspended: boolean): void {
+  useHudDismiss(enabled && hud.pane != null, suspended, hud.close);
+}
+
+/**
+ * The card of a prompt row under the pointer or focus (a tile, a response row): the HUD shows it in the hover preview,
+ * never in the Card flyout, which would cover the prompt. The prompt panel only reports "entered", so `bind` goes on a
+ * wrapper around it (`display: contents`) and clears the card when the pointer or focus leaves the panel.
+ * `resetKey` (the prompt id) clears it when the prompt changes.
+ */
+export function useRowPreview(resetKey: string | number | null) {
+  const [card, setCard] = useState<DuelCardInfo | null>(null);
+  useEffect(() => setCard(null), [resetKey]);
+  const leave = (event: MouseEvent<HTMLElement> | FocusEvent<HTMLElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setCard(null);
+  };
+  return { card, show: setCard, bind: { onMouseOut: leave, onBlur: leave } };
+}
+
+/** Wraps the prompt panel for `useRowPreview`. Without the HUD it renders the children as they are. */
+export function RowPreviewBoundary({ row, enabled, children }: { row: ReturnType<typeof useRowPreview>; enabled: boolean; children: ReactNode }) {
+  return enabled ? <div style={{ display: "contents" }} {...row.bind}>{children}</div> : <>{children}</>;
 }
 
 type SeatTones = ReadonlyMap<number, { main: string; ink: string }>;
@@ -65,6 +86,8 @@ export interface HudMasterProps {
   legalActionsFor: (card: DuelCard | null, keys: string[]) => DuelPromptOption[];
   title: string;
   onChooseAction: (option: DuelPromptOption) => void;
+  /** A click on the token picks the card while a prompt asks for it. */
+  onActivate?: DuelActivateHandler;
   onHoverCard?: DuelHoverHandler;
 }
 
@@ -84,8 +107,8 @@ export interface HudLayerProps {
   otherMaster?: HudMasterProps | null;
   /** Shows the Card flyout for the master (Inspect on the plate). */
   onInspect: (target: InspectTarget) => void;
-  /** The hovered card and its owner, or `null` when nothing is hovered. */
-  preview: { card: DuelCard; owner: { name: string; main: string; ink: string } } | null;
+  /** The hovered card and its owner, or `null` when nothing is hovered. A prompt row card has no owner. */
+  preview: { card: DuelCard | DuelCardInfo; owner: { name: string; main: string; ink: string } | null } | null;
   /** A card menu or the pile viewer is open: the preview hides. An open flyout hides it too. */
   previewHidden: boolean;
   reducedMotion: boolean;

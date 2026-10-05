@@ -37,7 +37,7 @@ import { DuelClockDisplay } from "../room-settings";
 import { SeatStrip } from "../seat-strip";
 import { SeriesBanner } from "../series-banner";
 import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNarrow } from "../side-panel";
-import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "../station-track";
+import { battleStepLabel, resolveBattleStep, StationTrack, type BattleStep } from "../station-track";
 import { SummonFx } from "../summon-fx";
 import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import type { ChainModeControl } from "../use-chain-mode";
@@ -46,7 +46,8 @@ import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
-import { HudLayer, useHudPane } from "./hud-layer";
+import { HudLayer, RowPreviewBoundary, useHudEscape, useHudPane, useRowPreview } from "./hud-layer";
+import { hudClock, hudMasterProps, stationTrackProps } from "./hud-shared";
 import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
 import { OpponentBar } from "./opponent-bar";
@@ -62,8 +63,6 @@ import { useTableUi } from "./use-table-ui";
 import { SEAT_TONE_HEX, type CameraLockReason, type CameraState, type TableController, type TableFormat } from "./types";
 import hudStyles from "./grid-hud.module.css";
 import styles from "./table-shell.module.css";
-
-/** Panes that stay mounted while hidden, so they keep the rows they built (the log counts the new ones). */
 
 export interface TableShellActions {
   onExit?: () => void;
@@ -168,8 +167,11 @@ function TableShellBody({
   // The 4-way grid on a wide screen swaps the bars and side columns for the floating HUD (grid-hud.tsx).
   const hud = !narrow && usesGridLayout(engineFormat(tracked.engine) as TableFormat, tracked.engine.seats);
   // The Card pane is a flyout in the HUD: a hover must not fill it, only a click or Inspect does.
-  const ui = useTableUi(tracked, { initialPane: hud ? "log" : undefined });
-  const hudState = useHudPane({ enabled: hud, suspended: ui.suspended, inspect: ui.inspect, menuOpen: ui.menu != null });
+  const hudState = useHudPane();
+  const ui = useTableUi(tracked, { initialPane: hud ? "log" : undefined, hud, onOpenCard: hudState.openCard });
+  useHudEscape(hudState, hud, ui.suspended);
+  const hudOpen = hud && hudState.pane != null;
+  const rowPreview = useRowPreview(tracked.prompt?.id ?? null);
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
   const format = engineFormat(engine);
@@ -249,6 +251,21 @@ function TableShellBody({
   const dockMode = !promptMine || prompt == null || centered ? "idle" : actionPrompt ? (prompt.cancelable || prompt.finishable ? "float" : "idle") : "flow";
   const trackCaption = terminal ? "Duel finished" : prompt == null ? null : promptMine ? (actionPrompt ? null : prompt.title) : `${nameOf(prompt.seat)} is choosing…`;
   const canAct = base.canAct && !base.busy;
+  const trackProps = stationTrackProps({
+    phase: engine.phase,
+    battleStep,
+    turn: engine.turn,
+    turnSeat: engine.turnSeat,
+    mySeat: viewerSeat,
+    playerName: nameOf,
+    promptMine,
+    actionOptions,
+    canAct,
+    onAnswer: controller.onAnswer,
+    caption: trackCaption,
+    reducedMotion: controller.reducedMotion,
+    chainMode,
+  });
   // Who may answer the open chain, in order (the panel of the chain and the response prompt list it).
   const chainOpen = engine.chain.length > 0 && !terminal;
   const priority = useMemo(
@@ -469,7 +486,7 @@ function TableShellBody({
             busy={controller.busy}
             draft={controller.draft}
             onSubmit={controller.onAnswer}
-            menuOpen={suspended}
+            menuOpen={suspended || hudOpen}
             active={!terminal && !viewerOut}
             aim={flow.promptAim ?? undefined}
             headless={centered}
@@ -504,6 +521,7 @@ function TableShellBody({
                   </FxBoundary>
                 }
                 promptCenter={
+                  <RowPreviewBoundary row={rowPreview} enabled={hud}>
                   <PromptCenter
                     prompt={prompt ?? (!hasResult ? pick.waiting : null)}
                     mySeat={viewerSeat}
@@ -512,7 +530,7 @@ function TableShellBody({
                     busy={controller.busy || (prompt == null && pick.waiting != null)}
                     draft={controller.draft}
                     onSubmit={controller.onAnswer}
-                    menuOpen={suspended}
+                    menuOpen={suspended || hudOpen}
                     chain={engine.chain}
                     aim={flow.promptAim ?? undefined}
                     aimLocked={flow.locked}
@@ -522,11 +540,12 @@ function TableShellBody({
                     outSeats={outOrLeavingSeats(engine.seats)}
                     leavingSeats={leavingOnlySeats(engine.seats)}
                     revealed={controller.revealed}
-                    onInspectCard={(card) => ui.setInspect({ type: "info", card })}
+                    onInspectCard={hud ? rowPreview.show : (card) => ui.setInspect({ type: "info", card })}
                     nameOf={nameOf}
                     seatTones={seatTones}
                     priority={priority}
                   />
+                  </RowPreviewBoundary>
                 }
                 overlay={
                   <>
@@ -586,42 +605,18 @@ function TableShellBody({
       {hud ? (
         <div className={hudStyles.bottom} data-testid="hud-bottom">
           <StationTrack
-            phase={engine.phase}
-            battleStep={battleStep}
-            turn={engine.turn}
-            turnSeat={engine.turnSeat}
-            mySeat={viewerSeat}
-            playerName={nameOf}
-            actionOptions={promptMine ? actionOptions : []}
-            canAct={canAct}
-            noLegalMoves={canAct && hasNoLegalMoves(actionOptions)}
-            onChoose={(id) => controller.onAnswer({ choice: id })}
-            clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} compact /> : null}
-            caption={trackCaption}
-            reducedMotion={controller.reducedMotion}
+            {...trackProps}
+            clock={hudClock(room.clock, session, controller.reducedMotion)}
             attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
-            chainMode={chainMode}
           />
         </div>
       ) : (
         <div className={roomStyles.track}>
           {seatStripNode}
           <StationTrack
-            phase={engine.phase}
-            battleStep={battleStep}
-            turn={engine.turn}
-            turnSeat={engine.turnSeat}
-            mySeat={viewerSeat}
-            playerName={nameOf}
-            actionOptions={promptMine ? actionOptions : []}
-            canAct={canAct}
-            noLegalMoves={canAct && hasNoLegalMoves(actionOptions)}
-            onChoose={(id) => controller.onAnswer({ choice: id })}
+            {...trackProps}
             clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} compact /> : null}
-            caption={trackCaption}
-            reducedMotion={controller.reducedMotion}
             attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
-            chainMode={chainMode}
           />
         </div>
       )}
@@ -638,19 +633,14 @@ function TableShellBody({
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          master={domain ? {
-            view: engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
-            local: !spectator,
-            legalKeys: controller.legalKeys,
-            selectedKeys: controller.selectedKeys,
-            canAct,
-            legalActionsFor: (card, keys) => (canAct && prompt?.kind === "choice" && prompt.context?.type === "action" ? optionsForCard(prompt, card, keys) : []),
-            title: spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
-            onChooseAction: (option) => controller.onAnswer({ choice: option.id }),
-            onHoverCard: controller.onHoverCard,
-          } : null}
+          master={domain ? hudMasterProps(
+            { legalKeys: controller.legalKeys, selectedKeys: controller.selectedKeys, canAct, prompt, onAnswer: controller.onAnswer, onActivate: controller.onActivate, onHoverCard: controller.onHoverCard },
+            engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat)),
+            !spectator,
+            spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master",
+          ) : null}
           onInspect={ui.setInspect}
-          preview={ui.hover ? { card: ui.hover.card, owner: { name: nameOf(ui.hover.card.controller), ...toneOf(ui.hover.card.controller) } } : null}
+          preview={ui.hover ? { card: ui.hover.card, owner: { name: nameOf(ui.hover.card.controller), ...toneOf(ui.hover.card.controller) } } : rowPreview.card ? { card: rowPreview.card, owner: null } : null}
           previewHidden={ui.menu != null || ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
         />

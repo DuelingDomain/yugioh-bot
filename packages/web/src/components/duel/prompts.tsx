@@ -532,6 +532,18 @@ function ChoiceButtons({
   );
 }
 
+/**
+ * Whether `PromptTray` draws anything a player sees. It draws only a screen-reader line while the centred panel holds
+ * the prompt (`headless`), and for an action prompt without a Finish or Cancel button; a floating tray hides itself then.
+ */
+export function promptTrayVisible(prompt: DuelPrompt | null, mySeat: number | null, active: boolean | undefined, headless: boolean | undefined): boolean {
+  const answering = prompt != null && mySeat != null && prompt.seat === mySeat && active !== false;
+  if (!prompt || !answering) return true;
+  if (headless) return false;
+  if (prompt.context?.type === "action") return Boolean(prompt.finishable || prompt.cancelable);
+  return true;
+}
+
 export function PromptTray({
   prompt,
   mySeat,

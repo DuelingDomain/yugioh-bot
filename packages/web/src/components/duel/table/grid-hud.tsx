@@ -38,8 +38,10 @@ type SeatTones = ReadonlyMap<number, { main: string; ink: string }>;
 const DOCK_ICON = { log: ScrollText, settings: SlidersHorizontal, chain: Link2, camera: Video } as const;
 
 /**
- * Closes the open flyout with Esc (before any other key handler sees it) or a press outside the parts marked
- * `data-hud-keep`. A card menu or the pile viewer (`suspended`) keeps Esc for itself.
+ * Closes the open flyout with Esc or a press outside the parts marked `data-hud-keep`. A card menu or the pile viewer
+ * (`suspended`) keeps Esc for itself. This listener does not run before every other key handler: the prompt panel's
+ * capture listener on the window is older and runs first, so a shell passes it "a flyout is open" as `menuOpen`
+ * (it then ignores Esc) instead of relying on `stopPropagation` here.
  */
 export function useHudDismiss(active: boolean, suspended: boolean, onClose: () => void): void {
   const close = useRef(onClose);

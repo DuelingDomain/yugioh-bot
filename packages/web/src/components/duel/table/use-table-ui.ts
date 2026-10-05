@@ -36,7 +36,18 @@ export interface TableUi {
   inspectCard: (target: InspectTarget) => void;
 }
 
-export function useTableUi(base: TableController, options: { initialPane?: SidePane } = {}): TableUi {
+export interface TableUiOptions {
+  initialPane?: SidePane;
+  /**
+   * The floating HUD replaces the side panes. A hover then never sets the inspector (the hover preview shows the card),
+   * and a card opens the Card flyout (`onOpenCard`) only on a click that no prompt took, or on Inspect.
+   */
+  hud?: boolean;
+  onOpenCard?: () => void;
+}
+
+export function useTableUi(base: TableController, options: TableUiOptions = {}): TableUi {
+  const { hud = false, onOpenCard } = options;
   const { engine, prompt, viewerSeat, canAct, busy, draft, onAnswer } = base;
   const [menu, setMenu] = useState<CardMenuState | null>(null);
   const [hover, setHover] = useState<{ card: DuelCard; anchor: HTMLElement } | null>(null);
@@ -99,9 +110,10 @@ export function useTableUi(base: TableController, options: { initialPane?: SideP
         return;
       }
       setInspect(target);
-      if (reveal || pane !== "log") setPane("card");
+      if (hud) onOpenCard?.();
+      else if (reveal || pane !== "log") setPane("card");
     },
-    [pane, viewerSeat],
+    [hud, onOpenCard, pane, viewerSeat],
   );
 
   const onInspect = useCallback<TableController["onInspect"]>((target) => showInspector(target), [showInspector]);
@@ -115,9 +127,9 @@ export function useTableUi(base: TableController, options: { initialPane?: SideP
         return;
       }
       setHover({ card, anchor });
-      if (pane === "card") setInspect({ type: "card", card });
+      if (pane === "card" && !hud) setInspect({ type: "card", card });
     },
-    [base, pane],
+    [base, hud, pane],
   );
 
   const mine = prompt != null && viewerSeat != null && prompt.seat === viewerSeat;
@@ -147,9 +159,13 @@ export function useTableUi(base: TableController, options: { initialPane?: SideP
   const onActivate = useCallback<DuelActivateHandler>(
     (keys, card, anchor) => {
       setHover(null);
-      if (card) showInspector({ type: "card", card });
+      // The HUD keeps the Card flyout shut while a click is a prompt pick or opens a card menu: see the end.
+      if (card && !hud) showInspector({ type: "card", card });
       base.onActivate(keys, card, anchor);
-      if (busy || !canAct || !prompt) return;
+      if (busy || !canAct || !prompt) {
+        if (card && hud) showInspector({ type: "card", card });
+        return;
+      }
       if (mine && (prompt.kind === "choice" || prompt.kind === "toggle")) {
         const options = optionsForCard(prompt, card, keys);
         if (prompt.kind === "toggle" && options.length === 1) {
@@ -182,9 +198,10 @@ export function useTableUi(base: TableController, options: { initialPane?: SideP
         }
       }
       setMenu(null);
-      activatePromptFromField(prompt, mine, keys, card, draft, submit);
+      const handled = activatePromptFromField(prompt, mine, keys, card, draft, submit);
+      if (card && hud && !handled) showInspector({ type: "card", card });
     },
-    [base, busy, canAct, draft, mine, prompt, revision, showInspector, submit],
+    [base, busy, canAct, draft, hud, mine, prompt, revision, showInspector, submit],
   );
 
   const attackerKey = pendingAttack?.key ?? base.aim?.from ?? null;

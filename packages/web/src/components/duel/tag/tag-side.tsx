@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
-import { seatsOfTeam, teamOfSeat, type DuelCard, type DuelCardInfo, type DuelSeatView } from "@yugidraft/shared/duels";
+import { seatsOfTeam, teamOfSeat, type DuelCard, type DuelCardInfo } from "@yugidraft/shared/duels";
 import { zoneKey } from "../constants";
 import { resolveEquipLinks } from "../equip-links";
 import { DeckMasterRail } from "../field";
@@ -15,7 +15,8 @@ import roomStyles from "../room.module.css";
 import { CardTabEmpty, DESKTOP_PANES, desktopPane, SidePanel, SideTabs, useIsNarrow } from "../side-panel";
 import { MatchSheetLog } from "../text-log";
 import { HistoryStrip } from "../table/history-strip";
-import { HudLayer, type HudMasterProps, type HudPaneState } from "../table/hud-layer";
+import { HudLayer, type HudPaneState } from "../table/hud-layer";
+import { hudMasterProps } from "../table/hud-shared";
 import { tableLayout } from "../table/geometry";
 import { TablePhonePanes } from "../table/table-phone-panes";
 import { TableSettings } from "../table/table-settings";
@@ -56,6 +57,10 @@ export type TagSideHud = {
   state: HudPaneState;
   /** The hovered card, for the preview. */
   hover: TableUi["hover"];
+  /** The card of a prompt row under the pointer: the preview shows it when no board card is hovered. */
+  rowCard: DuelCardInfo | null;
+  /** The tray draws something a player sees. When it does not, the floating card hides. */
+  trayVisible: boolean;
   /** A card menu is open: the preview hides. */
   menuOpen: boolean;
   camera: ReactNode;
@@ -188,21 +193,19 @@ export function TagSide({
   if (hud && !narrow) {
     // A spectator sees the anchor seat (seat 0), as the Deck Master column did.
     const seat = viewerSeat ?? 0;
-    const master = (view: DuelSeatView | undefined, local: boolean, title: string): HudMasterProps => ({
-      view,
-      local,
+    const source = {
       legalKeys: controller.legalKeys,
       selectedKeys: controller.selectedKeys,
       canAct,
-      legalActionsFor: (card, keys) => (canAct && prompt?.kind === "choice" && prompt.context?.type === "action" ? optionsForCard(prompt, card, keys) : []),
-      title,
-      onChooseAction: (option) => controller.onAnswer({ choice: option.id }),
+      prompt,
+      onAnswer: controller.onAnswer,
+      onActivate: controller.onActivate,
       onHoverCard: controller.onHoverCard,
-    });
+    };
     const hovered = hud.hover?.card ?? null;
     return (
       <>
-        <div className={styles.hudTray} data-tone={prompt?.context?.type === "chain" ? "chain" : "action"} data-prompt-surface={prompt ? "" : undefined}>{trayNode}</div>
+        <div className={styles.hudTray} data-tone={prompt?.context?.type === "chain" ? "chain" : "action"} data-empty={hud.trayVisible ? undefined : "true"} data-prompt-surface={prompt ? "" : undefined}>{trayNode}</div>
         <HudLayer
           hud={hud.state}
           panels={{ card: cardPanel, log: logPanel, settings: settingsPanel, camera: hud.camera }}
@@ -211,10 +214,10 @@ export function TagSide({
           nameOf={nameOf}
           seatTones={seatTones}
           logUnread={logUnread}
-          master={domain ? master(engine.seats.find((view) => view.seat === seat), viewerSeat != null, viewerSeat == null ? `${nameOf(seat)}'s Master` : "Your Master") : null}
-          otherMaster={domain && partner != null ? master(engine.seats.find((view) => view.seat === partner), false, `${nameOf(partner)}'s Master`) : null}
+          master={domain ? hudMasterProps(source, engine.seats.find((view) => view.seat === seat), viewerSeat != null, viewerSeat == null ? `${nameOf(seat)}'s Master` : "Your Master") : null}
+          otherMaster={domain && partner != null ? hudMasterProps(source, engine.seats.find((view) => view.seat === partner), false, `${nameOf(partner)}'s Master`) : null}
           onInspect={ui.setInspect}
-          preview={hovered ? { card: hovered, owner: { name: nameOf(hovered.controller), ...(seatTones.get(hovered.controller) ?? SEAT_TONE_HEX.ice) } } : null}
+          preview={hovered ? { card: hovered, owner: { name: nameOf(hovered.controller), ...(seatTones.get(hovered.controller) ?? SEAT_TONE_HEX.ice) } } : hud.rowCard ? { card: hud.rowCard, owner: null } : null}
           previewHidden={hud.menuOpen || ui.pile?.open === true}
           reducedMotion={controller.reducedMotion}
         />

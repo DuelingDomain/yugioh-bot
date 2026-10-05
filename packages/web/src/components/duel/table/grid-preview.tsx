@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type CSSProperties } from "react";
-import type { DuelCard } from "@yugidraft/shared/duels";
+import type { DuelCard, DuelCardInfo } from "@yugidraft/shared/duels";
 import { cardArtUrl, cardDetailsText, cardStatsText, isDefenseAt, isHiddenCard } from "../constants";
 import styles from "./grid-hud.module.css";
 
@@ -14,13 +14,14 @@ export const PREVIEW_HIDE_MS = 220;
  * Face-down cards of a rival show nothing. A click on a card still opens it fully in the Card flyout.
  */
 export function GridHoverPreview({ card, owner, reducedMotion }: {
-  card: DuelCard | null;
+  /** A board card, or the card of a prompt row (`DuelCardInfo`: no position, no owner). */
+  card: DuelCard | DuelCardInfo | null;
   owner: { name: string; main: string; ink: string } | null;
   reducedMotion: boolean;
 }) {
   const showable = card != null && !isHiddenCard(card) && card.code != null ? card : null;
   // The last card stays on screen during the hide delay, so the panel slides out with its content.
-  const [shown, setShown] = useState<DuelCard | null>(null);
+  const [shown, setShown] = useState<DuelCard | DuelCardInfo | null>(null);
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (showable) {
@@ -36,7 +37,7 @@ export function GridHoverPreview({ card, owner, reducedMotion }: {
 
   const stats = cardStatsText(current);
   const details = cardDetailsText(current);
-  const position = stats && current.position != null ? (isDefenseAt(current.location, current.position) ? "Defense Position" : "Attack Position") : null;
+  const position = stats && "location" in current && current.position != null ? (isDefenseAt(current.location, current.position) ? "Defense Position" : "Attack Position") : null;
   return (
     <aside
       className={styles.preview}
@@ -55,7 +56,7 @@ export function GridHoverPreview({ card, owner, reducedMotion }: {
         <p className={styles.previewOwner}>
           <i aria-hidden="true" />Owner <b>{owner.name}</b>{position ? ` · ${position}` : ""}
         </p>
-      ) : null}
+      ) : position ? <p className={styles.previewOwner}>{position}</p> : null}
     </aside>
   );
 }

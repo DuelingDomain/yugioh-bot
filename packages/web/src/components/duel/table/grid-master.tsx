@@ -6,6 +6,7 @@ import { cardArtUrl, cardStatsText, LOCATION_DMZONE, zoneKey } from "../constant
 import { masterCard, masterDetailLines, masterStatus, withExact } from "../field";
 import { anyLegal, anySelected, type DuelHoverHandler } from "../field-keys";
 import type { InspectTarget } from "../inspector";
+import type { DuelActivateHandler } from "./types";
 import styles from "./grid-hud.module.css";
 
 /**
@@ -40,6 +41,7 @@ export function GridMasterToken({
   onToggle,
   onClose,
   onChooseAction,
+  onActivate,
   onInspect,
   onHoverCard,
 }: {
@@ -56,6 +58,8 @@ export function GridMasterToken({
   onToggle: () => void;
   onClose: () => void;
   onChooseAction: (option: DuelPromptOption) => void;
+  /** A prompt asks for this card: a click on the token picks it, as a click on the card on the field would. */
+  onActivate?: DuelActivateHandler;
   onInspect: (target: InspectTarget) => void;
   onHoverCard?: DuelHoverHandler;
 }) {
@@ -72,6 +76,8 @@ export function GridMasterToken({
 
   // The second plate has its own test ids, so a table with two plates keeps them apart.
   const id = (name: string) => (slot === "other" ? name.replace("hud-master", "hud-other") : name);
+  // A legal card that a prompt asks for is picked from the token (the details stay on Inspect).
+  const pickable = legal && canAct && card != null && onActivate != null;
   const openCard = () => {
     if (card) onInspect({ type: "card", card });
     else onInspect({ type: "info", card: master.card });
@@ -112,7 +118,7 @@ export function GridMasterToken({
           data-testid={id("hud-master-token")}
           aria-label={`${title}: ${master.card.name}`}
           aria-expanded={open}
-          onClick={onToggle}
+          onClick={(event) => (pickable ? onActivate(keys, card, event.currentTarget) : onToggle())}
           onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
           onMouseLeave={() => onHoverCard?.(null, null)}
           onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
@@ -120,24 +126,22 @@ export function GridMasterToken({
         >
           <span className={styles.masterArt} style={{ backgroundImage: `url(${cardArtUrl(master.card.code, "small")})` }} aria-hidden="true" />
           <span className={styles.masterId}>
-            <small>{title}</small>
+            <small>{local ? "Your Master" : "Deck Master"}</small>
             <b title={master.card.name}>{master.card.name}</b>
           </span>
         </button>
-        {local || slot === "other" ? (
-          <div className={styles.masterActions}>
-            {actions.map((option, index) => (
-              <button key={option.id} type="button" data-primary={index === 0 ? "true" : "false"} data-testid={id("hud-master-action")}
-                aria-label={option.label} title={option.label} disabled={!canAct} onClick={() => onChooseAction(option)}>
-                {shortActionLabel(option.label)}
-              </button>
-            ))}
-            <button type="button" className={styles.masterInspect} data-testid={id("hud-master-inspect")} aria-label="Inspect" title="Inspect" onClick={onToggle}>
-              <Search size={14} strokeWidth={1.75} aria-hidden />
-              <span className={styles.masterInspectText}>Inspect</span>
+        <div className={styles.masterActions}>
+          {actions.map((option, index) => (
+            <button key={option.id} type="button" data-primary={index === 0 ? "true" : "false"} data-testid={id("hud-master-action")}
+              aria-label={option.label} title={option.label} disabled={!canAct} onClick={() => onChooseAction(option)}>
+              {shortActionLabel(option.label)}
             </button>
-          </div>
-        ) : null}
+          ))}
+          <button type="button" className={styles.masterInspect} data-testid={id("hud-master-inspect")} aria-label="Inspect" title="Inspect" onClick={onToggle}>
+            <Search size={14} strokeWidth={1.75} aria-hidden />
+            <span className={styles.masterInspectText}>Inspect</span>
+          </button>
+        </div>
       </section>
     </div>
   );

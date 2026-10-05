@@ -123,6 +123,11 @@ function formatGain(ms: number): string {
   return seconds < 60 ? `+${seconds}s` : `+${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+/** A name that fits the HUD pill: long names are cut. The full name stays in the title and the accessible label. */
+function shortName(name: string): string {
+  return name.length > 10 ? `${name.slice(0, 9)}…` : name;
+}
+
 function formatClock(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
@@ -147,7 +152,9 @@ function carriedPops(key: string): [ClockPop | null, ClockPop | null] {
 
 // The parent keys this sampler by serverNow so each authoritative snapshot resets elapsed time.
 // `seats` limits it to some seats (3D mode shows one clock per cell); each choice keeps its own pop memory.
-export function DuelClockDisplay({ clock, session, reducedMotion = false, compact = false, seats }: { clock: DuelClock; session: DuelSession; reducedMotion?: boolean; compact?: boolean; seats?: readonly number[] }) {
+// `compact` shows the answering seat's time only. `pill` (the floating HUD) shows every seat, each with a short name, so
+// a duelist reads the rival's time bank too and the pill is never empty between two answers.
+export function DuelClockDisplay({ clock, session, reducedMotion = false, compact = false, pill = false, seats }: { clock: DuelClock; session: DuelSession; reducedMotion?: boolean; compact?: boolean; pill?: boolean; seats?: readonly number[] }) {
   const memoryKey = seats ? `${session.slug}#${seats.join(",")}` : session.slug;
   const [elapsed, setElapsed] = useState(0);
   const [pops, setPops] = useState<[ClockPop | null, ClockPop | null]>(() => carriedPops(memoryKey));
@@ -185,7 +192,7 @@ export function DuelClockDisplay({ clock, session, reducedMotion = false, compac
         const name = session.seats.find((player) => player.seat === seat)?.displayName ?? `Player ${seat + 1}`;
         const pop = pops[seat];
         return <span key={seat} className={clockStyles.seat} data-active={active} title={`${name}${active ? " · answering" : ""}`} aria-label={`${name}: ${time}`}>
-          {compact ? null : <small>{name}</small>} <span className={styles.clockTime}>{time}</span>
+          {compact ? null : <small>{pill ? shortName(name) : name}</small>} <span className={styles.clockTime}>{time}</span>
           {pop ? (
             <span key={pop.id} className={clockStyles.pop} data-motion={reducedMotion ? "off" : "on"} aria-hidden
               style={{ "--pop-delay": `${pop.delay}ms` } as React.CSSProperties}>{pop.text}</span>
