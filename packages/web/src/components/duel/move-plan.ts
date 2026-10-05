@@ -25,6 +25,7 @@ import {
   LOCATION_MZONE,
   LOCATION_REMOVED,
   LOCATION_SZONE,
+  isFacedown,
   zoneKey,
 } from "./constants";
 import { battleBreakIs3d, battleDestroyAt, battleTakeover, BREAK_SETTLE_MS, HELD_CRACK_MS } from "./battle-hold";
@@ -33,7 +34,7 @@ import { fieldPlacementMs, isFieldPlacementLocation } from "./placement-timing";
 import { MOVE_PACE, TRIBUTE_FLIGHT_MS, TRIBUTE_TIMING } from "./duel-timing";
 import { isAddToHand, showcaseGateMs, showcaseOrigin, showcasePhases, type ShowcaseOrigin, type ShowcasePhases } from "./add-to-hand";
 import { chainEffectAt } from "./chain-beats";
-import { findMoveZoneElement, findMoveDestination, handArrivalTarget, moveDestinationRect } from "./event-queue";
+import { findMoveZoneElement, findMoveDestination, handArrivalTarget, isPositionEvent, moveDestinationRect } from "./event-queue";
 import { artCodeOf } from "./destroy-hide";
 import { resetEffectSequence, sequenceEffects } from "./effect-sequence";
 
@@ -478,23 +479,29 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
   const chained = new Set<Candidate>();
   const byId = new Map(candidates.map((item) => [item.event.id, item]));
   const pending = new Map<number, Array<Candidate | undefined>>();
-  // A card that arrives in a field zone and leaves it in the same batch (a Normal Spell from the hand: zone, chain,
-  // Graveyard) was never on the board before the batch, so the zone snapshot shows no face. It rested there face-up
-  // (the server sends faceDown false, or the activation turns it), so its departure starts from its face, not a sleeve.
-  const arrivedUp = new Map<string, boolean>();
+  // The board already shows the end of the batch and the zone snapshots show its start, so a card that a move or a flip
+  // in this batch put in a field zone is in neither (a Normal Spell from the hand: zone, chain, Graveyard). Follow the
+  // face of each such zone through the batch, in engine order, and start the departure from that face, not from the
+  // snapshot of a zone that was empty or held another card. A face is shown only when the departure carries the card.
+  const fieldFace = new Map<string, boolean>();
+  const fieldKey = (zone: DuelZoneRef) =>
+    zone.location === LOCATION_MZONE || zone.location === LOCATION_SZONE ? zoneKey(zone.controller, zone.location, zone.sequence) : null;
   for (const event of fresh) {
+    if (isPositionEvent(event)) {
+      const key = fieldKey(event.zone);
+      if (key) fieldFace.set(key, !isFacedown(event.toPosition));
+      continue;
+    }
     if (!isMoveEvent(event) || sameZone(event.from, event.zone)) continue;
-    const from = event.from!;
-    const to = event.zone!;
-    if (from.location === LOCATION_MZONE || from.location === LOCATION_SZONE) {
-      const key = `${from.controller}:${from.location}:${from.sequence}`;
+    const from = fieldKey(event.from!);
+    if (from) {
+      const face = fieldFace.get(from);
       const item = byId.get(event.id);
-      if (item?.source && arrivedUp.get(key) === true && (event.card?.code ?? 0) > 0) item.source = { ...item.source, faceUp: true };
-      arrivedUp.delete(key);
+      if (item?.source && face != null) item.source = { ...item.source, faceUp: face && (event.card?.code ?? 0) > 0 };
+      fieldFace.delete(from);
     }
-    if (to.location === LOCATION_MZONE || to.location === LOCATION_SZONE) {
-      arrivedUp.set(`${to.controller}:${to.location}:${to.sequence}`, (event.card?.code ?? 0) > 0 && (event.faceDown !== true || event.reason === "activate"));
-    }
+    const to = fieldKey(event.zone!);
+    if (to) fieldFace.set(to, event.faceDown !== true);
   }
   // Follow engine slots through the complete batch, including moves without visible anchors.
   // Draws, searches and Exchange can all be followed by departures after other cards moved;
