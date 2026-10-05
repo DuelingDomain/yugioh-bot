@@ -69,11 +69,11 @@ function grapha(format: Format): Scenario {
 }
 
 // --- Dangerous Machine Type-6 -----------------------------------------------------------------------------------------------------------
-// A forced Standby Phase effect of p0 (the first Standby Phase of the duel). The die is rolled in the operation; results 2 (the hand of "your
-// opponent" is discarded) and 4 (your opponent draws) act on ONE opponent. The owner picks it when the effect is put on the chain
-// (R-COMMON-OPP-PICK), before the die is rolled. Result 5 (destroy a monster of your opponent) is a field: it selects among the monsters of every
-// opponent (a field is not part of R-COMMON-OPP-PICK), so p0 selects the monster of p1 here, which is NOT the picked opponent. The last opponent is picked, never p1, so a bind on the first
-// opponent would show. The die is the first draw of the duel generator: 5 * seed[1] rotated by 7 bits, times 9, modulo 6, plus 1. A seed word
+// A forced Standby Phase effect of p0 (the first Standby Phase of the duel). Results 2 (opponent discards), 4 (opponent draws) and 5
+// (destroy an opponent monster) use the declared opponent. The owner picks it at activation, BEFORE the die is rolled in the operation
+// (R-COMMON-OPP-PICK). In FFA, result 5 destroys a monster of that picked seat only. Tag keeps its joined opposing field for result 5,
+// so p0 can select p1's monster even when p3 was picked. Every format picks the LAST opponent; a first-seat bind would fail results 2/4
+// and FFA result 5. The die is the first draw of the duel generator: 5 * seed[1] rotated by 7 bits, times 9, modulo 6, plus 1. A seed word
 // of this size gives a result that does not depend on the format or on the core: 2 (3494825834153508910), 4 (3718197871008284709), 5
 // (4388313981572612106). Every seat has a 2-card Deck of one card name, so the setup shuffle does not change the draw.
 const DICE_RULE = `${SOURCE} [R-COMMON-OPP-PICK], card decisions 2026-10-01 Q4: Dangerous Machine Type-6 (the die result acts on ONE picked opponent)`;

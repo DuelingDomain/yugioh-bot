@@ -1,10 +1,10 @@
 #!/bin/sh
-# Fails when the legacy 1v1 Domain files of an engine bundle are not the files that production ran before the n-seat work.
-# The expected sha256 values are in packages/duel-server/legacy-1v1/expected-sha256.txt: the wasm equals the one that main's own
-# build script makes (emsdk 4.0.9), and the Lua equals main's domain.lua (see legacy-1v1/README.md).
+# Fails when the legacy 1v1 Domain files of an engine bundle are not the approved legacy Domain files.
+# The expected sha256 values are in packages/duel-server/legacy-1v1/expected-sha256.txt: the wasm is the approved legacy Domain build
+# (emsdk 4.0.9), and the Lua equals main's domain.lua (see legacy-1v1/README.md).
 # Usage: check-legacy-pin.sh <engine data dir> [expected-sha256 file]
 # The build script of the legacy core, the deploy workflow and the test workflow call it. install-engine-bundle.sh only
-# compares the files to the manifest that travels with them, so this check is what ties them to main.
+# compares the files to the manifest that travels with them, so this check is what ties them to the approved inputs.
 set -eu
 
 dir="${1:?usage: check-legacy-pin.sh <engine data dir> [expected-sha256 file]}"
@@ -22,7 +22,7 @@ while read -r want name; do
   fi
   got=$(sha256sum "$dir/$name" | cut -d' ' -f1)
   if [ "$got" != "$want" ]; then
-    echo "legacy pin: $name has sha256 $got, expected $want (main's build). The legacy engine must equal main's production files." >&2
+    echo "legacy pin: $name has sha256 $got, expected $want (approved legacy build). Rebuild and verify any owner-approved legacy Domain change before updating the pin." >&2
     status=1
   fi
 done < "$expected"

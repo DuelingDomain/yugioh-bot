@@ -12,7 +12,7 @@
  * lists are also compared with it:
  *   COMPARE (54) = triage group `field-count-compare` (51) minus 6 false positives, plus Evenly Matched and Pineapple Blast,
  *                  plus 7 cards of the scan gap (COMPARE_SCAN_ADDED, in other triage groups).
- *   CHOOSER (44) = triage rule starting with `CHOOSER`.
+ *   CHOOSER (77) = triage rule starting with `CHOOSER`, plus the reviewed resolution-time decisions in CHOOSER_TRIAGE_ADDED.
  *   R1           = triage rule starting with `EACH-DUELIST` or `SCRIPT`, minus Mirror Gate 43452193 (it belongs to Q7),
  *                  plus the reviewed cards in R1_TRIAGE_ADDED. A new scan does not remove these cards.
  *                  An R1 card is a MANIFEST entry of class `R1` (kind `hand`: a suffix that loops with aux.MPForEachDuelist) or a
@@ -59,10 +59,16 @@ export const COMPARE_FALSE_POSITIVES = [16191953, 22512406, 24175232, 35059553, 
 export const COMPARE_SCAN_ADDED = [25388971, 46772449, 50838440, 55273560, 62015408, 80551022, 89883517];
 /** Reviewed R1 cards that the scan does not list with an R1 rule. */
 export const R1_TRIAGE_ADDED = [31036355]; // Creature Swap: the C7 rotation in FFA; the stock swap in Tag.
-/** Compare AND chooser cards that the triage does not list as `field-count-compare`. */
-export const COMPARE_EXTRA = [15693423, 90669991];
+/** Reviewed resolution-time opponent decisions added after the original chooser triage. */
+export const CHOOSER_TRIAGE_ADDED = [
+  5605529, 9283801, 14733538, 21888494, 22842126, 23270035, 23898021, 24393683, 32360466, 32588805, 36591747,
+  38723936, 40230018, 41773061, 42193638, 42548470, 50213848, 50756327, 57902193, 58577036, 58753372, 60866277,
+  60876124, 64280356, 70508653, 71275181, 74191942, 78598237, 83008724, 91592030, 93437091, 97926515, 98301564,
+];
+/** Compare AND chooser cards, counted once in the table (the original triage may put them in another group). */
+export const COMPARE_EXTRA = [15693423, 80551022, 90669991]; // Slime's stock Flip operation chooses through local p=1-tp.
 export const MIRROR_GATE = 43452193;
-export const EXPECTED_COUNTS = { compare: 54, chooser: 44, whole: 6, entries: 286, r1: 93, attack: 59 } as const;
+export const EXPECTED_COUNTS = { compare: 54, chooser: 77, whole: 6, entries: 319, r1: 93, attack: 59 } as const;
 /**
  * R1 cards whose stock script already acts on every living duelist after core patch 0053, so they need no suffix and no entry.
  * Pinned (a card is added here only after the script was read). 39513225 only sends a Confirm to the opponent (no effect on each duelist).
@@ -324,7 +330,7 @@ export function checkLists(manifest: Manifest, triage: Triage[] | null): string[
       ...COMPARE_SCAN_ADDED,
     ]);
     if (!same(compare, expectedCompare)) problems.push(`COMPARE differs from the triage: ${diff(compare, expectedCompare)}`);
-    const expectedChooser = sorted(triage.filter((entry) => entry.rule.startsWith("CHOOSER")).map((entry) => entry.code));
+    const expectedChooser = sorted([...triage.filter((entry) => entry.rule.startsWith("CHOOSER")).map((entry) => entry.code), ...CHOOSER_TRIAGE_ADDED]);
     if (!same(chooser, expectedChooser)) problems.push(`CHOOSER differs from the triage: ${diff(chooser, expectedChooser)}`);
     const r1 = r1Codes(triage);
     if (r1.length !== EXPECTED_COUNTS.r1) problems.push(`R1 has ${r1.length} cards, expected ${EXPECTED_COUNTS.r1}`);

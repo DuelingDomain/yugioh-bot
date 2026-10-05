@@ -336,6 +336,21 @@
       "note": "FFA4: previous Link and column filters use only the real controller and its across seat."
     },
     {
+      "code": 5605529,
+      "file": "c5605529.lua",
+      "name": "Vaalmonica Scelta",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "400168d222f9b7d7e7dac9972279f22a60918200b2d0454e0c8ae9cc593ffc78",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 5611760,
       "file": "c5611760.lua",
       "name": "Rainbow Bridge of Salvation",
@@ -697,6 +712,21 @@
       "compareIn": [
         "condition"
       ]
+    },
+    {
+      "code": 9283801,
+      "file": "c9283801.lua",
+      "name": "The Monarchs Revolt",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "thtgop"
+      ],
+      "stockSha256": "b6a091946674cced39b7c780ba012778463620b4ba959ec921ddf72b4ba65660",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 9336190,
@@ -1125,6 +1155,21 @@
       "classes": [],
       "stockSha256": "f51bab6244f67e17c50f1c54d5679072e9019ce02938ae6024a1291a938ad4b1",
       "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
+      "code": 14733538,
+      "file": "c14733538.lua",
+      "name": "Draco Face-Off",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "4fac3a671dca05d7ba938f71741c441a3a0bc73a3b9a3024c4861986c388d386",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 14772491,
@@ -1852,6 +1897,21 @@
       "stockSha256": "eac8f85e4ff240ce74911b852e0c01b4a6c3c7c9eec26f0e164b8441a6e8d1b9"
     },
     {
+      "code": 21888494,
+      "file": "c21888494.lua",
+      "name": "Chosen One",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "a7342e60c2520e71f7b9ca011c833e3fa2184171d43fe8de621f86ed21bb05bc",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 22404570,
       "file": "c22404570.lua",
       "name": "Power Patron Shade of the Final Hour",
@@ -1902,6 +1962,36 @@
       ]
     },
     {
+      "code": 22842126,
+      "file": "c22842126.lua",
+      "name": "Pantheism of the Monarchs",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "thop"
+      ],
+      "stockSha256": "22fea234fd25addc89e97f96600d229c149fe43c52cd4e7331efed4201d3236c",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 23270035,
+      "file": "c23270035.lua",
+      "name": "Monster Assortment",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "a4697fd3eb8570bda1ce2a31590ada1dd14560adbcf6d24f76fa8a433848c238",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 23557835,
       "file": "c23557835.lua",
       "name": "Dimension Fusion",
@@ -1949,6 +2039,21 @@
       "note": "Script fix (r2-checks, R-COMMON-EACH-PLAYER): the watcher is a global effect (Duel.RegisterEffect(e2,0)) that runs with no scope, so its player values are real seats. The stock regop read tp as the literal seat 0: only a Cloudian of seat 0 was kept and the event was raised for seat 0, so the holder of any other seat never got the Trap. The regop does the stock steps for every seat 0..3 (the card of a seat, the flag of that seat, the event for that seat). Not part of R1 or R2."
     },
     {
+      "code": 23898021,
+      "file": "c23898021.lua",
+      "name": "Lilith, Lady of Lament",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "thop"
+      ],
+      "stockSha256": "ce6446eb4cf7f237351e0b03d006db39507e975772fe54e58cd8be42497d4a67",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 23931679,
       "file": "c23931679.lua",
       "name": "Ocean Dragon Lord - Kairyu-Shin",
@@ -1992,6 +2097,21 @@
       "compareIn": [
         "spcon"
       ]
+    },
+    {
+      "code": 24393683,
+      "file": "c24393683.lua",
+      "name": "Gunkan Suship Daily Special",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "e606753296531c1808666510dd9ac725fceab7f318a2ceb1e63e1c419259c5cc",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 24514503,
@@ -2584,6 +2704,36 @@
       ]
     },
     {
+      "code": 32360466,
+      "file": "c32360466.lua",
+      "name": "Beginning of Heaven and Earth",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "a522a6ecda127f8ebcfc51881865ae9b10435cbac498dea41c5946b00a45419b",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 32588805,
+      "file": "c32588805.lua",
+      "name": "The Despair Uranus",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "setop"
+      ],
+      "stockSha256": "e1088a833fd2a9d62eb018828aae84f4f09c3b98c425c6b7cb26c01e836ddabe",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 32762201,
       "file": "c32762201.lua",
       "name": "Ancient Gear Statue",
@@ -2958,6 +3108,21 @@
       ]
     },
     {
+      "code": 36591747,
+      "file": "c36591747.lua",
+      "name": "Amaze Attraction Thrill Train",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "setop"
+      ],
+      "stockSha256": "f115fbac168b1a0c9a3cb437042de675bce271f65b202cd54be074716e6fad19",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 36668118,
       "file": "c36668118.lua",
       "name": "Boot Sector Launch",
@@ -3130,6 +3295,21 @@
       "note": "the damage goes to tp, 1-tp or both by who Synchro Summoned; the summoning sides are a key mask (real controller seat via Duel.MPSeatOf) stored in the label at the target step, and every living side in the mask takes 1000."
     },
     {
+      "code": 38723936,
+      "file": "c38723936.lua",
+      "name": "Question",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "6f59c859e16277cd51c65a6ee2bd53a2d1e7e9a99e3176fffa4b842abb113636",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 38817295,
       "file": "c38817295.lua",
       "name": "Ultimate Sky",
@@ -3261,6 +3441,21 @@
       "note": "The delayed summon binds the real owner of the banished target, including a Tag partner."
     },
     {
+      "code": 40230018,
+      "file": "c40230018.lua",
+      "name": "Spellbook Library of the Crescent",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "8ca4807b88b56681eefa3009a9e9ca83b6b85386af93c0f9d80241bfa7227b0e",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 40267580,
       "file": "c40267580.lua",
       "name": "Brain Jacker",
@@ -3307,6 +3502,21 @@
       "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
+      "code": 41773061,
+      "file": "c41773061.lua",
+      "name": "Voici la Carte (Today's Menu)",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "0f7638de78b08a20b335fd9607ec5ae86515fa038719c66513d7ac241faaffb2",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 42091632,
       "file": "c42091632.lua",
       "name": "Dominus Spiral",
@@ -3325,6 +3535,22 @@
       },
       "chooserClass": "CH-OP",
       "stockSha256": "100321adc2379201c936e524bdff4c35dc30b75e99f80f93df2698c00d6fdbb2"
+    },
+    {
+      "code": 42193638,
+      "file": "c42193638.lua",
+      "name": "Vaalmonica Versare",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate",
+        "target"
+      ],
+      "stockSha256": "5beda836e970a820c7b6245bbad2e4667837c0abcdb8ca1b45f7f8313acdce29",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 42228966,
@@ -3347,6 +3573,21 @@
         "R1"
       ],
       "stockSha256": "aa45dff987f42d5803585456668e393f744ffbe11018b7f9a7760b5956227e3f"
+    },
+    {
+      "code": 42548470,
+      "file": "c42548470.lua",
+      "name": "Weights & Zenmaisures",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "7b62a1bf9d11c303811ae3ea14bfb4f03a41e4c30617da8c623c8cb37a822851",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 42589641,
@@ -3975,6 +4216,21 @@
       "note": "the global check loops over the players 0 and 1 and reads the previous controller at EVENT_DESTROY (it reads the first seat for every seat); it writes the flag for the real controller seat of each destroyed monster (Duel.MPSeatOf)."
     },
     {
+      "code": 50213848,
+      "file": "c50213848.lua",
+      "name": "Monster Reborn Reborn",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "1ac54e9c9b5c3d3e596b317f040a88861e74b1efbc72431fc22f35bbf435f71e",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 50470982,
       "file": "c50470982.lua",
       "name": "The Paths of Destiny",
@@ -4004,6 +4260,21 @@
         "sptg"
       ],
       "stockSha256": "368822aab7b0be98103cf99610c8520553d1b62b86bff1854e64e3a32c0e289f"
+    },
+    {
+      "code": 50756327,
+      "file": "c50756327.lua",
+      "name": "Crowley, the First Propheseer",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "thop"
+      ],
+      "stockSha256": "e69254ef2c9e11eafa3ed2fceae844ef47f89e2d56684e7ae241d3295a901496",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 50838440,
@@ -4520,6 +4791,21 @@
       "note": "global flag registered for the literal seat 0 only: the initial_effect wrapper fans the flag out to every living duelist (seat in FFA, team in Tag), so each holder reads it with its own player value."
     },
     {
+      "code": 57902193,
+      "file": "c57902193.lua",
+      "name": "Painful Return",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "097e75c8fc07cf7560b7fddcc127abba6c513cd8e741361c514f7049ff8f8a34",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 58071123,
       "file": "c58071123.lua",
       "name": "Oxygeddon",
@@ -4545,6 +4831,21 @@
       "chooserClass": "CH-EACH",
       "stockSha256": "56d09211c1bf32d4ca6b981bb31ddabae4858936747f84d261dfe6881ac30137",
       "note": "The target stores the operation info for the activator when the group is not 2 cards (the core demands 2 for PLAYER_ALL); the operation Special Summons each target for the duelist whose Graveyard holds it (windows)."
+    },
+    {
+      "code": 58577036,
+      "file": "c58577036.lua",
+      "name": "Reasoning",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "3a5b02b631ed132def6ed1d0efbb34ba28ef0be23b1aef78d0755244082e9270",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 58641905,
@@ -4581,6 +4882,21 @@
         "target",
         "operation"
       ]
+    },
+    {
+      "code": 58753372,
+      "file": "c58753372.lua",
+      "name": "Super Quantal Fairy Alphan",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "spop"
+      ],
+      "stockSha256": "542cfa7da2d4773e906d0caece52c965b4913c39028602d9db11da7a9b78ecfc",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 59011257,
@@ -4796,6 +5112,36 @@
       "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
     },
     {
+      "code": 60866277,
+      "file": "c60866277.lua",
+      "name": "Earthshaker",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "d2fbbc7214a39ae8092bfb66f4fc9e7a72f92df67feb504a0c4d7652da936d3d",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 60876124,
+      "file": "c60876124.lua",
+      "name": "Rare Value",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "cc877e87fdc703cfba7bbb871c15ee85b67675f10b17b1b259875d47108bdc2b",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 61318483,
       "file": "c61318483.lua",
       "name": "Ghostrick Jackfrost",
@@ -4892,7 +5238,7 @@
     {
       "code": 62098216,
       "file": "c62098216.lua",
-      "name": "Evil★Twins Ki-sikil & Lil-la",
+      "name": "Evil\u2605Twins Ki-sikil & Lil-la",
       "kind": "chooser",
       "classes": [
         "CHOOSER"
@@ -4988,6 +5334,21 @@
       ],
       "stockSha256": "e21479fb6d7300b6fe2489a2a5c040648ef2f389949962e377cca90d018ada85",
       "note": "FFA operations tolerate a removed source link and preserve independent actions. Tag and 1v1 keep the stock functions."
+    },
+    {
+      "code": 64280356,
+      "file": "c64280356.lua",
+      "name": "Kozmo Tincan",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "thop"
+      ],
+      "stockSha256": "e3baf4880eef862dd41b77f40ed0f2e4cfe8ec7681813866b037e2bcc7245280",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 64325438,
@@ -5394,6 +5755,21 @@
       "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
+      "code": 70508653,
+      "file": "c70508653.lua",
+      "name": "Tool Box",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "thop"
+      ],
+      "stockSha256": "d1be1c78235dcbbe59ada72903cf61e972c03acd000f9f870f306f5c63977af7",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 70659412,
       "file": "c70659412.lua",
       "name": "Psychic Omnibuster",
@@ -5495,6 +5871,21 @@
         "R1"
       ],
       "stockSha256": "e48e5cc488677ae837e0ed243fb9fbb7446e8cb67a139222b3c945524927bd1a"
+    },
+    {
+      "code": 71275181,
+      "file": "c71275181.lua",
+      "name": "Fifty Fifty?",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "9bd9d6bb7bb6dd3dfd09e138d54b1db4aec0e2cc6bba53bcba2c42236cbff44e",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 71315423,
@@ -5738,6 +6129,21 @@
         "R1"
       ],
       "stockSha256": "12358eff25253775fd3cf467e8692e77df0b5cbf2b0e6f811db4aff59a28fe72"
+    },
+    {
+      "code": 74191942,
+      "file": "c74191942.lua",
+      "name": "Painful Choice",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "activate"
+      ],
+      "stockSha256": "3f6458be1b47880de2342d46a9cf70cc1de2503bbb415182af0209daa6673b2f",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 74271714,
@@ -6124,6 +6530,22 @@
       ]
     },
     {
+      "code": 78598237,
+      "file": "c78598237.lua",
+      "name": "Vaalmonica Intonare",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "target",
+        "activate"
+      ],
+      "stockSha256": "a656f1ef97177eb93798256fb0d60362fdc563a28dfa6bc84dc36d0aa8513641",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 78679226,
       "file": "c78679226.lua",
       "name": "Future Silence",
@@ -6211,7 +6633,8 @@
       "name": "Mimighoul Slime",
       "kind": "expr",
       "classes": [
-        "COMPARE"
+        "COMPARE",
+        "CHOOSER"
       ],
       "effectType": "IGNITION",
       "compareIn": [
@@ -6400,7 +6823,7 @@
     {
       "code": 82699999,
       "file": "c82699999.lua",
-      "name": "Live☆Twin Lil-la Sweet",
+      "name": "Live\u2606Twin Lil-la Sweet",
       "kind": "hand",
       "classes": [
         "LEAVE"
@@ -6429,6 +6852,21 @@
       "classes": [],
       "stockSha256": "807ab9475cb8e96d0c1c4ccd8ec535b07ccada3645196f25ce9bd169b017d2d7",
       "note": "The overlay uses the real duelist seat for this card effect."
+    },
+    {
+      "code": 83008724,
+      "file": "c83008724.lua",
+      "name": "Gunkan Suship Catch-of-the-Day",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "0d9c7f57081a88eb8e81228ea702ed7dcae2ded7c438cd10038e297558d7fc04",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 83054225,
@@ -7077,6 +7515,21 @@
       "note": "In Tag, select one opponent at activation for the optional summon from the hand or GY. Keep the joined team field."
     },
     {
+      "code": 91592030,
+      "file": "c91592030.lua",
+      "name": "Intimidating Ore - Summonite",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "spop"
+      ],
+      "stockSha256": "ffb2ac039d7593e54bdea6d5e2b2c9552d41cc09ae548f02ed84b2bdf223e5a1",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
       "code": 91623717,
       "file": "c91623717.lua",
       "name": "Chain Strike",
@@ -7251,6 +7704,21 @@
       "seatTables": [
         "s"
       ]
+    },
+    {
+      "code": 93437091,
+      "file": "c93437091.lua",
+      "name": "Bingo Machine, Go!!!",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "8eadf0151132f58da3eedc74534b66f1e8c99064e2870d244b85404bf5bd408c",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 93469007,
@@ -7602,6 +8070,37 @@
       "chooserClass": "CH-OP",
       "stockSha256": "ddf7aa16cbf1aaf9a19ec929488e2a042fadf5524510bb5c7e438149f83b9094",
       "note": "Chooser card with a compare in an inline condition (MPAny); the file replaces the script. The triage did not list it as a compare card."
+    },
+    {
+      "code": 97926515,
+      "file": "c97926515.lua",
+      "name": "Emerging Emergency Rescute Rescue",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "condition",
+        "activate"
+      ],
+      "stockSha256": "9f5dfaa1ed1ab18270a0385689517bf4a636855f7ba510f1d2eb5bb4e65db555",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
+    },
+    {
+      "code": 98301564,
+      "file": "c98301564.lua",
+      "name": "Guiding Ariadne",
+      "kind": "hand",
+      "classes": [
+        "CHOOSER"
+      ],
+      "redefined": [
+        "regop"
+      ],
+      "stockSha256": "d736ef0bebd4e7ac9111964f2a0f8574fea2b927e1bb341d347df62f904fadbf",
+      "note": "Decision-only opponent pick at resolution; no activation declaration.",
+      "chooserClass": "CH-DECISION"
     },
     {
       "code": 98520301,

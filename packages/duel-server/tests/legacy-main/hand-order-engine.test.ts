@@ -1,5 +1,5 @@
 // MAIN'S TEST, run against the legacy 1v1 engine (src/legacy). A copy of packages/duel-server/tests/hand-order-engine.test.ts from origin/main (09b4196a)
-// with only the import paths changed. Do not edit it to make the legacy engine pass: the legacy engine must equal main. See legacy-1v1/README.md.
+// with only the import paths changed. Do not edit it to make the legacy engine pass: the legacy engine must match the approved legacy pin. See legacy-1v1/README.md.
 import { describe, expect, it, vi } from "vitest";
 import type { OcgCoreSync } from "ocgcore-wasm";
 import { createEngineGame } from "../../src/legacy/engine.js";

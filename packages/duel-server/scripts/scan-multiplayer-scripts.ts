@@ -7,7 +7,7 @@
  *
  *   U  unchanged: no pattern hit, the script never refers to an opponent
  *   C  the class behaviour of the fold is enough (field class reads, "1" predicates, target ranges)
- *   O  needs an opponent pick or binding at activation (F5). `ambiguous` O rules also need a product decision
+ *   O  needs an opponent pick or binding (F5); decision-only choices bind at resolution. `ambiguous` O rules also need a product decision
  *   F  fails after the fold: needs a per-card multiplayer script or a ban
  *
  * The class of every pattern is in the one table RULES below. The class of a card is the highest class of its hits.
@@ -364,12 +364,28 @@ const SPLIT_APIS = new Set(["Damage", "Recover", "Draw", "DiscardDeck"]);
 
 const GROUP_CHOOSERS = new Set(["Select", "FilterSelect", "RandomSelect", "SelectUnselect", "SelectSubGroup", "SelectWithSumEqual", "SelectWithSumGreater"]);
 
+/** Conservatively include local aliases that may name an opponent, including conditional choices. Inspect only the callback before the call. */
+function opponentChooser(source: Source, call: Call): boolean {
+  const player = call.args[0]?.trim() ?? "";
+  if (whoOf(player).kind === "opp") return true;
+  if (!/^[A-Za-z_]\w*$/.test(player)) return false;
+  const unit = source.units[unitOf(source, call.line)];
+  if (!unit) return false;
+  const before = [...source.clean.slice(unit.start - 1, call.line - 1), source.clean[call.line - 1]!.slice(0, call.col)].join("\n");
+  const assignments = new RegExp(`(?:^|[\\s;])(?:local\\s+)?${player}\\s*=(?!=)\\s*([^\\n;]+)`, "g");
+  for (const [, expression] of before.matchAll(assignments)) {
+    // Lua's `condition and tp or 1-tp` may also ask an opponent. Keep either branch as a possible chooser.
+    const choices = expression!.split(/\s+(?:and|or)\s+/);
+    if (choices.some((choice) => whoOf(choice.trim()).kind === "opp")) return true;
+  }
+  return false;
+}
+
 /** Calls where the first argument is the player who chooses. */
 function choosers(source: Source): Call[] {
   return source.calls.filter((call) => {
-    if (whoOf(call.args[0]).kind !== "opp") return false;
-    if (call.owner === "Duel") return /^(Select|Announce)/.test(call.fn);
-    return GROUP_CHOOSERS.has(call.fn);
+    const chooser = call.owner === "Duel" ? /^(Select|Announce)/.test(call.fn) : GROUP_CHOOSERS.has(call.fn);
+    return chooser && opponentChooser(source, call);
   });
 }
 
