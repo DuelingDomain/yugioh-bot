@@ -348,3 +348,36 @@ describe("the camera keys in a 3-way face-off", () => {
     expect(mode(container)).toBe("home");
   });
 });
+
+describe("the crumble in the stage and side layout", () => {
+  const main = FFA4_FIXTURES.states.main;
+  const spot = (container: HTMLElement, seat: number, attr: "data-seat-slot" | "data-seat-exit") => {
+    const node = container.querySelector<HTMLElement>(`[${attr}='${seat}']`);
+    return node ? { left: node.style.left, top: node.style.top, rotate: node.style.rotate, transform: node.style.transform, z: node.style.getPropertyValue("--sf-z") } : null;
+  };
+
+  it("draws the crumble at the place and turn of the field it replaces, and no field moves", () => {
+    const { container, rerender } = render(<Shell state={main} />);
+    const before = spot(container, 2, "data-seat-slot")!;
+    const others = [0, 1].map((seat) => spot(container, seat, "data-seat-slot"));
+    rerender(<Shell state={withOut(main, [2])} />);
+    expect(spot(container, 2, "data-seat-slot")).toBeNull();
+    const exit = spot(container, 2, "data-seat-exit")!;
+    expect(exit.left).toBe(before.left);
+    expect(exit.top).toBe(before.top);
+    expect(exit.rotate).toBe("180deg");
+    expect(exit.transform).toBe("");
+    expect([0, 1].map((seat) => spot(container, seat, "data-seat-slot"))).toEqual(others);
+    settle(2000);
+    expect(crumbles(container)).toBe(0);
+  });
+
+  it("gives the shared Extra Monster row to the partner while the crumble plays", () => {
+    const { container, rerender } = render(<Shell state={main} />);
+    const emz = (seat: number) => container.querySelector(`[data-seat-slot='${seat}'] [data-seat-field]`)?.getAttribute("data-emz");
+    expect(emz(3)).toBe("pair");
+    rerender(<Shell state={withOut(main, [3])} />);
+    expect(crumbles(container)).toBe(1);
+    expect(emz(2)).toBe("pair");
+  });
+});
