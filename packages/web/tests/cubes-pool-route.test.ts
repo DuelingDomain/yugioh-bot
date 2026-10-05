@@ -28,6 +28,8 @@ async function setupDb() {
   ins.run(1, "Main A", "Normal Monster", "normal", "i", "i", "[]", "t");
   ins.run(2, "Xyz B", "XYZ Monster", "xyz", "i", "i", "[]", "t");
   ins.run(3, "Main C", "Effect Monster", "effect", "i", "i", "[]", "t");
+  db.exec(`insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main)
+    select ygoprodeck_id,ygoprodeck_id,image_url,image_url_small,1 from card_catalog`);
   db.close();
 }
 
@@ -206,6 +208,7 @@ describe("cube pool routes", () => {
 
   it("validates poolSource on draft create and keeps the cube name from the database", async () => {
     await setupDb();
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ data: [] })));
     const db = await rawDb();
     db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('guild-1','Real Name','x')").run();
     db.prepare("insert into cubes (guild_id, name, created_by_user_id) values ('other','Foreign','x')").run();

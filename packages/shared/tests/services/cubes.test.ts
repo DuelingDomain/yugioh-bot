@@ -186,7 +186,8 @@ describe("cube service core", () => {
       const { cubes, calls } = rejectingSetup();
       const cube = cubes.createBlank("g", "Custom", "u");
       const res = await cubes.importPasscodes(cube.id, [1, 777, 2, 1]);
-      expect(calls).toHaveLength(1);
+      // Legacy rows refresh their artwork metadata too; a no-match keeps their cached data.
+      expect(calls).toHaveLength(3);
       expect(res).toEqual({ added: 2, unknown: [777] });
       expect(cubes.getCubePools(cube.id).main.map((c) => [c.catalogCardId, c.maxCopies])).toEqual([[1, 2]]);
       expect(cubes.getCubePools(cube.id).extra.map((c) => c.catalogCardId)).toEqual([2]);

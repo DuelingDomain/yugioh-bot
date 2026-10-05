@@ -101,7 +101,7 @@ describe("POST /api/cards/resolve", () => {
     // Monster Reborn is not in the selected set → baseline 0, custom 1 → qty 1.
     const mr = json.cards.find((c: { id: number }) => c.id === 83764718);
     expect(mr.qty).toBe(1);
-    // The requested set is synced first; only custom passcodes missing from the catalog are fetched.
+    // The requested set is synced first; legacy custom rows also need artwork metadata.
     expect(syncDraftPool).toHaveBeenNthCalledWith(1, {
       setNames: ["Metal Raiders"],
       customCardIds: [],
@@ -110,7 +110,7 @@ describe("POST /api/cards/resolve", () => {
     });
     expect(syncDraftPool).toHaveBeenNthCalledWith(2, {
       setNames: [],
-      customCardIds: [99999999],
+      customCardIds: [83764718, 46986414, 99999999],
       includeNames: [],
       excludeNames: [],
     });

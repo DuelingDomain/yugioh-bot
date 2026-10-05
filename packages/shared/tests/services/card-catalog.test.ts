@@ -143,7 +143,7 @@ describe("shared card catalog service", () => {
       excludeNames: [],
     });
 
-    expect(app.fetchCalls).toEqual(["https://db.ygoprodeck.com/api/v7/cardinfo.php?id=70781052"]);
+    expect(app.fetchCalls).toEqual(["https://db.ygoprodeck.com/api/v7/cardinfo.php?id=70781052", "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Summoned+Skull"]);
     expect(app.catalog.findByIds([70781052])).toEqual([
       expect.objectContaining({
         ygoprodeckId: 70781052,
@@ -168,7 +168,7 @@ describe("shared card catalog service", () => {
     // Second sync (and duplicate ids in the same call) must not hit the network again.
     await app.catalog.syncDraftPool({ setNames: [], customCardIds: [70781052, 70781052], includeNames: [], excludeNames: [] });
 
-    expect(app.fetchCalls).toEqual(["https://db.ygoprodeck.com/api/v7/cardinfo.php?id=70781052"]);
+    expect(app.fetchCalls).toEqual(["https://db.ygoprodeck.com/api/v7/cardinfo.php?id=70781052", "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Summoned+Skull"]);
   });
 
   it("syncs one card by exact name into the local catalog", async () => {

@@ -1,5 +1,6 @@
 export * from "./constants.js";
 export * from "./card-catalog.js";
+export * from "./card-artworks.js";
 export * from "./cubes.js";
 export * from "./deal.js";
 export * from "./card-images.js";

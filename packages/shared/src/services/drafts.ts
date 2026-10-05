@@ -6,6 +6,8 @@ import { cubePoolSizes } from "./cubes.js";
 import { MAX_COPIES_PER_PLAYER } from "./constants.js";
 import { buildDraftDeck, createDraftDeckService } from "./draft-decks.js";
 import { isExtraDeckFrame } from "./card-catalog.js";
+import { canonicalCardCode } from "../duels/pool.js";
+import { loadArtworkIdentityCatalog } from "./card-artworks.js";
 import { analyzeCube, buildDealWithRemainder, prepareBoosterPool, seededShuffle, type ShuffleSeed } from "./deal.js";
 
 export type DraftStatus = "pending" | "active" | "cancelled" | "completed";
@@ -437,6 +439,9 @@ export function createDraftService(
   };
 
   const catalogCardIdsForDraft = (config: DraftConfig): number[] => {
+    const artworkIdentity = loadArtworkIdentityCatalog();
+    const isMain = (row: CatalogRow & { art_is_main: number }) => row.art_is_main === 1
+      && canonicalCardCode(row.ygoprodeck_id, artworkIdentity) === row.ygoprodeck_id;
     const setNames = new Set((config.setNames ?? []).map((name) => name.trim()));
     const customCardIds = config.customCardIds ?? [];
     const customCardIdSet = new Set(customCardIds);
@@ -445,11 +450,12 @@ export function createDraftService(
     const hasExplicitPool = setNames.size > 0 || customCardIds.length > 0 || includeNames.size > 0;
     const rows = db
       .prepare(
-        "select ygoprodeck_id, name, type, frame_type, card_sets_json from card_catalog order by ygoprodeck_id",
+        `select cc.ygoprodeck_id, cc.name, cc.type, cc.frame_type, cc.card_sets_json, coalesce(a.is_main, 1) as art_is_main
+         from card_catalog cc left join card_artworks a on a.artwork_id = cc.ygoprodeck_id order by cc.ygoprodeck_id`,
       )
       .all()
       .map((raw: any) => {
-        const row = raw as CatalogRow;
+        const row = raw as CatalogRow & { art_is_main: number };
         return { row, cardSets: JSON.parse(row.card_sets_json) as Array<{ set_name: string }> };
       })
       .filter(({ row, cardSets }) => {
@@ -462,6 +468,8 @@ export function createDraftService(
         if (excludeNames.has(normalizedName)) {
           return false;
         }
+
+        if (!isMain(row) && !customCardIdSet.has(row.ygoprodeck_id)) return false;
 
         if (!hasExplicitPool) {
           return true;
@@ -489,7 +497,7 @@ export function createDraftService(
     for (const { row, cardSets } of rows) {
       customEligibleIds.add(row.ygoprodeck_id);
       const normalizedName = normalizeName(row.name);
-      if (includeNames.has(normalizedName) || cardSets.some((cardSet) => setNames.has(cardSet.set_name))) {
+      if (isMain(row) && (includeNames.has(normalizedName) || cardSets.some((cardSet) => setNames.has(cardSet.set_name)))) {
         baseIds.add(row.ygoprodeck_id);
       }
     }

@@ -96,8 +96,7 @@ export async function POST(request: Request) {
     await catalog.syncDraftPool({ setNames, customCardIds: [], includeNames: [], excludeNames: [] });
   }
 
-  const existingCustomCardIds = new Set(catalog.findByIds(customCardIds).map((card) => card.ygoprodeckId));
-  const missingCustomCardIds = [...new Set(customCardIds.filter((id) => !existingCustomCardIds.has(id)))];
+  const missingCustomCardIds = [...new Set(customCardIds.filter((id) => !catalog.hasArtworks(id)))];
 
   if (missingCustomCardIds.length > 0) {
     const sync = (ids: number[]) =>
