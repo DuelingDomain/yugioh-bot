@@ -194,3 +194,5 @@ The same fix is useful for the production standard core. It is not applied there
 `0086-ffa-returns-no-response.patch` makes FFA elimination fallback returns synchronous, without leave-field, destination or move events. Continuous redirects, Pendulum destinations, attachments and Tokens keep their movement rules. Tag and 1v1 stay unchanged.
 
 `0087-ffa-continue-leaver-turn.patch` removes forced FFA turn ending and keeps normal living-seat phase windows. Dead-seat idle and Battle Phase passes visit remaining phases, including Main Phase 2. Tag and 1v1 keep their behavior.
+
+**0088 — FFA lasting effects:** Preserve resolved phase effects when their owner leaves. Durations tied to a removed own or declared-opponent seat count at that seat's skipped boundaries, without creating a turn or phase events. The declared callback stays bound. Tag and 1v1 retain their reset rules. The Heat Wave Lua overlay uses next-own-Draw expiry in FFA.

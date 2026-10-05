@@ -2986,6 +2986,20 @@
       "r2Class": "EACH-CONTROLLER"
     },
     {
+      "code": 45141013,
+      "file": "c45141013.lua",
+      "kind": "hand",
+      "name": "Heat Wave",
+      "classes": [
+        "DURATION"
+      ],
+      "redefined": [
+        "operation"
+      ],
+      "stockSha256": "047097e48cb03f853320b4e323762aeaad1477e5d761c30bfa08e719b4dc3964",
+      "note": "FFA: expires at the activator's next Draw Phase, including a skipped turn after removal; Tag and 1v1 keep stock behavior."
+    },
+    {
       "code": 45148985,
       "file": "c45148985.lua",
       "name": "Metaphys Executor",
@@ -4137,7 +4151,7 @@
     {
       "code": 62098216,
       "file": "c62098216.lua",
-      "name": "Evil\u2605Twins Ki-sikil & Lil-la",
+      "name": "Evil★Twins Ki-sikil & Lil-la",
       "kind": "chooser",
       "classes": [
         "CHOOSER"

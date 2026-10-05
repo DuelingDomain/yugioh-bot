@@ -1,0 +1,155 @@
+From d3db84c8d94f25c1d3518e4d5a64762ac3818589 Mon Sep 17 00:00:00 2001
+From: Yugidraft <yugidraft@users.noreply.github.com>
+Date: Sun, 4 Oct 2026 20:19:02 -0400
+Subject: [PATCH] FFA preserve resolved effects and advance skipped-seat
+ durations
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ effect.cpp    |  8 ++++----
+ effect.h      |  2 +-
+ field.cpp     | 31 +++++++++++++++++++++++++++++--
+ field.h       |  1 +
+ libduel.cpp   |  4 ++--
+ processor.cpp |  6 +++++-
+ 6 files changed, 42 insertions(+), 10 deletions(-)
+
+diff --git a/effect.cpp b/effect.cpp
+index 29319c7..c7a31c3 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -805,7 +805,7 @@ int32_t effect::is_chainable(uint8_t tp) {
+ }
+ //return: this can be reset by reset_level or not
+ //RESET_DISABLE is valid only when owner == handler
+-int32_t effect::reset(uint32_t reset_level, uint32_t reset_type) {
++int32_t effect::reset(uint32_t reset_level, uint32_t reset_type, uint8_t turn_player) {
+ 	switch (reset_type) {
+ 	case RESET_EVENT: {
+ 		if(!(reset_flag & RESET_EVENT))
+@@ -823,12 +823,12 @@ int32_t effect::reset(uint32_t reset_level, uint32_t reset_type) {
+ 		if(!(reset_flag & RESET_PHASE))
+ 			return FALSE;
+ 		uint8_t pid = get_handler_player();
+-		uint8_t tp = pduel->game_field->infos.turn_player;
++		uint8_t tp = turn_player == DUELIST_NONE ? pduel->game_field->infos.turn_player : turn_player;
+ 		// In FFA, a player effect's opponent-only reset counts the declared opponent's turns.
+ 		// Card effects, both turn flags, no declared opponent, Tag and 1v1 keep the current turn count.
+-		// A dead or empty declared seat falls back to R3: every living opponent turn.
++		// A removed declared seat keeps its duration; skipped turns advance it without events.
+ 		const bool counts_turn = is_flag(EFFECT_FLAG_FIELD_ONLY)
+-			&& has_bound_opponent() && pduel->game_field->is_alive(registered_opp)
++			&& has_bound_opponent() && pduel->game_field->is_duelist(registered_opp)
+ 			&& (reset_flag & RESET_OPPO_TURN)
+ 			&& !(reset_flag & RESET_SELF_TURN)
+ 			? tp == registered_opp
+diff --git a/effect.h b/effect.h
+index 7945f1e..f34b05f 100644
+--- a/effect.h
++++ b/effect.h
+@@ -118,7 +118,7 @@ public:
+ 	int32_t is_player_effect_target(card* pcard);
+ 	int32_t is_immuned(card* pcard);
+ 	int32_t is_chainable(uint8_t tp);
+-	int32_t reset(uint32_t reset_level, uint32_t reset_type);
++	int32_t reset(uint32_t reset_level, uint32_t reset_type, uint8_t turn_player = DUELIST_NONE);
+ 	void dec_count(uint32_t playerid = 2);
+ 	void inc_count(uint32_t playerid = 2);
+ 	void recharge();
+diff --git a/field.cpp b/field.cpp
+index 97329f1..3ab6265 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -303,8 +303,8 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 		pcard->reset(RESET_LEAVE | RESET_REMOVE | RESET_OVERLAY, RESET_EVENT);
+ 	core.shuffle_deck_check[p] = false;
+ 	core.shuffle_hand_check[p] = false;
+-	// Lingering effects of p's cards that end at a phase (the list is copied, removal changes it).
+-	{
++	// Resolved FFA effects retain their duration after their owner leaves. Tag keeps stock cleanup.
++	if(n_teams != n_duelists) {
+ 		const std::vector<effect*> lingering(effects.pheff.begin(), effects.pheff.end());
+ 		for(auto* peffect : lingering) {
+ 			if(peffect->owner->owner != p || !(peffect->reset_flag & RESET_PHASE))
+@@ -1974,6 +1974,33 @@ void field::reset_phase(uint32_t phase) {
+ 		}
+ 	}
+ }
++// Advance only durations tied to this removed seat. No turn, phase event,
++// draw, effect operation or priority window is created for a skipped turn.
++void field::reset_skipped_turn(uint8_t seat) {
++	if(n_duelists <= 2 || n_teams != n_duelists || !is_duelist(seat) || is_alive(seat))
++		return;
++	for(const auto phase : { PHASE_DRAW, PHASE_STANDBY, PHASE_MAIN1, PHASE_BATTLE_START,
++		PHASE_BATTLE_STEP, PHASE_BATTLE, PHASE_MAIN2, PHASE_END }) {
++		const std::vector<effect*> snapshot(effects.pheff.begin(), effects.pheff.end());
++		for(auto* peffect : snapshot) {
++			// A grant can remove other phase effects when it expires.
++			if(!effects.pheff.count(peffect))
++				continue;
++			const auto flags = peffect->reset_flag;
++			const bool own_turn = (flags & RESET_SELF_TURN) && !(flags & RESET_OPPO_TURN)
++				&& peffect->get_handler_player() == seat;
++			const bool declared_turn = (flags & RESET_OPPO_TURN) && !(flags & RESET_SELF_TURN)
++				&& peffect->is_flag(EFFECT_FLAG_FIELD_ONLY) && peffect->has_bound_opponent()
++				&& peffect->registered_opp == seat;
++			if((own_turn || declared_turn) && peffect->reset(phase, RESET_PHASE, seat)) {
++				if(peffect->is_flag(EFFECT_FLAG_FIELD_ONLY))
++					remove_effect(peffect);
++				else
++					peffect->handler->remove_effect(peffect);
++			}
++		}
++	}
++}
+ void field::reset_chain() {
+ 	for(const auto& ch_lim_p : core.chain_limit_p)
+ 		ensure_luaL_stack(luaL_unref, pduel->lua->lua_state, LUA_REGISTRYINDEX, ch_lim_p.function);
+diff --git a/field.h b/field.h
+index c5d3eb9..c8dc29d 100644
+--- a/field.h
++++ b/field.h
+@@ -891,6 +891,7 @@ public:
+ 	void remove_oath_effect(effect* reason_effect);
+ 	void release_oath_relation(effect* reason_effect);
+ 	void reset_phase(uint32_t phase);
++	void reset_skipped_turn(uint8_t seat);
+ 	void reset_chain();
+ 	processor::effect_count_map& get_count_map(uint8_t flag);
+ 	void add_effect_code(uint32_t code, uint8_t flag, uint8_t hopt_index, uint8_t playerid);
+diff --git a/libduel.cpp b/libduel.cpp
+index 92313ec..65fc17b 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -73,9 +73,9 @@ LUA_STATIC_FUNCTION(IsTurnPlayer) {
+ 	if(gf.n_duelists > 2 && gf.n_teams == gf.n_duelists) {
+ 		const auto* scope = fold::active(pduel);
+ 		// A player effect's opponent-only duration also gates its opponent-turn callback.
+-		// Dead/empty declarations and card effects keep the R3 predicate.
++		// Removed declarations stay bound; empty declarations and card effects keep R3.
+ 		if(scope && scope->eff && scope->eff->is_flag(EFFECT_FLAG_FIELD_ONLY)
+-			&& scope->eff->has_bound_opponent() && gf.is_alive(scope->eff->registered_opp)
++			&& scope->eff->has_bound_opponent() && gf.is_duelist(scope->eff->registered_opp)
+ 			&& (scope->eff->reset_flag & RESET_OPPO_TURN)
+ 			&& !(scope->eff->reset_flag & RESET_SELF_TURN)
+ 			&& playerid <= 1 && !fold::is_own(gf, scope->P, playerid))
+diff --git a/processor.cpp b/processor.cpp
+index 23487d6..baf005f 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -3937,7 +3937,11 @@ bool field::process(Processors::Turn& arg) {
+ 		core.quick_f_chain.clear();
+ 		core.delayed_quick_tmp.clear();
+ 		arg.step = Processors::restart;
+-		arg.turn_player = next_in_turn_order(arg.turn_player);
++		const auto next = next_in_turn_order(arg.turn_player);
++		if(n_duelists > 2 && n_teams == n_duelists)
++			for(uint8_t seat = (arg.turn_player + 1) % n_duelists; seat != next; seat = (seat + 1) % n_duelists)
++				reset_skipped_turn(seat);
++		arg.turn_player = next;
+ 		return FALSE;
+ 	}
+ 	}
+-- 
+2.43.0
+
