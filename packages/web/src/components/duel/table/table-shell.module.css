@@ -70,8 +70,10 @@
 
 /* ---------- the wide table: a 72px rail, a drawer column that exists only while open, then the whole table ---------- */
 
-/* .shell.shell [data-wide="true"] beats the room's three-column .layout (room.module.css) without touching 1v1 or Tag. */
-.shell.shell [data-wide="true"] {
+/* .shell.shell [data-wide="true"][class] beats the room's three-column .layout (room.module.css) without touching 1v1 or Tag. The
+   [class] makes it one step stronger than the room's .shell[data-domain] .layout, so it wins whichever stylesheet the build loads
+   last (the order moves with the import graph). */
+.shell.shell [data-wide="true"][class] {
   --rail-w: 72px;
   --drawer-w: min(380px, 34vw);
   --drawer-col: 0px;

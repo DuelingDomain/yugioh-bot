@@ -49,8 +49,8 @@ describe("TableShell on the 3-way fixtures", () => {
     const hub = slot.querySelector('nav[aria-label="Duel phases"]')!;
     expect(hub.getAttribute("data-variant")).toBe("table");
     expect(hub.querySelectorAll("[data-state]")).toHaveLength(6);
-    // The bar has no plate list and no turn owner label any more.
-    expect(container.querySelector('nav[aria-label="Turn actions"] ol')).toBeNull();
+    // The bar has no phase plates and no turn owner label any more (its left block keeps the turn order that Wide plaza put there).
+    expect(container.querySelector('nav[aria-label="Turn actions"] [data-state]')).toBeNull();
     expect(container.querySelector('nav[aria-label="Turn actions"]')).not.toHaveTextContent("Turn 5");
     // Three duelists: one hub, not one per seat.
     expect(container.querySelectorAll("[data-hub-slot]")).toHaveLength(1);
