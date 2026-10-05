@@ -155,6 +155,22 @@ describe("the Deck Master token", () => {
     expect(screen.getByTestId("hud-master-inspect").getAttribute("aria-label")).toBe("Inspect");
   });
 
+  it("shows a short word for an attack and keeps the full text as the name", () => {
+    const state = masterState();
+    const prompt = state.room.engine!.prompt!;
+    prompt.options = [
+      ...prompt.options.filter((option) => !option.id.startsWith("dm-")),
+      { id: "dm-attack", label: "Attack with Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
+      { id: "dm-direct", label: "Attack directly with Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
+    ];
+    render(<Shell state={state} />);
+    const [attack, direct] = screen.getAllByTestId("hud-master-action");
+    expect(attack.textContent).toBe("Attack");
+    expect(attack.getAttribute("aria-label")).toBe("Attack with Sage with Eyes of Blue");
+    expect(direct.textContent).toBe("Direct attack");
+    expect(direct.getAttribute("title")).toBe("Attack directly with Sage with Eyes of Blue");
+  });
+
   it("opens the details flyout from the token or from Inspect, and closes it", () => {
     render(<Shell state={stateOf("main")} />);
     expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
