@@ -49,6 +49,7 @@ import { CameraControls } from "./camera-controls";
 import { isFaceOff } from "./camera-model";
 import { tableLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
+import { CAPTION_TEXT, useGridFinale } from "./grid-finale";
 import { gridKeyGates, useGridFocus } from "./grid-focus";
 import { GridMasterToken } from "./grid-master";
 import { GridHoverPreview } from "./grid-preview";
@@ -125,6 +126,8 @@ export interface TableShellProps {
   preferences?: DuelPreferences;
   /** The viewer's chain response switch, owned by the room (it sends the change and holds the R key). Null or absent: no switch. */
   chainMode?: ChainModeControl | null;
+  /** The 4-way grid: where the phase hub sits, in the shared Extra Monster band (default) or in the middle of the table. */
+  hubPlace?: "band" | "center";
 }
 
 /**
@@ -161,6 +164,7 @@ function TableShellBody({
   boardRef: roomBoardRef,
   preferences,
   chainMode = null,
+  hubPlace = "band",
 }: TableShellProps & { preferences: DuelPreferences }) {
   // Field clicks use the same reveal gate as the centered prompt; hidden decisions must not answer early.
   const given = useMemo(() => {
@@ -216,6 +220,9 @@ function TableShellBody({
     digitsFree: gates.digitsFree,
     escapeFree: gates.escapeFree,
   });
+  // The last two seats of a 4-way: one facing pair grows to a full board and says FINAL DUEL; two pairs only say it.
+  const gridColumns = useMemo(() => new Map(gridSeats.map((cell) => [cell.seat, cell.column])), [gridSeats]);
+  const finale = useGridFinale({ seats: engine.seats, columnOf: gridColumns, reducedMotion: controller.reducedMotion });
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
   // Phone and small tablet: the left column is a sheet opened from a bar under the station track.
@@ -462,6 +469,32 @@ function TableShellBody({
       pick={canAct && controller.revealed ? controller.seatPick : null} compact={!narrow} />
   );
 
+  const promptDockNode = (
+  <div
+    className={`${roomStyles.promptDock} ${hud ? styles.hudPrompt : ""}`}
+    data-mode={dockMode}
+    data-tone={prompt?.context?.type === "chain" ? "chain" : "action"}
+    data-idle={dockMode === "idle" ? "true" : "false"}
+    data-prompt-surface={dockMode === "idle" ? undefined : ""}
+  >
+    <PromptTray
+      prompt={prompt}
+      mySeat={viewerSeat}
+      slug={session.slug}
+      busy={controller.busy}
+      draft={controller.draft}
+      onSubmit={controller.onAnswer}
+      menuOpen={suspended}
+      active={!terminal && !viewerOut}
+      aim={flow.promptAim ?? undefined}
+      headless={centered}
+      suspended={suspended || flow.seatKeys || (centered && !controller.revealed)}
+      waitingName={prompt ? nameOf(prompt.seat) : null}
+      disabledIds={outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats))}
+    />
+  </div>
+  );
+
   return (
     <div
       ref={rootRef}
@@ -485,7 +518,23 @@ function TableShellBody({
       {hud ? (
         <div className={hudStyles.top} data-testid="hud-top">
           <div className={hudStyles.topLeft}>{identityNode}</div>
-          <div className={hudStyles.topMid}>{seatStripNode}</div>
+          <div className={hudStyles.topMid} data-caption={finale.caption ? "true" : undefined}>
+            {seatStripNode}
+            {finale.caption ? (
+              <div key={finale.caption.id} className={hudStyles.caption} role="status" data-testid="grid-caption" data-kind={finale.caption.kind}>
+                <span className={hudStyles.captionKey}>{CAPTION_TEXT[finale.caption.kind]}</span>
+                <span className={hudStyles.captionNames}>
+                  {finale.caption.seats.map((seat, index) => (
+                    <span key={seat} className={hudStyles.captionName}>
+                      {index > 0 ? <em>vs</em> : null}
+                      <i style={{ background: toneOf(seat).main, boxShadow: `0 0 8px ${toneOf(seat).main}` }} />
+                      {nameOf(seat)}
+                    </span>
+                  ))}
+                </span>
+              </div>
+            ) : null}
+          </div>
           <div className={hudStyles.topRight}>{turnNode}{statusNode}</div>
         </div>
       ) : (
@@ -551,29 +600,7 @@ function TableShellBody({
             />
           </>
         )}
-        <div
-          className={`${roomStyles.promptDock} ${hud ? styles.hudPrompt : ""}`}
-          data-mode={dockMode}
-          data-tone={prompt?.context?.type === "chain" ? "chain" : "action"}
-          data-idle={dockMode === "idle" ? "true" : "false"}
-          data-prompt-surface={dockMode === "idle" ? undefined : ""}
-        >
-          <PromptTray
-            prompt={prompt}
-            mySeat={viewerSeat}
-            slug={session.slug}
-            busy={controller.busy}
-            draft={controller.draft}
-            onSubmit={controller.onAnswer}
-            menuOpen={suspended}
-            active={!terminal && !viewerOut}
-            aim={flow.promptAim ?? undefined}
-            headless={centered}
-            suspended={suspended || flow.seatKeys || (centered && !controller.revealed)}
-            waitingName={prompt ? nameOf(prompt.seat) : null}
-            disabledIds={outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats))}
-          />
-        </div>
+        {hud ? null : promptDockNode}
         <section className={`${roomStyles.boardColumn} ${hud ? styles.hudBoard : ""}`} aria-label="Duel field">
           <div className={roomStyles.board} ref={boardRef}>
             <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
@@ -587,9 +614,27 @@ function TableShellBody({
                 placeLabels={placeLabels}
                 dispatchCamera={camera.dispatch}
                 grid={grid ? gridFocus : undefined}
+                gridFinale={grid ? finale.column : undefined}
+                hubPlace={hubPlace}
+                gridHub={grid && hubOn ? (place) => (
+                  <PhaseHub
+                    variant={place === "band" ? "band" : "table"}
+                    phase={engine.phase}
+                    battleStep={battleStep}
+                    turn={engine.turn}
+                    turnSeat={engine.turnSeat}
+                    mySeat={viewerSeat}
+                    playerName={nameOf}
+                    tone={engine.turnSeat != null ? toneOf(engine.turnSeat) : null}
+                    actionOptions={promptMine ? actionOptions : []}
+                    canAct={canAct}
+                    onChoose={(id) => controller.onAnswer({ choice: id })}
+                    reducedMotion={controller.reducedMotion}
+                  />
+                ) : undefined}
                 masterChip={masterChip}
                 renderSeatField={(props) => <SeatField {...props} />}
-                hub={hubOn ? (
+                hub={hubOn && !grid ? (
                   <PhaseHub
                     variant="table"
                     phase={engine.phase}
@@ -698,8 +743,11 @@ function TableShellBody({
         </section>
       </div>
       {hud ? (
-        <div className={hudStyles.bottom} data-testid="hud-bottom">
+        <div className={hudStyles.corner} data-testid="hud-corner">
+          {promptDockNode}
           <StationTrack
+            phases="hub"
+            compact
             phase={engine.phase}
             battleStep={battleStep}
             turn={engine.turn}

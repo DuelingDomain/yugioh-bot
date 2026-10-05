@@ -84,8 +84,14 @@
  */
 .shell.shell[data-hud="true"] {
   --hud-top: 52px;
-  --hud-bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px);
-  --hud-left: 156px;
+  /* No bar below: your hand is the last thing at the bottom, and the turn controls sit in the corner (grid-hud.module.css). */
+  --hud-bottom: 5px;
+  /* The Deck Master plate (14px + 168px wide) sits at the bottom left: the board starts right of it. */
+  --hud-left: 196px;
+  --hud-corner-w: 168px;
+  /* The board ends left of the corner stack, so the stack never covers a field. */
+  --hud-right: calc(var(--hud-corner-w) + 14px);
+  --hud-master-bottom: 14px;
 }
 
 .shell.shell[data-hud="true"] .hudLayout {
@@ -96,23 +102,36 @@
 }
 
 .shell.shell[data-hud="true"] section.hudBoard {
-  padding: var(--hud-top) 14px var(--hud-bottom) var(--hud-left);
+  padding: var(--hud-top) var(--hud-right, 14px) var(--hud-bottom) var(--hud-left);
   border-left: 0;
 }
 
-/* A prompt for you opens at the right, over the board's free corner; the margin at the left belongs to the dock. */
-.shell.shell[data-hud="true"] .hudPrompt[data-mode="float"],
-.shell.shell[data-hud="true"] .hudPrompt[data-mode="flow"] {
-  position: absolute;
+/* A prompt for you opens at the right, in the corner column right above the turn controls (`.corner` in
+   grid-hud.module.css); the margin at the left belongs to the dock. */
+.shell.shell[data-hud="true"] :global([data-testid="hud-corner"]) .hudPrompt[data-mode="float"],
+.shell.shell[data-hud="true"] :global([data-testid="hud-corner"]) .hudPrompt[data-mode="flow"] {
+  position: relative;
   grid-area: auto;
-  right: 14px;
-  bottom: var(--hud-bottom);
-  z-index: 33;
+  inset: auto;
+  z-index: auto;
   width: min(380px, 34vw);
   margin: 0;
+  border-radius: 8px;
+  pointer-events: auto;
 }
 
 .shell.shell[data-hud="true"] .hudNotices { top: var(--hud-top); z-index: 29; }
+
+/* In the floating HUD the hand fills the bottom and the plates already say "Eliminated, 3rd": the notes stay for screen readers only. */
+.shell.shell[data-hud="true"] .outNote {
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 
 /* A seat that left while you watch: its note waits for the board to crumble, then rises in. */
 .outNote li[data-fresh="true"] {

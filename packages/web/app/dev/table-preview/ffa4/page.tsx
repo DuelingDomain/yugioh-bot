@@ -17,5 +17,5 @@ const one = (value: string | string[] | undefined) => (Array.isArray(value) ? va
 export default async function Page({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   if (!fxLabEnabled()) notFound();
   const query = await searchParams;
-  return <Ffa4Preview stateId={one(query.state)} cam={one(query.cam)} lock={one(query.lock)} review={one(query.fixture) === "review"} out={one(query.out)} pick={one(query.pick)} after={one(query.after)} />;
+  return <Ffa4Preview stateId={one(query.state)} cam={one(query.cam)} lock={one(query.lock)} review={one(query.fixture) === "review"} out={one(query.out)} pick={one(query.pick)} after={one(query.after)} hub={one(query.hub)} />;
 }

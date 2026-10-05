@@ -64,7 +64,9 @@ describe("the floating HUD of the 4-way grid", () => {
     const { container } = render(<Shell state={stateOf("main")} />);
     expect(container.querySelector("[data-hud='true']")).not.toBeNull();
     expect(screen.getByTestId("hud-top")).toBeTruthy();
-    expect(screen.getByTestId("hud-bottom")).toBeTruthy();
+    // No full-width bottom bar: the turn controls sit in the corner cluster.
+    expect(screen.queryByTestId("hud-bottom")).toBeNull();
+    expect(screen.getByTestId("hud-corner")).toBeTruthy();
     for (const id of ["log", "settings", "chain"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
     // The old History pane only repeated the Log pane, so the dock has no History icon.
     expect(screen.queryByTestId("hud-dock-history")).toBeNull();

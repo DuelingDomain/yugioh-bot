@@ -38,7 +38,44 @@
 }
 
 .topLeft { flex: 0 1 auto; padding: 0 16px; }
-.topMid { flex: 0 1 auto; padding: 0 8px; }
+.topMid { position: relative; flex: 0 1 auto; padding: 0 8px; }
+
+/* "FINAL DUEL" / "LAST TWO REMAINING": it takes the place of the turn strip for a moment, then the strip returns. */
+.topMid[data-caption="true"] > :not(.caption) {
+  animation: stripStep 3.4s linear both;
+}
+@keyframes stripStep {
+  0% { opacity: 1; }
+  8%, 90% { opacity: 0; }
+  100% { opacity: 1; }
+}
+.caption {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: captionStep 3.4s linear both;
+}
+@keyframes captionStep {
+  0%, 8% { opacity: 0; }
+  20%, 74% { opacity: 1; }
+  86%, 100% { opacity: 0; }
+}
+.captionKey { font-size: 10.5px; font-weight: 600; letter-spacing: 0.34em; color: var(--gold, #d9a441); }
+.captionNames { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--ink, #e8edf8); }
+.captionName { display: flex; align-items: center; gap: 7px; }
+.captionName em { margin: 0 2px; font-style: normal; font-weight: 500; color: var(--ink-2, #9aa6c4); }
+.captionName i { width: 7px; height: 7px; border-radius: 50%; }
+@media (prefers-reduced-motion: reduce) {
+  .topMid[data-caption="true"] > :not(.caption) { animation: none; opacity: 0; }
+  .caption { animation: none; opacity: 1; }
+}
 .topRight { flex: 0 1 auto; gap: 10px; padding: 0 8px 0 14px; justify-content: flex-end; }
 
 .topLeft a { flex: none; white-space: nowrap; }
@@ -72,6 +109,45 @@
   min-width: 0;
   border-radius: 14px;
   pointer-events: auto;
+}
+
+/* ---------- bottom-right corner: the turn controls without a full-width bar ---------- */
+/* One column at the corner: the prompt dock (when a prompt is open) above the clocks pill and the actions pill. Only
+   the parts take clicks; the empty space around them does not. */
+.corner {
+  position: absolute;
+  right: 14px;
+  bottom: var(--hud-bottom, 8px);
+  z-index: 33;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  width: var(--hud-corner-w, 168px);
+  pointer-events: none;
+}
+.corner > nav {
+  width: 100%;
+  pointer-events: none;
+}
+.corner > nav > div {
+  pointer-events: auto;
+}
+/* The clocks pill: one line per player, the name at the left and the time at the right. */
+.corner nav [data-pill] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+.corner nav [data-pill] > span {
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.1;
+}
+.corner nav [data-pill] > span small {
+  max-width: 10ch;
+  font-size: 11px;
 }
 
 /* ---------- icon dock ---------- */
@@ -289,7 +365,7 @@
 .masterWrap {
   position: absolute;
   left: 14px;
-  bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px);
+  bottom: var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px));
   z-index: 31;
   width: 168px;
   font-family: var(--duel-f-ui);
