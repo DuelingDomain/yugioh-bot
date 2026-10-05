@@ -67,6 +67,7 @@ const YGOPRODECK_API_URL = "https://db.ygoprodeck.com/api/v7/cardinfo.php";
 const YGOPRODECK_CARDSETS_URL = "https://db.ygoprodeck.com/api/v7/cardsets.php";
 const YGOPRODECK_ARCHETYPES_URL = "https://db.ygoprodeck.com/api/v7/archetypes.php";
 const EXTRA_DECK_FRAME_TYPES = new Set(["fusion", "synchro", "xyz", "link"]);
+const warnedArtworkConflicts = new Set<string>();
 
 function normalizeName(name: string) {
   return name.trim().toLowerCase();
@@ -144,7 +145,7 @@ export function createCardCatalogService(
   const fetchImpl = options.fetch ?? globalThis.fetch;
   let identity = options.identityCatalog;
   const engineIdentity = () => identity ??= loadArtworkIdentityCatalog();
-  const mainId = (card: YgoprodeckCard): number => {
+  const mainId = (card: YgoprodeckCard): number | undefined => {
     const proven = mainArtworkId(card, engineIdentity());
     if (proven !== undefined) return proven;
     const previous = new Set<number>();
@@ -154,7 +155,15 @@ export function createCardCatalogService(
     }
     if (previous.size === 1) return [...previous][0];
     // Only engine evidence may merge already distinct artwork families.
-    if (previous.size > 1) throw new CardFetchError();
+    // Preserve ambiguous rows and let the rest of a healthy sync save.
+    if (previous.size > 1) {
+      const mains = [...previous].sort((a, b) => a - b).join(", ");
+      if (!warnedArtworkConflicts.has(mains)) {
+        warnedArtworkConflicts.add(mains);
+        console.warn(`[card-catalog] Skipping ${card.name}: conflicting artwork mains (${mains}) need engine identity.`);
+      }
+      return undefined;
+    }
     if (card.card_images.some((art) => (art.id ?? card.id) === card.id)) return card.id;
     return Math.min(card.id, ...card.card_images.map((art) => art.id ?? card.id));
   };
@@ -271,10 +280,12 @@ export function createCardCatalogService(
 
   const upsertCards = db.transaction((cards: YgoprodeckCard[]) => {
     const cachedAt = new Date().toISOString();
+    const savedIds = new Set<number>();
 
     for (const card of cards) {
       if (card.card_images.length === 0) continue;
       const cardId = mainId(card);
+      if (cardId === undefined) continue;
       const images = new Map(card.card_images.map((image) => [image.id ?? card.id, image]));
       // A narrower response must not remove previously discovered artworks.
       const previousParents = new Set<number>([cardId]);
@@ -322,7 +333,9 @@ export function createCardCatalogService(
       for (const parent of previousParents) db.prepare("update card_artworks set is_main = 0 where card_id = ?").run(parent);
       for (const [artworkId, image] of images) upsertArtwork.run(cardId, artworkId, image.image_url,
         image.image_url_small, image.image_url_cropped ?? null, Number(artworkId === cardId));
+      savedIds.add(cardId);
     }
+    return [...savedIds];
   });
 
   const findByIds = (ids: number[]): CardCatalogCard[] => {
@@ -452,7 +465,6 @@ export function createCardCatalogService(
         results.push(...await Promise.allSettled(jobs.slice(offset, offset + 4).map((job) => job())));
       }
       const excludedNames = new Set(input.excludeNames.map(normalizeName));
-      const seenIds = new Set<number>();
       const cardsToCache: YgoprodeckCard[] = [];
 
       for (const card of results.flatMap((result) => result.status === "fulfilled" ? result.value : [])) {
@@ -463,16 +475,15 @@ export function createCardCatalogService(
         // Cache Extra Deck artwork metadata too, but leave it out of the
         // automatic main pool returned to the draft.
         cardsToCache.push(card);
-        if (!isExtraDeckCard(card)) seenIds.add(mainId(card));
       }
 
-      upsertCards(cardsToCache);
+      const savedIds = upsertCards(cardsToCache);
       for (const id of distinctCustomIds) ensureEngineArtwork(id);
 
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
       const cached = findByIds(cachedIds).filter((card) => !isExtraDeckFrame(card) && !excludedNames.has(normalizeName(card.name)));
-      return [...findByIds([...seenIds]), ...cached];
+      return [...findByIds(savedIds).filter((card) => !isExtraDeckFrame(card)), ...cached];
     },
 
     async syncByArchetype(
@@ -486,8 +497,7 @@ export function createCardCatalogService(
 
       const cached = await useCache(async () => {
         const cards = await fetchCardsWith(params);
-        upsertCards(cards);
-        return findByIds([...new Set(cards.map(mainId))]);
+        return findByIds(upsertCards(cards));
       }, () => cachedCards((card) => normalizeName(card.archetype ?? "") === normalizeName(archetype)), (cards) => cards.length > 0);
       const extraIds = new Set(cached.filter(isExtraDeckFrame).map((card) => card.ygoprodeckId));
 
@@ -518,9 +528,9 @@ export function createCardCatalogService(
         return hasCatalogRow(id) ? findByIds([id])[0] : undefined;
       }
       // Keep Extra Deck cards — themes need them for the extra pool.
-      upsertCards([card]);
+      const savedIds = upsertCards([card]);
       ensureEngineArtwork(id);
-      return findByIds([id])[0] ?? findByIds([mainId(card)])[0];
+      return findByIds([id])[0] ?? findByIds(savedIds)[0];
     },
 
     async syncCardByName(name: string) {
@@ -537,8 +547,7 @@ export function createCardCatalogService(
         return undefined;
       }
 
-      upsertCards([card]);
-      return findByIds([mainId(card)])[0];
+      return findByIds(upsertCards([card]))[0];
     },
 
     /**
@@ -597,8 +606,7 @@ export function createCardCatalogService(
         return rankCardsByName(usable, text).slice(0, options.limit ?? 24);
       }
       const usable = options.includeExtra ? cards : cards.filter((card) => !isExtraDeckCard(card));
-      upsertCards(usable);
-      const ranked = rankCardsByName(findByIds([...new Set(usable.map(mainId))]), text);
+      const ranked = rankCardsByName(findByIds(upsertCards(usable)), text);
       return ranked.slice(0, options.limit ?? 24);
     },
 
@@ -722,9 +730,7 @@ export function createCardCatalogService(
 
       const nonExtraDeck = fetched.filter((c) => !isExtraDeckCard(c));
       const toCache = nonExtraDeck.length > 0 ? nonExtraDeck : fetched;
-      upsertCards(toCache);
-
-      const sample = findByIds([...new Set(toCache.map(mainId))].slice(0, 6));
+      const sample = findByIds(upsertCards(toCache).slice(0, 6));
 
       return {
         name: setName,

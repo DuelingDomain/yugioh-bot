@@ -206,8 +206,42 @@ describe("card artwork mapping", () => {
     const before = db.prepare("select * from card_artworks order by artwork_id").all();
     const withoutEngine = createCardCatalogService(db, { identityCatalog: new Map(),
       fetch: async () => ({ ok: true, json: async () => ({ data: [fixtures[2]] }) }) });
-    await expect(withoutEngine.syncCardByName("Dark Magician")).rejects.toThrow(/Try again/);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(withoutEngine.syncCardByName("Dark Magician")).resolves.toBeUndefined();
+      await expect(withoutEngine.syncCardByName("Dark Magician")).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toContain("conflicting artwork mains");
+    } finally { warn.mockRestore(); }
     expect(db.prepare("select * from card_artworks order by artwork_id").all()).toEqual(before);
+  });
+
+  it.each(["draft", "archetype", "search", "preview"])("saves other cards in a %s sync when legacy artwork mains conflict", async (path) => {
+    const { db, catalog } = setup();
+    await catalog.syncCardByName("Dark Magician");
+    db.exec("update card_artworks set card_id = 36996508, is_main = 1 where artwork_id = 36996508");
+    const before = db.prepare("select * from card_artworks order by artwork_id").all();
+    const withoutEngine = createCardCatalogService(db, { identityCatalog: new Map(),
+      fetch: async () => ({ ok: true, json: async () => ({ data: [fixtures[0], fixtures[2], fixtures[1]] }) }) });
+    if (path === "draft") {
+      expect((await withoutEngine.syncDraftPool({ setNames: ["Artwork Test Set"], includeNames: [], excludeNames: [] }))
+        .map((card) => card.name)).toEqual([fixtures[0].name, fixtures[1].name]);
+    } else if (path === "archetype") {
+      expect((await withoutEngine.syncByArchetype("Test")).main.map((card) => card.name)).toEqual([fixtures[0].name, fixtures[1].name]);
+    } else if (path === "search") {
+      expect((await withoutEngine.syncCardsByFuzzyName("dragon")).map((card) => card.name).sort())
+        .toEqual([fixtures[0].name, fixtures[1].name].sort());
+    } else {
+      expect((await withoutEngine.getSetPreview("Artwork Test Set")).sampleCards.map((card) => card.name))
+        .toEqual([fixtures[0].name, fixtures[1].name]);
+    }
+    expect(withoutEngine.listArtworks(fixtures[0].id)).toHaveLength(fixtures[0].card_images.length);
+    expect(withoutEngine.listArtworks(fixtures[1].id)).toHaveLength(fixtures[1].card_images.length);
+    expect(db.prepare("select * from card_artworks where card_id in (46986414,36996508) order by artwork_id").all()).toEqual(before);
+    expect(db.pragma("foreign_key_check")).toEqual([]);
+    // Engine evidence can still repair the skipped family on a later sync.
+    await catalog.syncCardByName("Dark Magician");
+    expect(catalog.canonicalId(36996508)).toBe(46986414);
   });
 
   it("uses main card data even if a legacy alternate row has stale stats", async () => {
