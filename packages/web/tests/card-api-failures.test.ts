@@ -78,3 +78,32 @@ describe.each(["network", "timeout", "429", "503", "json"])("card API %s failure
     expect((await missing.json()).error).toContain("Try again");
   });
 });
+
+describe.each([400, 401, 403, 404, 422])("permanent card API HTTP %s failures", (status) => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      error: "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
+    }), { status })));
+  });
+  it.each(["resolve", "preview", "draft"])("returns 400 Unknown set for %s with an invalid set name", async (path) => {
+    const name = "Pendulum Domination Structure Decc";
+    let response: Response;
+    if (path === "resolve") {
+      const { POST } = await import("../app/api/cards/resolve/route");
+      response = await POST(new Request("http://localhost/api/cards/resolve", {
+        method: "POST", body: JSON.stringify({ setNames: [name] }),
+      }));
+    } else if (path === "preview") {
+      const { GET } = await import("../app/api/sets/[name]/route");
+      response = await GET(new NextRequest("http://localhost/api/sets/invalid"), { params: Promise.resolve({ name }) });
+    } else {
+      const { POST } = await import("../app/api/drafts/route");
+      response = await POST(new NextRequest("http://localhost/api/drafts", { method: "POST", body: JSON.stringify({
+        name, config: { setNames: [name], packSize: 8, packsPerPlayer: 5, pickSeconds: 60 },
+      }) }));
+    }
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Unknown set" });
+    expect(response.headers.get("Retry-After")).toBeNull();
+  });
+});
