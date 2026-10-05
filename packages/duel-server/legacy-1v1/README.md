@@ -19,7 +19,7 @@ See `docs/deployment/duel-engine-switch.md` for the switch and for how to roll b
 
 | File | sha256 |
 | --- | --- |
-| `ocgcore.domain.legacy.wasm` | `b5de56cf67f19a6cfa2c8cdfff74661c2c079c9ab8ce45d992398921dcd5d092` |
+| `ocgcore.domain.legacy.wasm` | `42295276e7bbd73018b127c8c4fbce8137b381a5e638f6551368858ec74f298e` |
 | `domain.legacy.lua` (equal to main's `domain.lua`) | `405c8a09716128cb0f63b34f25d9dbed2e9fcf6748d57d45329fb61d2166ae99` |
 
 The original production wasm at `78b8caa` had SHA-256 `1ca9f3187fb534579e843264ba6c06a0b281c81f17fb064c6d4cc66f32c84c3d`. The current wasm includes the owner-approved Deck Master corrections; the Lua stays equal to the original production file.

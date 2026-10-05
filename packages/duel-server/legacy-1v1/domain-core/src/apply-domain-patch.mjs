@@ -150,9 +150,21 @@ patch("field.h", [
 patch("field.cpp", [
   [
     `		if(is_flag(DUEL_FSX_MMZONE) && pcard && pcard->is_position(POS_FACEDOWN) && (pcard->data.type & (get_extra_deck_types() & ~TYPE_LINK)))`,
-    `		if(is_flag(DUEL_FSX_MMZONE) && pcard
-				&& (pcard->is_position(POS_FACEDOWN) || pcard->current.location == LOCATION_DECKMASTER)
+    `		if(pcard && ((is_flag(DUEL_FSX_MMZONE) && pcard->is_position(POS_FACEDOWN))
+				|| pcard->current.location == LOCATION_DECKMASTER)
 				&& (pcard->data.type & (get_extra_deck_types() & ~TYPE_LINK)))`,
+  ],
+  [
+    `	if (location != LOCATION_MZONE && location != LOCATION_SZONE)
+		return 0;
+	uint32_t flag = player[playerid].disabled_location | player[playerid].used_location;`,
+    `	if (location != LOCATION_MZONE && location != LOCATION_SZONE)
+		return 0;
+	// Before MR4 there are no EMZs; a Link DM still needs a linked MMZ.
+	if(location == LOCATION_MZONE && !is_flag(DUEL_EMZONE) && pcard
+			&& pcard->current.location == LOCATION_DECKMASTER && (pcard->data.type & TYPE_LINK))
+		zone &= get_linked_zone(playerid);
+	uint32_t flag = player[playerid].disabled_location | player[playerid].used_location;`,
   ],
   [
     `	if(location == LOCATION_MZONE && pcard && pcard->current.location == LOCATION_EXTRA)`,

@@ -9,7 +9,7 @@ Owner approval: 2026-10-04. Scope: pinned 1v1 Domain, multiplayer Domain, and le
 | K22 / gap 1 | 193–199 | `domain-core/src/apply-domain-patch.mjs:944` passed the Pendulum activation effect as the tax reason. `domain-core/pins.json:34` explicitly documented Spell Economics waiving that tax. Legacy repeats this at `legacy-1v1/domain-core/src/apply-domain-patch.mjs:929` and `legacy-1v1/domain-core/pins.json:34`. |
 | K20 | 190–191 | `domain-core/src/domain_master.cpp:185` raised only `EVENT_LEAVE_GRAVE`. The legacy copy has the same code. `domain-core/src/apply-domain-multi.mjs:258` adapts the recall event's no-player sentinel for multiplayer. The pinned engine defines `EVENT_LEAVE_GRAVE` and `EVENT_MOVE`, but no dedicated leave-hand, leave-Deck or leave-banishment event; those departures are represented by `EVENT_MOVE` and previous-location metadata. |
 | K4 | 136 | `domain-core/src/apply-domain-patch.mjs:492` and its legacy copy allow effects with `EFFECT_FLAG_IGNORE_IMMUNE` through DMZ immunity. The stock `card::is_capable_be_effect_target` also lacks a DMZ exclusion. The DMZ procedure range adapter at `domain-core/src/apply-domain-patch.mjs:454` did not verify effect ownership; stock single-effect lookups and explicit summon-procedure checks can bypass immunity. |
-| K13 | 166–168 | `domain-core/src/apply-domain-patch.mjs:153` and its legacy copy require `DUEL_FSX_MMZONE` for a non-Link DM's unrestricted Main Monster Zone placement. `src/engine.ts:276` accepts MR1–5; `src/host.ts:2164` allows these values. ADR-0002:5 restricts only multiplayer to MR5, so MR4 Domain 1v1 is reachable. |
+| K13 | 166–168 | `domain-core/src/apply-domain-patch.mjs:153` and its legacy copy require `DUEL_FSX_MMZONE` for a non-Link DM's unrestricted Main Monster Zone placement. `src/engine.ts:276` accepts MR1–5; `src/host.ts:2164` allows these values. ADR-0002:5 restricts only multiplayer to MR5, so MR1–5 Domain 1v1 are reachable. The no-EMZ stock path through `field::get_tofield_count` also omitted the Link DM restriction for MR1–3. |
 
 ## Implementation and verification plan
 
@@ -49,3 +49,26 @@ K20 verification: all five move-origin scenarios failed before the change. After
 | legacy | `b5de56cf67f19a6cfa2c8cdfff74661c2c079c9ab8ce45d992398921dcd5d092` |
 
 K4 verification: baseline ignore-immunity movement, effect targeting, and external procedure probes failed. Review also reproduced foreign-owned single and field procedures registered on the DM, including explicit summon eligibility; ownership checks now cover lookup, range, and direct procedure checks. The final builds passed all 65 immunity scenarios across five variants, and all 105 immunity/action-cost/departure scenarios together. Pinned immunity plus existing Pendulum and leave-tax controls passed 20/20. A temporary review diagnostic confirmed 5/5 variants refuse a 500 LP Pendulum leave with only 499 LP under Spell Economics. The updated legacy pin check and TypeScript check pass; final K4 review found no important issues.
+
+## Verified cores after K13
+
+| Core | SHA-256 |
+| --- | --- |
+| domain | `01611db77c00ddef07a3d4cfc88800f5c523e3a388c3732616a79fa19b3c4a63` |
+| multi-domain | `f296a0251c8272f176832148214278d5df1247096fd7f13af4b1ef024390cfba` |
+| legacy | `42295276e7bbd73018b127c8c4fbce8137b381a5e638f6551368858ec74f298e` |
+
+K13 verification: 10/19 pinned placement scenarios failed before the change, covering MR4 Fusion/Synchro/Xyz MMZ placement and early-rule Link eligibility/placement/material arrows. The rebuilt pinned core passed 19/19. Final verification passed 183/183 tests in 13 targeted files with one Vitest worker: all 155 new scenarios across pinned, legacy core, FFA3, FFA4 and Tag, the existing pinned and legacy-adapter Pendulum/leave-tax/recall-kind/Extra bridge tests, and the pin guard tests. The overlay-recall, NS/Set-from-DMZ and Link-from-DMZ smoke scripts passed. TypeScript checking, legacy pin verification, and both final Domain SHA-file comparisons passed. K13 review found no important issues. All builds held the supplied lock and used at most two compiler jobs.
+
+## Final source evidence
+
+Paths below are relative to `packages/duel-server/`.
+
+| Gap | Pinned and multiplayer source | Legacy source |
+| --- | --- | --- |
+| K22 | `domain-core/src/apply-domain-patch.mjs:994` | `legacy-1v1/domain-core/src/apply-domain-patch.mjs:979` |
+| K20 | `domain-core/src/domain_master.cpp:185` | `legacy-1v1/domain-core/src/domain_master.cpp:185` |
+| K4 | `domain-core/src/apply-domain-patch.mjs:504`, `:1039` | `legacy-1v1/domain-core/src/apply-domain-patch.mjs:504`, `:1024` |
+| K13 | `domain-core/src/apply-domain-patch.mjs:153`, `:163` | `legacy-1v1/domain-core/src/apply-domain-patch.mjs:153`, `:163` |
+
+Cleanup: the private engine/compiler tree, Domain and legacy build outputs, and generated shared package output were removed after passing final verification.

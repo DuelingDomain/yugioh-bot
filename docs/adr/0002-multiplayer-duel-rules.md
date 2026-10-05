@@ -151,3 +151,5 @@ A Deck Master in the DMZ cannot be targeted or affected by other cards, includin
 
 - The EDOPro core supports only two sides. Separate fields for 3 or 4 duelists need core changes; the engine design is a separate decision (see `docs/roadmap.md`, step 1).
 - The app model moves from "two seats" to "N duelists in teams": LP per team, one winner or a winning team, N clocks, per-seat privacy with a partner rule, and a multi-field layout.
+
+Domain 1v1 accepts Master Rules 1–5; multiplayer accepts MR5. A non-Link Extra Deck Deck Master summoned from the DMZ can use any available Main Monster Zone and, in MR4/5, either Extra Monster Zone. This exception does not depend on the MR5 Fusion/Synchro/Xyz placement flag. A Link Deck Master uses an Extra Monster Zone or a Main Monster Zone a Link Monster points to; MR1–3 have no Extra Monster Zones, so it needs a linked Main Monster Zone. Material checks recompute arrows after removing the selected materials. Ordinary Extra Deck monsters retain their Master Rule placement restrictions.
