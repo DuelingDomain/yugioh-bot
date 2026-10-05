@@ -1,6 +1,6 @@
 import type { DuelChainLink, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { ev, MZ, SZ } from "../../fx-lab/board";
-import { LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, POS_FACEDOWN_DEFENSE, zoneKey } from "../../constants";
+import { LOCATION_HAND, LOCATION_MZONE, LOCATION_SZONE, POS_FACEDOWN_DEFENSE, POS_FACEUP_DEFENSE, zoneKey } from "../../constants";
 import {
   fixtureEngine,
   fixtureRoom,
@@ -244,19 +244,41 @@ const states = {
 
 export const FFA4_FIXTURES: TableFixtureSet = { format: "ffa4", title: "4-way free-for-all", states };
 
+/** Monsters for the Defense board, by seat: big ATK/DEF and 0/0 cards, so the plates are wide and narrow. */
+const DEFENSE_ROWS = [
+  [C.darkMagician, C.celtic, C.envoy, C.jinzo, C.sangan],
+  [C.blueEyes, C.sangan, C.gaia, C.summonedSkull, C.redEyes],
+  [C.redEyes, C.gaia, C.cyberDragon, C.sangan, C.blackChaos],
+  [C.summonedSkull, C.sangan, C.blueEyes, C.chaosEmperor, C.darkPaladin],
+] as const;
+
 /**
- * A preview variant of the 4-way fixtures for the pair-lift review (`?out=2,3&pick=field`). Every state of the set gets
- * the seats in `out` swept clean and eliminated (the first one went out first); `pick` replaces the prompt with a pick
- * among your own field cards (`field`, or `emz` with one in an Extra Monster Zone) or your hand (`hand`), which the room
- * answers on the board.
+ * Every seat fills its five Monster Zones in Defense Position (face-up and set, turn about) and one Extra Monster Zone,
+ * so each shared row holds two Defense cards: one of each field of the pair (the top one turned half way).
  */
-export function ffa4Variant(set: TableFixtureSet, opts: { out: readonly number[]; pick?: "field" | "hand" | "emz" | null }): TableFixtureSet {
-  if (opts.out.length === 0 && !opts.pick) return set;
+function fillDefense(seats: DuelSeatView[]): void {
+  for (const view of seats) {
+    if (view.eliminated) continue;
+    view.monsters = [...view.monsters];
+    DEFENSE_ROWS[view.seat].forEach((card, sequence) => putMonster(view, sequence, card, sequence % 2 === 0 ? POS_FACEUP_DEFENSE : POS_FACEDOWN_DEFENSE));
+    putMonster(view, 5, view.seat % 2 === 0 ? C.stardust : C.darkPaladin, POS_FACEUP_DEFENSE);
+  }
+}
+
+/**
+ * A preview variant of the 4-way fixtures for the pair-lift review (`?out=2,3&pick=field&def=1`). Every state of the set
+ * gets the seats in `out` swept clean and eliminated (the first one went out first); `pick` replaces the prompt with a
+ * pick among your own field cards (`field`, or `emz` with one in an Extra Monster Zone) or your hand (`hand`), which the
+ * room answers on the board; `defense` fills every live field with Defense Position monsters (see fillDefense).
+ */
+export function ffa4Variant(set: TableFixtureSet, opts: { out: readonly number[]; pick?: "field" | "hand" | "emz" | null; defense?: boolean }): TableFixtureSet {
+  if (opts.out.length === 0 && !opts.pick && !opts.defense) return set;
   const states = Object.fromEntries(
     Object.entries(set.states).map(([id, state]) => {
       const engine = state.room.engine!;
       const seats = engine.seats.map((view) => ({ ...view }));
       for (const seat of opts.out) leave(seats[seat]);
+      if (opts.defense) fillDefense(seats);
       let prompt = engine.prompt;
       if (opts.pick && state.room.mySeat === ASTER) {
         const own = seats[ASTER];
