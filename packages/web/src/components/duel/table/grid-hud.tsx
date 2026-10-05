@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
-import { Clock3, Link2, ScrollText, SlidersHorizontal, X } from "lucide-react";
+import { Link2, ScrollText, SlidersHorizontal, X } from "lucide-react";
 import type { DuelChainLink } from "@yugidraft/shared/duels";
 import { cardArtUrl } from "../constants";
 import { unreadLabel } from "../side-panel";
@@ -14,22 +14,21 @@ import styles from "./grid-hud.module.css";
  */
 
 /** The panes the HUD can open. `master` and `card` are not dock icons: the Deck Master token and a card click open them. */
-export type HudPane = "card" | "log" | "settings" | "history" | "chain" | "master";
+export type HudPane = "card" | "log" | "settings" | "chain" | "master";
 
-export const DOCK_PANES = ["log", "settings", "history", "chain"] as const;
+export const DOCK_PANES = ["log", "settings", "chain"] as const;
 
 export const HUD_PANE_LABEL: Record<HudPane, string> = {
   card: "Card",
   log: "Log",
   settings: "Settings",
-  history: "History",
   chain: "Chain",
   master: "Deck Master",
 };
 
 type SeatTones = ReadonlyMap<number, { main: string; ink: string }>;
 
-const DOCK_ICON = { log: ScrollText, settings: SlidersHorizontal, history: Clock3, chain: Link2 } as const;
+const DOCK_ICON = { log: ScrollText, settings: SlidersHorizontal, chain: Link2 } as const;
 
 /**
  * Closes the open flyout with Esc (before any other key handler sees it) or a press outside the parts marked
