@@ -19,8 +19,9 @@ import {
 } from "./grid-layout";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
-import { RivalField } from "./rival-field";
+import { ExitingSeat, RivalField } from "./rival-field";
 import { textScale } from "./seat-angle";
+import { useSeatExits } from "./use-seat-exits";
 import type { SeatFieldProps, SeatTone } from "./types";
 import type { TableStageViewProps } from "./table-stage";
 import styles from "./grid-stage.module.css";
@@ -118,7 +119,7 @@ function useViewTween(target: GridView | null, reduced: boolean) {
 const OWN_CLICK = "button, a, input, select, textarea, [role='button'], [data-zones], [data-legal='true']";
 
 /** The 4-way table as two columns of facing fields that share an Extra Monster row (see grid-layout.ts). */
-export function GridStage({ controller, layout, camera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, grid }: TableStageViewProps) {
+export function GridStage({ controller, layout, camera, renderSeatField, fx, promptCenter, overlay, wantMode, locked = false, grid, placeLabels }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ width: 0, height: 0 });
@@ -144,9 +145,26 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const world = useMemo(() => gridWorld(masterRule), [masterRule]);
   const cells = useMemo(() => gridCells(layout), [layout]);
   const tones = useMemo(() => new Map<number, SeatTone>(layout.slots.map((slot) => [slot.seat, slot.tone])), [layout.slots]);
-  const states = useCellStates(engine.seats);
+  const holdStates = useCellStates(engine.seats);
+  const poses = useMemo(() => new Map(cells.map((cell) => [cell.seat, gridPose(cell, world)] as const)), [cells, world]);
+  // A seat that goes out while the table is open crumbles in its own cell (the layer of the plaza stage); nothing moves.
+  const { exits, finish } = useSeatExits({
+    out: engine.seats.filter((view) => view.eliminated === true).map((view) => view.seat),
+    seats: engine.seats,
+    poses,
+    faceUpHand: (seat) => layout.slots.find((slot) => slot.seat === seat)?.relation === "self",
+    enabled: true,
+    resetKey: `${room.session.slug}:${room.series?.gameNumber ?? 0}`,
+  });
+  // `out` = the crumble is playing in the cell. It ends with the layer (or with the hold, whichever comes first), and the
+  // cell is then empty. The shared Extra Monster row is already the partner's while the layer plays.
+  const states = useMemo(() => {
+    const exiting = new Set(exits.map((exit) => exit.seat));
+    return new Map<number, CellState>([...holdStates].map(([seat, state]) => [seat, state === "live" ? "live" : exiting.has(seat) && state === "out" ? "out" : "empty"]));
+  }, [holdStates, exits]);
+  const layoutStates = useMemo(() => new Map<number, CellState>([...states].map(([seat, state]) => [seat, state === "out" ? "empty" : state])), [states]);
   const homeCell = cells.find((cell) => cell.home);
-  const shown = useMemo(() => cells.filter((cell) => (states.get(cell.seat) ?? "live") !== "empty").map((cell) => cell.seat), [cells, states]);
+  const shown = useMemo(() => cells.filter((cell) => (layoutStates.get(cell.seat) ?? "live") !== "empty").map((cell) => cell.seat), [cells, layoutStates]);
 
   // The shell owns the focus (the turn strip drives it too). A stage that is rendered alone keeps its own.
   const picks = controller.seatPick;
@@ -243,12 +261,13 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
         <div className={styles.world} ref={worldRef} style={{ width: world.width, height: world.height }} onClick={onClick} onFocusCapture={onFocus}>
           {cells.map((cell) => {
             const slot = layout.slots.find((entry) => entry.seat === cell.seat);
-            const pose = gridPose(cell, world);
+            const pose = poses.get(cell.seat) ?? gridPose(cell, world);
             const state = states.get(cell.seat) ?? "live";
             if (!slot) return null;
-            const empty = state === "empty";
+            const empty = state !== "live";
+            const exit = exits.find((entry) => entry.seat === cell.seat);
             const self = slot.relation === "self";
-            const drawer = pairDrawer(cells, states, cell.column);
+            const drawer = pairDrawer(cells, layoutStates, cell.column);
             const band = gridBand(cell.column, cell.column === homeColumn, world);
             const bottom = cell.row === 1;
             const field: Omit<SeatFieldProps, "angleDeg" | "scale"> = {
@@ -266,7 +285,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 other: cell.partner,
                 left: bottom ? band.bottomRoom : band.topRoom,
                 right: bottom ? band.topRoom : band.bottomRoom,
-                joined: (states.get(cell.partner) ?? "live") !== "empty",
+                joined: (layoutStates.get(cell.partner) ?? "live") !== "empty",
               },
               showTally: false,
               usable: slot.relation === "self" || slot.relation === "opponent",
@@ -289,6 +308,17 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 data-partner={cell.home ? cell.partner : undefined}
               >
                 {empty ? null : <RivalField pose={pose} field={field} render={renderSeatField} />}
+                {state === "out" && exit ? (
+                  <ExitingSeat
+                    pose={pose}
+                    tone={slot.tone}
+                    view={exit.view}
+                    masterRule={masterRule}
+                    faceUpHand={exit.faceUpHand}
+                    reducedMotion={reducedMotion}
+                    onDone={() => finish(cell.seat)}
+                  />
+                ) : null}
               </div>
             );
           })}
@@ -323,6 +353,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                   onPick={() => picks?.onPick(cell.seat)}
                   onHover={(hover) => controller.onAim?.(hover ? { lpSeat: cell.seat } : null)}
                   reducedMotion={reducedMotion}
+                  placeLabel={placeLabels?.get(cell.seat) ?? null}
                 />
               </div>
             );
