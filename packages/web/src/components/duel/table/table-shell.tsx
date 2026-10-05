@@ -2,7 +2,7 @@
 
 import { eliminationOrder } from "@/lib/duel/elimination-order";
 import { connectionLabel as labelForConnection } from "../connection-label";
-import { useCallback, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { Circle, Diamond, Eye, Radio, Volume2, VolumeX } from "lucide-react";
 import type { DuelCard } from "@yugidraft/shared/duels";
@@ -46,6 +46,7 @@ import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
 import { useGridFocus } from "./grid-focus";
+import { ChainList, ChainTower, DOCK_PANES, GridDock, GridFlyout, useHudDismiss, type HudPane } from "./grid-hud";
 import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
 import { OpponentBar } from "./opponent-bar";
@@ -59,7 +60,11 @@ import { useAimFlow } from "./use-aim-flow";
 import { useCamera } from "./use-camera";
 import { useTableUi } from "./use-table-ui";
 import { SEAT_TONE_HEX, type CameraLockReason, type CameraState, type TableController, type TableFormat } from "./types";
+import hudStyles from "./grid-hud.module.css";
 import styles from "./table-shell.module.css";
+
+/** Panes that stay mounted while hidden, so they keep the rows they built (the log counts the new ones). */
+const HUD_KEEP: readonly HudPane[] = ["log", "history"];
 
 export interface TableShellActions {
   onExit?: () => void;
@@ -160,7 +165,11 @@ function TableShellBody({
     given.onAnswer(answer);
   }, [given, pick.noteAnswer, pickContinuation]);
   const tracked = useMemo(() => ({ ...given, onAnswer }), [given, onAnswer]);
-  const ui = useTableUi(tracked);
+  const narrow = useIsNarrow();
+  // The 4-way grid on a wide screen swaps the bars and side columns for the floating HUD (grid-hud.tsx).
+  const hud = !narrow && usesGridLayout(engineFormat(tracked.engine) as TableFormat, tracked.engine.seats);
+  // The Card pane is a flyout in the HUD: a hover must not fill it, only a click or Inspect does.
+  const ui = useTableUi(tracked, { initialPane: hud ? "log" : undefined });
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
   const format = engineFormat(engine);
@@ -176,8 +185,8 @@ function TableShellBody({
   const rootRef = useRef<HTMLDivElement>(null);
   const ownBoardRef = useRef<HTMLDivElement>(null);
   const boardRef = roomBoardRef ?? ownBoardRef;
-  const narrow = useIsNarrow();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [hudPane, setHudPane] = useState<HudPane | null>(null);
   const suspended = inputSuspended || ui.suspended || (narrow && sheetOpen);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
@@ -191,7 +200,7 @@ function TableShellBody({
     shown: gridShown,
     suspended,
     digitsFree: !flow.seatKeys,
-    escapeFree: !flow.aiming && !(controller.prompt && (controller.prompt.cancelable || controller.prompt.finishable)),
+    escapeFree: !flow.aiming && hudPane == null && !(controller.prompt && (controller.prompt.cancelable || controller.prompt.finishable)),
   });
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
@@ -283,7 +292,7 @@ function TableShellBody({
     out: camera.out,
   };
   const playersText = session.seats.map((seat) => seat.displayName).join(" v ");
-  const logVisible = ui.pane === "log" && (!narrow || sheetOpen);
+  const logVisible = hud ? hudPane === "log" : ui.pane === "log" && (!narrow || sheetOpen);
   const inspectCard = (target: InspectTarget) => { ui.inspectCard(target); if (narrow) setSheetOpen(true); };
   // Before anything is hovered the Card tab shows the viewer's first face-up monster (else a hand card), as the tag table does.
   const startCard = ui.inspect ? null : firstInspectCard(engine, viewerSeat);
@@ -320,8 +329,98 @@ function TableShellBody({
     </div>
   );
 
+  const toggleHud = useCallback((pane: HudPane) => setHudPane((current) => (current === pane ? null : pane)), []);
+  useHudDismiss(hud && hudPane != null, ui.suspended, () => setHudPane(null));
+  // A click or Inspect on a card opens the Card pane, unless that click opened an action menu (it keeps the board clear).
+  const menuOpen = ui.menu != null;
+  useEffect(() => {
+    if (hud && ui.inspect && !menuOpen) setHudPane("card");
+    // Only a new inspect target opens it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hud, ui.inspect]);
+  const hudTabs: readonly HudPane[] = hudPane === "card" ? ["card", ...DOCK_PANES] : DOCK_PANES;
+  const hudPanels: Partial<Record<HudPane, ReactNode>> = {
+    card: cardPanel,
+    log: logPanel,
+    settings: <TableSettings controller={controller} preferences={preferences} connection={connection} tools={settingsTools} />,
+    history: (
+      <HistoryStrip
+        engine={engine}
+        mySeat={viewerSeat}
+        playerName={nameOf}
+        seatTones={seatTones}
+        onInspectCard={(card) => inspectCard("location" in card ? { type: "card", card } : { type: "info", card })}
+      />
+    ),
+    chain: <ChainList chain={engine.chain} nameOf={nameOf} tones={seatTones} />,
+  };
+
   const pileSeat = ui.pile?.seat;
   const out = standings.filter((entry) => engine.seats.find((view) => view.seat === entry.seat)?.eliminated === true);
+
+  const identityNode = (
+    <div className={roomStyles.identity}>
+      <Link href="/duels">Duelists Kingdom</Link>
+      {spectator ? (
+        <strong className={roomStyles.viewerRole} title="You are watching. Hidden cards stay private.">
+          <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
+        </strong>
+      ) : null}
+      <span className={roomStyles.format}>
+        {domain ? (isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain") : `MR${session.masterRule}`} · {formatLabel(format)}
+      </span>
+    </div>
+  );
+  const turnNode = (
+    <div className={roomStyles.turn}>
+      <strong>Turn {engine.turn}</strong>
+      <span className={roomStyles.phaseName} data-step={battleStep ?? undefined}>{headerPhase}</span>
+      <span
+        className={`${roomStyles.whoPill} ${styles.whoTone}`}
+        data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
+        data-testid="who-pill"
+        style={{ "--seat-main": toneOf(turnSeat).main, "--seat-ink": toneOf(turnSeat).ink } as CSSProperties}
+      >
+        {spectator ? <Eye size={13} strokeWidth={1.75} aria-hidden /> : myTurn
+          ? <Diamond size={13} strokeWidth={1.75} fill="currentColor" aria-hidden />
+          : <Circle size={13} strokeWidth={1.75} aria-hidden />}
+        {turnText}
+      </span>
+    </div>
+  );
+  const statusNode = (
+    <div className={roomStyles.status}>
+      {headerTools}
+      <span className={roomStyles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
+        {connectionLabel === "Live" ? <i className={roomStyles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
+        <span className={roomStyles.connectionText}>
+          {connectionLabel === "Live" ? spectator ? "Live duel · watching" : "Live duel" : connectionLabel}
+        </span>
+      </span>
+      {hasResult && hideResult ? (
+        <button type="button" className={roomStyles.tool} onClick={() => setHideResult(false)}><span>Show result</span></button>
+      ) : null}
+      {hasResult && resultReady ? (
+        <button type="button" className={roomStyles.tool} onClick={actions?.onExit}><span>Exit duel</span></button>
+      ) : null}
+      <button
+        type="button"
+        className={`${roomStyles.tool} ${roomStyles.pref}`}
+        aria-label={`Sound effects ${soundLabel.toLowerCase()}`}
+        onClick={() => preferences.setSoundEnabled(!preferences.soundEnabled)}
+      >
+        {preferences.soundEnabled ? <Volume2 size={16} strokeWidth={1.75} aria-hidden /> : <VolumeX size={16} strokeWidth={1.75} aria-hidden />}
+        <span>Sound <b>{soundLabel}</b></span>
+      </button>
+    </div>
+  );
+
+  const seatStripNode = (
+    <SeatStrip engine={engine} mySeat={viewerSeat} nameOf={nameOf} promptSeat={controller.promptSeat}
+      focusSeat={grid ? gridFocus.focus.seat : camera.state.focusSeat} focusAny={grid}
+      onFocusSeat={grid ? gridFocus.focusSeat : (seat) => camera.dispatch({ type: "focus", seat })}
+      pick={canAct && controller.revealed ? controller.seatPick : null} />
+  );
 
   return (
     <div
@@ -334,62 +433,24 @@ function TableShellBody({
       data-domain={domain}
       data-fit="true"
       data-grid={grid ? "true" : undefined}
+      data-hud={hud ? "true" : undefined}
       data-phase={battle ? "battle" : undefined}
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
     >
-      <header className={roomStyles.header}>
-        <div className={roomStyles.identity}>
-          <Link href="/duels">Duelists Kingdom</Link>
-          {spectator ? (
-            <strong className={roomStyles.viewerRole} title="You are watching. Hidden cards stay private.">
-              <Eye size={15} strokeWidth={1.5} aria-hidden /> You are spectating
-            </strong>
-          ) : null}
-          <span className={roomStyles.format}>
-            {domain ? (isCustomDomain(session.masterRule, session.settings) ? "Custom Domain" : "Domain") : `MR${session.masterRule}`} · {formatLabel(format)}
-          </span>
+      {hud ? (
+        <div className={hudStyles.top} data-testid="hud-top">
+          <div className={hudStyles.topLeft}>{identityNode}</div>
+          <div className={hudStyles.topMid}>{seatStripNode}</div>
+          <div className={hudStyles.topRight}>{turnNode}{statusNode}</div>
         </div>
-        <div className={roomStyles.turn}>
-          <strong>Turn {engine.turn}</strong>
-          <span className={roomStyles.phaseName} data-step={battleStep ?? undefined}>{headerPhase}</span>
-          <span
-            className={`${roomStyles.whoPill} ${styles.whoTone}`}
-            data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
-            data-testid="who-pill"
-            style={{ "--seat-main": toneOf(turnSeat).main, "--seat-ink": toneOf(turnSeat).ink } as CSSProperties}
-          >
-            {spectator ? <Eye size={13} strokeWidth={1.75} aria-hidden /> : myTurn
-              ? <Diamond size={13} strokeWidth={1.75} fill="currentColor" aria-hidden />
-              : <Circle size={13} strokeWidth={1.75} aria-hidden />}
-            {turnText}
-          </span>
-        </div>
-        <div className={roomStyles.status}>
-          {headerTools}
-          <span className={roomStyles.connectionStatus} role="status" aria-live="polite" data-live={connectionLabel === "Live"}>
-            {connectionLabel === "Live" ? <i className={roomStyles.liveDot} aria-hidden /> : <Radio size={15} strokeWidth={1.75} aria-hidden />}
-            <span className={roomStyles.connectionText}>
-              {connectionLabel === "Live" ? spectator ? "Live duel · watching" : "Live duel" : connectionLabel}
-            </span>
-          </span>
-          {hasResult && hideResult ? (
-            <button type="button" className={roomStyles.tool} onClick={() => setHideResult(false)}><span>Show result</span></button>
-          ) : null}
-          {hasResult && resultReady ? (
-            <button type="button" className={roomStyles.tool} onClick={actions?.onExit}><span>Exit duel</span></button>
-          ) : null}
-          <button
-            type="button"
-            className={`${roomStyles.tool} ${roomStyles.pref}`}
-            aria-label={`Sound effects ${soundLabel.toLowerCase()}`}
-            onClick={() => preferences.setSoundEnabled(!preferences.soundEnabled)}
-          >
-            {preferences.soundEnabled ? <Volume2 size={16} strokeWidth={1.75} aria-hidden /> : <VolumeX size={16} strokeWidth={1.75} aria-hidden />}
-            <span>Sound <b>{soundLabel}</b></span>
-          </button>
-        </div>
-      </header>
+      ) : (
+        <header className={roomStyles.header}>
+          {identityNode}
+          {turnNode}
+          {statusNode}
+        </header>
+      )}
       {room.series && !showResult ? (
         <SeriesBanner
           room={room}
@@ -398,11 +459,11 @@ function TableShellBody({
           onNavigate={(next) => actions?.onNavigate?.(next)}
         />
       ) : null}
-      <div className={roomStyles.layout}>
-        <div className={roomStyles.notices} data-prompt-surface="">
+      <div className={`${roomStyles.layout} ${hud ? styles.hudLayout : ""}`}>
+        <div className={`${roomStyles.notices} ${hud ? styles.hudNotices : ""}`} data-prompt-surface="">
           <div className="pointer-events-auto">{notices}</div>
         </div>
-        {narrow ? null : (
+        {narrow || hud ? null : (
           <aside className={roomStyles.inspector}>
             <HistoryStrip
               engine={engine}
@@ -421,7 +482,7 @@ function TableShellBody({
           </aside>
         )}
         <div
-          className={roomStyles.promptDock}
+          className={`${roomStyles.promptDock} ${hud ? styles.hudPrompt : ""}`}
           data-mode={dockMode}
           data-tone={prompt?.context?.type === "chain" ? "chain" : "action"}
           data-idle={dockMode === "idle" ? "true" : "false"}
@@ -443,7 +504,7 @@ function TableShellBody({
             disabledIds={outSeatOptionIds(prompt, outOrLeavingSeats(engine.seats))}
           />
         </div>
-        <section className={roomStyles.boardColumn} aria-label="Duel field">
+        <section className={`${roomStyles.boardColumn} ${hud ? styles.hudBoard : ""}`} aria-label="Duel field">
           <div className={roomStyles.board} ref={boardRef}>
             <MoveSourceBoundary events={engine.events} duelKey={session.slug} root={boardRef}>
               <Stage
@@ -541,36 +602,63 @@ function TableShellBody({
             </MoveSourceBoundary>
           </div>
         </section>
-        {masterRail && !narrow ? (
+        {masterRail && !narrow && !hud ? (
           <aside className={roomStyles.masters} aria-label="Deck Masters">
             {masterRail}
             {grid ? null : <CameraControls {...cameraProps} variant="panel" />}
           </aside>
         ) : null}
       </div>
-      <div className={roomStyles.track}>
-        <SeatStrip engine={engine} mySeat={viewerSeat} nameOf={nameOf} promptSeat={controller.promptSeat}
-          focusSeat={grid ? gridFocus.focus.seat : camera.state.focusSeat} focusAny={grid}
-          onFocusSeat={grid ? gridFocus.focusSeat : (seat) => camera.dispatch({ type: "focus", seat })}
-          pick={canAct && controller.revealed ? controller.seatPick : null} />
-        <StationTrack
-          phase={engine.phase}
-          battleStep={battleStep}
-          turn={engine.turn}
-          turnSeat={engine.turnSeat}
-          mySeat={viewerSeat}
-          playerName={nameOf}
-          actionOptions={promptMine ? actionOptions : []}
-          canAct={canAct}
-          noLegalMoves={canAct && hasNoLegalMoves(actionOptions)}
-          onChoose={(id) => controller.onAnswer({ choice: id })}
-          clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} compact /> : null}
-          caption={trackCaption}
-          reducedMotion={controller.reducedMotion}
-          attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
-          chainMode={chainMode}
-        />
-      </div>
+      {hud ? (
+        <div className={hudStyles.bottom} data-testid="hud-bottom">
+          <StationTrack
+            phase={engine.phase}
+            battleStep={battleStep}
+            turn={engine.turn}
+            turnSeat={engine.turnSeat}
+            mySeat={viewerSeat}
+            playerName={nameOf}
+            actionOptions={promptMine ? actionOptions : []}
+            canAct={canAct}
+            noLegalMoves={canAct && hasNoLegalMoves(actionOptions)}
+            onChoose={(id) => controller.onAnswer({ choice: id })}
+            clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} compact /> : null}
+            caption={trackCaption}
+            reducedMotion={controller.reducedMotion}
+            attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
+            chainMode={chainMode}
+          />
+        </div>
+      ) : (
+        <div className={roomStyles.track}>
+          {seatStripNode}
+          <StationTrack
+            phase={engine.phase}
+            battleStep={battleStep}
+            turn={engine.turn}
+            turnSeat={engine.turnSeat}
+            mySeat={viewerSeat}
+            playerName={nameOf}
+            actionOptions={promptMine ? actionOptions : []}
+            canAct={canAct}
+            noLegalMoves={canAct && hasNoLegalMoves(actionOptions)}
+            onChoose={(id) => controller.onAnswer({ choice: id })}
+            clock={room.clock?.activeSeat != null ? <DuelClockDisplay key={room.clock.serverNow} clock={room.clock} session={session} compact /> : null}
+            caption={trackCaption}
+            reducedMotion={controller.reducedMotion}
+            attackLock={attackLockAt(format, engine.seats.length, engine.turn, engine.prompt)}
+            chainMode={chainMode}
+          />
+        </div>
+      )}
+      {hud ? (
+        <>
+          <GridDock pane={hudPane} onToggle={toggleHud} unread={logUnread} chainCount={chainOpen ? engine.chain.length : 0} />
+          {chainOpen ? <ChainTower chain={engine.chain} nameOf={nameOf} tones={seatTones} onOpen={() => setHudPane("chain")} /> : null}
+          <GridFlyout pane={hudPane} tabs={hudTabs} panels={hudPanels} keepMounted={HUD_KEEP} onSelect={setHudPane} onClose={() => setHudPane(null)}
+            chainCount={chainOpen ? engine.chain.length : 0} chainLive={chainOpen} />
+        </>
+      ) : null}
       {narrow ? <TablePhonePanes domain={domain} pane={ui.pane} open={sheetOpen} unread={logUnread}
         onClose={() => setSheetOpen(false)} onSelect={(pane) => { ui.setPane(pane); setSheetOpen(true); }}
         card={cardPanel} log={logPanel}

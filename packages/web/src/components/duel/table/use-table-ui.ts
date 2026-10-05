@@ -36,13 +36,13 @@ export interface TableUi {
   inspectCard: (target: InspectTarget) => void;
 }
 
-export function useTableUi(base: TableController): TableUi {
+export function useTableUi(base: TableController, options: { initialPane?: SidePane } = {}): TableUi {
   const { engine, prompt, viewerSeat, canAct, busy, draft, onAnswer } = base;
   const [menu, setMenu] = useState<CardMenuState | null>(null);
   const [hover, setHover] = useState<{ card: DuelCard; anchor: HTMLElement } | null>(null);
   const [pile, setPile] = useState<PileView | null>(null);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
-  const [pane, setPane] = useState<SidePane>(DEFAULT_SIDE_PANE);
+  const [pane, setPane] = useState<SidePane>(options.initialPane ?? DEFAULT_SIDE_PANE);
   const [pendingAttack, setPendingAttack] = useState<{ key: string; direct: boolean } | null>(null);
 
   const promptId = prompt?.id ?? null;

@@ -109,7 +109,7 @@ export function masterCard(view: DuelSeatView): DuelCard | null {
   return findByCode(view, master.card.code);
 }
 
-function masterStatus(view: DuelSeatView): string {
+export function masterStatus(view: DuelSeatView): string {
   const master = view.deckMaster;
   if (!master) return "No Deck Master";
   if (master.inZone) return "In Deck Master Zone";
@@ -121,7 +121,7 @@ function masterStatus(view: DuelSeatView): string {
 }
 
 /** Two short lines for a dock: "DARK · Level 7" and "Spellcaster". */
-function masterDetailLines(card: DuelCardInfo): string[] {
+export function masterDetailLines(card: DuelCardInfo): string[] {
   const [first, second] = cardDetailsText(card).split(" · ");
   const rank = second != null ? first : "";
   const identity = second ?? first ?? "";

@@ -76,3 +76,40 @@
   color: var(--seat-ink);
 }
 .shell.shell .whoTone svg { color: var(--seat-main); }
+
+/*
+ * The floating HUD (grid-hud.tsx): the header, the side columns and the footer give way to glass pills in the margins.
+ * The board keeps clear margins for them: a strip above, the station track below and a column at the left for the dock
+ * and the Deck Master plate. Nothing sits on the field at rest.
+ */
+.shell.shell[data-hud="true"] {
+  --hud-top: 52px;
+  --hud-bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px);
+  --hud-left: 156px;
+}
+
+.shell.shell[data-hud="true"] .hudLayout {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-areas: "board";
+  background: none;
+}
+
+.shell.shell[data-hud="true"] section.hudBoard {
+  padding: var(--hud-top) 14px var(--hud-bottom) var(--hud-left);
+  border-left: 0;
+}
+
+/* A prompt for you opens at the right, over the board's free corner; the margin at the left belongs to the dock. */
+.shell.shell[data-hud="true"] .hudPrompt[data-mode="float"],
+.shell.shell[data-hud="true"] .hudPrompt[data-mode="flow"] {
+  position: absolute;
+  grid-area: auto;
+  right: 14px;
+  bottom: var(--hud-bottom);
+  z-index: 33;
+  width: min(380px, 34vw);
+  margin: 0;
+}
+
+.shell.shell[data-hud="true"] .hudNotices { top: var(--hud-top); z-index: 29; }
