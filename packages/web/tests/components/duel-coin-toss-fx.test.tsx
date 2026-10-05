@@ -11,7 +11,7 @@ vi.mock("next/font/google", () => {
 
 import { CoinTossFx } from "@/components/duel/coin-toss-fx";
 import { MatchSheetLog } from "@/components/duel/log-line";
-import { isCoinTossActive, resetCoinTossState } from "@/components/duel/coin-toss-lock";
+import { isCoinPlaying, isCoinTossActive, resetCoinTossState } from "@/components/duel/coin-toss-lock";
 import { COIN_TIMING } from "@/components/duel/coin-plan";
 import { clearPromptRevealHold, promptRevealHoldMs } from "@/components/duel/prompt-reveal";
 import { duelFxClock } from "@/components/duel/fx-clock";
@@ -29,8 +29,8 @@ const live = () => screen.getByTestId("coin-toss-live").textContent;
 const cover = () => document.body.querySelector('[data-testid="coin-toss"]');
 const advance = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
 
-function Harness({ events, reduced = false, passive = false, skipThrough = null }: {
-  events: DuelEvent[]; reduced?: boolean; passive?: boolean; skipThrough?: number | null;
+function Harness({ events, reduced = false, passive = false, skipThrough = null, duelKey = "duel-1" }: {
+  events: DuelEvent[]; reduced?: boolean; passive?: boolean; skipThrough?: number | null; duelKey?: string;
 }) {
   const log = events.filter((event) => event.kind === "toss").map((event) => ({ id: event.id, text: "Barrel Dragon tossed", eventId: event.id }));
   return (
@@ -38,7 +38,7 @@ function Harness({ events, reduced = false, passive = false, skipThrough = null 
       <button type="button" data-testid="menu-button" onClick={() => (window as unknown as { clicked: number }).clicked++}>Menu</button>
       <div data-testid="open-menu" role="menu">Open card menu</div>
       <MatchSheetLog entries={[{ id: 1, text: "Turn 1" }, ...log]} playerName={() => "P"} players="A v B" />
-      <CoinTossFx events={events} duelKey="duel-1" reducedMotion={reduced} passive={passive} skipThrough={skipThrough} />
+      <CoinTossFx events={events} duelKey={duelKey} reducedMotion={reduced} passive={passive} skipThrough={skipThrough} />
     </div>
   );
 }
@@ -190,6 +190,82 @@ describe("CoinTossFx", () => {
     expect((window as unknown as { clicked: number }).clicked).toBe(1);
     advance(FLIP_LAND);
     expect(live()).toBe("Heads");
+    // The replay's autoplay reads this flag: set while the passive coin plays, clear after.
+    expect(isCoinPlaying()).toBe(true);
+    advance(STEP + 500);
+    expect(isCoinPlaying()).toBe(false);
+  });
+
+  it("a new duelKey in the middle of a toss gives the lock and the log hold back, and does not replay the old toss", () => {
+    const { rerender } = render(<Harness events={[]} />);
+    rerender(<Harness events={[toss(2, ["heads", "tails"])]} />);
+    advance(400);
+    expect(isCoinTossActive()).toBe(true);
+    expect(cover()).not.toBeNull();
+    // Another duel opens in the same screen, with the old events still in its first render.
+    rerender(<Harness events={[toss(2, ["heads", "tails"])]} duelKey="duel-2" />);
+    expect(isCoinTossActive()).toBe(false);
+    advance(300);
+    expect(cover()).toBeNull();
+    expect(isCoinTossActive()).toBe(false);
+    expect(promptRevealHoldMs()).toBeGreaterThanOrEqual(0);
+    expect(screen.getByRole("list", { name: "Duel log" }).textContent).toContain("Barrel Dragon tossed");
+    // The new duel's own toss plays.
+    rerender(<Harness events={[toss(2, ["heads", "tails"]), toss(3, ["tails"])]} duelKey="duel-2" />);
+    expect(isCoinTossActive()).toBe(true);
+  });
+
+  it("two toss events back to back play in order, each with its own tray, and the cover stays up between them", () => {
+    const { rerender } = render(<Harness events={[]} />);
+    rerender(<Harness events={[toss(2, ["heads"])]} />);
+    advance(1000);
+    rerender(<Harness events={[toss(2, ["heads"]), toss(3, ["tails", "tails"])]} />);
+    const seen: string[] = [];
+    let last = live();
+    let coverGaps = 0;
+    for (let t = 0; t < 4 * STEP + 3000 && isCoinTossActive(); t += 50) {
+      advance(50);
+      if (live() !== last) { last = live(); if (last) seen.push(last); }
+      if (isCoinTossActive() && cover() == null) coverGaps += 1;
+    }
+    expect(seen).toEqual(["Heads", "Toss 1: Tails", "Toss 2: Tails", "Result: Tails, Tails"]);
+    expect(isCoinTossActive()).toBe(false);
+    expect(coverGaps).toBe(0);
+  });
+
+  it("a hidden tab plays no coin and takes no lock", () => {
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    const { rerender } = render(<Harness events={[]} />);
+    rerender(<Harness events={[toss(2, ["heads"])]} />);
+    advance(300);
+    expect(cover()).toBeNull();
+    expect(isCoinTossActive()).toBe(false);
+    expect(promptRevealHoldMs()).toBe(0);
+    hidden.mockRestore();
+    // The next toss, with the tab shown again, plays.
+    rerender(<Harness events={[toss(2, ["heads"]), toss(3, ["tails"])]} />);
+    expect(isCoinTossActive()).toBe(true);
+  });
+
+  it("lets the end of a press through, so a drag that began before the toss can let go", () => {
+    const up = vi.fn();
+    const cancel = vi.fn();
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    const { rerender } = render(<Harness events={[]} />);
+    rerender(<Harness events={[toss(2, ["heads"])]} />);
+    advance(300);
+    const down = vi.fn();
+    window.addEventListener("pointerdown", down);
+    fireEvent.pointerDown(document.body);
+    fireEvent.pointerUp(document.body);
+    fireEvent.pointerCancel(document.body);
+    expect(down).not.toHaveBeenCalled();
+    expect(up).toHaveBeenCalledTimes(1);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", cancel);
+    window.removeEventListener("pointerdown", down);
   });
 
   it("gives everything back when it unmounts mid toss", () => {

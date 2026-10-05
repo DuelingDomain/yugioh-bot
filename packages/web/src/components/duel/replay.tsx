@@ -11,7 +11,7 @@ import { CardHoverInfo } from "./card-interactions";
 import { phaseLabel } from "./constants";
 import { DeckMasterRail, DuelField } from "./field";
 import { CoinTossFx } from "./coin-toss-fx";
-import { useHeldTossLogIds, withoutHeldTossLines } from "./coin-toss-lock";
+import { useCoinPlaying, useHeldTossLogIds, withoutHeldTossLines } from "./coin-toss-lock";
 import { DuelFeedback } from "./feedback";
 import { MoveSourceBoundary } from "./fx-boundary";
 import { CardInspector, type InspectTarget } from "./inspector";
@@ -63,6 +63,31 @@ export function LogList({ entries: allEntries, freshIds, reducedMotion, playerNa
   );
 }
 
+/**
+ * Autoplay: steps to the next frame every BASE_STEP_MS / speed and stops at the last one. A coin toss in
+ * the replay plays on its own clock, so autoplay waits until it is gone and then steps on.
+ */
+export function useReplayAutoplay({ playing, index, last, speed, setIndex, setPlaying }: {
+  playing: boolean;
+  index: number;
+  last: number;
+  speed: number;
+  setIndex: (update: (value: number) => number) => void;
+  setPlaying: (playing: boolean) => void;
+}): void {
+  const coinPlaying = useCoinPlaying();
+  useEffect(() => {
+    if (!playing) return;
+    if (index >= last) {
+      setPlaying(false);
+      return;
+    }
+    if (coinPlaying) return;
+    const timer = window.setTimeout(() => setIndex((value) => Math.min(value + 1, last)), BASE_STEP_MS / speed);
+    return () => window.clearTimeout(timer);
+  }, [playing, index, speed, last, coinPlaying, setIndex, setPlaying]);
+}
+
 export function DuelReplayView({ slug }: { slug: string }) {
   const { data, error, isLoading } = useSWR(slug ? duelReplayKey(slug) : null, () => getDuelReplay(slug), {
     revalidateOnFocus: false,
@@ -108,15 +133,7 @@ export function DuelReplayView({ slug }: { slug: string }) {
     setPlaying(true);
   }, [playing, last, seek]);
 
-  useEffect(() => {
-    if (!playing) return;
-    if (index >= last) {
-      setPlaying(false);
-      return;
-    }
-    const timer = window.setTimeout(() => setIndex((value) => Math.min(value + 1, last)), BASE_STEP_MS / speed);
-    return () => window.clearTimeout(timer);
-  }, [playing, index, speed, last]);
+  useReplayAutoplay({ playing, index, last, speed, setIndex, setPlaying });
 
   useEffect(() => {
     if (!timeline) return;
