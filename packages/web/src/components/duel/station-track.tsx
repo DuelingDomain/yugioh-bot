@@ -120,6 +120,8 @@ export type StationTrackProps = {
   seatStrip?: readonly StationSeatChip[];
   /** Tables of 3 or more seats: attacks are still shut. Shows "No attack until turn N". */
   attackLock?: { firstTurn: number; turnsLeft: number } | null;
+  /** The test id of the lock chip. The Tag Rooftop keeps its own (`tag-attack-lock`), which its e2e specs read. */
+  attackLockTestId?: string;
   /** The viewer's own chain response switch (Auto / Always / Off). Absent for spectators, replays and scenario tables. */
   chainMode?: ChainModeControl | null;
 };
@@ -223,6 +225,7 @@ export function StationTrack({
   reducedMotion,
   seatStrip,
   attackLock,
+  attackLockTestId = "attack-lock",
   chainMode,
 }: StationTrackProps) {
   const styles = useSkinStyles(baseStyles, "station");
@@ -368,7 +371,7 @@ export function StationTrack({
         ) : null}
         <div className={styles.moves}>
         {attackLock ? (
-          <span className={styles.lock} data-testid="attack-lock" title={`Attacks open on turn ${attackLock.firstTurn}`}>
+          <span className={styles.lock} data-testid={attackLockTestId} title={`Attacks open on turn ${attackLock.firstTurn}`}>
             <Lock strokeWidth={2} aria-hidden="true" />
             <span>No attack until turn {attackLock.firstTurn}</span>
           </span>

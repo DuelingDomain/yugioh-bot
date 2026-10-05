@@ -107,3 +107,7 @@
   .turnPill::before { display: none; }
   .status { flex: none; }
 }
+
+/* Floating HUD (wide): the identity pill keeps the brand and the format; the long table name stays in the tab title. */
+.hudTop .title, .hudTop .identity i { display: none; }
+.hudTop .turn, .hudTop .status { gap: 8px; }
