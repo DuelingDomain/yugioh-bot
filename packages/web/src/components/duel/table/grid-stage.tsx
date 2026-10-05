@@ -199,6 +199,16 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     return () => cancelTracks(live.values());
   }, []);
 
+  // The seat fields are memoized: a field is drawn again only when something in it changes, never for a move or a
+  // resize. The pair prop is an object, so the same values give the same object.
+  const pairs = useRef(new Map<number, NonNullable<SeatFieldProps["pair"]>>());
+  const stablePair = (seat: number, next: NonNullable<SeatFieldProps["pair"]>) => {
+    const had = pairs.current.get(seat);
+    if (had && had.other === next.other && had.left === next.left && had.right === next.right && had.joined === next.joined) return had;
+    pairs.current.set(seat, next);
+    return next;
+  };
+
   const pickOrder = picks ? layout.slots.map((slot) => slot.seat).filter((seat) => picks.options.has(seat)) : [];
   const promptSeat = controller.prompt?.seat ?? null;
   const format = engineFormat(engine);
@@ -285,12 +295,12 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               density: "full",
               hand: self ? "face" : "backs",
               emz: drawer === cell.seat ? "pair" : "none",
-              pair: {
+              pair: stablePair(cell.seat, {
                 other: cell.partner,
                 left: bottom ? band.bottomRoom : band.topRoom,
                 right: bottom ? band.topRoom : band.bottomRoom,
                 joined: (layoutStates.get(cell.partner) ?? "live") !== "empty",
-              },
+              }),
               showTally: false,
               usable: slot.relation === "self" || slot.relation === "opponent",
               name: nameOf(cell.seat),

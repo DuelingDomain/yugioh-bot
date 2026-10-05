@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type CSSProperties } from "react";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelMasterRule, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { Check, LayoutGrid, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -1005,7 +1005,7 @@ export function DuelField(props: DuelFieldProps) {
  * `data-side` (`you` or `opp`), `data-seat-angle` (the effective angle). The LP tally only renders with
  * `showTally`; a holo LP panel owns `data-lp-seat` otherwise.
  */
-export function SeatField({
+export const SeatField = memo(function SeatField({
   engine,
   seat,
   viewerSeat,
@@ -1046,7 +1046,9 @@ export function SeatField({
     "--t": hexToRgbTriplet(toneHex.main),
     "--tink": toneHex.ink,
     "--lab": `${labelTurnDeg(angle, upright)}deg`,
-    "--ts": textScale(scale ?? 1).toFixed(2),
+    // Without a scale the wrapper owns the text scale (--sf-ts): the 4-way grid sizes its fields from outside, and a
+    // size change must not draw the whole field again.
+    ...(scale != null ? { "--ts": textScale(scale).toFixed(2) } : {}),
   };
   const emzSlot = (column: "left" | "right") => {
     const sequence = (column === "left") === (emz !== "shared-top") ? 5 : 6;
@@ -1168,7 +1170,7 @@ export function SeatField({
       </div>
     </EquipLinksContext.Provider>
   );
-}
+});
 
 export function MasterDock({
   title,
