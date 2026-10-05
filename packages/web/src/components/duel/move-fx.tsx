@@ -62,7 +62,8 @@ export type MoveFxProps = {
 const CARD_ASPECT = 0.686;
 const SAMPLES = 18;
 const HIDE_FAILSAFE_MS = 1500;
-const MAX_GHOSTS = 24;
+/** A 4-way wipe can send 4 x 10 field cards at once; each one needs its stand-in (a dropped ghost leaves a blank zone). */
+const MAX_GHOSTS = 48;
 /** The ghost dissolves over the real card this long after landing. */
 export const LAND_FADE_MS = CARD_FX.landFadeMs;
 /** Moves smaller than this many px are not chased. */

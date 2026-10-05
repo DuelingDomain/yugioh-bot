@@ -162,7 +162,8 @@ const STAGGER_MS = CARD_FX.summonStaggerMs;
 const MAX_STAGGER_STEPS = 5;
 /** A second slam waits this long after the first starts; the first one's aftermath overlaps it a little. */
 const HEAVY_LOCK_MS = fieldPlacementMs(CARD_FX.heavyLockMs);
-const MAX_ITEMS = 10;
+/** Room for a 4-way wipe (4 x 10 field cards): a dropped stand-in leaves a blank zone. */
+const MAX_ITEMS = 44;
 /** The WebGL summon holds the real card this much past its hand-over, in case the timer is late. */
 const HAND_OVER_MARGIN_MS = 400;
 const GY_LOCATION = LOCATION_GRAVE;
