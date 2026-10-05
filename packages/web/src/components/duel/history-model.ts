@@ -429,6 +429,9 @@ export function ingestHistory(state: HistoryState, events: readonly DuelEvent[],
 
   batch.forEach((event, index) => {
     switch (event.kind) {
+      case "toss":
+        // Keep outcomes out of the rail until the toss layer can release them after landing.
+        break;
       case "target":
         // Coordinates update the board markers; activation already owns the history tile.
         break;

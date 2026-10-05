@@ -44,6 +44,8 @@ export function battleTrigger(events: readonly DuelEvent[], attack: DuelEvent, a
   let responded = false;
   for (const event of after) {
     switch (event.kind) {
+      case "toss":
+        break;
       case "battle-end":
         if (battleCalculation(events, attack)) {
           // MSG_BATTLE proves the fight occurred, even after responses or a long window.

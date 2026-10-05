@@ -258,6 +258,8 @@ export const scaleLockMs = (ms: number, speed: number): number => scaleLock(ms, 
 /** The lock one event asks for. An attack with a target is a battle; with none it is a direct attack. */
 export function fxLockFor(event: DuelEvent): FxLock | null {
   switch (event.kind) {
+    case "toss":
+      return null;
     case "attack":
       return event.target ? { reason: "battle", ms: LOCK_MS.battle } : { reason: "direct", ms: LOCK_MS.direct };
     case "chain-resolving":
