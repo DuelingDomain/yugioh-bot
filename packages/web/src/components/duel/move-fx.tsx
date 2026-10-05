@@ -30,6 +30,7 @@ import {
   planMoves,
   resetMoveSchedule,
   resolveSource,
+  standsInAtSource,
   startZoneSnapshots,
   type MovePlan,
   type MoveStyle,
@@ -61,7 +62,7 @@ export type MoveFxProps = {
 const CARD_ASPECT = 0.686;
 const SAMPLES = 18;
 const HIDE_FAILSAFE_MS = 1500;
-const MAX_GHOSTS = 12;
+const MAX_GHOSTS = 24;
 /** The ghost dissolves over the real card this long after landing. */
 export const LAND_FADE_MS = CARD_FX.landFadeMs;
 /** Moves smaller than this many px are not chased. */
@@ -361,6 +362,8 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
 
     const track = new Track();
     let alive = true;
+    // A ghost that stands in at its source waits there (first keyframe held) until its flight starts.
+    const delay = standsInAtSource(plan) ? Math.max(0, plan.startAt - duelFxClock.now()) : 0;
     const endDefense = dest?.dataset.defense === "true";
     const endTurn = dest ? moveDestinationRotation(dest) : cardTurn(target.side, endDefense);
     let liveFlight: ReturnType<typeof retargetFlight> | undefined;
@@ -385,9 +388,9 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         cardH: h,
         spin: seededSign(plan.id) * (14 + (plan.id % 5) * 3),
       });
-      const options: KeyframeAnimationOptions = { duration: plan.durationMs, easing: "linear", fill: "both" };
+      const options: KeyframeAnimationOptions = { duration: plan.durationMs, easing: "linear", fill: "both", delay };
       track.play(el, flight.card, options);
-      liveFlight = retargetFlight({ event: plan.event, el, overlay, cx, cy, duration: plan.durationMs, endRot: endTurn,
+      liveFlight = retargetFlight({ event: plan.event, el, overlay, cx, cy, duration: plan.durationMs, endRot: endTurn, delay,
         fallback: () => handArrivalTarget(plan.event)?.rect });
       track.onDispose(liveFlight.stop);
       if (pieces) {
@@ -395,7 +398,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
         pieceEls.current.forEach((piece, index) => {
           const shard = SHARDS[index];
           if (!piece || !shard) return;
-          track.play(piece, pieceFrames(pieceMotion(shard, plan.id, index, w, h), pieces), { duration: plan.durationMs, easing: "linear", fill: "both" });
+          track.play(piece, pieceFrames(pieceMotion(shard, plan.id, index, w, h), pieces), { duration: plan.durationMs, easing: "linear", fill: "both", delay });
         });
       } else {
         track.play(shade.current, flight.shade, options);
@@ -845,7 +848,7 @@ export function MoveFx({ events, duelKey, reducedMotion, replayFrom = null, skip
         const failsafe = duelFxClock.setTimeout(release, waitMs);
         timersRef.current.add(failsafe);
       }
-      if (wait <= 16) {
+      if (wait <= 16 || standsInAtSource(plan)) {
         started.push(plan);
       } else {
         const timer = duelFxClock.setTimeout(() => {

@@ -24,6 +24,7 @@ import {
   LOCATION_HAND,
   LOCATION_MZONE,
   LOCATION_REMOVED,
+  LOCATION_SZONE,
   zoneKey,
 } from "./constants";
 import { battleBreakIs3d, battleDestroyAt, battleTakeover, BREAK_SETTLE_MS, HELD_CRACK_MS } from "./battle-hold";
@@ -122,6 +123,22 @@ export type MovePlan = {
 };
 
 export type MoveGeometry = { distance: number };
+
+/**
+ * A card that leaves the field for a reason that is not a destroy waits for its flight (the chain, the queue).
+ * The board already shows the new state, so its zone is empty: the ghost is placed over the zone at once, in the
+ * pose the card had (sleeve or face, Attack or Defense), and lifts from there when its flight starts. The same
+ * element stands in and flies, so the card never vanishes and never shows twice. A destroy has its own
+ * stand-in (the break in SummonFx), a Tribute and a wipe piece their own layers.
+ */
+export function standsInAtSource(plan: MovePlan): boolean {
+  const from = plan.event.from?.location;
+  if (from !== LOCATION_MZONE && from !== LOCATION_SZONE) return false;
+  if (plan.source == null || plan.silent || plan.destroy || plan.takeover || plan.handoffFrom) return false;
+  // A showcase that rises from the zone starts on the card; one that rises from a strip or a pile does not.
+  if (plan.style === "add") return plan.showcase?.origin.kind === "source";
+  return plan.style !== "tribute" && plan.style !== "fade";
+}
 
 const plans = new Map<number, MovePlan>();
 /** follow-up event id (summon/set/activate/destroy) -> the move plan that carries it. */
