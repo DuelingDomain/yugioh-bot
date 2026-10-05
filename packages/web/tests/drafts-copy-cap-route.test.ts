@@ -153,6 +153,9 @@ describe("per-player copy cap in the draft routes", () => {
     expect(response?.currentPack).toHaveLength(3);
     expect(response?.currentPack.every((card) => !card.blocked)).toBe(true);
     expect(response?.currentPack.every((card) => card.forced === true)).toBe(true);
+    drafts.pickCard(draft.id, host, otherPack[1].id);
+    const after = await buildDraftResponse(slug, "host");
+    expect(after?.myPool.find((card) => card.id === otherPack[1].id)?.forced).toBe(true);
     const seats = response?.seats ?? [];
     expect(seats.find((seat) => seat.playerId === host)?.hasPicked).toBe(false);
     expect(seats.find((seat) => seat.playerId === other)?.hasPicked).toBe(false);

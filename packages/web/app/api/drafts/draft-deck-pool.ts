@@ -16,6 +16,7 @@ export type DraftDeckPool = {
   cards: Array<{ code: number; count: number }>;
   /** Copies of each passcode; the input to checkDeckAgainstPool. */
   byCode: Map<number, number>;
+  forcedCopies: Map<number, number>;
   codeMap: Map<number, number | null>;
   /** Pool cards that go in the Main Deck (not Fusion, Synchro, Xyz or Link, Pendulum variants included). */
   mainPoolCount: number;
@@ -88,7 +89,7 @@ export async function loadDraftDeckPool(
   const cards = [...loaded.counts].map(([code, count]) => ({ code, count })).sort((a, b) => a.code - b.code);
   return {
     ok: true,
-    pool: { cards, byCode: loaded.counts, codeMap: loaded.codeMap, mainPoolCount: loaded.mainPoolCount, unresolved: loaded.unresolved },
+    pool: { cards, byCode: loaded.counts, forcedCopies: loaded.forcedCopies, codeMap: loaded.codeMap, mainPoolCount: loaded.mainPoolCount, unresolved: loaded.unresolved },
   };
 }
 

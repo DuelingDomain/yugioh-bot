@@ -90,6 +90,7 @@ export async function mapDraftTournamentDecks(
           mode: rules.mode,
           masterRule: rules.masterRule,
           settings: rules.settings,
+          draftId: rules.draftId,
         });
         if (!checked.ok) return unavailable;
         const { deck, report } = checked.data as { deck?: DuelDeck; report?: DuelDeckValidation };
