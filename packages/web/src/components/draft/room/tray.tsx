@@ -1,5 +1,6 @@
 "use client";
 
+import { cardImageUrl } from "@/lib/card-image-url";
 import { memo, useEffect, useRef, useState } from "react";
 import type { HeardLine } from "@/lib/stores/talk-store";
 import { TalkBubble } from "./talk-bubble";
@@ -66,7 +67,7 @@ export const Tray = memo(function Tray(p: TrayProps) {
           >
             <span className="win" key={`w${land}`}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              {card ? <img src={card.imageUrlSmall || card.imageUrl} alt="" /> : null}
+              {card ? <img src={cardImageUrl(card.passcode ?? card.id, "small")} alt="" /> : null}
             </span>
             <b key={`b${land}`} className={land ? "roll" : undefined}>
               {p.poolCounts[k]}

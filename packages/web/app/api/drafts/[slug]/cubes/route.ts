@@ -1,3 +1,4 @@
+import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -109,9 +110,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to add cube";
-    // Network/API failures (unreachable card DB) surface as 502 so the UI can suggest passcode import.
-    const status = /reach the card database|YGOPRODeck/i.test(message) ? 502 : 400;
-    return NextResponse.json({ error: message }, { status });
+    const failure = cardFetchErrorResponse(error);
+    if (failure) return failure;
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 

@@ -1,3 +1,4 @@
+import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { createCardCatalogService } from "@yugidraft/shared/services";
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ sets });
 }
 
-export async function POST() {
+async function handlePOST() {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -24,3 +25,4 @@ export async function POST() {
   const sets = await catalog.syncSets();
   return NextResponse.json({ synced: sets.length });
 }
+export const POST = withCardFetchErrors(handlePOST);

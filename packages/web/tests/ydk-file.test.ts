@@ -130,7 +130,9 @@ describe("importYdkIntoCube", () => {
   });
 
   it("treats a passcode the card database rejects with HTTP 400 as unknown, and writes nothing twice", async () => {
-    const { cubes, cube } = setup(async () => ({ ok: false, status: 400, async json() { return {}; } }) as Response);
+    const { cubes, cube } = setup(async () => Response.json({
+      error: "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
+    }, { status: 400 }));
     const text = "#main\n1\n1\n777\n#extra\n2\n888\n";
     const res = await importYdkIntoCube(cubes, cube.id, text);
     expect(res.unknown).toEqual([777, 888]);

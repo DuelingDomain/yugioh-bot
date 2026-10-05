@@ -1,3 +1,4 @@
+import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { auth } from "@/lib/auth";
@@ -40,6 +41,8 @@ export async function GET(
 
     return NextResponse.json(response);
   } catch (error) {
+    const fetchFailure = cardFetchErrorResponse(error);
+    if (fetchFailure) return fetchFailure;
     console.error(`[api/drafts/${slug}] load failed:`, error);
     return NextResponse.json(
       { error: "Failed to load draft" },
@@ -106,6 +109,8 @@ export async function DELETE(
       webSlug: cancelled.webSlug,
     });
   } catch (error) {
+    const fetchFailure = cardFetchErrorResponse(error);
+    if (fetchFailure) return fetchFailure;
     console.error("[api/drafts/[slug] DELETE] error:", error);
     return NextResponse.json(
       { error: "Failed to cancel draft" },
@@ -275,6 +280,8 @@ export async function PUT(
       errors: analysisWarnings?.errors ?? [],
     });
   } catch (error) {
+    const fetchFailure = cardFetchErrorResponse(error);
+    if (fetchFailure) return fetchFailure;
     console.error("[api/drafts/[slug] PUT] error:", error);
     return NextResponse.json(
       { error: "Failed to update draft" },
@@ -358,6 +365,8 @@ export async function POST(
       webSlug: started.webSlug,
     });
   } catch (error) {
+    const fetchFailure = cardFetchErrorResponse(error);
+    if (fetchFailure) return fetchFailure;
     console.error("[api/drafts/[slug] POST start] error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to start draft" },

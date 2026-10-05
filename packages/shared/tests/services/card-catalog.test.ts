@@ -1,7 +1,13 @@
 import Database from "better-sqlite3";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/index.js";
-import { createCardCatalogService, isExtraDeckFrame, rankCardsByName } from "../../src/services/card-catalog.js";
+import { createCardCatalogService as initialCreate, isExtraDeckFrame, rankCardsByName } from "../../src/services/card-catalog.js";
+
+let createCardCatalogService = initialCreate;
+beforeEach(async () => {
+  vi.resetModules();
+  createCardCatalogService = (await import("../../src/services/card-catalog.js")).createCardCatalogService;
+});
 
 type YgoprodeckCard = {
   id: number;
@@ -102,7 +108,7 @@ describe("shared card catalog service", () => {
       },
     );
 
-    await app.catalog.syncDraftPool({
+    const pool = await app.catalog.syncDraftPool({
       setNames: ["Metal Raiders"],
       includeNames: ["Raigeki"],
       excludeNames: ["Time Wizard"],
@@ -112,6 +118,7 @@ describe("shared card catalog service", () => {
       "https://db.ygoprodeck.com/api/v7/cardinfo.php?cardset=Metal+Raiders",
       "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Raigeki",
     ]);
+    expect(pool.map((card) => card.ygoprodeckId)).toEqual([summonedSkull.id, raigeki.id]);
     expect(app.catalog.findByIds([raigeki.id, summonedSkull.id, timeWizard.id, thousandDragon.id])).toEqual([
       expect.objectContaining({
         ygoprodeckId: raigeki.id,
@@ -121,8 +128,10 @@ describe("shared card catalog service", () => {
         ygoprodeckId: summonedSkull.id,
         name: "Summoned Skull",
       }),
+      expect.objectContaining({ ygoprodeckId: thousandDragon.id, name: "Thousand Dragon" }),
     ]);
-    expect(app.db.prepare("select count(*) as count from card_catalog").get()).toEqual({ count: 2 });
+    expect(app.catalog.hasArtworks(thousandDragon.id)).toBe(true);
+    expect(app.db.prepare("select count(*) as count from card_catalog").get()).toEqual({ count: 3 });
   });
 
   it("syncs custom card ids into the local catalog", async () => {
@@ -143,7 +152,7 @@ describe("shared card catalog service", () => {
       excludeNames: [],
     });
 
-    expect(app.fetchCalls).toEqual(["https://db.ygoprodeck.com/api/v7/cardinfo.php?id=70781052"]);
+    expect(app.fetchCalls).toEqual(["https://db.ygoprodeck.com/api/v7/cardinfo.php?id=70781052", "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Summoned+Skull"]);
     expect(app.catalog.findByIds([70781052])).toEqual([
       expect.objectContaining({
         ygoprodeckId: 70781052,
@@ -168,7 +177,7 @@ describe("shared card catalog service", () => {
     // Second sync (and duplicate ids in the same call) must not hit the network again.
     await app.catalog.syncDraftPool({ setNames: [], customCardIds: [70781052, 70781052], includeNames: [], excludeNames: [] });
 
-    expect(app.fetchCalls).toEqual(["https://db.ygoprodeck.com/api/v7/cardinfo.php?id=70781052"]);
+    expect(app.fetchCalls).toEqual(["https://db.ygoprodeck.com/api/v7/cardinfo.php?id=70781052", "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Summoned+Skull"]);
   });
 
   it("syncs one card by exact name into the local catalog", async () => {
@@ -251,7 +260,11 @@ describe("card name search", () => {
           return { ok: false, status: failure.status, async json() { return {}; } } as Response;
         }
         const data = cards.filter((card) => (fname ? card.name.toLowerCase().includes(fname) : String(card.id) === id));
-        return { ok: data.length > 0, status: data.length > 0 ? 200 : 400, async json() { return { data }; } } as Response;
+        return { ok: data.length > 0, status: data.length > 0 ? 200 : 400, async json() {
+          return data.length > 0 ? { data } : {
+            error: "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
+          };
+        } } as Response;
       },
     });
     return { catalog, calls };
@@ -379,7 +392,7 @@ describe("card name search", () => {
 
     try {
       await expect(catalog.syncCardsByFuzzyName("blue eyes")).rejects.toThrow(
-        "Could not reach the card database (request failed). Check connectivity and try again.",
+        "Could not reach the card database. Try again shortly.",
       );
       expect(calls).toBe(1);
     } finally {
@@ -409,6 +422,47 @@ describe("card name search", () => {
 
     await expect(catalog.syncCardsByFuzzyName("no such card")).resolves.toEqual([]);
     await expect(catalog.syncCardsByFuzzyName("   ")).resolves.toEqual([]);
+  });
+
+  it.each([
+    "No card matching your query",
+    "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/v8/ for syntax usage.",
+  ])("accepts a no-result 400 when the message tail changes: %s", async (error) => {
+    const db = new Database(":memory:"); migrate(db);
+    const catalog = createCardCatalogService(db, { identityCatalog: new Map(),
+      fetch: async () => Response.json({ error }, { status: 400 }) });
+    try {
+      await expect(catalog.syncCardById(1)).resolves.toBeUndefined();
+    } finally { db.close(); }
+  });
+
+  it.each([
+    { error: "Invalid cardset. Please use a valid set name." },
+    { error: 400 },
+    { error: null },
+    { data: [] },
+    {},
+  ])("rejects a 400 that is not the no-result response: %j", async (body) => {
+    const db = new Database(":memory:"); migrate(db);
+    const catalog = createCardCatalogService(db, { identityCatalog: new Map(),
+      fetch: async () => new Response(JSON.stringify(body), { status: 400 }) });
+    try {
+      await expect(catalog.syncCardByName("Dark Magician")).rejects.toMatchObject({ name: "CardFetchError", status: 400 });
+    } finally { db.close(); }
+  });
+
+  it.each([
+    "No card matching your query",
+    "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
+    "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/v8/ for syntax usage.",
+  ])("reports an invalid set even when the API uses its no-result 400 body: %s", async (error) => {
+    const db = new Database(":memory:"); migrate(db);
+    const catalog = createCardCatalogService(db, { identityCatalog: new Map(),
+      fetch: async () => Response.json({ error }, { status: 400 }) });
+    try {
+      await expect(catalog.syncDraftPool({ setNames: ["Pendulum Domination Structure Decc"],
+        includeNames: [], excludeNames: [] })).rejects.toThrow(/Try again/);
+    } finally { db.close(); }
   });
 
   it("keeps Extra Deck monsters out unless the caller asks for them", async () => {

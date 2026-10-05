@@ -1,5 +1,6 @@
 "use client";
 
+import { cardImageUrl } from "@/lib/card-image-url";
 import * as React from "react";
 import type { CardSummary } from "@/lib/card-types";
 import styles from "./cubes.module.css";
@@ -42,7 +43,7 @@ export function CubeCardGrid({
               onClick={() => onSelect(card.id)}
             >
               <span className="ct-art">
-                <img src={card.imageUrlSmall || card.imageUrl} alt="" loading="lazy" decoding="async" />
+                <img src={cardImageUrl(card.id, "small")} alt="" loading="lazy" decoding="async" />
                 <span className={`ct-x${n < 3 ? " lo" : ""}`} aria-hidden="true">
                   ×{n}
                 </span>

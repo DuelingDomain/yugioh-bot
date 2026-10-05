@@ -2,7 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
-import { createDuelSeriesService, createDuelService, createTournamentDuelService, type DuelFinalSnapshots } from "@yugidraft/shared/services";
+import { createDuelSeriesService, createDuelService, createTournamentDuelService, isCardFetchError, type DuelFinalSnapshots } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
   DuelCommand,
@@ -2678,6 +2678,11 @@ export function createDuelHost(options: {
         const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
         return Response.json(answer, { headers: { "cache-control": "no-store" } });
       } catch (error) {
+        if (isCardFetchError(error)) {
+          return Response.json({ error: "Card database is unavailable. Try again shortly." }, {
+            status: 503, headers: { "Retry-After": String(error.retryAfter ?? 1) },
+          });
+        }
         const status = error instanceof Error && "status" in error && typeof error.status === "number" ? error.status : 400;
         return Response.json({ error: error instanceof Error ? error.message : "Duel request failed",
           ...(error instanceof RequestError && error.code ? { code: error.code } : {}) }, { status });

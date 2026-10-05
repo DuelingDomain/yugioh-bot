@@ -1,3 +1,4 @@
+import { cardImageUrl } from "@/lib/card-image-url";
 import { useEffect } from "react";
 
 // Warms the browser image cache for every card in a draft's pool so that when
@@ -11,12 +12,12 @@ export function usePoolImagePrefetch(slug: string, enabled: boolean): void {
       try {
         const res = await fetch(`/api/drafts/${slug}/pool`);
         if (!res.ok) return;
-        const data = (await res.json()) as { cards: Array<{ imageUrl: string; imageUrlSmall: string }> };
+        const data = (await res.json()) as { cards: Array<{ id: number; imageUrl: string; imageUrlSmall: string }> };
         if (cancelled) return;
         for (const c of data.cards) {
           const img = new window.Image();
           img.decoding = "async";
-          img.src = c.imageUrlSmall || c.imageUrl;
+          img.src = cardImageUrl(c.id, "small");
         }
       } catch {
         // best-effort prefetch; ignore

@@ -1,5 +1,6 @@
 "use client";
 
+import { cardImageUrl } from "@/lib/card-image-url";
 import * as React from "react";
 import { Minus, Plus, Trash2 } from "lucide-react";
 import type { CardSummary } from "@/lib/card-types";
@@ -90,7 +91,7 @@ export function CubeInspector({
   const kind = card ? `${card.type}, ${poolLabel} pool` : `Not in the catalog yet, ${poolLabel} pool`;
   const art = card ? (
     <span className="art">
-      <img src={card.imageUrl || card.imageUrlSmall} alt="" />
+      <img src={cardImageUrl(card.id)} alt="" />
     </span>
   ) : null;
   const remove = (
