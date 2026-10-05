@@ -29,6 +29,8 @@ export interface UseCameraOptions {
   seatKeys: boolean;
   /** A menu or the pile viewer is open: no camera key fires while it is. */
   suspended?: boolean;
+  /** The stage has no camera to move (the 4-way grid): only the upright key (S) fires, and Tab is left to the browser. */
+  uprightOnly?: boolean;
   /** Reads the real clock. A test injects its own. */
   now?: () => number;
 }
@@ -63,7 +65,7 @@ function typing(target: EventTarget | null): boolean {
  * The camera of a table: the pure model, the FX lock fed by engine events and seat changes, the auto camera, the
  * aim hold and the keys. It reads the clock only inside effects.
  */
-export function useCamera({ controller, layout, initial, initialLock = null, aiming, seatKeys, suspended = false, now = Date.now }: UseCameraOptions): UseCamera {
+export function useCamera({ controller, layout, initial, initialLock = null, aiming, seatKeys, suspended = false, uprightOnly = false, now = Date.now }: UseCameraOptions): UseCamera {
   const { engine, prompt, viewerSeat, nameOf, reducedMotion } = controller;
   const out = useMemo(
     () => engine.seats.filter(isEliminated).map((view) => view.seat),
@@ -125,11 +127,12 @@ export function useCamera({ controller, layout, initial, initialLock = null, aim
     if (faceOff && state.mode !== "home") dispatch({ type: "home" });
   }, [faceOff, state.mode]);
 
-  const keyRef = useRef({ state, seatKeys, suspended });
-  keyRef.current = { state, seatKeys, suspended };
+  const keyRef = useRef({ state, seatKeys, suspended, uprightOnly });
+  keyRef.current = { state, seatKeys, suspended, uprightOnly };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.ctrlKey || event.metaKey || event.altKey || typing(event.target) || keyRef.current.suspended) return;
+      if (keyRef.current.uprightOnly && event.key !== "s" && event.key !== "S") return;
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('[role="dialog"][aria-modal="true"]') || document.querySelector('[aria-modal="true"]')) return;
       if (event.key === "Tab" && target?.closest?.("[data-slot='prompt'], [role='dialog']")) return;

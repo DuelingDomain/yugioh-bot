@@ -5,6 +5,7 @@ import {
   chainBeatAt,
   chainBeatsEndAt,
   chainEffectAt,
+  chainPromptHoldEndAt,
   planChainBeats,
   resetChainBeats,
 } from "../../src/components/duel/chain-beats";
@@ -170,5 +171,28 @@ describe("planChainBeats", () => {
   it("returns 0 for an event it never planned", () => {
     expect(chainBeatAt(9999)).toBe(0);
     expect(chainEffectAt(9999)).toBe(0);
+  });
+});
+
+describe("chainPromptHoldEndAt (when a prompt after the chain beats may show)", () => {
+  it("lets the zone pick of a link that stops mid-resolution show once its effect may start, not after the whole beat", () => {
+    // Chain 1 activates and starts to resolve; the engine stops inside the link to ask "which zone".
+    const activate = ev("activate", 1);
+    const resolving = ev("chain-resolving", 1);
+    plan([activate, resolving]);
+    const effectAt = chainBeatAt(resolving.id) + chainEffectLead(false);
+    expect(chainPromptHoldEndAt(false)).toBe(effectAt);
+    expect(chainPromptHoldEndAt(false)).toBeLessThan(chainBeatsEndAt());
+  });
+
+  it("uses the reduced lead under reduced motion", () => {
+    const resolving = ev("chain-resolving", 1);
+    plan([resolving], true);
+    expect(chainPromptHoldEndAt(true)).toBe(chainBeatAt(resolving.id) + chainEffectLead(true));
+  });
+
+  it("still waits for the whole chain when it played to its end", () => {
+    plan([ev("chain-resolving", 1), ev("chain-resolved", 1), ev("chain-end")]);
+    expect(chainPromptHoldEndAt(false)).toBe(chainBeatsEndAt());
   });
 });

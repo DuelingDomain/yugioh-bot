@@ -126,6 +126,8 @@ export type StationTrackProps = {
   seatSlotCount?: number;
   /** Tables of 3 or more seats: attacks are still shut. Shows "No attack until turn N". */
   attackLock?: { firstTurn: number; turnsLeft: number } | null;
+  /** The test id of the lock chip. The Tag Rooftop keeps its own (`tag-attack-lock`), which its e2e specs read. */
+  attackLockTestId?: string;
   /** The viewer's own chain response switch (Auto / Always / Off). Absent for spectators, replays and scenario tables. */
   chainMode?: ChainModeControl | null;
   /**
@@ -134,6 +136,11 @@ export type StationTrackProps = {
    * (900px and under) the stations come back here, because the hub does not fit.
    */
   phases?: "bar" | "hub";
+  /**
+   * With `phases="hub"` on a desktop width: a compact stack for the corner of the screen instead of a full-width bar.
+   * The clocks and the buttons (Responses, End Turn, the turn button) stay; the caption is read by screen readers only.
+   */
+  compact?: boolean;
 };
 
 /** Which phase move is the primary button, in order of preference, per current station. */
@@ -203,13 +210,16 @@ export function StationTrack({
   seatSlot,
   seatSlotCount,
   attackLock,
+  attackLockTestId = "attack-lock",
   chainMode,
   phases = "bar",
+  compact = false,
 }: StationTrackProps) {
   const styles = useSkinStyles(baseStyles, "station");
   // The hub shows the phases on the board, but only where it fits. On a phone the bar keeps its own strip.
   const narrow = useIsNarrow();
   const hubbed = phases === "hub" && !narrow;
+  const stacked = hubbed && compact;
   const { current, offered } = phaseStations({ phase, actionOptions, canAct });
   const spectator = mySeat == null;
   const myTurn = !spectator && turnSeat === mySeat;
@@ -251,6 +261,7 @@ export function StationTrack({
       aria-label={hubbed ? "Turn actions" : "Duel phases"}
       className={`${styles.root} ${duelFontClasses}`}
       data-phases={hubbed ? "hub" : "bar"}
+      data-compact={stacked ? "true" : undefined}
       data-tone={tone}
       data-phase={STATIONS[current]?.code ?? "none"}
       data-step={step ?? undefined}
@@ -355,7 +366,7 @@ export function StationTrack({
         ) : null}
         <div className={styles.moves}>
         {attackLock ? (
-          <span className={styles.lock} data-testid="attack-lock" title={`Attacks open on turn ${attackLock.firstTurn}`}>
+          <span className={styles.lock} data-testid={attackLockTestId} title={`Attacks open on turn ${attackLock.firstTurn}`}>
             <Lock strokeWidth={2} aria-hidden="true" />
             <span>No attack until turn {attackLock.firstTurn}</span>
           </span>

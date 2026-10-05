@@ -55,13 +55,14 @@ describe("TableShell on the 4-way fixtures", () => {
     expect(container.querySelectorAll("[data-card-art]").length).toBeGreaterThan(0);
   });
 
-  it("gives each seat its own extra monster keys", () => {
+  it("shares one Extra Monster row between the facing seats", () => {
     const { container } = render(<Shell id="main" />);
-    for (const seat of [0, 1, 2, 3]) {
-      const field = container.querySelector(`[data-seat-field="${seat}"]`)!;
-      const keys = [...field.querySelectorAll("[data-zones]")].map((node) => node.getAttribute("data-zones") ?? "");
-      expect(keys.some((key) => key.includes(`${seat}:4:5`))).toBe(true);
-    }
+    const keysOf = (seat: number) =>
+      [...container.querySelector(`[data-seat-field="${seat}"]`)!.querySelectorAll("[data-zones]")].map((node) => node.getAttribute("data-zones") ?? "");
+    expect(keysOf(0).some((key) => key.includes("0:4:5") && key.includes("1:4:6"))).toBe(true);
+    expect(keysOf(3).some((key) => key.includes("3:4:5") && key.includes("2:4:6"))).toBe(true);
+    expect(keysOf(1).some((key) => key.includes("1:4:5") && !key.includes("0:4:6"))).toBe(false);
+    expect(keysOf(2).some((key) => key.includes("2:4:5") && !key.includes("3:4:6"))).toBe(false);
   });
 
   it("starts at home with full rival fields, no chips", () => {
@@ -72,48 +73,46 @@ describe("TableShell on the 4-way fixtures", () => {
     expect(container.querySelectorAll("[data-compact-chips]")).toHaveLength(0);
   });
 
-  it("walks the rivals with Tab and focuses a seat with the digit keys", () => {
+  it("leaves the hidden camera alone on the grid: camera keys do nothing, Tab is not prevented, S still turns upright", () => {
     const { container } = render(<Shell id="main" />);
     const stage = container.querySelector("[data-table-stage]")!;
-    press("Tab");
-    expect(stage.getAttribute("data-camera-mode")).toBe("focus");
-    press("4");
-    expect(stage.getAttribute("data-camera-mode")).toBe("focus");
-    press("1");
+    const key = (name: string) => {
+      let allowed = true;
+      act(() => {
+        allowed = fireEvent.keyDown(window, { key: name });
+      });
+      return allowed;
+    };
+    expect(key("Tab")).toBe(true);
+    for (const name of ["4", "1", "0", "h", "o", "f", "p", "k", "a", "c"]) key(name);
     expect(stage.getAttribute("data-camera-mode")).toBe("home");
-    press("0");
-    expect(["fly", "overview"]).toContain(stage.getAttribute("data-camera-mode"));
+    expect(stage.getAttribute("data-camera-want")).toBe("home");
+    const upright = stage.getAttribute("data-upright");
+    expect(key("s")).toBe(false);
+    expect(stage.getAttribute("data-upright")).not.toBe(upright);
   });
 
-  it("turns the table with P and returns home after the last rival", () => {
+  it("lets the seat strip zoom the grid to any seat, yours too, and leaves the hidden camera alone", () => {
     const { container } = render(<Shell id="main" />);
-    const stage = container.querySelector("[data-table-stage]")!;
-    for (let index = 0; index < 3; index += 1) {
-      press("p");
-      expect(stage.getAttribute("data-camera-mode")).toBe("look");
-    }
-    press("p");
-    expect(stage.getAttribute("data-camera-mode")).toBe("home");
+    expect(container.querySelectorAll("[data-testid^='seat-strip-'][data-seat]")).toHaveLength(4);
+    expect(container.querySelectorAll('[aria-label^="Show "][aria-label$=" on the main field"]')).toHaveLength(4);
+    expect(container.querySelector("[data-table-stage]")!.getAttribute("data-camera-mode")).toBe("home");
   });
 
-  it("C swaps the three rival fields for chips, and the hooks stay in the DOM", () => {
+  it("C keeps the four full fields on the grid: no chips, no camera move on the board", () => {
     const { container } = render(<Shell id="main" />);
-    press("c");
-    expect(container.querySelectorAll("[data-compact-chips]")).toHaveLength(3);
-    expect(container.querySelectorAll("[data-seat-field]")).toHaveLength(4);
-    expect(container.querySelectorAll("[data-lp-seat]")).toHaveLength(4);
     press("c");
     expect(container.querySelectorAll("[data-compact-chips]")).toHaveLength(0);
+    expect(container.querySelectorAll("[data-seat-field]")).toHaveLength(4);
+    expect(container.querySelectorAll("[data-lp-seat]")).toHaveLength(4);
+    expect(container.querySelector('[data-table-shell][data-grid="true"]')).not.toBeNull();
+    expect(container.querySelector("[data-grid-stage]")).not.toBeNull();
   });
 
-  it("lights usable chips with a glow and never dims the others", () => {
-    const { container } = render(<Shell id="chain-2" />);
-    press("c");
-    const chips = [...container.querySelectorAll("[data-compact-chips] [data-chip]")];
-    expect(chips.length).toBeGreaterThan(0);
-    for (const chip of chips) {
-      expect(chip.getAttribute("style") ?? "").not.toMatch(/opacity/);
-    }
+  it("draws no camera controls on the grid", () => {
+    const { container } = render(<Shell id="main" />);
+    expect(container.querySelector("[data-camera-panel]")).toBeNull();
+    expect(container.querySelector("[data-camera-chip]")).toBeNull();
   });
 
   it("shows no rival chips in the 1v1-style states that have no rivals left", () => {
@@ -128,25 +127,5 @@ describe("TableShell on the 4-way fixtures", () => {
     cleanup();
     const plain = render(<Shell id="main" />).container;
     expect(plain.querySelector('[data-slot="prompt"][data-seat-pick]')).toBeNull();
-  });
-
-  it("opens the chip lens on a mouse hover only, and closes it on a click", () => {
-    const { container } = render(<Shell id="main" />);
-    press("c");
-    const chip = container.querySelector<HTMLElement>("[data-compact-chips] [data-chip]");
-    expect(chip).not.toBeNull();
-    const lens = () => document.querySelector("[data-chip-lens]");
-    act(() => {
-      fireEvent.pointerEnter(chip!, { pointerType: "touch" });
-    });
-    expect(lens()).toBeNull();
-    act(() => {
-      fireEvent.pointerEnter(chip!, { pointerType: "mouse" });
-    });
-    expect(lens()).not.toBeNull();
-    act(() => {
-      fireEvent.click(chip!);
-    });
-    expect(lens()).toBeNull();
   });
 });

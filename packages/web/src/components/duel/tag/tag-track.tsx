@@ -28,37 +28,47 @@ export interface TagTrackProps {
 }
 
 /**
+ * The baton of the Rooftop (1A, 2A, 1B, 2B) with the turn player lit. The track shows it under the header; the floating
+ * HUD shows it in the middle pill of the top row.
+ */
+export function TagBaton({ engine, nameOf, toneOf }: Pick<TagTrackProps, "engine" | "nameOf" | "toneOf">) {
+  const outSeats = new Set(engine.seats.filter((seat) => seat.eliminated).map((seat) => seat.seat));
+  const tone = (seat: number) => toneOf?.(seat) ?? SEAT_TONE_HEX[DEFAULT_TONES[seat % 4]];
+  return (
+    <ol className={styles.baton} aria-label="Turn order" data-baton-strip>
+      {batonOrder(engine.turnSeat).map((stop, index) => {
+        const hex = tone(stop.seat);
+        const style = { "--seat": hexToRgbTriplet(hex.main), "--seat-ink": hex.ink } as CSSProperties;
+        return (
+          <li
+            key={stop.seat}
+            style={style}
+            data-now={stop.now ? "true" : undefined}
+            data-next={stop.next ? "true" : undefined}
+            data-out={outSeats.has(stop.seat) ? "true" : undefined}
+            aria-current={stop.now ? "step" : undefined}
+          >
+            {index > 0 ? <span className={styles.arrow} aria-hidden="true">&rarr;</span> : null}
+            <b>{stop.code}</b>
+            <span>{nameOf(stop.seat).split(" ")[0]}</span>
+            {stop.now ? <em>now</em> : stop.next ? <em>next</em> : null}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+/**
  * The turn track of the live Rooftop: the baton (1A, 2A, 1B, 2B) with the turn player lit, the decision clock of the turn
  * player and the attack lock marker while attacks are shut (turns 1 to 3; the first Battle Phase is turn 4).
  */
 export function TagTrack({ session, engine, clock, nameOf, prompt = null, toneOf, reducedMotion = false, children }: TagTrackProps) {
   const lock = attackLockAt("tag", engine.seats.length || 4, engine.turn, prompt);
-  const outSeats = new Set(engine.seats.filter((seat) => seat.eliminated).map((seat) => seat.seat));
-  const tone = (seat: number) => toneOf?.(seat) ?? SEAT_TONE_HEX[DEFAULT_TONES[seat % 4]];
   return (
     <div className={styles.track} data-tag-track>
       <div className={styles.row}>
-        <ol className={styles.baton} aria-label="Turn order" data-baton-strip>
-          {batonOrder(engine.turnSeat).map((stop, index) => {
-            const hex = tone(stop.seat);
-            const style = { "--seat": hexToRgbTriplet(hex.main), "--seat-ink": hex.ink } as CSSProperties;
-            return (
-              <li
-                key={stop.seat}
-                style={style}
-                data-now={stop.now ? "true" : undefined}
-                data-next={stop.next ? "true" : undefined}
-                data-out={outSeats.has(stop.seat) ? "true" : undefined}
-                aria-current={stop.now ? "step" : undefined}
-              >
-                {index > 0 ? <span className={styles.arrow} aria-hidden="true">&rarr;</span> : null}
-                <b>{stop.code}</b>
-                <span>{nameOf(stop.seat).split(" ")[0]}</span>
-                {stop.now ? <em>now</em> : stop.next ? <em>next</em> : null}
-              </li>
-            );
-          })}
-        </ol>
+        <TagBaton engine={engine} nameOf={nameOf} toneOf={toneOf} />
         {lock ? (
           <span
             className={styles.lock}
