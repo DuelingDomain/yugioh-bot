@@ -404,6 +404,16 @@ function TableShellBody({
   if (opened.key !== gameKey) setOpened({ key: gameKey, seats: new Set(out.map((entry) => entry.seat)) });
   const outAtOpen = opened.seats;
   const viewerEliminated = engine.seats.some((view) => view.seat === viewerSeat && view.eliminated === true);
+  // The live region says your own elimination. On the 4-way grid it also says who left last while you watch and what
+  // the last two are: there the out notes are hidden from the eye and not live, and the caption is only drawn.
+  const freshOut = grid ? out.filter((entry) => entry.seat !== viewerSeat && !outAtOpen.has(entry.seat)) : [];
+  const newestOut = freshOut.reduce<(typeof out)[number] | null>((best, entry) => (best == null || entry.place < best.place ? entry : best), null);
+  const finaleNote = grid && finale.caption ? `${finale.caption.kind === "final" ? "Final duel" : "Last two remaining"}: ${finale.caption.seats.map((seat) => nameOf(seat)).join(" vs ")}.` : "";
+  const liveText = [
+    viewerEliminated ? "You are eliminated. You keep watching." : "",
+    newestOut ? `${nameOf(newestOut.seat)} is out, ${placeLabel(newestOut.place)}.` : "",
+    finaleNote,
+  ].filter(Boolean).join(" ");
 
   const identityNode = (
     <div className={roomStyles.identity}>
@@ -513,7 +523,7 @@ function TableShellBody({
     >
       {/* One live region that stays mounted: a region that appears with its text is not always read out. */}
       <p className={styles.liveNote} role="status" aria-live="polite" data-testid="table-live">
-        {viewerEliminated ? "You are eliminated. You keep watching." : ""}
+        {liveText}
       </p>
       {hud ? (
         <div className={hudStyles.top} data-testid="hud-top">
@@ -521,7 +531,7 @@ function TableShellBody({
           <div className={hudStyles.topMid} data-caption={finale.caption ? "true" : undefined}>
             {seatStripNode}
             {finale.caption ? (
-              <div key={finale.caption.id} className={hudStyles.caption} role="status" data-testid="grid-caption" data-kind={finale.caption.kind}>
+              <div key={finale.caption.id} className={hudStyles.caption} aria-hidden="true" data-testid="grid-caption" data-kind={finale.caption.kind}>
                 <span className={hudStyles.captionKey}>{CAPTION_TEXT[finale.caption.kind]}</span>
                 <span className={hudStyles.captionNames}>
                   {finale.caption.seats.map((seat, index) => (
