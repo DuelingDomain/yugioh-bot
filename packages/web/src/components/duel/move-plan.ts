@@ -88,6 +88,8 @@ export type MovePlan = {
   leadMs: number;
   /** Explicit battle/canvas/chain floor, independent of the serial queue's overlap. */
   notBeforeAt?: number;
+  /** A fight that killed the card is still playing: BattleFx draws the card on its zone, so MoveFx adds no stand-in. */
+  battleHeld?: boolean;
   /** Extra ms the ghost stays after landing. */
   holdMs: number;
   /** The card is being destroyed: it is hidden in its zone until this flight lands in the pile. */
@@ -138,7 +140,7 @@ export function standsInAtSource(plan: MovePlan): boolean {
   if (plan.source == null || plan.silent || plan.takeover || plan.handoffFrom) return false;
   // Reduced motion: the card does not travel. It stays in its zone, pose and face, and fades out there
   // while it fades in on its pile. A destroy has no break to stand in for it, so it stays too.
-  if (plan.reduced && plan.style === "fade" && !plan.tribute) return true;
+  if (plan.reduced && plan.style === "fade" && !plan.tribute && !plan.battleHeld) return true;
   if (plan.destroy) return false;
   // A showcase that rises from the zone starts on the card; one that rises from a strip or a pile does not.
   if (plan.style === "add") return plan.showcase?.origin.kind === "source";
@@ -291,6 +293,8 @@ type Candidate = {
   pieces: "burst" | "scattered" | null;
   /** A battle holds this destroy: the flight starts no earlier than this (performance.now(), 0 = free). */
   notBefore: number;
+  /** A fight that killed the card is still playing (BattleFx draws the card on its zone until the break). */
+  battleHeld: boolean;
   paired: number[];
   source: ZoneSnapshot | null;
   /** Index in `fresh`: a run of moves is a set of candidates with no other kind of event between them. */
@@ -380,6 +384,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     let takeover = false;
     let pieces: "burst" | "scattered" | null = null;
     let notBefore = 0;
+    let battleHeld = false;
 
     // The summon, set or activation this card lands for.
     for (let j = i + 1; j < fresh.length && j <= i + 8; j += 1) {
@@ -403,6 +408,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       lead = reduced ? 0 : other.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs;
       // A fight that killed the card is still playing: it breaks only after the last strike landed.
       notBefore = battleDestroyAt(other.zone, now);
+      battleHeld = notBefore > 0;
       if (notBefore > 0) lead = reduced ? 0 : HELD_CRACK_MS;
       // The 3D layer breaks the card into shards: the pile receives it after they fell, no flight.
       if (notBefore > 0 && battleBreakIs3d(other.zone, now)) {
@@ -463,7 +469,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     if (roomDraws) silent = true;
     const source = resolveSource(from, event.id);
     const origin = style === "add" ? showcaseOrigin(event, now, source != null) : null;
-    candidates.push({ event, style, base: silent && !roomDraws ? 0 : baseDuration(style, geo.distance, reduced, isFieldPlacementLocation(to.location)), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin, tribute, tributeWait });
+    candidates.push({ event, style, base: silent && !roomDraws ? 0 : baseDuration(style, geo.distance, reduced, isFieldPlacementLocation(to.location)), lead, hold, silent, destroy, takeover, pieces, notBefore, battleHeld, paired, source, index: i, origin, tribute, tributeWait });
   }
   if (candidates.length === 0) {
     sequenceEffects(fresh, [...plans.values()], now, reduced);
@@ -599,6 +605,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       durationMs: dur,
       leadMs: item.lead,
       notBeforeAt: item.notBefore,
+      battleHeld: item.battleHeld,
       // After a showcase lands, the ring of light plays on the hand card.
       holdMs: chained.has(item) ? 0 : phases ? phases.glowMs : item.hold,
       destroy: item.destroy,

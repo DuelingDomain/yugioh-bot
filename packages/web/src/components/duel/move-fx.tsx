@@ -40,6 +40,7 @@ import { beginDestroyHide, beginPileHold, beginPileLift, startDestroyHideGuard }
 import { SHARDS, Track } from "./summon-fx";
 import { CARD_FX } from "./duel-timing";
 import { ShowcaseGhost } from "./add-fx";
+import { cardTurn, placeSourceStandIn, SourceStandIn } from "./source-stand-in";
 import { retargetFlight } from "./live-flight";
 import { ConfirmGhost, CONFIRM_MS } from "./confirm-fx";
 import { TributeGhost } from "./tribute-fx";
@@ -241,9 +242,7 @@ export function destinationShift(overlay: HTMLElement, dest: HTMLElement, cx: nu
  * Turn of a card as it rests on the board, in degrees: a quarter for Defense Position, plus a half turn
  * on the opponent's side of the table (field.module.css turns their cards the same way).
  */
-export function cardTurn(side: "you" | "opp", defense: boolean): number {
-  return (side === "opp" ? 180 : 0) + (defense ? 90 : 0);
-}
+export { cardTurn };
 
 /* ---------- the pieces of a destroyed card ---------- */
 
@@ -376,16 +375,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
       // Reduced motion: the card does not travel. Its stand-in sits on the source zone (opacity 1 from the first
       // frame, in the pose it had) and fades out there while the card fades in on its pile.
       const standIn = standInRef.current;
-      const from = plan.source;
-      if (standIn && from) {
-        const scale = clamp(from.rect.height / h, 0.35, 2.4);
-        standIn.style.left = `${from.rect.left - o.left + from.rect.width / 2 - w / 2}px`;
-        standIn.style.top = `${from.rect.top - o.top + from.rect.height / 2 - h / 2}px`;
-        standIn.style.width = `${w}px`;
-        standIn.style.height = `${h}px`;
-        standIn.style.setProperty("--fx-r", `${Math.max(2, w * 0.05)}px`);
-        const defense = plan.event.fromPosition == null ? from.defense : isDefenseAt(plan.event.from?.location, plan.event.fromPosition);
-        standIn.style.transform = `rotate(${cardTurn(from.side, defense)}deg) scale(${scale})`;
+      if (standIn && placeSourceStandIn(standIn, plan, o, w, h)) {
         track.play(standIn, [{ opacity: 1 }, { opacity: 0 }], { duration: fadeMs, easing: "ease-out", delay, fill: "both" });
       }
       if (flipper.current) flipper.current.style.transform = `rotateY(${endAngle}deg)`;
@@ -480,18 +470,7 @@ function Ghost({ plan, overlay, landed, done }: GhostProps) {
   const standsInReduced = plan.reduced && plan.style === "fade" && standsInAtSource(plan);
   return (
     <>
-    {standsInReduced ? (
-      <div ref={standInRef} className={styles.ghost} data-stand-in="true" style={{ opacity: 1 } as CSSProperties}>
-        <div className={styles.flipper} style={{ transform: `rotateY(${startAngle}deg)` }}>
-          {card ? (
-            <div className={styles.face}>
-              <img className={styles.art} src={cardArtUrl(card.code, "small")} alt="" draggable={false} />
-            </div>
-          ) : null}
-          <div className={styles.back} data-sleeve={sleeve} style={{ transform: `rotateY(${card ? 180 : 0}deg)` }} />
-        </div>
-      </div>
-    ) : null}
+    {standsInReduced ? <SourceStandIn ref={standInRef} code={card?.code ?? 0} faceUp={startUp} sleeve={sleeve} /> : null}
     <div ref={root} className={styles.ghost} data-style={plan.style} style={{ opacity: 0 } as CSSProperties}>
       <span ref={shade} className={styles.shade} />
       {pieces && card ? (
