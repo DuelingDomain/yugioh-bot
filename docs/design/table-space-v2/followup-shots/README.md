@@ -1,5 +1,16 @@
 # Table follow-up visual checks
 
+The 16 shots in this folder were rendered from `/dev/table-preview` with `capture.mjs`
+(Chromium headless, Node 22). `results.json` records page errors, overflow and chain collisions.
+
+Chain-strip check vs main on the same matrix: main reports 10 problems (9 strip overlaps plus
+classic 1v1 phone with no strip). This branch reports 2, and main has both of them too: Tag phone
+(the strip touches the Tag header; Tag is outside this change) and classic 1v1 phone (classic draws
+its chain inside the prompt, so there is no strip to find). All FFA3/FFA4 shots are clean.
+
+## Original notes from the Codex run
+
+
 New screenshots could not be produced in this run. The sandbox rejects both the Next dev
 server's listening socket (`listen EPERM`) and Chromium's socket setup (`Operation not
 permitted`, SIGTRAP). Chromium and chromium-headless-shell both failed before opening a page.
