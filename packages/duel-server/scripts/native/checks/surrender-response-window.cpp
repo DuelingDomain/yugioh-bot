@@ -27,6 +27,8 @@ static void surrender_phase(int leaver) {
 		if(msgs.empty()) break;
 		const Msg last = msgs.back();
 		auto& f = F(d);
+		if(surrendered)
+			EXPECT(last.b1 != leaver, "removed seat %d received prompt %u", leaver, last.id);
 		if(last.id == MSG_SELECT_IDLECMD) {
 			reached_idle = true;
 			EXPECT(f.infos.turn_player == (leaver == 0 ? 1 : 0), "next idle turn player %d", f.infos.turn_player);
