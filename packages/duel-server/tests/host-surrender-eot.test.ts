@@ -189,21 +189,21 @@ Duel.RegisterEffect(e,0)`]);
       expect(await t.view()).toMatchObject({ turn: 1, turnSeat: 0, phase: "main1", result: null });
     }, 60_000);
 
-    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s an interrupted chain loss keeps the player role until it lands", async (format) => {
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s an interrupted chain removal keeps the player role", async (format) => {
       const t = await table(mode, format, true);
       await reachMain(t);
       const activate = (await t.view()).prompt!.options.find((option) => option.card?.code === 55144522 && option.id.startsWith("activate:"));
       await t.answer(0, { choice: activate!.id });
       for (let step = 0; step < 5 && !(await t.view()).chain?.length; step++) await passPrompt(t);
       await t.post("surrender", 0);
-      expect((await t.view()).seats[0]!.pendingElimination).toBe(true);
+      expect((await t.view()).seats[0]!.eliminated).toBe(true);
       t.service.interrupt(t.session.slug, "g", "Test interrupted chain");
       await t.recover();
       expect(await t.post("view", 0)).toMatchObject({ role: "player", mySeat: 0, engine: null });
       expect(await t.post("replay", 0)).toMatchObject({ role: "player", mySeat: 0 });
     }, 60_000);
 
-    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s resolves a chain between two other seats before the loss", async (format) => {
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s removes the leaver while links of two living seats still resolve", async (format) => {
       const t = await table(mode, format, true, [`Debug.AddCard(83968380,1,1,LOCATION_SZONE,1,POS_FACEDOWN)`]);
       await reachMain(t);
       const activate = (await t.view()).prompt!.options.find((option) => option.card?.code === 55144522 && option.id.startsWith("activate:"));
@@ -220,8 +220,8 @@ Duel.RegisterEffect(e,0)`]);
       const before = await t.view();
       await t.post("surrender", leaver);
       const pending = await t.view();
-      expect(states(pending)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === leaver ? "pending" : "in"));
-      expect(pending.seats[leaver]!.monsters.filter(Boolean)).toHaveLength(1);
+      expect(states(pending)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === leaver ? "out" : "in"));
+      expect(pending.seats[leaver]!.monsters.filter(Boolean)).toHaveLength(0);
       expect((await t.post("view", leaver)).role).toBe("player");
       expect(t.service.privateState(t.session.slug, "g").clock?.activeSeat).not.toBe(leaver);
       await t.recover();
@@ -229,8 +229,8 @@ Duel.RegisterEffect(e,0)`]);
       await t.post("respond", leaver, { command: { revision: pending.revision, promptId: "old", answer: { choice: "chain:pass" } } }, 409);
       for (let step = 0; step < 25 && (await t.view()).chain?.length; step++) {
         const during = await t.view();
-        expect(during.seats[leaver]!.eliminated).toBe(false);
-        expect(during.seats[leaver]!.pendingElimination).toBe(true);
+        expect(during.seats[leaver]!.eliminated).toBe(true);
+        expect(during.seats[leaver]!.pendingElimination).toBe(false);
         await passPrompt(t);
       }
       const final = await t.view();
@@ -267,7 +267,7 @@ Duel.RegisterEffect(e,0)`]);
       expect((await replaySource(t.source(), DATA, t.source().commands.length)).spectator.eliminationOrder).toEqual(final.eliminationOrder);
     }, 60_000);
 
-    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s the last living player wins after the whole chain", async (format) => {
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s the last living player wins immediately with an open chain", async (format) => {
       const t = await table(mode, format, true, [`Debug.AddCard(83968380,1,1,LOCATION_SZONE,1,POS_FACEDOWN)
 local c=Duel.GetFieldCard(0,LOCATION_HAND,0)
 for _,e in ipairs({c:GetCardEffect(EVENT_FREE_CHAIN)}) do
@@ -288,21 +288,15 @@ end`]);
       }
       for (let step = 0; step < 10 && (await t.view()).chain!.length < 2; step++) await passPrompt(t);
       expect((await t.view()).chain?.map((link) => link.seat)).toEqual([0, 1]);
-      // All seats except the turn player surrender. Seat 1's unresolved link
-      // resolves normally; the living turn player's lower link must still draw two.
+      // Removing all opponents ends the duel at once. No unstarted operation runs.
       for (let seat = t.count - 1; seat >= 1; seat--) await t.post("surrender", seat);
-      const pending = await t.view();
-      expect(pending.result).toBeNull();
-      expect(states(pending)).toEqual(["in", ...Array(t.count - 1).fill("pending")]);
-      for (let step = 0; step < 25 && !(await t.view()).result; step++) await passPrompt(t);
       const final = await t.view();
-      expect(final).toMatchObject({ turn: 1, turnSeat: 0, chain: [], prompt: null,
+      expect(final).toMatchObject({ turn: 1, turnSeat: 0, prompt: null,
         result: { winnerSeat: 0, reason: "Surrender" } });
-      expect(final.seats[0]!.hand).toHaveLength(2);
-      expect(final.log.some((line) => line.text.startsWith("Player 2 drew 1"))).toBe(true);
+      expect(final.seats[0]!.hand).toHaveLength(0);
+      expect(final.log.some((line) => line.text.startsWith("Player 2 drew 1"))).toBe(false);
       expect(states(final)).toEqual(["in", ...Array(t.count - 1).fill("out")]);
-      expect(final.eliminationOrder).toEqual([Array.from({ length: t.count - 1 }, (_, index) => index + 1)]);
-      // The raw core names a team also in FFA; the host's final snapshot names the winner seat.
+      expect(final.eliminationOrder).toEqual(Array.from({ length: t.count - 1 }, (_, index) => [t.count - 1 - index]));
       expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[0])
         .toEqual({ ...final, result: { ...final.result, winnerTeam: 0 } });
       await t.recover();
@@ -416,7 +410,7 @@ end`]);
       expect(before.prompt?.options.map((option) => option.id)).toEqual(["opt:0", "opt:1"]);
       const room = await t.post("surrender", 0);
       expect(room).toMatchObject({ role: "player", mySeat: 0 });
-      expect(room.engine).toMatchObject({ turn: 2, turnSeat: 1, chain: [], result: null });
+      expect(room.engine).toMatchObject({ turn: 1, turnSeat: 0, chain: [], result: null });
       expect(states(room.engine!)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 0 ? "out" : "in"));
       // The link already started. Its effect finishes after the deterministic
       // required choice, even though a loss was flagged during that choice.
@@ -438,7 +432,7 @@ end`]);
       expect(before.prompt?.kind).toBe("places");
       const room = await t.post("surrender", 0);
       expect(room).toMatchObject({ role: "player", mySeat: 0,
-        engine: { turn: 2, turnSeat: 1, chain: [], result: null } });
+        engine: { turn: 1, turnSeat: 0, chain: [], result: null } });
       expect(room.engine!.seats[0]!.spells.filter(Boolean)).toHaveLength(0);
       expect(room.engine!.log.some((line) => line.text.includes("Pot of Greed is activating") || line.text.includes("drew 2"))).toBe(false);
       const live = await t.view(1);
@@ -652,9 +646,10 @@ e:SetCode(EVENT_PHASE_START+PHASE_STANDBY)
 e:SetCountLimit(1)
 e:SetOperation(function() if Duel.GetTurnCount()==1 then c:AddCounter(0x1001,1) end end)
 Duel.RegisterEffect(e,1)`]);
+
         for (let step = 0; step < 50; step++) {
           const v = await t.view(1);
-          if (v.phase === "standby" && v.seats[1]!.monsters.some((c) => c?.counters?.some((counter) => counter.count === 1)) && v.prompt && (v.prompt.options.some((o) => o.id === "no") || v.prompt.context?.type === "chain" && v.prompt.options.some((o) => o.card?.code === 15025844))) break;
+          if (v.phase === "standby" && v.prompt && (v.prompt.options.some((o) => o.id === "no") || v.prompt.context?.type === "chain" && v.prompt.options.some((o) => o.card?.code === 15025844))) break;
           await passPrompt(t);
         }
         const before = await t.view(1);
@@ -759,7 +754,7 @@ Duel.RegisterEffect(e,1)`]);
       }, 60_000);
     }
 
-    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s closes a living optional destroyed trigger after the leaver's chain resolves", async (format) => {
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s removes the unstarted link before it destroys a living trigger source", async (format) => {
       // First prove that the same destroyed-card trigger opens and resolves without surrender.
       for (const surrender of [false, true]) {
         const t = await table(mode, format, true, [`local victim=Duel.GetFieldCard(1,LOCATION_MZONE,0)
@@ -785,10 +780,20 @@ end`]);
         expect(before.seats[1]!.monsters.filter(Boolean).map((card) => card!.code)).toContain(32452818);
         if (surrender) {
           await t.post("surrender", 0);
-          const pending = await t.view(1);
-          expect(states(pending)).toEqual(["pending", ...Array(t.count - 1).fill("in")]);
-          expect(pending.chain?.map((link) => link.seat)).toEqual([0]);
-          expect(pending.seats[1]!.monsters.filter(Boolean).map((card) => card!.code)).toContain(32452818);
+          const removed = await t.view(1);
+          expect(states(removed)).toEqual(["out", ...Array(t.count - 1).fill("in")]);
+          expect(removed.chain).toEqual([]);
+          expect(removed.seats[1]!.monsters.filter(Boolean).map((card) => card!.code)).toContain(32452818);
+          await reachMain(t, 1);
+          const after = await t.view(1);
+          expect(after.seats[1]!.monsters.filter(Boolean)).toHaveLength(1);
+          expect(after.seats[1]!.graveyard).toHaveLength(0);
+          expect(after.seats[1]!.lp).toBe(before.seats[1]!.lp);
+          expect(after.log.some((line) => line.text.includes("Pot of Greed is resolving"))).toBe(false);
+          await t.recover();
+          expect(await t.view(1)).toEqual(after);
+          expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[1]).toEqual(after);
+          continue;
         }
         // Stop when this chain ends. Never pass the later trigger to make it close.
         for (let step = 0; step < 25 && (await t.view()).chain?.length; step++) await passPrompt(t);
@@ -797,17 +802,8 @@ end`]);
         expect(after.seats[1]!.monsters.filter(Boolean)).toHaveLength(0);
         expect(after.seats[1]!.graveyard.map((card) => card.code)).toContain(32452818);
         expect(after.seats[1]!.lp).toBe(before.seats[1]!.lp);
-        if (surrender) {
-          expect(states(after)).toEqual(["out", ...Array(t.count - 1).fill("in")]);
-          expect(after).toMatchObject({ turn: 2, turnSeat: 1, result: null });
-          expect(after.prompt).toMatchObject({
-            kind: "choice", seat: 1, cancelable: true, context: { type: "chain", forced: false },
-            options: [{ id: "card:0", card: { code: 60082869 }, controller: 1, location: 8, sequence: 0 }],
-          });
-          await t.recover();
-          expect(await t.view(1)).toEqual(after);
-          expect((await replaySource(t.source(), DATA, t.source().commands.length)).seats[1]).toEqual(after);
-        } else {
+
+        {
           expect(states(after)).toEqual(Array(t.count).fill("in"));
           expect(after).toMatchObject({ turn: 1, turnSeat: 0, result: null });
           expect(after.prompt).toMatchObject({ kind: "choice", seat: 1, source: { code: 32452818 },
@@ -819,7 +815,7 @@ end`]);
       }
     }, 60_000);
 
-    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s own-turn chain resolves before the next living turn", async (format) => {
+    it.each(["ffa3", "ffa4"] as const)("R-COMMON-SURRENDER-EOT: %s own-turn removal cancels the leaver link and keeps living phase windows", async (format) => {
       const t = await table(mode, format, true);
       await reachMain(t);
       const start = await t.view();
@@ -832,19 +828,20 @@ end`]);
       expect(before.prompt).not.toBeNull();
       const pendingRoom = await t.post("surrender", 0);
       expect(pendingRoom.session.status).toBe("active");
-      expect(states(pendingRoom.engine!)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 0 ? "pending" : "in"));
+      expect(states(pendingRoom.engine!)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 0 ? "out" : "in"));
       expect((await t.view(1)).prompt?.id).toBe(before.prompt?.id);
       expect(t.source().commands.at(-1)?.promptId).toBe("eliminate:0");
       const live = await t.view(1);
       await t.recover();
       expect(await t.view(1)).toEqual(live);
       for (let step = 0; step < 20 && (await t.view(1)).chain?.length; step++) await passPrompt(t);
+      await reachMain(t, 1);
       const final = await t.view(1);
       expect(states(final)).toEqual(Array.from({ length: t.count }, (_, seat) => seat === 0 ? "out" : "in"));
       expect(final).toMatchObject({ turn: 2, turnSeat: 1, result: null });
       const deckCount = t.service.privateState(t.session.slug, "g").decks[0]!.main.length;
-      // Pot of Greed resolves normally before its owner leaves.
-      expect(final.log.some((line) => line.text.includes("drew 2"))).toBe(true);
+      // The removed Pot of Greed never starts its operation.
+      expect(final.log.some((line) => line.text.includes("drew 2"))).toBe(false);
       for (const seat of final.seats) if (!seat.eliminated) {
         expect(seat.hand).toHaveLength(1);
         expect(seat.monsters.filter(Boolean)).toHaveLength(1);
@@ -877,7 +874,7 @@ end`]);
       const commands = t.service.privateState(t.session.slug, "g").commands;
       expect(commands.map((entry) => entry.command.promptId)).toEqual(["eliminate:0"]);
       expect(room.engine!.log.slice(before.log.length).some((entry) => entry.text === "draw")).toBe(format !== "tag");
-      // The core still runs the cut-short turn's End Phase event for living duelists
+      // The core still runs the removed player's End Phase event for living duelists
       // (ADR 0002). The leaver's card left the field, so its effect does not run.
       expect(room.engine!.seats[1]!.lp).toBe(before.seats[1]!.lp);
       expect(room.engine!.seats.every((seat) => !seat.pendingElimination)).toBe(true);

@@ -996,24 +996,22 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
     && (pending?.message.type === OcgMessageType.SELECT_EFFECTYN
       || pending?.message.type === OcgMessageType.SELECT_CHAIN && !pending.message.forced);
 
-  // Keep the existing cut-short optional-chain policy for LP, deck and time-limit losses.
-  const mustPassOtherCutShortTurn = () => eliminated.has(turnSeat) && eliminationReasons.get(turnSeat) !== 0
-    && liveChainSize === 0 && pending?.message.type === OcgMessageType.SELECT_CHAIN && !pending.message.forced;
-
   /**
    * While the open prompt belongs to a seat that is leaving, answer it for that seat (the answer that changes
    * the game least) until the core reports the loss or the prompt moves to a seat that stays. Deterministic:
    * a journal replay of the same commands gives the same answers.
    */
   const answerForLeavingSeats = () => {
-    for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustCloseResponseWindow() || mustPassOtherCutShortTurn()); step += 1) {
+    for (let step = 0; pending && !result && (leaving.has(pending.seat) || mustCloseResponseWindow()); step += 1) {
       const current = pending;
       closedResponseSeat = null;
       if (step >= LEAVING_ANSWER_LIMIT) {
         throw new Error(`Seat ${current.seat} is still in the duel after ${LEAVING_ANSWER_LIMIT} automatic answers (open prompt ${current.id}, ${current.prompt.kind})`);
       }
       const permittedCards = current.prompt.kind === "announce-card" ? game.searchCards("") : undefined;
-      const answer = chooseSurrenderedAnswer(current.prompt, { permittedCards });
+      const phasePass = format !== "tag" && eliminated.has(current.seat) && current.prompt.kind === "choice"
+        ? ["to_bp", "to_m2", "to_ep"].find((id) => current.prompt.options.some((option) => option.id === id)) : undefined;
+      const answer = phasePass ? { choice: phasePass } : chooseSurrenderedAnswer(current.prompt, { permittedCards });
       const response = resolveAnswer(current, current.seat, current.id, answer, cards);
       diagnose("leaving-answer", current.seat, `${current.prompt.kind} ${current.id}`);
       sawRetry = false;

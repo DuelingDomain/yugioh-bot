@@ -1,0 +1,73 @@
+From 1b8d90e1381422de1500ea18826c820cdd7fa11c Mon Sep 17 00:00:00 2001
+From: yugidraft <yugidraft@localhost>
+Date: Sun, 4 Oct 2026 19:53:23 -0400
+Subject: [PATCH] Continue remaining FFA phases after the turn player leaves
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ field.cpp     | 5 +++--
+ playerop.cpp  | 6 +++---
+ processor.cpp | 7 -------
+ 3 files changed, 6 insertions(+), 12 deletions(-)
+
+diff --git a/field.cpp b/field.cpp
+index b6c8a03..97329f1 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -152,8 +152,9 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 		message->write<uint8_t>(p);
+ 		message->write<uint8_t>(reason);
+ 	}
+-	// 2. p's turn runs out without prompts (Turn then skips p).
+-	if(infos.turn_player == p)
++	// 2. FFA completes the remaining phases with the removed seat passing.
++	// Tag retains its stock forced ending. Future FFA turns skip the seat.
++	if(n_teams != n_duelists && infos.turn_player == p)
+ 		core.force_turn_end = true;
+ 	// 3. Unresolved FFA links are removed, without resolution events. Keep their
+ 	// storage until SolveChain can release relations and interpreter references safely.
+diff --git a/playerop.cpp b/playerop.cpp
+index 65a1677..b3466ab 100644
+--- a/playerop.cpp
++++ b/playerop.cpp
+@@ -21,7 +21,7 @@ bool field::process(Processors::SelectBattleCmd& arg) {
+ 	if(arg.step == 0) {
+ 		// a seat that is not alive does not choose: end the Battle Phase, or go to Main Phase 2
+ 		if(is_skipped_seat(playerid) && (core.to_ep || core.to_m2)) {
+-			returns.set<int32_t>(0, core.to_ep ? 3 : 2);
++			returns.set<int32_t>(0, n_teams == n_duelists && core.to_m2 ? 2 : core.to_ep ? 3 : 2);
+ 			return TRUE;
+ 		}
+ 		auto message = pduel->new_message(MSG_SELECT_BATTLECMD);
+@@ -76,8 +76,8 @@ bool field::process(Processors::SelectIdleCmd& arg) {
+ 	auto playerid = arg.playerid;
+ 	if(arg.step == 0) {
+ 		// a seat that is not alive does not choose: end the phase
+-		if(is_skipped_seat(playerid) && core.to_ep) {
+-			returns.set<int32_t>(0, 7);
++		if(is_skipped_seat(playerid) && (core.to_ep || core.to_bp)) {
++			returns.set<int32_t>(0, n_teams == n_duelists && core.to_bp ? 6 : 7);
+ 			return TRUE;
+ 		}
+ 		auto message = pduel->new_message(MSG_SELECT_IDLECMD);
+diff --git a/processor.cpp b/processor.cpp
+index e8a43c2..23487d6 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -1096,13 +1096,6 @@ bool field::process(Processors::PointEvent& arg) {
+ 	return TRUE;
+ }
+ bool field::process(Processors::QuickEffect& arg) {
+-	// A queued priority round may start after its activation was cancelled.
+-	// Keep an already open round (continuations start at step 1), real action
+-	// responses, and required quick chains; open no new empty departed-turn round.
+-	if(arg.step == 0 && core.turn_surrendered && !is_alive(infos.turn_player)
+-		&& core.current_chain.empty() && core.new_chains.empty() && core.quick_f_chain.empty()
+-		&& !response_window_participants())
+-		return TRUE;
+ 	auto skip_freechain = arg.skip_freechain;
+ 	auto priority = arg.priority_player;
+ 	switch(arg.step) {
+-- 
+2.43.0
+

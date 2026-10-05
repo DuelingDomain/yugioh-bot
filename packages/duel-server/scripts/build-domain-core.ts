@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { relative, resolve } from "node:path";
 
 // DOMAIN_CORE_BUILD=docker (default): run packages/duel-server/scripts/build-domain-core.sh
@@ -59,6 +59,7 @@ const result =
           "-e",
           "DOMAIN_ROOT=/src",
           ...(dataDir ? ["-v", `${dataDir}:/duel-data`, "-e", "DUEL_DATA_DIR=/duel-data"] : []),
+          ...(!multiplayer && target !== "legacy-domain" ? ["-v", `${realpathSync(resolve(worktree, "node_modules/ocgcore-wasm/dist/index.js"))}:/sdk/index.js:ro`, "-e", "DOMAIN_CORE_WRAPPER=/sdk/index.js", "-e", `DOMAIN_CORE_DIST=${containerOutput}`] : []),
           ...(multiplayer ? ["-e", "LUA_FIXED_SEED=1", "-e", `OUT_NAME=ocgcore.${target}.sync.wasm`,
             "-e", `MULTI_TREE=${containerOutput}/build-tree`,
             "-e", `DOMAIN_CORE_DIST=${containerOutput}`,

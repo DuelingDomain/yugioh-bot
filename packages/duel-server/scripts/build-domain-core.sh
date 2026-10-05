@@ -18,7 +18,7 @@ ROOT="${DOMAIN_ROOT:-${1:-/src}}"
 PKG="$ROOT/packages/duel-server"
 CORE_SRC="$PKG/domain-core/src"
 LUA_SRC="$PKG/domain-core/lua/domain.lua"
-DIST="$PKG/domain-core/dist"
+DIST="${DOMAIN_CORE_DIST:-$PKG/domain-core/dist}"
 CACHE="$PKG/domain-core/.build"
 PINS="$PKG/domain-core/pins.json"
 DATA_DIR="${DUEL_DATA_DIR:-$ROOT/data/duel-engine}"
@@ -35,11 +35,11 @@ if [[ ! -f "$CORE_SRC/apply-domain-patch.mjs" ]]; then
   echo "missing $CORE_SRC/apply-domain-patch.mjs" >&2
   exit 1
 fi
-if [[ ! -f "$ROOT/node_modules/ocgcore-wasm/dist/index.js" ]]; then
+if [[ ! -f "${DOMAIN_CORE_WRAPPER:-$ROOT/node_modules/ocgcore-wasm/dist/index.js}" ]]; then
   echo "missing ocgcore-wasm wrapper at $ROOT/node_modules/ocgcore-wasm/dist/index.js" >&2
   exit 1
 fi
-WRAPPER="$ROOT/node_modules/ocgcore-wasm/dist/index.js"
+WRAPPER="${DOMAIN_CORE_WRAPPER:-$ROOT/node_modules/ocgcore-wasm/dist/index.js}"
 
 if node --input-type=module - "$DATA_DIR" "$PINS" "$CORE_SRC" "$WRAPPER" <<'JS'
 import { createHash } from 'node:crypto';

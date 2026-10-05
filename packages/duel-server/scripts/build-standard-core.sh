@@ -23,11 +23,11 @@ set -euo pipefail
 
 ROOT="${DOMAIN_ROOT:-${1:-/src}}"
 PKG="$ROOT/packages/duel-server"
-DIST="$PKG/domain-core/dist"
+DIST="${DOMAIN_CORE_DIST:-$PKG/domain-core/dist}"
 CACHE="$PKG/domain-core/.build"
 PINS="$PKG/domain-core/pins.json"
 DATA_DIR="${DUEL_DATA_DIR:-$ROOT/data/duel-engine}"
-WRAPPER="$ROOT/node_modules/ocgcore-wasm/dist/index.js"
+WRAPPER="${DOMAIN_CORE_WRAPPER:-$ROOT/node_modules/ocgcore-wasm/dist/index.js}"
 CORE_FIXES="$PKG/domain-core/src/apply-core-fixes.mjs"
 CORE_FIXES_HASH="$(sha256sum "$CORE_FIXES" | cut -d" " -f1)"
 

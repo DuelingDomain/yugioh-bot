@@ -192,3 +192,5 @@ The same fix is useful for the production standard core. It is not applied there
 - The native ASan and UBSan build of all patches compiles without warnings, and the smoke test passes.
 
 `0086-ffa-returns-no-response.patch` makes FFA elimination fallback returns synchronous, without leave-field, destination or move events. Continuous redirects, Pendulum destinations, attachments and Tokens keep their movement rules. Tag and 1v1 stay unchanged.
+
+`0087-ffa-continue-leaver-turn.patch` removes forced FFA turn ending and keeps normal living-seat phase windows. Dead-seat idle and Battle Phase passes visit remaining phases, including Main Phase 2. Tag and 1v1 keep their behavior.
