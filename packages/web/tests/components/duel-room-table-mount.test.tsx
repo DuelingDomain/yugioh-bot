@@ -29,6 +29,7 @@ import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import { TAG_FIXTURES } from "@/components/duel/tag/fixtures";
 import { makeSeries } from "../helpers/duel-series";
 import { duelWindowPath } from "@/components/duel/duel-window";
+import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "@/components/duel/table/rival-field";
 
 beforeAll(() => {
   class RO { constructor(private cb: () => void) {} observe() { this.cb(); } disconnect() {} }
@@ -44,7 +45,7 @@ beforeEach(() => {
   state.reportEnabled.mockResolvedValue(false);
   window.history.replaceState(null, "", "/duels/live");
 });
-afterEach(() => { cleanup(); window.name = ""; });
+afterEach(() => { cleanup(); vi.useRealTimers(); window.localStorage.removeItem("yugidraft.duelPreferences.v1"); window.name = ""; });
 function room(source: DuelRoom) {
   state.room = { ...source, session: { ...source.session, slug: "live" }, engine: { ...source.engine!, events: [],
     prompt: source.engine!.prompt ? { ...source.engine!.prompt, options: source.engine!.prompt.options.map((option) => ({ ...option })) } : null } };
@@ -402,21 +403,78 @@ describe("live room table mount", () => {
     expect(state.surrender).toHaveBeenCalledExactlyOnceWith("live");
   });
 
-  it.each([FFA3_FIXTURES, FFA4_FIXTURES])("shows $format Leaving until loss, then automatically switches to spectating", (fixtures) => {
-    room(fixtures.states.main.room);
-    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, pendingElimination: true } : seat);
-    const view = mount();
-    expect(screen.getByTestId("self-leaving")).toHaveTextContent("Leaving — you leave the duel when the current chain finishes");
-    expect(screen.queryByRole("button", { name: "Surrender" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Stay and watch" })).toBeNull();
-    expect(state.replace).not.toHaveBeenCalled();
-    expect(view.container.querySelector("[data-table-shell]")).toHaveAttribute("data-can-act", "false");
-    state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, pendingElimination: false, eliminated: true } : seat);
-    view.rerender(<DuelRoomView slug="live" windowed />);
-    expect(screen.queryByTestId("self-leaving")).toBeNull();
-    expect(screen.queryByRole("region", { name: "You are eliminated" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Stay and watch" })).toBeNull();
-    expect(state.replace).toHaveBeenCalledWith("/duels/live?spectate=1&window=1");
+  describe("own elimination crumble", () => {
+    const WAIT = EXIT_CRUMBLE_MS + 200;
+    const SHORT_WAIT = EXIT_CRUMBLE_REDUCED_MS + 200;
+    const setOwnSeat = (patch: Record<string, unknown>) => {
+      state.room!.engine!.seats = state.room!.engine!.seats.map(seat => seat.seat === 0 ? { ...seat, ...patch } : seat);
+    };
+    function mountThenEliminate(fixtures: typeof FFA3_FIXTURES | typeof FFA4_FIXTURES) {
+      vi.useFakeTimers();
+      room(fixtures.states.main.room);
+      const view = mount();
+      setOwnSeat({ eliminated: true });
+      view.rerender(<DuelRoomView slug="live" windowed />);
+      return view;
+    }
+
+    it.each([FFA3_FIXTURES, FFA4_FIXTURES])("shows $format Leaving until loss, then spectates after the own crumble", (fixtures) => {
+      vi.useFakeTimers();
+      room(fixtures.states.main.room);
+      setOwnSeat({ pendingElimination: true });
+      const view = mount();
+      expect(screen.getByTestId("self-leaving")).toHaveTextContent("Leaving — you leave the duel when the current chain finishes");
+      expect(screen.queryByRole("button", { name: "Surrender" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Stay and watch" })).toBeNull();
+      expect(state.replace).not.toHaveBeenCalled();
+      expect(view.container.querySelector("[data-table-shell]")).toHaveAttribute("data-can-act", "false");
+      setOwnSeat({ pendingElimination: false, eliminated: true });
+      view.rerender(<DuelRoomView slug="live" windowed />);
+      expect(screen.queryByTestId("self-leaving")).toBeNull();
+      expect(screen.queryByRole("region", { name: "You are eliminated" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Stay and watch" })).toBeNull();
+      expect(state.replace).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(WAIT); });
+      expect(state.replace).toHaveBeenCalledExactlyOnceWith("/duels/live?spectate=1&window=1");
+    });
+
+    it.each([FFA3_FIXTURES, FFA4_FIXTURES])("keeps the own $format board crumbling and the input locked during the wait", (fixtures) => {
+      const view = mountThenEliminate(fixtures);
+      expect(state.replace).not.toHaveBeenCalled();
+      expect(view.container.querySelector("[data-seat-exit='0']")).not.toBeNull();
+      expect(view.container.querySelector("[data-table-shell]")).toHaveAttribute("data-can-act", "false");
+      expect(screen.queryByRole("button", { name: "Surrender" })).toBeNull();
+      act(() => { vi.advanceTimersByTime(WAIT - 1); });
+      expect(state.replace).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(state.replace).toHaveBeenCalledExactlyOnceWith("/duels/live?spectate=1&window=1");
+    });
+
+    it.each([FFA3_FIXTURES, FFA4_FIXTURES])("uses the short wait for $format under reduced motion", (fixtures) => {
+      window.localStorage.setItem("yugidraft.duelPreferences.v1", JSON.stringify({ v: 1, soundEnabled: false, motion: "reduced" }));
+      mountThenEliminate(fixtures);
+      act(() => { vi.advanceTimersByTime(SHORT_WAIT - 1); });
+      expect(state.replace).not.toHaveBeenCalled();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(state.replace).toHaveBeenCalledExactlyOnceWith("/duels/live?spectate=1&window=1");
+    });
+
+    it.each([FFA3_FIXTURES, FFA4_FIXTURES])("does not spectate when a result lands during the $format wait", (fixtures) => {
+      const view = mountThenEliminate(fixtures);
+      act(() => { vi.advanceTimersByTime(WAIT / 2); });
+      state.room!.engine!.result = { winnerSeat: 1, reason: "Last duelist standing" };
+      view.rerender(<DuelRoomView slug="live" windowed />);
+      act(() => { vi.advanceTimersByTime(WAIT * 2); });
+      expect(state.replace).not.toHaveBeenCalled();
+    });
+
+    it.each([FFA3_FIXTURES, FFA4_FIXTURES])("does not spectate when the $format room unmounts during the wait", (fixtures) => {
+      const view = mountThenEliminate(fixtures);
+      act(() => { vi.advanceTimersByTime(WAIT / 2); });
+      view.unmount();
+      act(() => { vi.advanceTimersByTime(WAIT * 2); });
+      expect(state.replace).not.toHaveBeenCalled();
+    });
   });
 
   it.each(["surrender", "LP reached 0", "deck-out"])("automatically spectates a reloaded %s loss and preserves URL options", (reason) => {

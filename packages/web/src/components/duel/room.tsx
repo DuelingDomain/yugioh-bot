@@ -45,6 +45,7 @@ import { RoomLobby } from "./room-lobby";
 import { ReportButton } from "./report-button";
 import { OpeningScreen } from "./opening";
 import { DeckMasterRail, DuelField } from "./field";
+import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "./table/rival-field";
 import { TableShell, type TableShellProps } from "./table/table-shell";
 import { TagShell } from "./tag/tag-shell";
 import { defaultTeamNames } from "./tag/live-tag";
@@ -120,6 +121,8 @@ const SolidRoom = dynamic<SolidRoomProps>(() => import("./solid/solid-room").the
 });
 
 /** The Card/Log/Settings sheet in 3D mode is a solid panel (the tokens come from the 3D mode root, which holds the sheet). */
+/** Slack after the crumble ends before an eliminated viewer switches to spectating. */
+const SPECTATE_AFTER_CRUMBLE_MS = 200;
 const SOLID_SHEET_CLASS = "bg-[color:var(--ink-1)] border-t border-[color:var(--gold-b)] rounded-t-[16px] md:rounded-t-none";
 
 /** The attack target the player pointed at; only the confirm submits it. */
@@ -317,13 +320,26 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // Auto-spectate only watches the REMAINING duel; once it is over the eliminated seat keeps its own result screen.
   const duelOver = data?.session.status !== "active" || data?.engine?.result != null;
   const viewerEliminated = (liveFormat === "ffa3" || liveFormat === "ffa4") && viewerSeat?.eliminated === true && !duelOver;
+  // The own crumble plays on the table first: the spectate switch re-keys the room and would unmount it at once.
+  // A seat that was already out on load (a reload) has no crumble to wait for, and neither has the legacy stage.
+  const sawViewerIn = useRef(false);
+  useEffect(() => {
+    if (viewerSeat != null && viewerSeat.eliminated !== true) sawViewerIn.current = true;
+  }, [viewerSeat]);
   useEffect(() => {
     if (!viewerEliminated || spectate) return;
     const query = new URLSearchParams(window.location.search);
     query.set("spectate", "1");
     if (inDuelWindow) query.set("window", "1");
-    router.replace(`/duels/${encodeURIComponent(slug)}?${query}`);
-  }, [viewerEliminated, spectate, inDuelWindow, router, slug]);
+    const target = `/duels/${encodeURIComponent(slug)}?${query}`;
+    if (!sawViewerIn.current || legacyStage) {
+      router.replace(target);
+      return;
+    }
+    const wait = (preferences.reducedMotion ? EXIT_CRUMBLE_REDUCED_MS : EXIT_CRUMBLE_MS) + SPECTATE_AFTER_CRUMBLE_MS;
+    const timer = setTimeout(() => router.replace(target), wait);
+    return () => clearTimeout(timer);
+  }, [viewerEliminated, spectate, inDuelWindow, legacyStage, preferences.reducedMotion, router, slug]);
   const promptMine = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat && data.session.status === "active" && !viewerOut;
   // Every prompt except your own action menu is answered in the middle of the board (PromptCenter):
   // a floating panel for responses, an instruction bar for picks on the field. The left dock keeps
