@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DuelCard, DuelCardInfo, DuelEngineView, DuelEvent, DuelFormat, DuelSeatView } from "@yugidraft/shared/duels";
 import { DuelField } from "@/components/duel/field";
 import { SeatBoard } from "@/components/duel/opponent-board";
-import { CompactChips } from "@/components/duel/table/compact-chips";
 import { TableShell } from "@/components/duel/table/table-shell";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
@@ -175,15 +174,14 @@ for (const format of ["1v1", "ffa4", "tag"] as const) {
   });
 }
 
-it.each([0x0a, 0x05])("keeps legacy opponent boards and compact chips upright for SZONE position %s", position => {
+it.each([0x0a, 0x05])("keeps legacy opponent boards upright for SZONE position %s", position => {
   const card = { ...traps[1], ...zone, position };
   const view = engine("ffa4", card);
-  const { container } = render(<>
-    <SeatBoard view={view.seats[0]} name="Activator" relation="opponent" active={false} answering={false} callbacks={callbacks} reducedMotion />
-    <CompactChips engine={view} seat={0} name="Activator" tone="ice" rotateDeg={90} scale={0.5} usable={false} {...callbacks} />
-  </>);
+  const { container } = render(
+    <SeatBoard view={view.seats[0]} name="Activator" relation="opponent" active={false} answering={false} callbacks={callbacks} reducedMotion />,
+  );
   const nodes = container.querySelectorAll<HTMLElement>('[data-zones~="0:8:0"]');
-  expect(nodes).toHaveLength(2);
+  expect(nodes).toHaveLength(1);
   nodes.forEach(upright);
 });
 

@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared/duels";
 import {
   ARENA_CENTER,
-  compactFor,
   flyWorld,
   flyYawFor,
   holoAnchor,
@@ -37,7 +36,6 @@ function camera(over: Partial<CameraState> = {}): CameraState {
     fly: { yawDeg: 0, tiltDeg: 40, zoom: 1, targetSeat: null }, lock: null, ...over,
   };
 }
-const VIEW = { width: 1440, height: 900 };
 
 describe("tableLayout", () => {
   it("places a 3-way table clockwise from the viewer with viewer-relative tones", () => {
@@ -93,7 +91,7 @@ describe("seatPoses", () => {
   const layout = tableLayout("ffa3", engine("ffa3", 3), 0);
 
   it("home pose of a 3-way table: you full size at the bottom, rivals small and turned", () => {
-    const poses = seatPoses(layout, camera(), VIEW);
+    const poses = seatPoses(layout, camera());
     expect(poses.size).toBe(3);
     expect(poses.get(0)).toMatchObject({ x: 550, y: 582, scale: 1, rotateDeg: 0, docked: false, compact: false, hidden: false });
     expect(poses.get(1)).toMatchObject({ x: 298, y: 222, scale: 0.66, rotateDeg: 158, tiltDeg: 12 });
@@ -101,21 +99,21 @@ describe("seatPoses", () => {
   });
 
   it("follows the viewer: the seat after the viewer sits left", () => {
-    const poses = seatPoses(tableLayout("ffa3", engine("ffa3", 3), 2), camera(), VIEW);
+    const poses = seatPoses(tableLayout("ffa3", engine("ffa3", 3), 2), camera());
     expect(poses.get(2)?.x).toBe(550);
     expect(poses.get(0)?.x).toBe(298);
     expect(poses.get(1)?.x).toBe(802);
   });
 
   it("keeps the same poses when upright is on (only text turns)", () => {
-    const home = seatPoses(layout, camera(), VIEW);
-    const up = seatPoses(layout, camera({ upright: true }), VIEW);
+    const home = seatPoses(layout, camera());
+    const up = seatPoses(layout, camera({ upright: true }));
     for (const seat of [0, 1, 2]) expect(up.get(seat)).toEqual(home.get(seat));
   });
 
   it("gives every pose of a 4-way table a place inside the stage", () => {
     const four = tableLayout("ffa4", engine("ffa4", 4), 0);
-    const poses = seatPoses(four, camera(), VIEW);
+    const poses = seatPoses(four, camera());
     expect(poses.size).toBe(4);
     for (const pose of poses.values()) {
       expect(pose.x).toBeGreaterThan(0);
@@ -270,101 +268,5 @@ describe("3-way camera places", () => {
     expect(flyWorld(layout, fly)).toEqual({ yawDeg: 12, tiltDeg: 40, zoom: 0.9, fx: 0, fy: 6, oy: -6 });
     const target = flyWorld(layout, { ...fly, targetSeat: 1, zoom: 1.8 });
     expect(target).toMatchObject({ zoom: 1.8, fx: 327 - ARENA_CENTER.x, fy: 301 - ARENA_CENTER.y, oy: 36 });
-  });
-});
-
-describe("4-way camera places", () => {
-  const layout = tableLayout("ffa4", engine("ffa4", 4), 0);
-  const plan = (cam: Parameters<typeof camera>[0]) => slotPlan(layout, camera(cam));
-
-  it("home puts you at the bottom, the next seat west, one across, the last east", () => {
-    expect(plan({})).toEqual(["home", "vL", "vN", "vR"]);
-    const poses = seatPoses(layout, camera(), VIEW);
-    expect(poses.get(0)).toMatchObject({ x: 550, y: 610, rotateDeg: 0, scale: 1, slot: "home", compact: false });
-    expect(poses.get(1)).toMatchObject({ x: 148, y: 223, rotateDeg: 90, scale: 0.6, slot: "vL" });
-    expect(poses.get(2)).toMatchObject({ x: 550, y: 150, rotateDeg: 180, scale: 0.6, tiltDeg: 16, slot: "vN" });
-    expect(poses.get(3)).toMatchObject({ x: 952, y: 223, rotateDeg: 270, scale: 0.6, slot: "vR" });
-  });
-
-  it("focus puts the focused rival across at 92 percent and docks the other two in seat order", () => {
-    expect(plan({ mode: "focus", focusSeat: 1 })).toEqual(["home", "focus", "dockL", "dockR"]);
-    expect(plan({ mode: "focus", focusSeat: 2 })).toEqual(["home", "dockL", "focus", "dockR"]);
-    expect(plan({ mode: "focus", focusSeat: 3 })).toEqual(["home", "dockL", "dockR", "focus"]);
-    const poses = seatPoses(layout, camera({ mode: "focus", focusSeat: 3 }), VIEW);
-    expect(poses.get(3)).toMatchObject({ x: 550, y: 228, rotateDeg: 180, scale: 0.92, tiltDeg: 9 });
-    expect(poses.get(1)).toMatchObject({ x: 124, y: 289, rotateDeg: 90, scale: 0.5, docked: true });
-    expect(poses.get(2)).toMatchObject({ x: 976, y: 289, rotateDeg: -90, scale: 0.5, docked: true });
-  });
-
-  it("focus with no seat or on you stays at home", () => {
-    expect(plan({ mode: "focus", focusSeat: null })).toEqual(["home", "vL", "vN", "vR"]);
-    expect(plan({ mode: "focus", focusSeat: 0 })).toEqual(["home", "vL", "vN", "vR"]);
-  });
-
-  it("look turns the table by 90, 180 or 270 degrees", () => {
-    expect(plan({ mode: "look", lookSeat: 1 })).toEqual(["vR", "home", "vL", "vN"]);
-    expect(plan({ mode: "look", lookSeat: 2 })).toEqual(["vN", "vR", "home", "vL"]);
-    expect(plan({ mode: "look", lookSeat: 3 })).toEqual(["vL", "vN", "vR", "home"]);
-  });
-
-  it("overview and fly place the four fields on the compass", () => {
-    expect(plan({ mode: "overview" })).toEqual(["oHome", "oL", "oN", "oR"]);
-    expect(plan({ mode: "fly" })).toEqual(["oHome", "oL", "oN", "oR"]);
-    const poses = seatPoses(layout, camera({ mode: "overview" }), VIEW);
-    expect(poses.get(0)).toMatchObject({ x: 550, y: 660, scale: 0.52 });
-    expect(poses.get(2)).toMatchObject({ x: 550, y: 131, rotateDeg: 180 });
-  });
-
-  it("holo panels follow their place", () => {
-    const at = (seat: number, cam: Parameters<typeof camera>[0]) => holoAnchor(layout, seat, camera(cam));
-    expect(at(0, {})).toMatchObject({ x: 882, y: 686, me: true, beam: "none" });
-    expect(at(1, {})).toMatchObject({ x: 8, y: 431, me: false, beam: "up" });
-    expect(at(2, {})).toMatchObject({ x: 260, y: 290, beam: "none" });
-    expect(at(3, {})).toMatchObject({ x: 896, y: 431, beam: "up" });
-    expect(at(1, { mode: "focus", focusSeat: 1 })).toMatchObject({ x: 8, y: 8 });
-    expect(at(2, { mode: "focus", focusSeat: 1 })).toMatchObject({ x: 8, y: 464, beam: "up" });
-    expect(at(3, { mode: "focus", focusSeat: 1 })).toMatchObject({ x: 896, y: 464 });
-    expect(at(0, { mode: "look", lookSeat: 2 }).me).toBe(false);
-    // Overview: your own panel keeps the home x, so it stays inside the stage at 1280 wide.
-    expect(at(0, { mode: "overview" })).toMatchObject({ x: 882, y: 740, me: true });
-  });
-
-  it("the turn ring keeps clear of the fields and each seat sits at its compass angle", () => {
-    expect(ringPose(layout, camera())).toEqual({ x: 550, y: 342, scale: 1 });
-    expect(ringPose(layout, camera({ mode: "focus", focusSeat: 2 }))).toEqual({ x: 1036, y: 60, scale: 0.72 });
-    expect(ringPose(layout, camera({ mode: "overview" }))).toEqual({ x: 550, y: 395, scale: 0.9 });
-    const angles = (cam: Parameters<typeof camera>[0]) => Object.fromEntries(ringAngles(layout, camera(cam)));
-    expect(angles({})).toEqual({ 0: 90, 1: 180, 2: 270, 3: 0 });
-    expect(angles({ mode: "focus", focusSeat: 3 })).toEqual({ 0: 90, 1: 180, 2: 0, 3: 270 });
-    expect(angles({ mode: "look", lookSeat: 1 })).toEqual({ 0: 0, 1: 90, 2: 180, 3: 270 });
-  });
-
-  it("flyYawFor turns the plaza so a seat's field reads upright", () => {
-    expect(flyYawFor(layout, 0)).toBeCloseTo(0, 5);
-    expect(flyYawFor(layout, 1)).toBeCloseTo(-90, 5);
-    expect(Math.abs(flyYawFor(layout, 2))).toBeCloseTo(180, 5);
-    expect(flyYawFor(layout, 3)).toBeCloseTo(90, 5);
-  });
-
-  it("flyWorld looks at the overview place of the target seat", () => {
-    const fly = { yawDeg: 0, tiltDeg: 30, zoom: 1.8, targetSeat: 1 };
-    expect(flyWorld(layout, fly)).toMatchObject({ fx: 129 - ARENA_CENTER.x, fy: 395 - ARENA_CENTER.y, oy: 36 });
-  });
-});
-
-describe("compactFor", () => {
-  const unit = (scale: number) => ({ scale, slot: "dockL" as const });
-  it("goes compact below 44 px of rival card height, or 40 px under 1440 px of window", () => {
-    // card height = 112 * scale * stage scale
-    expect(compactFor(unit(0.5), 0.75, 1600)).toBe(true); // 42
-    expect(compactFor(unit(0.5), 0.8, 1600)).toBe(false); // 44.8
-    expect(compactFor(unit(0.5), 0.75, 1280)).toBe(false); // 42 >= 40
-    expect(compactFor(unit(0.5), 0.7, 1280)).toBe(true); // 39.2
-  });
-  it("never compacts your own place; 'on' compacts every other place, 'off' none", () => {
-    expect(compactFor({ scale: 1, slot: "home" }, 0.1, 1200)).toBe(false);
-    expect(compactFor({ scale: 0.52, slot: "oHome" }, 0.1, 1200)).toBe(false);
-    expect(compactFor(unit(0.92), 1, 1600, "on")).toBe(true);
-    expect(compactFor(unit(0.5), 0.3, 1200, "off")).toBe(false);
   });
 });

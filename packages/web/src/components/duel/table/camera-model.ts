@@ -172,16 +172,13 @@ export function effectiveFly(state: CameraState, nowMs: number): FlyPose {
 }
 
 /**
- * The camera the stage draws. The very same object when nothing is locked. Under a lock the rival fields are never
- * compact chips: the FX (battle, destroy, move plans) play on the real zones, and a hidden chip board would give
- * them a second, disagreeing anchor.
+ * The camera the stage draws. The very same object when nothing is locked.
  */
 export function effectiveCamera(state: CameraState, nowMs: number): CameraState {
   if (!isLocked(state, nowMs)) return state;
-  const full = state.compact === "off" ? state : { ...state, compact: "off" as const };
-  if (state.mode === "fly") return full.fly === FLY_HOME ? full : { ...full, fly: FLY_HOME };
-  if (state.mode === "home") return full;
-  return { ...full, mode: "home", focusSeat: null, lookSeat: null, fly: FLY_HOME };
+  if (state.mode === "fly") return state.fly === FLY_HOME ? state : { ...state, fly: FLY_HOME };
+  if (state.mode === "home") return state;
+  return { ...state, mode: "home", focusSeat: null, lookSeat: null, fly: FLY_HOME };
 }
 
 export interface CameraKeyEvent {
@@ -213,8 +210,6 @@ export function cameraActionForKey(
       return { type: "toggleAuto" };
     case "k":
       return { type: "pin", on: !camera.pinned };
-    case "c":
-      return layout.format === "ffa4" ? { type: "toggleCompact" } : null;
     case "p": {
       const { rivals } = seatsOf(layout, ctx);
       if (rivals.length === 0) return null;

@@ -1,5 +1,4 @@
 import type { CSSProperties } from "react";
-import { CompactChips } from "./compact-chips";
 import { slotZIndex } from "./geometry";
 import type { SeatFieldProps, SeatFieldRenderer, SeatPose } from "./types";
 import styles from "./rival-field.module.css";
@@ -31,9 +30,7 @@ export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "ti
 /**
  * One seat of the table at its pose. The wrapper owns the place, tilt, turn and scale; the seat field inside
  * draws the board at a fixed card size (`--sf-z`) and counter-rotates its own text when upright is on.
- * It serves the viewer's own seat too: that pose is simply upright at full size. A compact pose (a 4-way rival that
- * is too small to read) hides the board and draws chips over it; the board stays mounted so the effects can still
- * find its zones.
+ * It serves the viewer's own seat too: that pose is simply upright at full size.
  */
 export function RivalField({ pose, field, render, angleOffsetDeg = 0 }: RivalFieldProps) {
   const style: CSSProperties & Record<string, string | number> = {
@@ -48,26 +45,9 @@ export function RivalField({ pose, field, render, angleOffsetDeg = 0 }: RivalFie
       data-seat-slot={pose.seat}
       data-pose-scale={pose.scale}
       data-docked={pose.docked ? "true" : undefined}
-      data-compact={pose.compact ? "true" : undefined}
       hidden={pose.hidden || undefined}
     >
       {render({ ...field, angleDeg: pose.rotateDeg + angleOffsetDeg, scale: pose.scale })}
-      {pose.compact ? (
-        <CompactChips
-          engine={field.engine}
-          seat={field.seat}
-          tone={field.tone}
-          name={field.name ?? `Player ${field.seat + 1}`}
-          rotateDeg={pose.rotateDeg}
-          scale={pose.scale}
-          usable={field.usable}
-          legalKeys={field.legalKeys}
-          selectedKeys={field.selectedKeys}
-          onActivate={field.onActivate}
-          onInspect={field.onInspect}
-          onHoverCard={field.onHoverCard}
-        />
-      ) : null}
     </div>
   );
 }

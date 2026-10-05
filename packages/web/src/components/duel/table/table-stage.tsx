@@ -79,7 +79,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   // The city is heavy: it mounts the first time the fly-in shows and stays (the fade out needs it).
   const [cityOn, setCityOn] = useState(fly);
   if (fly && !cityOn) setCityOn(true);
-  const rawPoses = useMemo(() => seatPoses(layout, camera, fitBox), [layout, camera, fitBox]);
+  const rawPoses = useMemo(() => seatPoses(layout, camera), [layout, camera]);
 
   // A seat turns by the short way between two places: the angle it draws is the previous one plus the smallest turn.
   const turned = useRef(new Map<number, number>());
@@ -166,7 +166,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
         ) : null}
         <div className={styles.persp}>
           <div ref={worldRef} className={styles.world} data-world>
-            {threeWay && cityOn ? <FlyCity title={layout.format === "ffa4" ? "4-WAY DUEL" : undefined} /> : null}
+            {threeWay && cityOn ? <FlyCity /> : null}
             <div className={styles.wstage} onClick={onSeatClick}>
               <Plaza layout={layout} poses={poses} fly={fly} />
               {ring && threeWay ? (

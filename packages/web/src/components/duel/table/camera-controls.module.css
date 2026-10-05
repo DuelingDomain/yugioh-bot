@@ -254,6 +254,37 @@
   color: var(--tink);
 }
 
+.look button {
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid rgb(181 153 99 / 0.34);
+  border-radius: 999px;
+  background: rgb(14 20 38 / 0.9);
+  color: #c3bba8;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.look {
+  left: 50%;
+  top: 10px;
+  display: flex;
+  max-width: calc(100% - 32px);
+  translate: -50% 0;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid rgb(var(--t) / 0.6);
+  border-radius: 8px;
+  background: rgb(9 12 24 / 0.94);
+  box-shadow: 0 0 22px -8px rgb(var(--t) / 0.7);
+}
+
+.look b {
+  color: var(--tink);
+}
+
 /* 4-way: the far field's hand row sits under the top-centre banner, so the banner moves to the bottom-left, above the camera pill. */
 .look[data-format="ffa4"] {
   top: auto;

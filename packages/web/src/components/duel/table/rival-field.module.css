@@ -18,9 +18,3 @@
 .seat[hidden] {
   display: none;
 }
-
-/* Compact: the board stays in the tree (zone positions, hand, FX hooks) but is not drawn; chips take its place. */
-.seat[data-compact="true"] [data-seat-field] {
-  visibility: hidden;
-  pointer-events: none;
-}

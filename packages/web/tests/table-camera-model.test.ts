@@ -336,19 +336,6 @@ describe("FX lock", () => {
     const orbit = locked(run(run(HOME, { type: "overview" }), { type: "orbit", dYawDeg: 25, dTiltDeg: 0 }));
     expect(effectiveCamera(orbit, 1100)).toMatchObject({ mode: "fly", fly: FLY_HOME });
   });
-
-  it("effectiveCamera turns compact chips off under a lock, so FX play on the real fields", () => {
-    const on = run(HOME, { type: "toggleCompact" });
-    expect(on.compact).toBe("on");
-    expect(effectiveCamera(locked(on), 1200).compact).toBe("off");
-    expect(effectiveCamera(locked(run(on, { type: "focus", seat: 2 })), 1200)).toMatchObject({ mode: "home", compact: "off" });
-    expect(effectiveCamera(locked(run(on, { type: "overview" })), 1200).compact).toBe("off");
-    expect(effectiveCamera(on, 3000)).toBe(on);
-    const off = run(on, { type: "toggleCompact" });
-    expect(off.compact).toBe("off");
-    const lockedOff = locked(off);
-    expect(effectiveCamera(lockedOff, 1200)).toMatchObject({ mode: "home", compact: "off" });
-  });
 });
 
 describe("fxLockFor and friends", () => {
@@ -461,9 +448,9 @@ describe("cameraActionForKey", () => {
     expect(key("Escape", false, free)).toEqual({ type: "overview" });
   });
 
-  it("C toggles compact on a 4-way table only", () => {
+  it("C is not a camera key (the compact chips are gone)", () => {
     expect(key("c")).toBeNull();
-    expect(key("c", false, initialCamera(L4), L4)).toEqual({ type: "toggleCompact" });
+    expect(key("c", false, initialCamera(L4), L4)).toBeNull();
   });
 
   it("ignores other keys", () => {
@@ -504,11 +491,5 @@ describe("4-way camera", () => {
     expect(cameraActionForKey({ key: "1" }, L4, home4)).toEqual({ type: "home" });
     expect(cameraActionForKey({ key: "3" }, L4, home4)).toEqual({ type: "focus", seat: 2 });
     expect(cameraActionForKey({ key: "0" }, L4, home4)).toEqual({ type: "overview" });
-  });
-
-  it("Compact cycles auto, on, off and back", () => {
-    const on = run(home4, { type: "toggleCompact" }, L4);
-    const off = run(on, { type: "toggleCompact" }, L4);
-    expect([home4.compact, on.compact, off.compact, run(off, { type: "toggleCompact" }, L4).compact]).toEqual(["auto", "on", "off", "auto"]);
   });
 });
