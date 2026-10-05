@@ -16,6 +16,11 @@ export interface RivalFieldProps {
   angleOffsetDeg?: number;
   /** Seats are regrouping after an elimination: the move waits for the crumble, then glides slowly. */
   glide?: boolean;
+  /**
+   * A fixed place in the parent's px (the grid table): the box sits at `left`/`top` and turns with the CSS `rotate`
+   * property. `transform` stays free for the stage to animate. `pose.x/y/scale` are not used; `pose.z` is the card height.
+   */
+  placement?: { left: number; top: number; zIndex: number; small?: boolean };
 }
 
 /** CSS transform of a seat box: its centre goes to the pose, then it tilts, turns and scales about its own centre. */
@@ -37,12 +42,10 @@ export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "ti
  * draws the board at a fixed card size (`--sf-z`) and counter-rotates its own text when upright is on.
  * It serves the viewer's own seat too: that pose is simply upright at full size.
  */
-export function RivalField({ pose, field, render, angleOffsetDeg = 0, glide = false }: RivalFieldProps) {
-  const style: CSSProperties & Record<string, string | number> = {
-    "--sf-z": `${pose.z}px`,
-    transform: seatTransform(pose),
-    zIndex: slotZIndex(pose.slot, pose.scale),
-  };
+export function RivalField({ pose, field, render, angleOffsetDeg = 0, glide = false, placement }: RivalFieldProps) {
+  const style: CSSProperties & Record<string, string | number> = placement
+    ? { "--sf-z": `${pose.z}px`, left: placement.left, top: placement.top, rotate: pose.rotateDeg ? `${pose.rotateDeg}deg` : "none", zIndex: placement.zIndex }
+    : { "--sf-z": `${pose.z}px`, transform: seatTransform(pose), zIndex: slotZIndex(pose.slot, pose.scale) };
   return (
     <div
       className={styles.seat}
@@ -51,6 +54,7 @@ export function RivalField({ pose, field, render, angleOffsetDeg = 0, glide = fa
       data-pose-scale={pose.scale}
       data-docked={pose.docked ? "true" : undefined}
       data-glide={glide ? "true" : undefined}
+      data-small={placement?.small ? "true" : undefined}
       hidden={pose.hidden || undefined}
     >
       {render({ ...field, angleDeg: pose.rotateDeg + angleOffsetDeg, scale: pose.scale })}

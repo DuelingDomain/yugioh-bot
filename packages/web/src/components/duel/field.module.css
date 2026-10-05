@@ -2223,6 +2223,26 @@
   width: calc(var(--z) * 1.9);
 }
 
+/* A small field in the 4-way grid (a ancestor with data-small, set by the grid stage when the field is under about
+   520px wide): no zone and pile labels, and the stat plate shows ATK only (DEF for a monster in Defense). */
+[data-small="true"] .seatField .zoneName,
+[data-small="true"] .seatField .pileLabel {
+  display: none;
+}
+
+[data-small="true"] .seatField .plate .plateSep,
+[data-small="true"] .seatField .plate .plateDef {
+  display: none;
+}
+
+[data-small="true"] .seatField .zone[data-defense="true"] .plate b {
+  display: none;
+}
+
+[data-small="true"] .seatField .zone[data-defense="true"] .plate .plateDef {
+  display: inline;
+}
+
 /* A seat out of the duel: the board greys (a tone desaturate, never a card dim) and a label says why. */
 .seatField[data-elim="true"] .sfMat,
 .seatField[data-elim="true"] .sfGrid {
