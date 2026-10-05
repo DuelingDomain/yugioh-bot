@@ -85,3 +85,24 @@ describe("cached draft sets", () => {
     await Promise.all([result, vi.runAllTimersAsync()]);
   });
 });
+
+describe("invalid queries with cached results", () => {
+  const queriedPaths = paths.filter(([name]) => ["name", "search", "archetype", "draft set", "draft include", "sets"].includes(name));
+
+  it.each(queriedPaths)("does not hide an invalid 400 query with the cache for %s", async (_name, call) => {
+    await setup("503", true);
+    const { createCardCatalogService } = await import("../../src/services/card-catalog.js");
+    const catalog = createCardCatalogService(db, { identityCatalog: new Map(), fetch: async () =>
+      new Response(JSON.stringify({ error: "Invalid query parameter" }), { status: 400 }) });
+    await expect(call(catalog)).rejects.toMatchObject({ name: "CardFetchError", status: 400 });
+  });
+
+  it("does not hide an unreadable 400 body with a complete set cache", async () => {
+    await setup("503", true);
+    const { createCardCatalogService } = await import("../../src/services/card-catalog.js");
+    const catalog = createCardCatalogService(db, { identityCatalog: new Map(),
+      fetch: async () => new Response("invalid JSON", { status: 400 }) });
+    await expect(catalog.syncDraftPool({ setNames: ["Cached Set"], includeNames: [], excludeNames: [] }))
+      .rejects.toMatchObject({ name: "CardFetchError", status: 400 });
+  });
+});

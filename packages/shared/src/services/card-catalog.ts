@@ -72,6 +72,10 @@ function normalizeName(name: string) {
   return name.trim().toLowerCase();
 }
 
+function isTransientFetchFailure(error: unknown): error is CardFetchError {
+  return isCardFetchError(error) && (error.status == null || error.status === 429 || (error.status >= 500 && error.status < 600));
+}
+
 /**
  * Orders cards for a typed name: the exact name first, then names that start with it, then names that
  * contain it, then names that have every word in any order. Case, accents and punctuation do not matter,
@@ -159,13 +163,16 @@ export function createCardCatalogService(
     const url = new URL(YGOPRODECK_API_URL);
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
     return fetchCardResource(url, fetchImpl, async (response) => {
-      const payload = await response.json() as { data?: YgoprodeckCard[]; error?: unknown };
       if (response.status === 400) {
+        let payload: { error?: unknown } | null;
+        try { payload = await response.json() as typeof payload; }
+        catch { throw new CardFetchError(1, 400); }
         // A missing set is an invalid draft pool, even if the API uses its
         // generic no-result message. Only card lookups may return no match.
         if (!params.cardset && payload?.error === "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.") return [];
-        throw new Error("Invalid card query");
+        throw new CardFetchError(1, 400);
       }
+      const payload = await response.json() as { data?: YgoprodeckCard[] };
       if (!Array.isArray(payload.data) || payload.data.some((card) =>
         !Number.isSafeInteger(card.id) || card.id <= 0 || typeof card.name !== "string" || typeof card.type !== "string"
         || typeof card.frameType !== "string" || !Array.isArray(card.card_images)
@@ -400,7 +407,7 @@ export function createCardCatalogService(
   const useCache = async <T>(fetch: () => Promise<T>, cached: () => T, usable: (value: T) => boolean): Promise<T> => {
     try { return await fetch(); }
     catch (error) {
-      if (!isCardFetchError(error)) throw error;
+      if (!isTransientFetchFailure(error)) throw error;
       const value = cached();
       if (!usable(value)) throw error;
       return value;
@@ -416,7 +423,7 @@ export function createCardCatalogService(
         usable = (cards: CardCatalogCard[]) => cards.length > 0) => {
         try { return await fetch(); }
         catch (error) {
-          if (!isCardFetchError(error)) throw error;
+          if (!isTransientFetchFailure(error)) throw error;
           const cards = cached();
           if (!usable(cards)) throw error;
           cachedIds.push(...cards.map((card) => card.ygoprodeckId));
@@ -495,7 +502,7 @@ export function createCardCatalogService(
       let cards: YgoprodeckCard[];
       try { cards = await fetchArtworkFamily(id); }
       catch (error) {
-        if (!isCardFetchError(error)) throw error;
+        if (!isTransientFetchFailure(error)) throw error;
         const cached = findByIds([id])[0];
         if (!cached) throw error;
         ensureEngineArtwork(id);
@@ -516,7 +523,7 @@ export function createCardCatalogService(
       let cards: YgoprodeckCard[];
       try { cards = await fetchCards("name", name); }
       catch (error) {
-        if (!isCardFetchError(error)) throw error;
+        if (!isTransientFetchFailure(error)) throw error;
         const cached = cachedCards((card) => normalizeName(card.name) === normalizeName(name) && !isExtraDeckFrame(card))[0];
         if (!cached) throw error;
         return cached;
@@ -578,7 +585,7 @@ export function createCardCatalogService(
         }
 
       } catch (error) {
-        if (!isCardFetchError(error)) throw error;
+        if (!isTransientFetchFailure(error)) throw error;
         const cached = /^\d{6,10}$/.test(text) ? findByIds([Number(text)])
           : cachedCards((card) => words.every((word) => foldCardText(card.name).includes(word)));
         const usable = options.includeExtra ? cached : cached.filter((card) => !isExtraDeckFrame(card));
@@ -616,7 +623,7 @@ export function createCardCatalogService(
           return data;
         });
       } catch (error) {
-        if (!isCardFetchError(error)) throw error;
+        if (!isTransientFetchFailure(error)) throw error;
         const rows = db.prepare("select set_name from card_sets order by set_name").all() as Array<{ set_name: string }>;
         if (!rows.length) throw error;
         return rows.map((row) => row.set_name);
@@ -701,7 +708,7 @@ export function createCardCatalogService(
       let fetched: YgoprodeckCard[];
       try { fetched = await fetchCards("cardset", setName); }
       catch (error) {
-        if (!isCardFetchError(error) || sampleRows.length === 0) throw error;
+        if (!isTransientFetchFailure(error) || sampleRows.length === 0) throw error;
         return { name: setName, cardCount: setRow?.card_count ?? sampleRows.length, cached: true,
           sampleCards: findByIds(sampleRows.map((row) => row.ygoprodeck_id)) };
       }
