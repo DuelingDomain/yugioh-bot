@@ -222,9 +222,8 @@ function TableShellBody({
     digitsFree: gates.digitsFree,
     escapeFree: gates.escapeFree,
   });
-  // The last two seats of a 4-way: one facing pair grows to a full board and says FINAL DUEL; two pairs only say it.
-  const gridColumns = useMemo(() => new Map(gridSeats.map((cell) => [cell.seat, cell.column])), [gridSeats]);
-  const finale = useGridFinale({ seats: engine.seats, columnOf: gridColumns, reducedMotion: controller.reducedMotion });
+  // The last two seats of a 4-way glide into one full board in the middle (the 1v1 composition) and say FINAL DUEL.
+  const finale = useGridFinale({ seats: engine.seats, cells: gridSeats, reducedMotion: controller.reducedMotion });
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
   // Phone and small tablet: the left column is a sheet opened from a bar under the station track.
@@ -409,7 +408,7 @@ function TableShellBody({
   // the last two are: there the out notes are hidden from the eye and not live, and the caption is only drawn.
   const freshOut = grid ? out.filter((entry) => entry.seat !== viewerSeat && !outAtOpen.has(entry.seat)) : [];
   const newestOut = freshOut.reduce<(typeof out)[number] | null>((best, entry) => (best == null || entry.place < best.place ? entry : best), null);
-  const finaleNote = grid && finale.caption ? `${finale.caption.kind === "final" ? "Final duel" : "Last two remaining"}: ${finale.caption.seats.map((seat) => nameOf(seat)).join(" vs ")}.` : "";
+  const finaleNote = grid && finale.caption ? `Final duel: ${finale.caption.seats.map((seat) => nameOf(seat)).join(" vs ")}.` : "";
   const liveText = [
     viewerEliminated ? "You are eliminated. You keep watching." : "",
     newestOut ? `${nameOf(newestOut.seat)} is out, ${placeLabel(newestOut.place)}.` : "",
@@ -533,7 +532,7 @@ function TableShellBody({
             {seatStripNode}
             {finale.caption ? (
               <div key={finale.caption.id} className={hudStyles.caption} aria-hidden="true" data-testid="grid-caption" data-kind={finale.caption.kind}>
-                <span className={hudStyles.captionKey}>{CAPTION_TEXT[finale.caption.kind]}</span>
+                <span className={hudStyles.captionKey}>{CAPTION_TEXT}</span>
                 <span className={hudStyles.captionNames}>
                   {finale.caption.seats.map((seat, index) => (
                     <span key={seat} className={hudStyles.captionName}>
@@ -625,7 +624,7 @@ function TableShellBody({
                 placeLabels={placeLabels}
                 dispatchCamera={camera.dispatch}
                 grid={grid ? gridFocus : undefined}
-                gridFinale={grid ? finale.column : undefined}
+                gridFinale={grid ? finale.board : undefined}
                 hubPlace={hubPlace}
                 gridHub={grid && hubOn ? (place) => (
                   <PhaseHub

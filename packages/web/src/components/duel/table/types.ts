@@ -130,7 +130,8 @@ export interface SeatFieldProps {
    * for the life boxes, in card heights; `pair.gap` is the space between the two EMZ (columns 2 and 4), in card heights; `pair.joined` = the facing field is drawn, so the two mats meet at this row.
    */
   emz: "own" | "shared-bottom" | "shared-top" | "pair" | "none";
-  pair?: { other: number | null; left: number; right: number; gap: number; joined: boolean };
+  /** `framed`: the stage draws one frame round the pair (see grid-stage.tsx `pairFrameRect`), so this field draws no mat. */
+  pair?: { other: number | null; left: number; right: number; gap: number; joined: boolean; framed?: boolean };
   showTally: boolean; // false when a holo LP panel owns data-lp-seat
   usable: boolean; // false: legal ring only, no USE glow (partner, spectator)
   name?: string; // display name of the seat (labels and aria text); default "Player <n>"

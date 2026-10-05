@@ -1115,6 +1115,7 @@ export const SeatField = memo(function SeatField({
         data-master-rule={masterRule}
         data-emz={emz === "pair" || emz === "none" ? emz : undefined}
         data-joined={emz === "pair" && pair?.joined ? "true" : undefined}
+        data-framed={pair?.framed ? "true" : undefined}
         style={vars}
       >
         <div className={styles.sfMat}>

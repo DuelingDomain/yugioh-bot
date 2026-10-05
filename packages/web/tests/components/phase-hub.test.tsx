@@ -295,8 +295,8 @@ describe("PhaseHub band styles", () => {
     return css.slice(at, css.indexOf("}", at));
   };
 
-  it("sizes the chips with the zone, 26px at the least and 38px at the most", () => {
-    expect(block('.root[data-variant="band"]')).toMatch(/--hc:\s*clamp\(26px, calc\(var\(--hub-z\) \* 0\.28\), 38px\)/);
+  it("sizes the chips with the zone, 26px at the least and 38px at the most, unless the 4-way grid gives its own size", () => {
+    expect(block('.root[data-variant="band"]')).toMatch(/--hc:\s*var\(--hub-hc, clamp\(26px, calc\(var\(--hub-z\) \* 0\.28\), 38px\)\)/);
   });
 
   it("keeps the owner label to the cell, truncating the name, with 6px of air before the next zone", () => {

@@ -3,6 +3,7 @@
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { engineFormat } from "../multi-seat";
+import type { GridFinaleBoard } from "./grid-finale";
 import type { UseGridFocus } from "./grid-focus";
 import { ChainRoomContext, type ChainStripSize } from "./chain-room";
 import { AttackLine } from "./attack-line";
@@ -44,8 +45,8 @@ export interface TableStageViewProps extends TableStageProps {
   grid?: UseGridFocus;
   /** Place of every seat that left, as text ("3rd"), for the chip on its panel while it fades. */
   placeLabels?: ReadonlyMap<number, string>;
-  /** 4-way grid: the column whose two seats are the last two (laid out as one full board), or null. */
-  gridFinale?: 0 | 1 | null;
+  /** 4-way grid: the last two seats, laid out as one full board in the middle (the 1v1 composition), or null. */
+  gridFinale?: GridFinaleBoard | null;
   /** 4-way grid: draws the phase hub for a place ("band" = the shared EMZ band, "center" = middle of the table). */
   gridHub?: (place: "band" | "center") => ReactNode;
   /** 4-way grid: where the hub sits. */
