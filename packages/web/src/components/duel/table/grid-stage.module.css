@@ -260,18 +260,12 @@
   }
 }
 
-/* The phase hub: a flat layer over the fields. In the band it is the box of the shared Extra Monster row; in the
-   middle of the table it is a point (left, top) that the hub centres on. It never takes a click itself. */
+/* The phase hub: a flat layer over the fields. In the band it is the box of the shared Extra Monster row and its chips
+   stay in the free cells beside the two zones (data-hub-fit, see bandHubFit); in the middle of the table it is a point
+   (left, top) that the hub centres on. It never takes a click itself. */
 .hub {
   position: absolute;
   z-index: 45;
-  pointer-events: none;
-}
-
-/* Its chips are wider than the free cells of the band on a small board and lie over the edges of the Extra Monster
-   Zones. While one of those zones (or a card in it) is a target, the zone wins: no chip takes the click. */
-.board[data-emz-pick="true"] .hub,
-.board[data-emz-pick="true"] .hub * {
   pointer-events: none;
 }
 

@@ -247,9 +247,10 @@ export const FFA4_FIXTURES: TableFixtureSet = { format: "ffa4", title: "4-way fr
 /**
  * A preview variant of the 4-way fixtures for the pair-lift review (`?out=2,3&pick=field`). Every state of the set gets
  * the seats in `out` swept clean and eliminated (the first one went out first); `pick` replaces the prompt with a pick
- * among your own field cards (`field`) or your hand (`hand`), which the room answers on the board.
+ * among your own field cards (`field`, or `emz` with one in an Extra Monster Zone) or your hand (`hand`), which the room
+ * answers on the board.
  */
-export function ffa4Variant(set: TableFixtureSet, opts: { out: readonly number[]; pick?: "field" | "hand" | null }): TableFixtureSet {
+export function ffa4Variant(set: TableFixtureSet, opts: { out: readonly number[]; pick?: "field" | "hand" | "emz" | null }): TableFixtureSet {
   if (opts.out.length === 0 && !opts.pick) return set;
   const states = Object.fromEntries(
     Object.entries(set.states).map(([id, state]) => {
@@ -259,6 +260,11 @@ export function ffa4Variant(set: TableFixtureSet, opts: { out: readonly number[]
       let prompt = engine.prompt;
       if (opts.pick && state.room.mySeat === ASTER) {
         const own = seats[ASTER];
+        // `emz`: the field pick with a monster of yours in the left Extra Monster Zone, so the shared row is a target.
+        if (opts.pick === "emz") {
+          own.monsters = [...own.monsters];
+          putMonster(own, 5, C.stardust);
+        }
         const options: DuelPromptOption[] = opts.pick === "hand"
           ? own.hand.map((card, sequence) => ({ id: `h${sequence}`, label: card.name ?? "Card", controller: ASTER, location: LOCATION_HAND, sequence }))
           : [

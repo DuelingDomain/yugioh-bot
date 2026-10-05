@@ -25,8 +25,9 @@ import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { ExitingSeat, RivalField } from "./rival-field";
 import { useSeatExits } from "./use-seat-exits";
-import { LOCATION_HAND, LOCATION_MZONE } from "../constants";
+import { LOCATION_HAND } from "../constants";
 import { SEAT_Z } from "./geometry";
+import { bandHubFit } from "../phase-hub-model";
 import type { SeatFieldProps, SeatPose, SeatTone } from "./types";
 import type { TableStageViewProps } from "./table-stage";
 import styles from "./grid-stage.module.css";
@@ -85,16 +86,6 @@ export function pickKindOf(legalKeys: ReadonlySet<string>): PickKind {
     if (hand && field) return "mixed";
   }
   return field ? "field" : hand ? "hand" : null;
-}
-
-/** True when a legal or selected key is an Extra Monster Zone (a monster zone of sequence 5 or 6): the phase hub over
- *  the shared band then lets the click through to it. */
-export function picksExtraZone(keys: Iterable<string>): boolean {
-  for (const key of keys) {
-    const [, location, sequence] = key.split(":");
-    if (location === String(LOCATION_MZONE) && Number(sequence) >= 5) return true;
-  }
-  return false;
 }
 
 /** The top lane of the board where the pick bar may sit (board px): 8px down, 80px high, room for a bar of two rows. */
@@ -302,7 +293,6 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
   const pickKind = pickKindOf(legalKeys);
-  const extraZonePick = picksExtraZone(legalKeys) || picksExtraZone(selectedKeys);
 
   const focusOn = (seat: number) => {
     if (focus.seat !== seat) focusControl.focusSeat(seat);
@@ -333,6 +323,10 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   // The phase hub: in the band of the pair that shares the Extra Monster row (yours, else the finale pair, else any
   // that is still drawn), or in the middle of the table between the pairs.
   const hubColumn: 0 | 1 | null = finaleColumn ?? (homeColumn != null && drawerSeats[homeColumn] != null ? homeColumn : drawerSeats[0] != null ? 0 : drawerSeats[1] != null ? 1 : null);
+  // Its chips stay in the free cells beside the Extra Monster Zones (five columns, 0.075 z apart): a pair side by side
+  // where it fits, else stacked (see bandHubFit).
+  const hubBand = placed && hubColumn != null ? placed.bands[hubColumn] : null;
+  const hubFit = hubBand ? bandHubFit(hubBand.z, (hubBand.rect.width - 4 * hubBand.z * 0.075) / 5) : null;
   const hubStyle = ((): CSSProperties | null => {
     if (!placed || !gridHub) return null;
     if (hubPlace === "center" && finaleColumn == null) {
@@ -345,7 +339,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     if (hubColumn == null) return null;
     const band = placed.bands[hubColumn];
     const z = band.z;
-    return { left: band.rect.x, top: band.rect.y, width: band.rect.width, height: band.rect.height, ["--z" as string]: `${z}px`, ["--g" as string]: `${z * 0.075}px` };
+    return { left: band.rect.x, top: band.rect.y, width: band.rect.width, height: band.rect.height, ["--z" as string]: `${z}px`, ["--g" as string]: `${z * 0.075}px`, ["--hub-hc" as string]: `${hubFit?.chip ?? 0}px` };
   })();
 
   // The pick bar takes a free gap of the top lane (over no plate, field, far hand or the view control). The prompt reads
@@ -404,7 +398,6 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
       data-ready={placed ? "true" : "false"}
       data-battle={engine.phase === "battle" ? "true" : undefined}
       data-pick-kind={pickKind ?? undefined}
-      data-emz-pick={extraZonePick ? "true" : undefined}
     >
       <div className={styles.world} onClick={onClick} onFocusCapture={onFocus}>
           {placed
@@ -555,7 +548,7 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
               })
             : null}
           {hubStyle && gridHub ? (
-            <div className={styles.hub} data-grid-hub={hubPlace === "center" && finaleColumn == null ? "center" : "band"} style={hubStyle}>
+            <div className={styles.hub} data-grid-hub={hubPlace === "center" && finaleColumn == null ? "center" : "band"} data-hub-fit={hubPlace === "center" && finaleColumn == null ? undefined : hubFit?.mode} style={hubStyle}>
               {gridHub(hubPlace === "center" && finaleColumn == null ? "center" : "band")}
             </div>
           ) : null}
