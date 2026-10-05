@@ -22,6 +22,8 @@ export interface UseSeatExitsArgs {
   faceUpHand: (seat: number) => boolean;
   /** False where no crumble is wanted (Tag, a table that shows no plaza). Seats that leave are only noted. */
   enabled: boolean;
+  /** The seats that stay move when one leaves (a 3-way table). Only then are the saved poses held during the glide. */
+  regroups?: boolean;
   /** Changes with the duel (and the game of a series): the seats that are out then start again as already seen. */
   resetKey?: string;
 }
@@ -38,7 +40,7 @@ export const GLIDE_MS = 1800;
  * It reads the previous poses and views from refs that are saved after each commit, so a seat that is emptied by the
  * engine in the same update still has its last board here.
  */
-export function useSeatExits({ out, seats, poses, faceUpHand, enabled, resetKey = "" }: UseSeatExitsArgs): {
+export function useSeatExits({ out, seats, poses, faceUpHand, enabled, regroups = false, resetKey = "" }: UseSeatExitsArgs): {
   exits: SeatExit[];
   gliding: boolean;
   finish: (seat: number) => void;
@@ -56,22 +58,23 @@ export function useSeatExits({ out, seats, poses, faceUpHand, enabled, resetKey 
     last.current.poses.clear();
     last.current.faceUp.clear();
     setState({ key: resetKey, seen: [...out], exits: [], glideId: 0 });
-  }
-  const added = out.filter((seat) => !state.seen.includes(seat));
-  if (added.length > 0 || state.seen.length !== out.length) {
-    const exits = enabled
-      ? added.flatMap((seat) => {
-          const view = last.current.views.get(seat);
-          const pose = last.current.poses.get(seat);
-          return view && pose ? [{ seat, view, pose, faceUpHand: last.current.faceUp.get(seat) ?? false }] : [];
-        })
-      : [];
-    setState({
-      key: state.key,
-      seen: [...out],
-      exits: [...state.exits.filter((exit) => out.includes(exit.seat)), ...exits],
-      glideId: exits.length > 0 ? state.glideId + 1 : state.glideId,
-    });
+  } else {
+    const added = out.filter((seat) => !state.seen.includes(seat));
+    if (added.length > 0 || state.seen.length !== out.length) {
+      const exits = enabled
+        ? added.flatMap((seat) => {
+            const view = last.current.views.get(seat);
+            const pose = last.current.poses.get(seat);
+            return view && pose ? [{ seat, view, pose, faceUpHand: last.current.faceUp.get(seat) ?? false }] : [];
+          })
+        : [];
+      setState({
+        key: state.key,
+        seen: [...out],
+        exits: [...state.exits.filter((exit) => out.includes(exit.seat)), ...exits],
+        glideId: exits.length > 0 ? state.glideId + 1 : state.glideId,
+      });
+    }
   }
 
   const [glidingFor, setGlidingFor] = useState(0);
@@ -96,9 +99,9 @@ export function useSeatExits({ out, seats, poses, faceUpHand, enabled, resetKey 
       keep.views.set(view.seat, view);
       keep.faceUp.set(view.seat, faceUpHand(view.seat));
     }
-    // While the seats glide, the saved poses stay those from before: a second seat that leaves then crumbles where its
-    // board began, not at the end of a move that is still running.
-    if (!gliding) for (const [seat, pose] of poses) if (!out.includes(seat)) keep.poses.set(seat, pose);
+    // While the seats of a regrouping table glide, the saved poses stay those from before: a second seat that leaves then
+    // crumbles where its board began, not at the end of a move that is still running.
+    if (!(gliding && regroups)) for (const [seat, pose] of poses) if (!out.includes(seat)) keep.poses.set(seat, pose);
   });
 
   return { exits: state.exits, gliding, finish };

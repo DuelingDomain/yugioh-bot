@@ -114,6 +114,7 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
     poses,
     faceUpHand: (seat) => layout.slots.find((slot) => slot.seat === seat)?.relation === "self" && !looking,
     enabled: layout.format !== "tag",
+    regroups: regroup,
     resetKey: `${room.session.slug}:${room.series?.gameNumber ?? 0}`,
   });
   useFlyWorld({

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from "react";
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/font/google", () => {
@@ -313,5 +313,36 @@ describe("the camera controls of a 3-way face-off", () => {
     expect(container.querySelector("[data-cam='overview']")).toBeNull();
     expect(container.querySelector("[data-seat-switch='overview']")).toBeNull();
     expect(container.querySelectorAll("[data-seat-switch]").length).toBe(1);
+  });
+});
+
+describe("the camera keys in a 3-way face-off", () => {
+  const main = FFA3_FIXTURES.states.main;
+  const mode = (container: HTMLElement) => container.querySelector("[data-camera-mode]")?.getAttribute("data-camera-mode");
+  const press = (key: string) => act(() => { fireEvent.keyDown(window, { key }); });
+
+  it("keeps the camera home on 0, Tab and P", () => {
+    const { container, rerender } = render(<Shell state={main} />);
+    rerender(<Shell state={withOut(main, [2])} />);
+    settle(5000);
+    for (const key of ["0", "Tab", "p"]) {
+      press(key);
+      expect(mode(container)).toBe("home");
+    }
+  });
+
+  it("works with three seats", () => {
+    const { container } = render(<Shell state={main} />);
+    press("0");
+    expect(mode(container)).toBe("fly");
+  });
+
+  it("sends a camera in fly mode home after the lock of the second elimination", () => {
+    const { container, rerender } = render(<Shell state={main} />);
+    press("0");
+    expect(mode(container)).toBe("fly");
+    rerender(<Shell state={withOut(main, [2])} />);
+    settle(6000);
+    expect(mode(container)).toBe("home");
   });
 });
