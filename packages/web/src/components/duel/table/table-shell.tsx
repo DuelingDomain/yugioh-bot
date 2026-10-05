@@ -46,6 +46,7 @@ import { CameraControls } from "./camera-controls";
 import { tableLayout } from "./geometry";
 import { GridStage } from "./grid-stage";
 import { useGridFocus } from "./grid-focus";
+import { GridMasterToken } from "./grid-master";
 import { ChainList, ChainTower, DOCK_PANES, GridDock, GridFlyout, useHudDismiss, type HudPane } from "./grid-hud";
 import { gridCells, usesGridLayout } from "./grid-layout";
 import { HistoryStrip } from "./history-strip";
@@ -655,6 +656,23 @@ function TableShellBody({
         <>
           <GridDock pane={hudPane} onToggle={toggleHud} unread={logUnread} chainCount={chainOpen ? engine.chain.length : 0} />
           {chainOpen ? <ChainTower chain={engine.chain} nameOf={nameOf} tones={seatTones} onOpen={() => setHudPane("chain")} /> : null}
+          {domain ? (
+            <GridMasterToken
+              view={engine.seats.find((seat) => seat.seat === (viewerSeat ?? layout.anchorSeat))}
+              local={!spectator}
+              legalKeys={controller.legalKeys}
+              selectedKeys={controller.selectedKeys}
+              canAct={canAct}
+              legalActionsFor={(card, keys) => (canAct && prompt?.kind === "choice" && prompt.context?.type === "action" ? optionsForCard(prompt, card, keys) : [])}
+              open={hudPane === "master"}
+              title={spectator ? `${nameOf(layout.anchorSeat)}'s Master` : "Your Master"}
+              onToggle={() => toggleHud("master")}
+              onClose={() => setHudPane(null)}
+              onChooseAction={(option) => controller.onAnswer({ choice: option.id })}
+              onInspect={(target) => { ui.setInspect(target); setHudPane("card"); }}
+              onHoverCard={controller.onHoverCard}
+            />
+          ) : null}
           <GridFlyout pane={hudPane} tabs={hudTabs} panels={hudPanels} keepMounted={HUD_KEEP} onSelect={setHudPane} onClose={() => setHudPane(null)}
             chainCount={chainOpen ? engine.chain.length : 0} chainLive={chainOpen} />
         </>

@@ -142,7 +142,7 @@
   flex-direction: column;
   width: min(380px, calc(100% - 82px));
   /* Above the Deck Master plate in the margin below, so the two never meet. */
-  max-height: max(280px, calc(100% - 372px));
+  max-height: max(280px, calc(100% - 330px));
   border-radius: 14px;
   background: rgb(9 15 29 / 0.97);
   box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.8);
@@ -200,7 +200,7 @@
 /* The log and history lists scroll inside a pane of fixed height, as in the side column. */
 .flyout[data-pane="log"],
 .flyout[data-pane="history"],
-.flyout[data-pane="card"] { height: min(600px, max(280px, calc(100% - 372px))); }
+.flyout[data-pane="card"] { height: min(600px, max(280px, calc(100% - 330px))); }
 .flyout[data-pane="log"] .flyPanel:not([hidden]),
 .flyout[data-pane="history"] .flyPanel:not([hidden]) { overflow: hidden; }
 .flyPanel[hidden] { display: none; }
@@ -286,3 +286,122 @@
 @media (prefers-reduced-motion: reduce) {
   .dockButton { transition: none; }
 }
+
+/* ---------- Deck Master token plate (left margin, beside your field) ---------- */
+.masterWrap {
+  position: absolute;
+  left: 14px;
+  bottom: calc(clamp(58px, 5.6dvh, 68px) + 20px);
+  z-index: 31;
+  width: 132px;
+  font-family: var(--duel-f-ui);
+  color: var(--duel-ink);
+}
+
+.master {
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--duel-rule);
+  border-radius: 14px;
+  background: rgb(9 15 29 / 0.94);
+  box-shadow: 0 10px 28px -8px rgb(0 0 0 / 0.7);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+/* A summon is legal now: the plate glows, with no outline and no dimming. */
+.master[data-legal="true"] { border-color: rgb(228 182 79 / 0.7); box-shadow: 0 0 18px -2px rgb(228 182 79 / 0.55), 0 10px 28px -8px rgb(0 0 0 / 0.7); }
+.master[data-selected="true"] { border-color: rgb(155 126 255 / 0.8); box-shadow: 0 0 18px -2px rgb(155 126 255 / 0.6), 0 10px 28px -8px rgb(0 0 0 / 0.7); }
+.master[data-open="true"] { border-color: rgb(155 126 255 / 0.7); }
+
+.masterToken {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.masterToken:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; border-radius: 8px; }
+.masterArt {
+  flex: none;
+  display: block;
+  width: 40px;
+  aspect-ratio: 59 / 86;
+  border-radius: 6px;
+  background: #1b2740 center top / cover no-repeat;
+  box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.14);
+}
+.master[data-away="true"] .masterArt { filter: saturate(0.55); }
+.masterId { display: grid; gap: 1px; min-width: 0; }
+.masterId small { color: var(--duel-ink-3); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.masterId b { font-size: 11.5px; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+
+.masterActions { display: grid; gap: 4px; }
+.masterActions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--duel-rule);
+  border-radius: 8px;
+  background: rgb(239 231 213 / 0.04);
+  color: var(--duel-ink-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.masterActions button:hover:not(:disabled) { color: var(--duel-ink); background: rgb(239 231 213 / 0.09); }
+.masterActions button[data-primary="true"] { border-color: transparent; background: linear-gradient(135deg, #5733d1, #3f2399); color: #fff; }
+.masterActions button:disabled { opacity: 0.5; cursor: default; }
+.masterActions button:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+
+/* The details flyout sits right above the plate in the margin, joined to it by a short nib. */
+.masterFly {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 10px);
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 8px 8px 10px;
+  border: 1px solid rgb(155 126 255 / 0.55);
+  border-radius: 14px;
+  background: rgb(9 15 29 / 0.97);
+  box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.8);
+}
+.masterFly::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 2px;
+  height: 10px;
+  background: rgb(155 126 255 / 0.55);
+}
+.masterFly header { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.masterFly header b { font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--duel-pen-ink); }
+.masterFlyName { margin: 2px 0 0; font-size: 13px; font-weight: 600; line-height: 1.2; }
+.masterFlyLine { margin: 0; color: var(--duel-ink-2); font-size: 11.5px; }
+.masterFly dl { display: grid; gap: 4px; margin: 6px 0 4px; }
+.masterFly dl div { display: grid; gap: 0; padding: 4px 6px; border-radius: 6px; background: rgb(239 231 213 / 0.05); }
+.masterFly dt { color: var(--duel-ink-3); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
+.masterFly dd { margin: 0; font-size: 13px; font-weight: 600; }
+.masterFlyCard {
+  height: 28px;
+  border: 1px solid var(--duel-rule);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--duel-ink-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.masterFlyCard:hover { color: var(--duel-ink); background: rgb(239 231 213 / 0.08); }
+.masterFlyCard:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
