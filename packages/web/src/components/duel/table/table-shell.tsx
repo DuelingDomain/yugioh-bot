@@ -30,6 +30,7 @@ import { livePileCards } from "../pile-focus";
 import { MatchSheetLog } from "../text-log";
 import { PositionFx } from "../position-fx";
 import { centerKind, PromptCenter } from "../prompt-center";
+import { fieldWaitsForReveal } from "../field-gate";
 import { optionsForCard, PromptTray } from "../prompts";
 import { priorityOrder } from "../priority-chips";
 import { usePickContinuation, type PickContinuation } from "../pick-continuation";
@@ -117,6 +118,9 @@ export interface TableShellProps {
   chainMode?: ChainModeControl | null;
 }
 
+/** No legal zones: a hidden panel prompt lights nothing on the field. */
+const NO_KEYS = new Set<string>();
+
 /**
  * The whole table of a 3 or 4 seat duel: header, history and card tabs, the stage, the Deck Master column, the station
  * track, menus, the result screen and the FX. It uses the exported duel components of the 1v1 room and keeps the room's
@@ -152,10 +156,13 @@ function TableShellBody({
   preferences,
   chainMode = null,
 }: TableShellProps & { preferences: DuelPreferences }) {
-  // Field clicks use the same reveal gate as the centered prompt; hidden decisions must not answer early.
+  // A hidden panel prompt (see fieldWaitsForReveal) must not be answered from the field, and nothing glows for it yet.
+  // A field pick (zone, tribute, card on the board) takes the click at once: its zones glow from the first frame.
   const given = useMemo(() => {
-    const blocked = roomBusy || supplied.busy || (centerKind(supplied.prompt) != null && !supplied.revealed);
-    return blocked ? { ...supplied, busy: true, canAct: false, seatPick: null } : supplied;
+    const hidden = fieldWaitsForReveal(supplied.prompt, supplied.revealed);
+    if (!roomBusy && !supplied.busy && !hidden) return supplied;
+    const gated = { ...supplied, busy: true, canAct: false, seatPick: null };
+    return hidden ? { ...gated, legalKeys: NO_KEYS } : gated;
   }, [roomBusy, supplied]);
   const localPick = usePickContinuation(pickContinuation ? null : given.prompt, given.engine.revision);
   const pick = pickContinuation ?? localPick;

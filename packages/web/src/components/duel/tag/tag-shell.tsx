@@ -13,6 +13,7 @@ import { leavingOnlySeats, outOrLeavingSeats, outSeatOptionIds } from "../multi-
 import { usePickContinuation } from "../pick-continuation";
 import { useDuelPreferences, type DuelPreferences } from "../preferences";
 import { centerKind, PromptCenter } from "../prompt-center";
+import { fieldWaitsForReveal } from "../field-gate";
 import { PromptTray } from "../prompts";
 import { useResultGate } from "../result-reveal";
 import roomStyles from "../room.module.css";
@@ -54,6 +55,9 @@ export type TagShellProps = TagShellPreviewProps & {
 /** A preview lock has no end: a time this far off never comes before the page reloads (and fits a timer). */
 const OPEN_LOCK_MS = 1_000_000_000;
 
+/** No legal zones: a hidden panel prompt lights nothing on the field. */
+const NO_KEYS = new Set<string>();
+
 /**
  * The live 2v2 table (the Rooftop): header, side panels, the roof stage, the camera dock, the turn track and station
  * track, menus, the result screen and the FX. It takes the same room seams as `TableShell` and the same shared hooks
@@ -92,10 +96,13 @@ function TagShellBody(props: TagShellProps & { preferences: DuelPreferences }) {
   } = props;
   const { teamNames, mode } = resolveTagExtras(props, supplied);
 
-  // Field clicks use the same reveal gate as the centered prompt; hidden decisions must not answer early.
+  // A hidden panel prompt (see fieldWaitsForReveal) must not be answered from the field, and nothing glows for it yet.
+  // A field pick (zone, tribute, card on the board) takes the click at once: its zones glow from the first frame.
   const given = useMemo(() => {
-    const blocked = roomBusy || supplied.busy || (centerKind(supplied.prompt) != null && !supplied.revealed);
-    return blocked ? { ...supplied, busy: true, canAct: false, seatPick: null } : supplied;
+    const hidden = fieldWaitsForReveal(supplied.prompt, supplied.revealed);
+    if (!roomBusy && !supplied.busy && !hidden) return supplied;
+    const gated = { ...supplied, busy: true, canAct: false, seatPick: null };
+    return hidden ? { ...gated, legalKeys: NO_KEYS } : gated;
   }, [roomBusy, supplied]);
   const localPick = usePickContinuation(pickContinuation ? null : given.prompt, given.engine.revision);
   const pick = pickContinuation ?? localPick;

@@ -128,13 +128,20 @@ describe("TagShell seams for the room", () => {
     expect(busy.container.querySelector("[data-table-shell]")?.getAttribute("data-can-act")).toBe("false");
   });
 
-  it("blocks the field while a centered prompt is not revealed yet", () => {
+  it("blocks the field while a centered panel prompt is not revealed yet", () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    const { container } = render(<Shell id="chain-2" tweak={(controller) => ({ ...controller, revealed: false })} />);
+    expect(container.querySelector("[data-table-shell]")?.getAttribute("data-can-act")).toBe("false");
+    expect(container.querySelector("[data-zones][data-legal='true']")).toBeNull();
+    expect(answers(info)).toHaveLength(0);
+  });
+
+  it("lets a board pick take the first click before its bar is revealed", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const { container } = render(<Shell id="target-pick" tweak={(controller) => ({ ...controller, revealed: false })} />);
-    expect(container.querySelector("[data-table-shell]")?.getAttribute("data-can-act")).toBe("false");
     const zone = container.querySelector("[data-zones][data-legal='true']") as HTMLElement;
     act(() => void fireEvent.click(zone.querySelector("button") ?? zone));
-    expect(answers(info)).toHaveLength(0);
+    expect(answers(info)).toHaveLength(1);
   });
 
   it("lets the field answer once the centered prompt is revealed", () => {
