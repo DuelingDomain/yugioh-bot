@@ -32,8 +32,8 @@ function s.operation(e,tp)
   ze:SetValue(Duel.SelectDisableField(tp,1,0,LOCATION_MZONE,0))
  elseif id==95200126 then
   -- Static Lua integers have no origin. This preserves the explicit contract:
-  -- this number binds to p1, even though it was read from p0/p2 geometry.
-  Duel.MPBindSeat(2)
+  -- this number binds to p2, even though it was read from p0/p1 geometry.
+  Duel.MPBindSeat(1)
   local saved=c:GetColumnZone(LOCATION_MZONE)
   Duel.MPBindSeat()
   ze:SetValue(saved)
@@ -55,7 +55,7 @@ function s.operation(e,tp)
   ze:SetProperty(EFFECT_FLAG_REPEAT)
   ze:SetOperation(function(e,tp)
    if c:GetFlagEffect(id)~=0 then return c:GetColumnZone(LOCATION_MZONE) end
-   Duel.MPBindSeat(1)
+   Duel.MPBindSeat(2)
    c:GetColumnZone(LOCATION_MZONE)
    if e:GetLabel()~=0 then return e:GetLabel() end
    local z=Duel.SelectDisableField(tp,1,0,LOCATION_MZONE,0)

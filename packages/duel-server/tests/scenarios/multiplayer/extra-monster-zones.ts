@@ -29,8 +29,8 @@ function independentZones(format: Format, right: boolean): Scenario {
       zones: { m0: ELF, m1: OX, m2: null, m3: null, m4: null, emz0: null, emz1: null } };
   }
   for (const [index, seat] of SEATS[format].entries()) {
-    const acrossOccupied = format === "ffa4" && index >= 2;
-    // The across EMZ blocks the opposite local number. The last two seats use the same local number as the first two.
+    const acrossOccupied = format === "ffa4" && index % 2 === 1;
+    // The facing partner blocks the mirrored EMZ. Seats 1 and 3 use the same local number as their partners.
     const extraZone = right ? "emz1" : "emz0";
     const blockedZone = right ? "emz0" : "emz1";
     const linkedZone = right ? "m3" : "m1";
@@ -104,15 +104,15 @@ function columns(format: Format): Scenario {
   }
   // FFA4 shares columns with the across seat. FFA3 and Tag keep columns on each seat.
   for (const [index, seat] of SEATS[format].entries()) {
-    const acrossColumn = format === "ffa4" && index >= 2;
+    const acrossColumn = format === "ffa4" && index % 2 === 1;
     if (index) state[seat] = { ...state[seat], hand: [KNIGHT, "Dark Hole", ELF], deckCount: 19 };
     if (!acrossColumn) {
-      // One own Spider is not enough. The cards of the adjacent seat do not count.
+      // One own Spider is not enough. The cards of the other pair do not count.
       steps.push(expectNotOffered("specialSummon", KNIGHT, seat), setCard("Dark Hole", seat), zone(seat, "s1", seat));
       state[seat] = { ...state[seat], spells: ["Dark Hole"], hand: index ? [KNIGHT, ELF] : [KNIGHT],
         zones: { ...state[seat]!.zones, s1: { card: "Dark Hole", pos: "set" } } };
     }
-    // For p2 and p3, two across cards permit the summon before this seat sets a Spell.
+    // For p1 and p3, two partner cards permit the summon before this seat sets a Spell.
     steps.push(expectOffered("specialSummon", KNIGHT, seat), specialSummon(KNIGHT, seat));
     state[seat] = { ...state[seat], monsters: [SPIDER, KNIGHT],
       hand: acrossColumn ? ["Dark Hole", ELF] : index ? [ELF] : [],
@@ -127,7 +127,7 @@ function columns(format: Format): Scenario {
     if (index < SEATS[format].length - 1) steps.push(endTurn(seat));
   }
   return defineScenario({ id: `emz-${format}-columns-stay-on-each-seat`,
-    title: format === "ffa4" ? "ffa4: column summons count the across field and exclude adjacent fields"
+    title: format === "ffa4" ? "ffa4: column summons count the across field and exclude the other pair"
       : `${format}: column summons use two cards of the same seat`,
     source: `${SOURCE} [${emzRule(format)}]`, rules: [emzRule(format)], tags: ["multiplayer", format, "column", "card:28692962"], setup, steps });
 }
@@ -163,7 +163,7 @@ function extraLink(format: Format, blocked = false): Scenario {
   const setup: Scenario["setup"] = { format, p0: { monsters: [ELF, TRI, BINARY, TRI, null, SPIDER], extra: [SPIDER] } };
   // A free second EMZ is required even with an Extra Link. Other pairs' EMZ do not block this pair.
   for (const seat of SEATS[format].slice(1)) setup[seat] = {
-    monsters: format === "ffa4" && seat === "p2" && !blocked ? [] : emz(SPIDER),
+    monsters: format === "ffa4" && seat === "p1" && !blocked ? [] : emz(SPIDER),
   };
   return defineScenario({ id: `emz-${format}-${blocked ? "second-zone-blocked-by-across" : "second-zone-by-extra-link"}`,
     title: blocked ? "ffa4: an across monster blocks the second EMZ even with an Extra Link"
@@ -181,9 +181,22 @@ function extraLink(format: Format, blocked = false): Scenario {
         ? { monsters: [TRI, BINARY, TRI, SPIDER, SPIDER], extra: [], grave: [ELF], hand: [], deckCount: 20,
           zones: { m0: blocked ? SPIDER : null, m1: TRI, m2: BINARY, m3: TRI, m4: null,
             emz0: SPIDER, emz1: blocked ? null : SPIDER } }
-        : { monsters: format === "ffa4" && seat === "p2" && !blocked ? [] : [SPIDER], hand: [], extra: [], deckCount: 20,
+        : { monsters: format === "ffa4" && seat === "p1" && !blocked ? [] : [SPIDER], hand: [], extra: [], deckCount: 20,
           zones: { m0: null, m1: null, m2: null, m3: null, m4: null,
-            emz0: format === "ffa4" && seat === "p2" && !blocked ? null : SPIDER, emz1: null } }])) )],
+            emz0: format === "ffa4" && seat === "p1" && !blocked ? null : SPIDER, emz1: null } }])) )],
+  });
+}
+
+function oldAcrossDoesNotBlock(): Scenario {
+  const setup: Scenario["setup"] = { format: "ffa4", p0: { monsters: [ELF], extra: [SPIDER] },
+    p2: { monsters: [null, null, null, null, null, null, SPIDER] } };
+  return defineScenario({ id: "emz-ffa4-old-across-0-2-do-not-block", title: "FFA4: seat 2's right EMZ leaves both seat 0 EMZ available",
+    source: `${SOURCE} [R-FFA-ACROSS-EMZ]`, rules: ["R-FFA-ACROSS-EMZ"], tags: ["multiplayer", "ffa4", "link"], setup,
+    steps: [specialSummon(SPIDER, "p0"), select({ card: ELF, owner: "p0" }),
+      expectPickOptions([{ seat: "p0", label: "Extra Monster Zone (left)" }, { seat: "p0", label: "Extra Monster Zone (right)" }], "p0"), zone("p0", "emz0", "p0"),
+      everySeat("ffa4", { p0: { monsters: [SPIDER], grave: [ELF], extra: [], hand: [], deckCount: 20, zones: { emz0: SPIDER, emz1: null } },
+        p1: { monsters: [], extra: [], hand: [], deckCount: 20 }, p2: { monsters: [SPIDER], extra: [], hand: [], deckCount: 20, zones: { emz0: null, emz1: SPIDER } },
+        p3: { monsters: [], extra: [], hand: [], deckCount: 20 } })],
   });
 }
 
@@ -192,5 +205,5 @@ const standard = (["ffa3", "ffa4", "tag"] as Format[]).flatMap((format) => [
   coLinks(format, format === "ffa3" ? "p2" : "p3"), columns(format), arrowViewer(format, "p0"),
   arrowViewer(format, format === "ffa3" ? "p2" : "p3"), extraLink(format),
   ...(format === "ffa4" ? [extraLink(format, true)] : []),
-]);
+]).concat(oldAcrossDoesNotBlock());
 export const EXTRA_MONSTER_ZONE_SCENARIOS: Scenario[] = [...standard, ...standard.map(domainVariant)];

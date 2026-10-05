@@ -362,6 +362,49 @@ Duel.RegisterEffect(e,0)`,
   });
 }
 
+// The clockwise moves 1 -> 2 and 3 -> 0 cross the shared EMZ pairs.
+for (const source of [1, 3]) {
+  const destination = (source + 1) % 4;
+  const partner = destination ^ 1;
+  const chosen = cards.map((card, seat) => seat === source ? "Sea Monster of Theseus" : card);
+  const setup: Scenario["setup"] = { format: "ffa4" };
+  const board: Parameters<typeof expectBoard>[0] = {};
+  const steps: Step[] = [activate("Creature Swap", "p0")];
+  for (let seat = 0; seat < 4; seat++) {
+    const id = `p${seat}` as DuelistId;
+    const monsters: Array<string | null> = Array(7).fill(null);
+    monsters[seat === partner ? 0 : 1] = "Mystical Elf";
+    monsters[seat === source ? 5 : 2] = chosen[seat];
+    if (seat === partner) monsters[5] = "Link Spider";
+    setup[id] = { monsters, ...(seat === 0 ? { hand: ["Creature Swap"] } : {}) };
+    steps.push(expectPrompt({ by: id, kind: "cards" }), select(chosen[seat]));
+    const received = chosen[(seat + 3) % 4];
+    board[id] = {
+      monsters: [received, "Mystical Elf", ...(seat === partner ? ["Link Spider"] : [])],
+      grave: seat === 0 ? ["Creature Swap"] : [],
+      zones: {
+        [seat === destination ? "m0" : "m2"]: received,
+        [seat === partner ? "m0" : "m1"]: "Mystical Elf",
+        emz0: seat === partner ? "Link Spider" : null,
+        emz1: null,
+      },
+    };
+  }
+  for (let seat = 0; seat < 4; seat++) {
+    const id = `p${seat}` as DuelistId;
+    steps.push(expectPrompt({ by: id, kind: "places" }), zone(id, seat === destination ? "m0" : "m2", id));
+  }
+  steps.push(expectBoard(board));
+  ROTATE_CONTROL_SCENARIOS.push(rotationScenario({
+    id: `rotate-control-ffa4-emz-p${source}-to-other-pair`,
+    title: "An EMZ monster crosses pairs and uses a Main Monster Zone also occupied by its new partner",
+    source: "ADR-0002 [R-FFA-RESOURCE-ROTATION] and [R-FFA-ACROSS-EMZ]; patches 0101 and 0105",
+    rules: ["R-FFA-RESOURCE-ROTATION", "R-FFA-ACROSS-EMZ"],
+    tags: ["multiplayer", "ffa4", "card:31036355"],
+    setup, steps,
+  }));
+}
+
 for (const format of ["ffa3", "ffa4"] as const) {
   const count = format === "ffa3" ? 3 : 4;
   const positions = ["def", "set", "atk", "def"] as const;

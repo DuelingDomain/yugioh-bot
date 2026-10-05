@@ -60,7 +60,7 @@ for (const mode of ["normal", "domain"] as const) {
       const { game } = await start(mode, "ffa4", loaded.binary);
       try {
         expect(game.coreInfo().wasmSha).toBe(loaded.sha);
-        const pairs = loaded.c6 ? [2, 3, 0, 1] : [null, null, null, null];
+        const pairs = loaded.c6 ? [1, 0, 3, 2] : [null, null, null, null];
         expectPairing(game, pairs);
         game.eliminate(2, 0);
         expect(game.view(null).seats[2]).toMatchObject({ pendingElimination: false, eliminated: true });
@@ -71,7 +71,7 @@ for (const mode of ["normal", "domain"] as const) {
           game.answer(holder!, prompt.id, chooseSurrenderedAnswer(prompt));
         }
         expect(game.diagnostics().some((entry) => entry.kind === "msg200" && entry.seat === 2)).toBe(true);
-        expectPairing(game, loaded.c6 ? [null, 3, null, 1] : [null, null, null, null]);
+        expectPairing(game, loaded.c6 ? [1, 0, null, null] : [null, null, null, null]);
         for (const viewer of viewers("ffa4")) {
           const view = game.view(viewer);
           expect(view.result).toBeNull();
@@ -89,38 +89,38 @@ for (const mode of ["normal", "domain"] as const) {
       } finally { game.close(); }
     });
 
-    it("checks the C6 flag against seat 2's real place prompt and projects seat 0's EMZ card", async () => {
+    it("checks the C6 flag against seat 1's real place prompt and projects seat 0's EMZ card", async () => {
       const { game, session } = await start(mode, "ffa4", loaded.binary, {
         p0: { monsters: [null, null, null, null, null, "Imduk the World Chalice Dragon"] },
-        p2: { monsters: ["Mystical Elf"], extra: ["Link Spider"] },
+        p1: { monsters: ["Mystical Elf"], extra: ["Link Spider"] },
       });
       try {
-        const steps: Step[] = [endTurn("p0"), endTurn("p1"), specialSummon("Link Spider", "p2"),
-          select({ card: "Mystical Elf", owner: "p2", from: "mzone", seq: 0 })];
+        const steps: Step[] = [endTurn("p0"), specialSummon("Link Spider", "p1"),
+          select({ card: "Mystical Elf", owner: "p1", from: "mzone", seq: 0 })];
         steps.forEach((step, index) => session.run(step, index + 1));
-        const prompt = game.view(2).prompt!;
+        const prompt = game.view(1).prompt!;
         expect(prompt.kind).toBe("places");
         const shared = prompt.options[0]?.sequence === 3;
         expect(prompt.options.map((option) => [option.controller, option.location, option.sequence]))
           .toEqual(shared
-            ? [[2, OcgLocation.MZONE, 3], [2, OcgLocation.MZONE, 5]]
-            : [[2, OcgLocation.MZONE, 5], [2, OcgLocation.MZONE, 6]]);
+            ? [[1, OcgLocation.MZONE, 3], [1, OcgLocation.MZONE, 5]]
+            : [[1, OcgLocation.MZONE, 5], [1, OcgLocation.MZONE, 6]]);
         expect(loaded.c6, "The SOURCE C6 flag must match the real core geometry").toBe(shared);
-        expectPairing(game, shared ? [2, 3, 0, 1] : [null, null, null, null]);
-        session.run(zone("p2", shared ? "m3" : "emz0", "p2"), 5);
+        expectPairing(game, shared ? [1, 0, 3, 2] : [null, null, null, null]);
+        session.run(zone("p1", shared ? "m3" : "emz0", "p1"), 5);
         for (const viewer of viewers("ffa4")) {
           const view = game.view(viewer);
           expect(view.seats[0]!.monsters[5]).toMatchObject({ name: "Imduk the World Chalice Dragon", controller: 0, sequence: 5 });
           const sequence = shared ? 3 : 5;
-          expect(view.seats[2]!.monsters[sequence]).toMatchObject({ name: "Link Spider", controller: 2, sequence });
+          expect(view.seats[1]!.monsters[sequence]).toMatchObject({ name: "Link Spider", controller: 1, sequence });
           for (const seat of view.seats) {
             expect(seat.eliminated).toBe(false);
             expect(seat.lp).toBe(8000);
             expect(seat.deckCount).toBe(20);
             expect(seat.hand).toEqual([]);
             expect(seat.monsters.filter(Boolean).map((card) => card!.name))
-              .toEqual(seat.seat === 0 ? ["Imduk the World Chalice Dragon"] : seat.seat === 2 ? ["Link Spider"] : []);
-            expect(seat.graveyard.map((card) => card.name)).toEqual(seat.seat === 2 ? ["Mystical Elf"] : []);
+              .toEqual(seat.seat === 0 ? ["Imduk the World Chalice Dragon"] : seat.seat === 1 ? ["Link Spider"] : []);
+            expect(seat.graveyard.map((card) => card.name)).toEqual(seat.seat === 1 ? ["Mystical Elf"] : []);
             expect(seat.extraCount).toBe(0);
             expect([seat.extra, seat.banished]).toEqual([[], []]);
             expect(seat.spells).toEqual(Array(8).fill(null));

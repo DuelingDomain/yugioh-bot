@@ -11,6 +11,7 @@
 #include "ocgapi_constants.h"
 #include "duel.h"
 #include "field.h"
+#include "card.h"
 #include "effect_constants.h"
 #include "common.h"
 
@@ -113,7 +114,7 @@ static void fill_decks(OCG_Duel d, int n) {
 	for(int p = 0; p < n; ++p) { add_cards(d, static_cast<uint8_t>(p), LOCATION_DECK, 40); }
 }
 
-// 1. EMZ: FFA4 shares seats 0/2 and 1/3. FFA3 and Tag stay separate.
+// 1. EMZ: FFA4 shares seats 0/1 and 2/3. FFA3 and Tag stay separate.
 static void check_emz(int n, bool tag) {
 	OCG_Duel d = make_duel();
 	if(n > 2) EXPECT(run_lua(d, setup_code(n, tag)), "setup");
@@ -127,7 +128,7 @@ static void check_emz(int n, bool tag) {
 			const bool useable = f.is_location_useable(static_cast<uint32_t>(p), LOCATION_MZONE, static_cast<uint32_t>(seq));
 			bool want = true;
 			if(p == mover && seq == 5) want = false;
-			if(((n == 2 && p == 1) || (n == 4 && !tag && p == 0)) && seq == 6) want = false; // the mirror of stock
+			if(((n == 2 && p == 1) || (n == 4 && !tag && p == 3)) && seq == 6) want = false; // the mirror of stock
 			EXPECT(useable == want, "n=%d seat %d EMZ %d useable=%d want %d", n, p, seq, useable, want);
 			EXPECT(!(f.player[p].disabled_location & 0x60), "n=%d seat %d disabled bits 5/6 set", n, p);
 		}
@@ -235,7 +236,7 @@ static void check_linked(int n, bool tag) {
 	std::snprintf(buf, sizeof buf, "local e=Effect.GlobalEffect() e:SetType(%d) e:SetCode(%d) e:SetValue(%u) Duel.RegisterEffect(e,2)",
 	              EFFECT_TYPE_FIELD, EFFECT_BECOME_LINKED_ZONE, 0x00010003u);
 	EXPECT(run_lua(d, buf), "register");
-	const uint8_t next = static_cast<uint8_t>(n == 4 && !tag ? 0 : 3 % n);
+	const uint8_t next = static_cast<uint8_t>(3 % n);
 	EXPECT((f.get_linked_zone(2) & 0xffff) == 3, "seat 2 linked zone %x", f.get_linked_zone(2));
 	EXPECT((f.get_linked_zone(next) & 0xffff) == (next == 2 ? 3u : 1u), "seat %d linked zone %x", next, f.get_linked_zone(next));
 	EXPECT(f.get_linked_zone(1) == 0, "seat 1 linked zone %x", f.get_linked_zone(1));
@@ -250,18 +251,27 @@ static void check_dead_across() {
  OCG_Duel d = make_duel();
  EXPECT(run_lua(d, setup_code(4, false)), "setup dead across");
  auto& f = F(d);
- EXPECT(run_lua(d, "Debug.AddCard(1,2,2,4,6,1)"), "add retained EMZ card");
- EXPECT(f.player[2].list_mzone[6] != nullptr && (f.player[2].used_location & 0x40), "retained card and occupied bit");
- EXPECT(!f.is_location_useable(0, LOCATION_MZONE, 5), "living seat 2 blocks seat 0 EMZ 5");
- f.player[2].eliminated = true;
- EXPECT(f.player[2].list_mzone[6] != nullptr && (f.player[2].used_location & 0x40), "dead seat still has the test card and bit");
- EXPECT(f.is_location_useable(0, LOCATION_MZONE, 5), "dead seat 2 cannot block seat 0 EMZ 5");
- f.player[2].eliminated = false;
- f.player[2].used_location &= ~0x40u;
- f.player[2].disabled_location |= 0x40u;
- EXPECT(!f.is_location_useable(0, LOCATION_MZONE, 5), "living seat 2 disabled bit mirrors");
- f.player[2].eliminated = true;
- EXPECT(f.is_location_useable(0, LOCATION_MZONE, 5), "dead seat 2 disabled bit cannot mirror");
+ EXPECT(run_lua(d, "Debug.AddCard(1,1,1,4,6,1)"), "add retained EMZ card");
+ EXPECT(f.player[1].list_mzone[6] != nullptr && (f.player[1].used_location & 0x40), "retained card and occupied bit");
+ EXPECT(!f.is_location_useable(0, LOCATION_MZONE, 5), "living seat 1 blocks seat 0 EMZ 5");
+ EXPECT(run_lua(d, "Debug.AddCard(1,0,0,4,1,1)"), "add own column card");
+ auto* origin = f.player[0].list_mzone[1];
+ card_set column;
+ origin->get_column_cards(&column, 0, 0);
+ EXPECT(column.size() == 1, "living partner EMZ contributes one column card");
+ f.player[1].eliminated = true;
+ EXPECT(f.player[1].list_mzone[6] != nullptr && (f.player[1].used_location & 0x40), "dead seat still has the test card and bit");
+ EXPECT(f.is_location_useable(0, LOCATION_MZONE, 5), "dead seat 1 cannot block seat 0 EMZ 5");
+ column.clear();
+ origin->get_column_cards(&column, 0, 0);
+ EXPECT(column.empty(), "dead partner retained card contributes no column cards");
+ EXPECT((origin->get_column_zone(LOCATION_ONFIELD, 0, 0) >> 16) == 0, "dead partner contributes no column mask");
+ f.player[1].eliminated = false;
+ f.player[1].used_location &= ~0x40u;
+ f.player[1].disabled_location |= 0x40u;
+ EXPECT(!f.is_location_useable(0, LOCATION_MZONE, 5), "living seat 1 disabled bit mirrors");
+ f.player[1].eliminated = true;
+ EXPECT(f.is_location_useable(0, LOCATION_MZONE, 5), "dead seat 1 disabled bit cannot mirror");
  std::printf("ok   dead across: retained card, used bit and disabled bit do not block EMZ 5\n");
  OCG_DestroyDuel(d);
 }
@@ -285,13 +295,13 @@ int main(int argc, char** argv) {
 		const uint32_t value = 0x00010021u;
 		std::vector<int64_t> want(MAX_DUELISTS, 0);
 		want[2] = 0x21;
-		want[n == 3 || !tag ? 0 : 3] |= 0x1;
-		if(n == 4 && !tag) want[0] |= 0x40;
+		want[n == 3 ? 0 : 3] |= 0x1;
+		if(n == 4 && !tag) want[3] |= 0x40;
 		check_disable(n, tag, value, 2, want);
 		// Bound opponent bit 5 stays on that seat. FFA4 also disables its across mirror, bit 6.
 		std::vector<int64_t> want2(MAX_DUELISTS, 0);
 		want2[0] = 0x20;
-		want2[n == 4 && !tag ? 2 : 1] = n == 4 && !tag ? 0x41 : 0x1;
+		want2[1] = n == 4 && !tag ? 0x41 : 0x1;
 		check_disable(n, tag, 0x00010020u, 0, want2);
 		check_lua_libs(n, tag);
 		check_linked(n, tag);

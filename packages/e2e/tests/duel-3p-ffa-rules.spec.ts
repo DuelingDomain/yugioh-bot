@@ -291,37 +291,32 @@ test.describe("FFA3 opponent and chain rules on the real core", () => {
     });
   }
 
-  for (const adr of [false, true]) {
-    test(adr
-      ? "R-FFA-ACROSS-EMZ: FFA4 across seat 2 blocks seat 0's matching EMZ during a real Link summon"
-      : "current engine: FFA4 across EMZ remain independent during a real Link summon", async ({ player }, info) => {
-      const { page } = await player("p1");
-      const errors = collectTableErrors(page);
-      const slug = await startTablePreset(page, "ffa4-rules-across-extra-zones");
-      await expectRealCore(page, slug, "scripted", info, 3);
-      await summonRulesExtra(page, "Link Spider");
-      await pickRulesCard(page, slug, "Mystical Elf");
-      // Establish the summon setup before annotating the rule assertion. A single
-      // legal zone can auto-place; an unrelated prompt must remain unexpected.
-      await expect.poll(async () => {
-        const engine = (await readTable(page, slug)).engine!;
-        const prompt = engine.prompt;
-        return (prompt?.seat === 0 && prompt.kind === "places" && prompt.options.every((option) => option.controller === 0 && option.location === 4))
-          || engine.seats[0]!.monsters.some((card) => card?.name === "Link Spider");
-      }).toBe(true);
-      const prompt = (await readTable(page, slug)).engine!.prompt;
-      if (adr) test.fail(true, "R-FFA-ACROSS-EMZ pending engine change");
-      if (prompt?.kind === "places") {
-        expect(prompt.options.map((option) => [option.controller, option.sequence])).toEqual(adr ? [[0, 6]] : [[0, 5], [0, 6]]);
-        await expect(page.getByRole("group", { name: /^Select a zone/ })).toBeVisible();
-        await expect(rulesZone(page, 0, adr ? 6 : 5)).toHaveAttribute("data-legal", "true");
-        await rulesZone(page, 0, adr ? 6 : 5).locator("button").click();
-        await expect.poll(async () => (await readTableTrace(page, slug)).promptLog.at(-1)?.promptId).not.toBe(prompt.id);
-      }
-      await expect.poll(async () => (await readTable(page, slug)).engine!.seats[0]!.monsters[adr ? 6 : 5]?.name).toBe("Link Spider");
-      expect((await readTable(page, slug)).engine!.seats[2]!.monsters[6]?.name).toBe("Link Spider");
-      await expectRulesUi(page, slug, info);
-      expect(errors).toEqual([]);
-    });
-  }
+  test("R-FFA-ACROSS-EMZ: FFA4 facing seat 1 blocks seat 0's matching EMZ during a real Link summon", async ({ player }, info) => {
+    const { page } = await player("p1");
+    const errors = collectTableErrors(page);
+    const slug = await startTablePreset(page, "ffa4-rules-across-extra-zones");
+    await expectRealCore(page, slug, "scripted", info, 3);
+    await summonRulesExtra(page, "Link Spider");
+    await pickRulesCard(page, slug, "Mystical Elf");
+    // Wait for the summon placement. A single legal zone can auto-place;
+    // an unrelated prompt must remain unexpected.
+    await expect.poll(async () => {
+      const engine = (await readTable(page, slug)).engine!;
+      const prompt = engine.prompt;
+      return (prompt?.seat === 0 && prompt.kind === "places" && prompt.options.every((option) => option.controller === 0 && option.location === 4))
+        || engine.seats[0]!.monsters.some((card) => card?.name === "Link Spider");
+    }).toBe(true);
+    const prompt = (await readTable(page, slug)).engine!.prompt;
+    if (prompt?.kind === "places") {
+      expect(prompt.options.map((option) => [option.controller, option.sequence])).toEqual([[0, 6]]);
+      await expect(page.getByRole("group", { name: /^Select a zone/ })).toBeVisible();
+      await expect(rulesZone(page, 0, 6)).toHaveAttribute("data-legal", "true");
+      await rulesZone(page, 0, 6).locator("button").click();
+      await expect.poll(async () => (await readTableTrace(page, slug)).promptLog.at(-1)?.promptId).not.toBe(prompt.id);
+    }
+    await expect.poll(async () => (await readTable(page, slug)).engine!.seats[0]!.monsters[6]?.name).toBe("Link Spider");
+    expect((await readTable(page, slug)).engine!.seats[1]!.monsters[6]?.name).toBe("Link Spider");
+    await expectRulesUi(page, slug, info);
+    expect(errors).toEqual([]);
+  });
 });

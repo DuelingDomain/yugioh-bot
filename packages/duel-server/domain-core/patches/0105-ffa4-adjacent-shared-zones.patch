@@ -1,0 +1,35 @@
+From 48e2023d59122b59761649ecb0433aa63ad647bd Mon Sep 17 00:00:00 2001
+From: Duelists Kingdom Engine <engine@duelistskingdom.com>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] Pair FFA4 shared zones with the facing seat
+
+Owner decision 2026-10-04: share mirrored Extra Monster Zones, Link arrows and columns between seats 0/1 and 2/3. Keep turn order and the FFA3, Tag and 1v1 paths unchanged.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ field.h | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/field.h b/field.h
+index 28d90ab..1731295 100644
+--- a/field.h
++++ b/field.h
+@@ -540,12 +540,13 @@ public:
+ 	bool is_skipped_seat(int64_t p) const {
+ 		return n_duelists > 2 && !is_alive(p);
+ 	}
+-	// The physical opposite field. FFA3 and Tag have separate fields.
++	// Facing fields: FFA4 pairs 0/1 and 2/3 (owner decision 2026-10-04).
++	// FFA3 and Tag have separate fields; 1v1 keeps its opponent field.
+ 	uint8_t across_of(uint8_t p) const {
+ 		if(n_duelists == 2)
+ 			return opponent_of(p);
+ 		if(n_duelists == 4 && n_teams == n_duelists && is_alive(p)) {
+-			const auto q = static_cast<uint8_t>((p + 2) % 4);
++			const auto q = static_cast<uint8_t>(p ^ 1);
+ 			if(is_alive(q))
+ 				return q;
+ 		}
+-- 
+2.43.0
+

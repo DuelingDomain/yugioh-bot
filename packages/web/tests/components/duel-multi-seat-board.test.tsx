@@ -41,7 +41,7 @@ function fixture(format: DuelFormat, count: number, seatExtra: Record<number, Pa
     revision: 1, format, turn: 1, turnSeat: 0, phase: "main1",
     seats: Array.from({ length: count }, (_, seat) => seatView(seat, {
       team: format === "tag" ? seat % 2 : seat,
-      sharedExtraWith: format === "ffa4" && !seatExtra[seat]?.eliminated && !seatExtra[(seat + 2) % 4]?.eliminated ? (seat + 2) % 4 : null,
+      sharedExtraWith: format === "ffa4" && !seatExtra[seat]?.eliminated && !seatExtra[seat ^ 1]?.eliminated ? (seat ^ 1) : null,
       ...seatExtra[seat],
     })),
     prompt: null, chain: [], events: [], log: [], result: null, ...extra,
