@@ -258,10 +258,12 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
     reduced,
     releaseHold: () => {},
   };
+  // Without the canvas the card breaks at destroyBreakMs and its pieces take over then (no empty zone in between);
+  // the flash plays over them, so the scene lasts until the flash ends.
   const handoffMs = three ? (wipe ? Math.max(...scene.victims.map((victim) => victim.atMs)) : scene.totalMs)
-    : reduced ? CARD_FX.reducedEffectMs : MOVE_PACE.destroyBreakMs + CARD_FX.destroyFlashMs;
+    : reduced ? CARD_FX.reducedEffectMs : MOVE_PACE.destroyBreakMs;
   planned.releaseHold = registerDestroyScene(group.events.map((event) => event.id), {
-    startAt, handoffMs, totalMs: three ? scene.totalMs : handoffMs,
+    startAt, handoffMs, totalMs: three ? scene.totalMs : reduced ? handoffMs : handoffMs + CARD_FX.destroyFlashMs,
     reschedule: (at) => { planned.startAt = at; arm(at); },
   });
   return planned;
