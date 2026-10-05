@@ -133,6 +133,12 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     escapeFree: controller.aim?.from == null,
   });
   const focusControl = grid ?? local;
+  // A focused seat that goes out stays in focus while its field crumbles, then the focus goes home (grid-focus.ts).
+  const crumbling = useMemo(() => cells.filter((cell) => states.get(cell.seat) === "out").map((cell) => cell.seat), [cells, states]);
+  const { hold } = focusControl;
+  useLayoutEffect(() => {
+    hold(crumbling);
+  }, [hold, crumbling]);
   const { focus } = focusControl;
   const focusCell = focus.seat != null ? cells.find((cell) => cell.seat === focus.seat) ?? null : null;
 

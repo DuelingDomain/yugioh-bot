@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { DuelPrompt } from "@yugidraft/shared/duels";
 import { backOutAnswer } from "../pick-backout";
 
@@ -78,6 +78,11 @@ export interface UseGridFocus {
   focus: GridFocus;
   focusSeat: (seat: number) => void;
   showAll: () => void;
+  /**
+   * The stage tells which seats still play their exit. Call it from a layout effect: a child's layout effect runs before
+   * this hook's, so a seat that goes out and starts its exit in one commit is already held when the focus is checked.
+   */
+  hold: (seats: readonly number[]) => void;
 }
 
 function typing(target: EventTarget | null): boolean {
@@ -93,12 +98,20 @@ export function useGridFocus({ enabled, home, shown, suspended, digitsFree, esca
   live.current = { enabled, shown, suspended, digitsFree, escapeFree };
 
   // A field whose cell goes empty cannot stay in focus: back to your own field, or to all fields when that is gone too.
+  const held = useRef<readonly number[]>([]);
+  const [recheck, setRecheck] = useState(0);
   const gone = focus.seat != null && !shown.includes(focus.seat) && !holding?.includes(focus.seat);
   // A layout effect: the focus moves in the same frame the seat goes, so no frame shows a field that is not there.
   useLayoutEffect(() => {
-    if (!gone) return;
+    if (!gone || (focus.seat != null && held.current.includes(focus.seat))) return;
     dispatch(shown.includes(home) ? { type: "focus", seat: home } : { type: "all" });
-  }, [gone, home, shown]);
+  }, [gone, focus.seat, home, shown, recheck]);
+  const hold = useCallback((seats: readonly number[]) => {
+    const same = seats.length === held.current.length && seats.every((seat, index) => seat === held.current[index]);
+    held.current = seats;
+    // Only a hold that ends needs the check again: a new hold is already read by the effect of the same commit.
+    if (!same) setRecheck((value) => value + 1);
+  }, []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -126,5 +139,5 @@ export function useGridFocus({ enabled, home, shown, suspended, digitsFree, esca
 
   const focusSeat = useCallback((seat: number) => dispatch({ type: "focus", seat }), []);
   const showAll = useCallback(() => dispatch({ type: "all" }), []);
-  return useMemo(() => ({ focus, focusSeat, showAll }), [focus, focusSeat, showAll]);
+  return useMemo(() => ({ focus, focusSeat, showAll, hold }), [focus, focusSeat, showAll, hold]);
 }

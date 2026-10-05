@@ -269,6 +269,20 @@ describe("GridStage", () => {
     expect(container.querySelector("[data-grid-stage]")!.getAttribute("data-grid-focus")).toBe("0");
   });
 
+  it("keeps the focus on a seat that goes out while its field crumbles, then moves it home", () => {
+    vi.useFakeTimers();
+    const { container, rerender } = render(<Shell id="main" />);
+    const stage = container.querySelector("[data-grid-stage]")!;
+    act(() => void fireEvent.keyDown(window, { key: "3" }));
+    expect(stage.getAttribute("data-grid-focus")).toBe("2");
+    rerender(<Shell id="elimination" />);
+    expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("out");
+    expect(stage.getAttribute("data-grid-focus")).toBe("2");
+    act(() => void vi.advanceTimersByTime(OUT_HOLD_MS + 200));
+    expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("empty");
+    expect(stage.getAttribute("data-grid-focus")).toBe("0");
+  });
+
   it("opens an already-out seat as an empty, untargetable cell; the other cells stay put", () => {
     const { container } = render(<Shell id="result" />);
     for (const seat of [1, 2, 3]) {

@@ -33,4 +33,14 @@ describe("useGridFocus when the focused seat goes out", () => {
     rerender({ ...base, shown: [1, 3] });
     expect(result.current.focus.seat).toBeNull();
   });
+
+  it("holds through hold(): the focus stays while the stage says the seat crumbles, and goes home when it says no more", () => {
+    const { result, rerender } = renderHook((props: UseGridFocusOptions) => useGridFocus(props), { initialProps: base });
+    act(() => result.current.focusSeat(2));
+    act(() => result.current.hold([2]));
+    rerender({ ...base, shown: [0, 1, 3] });
+    expect(result.current.focus.seat).toBe(2);
+    act(() => result.current.hold([]));
+    expect(result.current.focus.seat).toBe(0);
+  });
 });
