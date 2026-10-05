@@ -425,7 +425,21 @@ describe("card name search", () => {
   });
 
   it.each([
+    "No card matching your query",
+    "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/v8/ for syntax usage.",
+  ])("accepts a no-result 400 when the message tail changes: %s", async (error) => {
+    const db = new Database(":memory:"); migrate(db);
+    const catalog = createCardCatalogService(db, { identityCatalog: new Map(),
+      fetch: async () => Response.json({ error }, { status: 400 }) });
+    try {
+      await expect(catalog.syncCardById(1)).resolves.toBeUndefined();
+    } finally { db.close(); }
+  });
+
+  it.each([
     { error: "Invalid cardset. Please use a valid set name." },
+    { error: 400 },
+    { error: null },
     { data: [] },
     {},
   ])("rejects a 400 that is not the no-result response: %j", async (body) => {
@@ -433,16 +447,18 @@ describe("card name search", () => {
     const catalog = createCardCatalogService(db, { identityCatalog: new Map(),
       fetch: async () => new Response(JSON.stringify(body), { status: 400 }) });
     try {
-      await expect(catalog.syncCardByName("Dark Magician")).rejects.toThrow(/Try again/);
+      await expect(catalog.syncCardByName("Dark Magician")).rejects.toMatchObject({ name: "CardFetchError", status: 400 });
     } finally { db.close(); }
   });
 
-  it("reports an invalid set even when the API uses its no-result 400 body", async () => {
+  it.each([
+    "No card matching your query",
+    "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
+    "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/v8/ for syntax usage.",
+  ])("reports an invalid set even when the API uses its no-result 400 body: %s", async (error) => {
     const db = new Database(":memory:"); migrate(db);
     const catalog = createCardCatalogService(db, { identityCatalog: new Map(),
-      fetch: async () => new Response(JSON.stringify({
-        error: "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
-      }), { status: 400 }) });
+      fetch: async () => Response.json({ error }, { status: 400 }) });
     try {
       await expect(catalog.syncDraftPool({ setNames: ["Pendulum Domination Structure Decc"],
         includeNames: [], excludeNames: [] })).rejects.toThrow(/Try again/);

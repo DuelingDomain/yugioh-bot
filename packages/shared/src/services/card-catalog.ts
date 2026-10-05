@@ -178,7 +178,7 @@ export function createCardCatalogService(
         catch { throw new CardFetchError(1, 400); }
         // A missing set is an invalid draft pool, even if the API uses its
         // generic no-result message. Only card lookups may return no match.
-        if (!params.cardset && payload?.error === "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.") return [];
+        if (!params.cardset && typeof payload?.error === "string" && payload.error.startsWith("No card matching your query")) return [];
         throw new CardFetchError(1, 400);
       }
       const payload = await response.json() as { data?: YgoprodeckCard[] };
