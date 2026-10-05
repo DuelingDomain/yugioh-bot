@@ -120,25 +120,37 @@ for (const format of ["ffa3","ffa4"] as const) {
 }
 
 // Owner decision 2026-10-05: finish the rotation before applying leave rules,
-// including a timeout or a turn player's departure. The host places for the leaver.
-for (const leaver of [1, 0]) for (const reason of [0, 3]) {
+// including card choices, a timeout or a turn player's departure. The host answers for the leaver.
+for (const copied of [false, true]) for (const leaver of [1, 0]) for (const reason of [0, 3]) for (const stage of ["placement", "own-card-choice", "next-card-choice"] as const) {
   const leaving = `p${leaver}` as DuelistId;
   const setup: Scenario["setup"] = { format: "ffa4" };
   const steps: Step[] = [activate("Creature Swap", "p0")];
+  if (copied) steps.push(activate("Serial Spell", "p0"));
   const board: Parameters<typeof expectBoard>[0] = {};
   for (let seat = 0; seat < 4; seat++) {
     const id = `p${seat}` as DuelistId;
-    setup[id] = { monsters: [cards[seat], "Mystical Elf"], ...(seat === 0 ? { hand: ["Creature Swap"] } : {}) };
-    steps.push(expectPrompt({ by: id, kind: "cards" }), select(cards[seat]));
+    setup[id] = { monsters: [cards[seat], "Mystical Elf"], ...(seat === 0 ? { hand: copied ? ["Creature Swap", "Serial Spell", "Beaver Warrior"] : ["Creature Swap"] } : {}) };
+    steps.push(expectPrompt({ by: id, kind: "cards" }));
+    if (stage === "own-card-choice" && seat === leaver) {
+      steps.push({ op: "surrender", seat: leaving, reason });
+    } else {
+      if (stage === "next-card-choice" && seat === leaver + 1) {
+        steps.push({ op: "surrender", seat: leaving, reason });
+      }
+      steps.push(select(cards[seat]));
+    }
     board[id] = seat === leaver
       ? { monsters: [], spells: [], hand: [], grave: [], banished: [], deckCount: 0 }
       : {
           monsters: [...((seat + 3) % 4 === leaver ? [] : [cards[(seat + 3) % 4]]), "Mystical Elf", ...(seat === (leaver + 3) % 4 ? [cards[seat]] : [])],
-          grave: seat === 0 ? ["Creature Swap"] : [],
+          grave: seat === 0 ? (copied ? ["Beaver Warrior", "Serial Spell", "Creature Swap"] : ["Creature Swap"]) : [],
+          ...(copied && seat === 0 ? { hand: [] } : {}),
           lp: seat === (leaver + 1) % 4 ? 7900 : 8000,
         };
   }
-  steps.push(expectPrompt({ by: "p0", kind: "places" }), { op: "surrender", seat: leaving, reason });
+  if (stage === "placement") {
+    steps.push(expectPrompt({ by: "p0", kind: "places" }), { op: "surrender", seat: leaving, reason });
+  }
   for (let seat = 0; seat < 4; seat++) {
     if (seat === leaver) continue;
     const id = `p${seat}` as DuelistId;
@@ -147,16 +159,22 @@ for (const leaver of [1, 0]) for (const reason of [0, 3]) {
   steps.push(expectBoard(board), expectEliminated(leaving));
   ROTATE_CONTROL_SCENARIOS.push({
     ...rotationScenario({
-      id: `rotate-control-ffa4-${leaver === 0 ? "turn-player-" : ""}${reason === 0 ? "loss" : "timeout"}-during-placement`,
+      id: `rotate-control-ffa4-${copied ? "serial-spell-" : ""}${leaver === 0 ? "turn-player-" : ""}${reason === 0 ? "loss" : "timeout"}-during-${stage}`,
       title: "The rotation finishes, then the leaver's cards leave and foreign cards return",
       source: "Owner decision 2026-10-05; ADR-0002 R-FFA-RESOURCE-ROTATION",
       rules: ["R-FFA-RESOURCE-ROTATION", "R-FFA-ELIMINATION", "R-FFA-RETURN-OWNED-CARDS"],
-      tags: ["multiplayer", "ffa4", "card:31036355"], setup, steps,
+      tags: ["multiplayer", "ffa4", "card:31036355", ...(copied ? ["card:49398568"] : [])], setup, steps,
       drawn: { p1: leaver === 0 ? 1 : 0 },
     }),
     // This continuous observer runs before removal and proves the complete swap,
     // including the departing player's incoming and outgoing cards.
-    fixture: `local e=Effect.GlobalEffect()
+    // Negate the original link so this proof observes only the copied rotation.
+    fixture: (copied ? `local stop=Effect.GlobalEffect()
+stop:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+stop:SetCode(EVENT_CHAIN_SOLVING)
+stop:SetOperation(function(e,tp,eg,ep,ev) if ev==2 then Duel.NegateEffect(1) end end)
+Duel.RegisterEffect(stop,0)
+` : "") + `local e=Effect.GlobalEffect()
 e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
 e:SetCode(EVENT_CONTROL_CHANGED)
 e:SetOperation(function(e,tp,eg)

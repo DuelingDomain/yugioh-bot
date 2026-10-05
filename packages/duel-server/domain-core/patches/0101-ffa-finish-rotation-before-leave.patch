@@ -1,25 +1,63 @@
-From af9f8efae582fdd1819e5d93799a0d51517f240e Mon Sep 17 00:00:00 2001
+From fb6130d7e6d0311d6c505ab50a3391769e969df8 Mon Sep 17 00:00:00 2001
 From: Duelists Kingdom Engine <engine@duelistskingdom.com>
 Date: Sat, 1 Jan 2000 00:00:00 +0000
 Subject: [PATCH] Finish FFA control rotations before applying pending losses
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- processor.cpp | 9 +++++++++
- 1 file changed, 9 insertions(+)
+ field.h       |  1 +
+ libduel.cpp   |  9 +++++++++
+ processor.cpp | 13 +++++++++++++
+ 3 files changed, 23 insertions(+)
 
+diff --git a/field.h b/field.h
+index a217d46..e44e392 100644
+--- a/field.h
++++ b/field.h
+@@ -68,6 +68,7 @@ struct chain {
+ 	bool causal_activation_failed{ false };
+ 	bool removed_by_elimination{ false };
+ 	bool resolution_started{ false };
++	bool control_rotation{ false };
+ 	bool counted_in_chain{ false };
+ 	// n_duelists > 2: the opponent whose zones the last Duel.SelectDisableField or Duel.SelectFieldZone of this link
+ 	// offered (DUELIST_NONE: none yet). The target and the operation of a link are two scopes; this keeps the seat
+diff --git a/libduel.cpp b/libduel.cpp
+index 85ed3b0..688992e 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -1513,6 +1513,15 @@ LUA_STATIC_FUNCTION(SwapControl) {
+ 		return 1;
+ 	});
+ }
++// Protect the resolving link before Lua asks for the rotation's cards, including copied operations.
++LUA_STATIC_FUNCTION(MPBeginControlRotation) {
++	check_action_permission(L);
++	auto& field = *pduel->game_field;
++	if(field.n_duelists > 2 && field.n_teams == field.n_duelists && field.core.chain_solving)
++		if(auto* link = field.get_current_chain())
++			link->control_rotation = true;
++	return 0;
++}
+ // Duel.MPRotateControl(g): one monster per living FFA seat, each goes to the next seat in turn order.
+ // The group carries real controllers. No folded opponent or implicit opponent window is used.
+ LUA_STATIC_FUNCTION(MPRotateControl) {
 diff --git a/processor.cpp b/processor.cpp
-index e49d8ce..fbf12ce 100644
+index e49d8ce..44ec175 100644
 --- a/processor.cpp
 +++ b/processor.cpp
-@@ -4927,6 +4927,15 @@ int32_t field::break_effect(bool clear_sent) {
+@@ -4927,6 +4927,19 @@ int32_t field::break_effect(bool clear_sent) {
  // resolves or a script runs. Then: no team is left = draw MSG_WIN(0xFF), one team is left = MSG_WIN(team),
  // else every loser is eliminated in turn order from the turn player.
  void field::check_losses_n(bool surrenders_only) {
 +	// R-FFA-RESOURCE-ROTATION (owner, 2026-10-05): keep every selected card
 +	// and placement valid until the atomic rotation finishes, then apply losses.
-+	// Include queued rotations and nested choices/events without a separate flag.
++	// Lua marks the resolving link before card choices, including copied operations.
++	// Also include queued rotations and their nested choices/events.
 +	if(n_duelists > 2 && n_teams == n_duelists) {
++		if(core.chain_solving)
++			if(const auto* link = get_current_chain(); link && link->control_rotation)
++				return;
 +		for(auto* units : { &core.units, &core.subunits })
 +			for(auto& unit : *units)
 +				if(Processors::get_opt_variant<Processors::RotateControl>(unit))

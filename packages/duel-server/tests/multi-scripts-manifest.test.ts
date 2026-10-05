@@ -342,6 +342,7 @@ describe("the overlay files", () => {
     coreApi.add("MPTurnControls");
     coreApi.add("MPIsAlive");
     coreApi.add("MPRotateControl");
+    coreApi.add("MPBeginControlRotation");
     coreApi.add("MPChainCount");
     coreApi.add("MPPreviousChain");
     for (const card of cards) {
