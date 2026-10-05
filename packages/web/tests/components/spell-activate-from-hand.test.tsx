@@ -86,6 +86,31 @@ describe("a Spell activated from the hand", () => {
   });
 });
 
+/** Every animation the board played, with the element it ran on. */
+function played(): Array<{ el: Element; frames: Keyframe[] }> {
+  return animate.mock.contexts.map((el: Element, index: number) => ({ el, frames: animate.mock.calls[index][0] as Keyframe[] }));
+}
+
+function Board({ events, reduced, seat = 0, sequence = 1 }: { events: DuelEvent[]; reduced: boolean; seat?: number; sequence?: number }) {
+  return <div>
+    <div data-zones="0:2:0" data-side="you" />
+    <div data-zones={`${seat}:8:${sequence}`} data-side={seat === 0 ? "you" : "opp"}><span data-card-art><img src={`/api/cards/${CARDS.mst.code}/image`} /></span></div>
+    <SummonFx events={events} duelKey="spell-hand" reducedMotion={reduced} shake="off" />
+  </div>;
+}
+
+/** The zone must never be blank: the real card is never hidden and the copy on it never fades in from nothing. */
+function expectNeverBlank(container: HTMLElement) {
+  const art = container.querySelector("[data-card-art]")!;
+  const ghost = container.querySelector(`img[src*="/cards/${CARDS.mst.code}/image?size=small"]`)!.parentElement!;
+  const runs = played();
+  const own = runs.find((run) => run.el === ghost);
+  expect(own).toBeDefined();
+  runs.filter((run) => run.el === art).forEach((run) => expect(run.frames.some((frame) => frame.opacity === 0)).toBe(false));
+  expect(own!.frames[0].opacity).toBe(1);
+  return ghost;
+}
+
 describe("a continuous Spell activated from the hand stays on screen", () => {
   const staying: DuelEvent[] = [
     { id: 1, kind: "move", text: "moved", seat: 0, card: CARDS.mst, from: z(0, HAND, 0), zone: z(0, SZONE, 1), reason: "activate", faceDown: true },
@@ -95,14 +120,6 @@ describe("a continuous Spell activated from the hand stays on screen", () => {
     { id: 5, kind: "chain-end", text: "end" },
   ];
 
-  function Board({ events, reduced }: { events: DuelEvent[]; reduced: boolean }) {
-    return <div>
-      <div data-zones="0:2:0" data-side="you" />
-      <div data-zones="0:8:1" data-side="you"><span data-card-art><img src={`/api/cards/${CARDS.mst.code}/image`} /></span></div>
-      <SummonFx events={events} duelKey="spell-hand" reducedMotion={reduced} shake="off" />
-    </div>;
-  }
-
   // The test board of the first group would answer the zone lookups first.
   beforeEach(() => { board.innerHTML = ""; });
 
@@ -110,16 +127,73 @@ describe("a continuous Spell activated from the hand stays on screen", () => {
     duelFxClock.setReducedMotion(reduced);
     const { container, rerender } = render(<Board events={[]} reduced={reduced} />);
     rerender(<Board events={staying} reduced={reduced} />);
-    const art = container.querySelector("[data-card-art]")!;
-    const ghost = container.querySelector(`img[src*="/cards/${CARDS.mst.code}/image?size=small"]`)!.parentElement!;
-    const ghostIndex = animate.mock.contexts.indexOf(ghost);
-    expect(ghostIndex).toBeGreaterThanOrEqual(0);
-    // The zone card is the real card: a hold that hides it would leave the zone blank until the copy fades in.
-    animate.mock.contexts.forEach((context, index) => {
-      if (context !== art) return;
-      expect(animate.mock.calls[index][0].some((frame: Keyframe) => frame.opacity === 0)).toBe(false);
-    });
-    // The copy it lands as is whole from its first frame.
-    expect(animate.mock.calls[ghostIndex][0][0].opacity).toBe(1);
+    expectNeverBlank(container);
+  });
+
+  it.each([false, true])("keeps a Field Spell from the hand whole in the Field Zone (reduced=%s)", (reduced) => {
+    duelFxClock.setReducedMotion(reduced);
+    const field = staying.map((event) => (event.zone ? { ...event, zone: z(0, SZONE, 5) } : event));
+    const { container, rerender } = render(<Board events={[]} reduced={reduced} sequence={5} />);
+    rerender(<Board events={field} reduced={reduced} sequence={5} />);
+    expectNeverBlank(container);
+  });
+});
+
+describe("a Set card activated on the field stays on screen", () => {
+  const setting = (seat: number): DuelEvent[] => [
+    { id: 1, kind: "set", text: "set", seat, zone: z(seat, SZONE, 1) },
+  ];
+  const activation = (seat: number): DuelEvent[] => [
+    { id: 2, kind: "activate", text: "activate", seat, card: CARDS.mst, zone: z(seat, SZONE, 1), chainIndex: 1 },
+    { id: 3, kind: "chain-resolving", text: "resolve", chainIndex: 1 },
+    { id: 4, kind: "chain-resolved", text: "resolved", chainIndex: 1 },
+    { id: 5, kind: "chain-end", text: "end" },
+  ];
+  /** The card was Set earlier; the board already shows it face-up when its activation plays. */
+  function activate(reduced: boolean, seat: number, withSet = true) {
+    duelFxClock.setReducedMotion(reduced);
+    const view = render(<Board events={[]} reduced={reduced} seat={seat} />);
+    if (withSet) view.rerender(<Board events={setting(seat)} reduced={reduced} seat={seat} />);
+    view.rerender(<Board events={[...(withSet ? setting(seat) : []), ...activation(seat)]} reduced={reduced} seat={seat} />);
+    return view.container;
+  }
+  const ghostOf = (container: HTMLElement) => container.querySelector(`img[src*="/cards/${CARDS.mst.code}/image?size=small"]`)!.parentElement!;
+
+  beforeEach(() => { board.innerHTML = ""; });
+
+  it.each([[false, 0], [true, 0], [false, 1], [true, 1]])("covers the zone from the first frame (reduced=%s, seat=%s)", (reduced, seat) => {
+    const container = activate(reduced, seat);
+    const ghost = ghostOf(container);
+    const own = played().find((run) => run.el === ghost)!;
+    expect(own.frames[0].opacity).toBe(1);
+    // Whatever hides the real card runs under a copy that is already whole.
+    const hidden = played().some((run) => run.el === container.querySelector("[data-card-art]") && run.frames.some((frame) => frame.opacity === 0));
+    if (hidden) expect(own.frames[0].opacity).toBe(1);
+  });
+
+  it("turns from its sleeve to its face in place", () => {
+    const ghost = ghostOf(activate(false, 0));
+    const sleeve = ghost.querySelector("span")!;
+    expect(sleeve).not.toBeNull();
+    const frames = played().find((run) => run.el === sleeve)!.frames;
+    expect(frames[0].opacity).toBe(1);
+    expect(frames[frames.length - 1].opacity).toBe(0);
+    // The turn is two quarter turns that never go edge-on to nothing.
+    const turns = played().find((run) => run.el === ghost)!.frames.map((frame) => String(frame.transform));
+    expect(turns[0]).toContain("rotateY(0deg)");
+    expect(turns.some((turn) => turn.includes("rotateY(-84deg)"))).toBe(true);
+  });
+
+  it("shows its face at once under reduced motion, with no sleeve", () => {
+    const ghost = ghostOf(activate(true, 0));
+    expect(ghost.querySelector("span")).toBeNull();
+    expect(played().find((run) => run.el === ghost)!.frames[0].opacity).toBe(1);
+  });
+
+  it("does not cover a face-up card that activates its effect with a sleeve", () => {
+    const container = activate(false, 0, false);
+    const ghost = ghostOf(container);
+    expect(ghost.querySelector("span")).toBeNull();
+    expect(played().some((run) => run.el === container.querySelector("[data-card-art]") && run.frames.some((frame) => frame.opacity === 0))).toBe(false);
   });
 });
