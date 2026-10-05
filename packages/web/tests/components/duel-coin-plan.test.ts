@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { DuelEvent } from "@yugidraft/shared/duels";
+import {
+  COIN_TIMING as SHARED_COIN_TIMING,
+  COIN_TOSS_MS,
+  MIN_DUEL_FX_SPEED,
+  coinTossDurationMs,
+  type DuelEvent,
+} from "@yugidraft/shared/duels";
 import {
   COIN_FACES,
   COIN_TIMING,
@@ -127,5 +133,35 @@ describe("coin plan", () => {
     expect(view(summaryAt).live).toBe("Result: Heads, Tails, Heads");
     expect(COIN_FACES.heads.name).toBe("Blue-Eyes White Dragon");
     expect(COIN_FACES.tails.name).toBe("Dark Magician");
+  });
+
+  it("uses the timings of the duel server, which sizes the clock grace from them", () => {
+    expect(COIN_TIMING).toBe(SHARED_COIN_TIMING);
+  });
+
+  describe("against the server grace at the slowest FX speed", () => {
+    const heads = (count: number) => Array.from({ length: count }, (_, i) => (i % 2 ? "tails" : "heads") as "heads" | "tails");
+    const real = (plan: { end: number }, start: number) => (plan.end - start) / MIN_DUEL_FX_SPEED;
+
+    it.each([1, 3, 5, 8])("%i coin(s): the client plan is not longer than coinTossDurationMs", (count) => {
+      const plan = planCoinToss(toss(1, heads(count)), 1000, false)!;
+      expect(real(plan, 1000)).toBeLessThanOrEqual(coinTossDurationMs(count, MIN_DUEL_FX_SPEED));
+      const reduced = planCoinToss(toss(1, heads(count)), 1000, true)!;
+      expect(real(reduced, 1000)).toBeLessThanOrEqual(coinTossDurationMs(count, MIN_DUEL_FX_SPEED));
+    });
+
+    it("one coin lasts exactly the shared coin length", () => {
+      const plan = planCoinToss(toss(1, ["heads"]), 0, false)!;
+      expect(plan.end).toBe(COIN_TOSS_MS);
+    });
+
+    it("the fallback unlock (plan, chain lead and margin) stays inside the grace of the server", () => {
+      for (const count of [1, 3]) {
+        const plan = planCoinToss(toss(1, heads(count)), 0, false)!;
+        const lock = (COIN_TIMING.chainLeadMs + plan.end) / MIN_DUEL_FX_SPEED + COIN_TIMING.safetyMarginMs;
+        const grace = coinTossDurationMs(count, MIN_DUEL_FX_SPEED) + COIN_TIMING.chainLeadMs / MIN_DUEL_FX_SPEED + COIN_TIMING.safetyMarginMs;
+        expect(lock).toBeLessThanOrEqual(grace);
+      }
+    });
   });
 });

@@ -2,7 +2,7 @@
 // toss event. The picture (coin-toss-fx.tsx) only draws what this file says; times are in ms at 1x on
 // the duel FX clock (duelFxClock), which already carries the speed setting.
 // Ported from the approved demo (.fx-demo/coin-flip/demo.js). Keep the numbers in step with it.
-import type { DuelEvent } from "@yugidraft/shared/duels";
+import { COIN_TIMING, type DuelEvent } from "@yugidraft/shared/duels";
 
 export type CoinFace = "heads" | "tails";
 
@@ -12,32 +12,11 @@ export const COIN_FACES: Record<CoinFace, { word: string; label: string; code: n
   tails: { word: "TAILS", label: "Tails", code: 46986414, name: "Dark Magician", ring: "DARK MAGICIAN", src: "/duel/coin/46986414.webp" },
 };
 
-export const COIN_TIMING = {
-  /** The coin appears on the floor. */
-  fadeInMs: 220,
-  /** Launch, flip, fall. */
-  airMs: 1050,
-  /** First bounce. */
-  hop1Ms: 260,
-  /** Second, small bounce, then still. */
-  hop2Ms: 190,
-  /** The landed face stays and the label shows. */
-  holdMs: 1200,
-  /** The label goes out. */
-  outroMs: 260,
-  /** Reduced motion: the coin fades to its face. */
-  reducedFadeMs: 260,
-  /** The summary after more than one toss: in, hold, out. */
-  summaryInMs: 260,
-  summaryHoldMs: 1000,
-  summaryOutMs: 260,
-  /** The coin waits this long after the chain beat of its link, so the link badge is read first. */
-  chainLeadMs: 450,
-  /** A second toss event queues behind the first by this gap. */
-  gapMs: 500,
-  /** Safety: the input block is released this long after the plan should have ended, if the picture did not report. */
-  safetyMarginMs: 1500,
-} as const;
+/**
+ * The timings are shared with the duel server (@yugidraft/shared/duels, coin-timing.ts), which pauses
+ * the duel clock for as long as the slowest client plays the coin. One source, so they cannot drift.
+ */
+export { COIN_TIMING };
 
 /** From the fifth coin on, the fade, the hand-off and the air time shrink after the second coin (the hold stays). */
 export const COMPACT_FROM_COUNT = 5;
