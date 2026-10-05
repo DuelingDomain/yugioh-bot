@@ -25,6 +25,7 @@ npm test             # All packages via Turborepo (duel tests need engine resour
 npm run typecheck    # All packages
 npm run build        # All packages (shared must build first — Turbo handles ordering)
 
+# CI runs these; locally run only the test files for the areas you touched.
 # Engine suites (duel-server): test:engine needs the built cores (DUEL_REQUIRE_CORES=1, NSEAT_LIVE=1); test:native runs the native checks
 npm run test:engine
 npm run test:native

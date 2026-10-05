@@ -211,7 +211,7 @@ Buckets (official):
 
 Other script directories (rush 3,119, skill 174, unofficial 5,530, goat 191, pre-release 129, pre-errata 68) follow the same
 shape. Skill scripts (174) are all O until proved: they register effects for player numbers directly. Domain Format does not
-use them. Out of scope for phase 1; blocked by a format check.
+use them. Blocked by a format check.
 
 ### 1.5 Where the approach fails (known classes)
 
@@ -597,7 +597,7 @@ Requirement: with `n_duelists == 2`, the new core behaves exactly like stock (pl
 Plan:
 
 1. **Build two wasm cores:** `stock` (current pinned build) and `multi` (N-duelist build). Keep `stock` in the repo as the oracle
-   until phase 6. "Stock" here means the pinned core plus `domain-core/src/apply-core-fixes.mjs` (engine bug fixes that every
+   in nightly runs. "Stock" here means the pinned core plus `domain-core/src/apply-core-fixes.mjs` (engine bug fixes that every
    build applies, for example the stale `reason_effect` use-after-free). The `multi` core applies the same fixes first.
 2. **Differential harness (Layer 1 extension):** for each scenario or fuzz seed, run both engines with the same seed, decks, options and
    the same response journal. Compare, message by message, the raw byte stream (new ids are not emitted for 2 duelists, so streams
@@ -658,7 +658,7 @@ Done. The patch series, its order and its build steps are in `packages/duel-serv
 ### 12.2 Other risks
 
 - Differential byte equality can break from a changed RNG call order. The gate will catch it.
-- Wasm size and performance with four full fields (more queries per `adjust_all`). Needs a benchmark in phase 2.
+- Wasm size and performance with four full fields (more queries per `adjust_all`).
 - Lua global state in scripts loaded once per duel across perspectives (section 1.5 class 2).
 - Elimination in FFA must remove cards without triggering effects, and must keep the chain and turn order valid.
 

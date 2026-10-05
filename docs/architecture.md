@@ -79,7 +79,8 @@ sequenceDiagram
   S-->>B: duel:changed (no game data)
   B->>W: GET /api/duels/{slug}
   W->>D: op "view" (seat from DB)
-  D-->>B: view for my seat + events
+  D-->>W: view for my seat + events
+  W-->>B: view for my seat + events
   B->>B: FX queue: move, summon, destroy
 ```
 
@@ -105,7 +106,7 @@ sequenceDiagram
 | UI | 3-way and 4-way: Plaza table, aim arrow, seat crumble | `web/src/components/duel/table/` |
 | UI | Tag 2v2: Rooftop, shared team LP | `web/src/components/duel/tag/` |
 
-Not on main yet: the 4-way 2x2 grid UI and the "facing seats share zones" core change (PR #178).
+Not on main yet: the 4-way 2x2 grid UI, and PR #178, which changes the FFA4 shared zones from across seats (0+2, 1+3, patch 0077) to facing seats (0+1, 2+3).
 
 ## 5. How a player uses the site
 
