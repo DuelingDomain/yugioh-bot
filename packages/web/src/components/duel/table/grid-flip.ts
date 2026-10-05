@@ -58,6 +58,17 @@ export function boxAt(to: FlipBox, delta: FlipDelta, progress: number): FlipBox 
   };
 }
 
+/**
+ * The keyframes of a move that also turns the box (a field that goes from the bottom row to the top of the finale
+ * board). The individual `translate` acts before the turn, so it is in the parent's px; `rotate` turns about the centre.
+ */
+export function turningKeyframes(delta: FlipDelta, from: 0 | 180, to: 0 | 180): Keyframe[] {
+  return [
+    { translate: `${delta.dx.toFixed(2)}px ${delta.dy.toFixed(2)}px`, scale: `${delta.sx.toFixed(4)} ${delta.sy.toFixed(4)}`, rotate: `${from}deg` },
+    { translate: "0px 0px", scale: "1 1", rotate: `${to}deg` },
+  ];
+}
+
 /** The css transform of a delta. `turn` is the box's own turn (180 for a top field): a translate is turned with it. */
 export function flipTransform(delta: FlipDelta, turn: 0 | 180): string {
   const sign = turn === 180 ? -1 : 1;
@@ -67,6 +78,8 @@ export function flipTransform(delta: FlipDelta, turn: 0 | 180): string {
 /** What the stage remembers of a box: where it rests now and the move that is running into that place. */
 export interface FlipTrack {
   box: FlipBox;
+  /** The turn the box rests at (a field of the finale board can turn from 0 to 180 on its way). */
+  turn?: 0 | 180;
   delta: FlipDelta | null;
   anim: Animation | null;
   /** Animations on the text of the box (the life panel fades it during the move). */
@@ -122,12 +135,15 @@ export function playFlip(el: HTMLElement, previous: FlipTrack | undefined, next:
   // A move that stops a move must not restart the text fade at full opacity (the numerals would flash): read where the
   // running fade is before it is cancelled, and start the new one from there.
   const textStart = previous ? runningTextOpacity(previous) : 1;
+  const fromTurn = previous?.turn ?? options.turn;
   cancelTrack(previous);
-  const rest: FlipTrack = { box: next, delta: null, anim: null, text: [] };
-  if (!animate || !from || !boxesDiffer(from, next) || !canAnimate(el)) return rest;
+  const rest: FlipTrack = { box: next, turn: options.turn, delta: null, anim: null, text: [] };
+  const turning = fromTurn !== options.turn;
+  if (!animate || !from || (!turning && !boxesDiffer(from, next)) || !canAnimate(el)) return rest;
   const delta = flipDelta(from, next);
   const duration = options.duration ?? FLIP_MS;
-  const anim = el.animate([{ transform: flipTransform(delta, options.turn) }, { transform: "none" }], { duration, easing: options.easing ?? FLIP_EASING });
+  const keyframes = turning ? turningKeyframes(delta, fromTurn, options.turn) : [{ transform: flipTransform(delta, options.turn) }, { transform: "none" }];
+  const anim = el.animate(keyframes, { duration, easing: options.easing ?? FLIP_EASING });
   const clear = () => {
     if (rest.anim === anim) {
       rest.anim = null;

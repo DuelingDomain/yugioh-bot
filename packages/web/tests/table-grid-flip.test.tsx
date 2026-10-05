@@ -10,7 +10,7 @@ vi.mock("next/font/google", () => {
 
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
-import { boxAt, boxOf, boxesDiffer, flipDelta, flipTransform, playFlip, textFadeAt, visualBox, type FlipTrack } from "@/components/duel/table/grid-flip";
+import { boxAt, boxOf, boxesDiffer, flipDelta, flipTransform, playFlip, textFadeAt, turningKeyframes, visualBox, type FlipTrack } from "@/components/duel/table/grid-flip";
 import { TableShell } from "@/components/duel/table/table-shell";
 
 describe("flip boxes", () => {
@@ -151,5 +151,21 @@ describe("GridStage FLIP", () => {
     const track = playFlip(el, { box: boxOf({ x: 0, y: 0, width: 10, height: 10 }), delta: null, anim: null, text: [] }, boxOf({ x: 50, y: 0, width: 10, height: 10 }), true, { turn: 0, fadeText: false });
     expect(track.anim).toBeNull();
     expect(track.box.cx).toBe(55);
+  });
+
+  it("turns a field from 0 to 180 on its way, even when its box does not change, with the individual transform properties", () => {
+    const el = document.createElement("div");
+    const calls = stubAnimate();
+    const box = boxOf({ x: 0, y: 0, width: 100, height: 40 });
+    const track = playFlip(el, { box, turn: 0, delta: null, anim: null, text: [] }, box, true, { turn: 180, fadeText: false });
+    expect(track.turn).toBe(180);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].frames).toEqual(turningKeyframes({ dx: 0, dy: 0, sx: 1, sy: 1 }, 0, 180));
+    expect(calls[0].frames[0]).toMatchObject({ rotate: "0deg", translate: "0.00px 0.00px", scale: "1.0000 1.0000" });
+    expect(calls[0].frames[1]).toMatchObject({ rotate: "180deg", translate: "0px 0px", scale: "1 1" });
+    expect(calls[0].frames.some((frame) => frame.transform != null)).toBe(false);
+    // The same box at the same turn does not move.
+    expect(playFlip(el, track, box, true, { turn: 180, fadeText: false }).anim).toBeNull();
+    expect(calls).toHaveLength(1);
   });
 });
