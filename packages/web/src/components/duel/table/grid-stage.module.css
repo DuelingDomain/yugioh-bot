@@ -208,6 +208,15 @@
   translate: 0 100%;
 }
 
+/*
+ * With the HUD, the Deck Master plate sits in the left margin (left 14 + width 168, see grid-hud.module.css) and the
+ * board starts at --hud-left, so the plate reaches into the board. The name starts at the plate edge plus an 8px gap
+ * when the field box (--sf-box-x, set by the stage) is left of that line.
+ */
+:global([data-hud="true"]) .board :global([data-seat-field][data-side="you"] > [data-seat-name]) {
+  left: max(0px, calc(190px - var(--hud-left, 0px) - var(--sf-box-x, 190px)));
+}
+
 /* The polite "Focus: name" line for screen readers. */
 .live {
   position: absolute;

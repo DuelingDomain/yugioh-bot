@@ -156,6 +156,16 @@ describe("GridStage", () => {
     for (const seat of [0, 1, 2, 3]) expect(cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!.style.transform).toBe("");
   });
 
+  it("gives only my field its box x, so the CSS can keep my seat name right of the Deck Master plate", () => {
+    const { container } = render(<Shell id="main" />);
+    const slot = (seat: number) => cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!;
+    for (const key of ["1", "2", "3", "4", "o"]) {
+      act(() => void fireEvent.keyDown(window, { key }));
+      expect(slot(0).style.getPropertyValue("--sf-box-x")).toBe(slot(0).style.left);
+      for (const seat of [1, 2, 3]) expect(slot(seat).style.getPropertyValue("--sf-box-x")).toBe("");
+    }
+  });
+
   it("tells a screen reader the focus: pressed pills with their key, a polite Focus line, labelled cells", () => {
     const { container } = render(<Shell id="main" />);
     const live = container.querySelector("[data-grid-live]")!;
