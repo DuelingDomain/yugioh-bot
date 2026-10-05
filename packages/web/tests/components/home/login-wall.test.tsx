@@ -84,8 +84,10 @@ describe("LoginWall", () => {
       expect(image).toHaveAttribute("loading", "lazy");
       expect(image).toHaveAttribute("width");
       expect(image).toHaveAttribute("height");
-      expect(image.getAttribute("src")).toMatch(/^\/api\/cards\/\d+\/image\?variant=small$/);
-      for (const id of RING_CARD_IDS) expect(image.getAttribute("src")).not.toContain(`/${id}/`);
+      const source = new URL(image.getAttribute("src")!, "http://localhost");
+      expect(source.pathname).toBe("/_next/image");
+      expect(source.searchParams.get("url")).toMatch(/^https:\/\/images.ygoprodeck.com\/images\/cards_small\/\d+\.jpg$/);
+      for (const id of RING_CARD_IDS) expect(source.searchParams.get("url")).not.toContain(`/${id}.jpg`);
     }
     // Phone bands stay empty at desktop width.
     expect(container.querySelector("[data-login-wall='top']")!.querySelectorAll("img")).toHaveLength(0);

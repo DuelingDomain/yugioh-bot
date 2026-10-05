@@ -53,9 +53,9 @@ describe("LoginPage", () => {
     const { container } = render(await LoginPage({ searchParams: Promise.resolve({}) }));
     const images = Array.from(container.querySelectorAll("img"));
     expect(images.map((card) => card.getAttribute("src"))).toEqual([
-      "/api/cards/46986418/image?variant=full",
-      "/api/cards/23995346/image?variant=full",
-      "/api/cards/89631146/image?variant=full",
+      "https://images.ygoprodeck.com/images/cards/46986418.jpg",
+      "https://images.ygoprodeck.com/images/cards/23995346.jpg",
+      "https://images.ygoprodeck.com/images/cards/89631146.jpg",
     ]);
     for (const card of images) {
       expect(card).toHaveAttribute("alt", "");

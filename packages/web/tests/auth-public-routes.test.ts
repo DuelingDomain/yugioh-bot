@@ -58,9 +58,11 @@ describe("auth public routes", () => {
     expect(result).toBe(true);
   });
 
-  it.each([46986418, 23995346, 89631146, 5405694])("allows the login artwork %s through the cache without auth", async (id) => {
+  it.each([46986418, 23995346, 89631146, 5405694])("keeps the card image API protected for login artwork %s", async (id) => {
     const authorized = await loadAuthorizedCallback();
-    expect(await authorized({ auth: null, request: { nextUrl: new URL(`http://localhost/api/cards/${id}/image?variant=small`) } })).toBe(true);
+    const response = await authorized({ auth: null, request: { nextUrl: new URL(`http://localhost/api/cards/${id}/image?variant=small`) } });
+    expect(response).toBeInstanceOf(Response);
+    expect((response as Response).status).toBe(401);
   });
 
   it("redirects unauthenticated draft pages to login", async () => {
