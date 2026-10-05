@@ -438,10 +438,12 @@ describe("live room table mount", () => {
       expect(state.replace).toHaveBeenCalledExactlyOnceWith("/duels/live?spectate=1&window=1");
     });
 
-    it.each([FFA3_FIXTURES, FFA4_FIXTURES])("keeps the own $format board crumbling and the input locked during the wait", (fixtures) => {
+    it.each([FFA3_FIXTURES, FFA4_FIXTURES])("keeps the own $format board out or crumbling and the input locked during the wait", (fixtures) => {
       const view = mountThenEliminate(fixtures);
       expect(state.replace).not.toHaveBeenCalled();
-      expect(view.container.querySelector("[data-seat-exit='0']")).not.toBeNull();
+      // The 4-way grid has no crumble yet: the own cell reads "out" instead.
+      if (fixtures === FFA4_FIXTURES) expect(view.container.querySelector("[data-grid-cell='0']")).toHaveAttribute("data-cell-state", "out");
+      else expect(view.container.querySelector("[data-seat-exit='0']")).not.toBeNull();
       expect(view.container.querySelector("[data-table-shell]")).toHaveAttribute("data-can-act", "false");
       expect(screen.queryByRole("button", { name: "Surrender" })).toBeNull();
       act(() => { vi.advanceTimersByTime(WAIT - 1); });

@@ -11,6 +11,7 @@ vi.mock("next/font/google", () => {
 import { FFA3_FIXTURES } from "@/components/duel/table/fixtures/ffa3";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
+import { OUT_HOLD_MS } from "@/components/duel/table/grid-layout";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
 import { TableShell } from "@/components/duel/table/table-shell";
 
@@ -64,31 +65,36 @@ const places = (container: HTMLElement, seats: readonly number[]) => Object.from
 const crumbles = (container: HTMLElement) => container.querySelectorAll("[data-seat-exit]").length;
 const ringTones = (container: HTMLElement) =>
   [...container.querySelectorAll("[data-lp-seat]")].map((node) => `${node.getAttribute("data-lp-seat")}:${(node as HTMLElement).style.getPropertyValue("--seat-main")}`);
+const cellState = (container: HTMLElement, seat: number) => container.querySelector(`[data-grid-cell='${seat}']`)?.getAttribute("data-cell-state");
 const settle = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
 
 describe("the elimination crumble on a 4-way table", () => {
   const main = FFA4_FIXTURES.states.main;
 
-  it("keeps every place after 4 to 3 and after 3 to 2, and the crumble mounts then unmounts", () => {
+  // The 4-way grid has no crumble yet (main's crumble is for the 3-way table): a seat that goes out keeps its cell,
+  // the cell reads "out" and then "empty", and the other cells never move.
+  it("keeps every cell in place after 4 to 3 and after 3 to 2: the seat goes out, then its cell is empty", () => {
     const { container, rerender } = render(<Shell state={main} />);
     const before = places(container, [0, 1, 2, 3]);
     expect(crumbles(container)).toBe(0);
+    expect([0, 1, 2, 3].map((seat) => cellState(container, seat))).toEqual(["live", "live", "live", "live"]);
 
     rerender(<Shell state={withOut(main, [3])} />);
-    expect(crumbles(container)).toBe(1);
-    expect(container.querySelector("[data-seat-exit='3']")).not.toBeNull();
-    // The seat that left has no live board any more, the others did not move.
-    expect(container.querySelector("[data-seat-slot='3']")).toBeNull();
-    expect(places(container, [0, 1, 2])).toEqual({ 0: before[0], 1: before[1], 2: before[2] });
-    settle(2000);
     expect(crumbles(container)).toBe(0);
+    expect(cellState(container, 3)).toBe("out");
+    expect(container.querySelector("[data-seat-slot='3']")).not.toBeNull();
+    expect(places(container, [0, 1, 2])).toEqual({ 0: before[0], 1: before[1], 2: before[2] });
+    settle(OUT_HOLD_MS);
+    expect(cellState(container, 3)).toBe("empty");
+    expect(container.querySelector("[data-seat-slot='3']")).toBeNull();
     expect(places(container, [0, 1, 2])).toEqual({ 0: before[0], 1: before[1], 2: before[2] });
 
     rerender(<Shell state={withOut(main, [3, 2])} />);
-    expect(container.querySelector("[data-seat-exit='2']")).not.toBeNull();
+    expect(cellState(container, 2)).toBe("out");
+    expect(cellState(container, 3)).toBe("empty");
     expect(places(container, [0, 1])).toEqual({ 0: before[0], 1: before[1] });
-    settle(2000);
-    expect(crumbles(container)).toBe(0);
+    settle(OUT_HOLD_MS);
+    expect(cellState(container, 2)).toBe("empty");
     expect(places(container, [0, 1])).toEqual({ 0: before[0], 1: before[1] });
   }, 20_000); // three full table renders; slow on the shared CI runners
 
@@ -113,25 +119,29 @@ describe("the elimination crumble on a 4-way table", () => {
     expect(crumbles(container)).toBe(0);
   });
 
-  it("uses a short fade and no pieces under reduced motion", () => {
+  it("goes out, then empty, with no crumble pieces under reduced motion", () => {
     const { container, rerender } = render(<Shell state={main} reducedMotion />);
     rerender(<Shell state={withOut(main, [3])} reducedMotion />);
-    expect(container.querySelector("[data-seat-exit='3']")?.getAttribute("data-exit-motion")).toBe("reduced");
-    expect(container.querySelector("[data-crumble='reduced']")).not.toBeNull();
-    settle(700);
-    expect(crumbles(container)).toBe(0);
+    expect(cellState(container, 3)).toBe("out");
+    expect(container.querySelector("[data-seat-exit]")).toBeNull();
+    expect(container.querySelector("[data-crumble]")).toBeNull();
+    settle(OUT_HOLD_MS);
+    expect(cellState(container, 3)).toBe("empty");
   });
 
-  it("shows a Spectating chip and drops the hand when the viewer is the seat that left", () => {
+  it("shows a Spectating chip and the place when the viewer is the seat that left", () => {
     const { container, rerender } = render(<Shell state={main} />);
     expect(container.querySelector("[data-hand-seat='0']")).not.toBeNull();
     expect(container.querySelector("[data-testid='spectating-chip']")).toBeNull();
     rerender(<Shell state={withOut(main, [0])} />);
     expect(container.querySelector("[data-testid='spectating-chip']")?.textContent).toContain("Spectating");
-    expect(container.querySelector("[data-hand-seat='0']")).toBeNull();
-    expect(container.querySelector("[data-seat-exit='0']")).not.toBeNull();
-    settle(2000);
-    expect(crumbles(container)).toBe(0);
+    expect(cellState(container, 0)).toBe("out");
+    expect(container.querySelector("[data-seat-exit]")).toBeNull();
+    expect(container.querySelector("[data-grid-lp='0']")?.textContent).toMatch(/Eliminated, \d(st|nd|rd|th)/);
+    settle(OUT_HOLD_MS);
+    expect(cellState(container, 0)).toBe("empty");
+    // The chip stays for as long as the viewer is out.
+    expect(container.querySelector("[data-testid='spectating-chip']")).not.toBeNull();
   });
 });
 
@@ -178,7 +188,7 @@ describe("the glide only runs when the table regroups", () => {
       const main = FFA4_FIXTURES.states.main;
       const { container, rerender, unmount } = render(<Shell state={main} reducedMotion={reducedMotion} />);
       rerender(<Shell state={withOut(main, [3])} reducedMotion={reducedMotion} />);
-      expect(container.querySelector("[data-seat-exit='3']")).not.toBeNull();
+      expect(cellState(container, 3)).toBe("out");
       expect(glideNodes(container)).toBe(0);
       expect(container.querySelector("[data-plaza][data-glide]")).toBeNull();
       settle(2000);
@@ -206,14 +216,16 @@ describe("the crumble ends and cleans up", () => {
     delete (Element.prototype as { animate?: unknown }).animate;
   });
 
-  it("ends when the animation reports it is finished, before the backup timer", async () => {
-    (Element.prototype as { animate?: unknown }).animate = () => ({ finished: Promise.resolve(), cancel() {} });
+  it("leaves the 4-way cell out for the whole hold, then empty", () => {
     const main = FFA4_FIXTURES.states.main;
     const { container, rerender } = render(<Shell state={main} />);
     rerender(<Shell state={withOut(main, [3])} />);
-    expect(crumbles(container)).toBe(1);
-    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(crumbles(container)).toBe(0);
+    expect(cellState(container, 3)).toBe("out");
+    settle(OUT_HOLD_MS - 1);
+    expect(cellState(container, 3)).toBe("out");
+    settle(1);
+    expect(cellState(container, 3)).toBe("empty");
   });
 
   it("leaves no open timer after the table unmounts in the middle of a crumble", () => {
