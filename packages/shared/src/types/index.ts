@@ -129,6 +129,7 @@ export interface TournamentMatch {
 
 export interface Card {
   ygoprodeckId: number;
+  canonicalCardId?: number;
   name: string;
   type: string;
   frameType: string;
@@ -139,6 +140,7 @@ export interface Card {
   level?: number;
   imageUrl: string;
   imageUrlSmall: string;
+  imageUrlCropped?: string;
   cardSets: Array<{ set_name: string }>;
   cachedAt: string;
   archetype?: string;

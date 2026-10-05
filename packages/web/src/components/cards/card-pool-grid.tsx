@@ -1,5 +1,6 @@
 "use client";
 
+import { cardArtworkId } from "@/lib/card-image-url";
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowUpDown, Search } from "lucide-react";
@@ -361,6 +362,7 @@ function CardPoolGridBase({
                                 <span className={sheetStyles.broken}>?</span>
                               ) : (
                                 <CardArt
+                              cardId={cardArtworkId(entry.card)}
                                   smallSrc={entry.card.imageUrlSmall || entry.card.imageUrl}
                                   fullSrc={entry.card.imageUrl}
                                   alt={entry.card.name}
@@ -543,6 +545,7 @@ function CardPoolGridBase({
                             <div className="flex h-full w-full items-center justify-center text-xs text-text-muted">?</div>
                           ) : (
                             <CardArt
+                              cardId={cardArtworkId(entry.card)}
                               smallSrc={
                                 cubeEditMode
                                   ? entry.card.imageUrl || entry.card.imageUrlSmall

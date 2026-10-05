@@ -139,18 +139,18 @@ The build uses the same inputs as the engine session:
 - `domain-core/pins.json`: ygopro-core `efc21aa433b88cd35b7c37db4072a35c58d9d435`, wrapper source
   `9f36452f2a2464f057f7fd6e2273aa5ab589401e`, Lua `75ea9ccbea7c4886f30da147fb67b693b2624c26`,
   and emsdk `4.0.9` at digest `sha256:3c853ef9c3b4c2708da1adac2fdfdba49c775fdc4144ceef4989423963e96811`.
-- All numbered patches in `domain-core/patches` (currently 0001–0090, 0100 and 0105; 92 patches). No experimental patches or
-  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `15776eda1d1affdd1c522094518766f9504b71fb65448511bc0beb4d9cc9d249`.
+- All numbered patches in `domain-core/patches` (currently 0001–0090, 0100, 0101 and 0105; 93 patches). No experimental patches or
+  `PATCH_LIMIT`. The current series hash (concatenated patch bytes in filename order) is `bb896b8c7745ca4d1c548d86333448bc5447ed719aabc76d791ece8a01553681`.
 - Domain additionally uses `APPLY_DOMAIN=1 DOMAIN_MULTI=1`, the existing Domain patch, `domain_master.cpp`
   and `apply-domain-multi.mjs`. The current multi layer hash is
   `06d5cfbfba8719eb5fe0b3b0eb211a6264d96bb295a8669fe0680969c1822bb8`.
 
-The 92-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch 0089 was corrected on 2026-10-05 so delayed EVENT_CHAINING triggers from normally completed links remain legal. Patch 0105 sets the FFA4 facing pairs to 0/1 and 2/3. Both multiplayer cores were rebuilt from clean trees using the CI compiler wrapper, the shared build lock and `EMCC_CORES=2`. The full series reapplied cleanly and the Domain pre/patch/post steps succeeded. Their verified hashes are:
+The 93-patch CI builds use `LUA_FIXED_SEED=1` with the pinned image above. Patch 0089 was corrected on 2026-10-05 so delayed EVENT_CHAINING triggers from normally completed links remain legal. Patch 0101 follows the owner decision on 2026-10-05: control rotations complete the whole resolving chain link, including card choices and every placement, before pending surrender or timeout removal. Creature Swap (`c31036355.lua`) is the only multi-script that calls `MPRotateControl`; it marks the resolving link before the first card choice, including when an alias or a copying card such as Serial Spell calls the operation. Deferring that link is smaller than moving the Lua choices into the processor, and the existing host answers the leaving seat's required prompts. Patch 0105 sets the FFA4 facing pairs to 0/1 and 2/3. Both multiplayer cores were rebuilt from clean trees using the CI compiler wrapper, the shared build lock and `EMCC_CORES=2`. The full series reapplied cleanly and the Domain pre/patch/post steps succeeded. Their verified hashes are:
 
 | CI core | SHA-256 |
 | --- | --- |
-| Standard multiplayer | `2b8b1d6d25c31ed64536ff2448d1b1a23cdf4980eac79491195607ca00a2bd31` |
-| Domain multiplayer | `b68d51d30286ddc5175898c33ed2d40d291da093b18a932dac677d3451004ed0` |
+| Standard multiplayer | `c299b365c894c39be68dd3c2fb6ed9c75147b76fb6ea33b6da5aa654fd10c6b4` |
+| Domain multiplayer | `999c8c1928acb6f642d767446489ae927c1934942a0238015e13badd5c50c8d9` |
 | Domain 1v1 | `01611db77c00ddef07a3d4cfc88800f5c523e3a388c3732616a79fa19b3c4a63` |
 
 Deploys omit `LUA_FIXED_SEED`; the differential test workflow uses it. The multi cache keys include all

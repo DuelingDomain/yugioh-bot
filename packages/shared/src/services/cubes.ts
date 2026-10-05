@@ -148,7 +148,7 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
     const ids = [...new Set(groups.flatMap((g) => g.codes))];
     for (const card of catalog.findByIds(ids)) cards.set(card.ygoprodeckId, card);
     for (const id of ids) {
-      if (cards.has(id)) continue;
+      if (cards.has(id) && catalog.hasCatalogRow(id)) continue;
       let card: Card | undefined;
       try {
         card = await catalog.syncCardById(id);
@@ -157,8 +157,8 @@ export function createCubeService(db: Database.Database, catalog: CardCatalogSer
         // different: stop, and nothing has been written yet.
         if (error instanceof Error && error.message.startsWith("Could not reach the card database")) throw error;
       }
-      if (card) cards.set(id, card);
-      else unknown.push(id);
+      if (card && catalog.hasCatalogRow(id)) cards.set(id, card);
+      else if (!cards.has(id)) unknown.push(id);
     }
 
     const written = new Set<number>();

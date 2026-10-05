@@ -1,5 +1,6 @@
 "use client";
 
+import { cardImageUrl } from "@/lib/card-image-url";
 import * as React from "react";
 import { Check, Plus, TriangleAlert, Upload } from "lucide-react";
 import type { CardSummary } from "@/lib/card-types";
@@ -138,7 +139,7 @@ function CardTab({ copiesInCube, onAddCard, busy }: Pick<AddRailProps, "copiesIn
             return (
               <li key={card.id} data-testid="card-search-result" {...nav.optionProps(index)}>
                 <span className={styles.resThumb}>
-                  <img src={card.imageUrlSmall || card.imageUrl} alt="" loading="lazy" />
+                  <img src={cardImageUrl(card.id, "small")} alt="" loading="lazy" />
                 </span>
                 <div className={styles.resText}>
                   <p className="n">{card.name}</p>
