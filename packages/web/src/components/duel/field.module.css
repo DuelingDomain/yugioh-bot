@@ -229,6 +229,15 @@
   }
 }
 
+/* Touch screens have no hover to lift the low hand, so they keep the earlier, higher rest. */
+@container (min-width: 641px) {
+  @media (hover: none) {
+    :global([data-hud="room"]) .playmat {
+      --lk: 0.45;
+    }
+  }
+}
+
 .felt[data-battle="true"] .playmat {
   box-shadow:
     0 0 40px -12px rgb(217 141 82 / 0.3),

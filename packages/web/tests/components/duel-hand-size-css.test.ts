@@ -26,4 +26,9 @@ describe("your hand is drawn larger than the strip reserves", () => {
     expect(css).toMatch(/\.handSizeProbe\[data-side="you"\] \{\s*width: var\(--lhcw\);/);
     expect(css).toMatch(/\.handLocal \{\s*--cardw: var\(--lhcw\);/);
   });
+
+  it("rests the HUD room hand low, but keeps the higher rest where there is no hover to lift it", () => {
+    expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--lk: 0\.3;/);
+    expect(css).toMatch(/@media \(hover: none\) \{\s*:global\(\[data-hud="room"\]\) \.playmat \{\s*--lk: 0\.45;/);
+  });
 });
