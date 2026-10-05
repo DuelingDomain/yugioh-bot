@@ -260,7 +260,11 @@ describe("card name search", () => {
           return { ok: false, status: failure.status, async json() { return {}; } } as Response;
         }
         const data = cards.filter((card) => (fname ? card.name.toLowerCase().includes(fname) : String(card.id) === id));
-        return { ok: data.length > 0, status: data.length > 0 ? 200 : 400, async json() { return { data }; } } as Response;
+        return { ok: data.length > 0, status: data.length > 0 ? 200 : 400, async json() {
+          return data.length > 0 ? { data } : {
+            error: "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
+          };
+        } } as Response;
       },
     });
     return { catalog, calls };
@@ -418,6 +422,31 @@ describe("card name search", () => {
 
     await expect(catalog.syncCardsByFuzzyName("no such card")).resolves.toEqual([]);
     await expect(catalog.syncCardsByFuzzyName("   ")).resolves.toEqual([]);
+  });
+
+  it.each([
+    { error: "Invalid cardset. Please use a valid set name." },
+    { data: [] },
+    {},
+  ])("rejects a 400 that is not the no-result response: %j", async (body) => {
+    const db = new Database(":memory:"); migrate(db);
+    const catalog = createCardCatalogService(db, { identityCatalog: new Map(),
+      fetch: async () => new Response(JSON.stringify(body), { status: 400 }) });
+    try {
+      await expect(catalog.syncCardByName("Dark Magician")).rejects.toThrow(/Try again/);
+    } finally { db.close(); }
+  });
+
+  it("reports an invalid set even when the API uses its no-result 400 body", async () => {
+    const db = new Database(":memory:"); migrate(db);
+    const catalog = createCardCatalogService(db, { identityCatalog: new Map(),
+      fetch: async () => new Response(JSON.stringify({
+        error: "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
+      }), { status: 400 }) });
+    try {
+      await expect(catalog.syncDraftPool({ setNames: ["Pendulum Domination Structure Decc"],
+        includeNames: [], excludeNames: [] })).rejects.toThrow(/Try again/);
+    } finally { db.close(); }
   });
 
   it("keeps Extra Deck monsters out unless the caller asks for them", async () => {

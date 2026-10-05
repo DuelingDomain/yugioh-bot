@@ -97,7 +97,9 @@ describe("card artwork mapping", () => {
       [89631147, { name: "Blue-Eyes White Dragon", type: 17, alias: 89631139 }],
     ]), fetch: async (input) => {
       const named = new URL(String(input)).searchParams.get("name") === "Blue-Eyes White Dragon";
-      return { ok: named, status: named ? 200 : 400, json: async () => ({ data: named ? [fixtures[1]] : [] }) };
+      return { ok: named, status: named ? 200 : 400, json: async () => named ? { data: [fixtures[1]] } : {
+        error: "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.",
+      } };
     } });
     expect((await catalog.syncCardsByFuzzyName("89631147"))[0]?.ygoprodeckId).toBe(89631139);
   });

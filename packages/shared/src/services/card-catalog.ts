@@ -157,8 +157,13 @@ export function createCardCatalogService(
     const url = new URL(YGOPRODECK_API_URL);
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
     return fetchCardResource(url, fetchImpl, async (response) => {
-      if (response.status === 400) return [];
-      const payload = await response.json() as { data?: YgoprodeckCard[] };
+      const payload = await response.json() as { data?: YgoprodeckCard[]; error?: unknown };
+      if (response.status === 400) {
+        // A missing set is an invalid draft pool, even if the API uses its
+        // generic no-result message. Only card lookups may return no match.
+        if (!params.cardset && payload?.error === "No card matching your query was found in the database. Please see https://db.ygoprodeck.com/api-guide/ for syntax usage.") return [];
+        throw new Error("Invalid card query");
+      }
       if (!Array.isArray(payload.data) || payload.data.some((card) =>
         !Number.isSafeInteger(card.id) || card.id <= 0 || typeof card.name !== "string" || typeof card.type !== "string"
         || typeof card.frameType !== "string" || !Array.isArray(card.card_images)
@@ -538,7 +543,7 @@ export function createCardCatalogService(
         return [];
       }
 
-      // Only HTTP 400 means no match; other HTTP failures and lost connections must reach the caller.
+      // Only the API's no-result 400 body means no match; other failures reach the caller.
       let cards: YgoprodeckCard[] = [];
       try {
         const lookup = (params: Record<string, string>) => fetchCardsWith(params);
