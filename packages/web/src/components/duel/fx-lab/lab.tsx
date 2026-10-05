@@ -28,6 +28,7 @@ import { applyEdits, numberSteps, scriptDurationMs, withHandIds, type LabBoard, 
 import { LAB_CATEGORIES, LAB_SCENARIOS, findScenario, scenariosIn } from "./scenarios";
 import { installTimeShim, type TimeShim } from "./time-shim";
 import { labSeriesRoom, OpeningLabScreen, SeriesLabHeader, SeriesLabScreen } from "./series-view";
+import { withDestroyCards } from "../destroy-cards";
 
 /**
  * The FX lab: the real duel board and effect layers, fed by a scripted engine instead of a server.
@@ -440,13 +441,13 @@ export function FxLab() {
                     </DeckSurrenderContext.Provider>
                     <FxBoundary>
                       <DuelFeedback events={engine.events} duelKey={duelKey} soundEnabled={sound} soundVolume={0.6} reducedMotion={reduced} replayFrom={live.preloaded ? 0 : null} />
-                      <SummonFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} shake="medium" />
-                      <MoveFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} replayFrom={live.preloaded ? 0 : null} />
+                      <SummonFx events={withDestroyCards(engine.events)} duelKey={duelKey} reducedMotion={reduced} shake="medium" />
+                      <MoveFx events={withDestroyCards(engine.events)} duelKey={duelKey} reducedMotion={reduced} replayFrom={live.preloaded ? 0 : null} />
                       <PositionFx events={engine.events} duelKey={duelKey} reducedMotion={reduced} />
-                      <ChainFx seats={engine.seats} events={engine.events} chain={engine.chain} duelKey={duelKey} reducedMotion={reduced} mySeat={0} playerName={(seat) => (seat === 0 ? "You" : "Practice Bot")} />
+                      <ChainFx seats={engine.seats} events={withDestroyCards(engine.events)} chain={engine.chain} duelKey={duelKey} reducedMotion={reduced} mySeat={0} playerName={(seat) => (seat === 0 ? "You" : "Practice Bot")} />
                       <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={duelKey} reducedMotion={reduced} mySeat={0} />
-                      <BattleFx events={engine.events} seats={engine.seats} reducedMotion={reduced} active aim={script.aim} result={engine.result} />
-                      <DestroyFx events={engine.events} reducedMotion={reduced} active mySeat={0} />
+                      <BattleFx events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={reduced} active aim={script.aim} result={engine.result} />
+                      <DestroyFx events={withDestroyCards(engine.events)} reducedMotion={reduced} active mySeat={0} />
                     </FxBoundary>
                     {script.prompt ? (
                       <PromptCenter

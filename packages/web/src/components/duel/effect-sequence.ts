@@ -73,7 +73,9 @@ export function sequenceEffects(fresh: readonly DuelEvent[], moves: readonly Mov
       for (const { move: target, destroy } of group) {
         const scene = holdDestroySceneUntil(destroy.id, startAt);
         const destroyAt = scene?.startAt ?? startAt;
-        const handoffAt = destroyAt + (scene?.handoffMs ?? (reduced ? CARD_FX.reducedEffectMs : MOVE_PACE.destroyBreakMs + CARD_FX.destroyFlashMs));
+        // The whole card breaks at destroyBreakMs and its pieces take over at that same moment: any wait between
+        // the two shows an empty zone. The flash plays over the pieces.
+        const handoffAt = destroyAt + (scene?.handoffMs ?? (reduced ? CARD_FX.reducedEffectMs : MOVE_PACE.destroyBreakMs));
         const takeover = battleTakeover(target.event.from, now);
         const heldAt = battleDestroyAt(target.event.from, now);
         // One resolution is one break phase. Its targets can travel together; obsolete serial

@@ -24,6 +24,7 @@ import {
   LOCATION_HAND,
   LOCATION_MZONE,
   LOCATION_REMOVED,
+  LOCATION_SZONE,
   zoneKey,
 } from "./constants";
 import { battleBreakIs3d, battleDestroyAt, battleTakeover, BREAK_SETTLE_MS, HELD_CRACK_MS } from "./battle-hold";
@@ -87,6 +88,8 @@ export type MovePlan = {
   leadMs: number;
   /** Explicit battle/canvas/chain floor, independent of the serial queue's overlap. */
   notBeforeAt?: number;
+  /** A fight that killed the card is still playing: BattleFx draws the card on its zone, so MoveFx adds no stand-in. */
+  battleHeld?: boolean;
   /** Extra ms the ghost stays after landing. */
   holdMs: number;
   /** The card is being destroyed: it is hidden in its zone until this flight lands in the pile. */
@@ -122,6 +125,27 @@ export type MovePlan = {
 };
 
 export type MoveGeometry = { distance: number };
+
+/**
+ * A card that leaves the field for a reason that is not a destroy waits for its flight (the chain, the queue).
+ * The board already shows the new state, so its zone is empty: the ghost is placed over the zone at once, in the
+ * pose the card had (sleeve or face, Attack or Defense), and lifts from there when its flight starts. The same
+ * element stands in and flies, so the card never vanishes and never shows twice. A destroy has its own
+ * stand-in (the break in SummonFx), a Tribute and a wipe piece their own layers. Under reduced motion the
+ * "fade" plan has a stand-in of its own at the source (MoveFx), destroy or not.
+ */
+export function standsInAtSource(plan: MovePlan): boolean {
+  const from = plan.event.from?.location;
+  if (from !== LOCATION_MZONE && from !== LOCATION_SZONE) return false;
+  if (plan.source == null || plan.silent || plan.takeover || plan.handoffFrom) return false;
+  // Reduced motion: the card does not travel. It stays in its zone, pose and face, and fades out there
+  // while it fades in on its pile. A destroy has no break to stand in for it, so it stays too.
+  if (plan.reduced && plan.style === "fade" && !plan.tribute && !plan.battleHeld) return true;
+  if (plan.destroy) return false;
+  // A showcase that rises from the zone starts on the card; one that rises from a strip or a pile does not.
+  if (plan.style === "add") return plan.showcase?.origin.kind === "source";
+  return plan.style !== "tribute" && plan.style !== "fade";
+}
 
 const plans = new Map<number, MovePlan>();
 /** follow-up event id (summon/set/activate/destroy) -> the move plan that carries it. */
@@ -269,6 +293,8 @@ type Candidate = {
   pieces: "burst" | "scattered" | null;
   /** A battle holds this destroy: the flight starts no earlier than this (performance.now(), 0 = free). */
   notBefore: number;
+  /** A fight that killed the card is still playing (BattleFx draws the card on its zone until the break). */
+  battleHeld: boolean;
   paired: number[];
   source: ZoneSnapshot | null;
   /** Index in `fresh`: a run of moves is a set of candidates with no other kind of event between them. */
@@ -358,6 +384,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     let takeover = false;
     let pieces: "burst" | "scattered" | null = null;
     let notBefore = 0;
+    let battleHeld = false;
 
     // The summon, set or activation this card lands for.
     for (let j = i + 1; j < fresh.length && j <= i + 8; j += 1) {
@@ -381,6 +408,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       lead = reduced ? 0 : other.cause === "battle" ? MOVE_TIMING.destroyBreakBattleMs : MOVE_TIMING.destroyBreakMs;
       // A fight that killed the card is still playing: it breaks only after the last strike landed.
       notBefore = battleDestroyAt(other.zone, now);
+      battleHeld = notBefore > 0;
       if (notBefore > 0) lead = reduced ? 0 : HELD_CRACK_MS;
       // The 3D layer breaks the card into shards: the pile receives it after they fell, no flight.
       if (notBefore > 0 && battleBreakIs3d(other.zone, now)) {
@@ -441,7 +469,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
     if (roomDraws) silent = true;
     const source = resolveSource(from, event.id);
     const origin = style === "add" ? showcaseOrigin(event, now, source != null) : null;
-    candidates.push({ event, style, base: silent && !roomDraws ? 0 : baseDuration(style, geo.distance, reduced, isFieldPlacementLocation(to.location)), lead, hold, silent, destroy, takeover, pieces, notBefore, paired, source, index: i, origin, tribute, tributeWait });
+    candidates.push({ event, style, base: silent && !roomDraws ? 0 : baseDuration(style, geo.distance, reduced, isFieldPlacementLocation(to.location)), lead, hold, silent, destroy, takeover, pieces, notBefore, battleHeld, paired, source, index: i, origin, tribute, tributeWait });
   }
   if (candidates.length === 0) {
     sequenceEffects(fresh, [...plans.values()], now, reduced);
@@ -577,6 +605,7 @@ export function planMoves(fresh: readonly DuelEvent[], options: PlanOptions): Mo
       durationMs: dur,
       leadMs: item.lead,
       notBeforeAt: item.notBefore,
+      battleHeld: item.battleHeld,
       // After a showcase lands, the ring of light plays on the hand card.
       holdMs: chained.has(item) ? 0 : phases ? phases.glowMs : item.hold,
       destroy: item.destroy,
