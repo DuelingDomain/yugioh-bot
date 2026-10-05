@@ -48,6 +48,7 @@ export {
 } from "./settings.js";
 export { DEFAULT_DUEL_1V1_ENGINE, DUEL_1V1_ENGINE_ENV, duel1v1Engine, isDuelEngineChoice } from "./engine-switch.js";
 export type { DuelEngineChoice } from "./engine-switch.js";
+export { COIN_TIMING, COIN_TOSS_MS, COIN_SUMMARY_MS, COIN_CHAIN_BEAT_MAX_MS, MIN_DUEL_FX_SPEED, coinTossDurationMs } from "./coin-timing.js";
 export {
   MULTIPLAYER_TABLES_ENV,
   MULTIPLAYER_TABLES_OFF_MESSAGE,
@@ -359,11 +360,16 @@ export interface DuelBattleStats {
   position: number;
 }
 
+/** One engine toss message, with all results in order. Dice are reserved for a future event producer. */
+export type DuelToss =
+  | { type: "coin"; results: Array<"heads" | "tails"> }
+  | { type: "dice"; results: number[] };
+
 export interface DuelEvent {
   id: number;
   kind:
     | "summon" | "set" | "activate" | "target" | "chain-resolving" | "chain-resolved" | "chain-negated" | "chain-end"
-    | "attack" | "battle" | "battle-end" | "phase" | "damage" | "recover" | "destroy" | "move" | "position" | "equip" | "confirm";
+    | "attack" | "battle" | "battle-end" | "phase" | "damage" | "recover" | "destroy" | "move" | "position" | "equip" | "confirm" | "toss";
   seat?: number;
   card?: DuelCardInfo;
   chainIndex?: number;
@@ -372,6 +378,8 @@ export interface DuelEvent {
   targets?: DuelZoneRef[];
   text: string;
   description?: string;
+  /** toss: public outcomes; `card` names the resolving source when known. */
+  toss?: DuelToss;
   /** confirm: the preceding move of this card, when known. Identity belongs to this confirmation only. */
   moveId?: number;
   /**
@@ -418,7 +426,7 @@ export interface DuelEvent {
    * "other" = anything else. Absent on events recorded before this field existed.
    */
   cause?: "battle" | "effect" | "cost" | "rule" | "other";
-  /** destroy / move: passcode of the card that caused the destruction (the effect's card, or the opposing battler). */
+  /** destroy / move / toss: passcode of the source (the effect's card, or the opposing battler). */
   sourceCode?: number;
   /** destroy / move: card type of the source when it activated (monster, spell or trap). */
   sourceKind?: "monster" | "spell" | "trap";
@@ -477,7 +485,8 @@ export interface DuelEngineView {
   prioritySeat?: number | null;
   chain: DuelChainLink[];
   events: DuelEvent[];
-  log: Array<{ id: number; text: string }>;
+  /** `eventId` links a toss result line to its FX event, so the client can wait until it lands. */
+  log: Array<{ id: number; text: string; eventId?: number }>;
   /**
    * The viewing seat's own chain response mode. Present only in the view built for a seated player; never in an
    * opponent's, a teammate's or a spectator's view, and not at all where the host does not allow the switch.

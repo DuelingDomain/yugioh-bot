@@ -96,7 +96,7 @@ export function writeDifferentialFailure(input: DifferentialFailureInput, direct
         disjointDecks: recorded.disjoint,
         steps: recorded.journal.length,
         journal: recorded.journal,
-        engine: { ...recorded.engine, firstTurnDraw: recorded.engine.firstTurnDraw ?? firstTurnDrawFor(recorded.engine.mode, recorded.engine.masterRule) },
+        engine: { ...recorded.engine, firstTurnDraw: recorded.engine.firstTurnDraw ?? firstTurnDrawFor(recorded.engine.mode, recorded.engine.masterRule, recorded.engine.format) },
         differential: {
           mode: input.mode,
           seed: input.seed,

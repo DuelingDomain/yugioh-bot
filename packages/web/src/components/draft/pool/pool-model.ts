@@ -6,6 +6,7 @@
  * players a pool can seat is its total copies (the deal needs players x packs per player x pack size copies).
  */
 
+import { cardImageUrl } from "@/lib/card-image-url";
 import { isExtraDeckMonster, isMonster, isSpell, isTrap, type CardSummary } from "@/lib/card-types";
 
 export const MAX_COPIES = 99;
@@ -435,5 +436,5 @@ export function cubeCardCount(cube: { mainCopies: number; setNames: string[]; cu
 
 /** The small card image for a passcode, from the host the catalog stores. */
 export function thumbUrl(id: number): string {
-  return `https://images.ygoprodeck.com/images/cards_small/${id}.jpg`;
+  return cardImageUrl(id, "small");
 }

@@ -16,7 +16,8 @@
   --ink-4: #6e6a62;
   /* Size of the contents: 1 is the natural size. A grid band that is short or narrow sets a smaller one (never under 9px text). */
   --lpk: 1;
-  transition: opacity 0.35s, translate 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* --glide / --glide-ease: the shell shortens the glide while a drawer reflows the table (table-shell.module.css). */
+  transition: opacity 0.35s, translate var(--glide, 0.7s) var(--glide-ease, cubic-bezier(0.2, 0.7, 0.2, 1));
 }
 
 /* The grid table sizes the box itself and fits the panel into it: in the flow of the box, no anchor, no glide. */
@@ -367,4 +368,139 @@
    and the clock are left out (the clock would sit on the Extra Monster Zone beside the box). */
 .holo[data-compact="true"] .meta {
   display: none;
+}
+
+/* The seat just left: strike the LP, show the place chip, fade the panel away (1.3 s). It keeps its colours. */
+.holo[data-exiting="true"] {
+  animation: holoOut 1.3s linear both;
+  pointer-events: none;
+}
+
+.holo[data-exiting="true"][data-elim="true"] .body {
+  border-color: rgb(var(--t) / 0.55);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.35),
+    0 0 26px -6px rgb(var(--t) / 0.55),
+    inset 0 1px 0 rgb(255 255 255 / 0.12);
+  filter: none;
+  opacity: 1;
+}
+
+.holo[data-exiting="true"][data-elim="true"] .main {
+  color: var(--loss-ink);
+  text-shadow: none;
+  transition: color 0.2s 0.12s;
+}
+
+.holo[data-exiting="true"][data-elim="true"] .main::after {
+  transform-origin: 0 50%;
+  animation: strike 0.22s ease-out 0.08s both;
+}
+
+.exitChip {
+  position: absolute;
+  left: 10px;
+  top: 100%;
+  z-index: 3;
+  margin-top: -9px;
+  padding: 4px 10px;
+  border: 1px solid rgb(228 90 77 / 0.6);
+  border-radius: 999px;
+  background: rgb(7 11 21 / 0.94);
+  color: var(--loss-ink);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  animation: chipIn 0.26s ease-out 0.3s both;
+}
+
+@keyframes holoOut {
+  0%,
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes strike {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes chipIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* The seats regroup: the panel waits for the crumble, then glides to its new corner. */
+.holo[data-glide="true"] {
+  transition:
+    opacity 0.35s,
+    translate 0.9s cubic-bezier(0.3, 0.7, 0.2, 1) 0.71s;
+}
+
+@keyframes holoIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .holo[data-glide="true"] {
+    transition: none;
+    animation: holoIn 0.38s ease-out 0.22s both;
+  }
+
+  .holo[data-exiting="true"] {
+    animation-duration: 0.9s;
+  }
+
+  .exitChip {
+    animation: none;
+  }
+}
+
+/* The in-app reduced motion setting (the media query above covers the system one). */
+:global([data-reduced="true"]) .holo[data-glide="true"] {
+  transition: none;
+  animation: holoIn 0.38s ease-out 0.22s both;
+}
+
+:global([data-reduced="true"]) .holo[data-exiting="true"] {
+  animation-duration: 0.9s;
+}
+
+:global([data-reduced="true"]) .exitChip {
+  animation: none;
+}
+
+/* Hangs under the panel, outside its body: your Deck Master chip. */
+.footer {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  margin-top: 8px;
+  width: max-content;
+  max-width: 270px;
+}
+.footer[data-tight="true"] {
+  max-width: 100%;
 }

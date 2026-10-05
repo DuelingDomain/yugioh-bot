@@ -45,6 +45,7 @@ import { RoomLobby } from "./room-lobby";
 import { ReportButton } from "./report-button";
 import { OpeningScreen } from "./opening";
 import { DeckMasterRail, DuelField } from "./field";
+import { EXIT_CRUMBLE_MS, EXIT_CRUMBLE_REDUCED_MS } from "./table/rival-field";
 import { TableShell, type TableShellProps } from "./table/table-shell";
 import { TagShell } from "./tag/tag-shell";
 import { defaultTeamNames } from "./tag/live-tag";
@@ -88,11 +89,14 @@ import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from 
 import { SheetButton } from "./sheet-ui";
 import { DuelClockDisplay, DuelSettingsSummary, DuelSoundControls, RoomInvite } from "./room-settings";
 import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
+import { PhaseHub } from "./phase-hub";
 import { MasterReturnFx } from "./master-return-fx";
 import { MoveFx } from "./move-fx";
 import { fxLayersUp, useStartBeats } from "./use-start-beats";
 import { PositionFx } from "./position-fx";
 import { ChainFx } from "./chain-fx";
+import { CoinTossFx } from "./coin-toss-fx";
+import { isCoinTossActive, useCoinTossLocked } from "./coin-toss-lock";
 import { SummonFx } from "./summon-fx";
 import { DuelHistoryRail } from "./history-rail";
 import { centerKind, PromptCenter } from "./prompt-center";
@@ -106,6 +110,7 @@ import { buildAttackPreview } from "./solid/attack-preview";
 import { PileViewer } from "./pile-viewer";
 import { livePileCards, shouldClosePileForPrompt, type PileView } from "./pile-focus";
 import { MatchSheetLog } from "./text-log";
+import { withDestroyCards } from "./destroy-cards";
 import {
   CardTabEmpty, DEFAULT_SIDE_PANE, DESKTOP_PANES, desktopPane, mobilePanes, SidePanel, SideTabs, useIsNarrow, type SidePane,
 } from "./side-panel";
@@ -118,6 +123,8 @@ const SolidRoom = dynamic<SolidRoomProps>(() => import("./solid/solid-room").the
   loading: () => <div style={{ minHeight: "100dvh", background: "#04060b" }} />,
 });
 
+/** Slack after the crumble ends before an eliminated viewer switches to spectating. */
+const SPECTATE_AFTER_CRUMBLE_MS = 200;
 /** The Card/Log/Settings sheet in 3D mode is a solid panel (the tokens come from the 3D mode root, which holds the sheet). */
 const SOLID_SHEET_CLASS = "bg-[color:var(--ink-1)] border-t border-[color:var(--gold-b)] rounded-t-[16px] md:rounded-t-none";
 
@@ -264,6 +271,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // 3 and 4 seat tables: the opponent the player tapped to show large (null = follow the action).
   const [pinnedFocus, setPinnedFocus] = useState<number | null>(null);
   const preferences = useDuelPreferences();
+  // A coin toss is playing: no answer, surrender or other action goes out (also blocked at window level).
+  const tossLocked = useCoinTossLocked();
   useDuelAnimationSpeed(preferences.reducedMotion);
   const view = useBoardView(viewOverride);
   // The chunk of the 3D look starts loading before the room data arrives, so the table appears at once.
@@ -316,13 +325,28 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   // Auto-spectate only watches the REMAINING duel; once it is over the eliminated seat keeps its own result screen.
   const duelOver = data?.session.status !== "active" || data?.engine?.result != null;
   const viewerEliminated = (liveFormat === "ffa3" || liveFormat === "ffa4") && viewerSeat?.eliminated === true && !duelOver;
+  // The own crumble plays on the table first: the spectate switch re-keys the room and would unmount it at once.
+  // A seat that was already out on load (a reload) has no crumble to wait for, and neither has the legacy stage.
+  const sawViewerIn = useRef(false);
+  // Set by Leave room: its replace to /duels is pending and the spectate switch must not override it.
+  const leavingRoom = useRef(false);
+  useEffect(() => {
+    if (viewerSeat != null && viewerSeat.eliminated !== true) sawViewerIn.current = true;
+  }, [viewerSeat]);
   useEffect(() => {
     if (!viewerEliminated || spectate) return;
     const query = new URLSearchParams(window.location.search);
     query.set("spectate", "1");
     if (inDuelWindow) query.set("window", "1");
-    router.replace(`/duels/${encodeURIComponent(slug)}?${query}`);
-  }, [viewerEliminated, spectate, inDuelWindow, router, slug]);
+    const target = `/duels/${encodeURIComponent(slug)}?${query}`;
+    if (!sawViewerIn.current || legacyStage) {
+      router.replace(target);
+      return;
+    }
+    const wait = (preferences.reducedMotion ? EXIT_CRUMBLE_REDUCED_MS : EXIT_CRUMBLE_MS) + SPECTATE_AFTER_CRUMBLE_MS;
+    const timer = setTimeout(() => { if (!leavingRoom.current) router.replace(target); }, wait);
+    return () => clearTimeout(timer);
+  }, [viewerEliminated, spectate, inDuelWindow, legacyStage, preferences.reducedMotion, router, slug]);
   const promptMine = prompt != null && data?.mySeat != null && prompt.seat === data.mySeat && data.session.status === "active" && !viewerOut;
   // Every prompt except your own action menu is answered in the middle of the board (PromptCenter):
   // a floating panel for responses, an instruction bar for picks on the field. The left dock keeps
@@ -450,6 +474,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
 
   const run = useCallback(
     async (work: () => Promise<DuelRoom | { session: unknown } | void>, kind?: "seat-pick") => {
+      // A coin toss is playing: nothing is sent, and the open menu stays as it is.
+      if (isCoinTossActive()) return;
       // React's busy state alone cannot reject two clicks within one render.
       if (inFlight.current) return;
       inFlight.current = true;
@@ -513,6 +539,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
 
   const onSubmitAnswer = useCallback(
     (answer: DuelAnswer) => {
+      if (isCoinTossActive()) return;
       if (!data?.engine || !prompt || error || catchingUp || data.mySeat !== prompt.seat ||
           data.session.status !== "active" || viewerOut || inFlight.current) return;
       const command = { promptId: prompt.id, revision: data.engine.revision, answer };
@@ -766,20 +793,21 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
   const showBetweenGames = betweenGames && resultReady && hasResult;
   const showResult = !hideResult && !showBetweenGames && resultReady && (engine?.result != null || terminal);
   const exitDuel = () => {
+    leavingRoom.current = true;
     if (inDuelWindow) exitDuelWindow(slug, () => router.replace("/duels"));
     else router.replace("/duels");
   };
   const surrenderOpen = confirmSurrender && canSurrender;
-  const surrenderModal = <SurrenderModal open={surrenderOpen} busy={busy} multiplayer={multi && (format === "ffa3" || format === "ffa4")} tag={multi && format === "tag"}
+  const surrenderModal = <SurrenderModal open={surrenderOpen} busy={busy || tossLocked} multiplayer={multi && (format === "ffa3" || format === "ffa4")} tag={multi && format === "tag"}
     onClose={() => setConfirmSurrender(false)} onConfirm={() => {
-      if (!canSurrender) return;
+      if (!canSurrender || isCoinTossActive()) return;
       setConfirmSurrender(false);
       void run(() => surrenderDuel(slug));
     }} />;
   // Your own deck opens a Surrender menu. It uses the same confirm and the same surrender call as the header button.
   const deckSurrender: DeckSurrenderValue = {
     seat: data.mySeat, available: canSurrender, busy: busy || catchingUp || Boolean(error),
-    onSurrender: () => setConfirmSurrender(true), onMenuOpenChange: setDeckMenuOpen,
+    onSurrender: () => { if (!isCoinTossActive()) setConfirmSurrender(true); }, onMenuOpenChange: setDeckMenuOpen,
     scope: `${prompt?.id ?? ""}|${data.engine?.turnSeat ?? ""}`,
   };
   // The series has moved on to its next game and this room is about to follow it (the effect on nextTarget).
@@ -840,7 +868,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         <ReportButton slug={slug} />
         {popOutControl}
         {leaveControl}
-        {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error)}
+        {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || catchingUp || Boolean(error) || tossLocked}
           onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
       </>,
       settingsTools: canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
@@ -1027,7 +1055,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         </div>
       ) : null}
       <BugReportMenuButton room={data} />
-      {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy}
+      {canSurrender ? <Button type="button" variant="danger" size="sm" disabled={busy || tossLocked}
         onClick={() => setConfirmSurrender(true)}>Surrender</Button> : null}
       {canArchive ? <Button type="button" variant="secondary" size="sm" disabled={busy}
         onClick={() => void run(() => archiveDuel(slug))}>Archive table</Button> : null}
@@ -1148,6 +1176,24 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     </div>
   );
   // What DuelField (classic) and SolidField (3D mode) take: one object, so both looks drive the same logic.
+  // Classic 1v1: the phases live on the board, in the free cells of the Extra Monster Zone row. The bar keeps the caption, the clock
+  // and the Responses + turn group. The 3D board, the legacy multiseat stage and the tag table keep the phases in the bar.
+  const phaseHub = Boolean(engine) && !solid && !multi && !liveTable;
+  const hubNode = phaseHub && engine ? (
+    <PhaseHub
+      variant="band"
+      phase={shownPhase}
+      battleStep={battleStep}
+      turn={engine.turn}
+      turnSeat={engine.turnSeat}
+      mySeat={data.mySeat}
+      playerName={playerName}
+      actionOptions={mine ? actionOptions : []}
+      canAct={canAct}
+      onChoose={(id) => onSubmitAnswer({ choice: id })}
+      reducedMotion={preferences.reducedMotion}
+    />
+  ) : null;
   const fieldProps = engine ? {
     engine, mySeat: data.mySeat, masterRule: data.session.masterRule,
     reducedMotion: preferences.reducedMotion,
@@ -1157,25 +1203,28 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     onHoverCard, onInspect: (target: InspectTarget) => showInspector(target, true),
     bottomName: playerName(localSeat),
     topName: playerName(top?.seat ?? 1 - localSeat),
+    hub: hubNode,
   } : null;
   // The board: the field (given by the caller), the FX layers as flat siblings of it, the prompt layer and the pile viewer.
   const renderBoard = (field: ReactNode): ReactNode => engine ? (
     <MoveSourceBoundary events={engine.events} duelKey={slug} root={boardRef}>
       {field}
       <FxBoundary>
+      {fxUp ? <CoinTossFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion}
+        replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
         soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
-      {fxUp ? <SummonFx events={engine.events} duelKey={slug}
+      {fxUp ? <SummonFx events={withDestroyCards(engine.events)} duelKey={slug}
         reducedMotion={preferences.reducedMotion} shake={preferences.shake} /> : null}
-      {fxUp ? <MoveFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
+      {fxUp ? <MoveFx events={withDestroyCards(engine.events)} duelKey={slug} reducedMotion={preferences.reducedMotion} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
-      {fxUp ? <ChainFx events={engine.events} chain={engine.chain} duelKey={slug}
+      {fxUp ? <ChainFx events={withDestroyCards(engine.events)} chain={engine.chain} duelKey={slug}
         reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} ended={duelOver} seats={engine.seats} /> : null}
       {fxUp ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
         reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
-      <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}
+      <BattleFx key={`battle-${slug}`} events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={preferences.reducedMotion}
         active={fxUp} aim={solid ? null : battleAim} result={engine.result} battleStep={battleStep} />
-      <DestroyFx key={`destroy-${slug}`} events={engine.events} reducedMotion={preferences.reducedMotion}
+      <DestroyFx key={`destroy-${slug}`} events={withDestroyCards(engine.events)} reducedMotion={preferences.reducedMotion}
         active={fxUp} mySeat={localSeat} />
       </FxBoundary>
       <PromptCenter prompt={prompt ?? pick.waiting} mySeat={data.mySeat} active={data.session.status === "active" && !viewerOut} slug={slug}
@@ -1212,6 +1261,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       caption={trackCaption}
       reducedMotion={preferences.reducedMotion}
       chainMode={chainMode}
+      phases={phaseHub ? "hub" : "bar"}
     />
   );
   const mobileTabs = tabs(true);

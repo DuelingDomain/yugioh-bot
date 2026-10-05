@@ -1,0 +1,165 @@
+/* The wide table's rail and drawer. Both sit in the shell's grid (table-shell.module.css): the rail is always 72px, the
+   drawer is a column that exists only while open, so the board never sits under either. */
+
+/* ---------- rail ---------- */
+
+.rail {
+  grid-area: rail;
+  position: relative;
+  z-index: 32;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 0 10px;
+  border-right: 1px solid var(--duel-rule);
+  background: linear-gradient(180deg, rgb(11 18 34 / 0.96), rgb(8 13 25 / 0.98));
+}
+
+.group {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 0;
+  border-top: 1px solid var(--duel-rule-lo);
+}
+
+.button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 58px;
+  height: 50px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--duel-ink-3);
+  font: inherit;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s, border-color 0.15s;
+}
+.button span:not(:global(.sr-only)) {
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+}
+.button:hover { color: var(--duel-ink); background: rgb(155 126 255 / 0.08); }
+.button:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: -2px; }
+.button[data-active="true"] {
+  color: #c6b6ff;
+  border-color: rgb(155 126 255 / 0.55);
+  background: rgb(155 126 255 / 0.16);
+}
+.view { flex: none; margin-top: 2px; }
+
+.badge {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #9b7eff;
+  color: #0a0716;
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+/* ---------- drawer ---------- */
+
+.drawer {
+  /* Out of the grid flow: the grid reserves the column (so the board reflows at once); the panel keeps its width while it
+     slides out, which a grid item that shrinks with its column could not. */
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--rail-w, 72px);
+  width: var(--drawer-w, 380px);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--duel-rule);
+  background: linear-gradient(180deg, rgb(11 18 34 / 0.97), rgb(8 13 25 / 0.985));
+  box-shadow: 14px 0 28px -18px rgb(0 0 0 / 0.8);
+  /* Transform and opacity only. The grid column itself changes size at once; this is the panel arriving in it. */
+  transform: translateX(-100%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    transform var(--d-drawer-out, 220ms) var(--ease-drawer, cubic-bezier(0.32, 0.72, 0, 1)),
+    opacity var(--d-drawer-out, 220ms) var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)),
+    visibility 0s linear var(--d-drawer-out, 220ms);
+}
+.drawer[data-open="true"] {
+  transform: none;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    transform var(--d-drawer-in, 300ms) var(--ease-drawer, cubic-bezier(0.32, 0.72, 0, 1)),
+    opacity var(--d-drawer-in, 300ms) var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)),
+    visibility 0s;
+}
+/* The stored open state is applied after the first paint: no slide for that. */
+.drawer[data-settled="false"] { transition: none; }
+
+.head {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--duel-rule);
+}
+.head > :first-child { flex: 1 1 auto; min-width: 0; border-bottom: 0; }
+.close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 10px 0 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--duel-rule-lo);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--duel-ink-3);
+  font: inherit;
+  cursor: pointer;
+}
+.close kbd {
+  font: inherit;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.close:hover { color: var(--duel-ink); border-color: var(--duel-rule); }
+.close:focus-visible { outline: 2px solid var(--duel-ink); outline-offset: 2px; }
+
+.masters {
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* A short fade, no travel. */
+  .drawer,
+  .drawer[data-open="true"] { transform: none; }
+  .drawer { transition: opacity var(--d-rm, 140ms) linear, visibility 0s linear var(--d-rm, 140ms); }
+  .drawer[data-open="true"] { transition: opacity var(--d-rm, 140ms) linear, visibility 0s; }
+}

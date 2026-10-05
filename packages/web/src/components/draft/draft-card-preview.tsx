@@ -1,5 +1,6 @@
 "use client";
 
+import { cardImageUrl } from "@/lib/card-image-url";
 import Image from "next/image";
 import { useState } from "react";
 import { useDraftStore } from "@/lib/stores/draft-store";
@@ -37,7 +38,8 @@ export function DraftCardPreview({ className }: DraftCardPreviewProps) {
         ) : (
           <Image
             data-testid="draft-card-preview-image"
-            src={previewCard.imageUrl}
+            src={cardImageUrl(previewCard.passcode)}
+            unoptimized
             alt={previewCard.name}
             fill
             priority

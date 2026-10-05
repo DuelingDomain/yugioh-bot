@@ -11,3 +11,10 @@ function s.checkop(e,tp,eg,ep,ev,re,r,rp)
 	for tc in eg:Filter(s.checkfilter,nil):Iter() do mp_mark(hit,tc:GetPreviousControler()) end
 	mp_flag_hits(hit,id+1,RESET_PHASE|PHASE_END)
 end
+
+if not Duel.MPMode or Duel.MPMode()~=1 then return end
+-- Removing a player removes their unresolved links. Count active links and keep saved link IDs stable.
+function s.discon(e,tp,eg,ep,ev,re,r,rp)
+	local ch=Duel.MPPreviousChain()
+	return ch>0 and ep==1-tp and Duel.GetChainInfo(ch,CHAININFO_TRIGGERING_CONTROLER)==tp and Duel.IsChainDisablable(ev)
+end

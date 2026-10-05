@@ -15,7 +15,7 @@ const { signIn, redirect, rethrow } = vi.hoisted(() => ({
 vi.mock("@/lib/auth", () => ({ signIn }));
 vi.mock("next/navigation", () => ({ redirect, unstable_rethrow: rethrow }));
 vi.mock("next/image", () => ({
-  default: ({ alt, priority: _priority, ...props }: { alt: string; priority?: boolean }) => <img alt={alt} {...props} />,
+  default: ({ alt, priority: _priority, unoptimized: _unoptimized, ...props }: { alt: string; priority?: boolean; unoptimized?: boolean }) => <img alt={alt} {...props} />,
 }));
 
 let formStatus = { pending: false };

@@ -155,6 +155,7 @@ type HostHarness = {
 const hosts: DuelHost[] = [];
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   vi.useRealTimers();
   while (hosts.length > 0) {
     const host = hosts.pop();
@@ -259,6 +260,27 @@ function createdSettings(worker: FakeWorker) {
 }
 
 describe("duel host rooms", () => {
+  it.each(["network", "timeout", "429", "503", "json"])("contains a %s catalog failure and keeps the host available", async (failure) => {
+    vi.resetModules();
+    const { createDuelHost: create } = await import("../src/host.js");
+    const db = new Database(":memory:"); migrate(db);
+    const { p1 } = seedPlayers(db);
+    const host = create({ db, dataDirectory: DATA, secret: SECRET, searchCards: () => [], pollIntervalMs: 60_000 });
+    hosts.push(host);
+    const upstream = vi.fn(async () => {
+      if (failure === "network") throw new Error("offline");
+      if (failure === "timeout") throw new DOMException("timeout", "TimeoutError");
+      return new Response("bad JSON", { status: failure === "json" ? 200 : Number(failure), headers: { "Retry-After": "2" } });
+    });
+    vi.stubGlobal("fetch", upstream);
+    const result = await post(host, { op: "check-deck", guildId: "g1", playerId: p1, mode: "normal", deck: { main: [90000001], extra: [], side: [] } });
+    expect(result.status).toBe(503);
+    expect(readHostError(result.data)).toBe("Card database is unavailable. Try again shortly.");
+    const cards = await post(host, { op: "cards", guildId: "g1", playerId: p1, query: "dragon" });
+    expect(cards.status).toBe(200);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    await host.close(); db.close();
+  });
   it("lets seated players re-enter, spectators watch public state, and forbids spectator commands", async () => {
     const db = new Database(":memory:");
     migrate(db);

@@ -780,6 +780,43 @@ describe("BattleFx resolution", () => {
     expect(battleDestroyAt({ controller: 1, location: 4, sequence: 0 })).toBe(0);
   });
 
+  it("strikes where the cards are now when the board moved during the response window (a drawer toggled)", async () => {
+    const strikeTargets: Array<{ x: number; y: number }> = [];
+    const play = vi.fn((_id: string, request: FxRequest) => {
+      const hit = request.battle?.strikes[0]?.to;
+      if (hit) strikeTargets.push({ x: hit.x, y: hit.y });
+      return Promise.resolve();
+    });
+    setSharedFx3d({ host: board, api: { ready: true, play, prefetchArt() {}, cancelAll() {} } });
+    const resolved = [phase, attack, damage(3, 1, 800), destroyed(4, 1)];
+    const original = boxes["1:4:0"];
+    try {
+      // Control: the board stays put.
+      const still = open();
+      still.rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);
+      still.rerender(<BattleFx events={resolved} reducedMotion={false} seats={seats()} />);
+      still.unmount();
+      expect(strikeTargets).toHaveLength(1);
+      clearBattleHolds();
+      // The defender's zone slides 200px right and 50px down while the attack waits; the table fires `resize` as it reflows.
+      const moved = open();
+      moved.rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);
+      boxes["1:4:0"] = { left: original.left + 200, top: original.top + 50, width: original.width, height: original.height } as DOMRect;
+      await act(async () => {
+        window.dispatchEvent(new Event("resize"));
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      });
+      moved.rerender(<BattleFx events={resolved} reducedMotion={false} seats={seats()} />);
+      expect(strikeTargets).toHaveLength(2);
+      expect(strikeTargets[1]!.x - strikeTargets[0]!.x).toBeCloseTo(200, 0);
+      expect(strikeTargets[1]!.y - strikeTargets[0]!.y).toBeCloseTo(50, 0);
+      moved.unmount();
+    } finally {
+      boxes["1:4:0"] = original;
+      setSharedFx3d(null);
+    }
+  });
+
   it("plays the whole animation when the battle resolves in a later snapshot, then drops the marker", () => {
     const { rerender } = open();
     rerender(<BattleFx events={[phase, attack]} reducedMotion={false} seats={seats()} />);

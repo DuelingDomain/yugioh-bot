@@ -2,7 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type Database from "better-sqlite3";
-import { createDuelSeriesService, createDuelService, type DuelFinalSnapshots } from "@yugidraft/shared/services";
+import { createDuelSeriesService, createDuelService, createTournamentDuelService, isCardFetchError, type DuelFinalSnapshots } from "@yugidraft/shared/services";
 import type {
   DuelAnswer,
   DuelCommand,
@@ -23,13 +23,14 @@ import type {
 } from "@yugidraft/shared/duels";
 import {
   CardQueryError, duel1v1Engine, isFirstChoice, isRpsMove, multiplayerSeatsBlockReason, multiplayerTablesEnabled,
+  COIN_TIMING, COIN_CHAIN_BEAT_MAX_MS, MIN_DUEL_FX_SPEED, coinTossDurationMs,
   CHAIN_MODE_JOURNAL_LIMIT, CHAIN_MODE_PROMPT_PREFIX, chainModeOf, isDuelChainMode, normalizeDuelSettings, opponentSeatsOf, parseCardQuery, seatCountFor, teamOfSeat, DUEL_OPENING_PICK_MS, DUEL_RPS_MOVES,
 } from "@yugidraft/shared/duels";
 import { ELIMINATE_PROMPT_PREFIX as ELIMINATE_PREFIX, eliminationCodeOf, eliminationAtTurnEnd } from "./engine.js";
 import { EngineAnswerError } from "./prompts.js";
 import { GameWorker, type DuelGameWorker, type GameOptions, type WorkerDebugState } from "./worker-client.js";
-import { DeckLegalityError, inspectDeck, validateDeck } from "./deck-legality.js";
-import { canonicalEngineCardCode, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
+import { DeckLegalityError, inspectDeck, validateDeck, type InspectDeckOptions } from "./deck-legality.js";
+import { canonicalEngineCardCode, loadDraftDeckPool, normalizeCardCodes, normalizeImportedDeck } from "./deck-import.js";
 import { loadCardDatabase } from "./cards.js";
 import { cardFacets, queryCards } from "./card-search.js";
 import { activeMultiScriptsHash, pinnedEngineVersion } from "./multi-scripts.js";
@@ -69,6 +70,14 @@ const SERIES_SWEEP_LIMIT = 16;
 /** Wait after the 1st, 2nd and later failed starts of one series game; the last value is the cap. */
 const START_BACKOFF_MS = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000];
 const MAX_TIMER_MS = 2 ** 31 - 1;
+/** Bound one live coin presentation pause, including any already queued grace. */
+const MAX_COIN_TOSS_GRACE_MS = 60_000;
+/**
+ * Real-time margin for pre-toss moves/summons and delivery. The client's move-plan/effect-sequence
+ * can queue an 860ms placement and a 1,625ms ordinary summon: 4,970ms at MIN_DUEL_FX_SPEED.
+ * Leave another 1,030ms for delivery. This conservative fixed bound avoids duplicating its visual planner.
+ */
+const COIN_PRE_TOSS_MARGIN_MS = 6_000;
 const TIME_LIMIT_REASON = "Time limit";
 /** MSG_WIN reason codes from the core (strings.conf victory reasons): 0 Surrendered, 3 Time limit up. */
 const WIN_REASON_SURRENDER = 0;
@@ -130,6 +139,8 @@ type LiveGame = {
   game: DuelGameWorker;
   lastRequestAt: number;
   guildId: string;
+  /** Conservative end of live queued chain/coin FX. Recovery skips old FX and starts a fresh queue. */
+  fxReadyAt?: number;
   /**
    * Seats whose prompts the host answers with passes after a surrender.
    * Queue commands restore these seats after recovery. Old cores also use the saved setup field.
@@ -198,6 +209,32 @@ function newestEventId(view: DuelEngineView): number {
   let newest = 0;
   for (const event of view.events) newest = Math.max(newest, event.id);
   return newest;
+}
+
+function chainBeatDurationMs(view: DuelEngineView, afterEventId: number, throughEventId = Infinity): number {
+  const beats = view.events.filter((event) => event.id > afterEventId && event.id < throughEventId
+    && (event.kind === "chain-end" || (event.chainIndex != null && event.chainIndex >= 1
+      && ["activate", "target", "chain-resolving", "chain-resolved", "chain-negated"].includes(event.kind)))).length;
+  return beats * COIN_CHAIN_BEAT_MAX_MS / MIN_DUEL_FX_SPEED;
+}
+
+/** Only events emitted by this live command count; snapshots and journal replay do not grant grace. */
+function freshCoinTossGraceMs(view: DuelEngineView, afterEventId: number): number {
+  let duration = 0;
+  let events = 0;
+  let lastTossId = 0;
+  for (const event of view.events) {
+    if (event.id <= afterEventId || event.kind !== "toss" || event.toss?.type !== "coin" || event.toss.results.length === 0) continue;
+    duration += coinTossDurationMs(event.toss.results.length, MIN_DUEL_FX_SPEED);
+    events++;
+    lastTossId = Math.max(lastTossId, event.id);
+  }
+  if (events === 0) return 0;
+  // Earlier batches are already accounted for by fxReadyAt. Count only this command's
+  // beats before the toss, so a fast answer cannot charge the same chain prefix twice.
+  return Math.min(MAX_COIN_TOSS_GRACE_MS, duration + chainBeatDurationMs(view, afterEventId, lastTossId)
+    + (COIN_TIMING.chainLeadMs + (events - 1) * COIN_TIMING.gapMs) / MIN_DUEL_FX_SPEED
+    + COIN_TIMING.safetyMarginMs + COIN_PRE_TOSS_MARGIN_MS);
 }
 
 function freezeView(
@@ -308,8 +345,18 @@ export function createDuelHost(options: {
   let stopped = false;
 
   /** Check one deck against the real table format, so a Tag or FFA table also refuses the cards that do not work there. */
-  function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat): void {
-    validateDeck(mode, deck, options.dataDirectory, settings, { table: format });
+  async function sessionDeckOptions(session: DuelSession, playerId: number): Promise<InspectDeckOptions> {
+    const table = session.format;
+    const tournamentId = session.seriesId ? series.get(session.seriesId, session.guildId).tournamentId : null;
+    const draftId = tournamentId === null ? null : createTournamentDuelService(options.db).rules(tournamentId).draftId;
+    if (draftId === null) return { table };
+    const draftPool = await loadDraftDeckPool({ draftId, playerId, guildId: session.guildId, dataDirectory: options.dataDirectory, db: options.db });
+    return { table, draftPool };
+  }
+
+  async function validateSessionDeck(mode: DuelMode, deck: DuelDeck, settings: DuelSettings, format: DuelFormat, context?: { session: DuelSession; playerId: number }): Promise<void> {
+    const checks = context ? await sessionDeckOptions(context.session, context.playerId) : { table: format };
+    validateDeck(mode, deck, options.dataDirectory, settings, checks);
   }
 
   function workerCreateOptions(
@@ -321,7 +368,7 @@ export function createDuelHost(options: {
     format: DuelFormat = "1v1",
     startupScripts?: string[],
     engine?: DuelEngineChoice,
-    firstTurnDraw = firstTurnDrawFor(mode, masterRule, engine, format),
+    firstTurnDraw = firstTurnDrawFor(mode, masterRule, format),
   ): GameOptions {
     const created: GameOptions = {
       mode,
@@ -621,23 +668,40 @@ export function createDuelHost(options: {
     command: DuelCommand,
     game: DuelGameWorker,
     decidedAt: number,
+    afterEventId: number,
     note?: string,
   ): Promise<void> {
     const state = service.privateState(slug, guildId);
     const view = await readClockView(game, seatCountFor(state.session.format), games.get(slug)?.surrendered);
+    const after = await game.view(null);
+    const grace = freshCoinTossGraceMs(after, afterEventId);
+    const finishedAt = now();
+    const entry = games.get(slug);
+    // A fast answer or a bot can queue another toss before the previous presentation ends.
+    const graceEndsAt = grace === 0 ? null : Math.min(finishedAt + MAX_COIN_TOSS_GRACE_MS,
+      Math.max(finishedAt, entry?.fxReadyAt ?? finishedAt, state.clock?.startedAt ?? finishedAt) + grace);
     const clock = syncDecisionClock(
       state.clock,
       view,
       state.session.settings.turnSeconds,
       decidedAt,
-      now(),
+      finishedAt,
       state.session.settings.timeout,
       isSeatIndex(seat) ? seat : undefined,
+      graceEndsAt,
     );
     // The journal keeps the reason of a scripted bot in `note`. Replay reads only promptId, revision and answer.
     options.db.transaction(() => {
       service.recordCommand(slug, guildId, seat, note ? ({ ...command, note } as DuelCommand) : command, clock);
     })();
+    if (entry) {
+      // An engine chain-end can precede its visible end. Track that backlog even
+      // for commands with no coin; it delays the next coin, without pausing their clock.
+      const lastCoinId = after.events.reduce((id, event) => event.id > afterEventId && event.kind === "toss"
+        && event.toss?.type === "coin" && event.toss.results.length > 0 ? Math.max(id, event.id) : id, afterEventId);
+      entry.fxReadyAt = Math.min(finishedAt + MAX_COIN_TOSS_GRACE_MS,
+        (graceEndsAt ?? Math.max(finishedAt, entry.fxReadyAt ?? finishedAt)) + chainBeatDurationMs(after, lastCoinId));
+    }
   }
 
   /** Stop a long duel once no human can play. This is an interruption, not a game draw. */
@@ -693,7 +757,7 @@ export function createDuelHost(options: {
         throw new RequestError(error instanceof Error ? error.message : "Practice bot made an illegal choice", 500);
       }
       try {
-        await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, note);
+        await persistAcceptedCommand(slug, guildId, seat, command, game, decidedAt, newestEventId(view), note);
       } catch (error) {
         await disposeGame(slug);
         throw error;
@@ -947,7 +1011,7 @@ export function createDuelHost(options: {
       return { kind: "stop" };
     }
     try {
-      await persistAcceptedCommand(slug, guildId, plan.seat, command, game, decidedAt, plan.note);
+      await persistAcceptedCommand(slug, guildId, plan.seat, command, game, decidedAt, newestEventId(before), plan.note);
     } catch (error) {
       // The answer was applied but not journaled. Dropping the worker makes the next request rebuild the
       // duel from the journal, which never contains an unrecorded command.
@@ -1080,7 +1144,7 @@ export function createDuelHost(options: {
     }
     const command: DuelCommand = { promptId: `${ELIMINATE_PROMPT_PREFIX}${code}`, revision: before.revision, answer: {} };
     try {
-      await persistAcceptedCommand(slug, guildId, seat, command, game, now());
+      await persistAcceptedCommand(slug, guildId, seat, command, game, now(), newestEventId(before));
     } catch (error) {
       // Applied but not journaled: drop the worker so the next request rebuilds the duel from the journal.
       await disposeGame(slug);
@@ -1428,7 +1492,7 @@ export function createDuelHost(options: {
       const settings = state.session.settings;
       const scripts = (copts.startupScripts ?? []).map((script) => script.content);
       const engine = engineForNewTable(preset.format, true);
-      const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, engine, preset.format);
+      const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, preset.format);
       const botPolicies: Record<string, string> = {};
       for (let seat = 1; seat < seatCount; seat += 1) botPolicies[String(seat)] = SCRIPTED_POLICY;
       game = spawn();
@@ -1877,7 +1941,7 @@ export function createDuelHost(options: {
   }
 
   /** The checks every start makes: a lobby duel, every seat ready, and legal decks for the format. */
-  function assertStartable(slug: string, guildId: string) {
+  async function assertStartable(slug: string, guildId: string) {
     const session = service.get(slug, guildId);
     if (session.status !== "lobby") throw new RequestError("Duel already started", 409);
     const seatCount = seatCountFor(session.format);
@@ -1896,17 +1960,20 @@ export function createDuelHost(options: {
     }
     const state = service.privateState(slug, guildId);
     const settings = state.session.settings;
-    for (const deck of state.decks) validateSessionDeck(state.session.mode, deck, settings, state.session.format);
+    for (const [seat, deck] of state.decks.entries()) {
+      await validateSessionDeck(state.session.mode, deck, settings, state.session.format,
+        { session: state.session, playerId: state.session.seats[seat].playerId! });
+    }
     return { session, state, settings, seatCount };
   }
 
   /** Starts a lobby game. `organizer` null is a system start, which the duel service only allows for a series game. */
   async function startGame(slug: string, guildId: string, organizer: number | null): Promise<DuelGameWorker> {
-    const { state, settings, seatCount } = assertStartable(slug, guildId);
+    const { state, settings, seatCount } = await assertStartable(slug, guildId);
     const bytes = randomBytes(32);
     const seed = [0, 8, 16, 24].map((offset) => bytes.readBigUInt64LE(offset).toString());
     const engine = engineForNewTable(state.session.format);
-    const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, engine, state.session.format);
+    const firstTurnDraw = firstTurnDrawFor(state.session.mode, state.session.masterRule, state.session.format);
     const game = spawn();
     try {
       await game.create(workerCreateOptions(
@@ -2047,7 +2114,7 @@ export function createDuelHost(options: {
       await driveOpening(slug, guildId);
       return games.get(slug)?.game ?? null;
     }
-    const { session } = assertStartable(slug, guildId);
+    const { session } = await assertStartable(slug, guildId);
     if (!options.openingRps || session.format !== "1v1" || (session.gameNumber ?? 1) > 1) return startGame(slug, guildId, actor);
     service.startOpening(slug, guildId, actor ?? session.organizerPlayerId, now());
     await driveOpening(slug, guildId);
@@ -2166,7 +2233,12 @@ export function createDuelHost(options: {
       }
       const settings = normalizeDuelSettings(mode, body.settings);
       const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
-      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings) };
+      let draftPool: InspectDeckOptions["draftPool"];
+      if (body.draftId !== undefined && body.draftId !== null) {
+        if (!Number.isSafeInteger(body.draftId) || (body.draftId as number) < 1 || mode !== "normal") throw new RequestError("Invalid draft deck context", 400);
+        draftPool = await loadDraftDeckPool({ draftId: body.draftId as number, playerId: actor, guildId, dataDirectory: options.dataDirectory, db: options.db });
+      }
+      return { deck, report: inspectDeck(mode, deck, options.dataDirectory, settings, { draftPool }) };
     }
     if (op === "card-query") {
       try {
@@ -2217,7 +2289,7 @@ export function createDuelHost(options: {
       if (blocked) throw new RequestError(blocked, 403);
       const settings = room.session.settings;
       const deck = buildPracticeBotDeck(room.session.mode, options.dataDirectory);
-      validateSessionDeck(room.session.mode, deck, settings, room.session.format);
+      await validateSessionDeck(room.session.mode, deck, settings, room.session.format);
       let botSeat: number | undefined;
       if (body.seat !== undefined && body.seat !== null) {
         if (!Number.isSafeInteger(body.seat)) throw new RequestError("Bot seat must be a whole number", 400);
@@ -2253,7 +2325,7 @@ export function createDuelHost(options: {
         if (info.status !== "between_games") throw new RequestError("Side decking is only open between games", 409);
         // Like check-deck, unresolved ids stay as sent so validateSessionDeck can report them.
         const deck = await normalizeImportedDeck(body.deck as DuelDeck, options.dataDirectory, options.db, { keepUnresolved: true });
-        validateSessionDeck(room.session.mode, deck, room.session.settings, room.session.format);
+        await validateSessionDeck(room.session.mode, deck, room.session.settings, room.session.format, { session: room.session, playerId: actor });
         // `info` is read before the await above, so a Ready sent meanwhile (through another game slug)
         // is not in it: the transaction reports whether this save cleared Ready.
         const saved = series.saveSideDeck(seriesId, guildId, actor, deck,
@@ -2319,9 +2391,9 @@ export function createDuelHost(options: {
         keepUnresolved: op === "validate-deck",
       });
       if (op === "validate-deck") {
-        return inspectDeck(room.session.mode, deck, options.dataDirectory, settings, { table: room.session.format });
+        return inspectDeck(room.session.mode, deck, options.dataDirectory, settings, await sessionDeckOptions(room.session, actor));
       }
-      validateSessionDeck(room.session.mode, deck, settings, room.session.format);
+      await validateSessionDeck(room.session.mode, deck, settings, room.session.format, { session: room.session, playerId: actor });
       const session = service.setDeck(slug, guildId, actor, deck);
       await emitChange(slug, guildId);
       return { session: await autoStart(slug, guildId, session) };
@@ -2385,7 +2457,7 @@ export function createDuelHost(options: {
         error instanceof EngineAnswerError ? error.code : undefined);
     }
     try {
-      await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt);
+      await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt, newestEventId(before));
       await emitChange(slug, guildId);
       await driveBot(slug, guildId, live);
       return await project(slug, guildId, actor, live);
@@ -2446,7 +2518,7 @@ export function createDuelHost(options: {
     const command: DuelCommand = { promptId: `${CHAIN_MODE_PROMPT_PREFIX}${mode}`, revision: before.revision, answer: {} };
     try {
       if (passed) {
-        await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt);
+        await persistAcceptedCommand(slug, guildId, seat, command, live, decidedAt, newestEventId(before));
       } else {
         // The clock is not touched: the stored clock goes back in as it is.
         // Nor does it count as activity: /api/duels shows lastActivityAt to everyone and this change is private.
@@ -2606,6 +2678,11 @@ export function createDuelHost(options: {
         const answer = (body.op === "report" || body.op === "view") && queueBlockedMs > 0 ? await answerOrFallback(body, queued, ctl) : await queued;
         return Response.json(answer, { headers: { "cache-control": "no-store" } });
       } catch (error) {
+        if (isCardFetchError(error)) {
+          return Response.json({ error: "Card database is unavailable. Try again shortly." }, {
+            status: 503, headers: { "Retry-After": String(error.retryAfter ?? 1) },
+          });
+        }
         const status = error instanceof Error && "status" in error && typeof error.status === "number" ? error.status : 400;
         return Response.json({ error: error instanceof Error ? error.message : "Duel request failed",
           ...(error instanceof RequestError && error.code ? { code: error.code } : {}) }, { status });

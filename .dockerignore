@@ -9,7 +9,6 @@ coverage/
 .next/
 .turbo/
 *.md
-!docs/plans/
 packages/bot/data/
 packages/*/tests/
 packages/*/test/

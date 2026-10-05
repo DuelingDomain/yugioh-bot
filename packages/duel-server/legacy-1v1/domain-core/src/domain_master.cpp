@@ -185,12 +185,16 @@ void field::domain_snapshot_open_kinds() {
 void field::domain_raise_recall_events(card* dm, uint32_t previous_location, uint8_t owner) {
 	if(!dm)
 		return;
-	if(previous_location == LOCATION_GRAVE) {
+	// The engine represents leaving hand, Deck, Extra Deck and banishment
+	// through EVENT_MOVE and previous.location. GY also has a dedicated event.
+	if(previous_location == LOCATION_GRAVE)
 		raise_single_event(dm, nullptr, EVENT_LEAVE_GRAVE, nullptr, REASON_RULE, PLAYER_NONE, owner, 0);
-		process_single_event();
+	raise_single_event(dm, nullptr, EVENT_MOVE, nullptr, REASON_RULE, PLAYER_NONE, owner, 0);
+	process_single_event();
+	if(previous_location == LOCATION_GRAVE)
 		raise_event(dm, EVENT_LEAVE_GRAVE, nullptr, REASON_RULE, PLAYER_NONE, owner, 0);
-		process_instant_event();
-	}
+	raise_event(dm, EVENT_MOVE, nullptr, REASON_RULE, PLAYER_NONE, owner, 0);
+	process_instant_event();
 }
 
 void field::domain_apply_recall_answer(int32_t answer) {
@@ -214,6 +218,10 @@ void field::domain_apply_recall_answer(int32_t answer) {
 		return;
 	}
 	uint32_t prev = dm->current.location;
+	dm->current.reason = REASON_RULE;
+	dm->current.reason_effect = nullptr;
+	dm->current.reason_card = nullptr;
+	dm->current.reason_player = PLAYER_NONE;
 	move_card(playerid, dm, LOCATION_DECKMASTER, 0, FALSE);
 	dm->current.position = POS_FACEUP;
 	info.deck_master_last_kind = LOCATION_DECKMASTER;

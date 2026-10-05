@@ -28,7 +28,7 @@ function proof(format: Format, domain: boolean, kind: Case): Scenario {
     deck: Array(20).fill(ELF), ...(seat === "p0" ? { spells: [{ card: LOTUS, pos: "set" }] } : {}),
     ...(dead && seat === declared ? { lp: 800 } : {}), ...(domain ? { deckMaster: "Blue-Eyes White Dragon" } : {}),
   };
-  const draws = Array<number>(n).fill(0); draws[0] = Number(domain);
+  const draws = Array<number>(n).fill(0); draws[0] = Number(domain && format !== "1v1");
   let used = false, eliminated = false, returned = false, burned = false;
   const board = (): BoardExpect => Object.fromEntries(seats.map((seat, i) => [seat,
     eliminated && seat === declared ? {
@@ -65,7 +65,8 @@ function proof(format: Format, domain: boolean, kind: Case): Scenario {
     const living = seats.filter(seat => seat !== declared);
     for (let turn = 2; turn <= living.length + 1; turn++) {
       const previous = living[(turn - 2) % living.length], next = living[(turn - 1) % living.length];
-      if (previous === "p1") returned = true;
+      // The removed declared seat's skipped End Phase expires the effect without
+      // a callback. Living opponent End Phases cannot return the banished card.
       draws[seats.indexOf(next)]++;
       steps.push(endTurn(previous), expectTurn(next, turn), expectPrompt({ by: next, context: "action" }), expectBoard(board()));
     }
@@ -81,7 +82,7 @@ function proof(format: Format, domain: boolean, kind: Case): Scenario {
     }
   }
   return defineScenario({ id: `appointer-followup-${format}-${kind}${domain ? "-domain" : ""}`,
-    title: `${format}: ${dead ? "the declared seat leaves; the living owner gets its card at the next living opponent End Phase" : "activation in the declared seat End Phase waits for the next counted End Phase"}`,
+    title: `${format}: ${dead ? "the declared seat leaves; its skipped End Phase expires the return effect without an operation" : "activation in the declared seat End Phase waits for the next counted End Phase"}`,
     source: "Appointer card text; core-fix5 and appointer-lua reviews LOW-1/LOW-2; owner 2026-10-02 late fallback and 2026-10-03 declared duration",
     rules: format.startsWith("ffa") ? ["R-FFA-OPP-ONE", "R-FFA-DECLARED-DURATION", ...(dead ? ["R-FFA-ELIMINATION", "R-FFA-ORDER"] : [])]
       : format === "tag" ? ["R-TAG-ORDER", "R-COMMON-OPP-PICK", "R-TAG-PARTNER"] : ["R-COMMON-OPP-PICK"],
@@ -112,7 +113,7 @@ async function run(scenario: Scenario): Promise<void> {
     });
     expect(changed, "The loaned Axe Raider has a living owner").toBe(true);
   }
-  const game = await createEngineGame({ ...compiled.options, firstTurnDraw: scenario.setup.mode === "domain", dataDirectory: engineDataDirectory,
+  const game = await createEngineGame({ ...compiled.options, dataDirectory: engineDataDirectory,
     multiWasmBinary: scenario.setup.mode === "domain" ? domainNseatWasmBinary() : nseatWasmBinary(), seed: ["1", "2", "3", "4"] });
   try {
     const session = new Session(scenario, game); session.reachMainPhase(); session.startRecording();

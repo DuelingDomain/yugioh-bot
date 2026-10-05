@@ -136,22 +136,27 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
   const host = getSharedFx3d()?.host.getBoundingClientRect();
   const toRect = (box: Box): FxRect => (host ? viewportToHost(box, host) : { x: box.left, y: box.top, w: box.width, h: box.height });
   const wipe = isWipePiece(group.piece);
-  const victims: Array<{ rect: FxRect; code: number; defense: boolean; turned: boolean; box: Box; event: DuelEvent; st: boolean; src: string; zone: { controller: number; location: number; sequence: number } }> = [];
+  const victims: Array<{ rect: FxRect; code: number; defense: boolean; turned: boolean; box: Box; event: DuelEvent; st: boolean; src: string; down: boolean; zone: { controller: number; location: number; sequence: number } }> = [];
   for (const event of group.events) {
     // A destroy stands on the zone it was destroyed in; a banish or send is a move that leaves `from`.
     const zone = event.kind === "move" ? event.from : event.zone;
     if (!zone) continue;
     const found = artBox(zoneKey(zone.controller, zone.location, zone.sequence));
     if (!found) continue;
+    // The board still shows the card as the viewer saw it: a zone with card art and no face image is face-down.
+    // Its face is not shown before the hit (the card is cast with its sleeve), whatever the event knows about it.
+    const src = found.node.querySelector("[data-card-art] img")?.getAttribute("src") ?? "";
+    const down = src === "" && found.node.querySelector("[data-card-art]") != null;
     victims.push({
       rect: toRect(found.box),
-      code: event.card && event.card.code > 0 ? event.card.code : codeOfNode(found.node),
+      code: down ? 0 : event.card && event.card.code > 0 ? event.card.code : codeOfNode(found.node),
       defense: found.node.getAttribute("data-defense") === "true",
       turned: artUpsideDown(found.node, found.node.querySelector<HTMLElement>("[data-card-art]")),
       box: found.box,
       event,
       st: zone.location !== LOCATION_MZONE,
-      src: found.node.querySelector("[data-card-art] img")?.getAttribute("src") ?? "",
+      src,
+      down,
       zone,
     });
   }
@@ -244,7 +249,8 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
   arm(startAt);
   if (three && wipe) scene.victims.forEach((victim, index) => {
     const v = victims[index];
-    if (v.src) ghosts.push({ box: v.box, src: v.src, defense: v.defense, takeMs: victim.takeMs ?? 0, endMs: victim.endMs ?? victim.atMs });
+    // A face-down victim gets a sleeve ghost (no src), so its zone is never blank before the canvas takes the card.
+    if (v.src || v.down) ghosts.push({ box: v.box, src: v.src, defense: v.defense, takeMs: victim.takeMs ?? 0, endMs: victim.endMs ?? victim.atMs });
   });
   const planned: Planned = {
     key: `${group.key}:${group.events[0].id}`,
@@ -259,10 +265,12 @@ function planGroup(group: SceneGroup<DuelEvent>, events: readonly DuelEvent[], m
     reduced,
     releaseHold: () => {},
   };
+  // Without the canvas the card breaks at destroyBreakMs and its pieces take over then (no empty zone in between);
+  // the flash plays over them, so the scene lasts until the flash ends.
   const handoffMs = three ? (wipe ? Math.max(...scene.victims.map((victim) => victim.atMs)) : scene.totalMs)
-    : reduced ? CARD_FX.reducedEffectMs : MOVE_PACE.destroyBreakMs + CARD_FX.destroyFlashMs;
+    : reduced ? CARD_FX.reducedEffectMs : MOVE_PACE.destroyBreakMs;
   planned.releaseHold = registerDestroyScene(group.events.map((event) => event.id), {
-    startAt, handoffMs, totalMs: three ? scene.totalMs : handoffMs,
+    startAt, handoffMs, totalMs: three ? scene.totalMs : reduced ? handoffMs : handoffMs + CARD_FX.destroyFlashMs,
     reschedule: (at) => { planned.startAt = at; arm(at); },
   });
   return planned;
@@ -293,10 +301,15 @@ function wipeGhosts(planned: Planned): () => void {
       position: "fixed", left: `${ghost.box.left}px`, top: `${ghost.box.top}px`, width: `${ghost.box.width}px`, height: `${ghost.box.height}px`,
       pointerEvents: "none", zIndex: "var(--duel-z-fx-front)", overflow: "hidden",
     });
-    const img = document.createElement("img");
-    img.src = ghost.src;
-    img.alt = "";
-    img.draggable = false;
+    // No face image: the card lay face-down, so the ghost is its sleeve (the same art as the break stand-in).
+    const img = document.createElement(ghost.src ? "img" : "div") as HTMLImageElement;
+    if (ghost.src) {
+      img.src = ghost.src;
+      img.alt = "";
+      img.draggable = false;
+    } else {
+      Object.assign(img.style, { background: `#120e0c url("/duel/card-back-main-hd.webp") center / cover no-repeat`, border: "1px solid #b08a3e", boxSizing: "border-box" });
+    }
     if (ghost.defense) {
       Object.assign(img.style, {
         position: "absolute", left: "50%", top: "50%", width: `${ghost.box.height}px`, height: `${ghost.box.width}px`,

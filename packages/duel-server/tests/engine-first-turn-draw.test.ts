@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { defaultDuelSettings, seatCountFor, type DuelFormat, type DuelMasterRule, type DuelMode } from "@yugidraft/shared/duels";
 import { OcgLocation } from "ocgcore-wasm";
 import { createEngineGame } from "../src/engine.js";
+import { createLegacyEngineGame } from "../src/legacy/index.js";
 import { engineDataDirectory as dataDirectory } from "./engine-data-dir.js";
 import { describeWithCores, needs } from "./support/cores.js";
 import { defineScenarioWithFfaFirstDraw } from "./scenarios/multiplayer/ffa-first-draw.js";
@@ -10,19 +11,25 @@ import { runScenario } from "./support/session.js";
 
 const formats: DuelFormat[] = ["1v1", "tag", "ffa3", "ffa4"];
 const cases = (["normal", "domain"] as DuelMode[]).flatMap((mode) =>
-  ([5] as DuelMasterRule[]).flatMap((masterRule) => formats.map((format) => ({ mode, masterRule, format }))),
+  ([5] as DuelMasterRule[]).flatMap((masterRule) => formats.map((format) => ({ mode, masterRule, format, engine: "pinned" as const }))),
 );
-cases.push(...([1, 2, 3] as DuelMasterRule[]).map((masterRule) => ({ mode: "normal" as const, masterRule, format: "1v1" as const })));
-cases.push(...([1, 2, 3, 4] as DuelMasterRule[]).map((masterRule) => ({ mode: "domain" as const, masterRule, format: "1v1" as const })));
+const firstDrawCases = [
+  ...cases,
+  ...([1, 2, 3] as DuelMasterRule[]).map((masterRule) => ({ mode: "normal" as const, masterRule, format: "1v1" as const, engine: "pinned" as const })),
+  ...([1, 2, 3, 4] as DuelMasterRule[]).map((masterRule) => ({ mode: "domain" as const, masterRule, format: "1v1" as const, engine: "pinned" as const })),
+  ...([1, 2, 3, 4, 5] as DuelMasterRule[]).map((masterRule) => ({ mode: "domain" as const, masterRule, format: "1v1" as const, engine: "legacy" as const })),
+];
 
 // DRAW messages become deck-to-hand move events in observeMoveEvents. Opening-hand
 // messages precede the first Draw Phase, so this checks the turn draw separately.
 describeWithCores("owner first-turn draw rule on installed cores", [needs.standard(), needs.domain(), needs.installedMulti(),
+  needs.file("legacy Domain core", `${dataDirectory}/ocgcore.domain.legacy.wasm`),
   ...needs.domainMulti(dataDirectory, `${dataDirectory}/ocgcore.multi-domain.wasm`)], () => {
-  it.each(cases)("$mode MR$masterRule $format: each first turn checks every seat and its DRAW message", async ({ mode, masterRule, format }) => {
+  it.each(firstDrawCases)("$engine $mode MR$masterRule $format: each first Main Phase checks every seat and its DRAW message", async ({ engine, mode, masterRule, format }) => {
     const count = seatCountFor(format);
-    const firstDraw = mode === "domain" || masterRule <= 2;
-    const game = await createEngineGame({ mode, masterRule, format, dataDirectory, seed: ["1", "2", "3", "4"],
+    const firstDraw = mode === "domain" ? format !== "1v1" : masterRule <= 2;
+    const createGame = engine === "legacy" ? createLegacyEngineGame : createEngineGame;
+    const game = await createGame({ mode, masterRule, format, dataDirectory, seed: ["1", "2", "3", "4"],
       settings: { ...defaultDuelSettings(mode), shuffleDeck: false },
       decks: Array.from({ length: count }, () => ({ main: Array(40).fill(15025844), extra: [], side: [],
         ...(mode === "domain" ? { deckMaster: 48305365 } : {}) })),

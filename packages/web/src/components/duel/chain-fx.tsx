@@ -36,8 +36,9 @@
  * no burst, no movement and no wire; the state shows through colour and opacity, with a short hold
  * so the order stays readable.
  */
+import { ChainRoomContext } from "./table/chain-room";
 import { duelFxClock } from "./fx-clock";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { partnerSeatOf, type DuelChainLink, type DuelEvent, type DuelSeatView } from "@yugidraft/shared/duels";
 import { X } from "lucide-react";
@@ -62,6 +63,7 @@ import {
   nextToResolve,
   placeCallout,
   placeChips,
+  projectChainNames,
   type CalloutPlace,
   type ChainAnchor,
   type ChainLinkState,
@@ -354,7 +356,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const named = seatTones != null;
   // On Tag the partner's zones read "partner's"; every other seat that is not yours reads by name or "opponent's".
   const partner = table === "tag" && mySeat != null ? partnerSeatOf("tag", mySeat) : null;
-  const played = useChainPlayback(events, chain, duelKey, reducedMotion);
+  const namedChain = useMemo(() => projectChainNames(chain, seats), [chain, seats]);
+  const played = useChainPlayback(events, namedChain, duelKey, reducedMotion);
   // A duel that ends mid-chain sends no "chain-end": nothing is left to resolve, so nothing stays on the board.
   const state = ended ? EMPTY_CHAIN : played;
   const who = useMemo<Who>(() => ({ mySeat, playerName, named, naming: { named, partner } }), [mySeat, playerName, named, partner]);
@@ -376,7 +379,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const recapping = state.links.length === 0 && recapState != null;
   // Badges play historical resolution beats; targeting follows the live engine so a replacement
   // occupant is never marked while old beats play, and chain-end clears target rings immediately.
-  const live = useMemo(() => (ended ? EMPTY_CHAIN : deriveChainState(events, chain)), [events, chain, ended]);
+  const live = useMemo(() => (ended ? EMPTY_CHAIN : deriveChainState(events, namedChain)), [events, namedChain, ended]);
   const sequenceLinks = useMemo(() => sequenceOwners(events), [events]);
   const heldTargets = useRef({ key: duelKey, map: new Map<number, ChainLinkState["targets"]>() });
   if (heldTargets.current.key !== duelKey) heldTargets.current = { key: duelKey, map: new Map() };
@@ -387,7 +390,13 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const overlayRef = useRef<HTMLDivElement>(null);
   const frontRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
+  const reportChainSize = useContext(ChainRoomContext);
+  const measuredStrip = useRef("");
+  useLayoutEffect(() => () => { measuredStrip.current = ""; reportChainSize?.(null); }, [reportChainSize]);
   const stripWrapRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (panelState.links.length === 0) { measuredStrip.current = ""; reportChainSize?.(null); }
+  }, [panelState.links.length, reportChainSize]);
   const stripButtonRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const sheetId = useId();
@@ -484,6 +493,8 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
       // Phones and tables always use the strip; so does a column that would meet a prompt.
       const next: ChainPanelForm = front ? chainPanelForm(gutter, previous, table != null || phone || blocked) : "wide";
       // The strip keeps clear of life-point plates, open panels and target cards.
+      let stripSize: { width: number; height: number } | null = null;
+      let roomReady = !reportChainSize;
       let chips: { left: number; top: number } | null = null;
       let sheet: { top: number; max: number } | null = null;
       const stripEl = stripWrapRef.current;
@@ -497,9 +508,15 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
           if (rect.width > 4 && rect.height > 4) obstacles.push({ left: rect.left - origin.left, top: rect.top - origin.top, width: rect.width, height: rect.height });
         }
         const own = stripEl.getBoundingClientRect();
-        chips = placeChips({ width: own.width, height: own.height }, { width: origin.width, height: origin.height }, obstacles);
+        stripSize = { width: Math.ceil(own.width), height: Math.ceil(own.height) };
+        const stage = overlay.closest<HTMLElement>("[data-table-stage]");
+        const room = stage?.dataset.chainRoom?.split(",").map(Number);
+        const glide = stage?.closest<HTMLElement>("[data-glide]")?.dataset.glide;
+        roomReady = !reportChainSize || (room?.length === 4 && glide !== "drawer-in" && glide !== "drawer-out");
+        chips = room?.length === 4 ? { left: room[0], top: room[1] }
+          : placeChips({ width: own.width, height: own.height }, { width: origin.width, height: origin.height }, obstacles);
         // The sheet opens under the strip and never reaches an open prompt below it.
-        const top = chips.top + own.height + SHEET_GAP;
+        const top = Math.min(chips.top + own.height + SHEET_GAP, Math.max(SHEET_GAP, origin.height - SHEET_MIN - SHEET_GAP));
         let limit = origin.height - SHEET_GAP;
         for (const box of prompts) {
           if (box.left < origin.width - SHEET_GAP && box.left + box.width > SHEET_GAP && box.top + box.height > top && box.top > top - 4) limit = Math.min(limit, box.top - SHEET_GAP);
@@ -539,7 +556,17 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
         placed.push({ link, slot, box, size, shift, half, callout, covered });
       }
       // ---- Write phase. ----
+      if (reportChainSize) {
+        const width = stripSize?.width ?? 0;
+        const height = stripSize?.height ?? 0;
+        const key = `${width},${height}`;
+        if (measuredStrip.current !== key) {
+          measuredStrip.current = key;
+          reportChainSize(width > 0 && height > 0 ? { width, height } : null);
+        }
+      }
       if (front) {
+        front.dataset.roomReady = roomReady ? "true" : "false";
         const suspended = pileOpen ? "true" : "false";
         if (front.dataset.suspended !== suspended) front.dataset.suspended = suspended;
         if (formRef.current !== next) {
@@ -664,7 +691,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
     }
     tick();
     return () => duelFxClock.cancelAnimationFrame(raf);
-  }, [linksKey, links.length, targetsKey, targetLinks.length, host, recapping, table]);
+  }, [linksKey, links.length, targetsKey, targetLinks.length, host, recapping, table, reportChainSize]);
 
   // What each link did, from the events of the open chain (or the one just ended, during its recap).
   const outcomes = useMemo(() => chainOutcomes(events, panelState, who), [events, panelState, who]);
@@ -761,6 +788,7 @@ export function ChainFx({ events, chain, duelKey, reducedMotion, mySeat, playerN
   const front = (
     <div ref={frontRef} className={`${styles.layer} ${styles.front}`} data-chain-fx="front" data-chain-front="true"
       data-portal={host ? "true" : undefined} data-table={table} data-size={form}
+      data-room-ready={reportChainSize ? "false" : undefined}
       data-open={links.length > 0 ? "true" : "false"} data-recap={recapping ? "true" : undefined} data-reduced={reducedMotion ? "true" : "false"}>
       {links.map((link) => {
         const callout = chainCallout(link, mySeat, playerName, named);

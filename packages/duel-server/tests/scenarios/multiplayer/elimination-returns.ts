@@ -31,8 +31,24 @@ for (const format of ["ffa3", "ffa4"] as const) {
   ELIMINATION_RETURN_PROOFS.push(proof("equip-lost-target", format, `local m=${add(64631466,0,0,"LOCATION_MZONE",2)}
 local e=${add(97017120,1,0,"LOCATION_SZONE",1,"POS_FACEUP")}
 local limit=Effect.CreateEffect(e); limit:SetType(EFFECT_TYPE_SINGLE); limit:SetCode(EFFECT_EQUIP_LIMIT); limit:SetProperty(EFFECT_FLAG_CANNOT_DISABLE); limit:SetValue(function(_,c) return c==m end); e:RegisterEffect(limit)
-Debug.PreEquip(e,m)`, { ...all, p1: { ...empty, grave: ["Giant Rat"] } }, {}, [expectBoard({p0:{monsters:["Relinquished"],spells:["Giant Rat"]},p1:{grave:[]}}),surrender("p0")]));
+Debug.PreEquip(e,m)
+local observe=Effect.GlobalEffect(); observe:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS); observe:SetCode(EVENT_DESTROYED)
+observe:SetOperation(function(_,tp,eg)
+ if eg:IsContains(e) then
+  assert(e:IsReason(REASON_RULE) and e:IsReason(REASON_LOST_TARGET))
+  Duel.Recover(Duel.MPActionSeat(2),321,REASON_EFFECT)
+ end
+end); Duel.RegisterEffect(observe,2)`, { ...all, p1: { ...empty, grave: ["Giant Rat"] }, p2: { ...empty, lp: 8321 } }, {}, [expectBoard({p0:{monsters:["Relinquished"],spells:["Giant Rat"]},p1:{grave:[]}}),surrender("p0")]));
   ELIMINATION_RETURN_PROOFS.push(proof("macro-cosmos-fallback", format, add(97017120,1,0,"LOCATION_MZONE",2), { ...all, p1: { ...empty, monsters: Array(5).fill("Dark Magician"), banished: ["Giant Rat"] }, p2: { ...empty, spells: ["Macro Cosmos"] } }, { p1: { monsters: Array(5).fill("Dark Magician") }, p2: { spells: ["Macro Cosmos"] } }));
+  for (const order of ["monster-first", "macro-first"]) {
+    const monster = add(97017120,1,0,"LOCATION_MZONE",2);
+    const macro = add(30241314,2,0,"LOCATION_SZONE",1,"POS_FACEUP");
+    ELIMINATION_RETURN_PROOFS.push(proof(`macro-leaves-with-fallback-${order}`, format,
+      (order === "monster-first" ? [monster, macro] : [macro, monster]).join(";\n"),
+      { ...all, p1: { ...empty, monsters: Array(5).fill("Dark Magician"), grave: ["Giant Rat"] },
+        p2: { ...empty, spells: Array(5).fill("Monster Reborn"), grave: ["Macro Cosmos"] } },
+      { p1: { monsters: Array(5).fill("Dark Magician") }, p2: { spells: Array(5).fill({ card: "Monster Reborn", pos: "set" }) } }));
+  }
   ELIMINATION_RETURN_PROOFS.push(proof("dimensional-fissure-fallback", format, add(97017120,1,0,"LOCATION_MZONE",2), { ...all, p1: { ...empty, monsters: Array(5).fill("Dark Magician"), banished: ["Giant Rat"] }, p2: { ...empty, spells: ["Dimensional Fissure"] } }, { p1: { monsters: Array(5).fill("Dark Magician") }, p2: { spells: ["Dimensional Fissure"] } }));
   // expectLog checks these lines in order, so a shuffle after p1's draw fails.
   ELIMINATION_RETURN_PROOFS.push(proof("deck-return-shuffles", format, add(97017120,1,0,"LOCATION_DECK",1,"POS_FACEDOWN"), { ...all, p1: { ...empty, deckCount:20, hand:{count:1} } }, {}, [surrender("p0"), {op:"expectLog",lines:["Player 2 shuffled their deck", "Player 2 drew 1 card(s)"]}]));
@@ -50,7 +66,11 @@ local check=Effect.GlobalEffect(); check:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_C
   ELIMINATION_RETURN_PROOFS.push(proof("token-temporary-control", format, temporaryToken, tokenBoard, {}, [surrender("p0"),endTurn("p1")]));
   ELIMINATION_RETURN_PROOFS.push(proof("token-remove-brainwashing", format, temporaryToken, { ...tokenBoard, p1: { ...empty, spells: ["Remove Brainwashing"] } }, { p1: { spells: [{card:"Remove Brainwashing",pos:"set"}] } }, [surrender("p0"),activate("Remove Brainwashing","p1")]));
   ELIMINATION_RETURN_PROOFS.push(proof("foreign-token-full-field", format, add(73915052,1,0,"LOCATION_MZONE",2), { ...all, p1: { ...empty, monsters: Array(5).fill("Dark Magician") } }, { p1: { monsters: Array(5).fill("Dark Magician") } }));
-  ELIMINATION_RETURN_PROOFS.push(proof("sangan-fallback-trigger", format, add(26202165,1,0,"LOCATION_MZONE",2), { ...all, p1: { ...empty, monsters: Array(5).fill("Dark Magician"), grave: ["Sangan"], deckCount:18, hand: { include: ["Mystical Elf"], count:2 } } }, { p1: { monsters: Array(5).fill("Dark Magician") } }, [surrender("p0"),expectPrompt({by:"p1",kind:"cards"}),select("Mystical Elf")]));
+  ELIMINATION_RETURN_PROOFS.push(proof("sangan-fallback-no-response", format, `${add(26202165,1,0,"LOCATION_MZONE",2)};
+for _,event in ipairs({EVENT_LEAVE_FIELD_P,EVENT_LEAVE_FIELD,EVENT_TO_GRAVE,EVENT_MOVE}) do
+ local e=Effect.GlobalEffect(); e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS); e:SetCode(event)
+ e:SetOperation(function(e,tp,eg) if eg:IsExists(Card.IsCode,1,nil,26202165) then Duel.SetLP(1,Duel.GetLP(1)-100) end end); Duel.RegisterEffect(e,1)
+end`, { ...all, p1: { ...empty, monsters: Array(5).fill("Dark Magician"), grave: ["Sangan"], lp:8000 } }, { p1: { monsters: Array(5).fill("Dark Magician") } }));
   ELIMINATION_RETURN_PROOFS.push(proof("pendulum-fallback-event", format, `${add(16178681,1,0,"LOCATION_MZONE",2)}; local e=Effect.GlobalEffect(); e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS); e:SetCode(EVENT_TO_GRAVE); e:SetOperation(function(e,tp,eg) if eg:IsExists(Card.IsCode,1,nil,16178681) then Duel.SetLP(1,Duel.GetLP(1)-100) end end); Duel.RegisterEffect(e,1)`, { ...all, p1: { ...empty, monsters: Array(5).fill("Dark Magician"), grave: [], extra:["Odd-Eyes Pendulum Dragon"],lp:8000 } }, { p1: { monsters: Array(5).fill("Dark Magician") } }));
   ELIMINATION_RETURN_PROOFS.push(proof("extra-monster-zone", format, add(84013237,1,0,"LOCATION_MZONE",5), { ...all, p1: { ...empty, monsters: ["Number 39: Utopia"], zones: { emz0: "Number 39: Utopia" } } }));
   ELIMINATION_RETURN_PROOFS.push(proof("field-zone", format, add(59197169,1,0,"LOCATION_FZONE",0,"POS_FACEUP"), { ...all, p1: { ...empty, spells: ["Yami"], zones: { f: "Yami" } } }));
@@ -67,9 +87,14 @@ ELIMINATION_RETURN_PROOFS.push(proof("team-loss-keeps-stock", "tag", add(9701712
 // Query the underlying zones in the Domain runner as well as the views of all seats.
 for (const format of ["ffa3", "ffa4", "tag"] as const) {
   ELIMINATION_RETURN_PROOFS.push({
+    fixture: format === "tag" ? "" : `local e=Effect.GlobalEffect()
+e:SetType(EFFECT_TYPE_FIELD|EFFECT_TYPE_CONTINUOUS)
+e:SetCode(EVENT_CHAIN_SOLVED)
+e:SetOperation(function(e,tp,eg,ep,ev,re) if re:GetHandler():IsCode(60082869) then Duel.SetLP(2,7777) end end)
+Duel.RegisterEffect(e,2)`,
     ...defineScenario({
       id: `elimination-returns-${format}-removed-chain-card-stays-out`,
-      title: format === "tag" ? "Tag surrender ends the duel before the chain resolves" : "A surrendered duelist's link resolves normally before its cards leave play",
+      title: format === "tag" ? "Tag surrender ends the duel before the chain resolves" : "A surrendered duelist's unresolved link is removed and living links still resolve",
       source: "ADR-0002; remove-eliminated-chain-cards",
       rules: format === "tag" ? ["R-TAG-LOSS", "R-COMMON-SURRENDER-EOT"] : ["R-FFA-ELIMINATION", "R-FFA-CHAIN", "R-COMMON-SURRENDER-EOT"],
       tags: ["multiplayer", "elimination", "chain", format],
@@ -77,13 +102,13 @@ for (const format of ["ffa3", "ffa4", "tag"] as const) {
       steps: [activate("Pot of Greed", "p0"), activate("Dust Tornado", "p1"),
         ...(format === "tag" ? [] : [pickOpponent("p0", "p1")]), select("Swords of Revealing Light"),
         expectPrompt({ by: "p2", context: "chain" }), surrender("p1"),
-        ...(format === "tag" ? [] : [expectChain("Pot of Greed", "Dust Tornado"), expectPrompt({ by: "p2", context: "chain" }), pass("p2")]),
+        ...(format === "tag" ? [] : [expectChain("Pot of Greed"), expectPrompt({ by: "p2", context: "chain" }), pass("p2")]),
         expectEliminated(...(format === "tag" ? ["p1", "p3"] as const : ["p1"] as const)),
         ...(format === "tag" ? [expectResult({ team: 0 })] : []),
         expectBoard({
           // Standard MR5 skips the opening draw. The surviving Pot of Greed draws two cards.
           p0: { ...empty, lp: format === "tag" ? 16000 : 8000, extra: [], hand: { count: format === "tag" ? 0 : 2 }, deckCount: format === "tag" ? 20 : 18,
-            spells: format === "tag" ? ["Swords of Revealing Light", "Pot of Greed"] : [], grave: format === "tag" ? [] : ["Swords of Revealing Light", "Pot of Greed"] },
+            spells: format === "tag" ? ["Swords of Revealing Light", "Pot of Greed"] : ["Swords of Revealing Light"], grave: format === "tag" ? [] : ["Pot of Greed"] },
           p1: { ...empty, lp: format === "tag" ? 16000 : 8000, extra: [], hand: [], deckCount: 0 }, p2: { ...empty, lp: format === "tag" ? 16000 : 8000, extra: [], spells: ["Dust Tornado"], hand: [], deckCount: 20 },
           ...(format === "ffa3" ? {} : { p3: { ...empty, lp: format === "tag" ? 16000 : 8000, extra: [], hand: [], deckCount: format === "tag" ? 0 : 20 } }),
         }),

@@ -419,6 +419,15 @@
   box-shadow: 0 4px 10px rgb(0 0 0 / 0.5);
 }
 
+/* The sleeve of a card that lay face-down: it covers the face until the effect hits the card. */
+.destroySleeve {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #120e0c url("/duel/card-back-main-hd.webp") center / cover no-repeat;
+  border: 1px solid #b08a3e;
+}
+
 .destroyRim {
   position: absolute;
   inset: 0;

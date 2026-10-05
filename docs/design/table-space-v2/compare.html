@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Table space: round 2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sofia+Sans+Semi+Condensed:wght@400;500;600&family=Sofia+Sans+Extra+Condensed:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* Workshop tokens. The page is dark only, like the duel table. */
+:root {
+  --ground: #03050b;
+  --floor: #050811;
+  --panel: #0a1120;
+  --panel-2: #0e1729;
+  --panel-3: #132037;
+  --ink: #efe7d5;
+  --ink-2: #c3bba8;
+  --ink-3: #958f81;
+  --rule-rgb: 181 153 99;
+  --rule: rgb(var(--rule-rgb) / 0.34);
+  --rule-lo: rgb(var(--rule-rgb) / 0.2);
+  --gold-ink: #dcc58f;
+  --pen: #9b7eff;
+  --pen-ink: #c6b6ff;
+  --pen-fill: #5733d1;
+  --good: #8fd6a5;
+  --warn: #e7b48b;
+  --focus: #ddd2ff;
+  --font: "Sofia Sans Semi Condensed", "Arial Narrow", sans-serif;
+  --num: "Sofia Sans Extra Condensed", "Arial Narrow", sans-serif;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--ground); color: #d8d4c8; font: 400 15px/1.5 var(--font); overflow-x: hidden; }
+main { max-width: 1320px; margin: 0 auto; padding: 32px 32px 96px; }
+h1 { margin: 0 0 6px; font-size: 30px; font-weight: 600; color: var(--ink); line-height: 1.15; }
+h2 { margin: 56px 0 6px; font-size: 22px; font-weight: 600; color: var(--ink); scroll-margin-top: 64px; }
+h3 { margin: 22px 0 6px; font-size: 15.5px; font-weight: 600; color: var(--ink); }
+p { margin: 0 0 10px; max-width: 780px; }
+a { color: var(--pen-ink); }
+a:focus-visible, button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.lede { max-width: 860px; color: var(--ink-2); font-size: 16px; }
+.dim { color: var(--ink-3); }
+code { font: 500 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--gold-ink); overflow-wrap: anywhere; }
+kbd { display: inline-block; padding: 1px 6px; border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 5px; background: var(--panel-2); color: var(--ink); font: 500 12px/1.3 ui-monospace, monospace; }
+.tag { display: inline-block; margin-left: 8px; padding: 1px 9px; border: 1px solid var(--rule-lo); border-radius: 999px; color: var(--ink-3); font-size: 12px; font-weight: 500; vertical-align: 3px; }
+.tag.pick { border-color: var(--pen); color: var(--pen-ink); }
+.label { margin: 18px 0 8px; color: var(--ink-3); font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; }
+
+/* top nav */
+.nav { position: sticky; top: 0; z-index: 10; background: rgb(3 5 11 / .92); border-bottom: 1px solid var(--rule-lo); backdrop-filter: blur(6px); }
+.nav ul { display: flex; gap: 4px 18px; max-width: 1320px; margin: 0 auto; padding: 10px 32px; list-style: none; overflow-x: auto; scrollbar-width: none; }
+.nav a { color: var(--ink-2); text-decoration: none; font-size: 14px; white-space: nowrap; }
+.nav a:hover { color: var(--ink); }
+
+/* figures */
+figure { margin: 0; min-width: 0; }
+figure img { display: block; width: 100%; height: auto; border: 1px solid #1a2030; border-radius: 8px; background: var(--floor); }
+figcaption { margin-top: 8px; color: var(--ink-3); font-size: 13.5px; }
+figcaption b { color: var(--ink-2); font-weight: 500; }
+.g2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.g3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.g4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.g4 figcaption, .g3 figcaption { font-size: 12.5px; }
+a.shot { display: block; color: inherit; text-decoration: none; }
+a.shot:hover img { border-color: var(--rule); }
+
+/* stat chips under the hero */
+.stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 0; padding: 0; list-style: none; }
+.stats li { padding: 8px 12px; border: 1px solid var(--rule-lo); border-radius: 8px; background: var(--panel); color: var(--ink-3); font-size: 13px; line-height: 1.2; }
+.stats li b { display: block; color: var(--ink); font: 600 22px/1.1 var(--num); }
+
+/* concept header cards */
+.concepts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+.concepts a { display: block; padding: 14px 16px; border: 1px solid var(--rule-lo); border-radius: 10px; background: var(--panel); color: var(--ink-2); text-decoration: none; }
+.concepts a:hover { border-color: var(--rule); }
+.concepts a b { display: block; margin-bottom: 4px; color: var(--ink); font-size: 16px; font-weight: 600; }
+.concepts a span { font-size: 13.5px; }
+
+/* live frame */
+.live { position: relative; border: 1px solid #1a2030; border-radius: 10px; overflow: hidden; background: #000; aspect-ratio: 16 / 10.4; }
+.live iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.livebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 8px 0 0; color: var(--ink-3); font-size: 13px; }
+
+/* swipe */
+.swipe { position: relative; --x: 50%; border: 1px solid #1a2030; border-radius: 10px; overflow: hidden; background: var(--floor); touch-action: pan-y; }
+.swipe img { display: block; width: 100%; height: auto; }
+.swipe img.after { position: absolute; inset: 0; clip-path: inset(0 0 0 var(--x)); }
+.swipe .line { position: absolute; top: 0; bottom: 0; left: var(--x); width: 2px; margin-left: -1px; background: var(--ink); box-shadow: 0 0 0 1px rgb(0 0 0 / .5); pointer-events: none; }
+.swipe .knob { position: absolute; top: 50%; left: var(--x); width: 34px; height: 34px; margin: -17px 0 0 -17px; border: 2px solid var(--ink); border-radius: 50%; background: rgb(10 17 32 / .9); pointer-events: none; }
+.swipe .knob::before { content: "◂ ▸"; position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink); font-size: 11px; letter-spacing: -1px; }
+.swipehead { display: flex; justify-content: space-between; gap: 12px; margin: 0 0 6px; color: var(--ink-2); font-size: 13px; }
+.swipe input[type=range] { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: ew-resize; }
+.swipe input[type=range]:focus-visible ~ .knob { outline: 2px solid var(--focus); outline-offset: 3px; }
+.seg { display: inline-flex; flex-wrap: wrap; padding: 2px; border: 1px solid var(--rule-lo); border-radius: 9px; background: var(--panel-2); }
+.seg button { height: 30px; padding: 0 12px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--ink-3); font: 500 14px/1 var(--font); cursor: pointer; }
+.seg button:hover { color: var(--ink); }
+.seg button[aria-pressed="true"] { border-color: rgb(155 126 255 / .85); background: rgb(155 126 255 / .18); color: var(--pen-ink); }
+.ctlrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 10px; color: var(--ink-3); font-size: 13px; }
+
+/* tables */
+.tw { max-width: 100%; overflow-x: auto; border: 1px solid var(--rule-lo); border-radius: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { padding: 8px 12px; border-bottom: 1px solid rgb(var(--rule-rgb) / .12); text-align: left; vertical-align: top; }
+thead th { color: var(--ink-3); font-size: 12px; font-weight: 500; letter-spacing: .05em; text-transform: uppercase; background: var(--panel); white-space: nowrap; }
+tbody th { color: var(--ink-2); font-weight: 500; white-space: nowrap; }
+th.vp { color: var(--ink); font: 600 18px/1 var(--num); vertical-align: middle; border-right: 1px solid rgb(var(--rule-rgb) / .12); }
+.sizes td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sizes td b { color: var(--ink); font: 600 18px/1 var(--num); }
+.sizes td small { margin-left: 6px; font-size: 12px; }
+.sizes td small.up { color: var(--good); }
+.sizes td small.dn { color: var(--warn); }
+.sizes td.low b { color: var(--warn); }
+.sizes tr.original td b { color: var(--ink-2); }
+.sizes tbody tr.spotlight td, .sizes tbody tr.spotlight th { border-bottom-color: var(--rule-lo); }
+td.low b { color: var(--warn); }
+.kept td { font-size: 13.5px; }
+.y { color: var(--good); }
+.c { color: var(--warn); }
+
+/* lists */
+ul.notes, ol.notes { max-width: 900px; margin: 0; padding-left: 20px; }
+ul.notes li, ol.notes li { margin: 0 0 8px; }
+.callout { max-width: 940px; margin: 14px 0 0; padding: 16px 18px; border: 1px solid var(--pen); border-radius: 10px; background: rgb(155 126 255 / .07); }
+.callout p { max-width: none; }
+.callout p:last-child { margin-bottom: 0; }
+details { margin-top: 10px; }
+summary { cursor: pointer; color: var(--ink-2); }
+
+@media (max-width: 980px) {
+  .g4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .g3, .concepts { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  main { padding: 20px 16px 72px; }
+  .nav ul { padding: 10px 16px; }
+  h1 { font-size: 24px; }
+  .g2 { grid-template-columns: minmax(0, 1fr); }
+  .live { aspect-ratio: 4 / 3.4; }
+  th, td { padding: 7px 9px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .seg button, .concepts a, a.shot img { transition: border-color .18s var(--ease), background-color .18s var(--ease), color .18s var(--ease); }
+}
+</style>
+</head>
+<body>
+<nav class="nav" aria-label="Sections">
+  <ul>
+    <li><a href="#today">Today</a></li>
+    <li><a href="#sizes">Card sizes</a></li>
+    <li><a href="#wide">Wide plaza</a></li>
+    <li><a href="#arena">Arena</a></li>
+    <li><a href="#spotlight">Spotlight</a></li>
+    <li><a href="#all">All four</a></li>
+    <li><a href="#kept">Kept</a></li>
+    <li><a href="#build">Build notes</a></li>
+    <li><a href="#questions">Questions</a></li>
+    <li><a href="#pick">Recommendation</a></li>
+  </ul>
+</nav>
+<main>
+<header>
+  <h1>FFA table: using the whole screen <span class="tag">round 2</span></h1>
+  <p class="lede">Three ways to give the 4-player table the room it already has, without losing what it looks like. Each concept keeps the plaza floor, the glowing zones, receding rival boards, holo LP plates, the turn ring, the hand row, the phase bar and the shared Extra Monster Zones. What changes is where things sit and how big they get. Every page below is live; every size is measured from the rendered page, not estimated.</p>
+  <p class="dim">Game state for every shot: you are Aster (8,000). Rook to the west has 5,400, Juniper across has 3,100 (down 1,200 from 4,300), and Mirelle to the east has 6,600. It is turn 7, Main Phase 1.</p>
+  <div class="concepts">
+    <a href="#wide"><b>1 · Wide plaza</b><span>The same seats, but the stage stretches to the full width. The side rivals' cards are about 1.6× wider (2.5× the area), and the panes fold into a 72px rail.</span></a>
+    <a href="#arena"><b>2 · Arena</b><span>Three upright rivals sit in a row across the top. A middle band holds the ring and both shared EMZ pairs. Your field is the largest of the three concepts.</span></a>
+    <a href="#spotlight"><b>3 · Spotlight</b><span>One rival is shown large across from you and the other two sit yawed in the corners. <kbd>Tab</kbd> flies the camera to the next rival, and the wings grow while you pick a target.</span></a>
+  </div>
+</header>
+
+<section id="today">
+  <h2>Today</h2>
+  <p>The real table at 1920×1080. Two things limit it. The 1100×860 stage is scaled by <code>min(w/1100, h/860)</code>, so it is height-bound and centred. Then the history/inspector pane (500px) and the Your Master pane (308px) take about 810px of width between them. The rivals end up with 43px cards, and the side rivals' text is sideways.</p>
+  <figure>
+    <a class="shot" href="assets/today-1920.jpg"><img src="assets/today-1920.jpg" width="1920" height="1080" alt="Today's 4-player table at 1920 by 1080: a small table in the centre with wide panes on both sides"></a>
+    <figcaption><b>Real screenshot, 1920×1080.</b> Cards are 72px wide on your field, 43px on each rival field and 52px in your hand.</figcaption>
+  </figure>
+  <ul class="stats" aria-label="Today at 1920">
+    <li><b>72px</b>your cards</li>
+    <li><b>43px</b>each rival</li>
+    <li><b>52px</b>hand</li>
+    <li><b>~810px</b>of width in panes</li>
+    <li><b>57 / 34px</b>you / rivals at 1440</li>
+  </ul>
+
+  <h3>The recreation matches the real table</h3>
+  <p>All the concepts are built from one kit. Its "original" layout recreates today from the real stage numbers: pose centres, the <code>stageFit</code> scale, plate anchors and pane widths. Drag the line to compare the real screenshot with the recreation. The board, the ring, the plates and the hand all land in the same place, so the before/after swipes further down are fair.</p>
+  <div class="swipehead" aria-hidden="true"><span>◂ Real</span><span>Recreation ▸</span></div>
+  <div class="swipe" data-swipe>
+    <img src="assets/today-1920.jpg" width="1920" height="1080" alt="Real table, 1920">
+    <img class="after" src="shots/original-1920-harness.jpg" width="1920" height="1080" alt="Recreated table, 1920">
+        <span class="line"></span>
+    <input type="range" min="0" max="100" value="50" aria-label="Swipe between the real table and the recreation">
+    <span class="knob"></span>
+  </div>
+  <p class="dim" style="margin-top:8px">The thin row at the very top is the dev harness from the original screenshot. The concepts leave it out.</p>
+</section>
+
+<section id="sizes">
+  <h2>Card sizes</h2>
+  <p>This is the on-screen width of a face-up front-row monster, in CSS px, for each seat. It is measured from the projected corners of the cards, so tilt and perspective are included. The <span style="color:var(--good)">green</span> and <span style="color:var(--warn)">amber</span> numbers are the change from today at the same viewport. A rival number in <span style="color:var(--warn)">amber</span> is under the 56px goal. For Spotlight, "Across" is the rival in focus and the two sides are the wings.</p>
+  <div class="tw">
+    <table class="sizes">
+      <thead><tr><th scope="col">Viewport</th><th scope="col">Layout</th><th scope="col">You</th><th scope="col">Rival left (Rook)</th><th scope="col">Across (Juniper)</th><th scope="col">Rival right (Mirelle)</th><th scope="col">Hand</th></tr></thead>
+      <tbody>
+<tr class='original'><th rowspan="4" scope="rowgroup" class="vp">1920</th><th scope='row'>Today</th><td class=""><b>72</b></td><td class="low"><b>43</b></td><td class="low"><b>43</b></td><td class="low"><b>43</b></td><td class=""><b>52</b></td></tr>
+<tr class='wide'><th scope='row'>Wide plaza</th><td class=""><b>78</b><small class="up">+6</small></td><td class=""><b>69</b><small class="up">+26</small></td><td class=""><b>58</b><small class="up">+15</small></td><td class=""><b>71</b><small class="up">+28</small></td><td class=""><b>61</b><small class="up">+9</small></td></tr>
+<tr class='arena'><th scope='row'>Arena</th><td class=""><b>91</b><small class="up">+19</small></td><td class=""><b>68</b><small class="up">+25</small></td><td class=""><b>68</b><small class="up">+25</small></td><td class=""><b>68</b><small class="up">+25</small></td><td class=""><b>71</b><small class="up">+19</small></td></tr>
+<tr class='spotlight'><th scope='row'>Spotlight <span class='dim'>(focus across)</span></th><td class=""><b>76</b><small class="up">+4</small></td><td class="low"><b>55</b><small class="up">+12</small></td><td class=""><b>81</b><small class="up">+38</small></td><td class=""><b>57</b><small class="up">+14</small></td><td class=""><b>59</b><small class="up">+7</small></td></tr>
+<tr class='original'><th rowspan="4" scope="rowgroup" class="vp">1440</th><th scope='row'>Today</th><td class=""><b>57</b></td><td class="low"><b>34</b></td><td class="low"><b>34</b></td><td class="low"><b>34</b></td><td class=""><b>41</b></td></tr>
+<tr class='wide'><th scope='row'>Wide plaza</th><td class=""><b>62</b><small class="up">+5</small></td><td class="low"><b>54</b><small class="up">+20</small></td><td class="low"><b>46</b><small class="up">+12</small></td><td class=""><b>56</b><small class="up">+22</small></td><td class=""><b>48</b><small class="up">+7</small></td></tr>
+<tr class='arena'><th scope='row'>Arena</th><td class=""><b>68</b><small class="up">+11</small></td><td class="low"><b>50</b><small class="up">+16</small></td><td class="low"><b>50</b><small class="up">+16</small></td><td class="low"><b>50</b><small class="up">+16</small></td><td class=""><b>53</b><small class="up">+12</small></td></tr>
+<tr class='spotlight'><th scope='row'>Spotlight <span class='dim'>(focus across)</span></th><td class=""><b>58</b><small class="up">+1</small></td><td class="low"><b>39</b><small class="up">+5</small></td><td class=""><b>63</b><small class="up">+29</small></td><td class="low"><b>40</b><small class="up">+6</small></td><td class=""><b>46</b><small class="up">+5</small></td></tr>
+<tr class='original'><th rowspan="4" scope="rowgroup" class="vp">2560</th><th scope='row'>Today</th><td class=""><b>91</b></td><td class="low"><b>55</b></td><td class="low"><b>55</b></td><td class="low"><b>55</b></td><td class=""><b>66</b></td></tr>
+<tr class='wide'><th scope='row'>Wide plaza</th><td class=""><b>105</b><small class="up">+14</small></td><td class=""><b>92</b><small class="up">+37</small></td><td class=""><b>77</b><small class="up">+22</small></td><td class=""><b>95</b><small class="up">+40</small></td><td class=""><b>82</b><small class="up">+16</small></td></tr>
+<tr class='arena'><th scope='row'>Arena</th><td class=""><b>120</b><small class="up">+29</small></td><td class=""><b>92</b><small class="up">+37</small></td><td class=""><b>92</b><small class="up">+37</small></td><td class=""><b>92</b><small class="up">+37</small></td><td class=""><b>94</b><small class="up">+28</small></td></tr>
+<tr class='spotlight'><th scope='row'>Spotlight <span class='dim'>(focus across)</span></th><td class=""><b>103</b><small class="up">+12</small></td><td class=""><b>74</b><small class="up">+19</small></td><td class=""><b>109</b><small class="up">+54</small></td><td class=""><b>76</b><small class="up">+21</small></td><td class=""><b>80</b><small class="up">+14</small></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>Spotlight while you pick a target</h3>
+  <p>When you pick a target, the wings straighten from 22° to 12° and grow, and the focus board shrinks a little. The goal is at least 56px for every legal target.</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th scope="col">Viewport</th><th scope="col">Wings, idle</th><th scope="col">Wings, picking</th><th scope="col">Focus, idle → picking</th></tr></thead>
+      <tbody>
+<tr><th scope='row'>1920</th><td>55 / 57</td><td class=''><b>63 / 64</b></td><td>81 → 70</td></tr>
+<tr><th scope='row'>1440</th><td>39 / 40</td><td class='low'><b>45 / 45</b></td><td>63 → 54</td></tr>
+<tr><th scope='row'>2560</th><td>74 / 76</td><td class=''><b>84 / 85</b></td><td>109 → 94</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================================================ WIDE -->
+<section id="wide">
+  <h2>1 · Wide plaza</h2>
+  <p>Everyone keeps the seat they have today. The stage is no longer a fixed 1100×860 box scaled to fit. It runs from a 72px rail to the right edge of the screen. The side boards fill the room beside your field and get cards about 1.6× wider than today (43 → 69 / 71px at 1920), and their names and numbers turn upright. Each plate docks at a front corner of its own board. The seat strip moves into the phase bar as chips, which frees 25px of height. History, the inspector and Your Master move into the rail and open as an overlay drawer. You can also turn on a hover holo inspector, a glass card that floats next to the card under the pointer. Your Master shrinks to a chip under your LP.</p>
+  <div class="live"><iframe src="wide.html" title="Wide plaza, live" loading="lazy"></iframe></div>
+  <p class="livebar">Live page. Use its bar for viewport, format, state and panes. <a href="wide.html">Open full page ↗</a></p>
+  <div class="label">1920 and 1440</div>
+  <div class="g2">
+    <figure><a class="shot" href="shots/wide-1920-idle.jpg"><img loading="lazy" src="shots/wide-1920-idle.jpg" width="1920" height="1080" alt="Wide plaza at 1920"></a><figcaption><b>1920.</b> You 78 · rivals 69 / 58 / 71 · hand 61.</figcaption></figure>
+    <figure><a class="shot" href="shots/wide-1440-idle.jpg"><img loading="lazy" src="shots/wide-1440-idle.jpg" width="1440" height="900" alt="Wide plaza at 1440"></a><figcaption><b>1440.</b> You 62 · rivals 54 / 46 / 56 · hand 48. At this size the height limits the layout, so the gain over today is smaller.</figcaption></figure>
+  </div>
+  <div class="label">Before and after</div>
+  <div class="ctlrow" data-state-for="wide"><span>State</span><span class="seg" role="group" aria-label="Wide swipe state"><button type="button" data-st="idle" aria-pressed="true">Idle</button><button type="button" data-st="attack" aria-pressed="false">Attack target</button><button type="button" data-st="out" aria-pressed="false">Seat out</button></span></div>
+  <div class="swipehead" aria-hidden="true"><span>◂ Today</span><span>Wide plaza ▸</span></div>
+  <div class="swipe" data-swipe data-concept="wide">
+    <img src="shots/original-1920-idle.jpg" width="1920" height="1080" alt="Today, 1920" loading="lazy">
+    <img class="after" src="shots/wide-1920-idle.jpg" width="1920" height="1080" alt="Wide plaza, 1920" loading="lazy">
+        <span class="line"></span>
+    <input type="range" min="0" max="100" value="50" aria-label="Swipe between today and Wide plaza">
+    <span class="knob"></span>
+  </div>
+  <div class="label">Variants</div>
+  <div class="g4">
+    <figure><a class="shot" href="shots/wide-1920-attack.jpg"><img loading="lazy" src="shots/wide-1920-attack.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Attack target.</b> Aim arrow, legal glow, BP chip.</figcaption></figure>
+    <figure><a class="shot" href="shots/wide-1920-out.jpg"><img loading="lazy" src="shots/wide-1920-out.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Seat out.</b> Juniper greyed, ring marks OUT.</figcaption></figure>
+    <figure><a class="shot" href="shots/wide-1920-drawer.jpg"><img loading="lazy" src="shots/wide-1920-drawer.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Drawer open.</b> Card / Log / Master / Settings over the table.</figcaption></figure>
+    <figure><a class="shot" href="shots/wide-1920-hover.jpg"><img loading="lazy" src="shots/wide-1920-hover.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Hover inspector.</b> Glass card beside the pointer.</figcaption></figure>
+    <figure><a class="shot" href="shots/wide-1920-ffa3.jpg"><img loading="lazy" src="shots/wide-1920-ffa3.jpg" width="1920" height="1080" alt=""></a><figcaption><b>FFA3.</b> Rivals 69 / 70; plates on the outer flanks.</figcaption></figure>
+    <figure><a class="shot" href="shots/wide-1440-ffa3.jpg"><img loading="lazy" src="shots/wide-1440-ffa3.jpg" width="1440" height="900" alt=""></a><figcaption><b>FFA3, 1440.</b> Rivals 54 / 55.</figcaption></figure>
+    <figure><a class="shot" href="shots/wide-1920-tag.jpg"><img loading="lazy" src="shots/wide-1920-tag.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Tag tones.</b> Team plates. See the questions below.</figcaption></figure>
+    <figure><a class="shot" href="shots/wide-2560-idle.jpg"><img loading="lazy" src="shots/wide-2560-idle.jpg" width="2560" height="1440" alt=""></a><figcaption><b>2560.</b> You 105 · rivals 92 / 77 / 95.</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============================================================ ARENA -->
+<section id="arena">
+  <h2>2 · Arena</h2>
+  <p>The three rivals stand upright side by side across the top as receding fields, in turn order from left to right. Their plates hang from the front corner of each board. A middle band holds the turn ring, flanked by the two shared Extra Monster pairs (Aster ⇄ Juniper and Rook ⇄ Mirelle), which now sit between the fields instead of on them. Your field's front strip, with Banished, tucks under the band, so your board gets the most room of any concept. Your plate and the Master chip sit to the left of your board. The hand and both bottom bars are the same as today.</p>
+  <div class="live"><iframe src="arena.html" title="Arena, live" loading="lazy"></iframe></div>
+  <p class="livebar">Live page. <a href="arena.html">Open full page ↗</a></p>
+  <div class="label">1920 and 1440</div>
+  <div class="g2">
+    <figure><a class="shot" href="shots/arena-1920-idle.jpg"><img loading="lazy" src="shots/arena-1920-idle.jpg" width="1920" height="1080" alt="Arena at 1920"></a><figcaption><b>1920.</b> You 91 · every rival 68 · hand 71.</figcaption></figure>
+    <figure><a class="shot" href="shots/arena-1440-idle.jpg"><img loading="lazy" src="shots/arena-1440-idle.jpg" width="1440" height="900" alt="Arena at 1440"></a><figcaption><b>1440.</b> You 68 · every rival 50 · hand 53. The rivals are under the 56 goal here.</figcaption></figure>
+  </div>
+  <div class="label">Before and after</div>
+  <div class="ctlrow" data-state-for="arena"><span>State</span><span class="seg" role="group" aria-label="Arena swipe state"><button type="button" data-st="idle" aria-pressed="true">Idle</button><button type="button" data-st="attack" aria-pressed="false">Attack target</button><button type="button" data-st="out" aria-pressed="false">Seat out</button></span></div>
+  <div class="swipehead" aria-hidden="true"><span>◂ Today</span><span>Arena ▸</span></div>
+  <div class="swipe" data-swipe data-concept="arena">
+    <img src="shots/original-1920-idle.jpg" width="1920" height="1080" alt="Today, 1920" loading="lazy">
+    <img class="after" src="shots/arena-1920-idle.jpg" width="1920" height="1080" alt="Arena, 1920" loading="lazy">
+        <span class="line"></span>
+    <input type="range" min="0" max="100" value="50" aria-label="Swipe between today and Arena">
+    <span class="knob"></span>
+  </div>
+  <div class="label">Variants</div>
+  <div class="g4">
+    <figure><a class="shot" href="shots/arena-1920-attack.jpg"><img loading="lazy" src="shots/arena-1920-attack.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Attack target.</b> The arrow crosses the band.</figcaption></figure>
+    <figure><a class="shot" href="shots/arena-1920-out.jpg"><img loading="lazy" src="shots/arena-1920-out.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Seat out.</b> The Aster ⇄ Juniper pair breaks; Aster's cells read "own".</figcaption></figure>
+    <figure><a class="shot" href="shots/arena-1920-drawer.jpg"><img loading="lazy" src="shots/arena-1920-drawer.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Drawer open.</b></figcaption></figure>
+    <figure><a class="shot" href="shots/arena-1920-ffa3.jpg"><img loading="lazy" src="shots/arena-1920-ffa3.jpg" width="1920" height="1080" alt=""></a><figcaption><b>FFA3.</b> Two rivals at 78. There are no shared pairs in FFA3, so the band holds your own EMZ.</figcaption></figure>
+    <figure><a class="shot" href="shots/arena-1440-ffa3.jpg"><img loading="lazy" src="shots/arena-1440-ffa3.jpg" width="1440" height="900" alt=""></a><figcaption><b>FFA3, 1440.</b> Rivals 63.</figcaption></figure>
+    <figure><a class="shot" href="shots/arena-1920-tag.jpg"><img loading="lazy" src="shots/arena-1920-tag.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Tag tones.</b></figcaption></figure>
+    <figure><a class="shot" href="shots/arena-1440-attack.jpg"><img loading="lazy" src="shots/arena-1440-attack.jpg" width="1440" height="900" alt=""></a><figcaption><b>Attack, 1440.</b></figcaption></figure>
+    <figure><a class="shot" href="shots/arena-2560-idle.jpg"><img loading="lazy" src="shots/arena-2560-idle.jpg" width="2560" height="1440" alt=""></a><figcaption><b>2560.</b> You 120 · rivals 92.</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============================================================ SPOTLIGHT -->
+<section id="spotlight">
+  <h2>3 · Spotlight</h2>
+  <p>One rival is in the spotlight, large and upright across from you. The other two sit in the upper corners, yawed about 22° toward the centre. <kbd>Tab</kbd> (or a click on a wing) flies the camera round the table, and the wings keep their orbit order, with the seat before the focus on the left and the seat after it on the right. While you pick an attack target, the wings straighten and grow so every legal card is easier to hit. Your plate, the Master chip, the band and the bars match Arena. The fly is skipped under reduced motion.</p>
+  <div class="live"><iframe src="spotlight.html" title="Spotlight, live" loading="lazy"></iframe></div>
+  <p class="livebar">Live page. Click inside it, then press <kbd>Tab</kbd> to move the spotlight. <a href="spotlight.html">Open full page ↗</a></p>
+  <div class="label">1920 and 1440</div>
+  <div class="g2">
+    <figure><a class="shot" href="shots/spotlight-1920-idle.jpg"><img loading="lazy" src="shots/spotlight-1920-idle.jpg" width="1920" height="1080" alt="Spotlight at 1920"></a><figcaption><b>1920.</b> You 76 · focus 81 · wings 55 / 57 · hand 59.</figcaption></figure>
+    <figure><a class="shot" href="shots/spotlight-1440-idle.jpg"><img loading="lazy" src="shots/spotlight-1440-idle.jpg" width="1440" height="900" alt="Spotlight at 1440"></a><figcaption><b>1440.</b> You 58 · focus 63 · wings 39 / 40 · hand 46.</figcaption></figure>
+  </div>
+  <div class="label">Before and after</div>
+  <div class="ctlrow" data-state-for="spotlight"><span>State</span><span class="seg" role="group" aria-label="Spotlight swipe state"><button type="button" data-st="idle" aria-pressed="true">Idle</button><button type="button" data-st="attack" aria-pressed="false">Attack target</button><button type="button" data-st="out" aria-pressed="false">Seat out</button></span></div>
+  <div class="swipehead" aria-hidden="true"><span>◂ Today</span><span>Spotlight ▸</span></div>
+  <div class="swipe" data-swipe data-concept="spotlight">
+    <img src="shots/original-1920-idle.jpg" width="1920" height="1080" alt="Today, 1920" loading="lazy">
+    <img class="after" src="shots/spotlight-1920-idle.jpg" width="1920" height="1080" alt="Spotlight, 1920" loading="lazy">
+        <span class="line"></span>
+    <input type="range" min="0" max="100" value="50" aria-label="Swipe between today and Spotlight">
+    <span class="knob"></span>
+  </div>
+  <div class="label">Variants</div>
+  <div class="g4">
+    <figure><a class="shot" href="shots/spotlight-1920-attack.jpg"><img loading="lazy" src="shots/spotlight-1920-attack.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Picking a target.</b> Wings 63 / 64, focus 70.</figcaption></figure>
+    <figure><a class="shot" href="shots/spotlight-1920-focusW.jpg"><img loading="lazy" src="shots/spotlight-1920-focusW.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Focus on Rook.</b> Mirelle on the left, Juniper on the right.</figcaption></figure>
+    <figure><a class="shot" href="shots/spotlight-1920-focusE.jpg"><img loading="lazy" src="shots/spotlight-1920-focusE.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Focus on Mirelle.</b></figcaption></figure>
+    <figure><a class="shot" href="shots/spotlight-1920-focusE-attack.jpg"><img loading="lazy" src="shots/spotlight-1920-focusE-attack.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Mirelle in focus, picking.</b></figcaption></figure>
+    <figure><a class="shot" href="shots/spotlight-1920-out.jpg"><img loading="lazy" src="shots/spotlight-1920-out.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Seat out.</b></figcaption></figure>
+    <figure><a class="shot" href="shots/spotlight-1920-drawer.jpg"><img loading="lazy" src="shots/spotlight-1920-drawer.jpg" width="1920" height="1080" alt=""></a><figcaption><b>Drawer open.</b></figcaption></figure>
+    <figure><a class="shot" href="shots/spotlight-1920-ffa3.jpg"><img loading="lazy" src="shots/spotlight-1920-ffa3.jpg" width="1920" height="1080" alt=""></a><figcaption><b>FFA3.</b> One wing.</figcaption></figure>
+    <figure><a class="shot" href="shots/spotlight-1440-attack.jpg"><img loading="lazy" src="shots/spotlight-1440-attack.jpg" width="1440" height="900" alt=""></a><figcaption><b>Picking, 1440.</b> The wings are 45, which misses the 56 goal.</figcaption></figure>
+  </div>
+</section>
+
+<!-- ============================================================ ALL -->
+<section id="all">
+  <h2>All four side by side</h2>
+  <p>All four at 1920 in the idle state. Switch the state to compare the same moment in each layout.</p>
+  <div class="ctlrow" data-state-for="all"><span>State</span><span class="seg" role="group" aria-label="Grid state"><button type="button" data-st="idle" aria-pressed="true">Idle</button><button type="button" data-st="attack" aria-pressed="false">Attack target</button><button type="button" data-st="out" aria-pressed="false">Seat out</button></span>
+    <span>Viewport</span><span class="seg" role="group" aria-label="Grid viewport"><button type="button" data-vp="1920" aria-pressed="true">1920</button><button type="button" data-vp="1440" aria-pressed="false">1440</button><button type="button" data-vp="2560" aria-pressed="false">2560</button></span></div>
+  <div class="g2" id="allgrid">
+    <figure><a class="shot" data-c="original" href="shots/original-1920-idle.jpg"><img loading="lazy" src="shots/original-1920-idle.jpg" width="1920" height="1080" alt="Today"></a><figcaption><b>Today</b> (recreation)</figcaption></figure>
+    <figure><a class="shot" data-c="wide" href="shots/wide-1920-idle.jpg"><img loading="lazy" src="shots/wide-1920-idle.jpg" width="1920" height="1080" alt="Wide plaza"></a><figcaption><b>1 · Wide plaza</b></figcaption></figure>
+    <figure><a class="shot" data-c="arena" href="shots/arena-1920-idle.jpg"><img loading="lazy" src="shots/arena-1920-idle.jpg" width="1920" height="1080" alt="Arena"></a><figcaption><b>2 · Arena</b></figcaption></figure>
+    <figure><a class="shot" data-c="spotlight" href="shots/spotlight-1920-idle.jpg"><img loading="lazy" src="shots/spotlight-1920-idle.jpg" width="1920" height="1080" alt="Spotlight"></a><figcaption><b>3 · Spotlight</b></figcaption></figure>
+  </div>
+</section>
+
+<!-- ============================================================ KEPT -->
+<section id="kept">
+  <h2>Kept from today</h2>
+  <p>Every element you asked to keep, concept by concept. <span class="y">✓</span> means kept as it is today, and <span class="c">moved</span> or <span class="c">changed</span> says what happened to it.</p>
+  <div class="tw">
+    <table class="kept">
+      <thead><tr><th scope="col">Element</th><th scope="col">Wide plaza</th><th scope="col">Arena</th><th scope="col">Spotlight</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Plaza floor, grid, light lines, skyline</th><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td></tr>
+        <tr><th scope="row">Glowing zone outlines and labels</th><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td></tr>
+        <tr><th scope="row">Receding rival boards</th><td class="y">✓ same seats</td><td class="c">changed: all three across the top, upright</td><td class="c">changed: focus across, wings yawed in the corners</td></tr>
+        <tr><th scope="row">Holo LP plate (glass, dot, big LP, struck old LP, red delta, hand/deck counts, clock, Deck Master art, "choosing…")</th><td class="y">✓ plates dock at board corners</td><td class="y">✓ plates hang under each board</td><td class="y">✓ wing plates carry a Tab badge</td></tr>
+        <tr><th scope="row">Turn ring</th><td class="y">✓ between the across board and yours</td><td class="c">moved: centre of the middle band</td><td class="c">moved: centre of the middle band</td></tr>
+        <tr><th scope="row">Hand row with ATK/DEF strips and pips</th><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td></tr>
+        <tr><th scope="row">Phase bar (chips, hint, End Turn, To Battle, name, turn, clock)</th><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td></tr>
+        <tr><th scope="row">Seat strip tags (YOU / TO PLAY / CHOOSING / NEXT)</th><td class="c">moved: chips inside the phase bar</td><td class="y">✓</td><td class="y">✓</td></tr>
+        <tr><th scope="row">History thumbs</th><td class="c">moved: the 72px rail</td><td class="c">moved: rail</td><td class="c">moved: rail</td></tr>
+        <tr><th scope="row">Card / Log / Settings inspector</th><td class="c">moved: overlay drawer, or the hover holo inspector</td><td class="c">moved: drawer</td><td class="c">moved: drawer</td></tr>
+        <tr><th scope="row">Your Master</th><td class="c">changed: chip under your LP, full card in the drawer</td><td class="c">changed: chip</td><td class="c">changed: chip</td></tr>
+        <tr><th scope="row">Top bar</th><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td></tr>
+        <tr><th scope="row">Shared EMZs</th><td class="y">✓ on your field</td><td class="c">moved: pairs in the band, labelled</td><td class="c">moved: pairs in the band, labelled</td></tr>
+        <tr><th scope="row">Camera hints</th><td class="y">✓ smaller, bottom left</td><td class="y">✓ smaller</td><td class="y">✓ smaller</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ============================================================ BUILD -->
+<section id="build">
+  <h2>Risks and build notes</h2>
+  <p>These point at the real files under <code>packages/web/src/components/duel/</code>. Nothing in the app was changed for this workshop.</p>
+  <ul class="notes">
+    <li><b>The stage is the real limit.</b> <code>table/geometry.ts</code> fixes <code>STAGE = 1100×860</code>, and <code>stageFit()</code> returns <code>min(w/1100, h/860)</code>. <code>table/table-stage.tsx</code> (line 76) applies it, so on any screen wider than about 1.28:1 the table is height-bound and leaves width unused. All three concepts need a stage width that follows the box (for example 1100–1500) and poses written as functions of that width, not the fixed <code>FFA4_HOME</code> / <code>FFA3_HOME</code> numbers.</li>
+    <li><b>Plate anchors.</b> <code>ffa4Anchor</code> / <code>ffa3Anchor</code> in <code>geometry.ts</code> are fixed stage-px corners. The mock docks each plate to its own board's projected corner, then checks it against every other board with a polygon test. Today's <code>vN</code> plate already overlaps Rook's board at 1920 and 1440; it is the only audit flag in the recreation. <code>table/holo-lp.tsx</code> needs a corner-relative anchor.</li>
+    <li><b>Compact chips.</b> <code>compactFor()</code> switches rival fields to chips under a 44px card height (40px under 1440 wide). Wide and Arena keep rivals above that at every tested size. Today's 1440 table also draws full boards, so chips stay a fallback for small windows.</li>
+    <li><b>Upright side labels.</b> Wide depends on <code>table/seat-angle.ts</code> (<code>labelTurnDeg</code>, <code>isStraight</code>) to turn names and values upright on the 90° / 270° boards. The mock does the same with a counter-rotation per label.</li>
+    <li><b>Turn ring.</b> <code>table/turn-ring.tsx</code> takes its angles from <code>FFA4_RING_ANGLE</code> / <code>ringAngles()</code>. In Arena and Spotlight the rivals are no longer at W/N/E, so the ring angles must come from each seat's real position. The mock uses <code>atan2</code> from the ring to each board.</li>
+    <li><b>Spotlight is close to the existing focus camera.</b> <code>slotPlan()</code> already has <code>focus</code>, <code>dockL</code> and <code>dockR</code> places. Spotlight would make focus the default, enlarge it (today's focus place has scale .92, which works out to roughly 66px cards at 1920; Spotlight's focus board is 81px), yaw the docks 22° instead of 90°, and keep the orbit order. The fly belongs in <code>table/use-camera.ts</code> and should be skipped under reduced motion, as it is in the mock.</li>
+    <li><b>Shared EMZ pairs.</b> <code>multi-seat.ts → sharedExtraPairs()</code> drops a pair when either seat is eliminated. Arena and Spotlight draw the pairs in the band, so an eliminated seat must break its pair there too; the mock shows the survivor's cells as "own". <code>multi-seat-stage.tsx</code> is where the pairs render today.</li>
+    <li><b>Panes.</b> <code>table/table-shell.tsx</code> and <code>table-side.tsx</code> hold the history/inspector and Master panes. The rail plus overlay drawer replaces both, and the drawer must not resize the stage, or the table would jump each time it opens.</li>
+    <li><b>Plaza.</b> <code>table/plaza.tsx</code> scales the floor with the stage. With a wider stage the floor scale follows width, as in the mock (<code>scale = stageWidth / 1650–1700</code>).</li>
+    <li><b>Perspective at 2560.</b> The mock scales each board's <code>perspective()</code> with the UI unit, so boards keep the same foreshortening at 2560. With a fixed 1500px, large boards tilt harder and the across board ran into the ring.</li>
+    <li><b>FFA3 has no shared EMZ.</b> <code>sharedExtraPairs()</code> returns nothing outside FFA4, so every FFA3 seat keeps its own cells. In Arena and Spotlight FFA3, the band holds your own pair. The rivals' own cells would go back onto their boards, which the band-mode boards in the mock leave out.</li>
+    <li><b>Tag is a different stage.</b> Real Tag runs on the Rooftop (<code>tag/tag-stage.tsx</code>, <code>tag/roof-camera.ts</code>). The Tag option in these mocks reuses the FFA4 seats with Tag tones to show team plates only. It is not a proposal for the Rooftop.</li>
+  </ul>
+  <details>
+    <summary>Audit flags in the final shots</summary>
+    <p class="dim">Each shot was checked for chrome overlaps, plates over other boards (polygon test), off-screen or clipped text, items cut by the stage, and overlaps in the bottom bar. Only the recreation of today is flagged, and that flag matches the real table.</p>
+    <ul class="notes">
+<li><code>original-1440-attack</code> over board 1: holo 2</li>
+<li><code>original-1440-ffa3</code> over board 0: holo 1, over board 0: holo 2</li>
+<li><code>original-1440-idle</code> over board 1: holo 2</li>
+<li><code>original-1440-out</code> over board 1: holo 2</li>
+<li><code>original-1920-attack</code> over board 1: holo 2</li>
+<li><code>original-1920-ffa3</code> over board 0: holo 1, over board 0: holo 2</li>
+<li><code>original-1920-idle</code> over board 1: holo 2</li>
+<li><code>original-1920-out</code> over board 1: holo 2</li>
+<li><code>original-1920-tag</code> over board 1: holo 2</li>
+<li><code>original-2560-attack</code> over board 1: holo 2</li>
+<li><code>original-2560-idle</code> over board 1: holo 2</li>
+<li><code>original-2560-out</code> over board 1: holo 2</li>
+    </ul>
+  </details>
+</section>
+
+<!-- ============================================================ QUESTIONS -->
+<section id="questions">
+  <h2>Open questions</h2>
+  <ol class="notes">
+    <li><b>Wide:</b> is it OK to fold the seat strip into the phase bar? It gives back 25px of height, but the tags get smaller.</li>
+    <li><b>Arena:</b> is it OK that the rivals no longer sit to your left and right? Turn order still reads left to right and on the ring, but "the player on my left" no longer matches the table.</li>
+    <li><b>Spotlight:</b> which rival should be in focus by default: the one across, the next to play, or whoever just acted? And should the spotlight follow an attack on you?</li>
+    <li><b>Inspector:</b> should a card click open the drawer, or show the hover holo (Wide)? Should the drawer stay pinned on wide screens (2560)?</li>
+    <li><b>1440:</b> Arena rivals (50px) and Spotlight wings (39–45px) miss the 56px goal. One option is to accept that. Another is a thinner, ring-only band at 1440. That would gain a few px, but it is not mocked.</li>
+    <li><b>Tag:</b> where should your partner sit if Tag ever moves onto this table: across (as mocked) or beside you? Today it lives on the Rooftop.</li>
+  </ol>
+</section>
+
+<!-- ============================================================ PICK -->
+<section id="pick">
+  <h2>Recommendation</h2>
+  <div class="callout">
+    <p><b>Build Wide plaza first.</b> It is the one that keeps the table as it is. Everyone stays in their seat, the shared EMZs stay on your field, and the turn ring stays between you and the player across. It still makes the side rivals' cards about 1.6× wider, or 2.5× the area (43 → 69 / 71 at 1920), and lifts your field from 72 to 78. It is also the smallest code change: a width-aware stage in <code>geometry.ts</code>, new home poses, corner-relative plates, and the rail and drawer in place of the panes.</p>
+    <p><b>Take Spotlight's camera, not its home layout.</b> The wings straightening and growing while you pick a target is the best idea in the set, and it fits on top of the existing <code>focus</code> / <code>dock</code> camera. Ship it as what <kbd>Tab</kbd> does from Wide.</p>
+    <p><b>Arena is the alternative if size matters most.</b> It has the biggest numbers (you 91, every rival 68 at 1920) and the cleanest band. The cost is that the table stops being a table, so choose it only if you are happy for rivals to stop sitting to your left and right.</p>
+    <p class="dim">One thing is still open. At 1440, no concept gets every rival to 56px, because height runs out first. Wide gets the most even result there (54 / 46 / 56).</p>
+  </div>
+</section>
+</main>
+<script>
+(() => {
+  "use strict";
+  // swipe sliders: the range input drives --x; keyboard arrows work through the native range
+  document.querySelectorAll("[data-swipe]").forEach((box) => {
+    const input = box.querySelector("input[type=range]");
+    const set = () => box.style.setProperty("--x", `${input.value}%`);
+    input.addEventListener("input", set);
+    set();
+  });
+  // state buttons for the per-concept swipes (before = today's recreation in the same state)
+  document.querySelectorAll("[data-state-for]").forEach((row) => {
+    const key = row.dataset.stateFor;
+    const state = { st: "idle", vp: "1920" };
+    const apply = () => {
+      if (key === "all") {
+        document.querySelectorAll("#allgrid a.shot").forEach((a) => {
+          const src = `shots/${a.dataset.c}-${state.vp}-${state.st}.jpg`;
+          a.href = src;
+          a.querySelector("img").src = src;
+        });
+        return;
+      }
+      const box = document.querySelector(`[data-swipe][data-concept="${key}"]`);
+      const [before, after] = box.querySelectorAll("img");
+      before.src = `shots/original-1920-${state.st}.jpg`;
+      after.src = `shots/${key}-1920-${state.st}.jpg`;
+    };
+    row.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+      if (b.dataset.st) state.st = b.dataset.st;
+      if (b.dataset.vp) state.vp = b.dataset.vp;
+      b.parentElement.querySelectorAll("button").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
+      apply();
+    }));
+  });
+})();
+</script>
+</body>
+</html>

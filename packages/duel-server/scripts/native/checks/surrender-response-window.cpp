@@ -1,6 +1,6 @@
-// R-COMMON-SURRENDER-EOT, owner answer 2026-10-04: an empty phase window
-// stays open. Finish it before the next turn; open no later empty window
-// in the cut-short turn. Reuse the unchanged response-cursor fixture.
+// R-COMMON-SURRENDER-EOT; Rulebook v1.4, Removing players from the game:
+// surrender is immediate and living choices stay open. Every remaining FFA
+// phase keeps its normal living response windows. Reuse the response-cursor fixture.
 #define main response_cursor_original_main
 #include "response-cursor.cpp"
 #undef main
@@ -27,6 +27,8 @@ static void surrender_phase(int leaver) {
 		if(msgs.empty()) break;
 		const Msg last = msgs.back();
 		auto& f = F(d);
+		if(surrendered)
+			EXPECT(last.b1 != leaver, "removed seat %d received prompt %u", leaver, last.id);
 		if(last.id == MSG_SELECT_IDLECMD) {
 			reached_idle = true;
 			EXPECT(f.infos.turn_player == (leaver == 0 ? 1 : 0), "next idle turn player %d", f.infos.turn_player);
@@ -54,7 +56,8 @@ static void surrender_phase(int leaver) {
 	EXPECT(surrendered && reached_idle, "surrendered=%d reached_idle=%d", surrendered, reached_idle);
 	const std::vector<int> want{0, 1, 2, 3};
 	EXPECT(first_window == want, "Debug surrender seat %d: first window %s, want 0 1 2 3", leaver, seats(first_window).c_str());
-	EXPECT(later_empty_prompts == 0, "cut-short turn opened %d later empty prompts", later_empty_prompts);
+	// Three living seats receive Standby, Main and End Phase windows.
+	EXPECT(later_empty_prompts == (leaver == 0 ? 9 : 0), "departed turn opened %d later prompts, want %d", later_empty_prompts, leaver == 0 ? 9 : 0);
 	EXPECT(closed_windows == 0, "empty phase window emitted %d closure messages", closed_windows);
 	EXPECT(losses == 1, "seat %d emitted %d loss messages, want 1", leaver, losses);
 	EXPECT(retries == 0, "%d retries", retries);
@@ -63,8 +66,8 @@ static void surrender_phase(int leaver) {
 	OCG_DestroyDuel(d);
 }
 
-// A living player can use the kept window. Its chain finishes, but the
-// departed turn must not start a new empty response round after the chain.
+// A living player can use the kept window. Its chain finishes, and the
+// departed turn continues its normal remaining phase response rounds.
 static void surrender_then_activate(bool during_chain) {
 	OCG_Duel d = make_ffa4({{103}, {103}, {103}, {103}}, 0);
 	std::vector<Msg> msgs;
@@ -98,7 +101,7 @@ static void surrender_then_activate(bool during_chain) {
 			} else {
 				if(during_chain && !surrendered && !f.core.current_chain.empty()) {
 					EXPECT(run_lua(d, "Debug.SurrenderDuelist(0)"), "chain surrender failed");
-					EXPECT(f.is_alive(0) && f.player[0].pending_loss, "chain surrender did not defer the loss");
+					EXPECT(!f.is_alive(0) && !f.player[0].pending_loss, "chain surrender did not remove the seat immediately");
 					surrendered = true;
 				}
 				if(chain_ended && f.infos.turn_id == 1 && f.core.current_chain.empty()
@@ -112,12 +115,13 @@ static void surrender_then_activate(bool during_chain) {
 	EXPECT(activated && surrendered && reached_idle, "activated=%d surrendered=%d reached_idle=%d", activated, surrendered, reached_idle);
 	EXPECT(!F(d).is_alive(0), "turn player remains after living chain");
 	EXPECT(solved == 1, "living link solved %d times, want 1", solved);
-	EXPECT(empty_after_chain == 0, "%d new empty prompts after the living chain", empty_after_chain);
+	// Finish the Draw Phase round, then the three later phases: four rounds.
+	EXPECT(empty_after_chain == 12, "%d living prompts after the chain, want 12", empty_after_chain);
 	std::printf("Living activation (surrender during chain %d): solved %d; new empty prompts %d\n", during_chain, solved, empty_after_chain);
 	OCG_DestroyDuel(d);
 }
 
-// Cancelling the leaver's pre-chain zone choice must not open a new empty window.
+// Cancelling the leaver's pre-chain zone choice keeps living phase windows.
 static void surrender_cancel_activation() {
 	OCG_Duel d = make_ffa4({{100}, {103}, {103}, {103}}, 0);
 	std::vector<Msg> msgs;
@@ -154,7 +158,7 @@ static void surrender_cancel_activation() {
 	}
 	EXPECT(activated && surrendered && reached_idle, "activated=%d surrendered=%d reached_idle=%d", activated, surrendered, reached_idle);
 	EXPECT(solved == 0, "cancelled link solved %d times", solved);
-	EXPECT(new_empty == 0, "%d new empty prompts after cancelled activation", new_empty);
+	EXPECT(new_empty == 9, "%d living prompts after cancelled activation, want 9", new_empty);
 	std::printf("Cancelled activation: solved %d; new empty prompts %d\n", solved, new_empty);
 	OCG_DestroyDuel(d);
 }

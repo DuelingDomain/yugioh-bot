@@ -1,3 +1,4 @@
+import { withCardFetchErrors } from "@/lib/card-fetch-errors";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -39,7 +40,7 @@ function isUnreachable(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith("Could not reach the card database");
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -82,13 +83,8 @@ export async function POST(request: Request) {
 
   if (fuzzyName) {
     // Best match first. Extra Deck monsters only when the caller can hold them (a cube has an Extra pool).
-    try {
-      const cards = await catalog.syncCardsByFuzzyName(fuzzyName, { includeExtra: body.includeExtra === true });
-      return NextResponse.json({ cards: cards.map(toCardSummary), unknownIds: [] });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not search the card database. Try again.";
-      return NextResponse.json({ error: message }, { status: 502 });
-    }
+    const cards = await catalog.syncCardsByFuzzyName(fuzzyName, { includeExtra: body.includeExtra === true });
+    return NextResponse.json({ cards: cards.map(toCardSummary), unknownIds: [] });
   }
 
   // Sets not in card_catalog yet are fetched first, the way POST /api/drafts does.
@@ -96,8 +92,7 @@ export async function POST(request: Request) {
     await catalog.syncDraftPool({ setNames, customCardIds: [], includeNames: [], excludeNames: [] });
   }
 
-  const existingCustomCardIds = new Set(catalog.findByIds(customCardIds).map((card) => card.ygoprodeckId));
-  const missingCustomCardIds = [...new Set(customCardIds.filter((id) => !existingCustomCardIds.has(id)))];
+  const missingCustomCardIds = [...new Set(customCardIds.filter((id) => !catalog.hasCatalogRow(id)))];
 
   if (missingCustomCardIds.length > 0) {
     const sync = (ids: number[]) =>
@@ -148,3 +143,5 @@ export async function POST(request: Request) {
 
   return NextResponse.json({ cards, unknownIds });
 }
+
+export const POST = withCardFetchErrors(handlePOST);

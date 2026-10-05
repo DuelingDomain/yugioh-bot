@@ -1,0 +1,540 @@
+From ef62fd5d814a2c834ef3fd2158531c45d277c254 Mon Sep 17 00:00:00 2001
+From: Yugidraft <yugidraft@users.noreply.github.com>
+Date: Sun, 4 Oct 2026 20:44:23 -0400
+Subject: [PATCH] FFA ignore removed chain links in reads and group rule-return
+ redirects
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ effect.cpp     |  10 +++-
+ field.cpp      | 150 ++++++++++++++++++++++++++++++++++---------------
+ field.h        |  10 +++-
+ libcard.cpp    |   6 +-
+ libduel.cpp    |  62 +++++++++++++++++---
+ operations.cpp |  16 +++---
+ processor.cpp  |  14 ++++-
+ 7 files changed, 197 insertions(+), 71 deletions(-)
+
+diff --git a/effect.cpp b/effect.cpp
+index c7a31c3..c118e31 100644
+--- a/effect.cpp
++++ b/effect.cpp
+@@ -152,6 +152,8 @@ int32_t effect::check_count_limit(uint8_t playerid) const {
+ int32_t effect::is_activateable(uint8_t playerid, const tevent& e, int32_t neglect_cond, int32_t neglect_cost, int32_t neglect_target, int32_t neglect_loc, int32_t neglect_faceup) {
+ 	if(!(type & EFFECT_TYPE_ACTIONS))
+ 		return FALSE;
++	if(pduel->game_field->is_removed_chain_event(e))
++		return FALSE;
+ 	// A draw, summon or battle response stays with its saved subject. Leaving the field can have a different reason player.
+ 	if(has_bound_opponent() && !s_range && !o_range
+ 		&& (field::event_player_is_subject(e.event_code) || field::event_is_battle(e.event_code))) {
+@@ -557,6 +559,8 @@ void effect::probe_chain(uint8_t playerid, const tevent& e, uint8_t& bound, uint
+ }
+ // check functions: condition
+ int32_t effect::is_condition_check(uint8_t playerid, const tevent& e) {
++	if(pduel->game_field->is_removed_chain_event(e))
++		return FALSE;
+ 	// This metadata belongs to this condition evaluation, never to a later turn.
+ 	if(pduel->game_field->n_duelists > 2)
+ 		phase_opponent_turn = 0;
+@@ -779,12 +783,12 @@ int32_t effect::is_chainable(uint8_t tp) {
+ 	// Curse of Field is the exception
+ 	if((type & EFFECT_TYPE_ACTIVATE) && (sp <= 1) && !is_flag(EFFECT_FLAG2_COF))
+ 		return FALSE;
+-	if(pduel->game_field->core.current_chain.size()) {
++	if(const auto* top = pduel->game_field->get_current_chain()) {
+ 		if(!is_flag(EFFECT_FLAG_FIELD_ONLY) && (type & EFFECT_TYPE_TRIGGER_O)
+ 				&& (get_handler()->current.location == LOCATION_HAND)) {
+-			if(pduel->game_field->core.current_chain.back().triggering_effect->get_speed() > 2)
++			if(top->triggering_effect->get_speed() > 2)
+ 				return FALSE;
+-		} else if(sp < pduel->game_field->core.current_chain.back().triggering_effect->get_speed())
++		} else if(sp < top->triggering_effect->get_speed())
+ 			return FALSE;
+ 	}
+ 	for(const auto& ch_lim : pduel->game_field->core.chain_limit) {
+diff --git a/field.cpp b/field.cpp
+index 44828dd..3375ae9 100644
+--- a/field.cpp
++++ b/field.cpp
+@@ -159,9 +159,29 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 	// 3. Unresolved FFA links are removed, without resolution events. Keep their
+ 	// storage until SolveChain can release relations and interpreter references safely.
+ 	if(n_teams == n_duelists) {
++		bool removed_links = false;
+ 		for(auto& ch : core.current_chain)
+-			if(ch.triggering_player == p && !ch.resolution_started)
++			if(ch.triggering_player == p && !ch.resolution_started) {
+ 				ch.removed_by_elimination = true;
++				removed_links = true;
++			}
++		// Removal changes spell speed and response limits. Revisit living seats
++		// that could not respond to the former top link, without closing their prompt.
++		if(removed_links && !core.chain_solving) {
++			auto* top = get_current_chain();
++			restart_responders(top ? top->triggering_player : DUELIST_NONE);
++		}
++		for(auto* limits : { &core.chain_limit, &core.chain_limit_p }) {
++			for(auto it = limits->begin(); it != limits->end();) {
++				// A limit installed by a resolved operation keeps its duration.
++				const bool removed_source = it->source_chain_id && std::any_of(core.current_chain.begin(), core.current_chain.end(), [&](const chain& ch) {
++					return ch.chain_id == it->source_chain_id && ch.removed_by_elimination;
++				});
++				if(!removed_source) { ++it; continue; }
++				ensure_luaL_stack(luaL_unref, pduel->lua->lua_state, LUA_REGISTRYINDEX, it->function);
++				it = limits->erase(it);
++			}
++		}
+ 	}
+ 	// Chain entries that p would add.
+ 	for(auto* lst : { &core.new_fchain, &core.new_fchain_s, &core.new_ochain, &core.new_ochain_s, &core.new_fchain_b,
+@@ -378,44 +398,48 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 		// including attachments, without leave-field, destination or move events.
+ 		// Keep continuous redirects (Macro Cosmos, Pendulums) but offer no choices.
+ 		std::vector<card*> pending(to_grave.begin(), to_grave.end());
+-		card_set moved;
++		struct fallback { card* pcard; loc_info from; uint32_t old_location; uint32_t destination; };
++		std::vector<fallback> routes;
++		card_set collected;
++		// Like SendTo, disable the complete departing group before testing redirects.
+ 		for(size_t i = 0; i < pending.size(); ++i) {
+ 			card* pcard = pending[i];
+-			if(!pcard->current.location || !moved.insert(pcard).second)
++			if(!pcard->current.location || !collected.insert(pcard).second)
+ 				continue;
+-			const auto old_location = pcard->current.location;
+-			const auto old_info = pcard->get_info_location();
++			routes.push_back({ pcard, pcard->get_info_location(), pcard->current.location, LOCATION_GRAVE });
+ 			if(pcard->equiping_target)
+ 				pcard->unequip();
+-			const std::vector<card*> equips(pcard->equiping_cards.begin(), pcard->equiping_cards.end());
+-			for(auto* equip : equips) {
+-				equip->unequip();
++			for(auto* equip : pcard->equiping_cards)
+ 				if(equip->current.location == LOCATION_SZONE)
+ 					equipings.insert(equip);
+-			}
+ 			pending.insert(pending.end(), pcard->xyz_materials.begin(), pcard->xyz_materials.end());
+ 			pcard->clear_card_target();
+ 			pcard->enable_field_effect(false);
+ 			pcard->current.reason = REASON_RULE;
+ 			pcard->current.reason_effect = nullptr;
+ 			pcard->current.reason_player = DUELIST_NONE;
+-			uint32_t destination = LOCATION_GRAVE;
+-			if(old_location & LOCATION_ONFIELD) {
++		}
++		for(auto& route : routes) {
++			auto* pcard = route.pcard;
++			if(route.old_location & LOCATION_ONFIELD) {
+ 				const auto redirect = pcard->leave_field_redirect(REASON_RULE);
+-				if(redirect) destination = redirect;
++				if(redirect) route.destination = redirect;
+ 			}
+-			const auto redirect = pcard->destination_redirect(destination & 0xffff, REASON_RULE);
+-			if(redirect) destination = redirect;
+-			pcard->sendto_param.set(pcard->owner, POS_FACEUP, destination & 0xffff, destination >> 16);
++			const auto redirect = pcard->destination_redirect(route.destination & 0xffff, REASON_RULE);
++			if(redirect) route.destination = redirect;
++			pcard->sendto_param.set(pcard->owner, POS_FACEUP, route.destination & 0xffff, route.destination >> 16);
++		}
++		for(const auto& route : routes) {
++			auto* pcard = route.pcard;
+ 			if(pcard->overlay_target)
+ 				pcard->overlay_target->xyz_remove(pcard);
+ 			if(pcard->data.type & TYPE_TOKEN)
+ 				remove_card(pcard);
+ 			else {
+-				move_card(pcard->owner, pcard, destination & 0xffff, destination >> 16);
++				move_card(pcard->owner, pcard, route.destination & 0xffff, route.destination >> 16);
+ 				pcard->current.position = pcard->sendto_param.position;
+ 			}
+-			if(old_location & LOCATION_ONFIELD)
++			if(route.old_location & LOCATION_ONFIELD)
+ 				pcard->reset(RESET_LEAVE, RESET_EVENT);
+ 			pcard->reset(pcard->current.location == LOCATION_GRAVE ? RESET_TOGRAVE
+ 				: pcard->current.location == LOCATION_REMOVED ? RESET_REMOVE : RESET_TODECK, RESET_EVENT);
+@@ -424,7 +448,7 @@ void field::eliminate(uint8_t p, uint8_t reason, bool marked) {
+ 			pcard->enable_field_effect(true);
+ 			auto message = pduel->new_message(MSG_MOVE);
+ 			message->write<uint32_t>(pcard->data.code);
+-			message->write(old_info);
++			message->write(route.from);
+ 			message->write(pcard->get_info_location());
+ 			message->write<uint32_t>(REASON_RULE);
+ 		}
+@@ -3936,11 +3960,10 @@ int32_t field::is_chain_negatable(uint8_t chaincount) {
+ 	effect_set eset;
+ 	if(chaincount > core.current_chain.size())
+ 		return FALSE;
+-	effect* peffect;
+-	if(chaincount == 0)
+-		peffect = core.current_chain.back().triggering_effect;
+-	else
+-		peffect = core.current_chain[chaincount - 1].triggering_effect;
++	auto* ch = chaincount ? get_chain(chaincount) : get_current_chain();
++	if(!ch || ch->removed_by_elimination)
++		return FALSE;
++	effect* peffect = ch->triggering_effect;
+ 	if(peffect->is_flag(EFFECT_FLAG_CANNOT_INACTIVATE))
+ 		return FALSE;
+ 	filter_field_effect(EFFECT_CANNOT_INACTIVATE, &eset);
+@@ -3955,11 +3978,10 @@ int32_t field::is_chain_disablable(uint8_t chaincount) {
+ 	effect_set eset;
+ 	if(chaincount > core.current_chain.size())
+ 		return FALSE;
+-	effect* peffect;
+-	if(chaincount == 0)
+-		peffect = core.current_chain.back().triggering_effect;
+-	else
+-		peffect = core.current_chain[chaincount - 1].triggering_effect;
++	auto* ch = chaincount ? get_chain(chaincount) : get_current_chain();
++	if(!ch || ch->removed_by_elimination)
++		return FALSE;
++	effect* peffect = ch->triggering_effect;
+ 	if(!peffect->get_handler()->get_status(STATUS_FORBIDDEN)) {
+ 		if(peffect->is_flag(EFFECT_FLAG_CANNOT_DISABLE))
+ 			return FALSE;
+@@ -3975,11 +3997,9 @@ int32_t field::is_chain_disablable(uint8_t chaincount) {
+ int32_t field::is_chain_disabled(uint8_t chaincount) {
+ 	if(chaincount > core.current_chain.size())
+ 		return FALSE;
+-	chain* pchain;
+-	if(chaincount == 0)
+-		pchain = &core.current_chain.back();
+-	else
+-		pchain = &core.current_chain[chaincount - 1];
++	chain* pchain = chaincount ? get_chain(chaincount) : get_current_chain();
++	if(!pchain || pchain->removed_by_elimination)
++		return FALSE;
+ 	if(pchain->flag & CHAIN_DISABLE_EFFECT)
+ 		return TRUE;
+ 	card* pcard = pchain->triggering_effect->get_handler();
+@@ -3996,11 +4016,9 @@ int32_t field::is_chain_disabled(uint8_t chaincount) {
+ int32_t field::check_chain_target(uint8_t chaincount, card* pcard) {
+ 	if(chaincount > core.current_chain.size())
+ 		return FALSE;
+-	chain* pchain;
+-	if(chaincount == 0)
+-		pchain = &core.current_chain.back();
+-	else
+-		pchain = &core.current_chain[chaincount - 1];
++	chain* pchain = chaincount ? get_chain(chaincount) : get_current_chain();
++	if(!pchain || pchain->removed_by_elimination)
++		return FALSE;
+ 	effect* peffect = pchain->triggering_effect;
+ 	uint8_t tp = pchain->triggering_player;
+ 	if(!peffect->is_flag(EFFECT_FLAG_CARD_TARGET) || !peffect->target)
+@@ -4017,15 +4035,59 @@ int32_t field::check_chain_target(uint8_t chaincount, card* pcard) {
+ 	pduel->lua->add_param<LuaParam::CARD>(pcard);
+ 	return pduel->lua->check_condition(peffect->target, 10);
+ }
+-chain* field::get_chain(uint8_t chaincount) {
++bool field::is_removed_chain_event(const tevent& event) const {
++	if(n_duelists <= 2 || n_teams != n_duelists || event.event_code != EVENT_CHAINING)
++		return false;
++	// Delayed EVENT_CHAINING triggers are checked after their source link was
++	// popped. A missing slot is not a removed link (R-FFA-ELIMINATION).
++	if(event.event_value == 0 || event.event_value > core.current_chain.size())
++		return false;
++	const auto& ch = core.current_chain[event.event_value - 1];
++	return ch.removed_by_elimination && ch.triggering_effect == event.reason_effect;
++}
++chain* field::get_current_chain() {
++	for(auto it = core.current_chain.rbegin(); it != core.current_chain.rend(); ++it)
++		if(!it->removed_by_elimination)
++			return &*it;
++	return nullptr;
++}
++uint32_t field::active_chain_size(bool completed) const {
++	if(n_duelists <= 2 || n_teams != n_duelists)
++		return completed ? core.real_chain_count : core.current_chain.size();
++	return std::count_if(core.current_chain.begin(), core.current_chain.end(), [completed](const chain& ch) {
++		return !ch.removed_by_elimination && (!completed || ch.counted_in_chain);
++	});
++}
++uint8_t field::previous_chain(bool completed) const {
++	if(n_duelists <= 2 || n_teams != n_duelists)
++		return static_cast<uint8_t>(std::max<int32_t>(0, (completed ? core.real_chain_count : core.current_chain.size()) - 1));
++	bool found = false;
++	for(auto it = core.current_chain.rbegin(); it != core.current_chain.rend(); ++it) {
++		if(it->removed_by_elimination || (completed && !it->counted_in_chain))
++			continue;
++		if(found)
++			return it->chain_count;
++		found = true;
++	}
++	return 0;
++}
++chain* field::get_chain(uint8_t chaincount, bool include_removed) {
+ 	if(chaincount == 0 && core.continuous_chain.size() && (core.reason_effect != nullptr && core.reason_effect->type & EFFECT_TYPE_CONTINUOUS))
+ 		return &core.continuous_chain.back();
+-	if(chaincount == 0 || chaincount > core.current_chain.size()) {
+-		chaincount = (uint8_t)core.current_chain.size();
+-		if(chaincount == 0)
+-			return nullptr;
++	if(chaincount == 0) {
++		// A suspended removed activation must finish its own setters and release
++		// references; it must never write into the preceding living link.
++		const auto* scope = pduel->lua->current_scope();
++		if(scope && !core.current_chain.empty() && core.current_chain.back().removed_by_elimination
++			&& scope->eff == core.current_chain.back().triggering_effect)
++			return &core.current_chain.back();
++		return get_current_chain();
+ 	}
+-	return &core.current_chain[chaincount - 1];
++	if(chaincount > core.current_chain.size())
++		return get_current_chain();
++	auto* ch = &core.current_chain[chaincount - 1];
++	// Reads retain the stored link fields. Mutators keep the default removal guard.
++	return ch->removed_by_elimination && !include_removed ? nullptr : ch;
+ }
+ int32_t field::get_cteffect(effect* peffect, int32_t playerid, int32_t store) {
+ 	card* phandler = peffect->get_handler();
+diff --git a/field.h b/field.h
+index 1f5045a..b6d9f18 100644
+--- a/field.h
++++ b/field.h
+@@ -68,6 +68,7 @@ struct chain {
+ 	bool causal_activation_failed{ false };
+ 	bool removed_by_elimination{ false };
+ 	bool resolution_started{ false };
++	bool counted_in_chain{ false };
+ 	// n_duelists > 2: the opponent whose zones the last Duel.SelectDisableField or Duel.SelectFieldZone of this link
+ 	// offered (DUELIST_NONE: none yet). The target and the operation of a link are two scopes; this keeps the seat
+ 	// between them, whatever other links prompt in between.
+@@ -253,9 +254,10 @@ struct processor : prompt_selection {
+ 	using delayed_effect_collection = std::set<std::pair<effect*, tevent>, delayed_effect_sort>;
+ 	using effect_count_map = std::unordered_map<uint64_t, uint32_t>;
+ 	struct chain_limit_t {
+-		chain_limit_t(int32_t f, int32_t p): function(f), player(p) {}
++		chain_limit_t(int32_t f, int32_t p, uint32_t source = 0): function(f), player(p), source_chain_id(source) {}
+ 		int32_t function;
+ 		int32_t player;
++		uint32_t source_chain_id;
+ 	};
+ 	using chain_limit_list = std::vector<chain_limit_t>;
+ 	struct action_value_t {
+@@ -977,7 +979,11 @@ public:
+ 	int32_t is_chain_disablable(uint8_t chaincount);
+ 	int32_t is_chain_disabled(uint8_t chaincount);
+ 	int32_t check_chain_target(uint8_t chaincount, card* pcard);
+-	chain* get_chain(uint8_t chaincount);
++	chain* get_chain(uint8_t chaincount, bool include_removed = false);
++	chain* get_current_chain();
++	bool is_removed_chain_event(const tevent& event) const;
++	uint32_t active_chain_size(bool completed = false) const;
++	uint8_t previous_chain(bool completed = false) const;
+ 	int32_t get_cteffect(effect* peffect, int32_t playerid, int32_t store);
+ 	int32_t get_cteffect_evt(effect* feffect, int32_t playerid, const tevent& e, int32_t store);
+ 	int32_t check_cteffect_hint(effect* peffect, uint8_t playerid);
+diff --git a/libcard.cpp b/libcard.cpp
+index 994be19..72008cb 100644
+--- a/libcard.cpp
++++ b/libcard.cpp
+@@ -1311,10 +1311,8 @@ LUA_FUNCTION(IsRelateToEffect) {
+ }
+ LUA_FUNCTION(IsRelateToChain) {
+ 	check_param_count(L, 2);
+-	auto chain_count = lua_get<uint8_t>(L, 2);
+-	if(chain_count > pduel->game_field->core.current_chain.size() || chain_count < 1)
+-		chain_count = (uint8_t)pduel->game_field->core.current_chain.size();
+-	lua_pushboolean(L, self->is_has_relation(pduel->game_field->core.current_chain[chain_count - 1]));
++	auto* ch = pduel->game_field->get_chain(lua_get<uint8_t>(L, 2));
++	lua_pushboolean(L, ch && !ch->removed_by_elimination && self->is_has_relation(*ch));
+ 	return 1;
+ }
+ LUA_FUNCTION(IsRelateToCard) {
+diff --git a/libduel.cpp b/libduel.cpp
+index 65fc17b..85ed3b0 100644
+--- a/libduel.cpp
++++ b/libduel.cpp
+@@ -898,13 +898,29 @@ LUA_STATIC_FUNCTION(Activate) {
+ LUA_STATIC_FUNCTION(SetChainLimit) {
+ 	check_param_count(L, 1);
+ 	auto f = interpreter::get_function_handle(L, lua_get<function, true>(L, 1));
+-	pduel->game_field->core.chain_limit.emplace_back(f, pduel->game_field->core.reason_player);
++	auto& field = *pduel->game_field;
++	const auto* source = field.get_chain(0);
++	if(field.n_duelists > 2 && field.n_teams == field.n_duelists && source
++		&& source->removed_by_elimination && source->triggering_effect == field.core.reason_effect) {
++		ensure_luaL_stack(luaL_unref, pduel->lua->lua_state, LUA_REGISTRYINDEX, f);
++		return 0;
++	}
++	const auto source_id = source && !source->resolution_started && source->triggering_effect == field.core.reason_effect ? source->chain_id : 0;
++	field.core.chain_limit.emplace_back(f, field.core.reason_player, source_id);
+ 	return 0;
+ }
+ LUA_STATIC_FUNCTION(SetChainLimitTillChainEnd) {
+ 	check_param_count(L, 1);
+ 	auto f = interpreter::get_function_handle(L, lua_get<function, true>(L, 1));
+-	pduel->game_field->core.chain_limit_p.emplace_back(f, pduel->game_field->core.reason_player);
++	auto& field = *pduel->game_field;
++	const auto* source = field.get_chain(0);
++	if(field.n_duelists > 2 && field.n_teams == field.n_duelists && source
++		&& source->removed_by_elimination && source->triggering_effect == field.core.reason_effect) {
++		ensure_luaL_stack(luaL_unref, pduel->lua->lua_state, LUA_REGISTRYINDEX, f);
++		return 0;
++	}
++	const auto source_id = source && !source->resolution_started && source->triggering_effect == field.core.reason_effect ? source->chain_id : 0;
++	field.core.chain_limit_p.emplace_back(f, field.core.reason_player, source_id);
+ 	return 0;
+ }
+ LUA_STATIC_FUNCTION(GetChainMaterial) {
+@@ -1953,7 +1969,7 @@ LUA_STATIC_FUNCTION(NegateRelatedChain) {
+ 	if(!pcard->is_affect_by_effect(pduel->game_field->core.reason_effect))
+ 		return 0;
+ 	for(auto it = pduel->game_field->core.current_chain.rbegin(); it != pduel->game_field->core.current_chain.rend(); ++it) {
+-		if(it->triggering_effect->get_handler() == pcard && pcard->is_has_relation(*it)) {
++		if(!it->removed_by_elimination && it->triggering_effect->get_handler() == pcard && pcard->is_has_relation(*it)) {
+ 			effect* negeff = pduel->new_effect();
+ 			negeff->owner = pduel->game_field->core.reason_effect->get_handler();
+ 			negeff->type = EFFECT_TYPE_SINGLE;
+@@ -2321,13 +2337,27 @@ LUA_STATIC_FUNCTION(CheckLocation) {
+ }
+ LUA_STATIC_FUNCTION(GetCurrentChain) {
+ 	const auto real = lua_get<bool, false>(L, 1);
+-	const auto& core = pduel->game_field->core;
+-	lua_pushinteger(L, real ? core.real_chain_count : core.current_chain.size());
++	auto& f = *pduel->game_field;
++	const auto* top = f.get_current_chain();
++	lua_pushinteger(L, real ? f.active_chain_size(true) : (top ? top->chain_count : 0));
++	return 1;
++}
++// Stable chain numbers protect saved negation choices. These helpers provide
++// cardinality and predecessor without counting removed slots; Tag/1v1 are stock.
++LUA_STATIC_FUNCTION(MPChainCount) {
++	lua_pushinteger(L, pduel->game_field->active_chain_size());
++	return 1;
++}
++LUA_STATIC_FUNCTION(MPPreviousChain) {
++	auto& f = *pduel->game_field;
++	const bool real = lua_get<bool, false>(L, 1);
++	lua_pushinteger(L, f.n_duelists > 2 && f.n_teams == f.n_duelists ? f.previous_chain(real)
++		: static_cast<int32_t>(real ? f.core.real_chain_count : f.core.current_chain.size()) - 1);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(GetChainInfo) {
+ 	check_param_count(L, 1);
+-	chain* ch = pduel->game_field->get_chain(lua_get<uint8_t>(L, 1));
++	chain* ch = pduel->game_field->get_chain(lua_get<uint8_t>(L, 1), true);
+ 	if(!ch)
+ 		return 0;
+ 	auto top = lua_gettop(L);
+@@ -4509,12 +4539,27 @@ LUA_STATIC_FUNCTION(IsPlayerCanProcedureSummonGroup) {
+ }
+ LUA_STATIC_FUNCTION(IsChainNegatable) {
+ 	check_param_count(L, 1);
++	auto& f = *pduel->game_field;
++	const auto chaincount = lua_get<uint8_t>(L, 1);
++	// FALSE for a removed or missing FFA slot is intentional even outside solving.
++	if(f.n_duelists > 2 && f.n_teams == f.n_duelists && chaincount
++		&& (chaincount > f.core.current_chain.size() || !f.get_chain(chaincount))) {
++		lua_pushboolean(L, FALSE);
++		return 1;
++	}
+ 	lua_pushboolean(L, 1);
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(IsChainDisablable) {
+ 	check_param_count(L, 1);
+ 	auto chaincount = lua_get<uint8_t>(L, 1);
++	auto& f = *pduel->game_field;
++	// FALSE for a removed or missing FFA slot is intentional even outside solving.
++	if(f.n_duelists > 2 && f.n_teams == f.n_duelists && chaincount
++		&& (chaincount > f.core.current_chain.size() || !f.get_chain(chaincount))) {
++		lua_pushboolean(L, FALSE);
++		return 1;
++	}
+ 	if(pduel->game_field->core.chain_solving) {
+ 		lua_pushboolean(L, pduel->game_field->is_chain_disablable(chaincount));
+ 		return 1;
+@@ -4540,8 +4585,9 @@ LUA_STATIC_FUNCTION(CheckChainUniqueness) {
+ 	}
+ 	std::set<uint32_t> er;
+ 	for(const auto& ch : pduel->game_field->core.current_chain)
+-		er.insert(ch.triggering_effect->get_handler()->get_code());
+-	lua_pushboolean(L, er.size() == pduel->game_field->core.current_chain.size());
++		if(!ch.removed_by_elimination)
++			er.insert(ch.triggering_effect->get_handler()->get_code());
++	lua_pushboolean(L, er.size() == pduel->game_field->active_chain_size());
+ 	return 1;
+ }
+ LUA_STATIC_FUNCTION(GetActivityCount) {
+diff --git a/operations.cpp b/operations.cpp
+index 31a8aae..2074fdf 100644
+--- a/operations.cpp
++++ b/operations.cpp
+@@ -62,11 +62,11 @@ static bool removed_duelist_card(const field& f, const card* target) {
+ }
+ 
+ int32_t field::negate_chain(uint8_t chaincount) {
+-	if(core.current_chain.size() == 0)
++	auto* current = (chaincount == 0 || chaincount > core.current_chain.size()) ? get_current_chain() : get_chain(chaincount);
++	if(!current || current->removed_by_elimination)
+ 		return FALSE;
+-	if(chaincount > core.current_chain.size() || chaincount < 1)
+-		chaincount = static_cast<uint8_t>(core.current_chain.size());
+-	chain& pchain = core.current_chain[chaincount - 1];
++	chaincount = current->chain_count;
++	chain& pchain = *current;
+ 	card* effect_handler = pchain.triggering_effect->get_handler();
+ 	if(!(pchain.flag & CHAIN_DISABLE_ACTIVATE) && is_chain_negatable(pchain.chain_count)
+ 		&& effect_handler->is_affect_by_effect(core.reason_effect)) {
+@@ -88,11 +88,11 @@ int32_t field::negate_chain(uint8_t chaincount) {
+ 	return FALSE;
+ }
+ int32_t field::disable_chain(uint8_t chaincount) {
+-	if(core.current_chain.size() == 0)
++	auto* current = (chaincount == 0 || chaincount > core.current_chain.size()) ? get_current_chain() : get_chain(chaincount);
++	if(!current || current->removed_by_elimination)
+ 		return FALSE;
+-	if(chaincount > core.current_chain.size() || chaincount < 1)
+-		chaincount = static_cast<uint8_t>(core.current_chain.size());
+-	chain& pchain = core.current_chain[chaincount - 1];
++	chaincount = current->chain_count;
++	chain& pchain = *current;
+ 	card* effect_handler = pchain.triggering_effect->get_handler();
+ 	if(!(pchain.flag & CHAIN_DISABLE_EFFECT) && is_chain_disablable(pchain.chain_count)
+ 		&& effect_handler->is_affect_by_effect(core.reason_effect)) {
+diff --git a/processor.cpp b/processor.cpp
+index 7eae9d4..e49d8ce 100644
+--- a/processor.cpp
++++ b/processor.cpp
+@@ -1334,7 +1334,15 @@ bool field::process(Processors::QuickEffect& arg) {
+ 			}
+ 		} else {
+ 			infos.priorities[priority] = 1;
+-			const uint8_t next_player = n_duelists > 2 ? next_responder(priority) : DUELIST_NONE;
++			// A removed FFA link can restart the round while this prompt stays open.
++			// Include unpassed seats before its old cursor in the restarted order.
++			uint8_t next_player = n_duelists > 2 ? next_responder(priority) : DUELIST_NONE;
++			if(n_duelists > 2 && n_teams == n_duelists) {
++				next_player = first_responder();
++				// first_responder falls back to the turn player for opening windows.
++				if(!is_alive(next_player) || infos.priorities[next_player])
++					next_player = DUELIST_NONE;
++			}
+ 			if(n_duelists > 2 && next_player != DUELIST_NONE)
+ 				emplace_process<Processors::QuickEffect>(Step{ 1 }, skip_freechain, next_player);
+ 			else if(n_duelists == 2 && (!infos.priorities[0] || !infos.priorities[1]))
+@@ -4281,6 +4289,7 @@ bool field::process(Processors::AddChain& arg) {
+ 		raise_event(phandler, EVENT_CHAINING, peffect, 0, clit.triggering_player, clit.triggering_player, clit.chain_count);
+ 		process_instant_event();
+ 		core.just_sent_cards.clear();
++		clit.counted_in_chain = true;
+ 		++core.real_chain_count;
+ 		if(core.new_chains.size())
+ 			emplace_process<Processors::AddChain>();
+@@ -4782,8 +4791,9 @@ bool field::process(Processors::SolveChain& arg) {
+ 		}
+ 		core.delayed_enable_set.clear();
+ 		adjust_all();
++		const bool counted = n_duelists <= 2 || n_teams != n_duelists || cait->counted_in_chain;
+ 		core.current_chain.pop_back();
+-		if(--core.real_chain_count < 0)
++		if(counted && --core.real_chain_count < 0)
+ 			core.real_chain_count = 0;
+ 		if(!core.current_chain.size()) {
+ 			for(auto& ch_lim : core.chain_limit)
+-- 
+2.43.0

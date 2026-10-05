@@ -73,7 +73,7 @@ async function checkAgainstPool(
   if (deck.extra.length > DRAFT_EXTRA_MAX) {
     return failure({ error: `An Extra Deck holds at most ${DRAFT_EXTRA_MAX} cards` });
   }
-  const issues = checkDeckAgainstPool(deck, pool.byCode);
+  const issues = checkDeckAgainstPool(deck, pool.byCode, undefined, pool.forcedCopies);
   if (issues.length > 0) {
     const first = issues[0];
     return failure(

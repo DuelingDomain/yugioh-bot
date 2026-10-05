@@ -59,6 +59,7 @@ import {
   type DuelHoverHandler,
   type FieldCallbacks,
 } from "./field-keys";
+import { isCoinTossActive } from "./coin-toss-lock";
 import { useSkinStyles } from "./skin";
 import baseStyles from "./field.module.css";
 
@@ -425,6 +426,8 @@ export function PileSlot({
             y: event.clientY,
             timer: window.setTimeout(() => {
               hold.current = null;
+              // A press that began before a coin toss must not open the menu (surrender) under the cover.
+              if (isCoinTossActive()) return;
               setMenuAnchor(target);
             }, 500),
           };
@@ -897,7 +900,7 @@ export function DuelField(props: DuelFieldProps) {
       <div className={styles.wash} aria-hidden="true" />
       <TurnGlow side="top" turn={activity.turnSeat === topIndex} priority={activity.prioritySeat === topIndex} />
       <TurnGlow side="bottom" turn={activity.turnSeat === bottomIndex} priority={activity.prioritySeat === bottomIndex} />
-      <div className={styles.playmat}>
+      <div className={styles.playmat} data-hub={props.hub ? "true" : undefined}>
         <span className={styles.marginRule} aria-hidden="true" />
         <div className={`${styles.strip} ${styles.stripTop}`}>
           <Tally
@@ -937,6 +940,7 @@ export function DuelField(props: DuelFieldProps) {
             <PileColumn view={top} opponent side="right" callbacks={callbacks} ownerLabel={topLabel} masterRule={masterRule} />
           </div>
           <div className={styles.emzBand}>
+            {props.hub ? <div className={styles.emzHub}>{props.hub}</div> : null}
             {showExtraZones && masterRule >= 4 ? (
               <div className={styles.emzRow}>
                 <div />

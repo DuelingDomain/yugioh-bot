@@ -81,7 +81,7 @@ export function loadSource(file: string): DuelSource {
         : `fuzz seed ${scenario.seed} ${scenario.mode} MR${scenario.masterRule}`,
       mode: engine?.mode ?? scenario.mode,
       masterRule: engine?.masterRule ?? scenario.masterRule,
-      firstTurnDraw: savedFuzzFirstTurnDraw(engine?.firstTurnDraw, engine?.mode ?? scenario.mode, engine?.masterRule ?? scenario.masterRule),
+      firstTurnDraw: savedFuzzFirstTurnDraw(engine?.firstTurnDraw, engine?.mode ?? scenario.mode, engine?.masterRule ?? scenario.masterRule, engine?.format),
       decks: engine?.decks ?? json.decks,
       seed: engine?.seed ?? engineSeed(scenario.seed),
       ...(engine?.settings ? { settings: engine.settings } : {}),

@@ -69,7 +69,7 @@ describeWithCores("live compare scenarios of the scan-gap cards, Kaiser Colosseu
 });
 
 describeWithCores("live Domain W8 opponent pick after surrender", [liveNseat, ...needs.domainMulti()], () => {
-  runScenarios("multiplayer/compare-gaps-domain", COMPARE_GAP_SCENARIOS.filter((scenario) => W8_IDS.includes(scenario.id)).map(domainVariant), runCompareGap);
+  runScenarios("multiplayer/compare-gaps-domain", COMPARE_GAP_SCENARIOS.filter((scenario) => scenario.tags.includes("elimination")).map(domainVariant), runCompareGap);
 });
 
 describe("compare gap scenario list", () => {

@@ -1,0 +1,350 @@
+[
+  {
+    "mode": "ffa4",
+    "width": 1920,
+    "height": 1080,
+    "drawer": "closed",
+    "state": "chain-2",
+    "file": "ffa4-chain-2-1920x1080-closed.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": {
+        "x": 367,
+        "y": 815,
+        "width": 293,
+        "height": 83.59375
+      },
+      "stripVisible": true,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "ffa4",
+    "width": 1440,
+    "height": 900,
+    "drawer": "open",
+    "state": "chain-2",
+    "file": "ffa4-chain-2-1440x900-open.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": {
+        "x": 458,
+        "y": 69,
+        "width": 285,
+        "height": 80.3125
+      },
+      "stripVisible": true,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "ffa4",
+    "width": 1366,
+    "height": 768,
+    "drawer": "closed",
+    "state": "chain-2",
+    "file": "ffa4-chain-2-1366x768-closed.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": {
+        "x": 214,
+        "y": 571,
+        "width": 272,
+        "height": 78.84375
+      },
+      "stripVisible": true,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "ffa4",
+    "width": 1366,
+    "height": 768,
+    "drawer": "open",
+    "state": "chain-2",
+    "file": "ffa4-chain-2-1366x768-open.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": {
+        "x": 458,
+        "y": 64,
+        "width": 272,
+        "height": 78.84375
+      },
+      "stripVisible": true,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "ffa3",
+    "width": 1920,
+    "height": 1080,
+    "drawer": "closed",
+    "state": "chain-2",
+    "file": "ffa3-chain-2-1920x1080-closed.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": {
+        "x": 407,
+        "y": 664,
+        "width": 258,
+        "height": 83.59375
+      },
+      "stripVisible": true,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "ffa3",
+    "width": 1440,
+    "height": 900,
+    "drawer": "open",
+    "state": "chain-2",
+    "file": "ffa3-chain-2-1440x900-open.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": {
+        "x": 458,
+        "y": 69,
+        "width": 241,
+        "height": 80.3125
+      },
+      "stripVisible": true,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "ffa3",
+    "width": 1366,
+    "height": 768,
+    "drawer": "closed",
+    "state": "chain-2",
+    "file": "ffa3-chain-2-1366x768-closed.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": {
+        "x": 257,
+        "y": 467,
+        "width": 232,
+        "height": 78.84375
+      },
+      "stripVisible": true,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "ffa3",
+    "width": 1366,
+    "height": 768,
+    "drawer": "open",
+    "state": "chain-2",
+    "file": "ffa3-chain-2-1366x768-open.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": {
+        "x": 458,
+        "y": 64,
+        "width": 232,
+        "height": 78.84375
+      },
+      "stripVisible": true,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "ffa4",
+    "width": 390,
+    "height": 844,
+    "drawer": "phone",
+    "state": "main",
+    "file": "ffa4-main-390x844-phone.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": null,
+      "stripVisible": null,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "ffa4",
+    "width": 390,
+    "height": 844,
+    "drawer": "phone",
+    "state": "chain-2",
+    "file": "ffa4-chain-2-390x844-phone.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": {
+        "x": 12,
+        "y": 122,
+        "width": 272,
+        "height": 78.84375
+      },
+      "stripVisible": true,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "ffa3",
+    "width": 390,
+    "height": 844,
+    "drawer": "phone",
+    "state": "main",
+    "file": "ffa3-main-390x844-phone.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": null,
+      "stripVisible": null,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "ffa3",
+    "width": 390,
+    "height": 844,
+    "drawer": "phone",
+    "state": "chain-2",
+    "file": "ffa3-chain-2-390x844-phone.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": {
+        "x": 12,
+        "y": 122,
+        "width": 232,
+        "height": 78.84375
+      },
+      "stripVisible": true,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "tag",
+    "width": 390,
+    "height": 844,
+    "drawer": "phone",
+    "state": "main",
+    "file": "tag-main-390x844-phone.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": null,
+      "stripVisible": null,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "tag",
+    "width": 390,
+    "height": 844,
+    "drawer": "phone",
+    "state": "chain-2",
+    "file": "tag-chain-2-390x844-phone.png",
+    "errors": [
+      "Chain strip overlaps protected content"
+    ],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": {
+        "x": 4,
+        "y": 140,
+        "width": 300,
+        "height": 100.6875
+      },
+      "stripVisible": true,
+      "collisions": [
+        {
+          "tag": "DIV",
+          "data": {
+            "seatField": "1",
+            "testid": "seat-field-1",
+            "seat": "1",
+            "side": "opp",
+            "seatAngle": "-180",
+            "tone": "rose",
+            "density": "rival",
+            "upright": "false",
+            "straight": "false",
+            "usable": "false",
+            "battle": "true",
+            "reducedMotion": "true",
+            "masterRule": "5"
+          },
+          "rect": {
+            "x": 61.04183578491211,
+            "y": 203.44326782226562,
+            "width": 128.6699676513672,
+            "height": 49.94537353515625
+          }
+        },
+        {
+          "tag": "DIV",
+          "data": {
+            "seatField": "3",
+            "testid": "seat-field-3",
+            "seat": "3",
+            "side": "opp",
+            "seatAngle": "-180",
+            "tone": "verdant",
+            "density": "rival",
+            "upright": "false",
+            "straight": "false",
+            "usable": "false",
+            "battle": "true",
+            "reducedMotion": "true",
+            "masterRule": "5"
+          },
+          "rect": {
+            "x": 200.29632568359375,
+            "y": 203.44326782226562,
+            "width": 128.6710205078125,
+            "height": 49.94537353515625
+          }
+        }
+      ]
+    }
+  },
+  {
+    "mode": "classic",
+    "width": 390,
+    "height": 844,
+    "drawer": "phone",
+    "state": "main",
+    "file": "classic-main-390x844-phone.png",
+    "errors": [],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": null,
+      "stripVisible": null,
+      "collisions": []
+    }
+  },
+  {
+    "mode": "classic",
+    "width": 390,
+    "height": 844,
+    "drawer": "phone",
+    "state": "chain-2",
+    "file": "classic-chain-2-390x844-phone.png",
+    "errors": [
+      "Chain strip is missing or hidden"
+    ],
+    "geometry": {
+      "horizontalOverflow": false,
+      "strip": null,
+      "stripVisible": null,
+      "collisions": []
+    }
+  }
+]

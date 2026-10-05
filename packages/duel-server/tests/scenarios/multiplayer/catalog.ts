@@ -773,6 +773,7 @@ export const FORBIDDEN_EVIDENCE: Record<number, Evidence[]> = {
   35059553: [ev(35059553, 16, "SetTargetRange(0,1)"), ev(35059553, 30, "GetFieldGroupCount(e:GetHandlerPlayer(),LOCATION_MZONE,0)")],
   98139712: [ev(98139712, 19, "c:GetOwner()==1-tp"), ev(98139712, 27, "Duel.Damage(1-tp,d1")],
   83555666: [ev(83555666, 25, "Duel.GetLP(1-tp)"), ev(83555666, 41, "Duel.Damage(1-tp,val")],
+  62966332: [ev(62966332, 5, "GLOBALFLAG_DECK_REVERSE_CHECK"), ev(62966332, 14, "EFFECT_REVERSE_DECK"), ev(62966332, 17, "SetTargetRange(1,1)")],
   22804644: [ev(22804644, 48, "RESET_OPPO_TURN,3"), ev(22804644, 56, "RESET_OPPO_TURN,3")],
   21208154: [ev(21208154, 62, "RESET_OPPO_TURN,2"), ev(21208154, 71, "RESET_OPPO_TURN,2")],
   22888900: [ev(22888900, 28, "RESET_OPPO_TURN,2"), ev(22888900, 45, "RESET_OPPO_TURN,2")],
@@ -1041,7 +1042,14 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
   76375976: [
     "compare-gaps-ffa3-mystic-mine-only-the-opponent-with-more-monsters-is-locked",
     "compare-gaps-ffa3-mystic-mine-no-opponent-has-more-nobody-is-locked",
-    "compare-ffa3-mystic-mine-destroys-itself-on-any-equal-opponent",
+    "compare-ffa3-mystic-mine-stays-with-only-one-equal-opponent",
+    "compare-ffa3-mystic-mine-destroys-itself-when-all-counts-equal",
+    "compare-ffa4-mystic-mine-destroys-itself-when-all-counts-equal",
+    "compare-ffa4-mystic-mine-stays-when-only-the-last-opponent-differs",
+    "compare-gaps-ffa3-mystic-mine-self-locks-if-one-opponent-has-fewer",
+    "tag-copies-mystic-mine-locks-the-opposing-team-by-the-joined-count",
+    "tag-copies-mystic-mine-joined-counts-equal-locks-nobody-and-destroys-itself",
+    "tag-copies-mystic-mine-self-locks-by-unequal-joined-counts",
   ], // Mystic Mine
   57314798: [
     "compare-extra-ffa3-numeron-dragon-summons-itself-when-p0-is-attacked-directly",

@@ -18,6 +18,8 @@ const TIMES: Record<CameraLockReason, number> = { destroy: 1500, chain: 1900, ba
 
 function reasonOf(event: DuelEvent): CameraLockReason | null {
   switch (event.kind) {
+    case "toss":
+      return null;
     case "attack":
       return event.target ? "battle" : "direct";
     case "chain-resolving":

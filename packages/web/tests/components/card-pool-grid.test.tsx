@@ -168,7 +168,7 @@ describe("CardPoolGrid", () => {
   it("prefers the large image in cube edit mode", () => {
     render(<CardPoolGrid cards={cards} cubeEditMode />);
 
-    expect(screen.getByRole("img", { name: "Bujingi Crane" })).toHaveAttribute("src", "u1");
+    expect(screen.getByRole("img", { name: "Bujingi Crane" })).toHaveAttribute("src", "/api/cards/1/image?variant=full");
   });
 
   it("shows a per-tier count beside each tribute filter", () => {

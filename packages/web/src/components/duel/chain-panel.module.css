@@ -304,11 +304,16 @@
 /* Under a strip: the priority chips of a table keep their row. */
 .stripWrap { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; max-width: 100%; }
 .stripWrap > .prioRow {
+  box-sizing: border-box;
+  max-width: 100%;
   border: 1px solid rgb(228 182 79 / 0.35);
   border-radius: 14px;
   background: rgb(10 9 18 / 0.9);
   pointer-events: none;
 }
+.stripWrap .prioRow :global([data-testid="priority-chips"]) { flex-wrap: wrap; }
+.stripWrap .prioRow :global([data-seat]) { display: inline-block; max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
+.stripWrap .prioRow :global([data-seat]) i { display: inline-block; margin-right: 4px; }
 
 @keyframes crIn {
   from { opacity: 0; transform: translateX(-10px); }

@@ -17,6 +17,7 @@ export function SeatStrip({
   onFocusSeat,
   focusAny = false,
   pick,
+  compact = false,
 }: {
   engine: Pick<DuelEngineView, "format" | "seats" | "turnSeat">;
   mySeat: number | null;
@@ -28,6 +29,8 @@ export function SeatStrip({
   focusAny?: boolean;
   /** An opponent pick is open: the seats it offers answer it when tapped. */
   pick?: SeatPick | null;
+  /** In the phase bar of the wide table: one slim row of tags that never wraps. */
+  compact?: boolean;
 }) {
   const format = engineFormat(engine);
   const ordered = [...engine.seats].sort((a, b) => a.seat - b.seat);
@@ -35,7 +38,7 @@ export function SeatStrip({
   // A Leaving seat is pickable only when no living seat is offered (the rule of opponentPickOptions).
   const livingOffered = pick != null && ordered.some((view) => pick.options.has(view.seat) && !isOutOrLeaving(view));
   return (
-    <ol className={styles.strip} aria-label="Turn order" data-format={format} data-testid="seat-strip">
+    <ol className={compact ? `${styles.strip} ${styles.compact}` : styles.strip} aria-label="Turn order" data-format={format} data-testid="seat-strip">
       {ordered.map((view) => {
         const out = isEliminated(view);
         const relation = seatRelation(format, mySeat, view.seat);

@@ -3,7 +3,7 @@
 The multiplayer merge ships with two limits. Both are set by environment variables on the VM.
 
 1. 1v1 duels must not change. The owner can go back to the old engine at any time.
-2. 3-player, 4-player and Tag tables are on in production by default (Standard format only).
+2. 3-player, 4-player and Tag tables are on in production by default (Standard and Domain; each needs its multi core).
 
 ## MULTIPLAYER_TABLES (default on in production compose)
 
@@ -27,7 +27,7 @@ The multiplayer merge ships with two limits. Both are set by environment variabl
 
 - Any other value, an empty value or a missing value means `legacy`. Only `pinned` (any case, spaces trimmed) selects the merged engine.
 - Tables with 3 or more seats always use the multi core. The switch does not change them.
-- `docker-compose.yml` sets `DUEL_1V1_ENGINE=${DUEL_1V1_ENGINE:-legacy}`. Staging sets `${STAGING_DUEL_1V1_ENGINE:-pinned}` so staging tests the merged engine.
+- `docker-compose.yml` sets `DUEL_1V1_ENGINE=${DUEL_1V1_ENGINE:-legacy}`. Staging sets `${STAGING_DUEL_1V1_ENGINE:-legacy}` so staging tests the engine that production uses. Set `STAGING_DUEL_1V1_ENGINE=pinned` to test the merged engine.
 - The deploy ships both engines. The engine bundle holds the merged and the legacy files.
 - The switch is read when a NEW table starts. Change it, then restart the `duel` service. Duels that are active keep their engine (see below).
 
@@ -75,7 +75,7 @@ The pin is rebuilt from main's scripts and checked again by the proof in the mer
 - The pendulum summon log line is "Special Summon" in legacy mode and "Pendulum Summon" in the merged engine. The legacy engine is main's, so it prints main's text. The e2e spec `card-pendulum-summon.spec.ts` accepts this in legacy mode (`E2E_1V1_ENGINE=legacy`).
 - Counters: the legacy engine reads a counter from the core as main does (count first). `tests/ocgcore-wrapper-abi.test.ts` checks both layouts for `duelQuery` and `duelQueryLocation`.
 - The host answers a blocked `view` or `report` with a stale view only when `DUEL_SCENARIOS=1` (the scenario runner). In production, the host waits for the real answer as main does.
-- The multi cores (3, 4 players, Tag) are built from a newer patch series than main's Domain core (the 0053 core-seats patch series). They are used by multi-seat tables only, and those are off by default.
+- The multi cores (3, 4 players, Tag) are built from a newer patch series than main's Domain core (the 0053 core-seats patch series). They are used by multi-seat tables only, and those are on by default in Compose (`MULTIPLAYER_TABLES`).
 
 ### E2E
 
@@ -91,7 +91,7 @@ Run the 1v1 specs with `E2E_1V1_ENGINE=legacy` to check the production default.
 
 ## What is checked
 
-- The legacy regression pin is main `b1e20054`: Draw/Standby prompt, view and engine pacing cases from `cec00380`, public-priority privacy tests, material-count cases, and chain-target response/tracking cases run against `src/legacy/` in `packages/duel-server/tests/legacy-main/` (15 test files). The remaining baseline cases are still from `78b8caa`; this is a selective port, not a claim that all newer main engine changes were copied. Import paths and temporary legacy-wasm links select the legacy engine.
+- The legacy regression pin is main `b1e20054`: Draw/Standby prompt, view and engine pacing cases from `cec00380`, public-priority privacy tests, material-count cases, and chain-target response/tracking cases run against `src/legacy/` in `packages/duel-server/tests/legacy-main/` (20 test files). The remaining baseline cases are still from `78b8caa`; this is a selective port, not a claim that all newer main engine changes were copied. Import paths and temporary legacy-wasm links select the legacy engine.
 - The merged duel-server suites pass in both modes (`DUEL_1V1_ENGINE=legacy` and `pinned`). CI runs both: the `engine` and the `engine-legacy` job.
 - `tests/legacy-engine-identity.test.ts`: the legacy Standard core is the npm file byte for byte. The legacy Domain wasm has the manifest sha.
 - `tests/host-engine-switch.test.ts`: dispatch, the saved engine, recover and replay across a switch change.

@@ -381,8 +381,7 @@ static void check_chain() {
 		respond_i(d, -1);
 		k = until_prompt(d);
 	}
-	if(chain_prompts_to_p0)
-		std::printf("     note: the base still sent %d chain prompt(s) to eliminated duelist 0 (T3 response cursor must skip it)\n", chain_prompts_to_p0);
+	EXPECT(chain_prompts_to_p0 == 0, "eliminated duelist 0 received %d chain prompts", chain_prompts_to_p0);
 	int i72 = -1, i76 = -1, i73 = -1, i40 = -1, i200 = -1;
 	for(size_t i = mark; i < all_msgs.size(); ++i) {
 		const uint8_t id = all_msgs[i].id;
@@ -392,16 +391,17 @@ static void check_chain() {
 		if(id == MSG_CHAIN_SOLVED && i73 < 0) i73 = static_cast<int>(i);
 		if(id == MSG_NEW_TURN && i40 < 0) i40 = static_cast<int>(i);
 	}
-	EXPECT(i200 >= 0 && i72 > i200 && i76 > i72 && i73 > i76, "200 < CHAIN_SOLVING < CHAIN_DISABLED < CHAIN_SOLVED (%d %d %d %d)", i200, i72, i76, i73);
-	if(i76 >= 0)
-		EXPECT(all_msgs[i76].d.size() == 1 && all_msgs[i76].d[0] == 1, "CHAIN_DISABLED chain count 1");
+	// Rulebook v1.4, Removing players from the game (R-FFA-ELIMINATION):
+	// an unstarted leaver link is removed without resolution or disable events.
+	EXPECT(i200 >= 0 && i72 == -1 && i76 == -1 && i73 == -1,
+		"loss reported; removed link has no SOLVING/DISABLED/SOLVED (%d %d %d %d)", i200, i72, i76, i73);
 	EXPECT(op_count == 0, "the operation of the eliminated duelist ran %d times", op_count);
-	EXPECT(i40 > i73 && all_msgs[i40].d[0] == 1, "NEW_TURN for duelist 1 after the chain (index %d, player %d)", i40, i40 >= 0 ? all_msgs[i40].d[0] : -1);
+	EXPECT(i40 > i200 && all_msgs[i40].d[0] == 1, "NEW_TURN for duelist 1 after the loss (index %d, player %d)", i40, i40 >= 0 ? all_msgs[i40].d[0] : -1);
 	bool prompted0 = false;
 	for(size_t i = static_cast<size_t>(i40 > 0 ? i40 : 0); i < all_msgs.size(); ++i)
 		if(is_prompt(all_msgs[i].id) && all_msgs[i].id != MSG_SELECT_CHAIN && all_msgs[i].d[0] == 0) prompted0 = true;
 	EXPECT(!prompted0, "eliminated turn player got an idle/battle prompt after NEW_TURN");
-	std::printf("ok   p0's link: 200, CHAIN_SOLVING, CHAIN_DISABLED, CHAIN_SOLVED, no operation; then NEW_TURN for duelist 1, no idle prompt for p0 after the turn changed (chain windows: T3)\n");
+	std::printf("ok   p0's link: loss, no resolution messages or operation; then NEW_TURN for duelist 1, no idle prompt for p0\n");
 	OCG_DestroyDuel(d);
 }
 

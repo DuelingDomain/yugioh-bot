@@ -9,7 +9,7 @@
 export interface KnownGap {
   /** The core patch that is missing. */
   patch: string;
-  /** Where the spec names the gap, for example "docs/specs/2026-10-02-approved-core-integration.md:218". */
+  /** Where the spec names the gap, for example "docs/adr/0002-multiplayer-duel-rules.md:153". */
   spec: string;
   /** Text that must all be in the failure message. Name the step and the assertion, for example `step 15 expectNotOffered(`. */
   failsWith: string[];

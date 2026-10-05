@@ -28,6 +28,8 @@ const LABEL: Partial<Record<SeatStatus, string>> = {
 
 export interface TurnRingProps {
   layout: TableLayout;
+  /** The layout that numbers the nodes, when `layout` holds only the seats still in the duel (the numbers do not change). */
+  numbering?: TableLayout;
   engine: Pick<DuelEngineView, "turn" | "phase" | "turnSeat" | "seats">;
   /** Screen angle of every seat on the ring (degrees, 0 = right, 90 = down), by seat. */
   angles: ReadonlyMap<number, number>;
@@ -48,7 +50,7 @@ const at = (deg: number, r = R) => ({ x: r2(C + Math.cos(rad(deg)) * r), y: r2(C
  * of its field, and clockwise arcs in turn order. The lit arc leaves the seat that plays now. It never takes pointer
  * events. In the fly-in view its text turns against the world (`--ry`) so it stays level.
  */
-export function TurnRing({ layout, engine, angles, pose, promptSeat, locked = false }: TurnRingProps) {
+export function TurnRing({ layout, numbering = layout, engine, angles, pose, promptSeat, locked = false }: TurnRingProps) {
   const seats = [...layout.slots].sort((a, b) => a.turnOrder - b.turnOrder);
   const tone = (seat: number) => SEAT_TONE_HEX[layout.slots.find((slot) => slot.seat === seat)?.tone ?? "violet"];
   const angle = (seat: number) => angles.get(seat) ?? 90;
@@ -149,7 +151,7 @@ export function TurnRing({ layout, engine, angles, pose, promptSeat, locked = fa
                 strokeDasharray={status === "next" ? "2.5 2" : undefined}
               />
               <text x={p.x} y={p.y + 3.6} textAnchor="middle" className={styles.initial} fontSize="10.5" fill={isTurn ? "#0a0f1c" : out ? "#5f5c57" : hex.ink}>
-                {seatInitial(slot.seat, layout)}
+                {seatInitial(slot.seat, numbering)}
               </text>
               {out ? <path d={`M${p.x - 7} ${p.y + 7} L${p.x + 7} ${p.y - 7}`} stroke="#e45a4d" strokeWidth="1.6" /> : null}
               {label ? (

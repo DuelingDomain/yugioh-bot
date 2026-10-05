@@ -1,3 +1,4 @@
+import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { createCardCatalogService } from "@yugidraft/shared/services";
@@ -14,6 +15,8 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     const preview = await catalog.getSetPreview(decodedName);
     return NextResponse.json(preview);
   } catch (error) {
+    const fetchFailure = cardFetchErrorResponse(error);
+    if (fetchFailure) return fetchFailure;
     console.error("[api/sets/preview] error:", error);
     return NextResponse.json({ error: "Failed to load set preview" }, { status: 500 });
   }

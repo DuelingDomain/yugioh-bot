@@ -326,7 +326,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                         {/* The host does not send its 1v1 engine choice to the creator. */}
                         {format !== "1v1"
                           ? " Tag and free-for-all duels use Master Rule 5. In Domain, every duelist draws on their first turn."
-                          : " In 1v1 Domain, the duelist who goes first draws at Master Rule 1 and 2; at Master Rule 3 to 5 this depends on the server engine. The second duelist always draws."}
+                          : " In 1v1 Domain, the duelist who goes first skips the draw on their first turn at every Master Rule. The second duelist always draws."}
                       </span>
                     </p>
                   ) : (

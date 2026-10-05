@@ -12,8 +12,13 @@ import styles from "./editor.module.css";
 
 const SECTION_LABELS: Record<DeckSection, string> = { main: "Main", extra: "Extra", side: "Side" };
 
-export function CardCopyCount({ copies, limit, poolCopies }: { copies: number; limit: number; poolCopies?: number }) {
-  return <p className={styles["de-copies"]}><b className="num">{copies}</b>{" "}of <b className="num">{poolCopies ?? limit}</b>{" "}{poolCopies !== undefined ? "pool copies " : ""}in deck</p>;
+export function CardCopyCount({ copies, limit, poolCopies, forced = 0 }: { copies: number; limit: number; poolCopies?: number; forced?: number }) {
+  return (
+    <p className={styles["de-copies"]}>
+      <b className="num">{copies}</b>{" "}of <b className="num">{poolCopies ?? limit}</b>{" "}{poolCopies !== undefined ? "pool copies " : ""}in deck
+      {forced > 0 ? <span title="A pack left you no other pick, so the extra copy can go in your deck."> (incl. forced pick)</span> : null}
+    </p>
+  );
 }
 
 /** Add, remove and Deck Master controls for the inspected card, under the card text. */
@@ -24,6 +29,7 @@ export function CardActions({
   copies,
   limit,
   poolCopies,
+  forced = 0,
   banlistName,
   archetypes,
   onAdd,
@@ -38,8 +44,10 @@ export function CardActions({
   /** All copies in the deck with this card's name (alternate artworks included). */
   copies: number;
   limit: 0 | 1 | 2 | 3;
-  /** Draft deck mode: copies of this card in the player's pool. They replace the banlist limit. */
+  /** Draft deck mode: copies of this card the deck can hold (3 plus forced picks, at most the pool). They replace the banlist limit. */
   poolCopies?: number;
+  /** Draft deck mode: forced picks of this card; each adds one copy to the 3-copy limit. */
+  forced?: number;
   banlistName: string | null;
   archetypes: readonly CardArchetype[];
   onAdd: (section: DeckSection) => void;
@@ -62,7 +70,7 @@ export function CardActions({
   return (
     <div className={styles["de-acts-c"]}>
       {hideSummary ? null : <div className={styles.actionsHead}>
-        <CardCopyCount copies={copies} limit={limit} poolCopies={poolCopies} />
+        <CardCopyCount copies={copies} limit={limit} poolCopies={poolCopies} forced={forced} />
         {status ? (
           <span className={cn("chip", limit === 0 ? styles.chipBad : "chip-gold")} title={banlistName ? `${status} on ${banlistName}` : status}>
             {status}

@@ -437,11 +437,11 @@ static void check_link_window(const Layout& l, const std::string& name, const st
 static void check_windows() {
 	auto none = [](Run&, uint8_t, uint8_t) { return false; };
 	check_link_window(FFA4, "tp 0 adds a link, all pass", "C1 C2 C3 C0", none);
-	// The "1 passes, 3 chains" walk: the order after its link is 0, 1, 2, 3.
+	// R-FFA-CHAIN: each new link restarts clockwise after its activator, with that seat last.
 	check_link_window(FFA4, "tp 0 adds a link, 3 chains", "C1 C2 C3 C0 C1 C2 C3", [](Run& r, uint8_t p, uint8_t) {
 		return p == 3 && std::count(r.ev.begin(), r.ev.end(), std::string("G3")) == 0;
 	});
-	check_link_window(FFA4, "tp 0 adds a link, 1 chains (then tp first)", "C1 C0 C1 C2 C3", [](Run& r, uint8_t p, uint8_t) {
+	check_link_window(FFA4, "tp 0 adds a link, 1 chains (then 2 first)", "C1 C2 C3 C0 C1", [](Run& r, uint8_t p, uint8_t) {
 		return p == 1 && std::count(r.ev.begin(), r.ev.end(), std::string("G1")) == 0;
 	});
 	check_link_window(TAG, "L=0 adds a link, all pass", "C1 C3 C2 C0", none);

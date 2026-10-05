@@ -235,6 +235,23 @@ describe("O patterns", () => {
     expect(card.flagged).toBe(false);
   });
 
+  it.each([
+    "local opp=1-tp\nlocal sg=g:Select(opp,1,1,nil)",
+    "local opp=1-tp\nlocal op=Duel.SelectEffect(opp,{true,1},{true,2})",
+    "local p\n if e:GetLabel()==0 then\n  p=1-tp\n elseif e:GetLabel()==1 then\n  p=tp\n end\nlocal sg=g:Select(p,1,1,nil)",
+    "local sel_player=Duel.IsExistingMatchingCard(Card.IsSetCard,tp,LOCATION_PZONE,0,1,nil,SET_VAALMONICA) and tp or 1-tp\nlocal op=Duel.SelectEffect(sel_player,{true,1},{true,2})",
+  ])("chooser-opp follows local and conditional opponent aliases: %s", (body) => {
+    const card = scan(body);
+    expect(card.rules).toContain("chooser-opp");
+    expect(card.cls).toBe("O");
+    expect(card.flagged).toBe(false);
+  });
+
+  it("chooser-opp does not take an alias from a different callback or a comparison", () => {
+    const text = "function s.target(e,tp)\n local opp=1-tp\nend\nfunction s.activate(e,tp)\n local opp=tp\n if opp==1-tp then end\n g:Select(opp,1,1,nil)\nend";
+    expect(scanText(1, text).rules).not.toContain("chooser-opp");
+  });
+
   it("both-individual-locs: same hand or Deck of both players", () => {
     expect(has("local g=Duel.GetFieldGroup(tp,LOCATION_HAND,LOCATION_HAND)", "both-individual-locs")).toBe(true);
     expect(has("local g=Duel.GetFieldGroup(tp,LOCATION_HAND,LOCATION_MZONE)", "both-individual-locs")).toBe(false);

@@ -678,14 +678,17 @@ describe("series advance", () => {
   });
 
   it("keeps unresolved card codes while siding, like check-deck", async () => {
-    vi.useFakeTimers();
+    // Both requests use the shared card-fetch rate timer. Let it run between lookups.
     const app = setup();
     const { host, workers } = openHost(app);
     const { duel, series } = await startChallenge(app, host, 3);
     await endGame(host, workers[0]!, duel.slug, app.p1, 0);
     const before = app.series.sideState(series.id, GUILD, app.p1).currentDeck;
     const unknown = 999999999;
-    const fetchStub = vi.fn(async () => ({ ok: true, json: async () => ({ data: [] }) }));
+    const fetchStub = vi.fn(async () => new Response(
+      JSON.stringify({ error: "No card matching your query was found in the database." }),
+      { status: 400 },
+    ));
     vi.stubGlobal("fetch", fetchStub);
     try {
       vi.mocked(normalizeImportedDeck).mockClear();
@@ -702,6 +705,7 @@ describe("series advance", () => {
       expect(check.status).toBe(200);
       expect(check.data.deck.main[0]).toBe(unknown);
       expect(vi.mocked(normalizeImportedDeck).mock.calls[1]![3]).toEqual({ keepUnresolved: true });
+      expect(fetchStub).toHaveBeenCalledTimes(2);
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1022,7 +1026,10 @@ describe("catalog ops", () => {
   it("normalize-codes keeps engine ids, maps unknown ids to null and checks its input", async () => {
     const app = setup();
     const { host } = openHost(app);
-    const fetchStub = vi.fn(async () => ({ ok: true, json: async () => ({ data: [] }) }));
+    const fetchStub = vi.fn(async () => new Response(
+      JSON.stringify({ error: "No card matching your query was found in the database." }),
+      { status: 400 },
+    ));
     vi.stubGlobal("fetch", fetchStub);
     try {
       const known = deckWithSide().main[0]!;
@@ -1037,6 +1044,7 @@ describe("catalog ops", () => {
       expect(bad.status).toBe(400);
       const notList = await post(host, { op: "normalize-codes", playerId: app.p1, codes: "1" });
       expect(notList.status).toBe(400);
+      expect(fetchStub).toHaveBeenCalledTimes(1);
     } finally {
       vi.unstubAllGlobals();
     }

@@ -86,11 +86,12 @@ export const ALL_PLAYER_ZONE_GAPS_SCENARIOS: Scenario[] = [
     (["1v1", "tag"] as const).map((format) => zoneGap(kind, format))),
 ];
 
-// Domain draws one Deck monster before Circle banishes the remaining monster.
+// Multiplayer Domain draws one Deck monster before Circle banishes the remaining monster.
+// In 1v1 Domain both monsters stay in the Deck for Circle to banish.
 for (const format of ["1v1", "ffa3", "ffa4", "tag"] as const) {
   const scenario = structuredClone(zoneGap("circle", format));
   const final = scenario.steps.find((step) => step.op === "expectBoard");
   if (final?.op !== "expectBoard") throw new Error("Circle needs a final board check");
-  final.board.p0!.banished = ["Mystical Elf"];
+  if (format !== "1v1") final.board.p0!.banished = ["Mystical Elf"];
   ALL_PLAYER_ZONE_GAPS_SCENARIOS.push(domainVariant(scenario));
 }

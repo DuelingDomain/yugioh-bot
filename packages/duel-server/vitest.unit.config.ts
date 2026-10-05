@@ -11,6 +11,10 @@ import { configDefaults, defineConfig } from "vitest/config";
 // tests there (for example tests/engine-nseat.test.ts and tests/engine.test.ts have pure projection and parsing tests),
 // so those tests do not run in the unit job. Every file not in the list passes.
 const NEEDS_ENGINE = [
+  "tests/host-surrender-eot.test.ts",
+  "tests/scenarios/multiplayer/leave-chains.test.ts",
+  "tests/scenarios/multiplayer/leave-effects.test.ts",
+  "tests/scenarios/multiplayer/leave-turns.test.ts",
   "tests/ffa-attack-target-pick.test.ts",
   // cards.cdb (card data, deck legality, scenario names)
   "tests/card-data-abi.test.ts",
@@ -25,6 +29,7 @@ const NEEDS_ENGINE = [
   // the engine bundle manifest (the host reads it when it is made; the identity test hashes the legacy files)
   "tests/host-bug-context.test.ts",
   "tests/host-chain-mode.test.ts",
+  "tests/host-coin-clock.test.ts",
   "tests/host-engine-switch.test.ts",
   "tests/host-multiplayer-flag.test.ts",
   "tests/legacy-engine-identity.test.ts",
@@ -87,6 +92,8 @@ const NEEDS_ENGINE = [
   "tests/scenarios/multiplayer/action-seat.test.ts",
   "tests/scenarios/multiplayer/owner-seat.test.ts",
   "tests/domain-nseat-stress-fuzz-stall.test.ts",
+  // Deck Master core rule tests read card scripts through tests/domain/helpers.ts
+  "tests/domain/**",
   // main's engine tests, run against the legacy 1v1 engine (src/legacy): a Standard or Domain core each
   "tests/legacy-main/**",
 ];

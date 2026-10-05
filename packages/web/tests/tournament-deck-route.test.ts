@@ -42,6 +42,25 @@ const put = (body: unknown) => new Request("http://localhost/x", { method: "PUT"
 const get = () => new Request("http://localhost/x") as never;
 
 describe("tournament deck route", () => {
+  it.each([false, true])("registers forced fourth copies and refuses a fifth (%s)", async (fifth) => {
+    const fixture = await seedDraftDeck({ picks: [...mainIds(40), 1, 1, 1, 1], forcedPicks: [42], tournamentUsers: ["drafter"] });
+    tempDirs.push(fixture.dir);
+    auth.mockResolvedValue({ user: { id: "drafter", name: "Yugi" } });
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+    db.prepare("update tournaments set web_slug = 'cup'").run();
+    const deck = { main: mainIds(40).map(passcodeOf), extra: [], side: Array(fifth ? 4 : 3).fill(passcodeOf(1)) };
+    const saved = createSavedDeckService(db).create("guild-1", "drafter", { name: "Forced", mode: "normal", deck, draftId: fixture.draftId });
+    callDuelHost.mockImplementation(async (input: { op: string; codes: number[] }) => input.op === "check-deck"
+      ? { ok: true, data: { deck, report: { issues: [] } } }
+      : { ok: true, data: { codes: Object.fromEntries(input.codes.map((id) => [id, id >= 100000 ? id : passcodeOf(id)])) } });
+    const { PUT } = await import("../app/api/tournaments/[slug]/deck/route");
+    const res = await PUT(put({ savedDeckId: saved.id }), ctx);
+    expect(callDuelHost).toHaveBeenCalledWith(expect.objectContaining({ op: "check-deck", draftId: fixture.draftId }));
+    expect(res.status).toBe(fifth ? 400 : 200);
+    if (fifth) expect((await res.json()).poolIssues).toEqual([{ code: passcodeOf(1), used: 5, available: 4 }]);
+  });
+
   beforeEach(() => {
     vi.resetModules();
     vi.stubEnv("DISCORD_GUILD_ID", "g1");

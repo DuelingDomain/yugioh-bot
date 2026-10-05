@@ -9,7 +9,7 @@ export type { BattleAim, PromptDraft, InspectTarget, DuelActivateHandler, DuelHo
 
 /**
  * The contract of the multiplayer table UI (3-way, 4-way, 2v2 tag). The scaffold wrote it; after that only the
- * 3w-* steps may change it, and only by adding. Plan: docs/specs/2026-10-01-multiplayer-table-ui-plan.md.
+ * 3w-* steps may change it, and only by adding. See docs/architecture.md.
  */
 
 export type TableFormat = Exclude<DuelFormat, "1v1">; // "tag" | "ffa3" | "ffa4"
@@ -32,8 +32,12 @@ export interface SeatSlot {
   code: string | null; // tag: "1A" | "2A" | "1B" | "2B" (tagSeatCode); ffa: null
   turnOrder: number; // 0-based order in the turn ring
 }
+/** How the seats still in the duel are placed: the 4-way places, the 3-way places, or a face to face pair. */
+export type Arrangement = "ffa4" | "ffa3" | "duo";
 export interface TableLayout {
   format: TableFormat;
+  /** Set by `aliveLayout` when seats are out. Absent: the places follow the format. */
+  arrangement?: Arrangement;
   viewerSeat: number | null;
   anchorSeat: number; // anchor = viewer, or 0 for spectator
   slots: readonly SeatSlot[]; // viewer/anchor first, then placementOrder
@@ -171,6 +175,9 @@ export interface TableStageProps {
   fx?: ReactNode;
   promptCenter?: ReactNode;
   overlay?: ReactNode; // slots: FxBoundary tree, PromptCenter, menus
+  /** Phase hub card (3-way and 4-way tables): drawn flat on the canvas beside the turn ring, at `hubPose`. */
+  hub?: ReactNode;
+  masterChip?: ReactNode; // hangs under the viewer's own holo LP panel (the Deck Master chip of a domain duel)
 }
 export type TagStageProps = TableStageProps;
 export type FxLockRule = (event: DuelEvent) => { reason: CameraLockReason; ms: number } | null;
