@@ -595,6 +595,28 @@
   }
 }
 
+/* Floating HUD room (1v1): your hand reaches up over the front Spell/Trap row. Only the card's resting box takes
+   the pointer, never the picture that the hover grows over that row: when the pointer leaves the resting box the
+   card drops back, so a click always goes to the hand card or the zone you see, never both. */
+:global([data-hud="room"]) .handLocal .handCard .frame {
+  pointer-events: none;
+}
+
+/* A legal or selected card rests a little higher than its box: this strip keeps that visible edge on the card. */
+:global([data-hud="room"]) .handLocal .handCard .zone[data-legal="true"] .zoneHit::before,
+:global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  left: 0;
+  height: calc(var(--lh) * 0.05);
+  content: "";
+}
+
+:global([data-hud="room"]) .handLocal .handCard .zone[data-selected="true"] .zoneHit::before {
+  height: calc(var(--lh) * 0.12);
+}
+
 /* ---------- arena: five rows on a 7-column grid ---------- */
 
 .arena {

@@ -34,4 +34,12 @@ describe("your hand is drawn larger than the strip reserves", () => {
     expect(css).toMatch(/\[data-hud="room"\]\) \.playmat \{[^}]*--lift-k: 0;[^}]*--mark-k: 0;/);
     expect(css).not.toMatch(/@media \(hover: none\) \{\s*:global\(\[data-hud="room"\]\)/);
   });
+
+  it("lets only the resting box of a HUD room hand card take the pointer, never the grown hover picture", () => {
+    // The hover grows the card over the Spell/Trap row; that picture must not steal a click meant for a zone.
+    expect(css).toMatch(/:global\(\[data-hud="room"\]\) \.handLocal \.handCard \.frame \{\s*pointer-events: none;/);
+    // A legal or selected card rests a little higher than its box: a strip above the box keeps that edge on the card.
+    expect(css).toMatch(/\.zone\[data-legal="true"\] \.zoneHit::before,[^{]*\.zone\[data-selected="true"\] \.zoneHit::before \{[^}]*bottom: 100%;[^}]*height: calc\(var\(--lh\) \* 0\.05\);/);
+    expect(css).toMatch(/\.zone\[data-selected="true"\] \.zoneHit::before \{\s*height: calc\(var\(--lh\) \* 0\.12\);/);
+  });
 });
