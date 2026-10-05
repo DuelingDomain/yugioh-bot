@@ -1,5 +1,6 @@
 "use client";
 
+import { useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { Search, X } from "lucide-react";
 import type { DuelCard, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { cardArtUrl, cardStatsText, LOCATION_DMZONE, zoneKey } from "../constants";
@@ -22,11 +23,93 @@ function shortActionLabel(label: string): string {
   return label;
 }
 
+/** The tall plate's card: at most the plate's inner width (152px wide, so 222px high), at least 195px high. */
+const MASTER_ART_MAX = 222;
+const MASTER_ART_MIN = 195;
+/** The tall plate is for large screens only: a shorter window keeps the compact plate (the old token row). */
+const MASTER_TALL_MIN_VIEW = 860;
+/** The free gap kept between the plate top and the dock or the chain tower above it. */
+const MASTER_ART_GAP = 12;
+/** The tall plate less its card (paddings, the gaps, the name and the action row), a safe top value for the choice. */
+const MASTER_TALL_REST = 132;
+
+export type MasterForm = { tall: false } | { tall: true; art: number };
+
 /**
- * The Deck Master of the 4-way grid, as a token plate in the left margin beside your field. The plate shows the card,
- * its name and the actions that are legal now (Normal Summon, Set) with Inspect. A click on the token or Inspect opens
- * the details flyout (status, returns, next surcharge) right above the plate, in the free margin, so it never covers a
- * field. Both parts read the same real seat view as the Deck Master dock of the other tables.
+ * Which plate fits. `viewHeight` is the window height; `room` is the height a tall card can have, that is the room
+ * between the plate bottom and the lowest of the dock and the chain tower, less a gap and the rest of the tall plate.
+ * The tall plate needs a large window and room for a card of at least 195px; else the plate is the compact token row.
+ * The card never gets smaller than that: there is no size between the two forms.
+ */
+export function masterForm(viewHeight: number, room: number): MasterForm {
+  if (viewHeight < MASTER_TALL_MIN_VIEW || room < MASTER_ART_MIN) return { tall: false };
+  return { tall: true, art: Math.min(MASTER_ART_MAX, Math.floor(room)) };
+}
+
+/**
+ * Picks the plate form from the free margin above the plate. The plate grows up from the bottom of the left margin;
+ * the dock and the chain tower (live chains only, at most four rows) sit higher in the same margin. Before a measure
+ * (first paint, tests) and on a second plate (data-slot="other"), the plate is compact.
+ */
+function useMasterForm(wrapRef: RefObject<HTMLDivElement | null>, artRef: RefObject<HTMLSpanElement | null>, shown: boolean): MasterForm {
+  const [form, setForm] = useState<MasterForm>({ tall: false });
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current;
+    const art = artRef.current;
+    const layer = wrap?.parentElement;
+    if (!shown || !wrap || !art || !layer || typeof ResizeObserver === "undefined") return;
+    if (wrap.dataset.slot === "other") return;
+    let frame = 0;
+    const fit = () => {
+      frame = 0;
+      const box = wrap.getBoundingClientRect();
+      if (box.height === 0) return;
+      let limit = layer.getBoundingClientRect().top;
+      for (const el of layer.querySelectorAll<HTMLElement>(`:scope > .${styles.dock}, :scope > .${styles.tower}`)) {
+        const rect = el.getBoundingClientRect();
+        // Only what is in the plate's own column, above it.
+        if (rect.height === 0 || rect.right <= box.left || rect.left >= box.right || rect.bottom > box.bottom) continue;
+        limit = Math.max(limit, rect.bottom);
+      }
+      // A tall plate measures its own rest; a compact one uses the safe top value, so the choice never flips back.
+      const rest = wrap.dataset.form === "tall" ? box.height - art.getBoundingClientRect().height : MASTER_TALL_REST;
+      const next = masterForm(window.innerHeight, box.bottom - limit - MASTER_ART_GAP - rest);
+      setForm((now) => (now.tall === next.tall && (!now.tall || !next.tall || now.art === next.art) ? now : next));
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(fit);
+    };
+    const sizes = new ResizeObserver(schedule);
+    const watch = () => {
+      sizes.disconnect();
+      sizes.observe(layer);
+      sizes.observe(wrap);
+      for (const el of layer.querySelectorAll<HTMLElement>(`:scope > .${styles.dock}, :scope > .${styles.tower}`)) sizes.observe(el);
+      schedule();
+    };
+    // The chain tower comes and goes as a sibling of the plate.
+    const children = new MutationObserver(watch);
+    children.observe(layer, { childList: true });
+    window.addEventListener("resize", schedule);
+    watch();
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      sizes.disconnect();
+      children.disconnect();
+      window.removeEventListener("resize", schedule);
+    };
+  }, [wrapRef, artRef, shown]);
+  return form;
+}
+
+/**
+ * The Deck Master of the 4-way grid, as a plate at the bottom of the left margin beside your field. It shows the card,
+ * its name and the actions that are legal now (Normal Summon, Set, Attack) with Inspect. It has two forms:
+ * - compact (small screens, a long chain): a token row with a small card. The details flyout opens right above the
+ *   plate, in the free margin.
+ * - tall (large screens with free margin): the whole card at a readable size above the name. The details open inside
+ *   the plate, over the card and the name, so they never cover the dock or the chain tower.
+ * Both parts read the same real seat view as the Deck Master dock of the other tables.
  *
  * `slot="other"` is the second plate of a table that shows two masters (the rival of a 1v1 duel, the partner of a Tag
  * duel): it sits in the right margin, shows the card and opens the same details, and never offers actions.
@@ -67,6 +150,9 @@ export function GridMasterToken({
   onHoverCard?: DuelHoverHandler;
 }) {
   const master = view?.deckMaster;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const artRef = useRef<HTMLSpanElement>(null);
+  const form = useMasterForm(wrapRef, artRef, master != null);
   if (!view || !master) return null;
   const card = masterCard(view);
   const keys = withExact(card, [zoneKey(view.seat, LOCATION_DMZONE, 0)]);
@@ -86,27 +172,30 @@ export function GridMasterToken({
     else onInspect({ type: "info", card: master.card });
   };
 
+  const flyout = open ? (
+    <aside className={styles.masterFly} role="dialog" aria-label={`${title} details`} data-testid={id("hud-master-flyout")}>
+      <header>
+        <b>{title}</b>
+        <button type="button" className={styles.flyClose} aria-label="Close Deck Master details" data-testid={id("hud-master-close")} onClick={onClose}>
+          <X size={16} strokeWidth={1.75} aria-hidden />
+        </button>
+      </header>
+      <p className={styles.masterFlyName}>{master.card.name}</p>
+      {details.map((line) => <p key={line} className={styles.masterFlyLine}>{line}</p>)}
+      {stats ? <p className={styles.masterFlyLine}>{stats}</p> : null}
+      <dl>
+        <div><dt>Status</dt><dd data-testid={id("hud-master-status")}>{status}</dd></div>
+        <div><dt>Returns</dt><dd data-testid={id("hud-master-returns")}>{master.returns}</dd></div>
+        <div><dt>Next surcharge</dt><dd data-testid={id("hud-master-cost")}>{master.nextCost} LP</dd></div>
+      </dl>
+      <button type="button" className={styles.masterFlyCard} data-testid={id("hud-master-card")} onClick={openCard}>Card view</button>
+    </aside>
+  ) : null;
+
   return (
-    <div className={styles.masterWrap} data-hud-keep="" data-slot={slot} data-testid={id("hud-master")}>
-      {open ? (
-        <aside className={styles.masterFly} role="dialog" aria-label={`${title} details`} data-testid={id("hud-master-flyout")}>
-          <header>
-            <b>{title}</b>
-            <button type="button" className={styles.flyClose} aria-label="Close Deck Master details" data-testid={id("hud-master-close")} onClick={onClose}>
-              <X size={16} strokeWidth={1.75} aria-hidden />
-            </button>
-          </header>
-          <p className={styles.masterFlyName}>{master.card.name}</p>
-          {details.map((line) => <p key={line} className={styles.masterFlyLine}>{line}</p>)}
-          {stats ? <p className={styles.masterFlyLine}>{stats}</p> : null}
-          <dl>
-            <div><dt>Status</dt><dd data-testid={id("hud-master-status")}>{status}</dd></div>
-            <div><dt>Returns</dt><dd data-testid={id("hud-master-returns")}>{master.returns}</dd></div>
-            <div><dt>Next surcharge</dt><dd data-testid={id("hud-master-cost")}>{master.nextCost} LP</dd></div>
-          </dl>
-          <button type="button" className={styles.masterFlyCard} data-testid={id("hud-master-card")} onClick={openCard}>Card view</button>
-        </aside>
-      ) : null}
+    <div ref={wrapRef} className={styles.masterWrap} data-hud-keep="" data-slot={slot} data-testid={id("hud-master")} data-form={form.tall ? "tall" : "compact"}
+      style={form.tall ? ({ "--hud-master-art-h": `${form.art}px` } as CSSProperties) : undefined}>
+      {form.tall ? null : flyout}
       <section
         className={styles.master}
         aria-label={title}
@@ -115,24 +204,27 @@ export function GridMasterToken({
         data-open={open ? "true" : "false"}
         data-away={status === "Elsewhere" ? "true" : "false"}
       >
-        <button
-          type="button"
-          className={styles.masterToken}
-          data-testid={id("hud-master-token")}
-          aria-label={`${title}: ${master.card.name}`}
-          aria-expanded={pickable ? undefined : open}
-          onClick={(event) => (pickable ? onActivate(keys, card, event.currentTarget) : onToggle())}
-          onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
-          onMouseLeave={() => onHoverCard?.(null, null)}
-          onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
-          onBlur={() => onHoverCard?.(null, null)}
-        >
-          <span className={styles.masterArt} style={{ backgroundImage: `url(${cardArtUrl(master.card.code, "small")})` }} aria-hidden="true" />
-          <span className={styles.masterId}>
-            <small>{local ? "Your Master" : "Deck Master"}</small>
-            <b title={master.card.name}>{master.card.name}</b>
-          </span>
-        </button>
+        <div className={styles.masterFace}>
+          <button
+            type="button"
+            className={styles.masterToken}
+            data-testid={id("hud-master-token")}
+            aria-label={`${title}: ${master.card.name}`}
+            aria-expanded={pickable ? undefined : open}
+            onClick={(event) => (pickable ? onActivate(keys, card, event.currentTarget) : onToggle())}
+            onMouseEnter={(event) => onHoverCard?.(card, event.currentTarget)}
+            onMouseLeave={() => onHoverCard?.(null, null)}
+            onFocus={(event) => onHoverCard?.(card, event.currentTarget)}
+            onBlur={() => onHoverCard?.(null, null)}
+          >
+            <span ref={artRef} className={styles.masterArt} style={{ backgroundImage: `url(${cardArtUrl(master.card.code, form.tall ? "full" : "small")})` }} aria-hidden="true" />
+            <span className={styles.masterId}>
+              <small>{local ? "Your Master" : "Deck Master"}</small>
+              <b title={master.card.name}>{master.card.name}</b>
+            </span>
+          </button>
+          {form.tall ? flyout : null}
+        </div>
         <div className={styles.masterActions}>
           {actions.map((option, index) => (
             <button key={option.id} type="button" data-primary={index === 0 ? "true" : "false"} data-testid={id("hud-master-action")}

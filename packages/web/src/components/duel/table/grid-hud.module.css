@@ -530,6 +530,52 @@
 .masterWrap[data-slot="other"] .masterFly { bottom: auto; top: calc(100% + 10px); }
 .masterWrap[data-slot="other"] .masterFly::after { top: auto; bottom: 100%; }
 
+/* The card and the name; in the tall form the details open in this same box, over them. */
+.masterFace { display: grid; min-width: 0; }
+
+/*
+ * The tall form (data-form="tall"; large screens with a free margin, chosen in grid-master.tsx): the whole card at a
+ * readable size on top, the name below it and the action row at the bottom. The plate grows up into the free margin
+ * under the dock. The card is 195px to 222px high (`--hud-master-art-h`, set by the plate); with less room the plate is
+ * compact, never a card size between the two forms.
+ */
+.masterWrap[data-form="tall"] .masterFace { position: relative; }
+.masterWrap[data-form="tall"] .masterToken { flex-direction: column; align-items: stretch; width: 100%; }
+/* The whole card, never cropped. */
+.masterWrap[data-form="tall"] .masterArt {
+  width: auto;
+  height: var(--hud-master-art-h, 222px);
+  align-self: center;
+  background-position: center;
+  background-size: contain;
+  box-shadow: inset 0 0 0 1px rgb(239 231 213 / 0.14), 0 6px 16px -6px rgb(0 0 0 / 0.8);
+}
+/* The details open inside the plate, over the card and the name, so they never reach past the plate. */
+.masterWrap[data-form="tall"] .masterFly {
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 2px 4px;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(9 15 29);
+  box-shadow: none;
+}
+.masterWrap[data-form="tall"] .masterFly::after { display: none; }
+.masterWrap[data-form="tall"] .masterFly > * { flex: none; }
+/* One line per fact (the label left, the value right), so the facts and Card view fit in the plate. */
+.masterWrap[data-form="tall"] .masterFly dl div { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.masterWrap[data-form="tall"] .masterFly dd { text-align: right; white-space: nowrap; }
+/* The tall plate is higher: the dock flyout (after the plate in the layer) ends above it. The flyout top (56px), a
+   10px gap, the plate's bottom offset, its rest (132px) and its tallest card (222px). */
+.masterWrap[data-form="tall"] ~ .flyout {
+  max-height: max(200px, calc(100% - 66px - var(--hud-master-bottom, calc(clamp(58px, 5.6dvh, 68px) + 20px)) - 354px));
+}
+
 /* ---------- hover preview: slides out from the left edge, beside the dock (never over its icons) ---------- */
 .preview {
   position: absolute;

@@ -13,6 +13,7 @@ import { LOCATION_DMZONE } from "@/components/duel/constants";
 import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
 import type { TableFixtureState } from "@/components/duel/table/fixtures/common";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
+import { masterForm } from "@/components/duel/table/grid-master";
 import { PREVIEW_HIDE_MS } from "@/components/duel/table/grid-preview";
 import { TableShell } from "@/components/duel/table/table-shell";
 
@@ -171,6 +172,22 @@ describe("the Deck Master token", () => {
     expect(attack.getAttribute("aria-label")).toBe("Attack with Sage with Eyes of Blue");
     expect(direct.textContent).toBe("Direct attack");
     expect(direct.getAttribute("title")).toBe("Attack directly with Sage with Eyes of Blue");
+  });
+
+  it("starts as the compact plate with the small card", () => {
+    render(<Shell state={stateOf("main")} />);
+    expect(screen.getByTestId("hud-master").dataset.form).toBe("compact");
+    const art = screen.getByTestId("hud-master-token").querySelector("span[aria-hidden]") as HTMLElement;
+    expect(art.style.backgroundImage).toMatch(/size=small/);
+  });
+
+  it("is tall only on a large screen with room for a card of 195px or more, never between the two forms", () => {
+    expect(masterForm(800, 400)).toEqual({ tall: false });
+    expect(masterForm(768, 400)).toEqual({ tall: false });
+    expect(masterForm(900, 194)).toEqual({ tall: false });
+    expect(masterForm(900, 195)).toEqual({ tall: true, art: 195 });
+    expect(masterForm(900, 530)).toEqual({ tall: true, art: 222 });
+    expect(masterForm(1080, 97)).toEqual({ tall: false });
   });
 
   it("opens the details flyout from the token or from Inspect, and closes it", () => {
