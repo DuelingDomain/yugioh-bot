@@ -11,8 +11,9 @@ name: Test
 #   rule-coverage  every rule of ADR-0002 has a covering test (--strict).
 #   nduel-nightly  scheduled: the nduel fuzz (n2, n3, n4, tag) with --check-future, and the golden hash check.
 #
-# Pushes to main run every job except nduel-nightly. Pull requests skip engine jobs they cannot affect.
-# A manual run runs every job, including nduel-nightly. The schedule runs cores and nduel-nightly only.
+# Pull requests and pushes to main always run unit. They run cores, engine, engine-legacy, native and rule-coverage
+# only when changes sets engine=true. A manual run runs every job, including nduel-nightly. The schedule runs cores and
+# nduel-nightly only.
 
 on:
   pull_request:
@@ -42,19 +43,18 @@ env:
   BUNDLE_DIR: data/duel-engine-next
 
 jobs:
-  # Which layers a pull request can affect. Main pushes, manual runs and the schedule run full suites.
-  #   engine      the duel engine, its shared dependencies, the engine bundle inputs, the lockfile or this workflow changed:
-  #               the engine, legacy engine and native jobs run.
-  #   web_engine  engine, or the duel UI or web tests changed: the engine job runs, for the web tests that drive a real
-  #               duel (prompts.tsx, prompt-center.tsx). Its engine-only steps still need engine.
-  # Changes outside these paths run the unit and rule coverage jobs; cores still builds or restores the bundle.
+  # Which layers a change can affect (scripts/ci/changed-layers.mjs). Pull requests diff from the merge base; pushes
+  # to main diff from the previous tip (github.event.before). Manual runs, the schedule and a push without a usable
+  # diff set engine=true.
+  #   engine      the duel engine, its shared dependencies, e2e, the engine bundle inputs, the lockfile, the ADR-0002
+  #               rules or this workflow changed: cores, engine, engine-legacy, native and rule-coverage run.
+  # Changes outside these paths (for example web-only UI changes) run only the unit jobs.
   changes:
     name: Changed layers
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
       engine: ${{ steps.diff.outputs.engine }}
-      web_engine: ${{ steps.diff.outputs.web_engine }}
       tests_only: ${{ steps.diff.outputs.tests_only }}
       base: ${{ steps.diff.outputs.base }}
       head: ${{ steps.diff.outputs.head }}
@@ -70,10 +70,14 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
         run: node scripts/ci/changed-layers.mjs
 
   core-cache:
     name: Engine core cache
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -366,7 +370,7 @@ jobs:
 
   engine-shards:
     name: Engine tests shard (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.count }})
-    if: ${{ !cancelled() && needs.cores.result == 'success' && github.event_name != 'schedule' && needs.changes.outputs.web_engine == 'true' }}
+    if: ${{ !cancelled() && needs.cores.result == 'success' && github.event_name != 'schedule' && needs.changes.outputs.engine == 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -534,7 +538,7 @@ jobs:
       - name: Check all engine shards
         env:
           CHANGES: ${{ needs.changes.result }}
-          REQUIRED: ${{ needs.changes.outputs.web_engine }}
+          REQUIRED: ${{ needs.changes.outputs.engine }}
           RESULT: ${{ needs.engine-shards.result }}
         run: test "$CHANGES" = success && { test "$REQUIRED" != true || test "$RESULT" = success; }
 
@@ -598,7 +602,8 @@ jobs:
 
   rule-coverage:
     name: Rule coverage (strict)
-    if: github.event_name != 'schedule'
+    needs: changes
+    if: github.event_name != 'schedule' && needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
