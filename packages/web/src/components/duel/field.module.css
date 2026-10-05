@@ -216,14 +216,16 @@
 }
 
 /* Floating HUD room (1v1): the board is height-bound, so every pixel of chrome inside the frame is card. The
-   padding is trimmed and the hand rests a little lower, so it overlaps the front Spell/Trap row more
-   (it still rises to full size on hover). Phones keep the compact rules below. */
+   padding is trimmed, the opponent's hand backs are smaller (they peek less above the board) and your hand rests
+   lower, so it overlaps the front Spell/Trap row more (it still rises to full size on hover or focus). Phones keep
+   the compact rules below. */
 @container (min-width: 641px) {
   :global([data-hud="room"]) .playmat {
     --py: 2px;
     --gs: 2px;
     --hpad: 3px;
-    --lk: 0.45;
+    --lk: 0.3;
+    --ohk: 0.36;
   }
 }
 
