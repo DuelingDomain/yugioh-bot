@@ -335,7 +335,8 @@ export function createCardCatalogService(
         image.image_url_small, image.image_url_cropped ?? null, Number(artworkId === cardId));
       savedIds.add(cardId);
     }
-    return [...savedIds];
+    // A later response can move an earlier fallback family to a proven main.
+    return [...new Set([...savedIds].map(canonicalId))];
   });
 
   const findByIds = (ids: number[]): CardCatalogCard[] => {

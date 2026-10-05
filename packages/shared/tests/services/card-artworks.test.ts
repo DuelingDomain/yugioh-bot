@@ -156,6 +156,21 @@ describe("card artwork mapping", () => {
     expect(withoutEngine.listArtworks(89631146)[0].artworkId).toBe(89631139);
   });
 
+  it.each(["draft", "archetype", "search", "preview"])("returns one main after a later response repairs a fallback family in a %s sync", async (path) => {
+    const { db } = setup();
+    const alternate = { ...fixtures[0], card_images: [fixtures[0].card_images[0]] };
+    const catalog = createCardCatalogService(db, { identityCatalog: identity,
+      fetch: async () => ({ ok: true, json: async () => ({ data: [alternate, fixtures[0]] }) }) });
+    const cards = path === "draft"
+      ? await catalog.syncDraftPool({ setNames: ["Artwork Test Set"], includeNames: [], excludeNames: [] })
+      : path === "archetype" ? (await catalog.syncByArchetype("Test")).main
+      : path === "search" ? await catalog.syncCardsByFuzzyName("Barrel Dragon")
+      : (await catalog.getSetPreview("Artwork Test Set")).sampleCards;
+    expect(cards.map((card) => card.ygoprodeckId)).toEqual([81480460]);
+    expect(catalog.canonicalId(81480461)).toBe(81480460);
+    expect(catalog.listArtworks(81480460)).toHaveLength(2);
+  });
+
   it("moves a fallback family to its proven main without losing known crops", async () => {
     const { db } = setup();
     const mutableIdentity = new Map();
