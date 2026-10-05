@@ -1190,6 +1190,8 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     <MoveSourceBoundary events={engine.events} duelKey={slug} root={boardRef}>
       {field}
       <FxBoundary>
+      {fxUp ? <CoinTossFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion}
+        replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <DuelFeedback events={engine.events} duelKey={slug} replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough}
         soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={preferences.reducedMotion} /> : null}
       {fxUp ? <SummonFx events={engine.events} duelKey={slug}
@@ -1198,8 +1200,6 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       {fxUp ? <PositionFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion} /> : null}
       {fxUp ? <ChainFx events={engine.events} chain={engine.chain} duelKey={slug}
         reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} playerName={playerName} ended={duelOver} seats={engine.seats} /> : null}
-      {fxUp ? <CoinTossFx events={engine.events} duelKey={slug} reducedMotion={preferences.reducedMotion}
-        replayFrom={startBeats.replayFrom} skipThrough={startBeats.skipThrough} /> : null}
       {fxUp ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={slug}
         reducedMotion={preferences.reducedMotion} mySeat={data.mySeat} /> : null}
       <BattleFx key={`battle-${slug}`} events={engine.events} seats={engine.seats} reducedMotion={preferences.reducedMotion}

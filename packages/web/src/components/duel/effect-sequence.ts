@@ -18,6 +18,11 @@ export function resetEffectSequence(): void {
   sources.clear();
 }
 
+/** Nothing in the effect sequence starts before `at`: the coin toss holds every later move and marker. */
+export function holdEffectSequenceUntil(at: number): void {
+  state.readyAt = Math.max(state.readyAt, at);
+}
+
 const isSpellTrap = (event: DuelEvent) => event.zone?.location === LOCATION_SZONE &&
   !!(event.card && event.card.type & (TYPE_SPELL | TYPE_TRAP));
 

@@ -16,6 +16,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import { createPortal } from "react-dom";
 import type { DuelEvent } from "@yugidraft/shared/duels";
 import { chainBeatAt, holdChainAfter } from "./chain-beats";
+import { holdEffectSequenceUntil } from "./effect-sequence";
 import { reportDuelClientError } from "./client-error";
 import {
   COIN_FACES,
@@ -38,7 +39,7 @@ import {
   type CoinStep,
   type CoinView,
 } from "./coin-plan";
-import { acquireCoinLock, holdTossLog } from "./coin-toss-lock";
+import { acquireCoinLock, acquireCoinPlaying, holdTossLog } from "./coin-toss-lock";
 import { collectFreshEvents, maxEventId } from "./event-queue";
 import { duelFxClock } from "./fx-clock";
 import { duelFontClasses } from "./fonts";
@@ -224,6 +225,7 @@ export function CoinTossFx({ events, duelKey, reducedMotion, replayFrom = null, 
   const segmentsRef = useRef<CoinSegment[]>([]);
   const logReleasesRef = useRef(new Map<number, () => void>());
   const lockReleaseRef = useRef<(() => void) | null>(null);
+  const playingReleaseRef = useRef<(() => void) | null>(null);
   const rateReleasesRef = useRef<Array<() => void>>([]);
   const frameRef = useRef<number | null>(null);
   const safetyRef = useRef<number | null>(null);
@@ -277,6 +279,8 @@ export function CoinTossFx({ events, duelKey, reducedMotion, replayFrom = null, 
     // The lock goes last: by now the cover is leaving and every held line shows.
     lockReleaseRef.current?.();
     lockReleaseRef.current = null;
+    playingReleaseRef.current?.();
+    playingReleaseRef.current = null;
     setShown(false);
     setOut(false);
     setView(EMPTY_VIEW);
@@ -410,10 +414,14 @@ export function CoinTossFx({ events, duelKey, reducedMotion, replayFrom = null, 
         // The next prompt and the next chain beat wait for the last result.
         holdPromptReveal(plan.end - now);
         holdChainAfter(event.id, plan.end);
+        // Moves and markers laid out after this layer (bot moves too) start once the last result is gone.
+        holdEffectSequenceUntil(plan.end);
       }
       added = true;
     }
     if (!added) return;
+    // The playing flag is set in the replay too: its autoplay waits for the coin.
+    if (!playingReleaseRef.current) playingReleaseRef.current = acquireCoinPlaying();
     if (!passiveRef.current && !lockReleaseRef.current) lockReleaseRef.current = acquireCoinLock();
     // Safety: if the picture cannot run (a hidden tab, an error), nothing stays locked past the plan.
     if (safetyRef.current != null) window.clearTimeout(safetyRef.current);

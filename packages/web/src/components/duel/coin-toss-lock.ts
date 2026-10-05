@@ -28,6 +28,39 @@ export function isCoinTossActive(): boolean {
   return locks.size > 0;
 }
 
+/* ---------- the playing flag ---------- */
+
+// A second flag, set by the live layer and also by the passive one (the replay), which takes no lock.
+// The replay reads it to hold its autoplay until the coin is gone.
+const playing = new Set<symbol>();
+const playingListeners = new Set<() => void>();
+const emitPlaying = () => { for (const listener of [...playingListeners]) listener(); };
+
+/** Mark a coin as playing. The returned function clears it (safe to call twice). */
+export function acquireCoinPlaying(): () => void {
+  const token = Symbol("coin-playing");
+  playing.add(token);
+  emitPlaying();
+  return () => {
+    if (playing.delete(token)) emitPlaying();
+  };
+}
+
+/** True while a coin plays on this screen, live or in the replay. */
+export function isCoinPlaying(): boolean {
+  return playing.size > 0;
+}
+
+function subscribePlaying(listener: () => void): () => void {
+  playingListeners.add(listener);
+  return () => { playingListeners.delete(listener); };
+}
+
+/** Re-renders when a coin starts or stops playing, in any mode. */
+export function useCoinPlaying(): boolean {
+  return useSyncExternalStore(subscribePlaying, isCoinPlaying, () => false);
+}
+
 function subscribeLock(listener: () => void): () => void {
   lockListeners.add(listener);
   return () => { lockListeners.delete(listener); };
@@ -107,6 +140,8 @@ export function withoutHeldTossLines<T extends { eventId?: number }>(entries: re
 /** Test helper: forget every lock and hold. */
 export function resetCoinTossState(): void {
   locks.clear();
+  playing.clear();
+  emitPlaying();
   holds.clear();
   publishHolds();
   emitLock();
@@ -119,9 +154,12 @@ export function resetCoinTossState(): void {
 // later (the prompt keys, the aim arrow, the chain mode, the menus that close on an outside click).
 // It stops the event there, so no handler sees it. The browser keeps its own keys (copy, reload, tab
 // change, dev tools) and the wheel, so the page can still scroll and the user can leave.
+// The ends of a press (pointerup, pointercancel, mouseup, touchend) go through: they cannot start an
+// action (every action is a click, a press or a key), and a drag that began before the toss (the 3D camera)
+// needs them to let go. The click that follows a press is blocked.
 const BLOCKED_POINTER = [
-  "pointerdown", "pointerup", "mousedown", "mouseup", "click", "dblclick", "auxclick", "contextmenu",
-  "touchstart", "touchend", "dragstart", "submit",
+  "pointerdown", "mousedown", "click", "dblclick", "auxclick", "contextmenu",
+  "touchstart", "dragstart", "submit",
 ] as const;
 const BLOCKED_KEYS = ["keydown", "keyup", "keypress"] as const;
 

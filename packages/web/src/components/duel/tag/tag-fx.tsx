@@ -86,12 +86,12 @@ export function TagFx({ controller, preferences, fxActive = true, passedSeats = 
   const duelKey = room.session.slug;
   return (
     <FxBoundary>
+      <CoinTossFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
       <DuelFeedback events={events} duelKey={duelKey} soundEnabled={preferences.soundEnabled} soundVolume={preferences.soundVolume} reducedMotion={reducedMotion} />
       <SummonFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} shake={preferences.shake} />
       <MoveFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
       <PositionFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
       <ChainFx events={events} chain={engine.chain} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={room.session.status !== "active" || engine.result != null} table="tag" seats={engine.seats} />
-      <CoinTossFx events={events} duelKey={duelKey} reducedMotion={reducedMotion} />
       <MasterReturnFx events={events} seats={engine.seats} duelKey={duelKey} reducedMotion={reducedMotion} mySeat={viewerSeat} />
       <BattleFx events={events} seats={engine.seats} reducedMotion={reducedMotion} active aim={null} />
       <DestroyFx events={events} reducedMotion={reducedMotion} active mySeat={viewerSeat ?? 0} />

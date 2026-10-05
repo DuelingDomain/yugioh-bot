@@ -20,17 +20,26 @@
   font-family: var(--ui);
   cursor: default;
   user-select: none;
-  background:
-    radial-gradient(46% 52% at 50% 52%, rgb(22 34 62 / 0.45), transparent 72%),
-    rgb(3 5 12 / 0.74);
-  animation: dimIn 0.22s ease-out both;
 }
-.root[data-state="out"] { animation: dimOut 0.26s ease-in both; }
+/* The cover: nearly black with a blur, so a menu, the LP and the clock under it cannot be read. The blur sits
+   on this layer and not on .root: a backdrop filter on .root would flatten the 3D coin. The fade is on this
+   layer, the stage and the tray, never on .root, which would also stop the blur while it fades. The verdict
+   and the summary fade on their own (transitions), so they are not in this list. */
+.root::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgb(3 5 12 / 0.9);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.root::before, .stage, .tray { animation: dimIn 0.22s ease-out both; }
+.root[data-state="out"]::before, .root[data-state="out"] .stage, .root[data-state="out"] .tray { animation: dimOut 0.26s ease-in both; }
 /* The replay shows the coin but takes no input. */
 .root[data-passive="true"] { pointer-events: none; }
 @keyframes dimIn { from { opacity: 0; } to { opacity: 1; } }
 @keyframes dimOut { from { opacity: 1; } to { opacity: 0; } }
-.root[data-rm="true"] { animation-duration: 0.16s; }
+.root[data-rm="true"]::before, .root[data-rm="true"] .stage, .root[data-rm="true"] .tray { animation-duration: 0.16s; }
 
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
