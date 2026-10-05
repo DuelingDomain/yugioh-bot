@@ -8,7 +8,7 @@ Owner approval: 2026-10-04. Scope: pinned 1v1 Domain, multiplayer Domain, and le
 | --- | --- | --- |
 | K22 / gap 1 | 193–199 | `domain-core/src/apply-domain-patch.mjs:944` passed the Pendulum activation effect as the tax reason. `domain-core/pins.json:34` explicitly documented Spell Economics waiving that tax. Legacy repeats this at `legacy-1v1/domain-core/src/apply-domain-patch.mjs:929` and `legacy-1v1/domain-core/pins.json:34`. |
 | K20 | 190–191 | `domain-core/src/domain_master.cpp:185` raised only `EVENT_LEAVE_GRAVE`. The legacy copy has the same code. `domain-core/src/apply-domain-multi.mjs:258` adapts the recall event's no-player sentinel for multiplayer. The pinned engine defines `EVENT_LEAVE_GRAVE` and `EVENT_MOVE`, but no dedicated leave-hand, leave-Deck or leave-banishment event; those departures are represented by `EVENT_MOVE` and previous-location metadata. |
-| K4 | 136 | `domain-core/src/apply-domain-patch.mjs:492` and its legacy copy allow effects with `EFFECT_FLAG_IGNORE_IMMUNE` through DMZ immunity. The stock `card::is_capable_be_effect_target` also lacks a DMZ exclusion. |
+| K4 | 136 | `domain-core/src/apply-domain-patch.mjs:492` and its legacy copy allow effects with `EFFECT_FLAG_IGNORE_IMMUNE` through DMZ immunity. The stock `card::is_capable_be_effect_target` also lacks a DMZ exclusion. The DMZ procedure range adapter at `domain-core/src/apply-domain-patch.mjs:454` did not verify effect ownership; stock single-effect lookups and explicit summon-procedure checks can bypass immunity. |
 | K13 | 166–168 | `domain-core/src/apply-domain-patch.mjs:153` and its legacy copy require `DUEL_FSX_MMZONE` for a non-Link DM's unrestricted Main Monster Zone placement. `src/engine.ts:276` accepts MR1–5; `src/host.ts:2164` allows these values. ADR-0002:5 restricts only multiplayer to MR5, so MR4 Domain 1v1 is reachable. |
 
 ## Implementation and verification plan
@@ -39,3 +39,13 @@ K22 verification: the baseline scenario failed at 8000 LP versus the required 75
 | legacy | `323bac7e53b31591c6f1ff27c01504dfa46cbe8d9dbf509abcede0ff55e5d92c` |
 
 K20 verification: all five move-origin scenarios failed before the change. After rebuilding, 30/30 departure scenarios passed across pinned, legacy, FFA3, FFA4 and Tag, including the leave-GY control. The existing recall-kind tests passed 2/2. With the final fixture helper, departure and action-cost scenarios passed together 40/40. Lua sees the native multiplayer no-player sentinel as `PLAYER_NONE`, as required by the perspective fold.
+
+## Verified cores after K4
+
+| Core | SHA-256 |
+| --- | --- |
+| domain | `0c4c9bc100f0ba5c9e1e9d670be7afeb07db8183f56a56d3f8751a12f1817ea3` |
+| multi-domain | `449c01190f3f2924593c11d80b87689ce349e6ea25a7d059d335d7dc9433da0d` |
+| legacy | `b5de56cf67f19a6cfa2c8cdfff74661c2c079c9ab8ce45d992398921dcd5d092` |
+
+K4 verification: baseline ignore-immunity movement, effect targeting, and external procedure probes failed. Review also reproduced foreign-owned single and field procedures registered on the DM, including explicit summon eligibility; ownership checks now cover lookup, range, and direct procedure checks. The final builds passed all 65 immunity scenarios across five variants, and all 105 immunity/action-cost/departure scenarios together. Pinned immunity plus existing Pendulum and leave-tax controls passed 20/20. A temporary review diagnostic confirmed 5/5 variants refuse a 500 LP Pendulum leave with only 499 LP under Spell Economics. The updated legacy pin check and TypeScript check pass; final K4 review found no important issues.

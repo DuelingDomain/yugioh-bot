@@ -134,6 +134,8 @@ The cumulative DMZ leave cost is 500 LP per completed return and the first leave
 
 Returning a Deck Master to the DMZ is a rule move, with no effect or reason player. It raises both single-card and grouped `EVENT_MOVE` events with the previous location, so triggers for leaving banishment, hand, Deck or Extra Deck can start a new chain after the return. Leaving the GY additionally raises `EVENT_LEAVE_GRAVE`, including the Exosister interaction. The return itself does not start a chain.
 
+A Deck Master in the DMZ cannot be targeted or affected by other cards, including effects flagged to ignore immunity. Only summon procedures owned by and registered on the Deck Master are exempt from the effect gate. Effects granted by other cards remain blocked after recall, including single effects that normally bypass immunity checks. Normal/Tribute Summons, proper mechanic summons, and permitted Main Deck Pendulum leaves remain available; a rule move with no effect reason also remains valid.
+
 ## Retired rule ID
 
 - `[R-COMMON-OPP-FIELD]` **Retired on 2026-10-02.** This ID records earlier scenarios for the old rule that an opponent-field effect hits all opponents. It is not an active FFA rule, and those scenarios do not prove R-FFA-OPP-ONE. The new rules above replace it. Tag retains the official opposing-team field rule.

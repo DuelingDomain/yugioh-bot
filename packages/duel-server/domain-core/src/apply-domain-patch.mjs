@@ -453,6 +453,8 @@ patch("effect.cpp", [
 		return handler->overlay_target ? TRUE : FALSE;
 	if(pcard && pcard->current.location == LOCATION_DECKMASTER) {
 		if(code == EFFECT_SPSUMMON_PROC || code == EFFECT_SPSUMMON_PROC_G) {
+			if(owner != pcard || get_handler() != pcard)
+				return FALSE;
 			if(domain_is_extra_type(pcard))
 				return (range & LOCATION_EXTRA) ? TRUE : FALSE;
 			return (range & LOCATION_HAND) ? TRUE : FALSE;
@@ -489,14 +491,50 @@ patch("card.cpp", [
 		return FALSE;`,
     `int32_t card::is_affect_by_effect(effect* peffect) {
 	if(current.location == LOCATION_DECKMASTER) {
-		if(!peffect || peffect->is_flag(EFFECT_FLAG_IGNORE_IMMUNE))
+		if(!peffect)
 			return TRUE;
-		if(peffect->code == EFFECT_SPSUMMON_PROC || peffect->code == EFFECT_SPSUMMON_PROC_G || peffect->code == EFFECT_SUMMON_PROC)
+		// Summon procedures belong to this DM; other cards cannot bypass DMZ protection.
+		if(peffect->get_handler() == this && peffect->owner == this
+			&& (peffect->code == EFFECT_SPSUMMON_PROC || peffect->code == EFFECT_SPSUMMON_PROC_G || peffect->code == EFFECT_SUMMON_PROC))
 			return TRUE;
 		return FALSE;
 	}
 	if(is_status(STATUS_SUMMONING) && (peffect && peffect->code != EFFECT_CANNOT_DISABLE_SUMMON && peffect->code != EFFECT_CANNOT_DISABLE_SPSUMMON))
 		return FALSE;`,
+  ],
+  [
+    `		if(peffect->is_available() && (!peffect->is_flag(EFFECT_FLAG_SINGLE_RANGE) || is_affect_by_effect(peffect)))`,
+    `		if(peffect->is_available() && (current.location != LOCATION_DECKMASTER || peffect->owner == this)
+				&& (!peffect->is_flag(EFFECT_FLAG_SINGLE_RANGE) || is_affect_by_effect(peffect)))`,
+  ],
+  [
+    `		if (peffect->is_available() && (!peffect->is_flag(EFFECT_FLAG_SINGLE_RANGE) || is_affect_by_effect(peffect)))
+			return peffect;`,
+    `		if (peffect->is_available() && (current.location != LOCATION_DECKMASTER || peffect->owner == this)
+				&& (!peffect->is_flag(EFFECT_FLAG_SINGLE_RANGE) || is_affect_by_effect(peffect)))
+			return peffect;`,
+  ],
+  [
+    `		if (peffect->is_available() && (!peffect->is_flag(EFFECT_FLAG_SINGLE_RANGE) || is_affect_by_effect(peffect))
+						&& peffect->get_value(target))`,
+    `		if (peffect->is_available() && (current.location != LOCATION_DECKMASTER || peffect->owner == this)
+				&& (!peffect->is_flag(EFFECT_FLAG_SINGLE_RANGE) || is_affect_by_effect(peffect))
+						&& peffect->get_value(target))`,
+  ],
+  [
+    `		if (peffect->is_available() && !peffect->is_flag(EFFECT_FLAG_SINGLE_RANGE))
+			eset->push_back(peffect);`,
+    `		if (peffect->is_available() && (current.location != LOCATION_DECKMASTER || peffect->owner == this)
+				&& !peffect->is_flag(EFFECT_FLAG_SINGLE_RANGE))
+			eset->push_back(peffect);`,
+  ],
+  [
+    `int32_t card::check_summon_procedure(effect* peffect, uint8_t playerid, uint8_t ignore_count, uint8_t min_tribute, uint32_t zone) {
+	if(!peffect->check_count_limit(playerid))`,
+    `int32_t card::check_summon_procedure(effect* peffect, uint8_t playerid, uint8_t ignore_count, uint8_t min_tribute, uint32_t zone) {
+	if(current.location == LOCATION_DECKMASTER && (peffect->owner != this || peffect->get_handler() != this))
+		return FALSE;
+	if(!peffect->check_count_limit(playerid))`,
   ],
   [
     `int32_t card::is_can_be_fusion_material(card* fcard, uint64_t summon_type, uint8_t playerid) {
@@ -984,6 +1022,12 @@ patch("effect.cpp", [
 ]);
 
 patch("card.cpp", [
+  [
+    `int32_t card::is_capable_be_effect_target(effect* peffect, uint8_t playerid) {`,
+    `int32_t card::is_capable_be_effect_target(effect* peffect, uint8_t playerid) {
+	if(current.location == LOCATION_DECKMASTER)
+		return FALSE;`,
+  ],
   [
     `		} else if(mechanic != SUMMON_TYPE_RITUAL) {
 			return FALSE;
