@@ -143,7 +143,7 @@ describe("select menu interactions", () => {
     await handleSelectMenu(interaction, app);
     expect(replies[0]).toEqual({ content: expect.stringMatching(/You picked Card/i), ephemeral: true });
     expect(replies[0].content).not.toMatch(/already picked/i);
-    expect(replies[0].content).toContain("You have 3 of each card here. This pick stays in your pool only.");
+    expect(replies[0].content).toContain("You have 3 of each card here. You can use this extra copy in your deck.");
     app.db.close();
   });
 
@@ -152,7 +152,7 @@ describe("select menu interactions", () => {
     const { interaction, replies } = menu();
     await handleSelectMenu(interaction, app);
     expect(replies[0].content).toMatch(/You picked Card/i);
-    expect(replies[0].content).not.toMatch(/stays in your pool only/);
+    expect(replies[0].content).not.toMatch(/use this extra copy in your deck/);
     app.db.close();
   });
 
