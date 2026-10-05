@@ -1,7 +1,7 @@
 // Draw/Standby integration cases mirrored from main cec00380 (included in afd5f228).
 // MAIN'S TEST, run against the legacy 1v1 engine (src/legacy). A copy of packages/duel-server/tests/engine-events.test.ts from origin/main (09b4196a)
 // with only the import paths changed: engine, views and prompts come from ../../src/legacy, the other sources from ../../src, and
-// the data dir helper from ../engine-data-dir.js. Do not edit it to make the legacy engine pass: the legacy engine must equal main. See legacy-1v1/README.md.
+// the data dir helper from ../engine-data-dir.js. Do not edit it to make the legacy engine pass: the legacy engine must match the approved legacy pin. See legacy-1v1/README.md.
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 import type { DuelAnswer, DuelCardInfo, DuelEngineView, DuelEvent, DuelPrompt } from "@yugidraft/shared/duels";

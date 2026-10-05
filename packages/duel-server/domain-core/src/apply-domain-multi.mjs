@@ -255,14 +255,19 @@ patch("domain_master.cpp", [
     `	for(uint8_t p = 0; p < n_duelists; ++p) {
 		card* dm = player[p].deck_master_card;`,
   ],
-  // The reason player of the recall events: none_id() is PLAYER_NONE at n == 2 and DUELIST_NONE otherwise.
+  // Recall is a rule move, with no reason player (PLAYER_NONE is a real seat at n > 2).
+  ...[
+    "raise_single_event(dm, nullptr, EVENT_LEAVE_GRAVE",
+    "raise_single_event(dm, nullptr, EVENT_MOVE",
+    "raise_event(dm, EVENT_LEAVE_GRAVE",
+    "raise_event(dm, EVENT_MOVE",
+  ].map(call => [
+    `${call}, nullptr, REASON_RULE, PLAYER_NONE, owner, 0);`,
+    `${call}, nullptr, REASON_RULE, none_id(), owner, 0);`,
+  ]),
   [
-    `EVENT_LEAVE_GRAVE, nullptr, REASON_RULE, PLAYER_NONE, owner, 0);
-		process_single_event();
-		raise_event(dm, EVENT_LEAVE_GRAVE, nullptr, REASON_RULE, PLAYER_NONE, owner, 0);`,
-    `EVENT_LEAVE_GRAVE, nullptr, REASON_RULE, none_id(), owner, 0);
-		process_single_event();
-		raise_event(dm, EVENT_LEAVE_GRAVE, nullptr, REASON_RULE, none_id(), owner, 0);`,
+    `dm->current.reason_player = PLAYER_NONE;`,
+    `dm->current.reason_player = none_id();`,
   ],
   [
     `	core.domain_recall_player = PLAYER_NONE;

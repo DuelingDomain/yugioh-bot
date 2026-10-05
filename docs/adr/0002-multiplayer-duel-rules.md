@@ -131,6 +131,16 @@ Domain uses exactly 60 Main Deck cards and at most 15 Extra Deck cards. Main and
 
 The Domain includes the Deck Master's archetypes, Attributes and Monster Types, and those mentioned in its effect text. Attribute and Type mentions match complete words, including plural Types, compound Types and token definitions; substrings such as "darkness" or "rocket" do not count. Quoted Attribute or Type labels count, while words inside quoted card or archetype names do not add Attributes or Types. A specifically named card is allowed, and its archetypes are included. A Normal Pendulum Deck Master's Pendulum Effect box counts; its separate Flavor Text (or Monster Effect) box does not. Other Normal Monster flavor text does not add Domain membership. Divine Attribute and Divine-Beast are in every Domain. Spell and Trap Cards have no Domain restriction.
 
+## Deck Master core rules (owner approved 2026-10-04)
+
+The cumulative DMZ leave cost is 500 LP per completed return and the first leave is free. This pays for the action, including activating a Main Deck Pendulum Deck Master as a Pendulum Spell. It carries no spell activation effect as its LP-cost reason, so Spell Economics cannot waive it. Ordinary card costs, including Chain Energy on a monster summoned from hand, still apply. These rules apply to the pinned 1v1, multiplayer Domain and legacy 1v1 Domain cores.
+
+Returning a Deck Master to the DMZ is a rule move, with no effect or reason player. It raises both single-card and grouped `EVENT_MOVE` events with the previous location, so triggers for leaving banishment, hand, Deck or Extra Deck can start a new chain after the return. Leaving the GY additionally raises `EVENT_LEAVE_GRAVE`, including the Exosister interaction. The return itself does not start a chain.
+
+A Deck Master in the DMZ cannot be targeted or affected by other cards, including effects flagged to ignore immunity. Only summon procedures owned by and registered on the Deck Master are exempt from the effect gate. Effects granted by other cards remain blocked after recall, including single effects that normally bypass immunity checks. Normal/Tribute Summons, proper mechanic summons, and permitted Main Deck Pendulum leaves remain available; a rule move with no effect reason also remains valid.
+
+Domain 1v1 accepts Master Rules 1–5; multiplayer accepts MR5. A non-Link Extra Deck Deck Master summoned from the DMZ can use any available Main Monster Zone and, in MR4/5, either Extra Monster Zone. This exception does not depend on the MR5 Fusion/Synchro/Xyz placement flag. A Link Deck Master uses an Extra Monster Zone or a Main Monster Zone a Link Monster points to; MR1–3 have no Extra Monster Zones, so it needs a linked Main Monster Zone. Material checks recompute arrows after removing the selected materials. Ordinary Extra Deck monsters retain their Master Rule placement restrictions.
+
 ## Retired rule ID
 
 - `[R-COMMON-OPP-FIELD]` **Retired on 2026-10-02.** This ID records earlier scenarios for the old rule that an opponent-field effect hits all opponents. It is not an active FFA rule, and those scenarios do not prove R-FFA-OPP-ONE. The new rules above replace it. Tag retains the official opposing-team field rule.

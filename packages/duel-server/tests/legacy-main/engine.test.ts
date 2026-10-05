@@ -1,7 +1,7 @@
 // Draw/Standby pacing assertions mirrored from main cec00380 (included in afd5f228).
 // MAIN'S TEST, run against the legacy 1v1 engine (src/legacy). A copy of packages/duel-server/tests/engine.test.ts from origin/main (78b8caa)
 // with only the import paths changed: engine, views and prompts come from ../../src/legacy, the other sources from ../../src, and
-// the data dir helper from ../engine-data-dir.js. Do not edit it to make the legacy engine pass: the legacy engine must equal main. See legacy-1v1/README.md.
+// the data dir helper from ../engine-data-dir.js. Do not edit it to make the legacy engine pass: the legacy engine must match the approved legacy pin. See legacy-1v1/README.md.
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import Database from "better-sqlite3";
