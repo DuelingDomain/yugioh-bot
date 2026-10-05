@@ -72,28 +72,30 @@ describe("TableShell on the 4-way fixtures", () => {
     expect(container.querySelectorAll("[data-compact-chips]")).toHaveLength(0);
   });
 
-  it("walks the rivals with Tab and focuses a seat with the digit keys", () => {
+  it("leaves the hidden camera alone on the grid: camera keys do nothing, Tab is not prevented, S still turns upright", () => {
     const { container } = render(<Shell id="main" />);
     const stage = container.querySelector("[data-table-stage]")!;
-    press("Tab");
-    expect(stage.getAttribute("data-camera-mode")).toBe("focus");
-    press("4");
-    expect(stage.getAttribute("data-camera-mode")).toBe("focus");
-    press("1");
+    const key = (name: string) => {
+      let allowed = true;
+      act(() => {
+        allowed = fireEvent.keyDown(window, { key: name });
+      });
+      return allowed;
+    };
+    expect(key("Tab")).toBe(true);
+    for (const name of ["4", "1", "0", "h", "o", "f", "p", "k", "a", "c"]) key(name);
     expect(stage.getAttribute("data-camera-mode")).toBe("home");
-    press("0");
-    expect(["fly", "overview"]).toContain(stage.getAttribute("data-camera-mode"));
+    expect(stage.getAttribute("data-camera-want")).toBe("home");
+    const upright = stage.getAttribute("data-upright");
+    expect(key("s")).toBe(false);
+    expect(stage.getAttribute("data-upright")).not.toBe(upright);
   });
 
-  it("turns the table with P and returns home after the last rival", () => {
+  it("does not make the seat strip a camera: no focus buttons, no focused seat", () => {
     const { container } = render(<Shell id="main" />);
-    const stage = container.querySelector("[data-table-stage]")!;
-    for (let index = 0; index < 3; index += 1) {
-      press("p");
-      expect(stage.getAttribute("data-camera-mode")).toBe("look");
-    }
-    press("p");
-    expect(stage.getAttribute("data-camera-mode")).toBe("home");
+    expect(container.querySelectorAll("[data-testid^='seat-strip-'][data-seat]")).toHaveLength(4);
+    expect(container.querySelectorAll('[aria-label^="Show "][aria-label$=" on the main field"]')).toHaveLength(0);
+    expect(container.querySelectorAll('[data-testid^="seat-strip-"][data-focus="true"]')).toHaveLength(0);
   });
 
   it("C keeps the four full fields on the grid: no chips, no camera move on the board", () => {

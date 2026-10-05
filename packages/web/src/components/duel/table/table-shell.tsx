@@ -180,7 +180,7 @@ function TableShellBody({
   const suspended = inputSuspended || ui.suspended || (narrow && sheetOpen);
   const flow = useAimFlow(base, layout, rootRef, { suspended });
   const controller = flow.controller;
-  const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, aiming: flow.aiming, seatKeys: flow.seatKeys, suspended });
+  const camera = useCamera({ controller, layout, initial: initialCamera, initialLock, aiming: flow.aiming, seatKeys: flow.seatKeys, suspended, uprightOnly: grid });
   const [hideResult, setHideResult] = useState(false);
   const [logUnread, setLogUnread] = useState(0);
   // Phone and small tablet: the left column is a sheet opened from a bar under the station track.
@@ -537,7 +537,7 @@ function TableShellBody({
       </div>
       <div className={roomStyles.track}>
         <SeatStrip engine={engine} mySeat={viewerSeat} nameOf={nameOf} promptSeat={controller.promptSeat}
-          focusSeat={camera.state.focusSeat} onFocusSeat={(seat) => camera.dispatch({ type: "focus", seat })}
+          focusSeat={grid ? null : camera.state.focusSeat} onFocusSeat={grid ? undefined : (seat) => camera.dispatch({ type: "focus", seat })}
           pick={canAct && controller.revealed ? controller.seatPick : null} />
         <StationTrack
           phase={engine.phase}
