@@ -1,15 +1,13 @@
 "use client";
 
 import { useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
-import { BOARD_H, buildCrumble, type CrumbleCard, type Fall } from "./crumble-model";
+import { BOARD_H, buildCrumble, COL, ROW, type CrumbleCard, type Fall } from "./crumble-model";
 import { hexToRgbTriplet } from "./seat-angle";
 import { SEAT_TONE_HEX, type SeatTone } from "./types";
 import styles from "./seat-crumble.module.css";
 
 /** The mat face, drawn once per tone and width: one data-URI svg shared by every tile. */
 const FACES = new Map<string, string>();
-const COL = [52, 151, 241, 326, 411, 501, 600];
-const ROW = [65, 190, 315];
 
 function matFace(tone: SeatTone, width: number): string {
   const key = `${tone}:${width}`;

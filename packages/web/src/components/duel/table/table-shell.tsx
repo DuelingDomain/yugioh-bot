@@ -304,11 +304,15 @@ function TableShellBody({
   );
 
   const pileSeat = ui.pile?.seat;
-  const out = standings.filter((entry) => engine.seats.find((view) => view.seat === entry.seat)?.eliminated === true);
+  const out = useMemo(() => standings.filter((entry) => engine.seats.find((view) => view.seat === entry.seat)?.eliminated === true), [standings, engine.seats]);
   const placeLabels = useMemo(() => new Map(out.map((entry) => [entry.seat, placeLabel(entry.place)])), [out]);
   // Seats that were already out when the table opened (a reload, a late join) show their notes at once; a seat that
-  // leaves while you watch gets notes that wait for its board to crumble.
-  const [outAtOpen] = useState(() => new Set(out.map((entry) => entry.seat)));
+  // leaves while you watch gets notes that wait for its board to crumble. A new duel (or the next game of a series)
+  // starts the count again.
+  const gameKey = `${session.slug}:${room.series?.gameNumber ?? 0}`;
+  const [opened, setOpened] = useState(() => ({ key: gameKey, seats: new Set(out.map((entry) => entry.seat)) }));
+  if (opened.key !== gameKey) setOpened({ key: gameKey, seats: new Set(out.map((entry) => entry.seat)) });
+  const outAtOpen = opened.seats;
   const viewerEliminated = engine.seats.some((view) => view.seat === viewerSeat && view.eliminated === true);
 
   return (
@@ -325,6 +329,10 @@ function TableShellBody({
       data-turn={spectator ? "watch" : myTurn ? "you" : "opp"}
       data-reduced={controller.reducedMotion ? "true" : "false"}
     >
+      {/* One live region that stays mounted: a region that appears with its text is not always read out. */}
+      <p className={styles.liveNote} role="status" aria-live="polite" data-testid="table-live">
+        {viewerEliminated ? "You are eliminated. You keep watching." : ""}
+      </p>
       <header className={roomStyles.header}>
         <div className={roomStyles.identity}>
           <Link href="/duels">Duelists Kingdom</Link>
@@ -500,13 +508,13 @@ function TableShellBody({
                             <i aria-hidden="true" />
                             {entry.seat === viewerSeat ? "You are out" : `${nameOf(entry.seat)} is out`}
                             <b>{placeLabel(entry.place)}</b>
-                            {entry.seat === viewerSeat ? <em data-testid="self-eliminated" role="status">You are eliminated.</em> : null}
+                            {entry.seat === viewerSeat ? <em data-testid="self-eliminated" aria-hidden="true">You are eliminated.</em> : null}
                           </li>
                         ))}
                       </ul>
                     ) : null}
                     {viewerEliminated ? (
-                      <span className={styles.spectating} data-testid="spectating-chip" data-fresh={viewerSeat != null && outAtOpen.has(viewerSeat) ? undefined : "true"} role="status">
+                      <span className={styles.spectating} data-testid="spectating-chip" data-fresh={viewerSeat != null && outAtOpen.has(viewerSeat) ? undefined : "true"} aria-hidden="true">
                         <Eye size={14} strokeWidth={1.75} aria-hidden /> Spectating
                       </span>
                     ) : null}

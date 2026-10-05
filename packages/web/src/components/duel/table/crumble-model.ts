@@ -26,8 +26,9 @@ export interface CrumbleCard {
   back: boolean;
 }
 
-const COL = [52, 151, 241, 326, 411, 501, 600];
-const ROW = [65, 190, 315];
+/** Column and row centres of the zones on a board, in board px. */
+export const COL = [52, 151, 241, 326, 411, 501, 600];
+export const ROW = [65, 190, 315];
 
 /**
  * The cards on a board as flat rectangles, in board px: monster and spell zones, the extra monster zones, the field
