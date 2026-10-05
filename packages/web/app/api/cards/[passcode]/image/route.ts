@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
 import { getDb } from "@/lib/db";
-import { CARD_BACK_SVG, fetchCardResource, trustedCardImageUrl, validateCardImage } from "@yugidraft/shared/services";
+import { CARD_BACK_SVG, CardFetchError, fetchCardResource, isCardFetchError, trustedCardImageUrl, validateCardImage } from "@yugidraft/shared/services";
 
 export const runtime = "nodejs";
 
@@ -20,6 +20,7 @@ function artworkOf(passcode: number): ArtworkRow | undefined {
 }
 
 class ImageMissingError extends Error {}
+class ImageInvalidError extends CardFetchError {}
 
 /** The image for one passcode from YGOPRODeck, or null when YGOPRODeck has none. */
 async function fetchImage(passcode: number, variant: ImageVariant): Promise<Buffer | null> {
@@ -28,7 +29,9 @@ async function fetchImage(passcode: number, variant: ImageVariant): Promise<Buff
   const storedUrl = variant === "cropped" ? artwork?.image_url_cropped : variant === "small" ? artwork?.image_url_small : artwork?.image_url;
   return fetchCardResource(trustedCardImageUrl(storedUrl, `${baseUrl}/${passcode}.jpg`), fetch, async (response) => {
     if (response.status === 404) return null;
-    return validateCardImage(Buffer.from(await response.arrayBuffer()));
+    const image = Buffer.from(await response.arrayBuffer());
+    try { return await validateCardImage(image); }
+    catch { throw new ImageInvalidError(); }
   }, [404]);
 }
 
@@ -104,8 +107,20 @@ export async function GET(
       },
     });
   } catch (error) {
-    return new Response(CARD_BACK_SVG, { headers: {
-      "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=30",
-    } });
+    if (error instanceof ImageMissingError) {
+      return NextResponse.json({ error: "Card image not found" }, { status: 404 });
+    }
+    if (error instanceof ImageInvalidError) {
+      return NextResponse.json({ error: "Invalid card image" }, { status: 502 });
+    }
+    if (isCardFetchError(error)) {
+      if (error.status == null || error.status === 429 || (error.status >= 500 && error.status < 600)) {
+        return new Response(CARD_BACK_SVG, { headers: {
+          "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=30",
+        } });
+      }
+      return NextResponse.json({ error: "Could not load card image" }, { status: 502 });
+    }
+    return NextResponse.json({ error: "Could not load card image" }, { status: 500 });
   }
 }

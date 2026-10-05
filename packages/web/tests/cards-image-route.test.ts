@@ -64,15 +64,43 @@ describe("GET /api/cards/[passcode]/image", () => {
     expect(readFileSync(join(cacheDir, "10000100.jpg"))).toEqual(RITUAL_ART);
   });
 
-  it("returns a short-lived card back when neither the passcode nor an alias has an image", async () => {
+  it("returns 404 when neither the passcode nor an alias has an image", async () => {
     callDuelHost.mockResolvedValue({ ok: true, data: { cards: [{ code: 12345678, alias: 0 }], missing: [] } });
 
     const response = await getImage("12345678", "?size=small");
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toBe("image/svg+xml");
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=30");
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "Card image not found" });
     expect(fetched).toEqual(["https://images.ygoprodeck.com/images/cards_small/12345678.jpg"]);
+  });
+
+  it("returns 404 for a passcode absent from the engine", async () => {
+    callDuelHost.mockResolvedValue({ ok: true, data: { cards: [], missing: [99999999] } });
+    expect((await getImage("99999999")).status).toBe(404);
+  });
+
+  it("returns 404 when the requested image and its alias are both missing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("missing", { status: 404 })));
+    expect((await getImage("10000100")).status).toBe(404);
+  });
+
+  it.each([302, 400, 401, 403])("does not return a card back for upstream HTTP %s", async (status) => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("error", { status })));
+    const response = await getImage("89631139");
+    expect(response.status).toBe(502);
+    expect(response.headers.get("Content-Type")).toContain("application/json");
+    expect(() => readFileSync(join(cacheDir, "89631139.jpg"))).toThrow();
+  });
+
+  it("reports an internal error instead of returning a card back", async () => {
+    getDb.mockImplementation(() => { throw new Error("database unavailable"); });
+    expect((await getImage("89631139")).status).toBe(500);
+  });
+
+  it("rejects invalid image bytes instead of returning a card back", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("invalid image")));
+    expect((await getImage("89631139")).status).toBe(502);
+    expect(() => readFileSync(join(cacheDir, "89631139.jpg"))).toThrow();
   });
 
   it("does not ask the duel engine when the passcode has its own image", async () => {
@@ -123,16 +151,15 @@ describe("GET /api/cards/[passcode]/image", () => {
 
   it("does not substitute a full card when its crop is missing", async () => {
     const res = await getImage("5405694", "?variant=cropped");
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Type")).toBe("image/svg+xml");
+    expect(res.status).toBe(404);
     expect(fetched).toEqual(["https://images.ygoprodeck.com/images/cards_cropped/5405694.jpg"]);
   });
 
-  it.each(["network", "timeout", "429", "503", "invalid image"])("returns a card back for %s without poisoning the cache", async (failure) => {
+  it.each(["network", "timeout", "429", "503"])("returns a card back for %s without poisoning the cache", async (failure) => {
     const upstream = vi.fn(async () => {
       if (failure === "network") throw new TypeError("fetch failed");
       if (failure === "timeout") throw new DOMException("timeout", "TimeoutError");
-      return new Response("unavailable", { status: failure === "invalid image" ? 200 : Number(failure), headers: { "Retry-After": "2" } });
+      return new Response("unavailable", { status: Number(failure), headers: { "Retry-After": "2" } });
     });
     vi.stubGlobal("fetch", upstream);
     const response = await getImage("89631139");
