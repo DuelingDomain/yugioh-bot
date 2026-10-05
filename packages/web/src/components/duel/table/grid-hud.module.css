@@ -431,6 +431,8 @@
   font-size: 12px;
   cursor: pointer;
 }
+/* A long label ends in an ellipsis at the right; the full text stays in the title and the accessible name. */
+.masterActionText { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .masterActions .masterInspect { flex: none; width: 30px; padding: 0; }
 .masterInspectText { display: none; }
 /* With no summon legal, Inspect is alone in the row: it fills it and shows its word. */
