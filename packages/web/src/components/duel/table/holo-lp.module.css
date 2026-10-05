@@ -72,12 +72,12 @@
 .top {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: calc(6px * var(--lpk));
 }
 
 .top i {
-  width: 8px;
-  height: 8px;
+  width: calc(8px * var(--lpk));
+  height: calc(8px * var(--lpk));
   flex: none;
   border-radius: 50%;
   background: rgb(var(--t));
@@ -95,7 +95,7 @@
 }
 
 .turnChip {
-  padding: 2px 5px;
+  padding: calc(2px * var(--lpk)) calc(5px * var(--lpk));
   border-radius: 3px;
   background: rgb(var(--t) / 0.3);
   color: #efe7d5;
@@ -110,6 +110,7 @@
   --lp-size: calc(34px * var(--lpk));
   display: flex;
   align-items: baseline;
+  min-width: 0;
   margin-top: calc(5px * var(--lpk));
   text-shadow: 0 0 14px rgb(var(--t) / 0.35);
 }
@@ -121,9 +122,11 @@
 /* Last damage: the LP before it, struck out, over a red chip. Sits beside the numerals. */
 .hit {
   display: grid;
+  flex: 0 1 auto;
   justify-items: start;
-  gap: 2px;
-  margin-left: 8px;
+  min-width: 0;
+  gap: calc(2px * var(--lpk));
+  margin-left: calc(8px * var(--lpk));
   align-self: center;
   text-shadow: none;
   font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
@@ -133,18 +136,22 @@
 
 .hit s {
   color: var(--ink-4);
-  font-size: 11px;
+  font-size: max(8px, calc(11px * var(--lpk)));
   font-weight: 600;
   text-decoration-color: var(--loss);
 }
 
 .hit b {
-  padding: 1px 6px;
+  max-width: 100%;
+  padding: calc(1px * var(--lpk)) calc(6px * var(--lpk));
+  overflow: hidden;
   border: 1px solid rgb(228 90 77 / 0.55);
   border-radius: 999px;
   background: rgb(228 90 77 / 0.16);
   color: var(--loss-ink);
-  font-size: 12px;
+  font-size: max(8px, calc(12px * var(--lpk)));
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -152,7 +159,8 @@
 .meta {
   display: flex;
   align-items: center;
-  gap: 9px;
+  min-width: 0;
+  gap: calc(9px * var(--lpk));
   margin-top: calc(6px * var(--lpk));
   color: var(--ink-3);
   font-family: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
@@ -165,12 +173,12 @@
 .meta span {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: calc(3px * var(--lpk));
 }
 
 .meta .clock {
   margin-left: auto;
-  padding: 2px 6px;
+  padding: calc(2px * var(--lpk)) calc(6px * var(--lpk));
   border: 1px solid var(--sheet-lo);
   border-radius: 3px;
 }
@@ -182,7 +190,7 @@
 }
 
 .state {
-  margin-top: 5px;
+  margin-top: calc(5px * var(--lpk));
   color: var(--ink-3);
   font-size: 11px;
   font-weight: 700;
@@ -197,7 +205,7 @@
 }
 
 .think {
-  margin-top: 5px;
+  margin-top: calc(5px * var(--lpk));
   color: var(--tink);
   font-size: 12px;
   font-style: italic;
@@ -482,4 +490,10 @@
   top: calc(-16px * var(--lpk));
   width: calc(24px * var(--lpk));
   height: calc(34px * var(--lpk));
+}
+
+/* A box too small for the whole panel (a fit under about 0.6) keeps the name, the numerals and the damage: the counts row
+   and the clock are left out (the clock would sit on the Extra Monster Zone beside the box). */
+.holo[data-compact="true"] .meta {
+  display: none;
 }
