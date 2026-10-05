@@ -162,6 +162,26 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
   const { focus } = focusControl;
   const focusCell = focus.seat != null ? cells.find((cell) => cell.seat === focus.seat) ?? null : null;
 
+  // A seat pick shows every life box (they are the targets, with their keys), so the camera steps back for it and
+  // returns to the field it left when the pick is over.
+  const picking = picks != null;
+  const resume = useRef<number | null>(null);
+  const live = useRef({ seat: focus.seat, control: focusControl });
+  live.current = { seat: focus.seat, control: focusControl };
+  useEffect(() => {
+    const { seat, control } = live.current;
+    if (picking) {
+      if (seat != null) {
+        resume.current = seat;
+        control.showAll();
+      }
+    } else if (resume.current != null) {
+      const back = resume.current;
+      resume.current = null;
+      if (seat == null) control.focusSeat(back);
+    }
+  }, [picking]);
+
   const target = useMemo(
     () => (box.width > 0 && box.height > 0 ? gridView(world, box, focusCell, focus.mul) : null),
     [box, focus.mul, focusCell, world],
