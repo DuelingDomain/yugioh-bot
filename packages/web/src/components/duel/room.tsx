@@ -88,6 +88,7 @@ import { isBetweenGames, isSeriesOpen, nextGameTarget, seriesPlayerIndex } from 
 import { SheetButton } from "./sheet-ui";
 import { DuelClockDisplay, DuelSettingsSummary, DuelSoundControls, RoomInvite } from "./room-settings";
 import { battleStepLabel, hasNoLegalMoves, resolveBattleStep, StationTrack, type BattleStep } from "./station-track";
+import { PhaseHub } from "./phase-hub";
 import { MasterReturnFx } from "./master-return-fx";
 import { MoveFx } from "./move-fx";
 import { fxLayersUp, useStartBeats } from "./use-start-beats";
@@ -1148,6 +1149,24 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     </div>
   );
   // What DuelField (classic) and SolidField (3D mode) take: one object, so both looks drive the same logic.
+  // Classic 1v1: the phases live on the board, in the free cells of the Extra Monster Zone row. The bar keeps the caption, the clock
+  // and the Responses + turn group. The 3D board, the legacy multiseat stage and the tag table keep the phases in the bar.
+  const phaseHub = Boolean(engine) && !solid && !multi && !liveTable;
+  const hubNode = phaseHub && engine ? (
+    <PhaseHub
+      variant="band"
+      phase={shownPhase}
+      battleStep={battleStep}
+      turn={engine.turn}
+      turnSeat={engine.turnSeat}
+      mySeat={data.mySeat}
+      playerName={playerName}
+      actionOptions={mine ? actionOptions : []}
+      canAct={canAct}
+      onChoose={(id) => onSubmitAnswer({ choice: id })}
+      reducedMotion={preferences.reducedMotion}
+    />
+  ) : null;
   const fieldProps = engine ? {
     engine, mySeat: data.mySeat, masterRule: data.session.masterRule,
     reducedMotion: preferences.reducedMotion,
@@ -1157,6 +1176,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
     onHoverCard, onInspect: (target: InspectTarget) => showInspector(target, true),
     bottomName: playerName(localSeat),
     topName: playerName(top?.seat ?? 1 - localSeat),
+    hub: hubNode,
   } : null;
   // The board: the field (given by the caller), the FX layers as flat siblings of it, the prompt layer and the pile viewer.
   const renderBoard = (field: ReactNode): ReactNode => engine ? (
@@ -1212,6 +1232,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
       caption={trackCaption}
       reducedMotion={preferences.reducedMotion}
       chainMode={chainMode}
+      phases={phaseHub ? "hub" : "bar"}
     />
   );
   const mobileTabs = tabs(true);

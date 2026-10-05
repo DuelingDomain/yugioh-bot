@@ -8,6 +8,13 @@ import {
 } from "../src/components/duel/ydk.js";
 
 describe("generateYdk", () => {
+  it("exports one additional artwork copy for each forced pick", () => {
+    const normal = { id: 1, frameType: "normal", name: "Card", type: "Normal Monster" };
+    const forced = { ...normal, id: 2, name: " CARD ", forced: true };
+    expect(parseYdk(generateYdk([normal, normal, normal, forced, normal])).main).toEqual([1, 1, 1, 2]);
+    expect(parseYdk(generateYdk([normal, normal, normal, forced, forced])).main).toEqual([1, 1, 1, 2, 2]);
+  });
+
   it("keeps fourth copies in the pool and out of every deck section", () => {
     const cards = [
       ...Array.from({ length: 4 }, () => ({ id: 1, frameType: "normal" })),

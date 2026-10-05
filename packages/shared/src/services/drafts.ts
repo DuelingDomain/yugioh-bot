@@ -15,6 +15,7 @@ export type DraftPoolCard = {
   draftCardId: number;
   catalogCardId: number;
   pickMethod: "manual" | "auto";
+  forced: boolean;
   packRound: number;
   pickStep: number;
 };
@@ -78,6 +79,7 @@ function mapDraftPick(row: any): DraftPick {
     waveNumber: row.wave_number,
     pickStep: row.pick_step,
     pickMethod: row.pick_method,
+    forced: row.forced === 1,
     pickedAt: row.picked_at,
   };
 }
@@ -309,11 +311,12 @@ export function createDraftService(
       .prepare("select catalog_card_id from draft_cards where id = ? and draft_id = ?")
       .get(draftCardId, draftId) as { catalog_card_id: number } | undefined;
     const draft = findById(draftId);
-    if (draft.config.copyLimit === false) return;
+    if (draft.config.copyLimit === false) return false;
     if (card && isCapped(heldCopies(draftId, playerId), card.catalog_card_id)) {
-      if (draft.config.mode !== "theme" && currentPackOptionsInternal(draftId, playerId, true).some((option) => option.id === draftCardId)) return;
+      if (draft.config.mode !== "theme" && currentPackOptionsInternal(draftId, playerId, true).some((option) => option.id === draftCardId && option.forced)) return true;
       throw new Error(`You already have ${MAX_COPIES_PER_PLAYER} copies of this card`);
     }
+    return false;
   };
 
   const playerSeatIndex = (draftId: number, playerId: number): number => {
@@ -396,6 +399,7 @@ export function createDraftService(
             dp.draft_card_id,
             dc.catalog_card_id,
             dp.pick_method,
+            dp.forced,
             dp.wave_number,
             dp.pick_step
           from draft_picks dp
@@ -409,6 +413,7 @@ export function createDraftService(
         draftCardId: row.draft_card_id,
         catalogCardId: row.catalog_card_id,
         pickMethod: row.pick_method,
+        forced: row.forced === 1,
         packRound: row.wave_number,
         pickStep: row.pick_step,
       }));
@@ -420,12 +425,13 @@ export function createDraftService(
     if (draft.status !== "completed" && playerProgress(draftId, playerId).pick_count < (draft.config.cardsPerPlayer ?? defaultDraftConfig.cardsPerPlayer)) {
       throw new Error("Deck is not complete yet");
     }
-    const rows = db.prepare(`select dc.catalog_card_id, cc.name, cc.type, cc.frame_type
+    const rows = db.prepare(`select dc.catalog_card_id, cc.name, cc.type, cc.frame_type, pk.forced
       from draft_picks pk join draft_cards dc on dc.id = pk.draft_card_id
       left join card_catalog cc on cc.ygoprodeck_id = dc.catalog_card_id
       where pk.draft_id = ? and pk.player_id = ? order by pk.id`)
-      .all(draftId, playerId) as Array<{ catalog_card_id: number; name: string | null; type: string | null; frame_type: string | null }>;
+      .all(draftId, playerId) as Array<{ catalog_card_id: number; name: string | null; type: string | null; frame_type: string | null; forced: number }>;
     const deck = buildDraftDeck(rows.map((row) => ({ catalogId: row.catalog_card_id, name: row.name, type: row.type,
+      forced: row.forced === 1,
       extra: isExtraDeckFrame({ type: row.type ?? "", frameType: row.frame_type ?? "" }) })));
     return ["#main", ...deck.main, "#extra", ...deck.extra, "", "!side", ...deck.side, ""].join("\n");
   };
@@ -1173,7 +1179,7 @@ export function createDraftService(
     if (cardRow.picked_by_player_id !== null) {
       throw new Error("Card has already been picked");
     }
-    assertUnderCopyCap(draftId, playerId, draftCardId);
+    const forced = assertUnderCopyCap(draftId, playerId, draftCardId);
 
     db.prepare(
       `
@@ -1186,11 +1192,13 @@ export function createDraftService(
     const result = db
       .prepare(
         `
-          insert into draft_picks (draft_id, player_id, draft_card_id, wave_number, pick_step, pick_method, picked_at)
-          values (?, ?, ?, ?, ?, ?, ?)
+          insert into draft_picks (draft_id, player_id, draft_card_id, wave_number, pick_step, pick_method, forced, picked_at)
+          values (?, ?, ?, ?, ?, ?, ?, ?)
         `,
       )
-      .run(draftId, playerId, draftCardId, draft.currentPackRound, draft.currentPickStep, pickMethod, now.toISOString());
+      .run(draftId, playerId, draftCardId, draft.currentPackRound, draft.currentPickStep, pickMethod,
+        forced ? 1 : 0,
+        now.toISOString());
 
     db.prepare(
       `

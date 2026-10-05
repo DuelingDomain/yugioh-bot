@@ -258,6 +258,7 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 | Kaiser Colosseum | 35059553 | symmetry | It compares the monster count of two sides to limit summons. | `c35059553.lua:16`, `c35059553.lua:30` | 3-FFA, 4-FFA | no |
 | Skull Invitation | 98139712 | symmetry | Damage goes by card owner to 'you' and 'the opponent' only. | `c98139712.lua:19`, `c98139712.lua:27` | 3-FFA, 4-FFA | no |
 | Ring of Destruction | 83555666 | symmetry | It damages the activator and one opponent. The opponent LP check reads one player. | `c83555666.lua:25`, `c83555666.lua:41` | 3-FFA, 4-FFA | no |
+| Convulsion of Nature | 62966332 | symmetry | It reverses Decks through one global check for two sides. A multiplayer table has more than two Decks. | `c62966332.lua:5`, `c62966332.lua:14`, `c62966332.lua:17` | 3-FFA, 4-FFA, Tag | yes |
 | Doom Virus Dragon | 22804644 | turn-count | Its effect lasts 3 'opponent turns'. | `c22804644.lua:48`, `c22804644.lua:56` | 3-FFA, 4-FFA | no |
 | The Wicked Avatar | 21208154 | turn-count | Its effect lasts 2 'opponent turns'. | `c21208154.lua:62`, `c21208154.lua:71` | 3-FFA, 4-FFA | no |
 | Grisaille Prison | 22888900 | turn-count | Its effect lasts 2 'opponent turns'. | `c22888900.lua:28`, `c22888900.lua:45` | 3-FFA, 4-FFA | no |
@@ -290,7 +291,6 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 | Nibiru, the Primal Being | 27204311 | global-state | It counts summons in a flag for each of two players and reads the flag of 'the opponent'. | `c27204311.lua:34`, `c27204311.lua:38` | 3-FFA, 4-FFA | no |
 | Droll & Lock Bird | 94145021 | global-state | It keeps a two-slot table of draws for each player. | `c94145021.lua:17`, `c94145021.lua:42` | 3-FFA, 4-FFA | no |
 | Crush Card Virus | 57728570 | chooser | It reads the opponent hand, field and Deck, and asks one opponent to choose. | `c57728570.lua:43`, `c57728570.lua:52` | 3-FFA, 4-FFA | no |
-| Creature Swap | 31036355 | control-swap | The script swaps control between the activator and one named opponent. | `c31036355.lua:31`, `c31036355.lua:35` | 3-FFA, 4-FFA | no |
 | Creature Seizure | 15305240 | control-swap | The script swaps control between the activator and one named opponent. | `c15305240.lua:30`, `c15305240.lua:34` | 3-FFA, 4-FFA | no |
 | Switcheroroo | 30426226 | control-swap | It needs equal monster counts on two sides and swaps all of them. | `c30426226.lua:19`, `c30426226.lua:29` | 3-FFA, 4-FFA | no |
 | Dummy Golem | 13532663 | control-swap | The script swaps control between the activator and a monster chosen by one named opponent. | `c13532663.lua:25`, `c13532663.lua:26` | 3-FFA, 4-FFA | no |
@@ -298,7 +298,7 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 
 Turn-count rows: these 4 bans stay. Swords of Revealing Light is legal under R-FFA-SWORDS-PROTECT (owner correction, 2026-10-02 night). Other cards with an opponent-turn count are legal and follow rule 11; the review is in `.status/multiplayer-turncount-review.md`.
 
-Total: 45 cards. 3-FFA and 4-FFA: 45 cards (22 only in free-for-all). Tag: 23 cards.
+Total: 46 cards. 3-FFA and 4-FFA: 46 cards (22 only in free-for-all). Tag: 24 cards.
 
 Error message format: `<card> is forbidden in 4-player free-for-all: <reason>`. The table name is "3-player free-for-all", "4-player free-for-all" or "2v2 Tag Duel".
 

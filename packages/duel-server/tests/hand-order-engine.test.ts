@@ -105,8 +105,8 @@ describe("engine hand order through the real engine view", () => {
       try {
         for (const viewer of [0, 1, null]) expectEngineOrder(nextGame.view(viewer), viewer);
         expect(nextGame.view(0).seats[0]!.hand.map((c) => c.code)).not.toEqual(before.map((c) => c.code));
-        // Five opening cards per seat. Domain duels also draw on the first turn (first-turn-draw.ts), which adds one.
-        expect(nextGame.view(0).events.filter((e) => e.reason === "draw")).toHaveLength(mode === "domain" ? 11 : 10);
+        // Five opening cards per seat; 1v1 Domain and Standard MR5 both skip the turn-1 draw.
+        expect(nextGame.view(0).events.filter((e) => e.reason === "draw")).toHaveLength(10);
       } finally { nextGame.close(); }
     } finally { game.close(); }
   });
