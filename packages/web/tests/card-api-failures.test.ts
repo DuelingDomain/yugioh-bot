@@ -40,7 +40,20 @@ describe.each(["network", "timeout", "429", "503", "json"])("card API %s failure
     expect(response.status).toBe(503);
     expect((await response.json()).error).toContain("Try again");
   });
+  it("returns 503 for a draft with only part of its set cached", async () => {
+    db.exec(`insert into card_sets (set_name,set_code,card_count,synced_at) values ('Partial Set','PS',2,'old');
+      insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+      values (10000000,'Legacy','Effect Monster','effect','full','small','[{"set_name":"Partial Set"}]','old');`);
+    const { POST } = await import("../app/api/drafts/route");
+    const response = await POST(new NextRequest("http://localhost/api/drafts", { method: "POST", body: JSON.stringify({
+      name: "Partial Set", config: { setNames: ["Partial Set"], packSize: 8, packsPerPlayer: 5, pickSeconds: 60 },
+    }) }));
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toContain("Try again");
+    expect(db.prepare("select count(*) as n from drafts").get()).toEqual({ n: 0 });
+  });
   it("creates and starts a cached legacy draft, and returns 503 for an uncached draft", async () => {
+    db.exec("insert into card_sets (set_name,set_code,card_count,synced_at) values ('Legacy Set','LS',100,'old')");
     const insert = db.prepare(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
       values (?, ?, ?, ?, 'full','small',?,'old')`);
     for (let i = 0; i < 100; i++) {
