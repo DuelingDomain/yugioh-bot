@@ -156,6 +156,28 @@ describe("GridStage", () => {
     for (const seat of [0, 1, 2, 3]) expect(cellOf(container, seat).querySelector<HTMLElement>("[data-seat-slot]")!.style.transform).toBe("");
   });
 
+  it("tells a screen reader the focus: pressed pills with their key, a polite Focus line, labelled cells", () => {
+    const { container } = render(<Shell id="main" />);
+    const live = container.querySelector("[data-grid-live]")!;
+    expect(live.getAttribute("aria-live")).toBe("polite");
+    expect(live.textContent).toMatch(/^Focus: .+/);
+    expect(live.textContent).not.toMatch(/all fields/);
+    const pill = (seat: number) => container.querySelector(`[data-testid="seat-strip-${seat}"] button`) as HTMLElement;
+    expect(pill(1).getAttribute("aria-keyshortcuts")).toBe("2");
+    expect(pill(0).getAttribute("aria-pressed")).toBe("true");
+    expect(pill(1).getAttribute("aria-pressed")).toBe("false");
+    act(() => void fireEvent.keyDown(window, { key: "2" }));
+    expect(pill(1).getAttribute("aria-pressed")).toBe("true");
+    expect(pill(0).getAttribute("aria-pressed")).toBe("false");
+    const name = live.textContent!.replace("Focus: ", "");
+    expect(pill(1).getAttribute("aria-label")).toContain(name);
+    act(() => void fireEvent.keyDown(window, { key: "o" }));
+    expect(live.textContent).toBe("Focus: all fields");
+    const cells = [...container.querySelectorAll("[data-grid-cell]")];
+    expect(cells.length).toBe(4);
+    for (const cell of cells) expect(cell.getAttribute("aria-label")).toMatch(/, field/);
+  });
+
   it("does not draw a seat field again for a change of focus (the focus only moves boxes)", () => {
     const { container } = render(<Shell id="main" />);
     const stage = container.querySelector("[data-grid-stage]")!;

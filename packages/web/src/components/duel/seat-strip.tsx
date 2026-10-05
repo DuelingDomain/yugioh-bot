@@ -67,9 +67,10 @@ export function SeatStrip({
             aria-current={turn ? "step" : undefined}>
             {pickable ? (
               <button type="button" className={styles.hit} data-testid={`seat-strip-pick-${view.seat}`}
-                onClick={() => pick?.onPick(view.seat)} aria-label={opponentPickLabel(nameOf(view.seat))}>{content}</button>
+                aria-keyshortcuts={focusAny ? String(view.seat + 1) : undefined} onClick={() => pick?.onPick(view.seat)} aria-label={opponentPickLabel(nameOf(view.seat))}>{content}</button>
             ) : focusable ? (
               <button type="button" className={styles.hit} onClick={() => onFocusSeat?.(view.seat)}
+                aria-pressed={focusAny ? focusSeat === view.seat : undefined} aria-keyshortcuts={focusAny ? String(view.seat + 1) : undefined}
                 aria-label={`Show ${nameOf(view.seat)} on the main field`}>{content}</button>
             ) : <div className={styles.hit}>{content}</div>}
           </li>

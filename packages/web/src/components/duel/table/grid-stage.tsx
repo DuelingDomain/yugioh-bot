@@ -321,6 +321,8 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
                 data-small={spot.small ? "true" : undefined}
                 data-focus={focus.seat === cell.seat ? "true" : undefined}
                 data-partner={cell.home ? cell.partner : undefined}
+                role="group"
+                aria-label={`${nameOf(cell.seat)}${self ? " (you)" : ""}, field${focus.seat === cell.seat ? ", in focus" : ""}${state === "empty" ? ", empty seat" : ""}`}
               >
                 {empty ? null : (
                   <RivalField
@@ -387,6 +389,9 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
             : null}
       </div>
       {controller.aim?.from ? <AttackLine aim={controller.aim} tone={attackerTone} stageWidth={box.width} stageHeight={box.height} /> : null}
+      <div className={styles.live} role="status" aria-live="polite" data-grid-live>
+        {focus.seat == null ? "Focus: all fields" : `Focus: ${nameOf(focus.seat)}`}
+      </div>
       <div className={styles.controls} role="group" aria-label="Table view" data-grid-controls>
         <button type="button" className={styles.control} data-testid="grid-all" aria-pressed={focus.seat == null} aria-keyshortcuts="O Escape" title="All fields (O or Esc)" onClick={focusControl.showAll}>
           All fields
