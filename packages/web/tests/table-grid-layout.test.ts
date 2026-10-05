@@ -10,9 +10,12 @@ import {
   gridPartnerOf,
   gridPlacement,
   gridWorld,
+  HAND_RISE,
+  HAND_SHARE,
   LP_MAX_HEIGHT,
   OUT_HOLD_MS,
   OTHER_SHARE,
+  OVERLAP,
   PARTNER_MIN_SHARE,
   pairDrawer,
   SMALL_FIELD_WIDTH,
@@ -177,8 +180,8 @@ describe("gridFocusLayout", () => {
         const drawer = top.drawer ? top : bottom;
         const other = top.drawer ? bottom : top;
         // the mat of the field that does not draw the row ends where the row of the drawer starts
-        const visible = top.drawer ? other.rect.y + 1.25 * other.z : other.rect.y + other.rect.height - 1.25 * other.z;
-        expect(visible).toBeCloseTo(top.drawer ? drawer.rect.y + drawer.rect.height : drawer.rect.y, 0);
+        const visible = top.drawer ? other.rect.y + OVERLAP * other.z : other.rect.y + other.rect.height - OVERLAP * other.z;
+        expect(Math.abs(visible - (top.drawer ? drawer.rect.y + drawer.rect.height : drawer.rect.y))).toBeLessThanOrEqual(1);
         const band = layout.bands[column];
         expect(overlap(band.bottomLp, band.topLp)).toBe(false);
         expect(band.bottomLp.x + band.bottomLp.width).toBeLessThanOrEqual(band.topLp.x);
@@ -197,7 +200,7 @@ describe("gridFocusLayout", () => {
       const focused = layout.cells[cellIndex(focus!)];
       const partner = layout.cells[cellIndex({ column: focus!.column, row: focus!.row === 1 ? 0 : 1 })];
       expect(focused.z).toBe(layout.sizes.focus);
-      expect(focused.z).toBeGreaterThan(equal * 1.15);
+      expect(focused.z).toBeGreaterThanOrEqual(equal * 1.29);
       expect(focused.z).toBeLessThanOrEqual(equal * FOCUS_SHARE + 0.01);
       expect(partner.z).toBeLessThan(focused.z);
       expect(partner.z).toBeGreaterThanOrEqual(equal * PARTNER_MIN_SHARE - 0.01);
@@ -206,12 +209,64 @@ describe("gridFocusLayout", () => {
     }
   });
 
+  it("makes every focus at least 1.29x the equal size at 1440x900 and 1920x1080, for the home column too", () => {
+    for (const view of [{ width: 1440, height: 900 }, { width: 1920, height: 1080 }]) {
+      for (const focus of FOCUSES.filter((entry) => entry != null)) {
+        const layout = gridFocusLayout(gridWorld(5), view, focus, { homeColumn: 0 });
+        expect(layout.sizes.focus / layout.sizes.equal).toBeGreaterThanOrEqual(1.29);
+        expect(layout.sizes.partner / layout.sizes.equal).toBeGreaterThanOrEqual(PARTNER_MIN_SHARE - 0.001);
+      }
+    }
+  });
+
+  it("keeps the home hand lane fixed from the equal size: a focused home field does not grow it", () => {
+    const view = { width: 1440, height: 900 };
+    const lane = (focus: (typeof FOCUSES)[number]) => {
+      const layout = gridFocusLayout(gridWorld(5), view, focus, { homeColumn: 0 });
+      const home = layout.cells[cellIndex({ column: 0, row: 1 })];
+      return { layout, home, below: view.height - 8 - (home.rect.y + home.rect.height) };
+    };
+    const all = lane(null);
+    const mine = lane({ column: 0, row: 1 });
+    const rival = lane({ column: 1, row: 1 });
+    // the room below the home field: 1.04 of its card height, never of more than the equal size (the hand rises over the field's edge by HAND_RISE)
+    for (const entry of [all, mine, rival]) expect(entry.below).toBeGreaterThanOrEqual(1.04 * Math.min(entry.home.z, entry.layout.sizes.equal) - 1);
+    // the hand card is drawn from the equal size, never from the focused size, and fits the lane with its rise
+    expect(mine.home.z).toBeGreaterThan(all.home.z);
+    expect(mine.home.lh).toBeCloseTo(HAND_SHARE * mine.layout.sizes.equal, 1);
+    expect(mine.home.lh * (1 - HAND_RISE)).toBeLessThan(mine.below);
+  });
+
+  it("puts left and top of every field and life box on whole px", () => {
+    every((layout) => {
+      for (const box of [...layout.cells.map((cell) => cell.rect), ...layout.bands.flatMap((band) => [band.rect, band.bottomLp, band.topLp])]) {
+        expect(Number.isInteger(box.x)).toBe(true);
+        expect(Number.isInteger(box.y)).toBe(true);
+      }
+    });
+  });
+
+  it("overlaps a pair by the drawing field's pad, row and row gap, so the other field's monster row stays on its mat", () => {
+    expect(OVERLAP).toBeCloseTo(0.125 + 1 + 0.071, 5);
+    every((layout) => {
+      for (const column of [0, 1] as const) {
+        const top = layout.cells[cellIndex({ column, row: 0 })];
+        const bottom = layout.cells[cellIndex({ column, row: 1 })];
+        const nonDrawer = top.drawer ? bottom : top;
+        const drawer = top.drawer ? top : bottom;
+        // the mat of the other field is cut OVERLAP of its card height from the pair side; its monster row ends 1.196 from there
+        expect(Math.abs(top.rect.y + top.rect.height - bottom.rect.y - OVERLAP * nonDrawer.z)).toBeLessThanOrEqual(1);
+        expect(drawer.drawer).toBe(true);
+      }
+    });
+  });
+
   it("reaches 1.3x when the focused column has no larger hand lane, and gives up size for the partner minimum when it has", () => {
     const view = { width: 1356, height: 744 };
     const rival = gridFocusLayout(gridWorld(5), view, { column: 1, row: 1 }, { homeColumn: 0 });
     expect(rival.sizes.focus / rival.sizes.equal).toBeCloseTo(FOCUS_SHARE, 2);
     const mine = gridFocusLayout(gridWorld(5), view, { column: 0, row: 1 }, { homeColumn: 0 });
-    expect(mine.sizes.focus / mine.sizes.equal).toBeGreaterThan(1.15);
+    expect(mine.sizes.focus / mine.sizes.equal).toBeGreaterThanOrEqual(1.29);
     expect(mine.sizes.partner / mine.sizes.equal).toBeGreaterThanOrEqual(PARTNER_MIN_SHARE - 0.001);
   });
 

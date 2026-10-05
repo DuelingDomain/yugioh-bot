@@ -15,7 +15,7 @@ export interface RivalFieldProps {
    * A fixed place in the parent's px (the grid table): the box sits at `left`/`top` and turns with the CSS `rotate`
    * property. `transform` stays free for the stage to animate. `pose.x/y/scale` are not used; `pose.z` is the card height.
    */
-  placement?: { left: number; top: number; zIndex: number; small?: boolean };
+  placement?: { left: number; top: number; zIndex: number; small?: boolean; lh?: number };
 }
 
 /** CSS transform of a seat box: its centre goes to the pose, then it tilts, turns and scales about its own centre. */
@@ -39,7 +39,7 @@ export function seatTransform(pose: Pick<SeatPose, "x" | "y" | "rotateDeg" | "ti
  */
 export function RivalField({ pose, field, render, angleOffsetDeg = 0, placement }: RivalFieldProps) {
   const style: CSSProperties & Record<string, string | number> = placement
-    ? { "--sf-z": `${pose.z}px`, left: placement.left, top: placement.top, rotate: pose.rotateDeg ? `${pose.rotateDeg}deg` : "none", zIndex: placement.zIndex }
+    ? { "--sf-z": `${pose.z}px`, ...(placement.lh != null ? { "--sf-lh": `${placement.lh}px` } : {}), left: placement.left, top: placement.top, rotate: pose.rotateDeg ? `${pose.rotateDeg}deg` : "none", zIndex: placement.zIndex }
     : { "--sf-z": `${pose.z}px`, transform: seatTransform(pose), zIndex: slotZIndex(pose.slot, pose.scale) };
   return (
     <div
