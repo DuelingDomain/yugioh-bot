@@ -96,24 +96,32 @@ test("scenario discovery selects catalog checks for edited, new and deleted modu
 });
 
 test("only PRs confined to tests get a narrow selection; source/patch/script changes stay full", () => {
-  assert.deepEqual(changedLayers([prefix + "one.test.ts"], "pull_request"), { engine: true, web_engine: true, tests_only: true });
+  assert.deepEqual(changedLayers([prefix + "one.test.ts"], "pull_request"), { engine: true, tests_only: true });
   for (const file of ["packages/duel-server/src/engine.ts", "packages/duel-server/domain-core/patches/0001.patch", "scripts/ci/run-engine-tests.mjs", "package-lock.json", ".github/workflows/test.yml"]) {
     assert.equal(changedLayers([prefix + "one.test.ts", file], "pull_request").tests_only, false);
   }
-  for (const event of ["push", "schedule", "workflow_dispatch"]) assert.deepEqual(changedLayers([], event), { engine: true, web_engine: true, tests_only: false });
-  assert.deepEqual(changedLayers(["docs/readme.md"], "pull_request"), { engine: false, web_engine: false, tests_only: false });
-  assert.deepEqual(changedLayers(["packages/web/tests/duel.test.ts"], "pull_request"), { engine: false, web_engine: true, tests_only: false });
+  for (const event of ["schedule", "workflow_dispatch"]) assert.deepEqual(changedLayers([], event), { engine: true, tests_only: false });
+  for (const event of ["pull_request", "push"]) assert.deepEqual(changedLayers(null, event), { engine: true, tests_only: false });
+  assert.deepEqual(changedLayers([prefix + "one.test.ts"], "push"), { engine: true, tests_only: false });
+  for (const event of ["pull_request", "push"]) {
+    assert.deepEqual(changedLayers(["docs/readme.md"], event), { engine: false, tests_only: false });
+    assert.deepEqual(changedLayers(["packages/web/tests/duel.test.ts"], event), { engine: false, tests_only: false });
+    for (const file of ["packages/e2e/src/run.ts", "patches/ocgcore-wasm+0.1.2.patch", "package-lock.json", "docs/adr/0002-multiplayer-duel-rules.md"]) {
+      assert.equal(changedLayers(["packages/web/src/app/page.tsx", file], event).engine, true, file);
+    }
+  }
   assert.equal(changedLayers([], "pull_request").tests_only, false);
 });
 
-test("PR selection retains main's reviewed non-engine paths and web engine dependencies", () => {
+test("PR selection retains main's reviewed non-engine paths; web-only changes skip the engine", () => {
   for (const file of ["packages/shared/tests/draft.test.ts", "packages/shared/src/services/cubes.ts", "scripts/seed.ts"]) {
-    assert.deepEqual(changedLayers([file], "pull_request"), { engine: false, web_engine: false, tests_only: false });
+    assert.deepEqual(changedLayers([file], "pull_request"), { engine: false, tests_only: false });
   }
-  for (const file of ["packages/web/src/components/ui/button.tsx", "packages/web/src/lib/utils.ts", "packages/web/e2e/duel.ts"]) {
-    assert.deepEqual(changedLayers([file], "pull_request"), { engine: false, web_engine: true, tests_only: false });
+  for (const file of ["packages/web/src/components/ui/button.tsx", "packages/web/src/lib/utils.ts", "packages/web/e2e/duel.ts", "packages/web/src/components/duel/table.tsx"]) {
+    assert.deepEqual(changedLayers([file], "pull_request"), { engine: false, tests_only: false });
   }
   assert.equal(changedLayers(["packages/shared/src/services/duels.ts"], "pull_request").engine, true);
   assert.equal(changedLayers(["packages/shared/src/services/unknown.ts"], "pull_request").engine, true);
-  assert.equal(changedLayers(["packages/shared/src/services/cubes.ts"], "push").engine, true);
+  assert.equal(changedLayers(["packages/shared/src/services/cubes.ts"], "push").engine, false);
+  assert.equal(changedLayers(["packages/shared/src/services/duels.ts"], "push").engine, true);
 });
