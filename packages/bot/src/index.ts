@@ -1,3 +1,4 @@
+import { reportInteractionError } from "./interactions/errors.js";
 import "dotenv/config";
 import cron from "node-cron";
 import {
@@ -539,23 +540,7 @@ client.on("interactionCreate", async (interaction) => {
 
     await handleCommand(toCommandInteraction(interaction), deps);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Something went wrong";
-
-    if (interaction.isAutocomplete()) {
-      await interaction.respond([]);
-      return;
-    }
-
-    if (!interaction.isRepliable()) {
-      return;
-    }
-
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ content: message, ephemeral: true });
-      return;
-    }
-
-    await interaction.reply({ content: message, ephemeral: true });
+    await reportInteractionError(interaction, error);
   }
 });
 

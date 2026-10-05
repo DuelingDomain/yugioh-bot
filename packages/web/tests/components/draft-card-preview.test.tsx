@@ -76,7 +76,7 @@ describe("DraftCardPreview", () => {
     expect(preview).toHaveClass("w-[calc(14.5rem+max(0px,(100vw-114rem)/2))]");
     expect(preview).toHaveClass("max-w-[30.45rem]");
     expect(art).toHaveClass("aspect-[421/614]");
-    expect(image).toHaveAttribute("src", "https://img/full/101");
+    expect(image).toHaveAttribute("src", "/api/cards/44095762/image?variant=full");
     expect(image).toHaveAttribute(
       "sizes",
       "(min-width: 146rem) 30.45rem, (min-width: 114rem) calc(14.5rem + (100vw - 114rem) / 2), (min-width: 96rem) 14.5rem, 0px"

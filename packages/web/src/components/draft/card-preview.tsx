@@ -1,5 +1,6 @@
 "use client";
 
+import { cardImageUrl } from "@/lib/card-image-url";
 import Image from "next/image";
 import { DraftCardDetail } from "@/lib/stores/draft-store";
 import { Button } from "@/components/ui/button";
@@ -19,7 +20,8 @@ export function CardPreview({ card, onPick, onBack }: CardPreviewProps) {
       {/* Full art image */}
       <div className="card-frame mx-auto w-full max-w-xs bg-bg-elevated shadow-card">
         <Image
-          src={card.imageUrl}
+          src={cardImageUrl(card.passcode)}
+          unoptimized
           alt={card.name}
           fill
           className="object-contain"
