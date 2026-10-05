@@ -2,7 +2,8 @@
 // Rule: the turn counts as an ended turn for every turn count ("until the end of the Nth turn", RESET_*_TURN with a count),
 // so the End Phase event of that turn is not skipped for the others: a continuous EVENT_PHASE+PHASE_END effect of a living
 // duelist fires in it, and the effect ends exactly as if the turn had reached its End Phase. Nobody is asked in that
-// End Phase (no optional effect, no free chain window). Finding s3-turns-1 (Nightmare's Steelcage was never destroyed).
+// End Phase in Tag. Rulebook v1.4, Removing players from the game (R-COMMON-SURRENDER-EOT),
+// gives each living FFA seat its normal optional End Phase window. Finding s3-turns-1 (Nightmare's Steelcage was never destroyed).
 // The effect is the Steelcage pattern with no card script: a continuous field effect of seat 0 (owner: a card of seat 0) that fires in an End Phase
 // of an opponent turn (count limit 1 for each turn) and resets with RESET_PHASE+PHASE_END+RESET_OPPO_TURN, count 2, and a
 // player effect (code 91001) with the same reset that shows when the reset has run.
@@ -19,7 +20,7 @@ static const uint32_t kFiller = 5000;
 struct Run {
 	std::vector<int> fired;    // turn ids in which the continuous effect fired
 	std::vector<int> present;  // present[t-1]: the player effect is there at the first idle prompt of turn t
-	int cut_end_prompts = 0;   // MSG_SELECT_CHAIN in the End Phase of the cut-short turn (none is expected)
+	int cut_end_prompts = 0;   // MSG_SELECT_CHAIN in the End Phase of the departed player's turn
 	int to_dead = 0;           // prompts for a seat after it was eliminated
 	bool eliminated_seen = false;
 };
@@ -106,14 +107,14 @@ static std::string list(const std::vector<int>& v) {
 	return s.empty() ? "-" : s;
 }
 
-static void expect_run(const char* name, const Run& r, const std::vector<int>& fired, int last_present, int turns) {
+static void expect_run(const char* name, const Run& r, const std::vector<int>& fired, int last_present, int turns, int end_prompts = 0) {
 	EXPECT(r.fired == fired, "%s: fired in turns %s, want %s", name, list(r.fired).c_str(), list(fired).c_str());
 	EXPECT(static_cast<int>(r.present.size()) == turns, "%s: %zu turns played, want %d", name, r.present.size(), turns);
 	for(size_t i = 0; i < r.present.size(); ++i) {
 		const int turn = static_cast<int>(i) + 1;
 		EXPECT(r.present[i] == (turn <= last_present), "%s: turn %d player effect present=%d, want %d", name, turn, r.present[i], turn <= last_present);
 	}
-	EXPECT(r.cut_end_prompts == 0, "%s: %d chain prompt(s) in the End Phase of the cut-short turn, want none", name, r.cut_end_prompts);
+	EXPECT(r.cut_end_prompts == end_prompts, "%s: %d living End Phase chain prompt(s), want %d", name, r.cut_end_prompts, end_prompts);
 	EXPECT(r.to_dead == 0, "%s: %d prompt(s) for the seat that gave up", name, r.to_dead);
 	EXPECT(sd::stray_logs == 0, "%s: %d unexpected core log line(s)", name, sd::stray_logs);
 	std::printf("ok   %s: fired in turns %s, player effect gone from turn %d\n", name, list(r.fired).c_str(), last_present + 1);
@@ -125,9 +126,9 @@ int main() {
 	// C: control, nobody out. The turns of seats 1 and 2 count and end the effect at the end of turn 3.
 	expect_run("C ffa4 nobody out", play(ffa4, 4, 0, -1, 6), { 2, 3 }, 3, 6);
 	// A: seat 2 gives up in its own turn 3. The cut-short turn counts: same result as the control.
-	expect_run("A ffa4 seat 2 out in turn 3", play(ffa4, 4, 3, 2, 6), { 2, 3 }, 3, 6);
+	expect_run("A ffa4 seat 2 out in turn 3", play(ffa4, 4, 3, 2, 6), { 2, 3 }, 3, 6, 3);
 	// B: seat 1 gives up in its own turn 2. The cut-short turn is the 1st counted turn, turn 3 (seat 2) the 2nd.
-	expect_run("B ffa4 seat 1 out in turn 2", play(ffa4, 4, 2, 1, 6), { 2, 3 }, 3, 6);
+	expect_run("B ffa4 seat 1 out in turn 2", play(ffa4, 4, 2, 1, 6), { 2, 3 }, 3, 6, 3);
 	// D: Tag, seat 1 gives up in its own turn 2 (it was the 1st opposing turn). The partner turn 3 does not count and
 	// no one is asked. Turn 4 (seat 3) is the 2nd opposing turn, so the effect fires in turns 2 and 4 and is gone from turn 5.
 	expect_run("D tag seat 1 out in turn 2", play(tag, 4, 2, 1, 7), { 2, 4 }, 4, 7);

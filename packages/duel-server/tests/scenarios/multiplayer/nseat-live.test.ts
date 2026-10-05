@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { seatCountFor, teamOfSeat } from "@yugidraft/shared/duels";
 import { outcomeAsserts } from "../../../scripts/rule-coverage.js";
-import { describeWithCores } from "../../support/cores.js";
+import { describeWithCores, needs } from "../../support/cores.js";
 import { liveNseat } from "../../support/live-nseat.js";
 import { runScenarios } from "../../support/runner.js";
 import type { Scenario } from "../../support/dsl.js";
 import { DSL_STEP_SCENARIOS } from "./nseat-dsl-steps.js";
 import { FFA_SCENARIOS } from "./nseat-ffa.js";
 import { TAG_SCENARIOS } from "./nseat-tag.js";
+import { domainVariant } from "./domain-variants.js";
 
 // Live N-seat scenarios beyond the basic list in nseat.test.ts: Tag and FFA end states. Same gate: NSEAT_LIVE=1 and a multi core with
 // Debug.SetupDuelists (tests/support/live-nseat.ts). With DUEL_REQUIRE_CORES=1 a closed gate fails the run instead of skipping.
@@ -22,6 +23,13 @@ describeWithCores("live N-seat scenarios: FFA", liveNseat, () => {
 
 describeWithCores("live N-seat scenarios: DSL steps", liveNseat, () => {
   runScenarios("multiplayer/nseat-dsl-steps", DSL_STEP_SCENARIOS);
+});
+
+describeWithCores("live Domain N-seat leave scenarios", [liveNseat, ...needs.domainMulti()], () => {
+  // These two-card deck-out fixtures start after the opening Draw Phase.
+  runScenarios("multiplayer/nseat-ffa-domain-leave", FFA_SCENARIOS.filter((scenario) =>
+    scenario.tags.some((tag) => tag === "elimination")).map((scenario) => domainVariant(
+      scenario.setup.deckSize === 2 ? { ...scenario, setup: { ...scenario.setup, skipOpeningDraw: true } } : scenario)));
 });
 
 const LISTS: Array<[string, Scenario[]]> = [["Tag", TAG_SCENARIOS], ["FFA", FFA_SCENARIOS], ["DSL steps", DSL_STEP_SCENARIOS]];
