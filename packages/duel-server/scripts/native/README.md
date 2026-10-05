@@ -87,8 +87,8 @@ They run for n > 2 only (except the message format checks) and fail only with `-
 Without the flag they print one `NDUEL NOTE` line per check and run.
 
 - `response-order`: after `MSG_CHAINING` by L, the players of the `MSG_SELECT_CHAIN` prompts until the next
-  `MSG_CHAINING` or `MSG_CHAIN_SOLVING` must be a subsequence of the expected order. FFA: turn player first, then
-  clockwise (if L is the turn player: start at L+1, L last). Tag: L+1, L+3, L+2, L. Duelists that were not prompted
+  `MSG_CHAINING` or `MSG_CHAIN_SOLVING` must be a subsequence of the expected order. FFA (R-FFA-CHAIN): start at L+1,
+  then clockwise, with L last. Tag: L+1, L+3, L+2, L. Duelists that were not prompted
   are allowed. Trigger prompts inside a trigger batch can give a false report: treat a report there with care.
 - `direct-pick`: a `MSG_SELECT_OPTION` whose options all are `0xFFFF0000|d` lists only living opponents of the
   prompted duelist. The next `MSG_ATTACK_DUELIST` (201) must name the picked duelist (the answer sent by nduel) and

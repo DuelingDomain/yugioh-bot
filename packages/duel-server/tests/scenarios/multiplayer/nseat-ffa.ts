@@ -259,13 +259,12 @@ export const FFA_SCENARIOS: Scenario[] = [
   }),
   defineScenario({
     id: "nseat-ffa4-four-way-chain-order",
-    title: "FFA4: after p2 adds a link the turn player p0 answers first, then p1, p2 and p3, and the chain resolves in reverse",
+    title: "FFA4: after p2 adds a link p3 answers first, then p0, p1 and p2, and the chain resolves in reverse",
     source: `${SOURCE} [R-FFA-CHAIN]`,
     rules: ["R-FFA-CHAIN"],
     tags: ["multiplayer", "chain", "ffa4", "card:19613556", "card:60082869"],
-    // Every seat holds a Dust Tornado, so every window is a real prompt. Under the ADR order the windows are p1, p2 (the turn
-    // player p0 added Heavy Storm, so the next seat goes first), then after the link of p2: p0 (turn player first), p1, p2, p3. A plain
-    // "next seat after the one who added the link" order would give p3, p0, p1 there.
+    // Every living seat has a legal response. A new link restarts the pass record after its activator:
+    // p1 passes to Heavy Storm, p2 chains, then p3, p0, p1 and p2 must all pass before resolution.
     setup: {
       format: "ffa4",
       p0: {
@@ -284,11 +283,12 @@ export const FFA_SCENARIOS: Scenario[] = [
       pickOpponent("p0", "p2"),
       select({ card: "Swords of Revealing Light", nth: 0 }),
       expectChain("Heavy Storm", "Dust Tornado"),
+      expectPrompt({ by: "p3", context: "chain" }), pass("p3"),
       expectPrompt({ by: "p0", context: "chain" }), pass("p0"),
       expectPrompt({ by: "p1", context: "chain" }), pass("p1"),
+      expectChain("Heavy Storm", "Dust Tornado"),
       expectPrompt({ by: "p2", context: "chain" }), pass("p2"),
-      expectPrompt({ by: "p3", context: "chain" }), pass("p3"),
-      expectResponseOrder("p1", "p2", "p0", "p1", "p2", "p3"),
+      expectResponseOrder("p1", "p2", "p3", "p0", "p1", "p2"),
       expectResolved("Dust Tornado", "Heavy Storm"),
       // Dust Tornado of p2 destroyed one Swords. Heavy Storm then destroyed the other Spells and Traps, the set ones too.
       expectBoard({
@@ -556,7 +556,8 @@ export const FFA_SCENARIOS: Scenario[] = [
     source: `${SOURCE} [R-FFA-ELIMINATION]`,
     rules: ["R-FFA-ELIMINATION"],
     tags: ["multiplayer", "elimination", "chain", "surrender", "ffa4", "card:55144522", "card:60082869"],
-    // Chain: Pot of Greed (p0), Dust Tornado (p1), Dust Tornado (p2). p1 holds a second Dust Tornado, so it has the open window.
+    // Chain: Pot of Greed (p0), Dust Tornado (p1), Dust Tornado (p2). p2 responds first after p1's link.
+    // After p2's link, p3 and p0 cannot respond; p1 holds a second Dust Tornado, so it has the open window.
     // p2 gives up first (it holds no prompt), then p1 (it holds the window). Both Dust Tornado links destroy their Swords.
     setup: {
       format: "ffa4",
@@ -570,7 +571,7 @@ export const FFA_SCENARIOS: Scenario[] = [
       // R-FFA-OPP-ONE: declare the opponent before selecting its card.
       pickOpponent("p0", "p1"),
       select({ card: "Swords of Revealing Light", nth: 0 }),
-      pass("p1"),
+      expectPrompt({ by: "p2", context: "chain" }),
       activate("Dust Tornado", "p2"),
       // R-FFA-OPP-ONE: declare the opponent before selecting its card.
       pickOpponent("p0", "p2"),
