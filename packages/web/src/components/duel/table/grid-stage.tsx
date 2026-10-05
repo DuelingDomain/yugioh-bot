@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type MouseEvent } from "react";
 import { engineFormat } from "../multi-seat";
 import { AttackLine } from "./attack-line";
-import { boxOf, cancelTracks, playFlip, type FlipTrack } from "./grid-flip";
+import { boxOf, cancelTracks, FLIP_MS, playFlip, type FlipTrack } from "./grid-flip";
 import { FINALE_GLIDE_EASING, FINALE_GLIDE_MS } from "./grid-finale";
 import { useGridFocus } from "./grid-focus";
 import {
@@ -96,6 +96,49 @@ export function picksExtraZone(keys: Iterable<string>): boolean {
   }
   return false;
 }
+
+/** The top lane of the board where the pick bar may sit (board px): 8px down, 80px high, room for a bar of two rows. */
+export const BAR_LANE = { top: 8, height: 80 } as const;
+const BAR_MAX = 440;
+const BAR_MIN = 240;
+const BAR_EDGE = 8;
+
+/**
+ * The room of the pick bar in the top lane, as "x,y,width,height" for `data-bar-room`, or undefined when no gap is wide
+ * enough (the prompt then places the bar itself). `blocks` are the boxes the bar must not cover (plates, fields, the far
+ * hands, the view control); only the ones that reach into the lane count. Of the gaps that hold a full bar, the one
+ * nearest the middle of the board wins; else the widest gap.
+ */
+export function barRoomOf(boardWidth: number, blocks: readonly GridRect[]): string | undefined {
+  const top = BAR_LANE.top;
+  const bottom = BAR_LANE.top + BAR_LANE.height;
+  const spans = blocks
+    .filter((r) => r.width > 0 && r.height > 0 && r.y < bottom && r.y + r.height > top)
+    .map((r) => [r.x, r.x + r.width] as const)
+    .sort((a, b) => a[0] - b[0]);
+  const gaps: [number, number][] = [];
+  let from = BAR_EDGE;
+  for (const [left, right] of spans) {
+    if (left > from) gaps.push([from, left]);
+    from = Math.max(from, right);
+  }
+  if (boardWidth - BAR_EDGE > from) gaps.push([from, boardWidth - BAR_EDGE]);
+  const usable = gaps.map(([left, right]) => ({ left, right, width: Math.min(BAR_MAX, right - left - 16) })).filter((gap) => gap.width >= BAR_MIN);
+  if (usable.length === 0) return undefined;
+  const middle = boardWidth / 2;
+  // The bar sits as near the middle as its gap allows.
+  const centreOf = (gap: { left: number; right: number; width: number }) => Math.min(Math.max(middle, gap.left + 8 + gap.width / 2), gap.right - 8 - gap.width / 2);
+  const full = usable.filter((gap) => gap.width >= BAR_MAX);
+  const pick = full.length > 0
+    ? full.reduce((best, gap) => (Math.abs(centreOf(gap) - middle) < Math.abs(centreOf(best) - middle) ? gap : best))
+    : usable.reduce((best, gap) => (gap.width > best.width ? gap : best));
+  const half = pick.width / 2;
+  const centreX = centreOf(pick);
+  return [centreX - half, top, pick.width, BAR_LANE.height].map(Math.round).join(",");
+}
+
+const sameRects = (a: readonly GridRect[], b: readonly GridRect[]) =>
+  a.length === b.length && a.every((r, i) => r.x === b[i].x && r.y === b[i].y && r.width === b[i].width && r.height === b[i].height);
 
 /** The pose of a seat that left, for its crumble: the centre of its box, upright size, turned like its field. */
 const exitPose = (seat: number, spot: GridCellRect, rotateDeg: 0 | 180): SeatPose => ({
@@ -305,16 +348,40 @@ export function GridStage({ controller, layout, camera, renderSeatField, fx, pro
     return { left: band.rect.x, top: band.rect.y, width: band.rect.width, height: band.rect.height, ["--z" as string]: `${z}px`, ["--g" as string]: `${z * 0.075}px` };
   })();
 
-  // The pick bar takes the top lane between the two top plates (over the far hand, never over a zone or a plate you can
-  // pick). The prompt reads `data-bar-room` as "x,y,width,height" in board pixels.
+  // The pick bar takes a free gap of the top lane (over no plate, field, far hand or the view control). The prompt reads
+  // `data-bar-room` as "x,y,width,height" in board pixels and follows its changes. The far hands and the control are
+  // measured once the fields stand still (a FLIP or the finale glide moves them); plates and fields come from the layout.
+  const [measured, setMeasured] = useState<readonly GridRect[]>([]);
+  const handsKey = engine.seats.map((view) => `${view.seat}:${view.hand.length}:${view.eliminated === true ? 1 : 0}`).join(",");
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !placed) return;
+    const measure = () => {
+      const board = root.getBoundingClientRect();
+      const nodes = root.querySelectorAll<HTMLElement>('[data-hand-seat][data-side="opp"], [data-grid-controls]');
+      const next = Array.from(nodes)
+        .map((node) => node.getBoundingClientRect())
+        .filter((r) => r.width > 1 && r.height > 1)
+        .map((r) => ({ x: Math.round(r.left - board.left), y: Math.round(r.top - board.top), width: Math.round(r.width), height: Math.round(r.height) }));
+      setMeasured((current) => (sameRects(current, next) ? current : next));
+    };
+    const wait = reducedMotion ? 0 : Math.max(FLIP_MS, FINALE_GLIDE_MS) + 80;
+    const timer = window.setTimeout(measure, wait);
+    return () => window.clearTimeout(timer);
+  }, [placed, handsKey, reducedMotion]);
   const barRoom = ((): string | undefined => {
     if (!placed) return undefined;
-    const lanes = [placed.cells[1].plate, placed.cells[2].plate];
-    const left = lanes[0].x + lanes[0].width;
-    const right = lanes[1].x;
-    const width = Math.min(440, right - left - 16);
-    if (width < 240) return undefined;
-    return [(left + right) / 2 - width / 2, 8, width, 112].map(Math.round).join(",");
+    const blocks: GridRect[] = [...measured];
+    for (const cell of cells) {
+      const spot = placed.cells[cellIndex(cell)];
+      const state = states.get(cell.seat) ?? "live";
+      if (state === "empty") continue;
+      blocks.push(spot.plate);
+      // In the finale the two seats that left keep only their plates.
+      if (state === "live") blocks.push(spot.rect);
+      else if (finaleColumn == null || cell.column === finaleColumn) blocks.push(spot.own);
+    }
+    return barRoomOf(box.width, blocks);
   })();
 
   return (
