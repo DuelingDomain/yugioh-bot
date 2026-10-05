@@ -25,7 +25,7 @@ export function Ffa4Preview({ stateId, cam, lock, review = false, out = null, pi
     const timer = window.setTimeout(() => setPickLive(true), 700);
     return () => window.clearTimeout(timer);
   }, []);
-  // The Elimination menu (as in the design demo): two scripted runs, the first seat goes out, then the second 2.6 s later.
+  // The Elimination menu (as in the design demo): scripted runs, the first seat goes out, then the second 2.6 s later.
   const [menuOpen, setMenuOpen] = useState(false);
   const [script, setScript] = useState<{ name: keyof typeof ELIMINATION_RUNS; step: number } | null>(null);
   useEffect(() => {
@@ -89,5 +89,6 @@ export function Ffa4Preview({ stateId, cam, lock, review = false, out = null, pi
 
 const ELIMINATION_RUNS = {
   same: { seats: [[2], [2, 3]], title: "Elimination: same pair left", note: "Juniper, then Mirelle out. Aster and Rook move to one full 1v1 board." },
-  cross: { seats: [[1], [1, 3]], title: "Elimination: cross pairs left", note: "Rook, then Mirelle out. Aster and Juniper stay where they are." },
+  cross: { seats: [[1], [1, 3]], title: "Elimination: cross pairs left", note: "Rook, then Mirelle out. Aster and Juniper glide to one 1v1 board; each keeps its own Extra Monster row." },
+  crossTurn: { seats: [[1], [1, 2]], title: "Elimination: cross pairs, both bottom", note: "Rook, then Juniper out. Mirelle turns to the top of one 1v1 board, Aster stays at the bottom." },
 } as const;

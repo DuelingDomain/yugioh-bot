@@ -15,10 +15,10 @@ vi.mock("@/components/duel/multi-seat", async (importOriginal) => {
 });
 
 import { disabledZones } from "@/components/duel/multi-seat";
-import { FFA4_FIXTURES } from "@/components/duel/table/fixtures/ffa4";
+import { FFA4_FIXTURES, ffa4Variant } from "@/components/duel/table/fixtures/ffa4";
 import { useFixtureController } from "@/components/duel/table/fixtures/use-fixture-controller";
 import { OUT_HOLD_MS } from "@/components/duel/table/grid-layout";
-import { useCellStates } from "@/components/duel/table/grid-stage";
+import { pairFrameRect, useCellStates } from "@/components/duel/table/grid-stage";
 import { TableShell } from "@/components/duel/table/table-shell";
 
 beforeAll(() => {
@@ -38,8 +38,9 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function Shell({ id }: { id: keyof typeof FFA4_FIXTURES.states }) {
-  const controller = useFixtureController(FFA4_FIXTURES.states[id], { reducedMotion: true });
+function Shell({ id, out = [] }: { id: keyof typeof FFA4_FIXTURES.states; out?: number[] }) {
+  const set = out.length > 0 ? ffa4Variant(FFA4_FIXTURES, { out }) : FFA4_FIXTURES;
+  const controller = useFixtureController(set.states[id], { reducedMotion: true });
   return <TableShell controller={controller} />;
 }
 
@@ -290,6 +291,61 @@ describe("GridStage", () => {
     expect(cellOf(container, 0).getAttribute("data-cell-state")).toBe("live");
     expect(cellOf(container, 0).getAttribute("data-quadrant")).toBe("bl");
     expect(OUT_HOLD_MS).toBeGreaterThan(0);
+  });
+});
+
+describe("pair frames and the finale board", () => {
+  const frameOf = (container: HTMLElement, column: number) => container.querySelector<HTMLElement>(`[data-pair-frame="${column}"]`)!;
+  const fieldOf = (container: HTMLElement, seat: number) => cellOf(container, seat).querySelector<HTMLElement>("[data-seat-field]")!;
+  const turnOf = (container: HTMLElement, seat: number) => cellOf(container, seat).querySelector("[data-seat-slot]")?.getAttribute("style") ?? "";
+  // A pair with no live field has no frame; one that fades out of the finale is marked gone.
+  const frameHidden = (container: HTMLElement, column: number) => {
+    const frame = container.querySelector(`[data-pair-frame="${column}"]`);
+    return frame == null || frame.getAttribute("data-gone") === "true";
+  };
+
+  it("bounds the live fields of a pair as one rect", () => {
+    expect(pairFrameRect([])).toBeNull();
+    expect(pairFrameRect([{ x: 10, y: 20, width: 100, height: 50 }, { x: 10, y: 60, width: 100, height: 50 }])).toEqual({ x: 10, y: 20, width: 100, height: 90 });
+  });
+
+  it("draws ONE frame round each facing pair (the fields drop their own mats) and marks the lifted pair", () => {
+    const { container } = render(<Shell id="main" />);
+    expect(container.querySelectorAll("[data-pair-frame]")).toHaveLength(2);
+    expect(frameOf(container, 0).getAttribute("data-focus")).toBe("true");
+    expect(frameOf(container, 1).hasAttribute("data-focus")).toBe(false);
+    for (const seat of [0, 1, 2, 3]) expect(fieldOf(container, seat).getAttribute("data-framed")).toBe("true");
+    expect(container.querySelector("[data-grid-finale]")).toBeNull();
+  });
+
+  it("keeps the pair frame round the survivor alone, with its shared row, when its facing seat is out", () => {
+    const { container } = render(<Shell id="main" out={[2]} />);
+    expect(cellOf(container, 2).getAttribute("data-cell-state")).toBe("empty");
+    expect(fieldOf(container, 3).getAttribute("data-emz")).toBe("pair");
+    expect(frameOf(container, 1).hasAttribute("data-gone")).toBe(false);
+    expect(container.querySelector("[data-grid-finale]")).toBeNull();
+  });
+
+  it("lays two seats of one pair out as the 1v1 board: my field upright, the other turned, the other pair gone", () => {
+    const { container } = render(<Shell id="main" out={[2, 3]} />);
+    expect(container.querySelector("[data-grid-stage]")!.getAttribute("data-grid-finale")).toBe("same");
+    expect(turnOf(container, 0)).not.toMatch(/rotate: 180deg/);
+    expect(turnOf(container, 1)).toMatch(/rotate: 180deg/);
+    expect(fieldOf(container, 0).getAttribute("data-emz")).toBe("pair");
+    expect(frameHidden(container, 1)).toBe(true);
+    for (const seat of [2, 3]) expect(container.querySelector(`[data-grid-lp='${seat}']`)?.getAttribute("data-gone")).toBe("true");
+    for (const seat of [0, 1]) expect(container.querySelector(`[data-grid-lp='${seat}']`)?.getAttribute("data-lp-side")).toBe("left");
+  });
+
+  it("lays two seats of different pairs out face to face, each with its own Extra Monster row, the other on top", () => {
+    const { container } = render(<Shell id="main" out={[1, 2]} />);
+    expect(container.querySelector("[data-grid-stage]")!.getAttribute("data-grid-finale")).toBe("cross");
+    expect(turnOf(container, 0)).not.toMatch(/rotate: 180deg/);
+    expect(turnOf(container, 3)).toMatch(/rotate: 180deg/);
+    // "own": a normal single field (no shared row, no hidden row), so no data-emz mark at all.
+    for (const seat of [0, 3]) expect(fieldOf(container, seat).hasAttribute("data-emz")).toBe(false);
+    expect(frameOf(container, 0).hasAttribute("data-gone")).toBe(false);
+    expect(frameHidden(container, 1)).toBe(true);
   });
 });
 

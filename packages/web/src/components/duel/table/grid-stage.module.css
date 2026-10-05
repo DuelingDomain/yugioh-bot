@@ -284,3 +284,121 @@
     animation: none;
   }
 }
+
+/* The frame of a pair (see `pairFrameRect`): one mat round both fields of a column and their shared Extra Monster row.
+   The fields inside draw no mat of their own (data-framed). The lifted pair gets a clear light line; the turn light, in
+   the tone of the seat whose turn it is, lies round the whole pair. */
+.frame {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  border: 1px solid rgb(181 153 99 / 0.32);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgb(10 17 34 / 0.62), rgb(5 8 15 / 0.58));
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 30px 60px -30px rgb(0 0 0 / 0.8);
+  pointer-events: none;
+  transition:
+    border-color 0.5s,
+    box-shadow 0.5s,
+    opacity 0.6s;
+}
+
+.frame::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border: 1px solid var(--sheet-lo);
+  border-radius: 4px;
+}
+
+.frame[data-focus="true"] {
+  border-color: rgb(198 182 255 / 0.62);
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 0 0 3px rgb(155 126 255 / 0.12),
+    0 0 34px -6px rgb(155 126 255 / 0.32),
+    0 30px 60px -30px rgb(0 0 0 / 0.8);
+}
+
+.frame[data-turn="true"] {
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 0 56px -8px rgb(var(--t) / 0.42),
+    0 0 130px -26px rgb(var(--t) / 0.34),
+    0 30px 60px -30px rgb(0 0 0 / 0.8);
+}
+
+.frame[data-focus="true"][data-turn="true"] {
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.4),
+    0 0 0 3px rgb(155 126 255 / 0.12),
+    0 0 56px -8px rgb(var(--t) / 0.42),
+    0 0 130px -26px rgb(var(--t) / 0.34),
+    0 30px 60px -30px rgb(0 0 0 / 0.8);
+}
+
+.board[data-battle="true"] .frame[data-turn="true"] {
+  box-shadow:
+    0 0 56px -8px rgb(217 141 82 / 0.36),
+    0 0 130px -26px rgb(217 141 82 / 0.28),
+    inset 0 0 60px -30px rgb(217 141 82 / 0.2);
+}
+
+/* The finale: the frame of the pair that is not on the board fades with its fields. */
+.frame[data-gone="true"],
+.lp[data-gone="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lp {
+  transition: opacity 0.6s;
+}
+
+/* The break of a pair: a crack of light on the edge where the field that went out was joined, then nothing. */
+.seam {
+  position: absolute;
+  z-index: 16;
+  height: 0;
+  pointer-events: none;
+}
+
+.seam::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgb(var(--t, 228 90 77) / 0.95) 12%, rgb(255 240 220 / 0.95) 50%, rgb(var(--t, 228 90 77) / 0.95) 88%, transparent);
+  box-shadow: 0 0 18px 2px rgb(var(--t, 228 90 77) / 0.55);
+  animation: seamFlash 1.4s ease-out both;
+}
+
+@keyframes seamFlash {
+  0% {
+    opacity: 0;
+    transform: scaleX(0.2);
+  }
+  14% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frame,
+  .lp {
+    transition: none;
+  }
+
+  .seam {
+    display: none;
+  }
+}
