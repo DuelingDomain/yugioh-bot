@@ -163,40 +163,48 @@
 }
 
 /*
- * The "Activate its effect?" bar and the one-line prompts sit at the top centre, over the far row. Your hand, your
- * field and the bottom-right field's lower row stay free, whatever the zoom.
+ * Every prompt sits in the middle of YOUR pair, as the 1v1 room puts it in the middle of the board (grid-stage.tsx sets
+ * --pr-cx/--pr-cy, the middle of the pair, and --pr-w/--pr-h, its size, in board px; on the finale board they are the
+ * middle of that board). Without them (a spectator who looks at all fields) the middle of the table. The "Activate its
+ * effect?" bar, the effect and option lists, the card grid, positions, numbers, seat choices and the collapsed pill
+ * may cover the middle of that pair; the pick bar places itself from `data-bar-room` (off every target) and the
+ * tribute dock by your hand.
  */
 .slot[data-slot="prompt"] :global([data-prompt-panel][data-precheck]) {
-  inset: 8px auto auto 50%;
-  translate: -50% 0;
+  inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
+  translate: -50% -50%;
   width: max-content;
   min-width: 0;
-  max-width: min(440px, 54%);
+  max-width: min(440px, calc(var(--pr-w, 100%) - 24px));
 }
 
-/*
- * The "select cards" instruction bar places itself in the top lane from `data-bar-room` (grid-stage.tsx). A tribute
- * dock (data-place="dock") places itself by your hand and stays as it is.
- */
+.slot[data-slot="prompt"] :global([data-prompt-panel]:not([data-precheck])) {
+  inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
+  translate: -50% -50%;
+  margin: 0;
+  width: min(560px, calc(var(--pr-w, 100%) - 24px));
+  max-height: min(calc(var(--pr-h, 100%) - 16px), calc(100% - 24px));
+}
 
-/* Seat choices sit at the top centre (over the far row), so the attacker, your field and every LP plate stay visible. */
+.slot[data-slot="prompt"] :global([data-prompt-panel][data-wide="true"]:not([data-precheck])) {
+  width: min(640px, calc(var(--pr-w, 100%) - 24px));
+}
+
+.slot[data-slot="prompt"] :global([data-prompt-surface]:not([data-prompt-panel], [data-place])) {
+  inset: var(--pr-cy, 50%) auto auto var(--pr-cx, 50%);
+  translate: -50% -50%;
+  margin: 0;
+}
+
+/* Seat choices are narrow: the life plates (the targets) sit above and below the pairs, so the middle leaves them free. */
 .slot[data-slot="prompt"][data-seat-pick] :global([data-prompt-panel]:not([data-precheck])) {
-  inset: 1.5% auto auto 50%;
-  translate: -50% 0;
-  margin: 0;
   width: clamp(220px, 34%, 320px);
-  max-height: 38%;
 }
 
-/* Expanded responses cover the far (top) row, not your own field, hand or the LP band. */
+/* Expanded responses (the chain list) are narrower than a card grid. */
 .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) {
-  inset: 1.5% auto auto 50%;
-  translate: -50% 0;
-  margin: 0;
-  width: 42%;
+  width: min(400px, calc(var(--pr-w, 100%) - 24px));
   min-width: 0;
-  max-width: 400px;
-  max-height: 38%;
 }
 
 .slot[data-slot="prompt"]:not([data-seat-pick]) :global([data-prompt-panel][data-tone="chain"]:not([data-precheck])) > * {
