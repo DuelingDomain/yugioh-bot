@@ -57,19 +57,27 @@ export function useGridFinale({ seats, columnOf, reducedMotion }: UseGridFinaleA
   const seen = useRef(key);
   const latest = useRef({ now, live });
   latest.current = { now, live };
+  // The finale still to show. It lives in a ref so a change of reduced motion mid-wait restarts the timer, not loses it.
+  const pending = useRef<{ next: NonNullable<typeof now>; seats: number[] } | null>(null);
   useEffect(() => {
-    if (seen.current === key) return;
-    seen.current = key;
-    const { now: next, live: seats2 } = latest.current;
-    if (!next) {
-      setColumn(null);
-      setCaption(null);
-      return;
+    if (seen.current !== key) {
+      seen.current = key;
+      const { now: next, live: seats2 } = latest.current;
+      if (!next) {
+        pending.current = null;
+        setColumn(null);
+        setCaption(null);
+        return;
+      }
+      pending.current = { next, seats: seats2 };
     }
+    const todo = pending.current;
+    if (!todo) return;
     const wait = reducedMotion ? 0 : EXIT_CRUMBLE_MS + FINALE_BEAT_MS;
     const timer = window.setTimeout(() => {
-      setCaption({ kind: next.kind, seats: seats2, id: Date.now() });
-      setColumn(next.kind === "final" ? next.column : null);
+      pending.current = null;
+      setCaption({ kind: todo.next.kind, seats: todo.seats, id: Date.now() });
+      setColumn(todo.next.kind === "final" ? todo.next.column : null);
     }, wait);
     return () => window.clearTimeout(timer);
   }, [key, reducedMotion]);

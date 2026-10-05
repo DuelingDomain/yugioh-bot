@@ -60,6 +60,19 @@ describe("useGridFinale", () => {
     expect(hook.result.current.column).toBe(0);
   });
 
+  it("still starts the finale when reduced motion changes during the wait", () => {
+    const hook = renderHook(({ out, reducedMotion }) => useGridFinale({ seats: seatsOut(out), columnOf, reducedMotion }), {
+      initialProps: { out: [2], reducedMotion: false },
+    });
+    hook.rerender({ out: [2, 3], reducedMotion: false });
+    act(() => void vi.advanceTimersByTime(EXIT_CRUMBLE_MS));
+    expect(hook.result.current.column).toBeNull();
+    hook.rerender({ out: [2, 3], reducedMotion: true });
+    act(() => void vi.advanceTimersByTime(0));
+    expect(hook.result.current.column).toBe(0);
+    expect(hook.result.current.caption?.kind).toBe("final");
+  });
+
   it("opens straight on the finale board, with no caption, when two seats are already left", () => {
     const hook = run([2, 3]);
     expect(hook.result.current).toEqual({ column: 0, caption: null });
