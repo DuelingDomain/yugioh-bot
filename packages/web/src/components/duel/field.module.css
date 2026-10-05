@@ -2120,6 +2120,19 @@
   top: 0;
 }
 
+/* A field inside a pair frame of the grid draws no mat, line or turn light: the frame is the mat of the whole pair.
+   (Doubled attribute: stronger than the turn and battle light rules above.) */
+.seatField[data-framed="true"][data-framed] .sfMat {
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+.seatField[data-framed="true"] .sfMat::before,
+.seatField[data-framed="true"] .sfRule {
+  display: none;
+}
+
 .sfRows {
   display: grid;
   grid-row: 2 / span 2;
