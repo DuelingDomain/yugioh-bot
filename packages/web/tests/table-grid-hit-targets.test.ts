@@ -41,3 +41,12 @@ describe("4-way grid: the phase hub yields to an Extra Monster Zone target", () 
     expect(grid).toMatch(/\.board\[data-emz-pick="true"\] \.hub,\s*\.board\[data-emz-pick="true"\] \.hub \* \{\s*pointer-events: none;/);
   });
 });
+
+describe("4-way HUD: the prompt dock stays in the corner column", () => {
+  const shell = readFileSync(join(__dirname, "../src/components/duel/table/table-shell.module.css"), "utf8");
+  it("is as wide as the column and grows to the left only for a long prompt", () => {
+    expect(shell).toMatch(
+      /\.hudPrompt\[data-mode="flow"\] \{[^}]*width: max-content;\s*min-width: 100%;\s*max-width: min\(380px, 34vw\);[^}]*pointer-events: auto;/,
+    );
+  });
+});
