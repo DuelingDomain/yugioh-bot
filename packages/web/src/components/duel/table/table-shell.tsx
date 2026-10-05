@@ -10,6 +10,7 @@ import { isCustomDomain } from "@yugidraft/shared/duels";
 import { BattleFx } from "../battle-fx";
 import { AttackConfirm, CardActionMenu, CardHoverInfo, confirmSide, targetName } from "../card-interactions";
 import { ChainFx } from "../chain-fx";
+import { projectChainNames } from "../chain-state";
 import { CoinTossFx } from "../coin-toss-fx";
 import { isBattlePhase, phaseTitle, zoneKey } from "../constants";
 import { DestroyFx } from "../destroy-fx";
@@ -167,6 +168,7 @@ function TableShellBody({
   const ui = useTableUi(tracked);
   const base = ui.controller;
   const { engine, room, viewerSeat, nameOf, prompt } = base;
+  const namedChain = useMemo(() => projectChainNames(engine.chain, engine.seats), [engine.chain, engine.seats]);
   const format = engineFormat(engine);
   // A table of 3 or 4 draws its phases on the board, beside the turn ring. Tag keeps them in the bar.
   const hubOn = format === "ffa3" || format === "ffa4";
@@ -542,7 +544,7 @@ function TableShellBody({
                     {fxActive ? <SummonFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} shake={preferences.shake} /> : null}
                     {fxActive ? <MoveFx events={withDestroyCards(engine.events)} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
                     {fxActive ? <PositionFx events={engine.events} duelKey={session.slug} reducedMotion={controller.reducedMotion} /> : null}
-                    {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={engine.chain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} /> : null}
+                    {fxActive ? <ChainFx events={withDestroyCards(engine.events)} chain={namedChain} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} playerName={nameOf} seatTones={seatTones} priority={priority} ended={hasResult} table={format} seats={engine.seats} /> : null}
                     {fxActive ? <MasterReturnFx events={engine.events} seats={engine.seats} duelKey={session.slug} reducedMotion={controller.reducedMotion} mySeat={viewerSeat} /> : null}
                     <BattleFx events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={controller.reducedMotion} active={fxActive} aim={null} />
                     <DestroyFx events={withDestroyCards(engine.events)} reducedMotion={controller.reducedMotion} active={fxActive} mySeat={viewerSeat ?? 0} />
@@ -558,7 +560,7 @@ function TableShellBody({
                     draft={controller.draft}
                     onSubmit={controller.onAnswer}
                     menuOpen={suspended}
-                    chain={engine.chain}
+                    chain={namedChain}
                     aim={flow.promptAim ?? undefined}
                     aimLocked={flow.locked}
                     reducedMotion={controller.reducedMotion}

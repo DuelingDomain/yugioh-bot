@@ -33,6 +33,7 @@ import {
   POS_FACEUP_DEFENSE,
 } from "./constants";
 import { isDirectAttackRow, nextEnabledIndex, opponentPickLabel, outSeatOptionIds } from "./multi-seat";
+import { chainCardName } from "./chain-state";
 import { PriorityChips, type PrioritySlot } from "./priority-chips";
 import { CardBack } from "./card-face";
 import { CardStrip, type StripCard } from "./card-strip";
@@ -559,7 +560,7 @@ function ChainStrip({
                   <span className={solid?.cart} aria-hidden />
                 )}
                 <span className={solid?.cmeta}>
-                  <span className={solid?.cname}>{link.name ?? "Effect"}</span>
+                  <span className={solid?.cname}>{chainCardName({ name: link.name ?? null })}</span>
                   <span className={solid?.cowner}>
                     <i aria-hidden />
                     {ownerWord(link.seat, mySeat, "you", nameOf)}
@@ -580,7 +581,7 @@ function ChainStrip({
         {shown.map((link) => (
           <li key={link.index}>
             <b>{link.index}</b>
-            {link.name ?? "Effect"}
+            {chainCardName({ name: link.name ?? null })}
           </li>
         ))}
       </ol>

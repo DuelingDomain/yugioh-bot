@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { DuelEngineView, DuelFormat, DuelSeatView } from "@yugidraft/shared/duels";
 import {
   boardBounds,
+  chainStripInset,
+  chainBandRooms,
   holoAnchor,
   promptRooms,
   seatPoses,
@@ -195,8 +197,53 @@ describe("the wide plaza", () => {
           expect(overlap(r, { l: 220, r: 880, t: 856, b: 960 }), `${layout.format} ${name}: ${kind} room vs your hand`).toBe(false);
           expect(overlap(r, hint), `${layout.format} ${name}: ${kind} room vs the camera hint`).toBe(false);
         }
-        // The panel holds the three seat choices of a table of four.
-        expect(rooms.panel!.height * k, `${layout.format} ${name}: panel room height`).toBeGreaterThanOrEqual(199);
+        // Tight rooms scroll the expanded choices while keeping the panel clear of the hand.
+        expect(rooms.panel!.height * k, `${layout.format} ${name}: panel room height`).toBeGreaterThanOrEqual(159);
+      }
+    }
+  });
+
+  it("reserves the measured chain strip before allocating prompt rooms", () => {
+    const extra = [{ name: "1920 open", box: { width: 1468, height: 950 } }, { name: "1440 closed", box: { width: 1368, height: 776 } }]
+      .map(({ name, box }) => ({ name, box, fit: { width: box.width, height: box.height * 860 / 956 } }));
+    for (const { name, box, fit } of [...BOXES, ...extra]) {
+      const k = stageFit(fit);
+      const spread = stageSpread(fit);
+      for (const layout of [four, three]) {
+        const poses = seatPoses(layout, camera(), fit);
+        const anchors = wideHoloAnchors(layout, camera(), poses, spread, true)!;
+        const rooms = promptRooms({ layout, camera: camera(), poses, anchors, spread, meFooter: true, box, k, chainSize: { width: 300, height: 88 } });
+        const inset = chainStripInset({ layout, camera: camera(), box, meFooter: true, chainSize: { width: 300, height: 88 } });
+        if (inset) {
+          // The whole canvas, its hands and plates start below this dedicated room.
+          expect(inset).toBeGreaterThanOrEqual(88 + 8);
+          const band = chainBandRooms({ width: 300, height: 88 }, box);
+          expect(band.panel.x).toBeGreaterThan(band.chain.x + band.chain.width);
+          expect(band.panel.x + band.panel.width).toBeLessThanOrEqual(box.width);
+          expect(band.panel.y + band.panel.height).toBeLessThan(inset);
+          expect(band.chain.y + band.chain.height).toBeLessThan(inset);
+          continue;
+        }
+        expect(rooms.chain, `${layout.format} ${name}: chain room`).not.toBeNull();
+        const c = rooms.chain!;
+        const rect = { l: c.x, t: c.y, r: c.x + c.width, b: c.y + c.height };
+        expect(c.width * k).toBeGreaterThanOrEqual(300);
+        expect(c.height * k).toBeGreaterThanOrEqual(88);
+        for (const pose of poses.values()) {
+          expect(overlap(rect, boardBounds(pose)), `${layout.format} ${name}: chain on board`).toBe(false);
+          if (pose.slot === "home") {
+            const board = boardBounds(pose);
+            expect(overlap(rect, { l: pose.x - 330, r: pose.x + 330, t: board.b, b: board.b + 120 }), `${layout.format} ${name}: chain on hand`).toBe(false);
+          }
+        }
+        for (const a of anchors.values()) {
+          expect(overlap(rect, { l: a.x, t: a.y - 14, r: a.x + (a.me ? (a.footerTight ? 212 : 270) : 196), b: a.y + (a.me ? 171 : 122) }), `${layout.format} ${name}: chain on LP/master`).toBe(false);
+        }
+        for (const kind of ["panel", "bar"] as const) {
+          const p = rooms[kind];
+          expect(p, `${layout.format} ${name}: ${kind}`).not.toBeNull();
+          expect(overlap(rect, { l: p!.x, t: p!.y, r: p!.x + p!.width, b: p!.y + p!.height }), `${layout.format} ${name}: chain on ${kind}`).toBe(false);
+        }
       }
     }
   });

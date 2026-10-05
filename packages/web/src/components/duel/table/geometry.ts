@@ -272,6 +272,28 @@ export function seatPoses(
   return poses;
 }
 
+/** Portrait reflow: two rival columns and a full-width home board, fitted between the phone controls. */
+export function portraitTable(layout: TableLayout, camera: CameraView, screenWidth: number): {
+  width: number; height: number; poses: Map<number, SeatPose>; anchors: Map<number, HoloAnchor>;
+} | null {
+  if (!(screenWidth > 0 && screenWidth <= 640) || camera.mode !== "home" ||
+    !((layout.format === "ffa4" && layout.slots.length === 4) || (layout.format === "ffa3" && layout.slots.length === 3))) return null;
+  const four = layout.format === "ffa4";
+  const home: HomeSlot = { x: 550, y: four ? 860 : 680, scale: 1, rotateDeg: 0, tiltDeg: 0 };
+  const left: HomeSlot = { x: 354, y: four ? 422 : 160, scale: 0.5, rotateDeg: 180, tiltDeg: 0 };
+  const right: HomeSlot = { ...left, x: 746 };
+  const north: HomeSlot = { x: 550, y: 145, scale: 0.48, rotateDeg: 180, tiltDeg: 0 };
+  const places = four ? [home, left, north, right] : [home, left, right];
+  const names: PoseSlot[] = four ? ["home", "vL", "vN", "vR"] : ["home", "vL", "vR"];
+  const plates = four ? [[712, 80], [256, 536], [176, 90], [648, 536]] : [[444, 300], [190, 276], [714, 276]];
+  return {
+    width: 760,
+    height: four ? 1180 : 1000,
+    poses: new Map(layout.slots.map(({ seat }, i) => [seat, { ...places[i], seat, slot: names[i], z: SEAT_Z, docked: false, compact: false, hidden: false }])),
+    anchors: new Map(layout.slots.map(({ seat }, i) => [seat, { x: plates[i][0], y: plates[i][1], me: seat === layout.viewerSeat, beam: "none", footerTight: true }])),
+  };
+}
+
 /* ---------- The wide plaza ----------
  * The stage coordinate system stays 1100 wide and centred on x = 550, so the canvas, the world, the fly-in camera and every
  * effect that measures the canvas keep working. A box wider than the stage shows more of the plaza at both sides:
@@ -535,13 +557,15 @@ export function promptRoom(input: {
   hint: { width: number; height: number };
   /** Sizes to try, best first (stage px): the first one that has a room is used. */
   sizes: ReadonlyArray<{ width: number; height: number }>;
+  reserved?: readonly PromptRoom[];
+  prefer?: { x: number; y: number };
 }): PromptRoom | null {
   const { layout, poses, anchors, spread, hint, sizes } = input;
   // The home and look views are the ones with the room to spare; focus and the fly-in keep the prompt's own place.
   if (input.camera.mode !== "home" && input.camera.mode !== "look") return null;
   const left = -spread + 6;
   const right = STAGE.width + spread - 6;
-  const blocked: Bounds[] = [];
+  const blocked: Bounds[] = (input.reserved ?? []).map((room) => ({ l: room.x, r: room.x + room.width, t: room.y, b: room.y + room.height }));
   let mine: Bounds | null = null;
   for (const slot of layout.slots) {
     const pose = poses.get(slot.seat);
@@ -554,17 +578,21 @@ export function promptRoom(input: {
     else if (pose.slot === "vR" || pose.slot === "dockR") box.r += fan;
     else if (pose.slot !== "home") box.t -= fan;
     blocked.push(box);
-    if (pose.slot === "home") mine = board;
+    if (pose.slot === "home") {
+      mine = board;
+      // The hand starts at the board edge, not at the bottom of the nominal stage.
+      blocked.push({ l: pose.x - 330 * pose.scale, r: pose.x + 330 * pose.scale, t: board.b, b: board.b + 120 * pose.scale });
+    }
   }
   for (const [seat, anchor] of anchors) {
     const mineSeat = layout.viewerSeat === seat || anchor.me;
     const size = mineSeat && input.meFooter ? { width: anchor.footerTight ? HOLO_ME.width : HOLO_MASTER_CHIP.width, height: HOLO_ME.height + HOLO_MASTER_CHIP.height } : mineSeat ? HOLO_ME : HOLO_RIVAL;
-    blocked.push({ l: anchor.x, r: anchor.x + size.width, t: anchor.y, b: anchor.y + size.height });
+    blocked.push({ l: anchor.x, r: anchor.x + size.width, t: anchor.y - (anchor.me ? 0 : 14), b: anchor.y + Math.max(size.height, anchor.me ? 128 : 122) });
   }
   blocked.push({ l: ARENA_CENTER.x - 62, r: ARENA_CENTER.x + 62, t: ARENA_CENTER.y - 62, b: ARENA_CENTER.y + 76 });
   blocked.push({ l: ARENA_CENTER.x - 330, r: ARENA_CENTER.x + 330, t: STAGE.height - 4, b: 960 });
   blocked.push({ l: left - 6, r: left + hint.width, t: 952 - hint.height, b: 952 });
-  const prefer = mine ? { x: mine.l, y: mine.b } : { x: ARENA_CENTER.x, y: 760 };
+  const prefer = input.prefer ?? (mine ? { x: mine.l, y: mine.b } : { x: ARENA_CENTER.x, y: 760 });
   for (const { width, height } of sizes) {
     let best: PromptRoom | null = null;
     let bestD = Infinity;
@@ -583,7 +611,7 @@ export function promptRoom(input: {
 }
 
 /** Prompt sizes in screen px, best first. Height comes first: the three seat choices should be whole before the panel narrows. */
-const PANEL_HEIGHTS = [300, 280, 240, 200] as const;
+const PANEL_HEIGHTS = [300, 280, 240, 200, 180, 160] as const;
 const PANEL_WIDTHS = [320, 290, 260, 230, 204, 188] as const;
 const BAR_HEIGHTS = [130, 120] as const;
 const BAR_WIDTHS = [420, 360, 300, 240, 200, 188] as const;
@@ -601,17 +629,71 @@ export function promptRooms(input: {
   meFooter?: boolean;
   box: { width: number; height: number };
   k: number;
-}): { panel: PromptRoom | null; bar: PromptRoom | null } {
+  /** Measured strip including its priority row, in screen px. */
+  chainSize?: { width: number; height: number } | null;
+}): { panel: PromptRoom | null; bar: PromptRoom | null; chain: PromptRoom | null } {
   const { box, k } = input;
-  if (!(k > 0)) return { panel: null, bar: null };
+  if (!(k > 0)) return { panel: null, bar: null, chain: null };
   const hint = { width: CAMERA_HINT.width / k, height: CAMERA_HINT.height / k };
   const grid = (heights: readonly number[], widths: readonly number[]) =>
     heights.flatMap((height) => widths.map((width) => ({ width: width / k, height: height / k })));
   const panelMax = Math.min(320, Math.max(220, box.width * 0.27));
   const base = { layout: input.layout, camera: input.camera, poses: input.poses, anchors: input.anchors, spread: input.spread, meFooter: input.meFooter, hint };
+  const hub = hubPose(input.layout, input.camera, { box: { width: box.width, height: k * STAGE.height }, meFooter: input.meFooter });
+  const ring = ringPose(input.layout, input.camera);
+  const furniture: PromptRoom[] = [
+    { x: hub.x - hub.width / 2, y: hub.y - hub.height / 2, width: hub.width, height: hub.height },
+    { x: ring.x - 70 * ring.scale, y: ring.y - 70 * ring.scale, width: 140 * ring.scale, height: 154 * ring.scale },
+  ];
+  const chain = input.chainSize ? promptRoom({
+    ...base,
+    sizes: [{ width: input.chainSize.width / k, height: input.chainSize.height / k }],
+    prefer: { x: ARENA_CENTER.x, y: 100 },
+    reserved: furniture,
+  }) : null;
+  const reserved = chain ? [...furniture, chain] : furniture;
   return {
-    panel: promptRoom({ ...base, sizes: grid(PANEL_HEIGHTS, PANEL_WIDTHS.filter((width) => width <= panelMax || width < 204)) }),
-    bar: promptRoom({ ...base, sizes: grid(BAR_HEIGHTS, BAR_WIDTHS) }),
+    chain,
+    panel: promptRoom({ ...base, reserved, sizes: grid(PANEL_HEIGHTS, PANEL_WIDTHS.filter((width) => width <= panelMax || width < 204)) }),
+    bar: promptRoom({ ...base, reserved, sizes: grid(BAR_HEIGHTS, BAR_WIDTHS) }),
+  };
+}
+
+/**
+ * Some drawer/window combinations have no room for a readable strip. Reserve a row above the
+ * scaled stage in that case, with a separate prompt room beside it.
+ * The same decision is used for drawing and placement, including the recap after chain-end.
+ */
+export function chainStripInset(input: {
+  layout: TableLayout;
+  camera: CameraView;
+  box: { width: number; height: number; screenWidth?: number };
+  chainSize: { width: number; height: number } | null;
+  meFooter: boolean;
+}): number {
+  if (!input.chainSize || !(input.box.width > 0) || !(input.box.height > 0)) return 0;
+  const fit = { ...input.box, height: input.box.height * STAGE.height / 956 };
+  const k = stageFit(fit);
+  const spread = stageSpread(fit);
+  const poses = seatPoses(input.layout, input.camera, fit);
+  const wide = wideHoloAnchors(input.layout, input.camera, poses, spread, input.meFooter, { hint: { width: CAMERA_HINT.width / k, height: CAMERA_HINT.height / k } });
+  const anchors = new Map(input.layout.slots.map(({ seat }) => [seat, wide?.get(seat) ?? holoAnchor(input.layout, seat, input.camera)]));
+  const rooms = promptRooms({ ...input, poses, anchors, spread, k });
+  return rooms.chain && rooms.panel && rooms.bar ? 0 : chainBandRooms(input.chainSize, input.box).height;
+}
+
+/** A shared row above the stage when its free rooms cannot hold both a chain and a prompt. Screen px. */
+export function chainBandRooms(chain: { width: number; height: number }, box: { width: number }): {
+  height: number; chain: PromptRoom; panel: PromptRoom; bar: PromptRoom;
+} {
+  const panelX = chain.width + 18;
+  const width = Math.max(0, Math.min(420, box.width - panelX - 6));
+  const height = Math.max(200, chain.height) + 12;
+  return {
+    height,
+    chain: { x: 6, y: 4, ...chain },
+    panel: { x: panelX, y: 6, width, height: 200 },
+    bar: { x: panelX, y: 6, width, height: 130 },
   };
 }
 
