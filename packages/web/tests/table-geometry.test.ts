@@ -7,9 +7,14 @@ import {
   flyWorld,
   flyYawFor,
   holoAnchor,
+  holoObstacle,
+  ARENA_SIGN,
+  HUB_STRIP,
+  hubPose,
   ringAngles,
   ringPose,
   seatNormal,
+  seatObstacles,
   seatPoses,
   stageFit,
   stageSpread,
@@ -373,5 +378,167 @@ describe("compactFor", () => {
     expect(compactFor({ scale: 0.52, slot: "oHome" }, 0.1, 1200)).toBe(false);
     expect(compactFor(unit(0.92), 1, 1600, "on")).toBe(true);
     expect(compactFor(unit(0.5), 0.3, 1200, "off")).toBe(false);
+  });
+});
+
+// ---- the phase hub card ----
+type Pt = { x: number; y: number };
+function box(cx: number, cy: number, w: number, h: number, deg = 0): Pt[] {
+  const r = (deg * Math.PI) / 180;
+  const c = Math.cos(r);
+  const s = Math.sin(r);
+  return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => ({ x: cx + x * c - y * s, y: cy + x * s + y * c }));
+}
+function overlaps(a: Pt[], b: Pt[]): boolean {
+  for (const poly of [a, b]) {
+    for (let i = 0; i < poly.length; i += 1) {
+      const p = poly[i];
+      const q = poly[(i + 1) % poly.length];
+      const nx = q.y - p.y;
+      const ny = p.x - q.x;
+      const range = (pts: Pt[]) => {
+        const v = pts.map((t) => t.x * nx + t.y * ny);
+        return [Math.min(...v), Math.max(...v)];
+      };
+      const [a0, a1] = range(a);
+      const [b0, b1] = range(b);
+      if (a1 < b0 || b1 < a0) return false;
+    }
+  }
+  return true;
+}
+
+describe("hubPose", () => {
+  const cases: Array<[string, DuelFormat, number, Partial<CameraState>]> = [
+    ["ffa3 home", "ffa3", 3, {}],
+    ["ffa3 look", "ffa3", 3, { mode: "look", lookSeat: 1 }],
+    ["ffa3 overview", "ffa3", 3, { mode: "overview" }],
+    ["ffa3 focus on the left rival", "ffa3", 3, { mode: "focus", focusSeat: 1 }],
+    ["ffa3 focus on the right rival", "ffa3", 3, { mode: "focus", focusSeat: 2 }],
+    ["ffa4 home", "ffa4", 4, {}],
+    ["ffa4 look", "ffa4", 4, { mode: "look", lookSeat: 1 }],
+    ["ffa4 overview", "ffa4", 4, { mode: "overview" }],
+    ["ffa4 focus on the far rival", "ffa4", 4, { mode: "focus", focusSeat: 2 }],
+    ["ffa4 focus on the left rival", "ffa4", 4, { mode: "focus", focusSeat: 1 }],
+    ["ffa4 focus on the right rival", "ffa4", 4, { mode: "focus", focusSeat: 3 }],
+  ];
+
+  // The table boxes the stage can have (screen px, before TableStage trims the hand row off the height): the shell at 1440 x 900 with the
+  // drawer shut and open (the open drawer leaves a box no wider than the stage), 1366 x 768, 1920 x 1080 shut and open, 2560 x 1440.
+  const boxes: Array<[string, { width: number; height: number } | undefined]> = [
+    ["the classic stage", undefined],
+    ["1440 x 900, drawer shut", { width: 1368, height: 740 }],
+    ["1440 x 900, drawer open", { width: 988, height: 740 }],
+    ["1366 x 768", { width: 1294, height: 649 }],
+    ["1920 x 1080, drawer shut", { width: 1848, height: 950 }],
+    ["1920 x 1080, drawer open", { width: 1500, height: 950 }],
+    ["2560 x 1440", { width: 2488, height: 1290 }],
+  ];
+  const fitOf = (box: { width: number; height: number }) => ({ ...box, height: (box.height * 860) / 956 });
+
+  describe.each(boxes)("%s", (_boxLabel, rawBox) => {
+    const area = rawBox ? fitOf(rawBox) : undefined;
+    it.each([...cases, ["ffa3 fly", "ffa3", 3, { mode: "fly" }] as (typeof cases)[number], ["ffa4 fly", "ffa4", 4, { mode: "fly" }] as (typeof cases)[number]])(
+      "%s: the strip overlaps no seat field, hand, name label or LP panel, not the ARENA 07 sign, the ring, your hand's row or the camera hint",
+      (_label, format, count, over) => {
+        const layout = tableLayout(format as "ffa3", engine(format, count), 0);
+        const view = camera(over);
+        // The fly-in keeps the home place, so it is checked against the home boards and plates.
+        const seen = view.mode === "fly" ? camera() : view;
+        const poses = seatPoses(layout, seen, area);
+        const at = hubPose(layout, view, area ? { box: area, meFooter: true } : undefined);
+        const spread = area ? stageSpread(area) : 0;
+        const anchors = new Map(
+          layout.slots.map((slot) => [slot.seat, (area && wideHoloAnchors(layout, seen, poses, spread, true, { hint: { width: 250 / stageFit(area), height: 40 / stageFit(area) } })?.get(slot.seat)) || holoAnchor(layout, slot.seat, seen)] as const),
+        );
+        const card = box(at.x, at.y, at.width, at.height);
+        expect(at.width).toBe(HUB_STRIP[at.size].width);
+        expect(at.height).toBe(HUB_STRIP[at.size].height);
+        // 5px of air around the whole of every seat (field, hand and name label), see seatObstacles.
+        layout.slots.forEach((slot, place) => {
+          const pose = poses.get(slot.seat)!;
+          if (pose.hidden) return;
+          for (const rect of seatObstacles(pose, place === 0)) {
+            expect(overlaps(card, box(rect.x, rect.y, rect.width + 10, rect.height + 10, rect.rotateDeg))).toBe(false);
+          }
+        });
+        // 8px of air around every LP plate as drawn (the wide docks, or the classic ones), and under yours the Deck Master chip.
+        for (const slot of layout.slots) {
+          const anchor = anchors.get(slot.seat)!;
+          const plate = holoObstacle(anchor);
+          expect(overlaps(card, box(plate.x, plate.y, plate.width + 16, plate.height + 16))).toBe(false);
+          if (anchor.me && area && spread > 0) {
+            expect(overlaps(card, box(anchor.x + 135, anchor.y + (113 + 58) / 2, 270 + 16, 113 + 58 + 16))).toBe(false);
+          }
+        }
+        // The ARENA 07 sign on the plaza.
+        expect(overlaps(card, box(ARENA_SIGN.x + ARENA_SIGN.width / 2, ARENA_SIGN.y + ARENA_SIGN.height / 2, ARENA_SIGN.width, ARENA_SIGN.height))).toBe(false);
+        const ring = ringPose(layout, seen);
+        const dx = Math.max(Math.abs(at.x - ring.x) - at.width / 2, 0);
+        const dy = Math.max(Math.abs(at.y - ring.y) - at.height / 2, 0);
+        expect(Math.hypot(dx, dy)).toBeGreaterThan(62 * ring.scale);
+        if (area && spread > 0) {
+          // A wide table: your hand's row under the stage and the camera hint pill in the bottom left corner stay clear too.
+          expect(overlaps(card, box(550, (860 - 4 + 960) / 2, 660, 960 - 856))).toBe(false);
+          const k = stageFit(area);
+          const hintW = 250 / k;
+          const hintH = 40 / k;
+          expect(overlaps(card, box(-spread + 6 - 6 + hintW / 2, 952 - hintH / 2, hintW, hintH))).toBe(false);
+        }
+        // The card stays inside the visible stage: 1100 x 860 plus the spread at each side, and above the hand row.
+        expect(at.x - at.width / 2).toBeGreaterThanOrEqual(-spread);
+        expect(at.x + at.width / 2).toBeLessThanOrEqual(1100 + spread);
+        expect(at.y - at.height / 2).toBeGreaterThanOrEqual(0);
+        expect(at.y + at.height / 2).toBeLessThanOrEqual(area && spread > 0 ? 952 : 860);
+      },
+    );
+  });
+
+  it("uses the small strip at a 3-way table, the large one above a 4-way ring in the overview", () => {
+    const three = tableLayout("ffa3", engine("ffa3", 3), 0);
+    const four = tableLayout("ffa4", engine("ffa4", 4), 0);
+    for (const over of [{}, { mode: "overview" as const }, { mode: "focus" as const, focusSeat: 1 }, { mode: "focus" as const, focusSeat: 2 }]) {
+      expect(hubPose(three, camera(over)).size).toBe("sm");
+    }
+    expect(hubPose(four, camera()).size).toBe("sm");
+    expect(hubPose(four, camera({ mode: "overview" })).size).toBe("lg");
+    expect(hubPose(four, camera({ mode: "focus", focusSeat: 2 })).size).toBe("sm");
+  });
+
+  it("stands in the gap between the right-hand rival's plate and yours in the 4-way focus view", () => {
+    const four = tableLayout("ffa4", engine("ffa4", 4), 0);
+    const view = camera({ mode: "focus", focusSeat: 3 });
+    const at = hubPose(four, view);
+    const rival = holoObstacle(holoAnchor(four, 2, view));
+    const mine = holoObstacle(holoAnchor(four, 0, view));
+    expect(rival.x).toBeGreaterThan(900);
+    expect(at.y - at.height / 2).toBeGreaterThanOrEqual(rival.y + rival.height / 2 + 8);
+    expect(at.y + at.height / 2).toBeLessThanOrEqual(mine.y - mine.height / 2 - 8);
+  });
+
+  it("centres a 4-way overview strip on the ring, above it", () => {
+    const four = tableLayout("ffa4", engine("ffa4", 4), 0);
+    const view = camera({ mode: "overview" });
+    const ring = ringPose(four, view);
+    const above = hubPose(four, view);
+    expect(above.x).toBe(ring.x);
+    expect(above.y + above.height / 2).toBeLessThan(ring.y - 62 * ring.scale);
+  });
+
+  it("puts a 3-way home strip to the right of your own field, level with its top half, never over the hand", () => {
+    const three = tableLayout("ffa3", engine("ffa3", 3), 0);
+    const home = seatPoses(three, camera()).get(0)!;
+    for (const over of [{}, { mode: "look" as const, lookSeat: 1 }, { mode: "fly" as const }]) {
+      const at = hubPose(three, camera(over));
+      expect(at.x - at.width / 2).toBeGreaterThan(home.x + 653 / 2);
+      expect(at.y).toBeGreaterThan(home.y - 190);
+      expect(at.y).toBeLessThan(home.y);
+    }
+  });
+
+  it("keeps the home place in the fly-in view", () => {
+    const three = tableLayout("ffa3", engine("ffa3", 3), 0);
+    const fly = hubPose(three, camera({ mode: "fly" }));
+    expect({ x: fly.x, y: fly.y }).toEqual({ x: hubPose(three, camera()).x, y: hubPose(three, camera()).y });
   });
 });

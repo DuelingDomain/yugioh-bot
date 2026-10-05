@@ -178,6 +178,23 @@
   pointer-events: none;
 }
 
+/*
+ * The phase hub strip: flat on the canvas (it never tilts with the world), at the place hubPose found. It moves with the
+ * camera on a transform-only transition, the way a seat does. It lets the pointer through except on its own chips.
+ */
+.hub {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 40;
+  transition: transform 0.76s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hub {
+    transition: none;
+  }
+}
+
 /* Slots over the whole box. A child turns pointer events back on for its own panels. */
 .slot {
   position: absolute;

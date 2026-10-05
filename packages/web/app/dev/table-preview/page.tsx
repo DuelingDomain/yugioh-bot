@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { TABLE_STATE_IDS } from "@/components/duel/table/fixtures/common";
+import { SOLID_STATE_IDS as CLASSIC_STATE_IDS } from "@/components/duel/solid/fixtures/states";
 import { fxLabEnabled } from "@/lib/fx-lab";
 
 // Read the switch on every request, not at build time.
@@ -43,6 +44,20 @@ export default function TablePreviewIndex() {
           </ul>
         </section>
       ))}
+      <section style={{ marginBottom: 18 }}>
+        <h2 style={{ fontSize: 15, margin: "0 0 8px" }}>
+          <Link href="/dev/table-preview/classic" style={{ color: "#c6b6ff" }}>Classic 1v1 room (field, phase hub, station track)</Link>
+        </h2>
+        <ul style={{ display: "flex", flexWrap: "wrap", gap: 8, listStyle: "none", margin: 0, padding: 0, fontSize: 13 }}>
+          {CLASSIC_STATE_IDS.map((id) => (
+            <li key={id}>
+              <Link href={`/dev/table-preview/classic?state=${id}`} style={{ color: "#efe7d5", border: "1px solid rgb(181 153 99 / 0.34)", borderRadius: 4, padding: "4px 8px", display: "inline-block" }}>
+                {id}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </section>
     </main>
   );
 }

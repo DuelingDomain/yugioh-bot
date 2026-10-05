@@ -678,6 +678,252 @@ export function ringPose(layout: TableLayout, camera: CameraView): { x: number; 
   return { x: 550, y: 322, scale: 1 };
 }
 
+/**
+ * The two sizes of the phase hub strip, in stage px (the PhaseHub "table" variant draws exactly this, by the
+ * `data-hub-size` of its wrapper). The stage is scaled to the window (about 0.79 at 1440 x 900).
+ *   lg  chips 41px (32px on screen) with 13px labels, a wide lit chip with the phase's name, a caption line above.
+ *   sm  chips 33px (26px) and 30px wide, the lit phase named in the caption.
+ */
+export const HUB_STRIP = {
+  lg: { width: 389, height: 70 },
+  sm: { width: 205, height: 61 },
+} as const;
+export type HubSize = keyof typeof HUB_STRIP;
+
+export interface HubPose {
+  /** Centre of the strip in stage px. */
+  x: number;
+  y: number;
+  size: HubSize;
+  width: number;
+  height: number;
+}
+
+/** The ARENA 07 sign on the plaza (plaza.tsx), in stage px. The strip stays off it. */
+export const ARENA_SIGN = { x: 517, y: 18, width: 66, height: 17 } as const;
+
+/**
+ * Where the phase hub strip stands in a camera mode. Each place was found by scanning the stage for a rectangle that
+ * keeps 5px clear of every seat's field, hand and name label (see `seatObstacles`), 8px clear of every holo LP
+ * plate (see `holoObstacle`; plates move with the camera), and clear of the ARENA 07 sign and the turn ring; the geometry test repeats the check, so a change to the poses fails loudly. In order of
+ * preference: beside the ring; and, where the seats leave no room there, the open stage level with the top half of your
+ * own field, to the right of it. Never over cards, hands or plates.
+ * The strip is a flat overlay on the canvas: it never tilts with the world, so in the fly view it keeps the home place.
+ */
+export function hubPose(layout: TableLayout, camera: CameraView, view?: HubView): HubPose {
+  const classic = classicHubPose(layout, camera);
+  if (!view) return classic;
+  // The fly-in view keeps the home place (the strip is a flat overlay and does not follow the camera).
+  const home: CameraView = camera.mode === "fly" ? { ...camera, mode: "home" } : camera;
+  const spread = stageSpread(view.box);
+  const k = stageFit(view.box);
+  if (!(spread > 0) || !(k > 0)) return classic;
+  const poses = seatPoses(layout, home, view.box);
+  const hint = { width: CAMERA_HINT.width / k, height: CAMERA_HINT.height / k };
+  const plates = wideHoloAnchors(layout, home, poses, spread, view.meFooter === true, { hint });
+  // Only the home and look views are wide; the others keep the classic places (their boards and plates are the classic ones).
+  if (!plates) return classic;
+  return wideHubPose(layout, home, poses, plates, spread, view.meFooter === true, hint, classic);
+}
+
+/** The table box (screen px, as TableStage measures it) the strip is placed for, and whether a Deck Master chip hangs under your plate. */
+export interface HubView {
+  box: { width: number; height: number; screenWidth?: number };
+  meFooter?: boolean;
+}
+
+/** Air kept around a seat (field, hand, name label) and around an LP plate, in stage px. */
+export const HUB_AIR = { seat: 5, plate: 8 } as const;
+
+/** Do two rotated rectangles overlap (separating axis test)? */
+export function stageRectsOverlap(a: StageRect, b: StageRect): boolean {
+  const corners = (r: StageRect) => {
+    const rad = (r.rotateDeg * Math.PI) / 180;
+    const c = Math.cos(rad);
+    const sn = Math.sin(rad);
+    return [[-r.width / 2, -r.height / 2], [r.width / 2, -r.height / 2], [r.width / 2, r.height / 2], [-r.width / 2, r.height / 2]].map(([x, y]) => ({ x: r.x + x * c - y * sn, y: r.y + x * sn + y * c }));
+  };
+  const pa = corners(a);
+  const pb = corners(b);
+  for (const poly of [pa, pb]) {
+    for (let i = 0; i < 4; i += 1) {
+      const p = poly[i];
+      const q = poly[(i + 1) % 4];
+      const nx = q.y - p.y;
+      const ny = p.x - q.x;
+      const range = (pts: typeof pa) => {
+        const v = pts.map((t) => t.x * nx + t.y * ny);
+        return [Math.min(...v), Math.max(...v)];
+      };
+      const [a0, a1] = range(pa);
+      const [b0, b1] = range(pb);
+      if (a1 < b0 || b1 < a0) return false;
+    }
+  }
+  return true;
+}
+
+/** What the strip must stay off at a wide table, as stage rectangles with their air already added. */
+export function hubObstacles(
+  layout: TableLayout,
+  poses: ReadonlyMap<number, SeatPose>,
+  plates: ReadonlyMap<number, Pick<HoloAnchor, "x" | "y" | "me" | "footerTight">>,
+  meFooter: boolean,
+  hint: { width: number; height: number },
+  spread: number,
+  ring: { x: number; y: number; scale: number },
+): StageRect[] {
+  const out: StageRect[] = [];
+  const grow = (r: StageRect, air: number): StageRect => ({ ...r, width: r.width + air * 2, height: r.height + air * 2 });
+  layout.slots.forEach((slot, place) => {
+    const pose = poses.get(slot.seat);
+    if (!pose || pose.hidden) return;
+    for (const rect of seatObstacles(pose, place === 0)) out.push(grow(rect, HUB_AIR.seat));
+  });
+  for (const anchor of plates.values()) {
+    // The plate is drawn as yours when its anchor says so (`me`; in the look view your own plate is a rival-sized one).
+    let plate = holoObstacle(anchor);
+    if (anchor.me && meFooter) {
+      // Your Deck Master chip hangs under your plate: its room is part of it.
+      const width = anchor.footerTight ? HOLO_ME.width : HOLO_MASTER_CHIP.width;
+      const height = HOLO_ME.height + HOLO_MASTER_CHIP.height;
+      plate = { x: anchor.x + width / 2, y: anchor.y + height / 2, width, height, rotateDeg: 0 };
+    }
+    out.push(grow(plate, HUB_AIR.plate));
+  }
+  out.push({ x: ARENA_SIGN.x + ARENA_SIGN.width / 2, y: ARENA_SIGN.y + ARENA_SIGN.height / 2, width: ARENA_SIGN.width, height: ARENA_SIGN.height, rotateDeg: 0 });
+  // The turn ring, the same room the plates keep, and your hand's row under the stage and the camera hint.
+  out.push({ x: ring.x, y: ring.y + 7, width: 124 * ring.scale + 16, height: 138 * ring.scale + 16, rotateDeg: 0 });
+  out.push({ x: ARENA_CENTER.x, y: (STAGE.height - 4 + 960) / 2, width: 660, height: 960 - (STAGE.height - 4), rotateDeg: 0 });
+  const left = -spread + 6;
+  out.push({ x: left - 6 + (hint.width + 6) / 2, y: 952 - hint.height / 2, width: hint.width + 6, height: hint.height, rotateDeg: 0 });
+  return out;
+}
+
+/**
+ * The strip at a wide table (home and look): the clear place nearest the turn ring (4-way) or your field (3-way). The visible
+ * stage is the 1100 px stage plus `spread` at each side; the strip must stay inside it and keep the air of `hubObstacles` off
+ * every board, hand, name label, plate, the ARENA 07 sign, the ring, your hand's row and the camera hint. The scan is
+ * deterministic and only runs when a pose, a plate or the box changes. The classic place is the fallback if nothing is clear.
+ */
+function wideHubPose(
+  layout: TableLayout,
+  camera: CameraView,
+  poses: ReadonlyMap<number, SeatPose>,
+  plates: ReadonlyMap<number, HoloAnchor>,
+  spread: number,
+  meFooter: boolean,
+  hint: { width: number; height: number },
+  fallback: HubPose,
+): HubPose {
+  const ring = ringPose(layout, camera);
+  const obstacles = hubObstacles(layout, poses, plates, meFooter, hint, spread, ring);
+  const size: HubSize = "sm";
+  const { width, height } = HUB_STRIP[size];
+  const l0 = -spread + 6 + width / 2;
+  const r0 = STAGE.width + spread - 6 - width / 2;
+  const t0 = 4 + height / 2;
+  const b0 = 952 - height / 2;
+  const step = 6;
+  // 4-way: the clear place nearest the ring. 3-way: the rivals close in on the ring from both sides, so the strip stays by your
+  // own field instead (its right side, level with the top quarter), the same place the classic table gives it.
+  const mine = [...poses.values()].find((pose) => pose.slot === "home");
+  const board = mine && layout.slots.length === 3 ? boardBounds(mine) : null;
+  const want = board ? { x: board.r + 12 + width / 2, y: board.t + (board.b - board.t) / 4 } : ring;
+  const spots: Array<{ x: number; y: number; d: number }> = [];
+  for (let x = l0; x <= r0; x += step) {
+    for (let y = t0; y <= b0; y += step) spots.push({ x, y, d: Math.hypot(x - want.x, y - want.y) });
+  }
+  spots.sort((a, b) => a.d - b.d || a.y - b.y || a.x - b.x);
+  for (const spot of spots) {
+    const rect: StageRect = { x: spot.x, y: spot.y, width, height, rotateDeg: 0 };
+    if (!obstacles.some((o) => stageRectsOverlap(o, rect))) return { x: spot.x, y: spot.y, size, width, height };
+  }
+  return fallback;
+}
+
+function classicHubPose(layout: TableLayout, camera: CameraView): HubPose {
+  const ring = ringPose(layout, camera);
+  let size: HubSize;
+  let at: { x: number; y: number };
+  if (layout.format === "ffa4") {
+    if (camera.mode === "overview") {
+      // Centred above the ring.
+      size = "lg";
+      at = { x: ring.x, y: 282 };
+    } else if (camera.mode === "focus") {
+      // The far rival's field and name fill the top row, so the strip stands right of your own small field instead, in the
+      // gap between the right-hand rival's LP plate and yours.
+      size = "sm";
+      at = { x: 985, y: 636 };
+    } else {
+      // Right of the ring, between it and the right-hand rival.
+      size = "sm";
+      at = { x: 725, y: 342 };
+    }
+  } else if (camera.mode === "overview") {
+    // Left of the ring, in the top row of the stage.
+    size = "sm";
+    at = { x: 384, y: 40 };
+  } else if (camera.mode === "focus") {
+    // Above the small ring beside the docked rival.
+    size = "sm";
+    at = layout.slots.findIndex((slot) => slot.seat === camera.focusSeat) === 2 ? { x: 952, y: 326 } : { x: 109, y: 326 };
+  } else {
+    // Home, look and fly: the seats close in on the ring from every side, so the strip stands in the open stage right
+    // of your own field, level with its top half and above your LP plate.
+    size = "sm";
+    at = { x: 988, y: 490 };
+  }
+  const { width, height } = HUB_STRIP[size];
+  return { ...at, size, width, height };
+}
+
+/** A rotated rectangle in stage px: centre, size and turn. */
+export interface StageRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotateDeg: number;
+}
+
+/**
+ * Everything one seat draws, as rectangles on the stage: the 653 x 380 field, the hand hanging off its back edge
+ * (your face-up hand is 605 wide and 116 deep, with room to grow; a rival's backs about 420 by 100 with their hover lift)
+ * and the name label under the field's left side. The phase hub keeps clear of all three, so it never lands on cards.
+ */
+export function seatObstacles(pose: Pick<SeatPose, "x" | "y" | "scale" | "rotateDeg">, own: boolean): StageRect[] {
+  const r = (pose.rotateDeg * Math.PI) / 180;
+  const cos = Math.cos(r);
+  const sin = Math.sin(r);
+  // A rect given in the seat's own frame (origin at the field centre, +y toward its back edge), placed on the stage.
+  const rect = (lx: number, ly: number, width: number, height: number): StageRect => ({
+    x: pose.x + (lx * cos - ly * sin) * pose.scale,
+    y: pose.y + (lx * sin + ly * cos) * pose.scale,
+    width: width * pose.scale,
+    height: height * pose.scale,
+    rotateDeg: pose.rotateDeg,
+  });
+  const handW = own ? 605 : 420;
+  const handH = own ? 116 : 100;
+  return [
+    rect(0, 0, 653, 380),
+    rect(0, 190 + handH / 2 - 2, handW, handH),
+    rect(-653 / 2 + 0.17 * 653, 190 + 14, 150, 28),
+  ];
+}
+
+/**
+ * The most a holo LP panel can cover: its anchor is the top left; it is 196 wide (212 for yours) and, with the clock, the
+ * state line and "choosing..." all shown, about 122 tall (128), and a rival's Deck Master thumb rises 14 above it.
+ */
+export function holoObstacle(anchor: Pick<HoloAnchor, "x" | "y" | "me">): StageRect {
+  const width = anchor.me ? 212 : 196;
+  const height = (anchor.me ? 128 : 122) + (anchor.me ? 0 : 14);
+  return { x: anchor.x + width / 2, y: anchor.y - (anchor.me ? 0 : 14) + height / 2, width, height, rotateDeg: 0 };
+}
+
 /** Screen angle of every seat on the turn ring (degrees, 0 = right, 90 = down), by seat number. */
 export function ringAngles(layout: TableLayout, camera: CameraView): Map<number, number> {
   const plan = slotPlan(layout, camera);

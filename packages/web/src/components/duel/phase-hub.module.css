@@ -1,0 +1,504 @@
+/* The phase hub: the six phases of the turn in the middle of the board. Same Match Sheet ground and gold hairlines as the
+   station track; purple is you and the move you can make. The lit chip fades in on an opacity and transform layer, so
+   nothing here animates anything else. Under 900px it is not drawn: the bar keeps the phases there. */
+
+.root {
+  --ground: #070b15;
+  --panel-2: #0e1729;
+  --panel-3: #132037;
+  --ink: #efe7d5;
+  --ink-2: #c3bba8;
+  --ink-3: #958f81;
+  --rule-rgb: 181 153 99;
+  --rule-lo: rgb(var(--rule-rgb) / 0.22);
+  --gold: rgb(var(--rule-rgb));
+  --gold-ink: #dcc58f;
+  --pen: #9b7eff;
+  --pen-ink: #c6b6ff;
+  --ember-rgb: 217 141 82;
+  --focus: #ddd2ff;
+  /* --ease-out is the site's curve; the duel shell may sit outside the place that defines it. */
+  --hub-ease: var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+  --f-ui: var(--font-duel-ui, "Arial Narrow"), "Arial Narrow", sans-serif;
+  --f-num: var(--font-duel-num, "Arial Narrow"), "Arial Narrow", sans-serif;
+
+  /* The lit chip, on another seat's turn: a quiet panel with the seat's colour as its edge. */
+  --lit-bg: var(--panel-3);
+  --lit-edge: var(--seat, rgb(var(--rule-rgb) / 0.85));
+  --lit-ink: var(--ink);
+  --who-dot: var(--seat, rgb(var(--ember-rgb)));
+  --foot-ink: var(--gold-ink);
+
+  box-sizing: border-box;
+  color: var(--ink);
+  font-family: var(--f-ui);
+  font-variant-numeric: tabular-nums lining-nums;
+  line-height: 1;
+}
+.root[data-tone="mine"] {
+  --lit-bg: linear-gradient(#33268a, #241a66);
+  --lit-edge: var(--pen);
+  --lit-ink: #fff;
+  --who-dot: var(--seat, var(--pen));
+  --foot-ink: var(--pen-ink);
+}
+/* The Battle Phase is the ember phase on another seat's turn. On yours it stays purple. */
+.root[data-tone="theirs"][data-phase="BP"] {
+  --lit-edge: rgb(var(--ember-rgb) / 0.9);
+  --foot-ink: rgb(var(--ember-rgb));
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- the strip ----------
+   DP SP M1 BP M2 EP in one row on a hairline track, inside one pill (at a table). Done chips carry a tick, later ones are dim, and the
+   lit chip is wider and says the phase's full name in the seat colour. The lit layer is the only thing that moves (opacity
+   and transform); the width change itself is instant. Sizes come from --hc (chip height), --hfs (label), --cw (a chip's
+   width) and --lw (the lit chip's width); the two variants and the table stage's data-hub-size set them. */
+
+.root {
+  --gap: 4px;
+  --pad: 3px;
+}
+
+.plate {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--hc) * 0.3);
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--pad);
+  border: 1px solid rgb(var(--rule-rgb) / 0.34);
+  border-radius: 999px;
+  background: linear-gradient(rgb(10 17 34 / 0.94), rgb(7 11 21 / 0.94));
+}
+.root[data-tone="mine"] .plate {
+  border-color: rgb(155 126 255 / 0.55);
+}
+
+/* The owner and the turn. In the band it sits above the left pair; at a table it is the caption. */
+.who {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--ink-2);
+  font-size: var(--hfs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.dot {
+  flex: none;
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 50%;
+  background: var(--who-dot);
+}
+.whoName {
+  min-width: 0;
+  max-width: 11ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.turn {
+  flex: none;
+  color: var(--ink);
+  font-family: var(--f-num);
+  font-weight: 600;
+}
+
+.track {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--gap);
+}
+/* The hairline the chips sit on. */
+.track::before {
+  content: "";
+  position: absolute;
+  inset: 50% 4px auto;
+  z-index: -1;
+  height: 1px;
+  background: rgb(var(--rule-rgb) / 0.4);
+}
+
+.chip {
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--cw);
+  height: var(--hc);
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--rule-lo);
+  border-radius: 999px;
+  background: var(--panel-2);
+  color: var(--ink-3);
+  font: 600 var(--hfs) / 1 var(--f-ui);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.code,
+.name {
+  position: relative;
+}
+.name {
+  display: none;
+}
+
+/* The lit layer. It fades and settles in; leaving the chip fades it out. */
+.chip::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border: 1px solid var(--lit-edge);
+  border-radius: inherit;
+  background: var(--lit-bg);
+  opacity: 0;
+  transform: scale(0.88);
+  transition: opacity 160ms var(--hub-ease), transform 160ms var(--hub-ease);
+}
+.chip[data-state="current"] {
+  color: var(--lit-ink);
+}
+.chip[data-state="current"]::before {
+  opacity: 1;
+  transform: none;
+}
+/* The lit chip drops its code for the phase's full name (the small table sizes put the name in the caption instead). */
+.root[data-variant] .chip[data-state="current"] {
+  width: var(--lw);
+  padding: 0 0.7em;
+  letter-spacing: 0.02em;
+}
+.root[data-variant] .chip[data-state="current"] .code {
+  display: none;
+}
+.root[data-variant] .chip[data-state="current"] .name {
+  display: inline;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip[data-state="done"] {
+  border-color: rgb(var(--rule-rgb) / 0.5);
+  color: var(--ink-2);
+}
+.chip[data-state="ahead"] {
+  color: var(--ink-3);
+}
+.tick {
+  position: absolute;
+  top: -3px;
+  right: -2px;
+  display: grid;
+  place-items: center;
+  width: calc(var(--hc) * 0.36);
+  height: calc(var(--hc) * 0.36);
+  border: 1px solid var(--gold);
+  border-radius: 50%;
+  background: var(--ground);
+  color: var(--gold-ink);
+}
+.tick svg {
+  width: 62%;
+  height: 62%;
+}
+
+/* A phase you can move to now: the purple of your move. */
+button.chip {
+  cursor: pointer;
+}
+.chip[data-live="true"]:not([data-state="current"]) {
+  border-color: rgb(155 126 255 / 0.6);
+  color: var(--pen-ink);
+}
+button.chip::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+}
+button.chip:active {
+  transform: scale(0.96);
+}
+button.chip:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  button.chip:hover {
+    border-color: var(--pen);
+    background: rgb(155 126 255 / 0.16);
+    color: #fff;
+  }
+}
+
+/* ---------- band: in the Extra Monster Zone row of a 1v1 ----------
+   The nav fills the top row of the band (field.module.css's .emzHub: the zones' height, drawn before the zones so its line
+   sits under their outlines, labels and cards). It is a five-column grid like the zones' own row; the pairs sit in columns
+   1, 3 and 5, the two Extra Monster Zones in 2 and 4. One hairline runs at chip mid-height from the left pair to the right
+   pair, behind the zones. Chips float on it with single borders and no pill. They grow with the zone: 26px at the least,
+   38px at the most. The lit chip says the phase's full name; a cell under 168px wide keeps its code and puts the name under
+   the pair. The owner and the turn sit above the left pair. Nothing here takes any height from the zones. */
+
+/* The zone size, frozen to px on the nav. --z is built from container units; unregistered it would be re-read inside the cells below
+   (which are inline-size containers) and come out as their width. Registered as a length it is computed once, here. */
+@property --hub-z {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 100px;
+}
+
+.root[data-variant="band"] {
+  --hub-z: var(--z);
+  --hc: clamp(26px, calc(var(--hub-z) * 0.28), 38px);
+  --hfs: clamp(11px, calc(var(--hc) * 0.42), 15.5px);
+  --cw: calc(var(--hc) * 1.3);
+  --pair-gap: calc(var(--hc) * 0.42);
+  --line: rgb(var(--rule-rgb) / 0.45);
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  column-gap: var(--g);
+  width: 100%;
+  height: 100%;
+  /* Nothing under the free cells needs the pointer; only the chips take it. */
+  pointer-events: none;
+}
+/* On their turn the lit chip is filled in their ember, quieter than your violet. */
+.root[data-variant="band"][data-tone="theirs"] {
+  --lit-bg: linear-gradient(rgb(var(--ember-rgb) / 0.34), rgb(var(--ember-rgb) / 0.18));
+  --lit-edge: rgb(var(--ember-rgb) / 0.85);
+  --lit-ink: #ffe9d6;
+  --foot-ink: rgb(var(--ember-rgb));
+}
+
+.line {
+  position: absolute;
+  top: 50%;
+  right: calc((100% - 4 * var(--g)) / 10);
+  left: calc((100% - 4 * var(--g)) / 10);
+  height: 1px;
+  background: var(--line);
+}
+.cell {
+  position: relative;
+  display: flex;
+  grid-row: 1;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  container-type: inline-size;
+}
+.cell[data-cell="0"] { grid-column: 1; }
+.cell[data-cell="1"] { grid-column: 3; }
+.cell[data-cell="2"] { grid-column: 5; }
+
+.pair {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--pair-gap);
+  min-width: 0;
+  max-width: 100%;
+}
+/* The line also runs out to the outer edge of the left and right pairs (the grid-wide line starts at their centres). */
+.cell[data-cell="0"] .pair::before,
+.cell[data-cell="2"] .pair::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  height: 1px;
+  background: var(--line);
+}
+.cell[data-cell="0"] .pair::before { right: 50%; left: 0; }
+.cell[data-cell="2"] .pair::before { right: 0; left: 50%; }
+
+.root[data-variant="band"] .chip {
+  z-index: 3;
+}
+.root[data-variant="band"] .chip[data-state="current"] {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: var(--cw);
+  padding: 0 0.75em;
+}
+.root[data-variant="band"] .chip[data-state="current"] .name {
+  display: block;
+  min-width: 0;
+}
+
+/* The owner and the turn, above the left pair; it never runs past the cell, so it keeps 6px from the zone beside it. */
+.owner {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 3;
+  display: flex;
+  min-width: 0;
+  max-width: calc(50cqw + 50% - 6px);
+  font-size: 12.5px;
+}
+.root[data-variant="band"] .who {
+  gap: 0.6em;
+  font-size: inherit;
+}
+.root[data-variant="band"] .dot {
+  display: none;
+}
+.root[data-variant="band"] .whoName {
+  max-width: none;
+}
+.root[data-variant="band"] .turn {
+  color: var(--ink-2);
+  font-family: var(--f-ui);
+  font-weight: 500;
+}
+
+/* The lit phase's name under its pair, shown only where the chip cannot hold it. */
+.under {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  z-index: 3;
+  display: none;
+  max-width: 100cqw;
+  overflow: hidden;
+  margin-top: 5px;
+  color: var(--lit-ink);
+  font: 600 12px / 1 var(--f-ui);
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 2px #000;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+@container (max-width: 167px) {
+  .root[data-variant="band"] .chip[data-state="current"] {
+    flex: none;
+    width: var(--cw);
+    min-width: 0;
+    padding: 0;
+    letter-spacing: 0.04em;
+  }
+  .root[data-variant="band"] .chip[data-state="current"] .code {
+    display: inline;
+  }
+  .root[data-variant="band"] .chip[data-state="current"] .name {
+    display: none;
+  }
+  .under {
+    display: block;
+  }
+}
+
+/* ---------- table: beside or below the turn ring of a table of 3 or 4 ----------
+   Sizes are stage px (the stage is scaled to the window, about 0.79 at 1440 x 900). The wrapper in the table stage says
+   which size the place holds with data-hub-size:
+     lg  chips 41px (32px on screen), labels 16.5px (13px), the lit chip says its name; owner and turn in a caption above.
+     sm  chips 33px (26px), the lit chip stays a code and the caption also names the phase. */
+
+.root[data-variant="table"] {
+  --hc: 41px;
+  --hfs: 16.5px;
+  --cw: 46px;
+  --lw: 124px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+  width: 389px;
+  height: 70px;
+}
+.root[data-variant="table"] .plate {
+  width: 100%;
+  justify-content: center;
+}
+.root[data-variant="table"] .track {
+  justify-content: space-between;
+  width: 100%;
+}
+.caption {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  min-width: 0;
+  height: 16px;
+  overflow: hidden;
+  padding-left: 6px;
+  font-size: 12.5px;
+  line-height: 1;
+}
+.caption .who {
+  font-size: inherit;
+}
+.captionLit {
+  display: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: 0.4em;
+  color: var(--foot-ink);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+:global([data-hub-size="sm"]) .root[data-variant="table"] {
+  --hc: 33px;
+  --cw: 30px;
+  --gap: 3px;
+  width: 205px;
+  height: 61px;
+}
+:global([data-hub-size="sm"]) .root[data-variant="table"] .captionLit {
+  display: block;
+}
+:global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"] {
+  width: var(--cw);
+  padding: 0;
+  letter-spacing: 0.04em;
+}
+:global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"] .code {
+  display: inline;
+}
+:global([data-hub-size="sm"]) .root[data-variant="table"] .chip[data-state="current"] .name {
+  display: none;
+}
+
+/* ---------- motion and size ---------- */
+
+.root[data-reduced="true"] .chip::before {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chip::before {
+    transition: none;
+  }
+}
+
+/* The phone keeps the phase strip in the bar. */
+@media (max-width: 900px) {
+  .root[data-variant] {
+    display: none;
+  }
+}

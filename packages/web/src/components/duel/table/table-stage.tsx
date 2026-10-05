@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import { engineFormat } from "../multi-seat";
 import { AttackLine } from "./attack-line";
 import { FlyCity } from "./fly-city";
-import { flyWorld, holoAnchor, normalizeAngle, ringAngles, CAMERA_HINT, promptRooms, ringPose, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
+import { flyWorld, holoAnchor, hubPose, normalizeAngle, ringAngles, CAMERA_HINT, promptRooms, ringPose, type PromptRoom, seatPoses, slotPlan, stageFit, stageSpread, STAGE, wideHoloAnchors } from "./geometry";
 import { holoStatus, HoloLp } from "./holo-lp";
 import { lastSeatDamage } from "./seat-state";
 import { Plaza } from "./plaza";
@@ -46,7 +46,7 @@ export interface TableStageViewProps extends TableStageProps {
  * overlay are slots over the whole box, so they measure the real screen position of `[data-zones]` and
  * `[data-lp-seat]` nodes. `camera` is the camera to draw (the shell passes the effective one).
  */
-export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, masterChip, wantMode, locked = false, out = [], ring = true }: TableStageViewProps) {
+export function TableStage({ controller, layout, camera, dispatchCamera, renderSeatField, fx, promptCenter, overlay, hub, masterChip, wantMode, locked = false, out = [], ring = true }: TableStageViewProps) {
   const { engine, room, viewerSeat, nameOf, legalKeys, selectedKeys, reducedMotion } = controller;
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -164,6 +164,13 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
   const attackerSeat = controller.aim?.from ? Number(controller.aim.from.split(":")[0]) : null;
   const attackerTone = (attackerSeat != null ? tones.get(attackerSeat) : null) ?? "violet";
   const ringAt = ringPose(layout, camera);
+  // The phase hub strip: the classic place, or at a wide table (home and look) the clear place nearest the ring or your field.
+  // The place only depends on the camera's mode and target, so a fly-in drag (which changes only `camera.fly`) does not rescan.
+  const hubAt = useMemo(
+    () => (hub && threeWay ? hubPose(layout, camera, { box: fitBox, meFooter: hasChip }) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hub != null, threeWay, layout, camera.mode, camera.focusSeat, camera.lookSeat, fitBox, hasChip],
+  );
 
   return (
     <div
@@ -276,6 +283,16 @@ export function TableStage({ controller, layout, camera, dispatchCamera, renderS
             />
           );
         })}
+        {hubAt ? (
+          <div
+            className={styles.hub}
+            data-hub-slot="true"
+            data-hub-size={hubAt.size}
+            style={{ width: hubAt.width, height: hubAt.height, transform: `translate(${hubAt.x - hubAt.width / 2}px, ${hubAt.y - hubAt.height / 2}px)` }}
+          >
+            {hub}
+          </div>
+        ) : null}
         {controller.aim?.from ? <AttackLine aim={controller.aim} tone={attackerTone} /> : null}
       </div>
       {fx ? <div className={styles.slot} data-slot="fx">{fx}</div> : null}

@@ -165,6 +165,8 @@ export interface TableStageProps {
   fx?: ReactNode;
   promptCenter?: ReactNode;
   overlay?: ReactNode; // slots: FxBoundary tree, PromptCenter, menus
+  /** Phase hub card (3-way and 4-way tables): drawn flat on the canvas beside the turn ring, at `hubPose`. */
+  hub?: ReactNode;
   masterChip?: ReactNode; // hangs under the viewer's own holo LP panel (the Deck Master chip of a domain duel)
 }
 export type TagStageProps = TableStageProps;
