@@ -9,6 +9,16 @@ import type { InspectTarget } from "../inspector";
 import styles from "./grid-hud.module.css";
 
 /**
+ * The plate is narrow, so the buttons show a short word. The full option text ("Normal Summon Sage with Eyes of Blue")
+ * stays as the accessible name and the tooltip. A label that is not a Normal Summon or a Set is shown as it is.
+ */
+function shortActionLabel(label: string): string {
+  if (/^Normal Summon\b/i.test(label)) return "Summon";
+  if (/^Set\b/i.test(label)) return "Set";
+  return label;
+}
+
+/**
  * The Deck Master of the 4-way grid, as a token plate in the left margin beside your field. The plate shows the card,
  * its name and the actions that are legal now (Normal Summon, Set) with Inspect. A click on the token or Inspect opens
  * the details flyout (status, returns, next surcharge) right above the plate, in the free margin, so it never covers a
@@ -104,19 +114,20 @@ export function GridMasterToken({
           <span className={styles.masterArt} style={{ backgroundImage: `url(${cardArtUrl(master.card.code, "small")})` }} aria-hidden="true" />
           <span className={styles.masterId}>
             <small>{title}</small>
-            <b>{master.card.name}</b>
+            <b title={master.card.name}>{master.card.name}</b>
           </span>
         </button>
         {local ? (
           <div className={styles.masterActions}>
             {actions.map((option, index) => (
               <button key={option.id} type="button" data-primary={index === 0 ? "true" : "false"} data-testid="hud-master-action"
-                disabled={!canAct} onClick={() => onChooseAction(option)}>
-                {option.label}
+                aria-label={option.label} title={option.label} disabled={!canAct} onClick={() => onChooseAction(option)}>
+                {shortActionLabel(option.label)}
               </button>
             ))}
-            <button type="button" data-testid="hud-master-inspect" onClick={onToggle}>
-              <Search size={13} strokeWidth={1.75} aria-hidden /> Inspect
+            <button type="button" className={styles.masterInspect} data-testid="hud-master-inspect" aria-label="Inspect" title="Inspect" onClick={onToggle}>
+              <Search size={14} strokeWidth={1.75} aria-hidden />
+              <span className={styles.masterInspectText}>Inspect</span>
             </button>
           </div>
         ) : null}

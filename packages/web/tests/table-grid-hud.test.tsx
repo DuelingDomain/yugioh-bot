@@ -49,8 +49,8 @@ function masterState(): TableFixtureState {
     ...engine.prompt!,
     options: [
       ...engine.prompt!.options,
-      { id: "dm-summon", label: "Normal Summon", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
-      { id: "dm-set", label: "Set", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
+      { id: "dm-summon", label: "Normal Summon Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
+      { id: "dm-set", label: "Set monster Sage with Eyes of Blue", controller: 0, location: LOCATION_DMZONE, sequence: 0 },
     ],
   };
   return state;
@@ -129,13 +129,26 @@ describe("the Deck Master token", () => {
     expect(screen.getByTestId("hud-master-inspect")).toBeTruthy();
   });
 
-  it("lists Normal Summon and Set when they are legal, and sends the chosen one", () => {
+  it("lists Summon and Set when they are legal, and sends the chosen one", () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {});
     render(<Shell state={masterState()} />);
     const actions = screen.getAllByTestId("hud-master-action");
-    expect(actions.map((button) => button.textContent)).toEqual(["Normal Summon", "Set"]);
+    expect(actions.map((button) => button.textContent)).toEqual(["Summon", "Set"]);
     fireEvent.click(actions[1]);
     expect(info).toHaveBeenCalledWith("[table-preview] answer", expect.objectContaining({ answer: { choice: "dm-set" } }));
+  });
+
+  it("shows short labels on the buttons and keeps the full option text as the accessible name", () => {
+    render(<Shell state={masterState()} />);
+    const [summon, set] = screen.getAllByTestId("hud-master-action");
+    expect(summon.textContent).toBe("Summon");
+    expect(summon.getAttribute("aria-label")).toBe("Normal Summon Sage with Eyes of Blue");
+    expect(summon.getAttribute("title")).toBe("Normal Summon Sage with Eyes of Blue");
+    expect(set.textContent).toBe("Set");
+    expect(set.getAttribute("aria-label")).toBe("Set monster Sage with Eyes of Blue");
+    expect(screen.getByRole("button", { name: "Normal Summon Sage with Eyes of Blue" })).toBe(summon);
+    expect(screen.getByRole("button", { name: "Set monster Sage with Eyes of Blue" })).toBe(set);
+    expect(screen.getByTestId("hud-master-inspect").getAttribute("aria-label")).toBe("Inspect");
   });
 
   it("opens the details flyout from the token or from Inspect, and closes it", () => {
