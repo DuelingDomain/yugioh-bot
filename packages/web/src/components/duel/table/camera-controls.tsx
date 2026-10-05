@@ -2,6 +2,7 @@
 
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { Eye, Focus, House, LayoutGrid, Lock, Orbit, Pin, PinOff, Video } from "lucide-react";
+import { isFaceOff } from "./camera-model";
 import type { CameraCue } from "./use-camera";
 import { hexToRgbTriplet } from "./seat-angle";
 import { SEAT_TONE_HEX, type CameraAction, type CameraState, type TableLayout } from "./types";
@@ -92,7 +93,7 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
   const [open, setOpen] = useState(false);
   const rivals = layout.slots.filter((slot) => slot.seat !== layout.anchorSeat && !out.includes(slot.seat));
   // A 3-way table with two seats left is a face-off: it has one view, so Overview, Focus, Look and the fly-in do nothing.
-  const faceOff = layout.format === "ffa3" && layout.slots.filter((slot) => !out.includes(slot.seat)).length <= 2;
+  const faceOff = isFaceOff(layout, out);
   const flyOn = camera.mode === "fly";
   const flyReady = camera.flyIn !== false;
   const keep = camera.pinned && camera.mode !== "home";
@@ -222,7 +223,7 @@ export function CameraControls({ layout, camera, locked, cue, nameOf, dispatch, 
       <div className={styles.chip} data-camera-chip data-lock={locked ? "true" : undefined} role="status">
         <Focus size={13} aria-hidden="true" />
         <b>{label}</b>
-        <span className={styles.hint}>{hint}</span>
+        {hint ? <span className={styles.hint}>{hint}</span> : null}
         <span className={styles.lock}>
           <Lock size={11} aria-hidden="true" />
           Camera locked · FX

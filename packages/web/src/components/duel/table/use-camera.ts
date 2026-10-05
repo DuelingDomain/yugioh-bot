@@ -6,6 +6,7 @@ import { isEliminated } from "../multi-seat";
 import {
   cameraActionForKey,
   cameraReducer,
+  isFaceOff,
   effectiveCamera,
   initialCamera,
   lockForEvents,
@@ -117,6 +118,12 @@ export function useCamera({ controller, layout, initial, initialLock = null, aim
     const seat = state.mode === "focus" ? state.focusSeat : state.mode === "look" ? state.lookSeat : null;
     if (seat != null && out.includes(seat)) dispatch({ type: "home" });
   }, [out, state.focusSeat, state.lookSeat, state.mode]);
+
+  // A 3-way face-off has one view. A move home is ignored under an FX lock, so this runs again when the lock ends.
+  const faceOff = isFaceOff(layout, out);
+  useEffect(() => {
+    if (faceOff && state.mode !== "home") dispatch({ type: "home" });
+  }, [faceOff, state.mode, state.lock]);
 
   const keyRef = useRef({ state, seatKeys, suspended });
   keyRef.current = { state, seatKeys, suspended };
