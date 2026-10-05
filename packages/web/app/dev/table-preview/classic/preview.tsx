@@ -7,6 +7,7 @@ import { BattleFx } from "@/components/duel/battle-fx";
 import { withDestroyCards } from "@/components/duel/destroy-cards";
 import { DeckSurrenderContext } from "@/components/duel/deck-surrender";
 import { isBattlePhase } from "@/components/duel/constants";
+import { ChainFx } from "@/components/duel/chain-fx";
 import { DuelField } from "@/components/duel/field";
 import { duelFontClasses } from "@/components/duel/fonts";
 import { seatNamer } from "@/components/duel/multi-seat";
@@ -113,6 +114,10 @@ export function ClassicPreview({ stateId, chain: chainParam, reduced, attack }: 
                 <BattleFx events={withDestroyCards(engine.events)} seats={engine.seats} reducedMotion={reduced} active aim={null}
                   battleStep={battleStep} nameOf={playerName} />
               ) : null}
+              <ChainFx
+                events={withDestroyCards(engine.events)} chain={engine.chain} duelKey={`classic-preview-${id}`}
+                reducedMotion={reduced} mySeat={mySeat} playerName={playerName} seats={engine.seats}
+              />
               <PromptCenter
                 prompt={prompt} mySeat={mySeat} active slug={`classic-preview-${id}`} busy={false} draft={DRAFT} onSubmit={noop}
                 menuOpen={false} chain={engine.chain} aimLocked={false} reducedMotion={reduced} revision={engine.revision}

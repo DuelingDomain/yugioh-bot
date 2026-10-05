@@ -14,6 +14,8 @@ const matrix = ['ffa4', 'ffa3'].flatMap(mode => [
 for (const mode of ['ffa4', 'ffa3', 'tag', 'classic']) {
   for (const state of ['main', 'chain-2']) matrix.push({ mode, width: 390, height: 844, drawer: 'phone', state });
 }
+// Tag keeps its desktop layout; include it when checking the phone chain reservation.
+matrix.push({ mode: 'tag', width: 1440, height: 900, drawer: 'desktop', state: 'chain-2' });
 await mkdir(out, { recursive: true });
 const browser = await chromium.launch();
 const results = [];
@@ -27,7 +29,7 @@ try {
     const response = await page.goto(`${base}/dev/table-preview/${item.mode}?state=${item.state}&reduced=1`, { waitUntil: 'networkidle' });
     if (!response?.ok()) errors.push(`HTTP ${response?.status()}`);
     const table = page.locator('[data-wide="true"][data-drawer]');
-    if (item.drawer !== 'phone') {
+    if (item.mode.startsWith('ffa') && item.drawer !== 'phone') {
       await table.waitFor();
       const open = await table.getAttribute('data-drawer') === 'open';
       if (open !== (item.drawer === 'open')) await page.locator(open ? '[aria-label="Panel drawer"] button[aria-label="Close panel"]' : '[data-rail="log"]').click();
@@ -39,11 +41,12 @@ try {
       const strip = document.querySelector('[data-chain-strip-wrap]');
       const box = strip && rect(strip);
       const overlap = r => box && Math.min(box.x + box.width, r.x + r.width) - Math.max(box.x, r.x) > 1 && Math.min(box.y + box.height, r.y + r.height) - Math.max(box.y, r.y) > 1;
-      const hits = box ? [...document.querySelectorAll('[data-seat-field], [data-holo], [data-hand-seat], [data-prompt-panel], [data-seat-switcher]')]
+      const hits = box ? [...document.querySelectorAll('[data-seat-field], [data-holo], [data-team-plate], [data-lp-seat], [data-tag-header], [data-hand-seat], [data-prompt-panel], [data-seat-switcher]')]
         .filter(el => el.getBoundingClientRect().width && getComputedStyle(el).visibility !== 'hidden' && overlap(rect(el)))
         .map(el => ({ tag: el.tagName, data: { ...el.dataset }, rect: rect(el) })) : [];
-      return { horizontalOverflow: document.documentElement.scrollWidth > innerWidth, strip: box, stripVisible: strip && getComputedStyle(strip).visibility !== 'hidden', collisions: hits };
+      return { horizontalOverflow: document.documentElement.scrollWidth > innerWidth, strip: box, stripVisible: !!(box?.width && box?.height && strip.getClientRects().length && getComputedStyle(strip).visibility !== 'hidden'), collisions: hits };
     });
+    // ClassicPreview must mount the live room's ChainFx too: the prompt and response-mode dots are not its chain panel.
     if (item.state === 'chain-2' && !geometry.stripVisible) errors.push('Chain strip is missing or hidden');
     if (geometry.horizontalOverflow) errors.push('Horizontal page overflow');
     if (geometry.collisions.length) errors.push('Chain strip overlaps protected content');
