@@ -42,6 +42,30 @@ The **Organizer**'s removal of a **Participant** from a **pending** Tournament. 
 **Leave**:
 A **Participant**'s self-removal from a **pending** Tournament. Available to all participants, including the **Organizer**.
 
+### Duels
+
+**Table**:
+One automated duel room, from lobby to result, with a web slug. Hosted by the private duel host and stored in the duel tables of SQLite. Players or bots take its **Seats**; other guild members may spectate public tables.
+_Avoid_: Game, room (in code and docs)
+
+**Seat**:
+One duelist position at a **Table**, numbered from 0 in turn order. A seat holds a human or a practice bot. In Tag, seat % 2 is the team (seats 0 and 2 against 1 and 3).
+
+**Table format**:
+The seat layout of a **Table**: `1v1` (default), `tag` (2v2, shared team LP), `ffa3` or `ffa4` (free-for-all, one LP each). Chosen at creation and fixed. Distinct from a tournament **Format**. The rules are in `docs/adr/0002-multiplayer-duel-rules.md`.
+
+**Standard / Domain**:
+The two duel modes. **Standard** uses stock rules with a Master Rule preset. **Domain** adds the Domain Format mechanics, a **Deck Master** and its own deck rules. Both work at every **Table format**.
+
+**Deck Master**:
+A Domain-only monster in its own zone, set apart from the Main Deck. It can be recalled and summoned again, with a surcharge. Standard tables have none.
+
+**Preset**:
+A scripted starting board for hand scenarios and e2e runs (`packages/duel-server/src/presets/`). The `list-presets` and `start-preset` host operations exist only when `DUEL_SCENARIOS=1`. Not a Master Rule preset.
+
+**Engine**:
+The wasm core that runs a **Table**. 1v1 tables use the **legacy** engine (default) or the **pinned** merged engine (`DUEL_1V1_ENGINE`). Tag and FFA tables always use a **multi core** (`ocgcore.multi.wasm`, or `ocgcore.multi-domain.wasm` for Domain). The engine is saved with each duel. See `docs/deployment/duel-engine-switch.md`.
+
 ### Notifications
 
 **Announcement**:
