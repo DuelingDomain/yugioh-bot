@@ -710,15 +710,19 @@
   height: calc(50% + var(--hud-bottom));
 }
 /* A prompt for you opens at the right, in the corner column right above the turn controls (the column is
-   `.corner` in grid-hud.module.css); the margin at the left belongs to the dock. The selector is as strong as the
-   narrow-screen rules below, which would pin the dock to the screen's bottom. */
-.shell[data-hud="room"][data-fit="true"] .corner .promptDock[data-mode="float"],
-.shell[data-hud="room"][data-fit="true"] .corner .promptDock[data-mode="flow"] {
+   `.corner` in grid-hud.module.css, found by its data attribute because that class name is hashed in another
+   module). The column takes no clicks, so the dock turns them back on. The dock is at least as wide as the column
+   and grows to the left for a long list. The selector is as strong as the narrow-screen rules below, which would
+   pin the dock to the screen's bottom. */
+.shell[data-hud="room"][data-fit="true"] [data-hud-corner] > .promptDock[data-mode="float"],
+.shell[data-hud="room"][data-fit="true"] [data-hud-corner] > .promptDock[data-mode="flow"] {
   position: relative;
   grid-area: auto;
   inset: auto;
   z-index: auto;
-  width: min(380px, 34vw);
+  width: max-content;
+  min-width: 100%;
+  max-width: min(380px, 34vw);
   margin: 0;
   border-radius: 8px;
   pointer-events: auto;

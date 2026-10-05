@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import React from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -139,6 +141,9 @@ describe("the floating HUD of the 1v1 room", () => {
     expect(screen.queryByTestId("hud-bottom")).toBeNull();
     const corner = screen.getByTestId("hud-corner");
     expect(corner.querySelector("nav[data-compact='true']")).not.toBeNull();
+    // room.module.css finds the corner by this attribute (its class is hashed in another module) to turn clicks
+    // back on for an open prompt dock there.
+    expect(corner.hasAttribute("data-hud-corner")).toBe(true);
     expect(screen.queryByRole("complementary", { name: "Duel panels" })).toBeNull();
     for (const id of ["log", "settings", "chain"]) expect(screen.getByTestId(`hud-dock-${id}`)).toBeTruthy();
     expect(screen.queryByTestId("hud-dock-history")).toBeNull();
@@ -375,5 +380,16 @@ describe("the 1v1 clocks and the Deck Master plate", () => {
     expect(sent()).toHaveLength(1);
     expect(sent()[0]).toMatchObject({ promptId: "p4", answer: { selected: ["dm"] } });
     expect(screen.queryByTestId("hud-master-flyout")).toBeNull();
+  });
+});
+
+// jsdom applies no CSS, so these read the stylesheet.
+describe("the 1v1 HUD corner in the stylesheet", () => {
+  const css = readFileSync(join(__dirname, "../../src/components/duel/room.module.css"), "utf8");
+
+  it("turns clicks back on for an open prompt dock in the corner, found by its data attribute", () => {
+    // The corner column takes no clicks; a class selector for it would be hashed in room.module.css and never match.
+    expect(css).toMatch(/\[data-hud-corner\] > \.promptDock\[data-mode="float"\],\s*[^{]*\[data-hud-corner\] > \.promptDock\[data-mode="flow"\] \{[^}]*pointer-events: auto;/);
+    expect(css).not.toMatch(/\.corner \.promptDock/);
   });
 });

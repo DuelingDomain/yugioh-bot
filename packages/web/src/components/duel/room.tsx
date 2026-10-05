@@ -1439,7 +1439,7 @@ export function DuelRoomView({ slug, inviteCode, windowed = false, legacyStage =
         {masterRail && !hud ? <aside className={styles.masters} aria-label="Deck Masters">{masterRail}</aside> : null}
       </div>
       {hud ? (
-        <div className={hudStyles.corner} data-testid="hud-corner">
+        <div className={hudStyles.corner} data-hud-corner="" data-testid="hud-corner">
           {promptDockNode}
           {trackNode}
         </div>
