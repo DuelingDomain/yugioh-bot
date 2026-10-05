@@ -26,6 +26,13 @@
   transition: opacity 0.35s;
 }
 
+/* The grid moves and scales this panel (FLIP) on every focus change. A backdrop blur of 2px is hardly seen over the field mat,
+   but it is blurred again on every frame of that move, so the fitted panel has none. */
+.holo[data-fit="true"] .body {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 /* The fly-in pump moves the panel every frame: no glide, and it fades when its seat is off screen. */
 .holo[data-floating="true"] {
   transition: opacity 0.35s;
