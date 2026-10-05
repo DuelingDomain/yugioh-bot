@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface CoreCapabilities {
-  /** C6: living across seats in FFA4 share the two Extra Monster Zones. */
+  /** C6: living facing seats (0/1, 2/3) in FFA4 share the two Extra Monster Zones. */
   ffa4SharedExtraZones: boolean;
 }
 

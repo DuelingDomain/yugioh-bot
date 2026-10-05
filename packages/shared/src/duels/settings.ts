@@ -58,11 +58,11 @@ export function partnerSeatOf(format: DuelFormat, seat: number): number | null {
   return (seat + 2) % 4;
 }
 
-/** The living across seat that shares this seat's EMZ in FFA4; null in every other format. */
+/** The living facing seat (0/1, 2/3) that shares this seat's EMZ in FFA4; null in every other format. */
 export function sharedExtraSeatOf(format: DuelFormat, seat: number, eliminated?: ReadonlySet<number>): number | null {
   if (format !== "ffa4" || !Number.isInteger(seat) || seat < 0 || seat >= 4 || eliminated?.has(seat)) return null;
-  const across = (seat + 2) % 4;
-  return eliminated?.has(across) ? null : across;
+  const partner = seat ^ 1;
+  return eliminated?.has(partner) ? null : partner;
 }
 
 /**
